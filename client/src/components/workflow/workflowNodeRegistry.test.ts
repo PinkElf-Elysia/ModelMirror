@@ -44,6 +44,11 @@ describe("workflowNodeRegistry NodeContract V3 guard", () => {
     expect(items.every((item) => item.contract === undefined)).toBe(true);
     expect(items.every((item) => item.planner === undefined)).toBe(true);
     expect(items.every((item) => item.enabled === false)).toBe(true);
+    expect(kinds).not.toContain("template_transform");
+    expect(items.find((item) => item.kind === "code")).toMatchObject({
+      title: "安全文本加工",
+      tags: ["text", "safe", "transform"],
+    });
     expect(
       items.every(
         (item) =>

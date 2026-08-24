@@ -62,6 +62,7 @@ BASELINE_213_COMPATIBILITY_KINDS = {
     "variable_aggregator",
 }
 PROMOTED_COMPLETE_KINDS = {
+    "code",
     "condition",
     "document_extractor",
     "http_request",
@@ -185,7 +186,7 @@ def test_r16_control_data_contracts_are_complete_local_and_not_plannable() -> No
     assert sum(
         contract.contract_status == "compatibility"
         for contract in workflow_node_contract_registry.list()
-    ) == 9
+    ) == 8
 
 
 def test_r17_http_condition_and_dataset_contracts_are_complete_and_not_plannable() -> None:
@@ -232,7 +233,49 @@ def test_r18_file_data_contracts_are_complete_scoped_and_not_plannable() -> None
     assert sum(
         contract.contract_status == "compatibility"
         for contract in workflow_node_contract_registry.list()
-    ) == 9
+    ) == 8
+
+
+def test_r21_safe_text_contract_is_complete_scoped_and_not_plannable() -> None:
+    contract = workflow_node_contract_registry.require("code")
+
+    assert contract.contract_status == "complete"
+    assert contract.config_schema["properties"]["contractVersion"] == {"const": 2}
+    assert contract.config_schema["properties"]["operation"]["enum"] == [
+        "upper",
+        "lower",
+        "replace",
+        "concat",
+    ]
+    validator = Draft202012Validator(contract.config_schema)
+    assert not list(validator.iter_errors(contract.planner.default_data))
+    for invalid in (
+        {**contract.planner.default_data, "operation": " upper "},
+        {**contract.planner.default_data, "inputVariable": True},
+        {**contract.planner.default_data, "outputVariable": " bad "},
+    ):
+        assert list(validator.iter_errors(invalid))
+    for legacy_field in (
+        "codeOperation",
+        "codeInputVariable",
+        "codeOutputVariable",
+        "pythonCode",
+    ):
+        invalid = {**contract.planner.default_data, legacy_field: "legacy"}
+        assert list(validator.iter_errors(invalid)), legacy_field
+    assert contract.execution.side_effect == "none"
+    assert contract.execution.deterministic is True
+    assert contract.execution.idempotent is True
+    assert contract.execution.can_wait is False
+    assert contract.execution.error_semantics == "fail_closed"
+    assert contract.planner.enabled is False
+    for context in ("workflow", "xpert", "goal", "handoff", "app", "evaluation"):
+        assert node_policy_service.decision("code", context).allowed, context
+    assert not node_policy_service.decision("code", "evolution").allowed
+
+    retired = workflow_node_contract_registry.require("template_transform")
+    assert retired.deprecated is True
+    assert retired.replacement_kind == "variable_assign"
 
 
 def test_r20_human_mcp_and_variable_contracts_are_complete_and_not_plannable() -> None:
@@ -526,7 +569,7 @@ def test_registry_ui_projection_is_v4_and_contains_no_runtime_payloads() -> None
         for item in section["items"]
     ] + list(payload["knowledge_pipeline"]["items"])
 
-    assert len({item["kind"] for item in items}) == 48
+    assert len({item["kind"] for item in items}) == 47
     assert payload["version"] == "xpert-workflow-node-registry-v4"
     assert payload["contract_version"] == 3
     assert payload["contract_checksum"] == workflow_node_contract_registry.checksum

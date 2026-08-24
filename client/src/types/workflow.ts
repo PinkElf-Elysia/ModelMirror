@@ -80,7 +80,11 @@ export interface WorkflowVariableDeclaration {
 
 export type ConditionOperator = "equals" | "contains";
 
+/** Legacy Code V1 operation set. Python remains readable for old drafts only. */
 export type CodeOperation = "upper" | "lower" | "replace" | "concat" | "python";
+
+/** Safe Text Processing V2 operations available to newly created nodes. */
+export type SafeTextOperation = Exclude<CodeOperation, "python">;
 
 export type HttpRequestMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 

@@ -117,8 +117,16 @@ def _raise_app_error(exc: Exception) -> None:
 def _deployment_preflight(version: XpertVersion, policy: XpertAppPolicy) -> dict:
     try:
         from server.workflow_native.node_contracts import node_policy_service
+        from server.workflow_native.r20_nodes import (
+            WorkflowR20NodeError,
+            validate_code_v2_config,
+        )
     except ModuleNotFoundError:
         from workflow_native.node_contracts import node_policy_service
+        from workflow_native.r20_nodes import (
+            WorkflowR20NodeError,
+            validate_code_v2_config,
+        )
 
     issues: list[dict[str, str]] = []
     warnings: list[dict[str, str]] = []
@@ -171,6 +179,44 @@ def _deployment_preflight(version: XpertVersion, policy: XpertAppPolicy) -> dict
                     "code": code,
                     "message": node_policy.message
                     or f"Public Xpert Apps cannot deploy node kind: {kind}.",
+                },
+            )
+        if kind == "code":
+            raw_contract_version = data.get("contractVersion")
+            if isinstance(raw_contract_version, bool) or raw_contract_version != 2:
+                node_policy_issues.setdefault(
+                    "app_code_migration_required",
+                    {
+                        "code": "app_code_migration_required",
+                        "message": (
+                            "Legacy code nodes must be migrated to safe text processing "
+                            "before App deployment."
+                        ),
+                    },
+                )
+            else:
+                try:
+                    validate_code_v2_config(data)
+                except WorkflowR20NodeError:
+                    node_policy_issues.setdefault(
+                        "app_code_contract_invalid",
+                        {
+                            "code": "app_code_contract_invalid",
+                            "message": (
+                                "Safe text processing configuration is invalid and "
+                                "must be corrected before App deployment."
+                            ),
+                        },
+                    )
+        if kind == "template_transform":
+            node_policy_issues.setdefault(
+                "app_template_transform_migration_required",
+                {
+                    "code": "app_template_transform_migration_required",
+                    "message": (
+                        "Template transform nodes must be migrated to variable_assign "
+                        "before App deployment."
+                    ),
                 },
             )
         middleware_id = str(data.get("runtimeMiddlewareId") or "")

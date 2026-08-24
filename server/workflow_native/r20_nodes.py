@@ -10,13 +10,14 @@ from typing import Any
 from jsonschema import Draft202012Validator
 
 from .node_contracts import canonical_checksum
-from .values import WorkflowValue, normalize_workflow_value
+from .values import WorkflowValue, normalize_workflow_value, workflow_value_to_text
 
 
 VARIABLE_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 SCHEMA_CHECKSUM_PATTERN = re.compile(r"^[a-f0-9]{64}$")
 MAX_WORKFLOW_NODE_OUTPUT_BYTES = 5 * 1_024 * 1_024
 MAX_MCP_BINDINGS = 100
+MAX_CODE_LITERAL_CHARS = 100_000
 
 
 class WorkflowR20NodeError(ValueError):
@@ -44,6 +45,92 @@ def workflow_mcp_tools_enabled() -> bool:
         "yes",
         "on",
     }
+
+
+def validate_code_v2_config(data: dict[str, Any]) -> None:
+    raw_contract_version = data.get("contractVersion")
+    if isinstance(raw_contract_version, bool) or raw_contract_version != 2:
+        _fail("CODE_CONTRACT_VERSION_INVALID", "Text processing contractVersion must be 2.")
+    legacy_fields = (
+        "codeOperation",
+        "codeInputVariable",
+        "codeOutputVariable",
+        "pythonCode",
+    )
+    if any(field in data for field in legacy_fields):
+        _fail(
+            "CODE_LEGACY_FIELD_FORBIDDEN",
+            "Text processing V2 cannot contain legacy code fields.",
+        )
+    operation_value = data.get("operation")
+    operation = operation_value if isinstance(operation_value, str) else ""
+    if operation not in {"upper", "lower", "replace", "concat"}:
+        _fail(
+            "CODE_OPERATION_INVALID",
+            "Text processing operation must be upper, lower, replace, or concat.",
+        )
+    input_variable = data.get("inputVariable")
+    if not isinstance(input_variable, str) or input_variable != input_variable.strip():
+        _fail(
+            "CODE_INPUT_VARIABLE_INVALID",
+            "Text processing inputVariable must be a valid identifier.",
+        )
+    _variable_name(
+        input_variable,
+        "CODE_INPUT_VARIABLE_INVALID",
+        "Text processing inputVariable",
+    )
+    output_variable = data.get("outputVariable")
+    if not isinstance(output_variable, str) or output_variable != output_variable.strip():
+        _fail(
+            "CODE_OUTPUT_VARIABLE_INVALID",
+            "Text processing outputVariable must be a valid identifier.",
+        )
+    _variable_name(
+        output_variable,
+        "CODE_OUTPUT_VARIABLE_INVALID",
+        "Text processing outputVariable",
+    )
+    if operation == "replace":
+        _bounded_code_literal(data, "replaceFrom")
+        _bounded_code_literal(data, "replaceTo")
+    elif operation == "concat":
+        _bounded_code_literal(data, "concatValue")
+
+
+def execute_code_v2(
+    data: dict[str, Any],
+    variables: dict[str, WorkflowValue],
+) -> tuple[str, str]:
+    validate_code_v2_config(data)
+    input_variable = str(data["inputVariable"]).strip()
+    output_variable = str(data["outputVariable"]).strip()
+    if input_variable not in variables:
+        _fail(
+            "CODE_INPUT_VARIABLE_UNAVAILABLE",
+            "Text processing input variable is unavailable.",
+        )
+    source = workflow_value_to_text(variables[input_variable])
+    operation = str(data["operation"]).strip()
+    if operation == "upper":
+        output = source.upper()
+    elif operation == "lower":
+        output = source.lower()
+    elif operation == "replace":
+        replace_from = str(data["replaceFrom"])
+        replace_to = str(data["replaceTo"])
+        _ensure_code_replace_size(source, replace_from, replace_to)
+        output = source.replace(replace_from, replace_to)
+    else:
+        output = source + str(data["concatValue"])
+    try:
+        _ensure_output_size(output, code="CODE_OUTPUT_TOO_LARGE")
+    except UnicodeEncodeError:
+        _fail(
+            "CODE_OUTPUT_INVALID",
+            "Text processing output must contain valid Unicode text.",
+        )
+    return output_variable, output
 
 
 def validate_human_intervention_v2_config(data: dict[str, Any]) -> None:
@@ -260,6 +347,45 @@ def build_mcp_result(
         raise AssertionError("MCP tool result normalization changed its object shape.")
     _ensure_output_size(normalized, code="MCP_TOOL_RESULT_TOO_LARGE")
     return normalized
+
+
+def _bounded_code_literal(data: dict[str, Any], field: str) -> str:
+    value = data.get(field)
+    if not isinstance(value, str):
+        _fail(
+            "CODE_CONFIG_INVALID",
+            f"Text processing {field} must be a string.",
+        )
+    if len(value) > MAX_CODE_LITERAL_CHARS:
+        _fail(
+            "CODE_CONFIG_INVALID",
+            f"Text processing {field} exceeds the 100000 character limit.",
+        )
+    return value
+
+
+def _ensure_code_replace_size(source: str, replace_from: str, replace_to: str) -> None:
+    try:
+        source_bytes = len(source.encode("utf-8"))
+        replace_from_bytes = len(replace_from.encode("utf-8"))
+        replace_to_bytes = len(replace_to.encode("utf-8"))
+    except UnicodeEncodeError:
+        _fail(
+            "CODE_CONFIG_INVALID",
+            "Text processing values must contain valid Unicode text.",
+        )
+    occurrences = (
+        len(source) + 1
+        if replace_from == ""
+        else source.count(replace_from)
+    )
+    projected_bytes = (
+        source_bytes
+        - (occurrences * replace_from_bytes)
+        + (occurrences * replace_to_bytes)
+    )
+    if projected_bytes > MAX_WORKFLOW_NODE_OUTPUT_BYTES:
+        _fail("CODE_OUTPUT_TOO_LARGE", "Workflow node output exceeds the 5 MiB limit.")
 
 
 def _validate_binding(value: Any) -> None:

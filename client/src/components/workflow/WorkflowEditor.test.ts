@@ -285,6 +285,25 @@ describe("WorkflowEditor palette defaults", () => {
     expect(mcp).not.toHaveProperty("argumentsJson");
   });
 
+  it("creates Code as safe text V2 and keeps the retired template out of new-node sources", () => {
+    const code = createNodeData("code");
+    expect(code).toMatchObject({
+      kind: "code",
+      title: "安全文本加工",
+      contractVersion: 2,
+      operation: "upper",
+      inputVariable: "user_input",
+      outputVariable: "code_output",
+    });
+    expect(code).not.toHaveProperty("codeOperation");
+    expect(code).not.toHaveProperty("pythonCode");
+
+    const paletteKinds = workflowPaletteSections.flatMap((section) =>
+      section.items.map((item) => item.kind),
+    );
+    expect(paletteKinds).not.toContain("template_transform");
+  });
+
   it("maps MCP JSON Schema field types to workflow variable types", () => {
     expect(workflowTypesForMcpSchema({ type: "string" })).toEqual(["text"]);
     expect(workflowTypesForMcpSchema({ type: "integer" })).toEqual(["number"]);

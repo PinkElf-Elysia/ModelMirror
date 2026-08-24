@@ -1644,6 +1644,14 @@ def validate_publishable_workflow(
             raise WorkflowDeploymentValidationError(
                 "Legacy knowledge citation nodes must be migrated to knowledge_retrieval before publishing."
             )
+        if kind == "template_transform":
+            raise WorkflowDeploymentValidationError(
+                "Legacy template transform nodes must be migrated to variable_assign before publishing."
+            )
+        if kind == "code" and r20_contract_version(node.data) != 2:
+            raise WorkflowDeploymentValidationError(
+                "Legacy code nodes must be explicitly migrated before publishing."
+            )
         if contract.contract_status != "complete":
             raise WorkflowDeploymentValidationError(
                 f"Node '{node.id}' does not have a complete NodeContract."

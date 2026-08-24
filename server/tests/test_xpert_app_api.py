@@ -695,6 +695,100 @@ def test_deploy_preflight_rejects_browser_runtime(stores) -> None:
     assert any(issue["code"] == "app_browser_forbidden" for issue in result["issues"])
 
 
+@pytest.mark.parametrize(
+    ("data", "expected_valid", "expected_issue"),
+    [
+        (
+            {
+                "kind": "code",
+                "contractVersion": 2,
+                "operation": "upper",
+                "inputVariable": "user_input",
+                "outputVariable": "clean_value",
+                "replaceFrom": "",
+                "replaceTo": "",
+                "concatValue": "",
+            },
+            True,
+            None,
+        ),
+        (
+            {
+                "kind": "code",
+                "codeOperation": "upper",
+                "codeInputVariable": "user_input",
+                "codeOutputVariable": "clean_value",
+            },
+            False,
+            "app_code_migration_required",
+        ),
+        (
+            {
+                "kind": "code",
+                "contractVersion": "2",
+                "operation": "upper",
+                "inputVariable": "user_input",
+                "outputVariable": "clean_value",
+            },
+            False,
+            "app_code_migration_required",
+        ),
+        (
+            {
+                "kind": "code",
+                "contractVersion": 2,
+                "operation": "upper",
+                "inputVariable": "user_input",
+                "outputVariable": "clean_value",
+                "pythonCode": "UNIQUE_APP_CODE_SENTINEL",
+            },
+            False,
+            "app_code_contract_invalid",
+        ),
+    ],
+)
+def test_r21_app_preflight_allows_only_safe_text_v2(
+    stores,
+    data: dict[str, Any],
+    expected_valid: bool,
+    expected_issue: str | None,
+) -> None:
+    xpert_store, _ = stores
+    created = xpert_store.create_xpert(name="Safe Text App", slug=None)
+    draft = created.draft.model_copy(deep=True)
+    template = next(
+        node for node in draft.workflow.nodes if node.data.get("kind") == "workflow_agent"
+    )
+    draft.workflow.nodes.append(
+        type(template).model_validate(
+            {
+                "id": "safe-text",
+                "type": "code",
+                "position": {"x": 200, "y": 250},
+                "data": data,
+            }
+        )
+    )
+    updated = xpert_store.update_xpert(
+        created.id,
+        {"draft": draft.model_dump(mode="json")},
+    )
+    version = xpert_store.publish_xpert(
+        created.id,
+        expected_revision=updated.draft_revision,
+    )
+
+    result = _deployment_preflight(version, XpertAppPolicy())
+
+    assert result["valid"] is expected_valid, result["issues"]
+    codes = {issue["code"] for issue in result["issues"]}
+    if expected_issue is None:
+        assert "app_code_migration_required" not in codes
+    else:
+        assert expected_issue in codes
+    assert "UNIQUE_APP_CODE_SENTINEL" not in str(result)
+
+
 def test_deploy_preflight_allows_read_only_file_memory_only_when_enabled(stores) -> None:
     xpert_store, _ = stores
     created = xpert_store.create_xpert(name="Memory Helper", slug="memory-helper")

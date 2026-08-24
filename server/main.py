@@ -615,6 +615,7 @@ try:
         WorkflowR20NodeError,
         build_mcp_result,
         contract_version as r20_contract_version,
+        execute_code_v2,
         execute_variable_assign_v2,
         mcp_arguments_digest,
         mcp_schema_checksum,
@@ -699,6 +700,7 @@ except ModuleNotFoundError:
         WorkflowR20NodeError,
         build_mcp_result,
         contract_version as r20_contract_version,
+        execute_code_v2,
         execute_variable_assign_v2,
         mcp_arguments_digest,
         mcp_schema_checksum,
@@ -2835,7 +2837,7 @@ class WorkflowPayload(BaseModel):
             "workflow_call_entry": ("eventVariable",),
             "invoke_workflow": ("resultVariable",),
             "llm": ("outputVariable",),
-            "code": ("codeOutputVariable",),
+            "code": ("codeOutputVariable", "outputVariable"),
             "variable_assign": ("variableName", "outputVariable"),
             "template_transform": ("outputVariable",),
             "variable_aggregator": ("outputVariable",),
@@ -14426,21 +14428,50 @@ async def _run_workflow_response(
                     output = f"selected_route={chosen_handle}"
 
                 elif kind == "code":
-                    output_variable = str(node.data.get("codeOutputVariable") or "code_output")
-                    try:
-                        output = run_safe_code_node(node, variables)
+                    if r20_contract_version(node.data) == 2:
+                        try:
+                            output_variable, output = execute_code_v2(
+                                node.data,
+                                variables,
+                            )
+                        except WorkflowR20NodeError as exc:
+                            raise WorkflowTerminationError(
+                                exc.code,
+                                exc.safe_message,
+                                node_id=node.id,
+                            ) from None
                         variables[output_variable] = output
-                    except Exception as exc:
-                        logger.warning("Workflow code node failed: %s", exc)
-                        output = f"Code node failed: {exc}"
-                        variables[output_variable] = output
-                        yield sse_payload(
-                            {
-                                "event": "error",
-                                "node_id": node.id,
-                                "message": output,
-                            }
+                    else:
+                        output_variable = str(
+                            node.data.get("codeOutputVariable") or "code_output"
                         )
+                        if (
+                            str(node.data.get("codeOperation") or "").strip()
+                            == "python"
+                            and trusted_source_kind == "workflow_classic"
+                        ):
+                            raise WorkflowTerminationError(
+                                "LEGACY_CODE_MANUAL_RUN_FORBIDDEN",
+                                (
+                                    "Legacy Python code is read-only in workflow drafts; "
+                                    "arbitrary code is not part of the safe text V2 contract."
+                                ),
+                                node_id=node.id,
+                            )
+                        try:
+                            output = run_safe_code_node(node, variables)
+                            variables[output_variable] = output
+                        except Exception as exc:
+                            logger.warning("Workflow code node failed: %s", exc)
+                            output = f"Code node failed: {exc}"
+                            variables[output_variable] = output
+                            yield sse_payload(
+                                {
+                                    "event": "error",
+                                    "node_id": node.id,
+                                    "message": output,
+                                }
+                            )
 
                 elif kind == "variable_assign":
                     if r20_contract_version(node.data) == 2:

@@ -825,7 +825,7 @@ def preview_xpert_for_publish(
                         node_id=node.id,
                     )
                 )
-        if kind in {"human_intervention", "mcp_tool", "variable_assign"} and (
+        if kind in {"code", "human_intervention", "mcp_tool", "variable_assign"} and (
             r20_contract_version(data) != 2
         ):
             feature_issues.append(
@@ -840,6 +840,17 @@ def preview_xpert_for_publish(
                 ValidationIssue(
                     code="xpert_knowledge_citation_migration_required",
                     message="Knowledge citation nodes must be migrated to knowledge_retrieval before publish.",
+                    node_id=node.id,
+                )
+            )
+        if kind == "template_transform":
+            feature_issues.append(
+                ValidationIssue(
+                    code="xpert_template_transform_migration_required",
+                    message=(
+                        "Template transform nodes must be migrated to variable_assign "
+                        "before publish."
+                    ),
                     node_id=node.id,
                 )
             )

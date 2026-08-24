@@ -229,16 +229,9 @@ export const workflowPaletteSections: WorkflowPaletteSection[] = [
       {
         kind: "code",
         icon: "</>",
-        title: "代码执行",
-        description: "只支持安全的内置字符串加工函数。",
-        tags: ["code", "python", "transform"],
-      },
-      {
-        kind: "template_transform",
-        icon: "T",
-        title: "模板",
-        description: "渲染长文本模板，适合生成报告或结构化草稿。",
-        tags: ["template", "text"],
+        title: "安全文本加工",
+        description: "把变量稳定转成文本，再执行受控的大小写、替换或拼接操作。",
+        tags: ["text", "safe", "transform"],
       },
       {
         kind: "parameter_extractor",

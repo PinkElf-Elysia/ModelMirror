@@ -50,6 +50,7 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     assert len(rows) == 563
     assert len({row["来源条目标识"] for row in rows}) == 563
     mapped = {row["n8n内部标识"]: row for row in rows}
+    mapped_by_source = {row["来源条目标识"]: row for row in rows}
     assert mapped["scheduleTrigger"]["模镜对应节点"] == "scheduled_start"
     assert mapped["webhook"]["模镜对应节点"] == "http_event_entry"
     assert mapped["wait"]["模镜对应节点"] == "suspend_wait"
@@ -88,6 +89,23 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     assert mapped["memoryManager"]["模镜当前状态"] == "部分实现"
     assert "没有可独立连线" in mapped["memoryManager"]["判断说明"]
     assert "区间截取" in mapped["itemLists"]["判断说明"]
+    for source_ref in (
+        "base:dist/nodes/Function/Function.node.js",
+        "base:dist/nodes/FunctionItem/FunctionItem.node.js",
+        "base:dist/nodes/Code/Code.node.js",
+        "langchain:dist/nodes/code/Code.node.js",
+    ):
+        code_row = mapped_by_source[source_ref]
+        assert code_row["模镜当前状态"] == "部分实现"
+        assert code_row["模镜对应节点"] == "code"
+        assert code_row["模镜建议节点名"].startswith("安全文本加工")
+        assert "安全文本加工 V2" in code_row["判断说明"]
+        assert "受控代码 V2" not in code_row["判断说明"]
+        assert "不执行" in code_row["判断说明"]
+    assert all("template_transform" not in row["模镜对应节点"] for row in rows)
+    assert mapped["moveBinaryData"]["模镜对应节点"] == "variable_assign"
+    assert mapped["html"]["模镜对应节点"] == "code / variable_assign"
+    assert mapped["aiTransform"]["模镜对应节点"] == "llm / variable_assign"
     assert all(mapped[key]["模镜当前状态"] == "已实现" for key in (
         "scheduleTrigger", "webhook", "wait", "respondToWebhook", "errorTrigger",
         "executeWorkflowTrigger", "executeWorkflow", "stopAndError", "switch",
@@ -136,20 +154,31 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
         for contract in workflow_node_contract_registry.list()
     )
     assert "911593f505b05b01037769f578e21f22d2a1c9af" in markdown
-    assert "R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0" in markdown
+    assert "R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0/R2.1 PR1" in markdown
     assert "44、画布目录项 42" in markdown
     assert "R1.6 结果" in markdown
     assert "自研节点总数 47、画布目录项 45、当前 18 个" in markdown
     assert f"{compatibility_count} 个 compatibility 合同" in markdown
     assert f"自研节点总数 {native_count}" in markdown
-    assert f"画布目录项 {palette_count}" in markdown
+    assert f"{palette_count} 个可新增 Palette 项" in markdown
     assert f"Planner 可生成类型仍固定为 {planner_count} 类" in markdown
     assert "R1.8 结果" in markdown
     assert native_count == 50
-    assert palette_count == 48
-    assert complete_count == 41
-    assert compatibility_count == 9
+    assert palette_count == 47
+    assert complete_count == 42
+    assert compatibility_count == 8
     assert planner_count == 7
     assert "R1.9 结果" in markdown
-    assert "R2.0 结果" in markdown
-    assert "当前 50 Native、48 个可新增 Palette 项、41 个完整合同、9 个 compatibility 合同" in markdown
+    assert (
+        "- R2.0 结果：不新增普通节点，将 `human_intervention`、`mcp_tool`、"
+        "`variable_assign` 提升为完整 V2 合同，并退役旧知识引用新增入口；"
+        "当前 50 Native、48 个可新增 Palette 项、41 个完整合同、"
+        "9 个 compatibility 合同、7 个 Planner 节点"
+    ) in markdown
+    assert (
+        "- R2.1 PR1 结果：不新增 `NativeNodeKind`，将 `code` 提升为只执行预定义"
+        "操作的“安全文本加工 V2”完整合同，并从 Palette 移除退役 `template_transform`；"
+        "旧草稿和既有激活版本继续兼容，模板文本能力由 `variable_assign` V2 承接；"
+        "当前 50 Native、47 个可新增 Palette 项、42 个完整合同、"
+        "8 个 compatibility 合同、7 个 Planner 节点"
+    ) in markdown

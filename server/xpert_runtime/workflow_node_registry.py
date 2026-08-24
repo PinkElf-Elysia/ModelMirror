@@ -379,19 +379,11 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                 ),
                 WorkflowPaletteItem(
                     kind="code",
-                    icon="</>",
-                    title="代码执行",
-                    description="支持受限的字符串处理和 Python 执行能力。",
+                    icon="TXT",
+                    title="安全文本加工",
+                    description="执行确定性的大写、小写、替换或拼接操作。",
                     category="transform",
-                    tags=["code", "python", "transform"],
-                ),
-                WorkflowPaletteItem(
-                    kind="template_transform",
-                    icon="T",
-                    title="模板",
-                    description="渲染长文本模板，适合生成报告或结构化草稿。",
-                    category="transform",
-                    tags=["template", "text"],
+                    tags=["text", "transform", "safe"],
                 ),
                 WorkflowPaletteItem(
                     kind="parameter_extractor",
