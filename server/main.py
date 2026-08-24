@@ -1257,6 +1257,19 @@ except ModuleNotFoundError:
     from model_router.api import get_catalog_coordinator
 
 try:
+    from server.model_router.workflow_gateway import (
+        ManagedWorkflowGateway,
+        ManagedWorkflowNodeRun,
+        ManagedWorkflowRoutingError,
+    )
+except ModuleNotFoundError:
+    from model_router.workflow_gateway import (
+        ManagedWorkflowGateway,
+        ManagedWorkflowNodeRun,
+        ManagedWorkflowRoutingError,
+    )
+
+try:
     from server.context_engine import (
         estimate_messages_tokens,
         estimate_text_tokens,
@@ -8928,12 +8941,23 @@ async def _run_workflow_response(
             resume_execution=resume_execution,
         )
     )
-    requires_model = any(
+    workflow_managed_gateway = ManagedWorkflowGateway.for_router(
+        get_model_router_service()
+    )
+    workflow_managed_mode = workflow_managed_gateway.routing_mode(
+        trusted_source_kind
+    )
+    requires_legacy_model = any(
         (node.data.get("kind") if isinstance(node.data.get("kind"), str) else node.type)
-        in {"llm", "workflow_agent"}
+        == "workflow_agent"
+        or (
+            (node.data.get("kind") if isinstance(node.data.get("kind"), str) else node.type)
+            == "llm"
+            and workflow_managed_mode == "legacy"
+        )
         for node in payload.workflow.nodes
     )
-    model_gateway_missing = requires_model and not get_llm_gateway_config()[0]
+    model_gateway_missing = requires_legacy_model and not get_llm_gateway_config()[0]
     nodes_by_id = {node.id: node for node in payload.workflow.nodes}
     input_block_policy_can_stop_before_model = False
     input_content_policy_redactors = []
@@ -9205,6 +9229,7 @@ async def _run_workflow_response(
             else None
         ),
         "runtime_trigger_event": dict(runtime_trigger_event or {}),
+        "provider_cancel_event": asyncio.Event(),
         "private_http_event": bool(
             isinstance(runtime_trigger_event, dict)
             and runtime_trigger_event.get("type") == "http_event"
@@ -9266,6 +9291,46 @@ async def _run_workflow_response(
         queued: set[str] = task_state["queued"]
         executed: set[str] = task_state["executed"]
         final_output = ""
+
+        def start_managed_node_run(node_id: str) -> ManagedWorkflowNodeRun | None:
+            if workflow_managed_mode == "legacy":
+                return None
+            entry_id = workflow_managed_gateway.entry_id(trusted_source_kind)
+            if entry_id is None:
+                return None
+            if workflow_managed_mode == "degraded_required":
+                code = "provider_workload_workflow_degraded_required"
+                raise ManagedWorkflowRoutingError(
+                    code,
+                    "Workflow 的 Managed Provider 策略已失效，当前节点失败关闭。",
+                    status_code=409,
+                    receipt=workflow_managed_gateway.blocked_receipt(entry_id, code),
+                )
+            execution_reference = (
+                str(
+                    run_metadata.get("workflow_deployment_execution_id")
+                    or task_id
+                )
+                if trusted_source_kind == "workflow_deployment"
+                else task_id
+            )
+            return workflow_managed_gateway.start_node_run(
+                source_kind=trusted_source_kind,  # type: ignore[arg-type]
+                execution_reference=execution_reference,
+                node_id=node_id,
+            )
+
+        def finish_managed_node_failure(
+            managed_run: ManagedWorkflowNodeRun,
+            code: str,
+        ) -> dict[str, Any]:
+            status = "failed"
+            if any(item.status == "uncertain" for item in managed_run.calls):
+                status = "uncertain"
+            elif any(item.status == "cancelled" for item in managed_run.calls):
+                status = "cancelled"
+            managed_run.finish(status, reason_code=code)  # type: ignore[arg-type]
+            return managed_run.receipt_summary()
 
         def safe_content_policy_value(value: Any) -> Any:
             if not input_content_policy_redactors:
@@ -14295,6 +14360,8 @@ async def _run_workflow_response(
 
                 chosen_handle: str | None = None
                 output = ""
+                node_provider_run: ManagedWorkflowNodeRun | None = None
+                node_provider_receipt: dict[str, Any] | None = None
 
                 if kind == "input":
                     variable_name = str(node.data.get("variableName") or "user_input")
@@ -14377,22 +14444,67 @@ async def _run_workflow_response(
                         if isinstance(active_system_prompt, str)
                         else None
                     )
-                    async for delta in stream_workflow_llm_text(
-                        model_id,
-                        prompt,
-                        system_prompt=system_prompt,
-                    ):
-                        output += delta
-                        yield sse_payload(
-                            {
-                                "event": "node_delta",
-                                "node_id": node.id,
-                                "node_title": title,
-                                "node_type": kind,
-                                "output": delta,
-                                "variable": output_variable,
-                            }
-                        )
+                    node_provider_run = start_managed_node_run(node.id)
+                    try:
+                        if node_provider_run is None:
+                            stream = stream_workflow_llm_text(
+                                model_id,
+                                prompt,
+                                system_prompt=system_prompt,
+                            )
+                        else:
+                            managed_messages: list[dict[str, Any]] = []
+                            if system_prompt and system_prompt.strip():
+                                managed_messages.append(
+                                    {
+                                        "role": "system",
+                                        "content": system_prompt.strip(),
+                                    }
+                                )
+                            managed_messages.append(
+                                {"role": "user", "content": prompt}
+                            )
+                            stream = node_provider_run.stream_text(
+                                logical_call_key="llm:primary",
+                                call_sequence=1,
+                                model_id=model_id,
+                                messages=managed_messages,
+                                temperature=0.7,
+                                max_tokens=2048,
+                                cancel_event=task_state["provider_cancel_event"],
+                            )
+                        async for delta in stream:
+                            output += delta
+                            yield sse_payload(
+                                {
+                                    "event": "node_delta",
+                                    "node_id": node.id,
+                                    "node_title": title,
+                                    "node_type": kind,
+                                    "output": delta,
+                                    "variable": output_variable,
+                                }
+                            )
+                        if node_provider_run is not None:
+                            node_provider_run.finish("passed")
+                            node_provider_receipt = (
+                                node_provider_run.receipt_summary()
+                            )
+                    except asyncio.CancelledError:
+                        if node_provider_run is not None:
+                            node_provider_receipt = finish_managed_node_failure(
+                                node_provider_run,
+                                "provider_workload_call_cancelled",
+                            )
+                        raise
+                    except ManagedWorkflowRoutingError as exc:
+                        if node_provider_run is not None:
+                            node_provider_receipt = finish_managed_node_failure(
+                                node_provider_run,
+                                exc.code,
+                            )
+                            exc.receipt = node_provider_receipt
+                        raise
                     variables[output_variable] = output
 
                 elif kind == "condition":
@@ -15283,27 +15395,52 @@ async def _run_workflow_response(
                                 "Parameter extractor contractVersion must be 1 or 2.",
                             )
                         if is_typed_ai_v2(node.data):
-                            if not get_llm_gateway_config()[0]:
+                            extractor_config = (
+                                {
+                                    **node.data,
+                                    "modelId": model_id,
+                                }
+                                if workflow_managed_mode != "legacy"
+                                and not str(node.data.get("modelId") or "").strip()
+                                else node.data
+                            )
+                            typed_schema = validate_parameter_extractor_v2_config(
+                                extractor_config
+                            )
+                            node_provider_run = start_managed_node_run(node.id)
+                            if (
+                                node_provider_run is None
+                                and not get_llm_gateway_config()[0]
+                            ):
                                 raise WorkflowTypedAIError(
                                     "parameter_extractor_gateway_unavailable",
                                     "Parameter extractor V2 requires a configured LLM gateway.",
                                 )
-                            typed_schema = validate_parameter_extractor_v2_config(
-                                node.data
+                            initial_prompt = parameter_extractor_prompt(
+                                input_text,
+                                typed_schema,
                             )
-                            raw_text = await collect_chat_completion_text(
-                                model_id,
-                                [
-                                    ChatMessage(
-                                        role="user",
-                                        content=parameter_extractor_prompt(
-                                            input_text,
-                                            typed_schema,
-                                        ),
-                                    )
-                                ],
-                                temperature=0,
-                                max_tokens=2048,
+                            raw_text = (
+                                await node_provider_run.complete_json_object(
+                                    logical_call_key="parameter_extractor:initial",
+                                    call_sequence=1,
+                                    model_id=model_id,
+                                    messages=[
+                                        {"role": "user", "content": initial_prompt}
+                                    ],
+                                    temperature=0,
+                                    max_tokens=2048,
+                                    cancel_event=task_state[
+                                        "provider_cancel_event"
+                                    ],
+                                )
+                                if node_provider_run is not None
+                                else await collect_chat_completion_text(
+                                    model_id,
+                                    [ChatMessage(role="user", content=initial_prompt)],
+                                    temperature=0,
+                                    max_tokens=2048,
+                                )
                             )
                             try:
                                 typed_output = parse_and_validate_extractor_output(
@@ -15313,19 +15450,39 @@ async def _run_workflow_response(
                             except WorkflowTypedAIError:
                                 if int(node.data.get("repairAttempts") or 0) != 1:
                                     raise
-                                repaired_text = await collect_chat_completion_text(
-                                    model_id,
-                                    [
-                                        ChatMessage(
-                                            role="user",
-                                            content=parameter_extractor_repair_prompt(
-                                                raw_text,
-                                                typed_schema,
-                                            ),
-                                        )
-                                    ],
-                                    temperature=0,
-                                    max_tokens=2048,
+                                repair_prompt = parameter_extractor_repair_prompt(
+                                    raw_text,
+                                    typed_schema,
+                                )
+                                repaired_text = (
+                                    await node_provider_run.complete_json_object(
+                                        logical_call_key="parameter_extractor:repair:1",
+                                        call_sequence=2,
+                                        model_id=model_id,
+                                        messages=[
+                                            {
+                                                "role": "user",
+                                                "content": repair_prompt,
+                                            }
+                                        ],
+                                        temperature=0,
+                                        max_tokens=2048,
+                                        cancel_event=task_state[
+                                            "provider_cancel_event"
+                                        ],
+                                    )
+                                    if node_provider_run is not None
+                                    else await collect_chat_completion_text(
+                                        model_id,
+                                        [
+                                            ChatMessage(
+                                                role="user",
+                                                content=repair_prompt,
+                                            )
+                                        ],
+                                        temperature=0,
+                                        max_tokens=2048,
+                                    )
                                 )
                                 typed_output = parse_and_validate_extractor_output(
                                     repaired_text,
@@ -15352,69 +15509,113 @@ async def _run_workflow_response(
                                     "contract_version": 2,
                                 }
                             )
-                        elif not get_llm_gateway_config()[0]:
-                            schema = str(node.data.get("schema") or "")
-                            output = "{}"
-                            variables[output_variable] = output
-                            yield sse_payload(
-                                {
-                                    "event": "node_delta",
-                                    "node_id": node.id,
-                                    "node_title": title,
-                                    "node_type": kind,
-                                    "output": "LLM gateway not configured; returned {}",
-                                    "variable": output_variable,
-                                }
-                            )
+                            if node_provider_run is not None:
+                                node_provider_run.finish("passed")
+                                node_provider_receipt = (
+                                    node_provider_run.receipt_summary()
+                                )
                         else:
                             schema = str(node.data.get("schema") or "")
-                            prompt = (
-                                "请从以下文本中严格按 JSON 格式返回指定字段 "
-                                f"{schema}；若无法提取则返回空对象 {{}}。\n\n"
-                                f"文本：\n{input_text}"
-                            )
-                            raw_text = await collect_chat_completion_text(
-                                model_id,
-                                [ChatMessage(role="user", content=prompt)],
-                                temperature=0.3,
-                                max_tokens=1024,
-                            )
-                            json_text = extract_json_object_text(raw_text)
-                            if json_text:
-                                try:
-                                    parsed = json.loads(json_text)
-                                    output = json.dumps(parsed, ensure_ascii=False)
-                                except ValueError:
+                            node_provider_run = start_managed_node_run(node.id)
+                            if (
+                                node_provider_run is None
+                                and not get_llm_gateway_config()[0]
+                            ):
+                                output = "{}"
+                                variables[output_variable] = output
+                                yield sse_payload(
+                                    {
+                                        "event": "node_delta",
+                                        "node_id": node.id,
+                                        "node_title": title,
+                                        "node_type": kind,
+                                        "output": "LLM gateway not configured; returned {}",
+                                        "variable": output_variable,
+                                    }
+                                )
+                            else:
+                                prompt = (
+                                    "请从以下文本中严格按 JSON 格式返回指定字段 "
+                                    f"{schema}；若无法提取则返回空对象 {{}}。\n\n"
+                                    f"文本：\n{input_text}"
+                                )
+                                raw_text = (
+                                    await node_provider_run.complete_json_object(
+                                        logical_call_key="parameter_extractor:initial",
+                                        call_sequence=1,
+                                        model_id=model_id,
+                                        messages=[
+                                            {"role": "user", "content": prompt}
+                                        ],
+                                        temperature=0.3,
+                                        max_tokens=1024,
+                                        cancel_event=task_state[
+                                            "provider_cancel_event"
+                                        ],
+                                    )
+                                    if node_provider_run is not None
+                                    else await collect_chat_completion_text(
+                                        model_id,
+                                        [ChatMessage(role="user", content=prompt)],
+                                        temperature=0.3,
+                                        max_tokens=1024,
+                                    )
+                                )
+                                json_text = extract_json_object_text(raw_text)
+                                if json_text:
+                                    try:
+                                        parsed = json.loads(json_text)
+                                        output = json.dumps(parsed, ensure_ascii=False)
+                                    except ValueError:
+                                        output = raw_text
+                                        yield sse_payload(
+                                            {
+                                                "event": "error",
+                                                "node_id": node.id,
+                                                "message": "参数提取返回 JSON 解析失败，已保留原文。",
+                                            }
+                                        )
+                                else:
                                     output = raw_text
                                     yield sse_payload(
                                         {
                                             "event": "error",
                                             "node_id": node.id,
-                                            "message": "参数提取返回 JSON 解析失败，已保留原文。",
+                                            "message": "参数提取未找到 JSON 对象，已保留原文。",
                                         }
                                     )
-                            else:
-                                output = raw_text
+                                variables[output_variable] = output
                                 yield sse_payload(
                                     {
-                                        "event": "error",
+                                        "event": "node_delta",
                                         "node_id": node.id,
-                                        "message": "参数提取未找到 JSON 对象，已保留原文。",
+                                        "node_title": title,
+                                        "node_type": kind,
+                                        "output": output,
+                                        "variable": output_variable,
                                     }
                                 )
-                            variables[output_variable] = output
-                            yield sse_payload(
-                                {
-                                    "event": "node_delta",
-                                    "node_id": node.id,
-                                    "node_title": title,
-                                    "node_type": kind,
-                                    "output": output,
-                                    "variable": output_variable,
-                                }
+                                if node_provider_run is not None:
+                                    node_provider_run.finish("passed")
+                                    node_provider_receipt = (
+                                        node_provider_run.receipt_summary()
+                                    )
+                    except ManagedWorkflowRoutingError as exc:
+                        if node_provider_run is not None:
+                            node_provider_receipt = finish_managed_node_failure(
+                                node_provider_run,
+                                exc.code,
                             )
+                            exc.receipt = node_provider_receipt
+                        raise
                     except Exception as exc:
                         logger.warning("Workflow parameter_extractor node failed: %s", exc)
+                        if node_provider_run is not None:
+                            node_provider_receipt = finish_managed_node_failure(
+                                node_provider_run,
+                                "provider_workload_workflow_output_invalid",
+                            )
+                            raise
                         if typed_ai_contract_version(node.data) != 1:
                             raise
                         variables[
@@ -16255,12 +16456,22 @@ async def _run_workflow_response(
                                     "question_classifier_disabled",
                                     "Question classifier execution is disabled.",
                                 )
-                            categories = validate_question_classifier_v2_config(
-                                node.data
-                            )
                             mode = str(
                                 node.data.get("classificationMode") or "rules_only"
                             ).strip()
+                            classifier_config = (
+                                {
+                                    **node.data,
+                                    "modelId": TEXT_FALLBACK_MODEL,
+                                }
+                                if workflow_managed_mode != "legacy"
+                                and mode in {"rules_then_model", "model_only"}
+                                and not str(node.data.get("modelId") or "").strip()
+                                else node.data
+                            )
+                            categories = validate_question_classifier_v2_config(
+                                classifier_config
+                            )
                             selection = None
                             if mode != "model_only":
                                 selection = select_question_classifier_rule(
@@ -16274,25 +16485,56 @@ async def _run_workflow_response(
                                 "rules_then_model",
                                 "model_only",
                             }:
-                                if not get_llm_gateway_config()[0]:
+                                model_id = str(
+                                    node.data.get("modelId")
+                                    or (
+                                        TEXT_FALLBACK_MODEL
+                                        if workflow_managed_mode != "legacy"
+                                        else ""
+                                    )
+                                ).strip()
+                                node_provider_run = start_managed_node_run(node.id)
+                                if (
+                                    node_provider_run is None
+                                    and not get_llm_gateway_config()[0]
+                                ):
                                     raise WorkflowTypedAIError(
                                         "question_classifier_gateway_unavailable",
                                         "Question classifier model mode requires a configured LLM gateway.",
                                     )
-                                model_id = str(node.data.get("modelId") or "").strip()
-                                raw_decision = await collect_chat_completion_text(
-                                    model_id,
-                                    [
-                                        ChatMessage(
-                                            role="user",
-                                            content=question_classifier_prompt(
-                                                text,
-                                                categories,
-                                            ),
-                                        )
-                                    ],
-                                    temperature=0,
-                                    max_tokens=64,
+                                classifier_prompt = question_classifier_prompt(
+                                    text,
+                                    categories,
+                                )
+                                raw_decision = (
+                                    await node_provider_run.complete_text_unary(
+                                        logical_call_key="question_classifier:model_fallback",
+                                        call_sequence=1,
+                                        model_id=model_id,
+                                        messages=[
+                                            {
+                                                "role": "user",
+                                                "content": classifier_prompt,
+                                            }
+                                        ],
+                                        temperature=0,
+                                        max_tokens=64,
+                                        cancel_event=task_state[
+                                            "provider_cancel_event"
+                                        ],
+                                    )
+                                    if node_provider_run is not None
+                                    else await collect_chat_completion_text(
+                                        model_id,
+                                        [
+                                            ChatMessage(
+                                                role="user",
+                                                content=classifier_prompt,
+                                            )
+                                        ],
+                                        temperature=0,
+                                        max_tokens=64,
+                                    )
                                 )
                                 selection = parse_question_classifier_model_output(
                                     raw_decision,
@@ -16323,6 +16565,11 @@ async def _run_workflow_response(
                                 "contract_version": 2,
                             }
                             yield sse_payload(delta_event)
+                            if node_provider_run is not None:
+                                node_provider_run.finish("passed")
+                                node_provider_receipt = (
+                                    node_provider_run.receipt_summary()
+                                )
                         elif not WORKFLOW_QUESTION_CLASSIFIER_ENABLED:
                             variables[output_variable] = default_category
                             output = default_category
@@ -16356,7 +16603,14 @@ async def _run_workflow_response(
                                 .lower()
                                 == "true"
                             )
-                            model_id = str(node.data.get("modelId") or "").strip()
+                            model_id = str(
+                                node.data.get("modelId")
+                                or (
+                                    TEXT_FALLBACK_MODEL
+                                    if workflow_managed_mode != "legacy"
+                                    else ""
+                                )
+                            ).strip()
                             try:
                                 raw_categories = json.loads(categories_json)
                             except ValueError as exc:
@@ -16423,7 +16677,14 @@ async def _run_workflow_response(
                                     f"已分类：{selected}（关键词命中：{matched_keyword}）"
                                 )
                             elif use_llm_fallback:
-                                if not get_llm_gateway_config()[0] or not model_id:
+                                node_provider_run = start_managed_node_run(node.id)
+                                if (
+                                    (
+                                        node_provider_run is None
+                                        and not get_llm_gateway_config()[0]
+                                    )
+                                    or not model_id
+                                ):
                                     raise ValueError(
                                         "LLM 回退未配置网关或 modelId。"
                                     )
@@ -16444,7 +16705,21 @@ async def _run_workflow_response(
                                         f"{text}"
                                     )
                                 selected = (
-                                    await collect_chat_completion_text(
+                                    await node_provider_run.complete_text_unary(
+                                        logical_call_key="question_classifier:model_fallback",
+                                        call_sequence=1,
+                                        model_id=model_id,
+                                        messages=[
+                                            {"role": "user", "content": prompt}
+                                        ],
+                                        temperature=0,
+                                        max_tokens=20,
+                                        cancel_event=task_state[
+                                            "provider_cancel_event"
+                                        ],
+                                    )
+                                    if node_provider_run is not None
+                                    else await collect_chat_completion_text(
                                         model_id,
                                         [ChatMessage(role="user", content=prompt)],
                                         temperature=0,
@@ -16484,8 +16759,27 @@ async def _run_workflow_response(
                                     "variable": output_variable,
                                 }
                             )
+                            if node_provider_run is not None:
+                                node_provider_run.finish("passed")
+                                node_provider_receipt = (
+                                    node_provider_run.receipt_summary()
+                                )
+                    except ManagedWorkflowRoutingError as exc:
+                        if node_provider_run is not None:
+                            node_provider_receipt = finish_managed_node_failure(
+                                node_provider_run,
+                                exc.code,
+                            )
+                            exc.receipt = node_provider_receipt
+                        raise
                     except Exception as exc:
                         logger.warning("Workflow question_classifier node failed: %s", exc)
+                        if node_provider_run is not None:
+                            node_provider_receipt = finish_managed_node_failure(
+                                node_provider_run,
+                                "provider_workload_workflow_output_invalid",
+                            )
+                            raise
                         if typed_ai_contract_version(node.data) != 1:
                             raise
                         output = default_category
@@ -20056,6 +20350,8 @@ async def _run_workflow_response(
                     "node_type": kind,
                     "status": "completed",
                 }
+                if node_provider_receipt is not None:
+                    node_end_event["provider_route_receipts"] = node_provider_receipt
                 workflow_execution_store.append_event(task_id, node_end_event)
                 yield sse_payload(
                     {
@@ -20859,7 +21155,27 @@ async def _run_workflow_response(
                 logger.warning("Failed to persist content policy failure", exc_info=True)
             yield sse_payload(error_event)
         except Exception as exc:
-            logger.exception("Workflow run failed workflow=%s", payload.workflow.id)
+            managed_error = (
+                exc if isinstance(exc, ManagedWorkflowRoutingError) else None
+            )
+            if managed_error is not None:
+                logger.warning(
+                    "Managed Workflow run failed workflow=%s code=%s",
+                    payload.workflow.id,
+                    managed_error.code,
+                )
+            else:
+                logger.exception(
+                    "Workflow run failed workflow=%s", payload.workflow.id
+                )
+            public_error = (
+                managed_error.public_message if managed_error is not None else str(exc)
+            )
+            provider_receipt = (
+                managed_error.receipt
+                if managed_error is not None and managed_error.receipt is not None
+                else locals().get("node_provider_receipt")
+            )
             failed_node_id = str(locals().get("node_id") or "").strip() or None
             failed_node = nodes_by_id.get(failed_node_id) if failed_node_id else None
             failed_node_title = (
@@ -20869,35 +21185,40 @@ async def _run_workflow_response(
                 await run_registry.update_run(
                     workflow_run.run_id,
                     status="failed",
-                    error=str(exc),
+                    error=public_error,
                 )
             except Exception:
                 logger.warning("Failed to update workflow run status", exc_info=True)
             try:
-                workflow_execution_store.fail(task_id, error=str(exc))
-                workflow_execution_store.append_event(
-                    task_id,
-                    {
-                        "event": "error",
-                        "task_id": task_id,
-                        "run_id": workflow_run.run_id,
-                        "node_id": failed_node_id,
-                        "node_title": failed_node_title,
-                        "message": str(exc),
-                    },
-                )
-            except Exception:
-                logger.warning("Failed to persist workflow failure", exc_info=True)
-            yield sse_payload(
-                {
+                workflow_execution_store.fail(task_id, error=public_error)
+                error_event = {
                     "event": "error",
                     "task_id": task_id,
                     "run_id": workflow_run.run_id,
                     "node_id": failed_node_id,
                     "node_title": failed_node_title,
-                    "message": str(exc),
+                    "message": public_error,
                 }
-            )
+                if managed_error is not None:
+                    error_event["code"] = managed_error.code
+                if isinstance(provider_receipt, dict):
+                    error_event["provider_route_receipts"] = provider_receipt
+                workflow_execution_store.append_event(task_id, error_event)
+            except Exception:
+                logger.warning("Failed to persist workflow failure", exc_info=True)
+            error_event = {
+                "event": "error",
+                "task_id": task_id,
+                "run_id": workflow_run.run_id,
+                "node_id": failed_node_id,
+                "node_title": failed_node_title,
+                "message": public_error,
+            }
+            if managed_error is not None:
+                error_event["code"] = managed_error.code
+            if isinstance(provider_receipt, dict):
+                error_event["provider_route_receipts"] = provider_receipt
+            yield sse_payload(error_event)
         finally:
             durable_execution = workflow_execution_store.get(task_id)
             if durable_execution is None or durable_execution.status != "waiting":
@@ -20945,6 +21266,9 @@ async def cancel_workflow_task(task_id: str, request: Request):
     task = workflow_task_store.get(task_id)
     if task is not None:
         task["cancel_requested"] = True
+        provider_cancel_event = task.get("provider_cancel_event")
+        if isinstance(provider_cancel_event, asyncio.Event):
+            provider_cancel_event.set()
         pause_event = task.get("pause_event")
         if isinstance(pause_event, asyncio.Event):
             pause_event.set()

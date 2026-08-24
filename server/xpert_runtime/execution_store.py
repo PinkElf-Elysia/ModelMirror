@@ -518,6 +518,7 @@ class WorkflowExecutionStore:
             "request_status",
             "host_id",
             "session_id",
+            "code",
             "error_code",
             "tool_name",
             "status",
@@ -535,6 +536,7 @@ class WorkflowExecutionStore:
             "message",
             "final_output",
             "variable",
+            "provider_route_receipts",
         }
         if agency_execution:
             allowed.update(
@@ -561,9 +563,15 @@ class WorkflowExecutionStore:
                 }
             )
         clean = {key: value for key, value in event.items() if key in allowed}
-        for key in ("session_id", "error_code"):
+        for key in ("session_id", "code", "error_code"):
             if key in clean:
                 clean[key] = str(clean[key] or "")[:200]
+        if "provider_route_receipts" in clean:
+            clean["provider_route_receipts"] = (
+                WorkflowExecutionStore._safe_provider_route_receipt(
+                    clean["provider_route_receipts"]
+                )
+            )
         for key in ("skill_id", "skill_version_id"):
             if key in clean:
                 clean[key] = str(clean[key] or "")[:200]
@@ -659,6 +667,94 @@ class WorkflowExecutionStore:
                 "reworked": bool(raw_verification.get("reworked")),
             }
         return clean
+
+    @staticmethod
+    def _safe_provider_route_receipt(value: Any) -> dict[str, Any]:
+        raw = value if isinstance(value, dict) else {}
+
+        def bounded_integer(
+            candidate: Any,
+            *,
+            default: int,
+            minimum: int,
+            maximum: int,
+        ) -> int:
+            if isinstance(candidate, bool):
+                return default
+            try:
+                parsed = int(candidate)
+            except (TypeError, ValueError, OverflowError):
+                return default
+            return max(minimum, min(parsed, maximum))
+
+        allowed_entries = {
+            "workflow_interactive_llm",
+            "workflow_deployment_llm",
+        }
+        allowed_statuses = {
+            "running",
+            "passed",
+            "failed",
+            "uncertain",
+            "cancelled",
+        }
+        entry_id = str(raw.get("entry_id") or "")
+        status = str(raw.get("status") or "failed")
+        calls: list[dict[str, Any]] = []
+        raw_calls = raw.get("calls")
+        for item in raw_calls[:8] if isinstance(raw_calls, list) else []:
+            if not isinstance(item, dict):
+                continue
+            call_status = str(item.get("status") or "failed")
+            clean_call: dict[str, Any] = {
+                "call_sequence": bounded_integer(
+                    item.get("call_sequence"),
+                    default=1,
+                    minimum=1,
+                    maximum=100,
+                ),
+                "model_id": str(item.get("model_id") or "")[:300],
+                "actual_model": (
+                    str(item.get("actual_model") or "")[:300] or None
+                ),
+                "dispatched": bool(item.get("dispatched")),
+                "status": (
+                    call_status if call_status in allowed_statuses else "failed"
+                ),
+                "error_code": str(item.get("error_code") or "")[:200] or None,
+            }
+            for token_key in (
+                "prompt_tokens",
+                "completion_tokens",
+                "total_tokens",
+            ):
+                token_value = item.get(token_key)
+                clean_call[token_key] = (
+                    min(1_000_000_000, max(0, int(token_value)))
+                    if isinstance(token_value, (int, float))
+                    and not isinstance(token_value, bool)
+                    else None
+                )
+            calls.append(clean_call)
+        reason_codes = raw.get("reason_codes")
+        return {
+            "contract_version": "modelmirror-provider-workload-routing-v1",
+            "entry_id": entry_id if entry_id in allowed_entries else "",
+            "routing_mode": "managed_required",
+            "run_reference": str(raw.get("run_reference") or "")[:200],
+            "status": status if status in allowed_statuses else "failed",
+            "call_count": min(
+                8,
+                sum(1 for item in calls if item["dispatched"]),
+            ),
+            "reason_codes": [
+                str(item)[:200]
+                for item in (
+                    reason_codes[:20] if isinstance(reason_codes, list) else []
+                )
+            ],
+            "calls": calls,
+        }
 
     @staticmethod
     def _is_skill_creator(item: WorkflowExecution) -> bool:

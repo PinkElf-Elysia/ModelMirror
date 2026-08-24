@@ -3193,6 +3193,50 @@ class SQLiteRouterRepository:
             ).fetchone()
         return dict(row)
 
+    def claim_stable_workload_run(
+        self,
+        tenant_id: str,
+        *,
+        run_id: str,
+        entry_id: str,
+        policy_fingerprint: str,
+        parent_run_reference: str,
+    ) -> tuple[dict[str, object], bool]:
+        """Atomically reserve a deterministic workload run.
+
+        Workflow deployment recovery can revisit the same model node after a
+        process restart.  A deterministic primary key makes that revisit
+        observable without reopening or replaying the original Provider call.
+        """
+
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                """
+                INSERT OR IGNORE INTO provider_workload_runs (
+                    id, tenant_id, entry_id, policy_fingerprint,
+                    parent_run_reference, status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, 'running', ?, ?)
+                """,
+                (
+                    run_id,
+                    clean_tenant,
+                    entry_id,
+                    policy_fingerprint,
+                    parent_run_reference,
+                    now,
+                    now,
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM provider_workload_runs WHERE tenant_id = ? AND id = ?",
+                (clean_tenant, run_id),
+            ).fetchone()
+        if row is None:  # pragma: no cover - protected by the transaction above
+            raise RouterRepositoryError("provider_workload_run_not_found")
+        return dict(row), cursor.rowcount == 1
+
     def claim_workload_call(
         self,
         tenant_id: str,

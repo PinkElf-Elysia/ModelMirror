@@ -100,7 +100,12 @@ ENTRY_ALLOWED_SHAPES: dict[
 # R6A deliberately provides only the control-plane foundation. Each later data-plane
 # PR adds its entry here after its dedicated tests and real smoke are complete.
 DATA_PLANE_INTEGRATED_ENTRIES: frozenset[ProviderWorkloadEntryId] = frozenset(
-    {"agent_shadow", "meta_agent"}
+    {
+        "agent_shadow",
+        "meta_agent",
+        "workflow_interactive_llm",
+        "workflow_deployment_llm",
+    }
 )
 
 
@@ -1450,6 +1455,57 @@ class ProviderWorkloadCallService:
             policy_fingerprint=policy.policy_fingerprint,
             parent_run_reference=parent_run_reference,
         )
+        return run_id
+
+    def start_stable_run(
+        self,
+        entry_id: ProviderWorkloadEntryId,
+        *,
+        parent_run_reference: str,
+    ) -> str:
+        """Claim one durable logical run and reject every later replay."""
+
+        clean_parent = parent_run_reference.strip()
+        if not clean_parent:
+            raise RouterServiceError(
+                "provider_workload_parent_run_reference_required",
+                "Workload 稳定运行缺少父执行引用。",
+                status_code=422,
+            )
+        policy = self.control.get_policy(entry_id)
+        self._ensure_active(policy)
+        material = json.dumps(
+            {
+                "tenant_id": self.router_service.tenant_id,
+                "entry_id": entry_id,
+                "parent_run_reference": clean_parent,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        run_id = f"workrun_{hashlib.sha256(material.encode('utf-8')).hexdigest()}"
+        row, created = self.repository.claim_stable_workload_run(
+            self.router_service.tenant_id,
+            run_id=run_id,
+            entry_id=entry_id,
+            policy_fingerprint=policy.policy_fingerprint,
+            parent_run_reference=clean_parent,
+        )
+        if (
+            str(row["entry_id"]) != entry_id
+            or str(row["parent_run_reference"] or "") != clean_parent
+        ):
+            raise RouterServiceError(
+                "provider_workload_stable_run_collision",
+                "Workload 稳定运行引用发生冲突，系统不会派发 Provider 请求。",
+                status_code=409,
+            )
+        if not created:
+            raise RouterServiceError(
+                "provider_workload_logical_run_replay_blocked",
+                "该 Workflow 模型节点已有执行证据，系统不会自动重放。",
+                status_code=409,
+            )
         return run_id
 
     async def prepare_call(

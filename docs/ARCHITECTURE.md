@@ -209,7 +209,16 @@ R6C 将两个 Meta Agent 生成入口加入数据面。Meta Agent 使用精确
 记录为独立逻辑调用；任一调用派发后都不重试、不切换 Provider，也不进入 legacy。
 `MODEL_CONTROL_META_AGENT_ENABLED=false` 或 Policy 为 `legacy` 时保留原生成路径；已激活
 Policy 失效后保持 `degraded_required` 并在 POST 前失败关闭。其他 Workflow、Xpert 与 R5
-Chat 调度仍保持原行为。接入入口只允许 Python 主进程解析凭据和调用 Provider，Worker 与
+Chat 调度仍保持原行为。
+
+Round 6D 将 Classic Workflow 的交互 `llm`、`parameter_extractor`、
+`question_classifier` 模型回退以及对应部署执行接入独立的
+`workflow_interactive_llm` / `workflow_deployment_llm` Policy。规则分类命中不调用模型；
+模型节点使用稳定的 task/execution + node 运行身份，恢复时已有派发、完成或不确定证据均不
+自动重放。Provider 错误在 Managed 模式失败关闭，不调用第二连接、第二 IP 或 legacy；专用
+多模态、RAG、Agent、Xpert 和 `/workflow-native` 仍不属于 R6D。
+
+接入入口只允许 Python 主进程解析凭据和调用 Provider，Worker 与
 工具执行器继续只处理模型消息、Tool Call 和脱敏结果。
 
 `/settings?section=overview|providers|routing` 共用一份 Provider 管理会话。Marble 等其他

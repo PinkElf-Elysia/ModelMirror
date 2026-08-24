@@ -431,6 +431,32 @@ export interface WorkflowDefinition {
   updatedAt: string;
 }
 
+export interface ProviderRouteCallReceipt {
+  call_sequence: number;
+  model_id: string;
+  actual_model?: string | null;
+  dispatched?: boolean;
+  status: "passed" | "failed" | "uncertain" | "cancelled";
+  error_code?: string | null;
+  prompt_tokens?: number | null;
+  completion_tokens?: number | null;
+  total_tokens?: number | null;
+}
+
+export interface ProviderRouteReceipt {
+  contract_version: string;
+  entry_id:
+    | "meta_agent"
+    | "workflow_interactive_llm"
+    | "workflow_deployment_llm";
+  routing_mode: "managed_required";
+  run_reference: string;
+  status: "running" | "passed" | "failed" | "uncertain" | "cancelled";
+  call_count: number;
+  reason_codes: string[];
+  calls: ProviderRouteCallReceipt[];
+}
+
 export interface WorkflowRunEvent {
   event:
     | "workflow_meta"
@@ -512,4 +538,5 @@ export interface WorkflowRunEvent {
   resource_paths?: string[];
   source_ref?: string;
   result_count?: number;
+  provider_route_receipts?: ProviderRouteReceipt;
 }

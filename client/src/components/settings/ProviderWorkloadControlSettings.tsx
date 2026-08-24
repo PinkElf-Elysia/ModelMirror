@@ -85,9 +85,17 @@ interface ReceiptCall {
   call_id: string;
   execution_shape: ExecutionShape;
   model_id: string;
+  actual_model?: string | null;
+  connection_id?: string | null;
   call_sequence: number;
   dispatched: boolean;
   status: string;
+  result_class?: string | null;
+  error_code?: string | null;
+  ttft_ms?: number | null;
+  e2e_ms?: number | null;
+  prompt_tokens?: number | null;
+  completion_tokens?: number | null;
   total_tokens?: number | null;
 }
 
@@ -95,6 +103,9 @@ interface ReceiptRun {
   run_id: string;
   entry_id: EntryId;
   status: string;
+  parent_run_reference?: string | null;
+  result_class?: string | null;
+  reason_codes?: string[];
   created_at: string;
   calls: ReceiptCall[];
 }
@@ -576,7 +587,46 @@ export default function ProviderWorkloadControlSettings({
           <div className="mt-4 flex flex-wrap gap-2"><button className="rounded-full bg-sky-200 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-40" disabled={busy || !selectedPolicy || editableBindings.some((item) => !item.model_id.trim() || !item.connection_id)} onClick={() => void savePolicy()} type="button">保存 Binding</button>{selectedPolicy?.configured_status !== "legacy" ? <button className="rounded-full border border-white/15 px-4 py-2 text-sm text-slate-200" disabled={busy} onClick={() => void deactivate()} type="button">显式恢复 Legacy</button> : <button className="rounded-full border border-amber-300/30 px-4 py-2 text-sm text-amber-100 disabled:cursor-not-allowed disabled:opacity-40" disabled={busy || !selectedPolicy.data_plane_integrated || !selectedPolicy.feature_enabled || selectedPolicy.blocking_reason_codes.length > 0} onClick={() => setConfirmActivation(true)} type="button">激活 Managed 必经</button>}</div>
         </div>
       </div>
-      <div className="border-t border-white/10 p-5"><h3 className="text-sm font-semibold text-white">最近脱敏 Receipt</h3><div className="mt-3 space-y-2">{receipts.length ? receipts.map((run) => <div className="rounded-lg border border-white/10 bg-white/[0.025] p-3" key={run.run_id}><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm text-white">{ENTRY_LABELS[run.entry_id]} · {run.status}</p><span className="text-xs text-slate-400">{run.calls.length} 次逻辑调用</span></div><p className="mt-1 text-xs text-slate-400">仅保存模型、序号、状态、指标与用量；不保存 Prompt、消息、模型正文或工具参数。</p></div>) : <p className="rounded-lg border border-dashed border-white/10 p-4 text-sm text-slate-400">当前入口尚无 Workload Receipt。</p>}</div></div>
+      <div className="border-t border-white/10 p-5">
+        <h3 className="text-sm font-semibold text-white">最近脱敏 Receipt</h3>
+        <p className="mt-1 text-xs text-slate-400">管理视图显示内部连接引用与逐调用指标；不保存 Prompt、消息、模型正文、凭据或工具参数。</p>
+        <div className="mt-3 space-y-2">
+          {receipts.length ? receipts.map((run) => (
+            <details className="rounded-lg border border-white/10 bg-white/[0.025]" key={run.run_id}>
+              <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2 p-3">
+                <span className="text-sm text-white">{ENTRY_LABELS[run.entry_id]} · {run.status}</span>
+                <span className="text-xs text-slate-400">{run.calls.length} 次逻辑调用</span>
+              </summary>
+              <div className="space-y-2 border-t border-white/10 p-3 text-xs text-slate-300">
+                <p className="break-all font-mono text-[10px] text-slate-500">运行 {run.run_id}</p>
+                {run.parent_run_reference ? <p className="break-all text-slate-400">父运行：{run.parent_run_reference}</p> : null}
+                {run.result_class ? <p>结果分类：{run.result_class}</p> : null}
+                {run.reason_codes?.length ? <p className="text-amber-100">原因：{run.reason_codes.join("、")}</p> : null}
+                {run.calls.map((call) => (
+                  <div className="rounded-md bg-slate-950/35 p-2.5" key={call.call_id}>
+                    <div className="flex flex-wrap gap-x-3 gap-y-1">
+                      <span className="font-semibold text-slate-100">调用 {call.call_sequence}</span>
+                      <span>{SHAPE_LABELS[call.execution_shape]}</span>
+                      <span>{call.dispatched ? "已派发" : "发送前阻断"}</span>
+                      <span>{call.status}</span>
+                    </div>
+                    <p className="mt-1 break-all font-mono text-[10px] text-slate-400">请求模型：{call.model_id}</p>
+                    {call.actual_model ? <p className="mt-1 break-all font-mono text-[10px] text-slate-400">实际模型：{call.actual_model}</p> : null}
+                    {call.connection_id ? <p className="mt-1 break-all font-mono text-[10px] text-slate-500">连接引用：{call.connection_id}</p> : null}
+                    <div className="mt-1 flex flex-wrap gap-x-3 text-slate-500">
+                      {call.ttft_ms != null ? <span>TTFT {Math.round(call.ttft_ms)} ms</span> : null}
+                      {call.e2e_ms != null ? <span>E2E {Math.round(call.e2e_ms)} ms</span> : null}
+                      {call.total_tokens != null ? <span>{call.total_tokens} tokens</span> : null}
+                      {call.result_class ? <span>{call.result_class}</span> : null}
+                      {call.error_code ? <span className="text-rose-200">{call.error_code}</span> : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )) : <p className="rounded-lg border border-dashed border-white/10 p-4 text-sm text-slate-400">当前入口尚无 Workload Receipt。</p>}
+        </div>
+      </div>
       {confirmActivation && selectedPolicy ? <div aria-modal="true" className="border-t border-amber-300/20 bg-amber-300/[0.05] p-5" role="dialog">
         <p className="text-sm font-semibold text-amber-100">确认激活 {ENTRY_LABELS[entryId]} Managed 必经</p>
         <p className="mt-2 text-sm leading-6 text-slate-300">激活后，Binding、资格、连接或凭据不合格时将失败关闭，不会自动回退 Legacy 或第二 Provider。</p>
