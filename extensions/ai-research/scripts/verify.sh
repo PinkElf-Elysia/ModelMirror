@@ -132,7 +132,11 @@ docker build \
   -t modelmirror-ai-research-client-proof:ar0 \
   "$CLIENT_PROOF_CONTEXT"
 CLIENT_PROOF_CONTAINER=$(docker create modelmirror-ai-research-client-proof:ar0)
-docker cp "$CLIENT_PROOF_CONTAINER://proof/dist/." "$CLIENT_PROOF_DIR"
+CLIENT_PROOF_SOURCE="/proof/dist/."
+case "$(uname -s)" in
+  MINGW*|MSYS*) CLIENT_PROOF_SOURCE="//proof/dist/." ;;
+esac
+docker cp "$CLIENT_PROOF_CONTAINER:$CLIENT_PROOF_SOURCE" "$CLIENT_PROOF_DIR"
 docker rm "$CLIENT_PROOF_CONTAINER" >/dev/null
 CLIENT_PROOF_CONTAINER=""
 python scripts/zero_footprint.py --client-dist "$CLIENT_PROOF_DIR"
