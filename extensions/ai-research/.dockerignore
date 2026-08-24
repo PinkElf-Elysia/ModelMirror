@@ -1,0 +1,17 @@
+.git
+.git/**
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+runtime
+runtime/**
+artifacts
+artifacts/**
+*.db
+*.sqlite
+*.sqlite3
+*.log
+*.err
+.env
+.env.*
+!*.env.example

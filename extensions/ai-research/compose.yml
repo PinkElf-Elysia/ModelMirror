@@ -1,0 +1,161 @@
+name: modelmirror-ai-research
+
+services:
+  ai-research-control:
+    profiles: [ai-research]
+    build:
+      context: .
+      dockerfile: control/Dockerfile
+      target: runtime
+    image: modelmirror-ai-research-control:ar0
+    command: ["python", "-m", "ai_research_control.app"]
+    depends_on:
+      ai-research-tracking:
+        condition: service_healthy
+      ai-research-worker:
+        condition: service_healthy
+    networks:
+      - tracking_internal
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 1g
+    cpus: 1.0
+    ports:
+      - "127.0.0.1:${AI_RESEARCH_CONTROL_PORT:-8790}:8080"
+    environment:
+      AI_RESEARCH_CONTROL_DB: /data/control/control.db
+      AI_RESEARCH_EVIDENCE_ROOT: /data/control/evidence
+      AI_RESEARCH_INSPECT_LOG_ROOT: /data/inspect-logs
+      AI_RESEARCH_WORKER_SOCKET: /run/ai-research/worker.sock
+      AI_RESEARCH_MLFLOW_URI: http://ai-research-tracking:5000
+      AI_RESEARCH_MLFLOW_EXPERIMENT: modelmirror-ai-research-ar0
+      AI_RESEARCH_ENABLE_DOCS: "0"
+      PYTHONUTF8: "1"
+    volumes:
+      - control_data:/data/control
+      - inspect_logs:/data/inspect-logs:ro
+      - worker_socket:/run/ai-research
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=128m,uid=65532,gid=65532,mode=0700
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; assert urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3).status == 200"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+    stop_grace_period: 20s
+
+  ai-research-tracking:
+    profiles: [ai-research]
+    build:
+      context: .
+      dockerfile: control/Dockerfile
+      target: runtime
+    image: modelmirror-ai-research-control:ar0
+    command:
+      - mlflow
+      - server
+      - --host
+      - 0.0.0.0
+      - --port
+      - "5000"
+      - --workers
+      - "1"
+      - --backend-store-uri
+      - sqlite:////data/tracking/mlflow.db
+      - --serve-artifacts
+      - --artifacts-destination
+      - /data/tracking/artifacts
+      - --allowed-hosts
+      - ai-research-tracking:5000,ai-research-tracking,127.0.0.1:5000,127.0.0.1:8791,127.0.0.1,localhost:5000,localhost:8791,localhost
+    networks:
+      - tracking_internal
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 192
+    mem_limit: 1g
+    cpus: 1.0
+    ports:
+      - "127.0.0.1:${AI_RESEARCH_MLFLOW_PORT:-8791}:5000"
+    environment:
+      PYTHONUTF8: "1"
+      MLFLOW_ENABLE_PROXY_MULTIPART_UPLOAD: "false"
+      MLFLOW_SERVER_ENABLE_JOB_EXECUTION: "false"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+    volumes:
+      - tracking_data:/data/tracking
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=256m,uid=65532,gid=65532,mode=0700
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; assert urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=3).status == 200"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 20s
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+  ai-research-worker:
+    profiles: [ai-research]
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+      target: runtime
+    image: modelmirror-ai-research-worker:ar0
+    network_mode: none
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 768m
+    cpus: 1.0
+    environment:
+      AI_RESEARCH_WORKER_SOCKET: /run/ai-research/worker.sock
+      AI_RESEARCH_LOG_ROOT: /data/inspect-logs
+      PYTHONUTF8: "1"
+    volumes:
+      - inspect_logs:/data/inspect-logs
+      - worker_socket:/run/ai-research
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=256m,uid=65532,gid=65532,mode=0700
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import json,os,socket;
+          s=socket.socket(socket.AF_UNIX);s.settimeout(3);
+          s.connect(os.environ['AI_RESEARCH_WORKER_SOCKET']);
+          s.sendall(b'{"protocolVersion":1,"action":"health"}\n');
+          v=json.loads(s.makefile('rb').readline().decode());s.close();
+          assert v['ok'] and v['result']['status']=='ready'
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+    stop_grace_period: 20s
+
+networks:
+  tracking_internal:
+    ipam:
+      config:
+        - subnet: 10.254.76.0/28
+
+volumes:
+  control_data:
+  tracking_data:
+  inspect_logs:
+  worker_socket:

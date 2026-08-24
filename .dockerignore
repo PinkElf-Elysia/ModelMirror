@@ -57,3 +57,6 @@ artifacts
 .agents
 .idea
 .vscode
+
+# Optional AI Research module has its own explicit build context and images.
+/extensions/ai-research
