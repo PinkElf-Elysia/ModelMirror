@@ -25,11 +25,12 @@ from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import quote, urlsplit
 
-from fastapi import APIRouter, HTTPException, Query, Response
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
+from fastapi import APIRouter, HTTPException, Query, Request, Response
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
 
 from .hub_contracts import HubContractRegistry, HubReviewedContractV1
 from .remote_auth import RemoteAuthError, RemoteAuthPolicyV1
+from .remote_oauth import RemoteOAuthError
 
 
 REGISTRY_BASE_URL = "https://registry.modelcontextprotocol.io"
@@ -228,6 +229,29 @@ def _static_remote_auth_policy(
         return None
 
 
+def _oauth_discovery_header_hint(remote: dict[str, Any]) -> bool:
+    """Recognize one optional Bearer slot without trusting prose metadata."""
+
+    if remote.get("variables"):
+        return False
+    headers = remote.get("headers")
+    if not isinstance(headers, list) or len(headers) != 1:
+        return False
+    declaration = headers[0]
+    if not isinstance(declaration, dict):
+        return False
+    if set(declaration) - {"name", "description", "isRequired", "isSecret"}:
+        return False
+    return (
+        str(declaration.get("name") or "").strip().lower() == "authorization"
+        and declaration.get("isSecret") is True
+        and (
+            "isRequired" not in declaration
+            or declaration.get("isRequired") is False
+        )
+    )
+
+
 def normalize_registry_remote(remote: Any) -> dict[str, Any]:
     if not isinstance(remote, dict):
         return {
@@ -300,6 +324,15 @@ def normalize_registry_remote(remote: Any) -> dict[str, Any]:
                 "reason": "可绑定一个固定 Secret Header 后进入复核",
                 "auth_policy": policy.model_dump(mode="json"),
             }
+        if _oauth_discovery_header_hint(remote):
+            return {
+                "remote_id": remote_id,
+                "transport": "streamable-http",
+                "url": normalized,
+                "origin": origin,
+                "eligibility": "oauth_discovery_candidate",
+                "reason": "可检查标准 OAuth 元数据；R2A 不执行用户授权",
+            }
         return {
             "remote_id": remote_id,
             "transport": "streamable-http",
@@ -361,6 +394,8 @@ def normalize_registry_entry(value: Any) -> dict[str, Any]:
         eligibility = "eligible"
     elif any(item["eligibility"] == "static_token_candidate" for item in remotes):
         eligibility = "static_token_candidate"
+    elif any(item["eligibility"] == "oauth_discovery_candidate" for item in remotes):
+        eligibility = "oauth_discovery_candidate"
     elif any(item["eligibility"] == "auth_required" for item in remotes):
         eligibility = "auth_required"
     elif any(item["eligibility"] == "legacy_transport" for item in remotes):
@@ -1102,6 +1137,7 @@ class MCPHubService:
         self.review_service: Any | None = None
         self.trusted_service: Any | None = None
         self.remote_auth_broker: Any | None = None
+        self.remote_oauth_service: Any | None = None
         self.credential_creator: Any | None = None
         self.credential_lookup: Any | None = None
         self.credential_revoker: Any | None = None
@@ -1130,6 +1166,9 @@ class MCPHubService:
         self.credential_creator = credential_creator
         self.credential_lookup = credential_lookup
         self.credential_revoker = credential_revoker
+
+    def set_remote_oauth(self, service: Any) -> None:
+        self.remote_oauth_service = service
 
     def _require_enabled(self) -> None:
         if not hub_enabled():
@@ -1391,7 +1430,11 @@ class MCPHubService:
         remote = next((item for item in server["remotes"] if item["remote_id"] == clean_remote_id), None)
         if remote is None:
             raise HubError("Registry 远程端点不存在。", code="hub_remote_not_found", status_code=404)
-        if remote["eligibility"] not in {"eligible", "static_token_candidate"}:
+        if remote["eligibility"] not in {
+            "eligible",
+            "static_token_candidate",
+            "oauth_discovery_candidate",
+        }:
             raise HubError("该远程端点不满足第一轮准入条件。", code="hub_remote_ineligible", status_code=409)
         return self.store.create_candidate(
             tenant_id=self.tenant_id,
@@ -1421,6 +1464,22 @@ class MCPHubService:
         output["auth_policy_fingerprint"] = str(
             policy.get("policy_fingerprint") or ""
         )
+        server = self.store.get_server(item["server_name"], item["version"])
+        remote = next(
+            (
+                candidate_remote
+                for candidate_remote in (server or {}).get("remotes", [])
+                if candidate_remote.get("remote_id") == item["remote_id"]
+            ),
+            None,
+        )
+        registry_eligibility = str((remote or {}).get("eligibility") or "")
+        output["registry_eligibility"] = registry_eligibility
+        output["oauth_discovery_available"] = bool(
+            item.get("remote_url")
+            and not policy
+            and registry_eligibility == "oauth_discovery_candidate"
+        )
         live = self._live.get(item["candidate_id"])
         output["connected"] = bool(
             live is not None and self._live_session_current(live)
@@ -1429,6 +1488,144 @@ class MCPHubService:
         output["activation_eligible"] = eligible
         output["activation_reason"] = reason
         return output
+
+    def _require_remote_oauth(self) -> Any:
+        if self.remote_oauth_service is None:
+            raise HubError(
+                "远程 OAuth 发现基础尚未配置。",
+                code="mcp_remote_oauth_unconfigured",
+                status_code=503,
+            )
+        return self.remote_oauth_service
+
+    def _require_oauth_candidate(self, candidate: dict[str, Any]) -> None:
+        server = self.store.get_server(candidate["server_name"], candidate["version"])
+        remote = next(
+            (
+                item
+                for item in (server or {}).get("remotes", [])
+                if item.get("remote_id") == candidate["remote_id"]
+            ),
+            None,
+        )
+        if (
+            server is None
+            or server.get("source_digest") != candidate.get("source_digest")
+            or (remote or {}).get("eligibility") != "oauth_discovery_candidate"
+        ):
+            raise HubError(
+                "该 Registry 候选未声明可发现的 OAuth 认证形态。",
+                code="mcp_remote_oauth_candidate_ineligible",
+                status_code=409,
+            )
+
+    @staticmethod
+    def _raise_remote_oauth(exc: RemoteOAuthError) -> None:
+        raise HubError(str(exc), code=exc.code, status_code=exc.status_code) from None
+
+    def candidate_oauth(self, candidate_id: str) -> dict[str, Any]:
+        self._require_enabled()
+        candidate = self.store.require_candidate(
+            _required_identifier(candidate_id, CANDIDATE_ID_RE, "candidate_id"),
+            self.tenant_id,
+            self.owner_id,
+        )
+        if self._candidate_auth_policy(candidate) is not None:
+            raise HubError(
+                "静态 Header 候选不能切换为 OAuth 发现。",
+                code="mcp_remote_oauth_candidate_ineligible",
+                status_code=409,
+            )
+        self._require_oauth_candidate(candidate)
+        try:
+            return self._require_remote_oauth().summary(
+                target_type="hub_candidate",
+                target_id=candidate["candidate_id"],
+                source_digest=candidate["source_digest"],
+            )
+        except RemoteOAuthError as exc:
+            self._raise_remote_oauth(exc)
+
+    async def discover_candidate_oauth(
+        self, candidate_id: str, *, expected_source_digest: str
+    ) -> dict[str, Any]:
+        self._require_enabled()
+        clean = _required_identifier(candidate_id, CANDIDATE_ID_RE, "candidate_id")
+        async with self._candidate_locks.setdefault(clean, asyncio.Lock()):
+            candidate = self.store.require_candidate(
+                clean, self.tenant_id, self.owner_id
+            )
+            if expected_source_digest != candidate["source_digest"]:
+                raise HubError(
+                    "Registry 候选来源已漂移。",
+                    code="mcp_remote_oauth_source_drift",
+                    status_code=409,
+                )
+            if self._candidate_auth_policy(candidate) is not None:
+                raise HubError(
+                    "静态 Header 候选不能切换为 OAuth 发现。",
+                    code="mcp_remote_oauth_candidate_ineligible",
+                    status_code=409,
+                )
+            self._require_oauth_candidate(candidate)
+            try:
+                await self._require_remote_oauth().discover(
+                    target_type="hub_candidate",
+                    target_id=candidate["candidate_id"],
+                    resource_url=candidate["remote_url"],
+                    source_digest=candidate["source_digest"],
+                )
+                return self.candidate_oauth(clean)
+            except RemoteOAuthError as exc:
+                self._raise_remote_oauth(exc)
+
+    async def register_candidate_oauth_client(
+        self,
+        candidate_id: str,
+        *,
+        expected_discovery_fingerprint: str,
+        mode: str,
+        client_id: str = "",
+    ) -> dict[str, Any]:
+        self._require_enabled()
+        clean = _required_identifier(candidate_id, CANDIDATE_ID_RE, "candidate_id")
+        async with self._candidate_locks.setdefault(clean, asyncio.Lock()):
+            candidate = self.store.require_candidate(
+                clean, self.tenant_id, self.owner_id
+            )
+            self._require_oauth_candidate(candidate)
+            try:
+                await self._require_remote_oauth().register_client(
+                    target_type="hub_candidate",
+                    target_id=candidate["candidate_id"],
+                    source_digest=candidate["source_digest"],
+                    expected_discovery_fingerprint=expected_discovery_fingerprint,
+                    mode=mode,
+                    client_id=client_id,
+                )
+                return self.candidate_oauth(clean)
+            except RemoteOAuthError as exc:
+                self._raise_remote_oauth(exc)
+
+    async def revoke_candidate_oauth_client(
+        self, candidate_id: str, registration_id: str
+    ) -> dict[str, Any]:
+        self._require_enabled()
+        clean = _required_identifier(candidate_id, CANDIDATE_ID_RE, "candidate_id")
+        async with self._candidate_locks.setdefault(clean, asyncio.Lock()):
+            candidate = self.store.require_candidate(
+                clean, self.tenant_id, self.owner_id
+            )
+            self._require_oauth_candidate(candidate)
+            try:
+                self._require_remote_oauth().revoke_registration(
+                    registration_id,
+                    target_type="hub_candidate",
+                    target_id=candidate["candidate_id"],
+                )
+                return self.candidate_oauth(clean)
+            except RemoteOAuthError as exc:
+                self._raise_remote_oauth(exc)
 
     def _candidate_auth_policy(
         self, candidate: dict[str, Any]
@@ -2076,6 +2273,20 @@ class MCPHubService:
                 candidate["candidate_id"], self.tenant_id, self.owner_id,
                 state="drifted", taint_reason="hub_source_drift",
             ))
+        current_remote = next(
+            (
+                remote
+                for remote in current_server.get("remotes", [])
+                if remote.get("remote_id") == candidate["remote_id"]
+            ),
+            None,
+        )
+        if (current_remote or {}).get("eligibility") == "oauth_discovery_candidate":
+            raise HubError(
+                "该候选必须先完成 OAuth 授权；R2A 只允许元数据发现与客户端登记。",
+                code="mcp_remote_oauth_authorization_not_implemented",
+                status_code=409,
+            )
         async with self._candidate_locks.setdefault(candidate["candidate_id"], asyncio.Lock()):
             await self._disconnect_live(candidate["candidate_id"])
             try:
@@ -2175,6 +2386,14 @@ class MCPHubService:
                 except RemoteAuthError as exc:
                     self._raise_remote_auth(exc)
             await self._disconnect_live(clean)
+            if self.remote_oauth_service is not None:
+                try:
+                    self.remote_oauth_service.revoke_target_locally(
+                        target_type="hub_candidate",
+                        target_id=candidate["candidate_id"],
+                    )
+                except RemoteOAuthError as exc:
+                    self._raise_remote_oauth(exc)
             if credential_id:
                 try:
                     self.credential_revoker(
@@ -2434,6 +2653,18 @@ class CandidateAuthBindingRotateRequest(BaseModel):
     expected_revision: int = Field(ge=1)
 
 
+class CandidateOAuthDiscoveryRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+    expected_source_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class CandidateOAuthRegistrationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+    expected_discovery_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    mode: Literal["pre_registered", "client_id_metadata_document", "dynamic"]
+    client_id: str = Field(default="", max_length=2048)
+
+
 router = APIRouter(tags=["mcp-hub"])
 _hub_service: MCPHubService | None = None
 
@@ -2451,6 +2682,63 @@ def _service() -> MCPHubService:
 
 def _raise_http(exc: HubError) -> None:
     raise HTTPException(status_code=exc.status_code, detail={"code": exc.code, "error": str(exc)}) from exc
+
+
+async def _redacted_request_model(
+    request: Request, model: type[BaseModel]
+) -> BaseModel:
+    if request.query_params:
+        raise _invalid_hub_request()
+    content_type = (
+        request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    )
+    if content_type != "application/json" and not content_type.endswith("+json"):
+        raise _invalid_hub_request()
+    declared = request.headers.get("content-length", "").strip()
+    if declared:
+        try:
+            if int(declared) > 8192:
+                raise ValueError
+        except ValueError:
+            raise _invalid_hub_request() from None
+    body = bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body) > 8192:
+            raise _invalid_hub_request()
+    raw = bytes(body)
+    if not raw:
+        raise _invalid_hub_request()
+    try:
+        value = json.loads(raw.decode("utf-8"))
+        return model.model_validate(value)
+    except (UnicodeError, json.JSONDecodeError, ValidationError):
+        # OAuth request models intentionally accept identifiers only.  FastAPI's
+        # default validation response echoes unknown input values, which could
+        # expose an accidentally submitted Header or Secret.
+        raise _invalid_hub_request() from None
+
+
+def _invalid_hub_request() -> HTTPException:
+    return HTTPException(
+        status_code=422,
+        detail={
+            "code": "hub_invalid_request",
+            "message": "Invalid MCP Hub request.",
+        },
+    )
+
+
+async def _require_empty_write_request(request: Request) -> None:
+    if request.query_params:
+        raise _invalid_hub_request()
+    body_size = 0
+    async for chunk in request.stream():
+        body_size += len(chunk)
+        if body_size > 8192:
+            break
+    if body_size:
+        raise _invalid_hub_request()
 
 
 @router.get("/api/mcp/hub/status")
@@ -2504,7 +2792,9 @@ async def get_hub_server(server_name: str, version: str) -> dict[str, Any]:
 
 
 @router.post("/api/mcp/hub/candidates", status_code=201)
-async def create_hub_candidate(payload: CandidateCreateRequest) -> dict[str, Any]:
+async def create_hub_candidate(request: Request) -> dict[str, Any]:
+    payload = await _redacted_request_model(request, CandidateCreateRequest)
+    assert isinstance(payload, CandidateCreateRequest)
     try:
         return _service().create_candidate(payload.server_name, payload.version, payload.remote_id)
     except HubError as exc:
@@ -2536,13 +2826,75 @@ async def get_hub_candidate_auth(candidate_id: str) -> dict[str, Any]:
         _raise_http(exc)
 
 
+@router.get("/api/mcp/hub/candidates/{candidate_id}/oauth")
+async def get_hub_candidate_oauth(candidate_id: str) -> dict[str, Any]:
+    try:
+        return _service().candidate_oauth(candidate_id)
+    except HubError as exc:
+        _raise_http(exc)
+
+
+@router.post("/api/mcp/hub/candidates/{candidate_id}/oauth/discover")
+async def discover_hub_candidate_oauth(
+    candidate_id: str, request: Request
+) -> dict[str, Any]:
+    payload = await _redacted_request_model(request, CandidateOAuthDiscoveryRequest)
+    assert isinstance(payload, CandidateOAuthDiscoveryRequest)
+    try:
+        return await _service().discover_candidate_oauth(
+            candidate_id,
+            expected_source_digest=payload.expected_source_digest,
+        )
+    except HubError as exc:
+        _raise_http(exc)
+
+
+@router.post(
+    "/api/mcp/hub/candidates/{candidate_id}/oauth/registrations",
+    status_code=201,
+)
+async def register_hub_candidate_oauth_client(
+    candidate_id: str, request: Request
+) -> dict[str, Any]:
+    payload = await _redacted_request_model(request, CandidateOAuthRegistrationRequest)
+    assert isinstance(payload, CandidateOAuthRegistrationRequest)
+    try:
+        return await _service().register_candidate_oauth_client(
+            candidate_id,
+            expected_discovery_fingerprint=payload.expected_discovery_fingerprint,
+            mode=payload.mode,
+            client_id=payload.client_id,
+        )
+    except HubError as exc:
+        _raise_http(exc)
+
+
+@router.delete(
+    "/api/mcp/hub/candidates/{candidate_id}/oauth/registrations/{registration_id}"
+)
+async def revoke_hub_candidate_oauth_client(
+    candidate_id: str, registration_id: str, request: Request
+) -> dict[str, Any]:
+    await _require_empty_write_request(request)
+    try:
+        return await _service().revoke_candidate_oauth_client(
+            candidate_id, registration_id
+        )
+    except HubError as exc:
+        _raise_http(exc)
+
+
 @router.post(
     "/api/mcp/hub/candidates/{candidate_id}/auth-bindings",
     status_code=201,
 )
 async def create_hub_candidate_auth_binding(
-    candidate_id: str, payload: CandidateAuthBindingCreateRequest
+    candidate_id: str, request: Request
 ) -> dict[str, Any]:
+    payload = await _redacted_request_model(
+        request, CandidateAuthBindingCreateRequest
+    )
+    assert isinstance(payload, CandidateAuthBindingCreateRequest)
     try:
         return _service().create_candidate_auth_binding(
             candidate_id,
@@ -2560,8 +2912,12 @@ async def create_hub_candidate_auth_binding(
 async def rotate_hub_candidate_auth_binding(
     candidate_id: str,
     binding_id: str,
-    payload: CandidateAuthBindingRotateRequest,
+    request: Request,
 ) -> dict[str, Any]:
+    payload = await _redacted_request_model(
+        request, CandidateAuthBindingRotateRequest
+    )
+    assert isinstance(payload, CandidateAuthBindingRotateRequest)
     try:
         return await _service().rotate_candidate_auth_binding(
             candidate_id,
@@ -2579,8 +2935,9 @@ async def rotate_hub_candidate_auth_binding(
     response_class=Response,
 )
 async def revoke_hub_candidate_auth_binding(
-    candidate_id: str, binding_id: str
+    candidate_id: str, binding_id: str, request: Request
 ) -> Response:
+    await _require_empty_write_request(request)
     try:
         await _service().revoke_candidate_auth_binding(candidate_id, binding_id)
         return Response(status_code=204)

@@ -8,8 +8,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 65532 sandbox \
     && useradd --uid 65532 --gid 65532 --home-dir /nonexistent --no-create-home sandbox \
-    && mkdir -p /opt/modelmirror/sandbox_sidecar /run/modelmirror-hub-mcp /run/modelmirror-hub-egress \
-    && chown -R sandbox:sandbox /run/modelmirror-hub-mcp /run/modelmirror-hub-egress
+    && mkdir -p /opt/modelmirror/sandbox_sidecar /run/modelmirror-hub-mcp /run/modelmirror-hub-egress /run/modelmirror-oauth \
+    && chown -R sandbox:sandbox /run/modelmirror-hub-mcp /run/modelmirror-hub-egress /run/modelmirror-oauth
 
 WORKDIR /opt/modelmirror
 COPY requirements.hub.lock ./requirements.hub.lock
@@ -17,6 +17,7 @@ RUN pip install --no-cache-dir --retries 5 --timeout 120 \
     --require-hashes -r requirements.hub.lock
 COPY hub_init.py ./sandbox_sidecar/__init__.py
 COPY hub_server.py ./sandbox_sidecar/hub_server.py
+COPY oauth_server.py ./sandbox_sidecar/oauth_server.py
 COPY THIRD_PARTY_NOTICES.md /usr/share/doc/modelmirror-mcp-hub/THIRD_PARTY_NOTICES.md
 
 USER 65532:65532
