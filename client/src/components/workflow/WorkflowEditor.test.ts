@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createNodeData,
+  dataMergeConnectionError,
   normalizeWorkflowNodePositions,
   parseSkillRuntimeIds,
   reconcileMcpArgumentBindings,
@@ -163,6 +164,30 @@ describe("WorkflowEditor palette defaults", () => {
       groupByFields: [],
       measures: [{ outputField: "row_count", operation: "count" }],
     });
+    expect(createNodeData("data_merge")).toMatchObject({
+      contractVersion: 1,
+      mergeMode: "append",
+      leftVariable: "left_rows",
+      rightVariable: "right_rows",
+      outputVariable: "merged_rows",
+      keyFields: [],
+    });
+  });
+
+  it("rejects missing or duplicate data merge target handles before connecting", () => {
+    expect(dataMergeConnectionError("data_merge", "merge-1", null, [])).toMatch(/左侧数据/);
+    expect(dataMergeConnectionError("data_merge", "merge-1", "left", [
+      {
+        id: "existing-left",
+        source: "source-1",
+        target: "merge-1",
+        targetHandle: "left",
+      },
+    ])).toBe("数据合流的左侧入口只能连接一次。");
+    expect(dataMergeConnectionError("data_merge", "merge-1", "right", [])).toBeNull();
+    expect(dataMergeConnectionError("output", "output-1", "left", [])).toBe(
+      "左右数据入口只属于数据合流节点。",
+    );
   });
 
   it("provides safe structured defaults for R1.7 HTTP, condition, and dataset nodes", () => {

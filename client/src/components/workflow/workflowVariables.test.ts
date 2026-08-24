@@ -512,6 +512,37 @@ describe("analyzeWorkflowVariables", () => {
     expect(variables.find((item) => item.name === "decision")?.valueType).toBe("text");
   });
 
+  it("infers deterministic V2 literal assignment output types", () => {
+    const variables = analyzeWorkflowVariables(
+      [
+        node("array", "variable_assign", {
+          contractVersion: 2,
+          valueSource: "literal",
+          literalValue: [{ id: 1 }],
+          outputVariable: "rows",
+        }),
+        node("flag", "variable_assign", {
+          contractVersion: 2,
+          valueSource: "literal",
+          literalValue: true,
+          outputVariable: "enabled",
+        }),
+        node("copy", "variable_assign", {
+          contractVersion: 2,
+          valueSource: "variable",
+          sourceVariable: "rows",
+          outputVariable: "copied",
+        }),
+      ],
+      [],
+      null,
+    );
+
+    expect(variables.find((item) => item.name === "rows")?.valueType).toBe("json");
+    expect(variables.find((item) => item.name === "enabled")?.valueType).toBe("boolean");
+    expect(variables.find((item) => item.name === "copied")?.valueType).toBe("unknown");
+  });
+
   it.each([
     ["condition", "conditionVariable", "binding"],
     ["condition", "inputVariable", "binding"],

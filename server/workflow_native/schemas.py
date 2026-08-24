@@ -44,6 +44,7 @@ NativeNodeKind = Literal[
     "multi_route",
     "list_operation",
     "data_aggregate",
+    "data_merge",
     "dataset_compare",
     "object_transform",
     "file_output",

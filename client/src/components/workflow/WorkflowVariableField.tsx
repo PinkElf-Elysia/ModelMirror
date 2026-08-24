@@ -11,6 +11,7 @@ import VariableInsertMenu, {
 } from "./VariableInsertMenu";
 import {
   analyzeWorkflowVariables,
+  analyzeWorkflowVariablesForField,
   getWorkflowVariableFieldDescriptor,
   resolveWorkflowVariableFieldTypes,
   type WorkflowVariableFieldDescriptor,
@@ -53,7 +54,13 @@ export function variableFieldWarning(
     return "";
   }
 
-  const inventory = analyzeWorkflowVariables(nodes, edges, node.id, declarations);
+  const inventory = analyzeWorkflowVariablesForField(
+    node,
+    nodes,
+    edges,
+    descriptor,
+    declarations,
+  );
   const acceptedTypes = new Set(
     resolveWorkflowVariableFieldTypes(descriptor, contract),
   );

@@ -258,9 +258,52 @@ describe("WorkflowControlDataNodeConfig", () => {
     );
 
     expect(screen.getByRole("textbox", { name: "匹配键 1" })).toHaveValue("id");
-    expect(screen.getByRole("button", { name: "删除" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "删除数据集匹配键 1" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "添加匹配键" }));
     expect(onChange).toHaveBeenLastCalledWith({ keyFields: ["id", ""] });
+  });
+
+  it("configures data merge modes without handwritten JSON", () => {
+    const mergeNode = node("data_merge");
+    const onChange = vi.fn();
+    const view = render(
+      <WorkflowControlDataNodeConfig
+        data={mergeNode.data}
+        edges={[]}
+        node={mergeNode}
+        nodes={[mergeNode]}
+        onChange={onChange}
+        onOpenVariableCenter={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("combobox", { name: "合流方式" })).toHaveValue("append");
+    expect(screen.getByText(/不会修改两侧原变量/)).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("combobox", { name: "合流方式" }), {
+      target: { value: "keyed_join" },
+    });
+    expect(onChange).toHaveBeenLastCalledWith({
+      mergeMode: "keyed_join",
+      keyFields: ["id"],
+    });
+
+    mergeNode.data = {
+      ...mergeNode.data,
+      mergeMode: "keyed_join",
+      keyFields: ["id"],
+    };
+    view.rerender(
+      <WorkflowControlDataNodeConfig
+        data={mergeNode.data}
+        edges={[]}
+        node={mergeNode}
+        nodes={[mergeNode]}
+        onChange={onChange}
+        onOpenVariableCenter={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("textbox", { name: "合流匹配键 1" })).toHaveValue("id");
+    expect(screen.getByRole("button", { name: "删除合流匹配键 1" })).toBeDisabled();
   });
 
   it("configures list slicing without handwritten JSON", () => {

@@ -68,6 +68,8 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     assert mapped["httpRequest"]["模镜对应节点"] == "http_request"
     assert mapped["if"]["模镜对应节点"] == "condition"
     assert mapped["compareDatasets"]["模镜对应节点"] == "dataset_compare"
+    assert mapped["merge"]["模镜当前状态"] == "已实现"
+    assert mapped["merge"]["模镜对应节点"] == "data_merge"
     assert mapped["set"]["模镜当前状态"] == "已实现"
     assert mapped["set"]["模镜对应节点"] == "object_transform"
     assert mapped["convertToFile"]["模镜对应节点"] == "file_output"
@@ -114,11 +116,12 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
         "dateTime", "limit", "itemLists", "extractFromFile",
         "informationExtractor", "outputParserStructured", "outputParserItemList",
         "outputParserAutofixing", "textClassifier", "guardrails",
+        "merge",
     ))
     assert all("不复制代码" in row["许可证边界"] or "企业条目" in row["许可证边界"] for row in rows)
     assert Counter(row["模镜当前状态"] for row in rows) == {
-        "已实现": 34,
-        "部分实现": 82,
+        "已实现": 35,
+        "部分实现": 81,
         "通用节点可覆盖": 276,
         "未实现": 171,
     }
@@ -154,18 +157,18 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
         for contract in workflow_node_contract_registry.list()
     )
     assert "911593f505b05b01037769f578e21f22d2a1c9af" in markdown
-    assert "R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0/R2.1 PR1" in markdown
+    assert "R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0/R2.1" in markdown
     assert "44、画布目录项 42" in markdown
     assert "R1.6 结果" in markdown
     assert "自研节点总数 47、画布目录项 45、当前 18 个" in markdown
     assert f"{compatibility_count} 个 compatibility 合同" in markdown
-    assert f"自研节点总数 {native_count}" in markdown
+    assert f"当前 {native_count} Native" in markdown
     assert f"{palette_count} 个可新增 Palette 项" in markdown
     assert f"Planner 可生成类型仍固定为 {planner_count} 类" in markdown
     assert "R1.8 结果" in markdown
-    assert native_count == 50
-    assert palette_count == 47
-    assert complete_count == 42
+    assert native_count == 51
+    assert palette_count == 48
+    assert complete_count == 43
     assert compatibility_count == 8
     assert planner_count == 7
     assert "R1.9 结果" in markdown
@@ -179,6 +182,12 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
         "- R2.1 PR1 结果：不新增 `NativeNodeKind`，将 `code` 提升为只执行预定义"
         "操作的“安全文本加工 V2”完整合同，并从 Palette 移除退役 `template_transform`；"
         "旧草稿和既有激活版本继续兼容，模板文本能力由 `variable_assign` V2 承接；"
-        "当前 50 Native、47 个可新增 Palette 项、42 个完整合同、"
+        "当时 50 Native、47 个可新增 Palette 项、42 个完整合同、"
+        "8 个 compatibility 合同、7 个 Planner 节点"
+    ) in markdown
+    assert (
+        "- R2.1 PR2 结果：新增完整合同 `data_merge`，并将经典运行器升级为带持久化"
+        "边到达账本的 Scheduler V2；支持可靠 Fan-in、有界数组拼接和受限一对一 "
+        "inner join；当前 51 Native、48 个可新增 Palette 项、43 个完整合同、"
         "8 个 compatibility 合同、7 个 Planner 节点"
     ) in markdown

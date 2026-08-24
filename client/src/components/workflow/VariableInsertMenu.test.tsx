@@ -144,4 +144,48 @@ describe("collectUpstreamInsertableVariables", () => {
       disabled: false,
     });
   });
+
+  it("scopes data merge variables to the matching input handle", () => {
+    const nodes = [
+      workflowNode("start", { kind: "input", variableName: "request" }),
+      workflowNode("left-source", {
+        kind: "list_operation",
+        outputVariable: "left_rows",
+      }),
+      workflowNode("right-source", {
+        kind: "list_operation",
+        outputVariable: "right_rows",
+      }),
+      workflowNode("merge", { kind: "data_merge" }),
+    ];
+    const edges = [
+      workflowEdge("start-left", "start", "left-source"),
+      workflowEdge("start-right", "start", "right-source"),
+      workflowEdge("left-merge", "left-source", "merge", { targetHandle: "left" }),
+      workflowEdge("right-merge", "right-source", "merge", { targetHandle: "right" }),
+    ];
+    const descriptor = getWorkflowVariableFieldDescriptor(
+      "data_merge",
+      "leftVariable",
+    )!;
+
+    const options = collectWorkflowVariableOptions(
+      "merge",
+      nodes,
+      edges,
+      descriptor,
+    );
+
+    expect(options.find((item) => item.name === "left_rows")).toMatchObject({
+      availability: "available",
+      disabled: false,
+    });
+    expect(options.find((item) => item.name === "right_rows")).toMatchObject({
+      availability: "unavailable",
+      disabled: true,
+    });
+    expect(
+      options.find((item) => item.name === "right_rows")?.disabledReason,
+    ).toContain("左侧数据");
+  });
 });

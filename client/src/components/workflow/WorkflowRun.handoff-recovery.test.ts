@@ -117,6 +117,27 @@ describe("WorkflowRun handoff recovery pointer", () => {
     ]);
   });
 
+  it("shows unselected branch nodes as skipped without exposing values", () => {
+    const steps = buildRunSteps([
+      {
+        event: "node_skipped",
+        node_id: "unselected",
+        node_title: "未选择的外部请求",
+        node_type: "http_request",
+        status: "skipped",
+        message: "未命中当前分支，已跳过。",
+      },
+    ]);
+
+    expect(steps).toEqual([
+      expect.objectContaining({
+        id: "unselected",
+        status: "skipped",
+        output: "未命中当前分支，已跳过。",
+      }),
+    ]);
+  });
+
   it("stores only bounded task and run ids for page refresh recovery", () => {
     const taskId = "a".repeat(32);
     const runId = "123e4567-e89b-42d3-a456-426614174000";

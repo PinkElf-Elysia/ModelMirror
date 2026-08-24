@@ -80,7 +80,7 @@ PROMOTED_COMPLETE_KINDS = {
 def test_contract_registry_covers_every_native_kind_once() -> None:
     expected = set(get_args(NativeNodeKind))
 
-    assert len(expected) == 50
+    assert len(expected) == 51
     assert workflow_node_contract_registry.kinds() == expected
     assert len(workflow_node_contract_registry.list()) == len(expected)
     assert workflow_node_contract_registry.get("not-a-node") is None
@@ -209,6 +209,25 @@ def test_r17_http_condition_and_dataset_contracts_are_complete_and_not_plannable
     assert condition.edge.allowed_source_handles == ("true", "false")
     assert dataset.execution.deterministic is True
     assert dataset.execution.external_io is False
+
+
+def test_r21_data_merge_contract_is_complete_fanin_and_not_plannable() -> None:
+    contract = workflow_node_contract_registry.require("data_merge")
+
+    assert contract.contract_status == "complete"
+    assert contract.edge.allowed_target_handles == ("left", "right")
+    assert [port.name for port in contract.ports if port.direction == "input"] == [
+        "left",
+        "right",
+    ]
+    assert contract.execution.side_effect == "none"
+    assert contract.execution.deterministic is True
+    assert contract.execution.idempotent is True
+    assert contract.execution.can_wait is False
+    assert contract.planner.enabled is False
+    assert node_policy_service.decision("data_merge", "workflow").allowed
+    assert node_policy_service.decision("data_merge", "xpert").allowed
+    assert not node_policy_service.decision("data_merge", "evolution").allowed
 
 
 def test_r18_file_data_contracts_are_complete_scoped_and_not_plannable() -> None:
@@ -569,7 +588,7 @@ def test_registry_ui_projection_is_v4_and_contains_no_runtime_payloads() -> None
         for item in section["items"]
     ] + list(payload["knowledge_pipeline"]["items"])
 
-    assert len({item["kind"] for item in items}) == 47
+    assert len({item["kind"] for item in items}) == 48
     assert payload["version"] == "xpert-workflow-node-registry-v4"
     assert payload["contract_version"] == 3
     assert payload["contract_checksum"] == workflow_node_contract_registry.checksum

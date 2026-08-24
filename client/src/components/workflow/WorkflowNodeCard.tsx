@@ -264,6 +264,13 @@ const nodeMeta = {
     bg: "bg-brand-300/10",
     text: "text-brand-100",
   },
+  data_merge: {
+    icon: "⇉",
+    label: "数据合流",
+    border: "border-brand-300/40",
+    bg: "bg-brand-300/10",
+    text: "text-brand-100",
+  },
   dataset_compare: {
     icon: "Δ",
     label: "数据集对照",
@@ -372,6 +379,7 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
       ? data.categoriesV2.filter((category) => category.id)
       : [];
   const hasDynamicOutputs = data.kind === "multi_route" || classifierCategories.length > 0;
+  const hasDualInputs = data.kind === "data_merge";
   const legacySkillCreator = isLegacySkillCreatorMiddleware(data);
   const legacyCode =
     data.kind === "code" && !isSafeTextV2(data);
@@ -382,13 +390,15 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
       ? "border-cyan-300/80 ring-2 ring-cyan-400/40"
       : runStatus === "error"
         ? "border-rose-400/80 ring-2 ring-rose-400/30"
+        : runStatus === "skipped"
+          ? "border-slate-400/45 ring-1 ring-slate-400/20"
         : selected
           ? "border-hire-200/70 ring-2 ring-hire-300/20"
           : meta.border;
 
   return (
     <div
-      className={`relative rounded-lg border-2 bg-[#141c2e] p-2 text-slate-100 shadow-md transition duration-150 hover:bg-[#182238] active:scale-95 ${hasDynamicOutputs ? "min-w-36" : "min-w-24"} ${statusClassName}`}
+      className={`relative rounded-lg border-2 bg-[#141c2e] p-2 text-slate-100 shadow-md transition duration-150 hover:bg-[#182238] active:scale-95 ${hasDynamicOutputs || hasDualInputs ? "min-w-36" : "min-w-24"} ${statusClassName}`}
       style={hasDynamicOutputs ? { minHeight: `${Math.max(132, ((data.kind === "multi_route" ? multiRoutes.length : classifierCategories.length) + 1) * 34)}px` } : undefined}
       onDoubleClick={() => setShowInfo((current) => !current)}
     >
@@ -406,6 +416,15 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
           title="已完成"
         >
           ✓
+        </span>
+      ) : null}
+      {runStatus === "skipped" ? (
+        <span
+          aria-label="已跳过"
+          className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-slate-500 text-[9px] font-bold text-white shadow"
+          title="已跳过"
+        >
+          ↷
         </span>
       ) : null}
       {runStatus === "error" ? (
@@ -465,6 +484,39 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
             title="绑定 Plugin"
             type="target"
           />
+        </>
+      ) : data.kind === "data_merge" ? (
+        <>
+          <Handle
+            aria-label="连接左侧数据"
+            className="!h-3 !w-3 !border-2 !border-surface-900 !bg-cyan-300 after:absolute after:-inset-3 after:content-['']"
+            id="left"
+            position={Position.Left}
+            style={{ top: "34%" }}
+            title="左侧数据"
+            type="target"
+          />
+          <span
+            className="pointer-events-none absolute right-full mr-2 whitespace-nowrap text-[10px] font-semibold text-cyan-100"
+            style={{ top: "calc(34% - 7px)" }}
+          >
+            左侧数据
+          </span>
+          <Handle
+            aria-label="连接右侧数据"
+            className="!h-3 !w-3 !border-2 !border-surface-900 !bg-violet-300 after:absolute after:-inset-3 after:content-['']"
+            id="right"
+            position={Position.Left}
+            style={{ top: "70%" }}
+            title="右侧数据"
+            type="target"
+          />
+          <span
+            className="pointer-events-none absolute right-full mr-2 whitespace-nowrap text-[10px] font-semibold text-violet-100"
+            style={{ top: "calc(70% - 7px)" }}
+          >
+            右侧数据
+          </span>
         </>
       ) : ![
           "input",

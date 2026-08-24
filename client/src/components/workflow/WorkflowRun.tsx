@@ -218,7 +218,7 @@ interface PendingHumanIntervention {
   outputVariable: string;
 }
 
-type RunStepStatus = "running" | "done" | "waiting" | "error";
+type RunStepStatus = "running" | "done" | "waiting" | "skipped" | "error";
 
 interface WorkflowRunStep {
   id: string;
@@ -398,6 +398,7 @@ function appendStepOutput(
 function statusCopy(status: RunStepStatus) {
   if (status === "done") return "完成";
   if (status === "waiting") return "等待输入";
+  if (status === "skipped") return "已跳过";
   if (status === "error") return "异常";
   return "运行中";
 }
@@ -408,6 +409,9 @@ function statusClass(status: RunStepStatus) {
   }
   if (status === "waiting") {
     return "border-sky-300/25 bg-sky-300/10 text-sky-100";
+  }
+  if (status === "skipped") {
+    return "border-slate-300/20 bg-slate-300/10 text-slate-300";
   }
   if (status === "error") {
     return "border-rose-300/25 bg-rose-300/10 text-rose-100";
@@ -585,6 +589,11 @@ export function buildRunSteps(events: WorkflowRunEvent[]) {
     }
     if (event.event === "node_delta") {
       step.output = appendStepOutput(step.output, event.output, step.type);
+      return;
+    }
+    if (event.event === "node_skipped") {
+      step.status = "skipped";
+      step.output = event.message ?? "未命中当前分支，已跳过。";
       return;
     }
     if (event.event === "node_end") {
@@ -1411,6 +1420,10 @@ export default function WorkflowRun({
         onNodeStatusChange?.(event.node_id, "done");
       }
     }
+    if (event.event === "node_skipped" && event.node_id) {
+      runningNodesRef.current.delete(event.node_id);
+      onNodeStatusChange?.(event.node_id, "skipped");
+    }
     if (event.event === "error") {
       if (event.node_id) {
         lastNodeErrorRef.current = event.message ?? "工作流节点运行异常。";
@@ -2036,13 +2049,22 @@ export default function WorkflowRun({
           <div className="mb-3 rounded-lg border border-white/10 bg-white/[0.03] p-3">
             <p className="text-[11px] font-semibold text-slate-400">最近运行</p>
             <div className="mt-2 space-y-1.5">
-              {runHistory.map((entry) => (
+              {runHistory.map((entry, index) => (
                 <div
                   className="flex items-center justify-between gap-3 text-[11px]"
                   key={`${entry.taskId}-${entry.finishedAt}`}
                 >
-                  <span className="min-w-0 truncate text-slate-400">
-                    {entry.summary}
+                  <span className="min-w-0 text-slate-400">
+                    <span className="block font-medium text-slate-300">
+                      {index === 0 ? "当前" : `上次 ${index}`} ·{" "}
+                      {new Date(entry.finishedAt).toLocaleTimeString()}
+                      {entry.runId || entry.taskId
+                        ? ` · ${(entry.runId ?? entry.taskId)?.slice(0, 8)}`
+                        : ""}
+                    </span>
+                    <span className="mt-0.5 block truncate" title={entry.summary}>
+                      {entry.summary}
+                    </span>
                   </span>
                   <span
                     className={`shrink-0 rounded-full border px-2 py-0.5 ${

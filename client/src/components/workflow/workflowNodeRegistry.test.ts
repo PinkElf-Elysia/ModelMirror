@@ -37,6 +37,7 @@ describe("workflowNodeRegistry NodeContract V3 guard", () => {
       "terminate_error",
       "multi_route",
       "data_aggregate",
+      "data_merge",
       "dataset_compare",
       "object_transform",
       "file_output",

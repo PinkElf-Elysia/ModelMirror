@@ -624,6 +624,11 @@ try:
         validate_mcp_tool_v2_config,
         workflow_mcp_tools_enabled,
     )
+    from server.workflow_native.r21_nodes import (
+        WorkflowR21Error,
+        WorkflowSchedulerV2,
+        execute_data_merge,
+    )
     from server.workflow_native.values import (
         WorkflowValue,
         deserialize_workflow_value,
@@ -708,6 +713,11 @@ except ModuleNotFoundError:
         validate_human_intervention_v2_config,
         validate_mcp_tool_v2_config,
         workflow_mcp_tools_enabled,
+    )
+    from workflow_native.r21_nodes import (
+        WorkflowR21Error,
+        WorkflowSchedulerV2,
+        execute_data_merge,
     )
     from workflow_native.values import (
         WorkflowValue,
@@ -2894,6 +2904,7 @@ class WorkflowPayload(BaseModel):
             "list_operation": ("outputVariable",),
             "data_aggregate": ("outputVariable",),
             "dataset_compare": ("outputVariable",),
+            "data_merge": ("outputVariable",),
             "object_transform": ("outputVariable",),
             "file_output": ("outputVariable",),
             "iteration": ("outputVariable",),
@@ -5438,6 +5449,7 @@ def workflow_node_kind(node: WorkflowNodePayload) -> WorkflowNodeType:
         "multi_route",
         "list_operation",
         "data_aggregate",
+        "data_merge",
         "iteration",
         "json_serialize",
         "json_deserialize",
@@ -6356,6 +6368,12 @@ def workflow_topological_order(
     nodes: list[WorkflowNodePayload],
     edges: list[WorkflowEdgePayload],
 ) -> list[str]:
+    edge_ids = [str(edge.id or "") for edge in edges]
+    if len(edge_ids) != len(set(edge_ids)):
+        raise HTTPException(
+            status_code=400,
+            detail="Workflow edge IDs must be unique.",
+        )
     all_node_ids = {node.id for node in nodes}
     bound_resource_node_ids = {
         edge.source for edge in edges if is_non_control_binding_edge(edge)
@@ -9022,6 +9040,30 @@ async def _run_workflow_response(
     try:
         if request is not None:
             rate_limit_or_raise(client_ip(request))
+        data_merge_node_ids = {
+            node.id
+            for node in payload.workflow.nodes
+            if workflow_node_kind(node) == "data_merge"
+        }
+        if data_merge_node_ids:
+            native_workflow = NativeWorkflowDefinition.model_validate(
+                payload.workflow.model_dump()
+            )
+            merge_validation = validate_workflow_graph(native_workflow)
+            merge_issues = [
+                issue
+                for issue in merge_validation.issues
+                if issue.node_id in data_merge_node_ids
+                or issue.code == "duplicate_edge_id"
+            ]
+            if merge_issues:
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "error": merge_issues[0].message,
+                        "issues": [issue.model_dump() for issue in merge_issues],
+                    },
+                )
         order = workflow_topological_order(payload.workflow.nodes, payload.workflow.edges)
     except HTTPException as exc:
         return JSONResponse(status_code=exc.status_code, content={"error": str(exc.detail)})
@@ -9291,6 +9333,7 @@ async def _run_workflow_response(
         queued: set[str] = task_state["queued"]
         executed: set[str] = task_state["executed"]
         final_output = ""
+        scheduler_v2: WorkflowSchedulerV2 | None = None
 
         def start_managed_node_run(node_id: str) -> ManagedWorkflowNodeRun | None:
             if workflow_managed_mode == "legacy":
@@ -14298,6 +14341,55 @@ async def _run_workflow_response(
             return output_text, events
 
         try:
+            scheduler_present = "scheduler" in resume_state
+            raw_scheduler = resume_state.get("scheduler")
+            scheduler_version = (
+                raw_scheduler.get("version")
+                if isinstance(raw_scheduler, dict)
+                else None
+            )
+            if resume_execution is None or (
+                isinstance(raw_scheduler, dict)
+                and type(scheduler_version) is int
+                and scheduler_version == 2
+            ):
+                try:
+                    scheduler_v2 = WorkflowSchedulerV2(
+                        nodes=payload.workflow.nodes,
+                        control_edges=control_flow_edges(payload.workflow.edges),
+                        order_index=order_index,
+                        restored=(
+                            dict(raw_scheduler)
+                            if resume_execution is not None
+                            and isinstance(raw_scheduler, dict)
+                            else None
+                        ),
+                    )
+                    if resume_execution is not None:
+                        scheduler_v2.validate_resume_state(
+                            queue=list(queue),
+                            queued=queued,
+                            executed=executed,
+                        )
+                except WorkflowR21Error as exc:
+                    raise WorkflowTerminationError(
+                        exc.code,
+                        exc.safe_message,
+                        node_id="scheduler",
+                    ) from None
+            elif not scheduler_present or (
+                isinstance(raw_scheduler, dict)
+                and type(scheduler_version) is int
+                and scheduler_version == 1
+            ):
+                scheduler_v2 = None
+            else:
+                raise WorkflowTerminationError(
+                    "SCHEDULER_VERSION_INVALID",
+                    "Workflow continuation scheduler version is invalid.",
+                    node_id="scheduler",
+                )
+
             meta_event = {
                 "event": "workflow_meta",
                 "task_id": task_id,
@@ -14870,6 +14962,43 @@ async def _run_workflow_response(
                         key_fields=node.data.get("keyFields"),
                         include_unchanged=bool(node.data.get("includeUnchanged", False)),
                     )
+                    variables[output_variable] = normalize_workflow_value(
+                        stored_output,
+                        path=f"$.variables.{output_variable}",
+                    )
+                    output = workflow_value_to_text(stored_output)
+                    yield sse_payload(
+                        {
+                            "event": "node_delta",
+                            "node_id": node.id,
+                            "node_title": title,
+                            "node_type": kind,
+                            "output": output,
+                            "variable": output_variable,
+                        }
+                    )
+
+                elif kind == "data_merge":
+                    if scheduler_v2 is None:
+                        raise WorkflowTerminationError(
+                            "DATA_MERGE_LEGACY_SCHEDULER_UNSUPPORTED",
+                            "Data merge requires the reliable fan-in scheduler.",
+                            node_id=node.id,
+                        )
+                    try:
+                        output_variable, stored_output = execute_data_merge(
+                            node.data,
+                            variables,
+                            incoming_outcomes=(
+                                scheduler_v2.incoming_outcomes_by_handle(node.id)
+                            ),
+                        )
+                    except WorkflowR21Error as exc:
+                        raise WorkflowTerminationError(
+                            exc.code,
+                            exc.safe_message,
+                            node_id=node.id,
+                        ) from None
                     variables[output_variable] = normalize_workflow_value(
                         stored_output,
                         path=f"$.variables.{output_variable}",
@@ -20376,10 +20505,64 @@ async def _run_workflow_response(
                         ][:1]
                     next_edges = matching_edges
 
-                for edge in sorted(next_edges, key=lambda item: order_index[item.target]):
-                    if edge.target not in executed and edge.target not in queued:
-                        queue.append(edge.target)
-                        queued.add(edge.target)
+                if scheduler_v2 is not None:
+                    try:
+                        skipped_before = set(scheduler_v2.skipped_nodes)
+                        scheduled_targets = scheduler_v2.resolve_node(
+                            node_id,
+                            arrived_edge_ids={edge.id for edge in next_edges},
+                            queued=queued,
+                            executed=executed,
+                        )
+                    except WorkflowR21Error as exc:
+                        raise WorkflowTerminationError(
+                            exc.code,
+                            exc.safe_message,
+                            node_id=node.id,
+                        ) from None
+                    newly_skipped = sorted(
+                        scheduler_v2.skipped_nodes - skipped_before,
+                        key=lambda skipped_id: (
+                            order_index.get(skipped_id, 10**9),
+                            skipped_id,
+                        ),
+                    )
+                    for skipped_id in newly_skipped:
+                        skipped_node = nodes_by_id[skipped_id]
+                        skipped_event = {
+                            "event": "node_skipped",
+                            "node_id": skipped_id,
+                            "node_title": workflow_node_title(skipped_node),
+                            "node_type": workflow_node_kind(skipped_node),
+                            "status": "skipped",
+                            "message": "未命中当前分支，已跳过。",
+                        }
+                        workflow_execution_store.append_event(
+                            task_id,
+                            skipped_event,
+                        )
+                        yield sse_payload(skipped_event)
+                    for target_id in scheduled_targets:
+                        queue.append(target_id)
+                        queued.add(target_id)
+                else:
+                    for edge in sorted(
+                        next_edges,
+                        key=lambda item: order_index[item.target],
+                    ):
+                        if edge.target not in executed and edge.target not in queued:
+                            queue.append(edge.target)
+                            queued.add(edge.target)
+
+            if scheduler_v2 is not None:
+                try:
+                    scheduler_v2.assert_drained()
+                except WorkflowR21Error as exc:
+                    raise WorkflowTerminationError(
+                        exc.code,
+                        exc.safe_message,
+                        node_id="scheduler",
+                    ) from None
 
             if not final_output:
                 final_output = next(reversed(variables.values()), "")
@@ -20670,6 +20853,11 @@ async def _run_workflow_response(
                 "queue": [current_node_id, *list(queue)] if current_node_id else list(queue),
                 "queued": sorted(queued),
                 "executed": sorted(executed),
+                "scheduler": (
+                    scheduler_v2.snapshot()
+                    if scheduler_v2 is not None
+                    else {"version": 1}
+                ),
                 "final_output": final_output,
                 "agent_state": dict(interrupt.continuation.get("agent_state") or {}),
                 "skill_creator_handoff_request": (
