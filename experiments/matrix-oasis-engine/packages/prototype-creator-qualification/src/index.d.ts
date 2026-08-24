@@ -42,3 +42,62 @@ export declare function findVerifiedQualifiedCreatorRun(
 export declare function recoverQualifiedCreatorRuns(
   request: PrototypeCreatorQualificationRootRequest,
 ): Promise<Readonly<{ currentQualificationRunId: string | null; runs: readonly PrototypeCreatorQualifiedRun[] }>>;
+
+export type PrototypeCreatorQualificationCacheLevel =
+  | "qualified"
+  | "evidence-only"
+  | "solved-only"
+  | "source-only";
+
+export interface PrototypeCreatorQualificationStage {
+  readonly stage: "qualifying";
+  readonly subphase: "analyzing" | "solving" | "verifying" | "evidencing";
+  readonly attempt: 0 | 1 | 2;
+}
+
+export interface PrototypeCreatorQualificationOrchestrationRequest {
+  readonly cacheLevel: PrototypeCreatorQualificationCacheLevel;
+  readonly expectedSolutionSha256?: string;
+  readonly source?: unknown;
+  readonly solved?: unknown;
+  readonly verification?: unknown;
+  readonly evidence?: unknown;
+  readonly qualified?: unknown;
+  readonly onStage?: (stage: PrototypeCreatorQualificationStage) => void | Promise<void>;
+}
+
+export interface PrototypeCreatorQualificationOperations {
+  readonly analyze?: (request: Readonly<Record<string, unknown>>) => unknown | Promise<unknown>;
+  readonly solve?: (request: Readonly<Record<string, unknown>>) => unknown | Promise<unknown>;
+  readonly verify?: (request: Readonly<Record<string, unknown>>) => unknown | Promise<unknown>;
+  readonly verifySolved?: (request: Readonly<Record<string, unknown>>) => unknown | Promise<unknown>;
+  readonly verifyEvidence?: (request: Readonly<Record<string, unknown>>) => unknown | Promise<unknown>;
+  readonly verifyQualified?: (request: Readonly<Record<string, unknown>>) => unknown | Promise<unknown>;
+  readonly collectEvidence?: (request: Readonly<Record<string, unknown>> & Readonly<{
+    onAttempt: (attempt: 1 | 2) => void | Promise<void>;
+  }>) => unknown | Promise<unknown>;
+  readonly publishQualification?: (request: Readonly<Record<string, unknown>>) => unknown | Promise<unknown>;
+}
+
+export type PrototypeCreatorQualificationOrchestrationResult =
+  | Readonly<{
+      ok: true;
+      cacheLevel: PrototypeCreatorQualificationCacheLevel;
+      reusedQualification: boolean;
+      qualification: unknown;
+    }>
+  | Readonly<{
+      ok: false;
+      diagnostics: readonly Readonly<{
+        phase: "qualification";
+        severity: "error";
+        code: string;
+        path: "";
+        message: string;
+      }>[];
+    }>;
+
+export declare function qualifyPrototypeForCreator(
+  request: PrototypeCreatorQualificationOrchestrationRequest,
+  operations: PrototypeCreatorQualificationOperations,
+): Promise<PrototypeCreatorQualificationOrchestrationResult>;
