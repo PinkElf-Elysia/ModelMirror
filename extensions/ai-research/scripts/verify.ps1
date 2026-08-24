@@ -165,14 +165,33 @@ if unexpected:
         throw "provider credential names were exposed to module containers"
     }
 
-    Push-Location (Join-Path $repoRoot "client")
+    $clientProof = Join-Path $runtime ("client-proof-" + [Guid]::NewGuid().ToString("N"))
+    $clientContext = Join-Path $runtime ("client-context-" + [Guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Path $clientProof, $clientContext | Out-Null
     try {
-        Invoke-Checked "npm.cmd" @("ci")
-        Invoke-Checked "npm.cmd" @("run", "build")
+        $clientArchive = Join-Path $clientContext "client.tar"
+        Invoke-Checked "git" @(
+            "-C", $repoRoot,
+            "archive", "--format=tar", "--output=$clientArchive", "HEAD", "client"
+        )
+        Invoke-Checked "tar" @("-xf", $clientArchive, "-C", $clientContext)
+        Remove-Item -LiteralPath $clientArchive
+        Invoke-Checked "docker" @(
+            "build",
+            "-f", (Join-Path $moduleRoot "scripts/client-proof.Dockerfile"),
+            "-t", "modelmirror-ai-research-client-proof:ar0",
+            $clientContext
+        )
+        Extract-ImageFile "modelmirror-ai-research-client-proof:ar0" "/proof/dist/." $clientProof
+        Invoke-Python @("scripts/zero_footprint.py", "--client-dist", $clientProof)
     } finally {
-        Pop-Location
+        if (Test-Path -LiteralPath $clientProof) {
+            Remove-Item -LiteralPath $clientProof -Recurse -Force
+        }
+        if (Test-Path -LiteralPath $clientContext) {
+            Remove-Item -LiteralPath $clientContext -Recurse -Force
+        }
     }
-    Invoke-Python @("scripts/zero_footprint.py")
 } finally {
     & docker @compose down
     Pop-Location

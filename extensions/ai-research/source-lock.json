@@ -15,6 +15,10 @@
     "reference": "python@sha256:401f6e1a67dad31a1bd78e9ad22d0ee0a3b52154e6bd30e90be696bb6a3d7461",
     "digest": "sha256:401f6e1a67dad31a1bd78e9ad22d0ee0a3b52154e6bd30e90be696bb6a3d7461"
   },
+  "clientProofImage": {
+    "reference": "node@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32",
+    "digest": "sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32"
+  },
   "coreBaseline": {
     "clientDist": {
       "fileCount": 26,
@@ -111,6 +115,10 @@
     "worker/Dockerfile": {
       "sizeBytes": 1736,
       "sha256": "d96c0b01c7086dab159b631aaaa91b183feb6b8bf79f784a9382562cd2e14253"
+    },
+    "scripts/client-proof.Dockerfile": {
+      "sizeBytes": 362,
+      "sha256": "ca8ad9be55ddc67a3ef2a563e38abf354fc40b930c28d08824ee6868c6f4c34d"
     }
   },
   "licenseAudit": {

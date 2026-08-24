@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import subprocess
@@ -26,8 +27,9 @@ def command(*args: str) -> str:
     return result.stdout
 
 
-def client_dist() -> dict[str, object]:
-    root = REPO_ROOT / "client" / "dist"
+def client_dist(root: Path) -> dict[str, object]:
+    if not root.is_dir():
+        raise BaselineFailure(f"client dist is missing: {root}")
     files = sorted(path for path in root.rglob("*") if path.is_file())
     pairs = b""
     for path in files:
@@ -41,6 +43,10 @@ def client_dist() -> dict[str, object]:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--client-dist", type=Path, default=REPO_ROOT / "client" / "dist")
+    args = parser.parse_args()
+    client_dist_root = args.client_dist.resolve()
     source_lock = json.loads((MODULE_ROOT / "source-lock.json").read_text(encoding="utf-8"))
     baseline = source_lock["coreBaseline"]
     locked_base = source_lock["modelMirrorBaseCommit"]
@@ -49,7 +55,8 @@ def main() -> int:
         actual = sha256(REPO_ROOT / relative)
         if actual != expected:
             failures.append(f"core tracked file drifted: {relative}")
-    if client_dist() != baseline["clientDist"]:
+    actual_client_dist = client_dist(client_dist_root)
+    if actual_client_dist != baseline["clientDist"]:
         failures.append("client dist hash/count/size changed")
 
     services = sorted(command("docker", "compose", "config", "--services").splitlines())
@@ -71,7 +78,7 @@ def main() -> int:
         json.dumps(
             {
                 "status": "passed",
-                "clientDist": client_dist(),
+                "clientDist": actual_client_dist,
                 "defaultServiceCount": len(services),
                 "defaultVolumeCount": len(volumes),
             },
