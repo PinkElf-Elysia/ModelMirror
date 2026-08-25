@@ -133,12 +133,19 @@ class HandoffExecutor:
             raise HandoffBusyError("Handoff is already executing in this worker.")
         self._active_handoffs.add(handoff_id)
         try:
+            existing = await self.store.get_handoff(handoff_id)
+            claim_attempts = (
+                1
+                if existing is not None
+                and bool(existing.metadata.get("no_auto_retry"))
+                else self.max_attempts
+            )
             try:
                 claimed = await self.store.claim_handoff(
                     handoff_id,
                     worker_id=self.worker_id,
                     lease_seconds=self.lease_seconds,
-                    max_attempts=self.max_attempts,
+                    max_attempts=claim_attempts,
                 )
             except ValueError as exc:
                 if "already leased" in str(exc):
@@ -318,7 +325,13 @@ class HandoffExecutor:
                 return waiting
 
             completed_at = time.time()
-            safe_output = str(result.output or "")[:100_000]
+            safe_output = str(result.output or "")
+            if len(safe_output) > 100_000:
+                return await self._finish_failure(
+                    claimed,
+                    task,
+                    HandoffPermanentError("HANDOFF_RESULT_TOO_LARGE"),
+                )
             completed = await self.store.update_handoff_status(
                 claimed.handoff_id,
                 "completed",
@@ -454,10 +467,16 @@ class HandoffExecutor:
         task: AgentTask | None,
         exc: Exception,
     ) -> AgentHandoff:
-        error = str(exc or "Handoff execution failed.")[:1000]
+        is_v2 = int(claimed.metadata.get("contract_version") or 1) == 2
+        error = (
+            "HANDOFF_TARGET_UNAVAILABLE"
+            if is_v2
+            else str(exc or "Handoff execution failed.")[:1000]
+        )
         attempts = int(claimed.metadata.get("attempts") or 1)
         permanent = isinstance(exc, HandoffPermanentError)
-        exhausted = attempts >= self.max_attempts
+        max_attempts = 1 if bool(claimed.metadata.get("no_auto_retry")) else self.max_attempts
+        exhausted = attempts >= max_attempts
         task_run, handoff_run = await self._ensure_runs(claimed, task)
         if permanent or exhausted:
             dead_lettered_at = time.time()

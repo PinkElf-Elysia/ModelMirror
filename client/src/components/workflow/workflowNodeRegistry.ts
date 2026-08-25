@@ -354,13 +354,6 @@ export const workflowPaletteSections: WorkflowPaletteSection[] = [
         tags: ["mcp", "tool"],
       },
       {
-        kind: "agent",
-        icon: "A",
-        title: "Agent 节点",
-        description: "模型驱动的任务执行节点，支持工具循环和直接回答。",
-        tags: ["agent", "toolset"],
-      },
-      {
         kind: "workflow_agent",
         icon: "WA",
         title: "智能体工作流",
@@ -370,22 +363,22 @@ export const workflowPaletteSections: WorkflowPaletteSection[] = [
       {
         kind: "agent_task",
         icon: "TASK",
-        title: "智能体任务",
-        description: "创建 Agent Task Runtime 任务，输出 task_id。",
+        title: "创建协作任务",
+        description: "登记可追踪任务，并输出可直接移交的任务凭证。",
         tags: ["task", "agent-task"],
       },
       {
         kind: "agent_handoff",
         icon: "⇄",
-        title: "任务移交",
-        description: "把 Agent Task 显式移交给另一个智能体。",
+        title: "移交已有任务",
+        description: "把任务凭证交给人工队列或固定版本智能体。",
         tags: ["handoff", "agent"],
       },
       {
         kind: "handoff_router",
         icon: "↪",
-        title: "移交路由器",
-        description: "读取智能体输出，投递到目标 Agent 的 Handoff Inbox。",
+        title: "创建并移交任务",
+        description: "把上游内容包装成任务并立即投递。",
         tags: ["handoff", "router"],
       },
       {

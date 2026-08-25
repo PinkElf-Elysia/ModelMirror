@@ -985,6 +985,7 @@ try:
         OfficeToolsetProvider,
         WorkflowExecution,
         WorkflowExecutionStore,
+        WorkflowHandoffCoordinator,
         RuntimeToolCall,
         RuntimeToolError,
         RuntimeToolResult,
@@ -1115,6 +1116,7 @@ except ModuleNotFoundError:
         OfficeToolsetProvider,
         WorkflowExecution,
         WorkflowExecutionStore,
+        WorkflowHandoffCoordinator,
         RuntimeToolCall,
         RuntimeToolError,
         RuntimeToolResult,
@@ -1818,6 +1820,18 @@ run_registry = RunRegistry()
 workflow_execution_store = WorkflowExecutionStore(
     storage_dir=AGENT_TASK_STORAGE_DIR or None
 )
+
+
+def validate_workflow_handoff_target(xpert_id: str, version: int) -> None:
+    target = get_xpert_store().get_xpert(str(xpert_id).strip())
+    if (
+        target.status != "published"
+        or int(target.published_version or 0) != int(version)
+    ):
+        raise ValueError("The fixed Xpert target is not the active published version.")
+    get_xpert_store().get_version(target.id, int(version))
+
+
 skill_application_receipt_store = SkillApplicationReceiptStore(
     storage_dir=AGENT_TASK_STORAGE_DIR or None
 )
@@ -1829,6 +1843,7 @@ workflow_deployment_store = WorkflowDeploymentStore(
     storage_dir=AGENT_TASK_STORAGE_DIR or None,
     credential_validator=toolset_credential_store.get_public,
     mcp_tool_validator=validate_registered_workflow_mcp_tool,
+    xpert_target_validator=validate_workflow_handoff_target,
 )
 
 
@@ -1986,6 +2001,7 @@ handoff_executor: HandoffExecutor | None = None
 goal_coordinator: GoalCoordinator | None = None
 approval_coordinator: ApprovalCoordinator | None = None
 client_tool_coordinator: ClientToolCoordinator | None = None
+workflow_handoff_coordinator: WorkflowHandoffCoordinator | None = None
 automation_store = AutomationStore(storage_dir=AGENT_TASK_STORAGE_DIR or None)
 automation_coordinator: AutomationCoordinator | None = None
 workflow_automation_provider: AutomationToolsetProvider | None = None
@@ -5513,6 +5529,20 @@ def workflow_node_kind(node: WorkflowNodePayload) -> WorkflowNodeType:
 def workflow_node_title(node: WorkflowNodePayload) -> str:
     title = node.data.get("title")
     return str(title) if isinstance(title, str) and title.strip() else node.id
+
+
+def workflow_handoff_failure_code(handoff: Any) -> str:
+    if handoff is None:
+        return "HANDOFF_RECEIPT_INVALID"
+    status = str(getattr(handoff, "status", "") or "")
+    if status == "rejected":
+        return "HANDOFF_REJECTED"
+    if status == "dead_letter":
+        metadata = getattr(handoff, "metadata", {})
+        if isinstance(metadata, dict) and metadata.get("last_error") == "HANDOFF_TIMEOUT":
+            return "HANDOFF_TIMEOUT"
+        return "HANDOFF_TARGET_UNAVAILABLE"
+    return "HANDOFF_RECEIPT_INVALID"
 
 
 def sse_payload(data: dict[str, Any]) -> bytes:
@@ -19855,6 +19885,83 @@ async def _run_workflow_response(
                             }
                         )
 
+                elif kind == "agent_task" and r20_contract_version(node.data) == 2:
+                    output_variable = str(
+                        node.data.get("outputVariable") or "agent_task_receipt"
+                    ).strip()
+                    task_title = render_workflow_template(
+                        str(node.data.get("taskTitle") or ""), variables
+                    ).strip()
+                    task_input = render_workflow_template(
+                        str(node.data.get("taskInput") or ""), variables
+                    )
+                    assigned_agent = str(
+                        node.data.get("assignedAgent") or ""
+                    ).strip()
+                    if not 1 <= len(task_title) <= 500:
+                        raise ValueError("AGENT_TASK_TITLE_INVALID")
+                    if not 1 <= len(task_input) <= 20_000:
+                        raise ValueError("AGENT_TASK_INPUT_INVALID")
+                    if not assigned_agent or not output_variable:
+                        raise ValueError("AGENT_TASK_CONFIG_INVALID")
+                    task = await agent_task_store.create_task(
+                        title=task_title,
+                        input_text=task_input,
+                        source_agent="workflow",
+                        assigned_agent=assigned_agent,
+                        occurrence_key=f"{task_id}:{node.id}",
+                        metadata={
+                            "contract_version": 2,
+                            "workflow_id": payload.workflow.id,
+                            "workflow_task_id": task_id,
+                            "workflow_node_id": node.id,
+                            "output_variable": output_variable,
+                        },
+                    )
+                    existing_runs = await run_registry.list_runs(
+                        run_type="agent_task",
+                        source_id=task.task_id,
+                        limit=1,
+                    )
+                    agent_task_run = (
+                        existing_runs[0]
+                        if existing_runs
+                        else await run_registry.create_run(
+                            "agent_task",
+                            task.title,
+                            status="pending",
+                            source_id=task.task_id,
+                            parent_run_id=workflow_run.run_id,
+                            metadata={
+                                "workflow_id": payload.workflow.id,
+                                "workflow_task_id": task_id,
+                                "node_id": node.id,
+                                "agent_task_id": task.task_id,
+                                "assigned_agent": assigned_agent,
+                            },
+                        )
+                    )
+                    receipt = {
+                        "status": task.status,
+                        "taskId": task.task_id,
+                        "runId": agent_task_run.run_id,
+                        "assignedAgent": assigned_agent,
+                    }
+                    variables[output_variable] = receipt
+                    output = f"任务已创建，等待 {assigned_agent} 处理。"
+                    yield sse_payload(
+                        {
+                            "event": "node_delta",
+                            "node_id": node.id,
+                            "node_title": title,
+                            "node_type": kind,
+                            "output": output,
+                            "variable": output_variable,
+                            "agent_task_id": task.task_id,
+                            "run_id": agent_task_run.run_id,
+                        }
+                    )
+
                 elif kind == "agent_task":
                     output_variable = str(
                         node.data.get("outputVariable") or "agent_task_id"
@@ -19946,6 +20053,231 @@ async def _run_workflow_response(
                                 "event": "error",
                                 "node_id": node.id,
                                 "message": str(exc),
+                            }
+                        )
+
+                elif kind == "agent_handoff" and r20_contract_version(node.data) == 2:
+                    output_variable = str(
+                        node.data.get("outputVariable") or "handoff_receipt"
+                    ).strip()
+                    result_variable = str(
+                        node.data.get("resultVariable") or "handoff_result"
+                    ).strip()
+                    resume_handoff = dict(task_state.get("agent_resume_state") or {})
+                    if resume_handoff.get("handoff_node_id") == node.id:
+                        handoff_id = str(
+                            resume_handoff.get("resolved_handoff_id") or ""
+                        )
+                        handoff = await agent_task_store.get_handoff(handoff_id)
+                        if handoff is None or handoff.status != "completed":
+                            raise ValueError(workflow_handoff_failure_code(handoff))
+                        result = str(handoff.metadata.get("result") or "")
+                        if len(result) > 100_000:
+                            raise ValueError("HANDOFF_RESULT_TOO_LARGE")
+                        target_kind = str(
+                            handoff.metadata.get("target_kind") or "inbox"
+                        )
+                        target_id = str(
+                            handoff.metadata.get("target_xpert_id")
+                            or handoff.target_agent.removeprefix("xpert:")
+                        )
+                        target_version = handoff.metadata.get("target_xpert_version")
+                        receipt = {
+                            "status": "completed",
+                            "taskId": handoff.task_id,
+                            "handoffId": handoff.handoff_id,
+                            "runId": str(handoff.metadata.get("xpert_run_id") or ""),
+                            "targetKind": target_kind,
+                            "targetId": target_id,
+                            "targetVersion": target_version,
+                            "result": result,
+                        }
+                        variables[output_variable] = receipt
+                        if result_variable:
+                            variables[result_variable] = result
+                        output = "移交已完成，结果已写入工作流变量。"
+                        yield sse_payload(
+                            {
+                                "event": "node_delta",
+                                "node_id": node.id,
+                                "node_title": title,
+                                "node_type": kind,
+                                "output": output,
+                                "variable": output_variable,
+                                "agent_task_id": handoff.task_id,
+                                "agent_handoff_id": handoff.handoff_id,
+                                "handoff_status": "completed",
+                            }
+                        )
+                    else:
+                        if not app_capability_allowed("allow_handoffs"):
+                            raise PermissionError("HANDOFF_NOT_ALLOWED")
+                        task_variable = str(node.data.get("taskVariable") or "").strip()
+                        task_value_kind = str(
+                            node.data.get("taskValueKind") or "receipt"
+                        ).strip()
+                        raw_task_value = variables.get(task_variable)
+                        if task_value_kind == "receipt":
+                            if not isinstance(raw_task_value, dict):
+                                raise ValueError("HANDOFF_RECEIPT_INVALID")
+                            handoff_task_id = str(
+                                raw_task_value.get("taskId") or ""
+                            ).strip()
+                        else:
+                            handoff_task_id = workflow_value_to_text(
+                                raw_task_value
+                            ).strip()
+                        task = await agent_task_store.get_task(handoff_task_id)
+                        if task is None:
+                            raise ValueError("HANDOFF_TASK_NOT_FOUND")
+                        source_agent = str(
+                            node.data.get("sourceAgent") or "workflow"
+                        ).strip()
+                        target_mode = str(node.data.get("targetMode") or "").strip()
+                        wait_for_completion = workflow_truthy(
+                            node.data.get("waitForCompletion")
+                        )
+                        try:
+                            timeout_seconds = int(node.data.get("timeoutSeconds") or 120)
+                        except (TypeError, ValueError) as exc:
+                            raise ValueError("HANDOFF_TIMEOUT_INVALID") from exc
+                        if not 5 <= timeout_seconds <= 600:
+                            raise ValueError("HANDOFF_TIMEOUT_INVALID")
+                        target_version: int | None = None
+                        if target_mode == "xpert":
+                            if not HANDOFF_EXECUTOR_ENABLED:
+                                raise ValueError("HANDOFF_EXECUTOR_DISABLED")
+                            target_xpert_id = str(
+                                node.data.get("targetXpertId") or ""
+                            ).strip()
+                            target_version = int(node.data.get("targetVersion") or 0)
+                            try:
+                                validate_workflow_handoff_target(
+                                    target_xpert_id,
+                                    target_version,
+                                )
+                            except Exception as exc:
+                                raise ValueError(
+                                    "HANDOFF_TARGET_VERSION_UNAVAILABLE"
+                                ) from exc
+                            target_agent = f"xpert:{target_xpert_id}"
+                            target_id = target_xpert_id
+                        elif target_mode == "inbox":
+                            target_id = str(
+                                node.data.get("inboxTarget") or ""
+                            ).strip()
+                            if not target_id:
+                                raise ValueError("HANDOFF_INBOX_TARGET_INVALID")
+                            target_agent = target_id
+                        else:
+                            raise ValueError("HANDOFF_TARGET_INVALID")
+                        reason = render_workflow_template(
+                            str(node.data.get("reason") or ""), variables
+                        ).strip()
+                        if not 1 <= len(reason) <= 4000:
+                            raise ValueError("HANDOFF_REASON_INVALID")
+                        handoff = await agent_task_store.create_handoff(
+                            handoff_task_id,
+                            source_agent=source_agent,
+                            target_agent=target_agent,
+                            reason=reason,
+                            occurrence_key=f"{task_id}:{node.id}",
+                            metadata={
+                                "contract_version": 2,
+                                "workflow_id": payload.workflow.id,
+                                "workflow_task_id": task_id,
+                                "workflow_node_id": node.id,
+                                "output_variable": output_variable,
+                                "result_variable": result_variable,
+                                "target_kind": target_mode,
+                                "target_xpert_id": target_id if target_mode == "xpert" else "",
+                                "target_xpert_version": target_version,
+                                "execution_mode": (
+                                    "xpert_auto" if target_mode == "xpert" else "manual"
+                                ),
+                                "wait_for_completion": wait_for_completion,
+                                "timeout_seconds": timeout_seconds,
+                                "ready_for_execution": False,
+                                "no_auto_retry": True,
+                                _PROVIDER_WORKLOAD_SOURCE_METADATA_KEY: run_metadata.get(
+                                    _PROVIDER_WORKLOAD_SOURCE_METADATA_KEY
+                                ),
+                                "handoff_depth": int(run_metadata.get("handoff_depth") or 0),
+                            },
+                        )
+                        existing_runs = await run_registry.list_runs(
+                            run_type="agent_handoff",
+                            source_id=handoff.handoff_id,
+                            limit=1,
+                        )
+                        handoff_run = (
+                            existing_runs[0]
+                            if existing_runs
+                            else await run_registry.create_run(
+                                "agent_handoff",
+                                f"{source_agent} -> {target_id}",
+                                status="pending",
+                                source_id=handoff.handoff_id,
+                                parent_run_id=workflow_run.run_id,
+                                metadata={
+                                    "workflow_id": payload.workflow.id,
+                                    "workflow_task_id": task_id,
+                                    "node_id": node.id,
+                                    "agent_task_id": handoff_task_id,
+                                    "handoff_id": handoff.handoff_id,
+                                    "target_kind": target_mode,
+                                    "target_id": target_id,
+                                    "target_version": target_version,
+                                },
+                            )
+                        )
+                        await agent_task_store.update_handoff_metadata(
+                            handoff.handoff_id, {"ready_for_execution": True}
+                        )
+                        receipt = {
+                            "status": "submitted",
+                            "taskId": handoff_task_id,
+                            "handoffId": handoff.handoff_id,
+                            "runId": handoff_run.run_id,
+                            "targetKind": target_mode,
+                            "targetId": target_id,
+                            "targetVersion": target_version,
+                            "result": None,
+                        }
+                        variables[output_variable] = receipt
+                        if wait_for_completion:
+                            raise RuntimeInterrupt(
+                                task_id=task_id,
+                                run_id=workflow_run.run_id,
+                                wait_kind="agent_handoff",
+                                wait_id=handoff.handoff_id,
+                                continuation={
+                                    "agent_state": {
+                                        "handoff_node_id": node.id,
+                                        "handoff_id": handoff.handoff_id,
+                                        "task_id": handoff_task_id,
+                                        "target_version": target_version,
+                                        "output_variable": output_variable,
+                                        "result_variable": result_variable,
+                                        "resume_at": time.time() + timeout_seconds,
+                                    }
+                                },
+                            )
+                        output = f"任务已移交至 {target_id}；源工作流继续运行。"
+                        yield sse_payload(
+                            {
+                                "event": "node_delta",
+                                "node_id": node.id,
+                                "node_title": title,
+                                "node_type": kind,
+                                "output": output,
+                                "variable": output_variable,
+                                "agent_task_id": handoff_task_id,
+                                "agent_handoff_id": handoff.handoff_id,
+                                "handoff_status": "submitted",
+                                "target_kind": target_mode,
+                                "target_id": target_id,
+                                "target_version": target_version,
                             }
                         )
 
@@ -20119,6 +20451,223 @@ async def _run_workflow_response(
                                 "event": "error",
                                 "node_id": node.id,
                                 "message": str(exc),
+                            }
+                        )
+
+                elif kind == "handoff_router" and r20_contract_version(node.data) == 2:
+                    output_variable = str(
+                        node.data.get("outputVariable") or "handoff_receipt"
+                    ).strip()
+                    result_variable = str(
+                        node.data.get("resultVariable") or "handoff_result"
+                    ).strip()
+                    resume_handoff = dict(task_state.get("agent_resume_state") or {})
+                    if resume_handoff.get("handoff_node_id") == node.id:
+                        handoff = await agent_task_store.get_handoff(
+                            str(resume_handoff.get("resolved_handoff_id") or "")
+                        )
+                        if handoff is None or handoff.status != "completed":
+                            raise ValueError(workflow_handoff_failure_code(handoff))
+                        result = str(handoff.metadata.get("result") or "")
+                        if len(result) > 100_000:
+                            raise ValueError("HANDOFF_RESULT_TOO_LARGE")
+                        target_kind = str(handoff.metadata.get("target_kind") or "inbox")
+                        target_id = str(
+                            handoff.metadata.get("target_xpert_id")
+                            or handoff.target_agent.removeprefix("xpert:")
+                        )
+                        receipt = {
+                            "status": "completed",
+                            "taskId": handoff.task_id,
+                            "handoffId": handoff.handoff_id,
+                            "runId": str(handoff.metadata.get("xpert_run_id") or ""),
+                            "targetKind": target_kind,
+                            "targetId": target_id,
+                            "targetVersion": handoff.metadata.get("target_xpert_version"),
+                            "result": result,
+                        }
+                        variables[output_variable] = receipt
+                        if result_variable:
+                            variables[result_variable] = result
+                        output = "协作任务已完成，结果已写入工作流变量。"
+                        yield sse_payload(
+                            {
+                                "event": "node_delta",
+                                "node_id": node.id,
+                                "node_title": title,
+                                "node_type": kind,
+                                "output": output,
+                                "variable": output_variable,
+                                "agent_task_id": handoff.task_id,
+                                "agent_handoff_id": handoff.handoff_id,
+                                "handoff_status": "completed",
+                            }
+                        )
+                    else:
+                        if not app_capability_allowed("allow_handoffs"):
+                            raise PermissionError("HANDOFF_NOT_ALLOWED")
+                        source_variable = str(
+                            node.data.get("sourceVariable") or ""
+                        ).strip()
+                        if source_variable not in variables:
+                            raise ValueError("HANDOFF_SOURCE_NOT_FOUND")
+                        source_value = workflow_value_to_text(variables[source_variable])
+                        if not source_value.strip():
+                            raise ValueError("HANDOFF_SOURCE_EMPTY")
+                        task_title = render_workflow_template(
+                            str(node.data.get("taskTitle") or ""), variables
+                        ).strip()
+                        source_agent = str(
+                            node.data.get("sourceAgent") or "workflow"
+                        ).strip()
+                        reason = render_workflow_template(
+                            str(node.data.get("reasonTemplate") or ""), variables
+                        ).strip()
+                        if not 1 <= len(task_title) <= 500:
+                            raise ValueError("AGENT_TASK_TITLE_INVALID")
+                        if not 1 <= len(source_value) <= 20_000:
+                            raise ValueError("AGENT_TASK_INPUT_INVALID")
+                        if not 1 <= len(reason) <= 4000:
+                            raise ValueError("HANDOFF_REASON_INVALID")
+                        target_mode = str(node.data.get("targetMode") or "").strip()
+                        wait_for_completion = workflow_truthy(
+                            node.data.get("waitForCompletion")
+                        )
+                        try:
+                            timeout_seconds = int(node.data.get("timeoutSeconds") or 120)
+                        except (TypeError, ValueError) as exc:
+                            raise ValueError("HANDOFF_TIMEOUT_INVALID") from exc
+                        if not 5 <= timeout_seconds <= 600:
+                            raise ValueError("HANDOFF_TIMEOUT_INVALID")
+                        target_version: int | None = None
+                        if target_mode == "xpert":
+                            if not HANDOFF_EXECUTOR_ENABLED:
+                                raise ValueError("HANDOFF_EXECUTOR_DISABLED")
+                            target_id = str(
+                                node.data.get("targetXpertId") or ""
+                            ).strip()
+                            target_version = int(node.data.get("targetVersion") or 0)
+                            try:
+                                validate_workflow_handoff_target(target_id, target_version)
+                            except Exception as exc:
+                                raise ValueError(
+                                    "HANDOFF_TARGET_VERSION_UNAVAILABLE"
+                                ) from exc
+                            target_agent = f"xpert:{target_id}"
+                        elif target_mode == "inbox":
+                            target_id = str(
+                                node.data.get("inboxTarget") or ""
+                            ).strip()
+                            if not target_id:
+                                raise ValueError("HANDOFF_INBOX_TARGET_INVALID")
+                            target_agent = target_id
+                        else:
+                            raise ValueError("HANDOFF_TARGET_INVALID")
+                        common_metadata = {
+                            "contract_version": 2,
+                            "workflow_id": payload.workflow.id,
+                            "workflow_task_id": task_id,
+                            "workflow_node_id": node.id,
+                            "output_variable": output_variable,
+                            "result_variable": result_variable,
+                            "target_kind": target_mode,
+                            "target_xpert_id": target_id if target_mode == "xpert" else "",
+                            "target_xpert_version": target_version,
+                            "execution_mode": (
+                                "xpert_auto" if target_mode == "xpert" else "manual"
+                            ),
+                            "wait_for_completion": wait_for_completion,
+                            "timeout_seconds": timeout_seconds,
+                            "ready_for_execution": False,
+                            "no_auto_retry": True,
+                            _PROVIDER_WORKLOAD_SOURCE_METADATA_KEY: run_metadata.get(
+                                _PROVIDER_WORKLOAD_SOURCE_METADATA_KEY
+                            ),
+                            "handoff_depth": int(run_metadata.get("handoff_depth") or 0),
+                        }
+                        task, handoff = await agent_task_store.create_task_and_handoff(
+                            title=task_title,
+                            input_text=source_value,
+                            source_agent=source_agent,
+                            target_agent=target_agent,
+                            reason=reason,
+                            occurrence_key=f"{task_id}:{node.id}",
+                            task_metadata={**common_metadata, "router": "handoff_router"},
+                            handoff_metadata={**common_metadata, "router": "handoff_router"},
+                        )
+                        existing_runs = await run_registry.list_runs(
+                            run_type="agent_handoff",
+                            source_id=handoff.handoff_id,
+                            limit=1,
+                        )
+                        handoff_run = (
+                            existing_runs[0]
+                            if existing_runs
+                            else await run_registry.create_run(
+                                "agent_handoff",
+                                f"{source_agent} -> {target_id}",
+                                status="pending",
+                                source_id=handoff.handoff_id,
+                                parent_run_id=workflow_run.run_id,
+                                metadata={
+                                    "workflow_id": payload.workflow.id,
+                                    "workflow_task_id": task_id,
+                                    "node_id": node.id,
+                                    "agent_task_id": task.task_id,
+                                    "handoff_id": handoff.handoff_id,
+                                    "target_kind": target_mode,
+                                    "target_id": target_id,
+                                    "target_version": target_version,
+                                },
+                            )
+                        )
+                        await agent_task_store.update_handoff_metadata(
+                            handoff.handoff_id, {"ready_for_execution": True}
+                        )
+                        receipt = {
+                            "status": "submitted",
+                            "taskId": task.task_id,
+                            "handoffId": handoff.handoff_id,
+                            "runId": handoff_run.run_id,
+                            "targetKind": target_mode,
+                            "targetId": target_id,
+                            "targetVersion": target_version,
+                            "result": None,
+                        }
+                        variables[output_variable] = receipt
+                        if wait_for_completion:
+                            raise RuntimeInterrupt(
+                                task_id=task_id,
+                                run_id=workflow_run.run_id,
+                                wait_kind="agent_handoff",
+                                wait_id=handoff.handoff_id,
+                                continuation={
+                                    "agent_state": {
+                                        "handoff_node_id": node.id,
+                                        "handoff_id": handoff.handoff_id,
+                                        "task_id": task.task_id,
+                                        "target_version": target_version,
+                                        "output_variable": output_variable,
+                                        "result_variable": result_variable,
+                                        "resume_at": time.time() + timeout_seconds,
+                                    }
+                                },
+                            )
+                        output = f"协作任务已创建并移交至 {target_id}。"
+                        yield sse_payload(
+                            {
+                                "event": "node_delta",
+                                "node_id": node.id,
+                                "node_title": title,
+                                "node_type": kind,
+                                "output": output,
+                                "variable": output_variable,
+                                "agent_task_id": task.task_id,
+                                "agent_handoff_id": handoff.handoff_id,
+                                "handoff_status": "submitted",
+                                "target_kind": target_mode,
+                                "target_id": target_id,
+                                "target_version": target_version,
                             }
                         )
 
@@ -21486,6 +22035,67 @@ async def _run_workflow_response(
                     summary=f"resume_at={resume_at}",
                     metadata={"wait_id": interrupt.wait_id, "resume_at": resume_at},
                 )
+            elif interrupt.wait_kind == "agent_handoff":
+                handoff_state = dict(interrupt.continuation.get("agent_state") or {})
+                resume_at = float(handoff_state.get("resume_at") or 0)
+                handoff = await agent_task_store.get_handoff(interrupt.wait_id)
+                if handoff is None or resume_at <= 0:
+                    raise RuntimeMiddlewareFatalError(
+                        "Handoff interrupt is missing durable state."
+                    )
+                pending_event = {
+                    "event": "agent_handoff_waiting",
+                    "task_id": task_id,
+                    "run_id": workflow_run.run_id,
+                    "wait_kind": "agent_handoff",
+                    "wait_id": handoff.handoff_id,
+                    "node_id": handoff_state.get("handoff_node_id"),
+                    "agent_task_id": handoff.task_id,
+                    "agent_handoff_id": handoff.handoff_id,
+                    "target_kind": handoff.metadata.get("target_kind"),
+                    "target_id": (
+                        handoff.metadata.get("target_xpert_id")
+                        or handoff.target_agent.removeprefix("xpert:")
+                    ),
+                    "target_version": handoff.metadata.get("target_xpert_version"),
+                    "resume_at": resume_at,
+                    "message": "Workflow is waiting for the delegated task to finish.",
+                }
+                workflow_execution_store.suspend(
+                    task_id,
+                    wait_kind="agent_handoff",
+                    wait_id=handoff.handoff_id,
+                    continuation=continuation,
+                    safe_event=pending_event,
+                    resume_at=resume_at,
+                )
+                task_state["ttl"] = max(
+                    WORKFLOW_TASK_TTL_SECONDS,
+                    int(max(0, resume_at - time.time())) + 3600,
+                )
+                await run_registry.update_run(
+                    workflow_run.run_id,
+                    status="waiting",
+                    metadata={
+                        "wait_kind": "agent_handoff",
+                        "agent_task_id": handoff.task_id,
+                        "agent_handoff_id": handoff.handoff_id,
+                        "resume_at": resume_at,
+                    },
+                )
+                await run_registry.record_checkpoint(
+                    workflow_run.run_id,
+                    event_type="runtime.agent_handoff.waiting",
+                    title="Agent handoff waiting",
+                    summary=f"handoff_id={handoff.handoff_id}",
+                    metadata={
+                        "agent_task_id": handoff.task_id,
+                        "agent_handoff_id": handoff.handoff_id,
+                        "resume_at": resume_at,
+                    },
+                )
+                if workflow_handoff_coordinator is not None:
+                    workflow_handoff_coordinator.wake()
             elif interrupt.wait_kind == "client_tool":
                 client_request = client_tool_store.require_request(interrupt.wait_id)
                 client_host = client_tool_store.require_host(client_request.host_id)
@@ -22007,6 +22617,27 @@ async def cancel_workflow_task(task_id: str, request: Request):
     if execution.status in {"completed", "failed", "cancelled", "rejected"}:
         return workflow_execution_store.serialize_public(execution)
 
+    if execution.wait_kind == "agent_handoff" and execution.wait_id:
+        handoff = await agent_task_store.get_handoff(execution.wait_id)
+        if handoff is not None and handoff.status not in {
+            "rejected",
+            "completed",
+            "dead_letter",
+        }:
+            await agent_task_store.update_handoff_status(
+                handoff.handoff_id,
+                "dead_letter",
+                metadata={"last_error": "HANDOFF_CANCELLED"},
+            )
+            linked_task = await agent_task_store.get_task(handoff.task_id)
+            if linked_task is not None and linked_task.status not in {
+                "completed",
+                "cancelled",
+            }:
+                await agent_task_store.cancel_task(
+                    linked_task.task_id, reason="HANDOFF_CANCELLED"
+                )
+
     task = workflow_task_store.get(task_id)
     if task is not None:
         task["cancel_requested"] = True
@@ -22129,6 +22760,8 @@ async def consume_workflow_stream(response: Any) -> dict[str, Any]:
                     pending_wait_event = event
                 elif event.get("event") == "timer_waiting":
                     pending_wait_event = event
+                elif event.get("event") == "agent_handoff_waiting":
+                    pending_wait_event = event
     if error_message:
         if error_code:
             error_message = f"{error_code}: {error_message}"
@@ -22217,6 +22850,7 @@ async def run_deployed_workflow_trigger(
         "runtime_approval_pending",
         "client_tool_waiting",
         "timer_waiting",
+        "agent_handoff_waiting",
     }:
         return {
             "status": "waiting",
@@ -22228,6 +22862,8 @@ async def run_deployed_workflow_trigger(
                 else "client_tool"
                 if final_event.get("event") == "client_tool_waiting"
                 else "timer"
+                if final_event.get("event") == "timer_waiting"
+                else "agent_handoff"
             ),
             "wait_id": final_event.get("wait_id")
             or final_event.get("approval_id")
@@ -22325,14 +22961,14 @@ async def resume_runtime_timer_execution(task_id: str) -> dict[str, Any]:
             "timer_waiting",
             "runtime_approval_pending",
             "client_tool_waiting",
+            "agent_handoff_waiting",
         }:
-            wait_kind = (
-                "approval"
-                if pending_event == "runtime_approval_pending"
-                else "client_tool"
-                if pending_event == "client_tool_waiting"
-                else "timer"
-            )
+            wait_kind = {
+                "runtime_approval_pending": "approval",
+                "client_tool_waiting": "client_tool",
+                "timer_waiting": "timer",
+                "agent_handoff_waiting": "agent_handoff",
+            }[pending_event]
             workflow_deployment_store.mark_execution_waiting(
                 deployment_execution_id,
                 task_id=str(final_event.get("task_id") or task_id),
@@ -22728,6 +23364,11 @@ async def execute_xpert_handoff_target(
         pinned_version = int(pinned_version_raw) if pinned_version_raw else None
     except (TypeError, ValueError):
         pinned_version = None
+    if int(handoff.metadata.get("contract_version") or 1) == 2:
+        if not pinned_xpert_id or pinned_version is None:
+            raise HandoffPermanentError("HANDOFF_TARGET_VERSION_UNAVAILABLE")
+        if target_reference != pinned_xpert_id:
+            raise HandoffPermanentError("HANDOFF_TARGET_BINDING_MISMATCH")
 
     try:
         shared_file_asset_ids = [
@@ -22829,6 +23470,11 @@ async def execute_xpert_handoff_target(
             client_request_id=str(final_event.get("request_id") or "") or None,
             task_id=str(final_event.get("task_id") or "") or None,
         )
+    if final_event.get("event") == "agent_handoff_waiting":
+        # A nested durable handoff has its own continuation owner. Treating this
+        # boundary event as an empty successful Xpert result would complete the
+        # outer handoff early and lose the child wait relationship.
+        raise HandoffPermanentError("HANDOFF_NESTED_WAIT_UNSUPPORTED")
     return HandoffExecutionResult(
         output=str(final_event.get("final_output") or ""),
         run_id=str(final_event.get("run_id") or ""),
@@ -23381,6 +24027,141 @@ def get_client_tool_coordinator() -> ClientToolCoordinator:
             sandbox_workspace_store,
         )
     return client_tool_coordinator
+
+
+async def expire_workflow_handoff_execution(
+    execution: WorkflowExecution,
+    handoff: Any,
+) -> None:
+    if handoff.status not in {"rejected", "completed", "dead_letter"}:
+        await agent_task_store.update_handoff_status(
+            handoff.handoff_id,
+            "dead_letter",
+            metadata={
+                "last_error": "HANDOFF_TIMEOUT",
+                "dead_lettered_at": time.time(),
+                "lease_owner": "",
+                "lease_token": "",
+                "lease_expires_at": 0.0,
+            },
+        )
+    task = await agent_task_store.get_task(handoff.task_id)
+    if task is not None and task.status not in {"completed", "cancelled"}:
+        await agent_task_store.cancel_task(task.task_id, reason="HANDOFF_TIMEOUT")
+    target_run_id = str(handoff.metadata.get("xpert_run_id") or "").strip()
+    if target_run_id:
+        try:
+            await run_registry.update_run(
+                target_run_id,
+                status="cancelled",
+                error="HANDOFF_TIMEOUT",
+            )
+        except KeyError:
+            pass
+
+
+async def resume_workflow_handoff_execution(
+    execution: WorkflowExecution,
+    handoff: Any,
+) -> None:
+    continuation = dict(execution.continuation or {})
+    agent_state = dict(continuation.get("agent_state") or {})
+    if str(agent_state.get("handoff_id") or "") != handoff.handoff_id:
+        raise RuntimeError("HANDOFF_RECEIPT_INVALID")
+    agent_state.update(
+        {
+            "resolved_handoff_id": handoff.handoff_id,
+            "resolved_handoff_status": handoff.status,
+        }
+    )
+    continuation["agent_state"] = agent_state
+    execution.continuation = continuation
+    workflow = WorkflowPayload.model_validate(execution.workflow)
+    payload = WorkflowRunRequest(workflow=workflow, inputs=dict(execution.inputs))
+    metadata = dict(execution.runtime_metadata or {})
+    deployment_execution_id = str(
+        metadata.get("workflow_deployment_execution_id") or ""
+    ).strip()
+    try:
+        response = await _run_workflow_response(
+            payload,
+            None,
+            runtime_run_type=execution.run_type,
+            runtime_source_id=str(
+                metadata.get("xpert_id")
+                or metadata.get("workflow_project_id")
+                or metadata.get("workflow_id")
+                or workflow.id
+            ),
+            runtime_metadata=metadata,
+            runtime_parent_run_id=(
+                str(metadata.get("runtime_parent_run_id"))
+                if metadata.get("runtime_parent_run_id")
+                else None
+            ),
+            resume_execution=execution,
+        )
+        final_event = await consume_workflow_stream(response)
+    except Exception as exc:
+        safe_error = str(exc)[:300]
+        workflow_execution_store.fail(execution.task_id, error=safe_error)
+        if deployment_execution_id:
+            workflow_deployment_store.fail_execution(
+                deployment_execution_id,
+                error=safe_error,
+                task_id=execution.task_id,
+                run_id=execution.run_id,
+                dispatch_failures=workflow_failure_triggers_enabled(),
+            )
+        raise
+    pending_event = str(final_event.get("event") or "")
+    if deployment_execution_id:
+        if pending_event in {
+            "agent_handoff_waiting",
+            "runtime_approval_pending",
+            "client_tool_waiting",
+            "timer_waiting",
+        }:
+            wait_kind = {
+                "agent_handoff_waiting": "agent_handoff",
+                "runtime_approval_pending": "approval",
+                "client_tool_waiting": "client_tool",
+                "timer_waiting": "timer",
+            }[pending_event]
+            workflow_deployment_store.mark_execution_waiting(
+                deployment_execution_id,
+                task_id=str(final_event.get("task_id") or execution.task_id),
+                run_id=str(final_event.get("run_id") or execution.run_id),
+                wait_kind=wait_kind,
+                wait_id=str(
+                    final_event.get("wait_id")
+                    or final_event.get("approval_id")
+                    or final_event.get("request_id")
+                    or ""
+                ),
+                resume_at=final_event.get("resume_at"),
+            )
+        else:
+            workflow_deployment_store.complete_execution(
+                deployment_execution_id,
+                task_id=str(final_event.get("task_id") or execution.task_id),
+                run_id=str(final_event.get("run_id") or execution.run_id),
+                result=str(final_event.get("final_output") or ""),
+                webhook_reply=final_event.get("webhook_reply"),
+            )
+
+
+def get_workflow_handoff_coordinator() -> WorkflowHandoffCoordinator:
+    global workflow_handoff_coordinator
+    if workflow_handoff_coordinator is None:
+        workflow_handoff_coordinator = WorkflowHandoffCoordinator(
+            agent_task_store,
+            workflow_execution_store,
+            resume_workflow_handoff_execution,
+            expire_execution=expire_workflow_handoff_execution,
+            enabled=True,
+        )
+    return workflow_handoff_coordinator
 
 
 async def resolve_published_xpert(reference: str) -> PinnedXpert:
@@ -25265,6 +26046,7 @@ async def start_mcp_ttl_cleanup() -> None:
     get_goal_coordinator().start()
     get_approval_coordinator().start()
     get_client_tool_coordinator().start()
+    get_workflow_handoff_coordinator().start()
     get_automation_coordinator().start()
     if workflow_trigger_coordinator_enabled():
         await workflow_trigger_coordinator.start()
@@ -25288,6 +26070,8 @@ async def shutdown_mcp_sessions() -> None:
         await approval_coordinator.stop()
     if client_tool_coordinator is not None:
         await client_tool_coordinator.stop()
+    if workflow_handoff_coordinator is not None:
+        await workflow_handoff_coordinator.stop()
     if automation_coordinator is not None:
         await automation_coordinator.stop()
     await workflow_trigger_coordinator.stop()
@@ -25791,6 +26575,8 @@ async def create_agent_handoff(task_id: str, payload: dict[str, Any]):
         handoff.handoff_id,
         {"ready_for_execution": True},
     )
+    if workflow_handoff_coordinator is not None:
+        workflow_handoff_coordinator.wake()
     return agent_handoff_to_payload(handoff)
 
 
@@ -25843,6 +26629,8 @@ async def update_agent_handoff_api(
         merged_metadata["reason"] = str(reason)
     result = (payload or {}).get("result")
     if result is not None:
+        if len(str(result)) > 100_000:
+            raise HTTPException(status_code=400, detail="Handoff result is too large.")
         merged_metadata["result"] = str(result)
     now = time.time()
     if status == "accepted":
@@ -25882,24 +26670,63 @@ async def update_agent_handoff_api(
         raise HTTPException(status_code=404, detail="Agent handoff not found.") from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if status == "accepted":
+        await agent_task_store.update_task(
+            handoff.task_id,
+            status="running",
+            assigned_agent=handoff.target_agent,
+        )
+    elif status == "completed":
+        await agent_task_store.update_task(
+            handoff.task_id,
+            status="completed",
+            result=str(merged_metadata.get("result") or ""),
+            clear_error=True,
+        )
+    elif status == "rejected":
+        await agent_task_store.update_task(
+            handoff.task_id,
+            status="failed",
+            error="HANDOFF_REJECTED",
+        )
     registry_status = {
         "accepted": "running",
         "rejected": "failed",
         "completed": "completed",
     }.get(status)
     if registry_status is not None:
+        is_v2 = int(handoff.metadata.get("contract_version") or 1) == 2
+        safe_metadata = (
+            {
+                key: value
+                for key, value in merged_metadata.items()
+                if key
+                in {
+                    "accepted_by",
+                    "accepted_at",
+                    "rejected_by",
+                    "rejected_at",
+                    "completed_by",
+                    "completed_at",
+                }
+            }
+            if is_v2
+            else merged_metadata
+        )
         await update_runtime_runs_for_source(
             handoff_id,
             "agent_handoff",
             status=registry_status,  # type: ignore[arg-type]
             error=(
-                str(merged_metadata.get("reason") or "")
+                "HANDOFF_REJECTED"
+                if status == "rejected" and is_v2
+                else str(merged_metadata.get("reason") or "")
                 if status == "rejected"
                 else None
             ),
             metadata={
                 "handoff_status": status,
-                **merged_metadata,
+                **safe_metadata,
             },
         )
         handler = (
@@ -25908,11 +26735,15 @@ async def update_agent_handoff_api(
             or merged_metadata.get("rejected_by")
             or ""
         )
-        summary = str(
-            merged_metadata.get("result")
-            or merged_metadata.get("reason")
-            or handler
-            or status
+        summary = (
+            f"status={status}"
+            if is_v2
+            else str(
+                merged_metadata.get("result")
+                or merged_metadata.get("reason")
+                or handler
+                or status
+            )
         )
         await record_runtime_run_checkpoints_for_source(
             handoff_id,
@@ -25924,9 +26755,11 @@ async def update_agent_handoff_api(
             metadata={
                 "handoff_id": handoff_id,
                 "status": status,
-                **merged_metadata,
+                **safe_metadata,
             },
         )
+    if workflow_handoff_coordinator is not None:
+        workflow_handoff_coordinator.wake()
     return agent_handoff_to_payload(handoff)
 
 

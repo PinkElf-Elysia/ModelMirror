@@ -419,6 +419,13 @@ function statusClass(status: RunStepStatus) {
   return "border-hire-300/25 bg-hire-300/10 text-hire-100";
 }
 
+export function shouldShowHandoffInboxLink(step: WorkflowRunStep): boolean {
+  return (
+    (step.type === "agent_handoff" || step.type === "handoff_router")
+    && (step.status === "waiting" || step.status === "done")
+  );
+}
+
 function formatObservationTime(value: number | null | undefined) {
   if (!value) return "";
   return new Date(value * 1000).toLocaleTimeString();
@@ -587,6 +594,18 @@ export function buildRunSteps(events: WorkflowRunEvent[]) {
       );
       return;
     }
+    if (event.event === "agent_handoff_waiting") {
+      step.status = "waiting";
+      const target = event.target_id
+        ? `${event.target_id}${event.target_version ? ` · v${event.target_version}` : ""}`
+        : "协作接收方";
+      step.output = appendStepOutput(
+        step.output,
+        event.message || `任务已移交给 ${target}，正在等待完成。`,
+        step.type,
+      );
+      return;
+    }
     if (event.event === "node_delta") {
       step.output = appendStepOutput(step.output, event.output, step.type);
       return;
@@ -597,10 +616,16 @@ export function buildRunSteps(events: WorkflowRunEvent[]) {
       return;
     }
     if (event.event === "node_end") {
+      const completedHandoff = (
+        step.status === "waiting"
+        && (step.type === "agent_handoff" || step.type === "handoff_router")
+      );
       if (step.status !== "error") step.status = "done";
       step.variable = event.variable ?? step.variable;
       step.providerRouteReceipt = event.provider_route_receipts ?? step.providerRouteReceipt;
-      if (!step.output) {
+      if (completedHandoff) {
+        step.output = event.output || "协作任务已完成，工作流已继续执行。";
+      } else if (!step.output) {
         step.output = appendStepOutput(step.output, event.output, step.type);
       }
       return;
@@ -2130,6 +2155,18 @@ export default function WorkflowRun({
                 {step.providerRouteReceipt ? (
                   <div className="px-3 pb-2">
                     <ProviderRouteReceiptSummary compact receipt={step.providerRouteReceipt} />
+                  </div>
+                ) : null}
+                {shouldShowHandoffInboxLink(step) ? (
+                  <div className="px-3 pb-3">
+                    <a
+                      className="inline-flex rounded-md border border-violet-300/25 bg-violet-300/10 px-2.5 py-1.5 text-xs font-semibold text-violet-100 transition hover:border-violet-200/45 hover:bg-violet-300/15"
+                      href="/agents/meta-agent#handoff-inbox"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      前往 Handoff Inbox
+                    </a>
                   </div>
                 ) : null}
               </div>

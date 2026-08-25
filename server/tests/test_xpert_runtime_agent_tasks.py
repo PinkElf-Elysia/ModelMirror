@@ -3,6 +3,7 @@ from __future__ import annotations
 import httpx
 import pytest
 import pytest_asyncio
+import json
 
 from server.xpert_runtime import AgentTaskStore, RuntimeEventStore
 
@@ -92,6 +93,79 @@ async def test_handoff_create_and_list() -> None:
 
     other = await store.list_handoffs(task_id="other")
     assert other == []
+
+
+@pytest.mark.asyncio
+async def test_v2_occurrence_keys_survive_reload_without_duplicate_side_effects(
+    tmp_path,
+) -> None:
+    storage = tmp_path / "agent-task-store"
+    first = AgentTaskStore(storage_dir=storage)
+    task = await first.create_task(
+        "T",
+        "secret input",
+        occurrence_key="workflow-task:node-a",
+    )
+    repeated_task = await first.create_task(
+        "changed title is ignored",
+        "changed input is ignored",
+        occurrence_key="workflow-task:node-a",
+    )
+    handoff = await first.create_handoff(
+        task.task_id,
+        source_agent="workflow",
+        target_agent="review-agent",
+        reason="private reason",
+        occurrence_key="workflow-handoff:node-b",
+    )
+    repeated_handoff = await first.create_handoff(
+        task.task_id,
+        source_agent="workflow",
+        target_agent="other-agent",
+        reason="changed reason is ignored",
+        occurrence_key="workflow-handoff:node-b",
+    )
+
+    assert repeated_task.task_id == task.task_id
+    assert repeated_handoff.handoff_id == handoff.handoff_id
+    reloaded = AgentTaskStore(storage_dir=storage)
+    after_restart = await reloaded.create_task(
+        "after restart",
+        "after restart",
+        occurrence_key="workflow-task:node-a",
+    )
+    assert after_restart.task_id == task.task_id
+    snapshot = json.loads(reloaded.storage_path.read_text(encoding="utf-8"))
+    assert snapshot["version"] == 2
+    assert snapshot["occurrence_index"]
+
+
+@pytest.mark.asyncio
+async def test_router_materializes_task_and_handoff_atomically_once(tmp_path) -> None:
+    storage = tmp_path / "router-store"
+    store = AgentTaskStore(storage_dir=storage)
+    task, handoff = await store.create_task_and_handoff(
+        title="Review order",
+        input_text="private order",
+        source_agent="workflow",
+        target_agent="review-agent",
+        reason="private reason",
+        occurrence_key="workflow:router-node",
+    )
+    repeated_task, repeated_handoff = await store.create_task_and_handoff(
+        title="ignored",
+        input_text="ignored",
+        source_agent="workflow",
+        target_agent="review-agent",
+        reason="ignored",
+        occurrence_key="workflow:router-node",
+    )
+
+    assert repeated_task.task_id == task.task_id
+    assert repeated_handoff.handoff_id == handoff.handoff_id
+    assert handoff.task_id == task.task_id
+    assert len(await store.list_tasks()) == 1
+    assert len(await store.list_handoffs()) == 1
 
 
 @pytest.mark.asyncio

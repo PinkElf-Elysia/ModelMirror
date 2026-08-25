@@ -212,6 +212,58 @@ async def test_excluded_handoff_does_not_inherit_managed_xpert_context(
 
 
 @pytest.mark.asyncio
+async def test_nested_handoff_wait_cannot_be_misreported_as_completed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    xpert_store = XpertStore(tmp_path / "xperts-nested-handoff")
+    task_store = AgentTaskStore(storage_dir=tmp_path / "nested-handoff-tasks")
+    set_xpert_store_for_tests(xpert_store)
+    monkeypatch.setattr(main_module, "agent_task_store", task_store)
+    specialist = xpert_store.create_xpert(name="Nested Specialist", slug="nested-specialist")
+    published = xpert_store.publish_xpert(
+        specialist.id,
+        expected_revision=specialist.draft_revision,
+    )
+    task = await task_store.create_task("Nested handoff", "private")
+    handoff = await task_store.create_handoff(
+        task.task_id,
+        "automation",
+        f"xpert:{specialist.id}",
+        "delegate",
+        metadata={
+            "contract_version": 2,
+            "execution_mode": "xpert_auto",
+            "ready_for_execution": True,
+            "target_xpert_id": specialist.id,
+            "target_xpert_version": published.version,
+        },
+    )
+
+    async def fake_run(*_args: Any, **_kwargs: Any) -> StreamingResponse:
+        async def body():
+            yield main_module.sse_payload(
+                {
+                    "event": "agent_handoff_waiting",
+                    "wait_id": "handoff_nested",
+                    "run_id": "run_nested",
+                }
+            )
+
+        return StreamingResponse(body(), media_type="text/event-stream")
+
+    monkeypatch.setattr(main_module, "_run_workflow_response", fake_run)
+    try:
+        with pytest.raises(
+            HandoffPermanentError,
+            match="HANDOFF_NESTED_WAIT_UNSUPPORTED",
+        ):
+            await main_module.execute_xpert_handoff_target(handoff, task, None)
+    finally:
+        set_xpert_store_for_tests(None)
+
+
+@pytest.mark.asyncio
 async def test_handoff_executor_retries_then_completes() -> None:
     store = AgentTaskStore()
     registry = RunRegistry()

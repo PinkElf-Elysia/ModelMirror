@@ -111,6 +111,12 @@ def workflow_http_requests_enabled() -> bool:
     }
 
 
+def handoff_executor_enabled() -> bool:
+    return os.getenv("HANDOFF_EXECUTOR_ENABLED", "false").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+
+
 def workflow_file_assets_enabled() -> bool:
     return os.getenv("WORKFLOW_FILE_ASSETS_ENABLED", "false").strip().lower() in {
         "1", "true", "yes", "on"
@@ -289,6 +295,7 @@ async def activate_workflow(project_id: str, version: int) -> dict[str, Any]:
             workflow_file_assets_enabled=workflow_file_assets_enabled(),
             file_output_assets_enabled=file_output_assets_enabled(),
             mcp_tools_enabled=workflow_mcp_tools_enabled(),
+            handoff_executor_enabled=handoff_executor_enabled(),
         )
         payload = store.serialize_deployment(deployment)
         if plaintext_key:

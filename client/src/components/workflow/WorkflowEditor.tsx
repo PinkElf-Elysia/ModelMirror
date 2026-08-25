@@ -885,8 +885,6 @@ export function createNodeData(
       maxToolConcurrency: "2",
       maxToolCalls: "12",
       maxToolDepth: "4",
-      retryOnFailure: "false",
-      fallbackModelId: "",
       exceptionHandling: "none",
       outputSchemaMode: "default",
       outputSchemaJson: "",
@@ -894,7 +892,6 @@ export function createNodeData(
       memoryReadScope: "both",
       memoryWriteEnabled: "false",
       memoryWriteTarget: "xpert",
-      nodeParametersJson: "[]",
     };
   }
 
@@ -983,47 +980,55 @@ export function createNodeData(
   if (kind === "agent_task") {
     return {
       kind,
-      title: "智能体任务",
-      description: "创建 Agent Task Runtime 任务，并把 task_id 写入变量。",
-      taskTitle: "工作流任务：{{user_input}}",
+      title: "创建协作任务",
+      description: "把工作内容登记为可追踪任务，供人工或智能体接手。",
+      contractVersion: 2,
+      taskTitle: "处理用户请求",
       taskInput: "{{user_input}}",
-      assignedAgent: "workflow-planner",
-      outputVariable: "agent_task_id",
+      assignedAgent: "review-agent",
+      outputVariable: "agent_task_receipt",
     };
   }
 
   if (kind === "agent_handoff") {
     return {
       kind,
-      title: "智能体移交",
-      description: "将已有 Agent Task 移交给另一个智能体，输出 handoff_id。",
-      taskIdVariable: "agent_task_id",
-      sourceAgent: "workflow-planner",
-      targetAgent: "review-agent",
-      executionMode: "manual",
-      waitForCompletion: "false",
+      title: "移交已有任务",
+      description: "把上游任务凭证交给人工队列或固定版本智能体。",
+      contractVersion: 2,
+      taskVariable: "agent_task_receipt",
+      taskValueKind: "receipt",
+      sourceAgent: "workflow",
+      targetMode: "inbox",
+      inboxTarget: "review-agent",
+      targetXpertId: "",
+      targetVersion: 0,
+      waitForCompletion: false,
       resultVariable: "handoff_result",
-      waitTimeoutSeconds: "120",
-      reason: "请接手处理：{{user_input}}",
-      outputVariable: "agent_handoff_id",
+      timeoutSeconds: 120,
+      reason: "请审核并处理这项任务。",
+      outputVariable: "handoff_receipt",
     };
   }
 
   if (kind === "handoff_router") {
     return {
       kind,
-      title: "移交路由器",
-      description: "读取工作流智能体输出，创建 AgentTask 并投递 pending Handoff。",
+      title: "创建并移交任务",
+      description: "将上游结果直接包装成任务并交给人工或固定版本智能体。",
+      contractVersion: 2,
       sourceVariable: "agent_output",
       taskTitle: "来自工作流智能体的任务",
-      targetAgent: "review-agent",
-      executionMode: "manual",
-      waitForCompletion: "false",
+      targetMode: "inbox",
+      inboxTarget: "review-agent",
+      targetXpertId: "",
+      targetVersion: 0,
+      waitForCompletion: false,
       resultVariable: "handoff_result",
-      waitTimeoutSeconds: "120",
+      timeoutSeconds: 120,
       sourceAgent: "workflow-agent",
-      reasonTemplate: "请处理工作流智能体输出：{{agent_output}}",
-      outputVariable: "agent_handoff_id",
+      reasonTemplate: "请审核并处理上游结果。",
+      outputVariable: "handoff_receipt",
     };
   }
 
@@ -1646,6 +1651,7 @@ function HandoffExecutionConfig({
   update,
   publishedXperts,
   publishedXpertsError,
+  onMigrate,
 }: {
   node: WorkflowNode;
   nodes: WorkflowNode[];
@@ -1655,64 +1661,121 @@ function HandoffExecutionConfig({
   update: (patch: Partial<WorkflowNodeData>) => void;
   publishedXperts: XpertSummary[];
   publishedXpertsError: string;
+  onMigrate: () => string;
 }) {
+  const [xpertSearch, setXpertSearch] = useState("");
+  const legacy = String(data.contractVersion ?? "1") !== "2";
   const executionMode = data.executionMode ?? "manual";
   const waitForCompletion = workflowBooleanValue(data.waitForCompletion);
-  const automatic = executionMode === "xpert_auto";
+  const targetMode: "inbox" | "xpert" = legacy
+    ? executionMode === "xpert_auto" ? "xpert" : "inbox"
+    : data.targetMode === "xpert" ? "xpert" : "inbox";
+  const automatic = targetMode === "xpert";
+  const selectedXpert = publishedXperts.find(
+    (item) => item.id === String(data.targetXpertId ?? ""),
+  );
+  const normalizedXpertSearch = xpertSearch.trim().toLocaleLowerCase();
+  const matchingXperts = normalizedXpertSearch
+    ? publishedXperts.filter((item) =>
+        [item.name, item.slug, item.id].some((value) =>
+          String(value ?? "").toLocaleLowerCase().includes(normalizedXpertSearch),
+        ),
+      )
+    : publishedXperts;
+  const visibleXperts = selectedXpert
+    && !matchingXperts.some((item) => item.id === selectedXpert.id)
+    ? [selectedXpert, ...matchingXperts]
+    : matchingXperts;
+
+  if (legacy) {
+    return (
+      <ConfigSection
+        description="旧版只保存字符串 ID，无法固定目标版本或可靠恢复等待。"
+        title="升级协作合同"
+      >
+        <div className="rounded-lg border border-amber-300/25 bg-amber-300/10 p-3 text-xs leading-5 text-amber-50">
+          <p>这是旧版移交配置。既有版本仍可运行，但发布新版本前需要升级。</p>
+          <button
+            className="mt-3 rounded-md bg-amber-200 px-3 py-1.5 font-semibold text-ink-950 disabled:cursor-not-allowed disabled:opacity-45"
+            onClick={onMigrate}
+            type="button"
+          >
+            升级为可恢复移交
+          </button>
+        </div>
+      </ConfigSection>
+    );
+  }
 
   return (
     <ConfigSection
-      description="人工目标进入 Inbox；已发布智能体可自动领取并执行。"
-      title="移交执行"
+      description="选择接收方，并决定源工作流是立即继续还是等待结果。"
+      title="2. 选择接收方"
     >
-      <Field label="执行方式">
-        <select
-          className={textInputClass()}
-          onChange={(event) => {
-            const mode = event.target.value;
-            const firstTarget = publishedXperts[0]
-              ? `xpert:${publishedXperts[0].slug}`
-              : "";
-            update({
-              executionMode: mode,
-              targetAgent:
-                mode === "xpert_auto" && !String(data.targetAgent ?? "").startsWith("xpert:")
-                  ? firstTarget
-                  : data.targetAgent,
-              waitForCompletion: mode === "xpert_auto" ? "true" : "false",
-            });
-          }}
-          value={executionMode}
-        >
-          <option className="bg-slate-950" value="manual">
-            人工移交
-          </option>
-          <option className="bg-slate-950" value="xpert_auto">
-            自动执行已发布智能体
-          </option>
-        </select>
-      </Field>
+      <div className="grid grid-cols-2 gap-2" role="group" aria-label="接收方类型">
+        {([
+          ["inbox", "人工队列", "交给人员领取和处理"],
+          ["xpert", "已发布智能体", "固定版本自动执行"],
+        ] as const).map(([mode, label, description]) => (
+          <button
+            className={`rounded-lg border p-3 text-left transition-colors ${targetMode === mode ? "border-violet-300/50 bg-violet-300/12 text-white" : "border-white/10 bg-white/[0.035] text-slate-300 hover:border-white/20"}`}
+            key={mode}
+            onClick={() => {
+              const first = publishedXperts.find((item) => item.published_version);
+              update({
+                targetMode: mode,
+                targetXpertId: mode === "xpert" ? selectedXpert?.id ?? first?.id ?? "" : "",
+                targetVersion: mode === "xpert" ? selectedXpert?.published_version ?? first?.published_version ?? 0 : 0,
+              });
+            }}
+            type="button"
+          >
+            <span className="block text-sm font-semibold">{label}</span>
+            <span className="mt-1 block text-xs leading-5 text-slate-500">{description}</span>
+          </button>
+        ))}
+      </div>
 
       {automatic ? (
-        <Field label="目标智能体">
+        <Field label="固定执行目标">
+          <input
+            aria-label="搜索已发布智能体"
+            className={`${textInputClass()} mb-2`}
+            onChange={(event) => setXpertSearch(event.target.value)}
+            placeholder="按名称、Slug 或 ID 搜索"
+            type="search"
+            value={xpertSearch}
+          />
           <select
             className={textInputClass()}
-            onChange={(event) => update({ targetAgent: event.target.value })}
-            value={data.targetAgent ?? ""}
+            onChange={(event) => {
+              const target = publishedXperts.find((item) => item.id === event.target.value);
+              update({
+                targetXpertId: target?.id ?? "",
+                targetVersion: target?.published_version ?? 0,
+              });
+            }}
+            value={data.targetXpertId ?? ""}
           >
             <option className="bg-slate-950" value="">
               {publishedXperts.length ? "选择已发布智能体" : "暂无已发布智能体"}
             </option>
-            {publishedXperts.map((xpert) => (
+            {visibleXperts.map((xpert) => (
               <option
                 className="bg-slate-950"
                 key={xpert.id}
-                value={`xpert:${xpert.slug}`}
+                disabled={!xpert.published_version}
+                value={xpert.id}
               >
-                {xpert.name} · v{xpert.published_version ?? "-"}
+                {xpert.name} · {xpert.published_version ? `固定 v${xpert.published_version}` : "未发布"}
               </option>
             ))}
           </select>
+          {normalizedXpertSearch && matchingXperts.length === 0 ? (
+            <p className="mt-2 text-xs leading-5 text-slate-500">
+              没有匹配的已发布智能体；可修改搜索词后重试。
+            </p>
+          ) : null}
           {publishedXpertsError ? (
             <p className="mt-2 text-xs leading-5 text-amber-200">
               {publishedXpertsError}
@@ -1720,55 +1783,64 @@ function HandoffExecutionConfig({
           ) : null}
         </Field>
       ) : (
-        <Field label="目标 Agent">
+        <Field label="人工队列名称">
           <input
             className={textInputClass()}
-            onChange={(event) => update({ targetAgent: event.target.value })}
+            onChange={(event) => update({ inboxTarget: event.target.value })}
             placeholder="例如：review-agent"
-            value={data.targetAgent ?? ""}
+            value={data.inboxTarget ?? ""}
           />
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs leading-5">
+            <p className="text-slate-500">任务会出现在该队列的 Handoff Inbox，等待人员领取。</p>
+            <a
+              className="font-semibold text-violet-200 transition hover:text-violet-100"
+              href="/agents/meta-agent#handoff-inbox"
+              target="_blank"
+              rel="noreferrer"
+            >
+              打开 Handoff Inbox
+            </a>
+          </div>
         </Field>
       )}
 
-      {automatic ? (
-        <>
-          <ConfigSwitch
-            checked={waitForCompletion}
-            description="等待目标智能体完成，并把结果写入下游变量。关闭后源工作流立即继续。"
-            label="等待执行结果"
-            onChange={(checked) =>
-              update({ waitForCompletion: checked ? "true" : "false" })
-            }
-          />
-          {waitForCompletion ? (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="结果变量">
-                <WorkflowVariableField
-                  contract={variableContract}
-                  edges={edges}
-                  fieldName="resultVariable"
-                  node={node}
-                  nodes={nodes}
-                  onChange={(value) => update({ resultVariable: value })}
-                  value={data.resultVariable ?? "handoff_result"}
-                />
-              </Field>
-              <Field label="等待超时（秒）">
-                <input
-                  className={textInputClass()}
-                  max={600}
-                  min={5}
-                  onChange={(event) =>
-                    update({ waitTimeoutSeconds: event.target.value })
-                  }
-                  type="number"
-                  value={data.waitTimeoutSeconds ?? "120"}
-                />
-              </Field>
-            </div>
-          ) : null}
-        </>
+      <ConfigSwitch
+        checked={waitForCompletion}
+        description="开启后持久挂起，服务重启也会继续等待；关闭后提交成功即继续下游。"
+        label="等待接收方完成"
+        onChange={(checked) => update({ waitForCompletion: checked })}
+      />
+      {waitForCompletion ? (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="完成结果写入">
+            <WorkflowVariableField
+              contract={variableContract}
+              edges={edges}
+              fieldName="resultVariable"
+              node={node}
+              nodes={nodes}
+              onChange={(value) => update({ resultVariable: value })}
+              value={data.resultVariable ?? "handoff_result"}
+            />
+          </Field>
+          <Field label="最长等待（秒）">
+            <input
+              className={textInputClass()}
+              max={600}
+              min={5}
+              onChange={(event) => update({ timeoutSeconds: Number(event.target.value) })}
+              type="number"
+              value={data.timeoutSeconds ?? 120}
+            />
+          </Field>
+        </div>
       ) : null}
+      <div className="rounded-lg border border-white/10 bg-white/[0.035] px-3 py-2 text-xs leading-5 text-slate-400">
+        {automatic
+          ? `将调用 ${selectedXpert?.name ?? "尚未选择的智能体"}，并固定在 v${data.targetVersion || "-"}。`
+          : `将投递到 ${data.inboxTarget || "尚未命名的人工队列"}。`}
+        {waitForCompletion ? " 源工作流会等待最终结果。" : " 提交后源工作流立即继续。"}
+      </div>
     </ConfigSection>
   );
 }
@@ -1939,21 +2011,21 @@ function AgentStudioPanel({
         </div>
       </ConfigSection>
 
-      <ConfigSection
-        description="定义传入智能体的可选参数，当前仅作为配置草稿保存。"
-        title="参数"
-      >
-        <Field label="参数 JSON">
-          <textarea
-            className={`${textInputClass()} min-h-24 resize-none font-mono text-xs leading-5`}
-            onChange={(event) =>
-              update({ nodeParametersJson: event.target.value })
-            }
-            placeholder='[{"name":"topic","optional":false}]'
-            value={data.nodeParametersJson ?? "[]"}
-          />
-        </Field>
-      </ConfigSection>
+      {!isWorkflowAgent ? (
+        <ConfigSection
+          description="旧 Agent 的历史参数草稿；迁移前请确认是否仍需要。"
+          title="参数"
+        >
+          <Field label="参数 JSON">
+            <textarea
+              className={`${textInputClass()} min-h-24 resize-none font-mono text-xs leading-5`}
+              onChange={(event) => update({ nodeParametersJson: event.target.value })}
+              placeholder='[{"name":"topic","optional":false}]'
+              value={data.nodeParametersJson ?? "[]"}
+            />
+          </Field>
+        </ConfigSection>
+      ) : null}
 
       <ConfigSection title="提示词 / 模型">
         <Field label="调用模型">
@@ -2287,34 +2359,32 @@ function AgentStudioPanel({
       </ConfigSection>
 
       <ConfigSection
-        description="当前仅保存配置，后续再接入真实重试和 fallback 执行。"
+        description={isWorkflowAgent ? "选择真实生效的失败语义。" : "旧 Agent 的历史运行策略。"}
         title="运行策略"
       >
-        <ConfigSwitch
-          checked={workflowBooleanValue(data.retryOnFailure)}
-          label="失败时重试"
-          onChange={(checked) => setStringBoolean("retryOnFailure", checked)}
-        />
-        <Field label="备用模型">
-          <select
-            className={textInputClass()}
-            onChange={(event) => update({ fallbackModelId: event.target.value })}
-            value={data.fallbackModelId ?? ""}
-          >
-            <option className="bg-slate-950" value="">
-              不使用备用模型
-            </option>
-            {models.map((model) => (
-              <option
-                className="bg-slate-950 text-white"
-                key={model.id}
-                value={model.id}
+        {!isWorkflowAgent ? (
+          <>
+            <ConfigSwitch
+              checked={workflowBooleanValue(data.retryOnFailure)}
+              label="失败时重试（旧配置）"
+              onChange={(checked) => setStringBoolean("retryOnFailure", checked)}
+            />
+            <Field label="备用模型（旧配置）">
+              <select
+                className={textInputClass()}
+                onChange={(event) => update({ fallbackModelId: event.target.value })}
+                value={data.fallbackModelId ?? ""}
               >
-                {model.name}
-              </option>
-            ))}
-          </select>
-        </Field>
+                <option className="bg-slate-950" value="">不使用备用模型</option>
+                {models.map((model) => (
+                  <option className="bg-slate-950 text-white" key={model.id} value={model.id}>
+                    {model.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </>
+        ) : null}
         <Field label="异常处理">
           <select
             className={textInputClass()}
@@ -2326,8 +2396,8 @@ function AgentStudioPanel({
             <option className="bg-slate-950" value="none">
               无
             </option>
-            <option className="bg-slate-950" value="continue">
-              继续后续节点
+            <option className="bg-slate-950" value="empty_output">
+              失败时写入空输出
             </option>
             <option className="bg-slate-950" value="fail">
               标记失败
@@ -3080,6 +3150,10 @@ interface NodeConfigProps {
   onOpenVariableCenter: () => void;
   onMigrateTypedAiNode: (nodeId: string) => string;
   onReplaceNodeData: (nodeId: string, data: WorkflowNodeData) => void;
+  onReplaceNodeDataBatch: (
+    replacements: Array<{ nodeId: string; data: WorkflowNodeData }>,
+    notice: string,
+  ) => void;
 }
 
 function NodeConfig({
@@ -3095,6 +3169,7 @@ function NodeConfig({
   onOpenVariableCenter,
   onMigrateTypedAiNode,
   onReplaceNodeData,
+  onReplaceNodeDataBatch,
 }: NodeConfigProps) {
   const [registryTools, setRegistryTools] = useState<RegistryToolOption[]>([]);
   const [registryToolsError, setRegistryToolsError] = useState("");
@@ -3305,6 +3380,194 @@ function NodeConfig({
     && Boolean(selectedRegistryTool)
     && data.inputSchemaChecksum !== selectedRegistryTool?.schema_checksum;
   const variableContract = variableNodeContracts.get(data.kind) ?? null;
+  const collaborationInventory = analyzeWorkflowVariables(
+    nodes,
+    edges,
+    null,
+    declarations,
+  );
+  const referencesFor = (variableName: string) =>
+    collaborationInventory.find((item) => item.name === variableName)?.references ?? [];
+
+  const migrateLegacyHandoffData = (
+    candidate: WorkflowNode,
+    taskVariable: string,
+    taskValueKind: "receipt" | "task_id",
+  ): { ok: true; data: WorkflowNodeData } | { ok: false; message: string } => {
+    const legacyData = candidate.data;
+    const executionMode = String(legacyData.executionMode ?? "manual");
+    const automatic = executionMode === "xpert_auto";
+    const legacyTarget = String(legacyData.targetAgent ?? "").trim();
+    const legacyXpertReference = legacyTarget.startsWith("xpert:")
+      ? legacyTarget.slice("xpert:".length)
+      : "";
+    const matchingXperts = publishedXperts.filter(
+      (item) => (item.id === legacyXpertReference || item.slug === legacyXpertReference)
+        && Boolean(item.published_version),
+    );
+    if (automatic && matchingXperts.length !== 1) {
+      return {
+        ok: false,
+        message: "迁移被阻止：原自动目标无法唯一解析为一个已发布智能体版本。",
+      };
+    }
+    if (!automatic && !legacyTarget) {
+      return { ok: false, message: "迁移被阻止：请先填写人工队列名称。" };
+    }
+    const outputVariable = String(
+      legacyData.outputVariable ?? "agent_handoff_id",
+    ).trim();
+    const incompatibleReferences = referencesFor(outputVariable).filter(
+      (reference) => reference.nodeId !== candidate.id
+        && !reference.expectedTypes.includes("json"),
+    );
+    if (incompatibleReferences.length) {
+      return {
+        ok: false,
+        message: `迁移被阻止：${incompatibleReferences[0].nodeTitle} 仍把 ${outputVariable} 当作字符串使用。`,
+      };
+    }
+    const matchedXpert = matchingXperts[0];
+    const migrated: WorkflowNodeData = {
+      ...legacyData,
+      contractVersion: 2,
+      taskVariable,
+      taskValueKind,
+      sourceAgent: String(legacyData.sourceAgent ?? "workflow").trim() || "workflow",
+      targetMode: automatic ? "xpert" : "inbox",
+      inboxTarget: automatic ? "" : legacyTarget,
+      targetXpertId: matchedXpert?.id ?? "",
+      targetVersion: matchedXpert?.published_version ?? 0,
+      waitForCompletion: workflowBooleanValue(legacyData.waitForCompletion),
+      timeoutSeconds: Number(legacyData.waitTimeoutSeconds ?? 120),
+      resultVariable: String(legacyData.resultVariable ?? "handoff_result"),
+      outputVariable: outputVariable || "handoff_receipt",
+    };
+    delete migrated.taskIdVariable;
+    delete migrated.targetAgent;
+    delete migrated.executionMode;
+    delete migrated.waitTimeoutSeconds;
+    return { ok: true, data: migrated };
+  };
+
+  const migrateCollaborationNode = (): string => {
+    if (String(data.contractVersion ?? "1") === "2") {
+      return "当前节点已经使用 V2 协作合同。";
+    }
+    if (data.kind === "agent_task") {
+      const outputVariable = String(data.outputVariable ?? "agent_task_id").trim();
+      const references = referencesFor(outputVariable).filter(
+        (reference) => reference.nodeId !== node.id,
+      );
+      const linkedHandoffs: WorkflowNode[] = [];
+      for (const reference of references) {
+        const consumer = nodes.find((candidate) => candidate.id === reference.nodeId);
+        const isLegacyHandoff = consumer?.data.kind === "agent_handoff"
+          && String(consumer.data.contractVersion ?? "1") !== "2"
+          && reference.field === "taskIdVariable"
+          && edges.some((edge) => edge.source === node.id && edge.target === consumer.id);
+        if (!consumer || !isLegacyHandoff) {
+          const message = `迁移被阻止：${reference.nodeTitle} 仍把 ${outputVariable} 当作任务 ID 字符串使用。`;
+          setMigrationNotice(message);
+          return message;
+        }
+        if (!linkedHandoffs.some((candidate) => candidate.id === consumer.id)) {
+          linkedHandoffs.push(consumer);
+        }
+      }
+      const replacements: Array<{ nodeId: string; data: WorkflowNodeData }> = [{
+        nodeId: node.id,
+        data: {
+          ...data,
+          contractVersion: 2,
+          outputVariable: outputVariable || "agent_task_receipt",
+        },
+      }];
+      for (const handoff of linkedHandoffs) {
+        const migrated = migrateLegacyHandoffData(
+          handoff,
+          outputVariable,
+          "receipt",
+        );
+        if (!migrated.ok) {
+          setMigrationNotice(migrated.message);
+          return migrated.message;
+        }
+        replacements.push({ nodeId: handoff.id, data: migrated.data });
+      }
+      const message = linkedHandoffs.length
+        ? `已原子升级任务节点及 ${linkedHandoffs.length} 个相连移交节点；可使用撤销恢复。`
+        : "任务节点已升级为类型化凭证；可使用撤销恢复。";
+      onReplaceNodeDataBatch(replacements, message);
+      setMigrationNotice(message);
+      return message;
+    }
+    if (data.kind === "agent_handoff") {
+      const migrated = migrateLegacyHandoffData(
+        node,
+        String(data.taskIdVariable ?? "agent_task_id"),
+        "task_id",
+      );
+      if (!migrated.ok) {
+        setMigrationNotice(migrated.message);
+        return migrated.message;
+      }
+      const message = "移交节点已升级；旧任务 ID 输入保留为兼容绑定，可使用撤销恢复。";
+      onReplaceNodeDataBatch([{ nodeId: node.id, data: migrated.data }], message);
+      setMigrationNotice(message);
+      return message;
+    }
+    if (data.kind === "handoff_router") {
+      const executionMode = String(data.executionMode ?? "manual");
+      const automatic = executionMode === "xpert_auto";
+      const legacyTarget = String(data.targetAgent ?? "").trim();
+      const xpertReference = legacyTarget.startsWith("xpert:")
+        ? legacyTarget.slice("xpert:".length)
+        : "";
+      const matchingXperts = publishedXperts.filter(
+        (item) => (item.id === xpertReference || item.slug === xpertReference)
+          && Boolean(item.published_version),
+      );
+      if ((automatic && matchingXperts.length !== 1) || (!automatic && !legacyTarget)) {
+        const message = automatic
+          ? "迁移被阻止：原自动目标无法唯一解析为一个已发布智能体版本。"
+          : "迁移被阻止：请先填写人工队列名称。";
+        setMigrationNotice(message);
+        return message;
+      }
+      const outputVariable = String(data.outputVariable ?? "agent_handoff_id").trim();
+      const incompatibleReferences = referencesFor(outputVariable).filter(
+        (reference) => reference.nodeId !== node.id
+          && !reference.expectedTypes.includes("json"),
+      );
+      if (incompatibleReferences.length) {
+        const message = `迁移被阻止：${incompatibleReferences[0].nodeTitle} 仍把 ${outputVariable} 当作字符串使用。`;
+        setMigrationNotice(message);
+        return message;
+      }
+      const matchedXpert = matchingXperts[0];
+      const migrated: WorkflowNodeData = {
+        ...data,
+        contractVersion: 2,
+        targetMode: automatic ? "xpert" : "inbox",
+        inboxTarget: automatic ? "" : legacyTarget,
+        targetXpertId: matchedXpert?.id ?? "",
+        targetVersion: matchedXpert?.published_version ?? 0,
+        waitForCompletion: workflowBooleanValue(data.waitForCompletion),
+        timeoutSeconds: Number(data.waitTimeoutSeconds ?? 120),
+        resultVariable: String(data.resultVariable ?? "handoff_result"),
+        outputVariable: outputVariable || "handoff_receipt",
+      };
+      delete migrated.targetAgent;
+      delete migrated.executionMode;
+      delete migrated.waitTimeoutSeconds;
+      const message = "创建并移交节点已升级为原子 V2 合同；可使用撤销恢复。";
+      onReplaceNodeDataBatch([{ nodeId: node.id, data: migrated }], message);
+      setMigrationNotice(message);
+      return message;
+    }
+    return "该节点不支持协作合同升级。";
+  };
   const legacyCodeMigration =
     data.kind === "code" && !isSafeTextV2(data)
       ? migrateLegacyCodeNode(data, migrationAvailableVariables)
@@ -4461,6 +4724,56 @@ function NodeConfig({
         <ResourceNodeConfig data={data} update={update} />
       ) : null}
 
+      {data.kind === "agent" ? (
+        <div className="rounded-lg border border-amber-300/25 bg-amber-300/10 p-3 text-xs leading-5 text-amber-50">
+          <p className="font-semibold">旧 Agent 节点已退役</p>
+          <p className="mt-1 text-amber-100/80">
+            新工作流请使用“智能体工作流”。只有确认旧版的未执行参数不会改变语义后，才能无损迁移。
+          </p>
+          {(() => {
+            const blocked =
+              String(data.temperature ?? "0.7") !== "0.7"
+              || workflowBooleanValue(data.retryOnFailure)
+              || Boolean(String(data.fallbackModelId ?? "").trim())
+              || !["", "[]"].includes(String(data.nodeParametersJson ?? "[]").trim())
+              || workflowBooleanValue(data.memoryReadEnabled)
+              || workflowBooleanValue(data.memoryWriteEnabled)
+              || String(data.outputSchemaMode ?? "default") !== "default";
+            return (
+              <>
+                {blocked ? (
+                  <p className="mt-2 text-amber-200">
+                    迁移被阻止：请先清理非默认 Temperature、重试/备用模型、参数、记忆或自定义输出配置。
+                  </p>
+                ) : null}
+                <button
+                  className="mt-3 rounded-md bg-amber-200 px-3 py-1.5 font-semibold text-ink-950 disabled:cursor-not-allowed disabled:opacity-45"
+                  disabled={blocked}
+                  onClick={() => update({
+                    kind: "workflow_agent",
+                    title: data.title === "Agent" ? "工作流智能体" : data.title,
+                    description: "模型驱动的单步智能体执行节点。",
+                    agentName: "workflow-agent",
+                    rolePrompt: "你是负责执行当前工作流步骤的智能体，请直接输出结果。",
+                    taskInput: data.instruction ?? "{{user_input}}",
+                    toolMode: data.agentMode === "direct" ? "none" : "mcp_tools",
+                    temperature: undefined,
+                    retryOnFailure: undefined,
+                    fallbackModelId: undefined,
+                    nodeParametersJson: undefined,
+                    instruction: undefined,
+                    agentMode: undefined,
+                  })}
+                  type="button"
+                >
+                  迁移为智能体工作流
+                </button>
+              </>
+            );
+          })()}
+        </div>
+      ) : null}
+
       {data.kind === "agent" || data.kind === "workflow_agent" ? (
         <AgentStudioPanel
           boundMiddlewares={boundMiddlewares}
@@ -4480,77 +4793,124 @@ function NodeConfig({
 
       {data.kind === "agent_task" ? (
         <>
-          <div className="rounded-lg border border-violet-300/25 bg-violet-300/10 px-3 py-2 text-xs leading-5 text-violet-50">
-            该节点会在运行时创建 Agent Task，并将新任务的 task_id 写入输出变量；当前不做真实多 Agent 调度。
-          </div>
-          <Field label="任务标题（支持 {{变量}}）">
-            <WorkflowVariableField
-              contract={variableContract}
-              edges={edges}
-              fieldName="taskTitle"
-              node={node}
-              nodes={nodes}
-              onChange={(value) => update({ taskTitle: value })}
-              value={data.taskTitle ?? ""}
-            />
-          </Field>
-          <Field label="任务输入（支持 {{变量}}）">
-            <WorkflowVariableField
-              className="min-h-32 resize-none leading-6"
-              contract={variableContract}
-              edges={edges}
-              fieldName="taskInput"
-              multiline
-              node={node}
-              nodes={nodes}
-              onChange={(value) => update({ taskInput: value })}
-              value={data.taskInput ?? ""}
-            />
-          </Field>
-          <Field label="指派智能体">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ assignedAgent: event.target.value })}
-              value={data.assignedAgent ?? ""}
-            />
-          </Field>
-          <Field label="输出变量">
-            <WorkflowVariableField
-              contract={variableContract}
-              edges={edges}
-              fieldName="outputVariable"
-              node={node}
-              nodes={nodes}
-              onChange={(value) => update({ outputVariable: value })}
-              value={data.outputVariable ?? ""}
-            />
-          </Field>
+          {String(data.contractVersion ?? "1") !== "2" ? (
+            <ConfigSection
+              description="旧版只输出任务 ID 字符串，也无法保证重复恢复时只创建一次任务。"
+              title="升级协作合同"
+            >
+              <div className="rounded-lg border border-amber-300/25 bg-amber-300/10 p-3 text-xs leading-5 text-amber-50">
+                <p>升级会同时检查并转换相连的旧版移交节点；无法确认类型安全时会明确阻止。</p>
+                <button
+                  className="mt-3 rounded-md bg-amber-200 px-3 py-1.5 font-semibold text-ink-950"
+                  onClick={migrateCollaborationNode}
+                  type="button"
+                >
+                  安全升级整条协作链
+                </button>
+                {migrationNotice ? (
+                  <p aria-live="polite" className="mt-2 text-amber-100">{migrationNotice}</p>
+                ) : null}
+              </div>
+            </ConfigSection>
+          ) : null}
+          <ConfigSection
+            description="标题用于队列识别，任务内容会保存在受控任务 Store 中。"
+            title="1. 定义任务"
+          >
+            <Field label="任务标题（支持 {{变量}}）">
+              <WorkflowVariableField
+                contract={variableContract}
+                edges={edges}
+                fieldName="taskTitle"
+                node={node}
+                nodes={nodes}
+                onChange={(value) => update({ taskTitle: value })}
+                value={data.taskTitle ?? ""}
+              />
+            </Field>
+            <Field label="交给接收方的任务内容">
+              <WorkflowVariableField
+                className="min-h-32 resize-none leading-6"
+                contract={variableContract}
+                edges={edges}
+                fieldName="taskInput"
+                multiline
+                node={node}
+                nodes={nodes}
+                onChange={(value) => update({ taskInput: value })}
+                value={data.taskInput ?? ""}
+              />
+            </Field>
+          </ConfigSection>
+          <ConfigSection
+            description="这里是任务的初始责任人标签；真正投递由后续移交节点完成。"
+            title="2. 责任与凭证"
+          >
+            <Field label="初始负责人">
+              <input
+                className={textInputClass()}
+                onChange={(event) => update({ assignedAgent: event.target.value })}
+                placeholder="例如：review-agent"
+                value={data.assignedAgent ?? ""}
+              />
+            </Field>
+            <Field label="任务凭证变量">
+              <WorkflowVariableField
+                contract={variableContract}
+                edges={edges}
+                fieldName="outputVariable"
+                node={node}
+                nodes={nodes}
+                onChange={(value) => update({ outputVariable: value })}
+                value={data.outputVariable ?? "agent_task_receipt"}
+              />
+              <p className="mt-2 text-xs leading-5 text-slate-500">
+                输出包含任务 ID、运行 ID、状态和负责人；下一个“移交已有任务”可直接选择它。
+              </p>
+            </Field>
+          </ConfigSection>
         </>
       ) : null}
 
       {data.kind === "agent_handoff" ? (
         <>
-          <div className="rounded-lg border border-purple-300/25 bg-purple-300/10 px-3 py-2 text-xs leading-5 text-purple-50">
-            读取已有 Agent Task 并创建 Handoff。人工目标进入 Inbox，指定智能体目标可自动执行并回传结果。
-          </div>
-          <Field label="任务 ID 变量">
-            <WorkflowVariableField
-              contract={variableContract}
-              edges={edges}
-              fieldName="taskIdVariable"
-              node={node}
-              nodes={nodes}
-              onChange={(value) => update({ taskIdVariable: value })}
-              value={data.taskIdVariable ?? ""}
-            />
-          </Field>
-          <Field label="来源智能体">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ sourceAgent: event.target.value })}
-              value={data.sourceAgent ?? ""}
-            />
-          </Field>
+          {String(data.contractVersion ?? "1") === "2" ? (
+            <ConfigSection
+              description="优先选择上游“创建协作任务”输出的 JSON 凭证。"
+              title="1. 选择任务"
+            >
+              <Field label="任务凭证变量">
+                <WorkflowVariableField
+                  contract={variableContract}
+                  edges={edges}
+                  fieldName="taskVariable"
+                  node={node}
+                  nodes={nodes}
+                  onChange={(value) => update({ taskVariable: value })}
+                  value={data.taskVariable ?? "agent_task_receipt"}
+                />
+              </Field>
+              <Field label="变量内容类型">
+                <select
+                  className={textInputClass()}
+                  onChange={(event) => update({
+                    taskValueKind: event.target.value as WorkflowNodeData["taskValueKind"],
+                  })}
+                  value={data.taskValueKind ?? "receipt"}
+                >
+                  <option className="bg-slate-950" value="receipt">任务凭证（推荐）</option>
+                  <option className="bg-slate-950" value="task_id">旧任务 ID 字符串</option>
+                </select>
+              </Field>
+              <Field label="来源标记">
+                <input
+                  className={textInputClass()}
+                  onChange={(event) => update({ sourceAgent: event.target.value })}
+                  value={data.sourceAgent ?? "workflow"}
+                />
+              </Field>
+            </ConfigSection>
+          ) : null}
           <HandoffExecutionConfig
             data={data}
             edges={edges}
@@ -4558,70 +4918,79 @@ function NodeConfig({
             nodes={nodes}
             publishedXperts={publishedXperts}
             publishedXpertsError={publishedXpertsError}
+            onMigrate={migrateCollaborationNode}
             update={update}
             variableContract={variableContract}
           />
-          <Field label="移交理由（支持 {{变量}}）">
-            <WorkflowVariableField
-              className="min-h-28 resize-none leading-6"
-              contract={variableContract}
-              edges={edges}
-              fieldName="reason"
-              multiline
-              node={node}
-              nodes={nodes}
-              onChange={(value) => update({ reason: value })}
-              value={data.reason ?? ""}
-            />
-          </Field>
-          <Field label="输出变量">
-            <WorkflowVariableField
-              contract={variableContract}
-              edges={edges}
-              fieldName="outputVariable"
-              node={node}
-              nodes={nodes}
-              onChange={(value) => update({ outputVariable: value })}
-              value={data.outputVariable ?? ""}
-            />
-          </Field>
+          {String(data.contractVersion ?? "1") !== "2" && migrationNotice ? (
+            <p aria-live="polite" className="text-xs leading-5 text-amber-100">{migrationNotice}</p>
+          ) : null}
+          {String(data.contractVersion ?? "1") === "2" ? (
+            <ConfigSection description="理由会交给接收方，但不会进入公开运行摘要。" title="3. 说明与输出">
+              <Field label="移交说明（支持 {{变量}}）">
+                <WorkflowVariableField
+                  className="min-h-24 resize-none leading-6"
+                  contract={variableContract}
+                  edges={edges}
+                  fieldName="reason"
+                  multiline
+                  node={node}
+                  nodes={nodes}
+                  onChange={(value) => update({ reason: value })}
+                  value={data.reason ?? ""}
+                />
+              </Field>
+              <Field label="移交凭证变量">
+                <WorkflowVariableField
+                  contract={variableContract}
+                  edges={edges}
+                  fieldName="outputVariable"
+                  node={node}
+                  nodes={nodes}
+                  onChange={(value) => update({ outputVariable: value })}
+                  value={data.outputVariable ?? "handoff_receipt"}
+                />
+              </Field>
+            </ConfigSection>
+          ) : null}
         </>
       ) : null}
 
       {data.kind === "handoff_router" ? (
         <>
-          <div className="rounded-lg border border-fuchsia-300/25 bg-fuchsia-300/10 px-3 py-2 text-xs leading-5 text-fuchsia-50">
-            读取上游智能体输出并创建任务。可投递到人工 Inbox，也可调用已发布智能体完成协作。
-          </div>
-          <Field label="来源变量">
-            <WorkflowVariableField
-              contract={variableContract}
-              edges={edges}
-              fieldName="sourceVariable"
-              node={node}
-              nodes={nodes}
-              onChange={(value) => update({ sourceVariable: value })}
-              value={data.sourceVariable ?? ""}
-            />
-          </Field>
-          <Field label="任务标题（支持 {{变量}}）">
-            <WorkflowVariableField
-              contract={variableContract}
-              edges={edges}
-              fieldName="taskTitle"
-              node={node}
-              nodes={nodes}
-              onChange={(value) => update({ taskTitle: value })}
-              value={data.taskTitle ?? ""}
-            />
-          </Field>
-          <Field label="来源智能体">
-            <input
-              className={textInputClass()}
-              onChange={(event) => update({ sourceAgent: event.target.value })}
-              value={data.sourceAgent ?? ""}
-            />
-          </Field>
+          {String(data.contractVersion ?? "1") === "2" ? (
+            <ConfigSection description="该节点会原子地创建任务并完成投递，不需要先放置任务节点。" title="1. 定义协作任务">
+              <Field label="任务内容来源">
+                <WorkflowVariableField
+                  contract={variableContract}
+                  edges={edges}
+                  fieldName="sourceVariable"
+                  node={node}
+                  nodes={nodes}
+                  onChange={(value) => update({ sourceVariable: value })}
+                  value={data.sourceVariable ?? ""}
+                />
+              </Field>
+              <Field label="任务标题（支持 {{变量}}）">
+                <WorkflowVariableField
+                  contract={variableContract}
+                  edges={edges}
+                  fieldName="taskTitle"
+                  node={node}
+                  nodes={nodes}
+                  onChange={(value) => update({ taskTitle: value })}
+                  value={data.taskTitle ?? ""}
+                />
+              </Field>
+              <Field label="来源标记">
+                <input
+                  className={textInputClass()}
+                  onChange={(event) => update({ sourceAgent: event.target.value })}
+                  value={data.sourceAgent ?? "workflow-agent"}
+                />
+              </Field>
+            </ConfigSection>
+          ) : null}
           <HandoffExecutionConfig
             data={data}
             edges={edges}
@@ -4629,33 +4998,41 @@ function NodeConfig({
             nodes={nodes}
             publishedXperts={publishedXperts}
             publishedXpertsError={publishedXpertsError}
+            onMigrate={migrateCollaborationNode}
             update={update}
             variableContract={variableContract}
           />
-          <Field label="移交理由模板（支持 {{变量}}）">
-            <WorkflowVariableField
-              className="min-h-28 resize-none leading-6"
-              contract={variableContract}
-              edges={edges}
-              fieldName="reasonTemplate"
-              multiline
-              node={node}
-              nodes={nodes}
-              onChange={(value) => update({ reasonTemplate: value })}
-              value={data.reasonTemplate ?? ""}
-            />
-          </Field>
-          <Field label="输出变量">
-            <WorkflowVariableField
-              contract={variableContract}
-              edges={edges}
-              fieldName="outputVariable"
-              node={node}
-              nodes={nodes}
-              onChange={(value) => update({ outputVariable: value })}
-              value={data.outputVariable ?? ""}
-            />
-          </Field>
+          {String(data.contractVersion ?? "1") !== "2" && migrationNotice ? (
+            <p aria-live="polite" className="text-xs leading-5 text-amber-100">{migrationNotice}</p>
+          ) : null}
+          {String(data.contractVersion ?? "1") === "2" ? (
+            <ConfigSection description="说明仅交给接收方；运行区只显示安全摘要和关系 ID。" title="3. 说明与输出">
+              <Field label="移交说明（支持 {{变量}}）">
+                <WorkflowVariableField
+                  className="min-h-24 resize-none leading-6"
+                  contract={variableContract}
+                  edges={edges}
+                  fieldName="reasonTemplate"
+                  multiline
+                  node={node}
+                  nodes={nodes}
+                  onChange={(value) => update({ reasonTemplate: value })}
+                  value={data.reasonTemplate ?? ""}
+                />
+              </Field>
+              <Field label="协作凭证变量">
+                <WorkflowVariableField
+                  contract={variableContract}
+                  edges={edges}
+                  fieldName="outputVariable"
+                  node={node}
+                  nodes={nodes}
+                  onChange={(value) => update({ outputVariable: value })}
+                  value={data.outputVariable ?? "handoff_receipt"}
+                />
+              </Field>
+            </ConfigSection>
+          ) : null}
         </>
       ) : null}
 
@@ -5447,6 +5824,14 @@ interface WorkflowFileInputFocusRequest {
   variableName: string;
 }
 
+export function workflowProjectPending(
+  workflowId: string,
+  hasSaveHandler: boolean,
+  projectRevision: number | null,
+): boolean {
+  return !hasSaveHandler && workflowId.startsWith("wf_") && projectRevision === null;
+}
+
 function WorkflowCanvas({
   workflowId,
   initialDefinition: controlledDefinition,
@@ -5520,6 +5905,11 @@ function WorkflowCanvas({
   const [runtimeMiddlewareRegistry, setRuntimeMiddlewareRegistry] = useState<
     RuntimeMiddlewareNode[]
   >([]);
+  const projectPending = workflowProjectPending(
+    workflowId,
+    Boolean(onSave),
+    projectRevision,
+  );
   const { screenToFlowPosition, fitView } = useReactFlow();
   const navigate = useNavigate();
 
@@ -5981,6 +6371,23 @@ function WorkflowCanvas({
     );
     setSaveNotice("节点已显式迁移；可使用撤销恢复旧配置。");
     window.setTimeout(() => setSaveNotice(""), 2600);
+  }
+
+  function replaceNodeDataBatch(
+    replacements: Array<{ nodeId: string; data: WorkflowNodeData }>,
+    notice: string,
+  ) {
+    if (!replacements.length) return;
+    const byId = new Map(replacements.map((item) => [item.nodeId, item.data]));
+    commitHistory();
+    setNodes((currentNodes) => currentNodes.map((candidate) => {
+      const replacement = byId.get(candidate.id);
+      return replacement
+        ? { ...candidate, type: "workflowNode", data: replacement }
+        : candidate;
+    }));
+    setSaveNotice(notice);
+    window.setTimeout(() => setSaveNotice(""), 3200);
   }
 
   function migrateTypedAiNode(nodeId: string): string {
@@ -7196,8 +7603,10 @@ function WorkflowCanvas({
                 workspaceTab === "run"
                   ? "bg-hire-300 text-ink-950"
                   : "text-slate-400 hover:text-slate-100"
-              }`}
+              } disabled:cursor-wait disabled:opacity-45`}
+              disabled={projectPending}
               onClick={() => setWorkspaceTab("run")}
+              title={projectPending ? "正在加载服务端工作流草稿" : undefined}
               type="button"
             >
               运行
@@ -7228,6 +7637,7 @@ function WorkflowCanvas({
               onOpenRunFileInput={openRunFileInput}
               onOpenVariableCenter={() => setIsVariableCenterOpen(true)}
               onReplaceNodeData={replaceNodeData}
+              onReplaceNodeDataBatch={replaceNodeDataBatch}
               onSelectNode={setSelectedNodeId}
               workflowId={workflowId}
             />
@@ -7282,14 +7692,20 @@ function WorkflowCanvas({
               </div>
             </div>
           ) : null}
-          <WorkflowRun
-            definition={definition}
-            embedded
-            fileInputFocusRequest={fileInputFocusRequest}
-            onNodeStatusChange={handleNodeStatusChange}
-            onRunStart={() => setWorkspaceTab("run")}
-            onStepSelect={handleStepSelect}
-          />
+          {projectPending ? (
+            <div className="rounded-lg border border-dashed border-white/15 bg-white/[0.035] px-4 py-8 text-center text-sm leading-6 text-slate-400">
+              正在加载服务端工作流草稿，加载完成后才能试运行。
+            </div>
+          ) : (
+            <WorkflowRun
+              definition={definition}
+              embedded
+              fileInputFocusRequest={fileInputFocusRequest}
+              onNodeStatusChange={handleNodeStatusChange}
+              onRunStart={() => setWorkspaceTab("run")}
+              onStepSelect={handleStepSelect}
+            />
+          )}
         </div>
       </aside>
       <WorkflowVariableCenter

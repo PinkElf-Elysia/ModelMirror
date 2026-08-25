@@ -1015,7 +1015,7 @@ export default function MetaAgentPage() {
         </section>
 
         <aside className="min-h-0 space-y-4">
-          <section className="surface-panel rounded-lg p-4">
+          <section className="surface-panel scroll-mt-6 rounded-lg p-4" id="handoff-inbox">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-semibold text-white">任务工作台</p>

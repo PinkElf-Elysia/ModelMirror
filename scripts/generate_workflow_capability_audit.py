@@ -51,6 +51,11 @@ DIRECT_UPDATES = {
         "模镜对应节点": "mcp_tool",
         "判断说明": "模镜有自有会话 Registry 和固定单工具解析，但不宣称具备参考项的完整注册表客户端节点语义。",
     },
+    "messageAnAgent": {
+        "模镜当前状态": "部分实现",
+        "模镜对应节点": "agent_task / agent_handoff",
+        "判断说明": "自研协作 V2 使用类型化任务凭证、固定接收目标和可恢复等待闭环；消息协议、目标体系与参考应用仍不同，因此保持受限实现。",
+    },
     "memoryManager": {
         "模镜当前状态": "部分实现",
         "模镜对应节点": "workflow_agent",
@@ -225,6 +230,16 @@ SOURCE_UPDATES = {
         "模镜当前状态": "部分实现",
         "模镜对应节点": "code",
         "判断说明": "自研安全文本加工 V2 只提供预定义、无外部 IO 的文本操作；不执行用户代码，也不开放模型工具沙箱，因此保持部分实现。",
+    },
+    "langchain:dist/nodes/agents/Agent/Agent.node.js": {
+        "模镜当前状态": "部分实现",
+        "模镜对应节点": "workflow_agent",
+        "判断说明": "自研工作流智能体提供模型、工具和受控策略执行；旧 agent 已退役新增入口，且不宣称与参考项的全部策略和工具生态等价。",
+    },
+    "langchain:dist/nodes/agents/Agent/AgentTool.node.js": {
+        "模镜当前状态": "部分实现",
+        "模镜对应节点": "workflow_agent",
+        "判断说明": "自研工作流智能体可在受控工具模式下执行，但没有复制参考工具节点的合同或完整生态，因此保持受限实现。",
     },
 }
 
@@ -633,6 +648,7 @@ def main() -> None:
 - R2.1 PR1 结果：不新增 `NativeNodeKind`，将 `code` 提升为只执行预定义操作的“安全文本加工 V2”完整合同，并从 Palette 移除退役 `template_transform`；旧草稿和既有激活版本继续兼容，模板文本能力由 `variable_assign` V2 承接；当时 50 Native、47 个可新增 Palette 项、42 个完整合同、8 个 compatibility 合同、7 个 Planner 节点
 - R2.1 PR2 结果：新增完整合同 `data_merge`，并将经典运行器升级为带持久化边到达账本的 Scheduler V2；支持可靠 Fan-in、有界数组拼接和受限一对一 inner join；当时 51 Native、48 个可新增 Palette 项、43 个完整合同、8 个 compatibility 合同、7 个 Planner 节点
 - R2.2 PR1 结果：将 `variable_aggregator` 提升为“变量打包”V2 完整合同，修正元智能体新图的报告汇总，并为 563 行参考清单增加 exact/limited/composable/none 证据门禁；当前 {native_count} Native、{palette_count} 个可新增 Palette 项、{complete_count} 个完整合同、{compatibility_count} 个 compatibility 合同、{planner_count} 个 Planner 节点
+- R2.2 PR2 结果：将 `agent_task`、`agent_handoff`、`handoff_router` 提升为类型化 V2 合同，新增 occurrence 幂等索引、原子 Router 与持久 Handoff 恢复，并退役旧 `agent` 新增入口；当前 {native_count} Native、{palette_count} 个可新增 Palette 项、{complete_count} 个完整合同、{compatibility_count} 个 compatibility 合同、{planner_count} 个 Planner 节点
 - 参考清单：563 条节点名称/类型，其中 `.ee` {ee_count} 条仅保留名称审计
 
 ## 结论与许可证边界

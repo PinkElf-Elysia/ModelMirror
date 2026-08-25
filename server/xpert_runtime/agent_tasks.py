@@ -92,6 +92,7 @@ class AgentTaskStore:
         self._changed = asyncio.Condition(self._lock)
         self._tasks: dict[str, AgentTask] = {}
         self._handoffs: list[AgentHandoff] = []
+        self._occurrence_index: dict[str, str] = {}
         self._event_store = event_store
         self.storage_dir = Path(storage_dir) if storage_dir is not None else None
         self.storage_path = (
@@ -108,9 +109,11 @@ class AgentTaskStore:
         source_agent: str | None = None,
         assigned_agent: str | None = None,
         metadata: dict[str, Any] | None = None,
+        occurrence_key: str | None = None,
     ) -> AgentTask:
+        occurrence = str(occurrence_key or "").strip()
         task = AgentTask(
-            task_id=str(uuid.uuid4()),
+            task_id=(f"task_{uuid.uuid4().hex}" if occurrence else str(uuid.uuid4())),
             title=title,
             input=input_text,
             source_agent=source_agent,
@@ -118,7 +121,14 @@ class AgentTaskStore:
             metadata=dict(metadata or {}),
         )
         async with self._changed:
+            if occurrence:
+                existing_id = self._occurrence_index.get(f"task:{occurrence}")
+                existing = self._tasks.get(str(existing_id or ""))
+                if existing is not None:
+                    return existing
             self._tasks[task.task_id] = task
+            if occurrence:
+                self._occurrence_index[f"task:{occurrence}"] = task.task_id
             self._persist_unlocked()
             self._changed.notify_all()
         await self._record(
@@ -213,9 +223,13 @@ class AgentTaskStore:
         reason: str,
         *,
         metadata: dict[str, Any] | None = None,
+        occurrence_key: str | None = None,
     ) -> AgentHandoff:
+        occurrence = str(occurrence_key or "").strip()
         handoff = AgentHandoff(
-            handoff_id=str(uuid.uuid4()),
+            handoff_id=(
+                f"handoff_{uuid.uuid4().hex}" if occurrence else str(uuid.uuid4())
+            ),
             task_id=task_id,
             source_agent=source_agent,
             target_agent=target_agent,
@@ -225,7 +239,14 @@ class AgentTaskStore:
         async with self._changed:
             if task_id not in self._tasks:
                 raise KeyError(f"Agent task not found: {task_id}")
+            if occurrence:
+                existing_id = self._occurrence_index.get(f"handoff:{occurrence}")
+                existing = self._find_handoff_unlocked(str(existing_id or ""))
+                if existing is not None:
+                    return existing
             self._handoffs.append(handoff)
+            if occurrence:
+                self._occurrence_index[f"handoff:{occurrence}"] = handoff.handoff_id
             self._persist_unlocked()
             self._changed.notify_all()
         await self._record(
@@ -239,6 +260,84 @@ class AgentTaskStore:
             },
         )
         return handoff
+
+    async def create_task_and_handoff(
+        self,
+        *,
+        title: str,
+        input_text: str,
+        source_agent: str,
+        target_agent: str,
+        reason: str,
+        occurrence_key: str,
+        task_metadata: dict[str, Any] | None = None,
+        handoff_metadata: dict[str, Any] | None = None,
+    ) -> tuple[AgentTask, AgentHandoff]:
+        """Atomically materialize a routed task and its handoff once."""
+
+        occurrence = str(occurrence_key or "").strip()
+        if not occurrence:
+            raise ValueError("A routed handoff occurrence key is required.")
+        task_index_key = f"router-task:{occurrence}"
+        handoff_index_key = f"router-handoff:{occurrence}"
+        created_task = False
+        created_handoff = False
+        async with self._changed:
+            task = self._tasks.get(self._occurrence_index.get(task_index_key, ""))
+            handoff = self._find_handoff_unlocked(
+                self._occurrence_index.get(handoff_index_key, "")
+            )
+            if task is not None and handoff is not None:
+                return task, handoff
+            if task is not None or handoff is not None:
+                raise RuntimeError("Routed handoff occurrence index is inconsistent.")
+            task = AgentTask(
+                task_id=f"task_{uuid.uuid4().hex}",
+                title=title,
+                input=input_text,
+                source_agent=source_agent,
+                assigned_agent=target_agent,
+                metadata=dict(task_metadata or {}),
+            )
+            handoff = AgentHandoff(
+                handoff_id=f"handoff_{uuid.uuid4().hex}",
+                task_id=task.task_id,
+                source_agent=source_agent,
+                target_agent=target_agent,
+                reason=reason,
+                metadata=dict(handoff_metadata or {}),
+            )
+            self._tasks[task.task_id] = task
+            self._handoffs.append(handoff)
+            self._occurrence_index[task_index_key] = task.task_id
+            self._occurrence_index[handoff_index_key] = handoff.handoff_id
+            created_task = True
+            created_handoff = True
+            self._persist_unlocked()
+            self._changed.notify_all()
+        if created_task:
+            await self._record(
+                "agent.task.created",
+                task_id=task.task_id,
+                payload={
+                    "task_id": task.task_id,
+                    "title": task.title,
+                    "source_agent": source_agent,
+                    "assigned_agent": target_agent,
+                },
+            )
+        if created_handoff:
+            await self._record(
+                "agent.handoff.created",
+                task_id=task.task_id,
+                payload={
+                    "handoff_id": handoff.handoff_id,
+                    "task_id": task.task_id,
+                    "source_agent": source_agent,
+                    "target_agent": target_agent,
+                },
+            )
+        return task, handoff
 
     async def list_handoffs(self, task_id: str | None = None) -> list[AgentHandoff]:
         async with self._lock:
@@ -428,7 +527,7 @@ class AgentTaskStore:
                 handoff.metadata.pop(key, None)
             if reset_attempts:
                 handoff.metadata["attempts"] = 0
-            if repin_version:
+            if repin_version and int(handoff.metadata.get("contract_version") or 1) != 2:
                 for key in (
                     "target_xpert_id",
                     "target_xpert_slug",
@@ -506,6 +605,12 @@ class AgentTaskStore:
                 for item in raw_handoffs
                 if isinstance(item, dict) and item.get("handoff_id")
             ]
+            raw_index = payload.get("occurrence_index", {}) if isinstance(payload, dict) else {}
+            self._occurrence_index = {
+                str(key): str(value)
+                for key, value in dict(raw_index or {}).items()
+                if str(key) and str(value)
+            }
         except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
             raise RuntimeError("Agent task storage is unreadable.") from exc
 
@@ -514,9 +619,10 @@ class AgentTaskStore:
             return
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         payload = {
-            "version": 1,
+            "version": 2,
             "tasks": [asdict(task) for task in self._tasks.values()],
             "handoffs": [asdict(handoff) for handoff in self._handoffs],
+            "occurrence_index": dict(self._occurrence_index),
         }
         temp_path = self.storage_path.with_suffix(".tmp")
         temp_path.write_text(

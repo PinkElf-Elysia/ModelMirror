@@ -124,6 +124,14 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     assert mapped["memoryManager"]["模镜当前状态"] == "部分实现"
     assert mapped["memoryManager"]["模镜对应节点"] == "workflow_agent"
     assert "没有可独立连线" in mapped["memoryManager"]["判断说明"]
+    assert mapped["messageAnAgent"]["模镜对应节点"] == "agent_task / agent_handoff"
+    assert mapped["messageAnAgent"]["覆盖等级"] == "limited"
+    for source_ref in (
+        "langchain:dist/nodes/agents/Agent/Agent.node.js",
+        "langchain:dist/nodes/agents/Agent/AgentTool.node.js",
+    ):
+        assert mapped_by_source[source_ref]["模镜对应节点"] == "workflow_agent"
+        assert "agent /" not in mapped_by_source[source_ref]["模镜对应节点"]
     assert "区间截取" in mapped["itemLists"]["判断说明"]
     for source_ref in (
         "base:dist/nodes/Function/Function.node.js",
@@ -244,9 +252,9 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     assert f"Planner 可生成类型仍固定为 {planner_count} 类" in markdown
     assert "R1.8 结果" in markdown
     assert native_count == 51
-    assert palette_count == 48
-    assert complete_count == 44
-    assert compatibility_count == 7
+    assert palette_count == 47
+    assert complete_count == 47
+    assert compatibility_count == 4
     assert planner_count == 7
     assert "R1.9 结果" in markdown
     assert (
@@ -271,5 +279,9 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     assert (
         "- R2.2 PR1 结果：将 `variable_aggregator` 提升为“变量打包”V2 完整合同"
     ) in markdown
+    assert (
+        "- R2.2 PR2 结果：将 `agent_task`、`agent_handoff`、`handoff_router` "
+        "提升为类型化 V2 合同"
+    ) in markdown
     assert "覆盖等级用于表达证据强度" in markdown
-    assert "当前 51 Native、48 个可新增 Palette 项、44 个完整合同、7 个 compatibility 合同、7 个 Planner 节点" in markdown
+    assert "当前 51 Native、47 个可新增 Palette 项、47 个完整合同、4 个 compatibility 合同、7 个 Planner 节点" in markdown

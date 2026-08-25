@@ -9,6 +9,7 @@ import {
   parseSkillRuntimeIds,
   reconcileMcpArgumentBindings,
   updateSkillRuntimeIds,
+  workflowProjectPending,
   workflowTypesForMcpSchema,
 } from "./WorkflowEditor";
 import {
@@ -17,6 +18,13 @@ import {
 } from "./workflowNodeRegistry";
 
 describe("WorkflowEditor palette defaults", () => {
+  it("blocks a server workflow run until its draft revision is loaded", () => {
+    expect(workflowProjectPending("wf_server", false, null)).toBe(true);
+    expect(workflowProjectPending("wf_server", false, 1)).toBe(false);
+    expect(workflowProjectPending("workflow-local", false, null)).toBe(false);
+    expect(workflowProjectPending("wf_controlled", true, null)).toBe(false);
+  });
+
   it("places palette-click nodes at the nearest available canvas position", () => {
     const preferred = { x: 320, y: 80 };
     const centeredNode = {
@@ -177,6 +185,37 @@ describe("WorkflowEditor palette defaults", () => {
       resultVariable: "workflow_result",
       timeoutSeconds: 60,
     });
+  });
+
+  it("creates collaboration nodes with typed V2 receipts and usable targets", () => {
+    expect(createNodeData("agent_task")).toMatchObject({
+      contractVersion: 2,
+      taskTitle: "处理用户请求",
+      taskInput: "{{user_input}}",
+      assignedAgent: "review-agent",
+      outputVariable: "agent_task_receipt",
+    });
+    expect(createNodeData("agent_handoff")).toMatchObject({
+      contractVersion: 2,
+      taskVariable: "agent_task_receipt",
+      taskValueKind: "receipt",
+      targetMode: "inbox",
+      inboxTarget: "review-agent",
+      waitForCompletion: false,
+      outputVariable: "handoff_receipt",
+    });
+    expect(createNodeData("handoff_router")).toMatchObject({
+      contractVersion: 2,
+      sourceVariable: "agent_output",
+      targetMode: "inbox",
+      inboxTarget: "review-agent",
+      waitForCompletion: false,
+      outputVariable: "handoff_receipt",
+    });
+    expect(
+      workflowPaletteSections.flatMap((section) => section.items)
+        .some((item) => item.kind === "agent"),
+    ).toBe(false);
   });
 
   it("provides safe structured defaults for R1.6 control and data nodes", () => {
