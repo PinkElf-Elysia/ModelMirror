@@ -320,26 +320,141 @@ class ManagedWorkflowNodeRun:
         max_tokens: int,
         cancel_event: asyncio.Event | None = None,
     ) -> AsyncIterator[str]:
-        prepared: ProviderWorkloadPreparedCall | None = None
-        dispatched = False
-        started = time.perf_counter()
-        evidence = _StreamEvidence()
+        prepared = await self.prepare_stream_call(
+            logical_call_key=logical_call_key,
+            call_sequence=call_sequence,
+            execution_shape="chat_text",
+            model_id=model_id,
+        )
+        async for delta in self.stream_prepared_text(
+            prepared,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            cancel_event=cancel_event,
+        ):
+            yield delta
+
+    async def prepare_stream_call(
+        self,
+        *,
+        logical_call_key: str,
+        call_sequence: int,
+        execution_shape: Literal["chat_text", "fusion_native"],
+        model_id: str,
+    ) -> ProviderWorkloadPreparedCall:
         try:
-            prepared = await self.gateway.call_service.prepare_call(
+            return await self.gateway.call_service.prepare_call(
                 run_id=self.run_id,
                 entry_id=self.entry_id,
-                execution_shape="chat_text",
+                execution_shape=execution_shape,
                 model_id=model_id,
                 logical_call_key=logical_call_key,
                 call_sequence=call_sequence,
             )
-            payload = {
-                "model": model_id,
+        except asyncio.CancelledError:
+            self._record_failure(
+                None,
+                call_sequence=call_sequence,
+                model_id=model_id,
+                dispatched=False,
+                status="cancelled",
+                result_class="client_cancelled",
+                code="provider_workload_call_cancelled",
+            )
+            raise
+        except ManagedWorkflowRoutingError as exc:
+            self._record_failure(
+                None,
+                call_sequence=call_sequence,
+                model_id=model_id,
+                dispatched=False,
+                status="failed",
+                result_class="preflight_error",
+                code=exc.code,
+            )
+            exc.receipt = self.receipt_summary()
+            raise
+        except RouterServiceError as exc:
+            self._record_failure(
+                None,
+                call_sequence=call_sequence,
+                model_id=model_id,
+                dispatched=False,
+                status="failed",
+                result_class="control_plane_error",
+                code=exc.code,
+            )
+            raise self._closed_error(exc.code, False) from exc
+        except (httpx.TimeoutException, TimeoutError) as exc:
+            self._record_failure(
+                None,
+                call_sequence=call_sequence,
+                model_id=model_id,
+                dispatched=False,
+                status="failed",
+                result_class="transport_error",
+                code="provider_workload_timeout",
+            )
+            raise self._closed_error("provider_workload_timeout", False) from exc
+        except httpx.HTTPError as exc:
+            self._record_failure(
+                None,
+                call_sequence=call_sequence,
+                model_id=model_id,
+                dispatched=False,
+                status="failed",
+                result_class="transport_error",
+                code="provider_workload_transport_error",
+            )
+            raise self._closed_error(
+                "provider_workload_transport_error", False
+            ) from exc
+        except Exception as exc:
+            self._record_failure(
+                None,
+                call_sequence=call_sequence,
+                model_id=model_id,
+                dispatched=False,
+                status="failed",
+                result_class="unexpected_error",
+                code="provider_workload_preflight_failed",
+            )
+            raise self._closed_error(
+                "provider_workload_preflight_failed", False
+            ) from exc
+
+    async def stream_prepared_text(
+        self,
+        prepared: ProviderWorkloadPreparedCall,
+        *,
+        messages: list[dict[str, Any]],
+        temperature: float,
+        max_tokens: int,
+        extra_payload: Mapping[str, Any] | None = None,
+        expected_actual_model: str | None = None,
+        cancel_event: asyncio.Event | None = None,
+    ) -> AsyncIterator[str]:
+        dispatched = False
+        started = time.perf_counter()
+        evidence = _StreamEvidence()
+        try:
+            payload: dict[str, Any] = {
+                "model": prepared.model_id,
                 "messages": messages,
                 "stream": True,
                 "temperature": temperature,
                 "max_tokens": max_tokens,
             }
+            if extra_payload:
+                conflicting = sorted(set(payload).intersection(extra_payload))
+                if conflicting:
+                    raise ManagedWorkflowRoutingError(
+                        "provider_workload_payload_conflict",
+                        "Managed Provider 的扩展请求字段与稳定调用契约冲突。",
+                        status_code=409,
+                    )
+                payload.update(extra_payload)
             async with self._client() as client:
                 request = self.gateway.call_service.transport.build_authorized_stream_request(
                     client,
@@ -358,7 +473,9 @@ class ManagedWorkflowNodeRun:
                         for delta in self._consume_stream_event(
                             event,
                             evidence,
-                            requested_model=model_id,
+                            requested_model=(
+                                expected_actual_model or prepared.model_id
+                            ),
                             started=started,
                         ):
                             yield delta
@@ -388,8 +505,8 @@ class ManagedWorkflowNodeRun:
             )
             self.calls.append(
                 WorkflowProviderCallReceipt(
-                    call_sequence=call_sequence,
-                    model_id=model_id,
+                    call_sequence=prepared.call_sequence,
+                    model_id=prepared.model_id,
                     actual_model=evidence.actual_model,
                     dispatched=True,
                     status="passed",
@@ -401,8 +518,8 @@ class ManagedWorkflowNodeRun:
         except asyncio.CancelledError:
             self._record_failure(
                 prepared,
-                call_sequence=call_sequence,
-                model_id=model_id,
+                call_sequence=prepared.call_sequence,
+                model_id=prepared.model_id,
                 dispatched=dispatched,
                 status="cancelled",
                 result_class="client_cancelled",
@@ -412,8 +529,8 @@ class ManagedWorkflowNodeRun:
         except ManagedWorkflowRoutingError as exc:
             self._record_failure(
                 prepared,
-                call_sequence=call_sequence,
-                model_id=model_id,
+                call_sequence=prepared.call_sequence,
+                model_id=prepared.model_id,
                 dispatched=dispatched,
                 status="failed",
                 result_class="provider_error" if dispatched else "preflight_error",
@@ -425,8 +542,8 @@ class ManagedWorkflowNodeRun:
             status: WorkflowCallStatus = "uncertain" if dispatched else "failed"
             self._record_failure(
                 prepared,
-                call_sequence=call_sequence,
-                model_id=model_id,
+                call_sequence=prepared.call_sequence,
+                model_id=prepared.model_id,
                 dispatched=dispatched,
                 status=status,
                 result_class="control_plane_error",
@@ -437,8 +554,8 @@ class ManagedWorkflowNodeRun:
             status = "uncertain" if dispatched else "failed"
             self._record_failure(
                 prepared,
-                call_sequence=call_sequence,
-                model_id=model_id,
+                call_sequence=prepared.call_sequence,
+                model_id=prepared.model_id,
                 dispatched=dispatched,
                 status=status,
                 result_class="transport_error",
@@ -449,8 +566,8 @@ class ManagedWorkflowNodeRun:
             status = "uncertain" if dispatched else "failed"
             self._record_failure(
                 prepared,
-                call_sequence=call_sequence,
-                model_id=model_id,
+                call_sequence=prepared.call_sequence,
+                model_id=prepared.model_id,
                 dispatched=dispatched,
                 status=status,
                 result_class="transport_error",
@@ -468,14 +585,32 @@ class ManagedWorkflowNodeRun:
             )
             self._record_failure(
                 prepared,
-                call_sequence=call_sequence,
-                model_id=model_id,
+                call_sequence=prepared.call_sequence,
+                model_id=prepared.model_id,
                 dispatched=dispatched,
                 status=status,
                 result_class="unexpected_error",
                 code=code,
             )
             raise self._closed_error(code, dispatched) from exc
+
+    def fail_prepared_call(
+        self,
+        prepared: ProviderWorkloadPreparedCall,
+        *,
+        code: str,
+        status: WorkflowCallStatus = "failed",
+        result_class: str = "preflight_error",
+    ) -> None:
+        self._record_failure(
+            prepared,
+            call_sequence=prepared.call_sequence,
+            model_id=prepared.model_id,
+            dispatched=False,
+            status=status,
+            result_class=result_class,
+            code=code,
+        )
 
     async def complete_text_unary(
         self,

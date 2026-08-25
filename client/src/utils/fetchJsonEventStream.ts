@@ -45,11 +45,14 @@ function parseEventBlock(block: string, onEvent: (event: JsonStreamEvent) => voi
 
   if (!data || data === "[DONE]") return;
 
+  let event: JsonStreamEvent;
   try {
-    onEvent(JSON.parse(data) as JsonStreamEvent);
+    event = JSON.parse(data) as JsonStreamEvent;
   } catch (error) {
     console.warn("ModelMirror JSON event parse failed", error, data);
+    return;
   }
+  onEvent(event);
 }
 
 export async function fetchJsonEventStream({

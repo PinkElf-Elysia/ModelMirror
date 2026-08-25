@@ -247,13 +247,18 @@ python -m server.model_router.migrate_credentials --storage-dir <path>
   Receipt，不改变回答正文或会话历史。受控子 Xpert/Handoff 显式继承 `xpert` 上下文，Managed
   失败不自动重放；Automation、Goal、评测、进化、记忆候选、后台增强与 Skill 流程保持排除。
   文件仅使用既有抽取文本，多模态继续专用 Adapter。
-- R6G 接入 Expert Team Planner 与 Agency DAG。Planner 使用 `chat_json_object`；DAG 的普通
+- R6G 接入 Expert Team Planner 与 Agency DAG。Planner 使用 `chat_text_unary`；DAG 的普通
   执行调用使用 `chat_text_unary`，JSON 验收/裁判使用独立 `chat_json_object`，两类 Binding
   都必须匹配精确模型与当前连接指纹。Worker request ID 直接成为逻辑调用键；初始、HITL
   恢复、续跑和返工以独立稳定片段记录 Receipt。请求开始时冻结控制模式，managed 请求派发前
   资格漂移或策略停用只会失败关闭，派发后失败不得换连接、模型、IP 或 legacy。Worker 环境、
   API、SQLite、日志和浏览器不保存 Key、Prompt 或模型正文。
-- 后续 R6H—R6I 将逐入口接入同一 Call Service。每个逻辑调用只能派发一次；Provider Key
+- R6H 接入 Fusion。原生模式只使用精确 `openrouter/fusion` 的 `fusion_native` Binding，
+  运行时有序候选与裁判必须匹配当前资格 Profile；失败后不再自动转应用层。应用层模式在首个
+  POST 前一次性预检全部候选和裁判 `chat_text` Binding；候选与裁判分别记录计划调用，候选
+  部分失败可继续其余已计划调用，但不切换 Provider。裁判失败不会调用备用模型，也不会把候选
+  正文伪装为裁判结果。两种模式互斥，legacy 只在 Flag 关闭或管理员显式停用 Policy 后恢复。
+- 后续 R6I 将逐入口接入同一 Call Service。每个逻辑调用只能派发一次；Provider Key
   只能存在于 Python 主进程内存，Worker、工具执行器和浏览器不得收到 Key、URL 或连接细节。
 - Receipt 清理命令现在同时检查 R5 Chat 与 R6 Workload 记录，仍默认 dry-run；`--apply`
   才删除超过保留期的已完成运行、尝试或调用。

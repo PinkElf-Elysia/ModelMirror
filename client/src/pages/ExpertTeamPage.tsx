@@ -11,6 +11,8 @@ import {
   type AgencyPlannerCapabilities,
   type AgencyTeamAsset,
   type AgencyValidationIssue,
+  type ProviderRouteCallReceipt,
+  type ProviderRouteReceipt,
 } from "../components/AgencyExpertTeamTypes";
 import { useAgencyAssets } from "../components/useAgencyAssets";
 import { useAgencyDagRun } from "../components/useAgencyDagRun";
@@ -139,6 +141,97 @@ interface FusionModelResult {
   error?: string;
 }
 
+export const FUSION_ROUTING_BOUNDARY_COPY =
+  "原生 Fusion 为 Beta 通道；备用路径仅由当前控制面策略明确决定。";
+
+export function fusionReceiptFromEvent(
+  event: JsonStreamEvent,
+): ProviderRouteReceipt | null {
+  const receipt = event.provider_route_receipts;
+  if (
+    !receipt ||
+    typeof receipt !== "object" ||
+    !("contract_version" in receipt) ||
+    receipt.contract_version !== "modelmirror-provider-workload-routing-v1" ||
+    !("entry_id" in receipt) ||
+    receipt.entry_id !== "fusion" ||
+    !("routing_mode" in receipt) ||
+    receipt.routing_mode !== "managed_required" ||
+    !("run_reference" in receipt) ||
+    typeof receipt.run_reference !== "string" ||
+    !("status" in receipt) ||
+    !["running", "passed", "failed", "uncertain", "cancelled"].includes(
+      String(receipt.status),
+    ) ||
+    !("call_count" in receipt) ||
+    typeof receipt.call_count !== "number" ||
+    !("reason_codes" in receipt) ||
+    !Array.isArray(receipt.reason_codes) ||
+    !("calls" in receipt) ||
+    !Array.isArray(receipt.calls)
+  ) {
+    return null;
+  }
+  const calls: ProviderRouteCallReceipt[] = [];
+  for (const rawCall of receipt.calls) {
+    if (
+      !rawCall ||
+      typeof rawCall !== "object" ||
+      !("call_sequence" in rawCall) ||
+      typeof rawCall.call_sequence !== "number" ||
+      !("model_id" in rawCall) ||
+      typeof rawCall.model_id !== "string" ||
+      !("dispatched" in rawCall) ||
+      typeof rawCall.dispatched !== "boolean" ||
+      !("status" in rawCall) ||
+      !["running", "passed", "failed", "uncertain", "cancelled"].includes(
+        String(rawCall.status),
+      )
+    ) {
+      return null;
+    }
+    calls.push({
+      call_sequence: rawCall.call_sequence,
+      model_id: rawCall.model_id,
+      actual_model:
+        "actual_model" in rawCall && typeof rawCall.actual_model === "string"
+          ? rawCall.actual_model
+          : null,
+      dispatched: rawCall.dispatched,
+      status: rawCall.status as ProviderRouteCallReceipt["status"],
+      error_code:
+        "error_code" in rawCall && typeof rawCall.error_code === "string"
+          ? rawCall.error_code
+          : null,
+      prompt_tokens:
+        "prompt_tokens" in rawCall && typeof rawCall.prompt_tokens === "number"
+          ? rawCall.prompt_tokens
+          : null,
+      completion_tokens:
+        "completion_tokens" in rawCall &&
+        typeof rawCall.completion_tokens === "number"
+          ? rawCall.completion_tokens
+          : null,
+      total_tokens:
+        "total_tokens" in rawCall && typeof rawCall.total_tokens === "number"
+          ? rawCall.total_tokens
+          : null,
+    });
+  }
+  return {
+    contract_version: "modelmirror-provider-workload-routing-v1",
+    entry_id: "fusion",
+    routing_mode: "managed_required",
+    run_reference: receipt.run_reference,
+    status: receipt.status as ProviderRouteReceipt["status"],
+    call_count: receipt.call_count,
+    reason_codes: receipt.reason_codes.filter(
+      (item): item is string => typeof item === "string",
+    ),
+    calls,
+  };
+}
+
 interface TeamSavedConfig {
   id: string;
   name: string;
@@ -205,6 +298,25 @@ export function recommendedChatModels() {
   const remaining = models
     .filter((model) => isLikelyChatModel(model) && !seen.has(model.id));
   return [...preferred, ...remaining];
+}
+
+export function searchableFusionModels(
+  selectedModelIds: string[],
+  query: string,
+  limit = 48,
+) {
+  const allModels = recommendedChatModels();
+  const selected = new Set(selectedModelIds);
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const matches = normalizedQuery
+    ? allModels.filter((model) =>
+        `${model.name}\n${model.id}`.toLocaleLowerCase().includes(normalizedQuery),
+      )
+    : allModels;
+  return [
+    ...allModels.filter((model) => selected.has(model.id)),
+    ...matches.filter((model) => !selected.has(model.id)),
+  ].slice(0, Math.max(selected.size, limit));
 }
 
 function eventText(event: JsonStreamEvent, key: string) {
@@ -395,11 +507,6 @@ export default function ExpertTeamPage() {
         .slice(0, 3),
     [textModelIds],
   );
-  const modelPool = useMemo(
-    () => recommendedChatModels().slice(0, 48),
-    [],
-  );
-
   const [activeDesk, setActiveDesk] = useState<ExpertDesk>(() => {
     const desk = searchParams.get("desk");
     return desk === "route" || desk === "team" || desk === "fusion"
@@ -421,10 +528,17 @@ export default function ExpertTeamPage() {
       ? initialFusionIds
       : textModelIds.slice(0, 3),
   );
+  const [fusionModelSearch, setFusionModelSearch] = useState("");
+  const modelPool = useMemo(
+    () => searchableFusionModels(fusionModelIds, fusionModelSearch),
+    [fusionModelIds, fusionModelSearch],
+  );
   const [fusionResults, setFusionResults] = useState<FusionModelResult[]>([]);
   const [fusionFinal, setFusionFinal] = useState("");
   const [fusionStatus, setFusionStatus] = useState<RunStatus>("idle");
   const [fusionLog, setFusionLog] = useState<string[]>([]);
+  const [fusionProviderReceipt, setFusionProviderReceipt] =
+    useState<ProviderRouteReceipt | null>(null);
   const [useNativeFusion, setUseNativeFusion] = useState(true);
 
   const [routeMessage, setRouteMessage] = useState(
@@ -817,6 +931,7 @@ export default function ExpertTeamPage() {
     if (fusionModelIds.length < 2 || !fusionQuestion.trim()) return;
     setFusionStatus("running");
     setFusionFinal("");
+    setFusionProviderReceipt(null);
     setFusionLog(["正在咨询多位模型专家..."]);
     setFusionResults(
       fusionModelIds.map((modelId) => ({
@@ -838,6 +953,8 @@ export default function ExpertTeamPage() {
           max_tokens: 2048,
         },
         onEvent: (event) => {
+          const receipt = fusionReceiptFromEvent(event);
+          if (receipt) setFusionProviderReceipt(receipt);
           const eventName = event.event;
           if (eventName === "fusion_stage") {
             const message = eventText(event, "message");
@@ -875,6 +992,10 @@ export default function ExpertTeamPage() {
           }
           if (eventName === "fusion_delta") {
             setFusionFinal((current) => current + eventText(event, "output"));
+          }
+          if (eventName === "fusion_end") {
+            const warning = eventText(event, "warning");
+            if (warning) setFusionLog((current) => [...current, warning]);
           }
           if (eventName === "error") {
             throw new Error(eventText(event, "message"));
@@ -1338,7 +1459,7 @@ export default function ExpertTeamPage() {
             Fusion、自动派工和 AI Team 都在这里开会。当前专家库共 {agents.length} 位。
           </p>
           <div className="mt-4 rounded-lg border border-hire-300/20 bg-hire-300/10 p-3 text-xs leading-5 text-hire-50">
-            原生融合为 Beta 通道，系统会自动准备本地裁判兜底。
+            {FUSION_ROUTING_BOUNDARY_COPY}
           </div>
         </div>
       }
@@ -1398,7 +1519,7 @@ export default function ExpertTeamPage() {
                   onChange={(event) => setUseNativeFusion(event.target.checked)}
                   type="checkbox"
                 />
-                优先使用原生融合
+                使用原生 Fusion
               </label>
             </div>
 
@@ -1433,9 +1554,19 @@ export default function ExpertTeamPage() {
             </div>
 
             <div className="mt-5 max-h-64 overflow-y-auto rounded-lg border border-white/10 bg-white/[0.035] p-3">
-              <p className="mb-3 text-xs font-semibold text-slate-400">
-                候选模型池（最多 5 位）
-              </p>
+              <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs font-semibold text-slate-400">
+                  候选模型池（最多 5 位）
+                </p>
+                <input
+                  aria-label="搜索候选模型"
+                  className="h-9 w-full rounded-lg border border-white/10 bg-ink-950/76 px-3 text-xs text-white outline-none transition placeholder:text-slate-400 focus:border-hire-300/70 focus:ring-4 focus:ring-hire-300/10 sm:w-64"
+                  onChange={(event) => setFusionModelSearch(event.target.value)}
+                  placeholder="按名称或模型 ID 搜索"
+                  type="search"
+                  value={fusionModelSearch}
+                />
+              </div>
               <div className="grid gap-2 sm:grid-cols-2">
                 {modelPool.map((model) => {
                   const checked = fusionModelIds.includes(model.id);
@@ -1457,6 +1588,11 @@ export default function ExpertTeamPage() {
                     </button>
                   );
                 })}
+                {modelPool.length === 0 ? (
+                  <p className="py-4 text-sm text-slate-400">
+                    未找到匹配的文本模型。
+                  </p>
+                ) : null}
               </div>
             </div>
 
@@ -1520,6 +1656,10 @@ export default function ExpertTeamPage() {
               <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-200">
                 {fusionFinal || "Fusion 完成后，综合意见会出现在这里。"}
               </p>
+              <ProviderRouteReceiptSummary
+                receipts={fusionProviderReceipt}
+                title="Fusion 控制面"
+              />
             </div>
           </div>
         </section>

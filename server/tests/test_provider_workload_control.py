@@ -924,7 +924,7 @@ async def test_native_fusion_certification_is_openrouter_only_and_one_post(
         return Response(
             200,
             content=(
-                b'data: {"model":"openrouter/fusion","choices":'
+                b'data: {"model":"provider/judge","choices":'
                 b'[{"delta":{"content":"OK"},"finish_reason":null}]}\n\n'
                 b'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n'
                 b"data: [DONE]\n\n"
@@ -977,6 +977,7 @@ async def test_native_fusion_certification_is_openrouter_only_and_one_post(
         "provider/candidate-b",
     ]
     assert result.judge_model_id == "provider/judge"
+    assert result.actual_model == "provider/judge"
     assert [request.method for request in requests].count("POST") == 1
     assert "fusion-secret" not in result.model_dump_json()
 

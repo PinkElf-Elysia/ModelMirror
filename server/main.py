@@ -1287,6 +1287,7 @@ try:
         ManagedExpertTeamGateway,
         ManagedExpertTeamRun,
     )
+    from server.model_router.fusion_gateway import ManagedFusionGateway
     from server.model_router.workflow_gateway import (
         ManagedWorkflowGateway,
         ManagedWorkflowAgentRun,
@@ -1298,6 +1299,7 @@ except ModuleNotFoundError:
         ManagedExpertTeamGateway,
         ManagedExpertTeamRun,
     )
+    from model_router.fusion_gateway import ManagedFusionGateway
     from model_router.workflow_gateway import (
         ManagedWorkflowGateway,
         ManagedWorkflowAgentRun,
@@ -4987,6 +4989,19 @@ agency_worker_client = AgencyWorkerClient(
 
 def expert_team_managed_gateway() -> ManagedExpertTeamGateway:
     return ManagedExpertTeamGateway.for_router(get_model_router_service())
+
+
+def fusion_managed_gateway() -> ManagedFusionGateway:
+    return ManagedFusionGateway.for_router(get_model_router_service())
+
+
+def fusion_control_enabled() -> bool:
+    return os.getenv("MODEL_CONTROL_FUSION_ENABLED", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 def expert_team_managed_run(
@@ -25191,7 +25206,9 @@ async def get_runtime_environment_summary():
 
 @app.post("/api/fusion/chat")
 async def fusion_chat(payload: FusionChatRequest, request: Request):
-    if not get_llm_gateway_config()[0]:
+    managed_gateway = fusion_managed_gateway() if fusion_control_enabled() else None
+    managed_mode = managed_gateway.routing_mode() if managed_gateway else "legacy"
+    if managed_mode == "legacy" and not get_llm_gateway_config()[0]:
         return JSONResponse(
             status_code=500,
             content={"error": LLM_GATEWAY_NOT_CONFIGURED_MESSAGE},
@@ -25203,6 +25220,22 @@ async def fusion_chat(payload: FusionChatRequest, request: Request):
     except HTTPException as exc:
         return JSONResponse(status_code=exc.status_code, content={"error": str(exc.detail)})
 
+    managed_run = None
+    managed_start_error: dict[str, Any] | None = None
+    if managed_mode != "legacy":
+        assert managed_gateway is not None
+        try:
+            managed_run = managed_gateway.start_run()
+        except ManagedWorkflowRoutingError as exc:
+            managed_start_error = {
+                "event": "error",
+                "message": exc.public_message,
+                "reason_code": exc.code,
+                "provider_route_receipts": (
+                    exc.receipt or managed_gateway.blocked_receipt(exc.code)
+                ),
+            }
+
     async def fusion_stream():
         yield sse_payload(
             {
@@ -25210,9 +25243,38 @@ async def fusion_chat(payload: FusionChatRequest, request: Request):
                 "native": payload.use_native_fusion,
                 "model_ids": payload.model_ids,
                 "judge_model_id": payload.judge_model_id,
-                "note": "OpenRouter Fusion Router 为 Beta 能力；如原生调用失败，将自动切换到应用层并行裁判融合。",
+                "note": (
+                    "Fusion 已启用 Managed Provider；原生与应用层路径互斥，失败不会自动切换。"
+                    if managed_mode != "legacy"
+                    else "OpenRouter Fusion Router 为 Beta 能力；如原生调用失败，将自动切换到应用层并行裁判融合。"
+                ),
             }
         )
+
+        if managed_start_error is not None:
+            yield sse_payload(managed_start_error)
+            return
+
+        if managed_run is not None:
+            last_user_question = next(
+                (
+                    message_text(message.content)
+                    for message in reversed(payload.messages)
+                    if message.role == "user"
+                ),
+                "",
+            )
+            async for event in managed_run.stream_events(
+                use_native_fusion=payload.use_native_fusion,
+                candidate_model_ids=payload.model_ids,
+                judge_model_id=payload.judge_model_id,
+                messages=chat_messages_json(payload.messages),
+                user_question=last_user_question,
+                temperature=payload.temperature,
+                max_tokens=payload.max_tokens,
+            ):
+                yield sse_payload(event)
+            return
 
         native_text = ""
         if payload.use_native_fusion:
