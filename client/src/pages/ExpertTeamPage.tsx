@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import PageContainer from "../components/PageContainer";
 import AgencyDagRunPanel from "../components/AgencyDagRunPanel";
+import ProviderRouteReceiptSummary from "../components/ProviderRouteReceiptSummary";
 import {
   type AgencyAgentSummary,
   type AgencyDagRevisionPayload,
@@ -196,14 +197,13 @@ function isLikelyChatModel(model: (typeof models)[number]) {
   );
 }
 
-function recommendedChatModels() {
+export function recommendedChatModels() {
   const preferred = defaultFusionIds
     .map((modelId) => models.find((model) => model.id === modelId))
     .filter((model): model is (typeof models)[number] => Boolean(model));
   const seen = new Set(preferred.map((model) => model.id));
   const remaining = models
-    .filter((model) => isLikelyChatModel(model) && !seen.has(model.id))
-    .slice(0, 180);
+    .filter((model) => isLikelyChatModel(model) && !seen.has(model.id));
   return [...preferred, ...remaining];
 }
 
@@ -2237,6 +2237,10 @@ export default function ExpertTeamPage() {
                         <p className="mt-2 text-slate-400">
                           本次规划：{agencyPreview.model_calls || 0} 次调用 · {(agencyPreview.usage.input_tokens || 0).toLocaleString()} 入 / {(agencyPreview.usage.output_tokens || 0).toLocaleString()} 出
                         </p>
+                        <ProviderRouteReceiptSummary
+                          receipts={agencyPreview.provider_route_receipts}
+                          title="Planner 控制面"
+                        />
                       </div>
                       <div className="mt-4 flex flex-wrap gap-2">
                         <button

@@ -6,7 +6,7 @@ import re
 import uuid
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -78,6 +78,22 @@ TEMPLATE_PATTERN = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
 AgencyModelRunner = Callable[
     [AgencyModelRequest], Awaitable[AgencyModelResponse | str]
 ]
+
+
+class AgencyManagedRun(Protocol):
+    async def complete(self, request: AgencyModelRequest) -> AgencyModelResponse: ...
+
+    def finish(
+        self,
+        status: Literal["passed", "failed", "uncertain", "cancelled"],
+        *,
+        reason_code: str | None = None,
+    ) -> dict[str, Any]: ...
+
+    def receipt_summary(self) -> dict[str, Any]: ...
+
+
+AgencyManagedRunFactory = Callable[[str, str], AgencyManagedRun | None]
 
 
 class StrictModel(BaseModel):
@@ -669,6 +685,7 @@ class AgencyExecutionCoordinator:
         worker_entry: str | None = None,
         enabled: bool = False,
         client_factory: Callable[[], AgencyExecutionClient] | None = None,
+        managed_run_factory: AgencyManagedRunFactory | None = None,
     ) -> None:
         self.store = store
         self.run_registry = run_registry
@@ -677,6 +694,7 @@ class AgencyExecutionCoordinator:
         self.worker_entry = worker_entry
         self.enabled = enabled
         self.client_factory = client_factory
+        self.managed_run_factory = managed_run_factory
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._lock = asyncio.Lock()
 
@@ -697,6 +715,7 @@ class AgencyExecutionCoordinator:
         revision: Mapping[str, Any] | None = None,
         revision_metadata: Mapping[str, Any] | None = None,
         resumed_from_task_id: str | None = None,
+        managed_provider_required: bool = False,
     ) -> dict[str, Any]:
         if resume is not None and revision is not None:
             raise AgencyExecutionValidationError(
@@ -753,69 +772,95 @@ class AgencyExecutionCoordinator:
                     "revision_request_digest",
                 }
             }
-            run = await self.run_registry.create_run(
-                "expert_team",
-                f"Expert Team DAG: {goal[:80]}",
-                status="running",
-                source_id="expert_team",
-                metadata={
-                    "surface": "expert_team",
-                    "backend": "agency_orchestrator",
-                    "upstream_project": AGENCY_UPSTREAM_PROJECT,
-                    "upstream_revision": upstream_revision,
-                    "model_id": model_id,
-                    "capability_snapshot_hash": capability_snapshot_hash,
-                    "max_steps": MAX_EXECUTION_STEPS,
-                    "max_concurrency": MAX_EXECUTION_CONCURRENCY,
-                    "max_model_calls": MAX_EXECUTION_MODEL_CALLS,
-                    "resumed_from_task_id": resumed_from_task_id,
-                    **public_revision_metadata,
-                    "initial_model_calls": int(
-                        (resume or {}).get("prior_model_calls") or 0
-                    ),
-                    "initial_usage": dict(
-                        (resume or {}).get("prior_usage") or {}
-                    ),
-                },
-            )
             task_id = f"agency_dag_{uuid.uuid4().hex}"
-            item = self.store.create(
-                task_id=task_id,
-                run_id=run.run_id,
-                run_type="expert_team",
-                workflow=prepared.workflow,
-                inputs={"goal": goal},
-                source_kind="expert_team_agency",
-                runtime_metadata={
-                    "protocol": (
-                        AGENCY_HITL_PROTOCOL
-                        if any(
-                            str(step.get("type") or "normal")
-                            in {"human_input", "approval"}
-                            for step in prepared.workflow.get("steps", [])
-                            if isinstance(step, dict)
-                        )
-                        else AGENCY_EXECUTION_PROTOCOL
-                    ),
-                    "model_id": model_id,
-                    "upstream_revision": upstream_revision,
-                    "capability_snapshot_version": capability_snapshot_version,
-                    "capability_snapshot_hash": capability_snapshot_hash,
-                    "sink_task_id": prepared.sink_task_id,
-                    "selected_agent_ids": prepared.selected_agent_ids,
-                    "method_skill_digests": {
-                        skill.skill_id: skill.digest for skill in prepared.skills
-                    },
-                    "resumed_from_task_id": resumed_from_task_id,
-                    **revision_metadata,
-                    "initial_model_calls": int(
-                        (resume or {}).get("prior_model_calls") or 0
-                    ),
-                    "initial_usage": dict(
-                        (resume or {}).get("prior_usage") or {}
-                    ),
-                },
+            managed_run = self._managed_run(
+                task_id,
+                "initial",
+                required=managed_provider_required,
             )
+            try:
+                run = await self.run_registry.create_run(
+                    "expert_team",
+                    f"Expert Team DAG: {goal[:80]}",
+                    status="running",
+                    source_id="expert_team",
+                    metadata={
+                        "surface": "expert_team",
+                        "backend": "agency_orchestrator",
+                        "upstream_project": AGENCY_UPSTREAM_PROJECT,
+                        "upstream_revision": upstream_revision,
+                        "model_id": model_id,
+                        "capability_snapshot_hash": capability_snapshot_hash,
+                        "max_steps": MAX_EXECUTION_STEPS,
+                        "max_concurrency": MAX_EXECUTION_CONCURRENCY,
+                        "max_model_calls": MAX_EXECUTION_MODEL_CALLS,
+                        "resumed_from_task_id": resumed_from_task_id,
+                        **public_revision_metadata,
+                        "initial_model_calls": int(
+                            (resume or {}).get("prior_model_calls") or 0
+                        ),
+                        "initial_usage": dict(
+                            (resume or {}).get("prior_usage") or {}
+                        ),
+                        "provider_control_mode": (
+                            "managed_required"
+                            if managed_provider_required
+                            else "legacy"
+                        ),
+                    },
+                )
+                item = self.store.create(
+                    task_id=task_id,
+                    run_id=run.run_id,
+                    run_type="expert_team",
+                    workflow=prepared.workflow,
+                    inputs={"goal": goal},
+                    source_kind="expert_team_agency",
+                    runtime_metadata={
+                        "protocol": (
+                            AGENCY_HITL_PROTOCOL
+                            if any(
+                                str(step.get("type") or "normal")
+                                in {"human_input", "approval"}
+                                for step in prepared.workflow.get("steps", [])
+                                if isinstance(step, dict)
+                            )
+                            else AGENCY_EXECUTION_PROTOCOL
+                        ),
+                        "model_id": model_id,
+                        "upstream_revision": upstream_revision,
+                        "capability_snapshot_version": (
+                            capability_snapshot_version
+                        ),
+                        "capability_snapshot_hash": capability_snapshot_hash,
+                        "sink_task_id": prepared.sink_task_id,
+                        "selected_agent_ids": prepared.selected_agent_ids,
+                        "method_skill_digests": {
+                            skill.skill_id: skill.digest
+                            for skill in prepared.skills
+                        },
+                        "resumed_from_task_id": resumed_from_task_id,
+                        **revision_metadata,
+                        "initial_model_calls": int(
+                            (resume or {}).get("prior_model_calls") or 0
+                        ),
+                        "initial_usage": dict(
+                            (resume or {}).get("prior_usage") or {}
+                        ),
+                        "provider_control_mode": (
+                            "managed_required"
+                            if managed_provider_required
+                            else "legacy"
+                        ),
+                    },
+                )
+            except Exception:
+                if managed_run is not None:
+                    managed_run.finish(
+                        "failed",
+                        reason_code="agency_execution_bootstrap_failed",
+                    )
+                raise
             task = asyncio.create_task(
                 self._run(
                     task_id=task_id,
@@ -825,6 +870,7 @@ class AgencyExecutionCoordinator:
                     resume=resume,
                     revision=revision,
                     interaction_resume=None,
+                    managed_run=managed_run,
                 ),
                 name=f"expert-team-agency:{task_id}",
             )
@@ -899,6 +945,14 @@ class AgencyExecutionCoordinator:
                 raise AgencyExecutionCapacityError(
                     "当前已有两个 DAG 正在执行，HITL 任务将在有容量后继续。"
                 )
+            managed_run = self._managed_run(
+                execution.task_id,
+                f"interaction:{approval.approval_id}:{approval.revision}",
+                required=(
+                    execution.runtime_metadata.get("provider_control_mode")
+                    == "managed_required"
+                ),
+            )
             task = asyncio.create_task(
                 self._run(
                     task_id=execution.task_id,
@@ -908,6 +962,7 @@ class AgencyExecutionCoordinator:
                     resume=None,
                     revision=None,
                     interaction_resume=interaction_resume,
+                    managed_run=managed_run,
                 ),
                 name=f"expert-team-agency-hitl:{execution.task_id}",
             )
@@ -972,6 +1027,7 @@ class AgencyExecutionCoordinator:
         *,
         source_task_id: str,
         prepared: PreparedAgencyExecution,
+        managed_provider_required: bool = False,
     ) -> dict[str, Any]:
         source = self.store.require(source_task_id)
         if source.source_kind != "expert_team_agency" or source.status != "failed":
@@ -1052,6 +1108,7 @@ class AgencyExecutionCoordinator:
             upstream_revision=str(metadata.get("upstream_revision") or ""),
             resume=resume,
             resumed_from_task_id=source_task_id,
+            managed_provider_required=managed_provider_required,
         )
 
     async def revise(
@@ -1061,6 +1118,7 @@ class AgencyExecutionCoordinator:
         target_task_id: str,
         feedback: str,
         prepared: PreparedAgencyExecution,
+        managed_provider_required: bool = False,
     ) -> dict[str, Any]:
         source = self.store.require(source_task_id)
         if (
@@ -1240,6 +1298,7 @@ class AgencyExecutionCoordinator:
             upstream_revision=str(metadata.get("upstream_revision") or ""),
             revision=revision,
             revision_metadata=revision_metadata,
+            managed_provider_required=managed_provider_required,
         )
 
     async def cancel(self, task_id: str) -> dict[str, Any]:
@@ -1367,8 +1426,28 @@ class AgencyExecutionCoordinator:
         resume: Mapping[str, Any] | None = None,
         revision: Mapping[str, Any] | None = None,
         interaction_resume: Mapping[str, Any] | None = None,
+        managed_run: AgencyManagedRun | None = None,
     ) -> None:
         item = self.store.require(task_id)
+        managed_run_finished = False
+
+        def finish_managed_run(
+            status: Literal["passed", "failed", "uncertain", "cancelled"],
+            *,
+            reason_code: str | None = None,
+        ) -> None:
+            nonlocal managed_run_finished
+            if managed_run_finished:
+                return
+            try:
+                self._finish_managed_run(
+                    managed_run,
+                    task_id,
+                    status,
+                    reason_code=reason_code,
+                )
+            finally:
+                managed_run_finished = True
 
         async def on_event(event: dict[str, Any]) -> None:
             current = self.store.require(task_id)
@@ -1379,15 +1458,18 @@ class AgencyExecutionCoordinator:
                     and str(event.get("final_output") or "")
                 ):
                     # The completion event is the worker's durable commit point.
-                    # Mark it before yielding back to the event loop so a late
-                    # cancel cannot overwrite a finished, already-billed run.
+                    # Persist the Provider receipt before exposing completion so
+                    # a reader never observes a billed run without its audit.
+                    finish_managed_run("passed")
                     self.store.complete(
                         task_id,
                         result=str(event["final_output"]),
                     )
 
         try:
-            result = await self._client().execute(
+            result = await self._client(
+                model_runner=(managed_run.complete if managed_run is not None else None)
+            ).execute(
                 goal=goal,
                 model_id=model_id,
                 workflow=prepared.workflow,
@@ -1400,6 +1482,7 @@ class AgencyExecutionCoordinator:
             )
             payload = result.payload
             if payload.get("status") == "waiting":
+                finish_managed_run("passed")
                 await self._suspend_interaction(task_id, payload)
                 return
             final_output = str(payload.get("final_output") or "")
@@ -1413,6 +1496,7 @@ class AgencyExecutionCoordinator:
                 self.store.complete(task_id, result=final_output)
                 current = self.store.require(task_id)
             if current.status == "completed":
+                finish_managed_run("passed")
                 await self._safe_update_run(
                     item.run_id,
                     status="completed",
@@ -1423,6 +1507,10 @@ class AgencyExecutionCoordinator:
                     },
                 )
         except asyncio.CancelledError:
+            finish_managed_run(
+                "cancelled",
+                reason_code="agency_execution_cancelled",
+            )
             current = self.store.require(task_id)
             if current.status not in TERMINAL_STATUSES:
                 self._append_terminal_event(
@@ -1438,6 +1526,17 @@ class AgencyExecutionCoordinator:
             raise
         except Exception as exc:
             code = getattr(exc, "code", "agency_execution_failed")
+            managed_status: Literal["failed", "uncertain"] = "failed"
+            if managed_run is not None and any(
+                call.get("status") == "uncertain"
+                for call in managed_run.receipt_summary().get("calls", [])
+                if isinstance(call, dict)
+            ):
+                managed_status = "uncertain"
+            finish_managed_run(
+                managed_status,
+                reason_code=str(code),
+            )
             current = self.store.require(task_id)
             if current.status not in TERMINAL_STATUSES:
                 self._append_terminal_event(
@@ -1546,12 +1645,59 @@ class AgencyExecutionCoordinator:
             },
         )
 
-    def _client(self) -> AgencyExecutionClient:
+    def _client(
+        self, *, model_runner: AgencyModelRunner | None = None
+    ) -> AgencyExecutionClient:
         if self.client_factory is not None:
-            return self.client_factory()
+            client = self.client_factory()
+            if model_runner is not None:
+                client.model_runner = model_runner
+            return client
         return AgencyExecutionClient(
-            model_runner=self.model_runner,
+            model_runner=model_runner or self.model_runner,
             worker_entry=self.worker_entry,
+        )
+
+    def _managed_run(
+        self,
+        task_id: str,
+        segment_key: str,
+        *,
+        required: bool,
+    ) -> AgencyManagedRun | None:
+        if not required:
+            return None
+        if self.managed_run_factory is None:
+            raise AgencyExecutionValidationError(
+                "专家团 Managed Provider 执行器不可用，当前调用失败关闭。",
+                code="provider_workload_policy_not_active",
+            )
+        managed_run = self.managed_run_factory(task_id, segment_key)
+        if managed_run is None:
+            raise AgencyExecutionValidationError(
+                "专家团 Managed Provider 策略已变化，当前调用失败关闭。",
+                code="provider_workload_policy_not_active",
+            )
+        return managed_run
+
+    def _finish_managed_run(
+        self,
+        managed_run: AgencyManagedRun | None,
+        task_id: str,
+        status: Literal["passed", "failed", "uncertain", "cancelled"],
+        *,
+        reason_code: str | None = None,
+    ) -> None:
+        if managed_run is None:
+            return
+        receipt = managed_run.finish(status, reason_code=reason_code)
+        self.store.append_event(
+            task_id,
+            {
+                "event": "agency.provider.receipt",
+                "status": status,
+                "provider_route_receipts": receipt,
+            },
         )
 
     async def _safe_update_run(self, run_id: str, **kwargs: Any) -> None:
@@ -1577,6 +1723,7 @@ class AgencyExecutionCoordinator:
         public = WorkflowExecutionStore.serialize_public(item)
         latest_steps: dict[str, dict[str, Any]] = {}
         summary: dict[str, Any] = {}
+        provider_route_receipts: list[dict[str, Any]] = []
         for event in item.events:
             event_name = str(event.get("event") or "")
             step_id = str(event.get("task_id") or "")
@@ -1591,6 +1738,11 @@ class AgencyExecutionCoordinator:
             cumulative_usage = event.get("cumulative_usage")
             if isinstance(cumulative_usage, dict):
                 summary["usage"] = dict(cumulative_usage)
+            provider_receipt = event.get("provider_route_receipts")
+            if event_name == "agency.provider.receipt" and isinstance(
+                provider_receipt, dict
+            ):
+                provider_route_receipts.append(dict(provider_receipt))
             if event_name in {
                 "agency.run.completed",
                 "agency.run.failed",
@@ -1762,6 +1914,7 @@ class AgencyExecutionCoordinator:
             "lineage_model_calls": lineage_calls_before + current_model_calls,
             "lineage_usage": lineage_usage,
             "estimated_cost": None,
+            "provider_route_receipts": provider_route_receipts,
             "error_code": item.error,
             "error_message": str(
                 summary.get("message") or summary.get("error") or ""

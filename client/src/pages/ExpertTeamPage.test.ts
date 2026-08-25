@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { AgencyPlanTask } from "../components/AgencyExpertTeamTypes";
-import { validateAgencyHitlPlan } from "./ExpertTeamPage";
+import {
+  recommendedChatModels,
+  validateAgencyHitlPlan,
+} from "./ExpertTeamPage";
 
 function expert(
   taskId: string,
@@ -61,5 +64,13 @@ describe("ExpertTeamPage HITL plan validation", () => {
     expect(issues.map((issue) => issue.code)).toContain(
       "agency_hitl_sink_acceptance_required",
     );
+  });
+});
+
+describe("ExpertTeamPage model selection", () => {
+  it("keeps eligible exact managed models selectable beyond the featured prefix", () => {
+    expect(
+      recommendedChatModels().some((model) => model.id === "openai/gpt-4o-mini"),
+    ).toBe(true);
   });
 });

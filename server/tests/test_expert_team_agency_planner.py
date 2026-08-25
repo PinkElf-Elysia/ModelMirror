@@ -411,6 +411,89 @@ def test_plan_preview_auto_compiles_without_authoring_proposal(
     assert expert_run.metadata["backend"] == "agency_orchestrator"
 
 
+def test_plan_preview_managed_mode_uses_bound_runner_and_returns_receipt(
+    monkeypatch,
+) -> None:
+    experts = main_module.AGENT_RECORDS[:2]
+    observed: dict = {}
+
+    class FakeManagedRun:
+        async def complete(self, request):
+            observed["request"] = request
+            raise AssertionError("the fake worker should not call the runner")
+
+        def finish(self, status, *, reason_code=None):
+            observed["finish"] = (status, reason_code)
+            return self.receipt_summary(status=status)
+
+        def receipt_summary(self, *, status="running"):
+            return {
+                "contract_version": "modelmirror-provider-workload-routing-v1",
+                "entry_id": "expert_team_planner",
+                "routing_mode": "managed_required",
+                "run_reference": "planner-managed-run",
+                "status": status,
+                "call_count": 1,
+                "reason_codes": [],
+                "calls": [],
+            }
+
+    managed_run = FakeManagedRun()
+
+    class FakeGateway:
+        def routing_mode(self, entry_id):
+            assert entry_id == "expert_team_planner"
+            return "managed_required"
+
+        def start_run(self, entry_id, *, parent_run_reference):
+            observed["entry_id"] = entry_id
+            observed["parent_run_reference"] = parent_run_reference
+            return managed_run
+
+    class FakePlannerClient:
+        async def compose(self, **kwargs):
+            observed["compose"] = kwargs
+            return agency_result(experts[0].id, experts[1].id)
+
+    def fake_client_for_runner(runner):
+        observed["runner"] = runner
+        return FakePlannerClient()
+
+    monkeypatch.setenv("EXPERT_TEAM_AGENCY_PLANNER_ENABLED", "1")
+    monkeypatch.setattr(main_module, "expert_team_managed_gateway", FakeGateway)
+    monkeypatch.setattr(
+        main_module,
+        "agency_worker_client_for_model_runner",
+        fake_client_for_runner,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "get_llm_gateway_config",
+        lambda: (_ for _ in ()).throw(AssertionError("legacy gateway used")),
+    )
+    monkeypatch.setattr(main_module, "rate_limit_or_raise", lambda _ip: None)
+
+    response = client.post(
+        "/api/expert-team/plan-preview",
+        json={
+            "goal": "研究新产品并形成可执行的发布方案。",
+            "planner_model_id": "model/planner",
+            "default_agent_model_id": "model/agent",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert observed["runner"] == managed_run.complete
+    assert observed["finish"] == ("passed", None)
+    assert observed["entry_id"] == "expert_team_planner"
+    assert observed["parent_run_reference"].startswith("expert-team-planner:")
+    assert payload["provider_route_receipts"]["entry_id"] == (
+        "expert_team_planner"
+    )
+    assert payload["provider_route_receipts"]["status"] == "passed"
+
+
 def test_plan_preview_keeps_catalog_examples_out_of_workflow_variables(
     monkeypatch,
 ) -> None:
