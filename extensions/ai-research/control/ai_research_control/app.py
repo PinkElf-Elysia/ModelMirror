@@ -3,20 +3,38 @@ from __future__ import annotations
 import json
 import asyncio
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Annotated, Any
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
 
 from .config import Settings
-from .models import EventListResponse, EventView, ReadyView, RunCreateRequest, RunListResponse, RunView
+from .models import (
+    CaseId,
+    EventListResponse,
+    EventView,
+    EvidenceState,
+    EvidenceView,
+    Outcome,
+    Phase,
+    ReadyView,
+    RunCreateRequest,
+    RunListResponse,
+    RunSummaryResponse,
+    RunView,
+    SystemView,
+)
+from .evidence import EvidenceError
 from .service import NotReady, ResearchService
 from .store import IdempotencyConflict
 
 
 settings = Settings.from_env()
+ui_directory = Path(__file__).resolve().parents[1] / "ui-dist"
 
 
 @asynccontextmanager
@@ -31,8 +49,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="ModelMirror AI Research AR0",
-    version="0.1.0-ar0",
+    title="ModelMirror AI Research",
+    version="0.2.0-ar1",
     docs_url="/docs" if settings.docs_enabled else None,
     redoc_url=None,
     openapi_url="/openapi.json" if settings.docs_enabled else None,
@@ -42,6 +60,29 @@ app.add_middleware(
     TrustedHostMiddleware,
     allowed_hosts=["127.0.0.1", "localhost", "ai-research-control", "testserver"],
 )
+app.mount(
+    "/assets",
+    StaticFiles(directory=ui_directory / "assets", check_dir=True),
+    name="research-console-assets",
+)
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+        "font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; "
+        "form-action 'self'; frame-ancestors 'none'"
+    )
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    if request.url.path.startswith("/assets/") and response.status_code < 400:
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    elif response.headers.get("content-type", "").startswith("text/html"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 def service(request: Request) -> ResearchService:
@@ -69,7 +110,10 @@ def to_view(run: dict[str, Any]) -> RunView:
             "mlflowRunId": run["mlflow_run_id"],
             "createdAt": run["created_at"],
             "startedAt": run["started_at"],
+            "cancelRequestedAt": run.get("cancel_requested_at"),
+            "cancelAppliedAt": run.get("cancel_applied_at"),
             "terminalAt": run["terminal_at"],
+            "evidenceSyncedAt": run.get("evidence_synced_at"),
             "updatedAt": run["updated_at"],
         }
     )
@@ -105,12 +149,30 @@ async def module_metadata() -> dict[str, Any]:
         "packStatus": "fixture_only",
         "fixtures": boundary["allowedFixtures"],
         "runtimes": source_lock["runtimes"],
+        "capabilities": {
+            "fixtureExecution": True,
+            "cancellation": True,
+            "evidenceVerification": True,
+            "inspectView": True,
+            "mlflow": True,
+            "modelEvaluation": False,
+            "multiTenant": False,
+        },
+        "links": {
+            "mlflow": settings.mlflow_public_url,
+            "inspectView": settings.inspect_view_public_url,
+        },
         "limitations": [
             "no model or provider connection",
             "no scientific EvalPack or score",
             "local single-tenant compatibility mode only",
         ],
     }
+
+
+@app.get("/api/v1/system", response_model=SystemView, response_model_by_alias=True)
+async def system_status(request: Request) -> SystemView:
+    return SystemView.model_validate(await service(request).system_status())
 
 
 @app.post("/api/v1/runs", response_model=RunView, response_model_by_alias=True)
@@ -134,10 +196,22 @@ async def list_runs(
     request: Request,
     cursor: str | None = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    q: Annotated[str | None, Query(max_length=100)] = None,
+    case_id: Annotated[CaseId | None, Query(alias="caseId")] = None,
+    phase: Phase | None = None,
+    outcome: Outcome | None = None,
+    evidence_state: Annotated[EvidenceState | None, Query(alias="evidenceState")] = None,
 ) -> RunListResponse:
     try:
         runs = await asyncio.to_thread(
-            service(request).store.list, after_run_id=cursor, limit=limit + 1
+            service(request).store.list,
+            after_run_id=cursor,
+            limit=limit + 1,
+            query=q,
+            case_id=case_id,
+            phase=phase,
+            outcome=outcome,
+            evidence_state=evidence_state,
         )
     except KeyError as exc:
         raise HTTPException(status_code=400, detail="invalid cursor") from exc
@@ -149,6 +223,24 @@ async def list_runs(
     )
 
 
+@app.get(
+    "/api/v1/runs/summary",
+    response_model=RunSummaryResponse,
+    response_model_by_alias=True,
+)
+async def run_summary(request: Request) -> RunSummaryResponse:
+    value = await asyncio.to_thread(service(request).store.summary)
+    return RunSummaryResponse.model_validate(
+        {
+            "total": value["total"],
+            "phases": value["phases"],
+            "outcomes": value["outcomes"],
+            "evidenceStates": value["evidence_states"],
+            "updatedAt": value["updated_at"],
+        }
+    )
+
+
 @app.get("/api/v1/runs/{run_id}", response_model=RunView, response_model_by_alias=True)
 async def get_run(run_id: str, request: Request) -> RunView:
     try:
@@ -156,6 +248,38 @@ async def get_run(run_id: str, request: Request) -> RunView:
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="run not found") from exc
     return to_view(run)
+
+
+@app.get(
+    "/api/v1/runs/{run_id}/evidence",
+    response_model=EvidenceView,
+    response_model_by_alias=True,
+)
+async def get_evidence(run_id: str, request: Request) -> EvidenceView:
+    try:
+        value = await service(request).evidence(run_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="run not found") from exc
+    return EvidenceView.model_validate(value)
+
+
+@app.get("/api/v1/runs/{run_id}/artifacts/{artifact_name}")
+async def download_artifact(run_id: str, artifact_name: str, request: Request) -> Response:
+    try:
+        content, digest = await service(request).artifact(run_id, artifact_name)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="artifact not found") from exc
+    except EvidenceError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return Response(
+        content=content,
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": f'attachment; filename="{artifact_name}"',
+            "Cache-Control": "no-store",
+            "X-Artifact-SHA256": digest,
+        },
+    )
 
 
 @app.get(
@@ -199,6 +323,21 @@ async def cancel_run(run_id: str, request: Request) -> RunView:
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="run not found") from exc
     return to_view(run)
+
+
+@app.api_route(
+    "/api/{unmatched_path:path}",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
+)
+async def unknown_api(unmatched_path: str) -> None:
+    raise HTTPException(status_code=404, detail="API route not found")
+
+
+app.frontend(
+    "/",
+    directory=ui_directory,
+    fallback="index.html",
+)
 
 
 def main() -> None:

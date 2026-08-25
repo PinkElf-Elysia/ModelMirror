@@ -20,6 +20,14 @@ class BoundaryFailure(RuntimeError):
     pass
 
 
+def is_ui_generated(path: Path) -> bool:
+    relative = path.relative_to(MODULE_ROOT).parts
+    return len(relative) >= 2 and relative[:2] in {
+        ("ui", "node_modules"),
+        ("ui", "dist"),
+    }
+
+
 def git(*args: str) -> list[str]:
     result = subprocess.run(
         ["git", *args],
@@ -72,6 +80,8 @@ def validate_paths(base: str, boundary: dict) -> None:
     if illegal:
         raise BoundaryFailure(f"files outside the approved boundary changed: {illegal}")
     for path in MODULE_ROOT.rglob("*"):
+        if is_ui_generated(path):
+            continue
         mode = path.lstat().st_mode
         if stat.S_ISLNK(mode):
             raise BoundaryFailure(f"symlink is forbidden: {path.relative_to(MODULE_ROOT)}")
@@ -93,13 +103,35 @@ def validate_locked_files(source_lock: dict) -> None:
     license_audit = source_lock["licenseAudit"]
     if sha256(MODULE_ROOT / "license-policy.json") != license_audit["policySha256"]:
         raise BoundaryFailure("license policy drifted from the source lock")
+    ui_package = (MODULE_ROOT / "ui" / "package.json").read_text(encoding="utf-8")
+    ui_lock = (MODULE_ROOT / "ui" / "package-lock.json").read_text(encoding="utf-8")
+    if "workspace:" in ui_package + ui_lock or "file:" in ui_package + ui_lock:
+        raise BoundaryFailure("UI dependencies must not use workspace: or file: references")
+    subprocess.run(
+        [
+            sys.executable,
+            str(MODULE_ROOT / "scripts" / "audit_ui_licenses.py"),
+            "--lock",
+            str(MODULE_ROOT / "ui" / "package-lock.json"),
+            "--policy",
+            str(MODULE_ROOT / "license-policy.json"),
+            "--output",
+            str(MODULE_ROOT / "runtime" / "sbom" / "ui-build-inventory.json"),
+        ],
+        check=True,
+    )
 
 
 def validate_runtime_references(boundary: dict) -> None:
-    runtime_suffixes = {".py", ".sh", ".ps1"}
+    runtime_suffixes = {".py", ".sh", ".ps1", ".ts", ".tsx", ".js", ".cjs", ".html"}
     runtime_names = {"Dockerfile", "compose.yml"}
     for path in MODULE_ROOT.rglob("*"):
-        if not path.is_file() or "tests" in path.parts or "scripts" in path.parts:
+        if (
+            not path.is_file()
+            or "tests" in path.parts
+            or "scripts" in path.parts
+            or is_ui_generated(path)
+        ):
             continue
         if path.suffix not in runtime_suffixes and path.name not in runtime_names:
             continue
@@ -136,6 +168,14 @@ def validate_parent_controls() -> None:
         raise BoundaryFailure("path-filtered module workflow is missing")
 
 
+def validate_runtime_privacy_defaults() -> None:
+    compose = (MODULE_ROOT / "compose.yml").read_text(encoding="utf-8")
+    if compose.count('MLFLOW_DISABLE_TELEMETRY: "true"') != 2:
+        raise BoundaryFailure(
+            "MLflow telemetry must be disabled in both control and tracking services"
+        )
+
+
 def validate_no_secrets(boundary: dict) -> None:
     patterns = [
         re.compile(r"-----BEGIN " + r"(?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
@@ -143,7 +183,9 @@ def validate_no_secrets(boundary: dict) -> None:
         re.compile(r"gh" + r"[pousr]_[A-Za-z0-9]{30,}"),
         re.compile(r"AIza" + r"[A-Za-z0-9_-]{30,}"),
     ]
-    candidates = [path for path in MODULE_ROOT.rglob("*") if path.is_file()]
+    candidates = [
+        path for path in MODULE_ROOT.rglob("*") if path.is_file() and not is_ui_generated(path)
+    ]
     candidates.extend(REPO_ROOT / relative for relative in boundary["allowedParentFiles"])
     for path in candidates:
         if path.suffix in {".pyc", ".png", ".webp", ".zip", ".gz", ".tar"}:
@@ -169,6 +211,7 @@ def main() -> int:
     validate_runtime_references(boundary)
     validate_metric_names()
     validate_parent_controls()
+    validate_runtime_privacy_defaults()
     validate_no_secrets(boundary)
     if source_lock["licenseAudit"]["status"] != "passed" and not args.allow_pending_license:
         raise BoundaryFailure("runtime license audit is not passed")

@@ -1,4 +1,4 @@
-name: AI Research AR0
+name: AI Research AR1
 
 on:
   pull_request:
@@ -45,14 +45,14 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.12.13"
-      - name: Verify AR0
+      - name: Verify AR1
         working-directory: extensions/ai-research
         run: bash scripts/verify.sh origin/main full
       - name: Preserve module logs on failure
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: ai-research-ar0-diagnostics
+          name: ai-research-ar1-diagnostics
           path: extensions/ai-research/runtime/diagnostics
           if-no-files-found: ignore
           retention-days: 7

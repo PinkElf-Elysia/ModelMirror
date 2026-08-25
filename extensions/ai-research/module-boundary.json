@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "moduleId": "modelmirror.ai-research",
-  "moduleVersion": "0.1.0-ar0",
-  "baseCommit": "296c38a58a8274d9a80ad35b187eabaddd06ae46",
+  "moduleVersion": "0.2.0-ar1",
+  "baseCommit": "174baf6a5289520b53578dc29cab82fd4c1d1e9e",
   "claimLevel": "harness_only",
   "packStatus": "fixture_only",
   "parentIntegration": "none",
@@ -27,11 +27,13 @@
   "services": [
     "ai-research-control",
     "ai-research-tracking",
-    "ai-research-worker"
+    "ai-research-worker",
+    "ai-research-inspect-view"
   ],
   "publicBindings": [
     "127.0.0.1:8790",
-    "127.0.0.1:8791"
+    "127.0.0.1:8791",
+    "127.0.0.1:8793"
   ],
   "workerProtocolVersion": 1,
   "apiVersion": "v1",

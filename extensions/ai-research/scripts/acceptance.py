@@ -14,6 +14,7 @@ from typing import Any
 
 CONTROL = "http://127.0.0.1:8790"
 TRACKING = "http://127.0.0.1:8791"
+INSPECT_VIEW = "http://127.0.0.1:8793"
 
 
 class AcceptanceFailure(RuntimeError):
@@ -37,7 +38,14 @@ def request(
     try:
         with urllib.request.urlopen(req, timeout=10) as response:
             content = response.read()
-            return response.status, json.loads(content) if content else None
+            content_type = response.headers.get_content_type()
+            if not content:
+                decoded: Any = None
+            elif content_type == "application/json":
+                decoded = json.loads(content)
+            else:
+                decoded = content
+            return response.status, decoded
     except urllib.error.HTTPError as exc:
         content = exc.read()
         try:
@@ -106,6 +114,34 @@ def verify_run(run: dict[str, Any], outcome: str, inspect_status: str) -> None:
         raise AcceptanceFailure("synced run is missing MLflow identity")
 
 
+def verify_console_evidence(run: dict[str, Any]) -> None:
+    status, evidence = request(
+        "GET", f"{CONTROL}/api/v1/runs/{run['runId']}/evidence"
+    )
+    if (
+        status != 200
+        or evidence.get("integrityStatus") != "verified"
+        or evidence.get("evidenceState") != "synced"
+        or evidence.get("receipt", {}).get("runId") != run["runId"]
+    ):
+        raise AcceptanceFailure(f"console evidence was not verified: {status} {evidence}")
+    artifacts = evidence.get("artifacts") or []
+    if not artifacts:
+        raise AcceptanceFailure("console evidence did not expose registered artifacts")
+    artifact = artifacts[0]
+    status, content = request("GET", f"{CONTROL}{artifact['downloadUrl']}")
+    if status != 200 or not isinstance(content, bytes) or len(content) != artifact["sizeBytes"]:
+        raise AcceptanceFailure("registered artifact download failed")
+    unknown_status, _ = request(
+        "GET", f"{CONTROL}/api/v1/runs/{run['runId']}/artifacts/not-registered.json"
+    )
+    traversal_status, _ = request(
+        "GET", f"{CONTROL}/api/v1/runs/{run['runId']}/artifacts/%2e%2e%2freceipt.json"
+    )
+    if unknown_status != 404 or traversal_status not in {404, 409}:
+        raise AcceptanceFailure("artifact allowlist or traversal protection failed")
+
+
 def verify_mlflow_run(run: dict[str, Any]) -> None:
     run_id = urllib.parse.quote(str(run["mlflowRunId"]), safe="")
     status, payload = request(
@@ -149,8 +185,36 @@ def write_state(path: Path, value: dict[str, Any]) -> None:
 def initial(state_path: Path) -> None:
     wait_ready()
     status, module = request("GET", f"{CONTROL}/api/v1/module")
-    if status != 200 or module.get("claimLevel") != "harness_only" or module.get("packStatus") != "fixture_only":
+    if (
+        status != 200
+        or module.get("moduleVersion") != "0.2.0-ar1"
+        or module.get("claimLevel") != "harness_only"
+        or module.get("packStatus") != "fixture_only"
+        or module.get("capabilities", {}).get("modelEvaluation") is not False
+    ):
         raise AcceptanceFailure(f"module claims are invalid: {status} {module}")
+    system_status, system = request("GET", f"{CONTROL}/api/v1/system")
+    if system_status != 200 or system.get("status") not in {"ready", "degraded"}:
+        raise AcceptanceFailure(f"system status is invalid: {system_status} {system}")
+    deep_status, deep_body = request(
+        "GET", f"{CONTROL}/runs/example/evidence", headers={"Accept": "text/html"}
+    )
+    missing_api, missing_api_body = request(
+        "GET", f"{CONTROL}/api/v1/does-not-exist", headers={"Accept": "text/html"}
+    )
+    missing_asset, missing_asset_body = request(
+        "GET", f"{CONTROL}/assets/does-not-exist.js", headers={"Accept": "text/html"}
+    )
+    if (
+        deep_status != 200
+        or not isinstance(deep_body, bytes)
+        or "模镜科研控制台" not in deep_body.decode("utf-8")
+        or missing_api != 404
+        or not isinstance(missing_api_body, dict)
+        or missing_asset != 404
+        or "<title>" in str(missing_asset_body)
+    ):
+        raise AcceptanceFailure("SPA deep-link or API/asset fallback contract failed")
     suffix = uuid.uuid4().hex
 
     success_key = f"ar0:{suffix}:success"
@@ -158,6 +222,7 @@ def initial(state_path: Path) -> None:
     success = wait_run(created["runId"])
     verify_run(success, "success", "success")
     verify_mlflow_run(success)
+    verify_console_evidence(success)
     if success.get("replayVerified") is not True:
         raise AcceptanceFailure("success fixture did not verify config replay")
     repeated_status, repeated = create("success", success_key)
@@ -179,6 +244,7 @@ def initial(state_path: Path) -> None:
     task_error = wait_run(error_created["runId"])
     verify_run(task_error, "task_error", "error")
     verify_mlflow_run(task_error)
+    verify_console_evidence(task_error)
 
     _, cancel_created = create("long_running_cancel", f"ar0:{suffix}:cancel")
     wait_running(cancel_created["runId"])
@@ -196,6 +262,7 @@ def initial(state_path: Path) -> None:
     cancelled = wait_run(cancel_created["runId"])
     verify_run(cancelled, "cancelled", "error")
     verify_mlflow_run(cancelled)
+    verify_console_evidence(cancelled)
     if cancelled.get("cancelRequested") is not True or cancelled.get("cancelApplied") is not True:
         raise AcceptanceFailure("cancel request/applied facts were not preserved")
     terminal_facts = {
@@ -226,6 +293,17 @@ def initial(state_path: Path) -> None:
     sequences = [item["sequence"] for item in events.get("items", [])]
     if event_status != 200 or sequences != sorted(set(sequences)):
         raise AcceptanceFailure("event sequence is not ordered and unique")
+    summary_status, summary = request("GET", f"{CONTROL}/api/v1/runs/summary")
+    filtered_status, filtered = request(
+        "GET", f"{CONTROL}/api/v1/runs?caseId=task_error&phase=terminal&outcome=task_error"
+    )
+    if (
+        summary_status != 200
+        or summary.get("total", 0) < 3
+        or filtered_status != 200
+        or not all(item["caseId"] == "task_error" for item in filtered.get("items", []))
+    ):
+        raise AcceptanceFailure("summary or AND-filter query failed")
 
     bad_tenant, _ = request(
         "POST",
@@ -283,6 +361,51 @@ def initial(state_path: Path) -> None:
         },
     )
     print("initial fixture acceptance passed")
+
+
+def inspect_view_logs(_: Path) -> None:
+    status, payload = request(
+        "GET",
+        f"{INSPECT_VIEW}/api/log-files",
+        headers={"Origin": INSPECT_VIEW},
+    )
+    files = (payload or {}).get("files", []) if isinstance(payload, dict) else []
+    if status != 200 or len(files) < 3 or not all(str(item.get("name", "")).endswith(".eval") for item in files):
+        raise AcceptanceFailure(f"Inspect View did not expose recursive EvalLog files: {status} {payload}")
+    print("Inspect View recursive EvalLog acceptance passed")
+
+
+def view_degraded(state_path: Path) -> None:
+    status, system = request("GET", f"{CONTROL}/api/v1/system")
+    ready_status, ready = request("GET", f"{CONTROL}/readyz")
+    created_status, created = create("success", f"ar1:{uuid.uuid4().hex}:view-degraded")
+    if status != 200 or system.get("status") != "degraded" or ready_status != 200 or created_status != 201:
+        raise AcceptanceFailure(f"optional View incorrectly changed readiness: {system} {ready}")
+    write_state(state_path, {"runId": created["runId"]})
+    print("optional Inspect View degraded acceptance passed")
+
+
+def required_not_ready(_: Path) -> None:
+    status, system = request("GET", f"{CONTROL}/api/v1/system")
+    list_status, runs = request("GET", f"{CONTROL}/api/v1/runs?limit=1")
+    create_status, _ = request(
+        "POST",
+        f"{CONTROL}/api/v1/runs",
+        {
+            "fixtureId": "inspect-smoke-v1",
+            "caseId": "success",
+            "idempotencyKey": f"ar1:{uuid.uuid4().hex}:required-offline",
+        },
+    )
+    if (
+        status != 200
+        or system.get("status") != "not_ready"
+        or list_status != 200
+        or not isinstance(runs.get("items"), list)
+        or create_status != 503
+    ):
+        raise AcceptanceFailure("required dependency gate or history browsing failed")
+    print("required dependency not-ready acceptance passed")
 
 
 def recovery(state_path: Path) -> None:
@@ -361,6 +484,9 @@ def main() -> int:
             "outbox-recovery",
             "worker-restart-create",
             "worker-restart-recovery",
+            "inspect-view-logs",
+            "view-degraded",
+            "required-not-ready",
         ],
     )
     parser.add_argument("--state", type=Path, required=True)
@@ -373,6 +499,9 @@ def main() -> int:
         "outbox-recovery": outbox_recovery,
         "worker-restart-create": worker_restart_create,
         "worker-restart-recovery": worker_restart_recovery,
+        "inspect-view-logs": inspect_view_logs,
+        "view-degraded": view_degraded,
+        "required-not-ready": required_not_ready,
     }
     actions[args.mode](args.state)
     return 0

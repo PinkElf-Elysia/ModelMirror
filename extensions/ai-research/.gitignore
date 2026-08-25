@@ -2,3 +2,5 @@ runtime/
 **/__pycache__/
 *.py[cod]
 .pytest_cache/
+ui/node_modules/
+ui/dist/

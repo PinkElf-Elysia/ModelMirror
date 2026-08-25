@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -100,3 +101,96 @@ def test_receipt_outbox_survives_store_reopen(tmp_path: Path) -> None:
     assert pending[0]["run_id"] == run["run_id"]
     assert pending[0]["receipt_json"] == receipt
     assert terminal["phase"] == "terminal"
+
+
+def test_filtered_list_and_summary(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "control.db")
+    success, _ = store.create_or_get(request(key="fixture:key-success"))
+    error, _ = store.create_or_get(
+        request(key="fixture:key-error", case_id="task_error")
+    )
+    store.mark_running(error["run_id"], {"phase": "running"})
+    store.update_worker(
+        error["run_id"],
+        {
+            "phase": "terminal",
+            "outcome": "task_error",
+            "inspectStatus": "error",
+            "cancelRequested": False,
+            "cancelApplied": False,
+            "errorType": "FixtureTaskError",
+            "errorMessage": "fixture failed",
+            "replayVerified": False,
+            "artifacts": {},
+        },
+    )
+
+    assert [item["run_id"] for item in store.list(
+        after_run_id=None, limit=10, case_id="success"
+    )] == [success["run_id"]]
+    assert [item["run_id"] for item in store.list(
+        after_run_id=None, limit=10, query="fixturetask"
+    )] == [error["run_id"]]
+    assert store.list(after_run_id=None, limit=10, query="100%") == []
+
+    summary = store.summary()
+    assert summary["total"] == 2
+    assert summary["phases"] == {"queued": 1, "running": 0, "terminal": 1}
+    assert summary["outcomes"]["task_error"] == 1
+    assert summary["evidence_states"]["pending"] == 2
+    assert summary["updated_at"] is not None
+
+
+def test_list_preserves_one_row_for_max_page_lookahead(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "control.db")
+    for index in range(101):
+        store.create_or_get(request(key=f"fixture:key-{index:03d}"))
+
+    page_with_lookahead = store.list(after_run_id=None, limit=101)
+
+    assert len(page_with_lookahead) == 101
+
+
+def test_cancel_request_is_atomic_under_concurrency(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "control.db")
+    run, _ = store.create_or_get(request(case_id="long_running_cancel"))
+    store.mark_running(run["run_id"], {"phase": "running"})
+
+    with ThreadPoolExecutor(max_workers=12) as executor:
+        results = list(
+            executor.map(lambda _: store.request_cancel(run["run_id"]), range(12))
+        )
+
+    assert all(item["cancel_requested"] for item in results)
+    cancel_events = [
+        event
+        for event in store.events(run["run_id"], 0)
+        if event["event_type"] == "run.cancel_requested"
+    ]
+    assert len(cancel_events) == 1
+
+
+def test_cancel_after_terminal_does_not_rewrite_run_facts(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "control.db")
+    run, _ = store.create_or_get(request())
+    store.mark_running(run["run_id"], {"phase": "running"})
+    terminal = store.update_worker(
+        run["run_id"],
+        {
+            "phase": "terminal",
+            "outcome": "success",
+            "inspectStatus": "success",
+            "cancelRequested": False,
+            "cancelApplied": False,
+            "replayVerified": True,
+            "artifacts": {},
+        },
+    )
+    events_before = store.events(run["run_id"], 0)
+
+    unchanged = store.request_cancel(run["run_id"])
+
+    assert unchanged["cancel_requested"] is False
+    assert unchanged["cancel_requested_at"] is None
+    assert unchanged["terminal_at"] == terminal["terminal_at"]
+    assert store.events(run["run_id"], 0) == events_before

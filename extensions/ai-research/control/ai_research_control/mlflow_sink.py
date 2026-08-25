@@ -28,7 +28,51 @@ class MlflowSink:
         self.client = MlflowClient(tracking_uri=self.tracking_uri)
 
     def probe(self) -> str:
-        return self._experiment_id()
+        endpoint = f"{self.tracking_uri}/api/2.0/mlflow/experiments/get-by-name"
+        try:
+            response = requests.get(
+                endpoint,
+                params={"experiment_name": self.experiment_name},
+                timeout=2,
+            )
+            if response.status_code == 200:
+                return self._experiment_id_from_response(response)
+            if response.status_code != 404:
+                raise MlflowSinkError(
+                    f"MLflow experiment probe failed with status {response.status_code}"
+                )
+
+            created = requests.post(
+                f"{self.tracking_uri}/api/2.0/mlflow/experiments/create",
+                json={"name": self.experiment_name},
+                timeout=2,
+            )
+            if 200 <= created.status_code < 300:
+                experiment_id = str(created.json()["experiment_id"])
+                if not experiment_id:
+                    raise ValueError("empty experiment id")
+                return experiment_id
+
+            # Another control instance may have won the create race.
+            response = requests.get(
+                endpoint,
+                params={"experiment_name": self.experiment_name},
+                timeout=2,
+            )
+            if response.status_code == 200:
+                return self._experiment_id_from_response(response)
+            raise MlflowSinkError(
+                f"MLflow experiment creation failed with status {created.status_code}"
+            )
+        except (requests.RequestException, KeyError, TypeError, ValueError) as exc:
+            raise MlflowSinkError("MLflow experiment probe failed") from exc
+
+    @staticmethod
+    def _experiment_id_from_response(response: requests.Response) -> str:
+        experiment_id = str(response.json()["experiment"]["experiment_id"])
+        if not experiment_id:
+            raise ValueError("empty experiment id")
+        return experiment_id
 
     def sync(
         self,
