@@ -416,7 +416,8 @@ describe("analyzeWorkflowVariables", () => {
       getWorkflowVariableFieldDescriptor("iteration", "itemTemplate")
         ?.localVariables,
     ).toEqual([
-      { name: "item", label: "当前迭代项", valueType: "unknown" },
+      { name: "item", label: "当前批次项", valueType: "unknown" },
+      { name: "item_index", label: "当前序号", valueType: "number" },
     ]);
   });
 

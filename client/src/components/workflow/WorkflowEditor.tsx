@@ -106,6 +106,10 @@ import {
   migrateLegacyVariableAggregator,
 } from "./workflowVariablePackMigration";
 import {
+  isIterationV2,
+  migrateLegacyIteration,
+} from "./workflowIterationMigration";
+import {
   analyzeWorkflowVariables,
   planWorkflowVariableRename,
   type WorkflowVariableRenamePlan,
@@ -1190,12 +1194,19 @@ export function createNodeData(
   if (kind === "iteration") {
     return {
       kind,
-      title: "迭代处理",
-      description: "逐项渲染模板，把结果汇总为 JSON 数组字符串。",
-      inputVariable: "user_input",
-      iterationVariable: "item",
+      title: "批量处理",
+      description: "逐项渲染安全模板，或按顺序调用固定版本子流程。",
+      contractVersion: 2,
+      mode: "template_map",
+      inputVariable: "batch_items",
+      itemVariable: "item",
+      indexVariable: "item_index",
       itemTemplate: "处理：{{item}}",
       outputVariable: "iteration_output",
+      targetProjectId: "",
+      targetVersion: 0,
+      inputBindings: {},
+      timeoutSeconds: 60,
     };
   }
 
@@ -3185,13 +3196,14 @@ function NodeConfig({
   const [variableNodeContracts, setVariableNodeContracts] = useState<
     Map<WorkflowNodeKind, WorkflowNodeContractProjection>
   >(new Map());
-  const migrationAvailableVariables = useMemo(
-    () => new Set(
-      analyzeWorkflowVariables(nodes, edges, node?.id ?? null, declarations)
-        .filter((variable) => variable.availability === "available")
-        .map((variable) => variable.name),
-    ),
+  const migrationVariableDescriptors = useMemo(
+    () => analyzeWorkflowVariables(nodes, edges, node?.id ?? null, declarations)
+      .filter((variable) => variable.availability === "available"),
     [declarations, edges, node?.id, nodes],
+  );
+  const migrationAvailableVariables = useMemo(
+    () => new Set(migrationVariableDescriptors.map((variable) => variable.name)),
+    [migrationVariableDescriptors],
   );
   const [clientHosts, setClientHosts] = useState<Array<{
     host_id: string;
@@ -3584,6 +3596,15 @@ function NodeConfig({
         migrationAvailableVariables,
       )
     : null;
+  const legacyIterationMigration = data.kind === "iteration" && !isIterationV2(data)
+    ? migrateLegacyIteration(
+        data,
+        migrationAvailableVariables,
+        migrationVariableDescriptors.find(
+          (variable) => variable.name === String(data.inputVariable ?? ""),
+        )?.valueType,
+      )
+    : null;
   const runtimeMiddlewareConfig = isRecord(data.runtimeMiddlewareConfig)
     ? data.runtimeMiddlewareConfig
     : undefined;
@@ -3743,11 +3764,13 @@ function NodeConfig({
         </Field>
       ) : null}
 
-      {["scheduled_start", "http_event_entry", "failure_event_entry", "workflow_call_entry", "invoke_workflow", "suspend_wait", "http_event_reply"].includes(data.kind) ? (
+      {(["scheduled_start", "http_event_entry", "failure_event_entry", "workflow_call_entry", "invoke_workflow", "suspend_wait", "http_event_reply"].includes(data.kind)
+        || (data.kind === "iteration" && isIterationV2(data))) ? (
         <WorkflowDeploymentNodeConfig
           currentProjectId={workflowId.startsWith("wf_") ? workflowId : undefined}
           contract={variableContract}
           data={data}
+          declarations={declarations}
           edges={edges}
           node={node}
           nodes={nodes}
@@ -5335,8 +5358,24 @@ function NodeConfig({
         />
       ) : null}
 
-      {data.kind === "iteration" ? (
+      {data.kind === "iteration" && !isIterationV2(data) ? (
         <>
+          <div className="rounded-lg border border-amber-300/25 bg-amber-300/10 p-3 text-xs leading-5 text-amber-50">
+            <p>这是旧版迭代配置，可继续打开和手动运行；发布新版本前必须显式升级。</p>
+            <p className="mt-1 text-amber-100/80">{legacyIterationMigration?.message}</p>
+            {legacyIterationMigration?.ok && legacyIterationMigration.data ? (
+              <button
+                className="mt-2 rounded-md bg-amber-200 px-3 py-1.5 font-semibold text-ink-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-100"
+                onClick={() => {
+                  onReplaceNodeData(node.id, legacyIterationMigration.data!);
+                  setMigrationNotice(legacyIterationMigration.message);
+                }}
+                type="button"
+              >
+                升级为批量处理 V2
+              </button>
+            ) : null}
+          </div>
           <Field label="输入列表变量">
             <WorkflowVariableField
               contract={variableContract}
@@ -5383,6 +5422,7 @@ function NodeConfig({
               value={data.outputVariable ?? ""}
             />
           </Field>
+          {migrationNotice ? <p aria-live="polite" className="text-xs text-emerald-200">{migrationNotice}</p> : null}
         </>
       ) : null}
 

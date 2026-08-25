@@ -36,6 +36,7 @@ try:
         contract_version as r20_contract_version,
         validate_mcp_tool_v2_config,
     )
+    from server.workflow_native.r23_iteration import is_workflow_map
     from server.xpert_runtime.automation_store import (
         AutomationStore,
         AutomationTrigger,
@@ -61,6 +62,7 @@ except ModuleNotFoundError:
         contract_version as r20_contract_version,
         validate_mcp_tool_v2_config,
     )
+    from workflow_native.r23_iteration import is_workflow_map
     from xpert_runtime.automation_store import (
         AutomationStore,
         AutomationTrigger,
@@ -172,6 +174,7 @@ class WorkflowTriggerExecution:
     root_execution_id: str | None = None
     source_execution_id: str | None = None
     call_node_id: str | None = None
+    batch_index: int | None = None
     test_mode: bool = False
     lease_owner: str | None = None
     lease_token: str | None = None
@@ -199,6 +202,22 @@ class WorkflowSubworkflowRelation:
     call_node_id: str
     depth: int
     task_id: str
+    batch_occurrence_key: str | None = None
+    batch_index: int | None = None
+    input_digest: str | None = None
+    created_at: float = field(default_factory=time.time)
+
+
+@dataclass(slots=True)
+class WorkflowSubworkflowBatch:
+    occurrence_key: str
+    parent_execution_id: str
+    root_execution_id: str
+    call_node_id: str
+    target_project_id: str
+    target_version: int
+    item_count: int
+    input_digest: str
     created_at: float = field(default_factory=time.time)
 
 
@@ -227,6 +246,7 @@ class WorkflowDeploymentStore:
         self._executions: dict[str, WorkflowTriggerExecution] = {}
         self._failure_subscriptions: dict[str, WorkflowFailureSubscription] = {}
         self._subworkflow_relations: dict[str, WorkflowSubworkflowRelation] = {}
+        self._subworkflow_batches: dict[str, WorkflowSubworkflowBatch] = {}
         self._credential_validator = credential_validator
         self._mcp_tool_validator = mcp_tool_validator
         self._xpert_target_validator = xpert_target_validator
@@ -490,6 +510,10 @@ class WorkflowDeploymentStore:
                     )
             has_workflow_calls = any(
                 _raw_node_kind(node) == "invoke_workflow"
+                or (
+                    _raw_node_kind(node) == "iteration"
+                    and is_workflow_map(dict(node.get("data") or {}))
+                )
                 for node in release.workflow.get("nodes", [])
                 if isinstance(node, dict)
             )
@@ -919,6 +943,100 @@ class WorkflowDeploymentStore:
         with self._lock:
             return self._failure_subscriptions.get(source_project_id)
 
+    def _reserved_descendant_slots_unlocked(self, root_execution_id: str) -> int:
+        reserved = 0
+        for batch in self._subworkflow_batches.values():
+            if batch.root_execution_id != root_execution_id:
+                continue
+            materialized = sum(
+                1
+                for relation in self._subworkflow_relations.values()
+                if relation.batch_occurrence_key == batch.occurrence_key
+            )
+            reserved += max(0, batch.item_count - materialized)
+        return reserved
+
+    def reserve_subworkflow_batch(
+        self,
+        *,
+        parent_execution_id: str,
+        root_execution_id: str,
+        call_node_id: str,
+        target_project_id: str,
+        target_version: int,
+        item_count: int,
+        input_digest: str,
+        now: float | None = None,
+    ) -> tuple[WorkflowSubworkflowBatch, bool]:
+        current = time.time() if now is None else float(now)
+        clean_parent = str(parent_execution_id).strip()
+        clean_root = str(root_execution_id).strip() or clean_parent
+        clean_node = str(call_node_id).strip()
+        clean_digest = str(input_digest).strip()
+        if (
+            not clean_parent
+            or not clean_node
+            or not re.fullmatch(r"[a-f0-9]{64}", clean_digest)
+            or type(item_count) is not int
+            or not 0 <= item_count <= 32
+        ):
+            raise WorkflowDeploymentValidationError(
+                "Subworkflow batch reservation is invalid."
+            )
+        occurrence_key = f"batch:{clean_parent}:{clean_node}"
+        with self._lock:
+            existing = self._subworkflow_batches.get(occurrence_key)
+            if existing is not None:
+                if (
+                    existing.parent_execution_id != clean_parent
+                    or existing.root_execution_id != clean_root
+                    or existing.call_node_id != clean_node
+                    or existing.target_project_id != target_project_id
+                    or existing.target_version != int(target_version)
+                    or existing.item_count != item_count
+                    or not secrets.compare_digest(existing.input_digest, clean_digest)
+                ):
+                    raise WorkflowDeploymentConflictError(
+                        "Subworkflow batch input or fixed target changed during recovery."
+                    )
+                return existing, False
+            release = self._require_version_unlocked(
+                target_project_id,
+                int(target_version),
+            )
+            deployment = self._active_deployment_for_version_unlocked(
+                target_project_id,
+                int(target_version),
+            )
+            if release.trigger_kind != "call" or deployment.trigger_kind != "call":
+                raise WorkflowDeploymentConflictError(
+                    "Target version is not an active callable workflow."
+                )
+            descendants = sum(
+                1
+                for relation in self._subworkflow_relations.values()
+                if relation.root_execution_id == clean_root
+            )
+            reserved = self._reserved_descendant_slots_unlocked(clean_root)
+            if descendants + reserved + item_count > 32:
+                raise WorkflowDeploymentConflictError(
+                    "A root workflow execution cannot reserve more than 32 subworkflow calls."
+                )
+            batch = WorkflowSubworkflowBatch(
+                occurrence_key=occurrence_key,
+                parent_execution_id=clean_parent,
+                root_execution_id=clean_root,
+                call_node_id=clean_node,
+                target_project_id=target_project_id,
+                target_version=int(target_version),
+                item_count=item_count,
+                input_digest=clean_digest,
+                created_at=current,
+            )
+            self._subworkflow_batches[occurrence_key] = batch
+            self._persist_unlocked()
+            return batch, True
+
     def materialize_subworkflow_execution(
         self,
         *,
@@ -930,6 +1048,9 @@ class WorkflowDeploymentStore:
         target_version: int,
         test_mode: bool,
         suppress_failure_dispatch: bool,
+        batch_occurrence_key: str | None = None,
+        batch_index: int | None = None,
+        input_digest: str | None = None,
         now: float | None = None,
     ) -> tuple[WorkflowTriggerExecution, bool]:
         current = time.time() if now is None else float(now)
@@ -945,14 +1066,60 @@ class WorkflowDeploymentStore:
             raise WorkflowDeploymentConflictError(
                 "Subworkflow call depth cannot exceed 8."
             )
-        occurrence_key = f"call:{clean_parent}:{clean_node}"
+        clean_batch_key = str(batch_occurrence_key or "").strip()
+        clean_input_digest = str(input_digest or "").strip()
+        if clean_batch_key:
+            if type(batch_index) is not int or batch_index < 0:
+                raise WorkflowDeploymentValidationError(
+                    "Subworkflow batch index is invalid."
+                )
+            occurrence_key = f"call:{clean_parent}:{clean_node}:{batch_index}"
+        else:
+            if batch_index is not None or clean_input_digest:
+                raise WorkflowDeploymentValidationError(
+                    "Subworkflow batch metadata is incomplete."
+                )
+            occurrence_key = f"call:{clean_parent}:{clean_node}"
         with self._lock:
+            batch: WorkflowSubworkflowBatch | None = None
+            if clean_batch_key:
+                batch = self._subworkflow_batches.get(clean_batch_key)
+                if (
+                    batch is None
+                    or batch.parent_execution_id != clean_parent
+                    or batch.root_execution_id != clean_root
+                    or batch.call_node_id != clean_node
+                    or batch.target_project_id != target_project_id
+                    or batch.target_version != int(target_version)
+                    or batch_index is None
+                    or batch_index >= batch.item_count
+                    or not secrets.compare_digest(
+                        batch.input_digest,
+                        clean_input_digest,
+                    )
+                ):
+                    raise WorkflowDeploymentConflictError(
+                        "Subworkflow batch reservation does not match this item."
+                    )
             existing_relation = self._subworkflow_relations.get(occurrence_key)
             if existing_relation is not None:
+                child = self._require_execution_unlocked(
+                    existing_relation.child_execution_id
+                )
+                if (
+                    child.project_id != target_project_id
+                    or child.version != int(target_version)
+                    or existing_relation.batch_occurrence_key
+                    != (clean_batch_key or None)
+                    or existing_relation.batch_index != batch_index
+                    or existing_relation.input_digest
+                    != (clean_input_digest or None)
+                ):
+                    raise WorkflowDeploymentConflictError(
+                        "Existing subworkflow occurrence does not match the requested call."
+                    )
                 return (
-                    self._require_execution_unlocked(
-                        existing_relation.child_execution_id
-                    ),
+                    child,
                     False,
                 )
             descendants = sum(
@@ -960,7 +1127,8 @@ class WorkflowDeploymentStore:
                 for relation in self._subworkflow_relations.values()
                 if relation.root_execution_id == clean_root
             )
-            if descendants >= 32:
+            reserved = self._reserved_descendant_slots_unlocked(clean_root)
+            if not clean_batch_key and descendants + reserved >= 32:
                 raise WorkflowDeploymentConflictError(
                     "A root workflow execution cannot create more than 32 subworkflow calls."
                 )
@@ -997,6 +1165,7 @@ class WorkflowDeploymentStore:
                 parent_execution_id=clean_parent,
                 root_execution_id=clean_root,
                 call_node_id=clean_node,
+                batch_index=batch_index,
                 test_mode=bool(test_mode),
                 created_at=current,
                 updated_at=current,
@@ -1009,6 +1178,9 @@ class WorkflowDeploymentStore:
                 call_node_id=clean_node,
                 depth=depth,
                 task_id=task_id,
+                batch_occurrence_key=clean_batch_key or None,
+                batch_index=batch_index,
+                input_digest=clean_input_digest or None,
                 created_at=current,
             )
             self._executions[item.execution_id] = item
@@ -1216,10 +1388,18 @@ class WorkflowDeploymentStore:
         call_nodes = [
             node
             for node in workflow.get("nodes", [])
-            if isinstance(node, dict) and _raw_node_kind(node) == "invoke_workflow"
+            if isinstance(node, dict)
+            and (
+                _raw_node_kind(node) == "invoke_workflow"
+                or (
+                    _raw_node_kind(node) == "iteration"
+                    and is_workflow_map(dict(node.get("data") or {}))
+                )
+            )
         ]
         for node in call_nodes:
             data = dict(node.get("data") or {})
+            batch_call = _raw_node_kind(node) == "iteration"
             target_project_id = str(data.get("targetProjectId") or "").strip()
             try:
                 target_version = int(data.get("targetVersion") or 0)
@@ -1258,7 +1438,11 @@ class WorkflowDeploymentStore:
                 raise WorkflowDeploymentConflictError(
                     "Callable workflows cannot contain waiting nodes."
                 )
-            self._validate_call_bindings_unlocked(data, target)
+            self._validate_call_bindings_unlocked(
+                data,
+                target,
+                batch_call=batch_call,
+            )
             if self._release_reaches_project_unlocked(
                 target,
                 source_project_id,
@@ -1272,6 +1456,8 @@ class WorkflowDeploymentStore:
     def _validate_call_bindings_unlocked(
         data: dict[str, Any],
         target: WorkflowVersion,
+        *,
+        batch_call: bool = False,
     ) -> None:
         bindings = data.get("inputBindings")
         if not isinstance(bindings, dict):
@@ -1303,6 +1489,18 @@ class WorkflowDeploymentStore:
                     f"Workflow call input '{name}' has an invalid binding."
                 )
             source = str(binding.get("source") or "")
+            if batch_call and source == "item":
+                continue
+            if batch_call and source == "index":
+                declaration = declarations[name]
+                if not workflow_variable_value_matches_type(
+                    str(declaration.get("valueType") or "json"),
+                    0,
+                ):
+                    raise WorkflowDeploymentValidationError(
+                        f"Workflow call index for '{name}' has the wrong type."
+                    )
+                continue
             if source == "variable":
                 if not re.fullmatch(
                     r"[A-Za-z_][A-Za-z0-9_]{0,63}",
@@ -1337,9 +1535,17 @@ class WorkflowDeploymentStore:
             return False
         visited.add(key)
         for node in release.workflow.get("nodes", []):
-            if not isinstance(node, dict) or _raw_node_kind(node) != "invoke_workflow":
+            if not isinstance(node, dict):
                 continue
             data = dict(node.get("data") or {})
+            if not (
+                _raw_node_kind(node) == "invoke_workflow"
+                or (
+                    _raw_node_kind(node) == "iteration"
+                    and is_workflow_map(data)
+                )
+            ):
+                continue
             project_id = str(data.get("targetProjectId") or "")
             if project_id == target_project_id:
                 return True
@@ -1538,6 +1744,9 @@ class WorkflowDeploymentStore:
             "subworkflow_relations": [
                 asdict(item) for item in self._subworkflow_relations.values()
             ],
+            "subworkflow_batches": [
+                asdict(item) for item in self._subworkflow_batches.values()
+            ],
         }
         temporary = self.snapshot_path.with_suffix(".tmp")
         temporary.write_text(
@@ -1565,6 +1774,7 @@ class WorkflowDeploymentStore:
                 raw.setdefault("root_execution_id", None)
                 raw.setdefault("source_execution_id", None)
                 raw.setdefault("call_node_id", None)
+                raw.setdefault("batch_index", None)
                 raw.setdefault("test_mode", False)
                 item = WorkflowTriggerExecution(**raw)
                 if item.status == "running":
@@ -1583,7 +1793,28 @@ class WorkflowDeploymentStore:
                     raise ValueError("Duplicate workflow failure subscription source.")
                 seen_failure_sources.add(item.source_project_id)
                 self._failure_subscriptions[item.source_project_id] = item
+            for raw in payload.get("subworkflow_batches", []):
+                batch = WorkflowSubworkflowBatch(**raw)
+                if batch.occurrence_key in self._subworkflow_batches:
+                    raise ValueError("Duplicate subworkflow batch occurrence key.")
+                if (
+                    batch.occurrence_key
+                    != f"batch:{batch.parent_execution_id}:{batch.call_node_id}"
+                    or not batch.parent_execution_id
+                    or not batch.root_execution_id
+                    or not batch.call_node_id
+                    or not re.fullmatch(r"[a-f0-9]{64}", batch.input_digest)
+                    or type(batch.item_count) is not int
+                    or not 0 <= batch.item_count <= 32
+                    or (batch.target_project_id, batch.target_version)
+                    not in self._versions
+                ):
+                    raise ValueError("Subworkflow batch reservation is invalid.")
+                self._subworkflow_batches[batch.occurrence_key] = batch
             for raw in payload.get("subworkflow_relations", []):
+                raw.setdefault("batch_occurrence_key", None)
+                raw.setdefault("batch_index", None)
+                raw.setdefault("input_digest", None)
                 relation = WorkflowSubworkflowRelation(**raw)
                 if relation.occurrence_key in self._subworkflow_relations:
                     raise ValueError("Duplicate subworkflow occurrence key.")
@@ -1596,10 +1827,37 @@ class WorkflowDeploymentStore:
                     or child.parent_execution_id != relation.parent_execution_id
                     or child.root_execution_id != relation.root_execution_id
                     or child.call_node_id != relation.call_node_id
+                    or child.batch_index != relation.batch_index
                     or child.task_id != relation.task_id
                     or not 1 <= relation.depth <= 8
                 ):
                     raise ValueError("Subworkflow relation does not match its child execution.")
+                if relation.batch_occurrence_key is not None:
+                    batch = self._subworkflow_batches.get(
+                        relation.batch_occurrence_key
+                    )
+                    if (
+                        batch is None
+                        or relation.parent_execution_id
+                        != batch.parent_execution_id
+                        or relation.root_execution_id != batch.root_execution_id
+                        or relation.call_node_id != batch.call_node_id
+                        or type(relation.batch_index) is not int
+                        or not 0 <= relation.batch_index < batch.item_count
+                        or relation.occurrence_key
+                        != (
+                            f"call:{relation.parent_execution_id}:"
+                            f"{relation.call_node_id}:{relation.batch_index}"
+                        )
+                        or relation.input_digest != batch.input_digest
+                        or child.project_id != batch.target_project_id
+                        or child.version != batch.target_version
+                    ):
+                        raise ValueError(
+                            "Subworkflow batch relation does not match its reservation."
+                        )
+                elif relation.batch_index is not None or relation.input_digest is not None:
+                    raise ValueError("Subworkflow relation batch metadata is incomplete.")
                 self._subworkflow_relations[relation.occurrence_key] = relation
             self._validate_loaded_failure_subscriptions_unlocked()
         except Exception as exc:
@@ -1692,6 +1950,11 @@ def validate_publishable_workflow(
             raise WorkflowDeploymentValidationError(
                 "Legacy variable aggregator nodes must be explicitly migrated before publishing."
             )
+        if kind == "iteration" and not is_workflow_map(node.data):
+            if node.data.get("contractVersion") != 2:
+                raise WorkflowDeploymentValidationError(
+                    "Legacy iteration nodes must be explicitly migrated before publishing."
+                )
         if kind in {"agent_task", "agent_handoff", "handoff_router"}:
             if r20_contract_version(node.data) != 2:
                 raise WorkflowDeploymentValidationError(

@@ -234,6 +234,29 @@ def _deployment_preflight(version: XpertVersion, policy: XpertAppPolicy) -> dict
                     ),
                 },
             )
+        if kind == "iteration":
+            if data.get("contractVersion") != 2:
+                node_policy_issues.setdefault(
+                    "app_iteration_migration_required",
+                    {
+                        "code": "app_iteration_migration_required",
+                        "message": (
+                            "Legacy iteration nodes must be migrated to batch "
+                            "processing V2 before App deployment."
+                        ),
+                    },
+                )
+            elif str(data.get("mode") or "") == "workflow_map":
+                node_policy_issues.setdefault(
+                    "app_iteration_workflow_map_forbidden",
+                    {
+                        "code": "app_iteration_workflow_map_forbidden",
+                        "message": (
+                            "Fixed subworkflow batch mode is unavailable in public "
+                            "Xpert Apps."
+                        ),
+                    },
+                )
         if kind == "template_transform":
             node_policy_issues.setdefault(
                 "app_template_transform_migration_required",

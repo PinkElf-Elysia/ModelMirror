@@ -56,6 +56,13 @@ from .r20_nodes import (
     variable_aggregator_v2_references,
 )
 from .r21_nodes import WorkflowR21Error, validate_data_merge_config
+from .r23_iteration import (
+    WorkflowIterationError,
+    is_iteration_v2,
+    is_workflow_map,
+    iteration_variable_references,
+    validate_iteration_v2_config,
+)
 from .schemas import (
     NativeWorkflowDefinition,
     NativeWorkflowEdge,
@@ -638,6 +645,14 @@ def validate_workflow_graph(workflow: NativeWorkflowDefinition) -> ValidateWorkf
         declaration_names=set(declaration_names),
         producers=node_variable_producers,
     )
+    validate_iteration_local_variable_conflicts(
+        workflow.nodes,
+        valid_edges,
+        issues,
+        kinds_by_id=kinds_by_id,
+        declaration_names=set(declaration_names),
+        producers=node_variable_producers,
+    )
     validate_http_event_reply_structure(
         workflow.nodes,
         valid_edges,
@@ -750,6 +765,54 @@ def validate_invoke_workflow_upstream_bindings(
                         node_id=node.id,
                     )
                 )
+
+
+def validate_iteration_local_variable_conflicts(
+    nodes: list[NativeWorkflowNode],
+    edges: list[NativeWorkflowEdge],
+    issues: list[ValidationIssue],
+    *,
+    kinds_by_id: dict[str, str],
+    declaration_names: set[str],
+    producers: dict[str, list[str]],
+) -> None:
+    parents: dict[str, set[str]] = defaultdict(set)
+    for edge in edges:
+        if not is_non_control_binding_edge(edge):
+            parents[edge.target].add(edge.source)
+    for node in nodes:
+        if kinds_by_id.get(node.id) != "iteration" or not is_iteration_v2(node.data):
+            continue
+        ancestors: set[str] = set()
+        stack = list(parents.get(node.id, set()))
+        while stack:
+            current = stack.pop()
+            if current in ancestors:
+                continue
+            ancestors.add(current)
+            stack.extend(parents.get(current, set()))
+        visible_variables = set(declaration_names)
+        visible_variables.update(
+            variable
+            for variable, producer_ids in producers.items()
+            if not set(producer_ids).isdisjoint(ancestors)
+        )
+        for variable in sorted(
+            {
+                str(node.data.get("itemVariable") or "").strip(),
+                str(node.data.get("indexVariable") or "").strip(),
+            }.intersection(visible_variables)
+        ):
+            issues.append(
+                ValidationIssue(
+                    code="iteration_local_variable_shadows_visible_variable",
+                    message=(
+                        f"Batch processing local variable '{variable}' conflicts "
+                        "with a visible workflow variable."
+                    ),
+                    node_id=node.id,
+                )
+            )
 
 
 def validate_http_event_reply_structure(
@@ -3411,7 +3474,18 @@ def validate_node_configuration(
             )
 
     if kind == "iteration":
-        if not str(data.get("inputVariable") or "").strip():
+        if is_iteration_v2(data):
+            try:
+                validate_iteration_v2_config(data)
+            except WorkflowIterationError as exc:
+                issues.append(
+                    ValidationIssue(
+                        code=exc.code.lower(),
+                        message=exc.safe_message,
+                        node_id=node.id,
+                    )
+                )
+        elif not str(data.get("inputVariable") or "").strip():
             issues.append(
                 ValidationIssue(
                     code="missing_iteration_input_variable",
@@ -3420,7 +3494,7 @@ def validate_node_configuration(
                 )
             )
         iteration_variable = str(data.get("iterationVariable") or "").strip()
-        if not iteration_variable:
+        if not is_iteration_v2(data) and not iteration_variable:
             issues.append(
                 ValidationIssue(
                     code="missing_iteration_variable",
@@ -3428,7 +3502,7 @@ def validate_node_configuration(
                     node_id=node.id,
                 )
             )
-        elif not is_variable_name(iteration_variable):
+        elif not is_iteration_v2(data) and not is_variable_name(iteration_variable):
             issues.append(
                 ValidationIssue(
                     code="invalid_iteration_variable",
@@ -3436,7 +3510,10 @@ def validate_node_configuration(
                     node_id=node.id,
                 )
             )
-        if not str(data.get("itemTemplate") or "").strip():
+        if (
+            not is_iteration_v2(data)
+            and not str(data.get("itemTemplate") or "").strip()
+        ):
             issues.append(
                 ValidationIssue(
                     code="missing_iteration_template",
@@ -3445,7 +3522,7 @@ def validate_node_configuration(
                 )
             )
         output_variable = str(data.get("outputVariable") or "").strip()
-        if not output_variable:
+        if not is_iteration_v2(data) and not output_variable:
             issues.append(
                 ValidationIssue(
                     code="missing_iteration_output_variable",
@@ -3453,7 +3530,7 @@ def validate_node_configuration(
                     node_id=node.id,
                 )
             )
-        elif not is_variable_name(output_variable):
+        elif not is_iteration_v2(data) and not is_variable_name(output_variable):
             issues.append(
                 ValidationIssue(
                     code="invalid_iteration_output_variable",
@@ -4745,29 +4822,67 @@ def validate_variable_references(
                 )
 
     if kind == "iteration":
-        input_variable = str(data.get("inputVariable") or "").strip()
-        if input_variable and input_variable not in available_variables:
-            issues.append(
-                ValidationIssue(
-                    code="missing_iteration_input_variable_reference",
-                    message=f"Iteration references undefined variable '{input_variable}'.",
-                    node_id=node.id,
-                )
-            )
-        iteration_variable = str(data.get("iterationVariable") or "").strip()
-        template_variables = extract_template_variables(str(data.get("itemTemplate") or ""))
-        scoped_variables = set(available_variables)
-        if is_variable_name(iteration_variable):
-            scoped_variables.add(iteration_variable)
-        for variable in sorted(template_variables):
-            if variable not in scoped_variables:
+        if is_iteration_v2(data):
+            for variable in sorted(
+                iteration_variable_references(data) - available_variables
+            ):
                 issues.append(
                     ValidationIssue(
-                        code="missing_template_variable",
-                        message=f"Iteration template references undefined variable '{variable}'.",
+                        code="missing_iteration_variable_reference",
+                        message=(
+                            "Batch processing references undefined variable "
+                            f"'{variable}'."
+                        ),
                         node_id=node.id,
                     )
                 )
+            if not is_workflow_map(data):
+                scoped_variables = set(available_variables)
+                scoped_variables.add(str(data.get("itemVariable") or "").strip())
+                scoped_variables.add(str(data.get("indexVariable") or "").strip())
+                for variable in sorted(
+                    extract_template_variables(str(data.get("itemTemplate") or ""))
+                ):
+                    if variable not in scoped_variables:
+                        issues.append(
+                            ValidationIssue(
+                                code="missing_iteration_template_variable",
+                                message=(
+                                    "Batch processing template references undefined "
+                                    f"variable '{variable}'."
+                                ),
+                                node_id=node.id,
+                            )
+                        )
+        else:
+            input_variable = str(data.get("inputVariable") or "").strip()
+            if input_variable and input_variable not in available_variables:
+                issues.append(
+                    ValidationIssue(
+                        code="missing_iteration_input_variable_reference",
+                        message=f"Iteration references undefined variable '{input_variable}'.",
+                        node_id=node.id,
+                    )
+                )
+            iteration_variable = str(data.get("iterationVariable") or "").strip()
+            template_variables = extract_template_variables(
+                str(data.get("itemTemplate") or "")
+            )
+            scoped_variables = set(available_variables)
+            if is_variable_name(iteration_variable):
+                scoped_variables.add(iteration_variable)
+            for variable in sorted(template_variables):
+                if variable not in scoped_variables:
+                    issues.append(
+                        ValidationIssue(
+                            code="missing_template_variable",
+                            message=(
+                                "Iteration template references undefined variable "
+                                f"'{variable}'."
+                            ),
+                            node_id=node.id,
+                        )
+                    )
 
     return issues
 

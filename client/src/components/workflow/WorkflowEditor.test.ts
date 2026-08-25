@@ -423,6 +423,19 @@ describe("WorkflowEditor palette defaults", () => {
     expect(paletteKinds).not.toContain("template_transform");
   });
 
+  it("creates iteration as strict batch V2 instead of a text-list default", () => {
+    expect(createNodeData("iteration")).toMatchObject({
+      kind: "iteration",
+      title: "批量处理",
+      contractVersion: 2,
+      mode: "template_map",
+      inputVariable: "batch_items",
+      itemVariable: "item",
+      indexVariable: "item_index",
+      outputVariable: "iteration_output",
+    });
+  });
+
   it("maps MCP JSON Schema field types to workflow variable types", () => {
     expect(workflowTypesForMcpSchema({ type: "string" })).toEqual(["text"]);
     expect(workflowTypesForMcpSchema({ type: "integer" })).toEqual(["number"]);

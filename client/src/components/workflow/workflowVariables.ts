@@ -259,7 +259,10 @@ export const WORKFLOW_VARIABLE_FIELD_DESCRIPTORS: WorkflowVariableFieldDescripto
     "template",
     TEMPLATE_TYPES,
     undefined,
-    [{ name: "item", label: "当前迭代项", valueType: "unknown" }],
+    [
+      { name: "item", label: "当前批次项", valueType: "unknown" },
+      { name: "item_index", label: "当前序号", valueType: "number" },
+    ],
   ),
   field("iteration", "iterationVariable", "declaration", ANY_RENDERABLE_TYPES),
   field("iteration", "outputVariable", "declaration", TEXT_TYPES),
@@ -523,7 +526,11 @@ const DEFAULT_OUTPUT_SPECS: Partial<Record<WorkflowNodeKind, OutputSpec[]>> = {
     { field: "outputVariable", fallback: "output_file", valueType: "json" },
   ],
   iteration: [
-    { field: "outputVariable", fallback: "iteration_output", valueType: "text" },
+    {
+      field: "outputVariable",
+      fallback: "iteration_output",
+      valueType: (node) => Number(node.data.contractVersion) === 2 ? "json" : "text",
+    },
   ],
   json_serialize: [
     { field: "outputVariable", fallback: "json_text", valueType: "text" },
@@ -741,6 +748,8 @@ const AMBIGUOUS_SCAN_IGNORED_FIELDS = new Set([
   "resultVariable",
   "assetIdVariable",
   "iterationVariable",
+  "itemVariable",
+  "indexVariable",
 ]);
 
 function collectReferences(nodes: WorkflowNode[], knownNames: Set<string>) {
@@ -753,9 +762,15 @@ function collectReferences(nodes: WorkflowNode[], knownNames: Set<string>) {
         (descriptor) => descriptor.nodeKind === node.data.kind,
       ).flatMap((descriptor) =>
         (descriptor.localVariables ?? []).map((local) =>
-          local.name === "item"
-            ? trimmedString(node.data.iterationVariable) || local.name
-            : local.name,
+          Number(node.data.contractVersion) === 2
+            ? local.name === "item"
+              ? trimmedString(node.data.itemVariable) || local.name
+              : local.name === "item_index"
+                ? trimmedString(node.data.indexVariable) || local.name
+                : local.name
+            : local.name === "item"
+              ? trimmedString(node.data.iterationVariable) || local.name
+              : local.name,
         ),
       ),
     );

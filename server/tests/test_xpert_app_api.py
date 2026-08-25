@@ -1009,6 +1009,95 @@ def test_r22_app_preflight_allows_only_variable_pack_v2(
         assert expected_issue in codes
 
 
+@pytest.mark.parametrize(
+    ("data", "expected_valid", "expected_issue"),
+    [
+        (
+            {
+                "kind": "iteration",
+                "contractVersion": 2,
+                "mode": "template_map",
+                "inputVariable": "user_input",
+                "itemVariable": "item",
+                "indexVariable": "item_index",
+                "itemTemplate": "{{item}}",
+                "outputVariable": "mapped",
+            },
+            True,
+            None,
+        ),
+        (
+            {
+                "kind": "iteration",
+                "contractVersion": 2,
+                "mode": "workflow_map",
+                "inputVariable": "user_input",
+                "itemVariable": "item",
+                "indexVariable": "item_index",
+                "outputVariable": "receipts",
+                "targetProjectId": "wf_" + "1" * 32,
+                "targetVersion": 1,
+                "inputBindings": {"message": {"source": "item"}},
+                "timeoutSeconds": 60,
+            },
+            False,
+            "app_iteration_workflow_map_forbidden",
+        ),
+        (
+            {
+                "kind": "iteration",
+                "inputVariable": "user_input",
+                "iterationVariable": "item",
+                "itemTemplate": "{{item}}",
+                "outputVariable": "mapped",
+            },
+            False,
+            "app_iteration_migration_required",
+        ),
+    ],
+)
+def test_r23_app_preflight_allows_only_local_batch_v2(
+    stores,
+    data: dict[str, Any],
+    expected_valid: bool,
+    expected_issue: str | None,
+) -> None:
+    xpert_store, _ = stores
+    created = xpert_store.create_xpert(name="Batch App", slug=None)
+    draft = created.draft.model_copy(deep=True)
+    template = next(
+        node for node in draft.workflow.nodes if node.data.get("kind") == "workflow_agent"
+    )
+    draft.workflow.nodes.append(
+        type(template).model_validate(
+            {
+                "id": "batch",
+                "type": "iteration",
+                "position": {"x": 200, "y": 250},
+                "data": data,
+            }
+        )
+    )
+    updated = xpert_store.update_xpert(
+        created.id,
+        {"draft": draft.model_dump(mode="json")},
+    )
+    version = xpert_store.publish_xpert(
+        created.id,
+        expected_revision=updated.draft_revision,
+    )
+
+    result = _deployment_preflight(version, XpertAppPolicy())
+
+    assert result["valid"] is expected_valid, result["issues"]
+    codes = {issue["code"] for issue in result["issues"]}
+    if expected_issue is None:
+        assert "app_iteration_migration_required" not in codes
+        assert "app_iteration_workflow_map_forbidden" not in codes
+    else:
+        assert expected_issue in codes
+
+
 def test_deploy_preflight_allows_read_only_file_memory_only_when_enabled(stores) -> None:
     xpert_store, _ = stores
     created = xpert_store.create_xpert(name="Memory Helper", slug="memory-helper")

@@ -294,7 +294,7 @@ const nodeMeta = {
   },
   iteration: {
     icon: "🔁",
-    label: "迭代工位",
+    label: "批量处理",
     border: "border-amber-300/40",
     bg: "bg-amber-300/10",
     text: "text-amber-100",

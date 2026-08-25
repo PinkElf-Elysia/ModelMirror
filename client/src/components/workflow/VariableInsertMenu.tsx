@@ -88,9 +88,15 @@ export function collectWorkflowVariableOptions(
 
   const localVariables = (descriptor.localVariables ?? []).map((local) => {
     const name =
-      local.name === "item"
-        ? String(selectedNode?.data.iterationVariable ?? "").trim() || local.name
-        : local.name;
+      Number(selectedNode?.data.contractVersion) === 2
+        ? local.name === "item"
+          ? String(selectedNode?.data.itemVariable ?? "").trim() || local.name
+          : local.name === "item_index"
+            ? String(selectedNode?.data.indexVariable ?? "").trim() || local.name
+            : local.name
+        : local.name === "item"
+          ? String(selectedNode?.data.iterationVariable ?? "").trim() || local.name
+          : local.name;
     const typeMismatch = !acceptedTypes.has(local.valueType);
     return {
       name,

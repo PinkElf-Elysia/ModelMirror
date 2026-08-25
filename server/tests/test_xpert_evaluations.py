@@ -241,6 +241,60 @@ def test_safe_preflight_pins_knowledge_and_blocks_waiting_nodes(tmp_path: Path) 
     ]
 
 
+def test_safe_preflight_allows_local_batch_and_blocks_batch_subworkflow(
+    tmp_path: Path,
+) -> None:
+    service = XpertEvaluationService(
+        XpertEvaluationStore(tmp_path / "evaluations"),
+        xpert_store=XpertStore(tmp_path / "xperts"),
+        proposal_store=_EmptyStore(),
+        prompt_preflight=lambda _xpert: None,
+        toolset_store=_EmptyStore(),
+        plugin_store=_EmptyStore(),
+        rag_service=_RagStub(),
+        context_store=_EmptyStore(),
+    )
+    workflow = NativeWorkflowDefinition.model_validate(
+        {
+            "id": "batch-evaluation",
+            "title": "Batch evaluation",
+            "nodes": [
+                {
+                    "id": "local-batch",
+                    "type": "iteration",
+                    "data": {
+                        "kind": "iteration",
+                        "contractVersion": 2,
+                        "mode": "template_map",
+                    },
+                },
+                {
+                    "id": "workflow-batch",
+                    "type": "iteration",
+                    "data": {
+                        "kind": "iteration",
+                        "contractVersion": 2,
+                        "mode": "workflow_map",
+                    },
+                },
+            ],
+            "edges": [],
+        }
+    )
+
+    issues, _warnings, _resources = service._safe_preflight(
+        workflow,
+        recursion_path=("root",),
+    )
+
+    assert not any(item.get("node_id") == "local-batch" for item in issues)
+    assert any(
+        item["code"] == "evaluation_iteration_workflow_map_forbidden"
+        and item.get("node_id") == "workflow-batch"
+        for item in issues
+    )
+
+
 @pytest.mark.asyncio
 async def test_executor_persists_results_and_resumes_unfinished_items(
     tmp_path: Path,

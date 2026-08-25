@@ -139,10 +139,30 @@ describe("collectUpstreamInsertableVariables", () => {
 
     expect(options[0]).toMatchObject({
       name: "row",
-      label: "当前迭代项",
+      label: "当前批次项",
       local: true,
       disabled: false,
     });
+
+    const v2Nodes = [
+      nodes[0],
+      workflowNode("iteration", {
+        kind: "iteration",
+        contractVersion: 2,
+        itemVariable: "row",
+        indexVariable: "row_index",
+      }),
+    ];
+    const v2Options = collectWorkflowVariableOptions(
+      "iteration",
+      v2Nodes,
+      [workflowEdge("start-iteration", "start", "iteration")],
+      descriptor,
+    );
+    expect(v2Options.slice(0, 2)).toMatchObject([
+      { name: "row", label: "当前批次项", local: true, disabled: false },
+      { name: "row_index", label: "当前序号", local: true, disabled: false },
+    ]);
   });
 
   it("scopes data merge variables to the matching input handle", () => {
