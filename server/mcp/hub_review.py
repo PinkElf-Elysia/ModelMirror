@@ -1,4 +1,4 @@
-"""Owner-scoped Review Factory for anonymous HTTPS tools-only Hub servers."""
+"""Owner-scoped Review Factory for anonymous, static-token and OAuth Hub servers."""
 
 from __future__ import annotations
 
@@ -31,13 +31,16 @@ from .hub import (
 from .hub_contracts import (
     SOP_VERSION,
     STATIC_TOKEN_SOP_VERSION,
+    OAUTH_SOP_VERSION,
     HubCandidateSnapshotV1,
     HubContractRegistry,
     HubEvidenceBundle,
     HubEvidenceBundleV1,
     HubEvidenceBundleV2,
+    HubEvidenceBundleV3,
     HubReviewedContractV1,
     HubReviewedContractV2,
+    HubReviewedContractV3,
     canonical_json_bytes,
     contract_export,
     contract_signature,
@@ -45,6 +48,7 @@ from .hub_contracts import (
     stable_contract_id,
 )
 from .remote_auth import RemoteAuthError, RemoteAuthPolicyV1
+from .remote_oauth import RemoteOAuthError, RemoteOAuthPolicyV2
 
 
 MAX_REVIEW_ITEMS = 20
@@ -80,6 +84,8 @@ SAFE_TO_RETRY = dict(SOP_STAGES)
 
 
 def _normalize_evidence(value: dict[str, Any]) -> HubEvidenceBundle:
+    if value.get("sop_version") == OAUTH_SOP_VERSION:
+        return HubEvidenceBundleV3.model_validate(value)
     if value.get("sop_version") == STATIC_TOKEN_SOP_VERSION:
         return HubEvidenceBundleV2.model_validate(value)
     return HubEvidenceBundleV1.model_validate(value)
@@ -98,6 +104,55 @@ def local_contract_publish_enabled() -> bool:
     return os.getenv(
         "MCP_HUB_LOCAL_CONTRACT_PUBLISH_ENABLED", "false"
     ).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def oauth_review_enabled() -> bool:
+    return os.getenv("MCP_REMOTE_OAUTH_REVIEW_ENABLED", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+_DANGEROUS_SCOPE_TERMS = (
+    "write",
+    "admin",
+    "delete",
+    "remove",
+    "publish",
+    "trade",
+    "payment",
+    "device",
+    "control",
+    "execute",
+    "command",
+)
+_READ_SCOPE_TERMS = ("read", "readonly", "search", "query", "list", "view")
+
+
+def assess_oauth_scopes(scopes: tuple[str, ...]) -> dict[str, Any]:
+    dangerous: list[str] = []
+    unknown: list[str] = []
+    read: list[str] = []
+    for scope in scopes:
+        lower = scope.lower()
+        if scope == "offline_access":
+            continue
+        if any(term in lower for term in _DANGEROUS_SCOPE_TERMS):
+            dangerous.append(scope)
+        elif any(term in lower for term in _READ_SCOPE_TERMS):
+            read.append(scope)
+        else:
+            unknown.append(scope)
+    return {
+        "classification": (
+            "dangerous" if dangerous else "unknown" if unknown else "read_candidate"
+        ),
+        "dangerous_scopes": sorted(dangerous),
+        "unknown_scopes": sorted(unknown),
+        "read_candidate_scopes": sorted(read),
+    }
 
 
 def contract_signing_key() -> str:
@@ -881,9 +936,14 @@ class MCPHubReviewService:
         return {
             "enabled": review_factory_enabled(),
             "local_publish_enabled": local_contract_publish_enabled(),
+            "oauth_review_enabled": oauth_review_enabled(),
             "signing_key_configured": bool(self.signing_key),
             "sop_version": SOP_VERSION,
-            "sop_versions": [SOP_VERSION, STATIC_TOKEN_SOP_VERSION],
+            "sop_versions": [
+                SOP_VERSION,
+                STATIC_TOKEN_SOP_VERSION,
+                OAUTH_SOP_VERSION,
+            ],
             "stages": [
                 {"name": stage, "safe_to_retry": safe} for stage, safe in SOP_STAGES
             ],
@@ -960,6 +1020,7 @@ class MCPHubReviewService:
             if remote is None or remote.get("eligibility") not in {
                 "eligible",
                 "static_token_candidate",
+                *( ["oauth_discovery_candidate"] if oauth_review_enabled() else [] ),
             }:
                 raise HubError(
                     "复核项必须来自当前 Registry 的可试连端点。",
@@ -1044,6 +1105,9 @@ class MCPHubReviewService:
         self.store.set_item(item_id, state="running", error_code="")
         snapshot: HubCandidateSnapshotV1 | None = None
         binding_revision_digest = ""
+        oauth_metadata: Any | None = None
+        oauth_scope_assessment: dict[str, Any] | None = None
+        oauth_candidate = False
         try:
             server = self.hub.get_server(item["server_name"], item["version"])
             remote = next(
@@ -1067,7 +1131,11 @@ class MCPHubReviewService:
             self._event(run_id, item_id, "snapshot", payload={"snapshot_digest": snapshot.snapshot_digest})
             if server["status"] not in {"active", "published"} or remote[
                 "eligibility"
-            ] not in {"eligible", "static_token_candidate"}:
+            ] not in {
+                "eligible",
+                "static_token_candidate",
+                *(["oauth_discovery_candidate"] if oauth_review_enabled() else []),
+            }:
                 raise HubError("候选不满足静态准入。", code="hub_review_static_policy_denied", status_code=409)
             self._event(
                 run_id,
@@ -1080,7 +1148,29 @@ class MCPHubReviewService:
             )
             self.store.set_item(item_id, candidate_id=candidate["candidate_id"])
             auth_policy = self.hub._candidate_auth_policy(candidate)
-            if auth_policy is not None:
+            oauth_candidate = bool(self.hub._candidate_oauth_source(candidate, remote=remote))
+            if oauth_candidate:
+                authorization = self.hub._require_oauth_authorization()
+                try:
+                    oauth_metadata = authorization.execution_metadata(
+                        target_type="hub_candidate",
+                        target_id=candidate["candidate_id"],
+                        source_digest=candidate["source_digest"],
+                    )
+                    oauth_scope_assessment = assess_oauth_scopes(
+                        oauth_metadata.scopes
+                    )
+                    if oauth_scope_assessment["dangerous_scopes"]:
+                        raise HubError(
+                            "OAuth Scope 含高危写入或控制语义，本轮拒绝复核。",
+                            code="mcp_remote_oauth_high_risk_scope_denied",
+                            status_code=409,
+                        )
+                except RemoteOAuthError as exc:
+                    raise HubError(
+                        str(exc), code=exc.code, status_code=exc.status_code
+                    ) from None
+            elif auth_policy is not None:
                 binding_id = str(candidate.get("auth_binding_id") or "")
                 if not binding_id or self.hub.remote_auth_broker is None:
                     raise HubError(
@@ -1108,7 +1198,25 @@ class MCPHubReviewService:
                 )
             self._event(run_id, item_id, "network_preflight", "started")
             try:
-                candidate = await self.hub.preflight(candidate["candidate_id"])
+                candidate = (
+                    await self.hub.preflight_oauth_review(
+                        candidate["candidate_id"],
+                        expected_oauth_context=(
+                            {
+                                "policy_fingerprint": oauth_metadata.policy_fingerprint,
+                                "scope_digest": oauth_metadata.scope_digest,
+                                "token_revision_digest": oauth_metadata.token_revision_digest,
+                                "resource_digest": oauth_metadata.resource_digest,
+                                "discovery_fingerprint": oauth_metadata.discovery_fingerprint,
+                                "registration_digest": oauth_metadata.registration_digest,
+                            }
+                            if oauth_metadata is not None
+                            else None
+                        ),
+                    )
+                    if oauth_candidate
+                    else await self.hub.preflight(candidate["candidate_id"])
+                )
             except HubError as exc:
                 self._event(
                     run_id,
@@ -1185,7 +1293,22 @@ class MCPHubReviewService:
                 },
             }
             evidence: HubEvidenceBundle
-            if auth_policy is None:
+            if oauth_metadata is not None:
+                evidence = HubEvidenceBundleV3(
+                    **evidence_fields,
+                    oauth_policy_fingerprint=oauth_metadata.policy_fingerprint,
+                    discovery_fingerprint=oauth_metadata.discovery_fingerprint,
+                    registration_digest=oauth_metadata.registration_digest,
+                    resource_digest=oauth_metadata.resource_digest,
+                    scope_source=oauth_metadata.scope_source,
+                    authorized_scopes=oauth_metadata.scopes,
+                    authorized_scope_digest=oauth_metadata.scope_digest,
+                    token_revision_digest=oauth_metadata.token_revision_digest,
+                    protocol_version=oauth_metadata.protocol_version,
+                    scope_assessment=oauth_scope_assessment
+                    or assess_oauth_scopes(oauth_metadata.scopes),
+                )
+            elif auth_policy is None:
                 evidence = HubEvidenceBundleV1(**evidence_fields)
             else:
                 evidence = HubEvidenceBundleV2(
@@ -1225,6 +1348,14 @@ class MCPHubReviewService:
         except HubError as exc:
             if self._cancel_item_if_requested(run_id, item_id):
                 return
+            if (
+                snapshot is not None
+                and remote is not None
+                and oauth_candidate
+                and oauth_metadata is None
+            ):
+                self.store.set_item(item_id, state="blocked", error_code=exc.code)
+                return
             if snapshot is not None:
                 failed_fields: dict[str, Any] = {
                     "snapshot": snapshot,
@@ -1260,7 +1391,22 @@ class MCPHubReviewService:
                     and remote.get("auth_policy")
                     else None
                 )
-                if failed_policy is None:
+                if oauth_metadata is not None:
+                    failed_evidence = HubEvidenceBundleV3(
+                        **failed_fields,
+                        oauth_policy_fingerprint=oauth_metadata.policy_fingerprint,
+                        discovery_fingerprint=oauth_metadata.discovery_fingerprint,
+                        registration_digest=oauth_metadata.registration_digest,
+                        resource_digest=oauth_metadata.resource_digest,
+                        scope_source=oauth_metadata.scope_source,
+                        authorized_scopes=oauth_metadata.scopes,
+                        authorized_scope_digest=oauth_metadata.scope_digest,
+                        token_revision_digest=oauth_metadata.token_revision_digest,
+                        protocol_version=oauth_metadata.protocol_version,
+                        scope_assessment=oauth_scope_assessment
+                        or assess_oauth_scopes(oauth_metadata.scopes),
+                    )
+                elif failed_policy is None:
                     failed_evidence: HubEvidenceBundle = HubEvidenceBundleV1(
                         **failed_fields
                     )
@@ -1319,6 +1465,38 @@ class MCPHubReviewService:
         item: dict[str, Any],
         evidence: HubEvidenceBundle,
     ) -> None:
+        if isinstance(evidence, HubEvidenceBundleV3):
+            candidate = self.hub.store.require_candidate(
+                str(item.get("candidate_id") or ""),
+                self.tenant_id,
+                self.owner_id,
+            )
+            try:
+                current = self.hub._require_oauth_authorization().execution_metadata(
+                    target_type="hub_candidate",
+                    target_id=candidate["candidate_id"],
+                    source_digest=candidate["source_digest"],
+                )
+            except RemoteOAuthError as exc:
+                raise HubError(
+                    str(exc), code=exc.code, status_code=exc.status_code
+                ) from None
+            if (
+                current.policy_fingerprint != evidence.oauth_policy_fingerprint
+                or current.discovery_fingerprint != evidence.discovery_fingerprint
+                or current.registration_digest != evidence.registration_digest
+                or current.resource_digest != evidence.resource_digest
+                or current.scope_digest != evidence.authorized_scope_digest
+                or current.token_revision_digest != evidence.token_revision_digest
+                or current.protocol_version != evidence.protocol_version
+                or current.scopes != evidence.authorized_scopes
+            ):
+                raise HubError(
+                    "OAuth Token、Scope 或发现证据已变化，需要重新复核。",
+                    code="mcp_remote_oauth_contract_scope_drift",
+                    status_code=409,
+                )
+            return
         if not isinstance(evidence, HubEvidenceBundleV2):
             return
         candidate = self.hub.store.require_candidate(
@@ -1401,7 +1579,25 @@ class MCPHubReviewService:
             candidate_id = str(item.get("candidate_id") or "")
             evidence = _normalize_evidence(item["evidence"])
             self._require_evidence_auth_current(item, evidence)
-            candidate = await self.hub.preflight(candidate_id)
+            candidate = (
+                await self.hub.preflight_oauth_review(
+                    candidate_id,
+                    expected_oauth_context=(
+                        {
+                            "policy_fingerprint": evidence.oauth_policy_fingerprint,
+                            "scope_digest": evidence.authorized_scope_digest,
+                            "token_revision_digest": evidence.token_revision_digest,
+                            "resource_digest": evidence.resource_digest,
+                            "discovery_fingerprint": evidence.discovery_fingerprint,
+                            "registration_digest": evidence.registration_digest,
+                        }
+                        if isinstance(evidence, HubEvidenceBundleV3)
+                        else None
+                    ),
+                )
+                if isinstance(evidence, HubEvidenceBundleV3)
+                else await self.hub.preflight(candidate_id)
+            )
             self._require_run_not_cancelled(run_id, item_id)
             current_tool_digests = {
                 str(tool["name"]): str(tool["schema_digest"])
@@ -1423,7 +1619,22 @@ class MCPHubReviewService:
                     raw_candidate = self.hub.store.require_candidate(
                         candidate_id, self.tenant_id, self.owner_id
                     )
-                    live = await self.hub._open_candidate(raw_candidate)
+                    live = await self.hub._open_candidate(
+                        raw_candidate,
+                        allow_oauth_review=isinstance(evidence, HubEvidenceBundleV3),
+                        expected_oauth_context=(
+                            {
+                                "policy_fingerprint": evidence.oauth_policy_fingerprint,
+                                "scope_digest": evidence.authorized_scope_digest,
+                                "token_revision_digest": evidence.token_revision_digest,
+                                "resource_digest": evidence.resource_digest,
+                                "discovery_fingerprint": evidence.discovery_fingerprint,
+                                "registration_digest": evidence.registration_digest,
+                            }
+                            if isinstance(evidence, HubEvidenceBundleV3)
+                            else None
+                        ),
+                    )
                     refreshed = await self.hub.bridge.list_tools(live.session_id)
                     refreshed_tools, refreshed_digest = self.hub._validate_tools(refreshed.get("tools"))
                     if (
@@ -1544,6 +1755,7 @@ class MCPHubReviewService:
         expected_evidence_digest: str,
         allowed_tools: list[str],
         tool_effects: dict[str, str],
+        acknowledge_unknown_oauth_scopes: bool = False,
     ) -> dict[str, Any]:
         self._require_enabled()
         self._require_run_not_cancelled(run_id, item_id)
@@ -1561,6 +1773,20 @@ class MCPHubReviewService:
             raise HubError("复核证据摘要已变化。", code="hub_review_evidence_digest", status_code=409)
         evidence = _normalize_evidence(item["evidence"])
         self._require_evidence_auth_current(item, evidence)
+        if isinstance(evidence, HubEvidenceBundleV3):
+            assessment = evidence.scope_assessment
+            if assessment.get("dangerous_scopes"):
+                raise HubError(
+                    "OAuth Scope 含高危写入或控制语义，本轮禁止发布。",
+                    code="mcp_remote_oauth_contract_scope_drift",
+                    status_code=409,
+                )
+            if assessment.get("unknown_scopes") and not acknowledge_unknown_oauth_scopes:
+                raise HubError(
+                    "OAuth Scope 含未知语义，必须由本地运维者显式确认。",
+                    code="mcp_remote_oauth_scope_ack_required",
+                    status_code=409,
+                )
         unique_tools = list(dict.fromkeys(str(name) for name in allowed_tools))
         if (
             not unique_tools
@@ -1579,15 +1805,18 @@ class MCPHubReviewService:
             evidence.snapshot.remote_url,
         )
         if existing is not None and not reason:
-            expected_policy = (
-                self.hub._candidate_auth_policy(
+            expected_policy = None
+            if isinstance(evidence, HubEvidenceBundleV2):
+                expected_policy = self.hub._candidate_auth_policy(
                     self.hub.store.require_candidate(
                         str(item.get("candidate_id") or ""),
                         self.tenant_id,
                         self.owner_id,
                     )
                 )
-                if isinstance(evidence, HubEvidenceBundleV2)
+            expected_oauth_policy = (
+                self._current_oauth_policy(item, evidence)
+                if isinstance(evidence, HubEvidenceBundleV3)
                 else None
             )
             if (
@@ -1596,6 +1825,14 @@ class MCPHubReviewService:
                 or set(existing.allowed_tools) != set(unique_tools)
                 or existing.tool_effects != tool_effects
                 or getattr(existing, "remote_auth_policy", None) != expected_policy
+                or getattr(existing, "remote_oauth_policy", None)
+                != expected_oauth_policy
+                or getattr(existing, "authorized_scopes", ())
+                != (
+                    evidence.authorized_scopes
+                    if isinstance(evidence, HubEvidenceBundleV3)
+                    else ()
+                )
             ):
                 raise HubError("同一身份的仓库契约不一致。", code="hub_contract_collision", status_code=409)
             contract = existing
@@ -1641,6 +1878,15 @@ class MCPHubReviewService:
                     **contract_fields,
                     remote_auth_policy=policy,
                 )
+            elif isinstance(evidence, HubEvidenceBundleV3):
+                policy = self._current_oauth_policy(item, evidence)
+                contract = HubReviewedContractV3(
+                    **contract_fields,
+                    remote_oauth_policy=policy,
+                    authorized_scopes=evidence.authorized_scopes,
+                    authorized_scope_digest=evidence.authorized_scope_digest,
+                    protocol_version=evidence.protocol_version,
+                )
             else:
                 contract = HubReviewedContractV1(**contract_fields)
         self.store.set_item(
@@ -1654,10 +1900,57 @@ class MCPHubReviewService:
             run_id,
             item_id,
             "human_decision",
-            payload={"decision": "approve", "contract_fingerprint": contract.contract_fingerprint},
+            payload={
+                "decision": "approve",
+                "contract_fingerprint": contract.contract_fingerprint,
+                "unknown_oauth_scopes_acknowledged": bool(
+                    isinstance(evidence, HubEvidenceBundleV3)
+                    and evidence.scope_assessment.get("unknown_scopes")
+                    and acknowledge_unknown_oauth_scopes
+                ),
+            },
         )
         self._refresh_run_status(run_id)
         return self.store.require_item(run_id, item_id, self.tenant_id, self.owner_id)
+
+    def _current_oauth_policy(
+        self,
+        item: dict[str, Any],
+        evidence: HubEvidenceBundleV3,
+    ) -> RemoteOAuthPolicyV2:
+        candidate = self.hub.store.require_candidate(
+            str(item.get("candidate_id") or ""),
+            self.tenant_id,
+            self.owner_id,
+        )
+        oauth = self.hub._require_remote_oauth()
+        subject = oauth.subject_resolver.resolve()
+        if (
+            subject.tenant_id != self.tenant_id
+            or subject.owner_id != self.owner_id
+        ):
+            raise HubError(
+                "OAuth 复核主体与 Hub Owner 不一致。",
+                code="mcp_remote_oauth_scope_denied",
+                status_code=403,
+            )
+        discovery = oauth.store.active_discovery(
+            subject=subject,
+            target_type="hub_candidate",
+            target_id=candidate["candidate_id"],
+        )
+        if (
+            discovery is None
+            or not isinstance(discovery.policy, RemoteOAuthPolicyV2)
+            or discovery.policy.policy_fingerprint
+            != evidence.oauth_policy_fingerprint
+        ):
+            raise HubError(
+                "OAuth 发现策略已漂移。",
+                code="mcp_remote_oauth_contract_scope_drift",
+                status_code=409,
+            )
+        return discovery.policy
 
     def publish(self, run_id: str, item_id: str, expected_fingerprint: str) -> dict[str, Any]:
         self._require_enabled()
@@ -1689,7 +1982,14 @@ class MCPHubReviewService:
             payload={"contract_id": contract.contract_id, "revision_id": revision["revision_id"]},
         )
         self._refresh_run_status(run_id)
-        return {**revision, "activation_eligible": True}
+        oauth_contract = isinstance(contract, HubReviewedContractV3)
+        return {
+            **revision,
+            "activation_eligible": not oauth_contract,
+            "activation_reason": (
+                "mcp_remote_oauth_runtime_disabled" if oauth_contract else ""
+            ),
+        }
 
     def export_contract(self, run_id: str, item_id: str) -> bytes:
         item = self.store.require_item(run_id, item_id, self.tenant_id, self.owner_id)
@@ -2004,6 +2304,7 @@ class ReviewDecisionRequest(BaseModel):
     expected_evidence_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
     allowed_tools: list[str] = Field(default_factory=list, max_length=50)
     tool_effects: dict[str, Literal["read"]] = Field(default_factory=dict)
+    acknowledge_unknown_oauth_scopes: bool = False
 
 
 class ContractPublishRequest(BaseModel):
@@ -2143,6 +2444,9 @@ async def decide_review_item(
             expected_evidence_digest=payload.expected_evidence_digest,
             allowed_tools=payload.allowed_tools,
             tool_effects=dict(payload.tool_effects),
+            acknowledge_unknown_oauth_scopes=(
+                payload.acknowledge_unknown_oauth_scopes
+            ),
         )
     except HubError as exc:
         _raise_http(exc)

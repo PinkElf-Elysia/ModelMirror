@@ -16,6 +16,7 @@ function json(payload: unknown, status = 200) {
 const status: HubReviewStatus = {
   enabled: true,
   local_publish_enabled: true,
+  oauth_review_enabled: true,
   signing_key_configured: true,
   sop_version: "anonymous_https_tools_v1",
   max_batch_size: 20,
@@ -115,6 +116,10 @@ describe("McpHubReviewWorkbench", () => {
       />,
     );
 
+    expect(
+      screen.getByText(/候选匹配匿名、静态 Token 或 OAuth 的版本化 SOP/),
+    ).toBeVisible();
+
     const approve = await screen.findByRole("button", { name: "逐次批准代表调用" });
     expect(approve).toBeDisabled();
     expect(screen.getByText(`Tool Schema：${"6".repeat(64)}`)).toBeVisible();
@@ -169,6 +174,54 @@ describe("McpHubReviewWorkbench", () => {
     expect(decisionBody).toMatchObject({
       allowed_tools: ["search_primary"],
       tool_effects: { search_primary: "read" },
+    });
+  });
+
+  it("requires explicit acknowledgement for unknown OAuth scopes", async () => {
+    let decisionBody: Record<string, unknown> | undefined;
+    const oauthRun = reviewRun("awaiting_decision");
+    Object.assign(oauthRun.items[0].evidence, {
+      sop_version: "oauth_https_tools_v1",
+      authorized_scopes: ["vendor.profile"],
+      scope_source: "www_authenticate",
+      authorized_scope_digest: "a".repeat(64),
+      scope_assessment: {
+        classification: "unknown",
+        dangerous_scopes: [],
+        unknown_scopes: ["vendor.profile"],
+        read_candidate_scopes: [],
+      },
+    });
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith(`/items/${itemId}/decision`)) {
+        decisionBody = JSON.parse(String(init?.body));
+        return json({ state: "approved" });
+      }
+      if (url.endsWith("/api/mcp/hub/review-runs")) {
+        return json({ items: [oauthRun] });
+      }
+      if (url.endsWith("/api/mcp/hub/contracts")) return json({ items: [] });
+      throw new Error(`unexpected URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <McpHubReviewWorkbench
+        onClearSelection={() => undefined}
+        onHubChanged={() => undefined}
+        selected={[]}
+        status={status}
+      />,
+    );
+    const approve = await screen.findByRole("button", { name: "批准所选只读工具" });
+    expect(screen.getByText(/未知 Scope：vendor.profile/)).toBeVisible();
+    expect(approve).toBeDisabled();
+    fireEvent.click(screen.getByRole("checkbox", { name: /我已核对未知 Scope/ }));
+    expect(approve).toBeEnabled();
+    fireEvent.click(approve);
+    await waitFor(() => expect(decisionBody).toBeDefined());
+    expect(decisionBody).toMatchObject({
+      acknowledge_unknown_oauth_scopes: true,
     });
   });
 

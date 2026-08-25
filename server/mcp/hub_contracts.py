@@ -12,6 +12,7 @@ from typing import Any, Literal, TypeAlias
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .remote_auth import RemoteAuthPolicyV1
+from .remote_oauth import MCP_PROTOCOL_VERSION, RemoteOAuthPolicyV2
 
 
 SOP_VERSION = "anonymous_https_tools_v1"
@@ -21,6 +22,9 @@ EVIDENCE_SCHEMA_VERSION = "hub-evidence-bundle-v1"
 STATIC_TOKEN_SOP_VERSION = "static_token_https_tools_v1"
 CONTRACT_SCHEMA_VERSION_V2 = "hub-reviewed-contract-v2"
 EVIDENCE_SCHEMA_VERSION_V2 = "hub-evidence-bundle-v2"
+OAUTH_SOP_VERSION = "oauth_https_tools_v1"
+CONTRACT_SCHEMA_VERSION_V3 = "hub-reviewed-contract-v3"
+EVIDENCE_SCHEMA_VERSION_V3 = "hub-evidence-bundle-v3"
 HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
 CONTRACT_ID_RE = re.compile(r"^hubct_[0-9a-f]{32}$")
 
@@ -107,6 +111,32 @@ class HubEvidenceBundleV2(HubEvidenceBundleV1):
     credential_revision_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
+class HubEvidenceBundleV3(HubEvidenceBundleV1):
+    """Secret-free evidence for resource-bound OAuth review."""
+
+    schema_version: Literal[EVIDENCE_SCHEMA_VERSION_V3] = EVIDENCE_SCHEMA_VERSION_V3
+    sop_version: Literal[OAUTH_SOP_VERSION] = OAUTH_SOP_VERSION
+    auth_mode: Literal["oauth_authorization_code_pkce"] = (
+        "oauth_authorization_code_pkce"
+    )
+    oauth_policy_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    discovery_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    registration_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    resource_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    scope_source: str = Field(min_length=1, max_length=64)
+    authorized_scopes: tuple[str, ...]
+    authorized_scope_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    token_revision_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    protocol_version: Literal[MCP_PROTOCOL_VERSION] = MCP_PROTOCOL_VERSION
+    scope_assessment: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_oauth_evidence(self) -> "HubEvidenceBundleV3":
+        if canonical_digest(list(self.authorized_scopes)) != self.authorized_scope_digest:
+            raise ValueError("authorized OAuth scope digest mismatch")
+        return self
+
+
 class HubReviewedContractV1(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -162,14 +192,38 @@ class HubReviewedContractV2(HubReviewedContractV1):
     remote_auth_policy: RemoteAuthPolicyV1
 
 
-HubReviewedContract: TypeAlias = HubReviewedContractV1 | HubReviewedContractV2
-HubEvidenceBundle: TypeAlias = HubEvidenceBundleV1 | HubEvidenceBundleV2
+class HubReviewedContractV3(HubReviewedContractV1):
+    schema_version: Literal[CONTRACT_SCHEMA_VERSION_V3] = CONTRACT_SCHEMA_VERSION_V3
+    sop_version: Literal[OAUTH_SOP_VERSION] = OAUTH_SOP_VERSION
+    remote_oauth_policy: RemoteOAuthPolicyV2
+    authorized_scopes: tuple[str, ...]
+    authorized_scope_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    protocol_version: Literal[MCP_PROTOCOL_VERSION] = MCP_PROTOCOL_VERSION
+
+    @model_validator(mode="after")
+    def validate_oauth_contract(self) -> "HubReviewedContractV3":
+        if canonical_digest(list(self.authorized_scopes)) != self.authorized_scope_digest:
+            raise ValueError("authorized OAuth scope digest mismatch")
+        if self.remote_oauth_policy.protocol_version != self.protocol_version:
+            raise ValueError("OAuth protocol version mismatch")
+        return self
+
+
+HubReviewedContract: TypeAlias = (
+    HubReviewedContractV1 | HubReviewedContractV2 | HubReviewedContractV3
+)
+HubEvidenceBundle: TypeAlias = (
+    HubEvidenceBundleV1 | HubEvidenceBundleV2 | HubEvidenceBundleV3
+)
 
 
 def contract_execution_fields(contract: HubReviewedContract | dict[str, Any]) -> dict[str, Any]:
     payload = (
         contract.model_dump(mode="json")
-        if isinstance(contract, (HubReviewedContractV1, HubReviewedContractV2))
+        if isinstance(
+            contract,
+            (HubReviewedContractV1, HubReviewedContractV2, HubReviewedContractV3),
+        )
         else dict(contract)
     )
     payload.pop("contract_fingerprint", None)
@@ -187,6 +241,8 @@ def contract_fingerprint(contract: HubReviewedContract | dict[str, Any]) -> str:
 
 
 def normalize_contract(payload: dict[str, Any]) -> HubReviewedContract:
+    if payload.get("schema_version") == CONTRACT_SCHEMA_VERSION_V3:
+        return HubReviewedContractV3.model_validate(payload)
     if payload.get("schema_version") == CONTRACT_SCHEMA_VERSION_V2:
         return HubReviewedContractV2.model_validate(payload)
     return HubReviewedContractV1.model_validate(payload)

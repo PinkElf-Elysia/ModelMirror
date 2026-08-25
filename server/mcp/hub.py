@@ -33,10 +33,15 @@ from .remote_auth import RemoteAuthError, RemoteAuthPolicyV1
 from .remote_oauth import RemoteOAuthError
 
 
+def _flag(name: str) -> bool:
+    return os.getenv(name, "false").strip().lower() in {"1", "true", "yes", "on"}
+
+
 REGISTRY_BASE_URL = "https://registry.modelcontextprotocol.io"
 REGISTRY_HOST = "registry.modelcontextprotocol.io"
 REGISTRY_API_PREFIX = "/v0.1"
 REGISTRY_PAGE_LIMIT = 100
+REGISTRY_FALLBACK_PAGE_LIMIT = 10
 REGISTRY_PAGE_ATTEMPTS = 4
 REGISTRY_MAX_PAGES = 500
 REGISTRY_MAX_PAGE_BYTES = 2 * 1024 * 1024
@@ -448,26 +453,42 @@ class PinnedRegistryClient:
                 )
         return addresses
 
-    def get_page(self, *, cursor: str = "", etag: str = "") -> tuple[dict[str, Any], str, bool]:
+    def get_page(
+        self,
+        *,
+        cursor: str = "",
+        etag: str = "",
+        limit: int = REGISTRY_PAGE_LIMIT,
+    ) -> tuple[dict[str, Any], str, bool]:
         # Discovery tracks only the Registry's currently published version.
         # Previously observed versions remain in SQLite as deleted records,
         # so a version change still creates a new immutable candidate identity
         # instead of replacing an active candidate in place.
-        query = f"?limit={REGISTRY_PAGE_LIMIT}&version=latest"
+        if limit not in {REGISTRY_PAGE_LIMIT, REGISTRY_FALLBACK_PAGE_LIMIT}:
+            raise HubError(
+                "Registry 分页大小无效。",
+                code="hub_registry_page_limit_invalid",
+            )
+        query = f"?limit={limit}&version=latest"
         if cursor:
             query += "&cursor=" + quote(cursor, safe="")
         path = f"{REGISTRY_API_PREFIX}/servers{query}"
         address = self._resolve()[0]
+        request_timeout = (
+            max(self.timeout, 30.0)
+            if limit == REGISTRY_FALLBACK_PAGE_LIMIT
+            else self.timeout
+        )
 
         class PinnedConnection(http.client.HTTPSConnection):
             def connect(inner_self) -> None:
-                raw = socket.create_connection((address, 443), self.timeout)
+                raw = socket.create_connection((address, 443), request_timeout)
                 inner_self.sock = ssl.create_default_context().wrap_socket(
                     raw,
                     server_hostname=REGISTRY_HOST,
                 )
 
-        connection = PinnedConnection(REGISTRY_HOST, 443, timeout=self.timeout)
+        connection = PinnedConnection(REGISTRY_HOST, 443, timeout=request_timeout)
         headers = {
             "Accept": "application/json",
             "User-Agent": "ModelMirror-MCP-Hub/1.0",
@@ -572,6 +593,7 @@ class MCPHubStore:
                     schema_digest TEXT NOT NULL,
                     tools_json TEXT NOT NULL,
                     taint_reason TEXT NOT NULL,
+                    oauth_discovery_source TEXT NOT NULL DEFAULT '',
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL,
                     UNIQUE (tenant_id, owner_id, server_name, version, remote_id)
@@ -614,6 +636,10 @@ class MCPHubStore:
             if "auth_binding_id" not in candidate_columns:
                 db.execute(
                     "ALTER TABLE hub_candidates ADD COLUMN auth_binding_id TEXT NOT NULL DEFAULT ''"
+                )
+            if "oauth_discovery_source" not in candidate_columns:
+                db.execute(
+                    "ALTER TABLE hub_candidates ADD COLUMN oauth_discovery_source TEXT NOT NULL DEFAULT ''"
                 )
 
     def meta(self, key: str, default: str = "") -> str:
@@ -757,7 +783,7 @@ class MCPHubStore:
         values = (
             candidate_id, tenant_id, owner_id, server["server_name"], server["version"],
             remote["remote_id"], "draft", remote["origin"], remote["url"],
-            server["source_digest"], "", "[]", "", now, now,
+            server["source_digest"], "", "[]", "", "", now, now,
             json.dumps(remote.get("auth_policy") or {}, ensure_ascii=False, separators=(",", ":")),
             "",
         )
@@ -767,8 +793,8 @@ class MCPHubStore:
                     "INSERT INTO hub_candidates("
                     "candidate_id,tenant_id,owner_id,server_name,version,remote_id,state,"
                     "origin,remote_url,source_digest,schema_digest,tools_json,taint_reason,"
-                    "created_at,updated_at,auth_policy_json,auth_binding_id"
-                    ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "oauth_discovery_source,created_at,updated_at,auth_policy_json,auth_binding_id"
+                    ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     values,
                 )
             except sqlite3.IntegrityError:
@@ -801,6 +827,29 @@ class MCPHubStore:
                 "UPDATE hub_candidates SET auth_binding_id=?,updated_at=? "
                 "WHERE candidate_id=? AND tenant_id=? AND owner_id=?",
                 (str(binding_id), time.time(), candidate_id, tenant_id, owner_id),
+            )
+        return self.require_candidate(candidate_id, tenant_id, owner_id)
+
+    def mark_candidate_oauth_discovery(
+        self,
+        candidate_id: str,
+        tenant_id: str,
+        owner_id: str,
+        *,
+        source: str,
+    ) -> dict[str, Any]:
+        if source != "www_authenticate":
+            raise HubError(
+                "OAuth 发现来源无效。",
+                code="mcp_remote_oauth_candidate_ineligible",
+                status_code=409,
+            )
+        self.require_candidate(candidate_id, tenant_id, owner_id)
+        with self._lock, self._connect() as db:
+            db.execute(
+                "UPDATE hub_candidates SET oauth_discovery_source=?,state='draft',"
+                "taint_reason='',updated_at=? WHERE candidate_id=? AND tenant_id=? AND owner_id=?",
+                (source, time.time(), candidate_id, tenant_id, owner_id),
             )
         return self.require_candidate(candidate_id, tenant_id, owner_id)
 
@@ -1026,12 +1075,20 @@ class HubSocketBridge:
 
     async def _request(self, path: str, payload: dict[str, Any], *, timeout: float = 25.0) -> dict[str, Any]:
         try:
-            reader, writer = await asyncio.wait_for(asyncio.open_unix_connection(path), timeout=3)
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_unix_connection(
+                    path,
+                    limit=MAX_RESULT_BYTES + 4096,
+                ),
+                timeout=3,
+            )
             writer.write(_json_bytes(payload) + b"\n")
             await asyncio.wait_for(writer.drain(), timeout=2)
             raw = await asyncio.wait_for(reader.readline(), timeout=timeout)
         except (asyncio.TimeoutError, ConnectionError, OSError) as exc:
             raise HubError("MCP Hub 隔离服务不可用。", code="hub_sidecar_unavailable", status_code=503) from exc
+        except ValueError as exc:
+            raise HubError("MCP Hub 隔离服务响应无效。", code="hub_sidecar_invalid", status_code=502) from exc
         finally:
             if "writer" in locals():
                 writer.close()
@@ -1316,18 +1373,32 @@ class MCPHubService:
                 skipped_entries = 0
                 snapshot_bytes = 0
                 response_etag = etag
+                page_limit = REGISTRY_PAGE_LIMIT
                 for page in range(REGISTRY_MAX_PAGES):
                     page_error: HubError | None = None
                     for attempt in range(REGISTRY_PAGE_ATTEMPTS):
                         try:
+                            request_limit = page_limit
                             payload, current_etag, not_modified = await asyncio.to_thread(
                                 self.registry_client.get_page,
                                 cursor=cursor,
                                 etag=etag if page == 0 else "",
+                                limit=request_limit,
                             )
+                            if request_limit == REGISTRY_FALLBACK_PAGE_LIMIT:
+                                page_limit = REGISTRY_PAGE_LIMIT
                             break
                         except HubError as exc:
                             page_error = exc
+                            if (
+                                exc.code == "hub_registry_unavailable"
+                                and page_limit == REGISTRY_PAGE_LIMIT
+                            ):
+                                # The official Registry can stall on otherwise
+                                # valid cursors when a large page is requested.
+                                # Keep all existing snapshot bounds and use one
+                                # smaller page to advance beyond that cursor.
+                                page_limit = REGISTRY_FALLBACK_PAGE_LIMIT
                             if (
                                 exc.code != "hub_registry_unavailable"
                                 or attempt + 1 >= REGISTRY_PAGE_ATTEMPTS
@@ -1475,10 +1546,19 @@ class MCPHubService:
         )
         registry_eligibility = str((remote or {}).get("eligibility") or "")
         output["registry_eligibility"] = registry_eligibility
+        oauth_source = self._candidate_oauth_source(item, remote=remote)
+        if (
+            not oauth_source
+            and registry_eligibility == "eligible"
+            and item.get("state") == "blocked"
+            and item.get("taint_reason") == "hub_upstream_auth_required"
+        ):
+            oauth_source = "pending_www_authenticate"
+        output["oauth_discovery_source"] = oauth_source
         output["oauth_discovery_available"] = bool(
             item.get("remote_url")
             and not policy
-            and registry_eligibility == "oauth_discovery_candidate"
+            and oauth_source
         )
         live = self._live.get(item["candidate_id"])
         output["connected"] = bool(
@@ -1498,9 +1578,14 @@ class MCPHubService:
             )
         return self.remote_oauth_service
 
-    def _require_oauth_candidate(self, candidate: dict[str, Any]) -> None:
+    def _candidate_oauth_source(
+        self,
+        candidate: dict[str, Any],
+        *,
+        remote: dict[str, Any] | None = None,
+    ) -> str:
         server = self.store.get_server(candidate["server_name"], candidate["version"])
-        remote = next(
+        current_remote = remote or next(
             (
                 item
                 for item in (server or {}).get("remotes", [])
@@ -1511,13 +1596,51 @@ class MCPHubService:
         if (
             server is None
             or server.get("source_digest") != candidate.get("source_digest")
-            or (remote or {}).get("eligibility") != "oauth_discovery_candidate"
+            or current_remote is None
+            or current_remote.get("url") != candidate.get("remote_url")
+            or current_remote.get("origin") != candidate.get("origin")
         ):
+            return ""
+        if current_remote.get("eligibility") == "oauth_discovery_candidate":
+            return "registry"
+        if (
+            current_remote.get("eligibility") == "eligible"
+            and candidate.get("oauth_discovery_source") == "www_authenticate"
+        ):
+            return "www_authenticate"
+        return ""
+
+    def _require_oauth_candidate(
+        self, candidate: dict[str, Any], *, allow_pending_challenge: bool = False
+    ) -> str:
+        source = self._candidate_oauth_source(candidate)
+        if not source and allow_pending_challenge:
+            server = self.store.get_server(candidate["server_name"], candidate["version"])
+            remote = next(
+                (
+                    item
+                    for item in (server or {}).get("remotes", [])
+                    if item.get("remote_id") == candidate["remote_id"]
+                ),
+                None,
+            )
+            if (
+                server is not None
+                and server.get("source_digest") == candidate.get("source_digest")
+                and (remote or {}).get("eligibility") == "eligible"
+                and remote.get("url") == candidate.get("remote_url")
+                and remote.get("origin") == candidate.get("origin")
+                and candidate.get("state") == "blocked"
+                and candidate.get("taint_reason") == "hub_upstream_auth_required"
+            ):
+                return "pending_www_authenticate"
+        if not source:
             raise HubError(
-                "该 Registry 候选未声明可发现的 OAuth 认证形态。",
+                "该候选尚未返回可验证的 OAuth Bearer 挑战。",
                 code="mcp_remote_oauth_candidate_ineligible",
                 status_code=409,
             )
+        return source
 
     @staticmethod
     def _raise_remote_oauth(exc: RemoteOAuthError) -> None:
@@ -1536,7 +1659,7 @@ class MCPHubService:
                 code="mcp_remote_oauth_candidate_ineligible",
                 status_code=409,
             )
-        self._require_oauth_candidate(candidate)
+        self._require_oauth_candidate(candidate, allow_pending_challenge=True)
         try:
             return self._require_remote_oauth().summary(
                 target_type="hub_candidate",
@@ -1567,14 +1690,26 @@ class MCPHubService:
                     code="mcp_remote_oauth_candidate_ineligible",
                     status_code=409,
                 )
-            self._require_oauth_candidate(candidate)
+            discovery_source = self._require_oauth_candidate(
+                candidate, allow_pending_challenge=True
+            )
             try:
                 await self._require_remote_oauth().discover(
                     target_type="hub_candidate",
                     target_id=candidate["candidate_id"],
                     resource_url=candidate["remote_url"],
                     source_digest=candidate["source_digest"],
+                    require_bearer_challenge=(
+                        discovery_source == "pending_www_authenticate"
+                    ),
                 )
+                if discovery_source == "pending_www_authenticate":
+                    self.store.mark_candidate_oauth_discovery(
+                        candidate["candidate_id"],
+                        self.tenant_id,
+                        self.owner_id,
+                        source="www_authenticate",
+                    )
                 return self.candidate_oauth(clean)
             except RemoteOAuthError as exc:
                 self._raise_remote_oauth(exc)
@@ -1643,8 +1778,9 @@ class MCPHubService:
         candidate_id: str,
         *,
         expected_discovery_fingerprint: str,
-        expected_registration_revision: int,
-        scopes: list[str],
+        expected_registration_digest: str,
+        expected_scope_digest: str,
+        request_refresh_token: bool,
     ) -> dict[str, Any]:
         self._require_enabled()
         clean = _required_identifier(candidate_id, CANDIDATE_ID_RE, "candidate_id")
@@ -1659,8 +1795,9 @@ class MCPHubService:
                     target_id=candidate["candidate_id"],
                     source_digest=candidate["source_digest"],
                     expected_discovery_fingerprint=expected_discovery_fingerprint,
-                    expected_registration_revision=expected_registration_revision,
-                    scopes=scopes,
+                    expected_registration_digest=expected_registration_digest,
+                    expected_scope_digest=expected_scope_digest,
+                    request_refresh_token=request_refresh_token,
                 )
             except RemoteOAuthError as exc:
                 self._raise_remote_oauth(exc)
@@ -2080,6 +2217,8 @@ class MCPHubService:
             if loaded is None:
                 return None, reason
             normalized = loaded.model_dump(mode="json")
+        if normalized.get("schema_version") == "hub-reviewed-contract-v3":
+            return None, "mcp_remote_oauth_runtime_disabled"
         current_server = self.store.get_server(identity[0], identity[1])
         current_remote = next(
             (
@@ -2273,7 +2412,13 @@ class MCPHubService:
                 return_exceptions=True,
             )
 
-    async def _open_candidate(self, candidate: dict[str, Any]) -> LiveHubSession:
+    async def _open_candidate(
+        self,
+        candidate: dict[str, Any],
+        *,
+        allow_oauth_review: bool = False,
+        expected_oauth_context: dict[str, str] | None = None,
+    ) -> LiveHubSession:
         capability = await self.bridge.authorize(candidate["candidate_id"], candidate["remote_url"])
         session_id = ""
         try:
@@ -2286,7 +2431,105 @@ class MCPHubService:
                 + candidate["candidate_id"]
             )
             policy = self._candidate_auth_policy(candidate)
-            if policy is None:
+            server = self.store.get_server(candidate["server_name"], candidate["version"])
+            remote = next(
+                (
+                    item
+                    for item in (server or {}).get("remotes", [])
+                    if item.get("remote_id") == candidate.get("remote_id")
+                ),
+                None,
+            )
+            oauth_candidate = bool(self._candidate_oauth_source(candidate, remote=remote))
+            if oauth_candidate:
+                if not allow_oauth_review or not _flag("MCP_REMOTE_OAUTH_REVIEW_ENABLED"):
+                    raise HubError(
+                        "OAuth 候选仅允许通过启用的 Review Factory 内部路径连接。",
+                        code="mcp_remote_oauth_review_disabled",
+                        status_code=409,
+                    )
+                authorization = self._require_oauth_authorization()
+                try:
+                    subject = authorization.subject_resolver.resolve()
+                    if (
+                        subject.tenant_id != self.tenant_id
+                        or subject.owner_id != self.owner_id
+                    ):
+                        raise HubError(
+                            "OAuth 执行主体与 Hub Owner 不一致。",
+                            code="mcp_remote_oauth_scope_denied",
+                            status_code=403,
+                        )
+                    metadata = authorization.execution_metadata(
+                        target_type="hub_candidate",
+                        target_id=candidate["candidate_id"],
+                        source_digest=candidate["source_digest"],
+                    )
+                    if metadata.origin != candidate["origin"]:
+                        raise HubError(
+                            "OAuth Origin 与 Registry 候选不一致。",
+                            code="mcp_remote_oauth_scope_denied",
+                            status_code=409,
+                        )
+                    expected = expected_oauth_context or {
+                        "policy_fingerprint": metadata.policy_fingerprint,
+                        "scope_digest": metadata.scope_digest,
+                        "token_revision_digest": metadata.token_revision_digest,
+                        "resource_digest": metadata.resource_digest,
+                        "discovery_fingerprint": metadata.discovery_fingerprint,
+                        "registration_digest": metadata.registration_digest,
+                    }
+                    if (
+                        metadata.policy_fingerprint
+                        != expected.get("policy_fingerprint")
+                        or metadata.scope_digest != expected.get("scope_digest")
+                        or metadata.token_revision_digest
+                        != expected.get("token_revision_digest")
+                        or metadata.resource_digest != expected.get("resource_digest")
+                        or metadata.discovery_fingerprint
+                        != expected.get("discovery_fingerprint")
+                        or metadata.registration_digest
+                        != expected.get("registration_digest")
+                    ):
+                        raise HubError(
+                            "OAuth 复核证据已变化。",
+                            code="mcp_remote_oauth_contract_scope_drift",
+                            status_code=409,
+                        )
+                    with authorization.resolve_for_execution(
+                        target_type="hub_candidate",
+                        target_id=candidate["candidate_id"],
+                        source_digest=candidate["source_digest"],
+                        expected_policy_fingerprint=expected["policy_fingerprint"],
+                        expected_scope_digest=expected["scope_digest"],
+                        expected_token_revision_digest=expected[
+                            "token_revision_digest"
+                        ],
+                    ) as envelope:
+                        auth_payload = {
+                            "auth_mode": "oauth_authorization_code_pkce",
+                            "header_value": envelope.authorization_value,
+                            "origin": metadata.origin,
+                            "policy_fingerprint": metadata.policy_fingerprint,
+                            "protocol_version": metadata.protocol_version,
+                            "resource_digest": metadata.resource_digest,
+                            "scope_digest": metadata.scope_digest,
+                            "target_id": candidate["candidate_id"],
+                            "token_revision_digest": metadata.token_revision_digest,
+                        }
+                        try:
+                            response = await self.bridge.open(
+                                candidate["candidate_id"],
+                                candidate["remote_url"],
+                                capability,
+                                session_owner,
+                                auth=auth_payload,
+                            )
+                        finally:
+                            auth_payload["header_value"] = ""
+                except RemoteOAuthError as exc:
+                    self._raise_remote_oauth(exc)
+            elif policy is None:
                 response = await self.bridge.open(
                     candidate["candidate_id"],
                     candidate["remote_url"],
@@ -2364,6 +2607,38 @@ class MCPHubService:
             )
             raise
 
+    async def preflight_oauth_review(
+        self,
+        candidate_id: str,
+        *,
+        expected_oauth_context: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """Run one OAuth preflight without exposing a public activation path."""
+
+        self._require_remote()
+        if not _flag("MCP_REMOTE_OAUTH_REVIEW_ENABLED"):
+            raise HubError(
+                "OAuth Review Factory 当前未启用。",
+                code="mcp_remote_oauth_review_disabled",
+                status_code=503,
+            )
+        clean = _required_identifier(candidate_id, CANDIDATE_ID_RE, "candidate_id")
+        async with self._candidate_locks.setdefault(clean, asyncio.Lock()):
+            candidate = self.store.require_candidate(
+                clean, self.tenant_id, self.owner_id
+            )
+            self._require_oauth_candidate(candidate)
+            await self._disconnect_live(clean)
+            try:
+                await self._open_candidate(
+                    candidate,
+                    allow_oauth_review=True,
+                    expected_oauth_context=expected_oauth_context,
+                )
+                return self.get_candidate(clean)
+            finally:
+                await self._disconnect_live(clean)
+
     async def preflight(self, candidate_id: str) -> dict[str, Any]:
         self._require_remote()
         candidate = self.store.require_candidate(
@@ -2384,10 +2659,10 @@ class MCPHubService:
             ),
             None,
         )
-        if (current_remote or {}).get("eligibility") == "oauth_discovery_candidate":
+        if self._candidate_oauth_source(candidate, remote=current_remote):
             raise HubError(
-                "R2B 可完成 OAuth 授权与加密存储，但尚未开放 MCP 资源调用；请等待 R2C 契约复核。",
-                code="mcp_remote_oauth_authorization_not_implemented",
+                "OAuth 契约复核使用专用内部路径；R3A 不开放 Runtime 激活。",
+                code="mcp_remote_oauth_runtime_disabled",
                 status_code=409,
             )
         async with self._candidate_locks.setdefault(candidate["candidate_id"], asyncio.Lock()):
@@ -2771,8 +3046,9 @@ class CandidateOAuthRegistrationRequest(BaseModel):
 class CandidateOAuthAuthorizationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
     expected_discovery_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
-    expected_registration_revision: int = Field(ge=1)
-    scopes: list[str] = Field(min_length=1, max_length=20)
+    expected_registration_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    expected_scope_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    request_refresh_token: bool = False
 
 
 class CandidateOAuthTokenRefreshRequest(BaseModel):
@@ -3014,8 +3290,9 @@ async def create_hub_candidate_oauth_authorization(
         return await _service().create_candidate_oauth_authorization(
             candidate_id,
             expected_discovery_fingerprint=payload.expected_discovery_fingerprint,
-            expected_registration_revision=payload.expected_registration_revision,
-            scopes=payload.scopes,
+            expected_registration_digest=payload.expected_registration_digest,
+            expected_scope_digest=payload.expected_scope_digest,
+            request_refresh_token=payload.request_refresh_token,
         )
     except HubError as exc:
         _raise_http(exc)

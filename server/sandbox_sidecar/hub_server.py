@@ -1,4 +1,4 @@
-"""Isolated anonymous Streamable HTTP MCP bridge and exact-host egress.
+"""Isolated Streamable HTTP MCP bridge and exact-host egress.
 
 The ``remote`` process has no network interface.  It runs the official MCP
 Python SDK and reaches one server-owned target through the separate ``egress``
@@ -9,6 +9,7 @@ process.  The egress process accepts target authorization only from UID 0
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import ipaddress
 import json
 import os
@@ -173,6 +174,12 @@ def _load_mcp_http() -> tuple[Any, Any]:
     return ClientSession, streamable_http_client
 
 
+async def _discard_untrusted_server_message(_message: Any) -> None:
+    """Drop non-tool notifications without retaining remote content."""
+
+    await asyncio.sleep(0)
+
+
 def _json_bytes(value: Any) -> bytes:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
@@ -217,9 +224,52 @@ def _validated_auth_envelope(
     *,
     candidate_id: str,
     normalized_url: str,
-) -> tuple[str, str, str, int] | None:
+) -> tuple[str, str, str, int, str] | None:
     if value is None:
         return None
+    if isinstance(value, dict) and value.get("auth_mode") == "oauth_authorization_code_pkce":
+        required = {
+            "auth_mode",
+            "header_value",
+            "origin",
+            "policy_fingerprint",
+            "protocol_version",
+            "resource_digest",
+            "scope_digest",
+            "target_id",
+            "token_revision_digest",
+        }
+        if set(value) != required or value.get("target_id") != candidate_id:
+            raise HubSidecarError("mcp_remote_oauth_scope_denied")
+        normalized_origin = f"https://{urlsplit(normalized_url).hostname}"
+        digests = (
+            str(value.get("policy_fingerprint") or ""),
+            str(value.get("resource_digest") or ""),
+            str(value.get("scope_digest") or ""),
+            str(value.get("token_revision_digest") or ""),
+        )
+        header_value = str(value.get("header_value") or "")
+        expected_resource_digest = hashlib.sha256(
+            normalized_url.encode("utf-8")
+        ).hexdigest()
+        if (
+            str(value.get("origin") or "") != normalized_origin
+            or str(value.get("protocol_version") or "") != "2025-11-25"
+            or any(HEX64_RE.fullmatch(item) is None for item in digests)
+            or digests[1] != expected_resource_digest
+            or not header_value.startswith("Bearer ")
+            or not header_value[7:]
+            or len(header_value) > 20_007
+            or any(
+                ord(character) < 0x20 or ord(character) == 0x7F
+                for character in header_value
+            )
+        ):
+            raise HubSidecarError("mcp_remote_oauth_policy_ineligible")
+        context_digest = hashlib.sha256(
+            ":".join(digests).encode("ascii")
+        ).hexdigest()
+        return "Authorization", header_value, digests[0], 0, context_digest
     if not isinstance(value, dict) or set(value) != {
         "binding_id",
         "binding_revision",
@@ -265,7 +315,10 @@ def _validated_auth_envelope(
         header_name = "Authorization"
     else:
         header_name = lower_name
-    return header_name, header_value, policy_fingerprint, revision
+    context_digest = hashlib.sha256(
+        f"{policy_fingerprint}:{revision}".encode("ascii")
+    ).hexdigest()
+    return header_name, header_value, policy_fingerprint, revision, context_digest
 
 
 def _peer_uid(writer: asyncio.StreamWriter) -> int:
@@ -715,6 +768,7 @@ class RemoteSession:
     auth_header_value: str = field(repr=False)
     auth_policy_fingerprint: str
     auth_binding_revision: int
+    auth_context_digest: str
     tools: list[dict[str, Any]]
     created_at: float
     last_activity: float
@@ -803,6 +857,7 @@ class HubRemoteService:
                     auth_header_value=auth_envelope[1] if auth_envelope else "",
                     auth_policy_fingerprint=auth_envelope[2] if auth_envelope else "",
                     auth_binding_revision=auth_envelope[3] if auth_envelope else 0,
+                    auth_context_digest=auth_envelope[4] if auth_envelope else "",
                     tools=tools,
                     created_at=now,
                     last_activity=now,
@@ -877,7 +932,12 @@ class HubRemoteService:
                     http_client=http_client,
                     terminate_on_close=True,
                 ) as transport:
-                    async with client_session_type(transport[0], transport[1]) as client:
+                    async with client_session_type(
+                        transport[0],
+                        transport[1],
+                        logging_callback=_discard_untrusted_server_message,
+                        message_handler=_discard_untrusted_server_message,
+                    ) as client:
                         initialized = await asyncio.wait_for(
                             client.initialize(), timeout=CALL_TIMEOUT_SECONDS
                         )
@@ -940,11 +1000,28 @@ class HubRemoteService:
         )
         if not isinstance(dumped, dict) or "tools" not in dumped:
             raise HubSidecarError("hub_tools_capability_required")
-        if any(key != "tools" for key in dumped):
+        allowed_capabilities = {"tools", "prompts", "resources"}
+        if any(key not in allowed_capabilities for key in dumped):
             raise HubSidecarError("hub_non_tool_capability_denied")
+        for name, allowed_flags in (
+            ("prompts", {"listChanged", "list_changed"}),
+            ("resources", {"listChanged", "list_changed", "subscribe"}),
+        ):
+            capability = dumped.get(name)
+            if capability is None:
+                continue
+            if (
+                not isinstance(capability, dict)
+                or any(key not in allowed_flags for key in capability)
+                or any(not isinstance(value, bool) for value in capability.values())
+                or (name == "resources" and bool(capability.get("subscribe")))
+            ):
+                raise HubSidecarError("hub_non_tool_capability_denied")
         tools = dumped.get("tools")
-        if not isinstance(tools, dict) or bool(
-            tools.get("listChanged") or tools.get("list_changed")
+        if (
+            not isinstance(tools, dict)
+            or any(key not in {"listChanged", "list_changed"} for key in tools)
+            or any(not isinstance(value, bool) for value in tools.values())
         ):
             raise HubSidecarError("hub_dynamic_tools_denied")
 
