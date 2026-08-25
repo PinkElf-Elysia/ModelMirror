@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import math
@@ -18,6 +19,7 @@ SCHEMA_CHECKSUM_PATTERN = re.compile(r"^[a-f0-9]{64}$")
 MAX_WORKFLOW_NODE_OUTPUT_BYTES = 5 * 1_024 * 1_024
 MAX_MCP_BINDINGS = 100
 MAX_CODE_LITERAL_CHARS = 100_000
+MAX_VARIABLE_PACK_BINDINGS = 50
 
 
 class WorkflowR20NodeError(ValueError):
@@ -202,6 +204,124 @@ def execute_variable_assign_v2(
             )
     _ensure_output_size(value, code="VARIABLE_ASSIGN_OUTPUT_TOO_LARGE")
     return output_variable, value
+
+
+def validate_variable_aggregator_v2_config(data: dict[str, Any]) -> None:
+    raw_contract_version = data.get("contractVersion")
+    if isinstance(raw_contract_version, bool) or raw_contract_version != 2:
+        _fail(
+            "VARIABLE_PACK_CONTRACT_VERSION_INVALID",
+            "变量打包合同版本必须为 2。",
+        )
+    raw_bindings = data.get("bindings")
+    if not isinstance(raw_bindings, list) or not (
+        1 <= len(raw_bindings) <= MAX_VARIABLE_PACK_BINDINGS
+    ):
+        _fail(
+            "VARIABLE_PACK_BINDINGS_INVALID",
+            "变量打包需要配置 1 至 50 个字段。",
+        )
+    binding_ids: set[str] = set()
+    source_variables: set[str] = set()
+    output_fields: set[str] = set()
+    for binding in raw_bindings:
+        if not isinstance(binding, dict):
+            _fail(
+                "VARIABLE_PACK_BINDING_INVALID",
+                "变量打包的每个字段配置都必须是对象。",
+            )
+        binding_id = _variable_name(
+            binding.get("id"),
+            "VARIABLE_PACK_BINDING_ID_INVALID",
+            "Variable pack binding id",
+            "变量打包字段 ID 必须是合法标识符。",
+        )
+        source_variable = _variable_name(
+            binding.get("sourceVariable"),
+            "VARIABLE_PACK_SOURCE_VARIABLE_INVALID",
+            "Variable pack sourceVariable",
+            "变量打包来源变量必须是合法标识符。",
+        )
+        output_field = _variable_name(
+            binding.get("outputField"),
+            "VARIABLE_PACK_OUTPUT_FIELD_INVALID",
+            "Variable pack outputField",
+            "变量打包输出字段必须是合法标识符。",
+        )
+        if binding_id in binding_ids:
+            _fail(
+                "VARIABLE_PACK_BINDING_ID_DUPLICATE",
+                "变量打包字段 ID 不能重复。",
+            )
+        if output_field in output_fields:
+            _fail(
+                "VARIABLE_PACK_OUTPUT_FIELD_DUPLICATE",
+                "变量打包输出字段不能重复。",
+            )
+        binding_ids.add(binding_id)
+        source_variables.add(source_variable)
+        output_fields.add(output_field)
+    output_variable = _variable_name(
+        data.get("outputVariable"),
+        "VARIABLE_PACK_OUTPUT_VARIABLE_INVALID",
+        "Variable pack outputVariable",
+        "变量打包输出变量必须是合法标识符。",
+    )
+    if output_variable in source_variables:
+        _fail(
+            "VARIABLE_PACK_OUTPUT_OVERLAPS_INPUT",
+            "变量打包输出变量不能覆盖任一来源变量。",
+        )
+
+
+def variable_aggregator_v2_references(data: dict[str, Any]) -> set[str]:
+    bindings = data.get("bindings")
+    if not isinstance(bindings, list):
+        return set()
+    return {
+        str(binding.get("sourceVariable") or "").strip()
+        for binding in bindings
+        if isinstance(binding, dict)
+        and VARIABLE_NAME_PATTERN.fullmatch(
+            str(binding.get("sourceVariable") or "").strip()
+        )
+    }
+
+
+def execute_variable_aggregator_v2(
+    data: dict[str, Any],
+    variables: dict[str, WorkflowValue],
+) -> tuple[str, dict[str, WorkflowValue]]:
+    validate_variable_aggregator_v2_config(data)
+    bindings = data.get("bindings")
+    assert isinstance(bindings, list)
+    missing = [
+        str(binding["sourceVariable"])
+        for binding in bindings
+        if isinstance(binding, dict)
+        and str(binding["sourceVariable"]) not in variables
+    ]
+    if missing:
+        _fail(
+            "VARIABLE_PACK_SOURCE_UNAVAILABLE",
+            "变量打包的来源变量不可用。",
+        )
+    result: dict[str, WorkflowValue] = {}
+    for binding in bindings:
+        assert isinstance(binding, dict)
+        source_variable = str(binding["sourceVariable"])
+        output_field = str(binding["outputField"])
+        normalized = normalize_workflow_value(
+            variables[source_variable],
+            path=f"$.variablePack.{output_field}",
+        )
+        result[output_field] = copy.deepcopy(normalized)
+    _ensure_output_size(
+        result,
+        code="VARIABLE_PACK_OUTPUT_TOO_LARGE",
+        safe_message="变量打包结果超过 5 MiB 上限。",
+    )
+    return str(data["outputVariable"]), result
 
 
 def mcp_schema_checksum(schema: Any) -> str:
@@ -414,10 +534,15 @@ def _resolve_binding(value: Any, variables: dict[str, WorkflowValue]) -> Workflo
     return normalize_workflow_value(variables[name], path=f"$.mcpTool.binding.{name}")
 
 
-def _ensure_output_size(value: WorkflowValue, *, code: str) -> None:
+def _ensure_output_size(
+    value: WorkflowValue,
+    *,
+    code: str,
+    safe_message: str | None = None,
+) -> None:
     encoded = json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode("utf-8")
     if len(encoded) > MAX_WORKFLOW_NODE_OUTPUT_BYTES:
-        _fail(code, "Workflow node output exceeds the 5 MiB limit.")
+        _fail(code, safe_message or "Workflow node output exceeds the 5 MiB limit.")
 
 
 def _integer(value: Any, code: str) -> int:
@@ -432,10 +557,15 @@ def _integer(value: Any, code: str) -> int:
     return parsed
 
 
-def _variable_name(value: Any, code: str, label: str) -> str:
+def _variable_name(
+    value: Any,
+    code: str,
+    label: str,
+    invalid_message: str | None = None,
+) -> str:
     name = str(value or "").strip()
     if not VARIABLE_NAME_PATTERN.fullmatch(name):
-        _fail(code, f"{label} must be a valid identifier.")
+        _fail(code, invalid_message or f"{label} must be a valid identifier.")
     return name
 
 

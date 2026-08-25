@@ -1,4 +1,4 @@
-# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0/R2.1）
+# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0/R2.1/R2.2）
 
 - 审计日期：2026-08-24
 - 唯一基线：PR #213 合并提交 `911593f505b05b01037769f578e21f22d2a1c9af`
@@ -12,7 +12,8 @@
 - R1.9 结果：不新增普通节点，将 `parameter_extractor`、`question_classifier` 提升为完整 V2 合同，并在既有 `runtime_middleware` 下增加 `content_policy` 文本策略；自研节点总数 50、画布目录项 48、当前 12 个冻结 compatibility 合同，Planner 仍固定为 7 类
 - R2.0 结果：不新增普通节点，将 `human_intervention`、`mcp_tool`、`variable_assign` 提升为完整 V2 合同，并退役旧知识引用新增入口；当前 50 Native、48 个可新增 Palette 项、41 个完整合同、9 个 compatibility 合同、7 个 Planner 节点
 - R2.1 PR1 结果：不新增 `NativeNodeKind`，将 `code` 提升为只执行预定义操作的“安全文本加工 V2”完整合同，并从 Palette 移除退役 `template_transform`；旧草稿和既有激活版本继续兼容，模板文本能力由 `variable_assign` V2 承接；当时 50 Native、47 个可新增 Palette 项、42 个完整合同、8 个 compatibility 合同、7 个 Planner 节点
-- R2.1 PR2 结果：新增完整合同 `data_merge`，并将经典运行器升级为带持久化边到达账本的 Scheduler V2；支持可靠 Fan-in、有界数组拼接和受限一对一 inner join；当前 51 Native、48 个可新增 Palette 项、43 个完整合同、8 个 compatibility 合同、7 个 Planner 节点
+- R2.1 PR2 结果：新增完整合同 `data_merge`，并将经典运行器升级为带持久化边到达账本的 Scheduler V2；支持可靠 Fan-in、有界数组拼接和受限一对一 inner join；当时 51 Native、48 个可新增 Palette 项、43 个完整合同、8 个 compatibility 合同、7 个 Planner 节点
+- R2.2 PR1 结果：将 `variable_aggregator` 提升为“变量打包”V2 完整合同，修正元智能体新图的报告汇总，并为 563 行参考清单增加 exact/limited/composable/none 证据门禁；当前 51 Native、48 个可新增 Palette 项、44 个完整合同、7 个 compatibility 合同、7 个 Planner 节点
 - 参考清单：563 条节点名称/类型，其中 `.ee` 2 条仅保留名称审计
 
 ## 结论与许可证边界
@@ -24,24 +25,26 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 ## 状态汇总
 
 - 已实现：35
-- 部分实现：81
-- 通用节点可覆盖：276（不等于已有专用连接器）
+- 部分实现：66
+- 通用节点可覆盖：272（不等于已有专用连接器）
 - 目录声明：0
-- 未实现：171
+- 未实现：190
+
+覆盖等级用于表达证据强度：`exact` 只允许完整 NodeContract 且必须绑定运行/测试证据；`limited` 必须写明语义缺口；`composable` 只表示受控通用组合路径，不代表专用连接器；`none` 表示没有运行合同。
 
 | 能力域 | 总数 | 已实现 | 部分实现 | 通用覆盖 | 目录声明 | 未实现 |
 |---|---:|---:|---:|---:|---:|---:|
 | 触发与事件 | 112 | 6 | 1 | 0 | 0 | 105 |
 | 流程控制与编排 | 8 | 6 | 1 | 0 | 0 | 1 |
-| 数据变换与计算 | 17 | 11 | 6 | 0 | 0 | 0 |
-| 文件与内容处理 | 20 | 2 | 4 | 10 | 0 | 4 |
+| 数据变换与计算 | 17 | 11 | 4 | 0 | 0 | 2 |
+| 文件与内容处理 | 20 | 2 | 4 | 6 | 0 | 8 |
 | 网络与接口 | 3 | 2 | 0 | 1 | 0 | 0 |
 | 数据库与存储 | 63 | 0 | 1 | 61 | 0 | 1 |
 | 消息与协作 | 33 | 0 | 0 | 33 | 0 | 0 |
 | 业务应用连接 | 119 | 0 | 1 | 117 | 0 | 1 |
 | 开发、运维与可观测 | 32 | 0 | 0 | 32 | 0 | 0 |
 | 安全与身份 | 13 | 0 | 0 | 9 | 0 | 4 |
-| AI 模型与生成 | 55 | 2 | 53 | 0 | 0 | 0 |
+| AI 模型与生成 | 55 | 2 | 40 | 0 | 0 | 13 |
 | 智能体与任务协作 | 3 | 0 | 3 | 0 | 0 | 0 |
 | 智能体工具与协议 | 14 | 1 | 2 | 11 | 0 | 0 |
 | 知识检索与向量 | 48 | 0 | 8 | 0 | 0 | 40 |
@@ -66,6 +69,7 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 | 流程控制与编排 | 子流程调用 | invoke_workflow | (Execute Sub-workflow) | 已实现 |
 | 数据变换与计算 | 安全文本加工（遗留函数场景） | code | (Function) | 部分实现 |
 | 数据变换与计算 | 安全文本加工（逐项场景） | code | (Function Item) | 部分实现 |
+| 数据变换与计算 | 列表拆分 | — | (Split Out) | 未实现 |
 | 数据变换与计算 | 列表处理（遗留） | list_operation | (Item Lists) | 已实现 |
 | 数据变换与计算 | 安全文本加工（模型编排场景） | code | (LangChain Code) | 部分实现 |
 | 数据变换与计算 | 日期时间处理 | time_tool | (Date & Time) | 已实现 |
@@ -79,17 +83,35 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 | 数据变换与计算 | 数量限制 | list_operation | (Limit) | 已实现 |
 | 数据变换与计算 | 字段编辑 | object_transform | (Set) | 已实现 |
 | 数据变换与计算 | 字段重命名 | object_transform | (Rename Keys) | 已实现 |
+| 数据变换与计算 | Convert to/from binary data 能力节点 | — | (Convert to/from binary data) | 未实现 |
 | 文件与内容处理 | 内容转文件 | file_output | (Convert to File) | 已实现 |
+| 文件与内容处理 | 网页内容处理 | — | (HTML) | 未实现 |
+| 文件与内容处理 | 网页内容提取（遗留） | — | (HTML Extract) | 未实现 |
 | 文件与内容处理 | 文件内容提取 | document_extractor | (Extract from File) | 已实现 |
+| 文件与内容处理 | Markdown 转换 | — | (Markdown) | 未实现 |
+| 文件与内容处理 | XML 转换 | — | (XML) | 未实现 |
 | 网络与接口 | HTTP 调用 | http_request | (HTTP Request) | 已实现 |
 | 网络与接口 | HTTP 事件回执 | http_event_reply | (Respond to Webhook) | 已实现 |
 | 数据库与存储 | 内置数据表 | data_table_query / data_table_insert / data_table_update / data_table_delete | (Data table) | 部分实现 |
 | AI 模型与生成 | 文本分类 | question_classifier | (Text Classifier) | 已实现 |
 | AI 模型与生成 | 信息提取 | parameter_extractor | (Information Extractor) | 已实现 |
+| AI 模型与生成 | Clearbit 智能服务 | — | (Clearbit) | 未实现 |
+| AI 模型与生成 | Cortex 智能服务 | — | (Cortex) | 未实现 |
+| AI 模型与生成 | DeepL 智能服务 | — | (DeepL) | 未实现 |
+| AI 模型与生成 | Dropcontact 智能服务 | — | (Dropcontact) | 未实现 |
+| AI 模型与生成 | Humantic AI 智能服务 | — | (Humantic AI) | 未实现 |
+| AI 模型与生成 | Hunter 智能服务 | — | (Hunter) | 未实现 |
+| AI 模型与生成 | Jina AI 智能服务 | — | (Jina AI) | 未实现 |
+| AI 模型与生成 | LingvaNex 智能服务 | — | (LingvaNex) | 未实现 |
+| AI 模型与生成 | Mailcheck 智能服务 | — | (Mailcheck) | 未实现 |
+| AI 模型与生成 | Mindee 智能服务 | — | (Mindee) | 未实现 |
+| AI 模型与生成 | OpenThesaurus 智能服务 | — | (OpenThesaurus) | 未实现 |
+| AI 模型与生成 | Peekalink 智能服务 | — | (Peekalink) | 未实现 |
+| AI 模型与生成 | uProc 智能服务 | — | (uProc) | 未实现 |
 | 智能体工具与协议 | MCP 单工具连接 | mcp_tool | (MCP Client Tool) | 已实现 |
 | 智能体工具与协议 | MCP 工具集连接 | mcp_tool | (MCP Client) | 部分实现 |
 | 智能体工具与协议 | MCP 注册表连接（内部） | mcp_tool | (MCP Registry Client (internal)) | 部分实现 |
-| 记忆与上下文 | 对话记忆管理 | agent / workflow_agent | (Chat Memory Manager) | 部分实现 |
+| 记忆与上下文 | 对话记忆管理 | workflow_agent | (Chat Memory Manager) | 部分实现 |
 | 解析、评测与护栏 | 结构化结果解析 | parameter_extractor | (Structured Output Parser) | 已实现 |
 | 解析、评测与护栏 | 列表结果解析 | parameter_extractor | (Item List Output Parser) | 已实现 |
 | 解析、评测与护栏 | 内容护栏 | runtime_middleware | (Guardrails) | 已实现 |
@@ -104,4 +126,4 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 - 前端 `WorkflowNodeKind`、后端 `NativeNodeKind`、NodeContract Registry 必须完全一致。
 - Palette 必须是 NodeContract 合法子集；每个启用项必须有默认数据和配置入口。
 - compatibility 合同不得超过 #213 冻结白名单；新节点必须直接提供完整合同。
-- Planner 只接受完整合同、匹配 checksum 且显式启用的节点；R1–R2.1 增量节点均禁止 Planner 自动生成，Planner 可生成类型仍固定为 7 类。
+- Planner 只接受完整合同、匹配 checksum 且显式启用的节点；R1–R2.2 增量节点均禁止 Planner 自动生成，Planner 可生成类型仍固定为 7 类。

@@ -223,6 +223,17 @@ def _deployment_preflight(version: XpertVersion, policy: XpertAppPolicy) -> dict
                             ),
                         },
                     )
+        if kind == "variable_aggregator" and data.get("contractVersion") != 2:
+            node_policy_issues.setdefault(
+                "app_variable_aggregator_migration_required",
+                {
+                    "code": "app_variable_aggregator_migration_required",
+                    "message": (
+                        "Legacy variable aggregator nodes must be migrated to "
+                        "variable pack V2 before App deployment."
+                    ),
+                },
+            )
         if kind == "template_transform":
             node_policy_issues.setdefault(
                 "app_template_transform_migration_required",

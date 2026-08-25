@@ -937,6 +937,78 @@ def test_r21_app_preflight_allows_only_safe_text_v2(
     assert "UNIQUE_APP_CODE_SENTINEL" not in str(result)
 
 
+@pytest.mark.parametrize(
+    ("data", "expected_valid", "expected_issue"),
+    [
+        (
+            {
+                "kind": "variable_aggregator",
+                "contractVersion": 2,
+                "bindings": [
+                    {
+                        "id": "binding_user_input",
+                        "sourceVariable": "user_input",
+                        "outputField": "request",
+                    }
+                ],
+                "outputVariable": "packed",
+            },
+            True,
+            None,
+        ),
+        (
+            {
+                "kind": "variable_aggregator",
+                "variableNames": "user_input",
+                "outputTemplate": "",
+                "outputVariable": "packed",
+            },
+            False,
+            "app_variable_aggregator_migration_required",
+        ),
+    ],
+)
+def test_r22_app_preflight_allows_only_variable_pack_v2(
+    stores,
+    data: dict[str, Any],
+    expected_valid: bool,
+    expected_issue: str | None,
+) -> None:
+    xpert_store, _ = stores
+    created = xpert_store.create_xpert(name="Variable Pack App", slug=None)
+    draft = created.draft.model_copy(deep=True)
+    template = next(
+        node for node in draft.workflow.nodes if node.data.get("kind") == "workflow_agent"
+    )
+    draft.workflow.nodes.append(
+        type(template).model_validate(
+            {
+                "id": "variable-pack",
+                "type": "variable_aggregator",
+                "position": {"x": 200, "y": 250},
+                "data": data,
+            }
+        )
+    )
+    updated = xpert_store.update_xpert(
+        created.id,
+        {"draft": draft.model_dump(mode="json")},
+    )
+    version = xpert_store.publish_xpert(
+        created.id,
+        expected_revision=updated.draft_revision,
+    )
+
+    result = _deployment_preflight(version, XpertAppPolicy())
+
+    assert result["valid"] is expected_valid, result["issues"]
+    codes = {issue["code"] for issue in result["issues"]}
+    if expected_issue is None:
+        assert "app_variable_aggregator_migration_required" not in codes
+    else:
+        assert expected_issue in codes
+
+
 def test_deploy_preflight_allows_read_only_file_memory_only_when_enabled(stores) -> None:
     xpert_store, _ = stores
     created = xpert_store.create_xpert(name="Memory Helper", slug="memory-helper")

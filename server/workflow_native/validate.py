@@ -51,7 +51,9 @@ from .r20_nodes import (
     validate_code_v2_config,
     validate_human_intervention_v2_config,
     validate_mcp_tool_v2_config,
+    validate_variable_aggregator_v2_config,
     validate_variable_assign_v2_config,
+    variable_aggregator_v2_references,
 )
 from .r21_nodes import WorkflowR21Error, validate_data_merge_config
 from .schemas import (
@@ -1396,6 +1398,18 @@ def validate_node_configuration(
             )
 
     if kind == "variable_aggregator":
+        if r20_contract_version(data) == 2:
+            try:
+                validate_variable_aggregator_v2_config(data)
+            except WorkflowR20NodeError as exc:
+                issues.append(
+                    ValidationIssue(
+                        code=exc.code.lower(),
+                        message=exc.safe_message,
+                        node_id=node.id,
+                    )
+                )
+            return issues
         variable_names = parse_variable_names(str(data.get("variableNames") or ""))
         if not variable_names:
             issues.append(
@@ -4209,12 +4223,17 @@ def validate_variable_references(
                 )
 
     if kind == "variable_aggregator":
-        for variable in parse_variable_names(str(data.get("variableNames") or "")):
+        referenced_variables = (
+            variable_aggregator_v2_references(data)
+            if r20_contract_version(data) == 2
+            else set(parse_variable_names(str(data.get("variableNames") or "")))
+        )
+        for variable in referenced_variables:
             if is_variable_name(variable) and variable not in available_variables:
                 issues.append(
                     ValidationIssue(
                         code="missing_aggregator_variable_reference",
-                        message=f"Variable aggregator references undefined variable '{variable}'.",
+                        message=f"Variable pack references undefined variable '{variable}'.",
                         node_id=node.id,
                     )
                 )

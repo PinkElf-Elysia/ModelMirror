@@ -74,7 +74,33 @@ PROMOTED_COMPLETE_KINDS = {
     "question_classifier",
     "time_tool",
     "variable_assign",
+    "variable_aggregator",
 }
+
+
+def test_r22_variable_pack_contract_is_complete_and_not_plannable() -> None:
+    contract = workflow_node_contract_registry.require("variable_aggregator")
+
+    assert contract.contract_status == "complete"
+    assert contract.execution.side_effect == "none"
+    assert contract.execution.deterministic is True
+    assert contract.execution.idempotent is True
+    assert contract.execution.can_wait is False
+    assert contract.execution.error_semantics == "fail_closed"
+    assert contract.planner.enabled is False
+    assert contract.ports[0].name == "values"
+    assert contract.ports[0].cardinality == "many"
+    assert contract.ports[1].value_schema.type == "object"
+    for context in (
+        "workflow",
+        "xpert",
+        "goal",
+        "handoff",
+        "app",
+        "evaluation",
+        "evolution",
+    ):
+        assert node_policy_service.decision("variable_aggregator", context).allowed
 
 
 def test_contract_registry_covers_every_native_kind_once() -> None:
@@ -186,7 +212,7 @@ def test_r16_control_data_contracts_are_complete_local_and_not_plannable() -> No
     assert sum(
         contract.contract_status == "compatibility"
         for contract in workflow_node_contract_registry.list()
-    ) == 8
+        ) == 7
 
 
 def test_r17_http_condition_and_dataset_contracts_are_complete_and_not_plannable() -> None:
@@ -252,7 +278,7 @@ def test_r18_file_data_contracts_are_complete_scoped_and_not_plannable() -> None
     assert sum(
         contract.contract_status == "compatibility"
         for contract in workflow_node_contract_registry.list()
-    ) == 8
+    ) == 7
 
 
 def test_r21_safe_text_contract_is_complete_scoped_and_not_plannable() -> None:

@@ -345,10 +345,11 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                 WorkflowPaletteItem(
                     kind="variable_aggregator",
                     icon="AGG",
-                    title="变量聚合",
-                    description="把多个变量汇总为文本或 JSON 字符串。",
+                    title="变量打包",
+                    description="把多个类型化变量深复制到一个 JSON 对象。",
                     category="logic",
-                    tags=["aggregate", "variables"],
+                    tags=["pack", "variables", "typed-value"],
+                    metadata={"planner_enabled": False},
                 ),
                 WorkflowPaletteItem(
                     kind="variable_assign",

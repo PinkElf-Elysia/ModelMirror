@@ -616,6 +616,7 @@ try:
         build_mcp_result,
         contract_version as r20_contract_version,
         execute_code_v2,
+        execute_variable_aggregator_v2,
         execute_variable_assign_v2,
         mcp_arguments_digest,
         mcp_schema_checksum,
@@ -706,6 +707,7 @@ except ModuleNotFoundError:
         build_mcp_result,
         contract_version as r20_contract_version,
         execute_code_v2,
+        execute_variable_aggregator_v2,
         execute_variable_assign_v2,
         mcp_arguments_digest,
         mcp_schema_checksum,
@@ -15456,30 +15458,25 @@ async def _run_workflow_response(
                         )
 
                 elif kind == "variable_aggregator":
-                    try:
-                        output_variable = str(
-                            node.data.get("outputVariable") or "aggregated_output"
-                        )
-                        variable_names = split_workflow_variable_names(
-                            str(node.data.get("variableNames") or "")
-                        )
-                        output_template = str(node.data.get("outputTemplate") or "")
-                        values = {name: variables.get(name, "") for name in variable_names}
-                        if output_template:
-                            output = "".join(
-                                output_template.replace("{name}", name).replace(
-                                    "{value}", workflow_value_to_text(value)
+                    if r20_contract_version(node.data) == 2:
+                        try:
+                            output_variable, stored_output = (
+                                execute_variable_aggregator_v2(
+                                    node.data,
+                                    variables,
                                 )
-                                for name, value in values.items()
                             )
-                            stored_output: WorkflowValue = output
-                        else:
-                            if all(isinstance(value, str) for value in values.values()):
-                                stored_output = json.dumps(values, ensure_ascii=False)
-                            else:
-                                stored_output = normalize_workflow_variables(values)
-                            output = workflow_value_to_text(stored_output)
-                        variables[output_variable] = stored_output
+                        except WorkflowR20NodeError as exc:
+                            raise WorkflowTerminationError(
+                                exc.code,
+                                exc.safe_message,
+                                node_id=node.id,
+                            ) from None
+                        variables[output_variable] = normalize_workflow_value(
+                            stored_output,
+                            path=f"$.variables.{output_variable}",
+                        )
+                        output = workflow_value_to_text(stored_output)
                         yield sse_payload(
                             {
                                 "event": "node_delta",
@@ -15490,15 +15487,64 @@ async def _run_workflow_response(
                                 "variable": output_variable,
                             }
                         )
-                    except Exception as exc:
-                        logger.warning("Workflow variable_aggregator node failed: %s", exc)
-                        yield sse_payload(
-                            {
-                                "event": "error",
-                                "node_id": node.id,
-                                "message": str(exc),
+                    else:
+                        try:
+                            output_variable = str(
+                                node.data.get("outputVariable") or "aggregated_output"
+                            )
+                            variable_names = split_workflow_variable_names(
+                                str(node.data.get("variableNames") or "")
+                            )
+                            output_template = str(
+                                node.data.get("outputTemplate") or ""
+                            )
+                            values = {
+                                name: variables.get(name, "")
+                                for name in variable_names
                             }
-                        )
+                            if output_template:
+                                output = "".join(
+                                    output_template.replace("{name}", name).replace(
+                                        "{value}", workflow_value_to_text(value)
+                                    )
+                                    for name, value in values.items()
+                                )
+                                stored_output: WorkflowValue = output
+                            else:
+                                if all(
+                                    isinstance(value, str)
+                                    for value in values.values()
+                                ):
+                                    stored_output = json.dumps(
+                                        values,
+                                        ensure_ascii=False,
+                                    )
+                                else:
+                                    stored_output = normalize_workflow_variables(values)
+                                output = workflow_value_to_text(stored_output)
+                            variables[output_variable] = stored_output
+                            yield sse_payload(
+                                {
+                                    "event": "node_delta",
+                                    "node_id": node.id,
+                                    "node_title": title,
+                                    "node_type": kind,
+                                    "output": output,
+                                    "variable": output_variable,
+                                }
+                            )
+                        except Exception as exc:
+                            logger.warning(
+                                "Workflow variable_aggregator node failed: %s",
+                                exc,
+                            )
+                            yield sse_payload(
+                                {
+                                    "event": "error",
+                                    "node_id": node.id,
+                                    "message": str(exc),
+                                }
+                            )
 
                 elif kind in {
                     "data_table_query",

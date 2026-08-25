@@ -940,6 +940,83 @@ def _complete_contracts() -> dict[str, NodeContract]:
         ),
         planner=_planner(),
     )
+    variable_aggregator_v1_schema = _object_schema(
+        {
+            "variableNames": {"type": "string"},
+            "outputTemplate": {"type": "string"},
+            "outputVariable": {"type": "string"},
+        },
+        required=["variableNames", "outputVariable"],
+    )
+    variable_pack_binding_schema = _object_schema(
+        {
+            "id": {
+                "type": "string",
+                "pattern": r"^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+            },
+            "sourceVariable": {
+                "type": "string",
+                "pattern": r"^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+            },
+            "outputField": {
+                "type": "string",
+                "pattern": r"^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+            },
+        },
+        required=["id", "sourceVariable", "outputField"],
+        additional_properties=False,
+    )
+    variable_aggregator_v2_schema = _object_schema(
+        {
+            "contractVersion": {"const": 2},
+            "bindings": {
+                "type": "array",
+                "items": variable_pack_binding_schema,
+                "minItems": 1,
+                "maxItems": 50,
+            },
+            "outputVariable": {
+                "type": "string",
+                "pattern": r"^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+            },
+        },
+        required=["contractVersion", "bindings", "outputVariable"],
+    )
+    contracts["variable_aggregator"] = NodeContract(
+        kind="variable_aggregator",
+        contract_status="complete",
+        config_schema={
+            "type": "object",
+            "anyOf": [variable_aggregator_v1_schema, variable_aggregator_v2_schema],
+        },
+        ports=(
+            NodePortContract(
+                name="values",
+                direction="input",
+                value_schema=any_value,
+                required=True,
+                cardinality="many",
+            ),
+            NodePortContract(
+                name="result",
+                direction="output",
+                value_schema=object_value,
+            ),
+        ),
+        execution=NodeExecutionPolicy(
+            side_effect="none",
+            deterministic=True,
+            idempotent=True,
+            error_semantics="fail_closed",
+            security_category="data",
+        ),
+        availability=_availability(
+            app=_rule("allow"),
+            evaluation=_rule("allow"),
+            evolution=_rule("allow"),
+        ),
+        planner=_planner(),
+    )
     extractor_v1_schema = _object_schema(
         {
             "contractVersion": {"const": 1},

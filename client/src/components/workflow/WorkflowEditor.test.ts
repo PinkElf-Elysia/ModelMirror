@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { type WorkflowNode } from "../../types/workflow";
 
 import {
   createNodeData,
   dataMergeConnectionError,
+  findAvailablePalettePosition,
   normalizeWorkflowNodePositions,
   parseSkillRuntimeIds,
   reconcileMcpArgumentBindings,
@@ -15,6 +17,43 @@ import {
 } from "./workflowNodeRegistry";
 
 describe("WorkflowEditor palette defaults", () => {
+  it("places palette-click nodes at the nearest available canvas position", () => {
+    const preferred = { x: 320, y: 80 };
+    const centeredNode = {
+      id: "existing-center",
+      type: "workflowNode",
+      position: { ...preferred },
+      measured: { width: 144, height: 96 },
+      data: createNodeData("workflow_agent"),
+    } as WorkflowNode;
+
+    expect(findAvailablePalettePosition(preferred, [])).toEqual(preferred);
+    expect(findAvailablePalettePosition(preferred, [centeredNode])).toEqual({
+      x: 320,
+      y: 216,
+    });
+    expect(centeredNode.position).toEqual(preferred);
+  });
+
+  it("keeps subsequent palette-click nodes from sharing the same fallback slot", () => {
+    const preferred = { x: 320, y: 80 };
+    const occupiedPositions = [
+      preferred,
+      { x: 320, y: 216 },
+    ].map((position, index) => ({
+      id: `existing-${index}`,
+      type: "workflowNode",
+      position,
+      measured: { width: 144, height: 96 },
+      data: createNodeData("workflow_agent"),
+    })) as WorkflowNode[];
+
+    expect(findAvailablePalettePosition(preferred, occupiedPositions)).toEqual({
+      x: 512,
+      y: 80,
+    });
+  });
+
   it("normalizes the tag-based required Skill editor without duplicate IDs", () => {
     expect(parseSkillRuntimeIds("pdf, tdd\npdf")).toEqual(["pdf", "tdd"]);
     expect(updateSkillRuntimeIds("pdf", "tdd", "add")).toBe("pdf, tdd");
@@ -308,6 +347,22 @@ describe("WorkflowEditor palette defaults", () => {
     });
     expect(mcp).not.toHaveProperty("sessionId");
     expect(mcp).not.toHaveProperty("argumentsJson");
+  });
+
+  it("creates variable pack as a typed V2 object builder", () => {
+    expect(createNodeData("variable_aggregator")).toMatchObject({
+      kind: "variable_aggregator",
+      title: "变量打包",
+      contractVersion: 2,
+      outputVariable: "packed_variables",
+      bindings: [
+        {
+          id: "binding_1",
+          sourceVariable: "user_input",
+          outputField: "user_input",
+        },
+      ],
+    });
   });
 
   it("creates Code as safe text V2 and keeps the retired template out of new-node sources", () => {

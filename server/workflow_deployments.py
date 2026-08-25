@@ -1652,6 +1652,10 @@ def validate_publishable_workflow(
             raise WorkflowDeploymentValidationError(
                 "Legacy code nodes must be explicitly migrated before publishing."
             )
+        if kind == "variable_aggregator" and r20_contract_version(node.data) != 2:
+            raise WorkflowDeploymentValidationError(
+                "Legacy variable aggregator nodes must be explicitly migrated before publishing."
+            )
         if contract.contract_status != "complete":
             raise WorkflowDeploymentValidationError(
                 f"Node '{node.id}' does not have a complete NodeContract."

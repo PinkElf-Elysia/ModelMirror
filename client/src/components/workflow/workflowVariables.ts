@@ -187,6 +187,7 @@ export const WORKFLOW_VARIABLE_FIELD_DESCRIPTORS: WorkflowVariableFieldDescripto
   field("template_transform", "template", "template", TEMPLATE_TYPES),
   field("template_transform", "outputVariable", "declaration", TEXT_TYPES),
   field("variable_aggregator", "variableNames", "binding-list", ANY_RENDERABLE_TYPES, "values"),
+  field("variable_aggregator", "sourceVariable", "binding", ANY_RENDERABLE_TYPES, "values"),
   field("variable_aggregator", "outputVariable", "declaration", ANY_RENDERABLE_TYPES),
   field("parameter_extractor", "inputVariable", "binding", TEXT_TYPES, "text"),
   field("parameter_extractor", "outputVariable", "declaration", JSON_TYPES),
@@ -301,6 +302,8 @@ function schemaValueTypes(
       types.add("boolean");
     } else if (candidate.type === "any") {
       types.add("text");
+      types.add("number");
+      types.add("boolean");
       types.add("json");
       types.add("unknown");
     }
@@ -422,7 +425,11 @@ const DEFAULT_OUTPUT_SPECS: Partial<Record<WorkflowNodeKind, OutputSpec[]>> = {
     { field: "outputVariable", fallback: "template_output", valueType: "text" },
   ],
   variable_aggregator: [
-    { field: "outputVariable", fallback: "aggregated_output", valueType: "unknown" },
+    {
+      field: "outputVariable",
+      fallback: "packed_variables",
+      valueType: (node) => node.data.contractVersion === 2 ? "json" : "unknown",
+    },
   ],
   parameter_extractor: [
     {

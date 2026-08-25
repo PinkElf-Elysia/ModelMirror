@@ -3,7 +3,6 @@ from __future__ import annotations
 import csv
 import subprocess
 import sys
-from collections import Counter
 from pathlib import Path
 from typing import get_args
 
@@ -38,6 +37,40 @@ def test_capability_audit_generator_is_idempotent(tmp_path: Path) -> None:
         "N8N_NODE_CAPABILITY_MATRIX.md",
     ):
         assert (tmp_path / filename).read_bytes() == (audit_dir / filename).read_bytes()
+
+
+def test_capability_audit_rejects_stale_specialized_review(tmp_path: Path) -> None:
+    root = Path(__file__).resolve().parents[2]
+    source = root / "docs" / "audits" / "n8n-node-capability-matrix.csv"
+    with source.open("r", encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        rows = list(reader)
+        fieldnames = list(reader.fieldnames or [])
+    reviewed = next(row for row in rows if row["n8n内部标识"] == "manualTrigger")
+    reviewed["判断说明"] += " 已变更"
+    tampered = tmp_path / "tampered.csv"
+    with tampered.open("w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames, lineterminator="\n")
+        writer.writeheader()
+        writer.writerows(rows)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(root / "scripts" / "generate_workflow_capability_audit.py"),
+            "--source-csv",
+            str(tampered),
+            "--output-dir",
+            str(tmp_path / "generated"),
+        ],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "requires a fresh manual review" in result.stderr
 
 
 def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
@@ -89,6 +122,7 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     assert mapped["mcpClient"]["模镜当前状态"] == "部分实现"
     assert mapped["mcpRegistryClientTool"]["模镜当前状态"] == "部分实现"
     assert mapped["memoryManager"]["模镜当前状态"] == "部分实现"
+    assert mapped["memoryManager"]["模镜对应节点"] == "workflow_agent"
     assert "没有可独立连线" in mapped["memoryManager"]["判断说明"]
     assert "区间截取" in mapped["itemLists"]["判断说明"]
     for source_ref in (
@@ -105,8 +139,21 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
         assert "受控代码 V2" not in code_row["判断说明"]
         assert "不执行" in code_row["判断说明"]
     assert all("template_transform" not in row["模镜对应节点"] for row in rows)
-    assert mapped["moveBinaryData"]["模镜对应节点"] == "variable_assign"
-    assert mapped["html"]["模镜对应节点"] == "code / variable_assign"
+    for key in (
+        "splitOut",
+        "moveBinaryData",
+        "html",
+        "htmlExtract",
+        "markdown",
+        "xml",
+        "clearbit",
+        "deepL",
+        "hunter",
+        "mindee",
+    ):
+        assert mapped[key]["模镜当前状态"] == "未实现"
+        assert mapped[key]["模镜对应节点"] == "—"
+        assert mapped[key]["覆盖等级"] == "none"
     assert mapped["aiTransform"]["模镜对应节点"] == "llm / variable_assign"
     assert all(mapped[key]["模镜当前状态"] == "已实现" for key in (
         "scheduleTrigger", "webhook", "wait", "respondToWebhook", "errorTrigger",
@@ -119,18 +166,48 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
         "merge",
     ))
     assert all("不复制代码" in row["许可证边界"] or "企业条目" in row["许可证边界"] for row in rows)
-    assert Counter(row["模镜当前状态"] for row in rows) == {
-        "已实现": 35,
-        "部分实现": 81,
-        "通用节点可覆盖": 276,
-        "未实现": 171,
+    expected_level = {
+        "已实现": "exact",
+        "部分实现": "limited",
+        "通用节点可覆盖": "composable",
+        "仅目录声明": "none",
+        "仅运行目录声明": "none",
+        "未实现": "none",
     }
-    native_kinds = set(get_args(NativeNodeKind))
-    assert {
-        row["模镜对应节点"]
+    assert all(row["覆盖等级"] == expected_level[row["模镜当前状态"]] for row in rows)
+    assert all(row["模镜证据"].strip() for row in rows)
+    assert all(
+        row["人工复核"] == "R2.2"
         for row in rows
-        if row["模镜当前状态"] == "已实现"
-    } <= native_kinds
+        if row["覆盖等级"] in {"exact", "limited"}
+    )
+    assert all(
+        len(row["复核指纹"]) == 64
+        for row in rows
+        if row["覆盖等级"] in {"exact", "limited"}
+    )
+    assert all(
+        "非专用连接器" in row["模镜证据"]
+        for row in rows
+        if row["覆盖等级"] == "composable"
+    )
+    native_kinds = set(get_args(NativeNodeKind))
+    complete_kinds = {
+        contract.kind
+        for contract in workflow_node_contract_registry.list()
+        if contract.contract_status == "complete"
+    }
+    for row in rows:
+        mapped_kinds = {
+            item.strip()
+            for item in row["模镜对应节点"].split("/")
+            if item.strip() and item.strip() != "—"
+        }
+        assert mapped_kinds <= native_kinds
+        if row["覆盖等级"] == "exact":
+            assert mapped_kinds
+            assert mapped_kinds <= complete_kinds
+            assert "运行/测试" in row["模镜证据"]
 
     markdown = markdown_path.read_text(encoding="utf-8")
     native_count = len(get_args(NativeNodeKind))
@@ -157,7 +234,7 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
         for contract in workflow_node_contract_registry.list()
     )
     assert "911593f505b05b01037769f578e21f22d2a1c9af" in markdown
-    assert "R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0/R2.1" in markdown
+    assert "R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0/R2.1/R2.2" in markdown
     assert "44、画布目录项 42" in markdown
     assert "R1.6 结果" in markdown
     assert "自研节点总数 47、画布目录项 45、当前 18 个" in markdown
@@ -168,8 +245,8 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     assert "R1.8 结果" in markdown
     assert native_count == 51
     assert palette_count == 48
-    assert complete_count == 43
-    assert compatibility_count == 8
+    assert complete_count == 44
+    assert compatibility_count == 7
     assert planner_count == 7
     assert "R1.9 结果" in markdown
     assert (
@@ -188,6 +265,11 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     assert (
         "- R2.1 PR2 结果：新增完整合同 `data_merge`，并将经典运行器升级为带持久化"
         "边到达账本的 Scheduler V2；支持可靠 Fan-in、有界数组拼接和受限一对一 "
-        "inner join；当前 51 Native、48 个可新增 Palette 项、43 个完整合同、"
+        "inner join；当时 51 Native、48 个可新增 Palette 项、43 个完整合同、"
         "8 个 compatibility 合同、7 个 Planner 节点"
     ) in markdown
+    assert (
+        "- R2.2 PR1 结果：将 `variable_aggregator` 提升为“变量打包”V2 完整合同"
+    ) in markdown
+    assert "覆盖等级用于表达证据强度" in markdown
+    assert "当前 51 Native、48 个可新增 Palette 项、44 个完整合同、7 个 compatibility 合同、7 个 Planner 节点" in markdown

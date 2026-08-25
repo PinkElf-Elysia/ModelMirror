@@ -15,6 +15,7 @@ from server.meta_agent import (
     infer_task_edges,
     parse_meta_agent_plan,
 )
+from server.workflow_deployments import validate_publishable_workflow
 
 
 @pytest_asyncio.fixture
@@ -151,15 +152,27 @@ def test_build_workflow_inserts_aggregator_and_converts_placeholders() -> None:
 
     assert warnings == []
     nodes_by_id = {node["id"]: node for node in workflow["nodes"]}
-    assert nodes_by_id["aggregate_meta_agent_outputs"]["data"]["kind"] == "variable_aggregator"
-    assert nodes_by_id["aggregate_meta_agent_outputs"]["data"]["variableNames"] == (
-        "risk_report, launch_plan"
+    aggregate_data = nodes_by_id["aggregate_meta_agent_outputs"]["data"]
+    assert aggregate_data["kind"] == "variable_assign"
+    assert aggregate_data["contractVersion"] == 2
+    assert aggregate_data["valueSource"] == "template"
+    assert aggregate_data["template"] == (
+        "## risk_report\n{{risk_report}}\n\n"
+        "## launch_plan\n{{launch_plan}}\n\n"
     )
     assert nodes_by_id["output_final"]["data"]["outputVariable"] == "meta_agent_result"
-    assert "{{goal}}" in nodes_by_id["requirements_analysis"]["data"]["instruction"]
-    risk_instruction = nodes_by_id["risk_review"]["data"]["instruction"]
+    assert all(
+        node["data"]["kind"] == "workflow_agent"
+        for node in workflow["nodes"]
+        if node["id"] in {"requirements_analysis", "risk_review", "launch_outline"}
+    )
+    assert "{{goal}}" in nodes_by_id["requirements_analysis"]["data"]["taskInput"]
+    risk_instruction = nodes_by_id["risk_review"]["data"]["taskInput"]
     assert "{{requirements_brief}}" in risk_instruction
     assert re.search(r"(?<!\{)\{requirements_brief\}(?!\})", risk_instruction) is None
+    trigger_kind, entry_node_id = validate_publishable_workflow(workflow)
+    assert trigger_kind == "manual"
+    assert entry_node_id == "input_goal"
 
 
 @pytest.mark.asyncio

@@ -453,6 +453,35 @@ describe("analyzeWorkflowVariables", () => {
     ).toEqual(["text", "unknown"]);
   });
 
+  it("treats a complete any-value port as every workflow value type", () => {
+    const descriptor = getWorkflowVariableFieldDescriptor(
+      "variable_aggregator",
+      "sourceVariable",
+    );
+    const completeContract = {
+      kind: "variable_aggregator",
+      contract_status: "complete",
+      ports: [
+        {
+          name: "values",
+          direction: "input",
+          value_schema: { type: "any" },
+          required: true,
+          cardinality: "many",
+          binding: "variable",
+        },
+      ],
+    } as WorkflowNodeContractProjection;
+
+    expect(resolveWorkflowVariableFieldTypes(descriptor!, completeContract)).toEqual([
+      "text",
+      "number",
+      "boolean",
+      "json",
+      "unknown",
+    ]);
+  });
+
   it("declares typed parameter extractor outputs without changing V1 text outputs", () => {
     const version1 = analyzeWorkflowVariables(
       [node("legacy", "parameter_extractor", {
