@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { AgencyPlanTask } from "../components/AgencyExpertTeamTypes";
 import {
+  FUSION_ROUTING_BOUNDARY_COPY,
+  fusionReceiptFromEvent,
   recommendedChatModels,
+  searchableFusionModels,
   validateAgencyHitlPlan,
 } from "./ExpertTeamPage";
 
@@ -68,9 +71,41 @@ describe("ExpertTeamPage HITL plan validation", () => {
 });
 
 describe("ExpertTeamPage model selection", () => {
-  it("keeps eligible exact managed models selectable beyond the featured prefix", () => {
+  it("finds exact managed models beyond the featured prefix and preserves selections", () => {
+    const modelId = "qwen/qwen3-8b";
+    expect(recommendedChatModels().findIndex((model) => model.id === modelId)).toBeGreaterThanOrEqual(48);
+    expect(searchableFusionModels([], modelId).map((model) => model.id)).toContain(modelId);
+    expect(searchableFusionModels([modelId], "")[0]?.id).toBe(modelId);
+  });
+
+  it("accepts only a sanitized Fusion provider receipt event", () => {
+    const receipt = fusionReceiptFromEvent({
+      event: "fusion_end",
+      provider_route_receipts: {
+        contract_version: "modelmirror-provider-workload-routing-v1",
+        entry_id: "fusion",
+        routing_mode: "managed_required",
+        run_reference: "workrun-fusion",
+        status: "passed",
+        call_count: 1,
+        reason_codes: [],
+        calls: [],
+        prompt: "must be discarded",
+      },
+    });
+    expect(receipt?.entry_id).toBe("fusion");
+    expect(receipt && "prompt" in receipt).toBe(false);
     expect(
-      recommendedChatModels().some((model) => model.id === "openai/gpt-4o-mini"),
-    ).toBe(true);
+      fusionReceiptFromEvent({
+        event: "fusion_end",
+        provider_route_receipts: { entry_id: "fusion", prompt: "secret" },
+      }),
+    ).toBeNull();
+  });
+
+  it("does not promise an automatic Fusion fallback in shared page copy", () => {
+    expect(FUSION_ROUTING_BOUNDARY_COPY).toContain("控制面策略");
+    expect(FUSION_ROUTING_BOUNDARY_COPY).not.toContain("自动");
+    expect(FUSION_ROUTING_BOUNDARY_COPY).not.toContain("兜底");
   });
 });

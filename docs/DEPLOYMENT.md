@@ -257,13 +257,20 @@ legacy，不删除 v16 Receipt、Xpert 会话、App 部署或 Provider 配置。
 Expert Team Planner 与 DAG 必须分别配置并批准 `expert_team_planner`、
 `expert_team_dag` Policy，并分别开启
 `MODEL_CONTROL_EXPERT_TEAM_PLANNER_ENABLED`、
-`MODEL_CONTROL_EXPERT_TEAM_DAG_ENABLED`。Planner 要求精确模型的 `chat_json_object`
+`MODEL_CONTROL_EXPERT_TEAM_DAG_ENABLED`。Planner 要求精确模型的 `chat_text_unary`
 Binding；DAG 同时要求同一精确模型的 `chat_text_unary` 与 `chat_json_object` Binding，缺少
 任一资格都会在 Provider POST 前阻断。开关关闭或 Policy 为 `legacy` 时保留原静态网关；
 已纳管请求在执行期间遇到策略、Binding、凭据或资格漂移时保持失败关闭，不会转回 legacy。
 HITL 恢复会创建新的脱敏运行片段，但继续使用原任务冻结的控制模式；重启后的不确定调用不得
 自动恢复。回退只需显式停用对应 Policy 或关闭 Flag 并重启，不删除 Expert Team 运行数据、
 v16 Receipt 或 Provider 配置。
+
+Fusion 接管要求 `MODEL_CONTROL_FUSION_ENABLED=true`、`fusion` Policy 已批准，并按实际
+模式配置资格。原生模式需要精确 `openrouter/fusion` 的 `fusion_native` Binding，认证时的
+有序候选模型和裁判模型必须与运行请求一致；应用层模式需要为每个候选和裁判配置独立的
+`chat_text` Binding。Managed 原生失败不会自动转应用层，应用层候选或裁判失败也不会调用
+备用 Provider、第二 IP 或 legacy。关闭 Flag 并重启或显式停用 Policy 才恢复原 legacy
+行为；回退不得删除 v16 Receipt、Provider 资格或 Fusion 运行证据。
 
 同一清理命令从 v16 起同时报告 R5 Chat 与 R6 Workload 的过期记录；第一条仍是 dry-run，
 只有第二条显式 `--apply` 才删除已完成记录。不得对正在运行的父运行或逻辑调用执行清理。

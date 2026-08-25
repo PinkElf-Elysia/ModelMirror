@@ -246,6 +246,13 @@ Provider Key、URL 与连接信息不进入 Worker 环境。DAG 初始执行、H
 legacy 或 managed 模式，管理员并发修改策略只会令 managed 请求失败关闭，不会静默回退。
 用户侧仅显示按片段聚合的模型、调用数与脱敏状态，完整连接证据仍只在管理面可见。
 
+Round 6H 将 `/api/fusion/chat` 的原生与应用层模式接入 `fusion` Policy。原生模式要求
+`openrouter/fusion + fusion_native` 的资格 Profile 与运行时有序候选、裁判完全一致，一个
+逻辑运行最多派发一次。应用层模式在任何 POST 前预检全部候选与裁判的精确 `chat_text`
+Binding，再并发执行已计划候选并单独执行裁判。单个候选失败不会触发备用 Provider；原生与
+应用层、裁判与 legacy 之间均不发生派发后回退。既有 SSE 事件仅加法携带脱敏 Receipt，模型
+正文仍只走原回答事件，不进入 v16 Receipt。
+
 接入入口只允许 Python 主进程解析凭据和调用 Provider，Worker 与
 工具执行器继续只处理模型消息、Tool Call 和脱敏结果。
 

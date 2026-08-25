@@ -114,6 +114,7 @@ DATA_PLANE_INTEGRATED_ENTRIES: frozenset[ProviderWorkloadEntryId] = frozenset(
         "xpert_app",
         "expert_team_planner",
         "expert_team_dag",
+        "fusion",
     }
 )
 
@@ -382,7 +383,9 @@ class ProviderWorkloadCertificationService:
                                 response,
                                 evidence,
                                 started,
-                                requested_model=payload.model_id,
+                                expected_model=(
+                                    payload.judge_model_id or payload.model_id
+                                ),
                             )
                         else:
                             await self._consume_unary_response(
@@ -567,7 +570,7 @@ class ProviderWorkloadCertificationService:
         evidence: _CertificationEvidence,
         started: float,
         *,
-        requested_model: str,
+        expected_model: str,
     ) -> None:
         buffer = b""
         total_bytes = 0
@@ -605,7 +608,7 @@ class ProviderWorkloadCertificationService:
                         ) from exc
                     terminal = (
                         ProviderWorkloadCertificationService._consume_sse_event(
-                            event, evidence, started, requested_model=requested_model
+                            event, evidence, started, expected_model=expected_model
                         )
                         or terminal
                     )
@@ -622,7 +625,7 @@ class ProviderWorkloadCertificationService:
                     ) from exc
                 terminal = (
                     ProviderWorkloadCertificationService._consume_sse_event(
-                        event, evidence, started, requested_model=requested_model
+                        event, evidence, started, expected_model=expected_model
                     )
                     or terminal
                 )
@@ -646,7 +649,7 @@ class ProviderWorkloadCertificationService:
         evidence: _CertificationEvidence,
         started: float,
         *,
-        requested_model: str,
+        expected_model: str,
     ) -> bool:
         data_lines = [
             line[5:].lstrip()
@@ -670,7 +673,7 @@ class ProviderWorkloadCertificationService:
         model = payload.get("model")
         if isinstance(model, str) and model:
             evidence.actual_model = model
-            if model != requested_model:
+            if model != expected_model:
                 raise _WorkloadCertificationFailure(
                     "provider_workload_model_mismatch"
                 )
@@ -1321,8 +1324,17 @@ class ProviderWorkloadControlService:
         )
         if time_reason is not None:
             return None, time_reason.replace("provider_chat_", "provider_workload_", 1)
+        expected_actual_model = model_id
+        if execution_shape == "fusion_native":
+            profile = _safe_json_object(
+                json.loads(str(certification.get("profile_json") or "{}"))
+            )
+            judge_model_id = profile.get("judge_model_id")
+            if not isinstance(judge_model_id, str) or not judge_model_id:
+                return None, "provider_workload_fusion_profile_mismatch"
+            expected_actual_model = judge_model_id
         actual_model = certification.get("actual_model")
-        if actual_model and str(actual_model) != model_id:
+        if actual_model and str(actual_model) != expected_actual_model:
             return None, "provider_workload_certification_model_mismatch"
         qualification = {
             "execution_shape": execution_shape,
