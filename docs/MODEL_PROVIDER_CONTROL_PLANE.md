@@ -258,8 +258,13 @@ python -m server.model_router.migrate_credentials --storage-dir <path>
   POST 前一次性预检全部候选和裁判 `chat_text` Binding；候选与裁判分别记录计划调用，候选
   部分失败可继续其余已计划调用，但不切换 Provider。裁判失败不会调用备用模型，也不会把候选
   正文伪装为裁判结果。两种模式互斥，legacy 只在 Flag 关闭或管理员显式停用 Policy 后恢复。
-- 后续 R6I 将逐入口接入同一 Call Service。每个逻辑调用只能派发一次；Provider Key
-  只能存在于 Python 主进程内存，Worker、工具执行器和浏览器不得收到 Key、URL 或连接细节。
+- R6I 接入 Route Agent 与 Team Chat。专家匹配继续使用本地索引，Route 最终作答使用一次精确
+  `chat_text` 调用；Team 在首个 POST 前一次性预检全部成员轮次和最终汇总，计划调用数固定为
+  成员数加一。任一 Managed 调用失败后不再切换 `TEXT_FALLBACK_MODEL`、第二连接、第二 IP 或
+  legacy；未派发的剩余 Team 调用写入失败证据。Flag 关闭或管理员显式停用 Policy 时，两个
+  入口继续保留原 legacy 行为。
+- 所有 R6 入口的每个逻辑调用只能派发一次；Provider Key 只能存在于 Python 主进程内存，
+  Worker、工具执行器和浏览器不得收到 Key、URL 或连接细节。
 - Receipt 清理命令现在同时检查 R5 Chat 与 R6 Workload 记录，仍默认 dry-run；`--apply`
   才删除超过保留期的已完成运行、尝试或调用。
 

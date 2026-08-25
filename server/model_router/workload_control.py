@@ -115,6 +115,8 @@ DATA_PLANE_INTEGRATED_ENTRIES: frozenset[ProviderWorkloadEntryId] = frozenset(
         "expert_team_planner",
         "expert_team_dag",
         "fusion",
+        "route_agent",
+        "team_chat",
     }
 )
 
