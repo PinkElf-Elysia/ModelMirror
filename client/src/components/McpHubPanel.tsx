@@ -76,6 +76,7 @@ interface HubCandidate {
   auth_policy_fingerprint?: string;
   source_digest: string;
   oauth_discovery_available?: boolean;
+  oauth_discovery_source?: "" | "registry" | "pending_www_authenticate" | "www_authenticate";
   registry_eligibility?: Eligibility | "";
 }
 
@@ -125,6 +126,9 @@ interface RemoteOAuthStatus {
   supported_registration_modes: Array<"pre_registered" | "client_id_metadata_document" | "dynamic">;
   authorization_enabled: boolean;
   token_storage_enabled: boolean;
+  review_enabled: boolean;
+  runtime_enabled: boolean;
+  remote_revocation_enabled: boolean;
   multi_tenant: false;
 }
 
@@ -144,6 +148,11 @@ interface CandidateOAuthSummary {
     pkce_method: "S256";
     scopes_supported: string[];
     policy_fingerprint: string;
+    scope_source: "www_authenticate" | "protected_resource_metadata" | "omitted" | "legacy";
+    recommended_scopes: string[];
+    recommended_scope_digest: string;
+    offline_access_available: boolean;
+    protocol_version: string;
   };
   registration: null | {
     registration_id: string;
@@ -152,12 +161,16 @@ interface CandidateOAuthSummary {
     revision: number;
     status: string;
     discovery_fingerprint: string;
+    registration_digest: string;
   };
   authorization_session: null | {
     session_id: string;
     status: string;
     scopes: string[];
     scope_digest: string;
+    scope_source: string;
+    resource_bound: boolean;
+    request_refresh_token: boolean;
     error_code: string;
     token_id: string;
     created_at: number;
@@ -169,12 +182,19 @@ interface CandidateOAuthSummary {
     status: string;
     scopes: string[];
     scope_digest: string;
+    scope_source: string;
+    resource_bound: boolean;
+    protocol_version: string;
     expires_at: number | null;
     refresh_available: boolean;
     stored_encrypted: true;
   };
   authorization_enabled: boolean;
   token_storage_enabled: boolean;
+  review_enabled: boolean;
+  runtime_enabled: boolean;
+  remote_revocation_enabled: boolean;
+  runtime_eligible: boolean;
   local_single_owner_warning: boolean;
 }
 
@@ -195,7 +215,7 @@ const activationReasonLabels: Record<string, string> = {
   mcp_remote_auth_binding_missing: "请先绑定该候选的访问 Token。",
   mcp_remote_auth_binding_stale: "认证策略或凭据 revision 已变化，请重新绑定。",
   mcp_remote_auth_scope_denied: "认证绑定不属于当前本地主体。",
-  mcp_remote_oauth_authorization_not_implemented: "OAuth Token 已保持隔离；R2B 尚未开放 MCP Runtime 资源调用。",
+  mcp_remote_oauth_runtime_disabled: "OAuth 契约可复核并发布，但 R3A 不会将工具暴露给 Runtime。",
 };
 
 const safetyReasonLabels: Record<string, string> = {
@@ -217,6 +237,12 @@ const safetyReasonLabels: Record<string, string> = {
   mcp_remote_oauth_token_storage_disabled: "OAuth Token 加密存储尚未启用。",
   mcp_remote_oauth_scope_unavailable: "授权服务器未声明可治理的 Scope，当前禁止授权。",
   mcp_remote_oauth_scope_invalid: "请选择授权服务器声明的最小 Scope 子集。",
+  mcp_remote_oauth_legacy_token_reauthorization_required: "旧 Token 未绑定 resource，必须重新发现并授权。",
+  mcp_remote_oauth_review_disabled: "OAuth Review Factory 当前未启用。",
+  mcp_remote_oauth_bearer_challenge_required: "端点未返回可验证的 Bearer 挑战，不能升级为 OAuth 候选。",
+  mcp_remote_oauth_refresh_required: "Token 即将到期，请显式刷新后重新复核。",
+  mcp_remote_oauth_contract_scope_drift: "Scope、Token revision 或发现证据已变化，需要重新复核。",
+  mcp_remote_oauth_high_risk_scope_denied: "Scope 含写入、管理、发布、交易或设备控制语义，R3A 已拒绝复核。",
   mcp_remote_oauth_state_replay_denied: "该 OAuth 回调 state 已使用，禁止重复提交。",
   mcp_remote_oauth_token_exchange_unknown_outcome: "授权码换票结果未知，旧授权已封锁；请核对账号状态后创建新授权。",
   mcp_remote_oauth_refresh_unknown_outcome: "Token 刷新结果未知，旧 revision 已封锁；请重新授权。",
@@ -289,7 +315,7 @@ export default function McpHubPanel() {
   const [candidateAuth, setCandidateAuth] = useState<Record<string, CandidateAuthSummary>>({});
   const [candidateOAuth, setCandidateOAuth] = useState<Record<string, CandidateOAuthSummary>>({});
   const [oauthClientIds, setOauthClientIds] = useState<Record<string, string>>({});
-  const [oauthScopes, setOauthScopes] = useState<Record<string, string[]>>({});
+  const [oauthRefreshRequests, setOauthRefreshRequests] = useState<Record<string, boolean>>({});
   const [oauthAuthorizationUrls, setOauthAuthorizationUrls] = useState<Record<string, string>>({});
   const [candidateAuthInputs, setCandidateAuthInputs] = useState<Record<string, CandidateAuthInput>>({});
   const [reviewStatus, setReviewStatus] = useState<HubReviewStatus | null>(null);
@@ -553,7 +579,7 @@ export default function McpHubPanel() {
               <h3 className="font-semibold">官方 Registry 受控发现</h3>
             </div>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-              Registry 收录不代表安全认证。这里只允许固定公网 HTTPS 的 Streamable HTTP 端点；静态 Secret 与 OAuth Token 进入外部主密钥加密槽。R2B 可完成受控授权，但尚不向 MCP Runtime 开放认证型工具。
+              Registry 收录不代表安全认证。这里只允许固定公网 HTTPS 的 Streamable HTTP 端点；静态 Secret 与 OAuth Token 进入外部主密钥加密槽。R3A 可完成 OAuth 复核与 V3 契约发布，但认证型工具仍不会进入 MCP Runtime。
             </p>
           </div>
           <button
@@ -668,7 +694,11 @@ export default function McpHubPanel() {
                   ))
                   : undefined;
                 const matchingAuth = matchingCandidate ? candidateAuth[matchingCandidate.candidate_id] : undefined;
+                const matchingOAuth = matchingCandidate ? candidateOAuth[matchingCandidate.candidate_id] : undefined;
                 const staticTokenReady = connectable?.eligibility !== "static_token_candidate" || matchingAuth?.binding?.status === "active";
+                const oauthReviewReady = connectable?.eligibility !== "oauth_discovery_candidate" || Boolean(
+                  remoteOAuthStatus?.review_enabled && matchingOAuth?.token?.resource_bound,
+                );
                 const reviewKey = connectable ? `${server.server_name}:${server.version}:${connectable.remote_id}` : "";
                 const reviewSelected = Boolean(
                   reviewKey && reviewSelection.some((item) => (
@@ -696,13 +726,14 @@ export default function McpHubPanel() {
                         认证：{connectable.auth_policy.mode === "static_bearer" ? "Bearer Token" : "固定秘密 Header"} · Header：{connectable.auth_policy.header_name}
                       </p>
                     ) : null}
-                    {connectable && connectable.eligibility !== "oauth_discovery_candidate" && reviewStatus?.enabled ? (
+                    {connectable && reviewStatus?.enabled ? (
                       <label className="mt-3 flex min-h-9 cursor-pointer items-center gap-2 rounded-md border border-cyan-300/20 bg-cyan-300/5 px-3 text-xs text-cyan-100">
                         <input
                           checked={reviewSelected}
                           disabled={
                             (!reviewSelected && reviewSelection.length >= reviewStatus.max_batch_size) ||
-                            !staticTokenReady
+                            !staticTokenReady ||
+                            !oauthReviewReady
                           }
                           onChange={() => setReviewSelection((current) => {
                             if (reviewSelected) {
@@ -719,7 +750,11 @@ export default function McpHubPanel() {
                           })}
                           type="checkbox"
                         />
-                        {staticTokenReady ? "加入受控复核批次" : "绑定 Token 后可加入复核"}
+                        {!staticTokenReady
+                          ? "绑定 Token 后可加入复核"
+                          : !oauthReviewReady
+                            ? "完成 resource-bound OAuth 授权后可加入复核"
+                            : "加入受控复核批次"}
                       </label>
                     ) : null}
                     <button
@@ -803,9 +838,9 @@ export default function McpHubPanel() {
                 const oauthAuthorizationSession = oauth?.authorization_session || null;
                 const oauthToken = oauth?.token || null;
                 const oauthClientId = oauthClientIds[candidate.candidate_id] || "";
-                const selectedOAuthScopes = oauthScopes[candidate.candidate_id] || [];
+                const requestOAuthRefresh = Boolean(oauthRefreshRequests[candidate.candidate_id]);
                 const oauthAuthorizationUrl = oauthAuthorizationUrls[candidate.candidate_id] || "";
-                const oauthRuntimeBlocked = candidate.registry_eligibility === "oauth_discovery_candidate";
+                const oauthRuntimeBlocked = Boolean(candidate.oauth_discovery_available);
                 const runtimeAuthReady = authReady && !oauthDiscovery && !oauthRuntimeBlocked;
                 const candidateError = candidateErrors[candidate.candidate_id];
                 return (
@@ -960,9 +995,12 @@ export default function McpHubPanel() {
                       <div className="flex items-start gap-2">
                         <Shield aria-hidden="true" className="mt-0.5 shrink-0 text-violet-200" size={16} />
                         <div className="min-w-0 text-xs leading-5 text-slate-300">
-                          <p className="font-semibold text-violet-100">OAuth 受控授权（R2A–R2B）</p>
-                          <p>只读取 Protected Resource Metadata 与授权服务器元数据，并登记 public client。</p>
-                          <p className="mt-1 text-amber-100">R2B 可创建一次性授权、接收固定回调并加密保存 Token；OAuth 工具仍不会进入 Runtime。</p>
+                          <p className="font-semibold text-violet-100">OAuth 受控授权与复核（R3A）</p>
+                          <p>冻结 resource、Issuer、登记 revision 与服务端推荐 Scope，再进行一次性授权。</p>
+                          {candidate.oauth_discovery_source === "pending_www_authenticate" ? (
+                            <p className="mt-1 text-violet-100">匿名预检已收到 401；下一步只接受可验证的 Bearer 挑战与固定 OAuth 元数据。</p>
+                          ) : null}
+                          <p className="mt-1 text-amber-100">可进入 Review Factory 并发布 V3 契约；OAuth 工具仍不会进入 Runtime。</p>
                         </div>
                       </div>
                       {!remoteOAuthOperational ? (
@@ -995,9 +1033,31 @@ export default function McpHubPanel() {
                             <p className="break-all">Issuer：{oauthDiscovery.issuer}</p>
                             <p>PKCE：{oauthDiscovery.pkce_method} · Token Origin：{oauthDiscovery.token_endpoint_origin}</p>
                             {oauthDiscovery.registration_endpoint ? <p className="break-all">Registration Endpoint：{oauthDiscovery.registration_endpoint}</p> : null}
-                            <p>Scope：{oauthDiscovery.scopes_supported.length ? oauthDiscovery.scopes_supported.join("、") : "未声明（R2B 按门禁不可授权）"}</p>
+                            <p>Scope 来源：{oauthDiscovery.scope_source}</p>
+                            <p>精确推荐 Scope：{oauthDiscovery.recommended_scopes.length ? oauthDiscovery.recommended_scopes.join("、") : "省略 scope 参数"}</p>
+                            <p>手动刷新：{oauthDiscovery.offline_access_available ? "授权服务器明确支持，可单独请求" : "未明确支持"}</p>
                             <p className="mt-1 break-all font-mono text-slate-500">fingerprint {oauthDiscovery.discovery_fingerprint.slice(0, 20)}…</p>
                           </div>
+                          <button
+                            className="min-h-9 rounded-md border border-white/10 px-3 text-xs font-semibold text-slate-200 disabled:opacity-40"
+                            disabled={!remoteOAuthOperational || Boolean(busy)}
+                            onClick={() => {
+                              if (!window.confirm("重新发现会冻结最新 OAuth 元数据；若摘要变化，现有登记与 Token 将失效，并需要重新授权。继续？")) return;
+                              void run(
+                                `oauth-rediscover:${candidate.candidate_id}`,
+                                () => requestJson(`/api/mcp/hub/candidates/${candidate.candidate_id}/oauth/discover`, {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ expected_source_digest: candidate.source_digest }),
+                                }),
+                                () => setNotice(`${candidate.server_name} 的 OAuth 元数据已重新冻结；请核对登记与 Scope。`),
+                                candidate.candidate_id,
+                              );
+                            }}
+                            type="button"
+                          >
+                            重新发现 OAuth 元数据
+                          </button>
                           {oauthRegistration ? (
                             <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-emerald-300/20 bg-emerald-300/5 px-3 py-2 text-xs text-slate-300">
                               <div className="min-w-0">
@@ -1116,7 +1176,8 @@ export default function McpHubPanel() {
                                   <p className="font-semibold text-emerald-100">OAuth Token 已加密保存</p>
                                   <p>Scope：{oauthToken.scopes.join("、")}</p>
                                   <p>revision {oauthToken.revision} · {oauthToken.expires_at ? `到期 ${new Date(oauthToken.expires_at * 1000).toLocaleString()}` : "授权服务器未返回到期时间"}</p>
-                                  <p className="text-amber-100">R2B 不会把该 Token 交给 MCP Runtime。</p>
+                                  <p>resource 绑定：{oauthToken.resource_bound ? "已验证" : "旧 Token，必须重新授权"}</p>
+                                  <p className="text-amber-100">R3A 仅允许 Review Factory 临时解析；不会把工具交给 Runtime。</p>
                                   <div className="flex flex-wrap gap-2">
                                     {oauthToken.refresh_available ? (
                                       <button
@@ -1144,7 +1205,7 @@ export default function McpHubPanel() {
                                       className="min-h-9 rounded-md border border-rose-300/20 px-3 font-semibold text-rose-100 disabled:opacity-40"
                                       disabled={!remoteOAuthAuthorizationOperational || Boolean(busy)}
                                       onClick={() => {
-                                        if (!window.confirm("撤销本机 OAuth Token？这会立即删除本地可用凭据，但 R2B 不调用远程撤销端点。")) return;
+                                        if (!window.confirm("撤销本机 OAuth Token？这会立即删除本地可用凭据；R3A 不调用远程撤销端点。")) return;
                                         void run(
                                           `oauth-token-revoke:${candidate.candidate_id}`,
                                           () => requestJson(`/api/mcp/hub/candidates/${candidate.candidate_id}/oauth/tokens/${oauthToken.token_id}`, { method: "DELETE" }),
@@ -1208,34 +1269,24 @@ export default function McpHubPanel() {
                                 </div>
                               ) : (
                                 <div className="space-y-2">
-                                  <p className="font-semibold text-violet-100">选择最小 Scope 后创建一次性授权</p>
-                                  {oauthDiscovery.scopes_supported.length ? (
-                                    <div className="flex flex-wrap gap-2">
-                                      {oauthDiscovery.scopes_supported.map((scope) => (
-                                        <label className="flex items-center gap-1 rounded border border-white/10 px-2 py-1" key={scope}>
-                                          <input
-                                            checked={selectedOAuthScopes.includes(scope)}
-                                            onChange={(event) => setOauthScopes((current) => {
-                                              const selected = current[candidate.candidate_id] || [];
-                                              return {
-                                                ...current,
-                                                [candidate.candidate_id]: event.target.checked
-                                                  ? [...new Set([...selected, scope])].sort()
-                                                  : selected.filter((item) => item !== scope),
-                                              };
-                                            })}
-                                            type="checkbox"
-                                          />
-                                          {scope}
-                                        </label>
-                                      ))}
-                                    </div>
-                                  ) : (
-                                    <p className="text-amber-100">授权服务器未声明 scopes_supported，R2B 按门禁禁止授权。</p>
-                                  )}
+                                  <p className="font-semibold text-violet-100">使用冻结 Scope 创建一次性授权</p>
+                                  <p>将请求：{oauthDiscovery.recommended_scopes.length ? oauthDiscovery.recommended_scopes.join("、") : "不发送 scope 参数"}</p>
+                                  {oauthDiscovery.offline_access_available ? (
+                                    <label className="flex items-start gap-2 rounded border border-amber-300/20 bg-amber-300/5 px-2 py-2 text-amber-100">
+                                      <input
+                                        checked={requestOAuthRefresh}
+                                        onChange={(event) => setOauthRefreshRequests((current) => ({
+                                          ...current,
+                                          [candidate.candidate_id]: event.target.checked,
+                                        }))}
+                                        type="checkbox"
+                                      />
+                                      <span>额外请求 offline_access，仅用于运维者显式手动刷新；不会后台刷新。</span>
+                                    </label>
+                                  ) : null}
                                   <button
                                     className="min-h-9 rounded-md border border-violet-300/25 px-3 font-semibold text-violet-100 disabled:opacity-40"
-                                    disabled={!remoteOAuthAuthorizationOperational || !selectedOAuthScopes.length || Boolean(busy)}
+                                    disabled={!remoteOAuthAuthorizationOperational || Boolean(busy)}
                                     onClick={() => void run(
                                       `oauth-authorize:${candidate.candidate_id}`,
                                       () => requestJson<{ authorization_url: string }>(`/api/mcp/hub/candidates/${candidate.candidate_id}/oauth/authorization-sessions`, {
@@ -1243,8 +1294,9 @@ export default function McpHubPanel() {
                                         headers: { "Content-Type": "application/json" },
                                         body: JSON.stringify({
                                           expected_discovery_fingerprint: oauthDiscovery.discovery_fingerprint,
-                                          expected_registration_revision: oauthRegistration.revision,
-                                          scopes: selectedOAuthScopes,
+                                          expected_registration_digest: oauthRegistration.registration_digest,
+                                          expected_scope_digest: oauthDiscovery.recommended_scope_digest,
+                                          request_refresh_token: requestOAuthRefresh,
                                         }),
                                       }),
                                       (result) => {

@@ -13,6 +13,7 @@ import {
 export interface HubReviewStatus {
   enabled: boolean;
   local_publish_enabled: boolean;
+  oauth_review_enabled: boolean;
   signing_key_configured: boolean;
   sop_version: string;
   max_batch_size: number;
@@ -68,14 +69,24 @@ interface ReviewItem {
   contract_fingerprint: string;
   error_code: string;
   evidence: {
+    sop_version?: string;
     snapshot?: { origin?: string };
     effect_proposals?: Record<string, string>;
     tool_schema_digests?: Record<string, string>;
     representative_call?: RepresentativeCallEvidence;
+    authorized_scopes?: string[];
+    scope_source?: string;
+    authorized_scope_digest?: string;
+    scope_assessment?: {
+      classification?: string;
+      dangerous_scopes?: string[];
+      unknown_scopes?: string[];
+      read_candidate_scopes?: string[];
+    };
   };
   proposal: ReviewProposal | null;
   events: ReviewEvent[];
-  draft_contract?: { contract_id?: string; allowed_tools?: string[] };
+  draft_contract?: { schema_version?: string; contract_id?: string; allowed_tools?: string[] };
 }
 
 interface ReviewRun {
@@ -146,6 +157,7 @@ export default function McpHubReviewWorkbench({
   const [notice, setNotice] = useState("");
   const [previews, setPreviews] = useState<Record<string, string>>({});
   const [callAcknowledgements, setCallAcknowledgements] = useState<Record<string, boolean>>({});
+  const [oauthScopeAcknowledgements, setOauthScopeAcknowledgements] = useState<Record<string, boolean>>({});
   const [allowedToolSelections, setAllowedToolSelections] = useState<Record<string, string[]>>({});
   const [revokeConfirmation, setRevokeConfirmation] = useState("");
 
@@ -234,7 +246,7 @@ export default function McpHubReviewWorkbench({
             <span className="rounded border border-amber-300/25 bg-amber-300/10 px-2 py-0.5 text-[11px] font-semibold text-amber-100">本地运维者功能</span>
           </div>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-            按 {status.sop_version} 生成可复现证据与不可变执行契约。这里不是多租户管理员权限；Registry 与远程 annotations 均不构成信任。
+            按候选匹配匿名、静态 Token 或 OAuth 的版本化 SOP，生成可复现证据与不可变执行契约。这里不是多租户管理员权限；Registry 与远程 annotations 均不构成信任。
           </p>
         </div>
         <button
@@ -307,6 +319,9 @@ export default function McpHubReviewWorkbench({
                 : [];
               const selectedAllowedTools = allowedToolSelections[item.item_id] ?? defaultAllowedTools;
               const representativeCall = item.evidence.representative_call;
+              const oauthScopeAssessment = item.evidence.scope_assessment;
+              const unknownOAuthScopes = oauthScopeAssessment?.unknown_scopes || [];
+              const dangerousOAuthScopes = oauthScopeAssessment?.dangerous_scopes || [];
               return (
                 <article className="rounded-lg border border-white/10 bg-white/[0.025] p-3" key={item.item_id}>
                   <div className="flex flex-wrap items-start justify-between gap-3">
@@ -323,6 +338,15 @@ export default function McpHubReviewWorkbench({
                     ))}
                   </div>
                   {item.error_code ? <p className="mt-2 text-xs text-rose-200">固定错误码：{item.error_code}</p> : null}
+                  {item.evidence.sop_version === "oauth_https_tools_v1" ? (
+                    <div className="mt-2 rounded border border-violet-300/20 bg-violet-300/5 p-3 text-xs text-slate-300">
+                      <p className="font-semibold text-violet-100">OAuth V3 冻结证据</p>
+                      <p className="mt-1">Scope 来源：{item.evidence.scope_source} · {item.evidence.authorized_scopes?.join("、") || "未发送 scope 参数"}</p>
+                      <p className="mt-1">确定性归类：{oauthScopeAssessment?.classification || "unknown"}</p>
+                      {dangerousOAuthScopes.length ? <p className="mt-1 text-rose-100">高危 Scope：{dangerousOAuthScopes.join("、")}；本轮禁止发布。</p> : null}
+                      {unknownOAuthScopes.length ? <p className="mt-1 text-amber-100">未知 Scope：{unknownOAuthScopes.join("、")}；批准前必须显式确认。</p> : null}
+                    </div>
+                  ) : null}
                   {item.proposal ? (
                     <div className="mt-3 rounded-md border border-white/10 bg-ink-950/50 p-3 text-xs text-slate-300">
                       <p>代表调用：<strong className="text-white">{item.proposal.tool_name}</strong></p>
@@ -397,15 +421,25 @@ export default function McpHubReviewWorkbench({
                               );
                             })}
                           </div>
+                          {unknownOAuthScopes.length ? (
+                            <label className="mt-3 flex items-start gap-2 rounded border border-amber-300/20 bg-amber-300/5 p-2 text-amber-100">
+                              <input
+                                checked={Boolean(oauthScopeAcknowledgements[item.item_id])}
+                                onChange={(event) => setOauthScopeAcknowledgements((current) => ({ ...current, [item.item_id]: event.target.checked }))}
+                                type="checkbox"
+                              />
+                              <span>我已核对未知 Scope 的供应商含义；契约仍只包含人工确认的 read 工具。</span>
+                            </label>
+                          ) : null}
                         </div>
-                        <button className="min-h-9 rounded-md bg-emerald-300 px-3 text-sm font-semibold text-ink-950 disabled:opacity-40" disabled={!selectedAllowedTools.length || Boolean(busy)} onClick={() => void runAction(`decision:${item.item_id}`, () => requestJson(`/api/mcp/hub/review-runs/${latestRun.run_id}/items/${item.item_id}/decision`, jsonRequest({ decision: "approve", expected_evidence_digest: item.evidence_digest, allowed_tools: selectedAllowedTools, tool_effects: Object.fromEntries(selectedAllowedTools.map((name) => [name, "read"])) })))} type="button">批准所选只读工具</button>
+                        <button className="min-h-9 rounded-md bg-emerald-300 px-3 text-sm font-semibold text-ink-950 disabled:opacity-40" disabled={!selectedAllowedTools.length || dangerousOAuthScopes.length > 0 || (unknownOAuthScopes.length > 0 && !oauthScopeAcknowledgements[item.item_id]) || Boolean(busy)} onClick={() => void runAction(`decision:${item.item_id}`, () => requestJson(`/api/mcp/hub/review-runs/${latestRun.run_id}/items/${item.item_id}/decision`, jsonRequest({ decision: "approve", expected_evidence_digest: item.evidence_digest, allowed_tools: selectedAllowedTools, tool_effects: Object.fromEntries(selectedAllowedTools.map((name) => [name, "read"])), acknowledge_unknown_oauth_scopes: Boolean(oauthScopeAcknowledgements[item.item_id]) })))} type="button">批准所选只读工具</button>
                         <button className="min-h-9 rounded-md border border-rose-300/25 px-3 text-sm text-rose-100 disabled:opacity-40" disabled={Boolean(busy)} onClick={() => void runAction(`block:${item.item_id}`, () => requestJson(`/api/mcp/hub/review-runs/${latestRun.run_id}/items/${item.item_id}/decision`, jsonRequest({ decision: "block", expected_evidence_digest: item.evidence_digest, allowed_tools: [], tool_effects: {} })))} type="button">阻断</button>
                       </>
                     ) : null}
                     {item.state === "approved" ? (
                       <button className="min-h-9 rounded-md bg-emerald-300 px-3 text-sm font-semibold text-ink-950 disabled:opacity-40" disabled={!publishReady || Boolean(busy)} onClick={() => void runAction(`publish:${item.item_id}`, () => requestJson(`/api/mcp/hub/review-runs/${latestRun.run_id}/items/${item.item_id}/publish`, jsonRequest({ expected_contract_fingerprint: item.contract_fingerprint })), async () => {
                         await onHubChanged();
-                        setNotice("本机不可变契约已发布；对应候选现已可进入激活门禁。");
+                        setNotice(item.evidence.sop_version === "oauth_https_tools_v1" ? "OAuth V3 契约已发布；R3A 仍保持 Runtime 关闭。" : "本机不可变契约已发布；对应候选现已可进入激活门禁。");
                       })} type="button">发布本机不可变契约</button>
                     ) : null}
                     {item.state === "approved" || item.state === "published" ? (

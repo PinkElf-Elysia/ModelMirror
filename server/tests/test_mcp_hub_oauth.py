@@ -25,7 +25,11 @@ ISSUER = "https://auth.example.net/"
 
 class Bridge:
     async def probe_resource(self, target_id: str, url: str) -> dict[str, Any]:
-        return {"resource_metadata_url": PRM}
+        return {
+            "resource_metadata_url": PRM,
+            "status_class": "4xx",
+            "bearer_challenge": True,
+        }
 
     async def fetch_json(
         self, target_id: str, url: str, *, document_kind: str
@@ -151,7 +155,7 @@ async def test_hub_oauth_uses_only_server_owned_target_and_does_not_activate(
     with pytest.raises(Exception) as oauth_runtime:
         await service.preflight(candidate["candidate_id"])
     assert getattr(oauth_runtime.value, "code", "") == (
-        "mcp_remote_oauth_authorization_not_implemented"
+        "mcp_remote_oauth_runtime_disabled"
     )
     result = await service.discover_candidate_oauth(
         candidate["candidate_id"],
@@ -209,10 +213,15 @@ async def test_hub_oauth_api_rejects_client_scope_endpoint_and_header_injection(
     assert "must-not-be-reflected" not in registration.text
 
 
-def test_hub_oauth_rejects_anonymous_candidate_without_registry_auth_declaration(
+@pytest.mark.asyncio
+async def test_hub_oauth_promotes_anonymous_candidate_only_after_observed_bearer_challenge(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("MCP_HUB_ENABLED", "true")
+    monkeypatch.setenv("MCP_HUB_REMOTE_ENABLED", "true")
+    monkeypatch.setenv("MCP_REMOTE_AUTH_ENABLED", "true")
+    monkeypatch.setenv("MCP_REMOTE_AUTH_LOCAL_SINGLE_OWNER_ACK", "true")
+    monkeypatch.setenv("MCP_REMOTE_OAUTH_ENABLED", "true")
     normalized = normalize_registry_entry({
         **entry(),
         "server": {
@@ -234,6 +243,43 @@ def test_hub_oauth_rejects_anonymous_candidate_without_registry_auth_declaration
         service.candidate_oauth(candidate["candidate_id"])
     assert getattr(ineligible.value, "code", "") == (
         "mcp_remote_oauth_candidate_ineligible"
+    )
+    service.set_remote_oauth(MCPRemoteOAuthService(
+        MCPRemoteOAuthStore(tmp_path / "auth"),
+        subject_resolver=LocalSubjectScopeResolver(),
+        remote_auth_status=lambda: {
+            "enabled": True,
+            "single_owner_acknowledged": True,
+            "external_master_key_available": True,
+            "external_master_key_enforced": True,
+        },
+        bridge=Bridge(),
+    ))
+    service.store.update_candidate(
+        candidate["candidate_id"],
+        "local",
+        "local",
+        state="blocked",
+        taint_reason="hub_upstream_auth_required",
+    )
+    pending = service.get_candidate(candidate["candidate_id"])
+    assert pending["oauth_discovery_source"] == "pending_www_authenticate"
+    assert pending["oauth_discovery_available"] is True
+
+    discovered = await service.discover_candidate_oauth(
+        candidate["candidate_id"],
+        expected_source_digest=candidate["source_digest"],
+    )
+
+    assert discovered["discovery"]["resource_uri"] == RESOURCE
+    promoted = service.get_candidate(candidate["candidate_id"])
+    assert promoted["oauth_discovery_source"] == "www_authenticate"
+    assert promoted["state"] == "draft"
+    assert promoted["taint_reason"] == ""
+    with pytest.raises(Exception) as runtime_disabled:
+        await service.preflight(candidate["candidate_id"])
+    assert getattr(runtime_disabled.value, "code", "") == (
+        "mcp_remote_oauth_runtime_disabled"
     )
 
 
@@ -328,7 +374,7 @@ async def test_oauth_revoke_rejects_query_and_body_without_revoking(
 
 
 @pytest.mark.asyncio
-async def test_oauth_authorization_api_accepts_only_server_owned_target_and_scopes(
+async def test_oauth_authorization_api_accepts_only_frozen_digests_and_refresh_choice(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     service, candidate = make_service(tmp_path, monkeypatch)
@@ -356,10 +402,13 @@ async def test_oauth_authorization_api_accepts_only_server_owned_target_and_scop
             "expected_discovery_fingerprint": registered["discovery"][
                 "discovery_fingerprint"
             ],
-            "expected_registration_revision": registered["registration"][
-                "revision"
+            "expected_registration_digest": registered["registration"][
+                "registration_digest"
             ],
-            "scopes": ["mcp:read"],
+            "expected_scope_digest": registered["discovery"][
+                "recommended_scope_digest"
+            ],
+            "request_refresh_token": False,
         }
         response = await client.post(
             f"/api/mcp/hub/candidates/{candidate['candidate_id']}/oauth/authorization-sessions",
@@ -372,6 +421,7 @@ async def test_oauth_authorization_api_accepts_only_server_owned_target_and_scop
             {"tenant_id": "other"},
             {"client_id": "attacker-client"},
             {"code": "attacker-code"},
+            {"scopes": ["admin.write"]},
         ):
             denied = await client.post(
                 f"/api/mcp/hub/candidates/{candidate['candidate_id']}/oauth/authorization-sessions",
@@ -386,7 +436,12 @@ async def test_oauth_authorization_api_accepts_only_server_owned_target_and_scop
             "expected_discovery_fingerprint": registered["discovery"][
                 "discovery_fingerprint"
             ],
-            "expected_registration_revision": 1,
-            "scopes": ["mcp:read"],
+            "expected_registration_digest": registered["registration"][
+                "registration_digest"
+            ],
+            "expected_scope_digest": registered["discovery"][
+                "recommended_scope_digest"
+            ],
+            "request_refresh_token": False,
         }
     ]

@@ -36,10 +36,16 @@ class FakeBridge:
         self.client_metadata_auth_method = "none"
         self.client_metadata_document: dict[str, Any] | None = None
         self.client_metadata_document_supported = True
+        self.challenge_scopes: list[str] = []
 
     async def probe_resource(self, target_id: str, url: str) -> dict[str, Any]:
         self.calls.append(("probe", url))
-        return {"resource_metadata_url": PRM, "status_class": "4xx"}
+        return {
+            "resource_metadata_url": PRM,
+            "challenge_scopes": list(self.challenge_scopes),
+            "status_class": "4xx",
+            "bearer_challenge": True,
+        }
 
     async def fetch_json(
         self, target_id: str, url: str, *, document_kind: str
@@ -89,6 +95,7 @@ class FakeBridge:
     ) -> dict[str, Any]:
         self.calls.append(("register", url))
         assert request_body["token_endpoint_auth_method"] == "none"
+        assert request_body["application_type"] == "native"
         if self.registration_error_code:
             raise RemoteOAuthError(
                 "ambiguous registration",
@@ -206,6 +213,8 @@ async def test_discovery_freezes_resource_issuer_pkce_and_endpoints(
     assert snapshot.policy.issuer == ISSUER
     assert snapshot.policy.authorization_endpoint.endswith("/authorize")
     assert snapshot.policy.scopes_supported == ("mcp:read",)
+    assert snapshot.policy.scope_source == "protected_resource_metadata"
+    assert snapshot.policy.recommended_scopes == ("mcp:read",)
     assert len(snapshot.policy.policy_fingerprint) == 64
     assert bridge.calls[:3] == [
         ("probe", RESOURCE),
@@ -220,6 +229,101 @@ async def test_discovery_freezes_resource_issuer_pkce_and_endpoints(
     assert summary["discovery"]["pkce_method"] == "S256"
     assert summary["authorization_enabled"] is False
     assert summary["token_storage_enabled"] is False
+
+
+@pytest.mark.asyncio
+async def test_promoted_candidate_requires_observed_bearer_challenge(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bridge = FakeBridge()
+
+    async def basic_probe(_target_id: str, _url: str) -> dict[str, Any]:
+        return {
+            "status_class": "4xx",
+            "bearer_challenge": False,
+            "resource_metadata_url": PRM,
+            "challenge_scopes": [],
+        }
+
+    bridge.probe_resource = basic_probe  # type: ignore[method-assign]
+    current = service(tmp_path, monkeypatch, bridge=bridge)
+
+    with pytest.raises(RemoteOAuthError) as denied:
+        await current.discover(
+            target_type="hub_candidate",
+            target_id="mcphub_" + "2" * 32,
+            resource_url=RESOURCE,
+            source_digest=SOURCE,
+            require_bearer_challenge=True,
+        )
+
+    assert denied.value.code == "mcp_remote_oauth_bearer_challenge_required"
+    assert bridge.calls == []
+
+
+@pytest.mark.asyncio
+async def test_discovery_prefers_bounded_www_authenticate_scope_challenge(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bridge = FakeBridge()
+    bridge.challenge_scopes = ["mcp:search"]
+    current = service(tmp_path, monkeypatch, bridge=bridge)
+    snapshot = await current.discover(
+        target_type="hub_candidate",
+        target_id="mcphub_" + "9" * 32,
+        resource_url=RESOURCE,
+        source_digest=SOURCE,
+    )
+    assert snapshot.policy.scope_source == "www_authenticate"
+    assert snapshot.policy.recommended_scopes == ("mcp:search",)
+
+
+@pytest.mark.asyncio
+async def test_discovery_preserves_exact_root_issuer_without_inventing_slash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class RootIssuerBridge(FakeBridge):
+        async def fetch_json(
+            self, target_id: str, url: str, *, document_kind: str
+        ) -> dict[str, Any]:
+            self.calls.append((document_kind, url))
+            if document_kind == "protected_resource_metadata":
+                return {
+                    "document": {
+                        "resource": RESOURCE,
+                        "authorization_servers": ["https://auth.example.net"],
+                        "scopes_supported": ["mcp:read"],
+                    }
+                }
+            if document_kind == "authorization_server_metadata":
+                return {
+                    "document": {
+                        "issuer": "https://auth.example.net",
+                        "authorization_endpoint": "https://auth.example.net/authorize",
+                        "token_endpoint": "https://auth.example.net/token",
+                        "code_challenge_methods_supported": ["S256"],
+                        "grant_types_supported": ["authorization_code"],
+                        "response_types_supported": ["code"],
+                    }
+                }
+            return await super().fetch_json(
+                target_id, url, document_kind=document_kind
+            )
+
+    bridge = RootIssuerBridge()
+    current = service(tmp_path, monkeypatch, bridge=bridge)
+    snapshot = await current.discover(
+        target_type="hub_candidate",
+        target_id="mcphub_" + "7" * 32,
+        resource_url=RESOURCE,
+        source_digest=SOURCE,
+    )
+
+    assert snapshot.policy.issuer == "https://auth.example.net"
+    assert bridge.calls[2] == (
+        "authorization_server_metadata",
+        "https://auth.example.net/.well-known/oauth-authorization-server",
+    )
 
 
 @pytest.mark.asyncio
