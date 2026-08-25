@@ -65,6 +65,13 @@ def test_verified_video_registry_contains_flux_upscale_contract() -> None:
     )
 
 
+def test_verified_video_registry_contains_august_24_contracts() -> None:
+    assert {
+        "heygen/avatar-iv",
+        "alibaba/wan-3.0",
+    } <= VERIFIED_VIDEO_GENERATION_MODELS
+
+
 def openrouter_service(tmp_path: Path) -> ModelRouterService:
     repository = SQLiteRouterRepository(tmp_path)
     connection = repository.create_connection(
@@ -251,6 +258,51 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
                                 "safety_tolerance"
                             ],
                         },
+                        {
+                            "id": "heygen/avatar-iv",
+                            "supported_resolutions": ["720p", "1080p"],
+                            "supported_aspect_ratios": [
+                                "16:9",
+                                "9:16",
+                                "1:1",
+                            ],
+                            "supported_durations": None,
+                            "supported_frame_images": None,
+                            "generate_audio": False,
+                            "seed": False,
+                            "pricing_skus": {
+                                "duration_seconds": "0.05"
+                            },
+                            "allowed_passthrough_parameters": [
+                                "voice_id",
+                                "motion_prompt",
+                            ],
+                        },
+                        {
+                            "id": "alibaba/wan-3.0",
+                            "supported_resolutions": [
+                                "480p",
+                                "720p",
+                                "1080p",
+                            ],
+                            "supported_aspect_ratios": [
+                                "16:9",
+                                "4:3",
+                                "1:1",
+                                "3:4",
+                                "9:16",
+                            ],
+                            "supported_durations": list(range(2, 31)),
+                            "supported_frame_images": ["first_frame"],
+                            "generate_audio": True,
+                            "seed": True,
+                            "pricing_skus": {
+                                "duration_seconds_480p": "0.05",
+                                "duration_seconds_720p": "0.1",
+                                "duration_seconds_1080p": "0.2",
+                            },
+                            "allowed_passthrough_parameters": [],
+                        },
                     ]
                 },
             )
@@ -286,7 +338,7 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
 
     assert result.status == "online"
     assert result.stale is False
-    assert len(result.profiles) == 7
+    assert len(result.profiles) == 9
     analysis = next(
         item for item in result.profiles if item.operation == "analyze_video"
     )
@@ -315,6 +367,16 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
         item
         for item in result.profiles
         if item.model_id == "black-forest-labs/flux-video-upscale"
+    )
+    avatar = next(
+        item
+        for item in result.profiles
+        if item.model_id == "heygen/avatar-iv"
+    )
+    wan = next(
+        item
+        for item in result.profiles
+        if item.model_id == "alibaba/wan-3.0"
     )
     assert analysis.model_id == "google/gemini-video-test"
     assert analysis.supported_input_sources == ["file", "url"]
@@ -404,6 +466,28 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
     assert flux_upscale.pricing_skus == {
         "cents_per_megapixel_second_precise": "7.5",
         "cents_per_megapixel_second_creative": "10.5",
+    }
+    assert avatar.interaction_status == "ready"
+    assert avatar.supported_resolutions == ["720p", "1080p"]
+    assert avatar.supported_durations == []
+    assert avatar.supports_reference_images is True
+    assert avatar.max_reference_images == 1
+    assert avatar.supports_generated_audio is False
+    assert avatar.supports_seed is False
+    assert avatar.provider_options == []
+    assert avatar.pricing_skus == {"duration_seconds": "0.05"}
+    assert wan.interaction_status == "ready"
+    assert wan.supported_resolutions == ["480p", "720p", "1080p"]
+    assert wan.supported_durations == list(range(2, 31))
+    assert wan.supported_frame_types == ["first_frame"]
+    assert wan.supports_reference_images is True
+    assert wan.max_reference_images == 1
+    assert wan.supports_generated_audio is True
+    assert wan.supports_seed is True
+    assert wan.pricing_skus == {
+        "duration_seconds_480p": "0.05",
+        "duration_seconds_720p": "0.1",
+        "duration_seconds_1080p": "0.2",
     }
     assert all(
         request.headers["authorization"]

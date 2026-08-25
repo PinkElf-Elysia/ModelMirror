@@ -58,14 +58,19 @@ const august21ModelIds = [
   "deepseek/deepseek-v4-flash-vision-exp",
 ];
 
+const august24VideoModelIds = [
+  "alibaba/wan-3.0",
+  "heygen/avatar-iv",
+];
+
 describe("OpenRouter model refresh", () => {
   it("reconciles the refreshed counted catalog totals", () => {
     const counted = models.filter((model) => model.catalog_counted);
-    expect(counted).toHaveLength(554);
-    expect(counted.filter((model) => model.catalog_status === "live")).toHaveLength(493);
+    expect(counted).toHaveLength(556);
+    expect(counted.filter((model) => model.catalog_status === "live")).toHaveLength(495);
     expect(counted.filter((model) => model.catalog_status === "uncertain")).toHaveLength(55);
     expect(counted.filter((model) => model.catalog_status === "expired")).toHaveLength(6);
-    expect(counted.filter((model) => model.catalog_status !== "expired")).toHaveLength(548);
+    expect(counted.filter((model) => model.catalog_status !== "expired")).toHaveLength(550);
   });
 
   it("restores V4 Flash ahead of V4 Pro and keeps Seedream in row four", () => {
@@ -389,6 +394,73 @@ describe("OpenRouter model refresh", () => {
         price_cny: { input: 2.98, output: 8.94 },
       },
     ]);
+  });
+
+  it("adds both August 24 video snapshots below the first six rows", () => {
+    for (const modelId of august24VideoModelIds) {
+      const matches = models.filter((model) => model.id === modelId);
+      expect(matches).toHaveLength(1);
+      expect(matches[0]).toMatchObject({
+        catalog_status: "live",
+        catalog_counted: true,
+        active: true,
+        primary_operation: "generate_video",
+        interaction_status: "ready",
+        ui_entrypoint: "multimodal",
+        pricing_status: "dynamic",
+        pricing_basis: "media",
+        openrouter_market: { series: "Other" },
+      });
+      expect(models.findIndex((model) => model.id === modelId)).toBeGreaterThanOrEqual(
+        2 + 6 * 3,
+      );
+    }
+  });
+
+  it("preserves the August 24 model-specific video contracts", () => {
+    const byId = new Map(models.map((model) => [model.id, model]));
+
+    expect(byId.get("alibaba/wan-3.0")).toMatchObject({
+      canonical_slug: "alibaba/wan-3.0-20260824",
+      input_modalities: ["text", "image"],
+      output_modalities: ["video"],
+      supported_parameters: [
+        "resolution",
+        "aspect_ratio",
+        "duration",
+        "frame_images",
+        "input_references",
+        "generate_audio",
+        "seed",
+      ],
+      openrouter_market: {
+        author: "alibaba",
+        series: "Other",
+        providers: ["Alibaba"],
+        discounted: true,
+        zero_data_retention: false,
+      },
+    });
+    expect(byId.get("alibaba/wan-3.0")?.note).toContain("$0.20/视频秒");
+
+    expect(byId.get("heygen/avatar-iv")).toMatchObject({
+      canonical_slug: "heygen/avatar-iv-20260625",
+      input_modalities: ["text", "image", "audio"],
+      output_modalities: ["video"],
+      supported_parameters: [
+        "resolution",
+        "aspect_ratio",
+        "input_references",
+      ],
+      openrouter_market: {
+        author: "heygen",
+        series: "Other",
+        providers: ["HeyGen"],
+        discounted: false,
+        zero_data_retention: false,
+      },
+    });
+    expect(byId.get("heygen/avatar-iv")?.note).toContain("本地暂不开放");
   });
 
   it("routes the August 14 specialized models by their dedicated contracts", () => {

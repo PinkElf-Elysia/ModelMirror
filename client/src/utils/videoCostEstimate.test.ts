@@ -3,6 +3,7 @@ import {
   estimateVideoCost,
   estimateVideoUpscaleCost,
   supportedAspectRatiosForResolution,
+  videoGenerationUnitRate,
   videoUpscaleUnitRate,
 } from "./videoCostEstimate";
 
@@ -102,6 +103,62 @@ describe("estimateVideoCost", () => {
     expect(estimate).toBeCloseTo(0.3024, 6);
     expect(supportedAspectRatiosForResolution(miniProfile, "480p")).not.toContain("9:21");
     expect(supportedAspectRatiosForResolution(miniProfile, "720p")).toContain("9:21");
+  });
+
+  it("uses Wan 3.0 resolution-specific per-second pricing", () => {
+    const wanProfile = {
+      supported_resolutions: ["480p", "720p", "1080p"],
+      supported_aspect_ratios: ["16:9"],
+      supported_sizes: [],
+      pricing_skus: {
+        duration_seconds_480p: "0.05",
+        duration_seconds_720p: "0.1",
+        duration_seconds_1080p: "0.2",
+      },
+    };
+
+    expect(
+      videoGenerationUnitRate(wanProfile, {
+        resolution: "1080p",
+        generateAudio: true,
+        imageInputCount: 1,
+      }),
+    ).toBe(0.2);
+    expect(
+      estimateVideoCost(wanProfile, {
+        duration: 30,
+        resolution: "1080p",
+        aspectRatio: "16:9",
+        generateAudio: true,
+        imageInputCount: 1,
+      }),
+    ).toBe(6);
+  });
+
+  it("shows Avatar IV's unit price when script length determines duration", () => {
+    const avatarProfile = {
+      supported_resolutions: ["720p", "1080p"],
+      supported_aspect_ratios: ["16:9", "9:16", "1:1"],
+      supported_sizes: [],
+      pricing_skus: { duration_seconds: "0.05" },
+    };
+
+    expect(
+      videoGenerationUnitRate(avatarProfile, {
+        resolution: "720p",
+        generateAudio: false,
+        imageInputCount: 1,
+      }),
+    ).toBe(0.05);
+    expect(
+      estimateVideoCost(avatarProfile, {
+        duration: null,
+        resolution: "720p",
+        aspectRatio: "1:1",
+        generateAudio: false,
+        imageInputCount: 1,
+      }),
+    ).toBeNull();
   });
 });
 

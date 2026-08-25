@@ -16,6 +16,8 @@ const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
   "bytedance-seed/seedream-5-0-lite",
   "bytedance/seedance-2.0-mini",
   "deepgram/flux-tts:free",
+  "heygen/avatar-iv",
+  "alibaba/wan-3.0",
   "x-ai/grok-imagine-image-2.0",
 ]);
 
@@ -336,6 +338,8 @@ async function main() {
       "bytedance-seed/seedream-5-0-lite uses the dedicated image catalog contract",
       "bytedance/seedance-2.0-mini uses the dedicated video catalog contract",
       "deepgram/flux-tts:free uses the dedicated speech catalog contract",
+      "heygen/avatar-iv uses the dedicated video catalog contract",
+      "alibaba/wan-3.0 uses the dedicated video catalog contract",
       "x-ai/grok-imagine-image-2.0 uses the dedicated image catalog contract",
     ],
   };

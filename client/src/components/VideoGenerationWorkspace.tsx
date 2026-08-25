@@ -12,6 +12,7 @@ import {
   estimateVideoCost,
   estimateVideoUpscaleCost,
   supportedAspectRatiosForResolution,
+  videoGenerationUnitRate,
   videoUpscaleUnitRate,
 } from "../utils/videoCostEstimate";
 import BrandLogo from "./BrandLogo";
@@ -889,6 +890,8 @@ export default function VideoGenerationWorkspace({
   const supportsLastFrame = Boolean(
     profile?.supported_frame_types.includes("last_frame"),
   );
+  const durationRequired = Boolean(profile?.supported_durations.length);
+  const resolutionRequired = Boolean(profile?.supported_resolutions.length);
   const referenceLimit = Math.min(
     MAX_REFERENCE_IMAGE_COUNT,
     profile?.max_reference_images ?? 0,
@@ -938,6 +941,14 @@ export default function VideoGenerationWorkspace({
     profile && isUpscaler
       ? videoUpscaleUnitRate(profile, creativity)
       : null;
+  const generationUnitRate =
+    profile && !isUpscaler
+      ? videoGenerationUnitRate(profile, {
+          resolution,
+          generateAudio,
+          imageInputCount,
+        })
+      : null;
   const sourceReady =
     sourceType === "file"
       ? Boolean(sourceVideo)
@@ -957,7 +968,9 @@ export default function VideoGenerationWorkspace({
     prompt.trim().length <= MAX_PROMPT_CHARS &&
     (isUpscaler
       ? upscalerSelectionValid
-      : prompt.trim().length > 0 && duration !== null && Boolean(resolution)) &&
+      : prompt.trim().length > 0 &&
+        (!durationRequired || duration !== null) &&
+        (!resolutionRequired || Boolean(resolution))) &&
     (!profile?.verification_entry_enabled || manualVerificationConfirmed) &&
     (!profile?.verification_requires_cost_estimate || estimate !== null) &&
     !capabilityRefreshRequired &&
@@ -1151,7 +1164,9 @@ export default function VideoGenerationWorkspace({
               <p className="mt-1 text-sm text-slate-400">
                 {isUpscaler
                   ? "源视频不会保存在模镜；费用按输出百万像素秒估算。"
-                  : "默认选择可用的最短时长和最低费用分辨率。"}
+                  : durationRequired
+                    ? "默认选择可用的最短时长和最低费用分辨率。"
+                    : "该模型不接受固定时长参数；成片时长由脚本与上游模型决定。"}
               </p>
             </div>
 
@@ -1328,28 +1343,32 @@ export default function VideoGenerationWorkspace({
                     </div>
                   </div>
                 ) : (
-                <div className="grid gap-4 sm:grid-cols-3">
-                  <label className="block text-sm font-semibold text-slate-200">
-                    时长
-                    <select
-                      className="mt-2 w-full rounded-lg border border-white/15 bg-ink-950 px-3 py-2.5 text-sm text-white outline-none transition focus:border-brand-300/60 focus:ring-4 focus:ring-brand-300/10"
-                      disabled={submitting}
-                      onChange={(event) => {
-                        setDuration(Number(event.target.value));
-                        markFormChanged();
-                      }}
-                      value={duration ?? ""}
-                    >
-                      {profile.supported_durations
-                        .slice()
-                        .sort((left, right) => left - right)
-                        .map((value) => (
-                          <option key={value} value={value}>
-                            {value} 秒
-                          </option>
-                        ))}
-                    </select>
-                  </label>
+                <div
+                  className={`grid gap-4 ${durationRequired ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}
+                >
+                  {durationRequired ? (
+                    <label className="block text-sm font-semibold text-slate-200">
+                      时长
+                      <select
+                        className="mt-2 w-full rounded-lg border border-white/15 bg-ink-950 px-3 py-2.5 text-sm text-white outline-none transition focus:border-brand-300/60 focus:ring-4 focus:ring-brand-300/10"
+                        disabled={submitting}
+                        onChange={(event) => {
+                          setDuration(Number(event.target.value));
+                          markFormChanged();
+                        }}
+                        value={duration ?? ""}
+                      >
+                        {profile.supported_durations
+                          .slice()
+                          .sort((left, right) => left - right)
+                          .map((value) => (
+                            <option key={value} value={value}>
+                              {value} 秒
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                  ) : null}
                   <label className="block text-sm font-semibold text-slate-200">
                     分辨率
                     <select
@@ -1905,13 +1924,17 @@ export default function VideoGenerationWorkspace({
                       {estimate === null
                         ? isUpscaler && upscaleUnitRate !== null
                           ? `单价 $${upscaleUnitRate.toFixed(3)}/百万像素秒`
-                          : "费用以网关结算为准"
+                          : generationUnitRate !== null
+                            ? `单价 $${generationUnitRate.toFixed(3)}/视频秒`
+                            : "费用以网关结算为准"
                         : `目录估算 $${estimate.toFixed(4)}`}
                     </p>
                     <p className="mt-1 text-xs text-slate-400">
                       {isUpscaler
                         ? "本地文件可按输出尺寸与时长预估；网址来源或无法读取元数据时仅显示单价。最终金额以网关回执为准。"
-                        : "提交会产生费用，最终金额以网关回执为准。"}
+                        : !durationRequired && generationUnitRate !== null
+                          ? "成片时长由脚本与上游模型决定，因此仅显示目录单价；最终金额以网关回执为准。"
+                          : "提交会产生费用，最终金额以网关回执为准。"}
                     </p>
                     {profile.verification_entry_enabled ? (
                       <label className="mt-3 flex max-w-xl items-start gap-2 text-xs leading-5 text-amber-100">
@@ -1938,7 +1961,7 @@ export default function VideoGenerationWorkspace({
                     {submitting
                       ? "正在提交…"
                       : estimate === null
-                        ? `${isUpscaler ? "提交增强" : "提交生成"} · 费用以网关结算为准`
+                        ? `${isUpscaler ? "提交增强" : "提交生成"} · ${generationUnitRate !== null ? `$${generationUnitRate.toFixed(3)}/视频秒` : "费用以网关结算为准"}`
                         : `${isUpscaler ? "提交增强" : "提交生成"} · 预计 $${estimate.toFixed(4)}`}
                   </button>
                 </div>

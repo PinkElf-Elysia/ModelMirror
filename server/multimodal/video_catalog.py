@@ -63,6 +63,11 @@ VERIFIED_VIDEO_GENERATION_MODELS = frozenset(
         # 2026-08-20：专用视频目录确认源视频、1.5–3 倍放大、
         # 精确/创意模式及按百万像素秒计价；未执行付费生成。
         "black-forest-labs/flux-video-upscale",
+        # 2026-08-24：专用视频目录与模型调用说明确认异步契约；
+        # Avatar IV 使用单张人物参考图且不发送未公开的音频上传字段，
+        # Wan 3.0 支持 2–30 秒、首帧/参考图、生成音频与 seed。
+        "heygen/avatar-iv",
+        "alibaba/wan-3.0",
         "openai/sora-2-pro",
     }
 )
@@ -128,8 +133,10 @@ class VideoModelProfile(BaseModel):
 
 
 REFERENCE_IMAGE_AUDIT: dict[str, int] = {
+    "alibaba/wan-3.0": 1,
     "bytedance/seedance-2.0-fast": 3,
     "bytedance/seedance-2.5": 3,
+    "heygen/avatar-iv": 1,
 }
 
 PROVIDER_OPTION_AUDIT: dict[

@@ -172,6 +172,7 @@ const modelAuthorLabels: Record<string, string> = {
   openai: "OpenAI",
   anthropic: "Anthropic",
   google: "Google",
+  heygen: "HeyGen",
   "x-ai": "Grok（xAI）",
   qwen: "Qwen（通义千问）",
   meta: "Meta",
