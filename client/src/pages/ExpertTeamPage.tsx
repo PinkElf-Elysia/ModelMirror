@@ -144,8 +144,9 @@ interface FusionModelResult {
 export const FUSION_ROUTING_BOUNDARY_COPY =
   "原生 Fusion 为 Beta 通道；备用路径仅由当前控制面策略明确决定。";
 
-export function fusionReceiptFromEvent(
+export function workloadReceiptFromEvent(
   event: JsonStreamEvent,
+  expectedEntryId: ProviderRouteReceipt["entry_id"],
 ): ProviderRouteReceipt | null {
   const receipt = event.provider_route_receipts;
   if (
@@ -154,7 +155,7 @@ export function fusionReceiptFromEvent(
     !("contract_version" in receipt) ||
     receipt.contract_version !== "modelmirror-provider-workload-routing-v1" ||
     !("entry_id" in receipt) ||
-    receipt.entry_id !== "fusion" ||
+    receipt.entry_id !== expectedEntryId ||
     !("routing_mode" in receipt) ||
     receipt.routing_mode !== "managed_required" ||
     !("run_reference" in receipt) ||
@@ -220,7 +221,7 @@ export function fusionReceiptFromEvent(
   }
   return {
     contract_version: "modelmirror-provider-workload-routing-v1",
-    entry_id: "fusion",
+    entry_id: expectedEntryId,
     routing_mode: "managed_required",
     run_reference: receipt.run_reference,
     status: receipt.status as ProviderRouteReceipt["status"],
@@ -230,6 +231,12 @@ export function fusionReceiptFromEvent(
     ),
     calls,
   };
+}
+
+export function fusionReceiptFromEvent(
+  event: JsonStreamEvent,
+): ProviderRouteReceipt | null {
+  return workloadReceiptFromEvent(event, "fusion");
 }
 
 interface TeamSavedConfig {
@@ -549,6 +556,8 @@ export default function ExpertTeamPage() {
   const [routeAnswer, setRouteAnswer] = useState("");
   const [routeStatus, setRouteStatus] = useState<RunStatus>("idle");
   const [routeError, setRouteError] = useState("");
+  const [routeProviderReceipt, setRouteProviderReceipt] =
+    useState<ProviderRouteReceipt | null>(null);
   const [routePlannerMode, setRoutePlannerMode] =
     useState<RoutePlannerMode>(initialAgencyDraft?.preview ? "agency" : "quick");
   const [agencyCapabilities, setAgencyCapabilities] =
@@ -620,6 +629,8 @@ export default function ExpertTeamPage() {
   const [teamOutputs, setTeamOutputs] = useState<TeamAgentOutput[]>([]);
   const [teamFinal, setTeamFinal] = useState("");
   const [teamStatus, setTeamStatus] = useState<RunStatus>("idle");
+  const [teamProviderReceipt, setTeamProviderReceipt] =
+    useState<ProviderRouteReceipt | null>(null);
   const [savedTeams] = useState<TeamSavedConfig[]>(readSavedTeams);
   const [teamName, setTeamName] = useState(
     initialAgencyDraft?.team_name ||
@@ -1018,6 +1029,7 @@ export default function ExpertTeamPage() {
     setRouteAnswer("");
     setRouteMatches([]);
     setRouteError("");
+    setRouteProviderReceipt(null);
 
     try {
       await fetchJsonEventStream({
@@ -1030,6 +1042,8 @@ export default function ExpertTeamPage() {
           max_tokens: 2048,
         },
         onEvent: (event) => {
+          const receipt = workloadReceiptFromEvent(event, "route_agent");
+          if (receipt) setRouteProviderReceipt(receipt);
           if (event.event === "route_result" && Array.isArray(event.matches)) {
             setRouteMatches(event.matches.filter(isAgentSummary));
           }
@@ -1386,6 +1400,7 @@ export default function ExpertTeamPage() {
     setTeamStatus("running");
     setTeamOutputs([]);
     setTeamFinal("");
+    setTeamProviderReceipt(null);
 
     try {
       await fetchJsonEventStream({
@@ -1402,6 +1417,8 @@ export default function ExpertTeamPage() {
           })),
         },
         onEvent: (event) => {
+          const receipt = workloadReceiptFromEvent(event, "team_chat");
+          if (receipt) setTeamProviderReceipt(receipt);
           const eventAgent = event.agent;
           if (event.event === "agent_start" && isAgentSummary(eventAgent)) {
             setTeamOutputs((current) => [
@@ -1773,6 +1790,10 @@ export default function ExpertTeamPage() {
                   <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-200">
                     {routeAnswer || "自动路由完成后，专家会在这里回复。"}
                   </p>
+                  <ProviderRouteReceiptSummary
+                    receipts={routeProviderReceipt}
+                    title="自动路由控制面"
+                  />
                 </div>
               </div>
             </div>
@@ -2769,6 +2790,10 @@ export default function ExpertTeamPage() {
               <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-200">
                 {teamFinal || "项目经理汇总会出现在这里。"}
               </p>
+              <ProviderRouteReceiptSummary
+                receipts={teamProviderReceipt}
+                title="AI Team 控制面"
+              />
             </div>
               </>
             )}

@@ -1288,6 +1288,10 @@ try:
         ManagedExpertTeamRun,
     )
     from server.model_router.fusion_gateway import ManagedFusionGateway
+    from server.model_router.route_team_gateway import (
+        ManagedRouteTeamGateway,
+        ManagedRouteTeamRun,
+    )
     from server.model_router.workflow_gateway import (
         ManagedWorkflowGateway,
         ManagedWorkflowAgentRun,
@@ -1300,6 +1304,10 @@ except ModuleNotFoundError:
         ManagedExpertTeamRun,
     )
     from model_router.fusion_gateway import ManagedFusionGateway
+    from model_router.route_team_gateway import (
+        ManagedRouteTeamGateway,
+        ManagedRouteTeamRun,
+    )
     from model_router.workflow_gateway import (
         ManagedWorkflowGateway,
         ManagedWorkflowAgentRun,
@@ -4995,8 +5003,30 @@ def fusion_managed_gateway() -> ManagedFusionGateway:
     return ManagedFusionGateway.for_router(get_model_router_service())
 
 
+def route_team_managed_gateway() -> ManagedRouteTeamGateway:
+    return ManagedRouteTeamGateway.for_router(get_model_router_service())
+
+
 def fusion_control_enabled() -> bool:
     return os.getenv("MODEL_CONTROL_FUSION_ENABLED", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def route_agent_control_enabled() -> bool:
+    return os.getenv("MODEL_CONTROL_ROUTE_AGENT_ENABLED", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def team_chat_control_enabled() -> bool:
+    return os.getenv("MODEL_CONTROL_TEAM_CHAT_ENABLED", "false").strip().lower() in {
         "1",
         "true",
         "yes",
@@ -25416,9 +25446,71 @@ async def fusion_chat(payload: FusionChatRequest, request: Request):
     )
 
 
+def team_member_chat_messages(
+    payload: TeamChatRequest,
+    agent: AgentRecord,
+    task: str,
+    prior_outputs: list[dict[str, str]],
+) -> list[ChatMessage]:
+    if payload.mode == "debate":
+        user_prompt = (
+            f"团队任务：{payload.message}\n\n"
+            f"你的独立发言任务：{task}\n"
+            "请先给出你的专业判断，不要假设你已看到其他专家的意见。"
+        )
+    else:
+        previous = "\n\n".join(
+            f"### {item['agent_name']} 的上一棒意见\n{item['output']}"
+            for item in prior_outputs
+        )
+        user_prompt = (
+            f"团队总任务：{payload.message}\n\n"
+            f"你的接力任务：{task}\n\n"
+            f"前序专家输出：\n{previous or '暂无，你是第一棒。'}\n\n"
+            "请基于自己的专业角色补充、纠偏并推进到下一步。"
+        )
+    return [
+        agent_system_message(agent, task),
+        ChatMessage(role="user", content=user_prompt),
+    ]
+
+
+def team_summary_chat_messages(
+    payload: TeamChatRequest,
+    prior_outputs: list[dict[str, str]],
+) -> list[ChatMessage]:
+    summary_prompt = "\n\n".join(
+        f"### {item['agent_name']}（{item['department']}）\n{item['output']}"
+        for item in prior_outputs
+    )
+    return [
+        ChatMessage(
+            role="system",
+            content=(
+                "你是模镜专家团的项目经理。请整合多个专家的意见，"
+                "输出一份可执行、去重、分优先级的最终方案。"
+            ),
+        ),
+        ChatMessage(
+            role="user",
+            content=(
+                f"用户任务：{payload.message}\n\n"
+                f"专家意见如下：\n{summary_prompt}\n\n"
+                "请给出团队综合意见、执行清单、风险提醒和下一步建议。"
+            ),
+        ),
+    ]
+
+
 @app.post("/api/route-agent")
 async def route_agent(payload: RouteAgentRequest, request: Request):
-    if not get_llm_gateway_config()[0]:
+    managed_gateway = (
+        route_team_managed_gateway() if route_agent_control_enabled() else None
+    )
+    managed_mode = (
+        managed_gateway.routing_mode("route_agent") if managed_gateway else "legacy"
+    )
+    if managed_mode == "legacy" and not get_llm_gateway_config()[0]:
         return JSONResponse(
             status_code=500,
             content={"error": LLM_GATEWAY_NOT_CONFIGURED_MESSAGE},
@@ -25438,6 +25530,22 @@ async def route_agent(payload: RouteAgentRequest, request: Request):
         agent_system_message(selected_agent),
         ChatMessage(role="user", content=payload.message),
     ]
+    managed_run: ManagedRouteTeamRun | None = None
+    managed_start_error: dict[str, Any] | None = None
+    if managed_mode != "legacy":
+        assert managed_gateway is not None
+        try:
+            managed_run = managed_gateway.start_run("route_agent")
+        except ManagedWorkflowRoutingError as exc:
+            managed_start_error = {
+                "event": "error",
+                "message": exc.public_message,
+                "reason_code": exc.code,
+                "provider_route_receipts": (
+                    exc.receipt
+                    or managed_gateway.blocked_receipt("route_agent", exc.code)
+                ),
+            }
 
     async def route_stream():
         yield sse_payload(
@@ -25450,7 +25558,60 @@ async def route_agent(payload: RouteAgentRequest, request: Request):
             }
         )
 
+        if managed_start_error is not None:
+            yield sse_payload(managed_start_error)
+            return
+
         output = ""
+        if managed_run is not None:
+            try:
+                plan = await managed_run.prepare_plan(
+                    model_id=payload.model_id,
+                    logical_call_keys=["route-answer:1"],
+                )
+                async for delta in managed_run.stream_text(
+                    plan[0],
+                    messages=chat_messages_json(agent_messages),
+                    temperature=payload.temperature,
+                    max_tokens=payload.max_tokens,
+                ):
+                    output += delta
+                    yield sse_payload(
+                        {
+                            "event": "answer_delta",
+                            "agent_id": selected_agent.id,
+                            "output": delta,
+                        }
+                    )
+            except asyncio.CancelledError:
+                managed_run.finish(
+                    "cancelled", reason_code="provider_workload_call_cancelled"
+                )
+                raise
+            except ManagedWorkflowRoutingError as exc:
+                receipt = managed_run.finish(
+                    managed_run.failure_status(), reason_code=exc.code
+                )
+                yield sse_payload(
+                    {
+                        "event": "error",
+                        "message": "自动路由的 Managed Provider 调用失败，系统未切换备用模型。",
+                        "reason_code": exc.code,
+                        "provider_route_receipts": receipt,
+                    }
+                )
+                return
+            receipt = managed_run.finish("passed")
+            yield sse_payload(
+                {
+                    "event": "answer_end",
+                    "agent": agent_public_payload(selected_agent),
+                    "final_output": output,
+                    "provider_route_receipts": receipt,
+                }
+            )
+            return
+
         try:
             async for delta in stream_text_with_model_fallback(
                 payload.model_id,
@@ -25498,7 +25659,13 @@ async def route_agent(payload: RouteAgentRequest, request: Request):
 
 @app.post("/api/team/chat")
 async def team_chat(payload: TeamChatRequest, request: Request):
-    if not get_llm_gateway_config()[0]:
+    managed_gateway = (
+        route_team_managed_gateway() if team_chat_control_enabled() else None
+    )
+    managed_mode = (
+        managed_gateway.routing_mode("team_chat") if managed_gateway else "legacy"
+    )
+    if managed_mode == "legacy" and not get_llm_gateway_config()[0]:
         return JSONResponse(
             status_code=500,
             content={"error": LLM_GATEWAY_NOT_CONFIGURED_MESSAGE},
@@ -25527,6 +25694,23 @@ async def team_chat(payload: TeamChatRequest, request: Request):
     if not members:
         return JSONResponse(status_code=400, content={"error": "请至少选择一位专家。"})
 
+    managed_run: ManagedRouteTeamRun | None = None
+    managed_start_error: dict[str, Any] | None = None
+    if managed_mode != "legacy":
+        assert managed_gateway is not None
+        try:
+            managed_run = managed_gateway.start_run("team_chat")
+        except ManagedWorkflowRoutingError as exc:
+            managed_start_error = {
+                "event": "error",
+                "message": exc.public_message,
+                "reason_code": exc.code,
+                "provider_route_receipts": (
+                    exc.receipt
+                    or managed_gateway.blocked_receipt("team_chat", exc.code)
+                ),
+            }
+
     async def team_stream():
         yield sse_payload(
             {
@@ -25535,6 +25719,154 @@ async def team_chat(payload: TeamChatRequest, request: Request):
                 "members": [agent_public_payload(agent) for agent, _ in members],
             }
         )
+
+        if managed_start_error is not None:
+            yield sse_payload(managed_start_error)
+            return
+
+        if managed_run is not None:
+            logical_call_keys = [
+                f"member:{index}"
+                for index in range(1, len(members) + 1)
+            ] + [f"summary:{len(members) + 1}"]
+            try:
+                plan = await managed_run.prepare_plan(
+                    model_id=payload.model_id,
+                    logical_call_keys=logical_call_keys,
+                )
+            except asyncio.CancelledError:
+                managed_run.finish(
+                    "cancelled", reason_code="provider_workload_call_cancelled"
+                )
+                raise
+            except ManagedWorkflowRoutingError as exc:
+                yield sse_payload(
+                    {
+                        "event": "error",
+                        "message": "AI Team 的 Managed Provider 计划未通过发送前预检。",
+                        "reason_code": exc.code,
+                        "provider_route_receipts": managed_run.receipt_summary(),
+                    }
+                )
+                return
+
+            prior_outputs: list[dict[str, str]] = []
+            for index, (agent, task) in enumerate(members, start=1):
+                yield sse_payload(
+                    {
+                        "event": "agent_start",
+                        "agent": agent_public_payload(agent),
+                        "step": index,
+                        "task": task,
+                    }
+                )
+                messages = team_member_chat_messages(
+                    payload, agent, task, prior_outputs
+                )
+                output = ""
+                try:
+                    async for delta in managed_run.stream_text(
+                        plan[index - 1],
+                        messages=chat_messages_json(messages),
+                        temperature=payload.temperature,
+                        max_tokens=payload.max_tokens,
+                    ):
+                        output += delta
+                        yield sse_payload(
+                            {
+                                "event": "agent_delta",
+                                "agent_id": agent.id,
+                                "output": delta,
+                            }
+                        )
+                except asyncio.CancelledError:
+                    managed_run.abandon(
+                        plan[index:],
+                        code="provider_workload_call_cancelled",
+                        status="cancelled",
+                    )
+                    managed_run.finish(
+                        "cancelled", reason_code="provider_workload_call_cancelled"
+                    )
+                    raise
+                except ManagedWorkflowRoutingError as exc:
+                    managed_run.abandon(
+                        plan[index:], code="provider_workload_team_plan_aborted"
+                    )
+                    receipt = managed_run.finish(
+                        managed_run.failure_status(), reason_code=exc.code
+                    )
+                    yield sse_payload(
+                        {
+                            "event": "error",
+                            "message": "AI Team 成员调用失败，系统未切换备用模型。",
+                            "reason_code": exc.code,
+                            "provider_route_receipts": receipt,
+                        }
+                    )
+                    return
+                prior_outputs.append(
+                    {
+                        "agent_id": agent.id,
+                        "agent_name": agent.name,
+                        "department": agent.department,
+                        "output": output,
+                    }
+                )
+                yield sse_payload(
+                    {
+                        "event": "agent_end",
+                        "agent": agent_public_payload(agent),
+                        "output": output,
+                        "provider_route_receipts": managed_run.receipt_summary(),
+                    }
+                )
+
+            summary_messages = team_summary_chat_messages(payload, prior_outputs)
+            final_output = ""
+            yield sse_payload(
+                {
+                    "event": "summary_start",
+                    "message": "专家接力完成，项目经理正在汇总最终方案...",
+                }
+            )
+            try:
+                async for delta in managed_run.stream_text(
+                    plan[-1],
+                    messages=chat_messages_json(summary_messages),
+                    temperature=0.45,
+                    max_tokens=payload.max_tokens,
+                ):
+                    final_output += delta
+                    yield sse_payload({"event": "summary_delta", "output": delta})
+            except asyncio.CancelledError:
+                managed_run.finish(
+                    "cancelled", reason_code="provider_workload_call_cancelled"
+                )
+                raise
+            except ManagedWorkflowRoutingError as exc:
+                receipt = managed_run.finish(
+                    managed_run.failure_status(), reason_code=exc.code
+                )
+                yield sse_payload(
+                    {
+                        "event": "error",
+                        "message": "AI Team 汇总调用失败，系统未切换备用模型。",
+                        "reason_code": exc.code,
+                        "provider_route_receipts": receipt,
+                    }
+                )
+                return
+            receipt = managed_run.finish("passed")
+            yield sse_payload(
+                {
+                    "event": "team_end",
+                    "final_output": final_output,
+                    "agent_outputs": prior_outputs,
+                    "provider_route_receipts": receipt,
+                }
+            )
+            return
 
         prior_outputs: list[dict[str, str]] = []
         try:
@@ -25547,28 +25879,9 @@ async def team_chat(payload: TeamChatRequest, request: Request):
                         "task": task,
                     }
                 )
-                if payload.mode == "debate":
-                    user_prompt = (
-                        f"团队任务：{payload.message}\n\n"
-                        f"你的独立发言任务：{task}\n"
-                        "请先给出你的专业判断，不要假设你已看到其他专家的意见。"
-                    )
-                else:
-                    previous = "\n\n".join(
-                        f"### {item['agent_name']} 的上一棒意见\n{item['output']}"
-                        for item in prior_outputs
-                    )
-                    user_prompt = (
-                        f"团队总任务：{payload.message}\n\n"
-                        f"你的接力任务：{task}\n\n"
-                        f"前序专家输出：\n{previous or '暂无，你是第一棒。'}\n\n"
-                        "请基于自己的专业角色补充、纠偏并推进到下一步。"
-                    )
-
-                messages = [
-                    agent_system_message(agent, task),
-                    ChatMessage(role="user", content=user_prompt),
-                ]
+                messages = team_member_chat_messages(
+                    payload, agent, task, prior_outputs
+                )
                 output = ""
                 async for delta in stream_text_with_model_fallback(
                     payload.model_id,
@@ -25609,27 +25922,7 @@ async def team_chat(payload: TeamChatRequest, request: Request):
                     }
                 )
 
-            summary_prompt = "\n\n".join(
-                f"### {item['agent_name']}（{item['department']}）\n{item['output']}"
-                for item in prior_outputs
-            )
-            summary_messages = [
-                ChatMessage(
-                    role="system",
-                    content=(
-                        "你是模镜专家团的项目经理。请整合多个专家的意见，"
-                        "输出一份可执行、去重、分优先级的最终方案。"
-                    ),
-                ),
-                ChatMessage(
-                    role="user",
-                    content=(
-                        f"用户任务：{payload.message}\n\n"
-                        f"专家意见如下：\n{summary_prompt}\n\n"
-                        "请给出团队综合意见、执行清单、风险提醒和下一步建议。"
-                    ),
-                ),
-            ]
+            summary_messages = team_summary_chat_messages(payload, prior_outputs)
             final_output = ""
             yield sse_payload(
                 {

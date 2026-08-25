@@ -6,6 +6,7 @@ import {
   recommendedChatModels,
   searchableFusionModels,
   validateAgencyHitlPlan,
+  workloadReceiptFromEvent,
 } from "./ExpertTeamPage";
 
 function expert(
@@ -101,6 +102,38 @@ describe("ExpertTeamPage model selection", () => {
         provider_route_receipts: { entry_id: "fusion", prompt: "secret" },
       }),
     ).toBeNull();
+  });
+
+  it("accepts only the expected Route Agent or Team Chat receipt", () => {
+    const event = {
+      event: "team_end",
+      provider_route_receipts: {
+        contract_version: "modelmirror-provider-workload-routing-v1",
+        entry_id: "team_chat",
+        routing_mode: "managed_required",
+        run_reference: "workrun-team",
+        status: "passed",
+        call_count: 3,
+        reason_codes: [],
+        calls: [
+          {
+            call_sequence: 1,
+            model_id: "provider/model",
+            dispatched: true,
+            status: "passed",
+          },
+        ],
+        connection_id: "must-be-discarded",
+        prompt: "must-be-discarded",
+      },
+    };
+
+    const receipt = workloadReceiptFromEvent(event, "team_chat");
+    expect(receipt?.entry_id).toBe("team_chat");
+    expect(receipt?.call_count).toBe(3);
+    expect(receipt && "connection_id" in receipt).toBe(false);
+    expect(receipt && "prompt" in receipt).toBe(false);
+    expect(workloadReceiptFromEvent(event, "route_agent")).toBeNull();
   });
 
   it("does not promise an automatic Fusion fallback in shared page copy", () => {

@@ -163,7 +163,12 @@ export interface ProviderRouteCallReceipt {
 
 export interface ProviderRouteReceipt {
   contract_version: "modelmirror-provider-workload-routing-v1";
-  entry_id: "expert_team_planner" | "expert_team_dag" | "fusion";
+  entry_id:
+    | "expert_team_planner"
+    | "expert_team_dag"
+    | "fusion"
+    | "route_agent"
+    | "team_chat";
   routing_mode: "managed_required";
   run_reference: string;
   status: "running" | "passed" | "failed" | "uncertain" | "cancelled";
