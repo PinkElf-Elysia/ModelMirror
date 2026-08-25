@@ -42,6 +42,7 @@ DOCUMENT_KINDS = frozenset(
 RESOURCE_METADATA_RE = re.compile(
     r'(?:^|[\s,])resource_metadata="([^"\\]{1,4096})"', re.IGNORECASE
 )
+SCOPE_RE = re.compile(r'(?:^|[\s,])scope="([^"\\]{1,2048})"', re.IGNORECASE)
 PKCE_VERIFIER_RE = re.compile(r"^[A-Za-z0-9._~-]{43,128}$")
 
 
@@ -62,12 +63,12 @@ def _contract(
     return url, host, capability
 
 
-def _resource_metadata(header: str) -> str:
+def _bearer_challenge(header: str) -> tuple[str, tuple[str, ...]]:
     if not header or len(header) > 8192 or "\r" in header or "\n" in header:
-        return ""
+        return "", ()
     value = header.strip()
     if re.match(r"^Bearer(?:\s|$)", value, re.IGNORECASE) is None:
-        return ""
+        return "", ()
     # Be deliberately conservative: once another authentication challenge
     # begins, a resource_metadata parameter can no longer be attributed to the
     # single Bearer challenge without a full RFC 9110 parser.
@@ -78,7 +79,31 @@ def _resource_metadata(header: str) -> str:
     matches = RESOURCE_METADATA_RE.findall(value)
     if len(matches) > 1:
         raise HubSidecarError("mcp_remote_oauth_challenge_ambiguous")
-    return matches[0] if matches else ""
+    scope_matches = SCOPE_RE.findall(value)
+    if len(scope_matches) > 1:
+        raise HubSidecarError("mcp_remote_oauth_challenge_ambiguous")
+    scopes: tuple[str, ...] = ()
+    if scope_matches:
+        values = tuple(scope_matches[0].split())
+        if (
+            not values
+            or len(values) > 20
+            or len(set(values)) != len(values)
+            or any(
+                len(item) > 200
+                or any(ord(char) < 0x21 or ord(char) == 0x7F for char in item)
+                for item in values
+            )
+        ):
+            raise HubSidecarError("mcp_remote_oauth_challenge_ambiguous")
+        scopes = tuple(sorted(values))
+    return (matches[0] if matches else ""), scopes
+
+
+def _resource_metadata(header: str) -> str:
+    """Backward-compatible pure parser used by the sidecar regression harness."""
+
+    return _bearer_challenge(header)[0]
 
 
 async def _bounded_body(response: httpx.Response) -> bytes:
@@ -184,9 +209,15 @@ class OAuthMetadataService:
                     if response.status_code == 401
                     else ""
                 )
+                bearer_challenge = bool(
+                    re.match(r"^Bearer(?:\s|$)", challenge.strip(), re.IGNORECASE)
+                )
+                metadata_url, challenge_scopes = _bearer_challenge(challenge)
                 return {
                     "status_class": f"{response.status_code // 100}xx",
-                    "resource_metadata_url": _resource_metadata(challenge),
+                    "bearer_challenge": bearer_challenge,
+                    "resource_metadata_url": metadata_url,
+                    "challenge_scopes": list(challenge_scopes),
                 }
         except HubSidecarError:
             raise
@@ -248,6 +279,7 @@ class OAuthMetadataService:
             "token_endpoint_auth_method",
             "grant_types",
             "response_types",
+            "application_type",
             "client_name",
         }:
             raise HubSidecarError("mcp_remote_oauth_registration_invalid")
@@ -255,6 +287,7 @@ class OAuthMetadataService:
             request_body.get("token_endpoint_auth_method") != "none"
             or request_body.get("grant_types") != ["authorization_code"]
             or request_body.get("response_types") != ["code"]
+            or request_body.get("application_type") != "native"
             or request_body.get("client_name")
             != "ModelMirror local MCP OAuth"
             or not isinstance(request_body.get("redirect_uris"), list)
@@ -318,6 +351,7 @@ class OAuthMetadataService:
                 or document.get("token_endpoint_auth_method") != "none"
                 or document.get("grant_types") != ["authorization_code"]
                 or document.get("response_types") != ["code"]
+                or document.get("application_type", "native") != "native"
             ):
                 raise HubSidecarError(
                     "mcp_remote_oauth_registration_unknown_outcome"
@@ -357,6 +391,7 @@ class OAuthMetadataService:
                 "client_id",
                 "redirect_uri",
                 "code_verifier",
+                "resource",
             }
             if (
                 set(request_body) != expected
@@ -370,7 +405,7 @@ class OAuthMetadataService:
                 raise HubSidecarError("mcp_remote_oauth_token_request_invalid")
             secret_fields = ("code", "code_verifier")
         elif action == "refresh_access_token":
-            expected = {"grant_type", "refresh_token", "client_id"}
+            expected = {"grant_type", "refresh_token", "client_id", "resource"}
             if (
                 set(request_body) != expected
                 or request_body.get("grant_type") != "refresh_token"
@@ -390,6 +425,14 @@ class OAuthMetadataService:
             ):
                 raise HubSidecarError("mcp_remote_oauth_token_request_invalid")
             normalized[key] = value
+        try:
+            normalized_resource, _resource_host = _normalize_target(
+                normalized["resource"]
+            )
+        except HubSidecarError as exc:
+            raise HubSidecarError("mcp_remote_oauth_token_request_invalid") from exc
+        if normalized_resource != normalized["resource"]:
+            raise HubSidecarError("mcp_remote_oauth_token_request_invalid")
         if any(len(normalized[key]) > 4096 for key in expected - set(secret_fields)):
             raise HubSidecarError("mcp_remote_oauth_token_request_invalid")
         if len(_json_bytes(normalized)) > 48 * 1024:

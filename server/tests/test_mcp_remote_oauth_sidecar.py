@@ -52,6 +52,9 @@ def test_www_authenticate_parser_returns_only_one_fixed_metadata_hint() -> None:
         'Bearer realm="mcp", resource_metadata="https://mcp.example.com/meta"'
     ) == "https://mcp.example.com/meta"
     assert oauth_server._resource_metadata("Bearer realm=\"mcp\"") == ""
+    assert oauth_server._bearer_challenge(
+        'Bearer scope="mcp:read profile", resource_metadata="https://mcp.example.com/meta"'
+    ) == ("https://mcp.example.com/meta", ("mcp:read", "profile"))
     assert oauth_server._resource_metadata(
         'Basic resource_metadata="https://mcp.example.com/meta"'
     ) == ""
@@ -113,7 +116,58 @@ async def test_probe_uses_www_authenticate_hint_only_for_401(
     result = await service.probe_resource(
         "https://mcp.example.com/mcp", "mcp.example.com", "a" * 64
     )
-    assert result == {"status_class": "2xx", "resource_metadata_url": ""}
+    assert result == {
+        "status_class": "2xx",
+        "bearer_challenge": False,
+        "resource_metadata_url": "",
+        "challenge_scopes": [],
+    }
+
+
+@pytest.mark.asyncio
+async def test_probe_marks_only_a_401_bearer_challenge(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Proxy:
+        async def close(self) -> None:
+            pass
+
+    class Response:
+        status_code = 401
+        headers = {
+            "www-authenticate": (
+                'Bearer resource_metadata="https://mcp.example.com/meta", '
+                'scope="mcp:read"'
+            )
+        }
+
+    class Stream:
+        async def __aenter__(self) -> Response:
+            return Response()
+
+        async def __aexit__(self, *_args: Any) -> None:
+            pass
+
+    class Client:
+        def stream(self, *_args: Any, **_kwargs: Any) -> Stream:
+            return Stream()
+
+        async def aclose(self) -> None:
+            pass
+
+    service = oauth_server.OAuthMetadataService()
+
+    async def fake_client(*_args: Any) -> tuple[Proxy, Client]:
+        return Proxy(), Client()
+
+    monkeypatch.setattr(service, "_client", fake_client)
+    result = await service.probe_resource(
+        "https://mcp.example.com/mcp", "mcp.example.com", "a" * 64
+    )
+
+    assert result["bearer_challenge"] is True
+    assert result["resource_metadata_url"] == "https://mcp.example.com/meta"
+    assert result["challenge_scopes"] == ["mcp:read"]
 
 
 @pytest.mark.asyncio
@@ -129,6 +183,7 @@ async def test_dynamic_registration_contract_rejects_arbitrary_payload_before_ne
                 "token_endpoint_auth_method": "client_secret_post",
                 "grant_types": ["authorization_code"],
                 "response_types": ["code"],
+                "application_type": "native",
                 "client_name": "ModelMirror local MCP OAuth",
             },
         )
@@ -196,6 +251,7 @@ async def test_dynamic_registration_unknown_outcome_is_never_retried(
                 "token_endpoint_auth_method": "none",
                 "grant_types": ["authorization_code"],
                 "response_types": ["code"],
+                "application_type": "native",
                 "client_name": "ModelMirror local MCP OAuth",
             },
         )
@@ -250,6 +306,7 @@ async def test_dynamic_registration_marks_confidential_response_without_returnin
             "token_endpoint_auth_method": "none",
             "grant_types": ["authorization_code"],
             "response_types": ["code"],
+            "application_type": "native",
             "client_name": "ModelMirror local MCP OAuth",
         },
     )
@@ -266,6 +323,7 @@ async def test_token_exchange_contract_rejects_arbitrary_header_and_client_secre
         "client_id": "public-client",
         "redirect_uri": "http://127.0.0.1:8765/oauth/callback",
         "code_verifier": "v" * 64,
+        "resource": "https://mcp.example.com/mcp",
     }
     for injected in (
         {**valid, "client_secret": "secret"},
@@ -336,6 +394,7 @@ async def test_token_exchange_dispatches_once_and_projects_bounded_response(
             "client_id": "public-client",
             "redirect_uri": "http://127.0.0.1:8765/oauth/callback",
             "code_verifier": "v" * 64,
+            "resource": "https://mcp.example.com/mcp",
         },
     )
     assert calls == [
@@ -345,6 +404,7 @@ async def test_token_exchange_dispatches_once_and_projects_bounded_response(
             "client_id": "public-client",
             "redirect_uri": "http://127.0.0.1:8765/oauth/callback",
             "code_verifier": "v" * 64,
+            "resource": "https://mcp.example.com/mcp",
         }
     ]
     assert result == {
@@ -401,6 +461,7 @@ async def test_refresh_timeout_is_unknown_outcome_and_never_retried(
                 "grant_type": "refresh_token",
                 "refresh_token": "refresh",
                 "client_id": "public-client",
+                "resource": "https://mcp.example.com/mcp",
             },
         )
     assert unknown.value.code == "mcp_remote_oauth_refresh_unknown_outcome"
@@ -473,6 +534,7 @@ async def test_dynamic_registration_post_dispatch_validation_is_unknown_outcome(
                 "token_endpoint_auth_method": "none",
                 "grant_types": ["authorization_code"],
                 "response_types": ["code"],
+                "application_type": "native",
                 "client_name": "ModelMirror local MCP OAuth",
             },
         )
@@ -523,6 +585,7 @@ async def test_dynamic_registration_treats_empty_secret_fields_as_confidential(
             "token_endpoint_auth_method": "none",
             "grant_types": ["authorization_code"],
             "response_types": ["code"],
+            "application_type": "native",
             "client_name": "ModelMirror local MCP OAuth",
         },
     )

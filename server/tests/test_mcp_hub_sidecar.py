@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import ipaddress
 from pathlib import Path
 from types import SimpleNamespace
@@ -85,13 +86,26 @@ class Initialized:
         self.capabilities = Capabilities(value)
 
 
-def test_only_static_tools_capability_is_accepted() -> None:
-    hub_server.HubRemoteService._validate_capabilities(Initialized({"tools": {}}))
+def test_only_static_tool_surface_is_accepted() -> None:
+    for accepted in (
+        {"tools": {}},
+        {"prompts": {}, "resources": {}, "tools": {}},
+        {
+            "prompts": {"listChanged": True},
+            "resources": {"listChanged": True, "subscribe": False},
+            "tools": {"listChanged": True},
+        },
+    ):
+        hub_server.HubRemoteService._validate_capabilities(Initialized(accepted))
     for denied in (
-        {"resources": {}, "tools": {}},
-        {"prompts": {}, "tools": {}},
         {"sampling": {}, "tools": {}},
-        {"tools": {"listChanged": True}},
+        {"logging": {}, "tools": {}},
+        {"prompts": {"unexpected": False}, "tools": {}},
+        {"prompts": {"listChanged": "true"}, "tools": {}},
+        {"resources": {"subscribe": True}, "tools": {}},
+        {"resources": [], "tools": {}},
+        {"tools": {"listChanged": "true"}},
+        {"tools": {"unexpected": False}},
         {},
     ):
         with pytest.raises(hub_server.HubSidecarError):
@@ -221,6 +235,117 @@ async def test_remote_auth_envelope_is_scope_bound_and_cleared_on_close(
                 dict(envelope, header_name=denied_header),
             )
         assert denied_control.value.code == "mcp_remote_auth_policy_ineligible"
+
+
+@pytest.mark.asyncio
+async def test_oauth_review_envelope_is_strict_resource_bound_and_cleared(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = hub_server.HubRemoteService()
+    observed: list[tuple[str, str] | None] = []
+
+    async def exchange(*_args: Any, **kwargs: Any) -> Any:
+        observed.append(kwargs.get("auth_header"))
+        return [{"name": "search", "input_schema": {"type": "object"}}], None
+
+    monkeypatch.setattr(service, "_exchange", exchange)
+    candidate_id = "mcphub_" + "5" * 32
+    envelope = {
+        "auth_mode": "oauth_authorization_code_pkce",
+        "header_value": "Bearer oauth-sidecar-secret",
+        "origin": "https://mcp.example.com",
+        "policy_fingerprint": "1" * 64,
+        "protocol_version": "2025-11-25",
+        "resource_digest": hashlib.sha256(
+            "https://mcp.example.com/mcp".encode()
+        ).hexdigest(),
+        "scope_digest": "3" * 64,
+        "target_id": candidate_id,
+        "token_revision_digest": "4" * 64,
+    }
+    opened = await service.open(
+        candidate_id,
+        "https://mcp.example.com/mcp",
+        "a" * 64,
+        f"hub:local:local:{candidate_id}",
+        envelope,
+    )
+    session = service.sessions[opened["session_id"]]
+    assert observed == [("Authorization", "Bearer oauth-sidecar-secret")]
+    assert session.auth_context_digest == hashlib.sha256(
+        ":".join(
+            (
+                "1" * 64,
+                envelope["resource_digest"],
+                "3" * 64,
+                "4" * 64,
+            )
+        ).encode("ascii")
+    ).hexdigest()
+    assert "oauth-sidecar-secret" not in repr(session)
+    await service.close(opened["session_id"])
+    assert session.auth_header_value == ""
+
+    for tampered in (
+        {**envelope, "resource_digest": "bad"},
+        {**envelope, "resource_digest": "2" * 64},
+        {**envelope, "protocol_version": "2026-07-28"},
+        {**envelope, "origin": "https://attacker.example"},
+        {**envelope, "header_name": "Authorization"},
+    ):
+        with pytest.raises(hub_server.HubSidecarError):
+            await service.open(
+                candidate_id,
+                "https://mcp.example.com/mcp",
+                "a" * 64,
+                f"hub:local:local:{candidate_id}",
+                tampered,
+            )
+
+
+@pytest.mark.asyncio
+async def test_declared_tool_changes_still_fail_closed_and_clear_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = hub_server.HubRemoteService()
+    tools = [{"name": "search", "input_schema": {"type": "object"}}]
+    exchange_count = 0
+
+    async def exchange(*_args: Any, **kwargs: Any) -> Any:
+        nonlocal exchange_count
+        exchange_count += 1
+        if kwargs.get("tool_name"):
+            raise hub_server.HubSidecarError("hub_schema_drift")
+        return tools, None
+
+    monkeypatch.setattr(service, "_exchange", exchange)
+    candidate_id = "mcphub_" + "6" * 32
+    envelope = {
+        "binding_id": "mcpra_" + "7" * 32,
+        "binding_revision": 1,
+        "header_name": "Authorization",
+        "header_value": "Bearer drift-test-secret",
+        "origin": "https://mcp.example.com",
+        "policy_fingerprint": "8" * 64,
+        "target_id": candidate_id,
+    }
+    opened = await service.open(
+        candidate_id,
+        "https://mcp.example.com/mcp",
+        "a" * 64,
+        f"hub:local:local:{candidate_id}",
+        envelope,
+    )
+    session_id = opened["session_id"]
+    session = service.sessions[session_id]
+
+    with pytest.raises(hub_server.HubSidecarError) as drifted:
+        await service.call(session_id, "search", {})
+
+    assert drifted.value.code == "hub_schema_drift"
+    assert exchange_count == 2
+    assert session_id not in service.sessions
+    assert session.auth_header_value == ""
 
 
 @pytest.mark.asyncio

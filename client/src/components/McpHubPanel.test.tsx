@@ -32,6 +32,7 @@ describe("McpHubPanel", () => {
 
     expect(await screen.findByText(/功能开关默认关闭/)).toBeVisible();
     expect(screen.getByText(/Registry 收录不代表安全认证/)).toBeVisible();
+    expect(screen.getByText(/R3A 可完成 OAuth 复核与 V3 契约发布/)).toBeVisible();
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -330,6 +331,11 @@ describe("McpHubPanel", () => {
         pkce_method: "S256",
         scopes_supported: ["mcp:read"],
         policy_fingerprint: "e".repeat(64),
+        scope_source: "protected_resource_metadata",
+        recommended_scopes: ["mcp:read"],
+        recommended_scope_digest: "2".repeat(64),
+        offline_access_available: false,
+        protocol_version: "2025-11-25",
       } : null,
       registration: registered ? {
         registration_id: "mcpoauthreg_" + "f".repeat(32),
@@ -338,12 +344,16 @@ describe("McpHubPanel", () => {
         revision: 1,
         status: "active",
         discovery_fingerprint: discoveryFingerprint,
+        registration_digest: "3".repeat(64),
       } : null,
       authorization_session: authorizationPending ? {
         session_id: "mcpoauthsession_" + "1".repeat(32),
         status: "pending",
         scopes: ["mcp:read"],
         scope_digest: "2".repeat(64),
+        scope_source: "protected_resource_metadata",
+        resource_bound: true,
+        request_refresh_token: false,
         error_code: "",
         token_id: "",
         created_at: 1,
@@ -352,6 +362,10 @@ describe("McpHubPanel", () => {
       token: null,
       authorization_enabled: true,
       token_storage_enabled: true,
+      review_enabled: true,
+      runtime_enabled: false,
+      remote_revocation_enabled: false,
+      runtime_eligible: false,
       local_single_owner_warning: true,
     });
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -372,6 +386,9 @@ describe("McpHubPanel", () => {
           supported_registration_modes: ["pre_registered"],
           authorization_enabled: true,
           token_storage_enabled: true,
+          review_enabled: true,
+          runtime_enabled: false,
+          remote_revocation_enabled: false,
           multi_tenant: false,
         });
       }
@@ -400,12 +417,13 @@ describe("McpHubPanel", () => {
 
     const card = (await screen.findByText("io.example/oauth")).closest("article");
     expect(card).not.toBeNull();
-    expect(within(card!).getByText(/可创建一次性授权、接收固定回调并加密保存 Token/)).toBeVisible();
+    expect(within(card!).getByText(/可进入 Review Factory 并发布 V3 契约/)).toBeVisible();
     expect(within(card!).getByRole("button", { name: "安全预检" })).toBeDisabled();
     fireEvent.click(within(card!).getByRole("button", { name: "检查并冻结 OAuth 元数据" }));
 
     expect(await within(card!).findByText(/Issuer：https:\/\/auth.example.com\//)).toBeVisible();
     expect(within(card!).getByText(/PKCE：S256/)).toBeVisible();
+    expect(within(card!).getByRole("button", { name: "重新发现 OAuth 元数据" })).toBeVisible();
     expect(within(card!).getByRole("button", { name: "安全预检" })).toBeDisabled();
     expect(within(card!).getByRole("button", { name: "激活" })).toBeDisabled();
     const discoverCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith("/oauth/discover"));
@@ -427,7 +445,6 @@ describe("McpHubPanel", () => {
       client_id: "operator-public-client",
     });
     expect(JSON.stringify(JSON.parse(String((registrationCall?.[1] as RequestInit).body)))).not.toContain("client_secret");
-    fireEvent.click(within(card!).getByRole("checkbox", { name: "mcp:read" }));
     fireEvent.click(within(card!).getByRole("button", { name: "创建授权链接" }));
     const authorizationLink = await within(card!).findByRole("link", { name: "打开授权页面" });
     expect(authorizationLink).toHaveAttribute("href", "https://auth.example.com/authorize?state=server-owned");
@@ -437,8 +454,9 @@ describe("McpHubPanel", () => {
     ));
     expect(JSON.parse(String((authorizationCall?.[1] as RequestInit).body))).toEqual({
       expected_discovery_fingerprint: discoveryFingerprint,
-      expected_registration_revision: 1,
-      scopes: ["mcp:read"],
+      expected_registration_digest: "3".repeat(64),
+      expected_scope_digest: "2".repeat(64),
+      request_refresh_token: false,
     });
     expect(String((authorizationCall?.[1] as RequestInit).body)).not.toMatch(/code|verifier|token_endpoint|client_id/);
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes("callback"))).toBe(false);
@@ -725,6 +743,7 @@ describe("McpHubPanel", () => {
         return json({
           enabled: true,
           local_publish_enabled: false,
+          oauth_review_enabled: false,
           signing_key_configured: false,
           sop_version: "anonymous_https_tools_v1",
           max_batch_size: 20,

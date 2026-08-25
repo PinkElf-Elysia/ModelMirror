@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
+import time
+from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -21,22 +25,28 @@ from server.mcp.hub_contracts import (
     HubContractRegistry,
     HubReviewedContractV1,
     HubReviewedContractV2,
+    HubReviewedContractV3,
+    canonical_digest,
     contract_export,
     contract_signature,
     normalize_contract,
     stable_contract_id,
 )
-from server.mcp.remote_auth import RemoteAuthPolicyV1
+from server.mcp.remote_auth import RemoteAuthPolicyV1, SubjectScopeV1
+from server.mcp.remote_oauth import MCP_PROTOCOL_VERSION, RemoteOAuthPolicyV2
+from server.mcp.remote_oauth_authorization import RemoteOAuthExecutionMetadataV1
 from server.mcp.remote_auth import (
     LocalSubjectScopeResolver,
     MCPRemoteAuthBroker,
     MCPRemoteAuthStore,
 )
 from server.toolsets.credentials import CredentialStore
+from server.xpert_runtime.hub_toolset import HubMCPToolsetProvider
 from server.mcp.hub_review import (
     MCPHubReviewService,
     MCPHubReviewStore,
     configure_mcp_hub_review,
+    assess_oauth_scopes,
     deterministic_arguments,
     router as review_router,
 )
@@ -87,6 +97,21 @@ def registry_entry(
             }
         },
     }
+
+
+def oauth_registry_entry() -> dict[str, Any]:
+    value = registry_entry(
+        name="io.example/oauth-review",
+        url="https://oauth-review.example.com/mcp",
+    )
+    value["server"]["remotes"][0]["headers"] = [
+        {
+            "name": "Authorization",
+            "description": "OAuth bearer token",
+            "isSecret": True,
+        }
+    ]
+    return value
 
 
 class FakeBridge:
@@ -334,6 +359,60 @@ def test_v2_contract_freezes_auth_policy_without_changing_v1_loader() -> None:
     assert changed.contract_fingerprint != v2.contract_fingerprint
 
 
+def test_v3_contract_freezes_resource_scope_and_protocol_without_local_ids() -> None:
+    remote_url = "https://oauth-review.example/mcp"
+    policy_fields = {
+        "schema_version": "remote-oauth-policy-v2",
+        "mode": "oauth_authorization_code_pkce",
+        "protocol_version": MCP_PROTOCOL_VERSION,
+        "resource_uri": remote_url,
+        "origin": "https://oauth-review.example",
+        "remote_url_digest": hashlib.sha256(remote_url.encode()).hexdigest(),
+        "protected_resource_metadata_url": "https://oauth-review.example/.well-known/oauth-protected-resource/mcp",
+        "protected_resource_metadata_digest": "1" * 64,
+        "issuer": "https://auth.example/",
+        "authorization_server_metadata_url": "https://auth.example/.well-known/oauth-authorization-server",
+        "authorization_server_metadata_digest": "2" * 64,
+        "authorization_endpoint": "https://auth.example/authorize",
+        "token_endpoint": "https://auth.example/token",
+        "registration_endpoint": "",
+        "revocation_endpoint": "https://auth.example/revoke",
+        "client_id_metadata_document_supported": True,
+        "scopes_supported": ("mcp:read",),
+        "scope_source": "protected_resource_metadata",
+        "recommended_scopes": ("mcp:read",),
+        "recommended_scope_digest": canonical_digest(["mcp:read"]),
+        "offline_access_available": True,
+    }
+    policy = RemoteOAuthPolicyV2(
+        **policy_fields,
+        policy_fingerprint=canonical_digest(policy_fields),
+    )
+    contract = HubReviewedContractV3(
+        contract_id=stable_contract_id("io.example/oauth", "1.0.0", remote_url),
+        server_name="io.example/oauth",
+        version="1.0.0",
+        remote_url=remote_url,
+        origin=policy.origin,
+        source_digest="3" * 64,
+        schema_digest="4" * 64,
+        tool_schema_digests={"search": "5" * 64},
+        allowed_tools=["search"],
+        tool_effects={"search": "read"},
+        limits={"max_concurrency": 1},
+        evidence_digest="6" * 64,
+        remote_oauth_policy=policy,
+        authorized_scopes=("mcp:read",),
+        authorized_scope_digest=canonical_digest(["mcp:read"]),
+    )
+    loaded = normalize_contract(json.loads(contract_export(contract)))
+    assert isinstance(loaded, HubReviewedContractV3)
+    assert loaded.protocol_version == MCP_PROTOCOL_VERSION
+    exported = contract_export(contract).decode("utf-8")
+    for forbidden in ('"token_id"', '"credential_id"', '"client_id"', "callback"):
+        assert forbidden not in exported
+
+
 @pytest.mark.asyncio
 async def test_static_token_sop_requires_binding_and_publishes_v2_contract(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -454,7 +533,187 @@ async def test_static_token_sop_requires_binding_and_publishes_v2_contract(
     assert bridge.auth_envelopes
     assert all(envelope["target_id"] == candidate["candidate_id"] for envelope in bridge.auth_envelopes)
 
+
+@pytest.mark.asyncio
+async def test_oauth_sop_publishes_v3_but_runtime_remains_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MCP_REMOTE_OAUTH_REVIEW_ENABLED", "true")
+    normalized = normalize_registry_entry(oauth_registry_entry())
+    remote = normalized["remotes"][0]
+    hub_store = MCPHubStore(tmp_path / "hub")
+    hub_store.replace_snapshot("oauth_seed", [normalized], '"seed"')
+    bridge = FakeBridge()
+    hub = MCPHubService(
+        hub_store,
+        tenant_id="local",
+        owner_id="local",
+        bridge=bridge,
+        reviewed_contracts=None,
+    )
+    policy_fields = {
+        "schema_version": "remote-oauth-policy-v2",
+        "mode": "oauth_authorization_code_pkce",
+        "protocol_version": MCP_PROTOCOL_VERSION,
+        "resource_uri": remote["url"],
+        "origin": remote["origin"],
+        "remote_url_digest": hashlib.sha256(remote["url"].encode()).hexdigest(),
+        "protected_resource_metadata_url": "https://oauth-review.example.com/.well-known/oauth-protected-resource/mcp",
+        "protected_resource_metadata_digest": "1" * 64,
+        "issuer": "https://auth.example/",
+        "authorization_server_metadata_url": "https://auth.example/.well-known/oauth-authorization-server",
+        "authorization_server_metadata_digest": "2" * 64,
+        "authorization_endpoint": "https://auth.example/authorize",
+        "token_endpoint": "https://auth.example/token",
+        "registration_endpoint": "",
+        "revocation_endpoint": "https://auth.example/revoke",
+        "client_id_metadata_document_supported": True,
+        "scopes_supported": ("mcp:read",),
+        "scope_source": "protected_resource_metadata",
+        "recommended_scopes": ("mcp:read",),
+        "recommended_scope_digest": canonical_digest(["mcp:read"]),
+        "offline_access_available": True,
+    }
+    policy = RemoteOAuthPolicyV2(
+        **policy_fields,
+        policy_fingerprint=canonical_digest(policy_fields),
+    )
+
+    class Authorization:
+        subject_resolver = SimpleNamespace(
+            resolve=lambda: SubjectScopeV1(
+                tenant_id="local", owner_id="local", mode="local-single-owner"
+            )
+        )
+        token_revision_digest = "5" * 64
+
+        def execution_metadata(self, **kwargs: Any) -> RemoteOAuthExecutionMetadataV1:
+            return RemoteOAuthExecutionMetadataV1(
+                target_type="hub_candidate",
+                target_id=kwargs["target_id"],
+                origin=policy.origin,
+                resource_uri=policy.resource_uri,
+                resource_digest=hashlib.sha256(policy.resource_uri.encode()).hexdigest(),
+                policy_fingerprint=policy.policy_fingerprint,
+                discovery_fingerprint="3" * 64,
+                registration_digest="4" * 64,
+                scope_source=policy.scope_source,
+                scopes=("mcp:read",),
+                scope_digest=canonical_digest(["mcp:read"]),
+                token_revision_digest=self.token_revision_digest,
+                expires_at=time.time() + 600,
+            )
+
+        @contextmanager
+        def resolve_for_execution(self, **_kwargs: Any) -> Any:
+            envelope = SimpleNamespace(authorization_value="Bearer oauth-test-secret")
+            try:
+                yield envelope
+            finally:
+                envelope.authorization_value = ""
+
+    class OAuthMetadataStore:
+        @staticmethod
+        def active_discovery(**_kwargs: Any) -> Any:
+            return SimpleNamespace(policy=policy)
+
+    oauth = SimpleNamespace(
+        authorization_service=Authorization(),
+        subject_resolver=Authorization.subject_resolver,
+        store=OAuthMetadataStore(),
+    )
+    hub.set_remote_oauth(oauth)
+    review = MCPHubReviewService(
+        hub,
+        MCPHubReviewStore(hub_store),
+        signing_key="review-signing-key-with-more-than-32-bytes",
+        repository_dir=tmp_path / "contracts",
+    )
+    hub.contract_registry = review.contracts
+    hub.set_review_service(review)
+    run = review.create_run(
+        [{
+            "server_name": normalized["server_name"],
+            "version": normalized["version"],
+            "remote_id": remote["remote_id"],
+        }]
+    )
+    await review._tasks[run["run_id"]]
+    item = review.store.require_run(run["run_id"], "local", "local")["items"][0]
+    assert item["state"] == "awaiting_call_approval"
+    assert item["evidence"]["sop_version"] == "oauth_https_tools_v1"
+    assert "oauth-test-secret" not in json.dumps(item["evidence"])
+    oauth.authorization_service.token_revision_digest = "6" * 64
+    envelope_count = len(bridge.auth_envelopes)
+    with pytest.raises(HubError) as preflight_drifted:
+        await hub.preflight_oauth_review(
+            item["candidate_id"],
+            expected_oauth_context={
+                "policy_fingerprint": item["evidence"]["oauth_policy_fingerprint"],
+                "scope_digest": item["evidence"]["authorized_scope_digest"],
+                "token_revision_digest": item["evidence"]["token_revision_digest"],
+                "resource_digest": item["evidence"]["resource_digest"],
+                "discovery_fingerprint": item["evidence"]["discovery_fingerprint"],
+                "registration_digest": item["evidence"]["registration_digest"],
+            },
+        )
+    assert preflight_drifted.value.code == "mcp_remote_oauth_contract_scope_drift"
+    assert len(bridge.auth_envelopes) == envelope_count
+    with pytest.raises(HubError) as drifted:
+        await review.approve_proposal(
+            run["run_id"],
+            item["item_id"],
+            item["proposal"]["proposal_id"],
+            item["proposal"]["proposal_digest"],
+        )
+    assert drifted.value.code == "mcp_remote_oauth_contract_scope_drift"
+    assert bridge.call_count == 0
+    oauth.authorization_service.token_revision_digest = "5" * 64
+    await review.approve_proposal(
+        run["run_id"],
+        item["item_id"],
+        item["proposal"]["proposal_id"],
+        item["proposal"]["proposal_digest"],
+    )
+    item = review.store.require_item(run["run_id"], item["item_id"], "local", "local")
+    decided = review.decide(
+        run["run_id"],
+        item["item_id"],
+        decision="approve",
+        expected_evidence_digest=item["evidence_digest"],
+        allowed_tools=["search"],
+        tool_effects={"search": "read"},
+    )
+    published = review.publish(
+        run["run_id"], item["item_id"], decided["contract_fingerprint"]
+    )
+    assert published["activation_eligible"] is False
+    assert published["activation_reason"] == "mcp_remote_oauth_runtime_disabled"
+    contract, reason = review.contracts.get_contract(published["contract_id"])
+    assert reason == ""
+    assert isinstance(contract, HubReviewedContractV3)
+    candidate = hub.store.list_candidates("local", "local")[0]
+    assert hub._activation_review(candidate) == (
+        False,
+        "mcp_remote_oauth_runtime_disabled",
+    )
+    with pytest.raises(HubError) as public_preflight:
+        await hub.preflight(candidate["candidate_id"])
+    assert public_preflight.value.code == "mcp_remote_oauth_runtime_disabled"
+    assert bridge.call_count == 1
+    assert await HubMCPToolsetProvider(hub).list_tools() == []
+    assert all(
+        envelope.get("auth_mode") == "oauth_authorization_code_pkce"
+        for envelope in bridge.auth_envelopes
+    )
+
 def test_deterministic_proposal_rejects_sensitive_and_unbounded_schemas() -> None:
+    assert assess_oauth_scopes(("files.read", "account.admin")) == {
+        "classification": "dangerous",
+        "dangerous_scopes": ["account.admin"],
+        "unknown_scopes": [],
+        "read_candidate_scopes": ["files.read"],
+    }
     assert deterministic_arguments(TOOLS[0]["input_schema"]) == {
         "query": "modelmirror-review"
     }

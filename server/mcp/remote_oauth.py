@@ -17,7 +17,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Callable, Literal, Protocol
+from typing import Any, Callable, Literal, Protocol, TypeAlias
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Request
@@ -32,6 +32,8 @@ REGISTRATION_ID_RE = re.compile(r"^mcpoauthreg_[0-9a-f]{32}$")
 MAX_METADATA_BYTES = 64 * 1024
 MAX_SCOPES = 100
 MAX_SCOPE_LENGTH = 200
+MAX_RECOMMENDED_SCOPES = 20
+MCP_PROTOCOL_VERSION = "2025-11-25"
 OAuthTargetType = Literal["hub_candidate", "catalog_project"]
 OAuthRegistrationMode = Literal[
     "pre_registered", "client_id_metadata_document", "dynamic"
@@ -181,6 +183,39 @@ class RemoteOAuthPolicyV1(BaseModel):
     policy_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
+class RemoteOAuthPolicyV2(RemoteOAuthPolicyV1):
+    """Resource-bound policy used by OAuth review contracts.
+
+    The recommended scope set is server-derived.  It never contains a client
+    supplied subset, and ``offline_access`` is represented separately so the
+    operator must opt in explicitly.
+    """
+
+    schema_version: Literal["remote-oauth-policy-v2"] = "remote-oauth-policy-v2"
+    protocol_version: Literal[MCP_PROTOCOL_VERSION] = MCP_PROTOCOL_VERSION
+    scope_source: Literal[
+        "www_authenticate", "protected_resource_metadata", "omitted"
+    ]
+    recommended_scopes: tuple[str, ...] = ()
+    recommended_scope_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    offline_access_available: bool = False
+
+
+RemoteOAuthPolicy: TypeAlias = RemoteOAuthPolicyV1 | RemoteOAuthPolicyV2
+
+
+def _policy_from_json(value: str) -> RemoteOAuthPolicy:
+    try:
+        raw = json.loads(value)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise ValueError("invalid OAuth policy JSON") from exc
+    if not isinstance(raw, dict):
+        raise ValueError("invalid OAuth policy document")
+    if raw.get("schema_version") == "remote-oauth-policy-v2":
+        return RemoteOAuthPolicyV2.model_validate(raw)
+    return RemoteOAuthPolicyV1.model_validate(raw)
+
+
 class RemoteOAuthDiscoverySnapshotV1(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -190,7 +225,7 @@ class RemoteOAuthDiscoverySnapshotV1(BaseModel):
     target_type: OAuthTargetType
     target_id: str
     source_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
-    policy: RemoteOAuthPolicyV1
+    policy: RemoteOAuthPolicyV2 | RemoteOAuthPolicyV1
     discovery_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
     status: Literal["active", "drifted", "blocked"]
     created_at: float = Field(ge=0)
@@ -546,7 +581,7 @@ class MCPRemoteOAuthStore:
         target_type: OAuthTargetType,
         target_id: str,
         source_digest: str,
-        policy: RemoteOAuthPolicyV1,
+        policy: RemoteOAuthPolicy,
     ) -> RemoteOAuthDiscoverySnapshotV1:
         clean_target = _target(target_id)
         if HEX64_RE.fullmatch(source_digest) is None:
@@ -1074,7 +1109,7 @@ class MCPRemoteOAuthStore:
                 target_type=row["target_type"],
                 target_id=row["target_id"],
                 source_digest=row["source_digest"],
-                policy=RemoteOAuthPolicyV1.model_validate_json(row["policy_json"]),
+                policy=_policy_from_json(row["policy_json"]),
                 discovery_fingerprint=row["discovery_fingerprint"],
                 status=row["status"],
                 created_at=float(row["created_at"]),
@@ -1203,6 +1238,9 @@ class MCPRemoteOAuthService:
             "token_storage_enabled": bool(
                 authorization.get("token_storage_enabled")
             ),
+            "review_enabled": bool(authorization.get("review_enabled")),
+            "runtime_enabled": False,
+            "remote_revocation_enabled": False,
             "multi_tenant": False,
         }
 
@@ -1272,6 +1310,7 @@ class MCPRemoteOAuthService:
         target_id: str,
         resource_url: str,
         source_digest: str,
+        require_bearer_challenge: bool = False,
     ) -> RemoteOAuthDiscoverySnapshotV1:
         subject = self._require_operational()
         clean_target = _target(target_id)
@@ -1293,10 +1332,28 @@ class MCPRemoteOAuthService:
                 target_id=clean_target,
             )
             metadata_hint = ""
+            challenge_scopes: tuple[str, ...] = ()
             try:
                 probe = await self.bridge.probe_resource(clean_target, resource)
+                if require_bearer_challenge and not (
+                    probe.get("status_class") == "4xx"
+                    and probe.get("bearer_challenge") is True
+                ):
+                    raise RemoteOAuthError(
+                        "远程端点未返回可归属到当前资源的 Bearer 挑战。",
+                        code="mcp_remote_oauth_bearer_challenge_required",
+                        status_code=409,
+                    )
                 metadata_hint = str(probe.get("resource_metadata_url") or "")
+                raw_challenge_scopes = probe.get("challenge_scopes") or []
+                challenge_scopes = self._validated_scope_values(
+                    raw_challenge_scopes,
+                    field="WWW-Authenticate Scope",
+                    maximum=MAX_RECOMMENDED_SCOPES,
+                )
             except RemoteOAuthError as exc:
+                if require_bearer_challenge:
+                    raise
                 if exc.code not in {
                     "mcp_remote_oauth_probe_unsupported",
                     "mcp_remote_oauth_upstream_http",
@@ -1330,10 +1387,17 @@ class MCPRemoteOAuthService:
                     code="mcp_remote_oauth_authorization_server_ambiguous",
                     status_code=409,
                 )
-            issuer = normalize_oauth_url(servers[0], field="授权服务器 issuer")
+            # The issuer identifier is compared as an exact string by OAuth
+            # mix-up defenses. Validate a normalized copy for network safety,
+            # but freeze the server-declared identifier without inventing a
+            # trailing slash that was not present in either metadata document.
+            issuer = str(servers[0]).strip()
+            issuer_network_url = normalize_oauth_url(
+                issuer, field="授权服务器 issuer"
+            )
             metadata_url, metadata, metadata_digest = await self._first_document(
                 clean_target,
-                _authorization_server_well_known_urls(issuer),
+                _authorization_server_well_known_urls(issuer_network_url),
                 document_kind="authorization_server_metadata",
                 missing_code="mcp_remote_oauth_authorization_metadata_missing",
             )
@@ -1346,6 +1410,7 @@ class MCPRemoteOAuthService:
                 metadata_url=metadata_url,
                 metadata=metadata,
                 metadata_digest=metadata_digest,
+                challenge_scopes=challenge_scopes,
             )
             saved = self.store.save_discovery(
                 subject=subject,
@@ -1413,8 +1478,11 @@ class MCPRemoteOAuthService:
         metadata_url: str,
         metadata: dict[str, Any],
         metadata_digest: str,
-    ) -> RemoteOAuthPolicyV1:
-        if str(metadata.get("issuer") or "") != issuer:
+        challenge_scopes: tuple[str, ...] = (),
+    ) -> RemoteOAuthPolicyV2:
+        metadata_issuer = str(metadata.get("issuer") or "").strip()
+        normalize_oauth_url(metadata_issuer, field="授权服务器 metadata issuer")
+        if metadata_issuer != issuer:
             raise RemoteOAuthError(
                 "授权服务器 metadata issuer 不匹配。",
                 code="mcp_remote_oauth_issuer_mismatch",
@@ -1457,38 +1525,41 @@ class MCPRemoteOAuthService:
             revocation_endpoint = normalize_oauth_url(
                 metadata.get("revocation_endpoint"), field="revocation_endpoint"
             )
-        raw_scopes = protected.get("scopes_supported") or metadata.get(
-            "scopes_supported"
-        ) or []
-        if not isinstance(raw_scopes, list) or len(raw_scopes) > MAX_SCOPES:
-            raise RemoteOAuthError(
-                "OAuth Scope 元数据超出上限。",
-                code="mcp_remote_oauth_metadata_invalid",
-                status_code=409,
-            )
-        scopes = tuple(
-            sorted(
-                {
-                    str(item)
-                    for item in raw_scopes
-                    if isinstance(item, str)
-                    and item
-                    and len(item) <= MAX_SCOPE_LENGTH
-                    and not any(
-                        ord(char) < 0x21 or ord(char) == 0x7F for char in item
-                    )
-                }
-            )
+        protected_scopes = MCPRemoteOAuthService._validated_scope_values(
+            protected.get("scopes_supported") or [],
+            field="Protected Resource Metadata Scope",
+            maximum=MAX_SCOPES,
         )
-        if len(scopes) != len(raw_scopes):
+        server_scopes = MCPRemoteOAuthService._validated_scope_values(
+            metadata.get("scopes_supported") or [],
+            field="Authorization Server Scope",
+            maximum=MAX_SCOPES,
+        )
+        if challenge_scopes:
+            recommended = tuple(
+                scope for scope in challenge_scopes if scope != "offline_access"
+            )
+            scope_source: Literal[
+                "www_authenticate", "protected_resource_metadata", "omitted"
+            ] = "www_authenticate"
+        elif protected_scopes:
+            recommended = tuple(
+                scope for scope in protected_scopes if scope != "offline_access"
+            )
+            scope_source = "protected_resource_metadata"
+        else:
+            recommended = ()
+            scope_source = "omitted"
+        if len(recommended) > MAX_RECOMMENDED_SCOPES:
             raise RemoteOAuthError(
-                "OAuth Scope 元数据无效。",
+                "OAuth 推荐 Scope 超出上限。",
                 code="mcp_remote_oauth_metadata_invalid",
                 status_code=409,
             )
         execution = {
-            "schema_version": "remote-oauth-policy-v1",
+            "schema_version": "remote-oauth-policy-v2",
             "mode": "oauth_authorization_code_pkce",
+            "protocol_version": MCP_PROTOCOL_VERSION,
             "resource_uri": resource,
             "origin": _origin(resource),
             "remote_url_digest": hashlib.sha256(resource.encode()).hexdigest(),
@@ -1504,11 +1575,50 @@ class MCPRemoteOAuthService:
             "client_id_metadata_document_supported": bool(
                 metadata.get("client_id_metadata_document_supported") is True
             ),
-            "scopes_supported": scopes,
+            "scopes_supported": protected_scopes,
+            "scope_source": scope_source,
+            "recommended_scopes": recommended,
+            "recommended_scope_digest": _digest(list(recommended)),
+            "offline_access_available": "offline_access" in server_scopes,
         }
-        return RemoteOAuthPolicyV1(
+        return RemoteOAuthPolicyV2(
             **execution, policy_fingerprint=_digest(execution)
         )
+
+    @staticmethod
+    def _validated_scope_values(
+        value: Any,
+        *,
+        field: str,
+        maximum: int,
+    ) -> tuple[str, ...]:
+        if not isinstance(value, (list, tuple)) or len(value) > maximum:
+            raise RemoteOAuthError(
+                f"{field} 超出上限。",
+                code="mcp_remote_oauth_metadata_invalid",
+                status_code=409,
+            )
+        clean: list[str] = []
+        for item in value:
+            if (
+                not isinstance(item, str)
+                or not item
+                or len(item) > MAX_SCOPE_LENGTH
+                or any(ord(char) < 0x21 or ord(char) == 0x7F for char in item)
+            ):
+                raise RemoteOAuthError(
+                    f"{field} 无效。",
+                    code="mcp_remote_oauth_metadata_invalid",
+                    status_code=409,
+                )
+            clean.append(item)
+        if len(set(clean)) != len(clean):
+            raise RemoteOAuthError(
+                f"{field} 包含重复值。",
+                code="mcp_remote_oauth_metadata_invalid",
+                status_code=409,
+            )
+        return tuple(sorted(clean))
 
     def summary(
         self,
@@ -1546,6 +1656,10 @@ class MCPRemoteOAuthService:
             "token_storage_enabled": bool(
                 authorization.get("token_storage_enabled")
             ),
+            "review_enabled": bool(authorization.get("review_enabled")),
+            "runtime_enabled": False,
+            "remote_revocation_enabled": False,
+            "runtime_eligible": False,
             "local_single_owner_warning": True,
         }
 
@@ -1705,6 +1819,7 @@ class MCPRemoteOAuthService:
                 "token_endpoint_auth_method": "none",
                 "grant_types": ["authorization_code"],
                 "response_types": ["code"],
+                "application_type": "native",
                 "client_name": "ModelMirror local MCP OAuth",
             }
             attempt_id = self.store.start_registration_attempt(
@@ -1917,7 +2032,7 @@ class MCPRemoteOAuthService:
     @staticmethod
     def _public_discovery(value: RemoteOAuthDiscoverySnapshotV1) -> dict[str, Any]:
         policy = value.policy
-        return {
+        output = {
             "discovery_id": value.discovery_id,
             "status": value.status,
             "discovery_fingerprint": value.discovery_fingerprint,
@@ -1933,6 +2048,27 @@ class MCPRemoteOAuthService:
             "scopes_supported": list(policy.scopes_supported),
             "policy_fingerprint": policy.policy_fingerprint,
         }
+        if isinstance(policy, RemoteOAuthPolicyV2):
+            output.update(
+                {
+                    "scope_source": policy.scope_source,
+                    "recommended_scopes": list(policy.recommended_scopes),
+                    "recommended_scope_digest": policy.recommended_scope_digest,
+                    "offline_access_available": policy.offline_access_available,
+                    "protocol_version": policy.protocol_version,
+                }
+            )
+        else:
+            output.update(
+                {
+                    "scope_source": "legacy",
+                    "recommended_scopes": [],
+                    "recommended_scope_digest": _digest([]),
+                    "offline_access_available": False,
+                    "protocol_version": "",
+                }
+            )
+        return output
 
     @staticmethod
     def _public_registration(value: RemoteOAuthClientRegistrationV1) -> dict[str, Any]:
@@ -1943,6 +2079,16 @@ class MCPRemoteOAuthService:
             "revision": value.revision,
             "status": value.status,
             "discovery_fingerprint": value.discovery_fingerprint,
+            "registration_digest": _digest(
+                {
+                    "schema_version": value.schema_version,
+                    "registration_id": value.registration_id,
+                    "revision": value.revision,
+                    "discovery_fingerprint": value.discovery_fingerprint,
+                    "issuer": value.issuer,
+                    "mode": value.mode,
+                }
+            ),
         }
 
 

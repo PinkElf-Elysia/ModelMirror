@@ -1,16 +1,18 @@
-"""R2B local-single-owner OAuth authorization and encrypted token revisions.
+"""R3A local-single-owner OAuth authorization and reviewed execution resolver.
 
 The authorization server and token endpoint are always taken from an active
 R2A discovery snapshot. Client requests cannot supply a URL, Header, client ID,
 tenant, owner, authorization code, verifier, or refresh token to write APIs.
-OAuth tokens remain unavailable to MCP Runtime until a later reviewed-contract
-round explicitly wires resource execution.
+OAuth tokens may be resolved only for the internal Review Factory path. They
+remain unavailable to MCP Runtime until R3B explicitly opens activation.
 """
 
 from __future__ import annotations
 
 import asyncio
 import base64
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 import hashlib
 import html
 import json
@@ -22,7 +24,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Iterator, Literal
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Request
@@ -37,6 +39,8 @@ from .remote_oauth import (
     RemoteOAuthDiscoverySnapshotV1,
     RemoteOAuthError,
     RemoteOAuthBridgeProtocol,
+    RemoteOAuthPolicyV2,
+    MCP_PROTOCOL_VERSION,
 )
 
 
@@ -45,6 +49,7 @@ SESSION_ID_RE = re.compile(r"^mcpoauthsession_[0-9a-f]{32}$")
 TOKEN_ID_RE = re.compile(r"^mcpoauthtoken_[0-9a-f]{32}$")
 STATE_RE = re.compile(r"^[A-Za-z0-9_-]{32,128}$")
 CODE_RE = re.compile(r"^[^\x00-\x20\x7f]{1,4096}$")
+SCOPE_RE = re.compile(r"^[\x21-\x7e]{1,160}$")
 VERIFIER_RE = re.compile(r"^[A-Za-z0-9._~-]{43,128}$")
 MAX_SELECTED_SCOPES = 20
 SESSION_TTL_SECONDS = 10 * 60
@@ -76,30 +81,33 @@ def _challenge(verifier: str) -> str:
     ).decode("ascii").rstrip("=")
 
 
-def _scopes(values: Any, supported: tuple[str, ...]) -> tuple[str, ...]:
-    if not isinstance(values, (list, tuple)):
+def _authorization_scopes(
+    policy: RemoteOAuthPolicyV2,
+    *,
+    expected_scope_digest: str,
+    request_refresh_token: bool,
+) -> tuple[str, ...]:
+    if expected_scope_digest != policy.recommended_scope_digest:
         raise RemoteOAuthError(
-            "OAuth Scope 选择无效。",
+            "OAuth 推荐 Scope 摘要已变化。",
             code="mcp_remote_oauth_scope_invalid",
-            status_code=422,
-        )
-    clean = tuple(sorted({str(item).strip() for item in values if str(item).strip()}))
-    if not supported:
-        raise RemoteOAuthError(
-            "授权服务器未声明可治理的 Scope，R2B 禁止授权。",
-            code="mcp_remote_oauth_scope_unavailable",
             status_code=409,
         )
-    if (
-        not clean
-        or len(clean) > MAX_SELECTED_SCOPES
-        or any(len(item) > 200 or any(ch.isspace() for ch in item) for item in clean)
-        or not set(clean).issubset(supported)
-    ):
+    selected = list(policy.recommended_scopes)
+    if request_refresh_token:
+        if not policy.offline_access_available:
+            raise RemoteOAuthError(
+                "授权服务器未明确声明 offline_access。",
+                code="mcp_remote_oauth_refresh_unavailable",
+                status_code=409,
+            )
+        selected.append("offline_access")
+    clean = tuple(sorted(set(selected)))
+    if len(clean) > MAX_SELECTED_SCOPES:
         raise RemoteOAuthError(
-            "OAuth Scope 必须是授权服务器声明的最小子集。",
+            "OAuth 推荐 Scope 超出上限。",
             code="mcp_remote_oauth_scope_invalid",
-            status_code=422,
+            status_code=409,
         )
     return clean
 
@@ -109,6 +117,7 @@ def _token_payload(
     *,
     requested_scopes: tuple[str, ...],
     previous_refresh_token: str = "",
+    allow_refresh_token: bool = False,
 ) -> tuple[dict[str, str], tuple[str, ...], float | None]:
     if not isinstance(value, dict):
         raise RemoteOAuthError(
@@ -130,7 +139,7 @@ def _token_payload(
             status_code=502,
         )
     access_token = raw_access_token
-    refresh_token = raw_refresh_token
+    refresh_token = raw_refresh_token if allow_refresh_token else ""
     token_type = raw_token_type
     if (
         not access_token
@@ -157,7 +166,17 @@ def _token_payload(
         if raw_scope is None or not str(raw_scope).strip()
         else tuple(sorted(set(str(raw_scope).split())))
     )
-    if not granted or not set(granted).issubset(requested_scopes):
+    if (
+        len(granted) > MAX_SELECTED_SCOPES
+        or len(set(granted)) != len(granted)
+        or any(SCOPE_RE.fullmatch(scope) is None for scope in granted)
+    ):
+        raise RemoteOAuthError(
+            "授权服务器返回了无效 Scope。",
+            code="mcp_remote_oauth_token_response_invalid",
+            status_code=502,
+        )
+    if requested_scopes and not set(granted).issubset(requested_scopes):
         raise RemoteOAuthError(
             "授权服务器返回了未批准的 Scope。",
             code="mcp_remote_oauth_scope_escalation_denied",
@@ -211,6 +230,11 @@ class RemoteOAuthAuthorizationSessionV1(BaseModel):
     token_credential_id: str
     scopes: tuple[str, ...]
     scope_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    scope_source: str = "legacy"
+    resource_uri: str = ""
+    resource_digest: str = ""
+    protocol_version: str = ""
+    request_refresh_token: bool = False
     status: Literal[
         "pending",
         "started",
@@ -242,9 +266,16 @@ class RemoteOAuthTokenRevisionV1(BaseModel):
     revision: int = Field(ge=1)
     scopes: tuple[str, ...]
     scope_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    scope_source: str = "legacy"
+    resource_uri: str = ""
+    resource_digest: str = ""
+    protocol_version: str = ""
+    resource_bound: bool = False
     expires_at: float | None = Field(default=None, ge=0)
     refresh_available: bool
-    status: Literal["active", "revoked", "stale", "unknown_outcome"]
+    status: Literal[
+        "active", "revoked", "stale", "unknown_outcome", "legacy_unbound"
+    ]
     created_at: float = Field(ge=0)
     updated_at: float = Field(ge=0)
     revoked_at: float | None = Field(default=None, ge=0)
@@ -267,6 +298,40 @@ class RemoteOAuthRefreshAttemptV1(BaseModel):
     error_code: str = ""
     created_at: float = Field(ge=0)
     updated_at: float = Field(ge=0)
+
+
+class RemoteOAuthExecutionMetadataV1(BaseModel):
+    """Secret-free, short-lived execution identity for Review Factory.
+
+    This object is safe to persist in bounded evidence.  The corresponding
+    Bearer value is resolved only inside ``resolve_for_execution``.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["remote-oauth-execution-metadata-v1"] = (
+        "remote-oauth-execution-metadata-v1"
+    )
+    target_type: OAuthTargetType
+    target_id: str
+    origin: str
+    resource_uri: str
+    resource_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    policy_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    discovery_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    registration_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    scope_source: str
+    scopes: tuple[str, ...]
+    scope_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    token_revision_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    protocol_version: Literal[MCP_PROTOCOL_VERSION] = MCP_PROTOCOL_VERSION
+    expires_at: float | None = Field(default=None, ge=0)
+
+
+@dataclass
+class RemoteOAuthExecutionEnvelope:
+    metadata: RemoteOAuthExecutionMetadataV1
+    authorization_value: str = field(repr=False)
 
 
 class MCPRemoteOAuthAuthorizationStore:
@@ -304,6 +369,11 @@ class MCPRemoteOAuthAuthorizationStore:
                     token_credential_id TEXT NOT NULL,
                     scopes_json TEXT NOT NULL,
                     scope_digest TEXT NOT NULL,
+                    scope_source TEXT NOT NULL DEFAULT 'legacy',
+                    resource_uri TEXT NOT NULL DEFAULT '',
+                    resource_digest TEXT NOT NULL DEFAULT '',
+                    protocol_version TEXT NOT NULL DEFAULT '',
+                    request_refresh_token INTEGER NOT NULL DEFAULT 0,
                     status TEXT NOT NULL,
                     error_code TEXT NOT NULL,
                     token_id TEXT NOT NULL,
@@ -332,6 +402,11 @@ class MCPRemoteOAuthAuthorizationStore:
                     revision INTEGER NOT NULL,
                     scopes_json TEXT NOT NULL,
                     scope_digest TEXT NOT NULL,
+                    scope_source TEXT NOT NULL DEFAULT 'legacy',
+                    resource_uri TEXT NOT NULL DEFAULT '',
+                    resource_digest TEXT NOT NULL DEFAULT '',
+                    protocol_version TEXT NOT NULL DEFAULT '',
+                    resource_bound INTEGER NOT NULL DEFAULT 0,
                     expires_at REAL,
                     refresh_available INTEGER NOT NULL,
                     status TEXT NOT NULL,
@@ -398,6 +473,54 @@ class MCPRemoteOAuthAuthorizationStore:
                     "ALTER TABLE remote_oauth_authorization_sessions "
                     "ADD COLUMN token_credential_id TEXT NOT NULL DEFAULT ''"
                 )
+            session_columns = {
+                str(row[1])
+                for row in db.execute(
+                    "PRAGMA table_info(remote_oauth_authorization_sessions)"
+                ).fetchall()
+            }
+            for name, declaration in (
+                ("scope_source", "TEXT NOT NULL DEFAULT 'legacy'"),
+                ("resource_uri", "TEXT NOT NULL DEFAULT ''"),
+                ("resource_digest", "TEXT NOT NULL DEFAULT ''"),
+                ("protocol_version", "TEXT NOT NULL DEFAULT ''"),
+                ("request_refresh_token", "INTEGER NOT NULL DEFAULT 0"),
+            ):
+                if name not in session_columns:
+                    db.execute(
+                        f"ALTER TABLE remote_oauth_authorization_sessions "
+                        f"ADD COLUMN {name} {declaration}"
+                    )
+            token_columns = {
+                str(row[1])
+                for row in db.execute(
+                    "PRAGMA table_info(remote_oauth_token_revisions)"
+                ).fetchall()
+            }
+            for name, declaration in (
+                ("scope_source", "TEXT NOT NULL DEFAULT 'legacy'"),
+                ("resource_uri", "TEXT NOT NULL DEFAULT ''"),
+                ("resource_digest", "TEXT NOT NULL DEFAULT ''"),
+                ("protocol_version", "TEXT NOT NULL DEFAULT ''"),
+                ("resource_bound", "INTEGER NOT NULL DEFAULT 0"),
+            ):
+                if name not in token_columns:
+                    db.execute(
+                        f"ALTER TABLE remote_oauth_token_revisions "
+                        f"ADD COLUMN {name} {declaration}"
+                    )
+            now = time.time()
+            db.execute(
+                "UPDATE remote_oauth_authorization_sessions SET status='failed',"
+                "error_code='mcp_remote_oauth_legacy_token_reauthorization_required',"
+                "updated_at=? WHERE status='pending' AND protocol_version=''",
+                (now,),
+            )
+            db.execute(
+                "UPDATE remote_oauth_token_revisions SET status='legacy_unbound',"
+                "updated_at=? WHERE status='active' AND resource_bound=0",
+                (now,),
+            )
 
     def ready(self) -> bool:
         try:
@@ -416,6 +539,11 @@ class MCPRemoteOAuthAuthorizationStore:
         pkce_credential_id: str,
         token_credential_id: str,
         scopes: tuple[str, ...],
+        scope_source: str,
+        resource_uri: str,
+        resource_digest: str,
+        protocol_version: str,
+        request_refresh_token: bool,
     ) -> tuple[RemoteOAuthAuthorizationSessionV1, list[str]]:
         now = time.time()
         value = RemoteOAuthAuthorizationSessionV1(
@@ -433,6 +561,11 @@ class MCPRemoteOAuthAuthorizationStore:
             token_credential_id=token_credential_id,
             scopes=scopes,
             scope_digest=_digest(list(scopes)),
+            scope_source=scope_source,
+            resource_uri=resource_uri,
+            resource_digest=resource_digest,
+            protocol_version=protocol_version,
+            request_refresh_token=request_refresh_token,
             status="pending",
             created_at=now,
             expires_at=now + SESSION_TTL_SECONDS,
@@ -536,9 +669,10 @@ class MCPRemoteOAuthAuthorizationStore:
                     "session_id,tenant_id,owner_id,subject_mode,target_type,target_id,"
                     "source_digest,discovery_fingerprint,registration_id,registration_revision,"
                     "policy_fingerprint,state_digest,pkce_credential_id,token_credential_id,"
-                    "scopes_json,scope_digest,"
+                    "scopes_json,scope_digest,scope_source,resource_uri,resource_digest,"
+                    "protocol_version,request_refresh_token,"
                     "status,error_code,token_id,created_at,expires_at,updated_at) "
-                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         value.session_id,
                         subject.tenant_id,
@@ -556,6 +690,11 @@ class MCPRemoteOAuthAuthorizationStore:
                         value.token_credential_id,
                         _json(list(scopes)).decode("utf-8"),
                         value.scope_digest,
+                        value.scope_source,
+                        value.resource_uri,
+                        value.resource_digest,
+                        value.protocol_version,
+                        int(value.request_refresh_token),
                         value.status,
                         "",
                         "",
@@ -755,6 +894,16 @@ class MCPRemoteOAuthAuthorizationStore:
             revision=1,
             scopes=scopes,
             scope_digest=_digest(list(scopes)),
+            scope_source=session.scope_source,
+            resource_uri=session.resource_uri,
+            resource_digest=session.resource_digest,
+            protocol_version=session.protocol_version,
+            resource_bound=(
+                session.protocol_version == MCP_PROTOCOL_VERSION
+                and bool(session.resource_uri)
+                and session.resource_digest
+                == hashlib.sha256(session.resource_uri.encode("utf-8")).hexdigest()
+            ),
             expires_at=expires_at,
             refresh_available=refresh_available,
             status="active",
@@ -815,8 +964,9 @@ class MCPRemoteOAuthAuthorizationStore:
                     "token_id,tenant_id,owner_id,subject_mode,target_type,target_id,"
                     "discovery_fingerprint,registration_id,registration_revision,"
                     "policy_fingerprint,credential_id,revision,scopes_json,scope_digest,"
+                    "scope_source,resource_uri,resource_digest,protocol_version,resource_bound,"
                     "expires_at,refresh_available,status,created_at,updated_at,revoked_at) "
-                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         token.token_id,
                         subject.tenant_id,
@@ -832,6 +982,11 @@ class MCPRemoteOAuthAuthorizationStore:
                         token.revision,
                         _json(list(scopes)).decode("utf-8"),
                         token.scope_digest,
+                        token.scope_source,
+                        token.resource_uri,
+                        token.resource_digest,
+                        token.protocol_version,
+                        int(token.resource_bound),
                         token.expires_at,
                         int(token.refresh_available),
                         token.status,
@@ -860,6 +1015,18 @@ class MCPRemoteOAuthAuthorizationStore:
             row = db.execute(
                 "SELECT * FROM remote_oauth_token_revisions WHERE tenant_id=? "
                 "AND owner_id=? AND target_type=? AND target_id=? AND status='active'",
+                (subject.tenant_id, subject.owner_id, target_type, target_id),
+            ).fetchone()
+        return self._token(row) if row is not None else None
+
+    def latest_token(
+        self, *, subject: SubjectScopeV1, target_type: OAuthTargetType, target_id: str
+    ) -> RemoteOAuthTokenRevisionV1 | None:
+        with self._lock, self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM remote_oauth_token_revisions WHERE tenant_id=? "
+                "AND owner_id=? AND target_type=? AND target_id=? "
+                "ORDER BY created_at DESC LIMIT 1",
                 (subject.tenant_id, subject.owner_id, target_type, target_id),
             ).fetchone()
         return self._token(row) if row is not None else None
@@ -1212,10 +1379,22 @@ class MCPRemoteOAuthAuthorizationStore:
             return current
         now = time.time()
         with self._lock, self._connect() as db:
+            source_statuses = (
+                ("active", "legacy_unbound")
+                if status == "revoked"
+                else ("active",)
+            )
+            placeholders = ",".join("?" for _ in source_statuses)
             db.execute(
                 "UPDATE remote_oauth_token_revisions SET status=?,revision=revision+1,"
-                "updated_at=?,revoked_at=? WHERE token_id=? AND status='active'",
-                (status, now, now if status == "revoked" else None, token_id),
+                f"updated_at=?,revoked_at=? WHERE token_id=? AND status IN ({placeholders})",
+                (
+                    status,
+                    now,
+                    now if status == "revoked" else None,
+                    token_id,
+                    *source_statuses,
+                ),
             )
             row = db.execute(
                 "SELECT * FROM remote_oauth_token_revisions WHERE token_id=?",
@@ -1377,6 +1556,11 @@ class MCPRemoteOAuthAuthorizationStore:
                 token_credential_id=row["token_credential_id"],
                 scopes=tuple(scopes),
                 scope_digest=row["scope_digest"],
+                scope_source=row["scope_source"],
+                resource_uri=row["resource_uri"],
+                resource_digest=row["resource_digest"],
+                protocol_version=row["protocol_version"],
+                request_refresh_token=bool(row["request_refresh_token"]),
                 status=row["status"],
                 error_code=row["error_code"],
                 token_id=row["token_id"],
@@ -1414,6 +1598,11 @@ class MCPRemoteOAuthAuthorizationStore:
                 revision=row["revision"],
                 scopes=tuple(scopes),
                 scope_digest=row["scope_digest"],
+                scope_source=row["scope_source"],
+                resource_uri=row["resource_uri"],
+                resource_digest=row["resource_digest"],
+                protocol_version=row["protocol_version"],
+                resource_bound=bool(row["resource_bound"]),
                 expires_at=row["expires_at"],
                 refresh_available=bool(row["refresh_available"]),
                 status=row["status"],
@@ -1513,6 +1702,9 @@ class MCPRemoteOAuthAuthorizationService:
                 "MCP_REMOTE_OAUTH_TOKEN_STORAGE_ENABLED"
             )
             and configured,
+            "review_enabled": _flag("MCP_REMOTE_OAUTH_REVIEW_ENABLED"),
+            "runtime_enabled": False,
+            "remote_revocation_enabled": False,
             "storage_ready": self.store.ready(),
         }
 
@@ -1597,8 +1789,9 @@ class MCPRemoteOAuthAuthorizationService:
         target_id: str,
         source_digest: str,
         expected_discovery_fingerprint: str,
-        expected_registration_revision: int,
-        scopes: list[str],
+        expected_registration_digest: str,
+        expected_scope_digest: str,
+        request_refresh_token: bool = False,
     ) -> dict[str, Any]:
         subject = self._require()
         discovery, registration = self._current(
@@ -1607,14 +1800,25 @@ class MCPRemoteOAuthAuthorizationService:
         if (
             discovery.source_digest != source_digest
             or discovery.discovery_fingerprint != expected_discovery_fingerprint
-            or registration.revision != expected_registration_revision
+            or self.registration_revision_digest(registration)
+            != expected_registration_digest
         ):
             raise RemoteOAuthError(
                 "OAuth 发现或客户端登记已漂移。",
                 code="mcp_remote_oauth_discovery_stale",
                 status_code=409,
             )
-        selected = _scopes(scopes, discovery.policy.scopes_supported)
+        if not isinstance(discovery.policy, RemoteOAuthPolicyV2):
+            raise RemoteOAuthError(
+                "旧 OAuth 发现快照必须重新发现后再授权。",
+                code="mcp_remote_oauth_legacy_token_reauthorization_required",
+                status_code=409,
+            )
+        selected = _authorization_scopes(
+            discovery.policy,
+            expected_scope_digest=expected_scope_digest,
+            request_refresh_token=request_refresh_token,
+        )
         verifier = secrets.token_urlsafe(64)[:86]
         state = secrets.token_urlsafe(48)
         redirect_uri = self.redirect_uri()
@@ -1632,6 +1836,13 @@ class MCPRemoteOAuthAuthorizationService:
                 pkce_credential_id=pkce_credential_id,
                 token_credential_id=token_credential_id,
                 scopes=selected,
+                scope_source=discovery.policy.scope_source,
+                resource_uri=discovery.policy.resource_uri,
+                resource_digest=hashlib.sha256(
+                    discovery.policy.resource_uri.encode("utf-8")
+                ).hexdigest(),
+                protocol_version=discovery.policy.protocol_version,
+                request_refresh_token=request_refresh_token,
             )
             for credential_id in expired_ids:
                 self._revoke_safely(credential_id, subject)
@@ -1668,16 +1879,17 @@ class MCPRemoteOAuthAuthorizationService:
                 code="mcp_remote_oauth_token_storage_unavailable",
                 status_code=503,
             ) from exc
-        query = {
+        query: dict[str, str] = {
             "response_type": "code",
             "client_id": registration.client_id,
             "redirect_uri": redirect_uri,
-            "scope": " ".join(selected),
             "state": state,
             "code_challenge": code_challenge,
             "code_challenge_method": "S256",
             "resource": discovery.policy.resource_uri,
         }
+        if selected:
+            query["scope"] = " ".join(selected)
         return {
             "authorization_session": self._public_session(session),
             "authorization_url": (
@@ -1685,8 +1897,28 @@ class MCPRemoteOAuthAuthorizationService:
             ),
         }
 
+    @staticmethod
+    def registration_revision_digest(
+        registration: RemoteOAuthClientRegistrationV1,
+    ) -> str:
+        return _digest(
+            {
+                "schema_version": registration.schema_version,
+                "registration_id": registration.registration_id,
+                "revision": registration.revision,
+                "discovery_fingerprint": registration.discovery_fingerprint,
+                "issuer": registration.issuer,
+                "mode": registration.mode,
+            }
+        )
+
     async def callback(
-        self, *, state: str, code: str = "", authorization_error: str = ""
+        self,
+        *,
+        state: str,
+        code: str = "",
+        authorization_error: str = "",
+        issuer: str = "",
     ) -> RemoteOAuthAuthorizationSessionV1:
         subject = self._require()
         if STATE_RE.fullmatch(state) is None:
@@ -1705,22 +1937,6 @@ class MCPRemoteOAuthAuthorizationService:
                     self._revoke_safely(expired.pkce_credential_id, subject)
                     self._revoke_safely(expired.token_credential_id, subject)
             raise
-        if authorization_error:
-            self._revoke_safely(session.pkce_credential_id, subject)
-            return self.store.finish_session(
-                session.session_id,
-                subject=subject,
-                status="failed",
-                error_code="mcp_remote_oauth_authorization_denied",
-            )
-        if CODE_RE.fullmatch(code) is None:
-            self._revoke_safely(session.pkce_credential_id, subject)
-            return self.store.finish_session(
-                session.session_id,
-                subject=subject,
-                status="failed",
-                error_code="mcp_remote_oauth_authorization_code_invalid",
-            )
         try:
             discovery, registration = self._current(
                 subject=subject,
@@ -1750,6 +1966,43 @@ class MCPRemoteOAuthAuthorizationService:
                 status="failed",
                 error_code="mcp_remote_oauth_discovery_stale",
             )
+        if issuer and issuer != discovery.policy.issuer:
+            self._revoke_safely(session.pkce_credential_id, subject)
+            return self.store.finish_session(
+                session.session_id,
+                subject=subject,
+                status="failed",
+                error_code="mcp_remote_oauth_issuer_mismatch",
+            )
+        if authorization_error:
+            self._revoke_safely(session.pkce_credential_id, subject)
+            return self.store.finish_session(
+                session.session_id,
+                subject=subject,
+                status="failed",
+                error_code="mcp_remote_oauth_authorization_denied",
+            )
+        if CODE_RE.fullmatch(code) is None:
+            self._revoke_safely(session.pkce_credential_id, subject)
+            return self.store.finish_session(
+                session.session_id,
+                subject=subject,
+                status="failed",
+                error_code="mcp_remote_oauth_authorization_code_invalid",
+            )
+        if (
+            session.protocol_version != MCP_PROTOCOL_VERSION
+            or session.resource_uri != discovery.policy.resource_uri
+            or session.resource_digest
+            != hashlib.sha256(session.resource_uri.encode("utf-8")).hexdigest()
+        ):
+            self._revoke_safely(session.pkce_credential_id, subject)
+            return self.store.finish_session(
+                session.session_id,
+                subject=subject,
+                status="failed",
+                error_code="mcp_remote_oauth_legacy_token_reauthorization_required",
+            )
         verifier = ""
         token_credential: Any = None
         bundle: dict[str, str] = {}
@@ -1765,10 +2018,13 @@ class MCPRemoteOAuthAuthorizationService:
                     "client_id": registration.client_id,
                     "redirect_uri": self.redirect_uri(),
                     "code_verifier": verifier,
+                    "resource": session.resource_uri,
                 },
             )
             bundle, granted, expires_at = _token_payload(
-                response, requested_scopes=session.scopes
+                response,
+                requested_scopes=session.scopes,
+                allow_refresh_token=session.request_refresh_token,
             )
             token_credential, _ = self.credential_creator(
                 name=f"OAuth token {session.target_id}",
@@ -1869,11 +2125,29 @@ class MCPRemoteOAuthAuthorizationService:
         token = self.store.active_token(
             subject=subject, target_type=target_type, target_id=target_id
         )
+        if token is None:
+            legacy = self.store.latest_token(
+                subject=subject, target_type=target_type, target_id=target_id
+            )
+            if legacy is not None and legacy.status == "legacy_unbound":
+                token = legacy
         if token is None or token.token_id != token_id:
             raise RemoteOAuthError(
                 "OAuth token 不存在。",
                 code="mcp_remote_oauth_token_missing",
                 status_code=404,
+            )
+        if (
+            not token.resource_bound
+            or token.protocol_version != MCP_PROTOCOL_VERSION
+            or not token.resource_uri
+            or token.resource_digest
+            != hashlib.sha256(token.resource_uri.encode("utf-8")).hexdigest()
+        ):
+            raise RemoteOAuthError(
+                "旧 OAuth token 未绑定 resource，必须重新授权。",
+                code="mcp_remote_oauth_legacy_token_reauthorization_required",
+                status_code=409,
             )
         if token.revision != expected_revision or not token.refresh_available:
             raise RemoteOAuthError(
@@ -1933,12 +2207,14 @@ class MCPRemoteOAuthAuthorizationService:
                     "grant_type": "refresh_token",
                     "refresh_token": refresh_token,
                     "client_id": registration.client_id,
+                    "resource": token.resource_uri,
                 },
             )
             new_bundle, granted, expires_at = _token_payload(
                 response,
                 requested_scopes=token.scopes,
                 previous_refresh_token=refresh_token,
+                allow_refresh_token=True,
             )
             self.credential_rotator(
                 token.credential_id,
@@ -2037,6 +2313,12 @@ class MCPRemoteOAuthAuthorizationService:
         token = self.store.active_token(
             subject=subject, target_type=target_type, target_id=target_id
         )
+        if token is None:
+            legacy = self.store.latest_token(
+                subject=subject, target_type=target_type, target_id=target_id
+            )
+            if legacy is not None and legacy.status == "legacy_unbound":
+                token = legacy
         if token is None or token.token_id != token_id:
             raise RemoteOAuthError(
                 "OAuth token 不存在。",
@@ -2082,6 +2364,11 @@ class MCPRemoteOAuthAuthorizationService:
         token = self.store.active_token(
             subject=subject, target_type=target_type, target_id=target_id
         )
+        latest_token = token or self.store.latest_token(
+            subject=subject, target_type=target_type, target_id=target_id
+        )
+        if latest_token is not None and latest_token.status != "legacy_unbound":
+            latest_token = token
         discovery = self.metadata_store.active_discovery(
             subject=subject, target_type=target_type, target_id=target_id
         )
@@ -2091,6 +2378,7 @@ class MCPRemoteOAuthAuthorizationService:
         if discovery is None or discovery.source_digest != source_digest:
             session = None
             token = None
+            latest_token = None
         elif token is not None and (
             registration is None
             or token.discovery_fingerprint != discovery.discovery_fingerprint
@@ -2101,11 +2389,155 @@ class MCPRemoteOAuthAuthorizationService:
             self.store.set_token_status(token.token_id, subject=subject, status="stale")
             self._revoke_safely(token.credential_id, subject)
             token = None
+            latest_token = None
         return {
             **state,
             "authorization_session": self._public_session(session) if session else None,
-            "token": self._public_token(token) if token else None,
+            "token": self._public_token(token or latest_token)
+            if (token or latest_token)
+            else None,
         }
+
+    def execution_metadata(
+        self,
+        *,
+        target_type: OAuthTargetType,
+        target_id: str,
+        source_digest: str,
+    ) -> RemoteOAuthExecutionMetadataV1:
+        subject = self._require()
+        discovery, registration = self._current(
+            subject=subject, target_type=target_type, target_id=target_id
+        )
+        if (
+            discovery.source_digest != source_digest
+            or not isinstance(discovery.policy, RemoteOAuthPolicyV2)
+        ):
+            raise RemoteOAuthError(
+                "OAuth 候选必须重新发现并授权。",
+                code="mcp_remote_oauth_legacy_token_reauthorization_required",
+                status_code=409,
+            )
+        token = self.store.active_token(
+            subject=subject, target_type=target_type, target_id=target_id
+        )
+        if token is None:
+            latest = self.store.latest_token(
+                subject=subject, target_type=target_type, target_id=target_id
+            )
+            if latest is not None and latest.status == "legacy_unbound":
+                raise RemoteOAuthError(
+                    "旧 OAuth token 未绑定 resource，必须重新授权。",
+                    code="mcp_remote_oauth_legacy_token_reauthorization_required",
+                    status_code=409,
+                )
+            raise RemoteOAuthError(
+                "OAuth token 不存在。",
+                code="mcp_remote_oauth_token_missing",
+                status_code=409,
+            )
+        resource_digest = hashlib.sha256(
+            discovery.policy.resource_uri.encode("utf-8")
+        ).hexdigest()
+        if (
+            not token.resource_bound
+            or token.protocol_version != MCP_PROTOCOL_VERSION
+            or token.resource_uri != discovery.policy.resource_uri
+            or token.resource_digest != resource_digest
+            or token.discovery_fingerprint != discovery.discovery_fingerprint
+            or token.registration_id != registration.registration_id
+            or token.registration_revision != registration.revision
+            or token.policy_fingerprint != discovery.policy.policy_fingerprint
+        ):
+            raise RemoteOAuthError(
+                "OAuth token 与冻结策略不一致，必须重新授权。",
+                code="mcp_remote_oauth_token_stale",
+                status_code=409,
+            )
+        if token.expires_at is not None and token.expires_at <= time.time() + 60:
+            raise RemoteOAuthError(
+                "OAuth token 即将到期，需要显式刷新。",
+                code="mcp_remote_oauth_refresh_required",
+                status_code=409,
+            )
+        registration_digest = self.registration_revision_digest(registration)
+        revision_digest = _digest(
+            {
+                "schema_version": "remote-oauth-token-revision-digest-v1",
+                "target_type": token.target_type,
+                "target_id": token.target_id,
+                "token_id": token.token_id,
+                "revision": token.revision,
+                "discovery_fingerprint": token.discovery_fingerprint,
+                "registration_digest": registration_digest,
+                "policy_fingerprint": token.policy_fingerprint,
+                "resource_digest": token.resource_digest,
+                "scope_digest": token.scope_digest,
+                "protocol_version": token.protocol_version,
+            }
+        )
+        return RemoteOAuthExecutionMetadataV1(
+            target_type=target_type,
+            target_id=target_id,
+            origin=discovery.policy.origin,
+            resource_uri=discovery.policy.resource_uri,
+            resource_digest=resource_digest,
+            policy_fingerprint=discovery.policy.policy_fingerprint,
+            discovery_fingerprint=discovery.discovery_fingerprint,
+            registration_digest=registration_digest,
+            scope_source=token.scope_source,
+            scopes=token.scopes,
+            scope_digest=token.scope_digest,
+            token_revision_digest=revision_digest,
+            expires_at=token.expires_at,
+        )
+
+    @contextmanager
+    def resolve_for_execution(
+        self,
+        *,
+        target_type: OAuthTargetType,
+        target_id: str,
+        source_digest: str,
+        expected_policy_fingerprint: str,
+        expected_scope_digest: str,
+        expected_token_revision_digest: str,
+    ) -> Iterator[RemoteOAuthExecutionEnvelope]:
+        metadata = self.execution_metadata(
+            target_type=target_type,
+            target_id=target_id,
+            source_digest=source_digest,
+        )
+        if (
+            metadata.policy_fingerprint != expected_policy_fingerprint
+            or metadata.scope_digest != expected_scope_digest
+            or metadata.token_revision_digest != expected_token_revision_digest
+        ):
+            raise RemoteOAuthError(
+                "OAuth 执行证据已变化。",
+                code="mcp_remote_oauth_token_stale",
+                status_code=409,
+            )
+        subject = self.subject_resolver.resolve()
+        token = self.store.active_token(
+            subject=subject, target_type=target_type, target_id=target_id
+        )
+        if token is None:
+            raise RemoteOAuthError(
+                "OAuth token 不存在。",
+                code="mcp_remote_oauth_token_missing",
+                status_code=409,
+            )
+        bundle = self._token_bundle(token, subject)
+        envelope = RemoteOAuthExecutionEnvelope(
+            metadata=metadata,
+            authorization_value=f"Bearer {bundle['access_token']}",
+        )
+        try:
+            yield envelope
+        finally:
+            envelope.authorization_value = ""
+            bundle.clear()
 
     def _resolve(self, credential_id: str, subject: SubjectScopeV1) -> str:
         try:
@@ -2211,6 +2643,14 @@ class MCPRemoteOAuthAuthorizationService:
             "status": value.status,
             "scopes": list(value.scopes),
             "scope_digest": value.scope_digest,
+            "scope_source": value.scope_source,
+            "resource_bound": bool(
+                value.protocol_version == MCP_PROTOCOL_VERSION
+                and value.resource_uri
+                and value.resource_digest
+                == hashlib.sha256(value.resource_uri.encode("utf-8")).hexdigest()
+            ),
+            "request_refresh_token": value.request_refresh_token,
             "error_code": value.error_code,
             "token_id": value.token_id,
             "created_at": value.created_at,
@@ -2225,6 +2665,9 @@ class MCPRemoteOAuthAuthorizationService:
             "status": value.status,
             "scopes": list(value.scopes),
             "scope_digest": value.scope_digest,
+            "scope_source": value.scope_source,
+            "resource_bound": value.resource_bound,
+            "protocol_version": value.protocol_version,
             "expires_at": value.expires_at,
             "refresh_available": value.refresh_available,
             "stored_encrypted": True,
@@ -2261,7 +2704,7 @@ async def remote_oauth_callback(request: Request) -> HTMLResponse:
     # local parse so authorization codes and state are not written to the
     # Backend access log.  Upstream reverse proxies must apply the same rule.
     request.scope["query_string"] = b""
-    allowed = {"code", "state", "error", "error_description"}
+    allowed = {"code", "state", "error", "error_description", "iss"}
     keys = [key for key, _ in pairs]
     invalid = any(key not in allowed for key in keys) or any(
         keys.count(key) > 1 for key in set(keys)
@@ -2270,12 +2713,14 @@ async def remote_oauth_callback(request: Request) -> HTMLResponse:
     state = values.get("state", "")
     code = values.get("code", "")
     auth_error = values.get("error", "")
+    issuer = values.get("iss", "")
     if (
         invalid
         or "state" not in values
         or bool(code) == bool(auth_error)
         or len(auth_error) > 160
         or len(values.get("error_description", "")) > 1024
+        or len(issuer) > 4096
     ):
         result = (
             "授权回调无效",
@@ -2288,6 +2733,7 @@ async def remote_oauth_callback(request: Request) -> HTMLResponse:
                 state=state,
                 code=code,
                 authorization_error=auth_error,
+                issuer=issuer,
             )
             result = (
                 "授权已安全保存" if session.status == "completed" else "授权未完成",

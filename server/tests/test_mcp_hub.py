@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import socket
 import uuid
 from pathlib import Path
@@ -13,6 +14,7 @@ from pydantic import ValidationError
 
 from server.mcp.hub import (
     CandidateCreateRequest,
+    HubSocketBridge,
     PinnedRegistryClient,
     HubError,
     HubUnknownOutcomeError,
@@ -73,6 +75,45 @@ TOOLS = [
 ]
 
 
+@pytest.mark.asyncio
+async def test_socket_bridge_accepts_bounded_response_above_asyncio_default_limit(
+    tmp_path: Path,
+) -> None:
+    socket_path = tmp_path / "hub-large-response.sock"
+    expected = {
+        "ok": True,
+        "tools": [
+            {
+                "name": "search",
+                "description": "x" * (96 * 1024),
+                "input_schema": {"type": "object"},
+            }
+        ],
+    }
+    encoded = json.dumps(expected, separators=(",", ":")).encode() + b"\n"
+
+    async def handle(
+        reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        await reader.readline()
+        writer.write(encoded)
+        await writer.drain()
+        writer.close()
+        await writer.wait_closed()
+
+    server = await asyncio.start_unix_server(handle, path=str(socket_path))
+    try:
+        bridge = HubSocketBridge(remote_socket=str(socket_path))
+        response = await bridge._request(
+            str(socket_path), {"action": "open"}, timeout=2
+        )
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    assert response == expected
+
+
 def reviewed_test_contracts() -> dict[tuple[str, str, str], dict[str, Any]]:
     normalized = [
         {
@@ -98,9 +139,11 @@ class FakeRegistryClient:
     def __init__(self, pages: list[dict[str, Any] | Exception]) -> None:
         self.pages = list(pages)
         self.calls: list[tuple[str, str]] = []
+        self.limits: list[int] = []
 
-    def get_page(self, *, cursor: str = "", etag: str = ""):
+    def get_page(self, *, cursor: str = "", etag: str = "", limit: int = 100):
         self.calls.append((cursor, etag))
+        self.limits.append(limit)
         value = self.pages.pop(0)
         if isinstance(value, Exception):
             raise value
@@ -230,6 +273,7 @@ def test_registry_page_request_is_fixed_to_latest_versions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     requested_paths: list[str] = []
+    requested_timeouts: list[float] = []
 
     class FakeResponse:
         status = 200
@@ -244,7 +288,7 @@ def test_registry_page_request_is_fixed_to_latest_versions(
 
     class FakeConnection:
         def __init__(self, *_args: object, **_kwargs: object) -> None:
-            pass
+            requested_timeouts.append(float(_kwargs["timeout"]))
 
         def request(
             self, method: str, path: str, *, headers: dict[str, str]
@@ -279,6 +323,15 @@ def test_registry_page_request_is_fixed_to_latest_versions(
     assert requested_paths == [
         "/v0.1/servers?limit=100&version=latest&cursor=next%20cursor"
     ]
+
+    PinnedRegistryClient().get_page(cursor="next cursor", limit=10)
+    assert requested_paths[-1] == (
+        "/v0.1/servers?limit=10&version=latest&cursor=next%20cursor"
+    )
+    assert requested_timeouts == [12.0, 30.0]
+    with pytest.raises(HubError) as captured:
+        PinnedRegistryClient().get_page(limit=20)
+    assert captured.value.code == "hub_registry_page_limit_invalid"
 
 
 def test_registry_eligibility_is_metadata_only_and_request_forbids_url() -> None:
@@ -680,7 +733,48 @@ async def test_sync_retries_only_transient_page_reads(
 
     assert store.get_sync(sync_id)["status"] == "completed"
     assert len(client.calls) == 3
+    assert client.limits == [100, 10, 10]
     assert delays == [0.25, 0.5]
+    await service.close()
+
+
+@pytest.mark.asyncio
+async def test_sync_restores_large_pages_after_one_fallback_page(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_sleep(_delay: float) -> None:
+        return None
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    client = FakeRegistryClient(
+        [
+            HubError("network", code="hub_registry_unavailable"),
+            {
+                "servers": [registry_entry(name="io.example/one")],
+                "metadata": {"nextCursor": "next"},
+            },
+            {
+                "servers": [registry_entry(name="io.example/two")],
+                "metadata": {"nextCursor": ""},
+            },
+        ]
+    )
+    store = MCPHubStore(tmp_path)
+    service = MCPHubService(
+        store,
+        tenant_id="tenant-a",
+        owner_id="owner-a",
+        registry_client=client,
+        bridge=FakeBridge(),
+    )
+
+    sync_id = store.create_sync()
+    await service._run_sync(sync_id)
+
+    assert store.get_sync(sync_id)["status"] == "completed"
+    assert client.calls == [("", ""), ("", ""), ("next", "")]
+    assert client.limits == [100, 10, 100]
     await service.close()
 
 

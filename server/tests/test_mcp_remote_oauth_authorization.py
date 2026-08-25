@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import sqlite3
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
@@ -15,7 +16,8 @@ from server.mcp.remote_auth import LocalSubjectScopeResolver
 from server.mcp.remote_oauth import (
     MCPRemoteOAuthStore,
     RemoteOAuthError,
-    RemoteOAuthPolicyV1,
+    RemoteOAuthPolicyV2,
+    MCP_PROTOCOL_VERSION,
 )
 from server.mcp.remote_oauth_authorization import (
     MCPRemoteOAuthAuthorizationService,
@@ -69,6 +71,7 @@ class FakeBridge:
         assert url == f"{ISSUER}/token"
         assert request_body["grant_type"] == "authorization_code"
         assert request_body["redirect_uri"] == REDIRECT
+        assert request_body["resource"] == RESOURCE
         assert 43 <= len(request_body["code_verifier"]) <= 128
         self.last_exchange_digest = digest(request_body)
         if self.exchange_error:
@@ -84,6 +87,7 @@ class FakeBridge:
         assert target_id.startswith("mcphub_")
         assert url == f"{ISSUER}/token"
         assert request_body["grant_type"] == "refresh_token"
+        assert request_body["resource"] == RESOURCE
         self.last_refresh_digest = digest(request_body)
         if self.refresh_error:
             raise RemoteOAuthError(
@@ -112,6 +116,9 @@ def configured(
     metadata_store = MCPRemoteOAuthStore(tmp_path / "auth")
     subject = LocalSubjectScopeResolver().resolve()
     execution = {
+        "schema_version": "remote-oauth-policy-v2",
+        "mode": "oauth_authorization_code_pkce",
+        "protocol_version": MCP_PROTOCOL_VERSION,
         "resource_uri": RESOURCE,
         "origin": "https://mcp.example.com",
         "remote_url_digest": hashlib.sha256(RESOURCE.encode()).hexdigest(),
@@ -129,9 +136,13 @@ def configured(
         "registration_endpoint": "",
         "revocation_endpoint": f"{ISSUER}/revoke",
         "client_id_metadata_document_supported": False,
-        "scopes_supported": ("mcp.read", "profile"),
+        "scopes_supported": ("mcp.read",),
+        "scope_source": "protected_resource_metadata",
+        "recommended_scopes": ("mcp.read",),
+        "recommended_scope_digest": digest(["mcp.read"]),
+        "offline_access_available": True,
     }
-    policy = RemoteOAuthPolicyV1(
+    policy = RemoteOAuthPolicyV2(
         **execution, policy_fingerprint=digest(execution)
     )
     target_id = "mcphub_" + "1" * 32
@@ -198,13 +209,14 @@ def create_url(
         target_id=target_id,
         source_digest=SOURCE,
         expected_discovery_fingerprint=discovery.discovery_fingerprint,
-        expected_registration_revision=registration.revision,
-        scopes=["mcp.read"],
+        expected_registration_digest=service.registration_revision_digest(registration),
+        expected_scope_digest=discovery.policy.recommended_scope_digest,
+        request_refresh_token=True,
     )
     query = parse_qs(urlsplit(result["authorization_url"]).query)
     assert query["code_challenge_method"] == ["S256"]
     assert query["resource"] == [RESOURCE]
-    assert query["scope"] == ["mcp.read"]
+    assert query["scope"] == ["mcp.read offline_access"]
     assert "code_verifier" not in query
     return result, query["state"][0]
 
@@ -239,6 +251,274 @@ async def test_authorization_code_is_single_use_and_token_is_only_in_vault(
     assert replay.value.code == "mcp_remote_oauth_state_replay_denied"
     assert bridge.exchange_calls == 1
     assert any(record.status == "active" for record in vault.list())
+
+
+@pytest.mark.asyncio
+async def test_refresh_token_is_discarded_when_operator_did_not_request_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, metadata, _vault, bridge, target_id = configured(tmp_path, monkeypatch)
+    subject = LocalSubjectScopeResolver().resolve()
+    discovery = metadata.active_discovery(
+        subject=subject, target_type="hub_candidate", target_id=target_id
+    )
+    registration = metadata.active_registration(
+        subject=subject, target_type="hub_candidate", target_id=target_id
+    )
+    assert discovery is not None and registration is not None
+    created = service.create_authorization(
+        target_type="hub_candidate",
+        target_id=target_id,
+        source_digest=SOURCE,
+        expected_discovery_fingerprint=discovery.discovery_fingerprint,
+        expected_registration_digest=service.registration_revision_digest(registration),
+        expected_scope_digest=discovery.policy.recommended_scope_digest,
+        request_refresh_token=False,
+    )
+    query = parse_qs(urlsplit(created["authorization_url"]).query)
+    assert query["scope"] == ["mcp.read"]
+    assert "offline_access" not in query["scope"][0]
+
+    await service.callback(
+        state=query["state"][0], code="one-time-code", issuer=ISSUER
+    )
+    assert bridge.exchange_calls == 1
+    token = service.summary(
+        target_type="hub_candidate", target_id=target_id, source_digest=SOURCE
+    )["token"]
+    assert token["refresh_available"] is False
+    with pytest.raises(RemoteOAuthError) as denied:
+        await service.refresh(
+            target_type="hub_candidate",
+            target_id=target_id,
+            token_id=token["token_id"],
+            expected_revision=token["revision"],
+        )
+    assert denied.value.code == "mcp_remote_oauth_token_stale"
+    assert bridge.refresh_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_callback_issuer_mixup_is_denied_before_token_exchange(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, metadata, _vault, bridge, target_id = configured(tmp_path, monkeypatch)
+    _created, state = create_url(service, metadata, target_id)
+    denied = await service.callback(
+        state=state,
+        code="one-time-code",
+        issuer="https://attacker.example/",
+    )
+    assert denied.status == "failed"
+    assert denied.error_code == "mcp_remote_oauth_issuer_mismatch"
+    assert bridge.exchange_calls == 0
+    with pytest.raises(RemoteOAuthError) as replay:
+        await service.callback(state=state, code="retry", issuer=ISSUER)
+    assert replay.value.code == "mcp_remote_oauth_state_replay_denied"
+
+
+@pytest.mark.asyncio
+async def test_execution_resolver_binds_resource_scope_and_token_revision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, metadata, _vault, _bridge, target_id = configured(tmp_path, monkeypatch)
+    _created, state = create_url(service, metadata, target_id)
+    await service.callback(state=state, code="one-time-code", issuer=ISSUER)
+    metadata_value = service.execution_metadata(
+        target_type="hub_candidate",
+        target_id=target_id,
+        source_digest=SOURCE,
+    )
+    assert metadata_value.resource_uri == RESOURCE
+    assert metadata_value.protocol_version == MCP_PROTOCOL_VERSION
+    with service.resolve_for_execution(
+        target_type="hub_candidate",
+        target_id=target_id,
+        source_digest=SOURCE,
+        expected_policy_fingerprint=metadata_value.policy_fingerprint,
+        expected_scope_digest=metadata_value.scope_digest,
+        expected_token_revision_digest=metadata_value.token_revision_digest,
+    ) as envelope:
+        assert envelope.authorization_value == "Bearer access-one"
+        captured = envelope
+    assert captured.authorization_value == ""
+    with pytest.raises(RemoteOAuthError) as stale:
+        with service.resolve_for_execution(
+            target_type="hub_candidate",
+            target_id=target_id,
+            source_digest=SOURCE,
+            expected_policy_fingerprint=metadata_value.policy_fingerprint,
+            expected_scope_digest=metadata_value.scope_digest,
+            expected_token_revision_digest="0" * 64,
+        ):
+            pass
+    assert stale.value.code == "mcp_remote_oauth_token_stale"
+
+
+@pytest.mark.asyncio
+async def test_legacy_unbound_token_is_preserved_but_cannot_execute(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, metadata, vault, _bridge, target_id = configured(tmp_path, monkeypatch)
+    _created, state = create_url(service, metadata, target_id)
+    await service.callback(state=state, code="one-time-code")
+    path = tmp_path / "auth" / "remote-auth.sqlite3"
+    with sqlite3.connect(path) as db:
+        db.execute(
+            "UPDATE remote_oauth_token_revisions SET resource_bound=0,"
+            "resource_uri='',resource_digest='',protocol_version='' WHERE status='active'"
+        )
+    restarted = MCPRemoteOAuthAuthorizationService(
+        MCPRemoteOAuthAuthorizationStore(tmp_path / "auth"),
+        metadata_store=metadata,
+        subject_resolver=LocalSubjectScopeResolver(),
+        remote_auth_status=service.remote_auth_status,
+        redirect_uri=lambda: REDIRECT,
+        bridge=service.bridge,
+        credential_creator=vault.create,
+        credential_lookup=vault.get_public,
+        credential_resolver=vault.resolve,
+        credential_rotator=vault.rotate,
+        credential_revoker=vault.revoke,
+    )
+    summary = restarted.summary(
+        target_type="hub_candidate", target_id=target_id, source_digest=SOURCE
+    )
+    assert summary["token"]["status"] == "legacy_unbound"
+    assert summary["token"]["resource_bound"] is False
+    assert any(record.status == "active" for record in vault.list())
+    with pytest.raises(RemoteOAuthError) as denied:
+        restarted.execution_metadata(
+            target_type="hub_candidate",
+            target_id=target_id,
+            source_digest=SOURCE,
+        )
+    assert denied.value.code == "mcp_remote_oauth_legacy_token_reauthorization_required"
+    revoked = restarted.revoke(
+        target_type="hub_candidate",
+        target_id=target_id,
+        token_id=summary["token"]["token_id"],
+    )
+    assert revoked.status == "revoked"
+    assert all(record.status == "revoked" for record in vault.list())
+
+
+def test_r2b_database_schema_is_upgraded_additively_and_token_is_quarantined(
+    tmp_path: Path,
+) -> None:
+    storage = tmp_path / "auth"
+    storage.mkdir()
+    database = storage / "remote-auth.sqlite3"
+    with sqlite3.connect(database) as db:
+        db.executescript(
+            """
+            CREATE TABLE remote_oauth_authorization_sessions (
+                session_id TEXT PRIMARY KEY,
+                tenant_id TEXT NOT NULL,
+                owner_id TEXT NOT NULL,
+                subject_mode TEXT NOT NULL,
+                target_type TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                source_digest TEXT NOT NULL,
+                discovery_fingerprint TEXT NOT NULL,
+                registration_id TEXT NOT NULL,
+                registration_revision INTEGER NOT NULL,
+                policy_fingerprint TEXT NOT NULL,
+                state_digest TEXT NOT NULL UNIQUE,
+                pkce_credential_id TEXT NOT NULL,
+                token_credential_id TEXT NOT NULL,
+                scopes_json TEXT NOT NULL,
+                scope_digest TEXT NOT NULL,
+                status TEXT NOT NULL,
+                error_code TEXT NOT NULL,
+                token_id TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                expires_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            );
+            CREATE TABLE remote_oauth_token_revisions (
+                token_id TEXT PRIMARY KEY,
+                tenant_id TEXT NOT NULL,
+                owner_id TEXT NOT NULL,
+                subject_mode TEXT NOT NULL,
+                target_type TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                discovery_fingerprint TEXT NOT NULL,
+                registration_id TEXT NOT NULL,
+                registration_revision INTEGER NOT NULL,
+                policy_fingerprint TEXT NOT NULL,
+                credential_id TEXT NOT NULL,
+                revision INTEGER NOT NULL,
+                scopes_json TEXT NOT NULL,
+                scope_digest TEXT NOT NULL,
+                expires_at REAL,
+                refresh_available INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                revoked_at REAL
+            );
+            """
+        )
+        db.execute(
+            "INSERT INTO remote_oauth_token_revisions VALUES "
+            "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                "mcpoauthtoken_" + "1" * 32,
+                "local",
+                "local",
+                "local-single-owner",
+                "hub_candidate",
+                "mcphub_" + "1" * 32,
+                "a" * 64,
+                "mcpoauthreg_" + "1" * 32,
+                1,
+                "b" * 64,
+                "cred_legacy",
+                1,
+                '["mcp.read"]',
+                digest(["mcp.read"]),
+                None,
+                1,
+                "active",
+                1.0,
+                1.0,
+                None,
+            ),
+        )
+
+    store = MCPRemoteOAuthAuthorizationStore(storage)
+    assert store.ready() is True
+    with sqlite3.connect(database) as db:
+        session_columns = {
+            row[1]
+            for row in db.execute(
+                "PRAGMA table_info(remote_oauth_authorization_sessions)"
+            )
+        }
+        token_columns = {
+            row[1]
+            for row in db.execute("PRAGMA table_info(remote_oauth_token_revisions)")
+        }
+        status = db.execute(
+            "SELECT status,resource_bound,resource_uri,protocol_version "
+            "FROM remote_oauth_token_revisions"
+        ).fetchone()
+    assert {
+        "scope_source",
+        "resource_uri",
+        "resource_digest",
+        "protocol_version",
+        "request_refresh_token",
+    }.issubset(session_columns)
+    assert {
+        "scope_source",
+        "resource_uri",
+        "resource_digest",
+        "protocol_version",
+        "resource_bound",
+    }.issubset(token_columns)
+    assert status == ("legacy_unbound", 0, "", "")
 
 
 @pytest.mark.asyncio
@@ -418,7 +698,7 @@ async def test_scope_escalation_and_ambiguous_exchange_fail_closed_without_retry
     assert bridge.exchange_calls == 1
 
 
-def test_scope_and_client_controlled_target_are_rejected_before_network(
+def test_scope_is_server_owned_and_stale_digests_are_rejected_before_network(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     service, metadata, _vault, bridge, target_id = configured(tmp_path, monkeypatch)
@@ -430,23 +710,25 @@ def test_scope_and_client_controlled_target_are_rejected_before_network(
         subject=subject, target_type="hub_candidate", target_id=target_id
     )
     assert discovery and registration
-    for scopes in (["admin.write"], []):
-        with pytest.raises(RemoteOAuthError):
-            service.create_authorization(
-                target_type="hub_candidate",
-                target_id=target_id,
-                source_digest=SOURCE,
-                expected_discovery_fingerprint=discovery.discovery_fingerprint,
-                expected_registration_revision=registration.revision,
-                scopes=scopes,
-            )
+    with pytest.raises(RemoteOAuthError) as stale_scope:
+        service.create_authorization(
+            target_type="hub_candidate",
+            target_id=target_id,
+            source_digest=SOURCE,
+            expected_discovery_fingerprint=discovery.discovery_fingerprint,
+            expected_registration_digest=service.registration_revision_digest(
+                registration
+            ),
+            expected_scope_digest="0" * 64,
+        )
+    assert stale_scope.value.code == "mcp_remote_oauth_scope_invalid"
     normalized = service.create_authorization(
         target_type="hub_candidate",
         target_id=target_id,
         source_digest=SOURCE,
         expected_discovery_fingerprint=discovery.discovery_fingerprint,
-        expected_registration_revision=registration.revision,
-        scopes=["mcp.read", "mcp.read"],
+        expected_registration_digest=service.registration_revision_digest(registration),
+        expected_scope_digest=discovery.policy.recommended_scope_digest,
     )
     assert normalized["authorization_session"]["scopes"] == ["mcp.read"]
     assert bridge.exchange_calls == 0
