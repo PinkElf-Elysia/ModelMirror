@@ -90,41 +90,56 @@ try {
     Invoke-Python @("scripts/validate_boundary.py", "--base", $Base)
     Invoke-Checked "docker" ($compose + @("config", "--quiet"))
 
-    Invoke-Checked "docker" @("build", "--target", "test", "-f", "control/Dockerfile", "-t", "modelmirror-ai-research-control-test:ar0", ".")
-    Invoke-Checked "docker" @("run", "--rm", "modelmirror-ai-research-control-test:ar0")
-    Invoke-Checked "docker" @("build", "--target", "test", "-f", "worker/Dockerfile", "-t", "modelmirror-ai-research-worker-test:ar0", ".")
-    Invoke-Checked "docker" @("run", "--rm", "modelmirror-ai-research-worker-test:ar0")
+    Invoke-Checked "docker" @("build", "--target", "test", "-f", "control/Dockerfile", "-t", "modelmirror-ai-research-control-test:ar1", ".")
+    Invoke-Checked "docker" @("run", "--rm", "modelmirror-ai-research-control-test:ar1")
+    Invoke-Checked "docker" @("build", "--target", "test", "-f", "worker/Dockerfile", "-t", "modelmirror-ai-research-worker-test:ar1", ".")
+    Invoke-Checked "docker" @("run", "--rm", "modelmirror-ai-research-worker-test:ar1")
 
     if ($Mode -eq "Quick") { return }
 
-    Invoke-Checked "docker" @("build", "--sbom=true", "--provenance=true", "--target", "runtime", "-f", "control/Dockerfile", "-t", "modelmirror-ai-research-control:ar0", ".")
-    Invoke-Checked "docker" @("build", "--sbom=true", "--provenance=true", "--target", "runtime", "-f", "worker/Dockerfile", "-t", "modelmirror-ai-research-worker:ar0", ".")
+    Invoke-Checked "docker" @("build", "--sbom=true", "--provenance=true", "--target", "runtime", "-f", "control/Dockerfile", "-t", "modelmirror-ai-research-control:ar1", ".")
+    Invoke-Checked "docker" @("build", "--sbom=true", "--provenance=true", "--target", "runtime", "-f", "worker/Dockerfile", "-t", "modelmirror-ai-research-worker:ar1", ".")
     $controlInventoryPath = Join-Path $sbom "control-runtime-inventory.json"
     $workerInventoryPath = Join-Path $sbom "worker-runtime-inventory.json"
-    Extract-ImageFile "modelmirror-ai-research-control:ar0" "/usr/share/doc/modelmirror-ai-research/runtime-inventory.json" $controlInventoryPath
-    Extract-ImageFile "modelmirror-ai-research-worker:ar0" "/usr/share/doc/modelmirror-ai-research/runtime-inventory.json" $workerInventoryPath
+    $uiInventoryPath = Join-Path $sbom "ui-build-inventory.json"
+    Extract-ImageFile "modelmirror-ai-research-control:ar1" "/usr/share/doc/modelmirror-ai-research/runtime-inventory.json" $controlInventoryPath
+    Extract-ImageFile "modelmirror-ai-research-control:ar1" "/usr/share/doc/modelmirror-ai-research/ui-build-inventory.json" $uiInventoryPath
+    Extract-ImageFile "modelmirror-ai-research-worker:ar1" "/usr/share/doc/modelmirror-ai-research/runtime-inventory.json" $workerInventoryPath
     $sourceLock = Get-Content -Raw -Encoding utf8 source-lock.json | ConvertFrom-Json
     $controlInventoryHash = (Get-FileHash -Algorithm SHA256 $controlInventoryPath).Hash.ToLowerInvariant()
     $workerInventoryHash = (Get-FileHash -Algorithm SHA256 $workerInventoryPath).Hash.ToLowerInvariant()
+    $uiInventoryHash = (Get-FileHash -Algorithm SHA256 $uiInventoryPath).Hash.ToLowerInvariant()
     if ($controlInventoryHash -ne $sourceLock.licenseAudit.control.inventorySha256) {
         throw "control runtime inventory hash disagrees with source-lock"
     }
     if ($workerInventoryHash -ne $sourceLock.licenseAudit.worker.inventorySha256) {
         throw "worker runtime inventory hash disagrees with source-lock"
     }
+    if ($uiInventoryHash -ne $sourceLock.licenseAudit.ui.inventorySha256) {
+        throw "UI build inventory hash disagrees with source-lock"
+    }
     $imageEvidence = @(
-        (Measure-Image "modelmirror-ai-research-control:ar0" "control"),
-        (Measure-Image "modelmirror-ai-research-worker:ar0" "worker")
+        (Measure-Image "modelmirror-ai-research-control:ar1" "control"),
+        (Measure-Image "modelmirror-ai-research-worker:ar1" "worker")
     )
     Set-Content -LiteralPath (Join-Path $diagnostics "image-identities.txt") -Value $imageEvidence -Encoding utf8
 
     Invoke-Checked "docker" ($compose + @("up", "-d"))
     $state = Join-Path $runtime "acceptance-state.json"
     Invoke-Python @("scripts/acceptance.py", "initial", "--state", $state)
+    Invoke-Python @("scripts/acceptance.py", "inspect-view-logs", "--state", $state)
+    $viewState = Join-Path $runtime "view-degraded-state.json"
+    try {
+        Invoke-Checked "docker" ($compose + @("stop", "ai-research-inspect-view"))
+        Invoke-Python @("scripts/acceptance.py", "view-degraded", "--state", $viewState)
+    } finally {
+        Invoke-Checked "docker" ($compose + @("start", "ai-research-inspect-view"))
+    }
     $outboxState = Join-Path $runtime "outbox-state.json"
     Invoke-Python @("scripts/acceptance.py", "outbox-create", "--state", $outboxState)
     try {
         Invoke-Checked "docker" ($compose + @("stop", "ai-research-tracking"))
+        Invoke-Python @("scripts/acceptance.py", "required-not-ready", "--state", $outboxState)
         Invoke-Python @("scripts/acceptance.py", "outbox-terminal", "--state", $outboxState)
     } finally {
         Invoke-Checked "docker" ($compose + @("start", "ai-research-tracking"))
@@ -175,7 +190,8 @@ if unexpected:
     $containerEnv = @(
         (& docker inspect modelmirror-ai-research-ai-research-control-1 --format "{{json .Config.Env}}"),
         (& docker inspect modelmirror-ai-research-ai-research-tracking-1 --format "{{json .Config.Env}}"),
-        (& docker inspect modelmirror-ai-research-ai-research-worker-1 --format "{{json .Config.Env}}")
+        (& docker inspect modelmirror-ai-research-ai-research-worker-1 --format "{{json .Config.Env}}"),
+        (& docker inspect modelmirror-ai-research-ai-research-inspect-view-1 --format "{{json .Config.Env}}")
     ) -join "`n"
     if ($containerEnv -match "OPENROUTER_API_KEY|LLM_GATEWAY_KEY|DIFY_API_KEY|PROVIDER.*(KEY|TOKEN|SECRET)|sk-(or-v1-)?[A-Za-z0-9_-]{32,}|gh[pousr]_[A-Za-z0-9]{30,}|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY") {
         throw "provider credential names were exposed to module containers"
@@ -197,17 +213,17 @@ if unexpected:
         Build-ClientProof `
             $sourceLock.modelMirrorBaseCommit `
             $clientBaselineContext `
-            "modelmirror-ai-research-client-proof:ar0-baseline"
+            "modelmirror-ai-research-client-proof:ar1-baseline"
         Build-ClientProof `
             "HEAD" `
             $clientCurrentContext `
-            "modelmirror-ai-research-client-proof:ar0"
+            "modelmirror-ai-research-client-proof:ar1"
         Extract-ImageFile `
-            "modelmirror-ai-research-client-proof:ar0-baseline" `
+            "modelmirror-ai-research-client-proof:ar1-baseline" `
             "/proof/dist/." `
             $clientBaselineProof
         Extract-ImageFile `
-            "modelmirror-ai-research-client-proof:ar0" `
+            "modelmirror-ai-research-client-proof:ar1" `
             "/proof/dist/." `
             $clientCurrentProof
         Invoke-Python @(

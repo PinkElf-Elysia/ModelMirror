@@ -1,10 +1,11 @@
-# ModelMirror AI Research AR0 collaboration rules
+# ModelMirror AI Research AR1 collaboration rules
 
 These rules apply to every file under `extensions/ai-research/`.
 
 ## Boundary
 
 - This directory is an optional, fixture-only engineering module. It is not a scientific benchmark, model integration, leaderboard, or production multi-tenant service.
+- The Research Console is module-local. Its source, lockfile, build, static output, and runtime must remain independent of the parent client.
 - Runtime code must not import, open, mount, or depend on parent `client/`, `server/`, configuration, credentials, databases, storage, or build outputs.
 - Parent changes are limited to `.dockerignore` and `.github/workflows/ai-research.yml`. Any other parent change requires a separate approved task.
 - Do not add this module to the root Compose file, root Python requirements, client dependencies, Plugin manifests, Studio routes, or default images.
@@ -16,6 +17,7 @@ These rules apply to every file under `extensions/ai-research/`.
 - MLflow is fixed to 3.15.1 and may only be used through its documented server and client interfaces.
 - Do not patch upstream scientific tasks or scorers. Test fixtures must stay clearly labelled `fixture_only` and `harness_only`.
 - Keep exact dependency locks, source hashes, image digests, licenses, notices, and an auditable upgrade boundary.
+- UI dependencies must use exact versions and registry integrity locks. `workspace:`, `file:`, symlinks, and parent source imports are forbidden.
 
 ## Security and evidence
 

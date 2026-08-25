@@ -170,8 +170,40 @@ class RunStore:
             raise KeyError(run_id)
         return self._row(row)
 
-    def list(self, *, after_run_id: str | None, limit: int) -> list[dict[str, Any]]:
-        limit = max(1, min(limit, 100))
+    def list(
+        self,
+        *,
+        after_run_id: str | None,
+        limit: int,
+        query: str | None = None,
+        case_id: str | None = None,
+        phase: str | None = None,
+        outcome: str | None = None,
+        evidence_state: str | None = None,
+    ) -> list[dict[str, Any]]:
+        # The HTTP API exposes at most 100 rows, but asks for one additional
+        # row to decide whether it should emit a continuation cursor.
+        limit = max(1, min(limit, 101))
+        conditions: list[str] = []
+        parameters: list[Any] = []
+        if query:
+            escaped = query.strip().lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            if escaped:
+                pattern = f"%{escaped}%"
+                conditions.append(
+                    "(LOWER(run_id) LIKE ? ESCAPE '\\' OR LOWER(fixture_id) LIKE ? ESCAPE '\\' "
+                    "OR LOWER(case_id) LIKE ? ESCAPE '\\' OR LOWER(COALESCE(error_type,'')) LIKE ? ESCAPE '\\')"
+                )
+                parameters.extend([pattern, pattern, pattern, pattern])
+        for column, value in (
+            ("case_id", case_id),
+            ("phase", phase),
+            ("outcome", outcome),
+            ("evidence_state", evidence_state),
+        ):
+            if value is not None:
+                conditions.append(f"{column} = ?")
+                parameters.append(value)
         with self.connection() as connection:
             if after_run_id:
                 anchor = connection.execute(
@@ -179,19 +211,45 @@ class RunStore:
                 ).fetchone()
                 if anchor is None:
                     raise KeyError(after_run_id)
-                rows = connection.execute(
-                    """
-                    SELECT * FROM runs
-                    WHERE (created_at, run_id) < (?, ?)
-                    ORDER BY created_at DESC, run_id DESC LIMIT ?
-                    """,
-                    (anchor["created_at"], anchor["run_id"], limit),
-                ).fetchall()
-            else:
-                rows = connection.execute(
-                    "SELECT * FROM runs ORDER BY created_at DESC, run_id DESC LIMIT ?", (limit,)
-                ).fetchall()
+                conditions.append("(created_at, run_id) < (?, ?)")
+                parameters.extend([anchor["created_at"], anchor["run_id"]])
+            where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+            rows = connection.execute(
+                f"SELECT * FROM runs {where} ORDER BY created_at DESC, run_id DESC LIMIT ?",
+                (*parameters, limit),
+            ).fetchall()
         return [self._row(row) for row in rows]
+
+    def summary(self) -> dict[str, Any]:
+        phases = {value: 0 for value in ("queued", "running", "terminal")}
+        outcomes = {
+            value: 0
+            for value in ("success", "task_error", "cancelled", "infrastructure_error")
+        }
+        evidence_states = {value: 0 for value in ("pending", "synced", "failed")}
+        with self.connection() as connection:
+            total_row = connection.execute(
+                "SELECT COUNT(*) AS total, MAX(updated_at) AS updated_at FROM runs"
+            ).fetchone()
+            for row in connection.execute(
+                "SELECT phase AS value, COUNT(*) AS count FROM runs GROUP BY phase"
+            ):
+                phases[row["value"]] = row["count"]
+            for row in connection.execute(
+                "SELECT outcome AS value, COUNT(*) AS count FROM runs WHERE outcome IS NOT NULL GROUP BY outcome"
+            ):
+                outcomes[row["value"]] = row["count"]
+            for row in connection.execute(
+                "SELECT evidence_state AS value, COUNT(*) AS count FROM runs GROUP BY evidence_state"
+            ):
+                evidence_states[row["value"]] = row["count"]
+        return {
+            "total": total_row["total"],
+            "phases": phases,
+            "outcomes": outcomes,
+            "evidence_states": evidence_states,
+            "updated_at": total_row["updated_at"],
+        }
 
     def queued(self) -> list[dict[str, Any]]:
         with self.connection() as connection:
@@ -223,16 +281,30 @@ class RunStore:
         )
 
     def request_cancel(self, run_id: str) -> dict[str, Any]:
-        current = self.get(run_id)
-        if current["cancel_requested"]:
-            return current
-        now = utc_now()
-        return self._update(
-            run_id,
-            {"cancel_requested": 1, "cancel_requested_at": now, "updated_at": now},
-            "run.cancel_requested",
-            {},
-        )
+        with self.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            current = connection.execute(
+                "SELECT * FROM runs WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            if current is None:
+                connection.rollback()
+                raise KeyError(run_id)
+            if current["cancel_requested"] or current["phase"] == "terminal":
+                connection.rollback()
+                return self._row(current)
+
+            now = utc_now()
+            connection.execute(
+                """
+                UPDATE runs
+                SET cancel_requested=1,cancel_requested_at=?,updated_at=?
+                WHERE run_id=?
+                """,
+                (now, now, run_id),
+            )
+            self._append_event_tx(connection, run_id, "run.cancel_requested", {})
+            connection.commit()
+        return self.get(run_id)
 
     def update_worker(self, run_id: str, worker: dict[str, Any]) -> dict[str, Any]:
         current = self.get(run_id)
@@ -301,6 +373,20 @@ class RunStore:
                 (now,),
             ).fetchall()
         return [self._row(row) for row in rows]
+
+    def evidence(self, run_id: str) -> dict[str, Any]:
+        with self.connection() as connection:
+            row = connection.execute(
+                """
+                SELECT r.*,o.state AS outbox_state,o.attempt_count,o.next_attempt_at,o.last_error
+                FROM runs r LEFT JOIN outbox o ON o.run_id=r.run_id
+                WHERE r.run_id=?
+                """,
+                (run_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(run_id)
+        return self._row(row)
 
     def mark_evidence_synced(
         self, run_id: str, mlflow_run_id: str, receipt: dict[str, Any]

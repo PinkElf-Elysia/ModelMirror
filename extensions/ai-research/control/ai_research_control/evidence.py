@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,10 @@ from .config import Settings
 
 class EvidenceError(RuntimeError):
     pass
+
+
+MAX_ARTIFACT_BYTES = 1_048_576
+MAX_RECEIPT_BYTES = 1_048_576
 
 
 def canonical_json(value: Any) -> bytes:
@@ -140,15 +145,77 @@ def write_receipt(destination: Path, receipt: dict[str, Any]) -> dict[str, Any]:
 
 
 def verify_receipt(destination: Path, receipt: dict[str, Any]) -> None:
+    destination = destination.resolve()
     body = dict(receipt)
     expected_receipt_hash = body.pop("receiptSha256", None)
     if expected_receipt_hash != sha256_bytes(canonical_json(body)):
         raise EvidenceError("receipt body hash mismatch")
     artifacts = receipt.get("artifacts") or {}
+    if not isinstance(artifacts, dict):
+        raise EvidenceError("receipt artifact manifest is invalid")
     for name, descriptor in artifacts.items():
-        path = (destination / name).resolve()
-        path.relative_to(destination.resolve())
-        if path.is_symlink() or not path.is_file():
+        if not isinstance(name, str) or Path(name).name != name or name.startswith("."):
+            raise EvidenceError("receipt artifact name is unsafe")
+        if not isinstance(descriptor, dict):
+            raise EvidenceError(f"receipt artifact descriptor is invalid: {name}")
+        source = destination / name
+        if source.is_symlink():
             raise EvidenceError(f"receipt artifact is unavailable or unsafe: {name}")
+        path = source.resolve()
+        path.relative_to(destination)
+        if not path.is_file():
+            raise EvidenceError(f"receipt artifact is unavailable or unsafe: {name}")
+        actual_size = path.stat().st_size
+        if actual_size > MAX_ARTIFACT_BYTES:
+            raise EvidenceError(f"receipt artifact exceeds the size limit: {name}")
         if sha256_file(path) != descriptor.get("sha256"):
             raise EvidenceError(f"receipt artifact hash mismatch: {name}")
+        if actual_size != descriptor.get("sizeBytes"):
+            raise EvidenceError(f"receipt artifact size mismatch: {name}")
+
+
+def verify_persisted_receipt(destination: Path, receipt: dict[str, Any]) -> None:
+    root = destination.resolve()
+    receipt_path = root / "receipt.json"
+    if receipt_path.is_symlink() or not receipt_path.is_file():
+        raise EvidenceError("persisted receipt is unavailable or unsafe")
+    resolved = receipt_path.resolve()
+    resolved.relative_to(root)
+    if resolved.stat().st_size > MAX_RECEIPT_BYTES:
+        raise EvidenceError("persisted receipt exceeds the size limit")
+    try:
+        persisted = json.loads(resolved.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise EvidenceError("persisted receipt is malformed") from exc
+    if persisted != receipt:
+        raise EvidenceError("persisted receipt does not match the control ledger")
+    verify_receipt(root, receipt)
+
+
+def read_verified_artifact(
+    destination: Path, receipt: dict[str, Any], name: str
+) -> tuple[bytes, str]:
+    if Path(name).name != name or name.startswith("."):
+        raise EvidenceError("artifact name is unsafe")
+    artifacts = receipt.get("artifacts") or {}
+    if not isinstance(artifacts, dict) or name not in artifacts:
+        raise KeyError(name)
+    verify_persisted_receipt(destination, receipt)
+    source = destination.resolve() / name
+    if source.is_symlink():
+        raise EvidenceError("artifact path is a symbolic link")
+    resolved = source.resolve()
+    resolved.relative_to(destination.resolve())
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = artifacts[name]
+        with os.fdopen(os.open(source, flags), "rb") as handle:
+            data = handle.read(MAX_ARTIFACT_BYTES + 1)
+    except OSError as exc:
+        raise EvidenceError("artifact could not be read safely") from exc
+    if len(data) > MAX_ARTIFACT_BYTES:
+        raise EvidenceError("artifact exceeds the size limit")
+    actual_hash = sha256_bytes(data)
+    if len(data) != descriptor.get("sizeBytes") or actual_hash != descriptor.get("sha256"):
+        raise EvidenceError("artifact changed during download verification")
+    return data, actual_hash

@@ -7,7 +7,7 @@ services:
       context: .
       dockerfile: control/Dockerfile
       target: runtime
-    image: modelmirror-ai-research-control:ar0
+    image: modelmirror-ai-research-control:ar1
     command: ["python", "-m", "ai_research_control.app"]
     depends_on:
       ai-research-tracking:
@@ -16,6 +16,7 @@ services:
         condition: service_healthy
     networks:
       - tracking_internal
+      - inspect_view_internal
     user: "65532:65532"
     read_only: true
     cap_drop: [ALL]
@@ -32,8 +33,12 @@ services:
       AI_RESEARCH_INSPECT_LOG_ROOT: /data/inspect-logs
       AI_RESEARCH_WORKER_SOCKET: /run/ai-research/worker.sock
       AI_RESEARCH_MLFLOW_URI: http://ai-research-tracking:5000
-      AI_RESEARCH_MLFLOW_EXPERIMENT: modelmirror-ai-research-ar0
+      AI_RESEARCH_MLFLOW_EXPERIMENT: modelmirror-ai-research-ar1
+      AI_RESEARCH_INSPECT_VIEW_URI: http://ai-research-inspect-view:7575
+      AI_RESEARCH_MLFLOW_PUBLIC_URL: http://127.0.0.1:${AI_RESEARCH_MLFLOW_PORT:-8791}
+      AI_RESEARCH_INSPECT_VIEW_PUBLIC_URL: http://127.0.0.1:${AI_RESEARCH_INSPECT_VIEW_PORT:-8793}
       AI_RESEARCH_ENABLE_DOCS: "0"
+      MLFLOW_DISABLE_TELEMETRY: "true"
       PYTHONUTF8: "1"
     volumes:
       - control_data:/data/control
@@ -56,7 +61,7 @@ services:
       context: .
       dockerfile: control/Dockerfile
       target: runtime
-    image: modelmirror-ai-research-control:ar0
+    image: modelmirror-ai-research-control:ar1
     command:
       - mlflow
       - server
@@ -87,6 +92,7 @@ services:
       - "127.0.0.1:${AI_RESEARCH_MLFLOW_PORT:-8791}:5000"
     environment:
       PYTHONUTF8: "1"
+      MLFLOW_DISABLE_TELEMETRY: "true"
       MLFLOW_ENABLE_PROXY_MULTIPART_UPLOAD: "false"
       MLFLOW_SERVER_ENABLE_JOB_EXECUTION: "false"
       OPENBLAS_NUM_THREADS: "1"
@@ -110,7 +116,7 @@ services:
       context: .
       dockerfile: worker/Dockerfile
       target: runtime
-    image: modelmirror-ai-research-worker:ar0
+    image: modelmirror-ai-research-worker:ar1
     network_mode: none
     user: "65532:65532"
     read_only: true
@@ -148,11 +154,67 @@ services:
     restart: unless-stopped
     stop_grace_period: 20s
 
+  ai-research-inspect-view:
+    profiles: [ai-research]
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+      target: runtime
+    image: modelmirror-ai-research-worker:ar1
+    command:
+      - inspect
+      - view
+      - start
+      - --recursive
+      - --host
+      - 0.0.0.0
+      - --port
+      - "7575"
+      - --trusted-origin
+      - http://127.0.0.1:${AI_RESEARCH_INSPECT_VIEW_PORT:-8793}
+      - --trusted-origin
+      - http://localhost:${AI_RESEARCH_INSPECT_VIEW_PORT:-8793}
+      - --trusted-host
+      - ai-research-inspect-view:7575
+      - --trusted-host
+      - 127.0.0.1:7575
+      - --unsafe-allow-unauthenticated
+      - --log-dir
+      - /data/inspect-logs
+    networks:
+      - inspect_view_internal
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 0.5
+    ports:
+      - "127.0.0.1:${AI_RESEARCH_INSPECT_VIEW_PORT:-8793}:7575"
+    volumes:
+      - inspect_logs:/data/inspect-logs:ro
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=128m,uid=65532,gid=65532,mode=0700
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; assert urllib.request.urlopen('http://127.0.0.1:7575/', timeout=3).status == 200"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+    stop_grace_period: 20s
+
 networks:
   tracking_internal:
     ipam:
       config:
         - subnet: 10.254.76.0/28
+  inspect_view_internal:
+    ipam:
+      config:
+        - subnet: 10.254.76.16/28
 
 volumes:
   control_data:

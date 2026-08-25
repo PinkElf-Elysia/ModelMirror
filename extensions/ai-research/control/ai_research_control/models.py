@@ -48,7 +48,10 @@ class RunView(BaseModel):
     mlflow_run_id: str | None = Field(alias="mlflowRunId")
     created_at: str = Field(alias="createdAt")
     started_at: str | None = Field(alias="startedAt")
+    cancel_requested_at: str | None = Field(alias="cancelRequestedAt")
+    cancel_applied_at: str | None = Field(alias="cancelAppliedAt")
     terminal_at: str | None = Field(alias="terminalAt")
+    evidence_synced_at: str | None = Field(alias="evidenceSyncedAt")
     updated_at: str = Field(alias="updatedAt")
 
     @model_validator(mode="after")
@@ -72,6 +75,14 @@ class RunListResponse(BaseModel):
     next_cursor: str | None = Field(alias="nextCursor")
 
 
+class RunSummaryResponse(BaseModel):
+    total: int
+    phases: dict[Phase, int]
+    outcomes: dict[Outcome, int]
+    evidence_states: dict[EvidenceState, int] = Field(alias="evidenceStates")
+    updated_at: str | None = Field(alias="updatedAt")
+
+
 class EventListResponse(BaseModel):
     items: list[EventView]
     next_sequence: int = Field(alias="nextSequence")
@@ -80,3 +91,36 @@ class EventListResponse(BaseModel):
 class ReadyView(BaseModel):
     status: Literal["ready", "not_ready"]
     checks: dict[str, str]
+
+
+class SystemCheckView(BaseModel):
+    id: str
+    status: Literal["ready", "not_ready"]
+    required: bool
+
+
+class SystemView(BaseModel):
+    status: Literal["ready", "degraded", "not_ready"]
+    checks: list[SystemCheckView]
+    checked_at: str = Field(alias="checkedAt")
+
+
+class ArtifactView(BaseModel):
+    name: str
+    size_bytes: int = Field(alias="sizeBytes")
+    sha256: str
+    download_url: str = Field(alias="downloadUrl")
+
+
+class EvidenceView(BaseModel):
+    run_id: str = Field(alias="runId")
+    evidence_state: EvidenceState = Field(alias="evidenceState")
+    integrity_status: Literal["pending", "verified", "failed"] = Field(
+        alias="integrityStatus"
+    )
+    integrity_error: str | None = Field(alias="integrityError")
+    verified_at: str = Field(alias="verifiedAt")
+    receipt: dict[str, object] | None
+    artifacts: list[ArtifactView]
+    mlflow: dict[str, str | None]
+    outbox: dict[str, object] | None

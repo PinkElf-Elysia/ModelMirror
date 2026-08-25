@@ -46,6 +46,7 @@ class WorkerRunManager:
         self._active: ActiveRun | None = None
         self._task: asyncio.Task[None] | None = None
         self._lock = asyncio.Lock()
+        self._health_lock = asyncio.Lock()
         self._health_cache: dict[str, str] | None = None
         self._recover_interrupted()
 
@@ -80,12 +81,13 @@ class WorkerRunManager:
                 continue
 
     async def health(self) -> dict[str, Any]:
-        if self._health_cache is None:
-            code, stdout, _ = await self._command("inspect", "--version", timeout=20)
-            self._health_cache = {
-                "status": "ready" if code == 0 and "0.3.260" in stdout else "not_ready",
-                "inspectVersion": stdout.strip(),
-            }
+        async with self._health_lock:
+            if self._health_cache is None:
+                code, stdout, _ = await self._command("inspect", "--version", timeout=20)
+                self._health_cache = {
+                    "status": "ready" if code == 0 and "0.3.260" in stdout else "not_ready",
+                    "inspectVersion": stdout.strip(),
+                }
         return {
             **self._health_cache,
             "busy": self._active is not None,

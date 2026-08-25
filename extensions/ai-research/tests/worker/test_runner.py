@@ -130,6 +130,29 @@ def test_health_caches_the_pinned_inspect_version(tmp_path: Path) -> None:
     assert manager.version_calls == 1
 
 
+def test_concurrent_health_checks_share_one_inspect_version_probe(tmp_path: Path) -> None:
+    class ConcurrentHealthManager(FakeInspectManager):
+        version_calls = 0
+
+        async def _command(self, *argv: str, timeout: float):
+            if list(argv)[1:2] == ["--version"]:
+                self.version_calls += 1
+                await asyncio.sleep(0.05)
+            return await super()._command(*argv, timeout=timeout)
+
+    async def scenario() -> None:
+        fixture = tmp_path / "fixture.py"
+        fixture.write_text("# fixture", encoding="utf-8")
+        manager = ConcurrentHealthManager(tmp_path / "logs", fixture, "success")
+
+        results = await asyncio.gather(*(manager.health() for _ in range(20)))
+
+        assert all(result["status"] == "ready" for result in results)
+        assert manager.version_calls == 1
+
+    asyncio.run(scenario())
+
+
 def test_interrupted_marker_recovers_as_infrastructure_error(tmp_path: Path) -> None:
     log_root = tmp_path / "logs"
     run_dir = log_root / "ar0_interrupted"

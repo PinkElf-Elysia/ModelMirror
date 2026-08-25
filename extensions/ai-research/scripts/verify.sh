@@ -36,29 +36,34 @@ trap cleanup EXIT
 
 python scripts/validate_boundary.py --base "$BASE"
 "${COMPOSE[@]}" config --quiet
-docker build --target test -f control/Dockerfile -t modelmirror-ai-research-control-test:ar0 .
-docker run --rm modelmirror-ai-research-control-test:ar0
-docker build --target test -f worker/Dockerfile -t modelmirror-ai-research-worker-test:ar0 .
-docker run --rm modelmirror-ai-research-worker-test:ar0
+docker build --target test -f control/Dockerfile -t modelmirror-ai-research-control-test:ar1 .
+docker run --rm modelmirror-ai-research-control-test:ar1
+docker build --target test -f worker/Dockerfile -t modelmirror-ai-research-worker-test:ar1 .
+docker run --rm modelmirror-ai-research-worker-test:ar1
 
 if [[ "$MODE" == "quick" ]]; then
   exit 0
 fi
 
 docker build --sbom=true --provenance=true --target runtime -f control/Dockerfile \
-  -t modelmirror-ai-research-control:ar0 .
+  -t modelmirror-ai-research-control:ar1 .
 docker build --sbom=true --provenance=true --target runtime -f worker/Dockerfile \
-  -t modelmirror-ai-research-worker:ar0 .
-docker run --rm modelmirror-ai-research-control:ar0 \
+  -t modelmirror-ai-research-worker:ar1 .
+docker run --rm modelmirror-ai-research-control:ar1 \
   cat //usr/share/doc/modelmirror-ai-research/runtime-inventory.json \
   > runtime/sbom/control-runtime-inventory.json
-docker run --rm modelmirror-ai-research-worker:ar0 \
+docker run --rm modelmirror-ai-research-control:ar1 \
+  cat //usr/share/doc/modelmirror-ai-research/ui-build-inventory.json \
+  > runtime/sbom/ui-build-inventory.json
+docker run --rm modelmirror-ai-research-worker:ar1 \
   cat //usr/share/doc/modelmirror-ai-research/runtime-inventory.json \
   > runtime/sbom/worker-runtime-inventory.json
 CONTROL_EXPECTED=$(python -c "import json; print(json.load(open('source-lock.json'))['licenseAudit']['control']['inventorySha256'])")
 WORKER_EXPECTED=$(python -c "import json; print(json.load(open('source-lock.json'))['licenseAudit']['worker']['inventorySha256'])")
+UI_EXPECTED=$(python -c "import json; print(json.load(open('source-lock.json'))['licenseAudit']['ui']['inventorySha256'])")
 [[ "$(sha256sum runtime/sbom/control-runtime-inventory.json | cut -d' ' -f1)" == "$CONTROL_EXPECTED" ]]
 [[ "$(sha256sum runtime/sbom/worker-runtime-inventory.json | cut -d' ' -f1)" == "$WORKER_EXPECTED" ]]
+[[ "$(sha256sum runtime/sbom/ui-build-inventory.json | cut -d' ' -f1)" == "$UI_EXPECTED" ]]
 measure_image() {
   local image="$1" slug="$2" tar_path="runtime/diagnostics/${2}-image.tar"
   docker save -o "$tar_path" "$image"
@@ -68,14 +73,22 @@ measure_image() {
   rm -f "$tar_path" "${tar_path}.gz"
 }
 {
-  measure_image modelmirror-ai-research-control:ar0 control
-  measure_image modelmirror-ai-research-worker:ar0 worker
+  measure_image modelmirror-ai-research-control:ar1 control
+  measure_image modelmirror-ai-research-worker:ar1 worker
 } > runtime/diagnostics/image-identities.txt
 
 "${COMPOSE[@]}" up -d
 python scripts/acceptance.py initial --state runtime/acceptance-state.json
+python scripts/acceptance.py inspect-view-logs --state runtime/acceptance-state.json
+"${COMPOSE[@]}" stop ai-research-inspect-view
+if ! python scripts/acceptance.py view-degraded --state runtime/view-degraded-state.json; then
+  "${COMPOSE[@]}" start ai-research-inspect-view
+  exit 1
+fi
+"${COMPOSE[@]}" start ai-research-inspect-view
 python scripts/acceptance.py outbox-create --state runtime/outbox-state.json
 "${COMPOSE[@]}" stop ai-research-tracking
+python scripts/acceptance.py required-not-ready --state runtime/outbox-state.json
 if ! python scripts/acceptance.py outbox-terminal --state runtime/outbox-state.json; then
   "${COMPOSE[@]}" start ai-research-tracking
   exit 1
@@ -124,6 +137,8 @@ CONTAINER_ENV=$(docker inspect \
   modelmirror-ai-research-ai-research-control-1 \
   modelmirror-ai-research-ai-research-tracking-1 \
   modelmirror-ai-research-ai-research-worker-1 --format '{{json .Config.Env}}')
+CONTAINER_ENV+=$(docker inspect \
+  modelmirror-ai-research-ai-research-inspect-view-1 --format '{{json .Config.Env}}')
 if grep -E 'OPENROUTER_API_KEY|LLM_GATEWAY_KEY|DIFY_API_KEY|PROVIDER.*(KEY|TOKEN|SECRET)|sk-(or-v1-)?[A-Za-z0-9_-]{32,}|gh[pousr]_[A-Za-z0-9]{30,}|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY' <<<"$CONTAINER_ENV"; then
   echo "provider credential names were exposed to module containers" >&2
   exit 1
@@ -164,16 +179,16 @@ esac
 build_client_proof \
   "$LOCKED_BASE" \
   "$CLIENT_BASELINE_CONTEXT" \
-  modelmirror-ai-research-client-proof:ar0-baseline
+  modelmirror-ai-research-client-proof:ar1-baseline
 build_client_proof \
   HEAD \
   "$CLIENT_CURRENT_CONTEXT" \
-  modelmirror-ai-research-client-proof:ar0
+  modelmirror-ai-research-client-proof:ar1
 extract_client_proof \
-  modelmirror-ai-research-client-proof:ar0-baseline \
+  modelmirror-ai-research-client-proof:ar1-baseline \
   "$CLIENT_BASELINE_PROOF_DIR"
 extract_client_proof \
-  modelmirror-ai-research-client-proof:ar0 \
+  modelmirror-ai-research-client-proof:ar1 \
   "$CLIENT_CURRENT_PROOF_DIR"
 python scripts/zero_footprint.py \
   --baseline-client-dist "$CLIENT_BASELINE_PROOF_DIR" \

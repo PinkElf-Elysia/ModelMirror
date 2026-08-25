@@ -7,7 +7,13 @@ from pathlib import Path
 import pytest
 
 from ai_research_control.config import Settings
-from ai_research_control.evidence import EvidenceError, build_receipt, verify_receipt
+from ai_research_control.evidence import (
+    EvidenceError,
+    build_receipt,
+    read_verified_artifact,
+    verify_persisted_receipt,
+    verify_receipt,
+)
 
 
 def write_json(path: Path, value: object) -> None:
@@ -107,6 +113,76 @@ def test_receipt_detects_artifact_tampering(tmp_path: Path) -> None:
     (destination / "eval-log.json").write_text("tampered", encoding="utf-8")
     with pytest.raises(EvidenceError, match="hash mismatch"):
         verify_receipt(destination, receipt)
+
+
+def test_download_revalidates_manifest_and_rejects_unregistered_file(tmp_path: Path) -> None:
+    config = settings(tmp_path)
+    run_id = "ar0_download"
+    source = config.inspect_log_root / run_id
+    source.mkdir(parents=True)
+    artifact = source / "eval-log.json"
+    artifact.write_text("{}", encoding="utf-8")
+    data = artifact.read_bytes()
+    receipt, destination = build_receipt(
+        config,
+        run_record(run_id),
+        {
+            "artifacts": {
+                artifact.name: {
+                    "sha256": hashlib.sha256(data).hexdigest(),
+                    "sizeBytes": len(data),
+                }
+            }
+        },
+    )
+
+    verify_persisted_receipt(destination, receipt)
+    downloaded, digest = read_verified_artifact(destination, receipt, artifact.name)
+    assert downloaded == data
+    assert digest == hashlib.sha256(data).hexdigest()
+    with pytest.raises(KeyError):
+        read_verified_artifact(destination, receipt, "not-listed.json")
+    with pytest.raises(EvidenceError, match="unsafe"):
+        read_verified_artifact(destination, receipt, "../receipt.json")
+
+    (destination / artifact.name).unlink()
+    with pytest.raises(EvidenceError, match="unavailable"):
+        read_verified_artifact(destination, receipt, artifact.name)
+
+
+def test_download_rejects_symlink_and_persisted_receipt_tampering(tmp_path: Path) -> None:
+    config = settings(tmp_path)
+    run_id = "ar0_symlink"
+    source = config.inspect_log_root / run_id
+    source.mkdir(parents=True)
+    artifact = source / "eval-log.json"
+    artifact.write_text("{}", encoding="utf-8")
+    data = artifact.read_bytes()
+    receipt, destination = build_receipt(
+        config,
+        run_record(run_id),
+        {
+            "artifacts": {
+                artifact.name: {
+                    "sha256": hashlib.sha256(data).hexdigest(),
+                    "sizeBytes": len(data),
+                }
+            }
+        },
+    )
+
+    copied = destination / artifact.name
+    copied.unlink()
+    copied.symlink_to(destination / "receipt.json")
+    with pytest.raises(EvidenceError, match="symbolic link|unsafe"):
+        read_verified_artifact(destination, receipt, artifact.name)
+
+    copied.unlink()
+    copied.write_bytes(data)
+    receipt_path = destination / "receipt.json"
+    receipt_path.write_bytes(receipt_path.read_bytes().replace(b'"runId"', b'"runID"', 1))
+    with pytest.raises(EvidenceError, match="does not match|body hash"):
+        verify_persisted_receipt(destination, receipt)
 
 
 def test_receipt_rejects_path_traversal(tmp_path: Path) -> None:
