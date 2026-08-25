@@ -695,6 +695,8 @@ class WorkflowExecutionStore:
             "workflow_deployment_agent",
             "xpert",
             "xpert_app",
+            "expert_team_planner",
+            "expert_team_dag",
         }
         allowed_statuses = {
             "running",
@@ -707,7 +709,7 @@ class WorkflowExecutionStore:
         status = str(raw.get("status") or "failed")
         calls: list[dict[str, Any]] = []
         raw_calls = raw.get("calls")
-        for item in raw_calls[:8] if isinstance(raw_calls, list) else []:
+        for item in raw_calls[:10] if isinstance(raw_calls, list) else []:
             if not isinstance(item, dict):
                 continue
             call_status = str(item.get("status") or "failed")
@@ -749,7 +751,7 @@ class WorkflowExecutionStore:
             "run_reference": str(raw.get("run_reference") or "")[:200],
             "status": status if status in allowed_statuses else "failed",
             "call_count": min(
-                8,
+                10,
                 sum(1 for item in calls if item["dispatched"]),
             ),
             "reason_codes": [

@@ -247,7 +247,13 @@ python -m server.model_router.migrate_credentials --storage-dir <path>
   Receipt，不改变回答正文或会话历史。受控子 Xpert/Handoff 显式继承 `xpert` 上下文，Managed
   失败不自动重放；Automation、Goal、评测、进化、记忆候选、后台增强与 Skill 流程保持排除。
   文件仅使用既有抽取文本，多模态继续专用 Adapter。
-- 后续 R6G—R6I 将逐入口接入同一 Call Service。每个逻辑调用只能派发一次；Provider Key
+- R6G 接入 Expert Team Planner 与 Agency DAG。Planner 使用 `chat_json_object`；DAG 的普通
+  执行调用使用 `chat_text_unary`，JSON 验收/裁判使用独立 `chat_json_object`，两类 Binding
+  都必须匹配精确模型与当前连接指纹。Worker request ID 直接成为逻辑调用键；初始、HITL
+  恢复、续跑和返工以独立稳定片段记录 Receipt。请求开始时冻结控制模式，managed 请求派发前
+  资格漂移或策略停用只会失败关闭，派发后失败不得换连接、模型、IP 或 legacy。Worker 环境、
+  API、SQLite、日志和浏览器不保存 Key、Prompt 或模型正文。
+- 后续 R6H—R6I 将逐入口接入同一 Call Service。每个逻辑调用只能派发一次；Provider Key
   只能存在于 Python 主进程内存，Worker、工具执行器和浏览器不得收到 Key、URL 或连接细节。
 - Receipt 清理命令现在同时检查 R5 Chat 与 R6 Workload 记录，仍默认 dry-run；`--apply`
   才删除超过保留期的已完成运行、尝试或调用。

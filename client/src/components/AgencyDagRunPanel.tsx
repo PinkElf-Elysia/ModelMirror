@@ -8,6 +8,7 @@ import type {
   AgencyInteractionDecisionPayload,
   AgencyPlanPreview,
 } from "./AgencyExpertTeamTypes";
+import ProviderRouteReceiptSummary from "./ProviderRouteReceiptSummary";
 
 interface AgencyDagRunSummary {
   task_id: string;
@@ -691,6 +692,10 @@ export default function AgencyDagRunPanel({
             版本链累计：{run.lineage_model_calls} 次调用 · {(run.lineage_usage?.input_tokens || 0).toLocaleString()} 输入 / {(run.lineage_usage?.output_tokens || 0).toLocaleString()} 输出 token
           </p>
         ) : null}
+        <ProviderRouteReceiptSummary
+          receipts={run?.provider_route_receipts}
+          title="DAG 控制面"
+        />
         {run?.revisable && !capabilities?.revision?.enabled ? (
           <p className="mt-2 text-xs text-slate-500">对话式返工当前未启用；历史结果仍可查看和下载。</p>
         ) : null}

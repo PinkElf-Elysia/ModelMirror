@@ -236,6 +236,16 @@ Round 6F 复用同一执行服务，将直接 Published Xpert 与已部署 Xpert
 和 Skill 流程不携带该上下文，继续使用原路径。文件仅在既有抽取流程转成文本后进入 R6F；
 视觉、音频及其他专用操作仍由原 Adapter 执行。
 
+Round 6G 将 Expert Team 的智能组队 Planner 与 Agency DAG 分别接入
+`expert_team_planner` / `expert_team_dag` Policy。Planner 只接受 `chat_text_unary`，
+并由现有 Agency Runtime 解析 YAML 计划；DAG
+执行步骤使用 `chat_text_unary`，验收与裁判调用独立要求 `chat_json_object`，两种资格不能
+互相继承。Agency Worker 继续只通过 Host callback 发送带稳定 `request_id` 的模型请求，
+Provider Key、URL 与连接信息不进入 Worker 环境。DAG 初始执行、HITL 恢复、显式续跑和返工
+各自建立稳定运行片段；每个逻辑调用只派发一次，`uncertain` 不自动重放。请求开始时冻结
+legacy 或 managed 模式，管理员并发修改策略只会令 managed 请求失败关闭，不会静默回退。
+用户侧仅显示按片段聚合的模型、调用数与脱敏状态，完整连接证据仍只在管理面可见。
+
 接入入口只允许 Python 主进程解析凭据和调用 Provider，Worker 与
 工具执行器继续只处理模型消息、Tool Call 和脱敏结果。
 

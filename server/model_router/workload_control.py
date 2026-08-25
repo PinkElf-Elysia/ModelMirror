@@ -90,8 +90,11 @@ ENTRY_ALLOWED_SHAPES: dict[
     ),
     "xpert": frozenset({"chat_text", "chat_tools", "chat_json_object"}),
     "xpert_app": frozenset({"chat_text", "chat_tools", "chat_json_object"}),
-    "expert_team_planner": frozenset({"chat_json_object"}),
-    "expert_team_dag": frozenset({"chat_text_unary"}),
+    # The Agency planner emits a YAML plan through a non-streaming text request.
+    "expert_team_planner": frozenset({"chat_text_unary"}),
+    # The Agency DAG executes expert text steps and JSON acceptance checks.
+    # These qualifications are independent and both must be explicit.
+    "expert_team_dag": frozenset({"chat_text_unary", "chat_json_object"}),
     "fusion": frozenset({"chat_text", "fusion_native"}),
     "route_agent": frozenset({"chat_text"}),
     "team_chat": frozenset({"chat_text"}),
@@ -109,6 +112,8 @@ DATA_PLANE_INTEGRATED_ENTRIES: frozenset[ProviderWorkloadEntryId] = frozenset(
         "workflow_deployment_agent",
         "xpert",
         "xpert_app",
+        "expert_team_planner",
+        "expert_team_dag",
     }
 )
 

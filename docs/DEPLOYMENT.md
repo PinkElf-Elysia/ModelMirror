@@ -254,6 +254,17 @@ Published Xpert 与 Xpert App 必须分别配置并批准 `xpert`、`xpert_app` 
 评测、进化、记忆候选、后台增强和 Skill 流程仍未纳管。关闭对应 Flag 并重启只恢复该入口
 legacy，不删除 v16 Receipt、Xpert 会话、App 部署或 Provider 配置。
 
+Expert Team Planner 与 DAG 必须分别配置并批准 `expert_team_planner`、
+`expert_team_dag` Policy，并分别开启
+`MODEL_CONTROL_EXPERT_TEAM_PLANNER_ENABLED`、
+`MODEL_CONTROL_EXPERT_TEAM_DAG_ENABLED`。Planner 要求精确模型的 `chat_json_object`
+Binding；DAG 同时要求同一精确模型的 `chat_text_unary` 与 `chat_json_object` Binding，缺少
+任一资格都会在 Provider POST 前阻断。开关关闭或 Policy 为 `legacy` 时保留原静态网关；
+已纳管请求在执行期间遇到策略、Binding、凭据或资格漂移时保持失败关闭，不会转回 legacy。
+HITL 恢复会创建新的脱敏运行片段，但继续使用原任务冻结的控制模式；重启后的不确定调用不得
+自动恢复。回退只需显式停用对应 Policy 或关闭 Flag 并重启，不删除 Expert Team 运行数据、
+v16 Receipt 或 Provider 配置。
+
 同一清理命令从 v16 起同时报告 R5 Chat 与 R6 Workload 的过期记录；第一条仍是 dry-run，
 只有第二条显式 `--apply` 才删除已完成记录。不得对正在运行的父运行或逻辑调用执行清理。
 

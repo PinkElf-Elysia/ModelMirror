@@ -146,7 +146,7 @@ const NEW_CERTIFICATION_SHAPES: ExecutionShape[] = [
   "fusion_native",
 ];
 
-const ENTRY_SHAPES: Record<EntryId, ExecutionShape[]> = {
+export const ENTRY_SHAPES: Record<EntryId, ExecutionShape[]> = {
   agent_shadow: ["chat_tools"],
   meta_agent: ["chat_json_object"],
   workflow_interactive_llm: ["chat_text", "chat_text_unary", "chat_json_object"],
@@ -155,8 +155,8 @@ const ENTRY_SHAPES: Record<EntryId, ExecutionShape[]> = {
   workflow_deployment_agent: ["chat_text", "chat_tools", "chat_json_object"],
   xpert: ["chat_text", "chat_tools", "chat_json_object"],
   xpert_app: ["chat_text", "chat_tools", "chat_json_object"],
-  expert_team_planner: ["chat_json_object"],
-  expert_team_dag: ["chat_text_unary"],
+  expert_team_planner: ["chat_text_unary"],
+  expert_team_dag: ["chat_text_unary", "chat_json_object"],
   fusion: ["chat_text", "fusion_native"],
   route_agent: ["chat_text"],
   team_chat: ["chat_text"],
@@ -584,7 +584,7 @@ export default function ProviderWorkloadControlSettings({
             <select aria-label={`Binding ${index + 1} 连接`} className="rounded-lg border border-white/10 bg-ink-950 px-2 py-2 text-sm text-white" value={binding.connection_id} onChange={(event) => setEditableBindings((current) => current.map((item, position) => position === index ? { ...item, connection_id: event.target.value } : item))}>{eligibleConnections.map((connection) => <option key={connection.id} value={connection.id}>{connection.name}</option>)}</select>
             <button className="rounded-full border border-rose-300/20 px-3 py-2 text-xs text-rose-100" onClick={() => setEditableBindings((current) => current.filter((_, position) => position !== index))} type="button">移除</button>
           </div>)}{!editableBindings.length ? <p className="rounded-lg border border-dashed border-white/10 p-4 text-sm text-slate-400">尚未配置；没有 Binding 时不能激活。</p> : null}</div>
-          <div className="mt-4 flex flex-wrap gap-2"><button className="rounded-full bg-sky-200 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-40" disabled={busy || !selectedPolicy || editableBindings.some((item) => !item.model_id.trim() || !item.connection_id)} onClick={() => void savePolicy()} type="button">保存 Binding</button>{selectedPolicy?.configured_status !== "legacy" ? <button className="rounded-full border border-white/15 px-4 py-2 text-sm text-slate-200" disabled={busy} onClick={() => void deactivate()} type="button">显式恢复 Legacy</button> : <button className="rounded-full border border-amber-300/30 px-4 py-2 text-sm text-amber-100 disabled:cursor-not-allowed disabled:opacity-40" disabled={busy || !selectedPolicy.data_plane_integrated || !selectedPolicy.feature_enabled || selectedPolicy.blocking_reason_codes.length > 0} onClick={() => setConfirmActivation(true)} type="button">激活 Managed 必经</button>}</div>
+          <div className="mt-4 flex flex-wrap gap-2"><button className="rounded-full bg-sky-200 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-40" disabled={busy || !selectedPolicy || editableBindings.some((item) => !item.model_id.trim() || !item.connection_id)} onClick={() => void savePolicy()} type="button">保存 Binding</button>{selectedPolicy?.configured_status !== "legacy" ? <button className="rounded-full border border-white/15 px-4 py-2 text-sm text-slate-200" disabled={busy} onClick={() => void deactivate()} type="button">显式恢复 Legacy</button> : null}{selectedPolicy && (selectedPolicy.configured_status === "legacy" || !selectedPolicy.approval_valid) ? <button className="rounded-full border border-amber-300/30 px-4 py-2 text-sm text-amber-100 disabled:cursor-not-allowed disabled:opacity-40" disabled={busy || !selectedPolicy.data_plane_integrated || !selectedPolicy.feature_enabled || selectedPolicy.blocking_reason_codes.length > 0} onClick={() => setConfirmActivation(true)} type="button">{selectedPolicy.configured_status === "legacy" ? "激活 Managed 必经" : "重新批准 Managed 必经"}</button> : null}</div>
         </div>
       </div>
       <div className="border-t border-white/10 p-5">
