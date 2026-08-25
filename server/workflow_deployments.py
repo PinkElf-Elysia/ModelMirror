@@ -211,6 +211,7 @@ class WorkflowDeploymentStore:
         *,
         credential_validator: Callable[[str], Any] | None = None,
         mcp_tool_validator: Callable[[dict[str, Any]], Any] | None = None,
+        xpert_target_validator: Callable[[str, int], Any] | None = None,
     ) -> None:
         package_dir = Path(__file__).resolve().parent
         self.storage_dir = Path(
@@ -228,6 +229,7 @@ class WorkflowDeploymentStore:
         self._subworkflow_relations: dict[str, WorkflowSubworkflowRelation] = {}
         self._credential_validator = credential_validator
         self._mcp_tool_validator = mcp_tool_validator
+        self._xpert_target_validator = xpert_target_validator
         self._load()
 
     def create_project(self, workflow: dict[str, Any]) -> WorkflowProject:
@@ -328,6 +330,7 @@ class WorkflowDeploymentStore:
                 project.draft,
                 credential_validator=self._credential_validator,
                 mcp_tool_validator=self._mcp_tool_validator,
+                xpert_target_validator=self._xpert_target_validator,
             )
             if trigger_kind == "failure":
                 self._validate_failure_sources_unlocked(
@@ -380,6 +383,7 @@ class WorkflowDeploymentStore:
         workflow_file_assets_enabled: bool = False,
         file_output_assets_enabled: bool = False,
         mcp_tools_enabled: bool = False,
+        handoff_executor_enabled: bool = False,
         now: float | None = None,
     ) -> tuple[WorkflowDeployment, str | None]:
         current = time.time() if now is None else float(now)
@@ -439,6 +443,37 @@ class WorkflowDeploymentStore:
                     self._mcp_tool_validator(dict(node.get("data") or {}))
                 except WorkflowR20NodeError as exc:
                     raise WorkflowDeploymentConflictError(exc.safe_message) from exc
+            collaboration_nodes = [
+                node
+                for node in nodes
+                if _raw_node_kind(node) in {"agent_handoff", "handoff_router"}
+                and r20_contract_version(dict(node.get("data") or {})) == 2
+            ]
+            automatic_handoffs = [
+                node
+                for node in collaboration_nodes
+                if str(dict(node.get("data") or {}).get("targetMode") or "")
+                == "xpert"
+            ]
+            if automatic_handoffs and not handoff_executor_enabled:
+                raise WorkflowDeploymentConflictError(
+                    "Automatic Xpert Handoffs are disabled."
+                )
+            for node in automatic_handoffs:
+                data = dict(node.get("data") or {})
+                if self._xpert_target_validator is None:
+                    raise WorkflowDeploymentConflictError(
+                        "Xpert Handoff target validation is unavailable."
+                    )
+                try:
+                    self._xpert_target_validator(
+                        str(data.get("targetXpertId") or ""),
+                        int(data.get("targetVersion") or 0),
+                    )
+                except Exception as exc:
+                    raise WorkflowDeploymentConflictError(
+                        "The fixed Xpert Handoff target is unavailable."
+                    ) from exc
             if any(_raw_node_kind(node) == "file_output" for node in nodes):
                 if not file_output_assets_enabled:
                     raise WorkflowDeploymentConflictError(
@@ -1602,6 +1637,7 @@ def validate_publishable_workflow(
     *,
     credential_validator: Callable[[str], Any] | None = None,
     mcp_tool_validator: Callable[[dict[str, Any]], Any] | None = None,
+    xpert_target_validator: Callable[[str, int], Any] | None = None,
 ) -> tuple[WorkflowTriggerKind, str]:
     try:
         definition = NativeWorkflowDefinition.model_validate(
@@ -1656,6 +1692,11 @@ def validate_publishable_workflow(
             raise WorkflowDeploymentValidationError(
                 "Legacy variable aggregator nodes must be explicitly migrated before publishing."
             )
+        if kind in {"agent_task", "agent_handoff", "handoff_router"}:
+            if r20_contract_version(node.data) != 2:
+                raise WorkflowDeploymentValidationError(
+                    f"Legacy {kind} nodes must be explicitly migrated before publishing."
+                )
         if contract.contract_status != "complete":
             raise WorkflowDeploymentValidationError(
                 f"Node '{node.id}' does not have a complete NodeContract."
@@ -1676,6 +1717,32 @@ def validate_publishable_workflow(
             raise WorkflowDeploymentValidationError(
                 "HTTP deployments cannot contain interactive waiting nodes."
             )
+        if (
+            trigger_kind == "http"
+            and kind in {"agent_handoff", "handoff_router"}
+            and bool(node.data.get("waitForCompletion"))
+        ):
+            raise WorkflowDeploymentValidationError(
+                "HTTP deployments cannot wait for an Agent Handoff result."
+            )
+        if (
+            kind in {"agent_handoff", "handoff_router"}
+            and r20_contract_version(node.data) == 2
+            and str(node.data.get("targetMode") or "") == "xpert"
+        ):
+            if xpert_target_validator is None:
+                raise WorkflowDeploymentValidationError(
+                    "Xpert Handoff target validation is unavailable."
+                )
+            try:
+                xpert_target_validator(
+                    str(node.data.get("targetXpertId") or ""),
+                    int(node.data.get("targetVersion") or 0),
+                )
+            except Exception as exc:
+                raise WorkflowDeploymentValidationError(
+                    "The fixed Xpert Handoff target is unavailable."
+                ) from exc
         if trigger_kind == "call" and contract.execution.can_wait:
             raise WorkflowDeploymentValidationError(
                 "Callable workflows cannot contain waiting nodes."

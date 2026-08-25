@@ -397,7 +397,7 @@ def _deployment_preflight(version: XpertVersion, policy: XpertAppPolicy) -> dict
             has_file_memory_writeback = has_file_memory_writeback or _truthy(
                 config.get("writeback_enabled")
             )
-        if kind in {"agent_handoff", "handoff_router"}:
+        if kind in {"agent_task", "agent_handoff", "handoff_router"}:
             has_handoff = True
         if kind in {"knowledge_retrieval", "knowledge_citation"}:
             has_knowledge = True

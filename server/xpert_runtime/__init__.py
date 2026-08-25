@@ -78,6 +78,7 @@ from .execution_store import (
     WorkflowExecutionStore,
 )
 from .approval_coordinator import ApprovalCoordinator
+from .workflow_handoff_coordinator import WorkflowHandoffCoordinator
 from .approval_api import (
     configure_approval_decision_validator,
     configure_approval_reopen_validator,
@@ -291,6 +292,7 @@ from .authoring_api import (
 __all__ = [
     "AgentMiddleware",
     "ApprovalCoordinator",
+    "WorkflowHandoffCoordinator",
     "AUTO_XPERT_TARGET_PREFIX",
     "AgentHandoff",
     "AgentTask",

@@ -313,11 +313,16 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   taskInput?: string;
   assignedAgent?: string;
   taskIdVariable?: string;
+  taskVariable?: string;
+  taskValueKind?: "receipt" | "task_id";
   sourceVariable?: string;
   sourceAgent?: string;
   targetAgent?: string;
+  targetMode?: "inbox" | "xpert";
+  inboxTarget?: string;
+  targetXpertId?: string;
   executionMode?: string;
-  waitForCompletion?: string;
+  waitForCompletion?: string | boolean;
   resultVariable?: string;
   targetProjectId?: string;
   targetVersion?: number | string;
@@ -479,6 +484,7 @@ export interface WorkflowRunEvent {
     | "runtime_approval_pending"
     | "runtime_approval_resolved"
     | "client_tool_waiting"
+    | "agent_handoff_waiting"
     | "timer_waiting"
     | "client_tool_dispatched"
     | "client_tool_completed"
@@ -511,6 +517,11 @@ export interface WorkflowRunEvent {
   request_status?: string;
   wait_kind?: string;
   wait_id?: string;
+  agent_task_id?: string;
+  agent_handoff_id?: string;
+  target_kind?: "inbox" | "xpert";
+  target_id?: string;
+  target_version?: number;
   resume_at?: number;
   host_id?: string;
   session_id?: string;

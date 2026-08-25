@@ -2935,6 +2935,100 @@ async def test_validate_agent_handoff_node_ok(client: httpx.AsyncClient) -> None
 
 
 @pytest.mark.asyncio
+async def test_validate_typed_agent_task_and_handoff_v2_ok(
+    client: httpx.AsyncClient,
+) -> None:
+    workflow = linear_workflow()
+    workflow["nodes"] = [
+        workflow["nodes"][0],
+        {
+            "id": "task",
+            "type": "agent_task",
+            "data": {
+                "kind": "agent_task",
+                "contractVersion": 2,
+                "taskTitle": "Review {{user_input}}",
+                "taskInput": "SENTINEL_PRIVATE_TASK {{user_input}}",
+                "assignedAgent": "review-agent",
+                "outputVariable": "task_receipt",
+            },
+        },
+        {
+            "id": "handoff",
+            "type": "agent_handoff",
+            "data": {
+                "kind": "agent_handoff",
+                "contractVersion": 2,
+                "taskVariable": "task_receipt",
+                "taskValueKind": "receipt",
+                "sourceAgent": "workflow",
+                "targetMode": "inbox",
+                "inboxTarget": "review-agent",
+                "reason": "SENTINEL_PRIVATE_REASON",
+                "waitForCompletion": False,
+                "timeoutSeconds": 120,
+                "resultVariable": "handoff_result",
+                "outputVariable": "handoff_receipt",
+            },
+        },
+        {
+            "id": "output",
+            "type": "output",
+            "data": {"kind": "output", "outputVariable": "handoff_receipt"},
+        },
+    ]
+    workflow["edges"] = [
+        {"id": "e1", "source": "input", "target": "task"},
+        {"id": "e2", "source": "task", "target": "handoff"},
+        {"id": "e3", "source": "handoff", "target": "output"},
+    ]
+
+    data = await validate(client, workflow)
+
+    assert data["valid"] is True
+    assert data["issues"] == []
+
+
+@pytest.mark.asyncio
+async def test_handoff_v2_rejects_receipt_overwrite_and_unfixed_xpert(
+    client: httpx.AsyncClient,
+) -> None:
+    workflow = linear_workflow()
+    workflow["nodes"][1] = {
+        "id": "router",
+        "type": "handoff_router",
+        "data": {
+            "kind": "handoff_router",
+            "contractVersion": 2,
+            "sourceVariable": "user_input",
+            "taskTitle": "Delegate {{user_input}}",
+            "sourceAgent": "workflow",
+            "targetMode": "xpert",
+            "targetXpertId": "",
+            "targetVersion": 0,
+            "reasonTemplate": "Review {{user_input}}",
+            "waitForCompletion": True,
+            "timeoutSeconds": 120,
+            "resultVariable": "handoff_receipt",
+            "outputVariable": "handoff_receipt",
+        },
+    }
+    workflow["nodes"][2]["data"]["outputVariable"] = "handoff_receipt"
+    workflow["edges"] = [
+        {"id": "e1", "source": "input", "target": "router"},
+        {"id": "e2", "source": "router", "target": "output"},
+    ]
+
+    data = await validate(client, workflow)
+    codes = issue_codes(data)
+
+    assert data["valid"] is False
+    assert "missing_handoff_router_target_xpert" in codes
+    assert "invalid_handoff_router_target_version" in codes
+    assert "invalid_handoff_router_result_output_conflict" in codes
+
+
+@pytest.mark.asyncio
 async def test_agent_handoff_missing_required_fields(
     client: httpx.AsyncClient,
 ) -> None:

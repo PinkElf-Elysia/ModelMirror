@@ -3,6 +3,7 @@ import {
   buildRunSteps,
   persistWorkflowRunRecovery,
   readWorkflowRunRecovery,
+  shouldShowHandoffInboxLink,
   shouldRecordNodeStreamFailure,
   workflowRunRecoveryKey,
 } from "./WorkflowRun";
@@ -136,6 +137,88 @@ describe("WorkflowRun handoff recovery pointer", () => {
         output: "未命中当前分支，已跳过。",
       }),
     ]);
+  });
+
+  it("shows a durable agent handoff as waiting with only safe target metadata", () => {
+    const steps = buildRunSteps([
+      {
+        event: "agent_handoff_waiting",
+        node_id: "handoff-1",
+        node_title: "移交已有任务",
+        node_type: "agent_handoff",
+        wait_kind: "agent_handoff",
+        wait_id: "handoff_safe",
+        agent_task_id: "task_safe",
+        agent_handoff_id: "handoff_safe",
+        target_kind: "xpert",
+        target_id: "review-xpert",
+        target_version: 3,
+        message: "任务已移交，正在等待完成。",
+      },
+    ]);
+
+    expect(steps).toEqual([
+      expect.objectContaining({
+        id: "handoff-1",
+        status: "waiting",
+        output: "任务已移交，正在等待完成。",
+      }),
+    ]);
+    expect(JSON.stringify(steps)).not.toContain("task input");
+    expect(JSON.stringify(steps)).not.toContain("reason");
+    expect(shouldShowHandoffInboxLink(steps[0])).toBe(true);
+  });
+
+  it("replaces the waiting copy when a recovered handoff completes", () => {
+    const steps = buildRunSteps([
+      {
+        event: "agent_handoff_waiting",
+        node_id: "router",
+        node_title: "路由并移交",
+        node_type: "handoff_router",
+        message: "Workflow is waiting for the delegated task to finish.",
+      },
+      {
+        event: "node_end",
+        node_id: "router",
+        node_title: "路由并移交",
+        node_type: "handoff_router",
+        output: "协作任务已完成。",
+      },
+    ]);
+
+    expect(steps).toEqual([
+      expect.objectContaining({
+        id: "router",
+        status: "done",
+        output: "协作任务已完成。",
+      }),
+    ]);
+    expect(steps[0].output).not.toContain("waiting");
+  });
+
+  it("only offers the Inbox shortcut for actionable collaboration steps", () => {
+    expect(shouldShowHandoffInboxLink({
+      id: "router",
+      title: "路由并移交",
+      type: "handoff_router",
+      status: "done",
+      output: "submitted",
+    })).toBe(true);
+    expect(shouldShowHandoffInboxLink({
+      id: "llm",
+      title: "LLM",
+      type: "llm",
+      status: "done",
+      output: "done",
+    })).toBe(false);
+    expect(shouldShowHandoffInboxLink({
+      id: "handoff",
+      title: "移交失败",
+      type: "agent_handoff",
+      status: "error",
+      output: "failed",
+    })).toBe(false);
   });
 
   it("stores only bounded task and run ids for page refresh recovery", () => {

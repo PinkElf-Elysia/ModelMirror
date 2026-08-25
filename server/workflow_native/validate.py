@@ -357,6 +357,90 @@ def validate_handoff_execution_configuration(
 ) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     data = node.data
+    if r20_contract_version(data) == 2:
+        target_mode = str(data.get("targetMode") or "").strip()
+        if target_mode not in {"inbox", "xpert"}:
+            issues.append(
+                ValidationIssue(
+                    code=f"invalid_{code_prefix}_target_mode",
+                    message="Handoff targetMode must be inbox or xpert.",
+                    node_id=node.id,
+                )
+            )
+        inbox_target = str(data.get("inboxTarget") or "").strip()
+        target_xpert_id = str(data.get("targetXpertId") or "").strip()
+        if target_mode == "inbox" and not inbox_target:
+            issues.append(
+                ValidationIssue(
+                    code=f"missing_{code_prefix}_inbox_target",
+                    message="Inbox Handoff needs data.inboxTarget.",
+                    node_id=node.id,
+                )
+            )
+        if target_mode == "xpert":
+            if not target_xpert_id:
+                issues.append(
+                    ValidationIssue(
+                        code=f"missing_{code_prefix}_target_xpert",
+                        message="Xpert Handoff needs data.targetXpertId.",
+                        node_id=node.id,
+                    )
+                )
+            try:
+                target_version = int(data.get("targetVersion"))
+            except (TypeError, ValueError):
+                target_version = 0
+            if target_version < 1:
+                issues.append(
+                    ValidationIssue(
+                        code=f"invalid_{code_prefix}_target_version",
+                        message="Xpert Handoff needs a fixed targetVersion >= 1.",
+                        node_id=node.id,
+                    )
+                )
+        wait_for_completion = config_truthy(data.get("waitForCompletion"))
+        result_variable = str(data.get("resultVariable") or "").strip()
+        if wait_for_completion and not result_variable:
+            issues.append(
+                ValidationIssue(
+                    code=f"missing_{code_prefix}_result_variable",
+                    message="Waiting Handoff needs data.resultVariable.",
+                    node_id=node.id,
+                )
+            )
+        elif result_variable and not is_variable_name(result_variable):
+            issues.append(
+                ValidationIssue(
+                    code=f"invalid_{code_prefix}_result_variable",
+                    message="Handoff resultVariable must be an identifier.",
+                    node_id=node.id,
+                )
+            )
+        output_variable = str(data.get("outputVariable") or "").strip()
+        if wait_for_completion and result_variable == output_variable:
+            issues.append(
+                ValidationIssue(
+                    code=f"invalid_{code_prefix}_result_output_conflict",
+                    message=(
+                        "Handoff resultVariable must differ from outputVariable so the "
+                        "typed receipt is not overwritten."
+                    ),
+                    node_id=node.id,
+                )
+            )
+        try:
+            timeout = int(data.get("timeoutSeconds", 120))
+        except (TypeError, ValueError):
+            timeout = 0
+        if timeout < 5 or timeout > 600:
+            issues.append(
+                ValidationIssue(
+                    code=f"invalid_{code_prefix}_timeout",
+                    message="Handoff timeoutSeconds must be between 5 and 600.",
+                    node_id=node.id,
+                )
+            )
+        return issues
     execution_mode = str(data.get("executionMode") or "manual").strip()
     if execution_mode not in {"manual", "xpert_auto"}:
         issues.append(
@@ -2678,6 +2762,7 @@ def validate_node_configuration(
                 )
 
     if kind == "agent_task":
+        is_v2 = r20_contract_version(data) == 2
         task_title = str(data.get("taskTitle") or "").strip()
         if not task_title:
             issues.append(
@@ -2697,6 +2782,32 @@ def validate_node_configuration(
                     node_id=node.id,
                 )
             )
+        if is_v2:
+            assigned_agent = str(data.get("assignedAgent") or "").strip()
+            if not assigned_agent:
+                issues.append(
+                    ValidationIssue(
+                        code="missing_agent_task_assigned_agent",
+                        message="Agent task V2 needs data.assignedAgent.",
+                        node_id=node.id,
+                    )
+                )
+            if len(task_title) > 500:
+                issues.append(
+                    ValidationIssue(
+                        code="agent_task_title_too_long",
+                        message="Agent task V2 title cannot exceed 500 characters.",
+                        node_id=node.id,
+                    )
+                )
+            if len(task_input) > 20_000:
+                issues.append(
+                    ValidationIssue(
+                        code="agent_task_input_too_long",
+                        message="Agent task V2 input cannot exceed 20000 characters.",
+                        node_id=node.id,
+                    )
+                )
 
         output_variable = str(data.get("outputVariable") or "").strip()
         if not output_variable:
@@ -2717,7 +2828,10 @@ def validate_node_configuration(
             )
 
     if kind == "agent_handoff":
-        task_id_variable = str(data.get("taskIdVariable") or "").strip()
+        is_v2 = r20_contract_version(data) == 2
+        task_id_variable = str(
+            data.get("taskVariable" if is_v2 else "taskIdVariable") or ""
+        ).strip()
         if not task_id_variable:
             issues.append(
                 ValidationIssue(
@@ -2736,7 +2850,7 @@ def validate_node_configuration(
             )
 
         target_agent = str(data.get("targetAgent") or "").strip()
-        if not target_agent:
+        if not is_v2 and not target_agent:
             issues.append(
                 ValidationIssue(
                     code="missing_agent_handoff_target_agent",
@@ -2754,6 +2868,25 @@ def validate_node_configuration(
                     node_id=node.id,
                 )
             )
+        if is_v2:
+            task_value_kind = str(data.get("taskValueKind") or "").strip()
+            if task_value_kind not in {"receipt", "task_id"}:
+                issues.append(
+                    ValidationIssue(
+                        code="invalid_agent_handoff_task_value_kind",
+                        message="Agent handoff taskValueKind must be receipt or task_id.",
+                        node_id=node.id,
+                    )
+                )
+            source_agent = str(data.get("sourceAgent") or "").strip()
+            if not source_agent:
+                issues.append(
+                    ValidationIssue(
+                        code="missing_agent_handoff_source_agent",
+                        message="Agent handoff V2 needs data.sourceAgent.",
+                        node_id=node.id,
+                    )
+                )
 
         output_variable = str(data.get("outputVariable") or "").strip()
         if not output_variable:
@@ -2780,6 +2913,7 @@ def validate_node_configuration(
         )
 
     if kind == "handoff_router":
+        is_v2 = r20_contract_version(data) == 2
         source_variable = str(data.get("sourceVariable") or "").strip()
         if not source_variable:
             issues.append(
@@ -2809,7 +2943,7 @@ def validate_node_configuration(
             )
 
         target_agent = str(data.get("targetAgent") or "").strip()
-        if not target_agent:
+        if not is_v2 and not target_agent:
             issues.append(
                 ValidationIssue(
                     code="missing_handoff_router_target_agent",
@@ -2824,6 +2958,14 @@ def validate_node_configuration(
                 ValidationIssue(
                     code="missing_handoff_router_reason_template",
                     message="Handoff router node needs data.reasonTemplate.",
+                    node_id=node.id,
+                )
+            )
+        if is_v2 and not str(data.get("sourceAgent") or "").strip():
+            issues.append(
+                ValidationIssue(
+                    code="missing_handoff_router_source_agent",
+                    message="Handoff router V2 needs data.sourceAgent.",
                     node_id=node.id,
                 )
             )
@@ -4401,7 +4543,14 @@ def validate_variable_references(
                     )
 
     if kind == "agent_handoff":
-        task_id_variable = str(data.get("taskIdVariable") or "").strip()
+        task_id_variable = str(
+            data.get(
+                "taskVariable"
+                if r20_contract_version(data) == 2
+                else "taskIdVariable"
+            )
+            or ""
+        ).strip()
         if task_id_variable and task_id_variable not in available_variables:
             issues.append(
                 ValidationIssue(

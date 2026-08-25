@@ -1017,6 +1017,239 @@ def _complete_contracts() -> dict[str, NodeContract]:
         ),
         planner=_planner(),
     )
+
+    agent_task_v1_schema = _object_schema(
+        {
+            "taskTitle": {"type": "string"},
+            "taskInput": {"type": "string"},
+            "assignedAgent": {"type": "string"},
+            "outputVariable": {"type": "string"},
+        },
+        required=["taskTitle", "taskInput", "outputVariable"],
+    )
+    agent_task_v2_schema = _object_schema(
+        {
+            "contractVersion": {"const": 2},
+            "taskTitle": {"type": "string", "minLength": 1, "maxLength": 500},
+            "taskInput": {"type": "string", "minLength": 1, "maxLength": 20_000},
+            "assignedAgent": {"type": "string", "minLength": 1, "maxLength": 160},
+            "outputVariable": {
+                "type": "string",
+                "pattern": r"^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+            },
+        },
+        required=[
+            "contractVersion",
+            "taskTitle",
+            "taskInput",
+            "assignedAgent",
+            "outputVariable",
+        ],
+        additional_properties=False,
+    )
+    task_receipt_value = WorkflowValueSchema(
+        type="object",
+        properties={
+            "status": string_value,
+            "taskId": string_value,
+            "runId": string_value,
+            "assignedAgent": string_value,
+        },
+        required=("status", "taskId", "runId", "assignedAgent"),
+    )
+    collaboration_availability = NodeAvailabilityPolicy(
+        workflow=_rule("allow"),
+        xpert=_rule("allow"),
+        goal=_rule("allow"),
+        handoff=_rule("allow"),
+        app=_rule(
+            "conditional",
+            code="app_handoffs_capability_required",
+            message="Xpert App Handoffs require allow_handoffs.",
+        ),
+        evaluation=_rule("deny", code="evaluation_unsafe_node"),
+        evolution=_rule("deny"),
+    )
+    contracts["agent_task"] = NodeContract(
+        kind="agent_task",
+        contract_status="complete",
+        config_schema={"type": "object", "anyOf": [agent_task_v1_schema, agent_task_v2_schema]},
+        ports=(
+            NodePortContract(name="task", direction="input", value_schema=string_value),
+            NodePortContract(name="receipt", direction="output", value_schema=task_receipt_value),
+        ),
+        execution=NodeExecutionPolicy(
+            side_effect="write",
+            deterministic=False,
+            idempotent=True,
+            external_io=False,
+            can_wait=False,
+            error_semantics="fail_closed",
+            security_category="agent_collaboration",
+        ),
+        availability=collaboration_availability,
+        planner=_planner(),
+    )
+
+    handoff_target_properties = {
+        "targetMode": {"type": "string", "enum": ["inbox", "xpert"]},
+        "inboxTarget": {"type": "string", "maxLength": 160},
+        "targetXpertId": {"type": "string", "maxLength": 200},
+        "targetVersion": {"type": "integer", "minimum": 1},
+        "waitForCompletion": {"type": "boolean"},
+        "timeoutSeconds": {"type": "integer", "minimum": 5, "maximum": 600},
+        "outputVariable": {
+            "type": "string",
+            "pattern": r"^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+        },
+        "resultVariable": {
+            "type": "string",
+            "pattern": r"^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+        },
+    }
+    agent_handoff_v1_schema = _object_schema(
+        {
+            "taskIdVariable": {"type": "string"},
+            "sourceAgent": {"type": "string"},
+            "targetAgent": {"type": "string"},
+            "executionMode": {"type": "string"},
+            "waitForCompletion": {},
+            "resultVariable": {"type": "string"},
+            "waitTimeoutSeconds": {},
+            "reason": {"type": "string"},
+            "outputVariable": {"type": "string"},
+        },
+        required=["taskIdVariable", "targetAgent", "reason", "outputVariable"],
+    )
+    agent_handoff_v2_schema = _object_schema(
+        {
+            "contractVersion": {"const": 2},
+            "taskVariable": {
+                "type": "string",
+                "pattern": r"^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+            },
+            "taskValueKind": {"type": "string", "enum": ["receipt", "task_id"]},
+            "sourceAgent": {"type": "string", "minLength": 1, "maxLength": 160},
+            "reason": {"type": "string", "minLength": 1, "maxLength": 4000},
+            **handoff_target_properties,
+        },
+        required=[
+            "contractVersion",
+            "taskVariable",
+            "taskValueKind",
+            "sourceAgent",
+            "targetMode",
+            "waitForCompletion",
+            "timeoutSeconds",
+            "reason",
+            "outputVariable",
+        ],
+        additional_properties=False,
+    )
+    handoff_receipt_value = WorkflowValueSchema(
+        type="object",
+        properties={
+            "status": string_value,
+            "taskId": string_value,
+            "handoffId": string_value,
+            "runId": string_value,
+            "targetKind": string_value,
+            "targetId": string_value,
+            "targetVersion": WorkflowValueSchema(type="integer", nullable=True),
+            "result": WorkflowValueSchema(type="string", nullable=True),
+        },
+        required=(
+            "status",
+            "taskId",
+            "handoffId",
+            "runId",
+            "targetKind",
+            "targetId",
+            "targetVersion",
+            "result",
+        ),
+    )
+    contracts["agent_handoff"] = NodeContract(
+        kind="agent_handoff",
+        contract_status="complete",
+        config_schema={"type": "object", "anyOf": [agent_handoff_v1_schema, agent_handoff_v2_schema]},
+        ports=(
+            NodePortContract(name="task", direction="input", value_schema=task_receipt_value, required=True),
+            NodePortContract(name="receipt", direction="output", value_schema=handoff_receipt_value),
+        ),
+        execution=NodeExecutionPolicy(
+            side_effect="external_write",
+            deterministic=False,
+            idempotent=True,
+            external_io=True,
+            can_wait=True,
+            error_semantics="fail_closed",
+            security_category="agent_collaboration",
+        ),
+        availability=collaboration_availability,
+        planner=_planner(),
+    )
+
+    handoff_router_v1_schema = _object_schema(
+        {
+            "sourceVariable": {"type": "string"},
+            "taskTitle": {"type": "string"},
+            "sourceAgent": {"type": "string"},
+            "targetAgent": {"type": "string"},
+            "executionMode": {"type": "string"},
+            "waitForCompletion": {},
+            "resultVariable": {"type": "string"},
+            "waitTimeoutSeconds": {},
+            "reasonTemplate": {"type": "string"},
+            "outputVariable": {"type": "string"},
+        },
+        required=["sourceVariable", "taskTitle", "targetAgent", "reasonTemplate", "outputVariable"],
+    )
+    handoff_router_v2_schema = _object_schema(
+        {
+            "contractVersion": {"const": 2},
+            "sourceVariable": {
+                "type": "string",
+                "pattern": r"^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+            },
+            "taskTitle": {"type": "string", "minLength": 1, "maxLength": 500},
+            "sourceAgent": {"type": "string", "minLength": 1, "maxLength": 160},
+            "reasonTemplate": {"type": "string", "minLength": 1, "maxLength": 4000},
+            **handoff_target_properties,
+        },
+        required=[
+            "contractVersion",
+            "sourceVariable",
+            "taskTitle",
+            "sourceAgent",
+            "targetMode",
+            "waitForCompletion",
+            "timeoutSeconds",
+            "reasonTemplate",
+            "outputVariable",
+        ],
+        additional_properties=False,
+    )
+    contracts["handoff_router"] = NodeContract(
+        kind="handoff_router",
+        contract_status="complete",
+        config_schema={"type": "object", "anyOf": [handoff_router_v1_schema, handoff_router_v2_schema]},
+        ports=(
+            NodePortContract(name="source", direction="input", value_schema=any_value, required=True),
+            NodePortContract(name="receipt", direction="output", value_schema=handoff_receipt_value),
+        ),
+        execution=NodeExecutionPolicy(
+            side_effect="external_write",
+            deterministic=False,
+            idempotent=True,
+            external_io=True,
+            can_wait=True,
+            error_semantics="fail_closed",
+            security_category="agent_collaboration",
+        ),
+        availability=collaboration_availability,
+        planner=_planner(),
+    )
     extractor_v1_schema = _object_schema(
         {
             "contractVersion": {"const": 1},
@@ -2669,6 +2902,12 @@ def build_builtin_node_contract_registry() -> NodeContractRegistry:
         update={
             "deprecated": True,
             "replacement_kind": "variable_assign",
+        }
+    )
+    contracts["agent"] = contracts["agent"].model_copy(
+        update={
+            "deprecated": True,
+            "replacement_kind": "workflow_agent",
         }
     )
 

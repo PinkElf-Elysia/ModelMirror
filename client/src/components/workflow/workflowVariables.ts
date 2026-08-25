@@ -215,6 +215,7 @@ export const WORKFLOW_VARIABLE_FIELD_DESCRIPTORS: WorkflowVariableFieldDescripto
   field("agent_task", "taskInput", "template", TEMPLATE_TYPES),
   field("agent_task", "outputVariable", "declaration", TEXT_TYPES),
   field("agent_handoff", "taskIdVariable", "binding", TEXT_TYPES, "task_id"),
+  field("agent_handoff", "taskVariable", "binding", ["json", "text"], "task_receipt"),
   field("agent_handoff", "reason", "template", TEMPLATE_TYPES),
   field("agent_handoff", "outputVariable", "declaration", TEXT_TYPES),
   field("agent_handoff", "resultVariable", "declaration", TEXT_TYPES),
@@ -461,10 +462,10 @@ const DEFAULT_OUTPUT_SPECS: Partial<Record<WorkflowNodeKind, OutputSpec[]>> = {
     { field: "outputVariable", fallback: "agent_output", valueType: "text" },
   ],
   agent_task: [
-    { field: "outputVariable", fallback: "agent_task_id", valueType: "text" },
+    { field: "outputVariable", fallback: "agent_task_receipt", valueType: "json" },
   ],
   agent_handoff: [
-    { field: "outputVariable", fallback: "agent_handoff_id", valueType: "text" },
+    { field: "outputVariable", fallback: "handoff_receipt", valueType: "json" },
     {
       field: "resultVariable",
       fallback: "handoff_result",
@@ -474,7 +475,7 @@ const DEFAULT_OUTPUT_SPECS: Partial<Record<WorkflowNodeKind, OutputSpec[]>> = {
     },
   ],
   handoff_router: [
-    { field: "outputVariable", fallback: "agent_handoff_id", valueType: "text" },
+    { field: "outputVariable", fallback: "handoff_receipt", valueType: "json" },
     {
       field: "resultVariable",
       fallback: "handoff_result",

@@ -62,6 +62,8 @@ BASELINE_213_COMPATIBILITY_KINDS = {
     "variable_aggregator",
 }
 PROMOTED_COMPLETE_KINDS = {
+    "agent_handoff",
+    "agent_task",
     "code",
     "condition",
     "document_extractor",
@@ -72,6 +74,7 @@ PROMOTED_COMPLETE_KINDS = {
     "mcp_tool",
     "parameter_extractor",
     "question_classifier",
+    "handoff_router",
     "time_tool",
     "variable_assign",
     "variable_aggregator",
@@ -212,7 +215,7 @@ def test_r16_control_data_contracts_are_complete_local_and_not_plannable() -> No
     assert sum(
         contract.contract_status == "compatibility"
         for contract in workflow_node_contract_registry.list()
-        ) == 7
+        ) == 4
 
 
 def test_r17_http_condition_and_dataset_contracts_are_complete_and_not_plannable() -> None:
@@ -278,7 +281,30 @@ def test_r18_file_data_contracts_are_complete_scoped_and_not_plannable() -> None
     assert sum(
         contract.contract_status == "compatibility"
         for contract in workflow_node_contract_registry.list()
-    ) == 7
+    ) == 4
+
+
+def test_r22_agent_collaboration_contracts_are_typed_and_not_plannable() -> None:
+    task = workflow_node_contract_registry.require("agent_task")
+    handoff = workflow_node_contract_registry.require("agent_handoff")
+    router = workflow_node_contract_registry.require("handoff_router")
+
+    for contract in (task, handoff, router):
+        assert contract.contract_status == "complete"
+        assert contract.planner.enabled is False
+        assert contract.execution.error_semantics == "fail_closed"
+        assert node_policy_service.decision(contract.kind, "workflow").allowed
+        assert node_policy_service.decision(contract.kind, "xpert").allowed
+        assert not node_policy_service.decision(contract.kind, "evaluation").allowed
+        assert not node_policy_service.decision(contract.kind, "evolution").allowed
+
+    assert task.execution.can_wait is False
+    assert task.execution.idempotent is True
+    assert task.ports[-1].value_schema.type == "object"
+    assert handoff.execution.can_wait is True
+    assert router.execution.can_wait is True
+    assert handoff.ports[-1].value_schema.type == "object"
+    assert router.ports[-1].value_schema.type == "object"
 
 
 def test_r21_safe_text_contract_is_complete_scoped_and_not_plannable() -> None:
@@ -511,6 +537,7 @@ def test_policy_service_preserves_current_entrypoint_boundaries() -> None:
         "http_event_reply",
     }
     evaluation_denied = {
+        "agent_task",
         "agent_handoff",
         "handoff_router",
         "human_intervention",
@@ -614,7 +641,7 @@ def test_registry_ui_projection_is_v4_and_contains_no_runtime_payloads() -> None
         for item in section["items"]
     ] + list(payload["knowledge_pipeline"]["items"])
 
-    assert len({item["kind"] for item in items}) == 48
+    assert len({item["kind"] for item in items}) == 47
     assert payload["version"] == "xpert-workflow-node-registry-v4"
     assert payload["contract_version"] == 3
     assert payload["contract_checksum"] == workflow_node_contract_registry.checksum

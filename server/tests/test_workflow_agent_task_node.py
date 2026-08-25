@@ -59,6 +59,28 @@ def default_to_legacy_agent_strategy(monkeypatch: pytest.MonkeyPatch):
     main_module.request_windows.clear()
 
 
+def test_workflow_handoff_failure_code_preserves_timeout_cause() -> None:
+    timed_out = SimpleNamespace(
+        status="dead_letter",
+        metadata={"last_error": "HANDOFF_TIMEOUT"},
+    )
+    unavailable = SimpleNamespace(
+        status="dead_letter",
+        metadata={"last_error": "HANDOFF_TARGET_UNAVAILABLE"},
+    )
+
+    assert main_module.workflow_handoff_failure_code(timed_out) == "HANDOFF_TIMEOUT"
+    assert (
+        main_module.workflow_handoff_failure_code(unavailable)
+        == "HANDOFF_TARGET_UNAVAILABLE"
+    )
+    assert (
+        main_module.workflow_handoff_failure_code(SimpleNamespace(status="rejected"))
+        == "HANDOFF_REJECTED"
+    )
+    assert main_module.workflow_handoff_failure_code(None) == "HANDOFF_RECEIPT_INVALID"
+
+
 @pytest.mark.asyncio
 async def test_workflow_agent_task_node_creates_runtime_task(
     client: httpx.AsyncClient,
@@ -157,6 +179,177 @@ async def test_workflow_agent_task_node_creates_runtime_task(
     agent_task_run = next(item for item in agent_task_runs if item["source_id"] == task_id)
     assert agent_task_run["parent_run_id"] == workflow_run_id
     assert agent_task_run["metadata"]["node_id"] == "agent_task"
+
+
+@pytest.mark.asyncio
+async def test_workflow_collaboration_v2_emits_typed_receipts_without_payload_leaks(
+    client: httpx.AsyncClient,
+) -> None:
+    task_sentinel = "R22_TASK_INPUT_SENTINEL_72d58f"
+    reason_sentinel = "R22_HANDOFF_REASON_SENTINEL_8f791c"
+    workflow = {
+        "id": "agent-collaboration-v2-workflow",
+        "title": "agent collaboration v2 workflow",
+        "nodes": [
+            {
+                "id": "input",
+                "type": "input",
+                "data": {"kind": "input", "variableName": "user_input"},
+            },
+            {
+                "id": "agent_task",
+                "type": "agent_task",
+                "data": {
+                    "kind": "agent_task",
+                    "contractVersion": 2,
+                    "taskTitle": "Review {{user_input}}",
+                    "taskInput": f"{task_sentinel} {{{{user_input}}}}",
+                    "assignedAgent": "review-agent",
+                    "outputVariable": "task_receipt",
+                },
+            },
+            {
+                "id": "agent_handoff",
+                "type": "agent_handoff",
+                "data": {
+                    "kind": "agent_handoff",
+                    "contractVersion": 2,
+                    "taskVariable": "task_receipt",
+                    "taskValueKind": "receipt",
+                    "sourceAgent": "workflow",
+                    "targetMode": "inbox",
+                    "inboxTarget": "review-agent",
+                    "reason": reason_sentinel,
+                    "waitForCompletion": False,
+                    "timeoutSeconds": 120,
+                    "outputVariable": "handoff_receipt",
+                    "resultVariable": "handoff_result",
+                },
+            },
+            {
+                "id": "output",
+                "type": "output",
+                "data": {"kind": "output", "outputVariable": "handoff_receipt"},
+            },
+        ],
+        "edges": [
+            {"id": "e1", "source": "input", "target": "agent_task"},
+            {"id": "e2", "source": "agent_task", "target": "agent_handoff"},
+            {"id": "e3", "source": "agent_handoff", "target": "output"},
+        ],
+    }
+
+    response = await client.post(
+        "/api/workflow/run",
+        json={"workflow": workflow, "inputs": {"user_input": "invoice 1042"}},
+    )
+    assert response.status_code == 200, response.text
+    assert task_sentinel not in response.text
+    assert reason_sentinel not in response.text
+
+    events = _parse_sse_events(response.text)
+    task_end = next(
+        event
+        for event in events
+        if event.get("event") == "node_end" and event.get("node_id") == "agent_task"
+    )
+    task_receipt = task_end["variables"]["task_receipt"]
+    assert task_receipt == {
+        "status": "pending",
+        "taskId": task_receipt["taskId"],
+        "runId": task_receipt["runId"],
+        "assignedAgent": "review-agent",
+    }
+    assert task_receipt["taskId"].startswith("task_")
+
+    handoff_end = next(
+        event
+        for event in events
+        if event.get("event") == "node_end"
+        and event.get("node_id") == "agent_handoff"
+    )
+    handoff_receipt = handoff_end["variables"]["handoff_receipt"]
+    assert handoff_receipt["status"] == "submitted"
+    assert handoff_receipt["taskId"] == task_receipt["taskId"]
+    assert handoff_receipt["handoffId"].startswith("handoff_")
+    assert handoff_receipt["targetKind"] == "inbox"
+    assert handoff_receipt["targetId"] == "review-agent"
+    assert handoff_receipt["targetVersion"] is None
+    assert handoff_receipt["result"] is None
+
+
+@pytest.mark.asyncio
+async def test_workflow_handoff_router_v2_atomically_returns_typed_receipt(
+    client: httpx.AsyncClient,
+) -> None:
+    workflow = {
+        "id": "handoff-router-v2-workflow",
+        "title": "handoff router v2 workflow",
+        "nodes": [
+            {
+                "id": "input",
+                "type": "input",
+                "data": {"kind": "input", "variableName": "user_input"},
+            },
+            {
+                "id": "router",
+                "type": "handoff_router",
+                "data": {
+                    "kind": "handoff_router",
+                    "contractVersion": 2,
+                    "sourceVariable": "user_input",
+                    "taskTitle": "Review customer request",
+                    "sourceAgent": "workflow",
+                    "targetMode": "inbox",
+                    "inboxTarget": "support-review",
+                    "reasonTemplate": "Manual policy review",
+                    "waitForCompletion": False,
+                    "timeoutSeconds": 120,
+                    "outputVariable": "handoff_receipt",
+                    "resultVariable": "handoff_result",
+                },
+            },
+            {
+                "id": "output",
+                "type": "output",
+                "data": {"kind": "output", "outputVariable": "handoff_receipt"},
+            },
+        ],
+        "edges": [
+            {"id": "e1", "source": "input", "target": "router"},
+            {"id": "e2", "source": "router", "target": "output"},
+        ],
+    }
+
+    response = await client.post(
+        "/api/workflow/run",
+        json={"workflow": workflow, "inputs": {"user_input": "refund 1042"}},
+    )
+    assert response.status_code == 200, response.text
+    events = _parse_sse_events(response.text)
+    router_end = next(
+        event
+        for event in events
+        if event.get("event") == "node_end" and event.get("node_id") == "router"
+    )
+    receipt = router_end["variables"]["handoff_receipt"]
+    assert receipt["status"] == "submitted"
+    assert receipt["taskId"].startswith("task_")
+    assert receipt["handoffId"].startswith("handoff_")
+    assert receipt["targetKind"] == "inbox"
+    assert receipt["targetId"] == "support-review"
+
+    task_response = await client.get(f"/api/runtime/agent-tasks/{receipt['taskId']}")
+    assert task_response.status_code == 200
+    task_payload = task_response.json()
+    assert task_payload["input"] == "refund 1042"
+    assert task_payload["metadata"]["router"] == "handoff_router"
+    handoffs_response = await client.get(
+        f"/api/runtime/agent-tasks/{receipt['taskId']}/handoffs"
+    )
+    assert handoffs_response.status_code == 200
+    handoffs = handoffs_response.json()
+    assert [item["handoff_id"] for item in handoffs] == [receipt["handoffId"]]
 
 
 @pytest.mark.asyncio

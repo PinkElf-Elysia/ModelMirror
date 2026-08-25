@@ -831,6 +831,9 @@ def preview_xpert_for_publish(
             "mcp_tool",
             "variable_assign",
             "variable_aggregator",
+            "agent_task",
+            "agent_handoff",
+            "handoff_router",
         } and (
             r20_contract_version(data) != 2
         ):
@@ -841,6 +844,40 @@ def preview_xpert_for_publish(
                     node_id=node.id,
                 )
             )
+        if (
+            kind in {"agent_handoff", "handoff_router"}
+            and r20_contract_version(data) == 2
+            and str(data.get("targetMode") or "") == "xpert"
+        ):
+            if os.getenv("HANDOFF_EXECUTOR_ENABLED", "false").strip().lower() not in {
+                "1", "true", "yes", "on"
+            }:
+                feature_issues.append(
+                    ValidationIssue(
+                        code="xpert_handoff_executor_disabled",
+                        message="Automatic Xpert Handoffs are disabled.",
+                        node_id=node.id,
+                    )
+                )
+            try:
+                target = get_xpert_store().get_xpert(
+                    str(data.get("targetXpertId") or "")
+                )
+                target_version = int(data.get("targetVersion") or 0)
+                if (
+                    target.status != "published"
+                    or int(target.published_version or 0) != target_version
+                ):
+                    raise ValueError("target version is not current")
+                get_xpert_store().get_version(target.id, target_version)
+            except Exception:
+                feature_issues.append(
+                    ValidationIssue(
+                        code="xpert_handoff_target_unavailable",
+                        message="The fixed Xpert Handoff target is unavailable.",
+                        node_id=node.id,
+                    )
+                )
         if kind == "knowledge_citation":
             feature_issues.append(
                 ValidationIssue(

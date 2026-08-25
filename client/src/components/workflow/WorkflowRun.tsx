@@ -115,10 +115,17 @@ interface WorkflowRunRecoveryPointer {
   runId: string | null;
 }
 
+interface WorkflowStreamProgress {
+  lastSequence: number;
+  waitingForAgentHandoff: boolean;
+  terminal: boolean;
+}
+
 const WORKFLOW_RUN_RECOVERY_PREFIX = "modelmirror-workflow-run-v1";
 const WORKFLOW_TASK_ID_PATTERN = /^[0-9a-f]{32}$/i;
 const RUNTIME_RUN_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const AGENT_HANDOFF_STREAM_POLL_MS = 1000;
 
 export function workflowRunRecoveryKey(workflowId: string) {
   return `${WORKFLOW_RUN_RECOVERY_PREFIX}:${workflowId.trim()}`;
@@ -419,6 +426,13 @@ function statusClass(status: RunStepStatus) {
   return "border-hire-300/25 bg-hire-300/10 text-hire-100";
 }
 
+export function shouldShowHandoffInboxLink(step: WorkflowRunStep): boolean {
+  return (
+    (step.type === "agent_handoff" || step.type === "handoff_router")
+    && (step.status === "waiting" || step.status === "done")
+  );
+}
+
 function formatObservationTime(value: number | null | undefined) {
   if (!value) return "";
   return new Date(value * 1000).toLocaleTimeString();
@@ -587,6 +601,18 @@ export function buildRunSteps(events: WorkflowRunEvent[]) {
       );
       return;
     }
+    if (event.event === "agent_handoff_waiting") {
+      step.status = "waiting";
+      const target = event.target_id
+        ? `${event.target_id}${event.target_version ? ` · v${event.target_version}` : ""}`
+        : "协作接收方";
+      step.output = appendStepOutput(
+        step.output,
+        event.message || `任务已移交给 ${target}，正在等待完成。`,
+        step.type,
+      );
+      return;
+    }
     if (event.event === "node_delta") {
       step.output = appendStepOutput(step.output, event.output, step.type);
       return;
@@ -597,10 +623,16 @@ export function buildRunSteps(events: WorkflowRunEvent[]) {
       return;
     }
     if (event.event === "node_end") {
+      const completedHandoff = (
+        step.status === "waiting"
+        && (step.type === "agent_handoff" || step.type === "handoff_router")
+      );
       if (step.status !== "error") step.status = "done";
       step.variable = event.variable ?? step.variable;
       step.providerRouteReceipt = event.provider_route_receipts ?? step.providerRouteReceipt;
-      if (!step.output) {
+      if (completedHandoff) {
+        step.output = event.output || "协作任务已完成，工作流已继续执行。";
+      } else if (!step.output) {
         step.output = appendStepOutput(step.output, event.output, step.type);
       }
       return;
@@ -1002,14 +1034,31 @@ export default function WorkflowRun({
     && skillCreatorStatus.supported_sources.includes("workflow_classic"),
   );
 
-  async function consumeWorkflowResponse(response: Response, replaceEvents = false) {
+  async function consumeWorkflowResponse(
+    response: Response,
+    replaceEvents = false,
+  ): Promise<WorkflowStreamProgress> {
     const reader = response.body?.getReader();
     if (!reader) throw new Error("当前浏览器不支持流式运行结果。");
     if (replaceEvents) setEvents([]);
 
     const decoder = new TextDecoder("utf-8");
     let buffer = "";
+    let receivedEvent = false;
+    const progress: WorkflowStreamProgress = {
+      lastSequence: 0,
+      waitingForAgentHandoff: false,
+      terminal: false,
+    };
     const acceptEvent = (event: WorkflowRunEvent) => {
+      receivedEvent = true;
+      progress.lastSequence = Math.max(progress.lastSequence, event.sequence ?? 0);
+      if (event.event === "agent_handoff_waiting") {
+        progress.waitingForAgentHandoff = true;
+      }
+      if (["workflow_end", "workflow_cancelled", "error"].includes(event.event)) {
+        progress.terminal = true;
+      }
       handleRunEvent(event);
       if (event.event !== "heartbeat") {
         setEvents((current) => [...current, event]);
@@ -1034,7 +1083,56 @@ export default function WorkflowRun({
         acceptEvent(JSON.parse(data) as WorkflowRunEvent);
       }
     }
-    await refreshWorkflowFileOutputs();
+    if (receivedEvent) {
+      await refreshWorkflowFileOutputs();
+    }
+    return progress;
+  }
+
+  async function consumeWorkflowThroughAgentHandoff(
+    response: Response,
+    options: {
+      signal: AbortSignal;
+      taskId: string;
+      replaceEvents?: boolean;
+    },
+  ) {
+    let progress = await consumeWorkflowResponse(
+      response,
+      options.replaceEvents ?? false,
+    );
+    if (!progress.waitingForAgentHandoff || progress.terminal) return;
+
+    const followTaskId = options.taskId.trim();
+    if (!WORKFLOW_TASK_ID_PATTERN.test(followTaskId)) {
+      throw new Error("无法继续跟踪协作任务。请刷新页面恢复运行状态。");
+    }
+    let cursor = progress.lastSequence;
+    while (!progress.terminal) {
+      await new Promise<void>((resolve) => {
+        window.setTimeout(resolve, AGENT_HANDOFF_STREAM_POLL_MS);
+      });
+      if (options.signal.aborted) {
+        throw new DOMException("Workflow stream aborted.", "AbortError");
+      }
+      const followResponse = await fetch(
+        "/api/workflow/run/"
+          + encodeURIComponent(followTaskId)
+          + "/stream?after_sequence="
+          + cursor,
+        { signal: options.signal },
+      );
+      if (!followResponse.ok) {
+        throw new Error("无法继续跟踪协作任务。请刷新页面恢复运行状态。");
+      }
+      const next = await consumeWorkflowResponse(followResponse);
+      cursor = Math.max(cursor, next.lastSequence);
+      progress = {
+        lastSequence: cursor,
+        waitingForAgentHandoff: true,
+        terminal: next.terminal,
+      };
+    }
   }
 
   useEffect(() => {
@@ -1061,7 +1159,11 @@ export default function WorkflowRun({
           }
           throw new Error("无法恢复上次运行。请重新运行工作流。");
         }
-        await consumeWorkflowResponse(response, true);
+        await consumeWorkflowThroughAgentHandoff(response, {
+          signal: abort.signal,
+          taskId: recovery.taskId,
+          replaceEvents: true,
+        });
       })
       .catch((caught) => {
         if (!active || (caught instanceof DOMException && caught.name === "AbortError")) {
@@ -1319,7 +1421,10 @@ export default function WorkflowRun({
         });
       }
 
-      await consumeWorkflowResponse(response);
+      await consumeWorkflowThroughAgentHandoff(response, {
+        signal: abort.signal,
+        taskId: responseTaskId ?? "",
+      });
       if (
         shouldRecordNodeStreamFailure(
           failedNodesRef.current.size,
@@ -1522,18 +1627,27 @@ export default function WorkflowRun({
     if (!taskId) return;
     setError("");
     setIsResuming(true);
+    const abort = new AbortController();
     try {
-      const response = await fetch(`/api/workflow/run/${taskId}/stream?after_sequence=0`);
+      const response = await fetch(
+        `/api/workflow/run/${taskId}/stream?after_sequence=0`,
+        { signal: abort.signal },
+      );
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as
           | { detail?: string }
           | null;
         throw new Error(payload?.detail || "恢复执行流失败");
       }
-      await consumeWorkflowResponse(response, true);
+      await consumeWorkflowThroughAgentHandoff(response, {
+        signal: abort.signal,
+        taskId,
+        replaceEvents: true,
+      });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "恢复执行流失败");
     } finally {
+      abort.abort();
       setIsResuming(false);
     }
   }
@@ -2130,6 +2244,18 @@ export default function WorkflowRun({
                 {step.providerRouteReceipt ? (
                   <div className="px-3 pb-2">
                     <ProviderRouteReceiptSummary compact receipt={step.providerRouteReceipt} />
+                  </div>
+                ) : null}
+                {shouldShowHandoffInboxLink(step) ? (
+                  <div className="px-3 pb-3">
+                    <a
+                      className="inline-flex rounded-md border border-violet-300/25 bg-violet-300/10 px-2.5 py-1.5 text-xs font-semibold text-violet-100 transition hover:border-violet-200/45 hover:bg-violet-300/15"
+                      href="/agents/meta-agent#handoff-inbox"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      前往 Handoff Inbox
+                    </a>
                   </div>
                 ) : null}
               </div>
