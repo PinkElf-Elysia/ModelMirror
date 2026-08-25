@@ -13,8 +13,9 @@
 - R2.0 结果：不新增普通节点，将 `human_intervention`、`mcp_tool`、`variable_assign` 提升为完整 V2 合同，并退役旧知识引用新增入口；当前 50 Native、48 个可新增 Palette 项、41 个完整合同、9 个 compatibility 合同、7 个 Planner 节点
 - R2.1 PR1 结果：不新增 `NativeNodeKind`，将 `code` 提升为只执行预定义操作的“安全文本加工 V2”完整合同，并从 Palette 移除退役 `template_transform`；旧草稿和既有激活版本继续兼容，模板文本能力由 `variable_assign` V2 承接；当时 50 Native、47 个可新增 Palette 项、42 个完整合同、8 个 compatibility 合同、7 个 Planner 节点
 - R2.1 PR2 结果：新增完整合同 `data_merge`，并将经典运行器升级为带持久化边到达账本的 Scheduler V2；支持可靠 Fan-in、有界数组拼接和受限一对一 inner join；当时 51 Native、48 个可新增 Palette 项、43 个完整合同、8 个 compatibility 合同、7 个 Planner 节点
-- R2.2 PR1 结果：将 `variable_aggregator` 提升为“变量打包”V2 完整合同，修正元智能体新图的报告汇总，并为 563 行参考清单增加 exact/limited/composable/none 证据门禁；当前 51 Native、47 个可新增 Palette 项、47 个完整合同、4 个 compatibility 合同、7 个 Planner 节点
-- R2.2 PR2 结果：将 `agent_task`、`agent_handoff`、`handoff_router` 提升为类型化 V2 合同，新增 occurrence 幂等索引、原子 Router 与持久 Handoff 恢复，并退役旧 `agent` 新增入口；当前 51 Native、47 个可新增 Palette 项、47 个完整合同、4 个 compatibility 合同、7 个 Planner 节点
+- R2.2 PR1 结果：将 `variable_aggregator` 提升为“变量打包”V2 完整合同，修正元智能体新图的报告汇总，并为 563 行参考清单增加 exact/limited/composable/none 证据门禁；当时 51 Native、48 个可新增 Palette 项、44 个完整合同、7 个 compatibility 合同、7 个 Planner 节点
+- R2.2 PR2 结果：将 `agent_task`、`agent_handoff`、`handoff_router` 提升为类型化 V2 合同，新增 occurrence 幂等索引、原子 Router 与持久 Handoff 恢复，并退役旧 `agent` 新增入口；当时 51 Native、47 个可新增 Palette 项、47 个完整合同、4 个 compatibility 合同、7 个 Planner 节点
+- 当前 Registry 事实：51 Native、47 个可新增 Palette 项、47 个完整合同、4 个 compatibility 合同、7 个 Planner 节点
 - 参考清单：563 条节点名称/类型，其中 `.ee` 2 条仅保留名称审计
 
 ## 结论与许可证边界

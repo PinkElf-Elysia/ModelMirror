@@ -246,9 +246,12 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     assert "44、画布目录项 42" in markdown
     assert "R1.6 结果" in markdown
     assert "自研节点总数 47、画布目录项 45、当前 18 个" in markdown
-    assert f"{compatibility_count} 个 compatibility 合同" in markdown
-    assert f"当前 {native_count} Native" in markdown
-    assert f"{palette_count} 个可新增 Palette 项" in markdown
+    current_registry_line = (
+        f"当前 Registry 事实：{native_count} Native、{palette_count} 个可新增 Palette 项、"
+        f"{complete_count} 个完整合同、{compatibility_count} 个 compatibility 合同、"
+        f"{planner_count} 个 Planner 节点"
+    )
+    assert current_registry_line in markdown
     assert f"Planner 可生成类型仍固定为 {planner_count} 类" in markdown
     assert "R1.8 结果" in markdown
     assert native_count == 51
@@ -279,9 +282,28 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     assert (
         "- R2.2 PR1 结果：将 `variable_aggregator` 提升为“变量打包”V2 完整合同"
     ) in markdown
+    r22_pr1_snapshot = (
+        "当时 51 Native、48 个可新增 Palette 项、44 个完整合同、"
+        "7 个 compatibility 合同、7 个 Planner 节点"
+    )
+    assert r22_pr1_snapshot in markdown
     assert (
         "- R2.2 PR2 结果：将 `agent_task`、`agent_handoff`、`handoff_router` "
         "提升为类型化 V2 合同"
     ) in markdown
+    r22_pr2_snapshot = (
+        "当时 51 Native、47 个可新增 Palette 项、47 个完整合同、"
+        "4 个 compatibility 合同、7 个 Planner 节点"
+    )
+    assert r22_pr2_snapshot in markdown
+    assert r22_pr1_snapshot != r22_pr2_snapshot
+    assert (
+        "- R2.2 PR1 结果：将 `variable_aggregator` 提升为“变量打包”V2 完整合同，"
+        "修正元智能体新图的报告汇总，并为 563 行参考清单增加 "
+        "exact/limited/composable/none 证据门禁；" + r22_pr2_snapshot
+    ) not in markdown
     assert "覆盖等级用于表达证据强度" in markdown
-    assert "当前 51 Native、47 个可新增 Palette 项、47 个完整合同、4 个 compatibility 合同、7 个 Planner 节点" in markdown
+    assert current_registry_line == (
+        "当前 Registry 事实：51 Native、47 个可新增 Palette 项、47 个完整合同、"
+        "4 个 compatibility 合同、7 个 Planner 节点"
+    )
