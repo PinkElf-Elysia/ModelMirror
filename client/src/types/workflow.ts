@@ -79,6 +79,12 @@ export interface WorkflowVariableDeclaration {
   description?: string;
 }
 
+export interface WorkflowVariablePackBinding {
+  id: string;
+  sourceVariable: string;
+  outputField: string;
+}
+
 export type ConditionOperator = "equals" | "contains";
 
 /** Legacy Code V1 operation set. Python remains readable for old drafts only. */
@@ -255,6 +261,7 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   template?: string;
   variableNames?: string;
   outputTemplate?: string;
+  bindings?: WorkflowVariablePackBinding[];
   schema?: string;
   schemaMode?: "fields" | "json_schema";
   outputShape?: "object" | "object_list";

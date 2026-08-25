@@ -825,7 +825,13 @@ def preview_xpert_for_publish(
                         node_id=node.id,
                     )
                 )
-        if kind in {"code", "human_intervention", "mcp_tool", "variable_assign"} and (
+        if kind in {
+            "code",
+            "human_intervention",
+            "mcp_tool",
+            "variable_assign",
+            "variable_aggregator",
+        } and (
             r20_contract_version(data) != 2
         ):
             feature_issues.append(

@@ -33,6 +33,7 @@ import {
   type WorkflowNodeKind,
   type WorkflowValue,
   type WorkflowVariableDeclaration,
+  type WorkflowVariablePackBinding,
 } from "../../types/workflow";
 import {
   fetchRuntimeMiddlewareNodes,
@@ -101,6 +102,10 @@ import {
   migrateLegacyTemplateTransform,
 } from "./workflowSafeTextMigration";
 import {
+  isVariablePackV2,
+  migrateLegacyVariableAggregator,
+} from "./workflowVariablePackMigration";
+import {
   analyzeWorkflowVariables,
   planWorkflowVariableRename,
   type WorkflowVariableRenamePlan,
@@ -133,6 +138,70 @@ const nodeConfigResourceCache = new Map<
   { data: unknown; at: number }
 >();
 const NODE_CONFIG_CACHE_TTL_MS = 60_000;
+
+const PALETTE_NODE_ESTIMATED_WIDTH = 144;
+const PALETTE_NODE_ESTIMATED_HEIGHT = 96;
+const PALETTE_NODE_GAP = 24;
+const PALETTE_NODE_STEP_X = 192;
+const PALETTE_NODE_STEP_Y = 136;
+
+export function findAvailablePalettePosition(
+  preferred: { x: number; y: number },
+  nodes: WorkflowNode[],
+): { x: number; y: number } {
+  const overlapsExistingNode = (candidate: { x: number; y: number }) =>
+    nodes.some((node) => {
+      if (!Number.isFinite(node.position.x) || !Number.isFinite(node.position.y)) {
+        return false;
+      }
+      const measuredWidth = node.measured?.width;
+      const measuredHeight = node.measured?.height;
+      const existingWidth =
+        typeof measuredWidth === "number" && Number.isFinite(measuredWidth)
+          ? measuredWidth
+          : PALETTE_NODE_ESTIMATED_WIDTH;
+      const existingHeight =
+        typeof measuredHeight === "number" && Number.isFinite(measuredHeight)
+          ? measuredHeight
+          : PALETTE_NODE_ESTIMATED_HEIGHT;
+
+      return (
+        candidate.x < node.position.x + existingWidth + PALETTE_NODE_GAP &&
+        candidate.x + PALETTE_NODE_ESTIMATED_WIDTH + PALETTE_NODE_GAP >
+          node.position.x &&
+        candidate.y < node.position.y + existingHeight + PALETTE_NODE_GAP &&
+        candidate.y + PALETTE_NODE_ESTIMATED_HEIGHT + PALETTE_NODE_GAP >
+          node.position.y
+      );
+    });
+
+  if (!overlapsExistingNode(preferred)) return preferred;
+
+  for (let radius = 1; radius <= nodes.length + 1; radius += 1) {
+    const offsets = [
+      [0, radius],
+      [radius, 0],
+      [-radius, 0],
+      [0, -radius],
+      [radius, radius],
+      [-radius, radius],
+      [radius, -radius],
+      [-radius, -radius],
+    ];
+    for (const [offsetX, offsetY] of offsets) {
+      const candidate = {
+        x: preferred.x + offsetX * PALETTE_NODE_STEP_X,
+        y: preferred.y + offsetY * PALETTE_NODE_STEP_Y,
+      };
+      if (!overlapsExistingNode(candidate)) return candidate;
+    }
+  }
+
+  return {
+    x: preferred.x,
+    y: preferred.y + (nodes.length + 2) * PALETTE_NODE_STEP_Y,
+  };
+}
 
 export function parseSkillRuntimeIds(value: unknown): string[] {
   return [...new Set(
@@ -653,11 +722,17 @@ export function createNodeData(
   if (kind === "variable_aggregator") {
     return {
       kind,
-      title: "变量聚合器",
-      description: "汇总多个变量，便于下游统一处理。",
-      variableNames: "user_input",
-      outputTemplate: "{name}={value}\n",
-      outputVariable: "aggregated_output",
+      title: "变量打包",
+      description: "把多个类型化变量深复制到一个 JSON 对象。",
+      contractVersion: 2,
+      bindings: [
+        {
+          id: "binding_1",
+          sourceVariable: "user_input",
+          outputField: "user_input",
+        },
+      ],
+      outputVariable: "packed_variables",
     };
   }
 
@@ -3237,6 +3312,15 @@ function NodeConfig({
   const legacyTemplateMigration = data.kind === "template_transform"
     ? migrateLegacyTemplateTransform(data, migrationAvailableVariables)
     : null;
+  const legacyVariablePackMigration = data.kind === "variable_aggregator"
+    && !isVariablePackV2(data)
+    ? migrateLegacyVariableAggregator(
+        node,
+        nodes,
+        edges,
+        migrationAvailableVariables,
+      )
+    : null;
   const runtimeMiddlewareConfig = isRecord(data.runtimeMiddlewareConfig)
     ? data.runtimeMiddlewareConfig
     : undefined;
@@ -3775,6 +3859,7 @@ function NodeConfig({
                   <WorkflowVariableField
                     className="min-h-28 resize-none leading-6"
                     contract={variableContract}
+                    declarations={declarations}
                     edges={edges}
                     fieldName="template"
                     multiline
@@ -3857,24 +3942,160 @@ function NodeConfig({
 
       {data.kind === "variable_aggregator" ? (
         <>
-          <Field label="变量名列表（逗号分隔）">
-            <WorkflowVariableField
-              contract={variableContract}
-              edges={edges}
-              fieldName="variableNames"
-              node={node}
-              nodes={nodes}
-              onChange={(value) => update({ variableNames: value })}
-              value={data.variableNames ?? ""}
-            />
-          </Field>
-          <Field label="输出模板（可选，支持 {name} / {value}）">
-            <textarea
-              className={`${textInputClass()} min-h-24 resize-none font-mono text-xs leading-5`}
-              onChange={(event) => update({ outputTemplate: event.target.value })}
-              value={data.outputTemplate ?? ""}
-            />
-          </Field>
+          {!isVariablePackV2(data) ? (
+            <div className="rounded-lg border border-amber-300/30 bg-amber-300/10 p-3 text-xs leading-5 text-amber-100">
+              <p>这是旧版变量聚合配置，可继续打开和手动运行；发布前必须显式迁移。</p>
+              {legacyVariablePackMigration?.ok ? (
+                <button
+                  className="mt-2 rounded-md bg-amber-200 px-3 py-1.5 font-semibold text-ink-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-100"
+                  onClick={() => {
+                    if (
+                      !String(data.outputTemplate ?? "")
+                      && !window.confirm(
+                        "迁移后输出会从 JSON 字符串变为真正的 JSON 对象。节点 ID、位置和连线不变，是否继续？",
+                      )
+                    ) return;
+                    onReplaceNodeData(node.id, legacyVariablePackMigration.data!);
+                    setMigrationNotice(legacyVariablePackMigration.message);
+                  }}
+                  type="button"
+                >
+                  {String(data.outputTemplate ?? "")
+                    ? "迁移为变量赋值 V2"
+                    : "迁移为变量打包 V2"}
+                </button>
+              ) : (
+                <p className="mt-2 text-amber-200">
+                  迁移被阻止：{legacyVariablePackMigration?.message ?? "旧配置无法识别。"}
+                </p>
+              )}
+            </div>
+          ) : null}
+          {isVariablePackV2(data) ? (
+            <Field label="打包字段（1–50 项）">
+              <div className="space-y-2">
+                {(data.bindings ?? []).map((binding, index, bindings) => (
+                  <div
+                    className="rounded-lg border border-white/10 bg-white/[0.03] p-2"
+                    key={binding.id}
+                  >
+                    <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                      <WorkflowVariableField
+                        ariaLabel={`${binding.id} 来源变量`}
+                        contract={variableContract}
+                        declarations={declarations}
+                        edges={edges}
+                        fieldName="sourceVariable"
+                        node={node}
+                        nodes={nodes}
+                        onChange={(sourceVariable) => {
+                          const next = [...bindings];
+                          next[index] = { ...binding, sourceVariable };
+                          update({ bindings: next });
+                        }}
+                        placeholder="选择来源变量"
+                        value={binding.sourceVariable}
+                      />
+                      <input
+                        aria-label={`${binding.id} 输出字段`}
+                        className={textInputClass()}
+                        onChange={(event) => {
+                          const next = [...bindings];
+                          next[index] = {
+                            ...binding,
+                            outputField: event.target.value,
+                          };
+                          update({ bindings: next });
+                        }}
+                        placeholder="对象字段名"
+                        value={binding.outputField}
+                      />
+                      <div className="flex gap-1">
+                        <button
+                          aria-label={`${binding.id} 上移`}
+                          className="rounded border border-white/10 px-2 text-slate-200 disabled:opacity-30"
+                          disabled={index === 0}
+                          onClick={() => {
+                            const next = [...bindings];
+                            [next[index - 1], next[index]] = [next[index], next[index - 1]];
+                            update({ bindings: next });
+                          }}
+                          type="button"
+                        >
+                          ↑
+                        </button>
+                        <button
+                          aria-label={`${binding.id} 下移`}
+                          className="rounded border border-white/10 px-2 text-slate-200 disabled:opacity-30"
+                          disabled={index === bindings.length - 1}
+                          onClick={() => {
+                            const next = [...bindings];
+                            [next[index], next[index + 1]] = [next[index + 1], next[index]];
+                            update({ bindings: next });
+                          }}
+                          type="button"
+                        >
+                          ↓
+                        </button>
+                        <button
+                          aria-label={`${binding.id} 删除`}
+                          className="rounded border border-rose-300/20 px-2 text-rose-200 disabled:opacity-30"
+                          disabled={bindings.length <= 1}
+                          onClick={() => update({
+                            bindings: bindings.filter((item) => item.id !== binding.id),
+                          })}
+                          type="button"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                <button
+                  className="rounded-md border border-white/10 px-3 py-1.5 text-xs font-semibold text-cyan-100 disabled:opacity-40"
+                  disabled={(data.bindings ?? []).length >= 50}
+                  onClick={() => {
+                    const bindings = data.bindings ?? [];
+                    const used = new Set(bindings.map((binding) => binding.id));
+                    let index = 1;
+                    while (used.has(`binding_${index}`)) index += 1;
+                    const next: WorkflowVariablePackBinding = {
+                      id: `binding_${index}`,
+                      sourceVariable: "",
+                      outputField: `field_${index}`,
+                    };
+                    update({ bindings: [...bindings, next] });
+                  }}
+                  type="button"
+                >
+                  添加字段
+                </button>
+              </div>
+            </Field>
+          ) : (
+            <>
+              <Field label="旧变量名列表（逗号分隔）">
+                <WorkflowVariableField
+                  contract={variableContract}
+                  declarations={declarations}
+                  edges={edges}
+                  fieldName="variableNames"
+                  node={node}
+                  nodes={nodes}
+                  onChange={(value) => update({ variableNames: value })}
+                  value={data.variableNames ?? ""}
+                />
+              </Field>
+              <Field label="旧输出模板（可选，支持 {name} / {value}）">
+                <textarea
+                  className={`${textInputClass()} min-h-24 resize-none font-mono text-xs leading-5`}
+                  onChange={(event) => update({ outputTemplate: event.target.value })}
+                  value={data.outputTemplate ?? ""}
+                />
+              </Field>
+            </>
+          )}
           <Field label="输出变量">
             <WorkflowVariableField
               contract={variableContract}
@@ -3886,6 +4107,18 @@ function NodeConfig({
               value={data.outputVariable ?? ""}
             />
           </Field>
+          <button
+            className="text-left text-xs font-semibold text-cyan-200 underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
+            onClick={onOpenVariableCenter}
+            type="button"
+          >
+            打开变量中心检查来源与输出
+          </button>
+          {migrationNotice ? (
+            <p aria-live="polite" className="text-xs text-emerald-200">
+              {migrationNotice}
+            </p>
+          ) : null}
         </>
       ) : null}
 
@@ -6232,11 +6465,14 @@ function WorkflowCanvas({
   }
 
   const paletteInsertPosition = useCallback(
-    () => screenToFlowPosition({
-      x: window.innerWidth / 2,
-      y: window.innerHeight / 2,
-    }),
-    [screenToFlowPosition],
+    () => findAvailablePalettePosition(
+      screenToFlowPosition({
+        x: window.innerWidth / 2,
+        y: window.innerHeight / 2,
+      }),
+      nodes,
+    ),
+    [nodes, screenToFlowPosition],
   );
 
   const handlePaletteAddNode = useCallback(

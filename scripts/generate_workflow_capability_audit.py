@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -52,7 +53,7 @@ DIRECT_UPDATES = {
     },
     "memoryManager": {
         "模镜当前状态": "部分实现",
-        "模镜对应节点": "agent / workflow_agent",
+        "模镜对应节点": "workflow_agent",
         "判断说明": "智能体内部支持受控记忆读写配置，仅属于嵌入式覆盖；当前没有可独立连线和配置的记忆管理节点。",
     },
     "informationExtractor": {
@@ -240,11 +241,114 @@ BASELINE_CORRECTIONS = {
     },
 }
 
+AUDIT_TRUST_CORRECTIONS = {
+    "splitOut": {
+        "模镜当前状态": "未实现",
+        "模镜对应节点": "—",
+        "判断说明": "变量打包把多个已存在变量组装为对象，不会把数组或对象拆成独立项目，因此不覆盖拆分语义。",
+    },
+    "moveBinaryData": {
+        "模镜当前状态": "未实现",
+        "模镜对应节点": "—",
+        "判断说明": "类型化赋值不读取、生成或转换二进制内容，当前没有经过运行验证的二进制转换合同。",
+    },
+    "memoryManager": {
+        "模镜当前状态": "部分实现",
+        "模镜对应节点": "workflow_agent",
+        "判断说明": "workflow_agent 内嵌受控记忆能力，但没有可独立连线、管理和迁移的记忆节点。",
+    },
+    "html": {
+        "模镜当前状态": "未实现",
+        "模镜对应节点": "—",
+        "判断说明": "安全文本加工只执行大小写、固定替换和拼接，不具备 HTML 解析或转换合同。",
+    },
+    "htmlExtract": {
+        "模镜当前状态": "未实现",
+        "模镜对应节点": "—",
+        "判断说明": "当前没有 HTML DOM 解析、选择器提取或结构化输出的节点合同和运行测试。",
+    },
+    "markdown": {
+        "模镜当前状态": "未实现",
+        "模镜对应节点": "—",
+        "判断说明": "文本模板可以生成 Markdown 文本，但没有 Markdown 解析或格式转换合同。",
+    },
+    "xml": {
+        "模镜当前状态": "未实现",
+        "模镜对应节点": "—",
+        "判断说明": "当前没有 XML 解析、序列化或 Schema 校验的节点合同和运行测试。",
+    },
+}
+
+UNVERIFIED_VENDOR_NODE_IDS = {
+    "clearbit",
+    "cortex",
+    "deepL",
+    "dropcontact",
+    "humanticAi",
+    "hunter",
+    "jinaAi",
+    "lingvaNex",
+    "mailcheck",
+    "mindee",
+    "openThesaurus",
+    "peekalink",
+    "uproc",
+}
+
+COMPOSABLE_NODE_WHITELIST = {
+    "code",
+    "http_request",
+    "mcp_tool",
+    "variable_assign",
+}
+
+EXACT_RUNTIME_EVIDENCE = {
+    "annotation": "server/tests/test_workflow_node_contracts.py",
+    "condition": "server/tests/test_workflow_r17_typed_data.py",
+    "data_aggregate": "server/tests/test_workflow_control_data_nodes.py",
+    "data_merge": "server/tests/test_workflow_r21_fanin_data_merge.py",
+    "dataset_compare": "server/tests/test_workflow_r17_typed_data.py",
+    "document_extractor": "server/tests/test_workflow_r18_file_data.py",
+    "failure_event_entry": "server/tests/test_workflow_deployments.py",
+    "file_output": "server/tests/test_workflow_r18_file_data.py",
+    "http_event_entry": "server/tests/test_workflow_deployments.py",
+    "http_event_reply": "server/tests/test_workflow_deployments.py",
+    "http_request": "server/tests/test_workflow_r17_secure_http.py",
+    "input": "server/tests/test_workflow_run_contract.py",
+    "invoke_workflow": "server/tests/test_workflow_subworkflows.py",
+    "list_operation": "server/tests/test_workflow_control_data_nodes.py",
+    "mcp_tool": "server/tests/test_workflow_mcp_tool_runtime.py",
+    "multi_route": "server/tests/test_workflow_control_data_nodes.py",
+    "object_transform": "server/tests/test_workflow_r18_file_data.py",
+    "parameter_extractor": "server/tests/test_workflow_typed_ai.py",
+    "question_classifier": "server/tests/test_workflow_typed_ai.py",
+    "runtime_middleware": "server/tests/test_workflow_content_policy_runtime.py",
+    "scheduled_start": "server/tests/test_workflow_deployments.py",
+    "suspend_wait": "server/tests/test_workflow_deployments.py",
+    "terminate_error": "server/tests/test_workflow_control_data_nodes.py",
+    "time_tool": "server/tests/test_workflow_r18_file_data.py",
+    "workflow_call_entry": "server/tests/test_workflow_subworkflows.py",
+}
+
+COVERAGE_LEVEL_BY_STATUS = {
+    "已实现": "exact",
+    "部分实现": "limited",
+    "通用节点可覆盖": "composable",
+    "仅目录声明": "none",
+    "仅运行目录声明": "none",
+    "未实现": "none",
+}
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source-csv", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument(
+        "--record-specialized-review",
+        action="store_true",
+        help="Record review fingerprints after a real manual review of exact/limited rows.",
+    )
     return parser.parse_args()
 
 
@@ -296,6 +400,122 @@ def replace_retired_node_mappings(value: str) -> str:
     return " / ".join(mapped)
 
 
+def mapped_node_kinds(value: str) -> list[str]:
+    return [
+        item.strip()
+        for item in str(value or "").split("/")
+        if item.strip() and item.strip() != "—"
+    ]
+
+
+def audit_evidence(row: dict[str, str]) -> str:
+    level = row["覆盖等级"]
+    kinds = mapped_node_kinds(row.get("模镜对应节点", ""))
+    if level == "exact":
+        evidence = [EXACT_RUNTIME_EVIDENCE[kind] for kind in kinds]
+        return f"NodeContract V3 complete；运行/测试：{'；'.join(dict.fromkeys(evidence))}"
+    if level == "limited":
+        return "受限子集；未覆盖语义见判断说明；对应合同与运行路径需按节点复核"
+    if level == "composable":
+        return "受控通用组合路径；非专用连接器；认证与调用闭环需按目标单独验证"
+    return "无对应运行合同或仅保留名称目录证据"
+
+
+def specialized_review_fingerprint(row: dict[str, str]) -> str:
+    reviewed_fields = (
+        "来源条目标识",
+        "n8n内部标识",
+        "模镜当前状态",
+        "模镜对应节点",
+        "判断说明",
+        "覆盖等级",
+        "模镜证据",
+    )
+    payload = "\n".join(str(row.get(field, "")) for field in reviewed_fields)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def validate_audit_rows(rows: list[dict[str, str]]) -> None:
+    from server.workflow_native.node_contracts import workflow_node_contract_registry
+
+    contracts = {
+        contract.kind: contract
+        for contract in workflow_node_contract_registry.list()
+    }
+    if len({row.get("来源条目标识", "") for row in rows}) != len(rows):
+        raise SystemExit("Capability audit contains duplicate source references")
+    for row in rows:
+        status = row.get("模镜当前状态", "")
+        level = row.get("覆盖等级", "")
+        if level != COVERAGE_LEVEL_BY_STATUS.get(status):
+            raise SystemExit(
+                f"Coverage level mismatch for {row.get('来源条目标识')}: {status} -> {level}"
+            )
+        kinds = mapped_node_kinds(row.get("模镜对应节点", ""))
+        unknown = sorted(set(kinds) - set(contracts))
+        if unknown:
+            raise SystemExit(
+                f"Unknown ModelMirror mappings for {row.get('来源条目标识')}: {unknown}"
+            )
+        if level == "exact":
+            if not kinds or any(
+                contracts[kind].contract_status != "complete" for kind in kinds
+            ):
+                raise SystemExit(
+                    f"Exact coverage requires complete NodeContracts: {row.get('来源条目标识')}"
+                )
+            missing_evidence = sorted(set(kinds) - set(EXACT_RUNTIME_EVIDENCE))
+            if missing_evidence:
+                raise SystemExit(
+                    f"Exact coverage lacks runtime/test evidence: {missing_evidence}"
+                )
+            missing_evidence_files = sorted(
+                {
+                    EXACT_RUNTIME_EVIDENCE[kind]
+                    for kind in kinds
+                    if not (ROOT / EXACT_RUNTIME_EVIDENCE[kind]).is_file()
+                }
+            )
+            if missing_evidence_files:
+                raise SystemExit(
+                    "Exact coverage points to missing evidence files: "
+                    f"{missing_evidence_files}"
+                )
+        elif level == "limited":
+            if not kinds:
+                raise SystemExit(
+                    f"Limited coverage needs a mapped implementation: {row.get('来源条目标识')}"
+                )
+            if not any(
+                marker in row.get("判断说明", "")
+                for marker in ("不", "未", "无", "仅", "缺", "没有", "受限", "不同")
+            ):
+                raise SystemExit(
+                    f"Limited coverage must state its semantic gap: {row.get('来源条目标识')}"
+                )
+        elif level == "composable":
+            if not kinds or not set(kinds) <= COMPOSABLE_NODE_WHITELIST:
+                raise SystemExit(
+                    f"Composable coverage escaped the controlled whitelist: {row.get('来源条目标识')}"
+                )
+        elif kinds:
+            raise SystemExit(
+                f"None coverage cannot retain a node mapping: {row.get('来源条目标识')}"
+            )
+        if not row.get("模镜证据", "").strip():
+            raise SystemExit(
+                f"Capability row lacks evidence: {row.get('来源条目标识')}"
+            )
+        if level in {"exact", "limited"} and row.get("人工复核") != "R2.2":
+            raise SystemExit(
+                f"Specialized coverage was not manually reviewed: {row.get('来源条目标识')}"
+            )
+        if level in {"exact", "limited"} and row.get("复核指纹") != specialized_review_fingerprint(row):
+            raise SystemExit(
+                f"Specialized coverage changed after review: {row.get('来源条目标识')}"
+            )
+
+
 def main() -> None:
     args = parse_args()
     with args.source_csv.open("r", encoding="utf-8-sig", newline="") as handle:
@@ -311,6 +531,22 @@ def main() -> None:
         update = DIRECT_UPDATES.get(row.get("n8n内部标识", ""))
         if update:
             row.update(update)
+        trust_correction = AUDIT_TRUST_CORRECTIONS.get(
+            row.get("n8n内部标识", "")
+        )
+        if trust_correction:
+            row.update(trust_correction)
+        if row.get("n8n内部标识", "") in UNVERIFIED_VENDOR_NODE_IDS:
+            row.update(
+                {
+                    "模镜当前状态": "未实现",
+                    "模镜对应节点": "—",
+                    "判断说明": (
+                        "当前没有该厂商服务经过验证的认证、请求和响应合同；"
+                        "通用模型节点不能替代专用服务连接器。"
+                    ),
+                }
+            )
         source_update = SOURCE_UPDATES.get(row.get("来源条目标识", ""))
         if source_update:
             row.update(source_update)
@@ -322,6 +558,28 @@ def main() -> None:
             if ".ee" not in row.get("来源条目标识", "")
             else "企业条目仅保留名称审计；排除实现参考"
         )
+        row["覆盖等级"] = COVERAGE_LEVEL_BY_STATUS.get(
+            row.get("模镜当前状态", ""),
+            "none",
+        )
+        row["模镜证据"] = audit_evidence(row)
+        if row["覆盖等级"] in {"exact", "limited"}:
+            fingerprint = specialized_review_fingerprint(row)
+            if args.record_specialized_review:
+                row["人工复核"] = "R2.2"
+                row["复核指纹"] = fingerprint
+            elif row.get("人工复核") != "R2.2" or row.get("复核指纹") != fingerprint:
+                raise SystemExit(
+                    "Specialized coverage requires a fresh manual review: "
+                    f"{row.get('来源条目标识')}"
+                )
+        else:
+            row["人工复核"] = ""
+            row["复核指纹"] = ""
+    for fieldname in ("覆盖等级", "人工复核", "模镜证据", "复核指纹"):
+        if fieldname not in fieldnames:
+            fieldnames.append(fieldname)
+    validate_audit_rows(rows)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     csv_path = args.output_dir / "n8n-node-capability-matrix.csv"
     with csv_path.open("w", encoding="utf-8-sig", newline="") as handle:
@@ -339,6 +597,8 @@ def main() -> None:
         row
         for row in rows
         if row.get("n8n内部标识") in DIRECT_UPDATES
+        or row.get("n8n内部标识") in AUDIT_TRUST_CORRECTIONS
+        or row.get("n8n内部标识") in UNVERIFIED_VENDOR_NODE_IDS
         or row.get("来源条目标识") in SOURCE_UPDATES
     ]
     native_count, palette_count, complete_count, compatibility_count, planner_count = (
@@ -357,7 +617,7 @@ def main() -> None:
         f"{row['n8n原名参考']} | {row['模镜当前状态']} |"
         for row in direct_rows
     ]
-    markdown = f"""# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0/R2.1）
+    markdown = f"""# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0/R2.1/R2.2）
 
 - 审计日期：2026-08-24
 - 唯一基线：PR #213 合并提交 `911593f505b05b01037769f578e21f22d2a1c9af`
@@ -371,7 +631,8 @@ def main() -> None:
 - R1.9 结果：不新增普通节点，将 `parameter_extractor`、`question_classifier` 提升为完整 V2 合同，并在既有 `runtime_middleware` 下增加 `content_policy` 文本策略；自研节点总数 50、画布目录项 48、当前 12 个冻结 compatibility 合同，Planner 仍固定为 7 类
 - R2.0 结果：不新增普通节点，将 `human_intervention`、`mcp_tool`、`variable_assign` 提升为完整 V2 合同，并退役旧知识引用新增入口；当前 50 Native、48 个可新增 Palette 项、41 个完整合同、9 个 compatibility 合同、7 个 Planner 节点
 - R2.1 PR1 结果：不新增 `NativeNodeKind`，将 `code` 提升为只执行预定义操作的“安全文本加工 V2”完整合同，并从 Palette 移除退役 `template_transform`；旧草稿和既有激活版本继续兼容，模板文本能力由 `variable_assign` V2 承接；当时 50 Native、47 个可新增 Palette 项、42 个完整合同、8 个 compatibility 合同、7 个 Planner 节点
-- R2.1 PR2 结果：新增完整合同 `data_merge`，并将经典运行器升级为带持久化边到达账本的 Scheduler V2；支持可靠 Fan-in、有界数组拼接和受限一对一 inner join；当前 {native_count} Native、{palette_count} 个可新增 Palette 项、{complete_count} 个完整合同、{compatibility_count} 个 compatibility 合同、{planner_count} 个 Planner 节点
+- R2.1 PR2 结果：新增完整合同 `data_merge`，并将经典运行器升级为带持久化边到达账本的 Scheduler V2；支持可靠 Fan-in、有界数组拼接和受限一对一 inner join；当时 51 Native、48 个可新增 Palette 项、43 个完整合同、8 个 compatibility 合同、7 个 Planner 节点
+- R2.2 PR1 结果：将 `variable_aggregator` 提升为“变量打包”V2 完整合同，修正元智能体新图的报告汇总，并为 563 行参考清单增加 exact/limited/composable/none 证据门禁；当前 {native_count} Native、{palette_count} 个可新增 Palette 项、{complete_count} 个完整合同、{compatibility_count} 个 compatibility 合同、{planner_count} 个 Planner 节点
 - 参考清单：563 条节点名称/类型，其中 `.ee` {ee_count} 条仅保留名称审计
 
 ## 结论与许可证边界
@@ -387,6 +648,8 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 - 通用节点可覆盖：{statuses['通用覆盖']}（不等于已有专用连接器）
 - 目录声明：{statuses['目录声明']}
 - 未实现：{statuses['未实现']}
+
+覆盖等级用于表达证据强度：`exact` 只允许完整 NodeContract 且必须绑定运行/测试证据；`limited` 必须写明语义缺口；`composable` 只表示受控通用组合路径，不代表专用连接器；`none` 表示没有运行合同。
 
 | 能力域 | 总数 | 已实现 | 部分实现 | 通用覆盖 | 目录声明 | 未实现 |
 |---|---:|---:|---:|---:|---:|---:|
@@ -406,7 +669,7 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 - 前端 `WorkflowNodeKind`、后端 `NativeNodeKind`、NodeContract Registry 必须完全一致。
 - Palette 必须是 NodeContract 合法子集；每个启用项必须有默认数据和配置入口。
 - compatibility 合同不得超过 #213 冻结白名单；新节点必须直接提供完整合同。
-- Planner 只接受完整合同、匹配 checksum 且显式启用的节点；R1–R2.1 增量节点均禁止 Planner 自动生成，Planner 可生成类型仍固定为 {planner_count} 类。
+- Planner 只接受完整合同、匹配 checksum 且显式启用的节点；R1–R2.2 增量节点均禁止 Planner 自动生成，Planner 可生成类型仍固定为 {planner_count} 类。
 """
     (args.output_dir / "N8N_NODE_CAPABILITY_MATRIX.md").write_text(
         markdown,

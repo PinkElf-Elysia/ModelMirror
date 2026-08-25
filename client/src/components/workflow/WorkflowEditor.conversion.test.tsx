@@ -139,6 +139,43 @@ function ordinaryWorkflow(): WorkflowDefinition {
   return definition;
 }
 
+function legacyVariableAggregatorWorkflow(): WorkflowDefinition {
+  const definition = ordinaryWorkflow();
+  definition.id = "legacy-variable-aggregator";
+  definition.variables = [
+    { id: "customer", name: "customer", kind: "input", valueType: "json" },
+    { id: "order", name: "order", kind: "input", valueType: "json" },
+  ];
+  definition.nodes.splice(1, 0, {
+    id: "legacy-pack",
+    type: "workflowNode",
+    position: { x: 180, y: 20 },
+    data: {
+      kind: "variable_aggregator",
+      title: "旧变量聚合",
+      description: "兼容配置",
+      variableNames: "customer, order",
+      outputTemplate: "",
+      outputVariable: "bundle",
+    },
+  });
+  definition.edges = [
+    { id: "entry-pack", source: "entry", target: "legacy-pack" },
+    { id: "pack-agent", source: "legacy-pack", target: "agent" },
+    ...definition.edges.filter((edge) => edge.source === "agent"),
+  ];
+  return definition;
+}
+
+function legacyTemplateAggregatorWorkflow(): WorkflowDefinition {
+  const definition = legacyVariableAggregatorWorkflow();
+  definition.id = "legacy-template-aggregator";
+  const legacy = definition.nodes.find((node) => node.id === "legacy-pack")!;
+  legacy.data.title = "旧模板聚合";
+  legacy.data.outputTemplate = "## {name}\n{value}\n";
+  return definition;
+}
+
 function jsonResponse(value: unknown) {
   return new Response(JSON.stringify(value), {
     status: 200,
@@ -250,6 +287,43 @@ describe("WorkflowEditor Xpert entry repair", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("recognizes global variables in the legacy aggregator migration UI", async () => {
+    render(
+      <MemoryRouter>
+        <WorkflowEditor
+          initialDefinition={legacyVariableAggregatorWorkflow()}
+          workflowId="legacy-variable-aggregator"
+        />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByText("旧变量聚合"));
+
+    expect(
+      await screen.findByRole("button", { name: "迁移为变量打包 V2" }),
+    ).toBeEnabled();
+    expect(screen.queryByText(/未找到变量生产者/)).not.toBeInTheDocument();
+  });
+
+  it("keeps global variable references recognized after template migration", async () => {
+    render(
+      <MemoryRouter>
+        <WorkflowEditor
+          initialDefinition={legacyTemplateAggregatorWorkflow()}
+          workflowId="legacy-template-aggregator"
+        />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByText("旧模板聚合"));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "迁移为变量赋值 V2" }),
+    );
+
+    expect(await screen.findByText("变量赋值")).toBeInTheDocument();
+    expect(screen.queryByText(/未找到变量生产者/)).not.toBeInTheDocument();
   });
 
   it("repairs only the Xpert copy, supports undo, and saves explicitly", async () => {

@@ -201,9 +201,9 @@ export const workflowPaletteSections: WorkflowPaletteSection[] = [
       {
         kind: "variable_aggregator",
         icon: "⧉",
-        title: "变量聚合",
-        description: "把多个变量汇总为文本或 JSON 字符串。",
-        tags: ["aggregate", "variables"],
+        title: "变量打包",
+        description: "把多个类型化变量深复制到一个 JSON 对象。",
+        tags: ["pack", "variables", "typed-value"],
       },
       {
         kind: "variable_assign",

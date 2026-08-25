@@ -262,6 +262,16 @@ async def test_xpert_publish_preflight_rejects_invalid_chat_contract(
             "xpert_variable_assign_migration_required",
         ),
         (
+            "variable_aggregator",
+            {
+                "kind": "variable_aggregator",
+                "variableNames": "user_input",
+                "outputTemplate": "",
+                "outputVariable": "packed",
+            },
+            "xpert_variable_aggregator_migration_required",
+        ),
+        (
             "knowledge_citation",
             {
                 "kind": "knowledge_citation",
@@ -400,6 +410,43 @@ async def test_r21_safe_text_v2_passes_private_xpert_publish(
     updated = await client.patch(
         f"/api/xperts/{xpert['id']}", json={"draft": draft}
     )
+    assert updated.status_code == 200, updated.text
+    published = await client.post(f"/api/xperts/{xpert['id']}/publish", json={})
+
+    assert published.status_code == 200, published.text
+
+
+@pytest.mark.asyncio
+async def test_r22_variable_pack_v2_passes_private_xpert_publish(
+    client: httpx.AsyncClient,
+) -> None:
+    created_response = await client.post(
+        "/api/xperts", json={"name": "R2.2 variable pack"}
+    )
+    assert created_response.status_code == 200, created_response.text
+    xpert = created_response.json()
+    draft = xpert["draft"]
+    draft["workflow"]["nodes"].append(
+        {
+            "id": "variable-pack-v2",
+            "type": "variable_aggregator",
+            "position": {"x": 200, "y": 250},
+            "data": {
+                "kind": "variable_aggregator",
+                "contractVersion": 2,
+                "bindings": [
+                    {
+                        "id": "binding_user_input",
+                        "sourceVariable": "user_input",
+                        "outputField": "request",
+                    }
+                ],
+                "outputVariable": "packed",
+            },
+        }
+    )
+
+    updated = await client.patch(f"/api/xperts/{xpert['id']}", json={"draft": draft})
     assert updated.status_code == 200, updated.text
     published = await client.post(f"/api/xperts/{xpert['id']}/publish", json={})
 

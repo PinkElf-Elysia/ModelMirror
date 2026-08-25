@@ -69,7 +69,7 @@ export const difyNodeMappings: DifyNodeMapping[] = [
   {
     native: "variable_aggregator",
     dify: "variable-aggregator",
-    note: "Native aggregator combines named string variables into text or JSON.",
+    note: "Native variable pack deep-copies typed variables into a JSON object.",
   },
   {
     native: "parameter_extractor",

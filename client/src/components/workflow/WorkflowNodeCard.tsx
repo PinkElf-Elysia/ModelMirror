@@ -112,7 +112,7 @@ const nodeMeta = {
   },
   variable_aggregator: {
     icon: "🔗",
-    label: "聚合工位",
+    label: "打包工位",
     border: "border-brand-300/40",
     bg: "bg-brand-300/10",
     text: "text-brand-100",

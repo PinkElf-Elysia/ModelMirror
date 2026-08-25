@@ -173,19 +173,20 @@ def build_workflow_from_plan(
             )
 
         tool_names = _clean_tool_names(agent.tool_names if agent else None)
-        agent_mode = "tool_first" if tool_names else "direct"
         nodes.append(
             {
                 "id": node_id,
                 "type": "workflowNode",
                 "position": {"x": 360 * index, "y": 120 + ((index - 1) % 3) * 170},
                 "data": {
-                    "kind": "agent",
+                    "kind": "workflow_agent",
                     "title": _title_from_name(task.name),
                     "description": task.description,
-                    "agentMode": agent_mode,
-                    "instruction": instruction,
+                    "agentName": task.name,
+                    "rolePrompt": task.description,
+                    "taskInput": instruction,
                     "modelId": model_id,
+                    "toolMode": "mcp_tools" if tool_names else "none",
                     "toolNames": ", ".join(tool_names),
                     "outputVariable": output_name,
                     "maxIterations": "5",
@@ -217,11 +218,15 @@ def build_workflow_from_plan(
                 "type": "workflowNode",
                 "position": {"x": 360 * (len(ordered_tasks) + 1), "y": 120},
                 "data": {
-                    "kind": "variable_aggregator",
-                    "title": "Aggregate terminal outputs",
-                    "description": "Combines outputs from terminal tasks.",
-                    "variableNames": ", ".join(terminal_variables),
-                    "outputTemplate": "## {name}\n{value}\n\n",
+                    "kind": "variable_assign",
+                    "title": "Format terminal outputs",
+                    "description": "Formats terminal task outputs into the final report.",
+                    "contractVersion": 2,
+                    "valueSource": "template",
+                    "template": "".join(
+                        f"## {name}\n{{{{{name}}}}}\n\n"
+                        for name in terminal_variables
+                    ),
                     "outputVariable": "meta_agent_result",
                 },
             }
