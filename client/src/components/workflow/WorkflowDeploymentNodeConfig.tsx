@@ -3,6 +3,7 @@ import type {
   WorkflowEdge,
   WorkflowNode,
   WorkflowNodeData,
+  WorkflowVariableDeclaration,
 } from "../../types/workflow";
 import {
   fetchWorkflowProject,
@@ -292,6 +293,7 @@ function GlobalVariableField({
   nodes,
   edges,
   contract,
+  declarations = [],
   onChange,
 }: {
   label: string;
@@ -302,6 +304,7 @@ function GlobalVariableField({
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
   contract: WorkflowNodeContractProjection | null;
+  declarations?: WorkflowVariableDeclaration[];
   onChange: (value: string) => void;
 }) {
   return (
@@ -309,6 +312,7 @@ function GlobalVariableField({
       <WorkflowVariableField
         ariaLabel={label}
         contract={contract}
+        declarations={declarations}
         edges={edges}
         fieldName={fieldName}
         node={node}
@@ -328,6 +332,7 @@ function FailureEntryConfig({
   nodes,
   edges,
   contract,
+  declarations = [],
   data,
   onChange,
 }: {
@@ -336,6 +341,7 @@ function FailureEntryConfig({
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
   contract: WorkflowNodeContractProjection | null;
+  declarations?: WorkflowVariableDeclaration[];
   data: WorkflowNodeData;
   onChange: (patch: Partial<WorkflowNodeData>) => void;
 }) {
@@ -537,6 +543,7 @@ function FailureEntryConfig({
       >
         <GlobalVariableField
           contract={contract}
+          declarations={declarations}
           edges={edges}
           fieldName="eventVariable"
           hint="例如 failure_event"
@@ -556,6 +563,7 @@ function WorkflowCallEntryConfig({
   nodes,
   edges,
   contract,
+  declarations = [],
   data,
   onChange,
 }: {
@@ -563,6 +571,7 @@ function WorkflowCallEntryConfig({
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
   contract: WorkflowNodeContractProjection | null;
+  declarations?: WorkflowVariableDeclaration[];
   data: WorkflowNodeData;
   onChange: (patch: Partial<WorkflowNodeData>) => void;
 }) {
@@ -577,6 +586,7 @@ function WorkflowCallEntryConfig({
       >
         <GlobalVariableField
           contract={contract}
+          declarations={declarations}
           edges={edges}
           fieldName="eventVariable"
           hint="例如 call_event"
@@ -663,6 +673,9 @@ export function JsonLiteralInput({
 
 function InvokeWorkflowConfig({
   currentProjectId,
+  batchMode = false,
+  contract,
+  declarations = [],
   node,
   nodes,
   edges,
@@ -670,6 +683,9 @@ function InvokeWorkflowConfig({
   onChange,
 }: {
   currentProjectId?: string;
+  batchMode?: boolean;
+  contract: WorkflowNodeContractProjection | null;
+  declarations?: WorkflowVariableDeclaration[];
   node: WorkflowNode;
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
@@ -759,6 +775,9 @@ function InvokeWorkflowConfig({
           value.inputs.flatMap((input) => {
             const existing = bindings[input.name];
             if (existing) return [[input.name, existing]];
+            if (batchMode && input.name === value.inputs[0]?.name) {
+              return [[input.name, { source: "item" }]];
+            }
             if (!input.required) return [];
             return [[input.name, { source: "variable", variable: input.name }]];
           }),
@@ -776,15 +795,31 @@ function InvokeWorkflowConfig({
     return () => { cancelled = true; };
     // bindings are reconciled only when the selected interface changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [targetProjectId, targetVersion]);
+  }, [batchMode, targetProjectId, targetVersion]);
 
   const filteredProjects = projects.filter((project) => {
     const query = search.trim().toLocaleLowerCase();
     return !query || project.title.toLocaleLowerCase().includes(query) || project.project_id.includes(query);
   });
   const selectedProject = projects.find((project) => project.project_id === targetProjectId);
+  const batchItemBindingCount = Object.values(bindings).filter(
+    (binding) => binding?.source === "item",
+  ).length;
   const updateBinding = (name: string, binding?: Record<string, unknown>) => {
     const next = { ...bindings };
+    if (batchMode && binding?.source === "item") {
+      for (const [otherName, otherBinding] of Object.entries(next)) {
+        if (otherName === name || otherBinding?.source !== "item") continue;
+        const targetInput = targetInterface?.inputs.find(
+          (item) => item.name === otherName,
+        );
+        if (targetInput?.required) {
+          next[otherName] = { source: "variable", variable: otherName };
+        } else {
+          delete next[otherName];
+        }
+      }
+    }
     if (binding) next[name] = binding;
     else delete next[name];
     onChange({ inputBindings: next });
@@ -793,7 +828,9 @@ function InvokeWorkflowConfig({
   return (
     <div className="space-y-3">
       <div className="rounded-lg border border-indigo-300/25 bg-indigo-300/10 px-3 py-2 text-xs leading-5 text-indigo-50">
-        仅调用当前已启用的精确版本；不会跟随“最新版”。失败、超时或取消会使当前工作流失败。
+        {batchMode
+          ? "每个数组项按顺序调用同一个固定版本，最多 32 项。任一项失败后，后续项不会启动。"
+          : "仅调用当前已启用的精确版本；不会跟随“最新版”。失败、超时或取消会使当前工作流失败。"}
       </div>
       <Section title="固定目标" description="先选择使用子流程入口且当前已启用的工作流，再固定它的发布版本。">
         <input aria-label="搜索可调用工作流" className={inputClass} onChange={(event) => setSearch(event.target.value)} placeholder="按名称或工作流 ID 搜索" type="search" value={search} />
@@ -818,12 +855,31 @@ function InvokeWorkflowConfig({
         {loadError ? <p className="rounded-lg border border-rose-300/20 bg-rose-300/[0.06] px-3 py-2 text-xs text-rose-100">{loadError}</p> : null}
       </Section>
       {targetInterface ? (
-        <Section title="输入绑定" description="目标的外部输入会自动列出；可绑定上游变量或填写类型化固定值。">
+        <Section
+          title="输入绑定"
+          description={batchMode
+            ? "必须把一个目标输入绑定到当前批次项；其他输入可使用序号、上游变量、固定值或目标默认值。"
+            : "目标的外部输入会自动列出；可绑定上游变量或填写类型化固定值。"}
+        >
           {!targetInterface.active || targetInterface.trigger_kind !== "call" ? <p className="text-xs text-rose-200">该固定版本当前不可调用。</p> : null}
-          {!targetInterface.inputs.length ? <p className="text-xs text-slate-400">目标没有声明外部输入。</p> : null}
+          {!targetInterface.inputs.length ? (
+            <p className={batchMode ? "text-xs text-rose-200" : "text-xs text-slate-400"}>
+              {batchMode
+                ? "该目标没有声明外部输入，无法接收当前批次项。"
+                : "目标没有声明外部输入。"}
+            </p>
+          ) : null}
+          {batchMode && targetInterface.inputs.length > 0 && batchItemBindingCount !== 1 ? (
+            <p className="rounded-lg border border-rose-300/20 bg-rose-300/[0.06] px-3 py-2 text-xs text-rose-100" role="alert">
+              请选择一个且仅一个目标输入作为“当前批次项”。
+            </p>
+          ) : null}
           {targetInterface.inputs.map((input) => {
             const binding = bindings[input.name];
-            const source = binding?.source ?? (input.required ? "variable" : "default");
+            const source = binding?.source
+              ?? (batchMode && input === targetInterface.inputs[0]
+                ? "item"
+                : input.required ? "variable" : "default");
             const expectedTypes: WorkflowVariableValueType[] = input.value_type === "json" ? ["json", "unknown"] : [input.value_type, "unknown"];
             return (
               <div className="space-y-2 rounded-lg border border-white/10 bg-black/15 p-3" key={input.name}>
@@ -834,16 +890,20 @@ function InvokeWorkflowConfig({
                 <select className={inputClass} onChange={(event) => {
                   const mode = event.target.value;
                   if (mode === "default") updateBinding(input.name);
+                  else if (mode === "item" || mode === "index") updateBinding(input.name, { source: mode });
                   else if (mode === "variable") updateBinding(input.name, { source: "variable", variable: input.name });
                   else updateBinding(input.name, { source: "literal", value: input.default_value ?? (input.value_type === "boolean" ? false : input.value_type === "number" ? 0 : input.value_type === "json" ? null : "") });
                 }} value={source}>
                   {!input.required ? <option value="default">使用目标默认值</option> : null}
+                  {batchMode ? <option value="item">当前批次项（必须且仅一个）</option> : null}
+                  {batchMode ? <option value="index">当前序号（从 0 开始）</option> : null}
                   <option value="variable">绑定上游变量</option>
                   <option value="literal">填写固定值</option>
                 </select>
                 {source === "variable" ? (
                   <WorkflowVariableField
-                    descriptor={{ nodeKind: "invoke_workflow", field: "inputBindings", mode: "binding", fallbackTypes: expectedTypes }}
+                    descriptor={{ nodeKind: batchMode ? "iteration" : "invoke_workflow", field: "inputBindings", mode: "binding", fallbackTypes: expectedTypes }}
+                    declarations={declarations}
                     edges={edges}
                     fieldName="inputBindings"
                     node={node}
@@ -874,12 +934,186 @@ function InvokeWorkflowConfig({
           })}
         </Section>
       ) : null}
-      <Section title="运行结果" description="子流程完成后写入固定版本、父子执行关系和最终文本结果。">
-        <GlobalVariableField contract={null} edges={edges} fieldName="resultVariable" hint="例如 workflow_result" label="结果变量" node={node} nodes={nodes} onChange={(resultVariable) => onChange({ resultVariable })} value={String(data.resultVariable ?? "")} />
+      <Section
+        title="运行结果"
+        description={batchMode
+          ? "全部完成后一次性写入安全回执数组；不会额外附带原始批次项，但会保留目标工作流的最终文本。"
+          : "子流程完成后写入固定版本、父子执行关系和最终文本结果。"}
+      >
+        <GlobalVariableField
+          contract={contract}
+          declarations={declarations}
+          edges={edges}
+          fieldName={batchMode ? "outputVariable" : "resultVariable"}
+          hint={batchMode ? "例如 batch_receipts" : "例如 workflow_result"}
+          label={batchMode ? "回执数组变量" : "结果变量"}
+          node={node}
+          nodes={nodes}
+          onChange={(value) => onChange(batchMode ? { outputVariable: value } : { resultVariable: value })}
+          value={String(batchMode ? data.outputVariable ?? "" : data.resultVariable ?? "")}
+        />
         <Field label="最长等待时间" hint="1–60 秒">
           <input className={inputClass} max={60} min={1} onChange={(event) => onChange({ timeoutSeconds: Number(event.target.value) })} type="number" value={Number(data.timeoutSeconds ?? 60)} />
         </Field>
       </Section>
+    </div>
+  );
+}
+
+function IterationV2Config({
+  currentProjectId,
+  node,
+  nodes,
+  edges,
+  contract,
+  declarations = [],
+  data,
+  onChange,
+}: {
+  currentProjectId?: string;
+  node: WorkflowNode;
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+  contract: WorkflowNodeContractProjection | null;
+  declarations?: WorkflowVariableDeclaration[];
+  data: WorkflowNodeData;
+  onChange: (patch: Partial<WorkflowNodeData>) => void;
+}) {
+  const mode = data.mode === "workflow_map" ? "workflow_map" : "template_map";
+  const itemVariable = String(data.itemVariable ?? "item");
+  const indexVariable = String(data.indexVariable ?? "item_index");
+  const inputVariable = String(data.inputVariable ?? "").trim();
+  const outputVariable = String(data.outputVariable ?? "").trim();
+  const declaredVariables = new Set(declarations.map((item) => item.name.trim()));
+  const localNames = [itemVariable.trim(), indexVariable.trim()];
+  const localVariableConflicts = Array.from(new Set(localNames))
+    .filter((name) => name && (
+      localNames[0] === localNames[1]
+      || name === inputVariable
+      || name === outputVariable
+      || declaredVariables.has(name)
+    ));
+  return (
+    <div className="space-y-3">
+      <div className="rounded-lg border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-50">
+        输入必须是真正的 JSON 数组。安全模板最多处理 10000 项；固定子流程最多处理 32 项，均不会静默截断。
+      </div>
+      <Section title="处理方式" description="本地模板适合轻量文本整理；固定子流程适合每项都需要完整工作流能力的任务。">
+        <select
+          aria-label="批量处理方式"
+          className={inputClass}
+          onChange={(event) => {
+            const nextMode = event.target.value as "template_map" | "workflow_map";
+            onChange({
+              mode: nextMode,
+              itemVariable: itemVariable || "item",
+              indexVariable: indexVariable || "item_index",
+              timeoutSeconds: Number(data.timeoutSeconds ?? 60),
+            });
+          }}
+          value={mode}
+        >
+          <option value="template_map">安全模板：逐项生成文本</option>
+          <option value="workflow_map">固定子流程：逐项顺序调用</option>
+        </select>
+      </Section>
+      <Section title="输入数组" description="选择上游的 JSON 数组变量；文本和逗号列表不会自动转换。">
+        <GlobalVariableField
+          contract={contract}
+          declarations={declarations}
+          edges={edges}
+          fieldName="inputVariable"
+          hint="例如 orders 或 records"
+          label="数组变量"
+          node={node}
+          nodes={nodes}
+          onChange={(inputVariable) => onChange({ inputVariable })}
+          value={String(data.inputVariable ?? "")}
+        />
+      </Section>
+      {localVariableConflicts.length > 0 ? (
+        <p
+          className="rounded-lg border border-rose-300/30 bg-rose-300/10 px-3 py-2 text-xs leading-5 text-rose-100"
+          role="alert"
+        >
+          局部变量不能与输入、输出或全局变量重名：{localVariableConflicts.join("、")}。
+          {mode === "workflow_map" ? "请切换到安全模板后修改变量名，再切回固定子流程。" : ""}
+        </p>
+      ) : null}
+      {mode === "template_map" ? (
+        <>
+          <Section title="单项模板" description="item 和 item_index 只在此节点内部可用，不会写入全局变量。">
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="当前项变量">
+                <input
+                  className={inputClass}
+                  onChange={(event) => onChange({ itemVariable: event.target.value })}
+                  placeholder="item"
+                  value={itemVariable}
+                />
+              </Field>
+              <Field label="序号变量" hint="从 0 开始">
+                <input
+                  className={inputClass}
+                  onChange={(event) => onChange({ indexVariable: event.target.value })}
+                  placeholder="item_index"
+                  value={indexVariable}
+                />
+              </Field>
+            </div>
+            <Field label="每项输出模板" hint="支持插入上游变量和两个局部变量">
+              <WorkflowVariableField
+                className="min-h-28 resize-none leading-6"
+                contract={contract}
+                declarations={declarations}
+                descriptor={{
+                  nodeKind: "iteration",
+                  field: "itemTemplate",
+                  mode: "template",
+                  fallbackTypes: ["text", "number", "boolean", "json", "unknown"],
+                  localVariables: [
+                    { name: itemVariable, label: "当前批次项", valueType: "unknown" },
+                    { name: indexVariable, label: "当前序号", valueType: "number" },
+                  ],
+                }}
+                edges={edges}
+                fieldName="itemTemplate"
+                multiline
+                node={node}
+                nodes={nodes}
+                onChange={(itemTemplate) => onChange({ itemTemplate })}
+                value={String(data.itemTemplate ?? "")}
+              />
+            </Field>
+          </Section>
+          <Section title="输出数组" description="全部项目成功后一次性写入真正的字符串数组；失败时不会写入部分结果。">
+            <GlobalVariableField
+              contract={contract}
+              declarations={declarations}
+              edges={edges}
+              fieldName="outputVariable"
+              hint="例如 mapped_items"
+              label="结果变量"
+              node={node}
+              nodes={nodes}
+              onChange={(outputVariable) => onChange({ outputVariable })}
+              value={String(data.outputVariable ?? "")}
+            />
+          </Section>
+        </>
+      ) : (
+        <InvokeWorkflowConfig
+          batchMode
+          contract={contract}
+          declarations={declarations}
+          currentProjectId={currentProjectId}
+          data={data}
+          edges={edges}
+          node={node}
+          nodes={nodes}
+          onChange={onChange}
+        />
+      )}
     </div>
   );
 }
@@ -890,6 +1124,7 @@ export default function WorkflowDeploymentNodeConfig({
   nodes,
   edges,
   contract,
+  declarations = [],
   data,
   onChange,
 }: {
@@ -898,6 +1133,7 @@ export default function WorkflowDeploymentNodeConfig({
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
   contract: WorkflowNodeContractProjection | null;
+  declarations?: WorkflowVariableDeclaration[];
   data: WorkflowNodeData;
   onChange: (patch: Partial<WorkflowNodeData>) => void;
 }) {
@@ -905,6 +1141,7 @@ export default function WorkflowDeploymentNodeConfig({
     return (
       <FailureEntryConfig
         contract={contract}
+        declarations={declarations}
         currentProjectId={currentProjectId}
         data={data}
         edges={edges}
@@ -919,6 +1156,7 @@ export default function WorkflowDeploymentNodeConfig({
     return (
       <WorkflowCallEntryConfig
         contract={contract}
+        declarations={declarations}
         data={data}
         edges={edges}
         node={node}
@@ -931,6 +1169,23 @@ export default function WorkflowDeploymentNodeConfig({
   if (data.kind === "invoke_workflow") {
     return (
       <InvokeWorkflowConfig
+        contract={contract}
+        declarations={declarations}
+        currentProjectId={currentProjectId}
+        data={data}
+        edges={edges}
+        node={node}
+        nodes={nodes}
+        onChange={onChange}
+      />
+    );
+  }
+
+  if (data.kind === "iteration" && Number(data.contractVersion) === 2) {
+    return (
+      <IterationV2Config
+        contract={contract}
+        declarations={declarations}
         currentProjectId={currentProjectId}
         data={data}
         edges={edges}

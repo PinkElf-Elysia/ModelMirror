@@ -237,6 +237,103 @@ interface WorkflowRunStep {
   providerRouteReceipt?: ProviderRouteReceipt;
 }
 
+export interface WorkflowBatchReceipt {
+  index: number;
+  status: "completed";
+  projectId: string;
+  version: number;
+  executionId: string;
+  taskId: string;
+  runId: string;
+  result: string;
+}
+
+const WORKFLOW_PROJECT_ID_PATTERN = /^wf_[0-9a-f]{32}$/i;
+const WORKFLOW_EXECUTION_ID_PATTERN = /^wfx_[0-9a-f]{32}$/i;
+const WORKFLOW_TRIGGER_TASK_ID_PATTERN = /^wft_[0-9a-f]{32}$/i;
+
+export function parseWorkflowBatchReceipts(
+  value: string,
+): WorkflowBatchReceipt[] | null {
+  let candidate: unknown;
+  try {
+    candidate = JSON.parse(value);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(candidate) || candidate.length === 0) return null;
+
+  const receipts: WorkflowBatchReceipt[] = [];
+  for (const item of candidate) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+    const receipt = item as Record<string, unknown>;
+    if (
+      !Number.isInteger(receipt.index)
+      || Number(receipt.index) < 0
+      || receipt.status !== "completed"
+      || typeof receipt.projectId !== "string"
+      || !WORKFLOW_PROJECT_ID_PATTERN.test(receipt.projectId)
+      || !Number.isInteger(receipt.version)
+      || Number(receipt.version) < 1
+      || typeof receipt.executionId !== "string"
+      || !WORKFLOW_EXECUTION_ID_PATTERN.test(receipt.executionId)
+      || typeof receipt.taskId !== "string"
+      || !WORKFLOW_TRIGGER_TASK_ID_PATTERN.test(receipt.taskId)
+      || typeof receipt.runId !== "string"
+      || !RUNTIME_RUN_ID_PATTERN.test(receipt.runId)
+      || typeof receipt.result !== "string"
+    ) return null;
+    receipts.push(receipt as unknown as WorkflowBatchReceipt);
+  }
+  return receipts;
+}
+
+export function workflowRunCompletedSummary(output: string | undefined) {
+  if (!output) return "运行完成。";
+  const receipts = parseWorkflowBatchReceipts(output);
+  return receipts ? `批次完成：${receipts.length} 项` : output;
+}
+
+function WorkflowBatchReceiptList({
+  receipts,
+  compact = false,
+}: {
+  receipts: WorkflowBatchReceipt[];
+  compact?: boolean;
+}) {
+  return (
+    <div className={compact ? "mt-2" : "mt-3"}>
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <p className="text-xs font-semibold text-emerald-100">
+          批次回执 · {receipts.length} 项
+        </p>
+        <span className="rounded-full border border-emerald-300/25 bg-emerald-300/10 px-2 py-0.5 text-[11px] text-emerald-100">
+          全部完成
+        </span>
+      </div>
+      <div className={`grid gap-2 ${compact ? "max-h-56 overflow-y-auto" : "max-h-72 overflow-y-auto"}`}>
+        {receipts.map((receipt) => (
+          <div
+            className="rounded-lg border border-white/10 bg-slate-950/30 px-3 py-2.5"
+            key={`${receipt.executionId}:${receipt.index}`}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-semibold text-slate-100">第 {receipt.index + 1} 项</p>
+              <div className="flex items-center gap-2 text-[11px] text-slate-400">
+                <span>固定目标 v{receipt.version}</span>
+                <span>子执行 …{receipt.executionId.slice(-8)}</span>
+              </div>
+            </div>
+            <p className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-5 text-slate-300">
+              {receipt.result || "（无文本结果）"}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function serializeWorkflow(definition: WorkflowDefinition) {
   return {
     id: definition.id,
@@ -389,17 +486,26 @@ function readSseEvent(eventText: string) {
     .filter(Boolean);
 }
 
+export function localizeWorkflowStepOutput(
+  output: string,
+  nodeType: WorkflowRunEvent["node_type"],
+) {
+  if (nodeType !== "iteration") return output;
+  return output.replace(/^completed (\d+)\/(\d+)$/gm, "已完成 $1/$2");
+}
+
 function appendStepOutput(
   current: string,
   next: string | undefined,
   nodeType: WorkflowRunEvent["node_type"],
 ) {
   if (!next) return current;
-  if (!current) return next;
+  const localizedNext = localizeWorkflowStepOutput(next, nodeType);
+  if (!current) return localizedNext;
   if (nodeType === "llm" || nodeType === "workflow_agent") {
-    return `${current}${next}`;
+    return `${current}${localizedNext}`;
   }
-  return `${current}\n${next}`;
+  return `${current}\n${localizedNext}`;
 }
 
 function statusCopy(status: RunStepStatus) {
@@ -1011,6 +1117,10 @@ export default function WorkflowRun({
 
     return "";
   }, [events]);
+  const finalBatchReceipts = useMemo(
+    () => parseWorkflowBatchReceipts(finalOutput),
+    [finalOutput],
+  );
 
   const runSteps = useMemo(() => buildRunSteps(events), [events]);
   const expectedHookSkillIds = useMemo(
@@ -1590,7 +1700,10 @@ export default function WorkflowRun({
       setPendingHuman(null);
       setHumanInput("");
       setFinishedOutcome("completed");
-      recordRunHistory("completed", event.final_output ?? "运行完成。");
+      recordRunHistory(
+        "completed",
+        workflowRunCompletedSummary(event.final_output),
+      );
     }
   }
 
@@ -2209,7 +2322,9 @@ export default function WorkflowRun({
                 : "暂无运行记录。点击“运行工作流”后，这里会按节点汇总展示过程。"}
             </div>
           ) : (
-            runSteps.map((step) => (
+            runSteps.map((step) => {
+              const batchReceipts = parseWorkflowBatchReceipts(step.output);
+              return (
               <div className="rounded-lg border border-white/10 bg-white/[0.045]" key={step.id}>
                 <button
                   className="w-full px-3 py-2 text-left transition hover:bg-white/[0.025]"
@@ -2233,12 +2348,16 @@ export default function WorkflowRun({
                   </span>
                 </div>
                 {step.output ? (
-                  <>
+                  batchReceipts ? (
+                    <WorkflowBatchReceiptList compact receipts={batchReceipts} />
+                  ) : (
+                    <>
                     <DataXResultCard content={step.output} />
                     <p className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded-md bg-slate-950/35 p-2 text-xs leading-5 text-slate-300">
                       {step.output}
                     </p>
-                  </>
+                    </>
+                  )
                 ) : null}
                 </button>
                 {step.providerRouteReceipt ? (
@@ -2259,7 +2378,8 @@ export default function WorkflowRun({
                   </div>
                 ) : null}
               </div>
-            ))
+              );
+            })
           )}
         </div>
       </div>
@@ -2548,9 +2668,13 @@ export default function WorkflowRun({
       {finalOutput ? (
         <div className="border-t border-white/10 p-4">
           <p className="text-xs font-semibold text-hire-100">最终交付</p>
-          <p className="mt-2 max-h-44 overflow-y-auto whitespace-pre-wrap rounded-lg border border-hire-300/25 bg-hire-300/10 p-3 text-sm leading-6 text-hire-50">
-            {finalOutput}
-          </p>
+          {finalBatchReceipts ? (
+            <WorkflowBatchReceiptList receipts={finalBatchReceipts} />
+          ) : (
+            <p className="mt-2 max-h-44 overflow-y-auto whitespace-pre-wrap rounded-lg border border-hire-300/25 bg-hire-300/10 p-3 text-sm leading-6 text-hire-50">
+              {finalOutput}
+            </p>
+          )}
         </div>
       ) : null}
 

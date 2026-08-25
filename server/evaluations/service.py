@@ -8,6 +8,7 @@ from typing import Any, Callable
 
 try:
     from server.workflow_native.node_contracts import node_policy_service
+    from server.workflow_native.r23_iteration import is_workflow_map
     from server.workflow_native.schemas import NativeWorkflowDefinition
     from server.xperts.models import (
         XpertDefinition,
@@ -17,6 +18,7 @@ try:
     from server.xperts.validation import validate_xpert_workflow_graph
 except ModuleNotFoundError:
     from workflow_native.node_contracts import node_policy_service
+    from workflow_native.r23_iteration import is_workflow_map
     from workflow_native.schemas import NativeWorkflowDefinition
     from xperts.models import XpertDefinition, XpertDraft, XpertVersion
     from xperts.validation import validate_xpert_workflow_graph
@@ -571,6 +573,17 @@ class XpertEvaluationService:
                         "code": policy.code or "evaluation_unsafe_node",
                         "message": policy.message
                         or f"Evaluation does not allow node kind: {kind}.",
+                        "node_id": node.id,
+                    }
+                )
+            if kind == "iteration" and is_workflow_map(data):
+                issues.append(
+                    {
+                        "code": "evaluation_iteration_workflow_map_forbidden",
+                        "message": (
+                            "Evaluation only allows local template batch processing; "
+                            "batch subworkflow calls are unavailable."
+                        ),
                         "node_id": node.id,
                     }
                 )

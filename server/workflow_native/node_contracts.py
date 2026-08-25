@@ -663,7 +663,7 @@ def _complete_contracts() -> dict[str, NodeContract]:
             side_effect="external_write",
             deterministic=False,
             idempotent=False,
-            external_io=False,
+            external_io=True,
             can_wait=False,
             error_semantics="fail_closed",
             security_category="private_subworkflow_call",
@@ -1014,6 +1014,148 @@ def _complete_contracts() -> dict[str, NodeContract]:
             app=_rule("allow"),
             evaluation=_rule("allow"),
             evolution=_rule("allow"),
+        ),
+        planner=_planner(),
+    )
+
+    iteration_v1_schema = _object_schema(
+        {
+            "inputVariable": {"type": "string"},
+            "iterationVariable": {"type": "string"},
+            "itemTemplate": {"type": "string"},
+            "outputVariable": {"type": "string"},
+        },
+        required=[
+            "inputVariable",
+            "iterationVariable",
+            "itemTemplate",
+            "outputVariable",
+        ],
+    )
+    iteration_binding_schema = {
+        "type": "object",
+        "properties": {
+            "source": {
+                "type": "string",
+                "enum": ["item", "index", "variable", "literal"],
+            },
+            "variable": {
+                "type": "string",
+                "pattern": r"^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+            },
+            "value": {},
+        },
+        "required": ["source"],
+        "additionalProperties": False,
+    }
+    iteration_v2_schema = _object_schema(
+        {
+            "contractVersion": {"const": 2},
+            "mode": {
+                "type": "string",
+                "enum": ["template_map", "workflow_map"],
+            },
+            "inputVariable": {
+                "type": "string",
+                "pattern": r"^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+            },
+            "itemVariable": {
+                "type": "string",
+                "pattern": r"^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+            },
+            "indexVariable": {
+                "type": "string",
+                "pattern": r"^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+            },
+            "outputVariable": {
+                "type": "string",
+                "pattern": r"^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+            },
+            "itemTemplate": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20_000,
+            },
+            "targetProjectId": {
+                "type": "string",
+                "pattern": r"^wf_[a-f0-9]{32}$",
+            },
+            "targetVersion": {"type": "integer", "minimum": 1},
+            "inputBindings": {
+                "type": "object",
+                "additionalProperties": iteration_binding_schema,
+            },
+            "timeoutSeconds": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 60,
+            },
+        },
+        required=[
+            "contractVersion",
+            "mode",
+            "inputVariable",
+            "itemVariable",
+            "indexVariable",
+            "outputVariable",
+        ],
+    )
+    iteration_v2_schema["allOf"] = [
+        {
+            "if": {
+                "properties": {"mode": {"const": "template_map"}},
+                "required": ["mode"],
+            },
+            "then": {"required": ["itemTemplate"]},
+        },
+        {
+            "if": {
+                "properties": {"mode": {"const": "workflow_map"}},
+                "required": ["mode"],
+            },
+            "then": {
+                "required": [
+                    "targetProjectId",
+                    "targetVersion",
+                    "inputBindings",
+                    "timeoutSeconds",
+                ]
+            },
+        },
+    ]
+    contracts["iteration"] = NodeContract(
+        kind="iteration",
+        contract_status="complete",
+        config_schema={
+            "type": "object",
+            "anyOf": [iteration_v1_schema, iteration_v2_schema],
+        },
+        ports=(
+            NodePortContract(
+                name="items",
+                direction="input",
+                value_schema=WorkflowValueSchema(type="array"),
+                required=True,
+            ),
+            NodePortContract(
+                name="results",
+                direction="output",
+                value_schema=WorkflowValueSchema(type="array"),
+            ),
+        ),
+        execution=NodeExecutionPolicy(
+            side_effect="external_write",
+            deterministic=False,
+            idempotent=False,
+            external_io=False,
+            can_wait=False,
+            error_semantics="fail_closed",
+            security_category="private_batch_subworkflow",
+        ),
+        availability=_availability(
+            app=_rule("allow"),
+            evaluation=_rule("allow"),
+            evolution=_rule("deny"),
         ),
         planner=_planner(),
     )

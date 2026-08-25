@@ -66,9 +66,15 @@ export function variableFieldWarning(
   );
   const localNames = new Set(
     (descriptor.localVariables ?? []).map((local) =>
-      local.name === "item"
-        ? String(node.data.iterationVariable ?? "").trim() || local.name
-        : local.name,
+      Number(node.data.contractVersion) === 2
+        ? local.name === "item"
+          ? String(node.data.itemVariable ?? "").trim() || local.name
+          : local.name === "item_index"
+            ? String(node.data.indexVariable ?? "").trim() || local.name
+            : local.name
+        : local.name === "item"
+          ? String(node.data.iterationVariable ?? "").trim() || local.name
+          : local.name,
     ),
   );
   const names = descriptor.mode === "binding-list"

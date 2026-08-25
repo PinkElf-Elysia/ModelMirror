@@ -1,6 +1,6 @@
-# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0/R2.1/R2.2）
+# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0/R2.1/R2.2/R2.3）
 
-- 审计日期：2026-08-24
+- 审计日期：2026-08-25
 - 唯一基线：PR #213 合并提交 `911593f505b05b01037769f578e21f22d2a1c9af`
 - R0 基线事实：NodeContract V3、37 个 `NativeNodeKind`、35 个画布目录项、20 个冻结 compatibility 合同
 - R1 结果：新增 4 个完整合同，并将既有 `llm` 提升为完整合同；自研节点总数 41、画布目录项 39、当前 19 个冻结 compatibility 合同；四节点与 `llm` Planner 均关闭
@@ -15,7 +15,8 @@
 - R2.1 PR2 结果：新增完整合同 `data_merge`，并将经典运行器升级为带持久化边到达账本的 Scheduler V2；支持可靠 Fan-in、有界数组拼接和受限一对一 inner join；当时 51 Native、48 个可新增 Palette 项、43 个完整合同、8 个 compatibility 合同、7 个 Planner 节点
 - R2.2 PR1 结果：将 `variable_aggregator` 提升为“变量打包”V2 完整合同，修正元智能体新图的报告汇总，并为 563 行参考清单增加 exact/limited/composable/none 证据门禁；当时 51 Native、48 个可新增 Palette 项、44 个完整合同、7 个 compatibility 合同、7 个 Planner 节点
 - R2.2 PR2 结果：将 `agent_task`、`agent_handoff`、`handoff_router` 提升为类型化 V2 合同，新增 occurrence 幂等索引、原子 Router 与持久 Handoff 恢复，并退役旧 `agent` 新增入口；当时 51 Native、47 个可新增 Palette 项、47 个完整合同、4 个 compatibility 合同、7 个 Planner 节点
-- 当前 Registry 事实：51 Native、47 个可新增 Palette 项、47 个完整合同、4 个 compatibility 合同、7 个 Planner 节点
+- R2.3 结果：不新增节点类型，将 `iteration` 提升为“批量处理”V2 完整合同；本地模式执行严格数组模板映射，工作流模式以最多 32 项顺序调用固定发布版本并复用稳定子执行；当前保持 51 Native、47 个可新增 Palette 项、48 个完整合同、3 个 compatibility 合同、7 个 Planner 节点
+- 当前 Registry 事实：51 Native、47 个可新增 Palette 项、48 个完整合同、3 个 compatibility 合同、7 个 Planner 节点
 - 参考清单：563 条节点名称/类型，其中 `.ee` 2 条仅保留名称审计
 
 ## 结论与许可证边界
@@ -66,6 +67,7 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 | 流程控制与编排 | 多路分派 | multi_route | (Switch) | 已实现 |
 | 流程控制与编排 | 二路条件 | condition | (If) | 已实现 |
 | 流程控制与编排 | 挂起等待 | suspend_wait | (Wait) | 已实现 |
+| 流程控制与编排 | 批次循环 | iteration | (Split In Batches) | 部分实现 |
 | 流程控制与编排 | 数据合流 | data_merge | (Merge) | 已实现 |
 | 流程控制与编排 | 主动终止 | terminate_error | (Stop and Error) | 已实现 |
 | 流程控制与编排 | 子流程调用 | invoke_workflow | (Execute Sub-workflow) | 已实现 |
@@ -131,4 +133,4 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 - 前端 `WorkflowNodeKind`、后端 `NativeNodeKind`、NodeContract Registry 必须完全一致。
 - Palette 必须是 NodeContract 合法子集；每个启用项必须有默认数据和配置入口。
 - compatibility 合同不得超过 #213 冻结白名单；新节点必须直接提供完整合同。
-- Planner 只接受完整合同、匹配 checksum 且显式启用的节点；R1–R2.2 增量节点均禁止 Planner 自动生成，Planner 可生成类型仍固定为 7 类。
+- Planner 只接受完整合同、匹配 checksum 且显式启用的节点；R1–R2.3 增量节点均禁止 Planner 自动生成，Planner 可生成类型仍固定为 7 类。

@@ -301,6 +301,17 @@ async def test_xpert_publish_preflight_rejects_invalid_chat_contract(
             },
             "xpert_template_transform_migration_required",
         ),
+        (
+            "iteration",
+            {
+                "kind": "iteration",
+                "inputVariable": "user_input",
+                "iterationVariable": "item",
+                "itemTemplate": "{{item}}",
+                "outputVariable": "mapped",
+            },
+            "xpert_iteration_migration_required",
+        ),
     ],
 )
 async def test_r20_xpert_preflight_requires_explicit_legacy_node_migration(
@@ -332,6 +343,46 @@ async def test_r20_xpert_preflight_requires_explicit_legacy_node_migration(
     assert published.status_code == 422
     codes = {item["code"] for item in published.json()["detail"]["issues"]}
     assert expected_code in codes
+
+
+@pytest.mark.asyncio
+async def test_r23_xpert_preflight_rejects_fixed_subworkflow_batch_mode(
+    client: httpx.AsyncClient,
+) -> None:
+    created = (await client.post("/api/xperts", json={"name": "Batch Xpert"})).json()
+    draft = created["draft"]
+    draft["workflow"]["nodes"].append(
+        {
+            "id": "batch-node",
+            "type": "iteration",
+            "position": {"x": 200, "y": 250},
+            "data": {
+                "kind": "iteration",
+                "contractVersion": 2,
+                "mode": "workflow_map",
+                "inputVariable": "user_input",
+                "itemVariable": "item",
+                "indexVariable": "item_index",
+                "outputVariable": "receipts",
+                "targetProjectId": "wf_" + "1" * 32,
+                "targetVersion": 1,
+                "inputBindings": {"message": {"source": "item"}},
+                "timeoutSeconds": 60,
+            },
+        }
+    )
+    updated = await client.patch(
+        f"/api/xperts/{created['id']}",
+        json={"draft": draft},
+    )
+    assert updated.status_code == 200, updated.text
+
+    published = await client.post(f"/api/xperts/{created['id']}/publish", json={})
+
+    assert published.status_code == 422
+    assert "xpert_iteration_workflow_map_forbidden" in {
+        item["code"] for item in published.json()["detail"]["issues"]
+    }
 
 
 @pytest.mark.asyncio

@@ -1,7 +1,11 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { WorkflowNode, WorkflowNodeData } from "../../types/workflow";
+import type {
+  WorkflowNode,
+  WorkflowNodeData,
+  WorkflowVariableDeclaration,
+} from "../../types/workflow";
 import WorkflowDeploymentNodeConfig, {
   JsonLiteralInput,
   cronExpressionForUi,
@@ -11,7 +15,11 @@ import WorkflowDeploymentNodeConfig, {
   parseCronExpressionForUi,
 } from "./WorkflowDeploymentNodeConfig";
 
-function renderConfig(data: WorkflowNodeData, currentProjectId?: string) {
+function renderConfig(
+  data: WorkflowNodeData,
+  currentProjectId?: string,
+  declarations: WorkflowVariableDeclaration[] = [],
+) {
   const node = {
     id: "node",
     type: "workflowNode",
@@ -24,6 +32,7 @@ function renderConfig(data: WorkflowNodeData, currentProjectId?: string) {
       contract={null}
       currentProjectId={currentProjectId}
       data={data}
+      declarations={declarations}
       edges={[]}
       node={node}
       nodes={[node]}
@@ -116,6 +125,70 @@ describe("WorkflowDeploymentNodeConfig", () => {
     expect(screen.getByLabelText("时长数值")).toHaveValue(1);
     expect(screen.getByLabelText("时长单位")).toHaveValue("minutes");
     expect(waitChange).not.toHaveBeenCalled();
+  });
+
+  it("configures template batches with scoped item and zero-based index variables", () => {
+    const onChange = renderConfig({
+      kind: "iteration",
+      title: "批量处理",
+      description: "",
+      contractVersion: 2,
+      mode: "template_map",
+      inputVariable: "orders",
+      itemVariable: "order",
+      indexVariable: "order_index",
+      itemTemplate: "{{order_index}}：{{order}}",
+      outputVariable: "mapped_orders",
+    }, undefined, [{
+      id: "constant-orders",
+      name: "orders",
+      kind: "constant",
+      valueType: "json",
+      defaultValue: [],
+    }]);
+
+    expect(screen.getByLabelText("批量处理方式")).toHaveValue("template_map");
+    expect(screen.getByLabelText("数组变量")).toHaveValue("orders");
+    expect(screen.getByLabelText("当前项变量")).toHaveValue("order");
+    expect(screen.getByLabelText(/序号变量/)).toHaveValue("order_index");
+    expect(screen.getByLabelText(/每项输出模板/)).toHaveValue("{{order_index}}：{{order}}");
+    expect(screen.getByText(/不会静默截断/)).toBeInTheDocument();
+    expect(screen.queryByText(/orders：未找到变量生产者/)).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("批量处理方式"), {
+      target: { value: "workflow_map" },
+    });
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
+      mode: "workflow_map",
+      itemVariable: "order",
+      indexVariable: "order_index",
+      timeoutSeconds: 60,
+    }));
+  });
+
+  it("warns immediately when a batch local shadows a workflow variable", () => {
+    renderConfig({
+      kind: "iteration",
+      title: "批量处理",
+      description: "",
+      contractVersion: 2,
+      mode: "template_map",
+      inputVariable: "orders",
+      itemVariable: "orders",
+      indexVariable: "order_index",
+      itemTemplate: "{{orders}}",
+      outputVariable: "mapped_orders",
+    }, undefined, [{
+      id: "constant-orders",
+      name: "orders",
+      kind: "constant",
+      valueType: "json",
+      defaultValue: [],
+    }]);
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "局部变量不能与输入、输出或全局变量重名",
+    );
   });
 
   it("offers searchable failure sources and excludes the current project", async () => {
@@ -255,6 +328,85 @@ describe("WorkflowDeploymentNodeConfig", () => {
         message: { source: "variable", variable: "message" },
       },
     });
+    vi.unstubAllGlobals();
+  });
+
+  it("shows an actionable error when batch mode has no item binding", async () => {
+    const targetId = `wf_${"d".repeat(32)}`;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/interface")) {
+        return {
+          ok: true,
+          json: async () => ({
+            project_id: targetId,
+            version: 3,
+            active: true,
+            trigger_kind: "call",
+            node_contract_checksum: "contract",
+            definition_checksum: "definition",
+            inputs: [
+              { name: "message", value_type: "text", required: true, has_default: false },
+            ],
+            output: { type: "text" },
+          }),
+        } as Response;
+      }
+      if (url === `/api/workflows/${targetId}`) {
+        return {
+          ok: true,
+          json: async () => ({
+            project_id: targetId,
+            title: "逐项清洗",
+            draft: {},
+            draft_revision: 1,
+            active_version: 3,
+            active_deployment: null,
+            published_versions: [
+              { project_id: targetId, version: 3, trigger_kind: "call" },
+            ],
+            created_at: 1,
+            updated_at: 2,
+          }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          items: [{
+            project_id: targetId,
+            title: "逐项清洗",
+            active_version: 3,
+            active_trigger_kind: "call",
+            updated_at: 2,
+          }],
+          total: 1,
+          limit: 100,
+          offset: 0,
+        }),
+      } as Response;
+    }));
+
+    renderConfig({
+      kind: "iteration",
+      title: "批量处理",
+      description: "",
+      contractVersion: 2,
+      mode: "workflow_map",
+      inputVariable: "items",
+      itemVariable: "item",
+      indexVariable: "item_index",
+      targetProjectId: targetId,
+      targetVersion: 3,
+      inputBindings: { message: { source: "index" } },
+      outputVariable: "batch_receipts",
+      timeoutSeconds: 60,
+    });
+
+    await waitFor(() => expect(screen.getByText("message")).toBeInTheDocument());
+    expect(screen.getByRole("alert")).toHaveTextContent("一个且仅一个");
+    expect(screen.getByText(/最多 32 项/)).toBeInTheDocument();
+    expect(screen.getByText(/目标工作流的最终文本/)).toBeInTheDocument();
     vi.unstubAllGlobals();
   });
 });

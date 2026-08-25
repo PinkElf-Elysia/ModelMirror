@@ -69,6 +69,7 @@ PROMOTED_COMPLETE_KINDS = {
     "document_extractor",
     "http_request",
     "human_intervention",
+    "iteration",
     "llm",
     "list_operation",
     "mcp_tool",
@@ -180,6 +181,7 @@ def test_subworkflow_call_contract_does_not_overclaim_idempotency() -> None:
     assert contract.contract_status == "complete"
     assert contract.execution.side_effect == "external_write"
     assert contract.execution.idempotent is False
+    assert contract.execution.external_io is True
     assert contract.execution.can_wait is False
     assert contract.planner.enabled is False
 
@@ -215,7 +217,23 @@ def test_r16_control_data_contracts_are_complete_local_and_not_plannable() -> No
     assert sum(
         contract.contract_status == "compatibility"
         for contract in workflow_node_contract_registry.list()
-        ) == 4
+        ) == 3
+
+
+def test_r23_iteration_contract_is_complete_and_not_plannable() -> None:
+    contract = workflow_node_contract_registry.require("iteration")
+
+    assert contract.contract_status == "complete"
+    assert contract.execution.side_effect == "external_write"
+    assert contract.execution.idempotent is False
+    assert contract.execution.can_wait is False
+    assert contract.execution.error_semantics == "fail_closed"
+    assert contract.planner.enabled is False
+    assert node_policy_service.decision("iteration", "workflow").allowed
+    assert node_policy_service.decision("iteration", "xpert").allowed
+    assert node_policy_service.decision("iteration", "app").allowed
+    assert node_policy_service.decision("iteration", "evaluation").allowed
+    assert not node_policy_service.decision("iteration", "evolution").allowed
 
 
 def test_r17_http_condition_and_dataset_contracts_are_complete_and_not_plannable() -> None:
@@ -281,7 +299,7 @@ def test_r18_file_data_contracts_are_complete_scoped_and_not_plannable() -> None
     assert sum(
         contract.contract_status == "compatibility"
         for contract in workflow_node_contract_registry.list()
-    ) == 4
+    ) == 3
 
 
 def test_r22_agent_collaboration_contracts_are_typed_and_not_plannable() -> None:

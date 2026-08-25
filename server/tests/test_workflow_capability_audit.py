@@ -185,10 +185,17 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     assert all(row["覆盖等级"] == expected_level[row["模镜当前状态"]] for row in rows)
     assert all(row["模镜证据"].strip() for row in rows)
     assert all(
-        row["人工复核"] == "R2.2"
+        row["人工复核"]
+        == ("R2.3" if row["n8n内部标识"] == "splitInBatches" else "R2.2")
         for row in rows
         if row["覆盖等级"] in {"exact", "limited"}
     )
+    assert mapped["splitInBatches"]["模镜当前状态"] == "部分实现"
+    assert mapped["splitInBatches"]["模镜对应节点"] == "iteration"
+    assert mapped["splitInBatches"]["覆盖等级"] == "limited"
+    assert mapped["splitInBatches"]["人工复核"] == "R2.3"
+    assert "最多 32 项" in mapped["splitInBatches"]["判断说明"]
+    assert "图循环" in mapped["splitInBatches"]["判断说明"]
     assert all(
         len(row["复核指纹"]) == 64
         for row in rows
@@ -242,7 +249,7 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
         for contract in workflow_node_contract_registry.list()
     )
     assert "911593f505b05b01037769f578e21f22d2a1c9af" in markdown
-    assert "R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0/R2.1/R2.2" in markdown
+    assert "R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0/R2.1/R2.2/R2.3" in markdown
     assert "44、画布目录项 42" in markdown
     assert "R1.6 结果" in markdown
     assert "自研节点总数 47、画布目录项 45、当前 18 个" in markdown
@@ -256,8 +263,8 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     assert "R1.8 结果" in markdown
     assert native_count == 51
     assert palette_count == 47
-    assert complete_count == 47
-    assert compatibility_count == 4
+    assert complete_count == 48
+    assert compatibility_count == 3
     assert planner_count == 7
     assert "R1.9 结果" in markdown
     assert (
@@ -298,12 +305,15 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     assert r22_pr2_snapshot in markdown
     assert r22_pr1_snapshot != r22_pr2_snapshot
     assert (
+        "- R2.3 结果：不新增节点类型，将 `iteration` 提升为“批量处理”V2 完整合同"
+    ) in markdown
+    assert (
         "- R2.2 PR1 结果：将 `variable_aggregator` 提升为“变量打包”V2 完整合同，"
         "修正元智能体新图的报告汇总，并为 563 行参考清单增加 "
         "exact/limited/composable/none 证据门禁；" + r22_pr2_snapshot
     ) not in markdown
     assert "覆盖等级用于表达证据强度" in markdown
     assert current_registry_line == (
-        "当前 Registry 事实：51 Native、47 个可新增 Palette 项、47 个完整合同、"
-        "4 个 compatibility 合同、7 个 Planner 节点"
+        "当前 Registry 事实：51 Native、47 个可新增 Palette 项、48 个完整合同、"
+        "3 个 compatibility 合同、7 个 Planner 节点"
     )

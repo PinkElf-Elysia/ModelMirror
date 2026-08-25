@@ -844,6 +844,29 @@ def preview_xpert_for_publish(
                     node_id=node.id,
                 )
             )
+        if kind == "iteration":
+            if data.get("contractVersion") != 2:
+                feature_issues.append(
+                    ValidationIssue(
+                        code="xpert_iteration_migration_required",
+                        message=(
+                            "Legacy iteration nodes must be explicitly migrated "
+                            "before publish."
+                        ),
+                        node_id=node.id,
+                    )
+                )
+            elif str(data.get("mode") or "") == "workflow_map":
+                feature_issues.append(
+                    ValidationIssue(
+                        code="xpert_iteration_workflow_map_forbidden",
+                        message=(
+                            "Fixed subworkflow batch mode is only available in "
+                            "private independent workflows."
+                        ),
+                        node_id=node.id,
+                    )
+                )
         if (
             kind in {"agent_handoff", "handoff_router"}
             and r20_contract_version(data) == 2

@@ -328,8 +328,8 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                 WorkflowPaletteItem(
                     kind="iteration",
                     icon="LOOP",
-                    title="迭代",
-                    description="逐项渲染模板，汇总为一个 JSON 数组字符串。",
+                    title="批量处理",
+                    description="逐项渲染安全模板，或按顺序调用固定版本子流程。",
                     category="logic",
                     tags=["loop", "iteration"],
                 ),

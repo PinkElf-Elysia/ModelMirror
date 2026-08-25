@@ -630,6 +630,18 @@ try:
         WorkflowSchedulerV2,
         execute_data_merge,
     )
+    from server.workflow_native.r23_iteration import (
+        MAX_CHILD_RESULT_CHARS,
+        WorkflowIterationError,
+        ensure_batch_output_size,
+        execute_template_map,
+        is_iteration_v2,
+        is_workflow_map,
+        require_input_array,
+        resolve_workflow_map_inputs,
+        validate_iteration_v2_config,
+        workflow_batch_input_digest,
+    )
     from server.workflow_native.values import (
         WorkflowValue,
         deserialize_workflow_value,
@@ -720,6 +732,18 @@ except ModuleNotFoundError:
         WorkflowR21Error,
         WorkflowSchedulerV2,
         execute_data_merge,
+    )
+    from workflow_native.r23_iteration import (
+        MAX_CHILD_RESULT_CHARS,
+        WorkflowIterationError,
+        ensure_batch_output_size,
+        execute_template_map,
+        is_iteration_v2,
+        is_workflow_map,
+        require_input_array,
+        resolve_workflow_map_inputs,
+        validate_iteration_v2_config,
+        workflow_batch_input_digest,
     )
     from workflow_native.values import (
         WorkflowValue,
@@ -5765,6 +5789,10 @@ async def run_private_subworkflow_call(
     task_id: str,
     runtime_metadata: dict[str, Any],
     cancellation_requested: Callable[[], bool],
+    resolved_inputs_override: dict[str, WorkflowValue] | None = None,
+    batch_occurrence_key: str | None = None,
+    batch_index: int | None = None,
+    input_digest: str | None = None,
 ) -> dict[str, Any]:
     if not workflow_subworkflows_enabled():
         raise ValueError("Workflow subworkflows are disabled.")
@@ -5773,17 +5801,26 @@ async def run_private_subworkflow_call(
     timeout_seconds = int(node.data.get("timeoutSeconds") or 60)
     if not 1 <= timeout_seconds <= 60:
         raise ValueError("Workflow call timeoutSeconds must be between 1 and 60.")
-    raw_bindings = node.data.get("inputBindings")
-    if not isinstance(raw_bindings, dict):
-        raise ValueError("Workflow call inputBindings must be an object.")
-    resolved_inputs = {
-        str(name): resolve_data_table_value_binding(
-            binding,
-            variables,
-            label=f"$.invoke_workflow.{node.id}.inputBindings.{name}",
-        )
-        for name, binding in raw_bindings.items()
-    }
+    if resolved_inputs_override is None:
+        raw_bindings = node.data.get("inputBindings")
+        if not isinstance(raw_bindings, dict):
+            raise ValueError("Workflow call inputBindings must be an object.")
+        resolved_inputs = {
+            str(name): resolve_data_table_value_binding(
+                binding,
+                variables,
+                label=f"$.invoke_workflow.{node.id}.inputBindings.{name}",
+            )
+            for name, binding in raw_bindings.items()
+        }
+    else:
+        resolved_inputs = {
+            str(name): normalize_workflow_value(
+                value,
+                path=f"$.iteration.{node.id}.resolvedInputs.{name}",
+            )
+            for name, value in resolved_inputs_override.items()
+        }
     release = workflow_deployment_store.require_version(
         target_project_id,
         target_version,
@@ -5837,6 +5874,9 @@ async def run_private_subworkflow_call(
         suppress_failure_dispatch=bool(
             runtime_metadata.get("suppress_failure_dispatch", False)
         ),
+        batch_occurrence_key=batch_occurrence_key,
+        batch_index=batch_index,
+        input_digest=input_digest,
     )
 
     async def cancel_child(reason: str, durable_reason: str) -> None:
@@ -15638,64 +15678,254 @@ async def _run_workflow_response(
                     )
 
                 elif kind == "iteration":
-                    try:
-                        input_variable = str(node.data.get("inputVariable") or "user_input")
-                        iteration_variable = str(
-                            node.data.get("iterationVariable") or "item"
-                        )
-                        item_template = str(node.data.get("itemTemplate") or "{{item}}")
-                        output_variable = str(
-                            node.data.get("outputVariable") or "iteration_output"
-                        )
-                        items, typed_input = workflow_list_items(
-                            variables.get(input_variable, "")
-                        )
-                        if len(items) > WORKFLOW_MAX_ITERATION_ITEMS:
-                            items = items[:WORKFLOW_MAX_ITERATION_ITEMS]
-                            yield sse_payload(
-                                {
-                                    "event": "node_delta",
-                                    "node_id": node.id,
-                                    "node_title": title,
-                                    "node_type": kind,
-                                    "output": (
-                                        "truncated to "
-                                        f"{WORKFLOW_MAX_ITERATION_ITEMS} items"
-                                    ),
-                                    "variable": output_variable,
-                                }
+                    if is_iteration_v2(node.data):
+                        validate_iteration_v2_config(node.data)
+                        output_variable = str(node.data.get("outputVariable") or "")
+                        if not is_workflow_map(node.data):
+                            results = execute_template_map(
+                                node.data,
+                                variables,
+                                render=lambda template, scoped: render_workflow_template(
+                                    template,
+                                    dict(scoped),
+                                ),
                             )
-                        results: list[str] = []
-                        for index, item in enumerate(items, start=1):
-                            variables[iteration_variable] = item
-                            result = render_workflow_template(item_template, variables)
-                            results.append(result)
-                            yield sse_payload(
-                                {
-                                    "event": "node_delta",
-                                    "node_id": node.id,
-                                    "node_title": title,
-                                    "node_type": kind,
-                                    "output": f"[{index}] {result}",
-                                    "variable": output_variable,
-                                }
+                            variables[output_variable] = normalize_workflow_value(
+                                results,
+                                path=f"$.variables.{output_variable}",
                             )
-                        stored_output = (
-                            results
-                            if typed_input
-                            else json.dumps(results, ensure_ascii=False)
-                        )
-                        variables[output_variable] = stored_output
-                        output = workflow_value_to_text(stored_output)
-                    except Exception as exc:
-                        logger.warning("Workflow iteration node failed: %s", exc)
-                        yield sse_payload(
-                            {
-                                "event": "error",
-                                "node_id": node.id,
-                                "message": str(exc),
+                            output = workflow_value_to_text(results)
+                        else:
+                            if str(run_metadata.get("xpert_id") or "").strip():
+                                raise WorkflowIterationError(
+                                    "ITERATION_WORKFLOW_MAP_XPERT_FORBIDDEN",
+                                    "Fixed subworkflow batch mode is unavailable in Xpert executions.",
+                                )
+                            if not workflow_subworkflows_enabled():
+                                raise WorkflowIterationError(
+                                    "ITERATION_SUBWORKFLOWS_DISABLED",
+                                    "Workflow subworkflows are disabled.",
+                                )
+                            items = require_input_array(node.data, variables)
+                            target_project_id = str(
+                                node.data.get("targetProjectId") or ""
+                            )
+                            target_version = int(node.data.get("targetVersion") or 0)
+                            release = workflow_deployment_store.require_version(
+                                target_project_id,
+                                target_version,
+                            )
+                            target_inputs = {
+                                str(declaration.get("name") or ""): declaration
+                                for declaration in release.workflow.get("variables", [])
+                                if isinstance(declaration, dict)
+                                and declaration.get("kind") == "input"
                             }
-                        )
+                            resolved_batch_inputs: list[
+                                dict[str, WorkflowValue]
+                            ] = []
+                            for index, item in enumerate(items):
+                                resolved_inputs = resolve_workflow_map_inputs(
+                                    node.data,
+                                    variables,
+                                    item=item,
+                                    index=index,
+                                )
+                                unknown_inputs = sorted(
+                                    set(resolved_inputs) - set(target_inputs)
+                                )
+                                if unknown_inputs:
+                                    raise WorkflowIterationError(
+                                        "ITERATION_TARGET_INPUT_UNKNOWN",
+                                        "Batch subworkflow contains an unknown target input.",
+                                    )
+                                missing_inputs = sorted(
+                                    name
+                                    for name, declaration in target_inputs.items()
+                                    if "defaultValue" not in declaration
+                                    and name not in resolved_inputs
+                                )
+                                if missing_inputs:
+                                    raise WorkflowIterationError(
+                                        "ITERATION_TARGET_INPUT_MISSING",
+                                        "Batch subworkflow is missing a required target input.",
+                                    )
+                                try:
+                                    WorkflowRunRequest.model_validate(
+                                        {
+                                            "workflow": release.workflow,
+                                            "inputs": resolved_inputs,
+                                        }
+                                    )
+                                except ValidationError as exc:
+                                    raise WorkflowIterationError(
+                                        "ITERATION_TARGET_INPUT_TYPE_INVALID",
+                                        "Batch subworkflow input does not match the target contract.",
+                                    ) from exc
+                                resolved_batch_inputs.append(resolved_inputs)
+                            parent_execution_id = str(
+                                run_metadata.get("workflow_deployment_execution_id")
+                                or f"test:{task_id}"
+                            )
+                            root_execution_id = str(
+                                run_metadata.get("workflow_root_execution_id")
+                                or parent_execution_id
+                            )
+                            try:
+                                parent_depth = int(
+                                    run_metadata.get("workflow_call_depth") or 0
+                                )
+                            except (TypeError, ValueError):
+                                parent_depth = 0
+                            if parent_depth >= 8 and items:
+                                raise WorkflowIterationError(
+                                    "ITERATION_CALL_DEPTH_EXCEEDED",
+                                    "Subworkflow call depth cannot exceed 8.",
+                                )
+                            input_digest = workflow_batch_input_digest(
+                                target_project_id=target_project_id,
+                                target_version=target_version,
+                                resolved_inputs=resolved_batch_inputs,
+                            )
+                            batch, _ = (
+                                workflow_deployment_store.reserve_subworkflow_batch(
+                                    parent_execution_id=parent_execution_id,
+                                    root_execution_id=root_execution_id,
+                                    call_node_id=node.id,
+                                    target_project_id=target_project_id,
+                                    target_version=target_version,
+                                    item_count=len(items),
+                                    input_digest=input_digest,
+                                )
+                            )
+                            receipts: list[WorkflowValue] = []
+                            for index, resolved_inputs in enumerate(
+                                resolved_batch_inputs
+                            ):
+                                call_result = await run_private_subworkflow_call(
+                                    node=node,
+                                    variables=variables,
+                                    task_id=task_id,
+                                    runtime_metadata=run_metadata,
+                                    cancellation_requested=cancellation_requested,
+                                    resolved_inputs_override=resolved_inputs,
+                                    batch_occurrence_key=batch.occurrence_key,
+                                    batch_index=index,
+                                    input_digest=input_digest,
+                                )
+                                if call_result.get("status") != "completed":
+                                    raise WorkflowIterationError(
+                                        "ITERATION_CHILD_NOT_COMPLETED",
+                                        "Batch subworkflow child did not complete.",
+                                    )
+                                child_result = str(call_result.get("result") or "")
+                                if len(child_result) > MAX_CHILD_RESULT_CHARS:
+                                    raise WorkflowIterationError(
+                                        "ITERATION_CHILD_RESULT_TOO_LARGE",
+                                        "Batch subworkflow child result exceeds 100000 characters.",
+                                    )
+                                receipt = {
+                                    "index": index,
+                                    "status": "completed",
+                                    "projectId": target_project_id,
+                                    "version": target_version,
+                                    "executionId": str(
+                                        call_result.get("executionId") or ""
+                                    ),
+                                    "taskId": str(call_result.get("taskId") or ""),
+                                    "runId": str(call_result.get("runId") or ""),
+                                    "result": child_result,
+                                }
+                                receipts.append(
+                                    normalize_workflow_value(
+                                        receipt,
+                                        path=f"$.iteration.receipts[{index}]",
+                                    )
+                                )
+                                yield sse_payload(
+                                    {
+                                        "event": "node_delta",
+                                        "node_id": node.id,
+                                        "node_title": title,
+                                        "node_type": kind,
+                                        "output": (
+                                            f"completed {index + 1}/{len(items)}"
+                                        ),
+                                        "variable": output_variable,
+                                    }
+                                )
+                            ensure_batch_output_size(receipts)
+                            variables[output_variable] = normalize_workflow_value(
+                                receipts,
+                                path=f"$.variables.{output_variable}",
+                            )
+                            output = workflow_value_to_text(receipts)
+                    else:
+                        try:
+                            input_variable = str(
+                                node.data.get("inputVariable") or "user_input"
+                            )
+                            iteration_variable = str(
+                                node.data.get("iterationVariable") or "item"
+                            )
+                            item_template = str(
+                                node.data.get("itemTemplate") or "{{item}}"
+                            )
+                            output_variable = str(
+                                node.data.get("outputVariable") or "iteration_output"
+                            )
+                            items, typed_input = workflow_list_items(
+                                variables.get(input_variable, "")
+                            )
+                            if len(items) > WORKFLOW_MAX_ITERATION_ITEMS:
+                                items = items[:WORKFLOW_MAX_ITERATION_ITEMS]
+                                yield sse_payload(
+                                    {
+                                        "event": "node_delta",
+                                        "node_id": node.id,
+                                        "node_title": title,
+                                        "node_type": kind,
+                                        "output": (
+                                            "truncated to "
+                                            f"{WORKFLOW_MAX_ITERATION_ITEMS} items"
+                                        ),
+                                        "variable": output_variable,
+                                    }
+                                )
+                            results: list[str] = []
+                            for index, item in enumerate(items, start=1):
+                                variables[iteration_variable] = item
+                                result = render_workflow_template(
+                                    item_template,
+                                    variables,
+                                )
+                                results.append(result)
+                                yield sse_payload(
+                                    {
+                                        "event": "node_delta",
+                                        "node_id": node.id,
+                                        "node_title": title,
+                                        "node_type": kind,
+                                        "output": f"[{index}] {result}",
+                                        "variable": output_variable,
+                                    }
+                                )
+                            stored_output = (
+                                results
+                                if typed_input
+                                else json.dumps(results, ensure_ascii=False)
+                            )
+                            variables[output_variable] = stored_output
+                            output = workflow_value_to_text(stored_output)
+                        except Exception as exc:
+                            logger.warning("Workflow iteration node failed: %s", exc)
+                            yield sse_payload(
+                                {
+                                    "event": "error",
+                                    "node_id": node.id,
+                                    "message": str(exc),
+                                }
+                            )
 
                 elif kind == "template_transform":
                     try:
@@ -22750,18 +22980,36 @@ async def _run_workflow_response(
             managed_error = (
                 exc if isinstance(exc, ManagedWorkflowRoutingError) else None
             )
+            iteration_error = (
+                exc if isinstance(exc, WorkflowIterationError) else None
+            )
             if managed_error is not None:
                 logger.warning(
                     "Managed Workflow run failed workflow=%s code=%s",
                     payload.workflow.id,
                     managed_error.code,
                 )
+            elif iteration_error is not None:
+                logger.warning(
+                    "Workflow batch processing failed workflow=%s code=%s",
+                    payload.workflow.id,
+                    iteration_error.code,
+                )
             else:
                 logger.exception(
                     "Workflow run failed workflow=%s", payload.workflow.id
                 )
             public_error = (
-                managed_error.public_message if managed_error is not None else str(exc)
+                managed_error.public_message
+                if managed_error is not None
+                else iteration_error.safe_message
+                if iteration_error is not None
+                else str(exc)
+            )
+            durable_error = (
+                f"{iteration_error.code}: {iteration_error.safe_message}"
+                if iteration_error is not None
+                else public_error
             )
             provider_receipt = (
                 managed_error.receipt
@@ -22777,12 +23025,12 @@ async def _run_workflow_response(
                 await run_registry.update_run(
                     workflow_run.run_id,
                     status="failed",
-                    error=public_error,
+                    error=durable_error,
                 )
             except Exception:
                 logger.warning("Failed to update workflow run status", exc_info=True)
             try:
-                workflow_execution_store.fail(task_id, error=public_error)
+                workflow_execution_store.fail(task_id, error=durable_error)
                 error_event = {
                     "event": "error",
                     "task_id": task_id,
@@ -22793,6 +23041,8 @@ async def _run_workflow_response(
                 }
                 if managed_error is not None:
                     error_event["code"] = managed_error.code
+                elif iteration_error is not None:
+                    error_event["code"] = iteration_error.code
                 if isinstance(provider_receipt, dict):
                     error_event["provider_route_receipts"] = provider_receipt
                 workflow_execution_store.append_event(task_id, error_event)
@@ -22808,6 +23058,8 @@ async def _run_workflow_response(
             }
             if managed_error is not None:
                 error_event["code"] = managed_error.code
+            elif iteration_error is not None:
+                error_event["code"] = iteration_error.code
             if isinstance(provider_receipt, dict):
                 error_event["provider_route_receipts"] = provider_receipt
             yield sse_payload(error_event)

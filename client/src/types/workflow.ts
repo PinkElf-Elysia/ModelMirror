@@ -157,6 +157,12 @@ export interface WorkflowMcpArgumentBinding {
   };
 }
 
+export interface WorkflowIterationInputBinding {
+  source: "item" | "index" | "variable" | "literal";
+  variable?: string;
+  value?: WorkflowValue;
+}
+
 export type ListOperationOperator =
   | "length"
   | "join"
@@ -421,6 +427,9 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   keyFields?: string[];
   includeUnchanged?: boolean;
   iterationVariable?: string;
+  mode?: "template_map" | "workflow_map";
+  itemVariable?: string;
+  indexVariable?: string;
   itemTemplate?: string;
   runtimeMiddlewareId?: string;
   runtimeMiddlewareKind?: string;
