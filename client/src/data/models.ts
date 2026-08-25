@@ -1,6 +1,6 @@
-﻿// Merged with OpenRouter model catalog on 2026-08-22T04:02:56.573Z.
-// Current OpenRouter refresh verified on 2026-08-21 against the live all-modalities catalog.
-// Refreshed with entries published through 2026-08-21T18:21:16.000Z.
+﻿// Merged with OpenRouter model catalog on 2026-08-24T20:42:38.104Z.
+// Current OpenRouter refresh verified on 2026-08-24 against the live all-modalities catalog.
+// Refreshed with media-only entries published through 2026-08-24T20:37:36.000Z.
 // Source: https://openrouter.ai/api/v1/models?output_modalities=all&sort=newest&offset=0&limit=1000
 // Full OpenRouter catalog audit refresh: 2026-08-16. Batch catalog entries are
 // attached to their canonical models as serving variants and excluded from
@@ -208,6 +208,50 @@ interface RawCatalogModel {
 }
 
 const rawCatalogModels: RawCatalogModel[] = [
+  {
+    "id": "alibaba/wan-3.0",
+    "canonical_slug": "alibaba/wan-3.0-20260824",
+    "name": "Alibaba: Wan 3.0",
+    "raw_description": "Wan 3.0 is Alibaba's video generation model for text-to-video, first-frame image-to-video, and reference-guided generation. It supports 480p, 720p, and 1080p output from 2 to 30 seconds, with optional generated audio and seed control.",
+    "context_length": 0,
+    "pricing": { "input": -1, "output": -1 },
+    "input_modalities": ["text", "image"],
+    "output_modalities": ["video"],
+    "tokenizer": "Media",
+    "supported_parameters": [
+      "resolution",
+      "aspect_ratio",
+      "duration",
+      "frame_images",
+      "input_references",
+      "generate_audio",
+      "seed"
+    ],
+    "created": 1787603856,
+    "expiration_date": null,
+    "model_author": "Alibaba",
+    "note": "通过 OpenRouter 异步 Video API 提交并轮询；支持 480p/720p/1080p、2–30 秒、首帧与单张参考图、同步生成音频和 seed。目录基础价为 $0.05、$0.10、$0.20/视频秒；2026-08-24 模型页显示 15% 折扣价 $0.0425、$0.085、$0.17，最终以网关回执为准。"
+  },
+  {
+    "id": "heygen/avatar-iv",
+    "canonical_slug": "heygen/avatar-iv-20260625",
+    "name": "HeyGen: Avatar IV",
+    "raw_description": "Avatar IV animates a single portrait into an expressive, lip-synced talking-head video. The current OpenRouter contract accepts a text script and one image reference, and produces 720p or 1080p video in 16:9, 9:16, or 1:1.",
+    "context_length": 0,
+    "pricing": { "input": -1, "output": -1 },
+    "input_modalities": ["text", "image", "audio"],
+    "output_modalities": ["video"],
+    "tokenizer": "Media",
+    "supported_parameters": [
+      "resolution",
+      "aspect_ratio",
+      "input_references"
+    ],
+    "created": 1787595728,
+    "expiration_date": null,
+    "model_author": "HeyGen",
+    "note": "通过 OpenRouter 异步 Video API 提交并轮询；支持 720p/1080p、16:9/9:16/1:1、文本脚本和单张人物参考图，按成片 $0.05/秒结算。模型说明提到外部音轨，但当前公开请求字段未列出音频上传参数，本地暂不开放。"
+  },
   {
     "id": "meta/muse-spark-1.2-contributor",
     "canonical_slug": "meta/muse-spark-1.2-contributor-20260805",
@@ -22642,10 +22686,12 @@ const VERIFIED_SPEECH_MODEL_IDS = new Set([
 ]);
 
 const VERIFIED_VIDEO_MODEL_IDS = new Set([
+  "alibaba/wan-3.0",
   "black-forest-labs/flux-video-upscale",
   "bytedance/seedance-2.0",
   "bytedance/seedance-2.0-mini",
   "bytedance/seedance-2.5",
+  "heygen/avatar-iv",
   "runway/aleph-2",
   "runway/gen-4.5",
 ]);
@@ -23160,6 +23206,8 @@ const MID_CATALOG_MODEL_IDS = [
   "inclusionai/ling-3.0-tiny:free",
 ];
 const LATEST_REFRESH_MODEL_IDS = [
+  "alibaba/wan-3.0",
+  "heygen/avatar-iv",
   "meta/muse-spark-1.2-contributor",
   "deepseek/deepseek-v4-flash-vision-exp",
   "stealth/ox-alpha",

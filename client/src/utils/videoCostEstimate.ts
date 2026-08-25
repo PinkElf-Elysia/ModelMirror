@@ -21,6 +21,12 @@ export interface VideoCostSelection {
   imageInputCount: number;
 }
 
+export interface VideoGenerationRateSelection {
+  resolution: string;
+  generateAudio: boolean;
+  imageInputCount: number;
+}
+
 function pricingNumber(profile: VideoPricingProfile, key: string) {
   const raw = profile.pricing_skus[key];
   if (raw === undefined) return null;
@@ -118,6 +124,41 @@ export function estimateVideoCost(
   }: VideoCostSelection,
 ) {
   if (duration === null || duration <= 0 || !resolution) return null;
+  const perSecond = videoGenerationUnitRate(profile, {
+    resolution,
+    generateAudio,
+    imageInputCount,
+  });
+  if (perSecond !== null) {
+    const imageInputCents =
+      imageInputCount > 0
+        ? (pricingNumber(profile, "cents_per_image_input") ?? 0)
+        : 0;
+    return perSecond * duration + (imageInputCents * imageInputCount) / 100;
+  }
+
+  const dimensions = selectedDimensions(profile, resolution, aspectRatio);
+  const videoTokenRate =
+    (generateAudio
+      ? pricingNumber(profile, "video_tokens")
+      : pricingNumber(profile, "video_tokens_without_audio")) ??
+    pricingNumber(profile, "video_tokens");
+  if (!dimensions || videoTokenRate === null) return null;
+
+  const videoTokens =
+    (dimensions.width * dimensions.height * duration * 24) / 1024;
+  return videoTokens * videoTokenRate;
+}
+
+export function videoGenerationUnitRate(
+  profile: VideoPricingProfile,
+  {
+    resolution,
+    generateAudio,
+    imageInputCount,
+  }: VideoGenerationRateSelection,
+) {
+  if (!resolution) return null;
   const resolutionKey = resolution.toLowerCase();
   const mode = imageInputCount > 0 ? "image_to_video" : "text_to_video";
   const dollarKeys = [
@@ -151,23 +192,5 @@ export function estimateVideoCost(
       pricingNumber(profile, "cents_per_second_output");
     if (cents !== null) perSecond = cents / 100;
   }
-  if (perSecond !== null) {
-    const imageInputCents =
-      imageInputCount > 0
-        ? (pricingNumber(profile, "cents_per_image_input") ?? 0)
-        : 0;
-    return perSecond * duration + (imageInputCents * imageInputCount) / 100;
-  }
-
-  const dimensions = selectedDimensions(profile, resolution, aspectRatio);
-  const videoTokenRate =
-    (generateAudio
-      ? pricingNumber(profile, "video_tokens")
-      : pricingNumber(profile, "video_tokens_without_audio")) ??
-    pricingNumber(profile, "video_tokens");
-  if (!dimensions || videoTokenRate === null) return null;
-
-  const videoTokens =
-    (dimensions.width * dimensions.height * duration * 24) / 1024;
-  return videoTokens * videoTokenRate;
+  return perSecond;
 }

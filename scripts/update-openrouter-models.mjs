@@ -25,6 +25,8 @@ const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
   "bytedance-seed/seedream-5-0-lite",
   "bytedance/seedance-2.0-mini",
   "deepgram/flux-tts:free",
+  "heygen/avatar-iv",
+  "alibaba/wan-3.0",
   "x-ai/grok-imagine-image-2.0",
 ]);
 
@@ -42,6 +44,8 @@ const AUTHOR_NAMES = new Map([
   ["nvidia", "NVIDIA"],
   ["minimax", "MiniMax"],
   ["openrouter", "OpenRouter"],
+  ["heygen", "HeyGen"],
+  ["alibaba", "Alibaba"],
 ]);
 
 function readInputPath() {

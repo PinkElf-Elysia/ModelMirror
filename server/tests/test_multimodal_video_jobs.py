@@ -571,6 +571,113 @@ async def test_submit_maps_three_audited_reference_images(
 
 
 @pytest.mark.asyncio
+async def test_avatar_iv_submits_script_and_single_reference_without_duration(
+    tmp_path: Path,
+) -> None:
+    router_instance = router_service(tmp_path)
+    adapter = FakeAdapter()
+    catalog = StubCatalog(
+        router_instance,
+        model_id="heygen/avatar-iv",
+        supports_first_frame=False,
+        supports_last_frame=False,
+        supports_generated_audio=False,
+        supports_seed=False,
+        supports_reference_images=True,
+        max_reference_images=1,
+        pricing_skus={"duration_seconds": "0.05"},
+    )
+    catalog.profile.supported_durations = []
+    catalog.profile.supported_aspect_ratios = ["16:9", "9:16", "1:1"]
+    service = VideoJobService(router_instance, catalog, adapter=adapter)
+
+    job = await service.create(
+        model_id="heygen/avatar-iv",
+        prompt="请用自然语气讲解今天的产品更新",
+        resolution="720p",
+        aspect_ratio="1:1",
+        reference_image_filenames=["avatar.png"],
+        reference_image_content_types=["image/png"],
+        reference_image_contents=[PNG],
+        idempotency_key="avatar-iv-reference-0001",
+    )
+
+    payload = adapter.submit_calls[0]
+    assert payload["model"] == "heygen/avatar-iv"
+    assert payload["resolution"] == "720p"
+    assert payload["aspect_ratio"] == "1:1"
+    assert "duration" not in payload
+    assert "generate_audio" not in payload
+    references = payload["input_references"]
+    assert isinstance(references, list)
+    assert len(references) == 1
+    assert references[0]["type"] == "image_url"
+    assert job.parameters.duration is None
+    assert job.parameters.reference_image_count == 1
+
+
+@pytest.mark.asyncio
+async def test_wan_30_maps_frame_reference_audio_seed_and_resolution_price(
+    tmp_path: Path,
+) -> None:
+    router_instance = router_service(tmp_path)
+    adapter = FakeAdapter()
+    catalog = StubCatalog(
+        router_instance,
+        model_id="alibaba/wan-3.0",
+        supports_first_frame=True,
+        supports_last_frame=False,
+        supports_generated_audio=True,
+        supports_seed=True,
+        supports_reference_images=True,
+        max_reference_images=1,
+        pricing_skus={
+            "duration_seconds_480p": "0.05",
+            "duration_seconds_720p": "0.1",
+            "duration_seconds_1080p": "0.2",
+        },
+    )
+    catalog.profile.supported_resolutions = ["480p", "720p", "1080p"]
+    catalog.profile.supported_durations = list(range(2, 31))
+    service = VideoJobService(router_instance, catalog, adapter=adapter)
+
+    job = await service.create(
+        model_id="alibaba/wan-3.0",
+        prompt="让首帧人物沿海边慢跑，保持角色和服装一致",
+        duration=30,
+        resolution="1080p",
+        aspect_ratio="16:9",
+        generate_audio=True,
+        seed=20260824,
+        first_frame_filename="first.png",
+        first_frame_content_type="image/png",
+        first_frame_content=PNG,
+        reference_image_filenames=["reference.png"],
+        reference_image_content_types=["image/png"],
+        reference_image_contents=[PNG + b"-reference"],
+        idempotency_key="wan-30-contract-0001",
+    )
+
+    payload = adapter.submit_calls[0]
+    assert payload["model"] == "alibaba/wan-3.0"
+    assert payload["duration"] == 30
+    assert payload["resolution"] == "1080p"
+    assert payload["generate_audio"] is True
+    assert payload["seed"] == 20260824
+    assert payload["frame_images"][0]["frame_type"] == "first_frame"
+    assert len(payload["input_references"]) == 1
+    assert job.usage.cost_kind == "unavailable"
+    assert job.usage.cost_usd is None
+    assert VideoJobService._estimated_cost_usd(
+        catalog.profile,
+        duration=30,
+        resolution="1080p",
+        generate_audio=True,
+        image_input_count=2,
+    ) == pytest.approx(6.0)
+
+
+@pytest.mark.asyncio
 async def test_provider_options_require_fresh_audited_capability(
     tmp_path: Path,
 ) -> None:
