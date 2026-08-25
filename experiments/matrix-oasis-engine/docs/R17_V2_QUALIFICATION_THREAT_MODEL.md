@@ -26,3 +26,7 @@
 ## 失败策略
 
 任何身份歧义、未知许可、未披露网络、进程残留或越界写入均停止该候选，不修改产品路径，也不以部分证据形成推荐结论。
+
+修复后证据目录必须实际包含`source-identity.json`、`execution-evidence.json`及报告声明的每一份raw artifact；验证器复验文件集、长度、SHA-256，并从raw日志和surface audit重新派生报告。仓外证据证明的是本机文件的一致性与可回放性，不构成远程证明或防篡改签名。
+
+Windows非容器Harness的环境变量净化与超时进程树清理已经过攻击回归；它没有能力强制候选不能读取其他本机文件或访问网络。因此`secretIsolation`、`filesystemIsolation`和`networkObservation`不得因进程成功退出而记为`pass`。

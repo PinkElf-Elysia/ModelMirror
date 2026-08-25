@@ -15,6 +15,7 @@ export function evaluateV2Candidate(report, policy = {}) {
   let conclusion;
   if (hardGateFailed) conclusion = "rejected";
   else if (hardGateUnproven || report?.execution?.status === "deferred") conclusion = "deferred";
+  else if (report?.execution?.status === "failed") conclusion = "rejected";
   else if (total >= (policy.recommendedMinimum ?? 80)) conclusion = "recommended";
   else if (total >= (policy.backupMinimum ?? 65)) conclusion = "backup";
   else conclusion = "rejected";

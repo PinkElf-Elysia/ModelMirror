@@ -19,7 +19,7 @@ function fixture(t) {
 
 test("R17 keeps the V2 completion claim closed", () => {
   assert.deepEqual(checkV2Claim({ moduleRoot }), {
-    status: "r17-selection-in-progress",
+    status: "r17-selection-qualified",
     claimAllowed: false,
     blockingRound: "R24",
   });

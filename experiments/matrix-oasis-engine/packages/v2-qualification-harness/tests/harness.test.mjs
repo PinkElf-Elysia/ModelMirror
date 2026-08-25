@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { canonicalizeJsonValue } from "@matrix-oasis/runtime-pack-contracts";
 import { createCandidateLock, qualifySourceOnly, runBoundedCommand, V2QualificationOperationalError, verifyCandidateCheckout, verifyQualificationDirectory } from "../src/index.mjs";
 
 const TEST_ROOT = path.win32.join("C:" + "\\", "tmp");
@@ -110,8 +111,62 @@ test("bounded process enforces output and time budgets with a sanitized environm
   const ok = await runBoundedCommand({ executable: process.execPath, args: ["-e", "process.stdout.write(process.env.MATRIX_TEST || 'missing')"], cwd: sandbox, sandboxDir: sandbox, timeoutMs: 5000, outputMaxBytes: 1024, environment: { MATRIX_TEST: "ok" } });
   assert.equal(ok.exitCode, 0);
   assert.equal(ok.output, "ok");
+  assert.equal(ok.securityObservations.filesystemIsolation, "not-proven");
+  assert.equal(ok.securityObservations.networkIsolation, "not-proven");
   await assert.rejects(runBoundedCommand({ executable: process.execPath, args: ["-e", "process.stdout.write('x'.repeat(4096))"], cwd: sandbox, sandboxDir: sandbox, timeoutMs: 5000, outputMaxBytes: 128 }), (error) => error.code === "R17_PROCESS_OUTPUT_EXCEEDED");
   await assert.rejects(runBoundedCommand({ executable: process.execPath, args: ["-e", "setInterval(()=>{},1000)"], cwd: sandbox, sandboxDir: sandbox, timeoutMs: 50, outputMaxBytes: 128 }), (error) => error.code === "R17_PROCESS_TIMEOUT");
+});
+
+test("timeout terminates a descendant process tree", async () => {
+  const sandbox = fs.mkdtempSync(path.join(TEST_ROOT, "matrix-oasis-r17-harness-"));
+  fixtures.push(sandbox);
+  const childPath = path.join(sandbox, "child.mjs");
+  const parentPath = path.join(sandbox, "parent.mjs");
+  const pidPath = path.join(sandbox, "child.pid");
+  fs.writeFileSync(childPath, "setInterval(() => {}, 1000);\n");
+  fs.writeFileSync(parentPath, `import fs from "node:fs"; import { spawn } from "node:child_process"; const child = spawn(process.execPath, [${JSON.stringify(childPath)}], { detached: true, stdio: "ignore" }); fs.writeFileSync(${JSON.stringify(pidPath)}, String(child.pid)); child.unref(); setInterval(() => {}, 1000);\n`);
+  await assert.rejects(runBoundedCommand({ executable: process.execPath, args: [parentPath], cwd: sandbox, sandboxDir: sandbox, timeoutMs: 500, outputMaxBytes: 1024 }), (error) => error.code === "R17_PROCESS_TIMEOUT" && error.processTreeTerminated === true);
+  const pid = Number(fs.readFileSync(pidPath, "utf8"));
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  let alive = true;
+  try { process.kill(pid, 0); } catch { alive = false; }
+  assert.equal(alive, false);
+});
+
+test("bounded process does not claim filesystem isolation it cannot enforce", async () => {
+  const sandbox = fs.mkdtempSync(path.join(TEST_ROOT, "matrix-oasis-r17-harness-"));
+  fixtures.push(sandbox);
+  const outside = path.join(TEST_ROOT, `matrix-oasis-r17-harness-${crypto.randomBytes(8).toString("hex")}`);
+  fixtures.push(outside);
+  const result = await runBoundedCommand({ executable: process.execPath, args: ["-e", `require("node:fs").writeFileSync(${JSON.stringify(outside)}, "outside")`], cwd: sandbox, sandboxDir: sandbox, timeoutMs: 5000, outputMaxBytes: 1024 });
+  assert.equal(result.exitCode, 0);
+  assert.equal(fs.readFileSync(outside, "utf8"), "outside");
+  assert.equal(result.securityObservations.filesystemIsolation, "not-proven");
+});
+
+test("forged report cannot reference missing raw evidence", () => {
+  const fixture = sourceFixture();
+  const output = path.join(TEST_ROOT, `matrix-oasis-r17-harness-${crypto.randomBytes(8).toString("hex")}`);
+  fixtures.push(output);
+  qualifySourceOnly({ candidate: fixture.candidate, sourceDir: fixture.root, outputDir: output });
+  const reportPath = path.join(output, "qualification-report.json");
+  const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+  report.evidence.files.push({ name: "nonexistent-proof.log", byteLength: 1, sha256: "f".repeat(64) });
+  fs.writeFileSync(reportPath, canonicalizeJsonValue(report));
+  expectCode(() => verifyQualificationDirectory(output), "R17_EVIDENCE_FILE_SET_INVALID");
+});
+
+test("linked qualification reports are rejected before their bytes are trusted", () => {
+  const fixture = sourceFixture();
+  const output = path.join(TEST_ROOT, `matrix-oasis-r17-harness-${crypto.randomBytes(8).toString("hex")}`);
+  const linked = path.join(TEST_ROOT, `matrix-oasis-r17-harness-${crypto.randomBytes(8).toString("hex")}`);
+  fixtures.push(output, linked);
+  qualifySourceOnly({ candidate: fixture.candidate, sourceDir: fixture.root, outputDir: output });
+  const reportPath = path.join(output, "qualification-report.json");
+  fs.copyFileSync(reportPath, linked);
+  fs.unlinkSync(reportPath);
+  fs.linkSync(linked, reportPath);
+  expectCode(() => verifyQualificationDirectory(output), "R17_EVIDENCE_FILE_INVALID");
 });
 
 test("paths outside C tmp cannot be treated as candidate evidence", () => {

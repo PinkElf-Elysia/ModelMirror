@@ -2,6 +2,8 @@
 
 R16双真实案例已从Creator入口完成资格、启动和人工验收；当前Godot 4.6.3 Windows资格profile下的自然语言到可玩3D初版闭环完成，`claimAllowed=true`。
 
+R17只完成第二版开源资格和选型基础；`docs/V2_STATUS.json`保持`claimAllowed=false`，不得宣称AI NPC、记忆、动态事件或第二版产品已经完成。
+
 ## Register
 
 product

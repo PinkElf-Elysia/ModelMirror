@@ -1,40 +1,50 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildR17GodotQualification, getR17GodotQualificationObservations } from "../scripts/lib/r17-godot-qualification-core.mjs";
+import { canonicalizeJsonValue } from "@matrix-oasis/runtime-pack-contracts";
+import { buildR17GodotQualificationFromRaw } from "../scripts/lib/r17-godot-qualification-core.mjs";
 
-test("Godot candidate observations remain pinned, canonical and deterministic", () => {
-  const observations = getR17GodotQualificationObservations();
-  assert.deepEqual(observations.map((item) => item.id), ["beehave", "limboai", "dialogue-manager"]);
-  for (const observation of observations) {
-    const builds = Array.from({ length: 20 }, () => buildR17GodotQualification(observation));
-    assert.equal(new Set(builds.map((item) => item.reportJson)).size, 1, observation.id);
-    assert.equal(new Set(builds.map((item) => item.executionJson)).size, 1, observation.id);
-    assert.equal(Object.isFrozen(builds[0]), true);
-  }
+const candidates = Object.freeze({
+  beehave: Object.freeze({ id: "beehave", lane: "godot-behavior-tree", commit: "7".repeat(40), gitTreeSha1: "5".repeat(40) }),
+  limboai: Object.freeze({ id: "limboai", lane: "godot-behavior-tree", commit: "e".repeat(40), gitTreeSha1: "c".repeat(40) }),
+  "dialogue-manager": Object.freeze({ id: "dialogue-manager", lane: "dialogue-presentation", commit: "f".repeat(40), gitTreeSha1: "b".repeat(40) }),
 });
 
-test("Beehave is rejected when its full green suite cannot exit cleanly", () => {
-  const result = buildR17GodotQualification(getR17GodotQualificationObservations()[0]);
-  assert.equal(result.report.execution.status, "failed");
-  assert.equal(result.report.hardGates.runtimeCompatibility, "fail");
-  assert.equal(result.evaluation.total, 87);
-  assert.equal(result.evaluation.conclusion, "rejected");
+function identity(candidate) { return canonicalizeJsonValue({ candidate: { id: candidate.id, commit: candidate.commit } }); }
+function audit(candidateId, additions = {}) { return Buffer.from(canonicalizeJsonValue({ candidateId, godotVersion: "4.6.3.stable", renderingMethod: "Forward+", licenseIds: ["MIT"], nativeBinaryCount: 0, nativeBinarySourceProvenance: "not-applicable", ...additions })); }
+function log(prefix, count, exitCode = 0, extra = "") { return Buffer.from(`${Array.from({ length: count }, (_, index) => `${prefix}{"trace":"stable"}\nR17_COMMAND_END:{"exitCode":${exitCode},"id":"semantic-${index + 1}","signal":""}`).join("\n")}\n${extra}`); }
+
+test("LimboAI cannot be recommended when the tested runtime bundle fails license and binary provenance gates", () => {
+  const candidate = candidates.limboai;
+  const input = { candidate, sourceIdentityJson: identity(candidate), rawLogBytes: log("MATRIX_OASIS_R17_LIMBO_TRACE_JSON:", 20), surfaceAuditBytes: audit(candidate.id, { licenseIds: ["MIT", "CC-BY-4.0"], nativeBinaryCount: 1, nativeBinarySourceProvenance: "not-proven" }) };
+  const builds = Array.from({ length: 20 }, () => buildR17GodotQualificationFromRaw(input));
+  assert.equal(new Set(builds.map((item) => item.reportJson)).size, 1);
+  assert.equal(builds[0].report.hardGates.runtimeCompatibility, "pass");
+  assert.equal(builds[0].report.hardGates.license, "fail");
+  assert.equal(builds[0].evaluation.conclusion, "rejected");
 });
 
-test("LimboAI passes the deterministic behavior-tree lane despite its binary surface", () => {
-  const result = buildR17GodotQualification(getR17GodotQualificationObservations()[1]);
+test("Dialogue Manager remains deferred when only Compatibility rendering and a leaking fixture were observed", () => {
+  const candidate = candidates["dialogue-manager"];
+  const result = buildR17GodotQualificationFromRaw({ candidate, sourceIdentityJson: identity(candidate), rawLogBytes: log("MATRIX_OASIS_R17_DIALOGUE_TRACE_JSON:", 20, 0, "ObjectDB instances leaked at exit\n"), surfaceAuditBytes: audit(candidate.id, { renderingMethod: "Compatibility" }) });
   assert.equal(result.report.execution.status, "executed");
-  assert.deepEqual(result.executionEvidence.metrics.agentLoads, [2, 4, 32, 64]);
-  assert.equal(result.executionEvidence.deterministicRuns.count, 20);
-  assert.equal(result.executionEvidence.deterministicRuns.uniqueTraceCount, 1);
-  assert.equal(result.evaluation.total, 86);
-  assert.equal(result.evaluation.conclusion, "recommended");
+  assert.equal(result.report.hardGates.runtimeCompatibility, "not-proven");
+  assert.equal(result.report.diagnosticCodes.includes("R17_DIALOGUE_FORWARD_PLUS_NOT_EXECUTED"), true);
+  assert.equal(result.evaluation.conclusion, "deferred");
 });
 
-test("Dialogue Manager is only a narrow backup behind the restrictive presentation adapter", () => {
-  const result = buildR17GodotQualification(getR17GodotQualificationObservations()[2]);
-  assert.equal(result.report.diagnosticCodes.includes("R17_RESTRICTIVE_PRESENTATION_ADAPTER_REQUIRED"), true);
-  assert.equal(result.report.diagnosticCodes.includes("R17_GODOT_RESOURCE_LEAK_WARNING"), true);
-  assert.equal(result.evaluation.total, 71);
-  assert.equal(result.evaluation.conclusion, "backup");
+test("Beehave failure is retained as unproven rather than misattributed to upstream compatibility", () => {
+  const candidate = candidates.beehave;
+  const result = buildR17GodotQualificationFromRaw({ candidate, sourceIdentityJson: identity(candidate), rawLogBytes: log("MATRIX_OASIS_R17_BEEHAVE_TRACE_JSON:", 1, 101), surfaceAuditBytes: audit(candidate.id) });
+  assert.equal(result.report.execution.status, "failed");
+  assert.equal(result.report.hardGates.runtimeCompatibility, "not-proven");
+  assert.equal(result.evaluation.conclusion, "deferred");
+});
+
+test("raw Godot trace changes alter the derived report instead of being ignored", () => {
+  const candidate = candidates.limboai;
+  const base = { candidate, sourceIdentityJson: identity(candidate), surfaceAuditBytes: audit(candidate.id, { licenseIds: ["CC-BY-4.0"] }) };
+  const stable = buildR17GodotQualificationFromRaw({ ...base, rawLogBytes: log("MATRIX_OASIS_R17_LIMBO_TRACE_JSON:", 20) });
+  const changed = buildR17GodotQualificationFromRaw({ ...base, rawLogBytes: log("MATRIX_OASIS_R17_LIMBO_TRACE_JSON:", 19) });
+  assert.notEqual(stable.reportJson, changed.reportJson);
+  assert.equal(changed.report.hardGates.runtimeCompatibility, "not-proven");
 });

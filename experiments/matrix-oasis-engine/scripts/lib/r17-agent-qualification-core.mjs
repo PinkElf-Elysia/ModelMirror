@@ -2,84 +2,47 @@ import crypto from "node:crypto";
 import { canonicalizeJsonValue } from "@matrix-oasis/runtime-pack-contracts";
 import { evaluateV2Candidate, validateV2QualificationReportJson } from "@matrix-oasis/v2-qualification-contracts";
 
-const OBSERVATIONS = Object.freeze([
-  Object.freeze({
-    id: "mem0",
-    lane: "memory-adapter",
-    commit: "c427a453a89c5a3fee73cdb2e4c4df6a651e1692",
-    gitTreeSha1: "a5c7228ce2a59c2391b4e0e22dfe7463bff8c4f9",
-    sourceIdentitySha256: "828cdc2f341b04c9f19afcf3d7f2bc7d5a171aca6955557d264ed17b6188567b",
-    execution: Object.freeze({ status: "executed", attemptCount: 2, commandCount: 23, networkObservation: "pass", residualProcessObservation: "pass" }),
-    hardGates: Object.freeze({ license: "pass", reproducibleSource: "pass", secretIsolation: "pass", filesystemIsolation: "pass", authorityCompatibility: "pass", runtimeCompatibility: "pass" }),
-    scores: Object.freeze({ architectureCompatibility: 20, standaloneIntegration: 10, determinismTestability: 14, securityFailClosed: 10, maintenanceSourceRisk: 8, performanceRuntime: 7, functionality: 5 }),
-    files: Object.freeze([
-      Object.freeze({ name: "mem0ai-3.1.6.tgz", byteLength: 831829, sha256: "f254557aa217a768daf7fed7acc2e7c36dd1ae133c1ad77b42ac9f99b95b93a8" }),
-      Object.freeze({ name: "mem0-trace.log", byteLength: 153, sha256: "2bf1df18275371ce03b5e9dfc3b137b6d3d2aeaedb3ccd4c6b59bb0f464c0d10" }),
-    ]),
-    evidence: Object.freeze({ runs: 20, uniqueTraceCount: 1, fixture: Object.freeze({ add: 1, correct: 1, delete: 1, exports: 2, history: 2, isolatedSearches: 3, restartRecovered: true, requestCount: 11 }) }),
-    diagnostics: Object.freeze(["R17_MEM0_TELEMETRY_MUST_BE_DISABLED", "R17_MEM0_REMOTE_SERVICE_NOT_AUTHORITY", "R17_MEM0_LOOPBACK_ADAPTER_ONLY"]),
-    switchConditions: Object.freeze([
-      Object.freeze({ code: "SWITCH_TO_MEM0_FOR_SEMANTIC_DERIVED_INDEX", observable: "A measured NPC recall workload exceeds the local deterministic index while ledger-derived rebuild and delete semantics remain intact." }),
-    ]),
-  }),
-  Object.freeze({
-    id: "letta",
-    lane: "memory-adapter",
-    commit: "1131535716e8a31c9a437f8695e25ac98f203a24",
-    gitTreeSha1: "8d53781fa7c433a2071b578fcbae67b68063fa10",
-    sourceIdentitySha256: "d1e215241b71ec6aac59bb718b0587870b574e4984d42dd16b4fd4876c446847",
-    execution: Object.freeze({ status: "deferred", attemptCount: 0, commandCount: 0, networkObservation: "not-proven", residualProcessObservation: "not-proven" }),
-    hardGates: Object.freeze({ license: "pass", reproducibleSource: "pass", secretIsolation: "not-proven", filesystemIsolation: "not-proven", authorityCompatibility: "not-proven", runtimeCompatibility: "not-proven" }),
-    scores: Object.freeze({ architectureCompatibility: 12, standaloneIntegration: 3, determinismTestability: 4, securityFailClosed: 4, maintenanceSourceRisk: 4, performanceRuntime: 2, functionality: 5 }),
-    files: Object.freeze([]),
-    evidence: Object.freeze({ runs: 0, uniqueTraceCount: 0, fixture: Object.freeze({}) }),
-    diagnostics: Object.freeze(["R17_LETTA_SERVICE_DATABASE_SURFACE_UNPROVEN", "R17_LETTA_PROVIDER_SURFACE_UNPROVEN", "R17_CONTAINER_APPROVAL_NOT_REQUESTED"]),
-    switchConditions: Object.freeze([
-      Object.freeze({ code: "REQUALIFY_LETTA_FOR_AGENT_SERVICE_BOUNDARY", observable: "A future round explicitly approves a separate agent service and proves database, provider and process isolation without replacing the World Event Ledger." }),
-    ]),
-  }),
-]);
+function hash(bytes) { return crypto.createHash("sha256").update(bytes).digest("hex"); }
+function artifact(name, bytes) { return Object.freeze({ name, byteLength: bytes.length, sha256: hash(bytes) }); }
+function freeze(value) { if (!value || typeof value !== "object" || Object.isFrozen(value)) return value; Object.values(value).forEach(freeze); return Object.freeze(value); }
+function fail(code) { throw Object.assign(new Error(code), { code }); }
 
-function hash(value) {
-  return crypto.createHash("sha256").update(value).digest("hex");
-}
-
-function deepFreeze(value) {
-  if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
-  Object.values(value).forEach(deepFreeze);
-  return Object.freeze(value);
-}
-
-export function getR17AgentQualificationObservations() {
-  return OBSERVATIONS;
-}
-
-export function buildR17AgentQualification(observation) {
+export function buildR17Mem0QualificationFromRaw({ candidate, sourceIdentityJson, rawLogBytes, surfaceAuditBytes, fixtureBytes }) {
+  if (candidate?.id !== "mem0" || !(rawLogBytes instanceof Buffer) || !(surfaceAuditBytes instanceof Buffer) || !(fixtureBytes instanceof Buffer)) fail("R17_MEM0_RAW_INPUT_INVALID");
+  let identity; let audit;
+  try { identity = JSON.parse(sourceIdentityJson); audit = JSON.parse(surfaceAuditBytes.toString("utf8")); } catch { fail("R17_MEM0_RAW_INPUT_INVALID"); }
+  if (identity.candidate?.id !== "mem0" || identity.candidate?.commit !== candidate.commit || audit.candidateId !== "mem0") fail("R17_MEM0_RAW_IDENTITY_MISMATCH");
+  const rawText = rawLogBytes.toString("utf8");
+  const prefix = "MATRIX_OASIS_R17_MEM0_TRACE_JSON:";
+  const payloads = rawText.split(/\r?\n/u).filter((line) => line.includes(prefix)).map((line) => line.slice(line.indexOf(prefix) + prefix.length));
+  const ends = rawText.split(/\r?\n/u).filter((line) => line.startsWith("R17_COMMAND_END:")).map((line) => JSON.parse(line.slice("R17_COMMAND_END:".length)));
+  const fixtureText = fixtureBytes.toString("utf8");
+  const fixtureOwnsMemorySemantics = /const store = new Map\(\)/u.test(fixtureText) && /memories\/search/u.test(fixtureText);
+  const diagnostics = ["R17_FILESYSTEM_ISOLATION_NOT_PROVEN", "R17_SECRET_FILE_ISOLATION_NOT_PROVEN", "R17_NETWORK_ISOLATION_NOT_PROVEN", "R17_MEM0_TRANSITIVE_DEPENDENCIES_NOT_CLOSED"];
+  if (fixtureOwnsMemorySemantics) diagnostics.push("R17_MEM0_FIXTURE_TESTS_SDK_TRANSPORT_ONLY");
+  diagnostics.sort();
+  const rawArtifact = artifact("runtime.log", rawLogBytes);
+  const auditArtifact = artifact("surface-audit.json", surfaceAuditBytes);
+  const fixtureArtifact = artifact("fixture.mjs.txt", fixtureBytes);
+  const allCommandsExitedZero = ends.length > 0 && ends.every((item) => item.exitCode === 0);
   const executionEvidence = {
-    format: "matrix-oasis.v2-execution-evidence",
-    formatVersion: "0.1.0",
-    canonicalization: "matrix-oasis.canonical-json/1",
-    candidateId: observation.id,
-    phase: observation.execution.status === "executed" ? "memory-loopback" : "dependency-surface-only",
-    deterministicRuns: { count: observation.evidence.runs, uniqueTraceCount: observation.evidence.uniqueTraceCount },
-    fixture: observation.evidence.fixture,
-    diagnosticCodes: observation.diagnostics,
+    format: "matrix-oasis.v2-execution-evidence", formatVersion: "0.1.0", canonicalization: "matrix-oasis.canonical-json/1", candidateId: "mem0", phase: "recorded-sdk-transport",
+    deterministicRuns: { count: payloads.length, uniqueTraceCount: new Set(payloads).size }, observations: { allCommandsExitedZero, commandCount: ends.length, fixtureOwnsMemorySemantics, dependencyTreeStatus: audit.dependencyTreeStatus },
+    artifacts: [rawArtifact, auditArtifact, fixtureArtifact].sort((left, right) => left.name.localeCompare(right.name)), diagnosticCodes: diagnostics,
   };
   const executionJson = canonicalizeJsonValue(executionEvidence);
+  const sourceBytes = Buffer.from(sourceIdentityJson, "utf8");
+  const executionBytes = Buffer.from(executionJson, "utf8");
   const report = {
-    format: "matrix-oasis.v2-qualification-report",
-    formatVersion: "0.1.0",
-    canonicalization: "matrix-oasis.canonical-json/1",
-    candidate: { id: observation.id, lane: observation.lane, commit: observation.commit, gitTreeSha1: observation.gitTreeSha1 },
-    execution: observation.execution,
-    hardGates: observation.hardGates,
-    scores: observation.scores,
-    evidence: { sourceIdentitySha256: observation.sourceIdentitySha256, executionEvidenceSha256: hash(executionJson), files: observation.files },
-    switchConditions: observation.switchConditions,
-    diagnosticCodes: observation.diagnostics,
+    format: "matrix-oasis.v2-qualification-report", formatVersion: "0.1.0", canonicalization: "matrix-oasis.canonical-json/1", candidate: { id: "mem0", lane: candidate.lane, commit: candidate.commit, gitTreeSha1: candidate.gitTreeSha1 },
+    execution: { status: allCommandsExitedZero ? "executed" : "failed", attemptCount: payloads.length, commandCount: ends.length, networkObservation: "not-proven", residualProcessObservation: "not-proven" },
+    hardGates: { license: "not-proven", reproducibleSource: "pass", secretIsolation: "not-proven", filesystemIsolation: "not-proven", authorityCompatibility: "not-proven", runtimeCompatibility: "not-proven" },
+    scores: { architectureCompatibility: 16, standaloneIntegration: 8, determinismTestability: 10, securityFailClosed: 3, maintenanceSourceRisk: 5, performanceRuntime: 5, functionality: 2 },
+    evidence: { sourceIdentitySha256: hash(sourceBytes), executionEvidenceSha256: hash(executionBytes), files: [artifact("source-identity.json", sourceBytes), artifact("execution-evidence.json", executionBytes), rawArtifact, auditArtifact, fixtureArtifact].sort((left, right) => left.name.localeCompare(right.name)) },
+    switchConditions: [{ code: "REQUALIFY_MEM0_MEMORY_IMPLEMENTATION", observable: "A fixture exercises a real local memory implementation with closed dependencies, ledger rebuild/delete semantics and enforced process isolation instead of a test-owned store." }], diagnosticCodes: diagnostics,
   };
   const reportJson = canonicalizeJsonValue(report);
   const validation = validateV2QualificationReportJson(reportJson);
-  if (!validation.valid) throw Object.assign(new Error("R17_AGENT_REPORT_INVALID"), { code: "R17_AGENT_REPORT_INVALID" });
-  return deepFreeze({ executionEvidence, executionJson, report: validation.value, reportJson, evaluation: evaluateV2Candidate(validation.value) });
+  if (!validation.valid) fail("R17_MEM0_REPORT_INVALID");
+  return freeze({ executionEvidence, executionJson, report: validation.value, reportJson, evaluation: evaluateV2Candidate(validation.value), artifacts: [rawArtifact, auditArtifact, fixtureArtifact] });
 }

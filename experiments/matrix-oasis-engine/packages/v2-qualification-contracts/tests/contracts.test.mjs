@@ -72,6 +72,8 @@ test("duplicate keys and unpaired surrogate text fail before semantics", () => {
 test("hard-gate failure rejects and unproven evidence defers regardless of score", () => {
   assert.equal(evaluateV2Candidate(report({ gates: "fail" })).conclusion, "rejected");
   assert.equal(evaluateV2Candidate(report({ gates: "not-proven", status: "deferred" })).conclusion, "deferred");
+  assert.equal(evaluateV2Candidate(report({ status: "failed" })).conclusion, "rejected");
+  assert.equal(evaluateV2Candidate(report({ gates: "not-proven", status: "failed" })).conclusion, "deferred");
 });
 
 test("score thresholds produce recommended, backup and rejected conclusions", () => {

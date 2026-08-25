@@ -1,7 +1,7 @@
 export const MODULE_PREFIX = "experiments/matrix-oasis-engine";
 export const ACTIVE_ROUND = "R17";
 export const ACTIVE_ROUND_BASELINE_SHA =
-  "bb94ab37148d4278936641f6fffc9adeff595e7c";
+  "66b57c3c83277bea960464decc2d4e46965a5ef1";
 
 export const ROUND_ALLOWED_MODULE_FILES = Object.freeze([
   "AGENTS.md",

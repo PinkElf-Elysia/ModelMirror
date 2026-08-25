@@ -4,7 +4,7 @@
   "moduleRoot": ".",
   "moduleRootResolution": "directory-containing-module-boundary",
   "activeRound": "R17",
-  "activeRoundBaselineSha": "bb94ab37148d4278936641f6fffc9adeff595e7c",
+  "activeRoundBaselineSha": "66b57c3c83277bea960464decc2d4e46965a5ef1",
   "activeRoundChangePolicy": {
     "allowedModuleFiles": [
       "AGENTS.md", "README.md", ".gitattributes", ".gitignore", "module-boundary.json", "package-lock.json", "package.json",
@@ -55,7 +55,7 @@
     "completionMarker": "MATRIX_OASIS_R16_CREATOR_MVP_READY"
   },
   "v2ClaimPolicy": {
-    "status": "r17-selection-in-progress",
+    "status": "r17-selection-qualified",
     "claimAllowed": false,
     "blockingRound": "R24",
     "machineStatus": "docs/V2_STATUS.json",

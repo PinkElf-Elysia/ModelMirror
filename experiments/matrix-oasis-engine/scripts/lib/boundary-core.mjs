@@ -221,7 +221,7 @@ const REQUIRED_POLICY_VALUES = [
   [["mvpClaimPolicy", "acceptanceRecord"], "docs/rounds/R16_ACCEPTANCE.md"],
   [["mvpClaimPolicy", "machineStatus"], "docs/MVP_STATUS.json"],
   [["mvpClaimPolicy", "completionMarker"], "MATRIX_OASIS_R16_CREATOR_MVP_READY"],
-  [["v2ClaimPolicy", "status"], "r17-selection-in-progress"],
+  [["v2ClaimPolicy", "status"], "r17-selection-qualified"],
   [["v2ClaimPolicy", "claimAllowed"], false],
   [["v2ClaimPolicy", "blockingRound"], "R24"],
   [["v2ClaimPolicy", "machineStatus"], "docs/V2_STATUS.json"],
