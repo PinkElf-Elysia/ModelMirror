@@ -137,6 +137,7 @@ class ExpertTeamPlanPreviewResponse(BaseModel):
     repair_used: bool = False
     model_calls: int = Field(default=0, ge=0, le=3)
     usage: dict[str, int] = Field(default_factory=dict)
+    provider_route_receipts: dict[str, Any] | None = None
     capability_snapshot_version: str
     capability_snapshot_hash: str
     upstream_project: str = AGENCY_UPSTREAM_PROJECT

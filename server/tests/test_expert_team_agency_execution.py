@@ -22,6 +22,7 @@ from server.orchestration_worker import (
     AgencySkillDefinition,
     AgencyWorkerError,
 )
+from server.orchestration_worker.contracts import AgencyModelMessage, AgencyModelRequest
 from server.workflow_native.schemas import NativeWorkflowDefinition
 from server.xpert_runtime import (
     RunRegistry,
@@ -610,6 +611,79 @@ class CompletingClient:
         )
 
 
+class ManagedCallingClient:
+    worker_entry = Path(__file__)
+
+    def __init__(self):
+        self.model_runner = None
+
+    async def execute(self, *, on_event, model_id, **_kwargs):
+        assert self.model_runner is not None
+        response = await self.model_runner(
+            AgencyModelRequest(
+                request_id="worker-request-delivery",
+                model_id=model_id,
+                messages=[AgencyModelMessage(role="user", content="execute")],
+                temperature=0.2,
+                max_tokens=128,
+                json_response=False,
+            )
+        )
+        await on_event(
+            {
+                "event": "agency.run.completed",
+                "status": "completed",
+                "final_output": response.content,
+                "model_calls": 1,
+                "usage": response.usage,
+            }
+        )
+        return SimpleNamespace(
+            payload={
+                "final_output": response.content,
+                "model_calls": 1,
+                "usage": response.usage,
+            }
+        )
+
+
+class FakeManagedRun:
+    def __init__(self):
+        self.requests = []
+        self.status = "running"
+
+    async def complete(self, request):
+        self.requests.append(request)
+        return AgencyModelResponse(
+            content="managed result",
+            usage={"input_tokens": 2, "output_tokens": 3},
+        )
+
+    def finish(self, status, *, reason_code=None):
+        self.status = status
+        return self.receipt_summary(reason_code=reason_code)
+
+    def receipt_summary(self, *, reason_code=None):
+        return {
+            "contract_version": "modelmirror-provider-workload-routing-v1",
+            "entry_id": "expert_team_dag",
+            "routing_mode": "managed_required",
+            "run_reference": "managed-test-run",
+            "status": self.status,
+            "call_count": len(self.requests),
+            "reason_codes": [reason_code] if reason_code else [],
+            "calls": [
+                {
+                    "call_sequence": index,
+                    "model_id": request.model_id,
+                    "status": "passed",
+                    "dispatched": True,
+                }
+                for index, request in enumerate(self.requests, start=1)
+            ],
+        }
+
+
 class CompletionCommitClient:
     worker_entry = Path(__file__)
 
@@ -860,6 +934,45 @@ def coordinator(tmp_path, client):
     )
 
 
+def test_managed_start_closes_control_run_when_local_bootstrap_fails(
+    tmp_path, monkeypatch
+):
+    async def scenario():
+        plan, workflow = valid_plan_and_workflow()
+        prepared = prepare_agency_execution(
+            plan=plan, workflow=workflow, expert_records=experts()
+        )
+        managed_run = FakeManagedRun()
+        run_registry = RunRegistry()
+
+        async def fail_create_run(*_args, **_kwargs):
+            raise RuntimeError("local registry unavailable")
+
+        monkeypatch.setattr(run_registry, "create_run", fail_create_run)
+        runtime = AgencyExecutionCoordinator(
+            store=WorkflowExecutionStore(tmp_path),
+            run_registry=run_registry,
+            model_runner=_noop_model,
+            client_factory=CompletingClient,
+            managed_run_factory=lambda _task_id, _segment_key: managed_run,
+        )
+
+        with pytest.raises(RuntimeError, match="local registry unavailable"):
+            await runtime.start(
+                goal="形成发布方案。",
+                model_id="managed-model",
+                prepared=prepared,
+                capability_snapshot_version="snapshot-v1",
+                capability_snapshot_hash="hash",
+                upstream_revision="revision",
+                managed_provider_required=True,
+            )
+
+        assert managed_run.status == "failed"
+
+    asyncio.run(scenario())
+
+
 def test_hitl_wait_persists_and_resumes_same_task(tmp_path):
     async def scenario():
         plan, workflow = valid_hitl_plan_and_workflow()
@@ -921,6 +1034,81 @@ def test_hitl_wait_persists_and_resumes_same_task(tmp_path):
         assert client.calls[1]["prior_model_calls"] == 1
         assert client.calls[1]["prior_active_duration_ms"] == 1200
         assert completed["interaction_history"][0]["input"] == "采购负责人"
+
+    asyncio.run(scenario())
+
+
+def test_managed_hitl_uses_distinct_initial_and_resume_segments(tmp_path):
+    async def scenario():
+        plan, workflow = valid_hitl_plan_and_workflow()
+        prepared = prepare_agency_execution(
+            plan=plan, workflow=workflow, expert_records=experts()
+        )
+        approvals = RuntimeApprovalStore(tmp_path)
+        created_runs = []
+
+        def managed_run_factory(task_id, segment_key):
+            managed_run = FakeManagedRun()
+            created_runs.append((task_id, segment_key, managed_run))
+            return managed_run
+
+        runtime = AgencyExecutionCoordinator(
+            store=WorkflowExecutionStore(tmp_path),
+            run_registry=RunRegistry(),
+            model_runner=_noop_model,
+            client_factory=HitlCheckpointClient,
+            approval_store=approvals,
+            managed_run_factory=managed_run_factory,
+        )
+        started = await runtime.start(
+            goal="为采购负责人形成发布方案。",
+            model_id="managed-model",
+            prepared=prepared,
+            capability_snapshot_version="snapshot-v1",
+            capability_snapshot_hash="hash",
+            upstream_revision="revision",
+            managed_provider_required=True,
+        )
+        for _ in range(50):
+            waiting = runtime.get(started["task_id"])
+            if waiting["status"] == "waiting":
+                break
+            await asyncio.sleep(0.01)
+        interaction = waiting["pending_interaction"]
+        approval = approvals.decide(
+            interaction["approval_id"],
+            revision=interaction["revision"],
+            decision="replace",
+            operator="tester",
+            replacement_text="采购负责人",
+        )
+        runtime.store.mark_ready(started["task_id"], approval_id=approval.approval_id)
+        claimed = runtime.store.claim(
+            started["task_id"], worker_id="test", lease_seconds=60
+        )
+        await runtime.resume_interaction(
+            execution=claimed,
+            approval=approval,
+            prepared=prepared,
+        )
+        for _ in range(50):
+            completed = runtime.get(started["task_id"])
+            if completed["status"] == "completed":
+                break
+            await asyncio.sleep(0.01)
+
+        assert completed["status"] == "completed"
+        assert [(task_id, segment) for task_id, segment, _run in created_runs] == [
+            (started["task_id"], "initial"),
+            (
+                started["task_id"],
+                f"interaction:{approval.approval_id}:{approval.revision}",
+            ),
+        ]
+        assert [item["status"] for item in completed["provider_route_receipts"]] == [
+            "passed",
+            "passed",
+        ]
 
     asyncio.run(scenario())
 
@@ -1033,6 +1221,123 @@ def test_coordinator_persists_events_and_completes(tmp_path):
         assert current["selected_agent_ids"] == ["agent-alpha", "agent-beta"]
 
     asyncio.run(scenario())
+
+
+def test_managed_dag_uses_worker_request_id_and_persists_redacted_receipt(tmp_path):
+    async def scenario():
+        plan, workflow = valid_plan_and_workflow()
+        prepared = prepare_agency_execution(
+            plan=plan, workflow=workflow, expert_records=experts()
+        )
+        created_runs = []
+
+        def managed_run_factory(task_id, segment_key):
+            managed_run = FakeManagedRun()
+            created_runs.append((task_id, segment_key, managed_run))
+            return managed_run
+
+        runtime = AgencyExecutionCoordinator(
+            store=WorkflowExecutionStore(tmp_path),
+            run_registry=RunRegistry(),
+            model_runner=_noop_model,
+            client_factory=ManagedCallingClient,
+            managed_run_factory=managed_run_factory,
+        )
+        started = await runtime.start(
+            goal="制定一个可执行的专家协作方案。",
+            model_id="managed-model",
+            prepared=prepared,
+            capability_snapshot_version="snapshot-v1",
+            capability_snapshot_hash="hash",
+            upstream_revision="revision",
+            managed_provider_required=True,
+        )
+        for _ in range(50):
+            current = runtime.get(started["task_id"])
+            if current["status"] == "completed":
+                break
+            await asyncio.sleep(0.01)
+
+        assert current["status"] == "completed"
+        assert len(created_runs) == 1
+        assert created_runs[0][0] == started["task_id"]
+        assert created_runs[0][1] == "initial"
+        managed_run = created_runs[0][2]
+        assert [request.request_id for request in managed_run.requests] == [
+            "worker-request-delivery"
+        ]
+        assert managed_run.status == "passed"
+        receipt = current["provider_route_receipts"][0]
+        assert receipt["entry_id"] == "expert_team_dag"
+        assert receipt["status"] == "passed"
+        assert receipt["call_count"] == 1
+        assert receipt["calls"][0]["call_sequence"] == 1
+        assert receipt["calls"][0]["model_id"] == "managed-model"
+        assert receipt["calls"][0]["dispatched"] is True
+        receipt_event = next(
+            event
+            for event in current["events"]
+            if event["event"] == "agency.provider.receipt"
+        )
+        serialized = json.dumps(receipt_event, ensure_ascii=False)
+        assert "execute" not in serialized
+        assert "managed result" not in serialized
+
+    asyncio.run(scenario())
+
+
+def test_managed_dag_policy_drift_fails_before_legacy_worker_start(tmp_path):
+    async def scenario():
+        plan, workflow = valid_plan_and_workflow()
+        prepared = prepare_agency_execution(
+            plan=plan, workflow=workflow, expert_records=experts()
+        )
+        client = CompletingClient()
+        runtime = AgencyExecutionCoordinator(
+            store=WorkflowExecutionStore(tmp_path),
+            run_registry=RunRegistry(),
+            model_runner=_noop_model,
+            client_factory=lambda: client,
+            managed_run_factory=lambda _task_id, _segment_key: None,
+        )
+
+        with pytest.raises(AgencyExecutionValidationError) as caught:
+            await runtime.start(
+                goal="制定一个可执行的专家协作方案。",
+                model_id="managed-model",
+                prepared=prepared,
+                capability_snapshot_version="snapshot-v1",
+                capability_snapshot_hash="hash",
+                upstream_revision="revision",
+                managed_provider_required=True,
+            )
+
+        assert caught.value.code == "provider_workload_policy_not_active"
+        assert runtime.store.list_items(limit=10) == []
+
+    asyncio.run(scenario())
+
+
+def test_expert_team_receipt_projection_preserves_ten_planned_calls() -> None:
+    receipt = WorkflowExecutionStore._safe_provider_route_receipt(
+        {
+            "entry_id": "expert_team_dag",
+            "status": "passed",
+            "calls": [
+                {
+                    "call_sequence": index,
+                    "model_id": "managed-model",
+                    "dispatched": True,
+                    "status": "passed",
+                }
+                for index in range(1, 13)
+            ],
+        }
+    )
+
+    assert receipt["call_count"] == 10
+    assert len(receipt["calls"]) == 10
+    assert receipt["calls"][-1]["call_sequence"] == 10
 
 
 def test_cancel_is_idempotent_and_stops_background_client(tmp_path):
@@ -2270,9 +2575,10 @@ def test_execution_retry_api_rebuilds_server_owned_contract(tmp_path, monkeypatc
 
     captured = {}
 
-    async def fake_retry(*, source_task_id, prepared):
+    async def fake_retry(*, source_task_id, prepared, managed_provider_required):
         captured["source_task_id"] = source_task_id
         captured["prepared"] = prepared
+        captured["managed_provider_required"] = managed_provider_required
         return {
             "task_id": "retry-new",
             "run_id": "retry-new-run",
@@ -2299,6 +2605,7 @@ def test_execution_retry_api_rebuilds_server_owned_contract(tmp_path, monkeypatc
     assert captured["source_task_id"] == source.task_id
     assert captured["prepared"].selected_agent_ids == [agent_id]
     assert captured["prepared"].workflow == source.workflow
+    assert captured["managed_provider_required"] is False
 
 
 def test_execution_revision_api_is_gated_and_rebuilds_frozen_contract(
@@ -2430,12 +2737,20 @@ def test_execution_revision_api_is_gated_and_rebuilds_frozen_contract(
 
     captured = {}
 
-    async def fake_revise(*, source_task_id, target_task_id, feedback, prepared):
+    async def fake_revise(
+        *,
+        source_task_id,
+        target_task_id,
+        feedback,
+        prepared,
+        managed_provider_required,
+    ):
         captured.update(
             source_task_id=source_task_id,
             target_task_id=target_task_id,
             feedback=feedback,
             prepared=prepared,
+            managed_provider_required=managed_provider_required,
         )
         return {
             "task_id": "revision-api-new",
@@ -2465,6 +2780,7 @@ def test_execution_revision_api_is_gated_and_rebuilds_frozen_contract(
     assert captured["source_task_id"] == source.task_id
     assert captured["target_task_id"] == "final"
     assert captured["prepared"].workflow == source.workflow
+    assert captured["managed_provider_required"] is False
     assert captured["prepared"].selected_agent_ids == [agent_id]
 
 

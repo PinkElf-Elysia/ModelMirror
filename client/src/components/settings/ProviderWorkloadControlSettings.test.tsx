@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import ProviderWorkloadControlSettings from "./ProviderWorkloadControlSettings";
+import ProviderWorkloadControlSettings, {
+  ENTRY_SHAPES,
+} from "./ProviderWorkloadControlSettings";
 
 const connection = {
   id: "connection-openrouter",
@@ -19,6 +21,16 @@ function jsonResponse(payload: unknown, ok = true, status = 200) {
 }
 
 describe("ProviderWorkloadControlSettings", () => {
+  it("binds Expert Team Planner to its unary YAML contract", () => {
+    expect(ENTRY_SHAPES.expert_team_planner).toEqual(["chat_text_unary"]);
+  });
+
+  it("requires both unary text and JSON qualifications for Expert Team DAG", () => {
+    expect(ENTRY_SHAPES.expert_team_dag).toEqual([
+      "chat_text_unary",
+      "chat_json_object",
+    ]);
+  });
   afterEach(() => vi.unstubAllGlobals());
 
   it("requires an explicit confirmation before one billed workload certification", async () => {
@@ -217,6 +229,51 @@ describe("ProviderWorkloadControlSettings", () => {
       acknowledge_fail_closed: true,
     });
     await screen.findByText("Managed 必经");
+  });
+
+  it("allows a degraded managed entry to be explicitly re-approved", async () => {
+    const policy = {
+      contract_version: "modelmirror-provider-workload-routing-v1",
+      entry_id: "expert_team_planner",
+      feature_enabled: true,
+      data_plane_integrated: true,
+      configured_status: "managed_required",
+      effective_status: "degraded_required",
+      revision: 3,
+      policy_fingerprint: "fingerprint",
+      bindings: [{
+        execution_shape: "chat_text_unary",
+        model_id: "openai/gpt-test",
+        connection_id: connection.id,
+        connection_name: connection.name,
+        provider_kind: connection.kind,
+        certification_id: "cert-unary",
+        valid: true,
+        reason_code: "qualified",
+      }],
+      approval_valid: false,
+      blocking_reason_codes: [],
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/router/workload-control/policies") {
+        return jsonResponse({ policies: [policy] });
+      }
+      if (url === "/api/router/connections") return jsonResponse([connection]);
+      if (url.startsWith("/api/router/workload-control/receipts")) {
+        return jsonResponse({ runs: [] });
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<ProviderWorkloadControlSettings csrfToken="csrf-value" view="routing" />);
+    await screen.findByText("R6 入口、精确 Binding 与 Receipt");
+    fireEvent.change(screen.getByLabelText("入口"), {
+      target: { value: "expert_team_planner" },
+    });
+    expect(await screen.findByRole("button", { name: "重新批准 Managed 必经" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "显式恢复 Legacy" })).toBeEnabled();
   });
 
   it("keeps connection and call evidence in the authenticated settings view", async () => {

@@ -1281,6 +1281,10 @@ except ModuleNotFoundError:
     from model_router.api import get_catalog_coordinator
 
 try:
+    from server.model_router.expert_team_gateway import (
+        ManagedExpertTeamGateway,
+        ManagedExpertTeamRun,
+    )
     from server.model_router.workflow_gateway import (
         ManagedWorkflowGateway,
         ManagedWorkflowAgentRun,
@@ -1288,6 +1292,10 @@ try:
         ManagedWorkflowRoutingError,
     )
 except ModuleNotFoundError:
+    from model_router.expert_team_gateway import (
+        ManagedExpertTeamGateway,
+        ManagedExpertTeamRun,
+    )
     from model_router.workflow_gateway import (
         ManagedWorkflowGateway,
         ManagedWorkflowAgentRun,
@@ -4959,11 +4967,55 @@ agency_worker_client = AgencyWorkerClient(
     asset_root=expert_team_agency_asset_root(),
     timeout_seconds=expert_team_agency_planner_timeout_seconds(),
 )
+
+
+def expert_team_managed_gateway() -> ManagedExpertTeamGateway:
+    return ManagedExpertTeamGateway.for_router(get_model_router_service())
+
+
+def expert_team_managed_run(
+    task_id: str,
+    segment_key: str,
+) -> ManagedExpertTeamRun | None:
+    gateway = expert_team_managed_gateway()
+    mode = gateway.routing_mode("expert_team_dag")
+    if mode == "legacy":
+        return None
+    if mode != "managed_required":
+        raise ManagedWorkflowRoutingError(
+            "provider_workload_policy_not_active",
+            "专家团 DAG 的 Managed Provider 策略未就绪，当前执行失败关闭。",
+            status_code=409,
+            receipt=gateway.blocked_receipt(
+                "expert_team_dag", "provider_workload_policy_not_active"
+            ),
+        )
+    return gateway.start_run(
+        "expert_team_dag",
+        parent_run_reference=f"expert-team-dag:{task_id}:{segment_key}",
+    )
+
+
+def agency_worker_client_for_model_runner(
+    model_runner: Callable[
+        [AgencyModelRequest], Awaitable[AgencyModelResponse | str]
+    ],
+) -> AgencyWorkerClient:
+    return AgencyWorkerClient(
+        model_runner=model_runner,
+        node_binary=agency_worker_client.node_binary,
+        worker_entry=agency_worker_client.worker_entry,
+        asset_root=agency_worker_client.asset_root,
+        timeout_seconds=agency_worker_client.timeout_seconds,
+    )
+
+
 agency_execution_coordinator = AgencyExecutionCoordinator(
     store=workflow_execution_store,
     run_registry=run_registry,
     model_runner=collect_agency_worker_model,
     approval_store=runtime_approval_store,
+    managed_run_factory=expert_team_managed_run,
 )
 
 
@@ -7118,10 +7170,24 @@ async def preview_expert_team_plan(
                 "code": "expert_team_agency_planner_disabled",
             },
         )
-    if not get_llm_gateway_config()[0]:
+    provider_gateway = expert_team_managed_gateway()
+    provider_mode = provider_gateway.routing_mode("expert_team_planner")
+    if provider_mode == "legacy" and not get_llm_gateway_config()[0]:
         return JSONResponse(
             status_code=500,
             content={"error": LLM_GATEWAY_NOT_CONFIGURED_MESSAGE},
+        )
+    if provider_mode == "degraded_required":
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error": "专家团 Planner 的 Managed Provider 策略未就绪，当前规划失败关闭。",
+                "code": "provider_workload_policy_not_active",
+                "provider_route_receipts": provider_gateway.blocked_receipt(
+                    "expert_team_planner",
+                    "provider_workload_policy_not_active",
+                ),
+            },
         )
     try:
         rate_limit_or_raise(client_ip(request))
@@ -7202,8 +7268,35 @@ async def preview_expert_team_plan(
         },
     )
 
+    managed_run: ManagedExpertTeamRun | None = None
+    provider_receipt: dict[str, Any] | None = None
+
+    def finish_provider_run(
+        status: Literal["passed", "failed", "uncertain", "cancelled"],
+        *,
+        reason_code: str | None = None,
+    ) -> dict[str, Any] | None:
+        nonlocal provider_receipt
+        if managed_run is None:
+            return None
+        if provider_receipt is None:
+            provider_receipt = managed_run.finish(
+                status,
+                reason_code=reason_code,
+            )
+        return provider_receipt
+
     try:
-        worker_result = await agency_worker_client.compose(
+        planner_client = agency_worker_client
+        if provider_mode == "managed_required":
+            managed_run = provider_gateway.start_run(
+                "expert_team_planner",
+                parent_run_reference=f"expert-team-planner:{run.run_id}",
+            )
+            planner_client = agency_worker_client_for_model_runner(
+                managed_run.complete
+            )
+        worker_result = await planner_client.compose(
             goal=planning_goal,
             model_id=payload.planner_model_id,
             agents=adapt_expert_catalog(AGENT_RECORDS),
@@ -7305,6 +7398,7 @@ async def preview_expert_team_plan(
             agent_public_payload(agent, score)
             for agent, score in match_agents(payload.goal, min(payload.max_agents, 5))
         ]
+        finish_provider_run("passed")
         await run_registry.record_checkpoint(
             run.run_id,
             event_type="meta_planner.completed",
@@ -7351,8 +7445,31 @@ async def preview_expert_team_plan(
             capability_snapshot_version=snapshot_version,
             capability_snapshot_hash=snapshot_hash,
             upstream_revision=AGENCY_UPSTREAM_REVISION,
+            provider_route_receipts=provider_receipt,
         )
+    except ManagedWorkflowRoutingError as exc:
+        provider_receipt = exc.receipt
+        await run_registry.update_run(
+            run.run_id,
+            status="failed",
+            error=f"{exc.code}: {exc.public_message}"[:500],
+        )
+        content: dict[str, Any] = {
+            "error": exc.public_message,
+            "code": exc.code,
+        }
+        if provider_receipt is not None:
+            content["provider_route_receipts"] = provider_receipt
+        return JSONResponse(status_code=exc.status_code, content=content)
     except AgencyWorkerError as exc:
+        failure_status: Literal["failed", "uncertain"] = "failed"
+        if managed_run is not None and any(
+            item.get("status") == "uncertain"
+            for item in managed_run.receipt_summary().get("calls", [])
+            if isinstance(item, dict)
+        ):
+            failure_status = "uncertain"
+        finish_provider_run(failure_status, reason_code=exc.code)
         await run_registry.update_run(
             run.run_id,
             status="failed",
@@ -7364,30 +7481,41 @@ async def preview_expert_team_plan(
                 "规划模型输出达到当前 token 上限，未生成可执行计划。"
                 "请精简目标、减少最大专家数或更换更适合结构化规划的模型后重试。"
             )
+        content = {"error": error_message, "code": exc.code}
+        if provider_receipt is not None:
+            content["provider_route_receipts"] = provider_receipt
         return JSONResponse(
             status_code=agency_worker_http_status(exc.code),
-            content={"error": error_message, "code": exc.code},
+            content=content,
         )
     except ValueError as exc:
+        finish_provider_run("failed", reason_code="agency_plan_invalid")
         await run_registry.update_run(
             run.run_id,
             status="failed",
             error=str(exc)[:500],
         )
+        content = {"error": str(exc), "code": "agency_plan_invalid"}
+        if provider_receipt is not None:
+            content["provider_route_receipts"] = provider_receipt
         return JSONResponse(
             status_code=422,
-            content={"error": str(exc), "code": "agency_plan_invalid"},
+            content=content,
         )
     except Exception as exc:
+        finish_provider_run("failed", reason_code="agency_preview_failed")
         logger.exception("Expert Team Agency preview failed")
         await run_registry.update_run(
             run.run_id,
             status="failed",
             error=str(exc)[:500],
         )
+        content = {"error": "专家团智能组队预览失败。", "code": "agency_preview_failed"}
+        if provider_receipt is not None:
+            content["provider_route_receipts"] = provider_receipt
         return JSONResponse(
             status_code=500,
-            content={"error": "专家团智能组队预览失败。", "code": "agency_preview_failed"},
+            content=content,
         )
 
 
@@ -7395,11 +7523,53 @@ def agency_execution_error(
     status_code: int,
     code: str,
     message: str,
+    *,
+    provider_route_receipts: dict[str, Any] | None = None,
 ) -> JSONResponse:
+    content: dict[str, Any] = {"error": message, "code": code}
+    if provider_route_receipts is not None:
+        content["provider_route_receipts"] = provider_route_receipts
     return JSONResponse(
         status_code=status_code,
-        content={"error": message, "code": code},
+        content=content,
     )
+
+
+def expert_team_dag_runtime_preflight() -> tuple[str, JSONResponse | None]:
+    gateway = expert_team_managed_gateway()
+    mode = gateway.routing_mode("expert_team_dag")
+    if not agency_execution_coordinator.worker_available():
+        return (
+            mode,
+            agency_execution_error(
+                503,
+                "agency_worker_unavailable",
+                "Agency Worker 当前不可用。",
+            ),
+        )
+    if mode == "legacy" and not get_llm_gateway_config()[0]:
+        return (
+            mode,
+            agency_execution_error(
+                503,
+                "agency_worker_unavailable",
+                "LLM 网关当前不可用。",
+            ),
+        )
+    if mode == "degraded_required":
+        return (
+            mode,
+            agency_execution_error(
+                409,
+                "provider_workload_policy_not_active",
+                "专家团 DAG 的 Managed Provider 策略未就绪，当前执行失败关闭。",
+                provider_route_receipts=gateway.blocked_receipt(
+                    "expert_team_dag",
+                    "provider_workload_policy_not_active",
+                ),
+            ),
+        )
+    return mode, None
 
 
 async def expert_team_execution_model_is_text(model_id: str) -> bool:
@@ -7435,12 +7605,9 @@ async def start_expert_team_dag_run(
             "agency_execution_disabled",
             "专家团 DAG Beta 当前未启用。",
         )
-    if not agency_execution_coordinator.worker_available() or not get_llm_gateway_config()[0]:
-        return agency_execution_error(
-            503,
-            "agency_worker_unavailable",
-            "Agency Worker 或 LLM 网关当前不可用。",
-        )
+    provider_mode, preflight_error = expert_team_dag_runtime_preflight()
+    if preflight_error is not None:
+        return preflight_error
     if payload.upstream_revision != AGENCY_UPSTREAM_REVISION:
         return agency_execution_error(
             409,
@@ -7501,6 +7668,7 @@ async def start_expert_team_dag_run(
             capability_snapshot_version=payload.capability_snapshot_version,
             capability_snapshot_hash=payload.capability_snapshot_hash,
             upstream_revision=payload.upstream_revision,
+            managed_provider_required=(provider_mode == "managed_required"),
         )
         await asyncio.to_thread(
             record_expert_team_method_skill_applications,
@@ -7511,9 +7679,22 @@ async def start_expert_team_dag_run(
         return agency_execution_error(
             429, "agency_execution_capacity_reached", str(exc)
         )
+    except ManagedWorkflowRoutingError as exc:
+        return agency_execution_error(
+            exc.status_code,
+            exc.code,
+            exc.public_message,
+            provider_route_receipts=exc.receipt,
+        )
     except AgencyExecutionValidationError as exc:
         return agency_execution_error(
-            409 if exc.code == "agency_method_skill_changed" else 422,
+            409
+            if exc.code
+            in {
+                "agency_method_skill_changed",
+                "provider_workload_policy_not_active",
+            }
+            else 422,
             exc.code,
             str(exc),
         )
@@ -7743,12 +7924,9 @@ async def retry_expert_team_dag_run(task_id: str, request: Request):
         return agency_execution_error(
             503, "agency_execution_disabled", "专家团 DAG Beta 当前未启用。"
         )
-    if not agency_execution_coordinator.worker_available() or not get_llm_gateway_config()[0]:
-        return agency_execution_error(
-            503,
-            "agency_worker_unavailable",
-            "Agency Worker 或 LLM 网关当前不可用。",
-        )
+    provider_mode, preflight_error = expert_team_dag_runtime_preflight()
+    if preflight_error is not None:
+        return preflight_error
     source = workflow_execution_store.get(task_id)
     if source is None or source.source_kind != "expert_team_agency":
         return agency_execution_error(
@@ -7829,6 +8007,7 @@ async def retry_expert_team_dag_run(task_id: str, request: Request):
         result = await agency_execution_coordinator.retry(
             source_task_id=task_id,
             prepared=prepared,
+            managed_provider_required=(provider_mode == "managed_required"),
         )
         await asyncio.to_thread(
             record_expert_team_method_skill_applications,
@@ -7839,11 +8018,19 @@ async def retry_expert_team_dag_run(task_id: str, request: Request):
         return agency_execution_error(
             429, "agency_execution_capacity_reached", str(exc)
         )
+    except ManagedWorkflowRoutingError as exc:
+        return agency_execution_error(
+            exc.status_code,
+            exc.code,
+            exc.public_message,
+            provider_route_receipts=exc.receipt,
+        )
     except AgencyExecutionValidationError as exc:
         status = 409 if exc.code in {
             "agency_execution_not_retryable",
             "agency_method_skill_changed",
             "capability_snapshot_changed",
+            "provider_workload_policy_not_active",
         } else 422
         return agency_execution_error(status, exc.code, str(exc))
     new_task_id = str(result["task_id"])
@@ -7872,12 +8059,9 @@ async def revise_expert_team_dag_run(
             "agency_revision_disabled",
             "专家团对话式返工当前未启用。",
         )
-    if not agency_execution_coordinator.worker_available() or not get_llm_gateway_config()[0]:
-        return agency_execution_error(
-            503,
-            "agency_worker_unavailable",
-            "Agency Worker 或 LLM 网关当前不可用。",
-        )
+    provider_mode, preflight_error = expert_team_dag_runtime_preflight()
+    if preflight_error is not None:
+        return preflight_error
     source = workflow_execution_store.get(task_id)
     if source is None or source.source_kind != "expert_team_agency":
         return agency_execution_error(
@@ -7910,6 +8094,7 @@ async def revise_expert_team_dag_run(
             target_task_id=revision_request.target_task_id,
             feedback=revision_request.feedback,
             prepared=prepared,
+            managed_provider_required=(provider_mode == "managed_required"),
         )
         await asyncio.to_thread(
             record_expert_team_method_skill_applications,
@@ -7920,6 +8105,13 @@ async def revise_expert_team_dag_run(
         return agency_execution_error(
             429, "agency_execution_capacity_reached", str(exc)
         )
+    except ManagedWorkflowRoutingError as exc:
+        return agency_execution_error(
+            exc.status_code,
+            exc.code,
+            exc.public_message,
+            provider_route_receipts=exc.receipt,
+        )
     except AgencyExecutionValidationError as exc:
         status = 409 if exc.code in {
             "agency_execution_not_revisable",
@@ -7927,6 +8119,7 @@ async def revise_expert_team_dag_run(
             "agency_method_skill_changed",
             "capability_snapshot_changed",
             "upstream_revision_changed",
+            "provider_workload_policy_not_active",
         } else 422
         return agency_execution_error(status, exc.code, str(exc))
     new_task_id = str(result["task_id"])

@@ -149,6 +149,29 @@ export interface AgencyAgentSummary {
   score?: number;
 }
 
+export interface ProviderRouteCallReceipt {
+  call_sequence: number;
+  model_id: string;
+  actual_model?: string | null;
+  dispatched: boolean;
+  status: "running" | "passed" | "failed" | "uncertain" | "cancelled";
+  error_code?: string | null;
+  prompt_tokens?: number | null;
+  completion_tokens?: number | null;
+  total_tokens?: number | null;
+}
+
+export interface ProviderRouteReceipt {
+  contract_version: "modelmirror-provider-workload-routing-v1";
+  entry_id: "expert_team_planner" | "expert_team_dag";
+  routing_mode: "managed_required";
+  run_reference: string;
+  status: "running" | "passed" | "failed" | "uncertain" | "cancelled";
+  call_count: number;
+  reason_codes: string[];
+  calls: ProviderRouteCallReceipt[];
+}
+
 export interface AgencyPlanPreview {
   plan: {
     summary: string;
@@ -177,6 +200,7 @@ export interface AgencyPlanPreview {
   repair_used: boolean;
   model_calls: number;
   usage: AgencyDagUsage;
+  provider_route_receipts?: ProviderRouteReceipt | null;
   capability_snapshot_version: string;
   capability_snapshot_hash: string;
   upstream_project: string;
@@ -224,6 +248,7 @@ export interface AgencyDagEvent {
   model_calls?: number;
   quality_status?: string;
   final_output?: string;
+  provider_route_receipts?: ProviderRouteReceipt;
 }
 
 export interface AgencyDagRun {
@@ -254,6 +279,7 @@ export interface AgencyDagRun {
   warnings: string[];
   model_calls: number;
   usage: AgencyDagUsage;
+  provider_route_receipts?: ProviderRouteReceipt[];
   estimated_cost?: number | null;
   error?: string | null;
   error_code?: string | null;
