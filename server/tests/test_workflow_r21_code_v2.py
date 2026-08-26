@@ -19,6 +19,13 @@ from server.workflow_native.r20_nodes import (
 )
 
 
+@pytest.fixture(autouse=True)
+def reset_request_rate_limit_state():
+    main_module.request_windows.clear()
+    yield
+    main_module.request_windows.clear()
+
+
 @pytest_asyncio.fixture
 async def client():
     transport = httpx.ASGITransport(app=app)
