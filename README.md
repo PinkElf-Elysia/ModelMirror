@@ -1,123 +1,166 @@
-# 模镜 ModelMirror
+<div align="center">
+  <img src="client/public/logo.png" alt="ModelMirror 标志" width="136" />
+  <h1>模镜 ModelMirror</h1>
+  <p><strong>让异构 AI Workload 有明确契约、精确绑定与可审计执行。</strong></p>
+  <p>
+    面向中文用户的本地工作台：以操作级 Provider Contract、精确 Workload Binding、<br />
+    脱敏路由回执和隔离 Runtime，贯通资源发现、组合与受控执行。
+  </p>
+  <p>
+    <a href="https://github.com/PinkElf-Elysia/ModelMirror/actions/workflows/quality.yml"><img src="https://github.com/PinkElf-Elysia/ModelMirror/actions/workflows/quality.yml/badge.svg?branch=main" alt="Quality 状态" /></a>
+    <a href="https://github.com/PinkElf-Elysia/ModelMirror/actions/workflows/multimodal-readiness.yml"><img src="https://github.com/PinkElf-Elysia/ModelMirror/actions/workflows/multimodal-readiness.yml/badge.svg?branch=main" alt="Multimodal readiness 状态" /></a>
+    <a href="https://github.com/PinkElf-Elysia/ModelMirror/actions/workflows/file-readiness.yml"><img src="https://github.com/PinkElf-Elysia/ModelMirror/actions/workflows/file-readiness.yml/badge.svg?branch=main" alt="File readiness 状态" /></a>
+  </p>
+  <p>
+    <a href="docs/MODEL_PROVIDER_CONTROL_PLANE.md"><img src="https://img.shields.io/badge/provider%20contracts-operation--scoped-1F4E79" alt="按操作定义的 Provider Contract" /></a>
+    <a href="docs/MODEL_PROVIDER_CONTROL_PLANE.md"><img src="https://img.shields.io/badge/workload%20binding-entry%20%2B%20shape%20%2B%20exact%20model-2563EB" alt="入口、执行形态与精确模型绑定" /></a>
+    <a href="docs/ARCHITECTURE.md#model-provider-control-plane"><img src="https://img.shields.io/badge/routing%20evidence-redacted%20receipts-0F766E" alt="脱敏路由回执" /></a>
+    <a href="docs/MODEL_PROVIDER_CONTROL_PLANE.md"><img src="https://img.shields.io/badge/managed%20post--dispatch-fail--closed-B45309" alt="托管路径派发后失败即关闭" /></a>
+    <a href="docs/architecture/ai-capability-compiler.md"><img src="https://img.shields.io/badge/TARGET%20blueprint-Goal%20%E2%86%92%20Capability%20IR-7C3AED" alt="目标蓝图：从 Goal 到 Capability IR" /></a>
+  </p>
+  <p>
+    <strong>简体中文</strong> · <a href="README_EN.md">English</a>
+  </p>
+  <p>
+    <a href="#快速开始">快速开始</a> ·
+    <a href="#能力地图">能力地图</a> ·
+    <a href="#当前架构">当前架构</a> ·
+    <a href="#文档导航">文档导航</a>
+  </p>
+</div>
 
-> 从寻找一个模型，到编译一套智能。<br>
-> From choosing a model to compiling intelligence.
+> [!IMPORTANT]
+> 本文按 `main@66b57c3`（2026-08-25）的代码、配置、测试与当前文档复核。文中的“可用”表示主分支存在可运行入口，不等于生产 SLA、企业级多租户能力或真实供应商端到端验收；依赖密钥、功能开关、可选 Compose profile 或人工审批的能力会单独标记。
 
-ModelMirror 当前是一个可本地部署的 AI 资源发现、比较、调用与组合工作台，面向模型、Agent、MCP、Skill、Prompt、知识库、Data X 和工作流。主分支已经提供原生模型路由、多模态聊天、MCP Runtime、经典工作流、本地知识流水线、Data X 与 Agent Studio 等模块。
+## 快速开始
 
-“AI 牛马招聘会”是帮助用户理解和试用 AI 资源的产品入口。项目下一阶段探索 **AI Capability Compiler（AI 能力编译器）**：把用户目标转换为结构化能力需求，再映射到可执行、可观察和可评测的模型、工具、知识与 Agent 组合。
+推荐使用 Docker Compose。你需要 Git、Docker Desktop / Docker Engine（含 Compose V2），以及至少一种模型访问方式。
 
-最后更新日期：2026-08-09
-维护人：模镜团队
+### 1. 准备配置
 
-## 一眼看懂项目阶段
+在仓库根目录复制服务端环境变量示例：
 
-| 视角 | ModelMirror 的定位 | 状态 |
-| --- | --- | --- |
-| 用户入口 | “AI 牛马招聘会”：发现、比较和试用 AI 资源 | **Available Today** |
-| 当前能力基线 | 可本地部署的 AI 资源与协作工作台 | **Available（含 Experimental 子模块）** |
-| 目标产品引擎 | AI Capability Compiler：把目标编译为能力需求与执行组合 | **Target Architecture** |
-| 商业方向 | Agent 经济中的中立 AI 能力控制平面与智能分配层 | **Strategic Direction** |
-| 长期愿景 | AI Capability OS / Self-Evolving Meta-System | **Research Direction** |
-
-这些标签用于区分当前能力、目标设计和研究方向；`Available` 不代表生产 SLA、真实供应商验收或完整企业级能力。事实边界见[当前系统架构](docs/ARCHITECTURE.md)，目标分层见[AI Capability Compiler 架构](docs/architecture/ai-capability-compiler.md)。
-
-## Why ModelMirror
-
-AI 供给正在从少数通用模型，扩展为由模型、工具、知识库、Skill、MCP、垂类 Agent 和工作流组成的异构生态。新的困难逐渐从“有没有模型”转向：一个任务需要哪些能力，如何在质量、成本、时延、可靠性和数据边界之间选择与组合，以及如何验证结果。
-
-模型网关、Agent 框架、MCP Registry、工作流平台和资源目录分别解决局部问题。ModelMirror 当前先把发现、试用、路由、组合与本地运行闭环放到一个工作台中；目标是进一步用统一能力描述、策略路由和执行反馈，把用户目标编译为可评测的能力组合。
-
-## 当前能力
-
-- 模型招聘会：模型筛选、价格展示、能力标签和聊天入口。
-- 智能调度：`/chat/auto` 支持六种策略、稳定会话灰度、健康熔断、预算回执和上下文优化；默认仍可回退 OmniRoute 侧车。
-- 面试间：OpenAI 兼容流式聊天、图片输入、高级参数、提示词助手、模型输出图片预览，以及自适应 STT、TTS 和视频工作区。
-- 视频闭环：支持 MP4/MPEG/MOV/WebM 文件或 HTTPS/YouTube URL 分析，并通过独立异步任务完成文生视频、首帧图生视频、恢复、播放与下载。
-- 图片生成模型：支持 `content` 多模态 parts、`delta.images` / `message.images`、`image_url` 和 `data:image/...` 输出；前端会转成图片卡片并接入 Lightbox 放大与下载。
-- AI 人才市场：智能体角色浏览、面试入口、专家团能力。
-- MCP 工具：原生 stdio MCP 客户端、多会话管理和工具注册表。
-- Skill：Skill 安装、管理和聊天注入。
-- 工作流：`/workflow` 使用经典自研 React Flow 画布；`/workflow-native` 保留实验线。
-- RAG：`/rag` 使用本地 RAG 资料库，支持文档上传、切分、向量检索和聊天引用。
-- Data X：`/datax` 支持 CSV/XLSX/Parquet 快照、语义模型、版本化指标、受限分析和指标提案审批。
-- Agent Studio：创建智能体草稿、发布不可变版本，并通过 Goal、Handoff、文件、记忆与 Knowledge Pipeline 组合执行。
-- Agent App/API：把已发布版本固定部署为未列出分享 App，并提供带密钥、配额和回滚的 OpenAI 兼容接口。
-- newAPI：作为独立可选数据面运行；`/settings` 只显示显式配置的外部管理链接，不嵌入或代理其管理界面。
-
-## 目标架构
-
-![ModelMirror AI Capability Compiler 八层目标架构与反馈回路](docs/assets/modelmirror-ai-capability-compiler-architecture.png)
-
-> 该图描述目标架构和长期研究边界，不表示所有层级已经交付。当前主分支映射、状态证据和 Non-Goals 见[详细目标架构](docs/architecture/ai-capability-compiler.md)。
-
-目标主链路是：生态资源进入统一 Registry 与 Capability Graph，用户目标由 Classifier 转换为 Capability IR，Meta Router 再协调各 Domain Router 生成执行计划；Runtime 负责安全执行，Evaluation 记录质量、成本、时延与可靠性信号，经过门禁的反馈再用于改进 Registry、策略和元能力。
-
-长期希望沉淀四类可复用资产：
-
-- **Capability Graph**：任务、能力、资源、约束、兼容关系与有效组合。
-- **Execution Trace Dataset**：经过授权、脱敏和评测的执行轨迹，而不是日志堆积。
-- **Routing Policy Intelligence**：不同质量、成本、时延和风险约束下的选择经验。
-- **Meta Capability Evolution**：在测试、评测、审批和发布门禁下改进 Prompt、Skill、MCP、Agent 与 Workflow。
-
-市场判断、品牌故事和生态飞轮见[产品愿景](docs/VISION.md)。
-
-## 技术栈
-
-- 前端：React + TypeScript + Tailwind CSS + Vite + React Router + ReactMarkdown + @xyflow/react。
-- 后端：FastAPI + Pydantic + httpx + ChromaDB + DuckDB + MCP Python SDK。
-- 本地部署：核心 Docker Compose 默认包含 `client`、`server`、`browser` 和
-  `sandbox`；newAPI 使用独立可选栈，OmniRoute 与 Office host 使用可选 profile。
-
-## 快速启动
-
-复制环境变量示例并填写密钥：
-
-```bash
-copy server\.env.example server\.env
+```powershell
+Copy-Item server/.env.example server/.env
 ```
 
-至少显式配置一种模型访问方式。直接网关示例：
+在 `server/.env` 中选择一种模型访问方式。最短路径是直接配置 OpenRouter：
 
-```bash
+```dotenv
+OPENROUTER_API_KEY=your-openrouter-key
+```
+
+也可以连接任意 OpenAI-compatible 网关：
+
+```dotenv
 LLM_GATEWAY_URL=https://your-gateway.example/v1/chat/completions
 LLM_GATEWAY_KEY=your-gateway-key
 ```
 
-也可以只配置 OpenRouter：
+newAPI 采用独立 Compose 栈和显式网络 Overlay，不属于默认核心栈；配置方式见[快速上手](docs/QUICK_START.md)和[部署指南](docs/DEPLOYMENT.md)。
 
-```bash
-OPENROUTER_API_KEY=your-openrouter-key
-```
+### 2. 启动服务
 
-若使用 newAPI，请按[部署文档](docs/DEPLOYMENT.md)单独启动其 Compose 栈，
-并通过 Overlay 显式提供容器内 `LLM_GATEWAY_URL`；核心栈不管理 newAPI 生命周期。
-
-启动 Docker Compose：
-
-```bash
+```powershell
 docker compose -p modelmirror up -d --build
+docker compose -p modelmirror ps
 ```
 
-常用入口：
+默认 Compose 会启动 Web、API，以及隔离的 Browser、Sandbox 和 MCP sidecar。OmniRoute、Coding、Office Host 与 newAPI 需要单独 profile 或独立栈。
 
-```text
-http://localhost:5173/models
-http://localhost:5173/chat/recraft%2Frecraft-v3
-http://localhost:5173/workflow
-http://localhost:5173/agents/studio
-http://localhost:5173/agents/goals
-http://localhost:5173/rag
-http://localhost:5173/datax
-http://localhost:5173/settings
-http://localhost:3000
+### 3. 验证
+
+```powershell
+curl.exe http://localhost:8000/api/health
+curl.exe http://localhost:5173/models
 ```
 
-## 本地开发
+| 入口 | 地址 | 用途 |
+| --- | --- | --- |
+| 模型招聘会 | [localhost:5173/models](http://localhost:5173/models) | 浏览、筛选和试用模型 |
+| 智能调度 | [localhost:5173/chat/auto](http://localhost:5173/chat/auto) | 查看路由策略与脱敏回执 |
+| Agent Studio | [localhost:5173/agents/studio](http://localhost:5173/agents/studio) | 创建、发布和运行 Agent |
+| 工作流 | [localhost:5173/workflow](http://localhost:5173/workflow) | 编排并运行 classic 工作流 |
+| 知识库 | [localhost:5173/rag](http://localhost:5173/rag) | 构建、检索和评测本地知识库 |
+| 设置 | [localhost:5173/settings](http://localhost:5173/settings) | 管理 Provider、路由与运行策略 |
+
+完整页面清单见[当前系统架构](docs/ARCHITECTURE.md#稳定路由)。
+
+## 为什么是 ModelMirror
+
+AI 供给已经从少数通用模型，扩展为模型、工具、知识库、Skill、MCP、垂类 Agent 与工作流组成的异构生态。真正困难的问题逐渐变成：一个任务需要哪些能力，如何在质量、成本、时延、可靠性与数据边界之间选择，以及如何验证组合结果。
+
+ModelMirror 先把这条链路收敛到一个本地工作台：
+
+1. **发现**：用中文目录、能力标签、价格与可用性信息找到候选资源。
+2. **试用**：通过聊天和多模态工作区验证真实输入输出。
+3. **组合**：把模型、工具、知识和 Agent 放入工作流或团队任务。
+4. **治理**：用 Provider 策略、审批、回执、评测与运行诊断约束执行。
+
+“AI 牛马招聘会”是面向用户的产品入口与体验隐喻；**AI Capability Compiler（AI 能力编译器）** 是目标产品引擎，不是对当前完成度的声明。
+
+## 能力地图
+
+| 能力域 | 当前主分支基线 | 成熟度 |
+| --- | --- | --- |
+| 模型目录与多模态聊天 | 模型筛选、价格与能力标签、OpenAI-compatible SSE；按模型能力进入文本、图片、STT、TTS、音频或视频工作区 | **可用 / Provider 依赖** |
+| 路由与 Provider 治理 | `/chat/auto` 原生调度；连接、目录、逐 operation Offering、Readiness、资格、策略和脱敏 Receipt 控制面 | **可用 / 分阶段门禁** |
+| Agent 与专家团 | AI 人才市场、Agent Studio、Agent Workbench、Goal、Handoff、Automation、Agent App/API 与 Expert Team | **可用 / 部分执行需配置** |
+| Classic Workflow | React Flow 画布、本地运行器、SSE、部署、审批、批处理与受控迭代；外部 HTTP、子工作流等高风险能力默认关闭 | **稳定主路径** |
+| 知识与 RAG | 文档上传、处理流水线、Chroma + FTS5 双索引、检索、引用、评测与审批写入 | **稳定主路径** |
+| Data X 与数据表 | CSV/XLSX/Parquet 快照、DuckDB、语义模型、版本化指标、受限分析、提案审批与本地托管表 | **可用** |
+| MCP、Toolset 与 Browser | 原生 stdio MCP、多会话、隔离 sidecar、受控 Remote OAuth 授权与撤销、工具注册与调用；Toolset 支持 MCP、OpenAPI/OData 与内置 Provider | **可用 / 远程能力受控** |
+| Skill、Prompt 与 Plugin | Skill/SkillSet 目录、安装、版本、聊天注入、本地导入与 Skill Creator；Prompt Profile 和声明式 Plugin 资源 | **可用 / 供应链门禁** |
+| Runtime 与可观测性 | 运行、Checkpoint、任务、Handoff、Goal、环境摘要以及 Provider/Workflow/Agent Receipt | **可用 / 本地单实例为主** |
+| Coding、workflow-native、Matrix Oasis | 代码协作底座、隔离工作流实验线与 3D 空间实验入口 | **Experimental / 默认关闭或隔离** |
+
+> [!NOTE]
+> 路由存在不代表对应 Provider 已配置；测试通过也不替代付费模型、播放/下载、外部工具或真实数据的端到端验收。功能开关与部署边界以各模块文档为准。
+
+## 当前架构
+
+```mermaid
+flowchart LR
+  U[用户浏览器] --> SPA[React 19 SPA]
+  SPA --> API[FastAPI /api/* 与 SSE]
+  API --> ROUTER[Model Router 与 Provider Control Plane]
+  ROUTER --> GW[OpenAI-compatible 网关 / OpenRouter]
+  API --> STORE[SQLite / Chroma + FTS5 / DuckDB / 文件型 Store]
+  API --> SIDE[Browser / Sandbox / MCP 隔离 sidecar]
+  API -. 可选 profile .-> CODING[Coding / Office / OmniRoute]
+```
+
+| 层 | 主要技术 | 当前职责 |
+| --- | --- | --- |
+| Web | React 19、TypeScript、Vite、Tailwind CSS、React Router、React Flow | 资源目录、聊天与各类工作空间 |
+| API 与 Runtime | FastAPI、Pydantic、httpx、SSE、MCP Python SDK | API 装配、执行、校验、路由与外部适配 |
+| 数据 | SQLite、Chroma、FTS5、DuckDB、文件型 Store | 路由证据、知识索引、数据分析与本地运行状态 |
+| 隔离边界 | Docker Compose、Unix socket、只读容器、受限网络 | Browser、Sandbox、MCP 和可选 Coding 执行面 |
+
+当前 `/workflow` 与 `/rag` 均为 ModelMirror 原生主路径；Dify 只保留历史兼容代理和旧组件，不是默认启动或部署前提。newAPI 是独立可选数据面，ModelMirror 只通过显式 URL/Key 契约连接，不嵌入或代理其管理界面。
+
+## 项目阶段与目标架构
+
+| 层级 | 定义 | 代表内容 |
+| --- | --- | --- |
+| **Available Today** | 已合入主分支且具有可运行入口 | 资源目录、聊天、Classic Workflow、RAG、Data X、Agent Studio、MCP/Skill |
+| **Controlled / Optional** | 代码已合入，但依赖开关、profile、Provider、资格或审批 | Managed Provider、远程 MCP、视频、Coding 写回、部分 Agent/Workflow 执行 |
+| **Experimental** | 隔离实验或尚未完成生产门禁 | Coding Worker 认证线、workflow-native、Matrix Oasis 等 |
+| **Target / Research** | 用于指导演进，不是当前功能承诺 | Capability Graph、Capability IR、Router Federation、完整评测与自演进闭环 |
+
+![ModelMirror AI Capability Compiler 八层目标架构与反馈回路](docs/assets/modelmirror-ai-capability-compiler-architecture.png)
+
+> 上图描述目标架构和长期研究边界，不表示所有层级已经交付。当前映射、成熟度和 Non-Goals 见[AI Capability Compiler 目标架构](docs/architecture/ai-capability-compiler.md)。
+
+目标主链路是：生态资源进入统一 Registry 与 Capability Graph，用户目标被转换为 Capability IR，Meta Router 协调 Domain Router 生成执行计划；Runtime 负责安全执行，Evaluation 记录质量、成本、时延与可靠性信号，经过门禁的反馈再用于改进 Registry、策略和元能力。
+
+## 本地开发与验证
+
+本地开发环境使用 Node.js 22、Python 3.11+；Docker 服务镜像使用 Python 3.12。完整说明见[开发者上手指南](docs/ONBOARDING.md)。
 
 后端：
 
-```bash
+```powershell
 cd server
 python -m pip install -r requirements.txt
 python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
@@ -125,46 +168,48 @@ python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
 前端：
 
-```bash
+```powershell
 cd client
-npm install
-npm run dev -- --host 0.0.0.0 --port 5173
+npm.cmd ci
+npm.cmd run dev -- --host 0.0.0.0 --port 5173
 ```
 
-## 验证命令
+提交前的主要门禁：
 
-```bash
+```powershell
 cd client
+npm.cmd run typecheck
+npm.cmd run test:run
 npm.cmd run build
 ```
 
-```bash
+```powershell
 python -m py_compile server/main.py
 python -m pytest server/tests/ -q
+docker compose -p modelmirror config --quiet
 ```
 
-图片生成模型的手动冒烟：
+请把前端构建、后端测试、Compose 配置检查与真实 Provider 冒烟分别记录；其中任何一项都不能替代另一项。
 
-```bash
-curl -N -X POST http://localhost:8000/api/chat ^
-  -H "Content-Type: application/json" ^
-  -d "{\"model_id\":\"recraft/recraft-v3\",\"messages\":[{\"role\":\"user\",\"content\":\"画一只猫\"}]}"
-```
+## 文档导航
 
-预期：SSE 中出现 `image_url` 或 `data:image/...`，前端 `/chat/<modelId>` 中显示至少一张可点击图片。
+| 想了解什么 | 从这里开始 |
+| --- | --- |
+| 5 分钟启动与页面验收 | [快速上手](docs/QUICK_START.md) |
+| 当前代码能证明什么 | [仓库事实基线](docs/REPOSITORY_FACTS.md) |
+| 路由、数据流、存储和外部依赖 | [当前系统架构](docs/ARCHITECTURE.md) |
+| Compose、可选 profile、备份和回退 | [部署指南](docs/DEPLOYMENT.md) |
+| 模块文档与推荐阅读路径 | [文档中心](docs/README.md) |
+| 产品叙事与长期方向 | [产品愿景](docs/VISION.md) |
+| AI Capability Compiler 八层设计 | [目标架构](docs/architecture/ai-capability-compiler.md) |
+| 开发护栏与验收要求 | [Harness Engineering](docs/HARNESS_ENGINEERING.md) |
+| AI Agent 协作规则 | [AGENTS.md](AGENTS.md) |
+| 第三方来源与归属 | [Third-party notices](THIRD_PARTY_NOTICES.md) |
 
-真实结果取决于已配置网关和模型；本地 mock、测试通过或 UI 标签不能替代真实供应商验收。
+## 参与、支持与安全
 
-## 文档
+- **参与开发**：先阅读 [AGENTS.md](AGENTS.md) 与 [Harness Engineering](docs/HARNESS_ENGINEERING.md)，保持改动小步、可验证、可回退，并运行与变更范围匹配的检查。
+- **问题与建议**：请使用 [GitHub Issues](https://github.com/PinkElf-Elysia/ModelMirror/issues) 提交可复现问题或功能建议。
+- **安全问题**：不要创建公开 Issue；请按[安全政策](SECURITY.md)使用 GitHub Private Vulnerability Reporting。
 
-- [文档中心](docs/README.md)
-- [产品愿景](docs/VISION.md)
-- [当前系统架构](docs/ARCHITECTURE.md)
-- [AI Capability Compiler 目标架构](docs/architecture/ai-capability-compiler.md)
-- [术语表](docs/GLOSSARY.md)
-- [原生 Model Router](docs/MODEL_ROUTER_NATIVE.md)
-- [Harness Engineering](docs/HARNESS_ENGINEERING.md)
-- [Agent 协作规范](AGENTS.md)
-
-当前 `/workflow` 与 `/rag` 均为 ModelMirror 原生主路径；旧 Dify 方案已归档为
-compatibility 参考，不是启动或部署前提。
+维护：模镜团队 · README 基线复核：2026-08-25
