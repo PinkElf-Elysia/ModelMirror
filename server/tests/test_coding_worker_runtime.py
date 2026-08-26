@@ -620,7 +620,13 @@ async def test_disabled_slot_never_runs_mixed_route_and_parks_bound_history(
             enabled.workspace_broker.workspace_slot(selected_superset.workspace_id)
             == "slot-a"
         )
+        assert selected_superset.task_id in enabled.service._active
         await enabled.service.cancel(selected_superset.task_id)
+        assert enabled.harness_driver._sessions == {}
+        assert enabled.provider._sessions == {}
+        assert servers["slot-a"]._active_task_id is None
+        assert servers["slot-a"]._active_session is None
+        assert servers["slot-a"]._message_tasks == {}
 
         occupy = await enabled.substrate.control_plane.create_task(
             origin, _request("occupy-enabled", "coding/occupy")

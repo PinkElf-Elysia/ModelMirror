@@ -2226,6 +2226,25 @@ class CodingWorkerService:
                 self._resume_parent_after_subtasks(task_id)
             self._wake.set()
 
+    async def _close_harness_before_slot_release(
+        self, session: HarnessSession
+    ) -> None:
+        if self._closing:
+            with contextlib.suppress(Exception):
+                await self.provider.close(session)
+            return
+        close_task = asyncio.create_task(self.provider.close(session))
+        while not close_task.done():
+            try:
+                await asyncio.shield(close_task)
+            except asyncio.CancelledError:
+                # The runner owns the slot until the exact Harness close has
+                # settled.  A second cancellation must not detach cleanup and
+                # let the scheduler race a new session against the sidecar.
+                continue
+        with contextlib.suppress(Exception):
+            close_task.result()
+
     async def _run_task(self, task_id: str, *, slot_id: str | None = None) -> None:
         session: HarnessSession | None = None
         try:
@@ -2494,8 +2513,7 @@ class CodingWorkerService:
             with contextlib.suppress(Exception):
                 self._settle_terminal_subtask(task_id)
             if session is not None:
-                with contextlib.suppress(Exception):
-                    await self.provider.close(session)
+                await self._close_harness_before_slot_release(session)
 
     def _uncheckpointed_completed_turns(self, task_id: str) -> int:
         cursor = 0
