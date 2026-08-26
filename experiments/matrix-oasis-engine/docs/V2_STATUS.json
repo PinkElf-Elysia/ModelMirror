@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "status": "r17-selection-qualified",
+  "status": "r18-landscape-in-progress",
   "claimAllowed": false,
-  "blockingRound": "R24",
-  "qualificationProfile": "matrix-oasis.v2-qualification/1"
+  "blockingRound": "R25",
+  "qualificationProfile": "matrix-oasis.v2-landscape/1"
 }

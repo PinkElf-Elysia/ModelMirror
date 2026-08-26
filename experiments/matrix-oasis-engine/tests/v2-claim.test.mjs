@@ -17,11 +17,11 @@ function fixture(t) {
   return root;
 }
 
-test("R17 keeps the V2 completion claim closed", () => {
+test("R18 keeps the V2 completion claim closed until R25", () => {
   assert.deepEqual(checkV2Claim({ moduleRoot }), {
-    status: "r17-selection-qualified",
+    status: "r18-landscape-in-progress",
     claimAllowed: false,
-    blockingRound: "R24",
+    blockingRound: "R25",
   });
 });
 

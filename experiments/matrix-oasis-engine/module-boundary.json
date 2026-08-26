@@ -1,30 +1,29 @@
 {
-  "schemaVersion": 17,
+  "schemaVersion": 18,
   "moduleId": "matrix-oasis-engine",
   "moduleRoot": ".",
   "moduleRootResolution": "directory-containing-module-boundary",
-  "activeRound": "R17",
-  "activeRoundBaselineSha": "cc49136c955aa98cab7e3877848bacd9e3381126",
+  "activeRound": "R18",
+  "activeRoundBaselineSha": "4bfef53c4b32f3fa8044122553c7a8f42bd08908",
   "activeRoundChangePolicy": {
     "allowedModuleFiles": [
       "AGENTS.md", "README.md", ".gitattributes", ".gitignore", "module-boundary.json", "package-lock.json", "package.json",
       "docs/ARCHITECTURE.md", "docs/BOUNDARIES.md", "docs/DEPENDENCIES_AND_LICENSES.md", "docs/KNOWN_LIMITATIONS.md",
       "docs/PRODUCT.md", "docs/V1_CRITICAL_PATH.md", "docs/MVP_STATUS.json", "docs/V2_STATUS.json",
-      "docs/R17_V2_QUALIFICATION_THREAT_MODEL.md", "docs/R17_TASK_CARD.md", "docs/R17_CANDIDATE_EXECUTION_APPROVAL.md",
-      "docs/R17_V2_ARCHITECTURE_AUDIT.md", "docs/R17_V2_SELECTION_MATRIX.md", "docs/R17_QUALIFICATION_SUMMARY.json",
-      "docs/adr/0018-r17-v2-qualification-governance.md", "docs/rounds/R17_ACCEPTANCE.md",
-      "scripts/check-round-scope.mjs", "scripts/check-mvp-claim.mjs", "scripts/check-v2-claim.mjs", "scripts/check-godot-boundary.mjs",
-      "scripts/plan-r17-qualification.mjs", "scripts/qualify-r17.mjs", "scripts/verify-r17-evidence.mjs", "scripts/verify-r17-references.mjs", "scripts/verify-r17.mjs",
-      "scripts/verify-spatial-builder.mjs", "scripts/verify-spatial-solution.mjs", "scripts/lib/godot-core.mjs", "scripts/lib/godot-runtime-core.mjs",
-      "scripts/lib/boundary-core.mjs", "scripts/lib/mvp-claim-core.mjs", "scripts/lib/v2-claim-core.mjs", "scripts/lib/r17-reference-core.mjs", "scripts/lib/r17-qualification-core.mjs", "scripts/lib/r17-evidence-core.mjs", "scripts/lib/r17-godot-qualification-core.mjs", "scripts/lib/r17-agent-qualification-core.mjs", "scripts/lib/parent-scope-core.mjs", "scripts/lib/scope-policy.mjs",
+      "docs/R18_V2_LANDSCAPE_THREAT_MODEL.md", "docs/R18_TASK_CARD.md", "docs/R18_PUBLIC_DISCOVERY_APPROVAL.md", "docs/R18_CANDIDATE_EXECUTION_APPROVAL.md",
+      "docs/R18_CANDIDATE_CATALOG.json", "docs/R18_DECISION_LANDSCAPE.json", "docs/R18_ROADMAP.json", "docs/R18_V2_SELECTION_MATRIX.md", "docs/R18_QUALIFICATION_SUMMARY.json",
+      "docs/adr/0019-r18-v2-landscape-governance.md", "docs/rounds/R18_ACCEPTANCE.md",
+      "scripts/check-round-scope.mjs", "scripts/check-mvp-claim.mjs", "scripts/check-v2-claim.mjs",
+      "scripts/plan-r18-discovery.mjs", "scripts/discover-r18.mjs", "scripts/verify-r18-sources.mjs", "scripts/evaluate-r18-landscape.mjs", "scripts/plan-r18-qualification.mjs", "scripts/qualify-r18.mjs", "scripts/verify-r18-evidence.mjs", "scripts/verify-r18.mjs",
+      "scripts/lib/boundary-core.mjs", "scripts/lib/mvp-claim-core.mjs", "scripts/lib/v2-claim-core.mjs", "scripts/lib/r18-discovery-core.mjs", "scripts/lib/r18-source-core.mjs", "scripts/lib/r18-landscape-core.mjs", "scripts/lib/r18-harness-core.mjs", "scripts/lib/r18-evidence-core.mjs", "scripts/lib/parent-scope-core.mjs", "scripts/lib/scope-policy.mjs",
       "scripts/run-verify.mjs", "scripts/verify-extraction.mjs", "tests/boundary.test.mjs", "tests/godot-boundary.test.mjs", "tests/extraction-contract.test.mjs",
-      "tests/mvp-claim.test.mjs", "tests/v2-claim.test.mjs", "tests/r17-reference.test.mjs", "tests/r17-qualification.test.mjs", "tests/r17-evidence.test.mjs", "tests/r17-godot-qualification.test.mjs", "tests/r17-agent-qualification.test.mjs", "tests/round-scope.test.mjs", "tests/godot-harness.test.mjs", "tests/godot-runtime-adapter.test.mjs",
-      "packages/prototype-spatial-verifier/src/index.mjs", "packages/prototype-spatial-verifier/src/index.d.ts", "packages/prototype-spatial-verifier/tests/verifier.test.mjs"
+      "tests/mvp-claim.test.mjs", "tests/v2-claim.test.mjs", "tests/r18-sources.test.mjs", "tests/r18-landscape.test.mjs", "tests/r18-harness.test.mjs", "tests/r18-evidence.test.mjs", "tests/r18-roadmap.test.mjs", "tests/round-scope.test.mjs"
     ],
     "allowedModulePrefixes": [
-      "packages/v2-qualification-contracts",
-      "packages/v2-qualification-harness",
-      "third-party/v2-qualification-references"
+      "packages/v2-landscape-contracts",
+      "packages/v2-landscape-harness",
+      "third-party/v2-landscape-references",
+      "tests/fixtures/r18"
     ],
     "frozenModulePaths": [
       "apps", "docs", "examples", "packages", "scripts", "tests", "third-party"
@@ -46,7 +45,12 @@
     "r16QualificationCalls": "none",
     "r17OrdinaryVerificationCalls": "none",
     "r17WarehouseQualificationCalls": "fixed-source-checkout-and-loopback-only",
-    "r17ContainerCalls": "separate-human-approval-required"
+    "r17ContainerCalls": "separate-human-approval-required",
+    "r18OrdinaryVerificationCalls": "none",
+    "r18PublicDiscoveryCalls": "separate-human-approval-required",
+    "r18WarehouseQualificationCalls": "fixed-source-checkout-and-loopback-only",
+    "r18ContainerCalls": "per-candidate-human-approval-required",
+    "r18CommercialProductCalls": "public-documentation-only"
   },
   "mvpClaimPolicy": {
     "status": "r16-qualified",
@@ -57,16 +61,45 @@
     "completionMarker": "MATRIX_OASIS_R16_CREATOR_MVP_READY"
   },
   "v2ClaimPolicy": {
-    "status": "r17-selection-qualified",
+    "status": "r18-landscape-in-progress",
     "claimAllowed": false,
-    "blockingRound": "R24",
+    "blockingRound": "R25",
     "machineStatus": "docs/V2_STATUS.json",
-    "qualificationProfile": "matrix-oasis.v2-qualification/1",
+    "qualificationProfile": "matrix-oasis.v2-landscape/1",
     "trackedCandidateSourceAllowed": false,
     "trackedQualificationEvidenceAllowed": false,
     "providerCallsAllowed": false,
     "providerCredentialsAllowed": false,
     "containerExecutionRequiresHumanApproval": true
+  },
+  "r18LandscapePolicy": {
+    "catalogFormat": "matrix-oasis.v2-candidate-catalog",
+    "landscapeFormat": "matrix-oasis.v2-decision-landscape",
+    "roadmapFormat": "matrix-oasis.v2-roadmap",
+    "formatVersion": "0.1.0",
+    "canonicalization": "matrix-oasis.canonical-json/1",
+    "laneCount": 8,
+    "minEntriesPerLane": 6,
+    "minOpenOrInternalPerLane": 4,
+    "minNewSinceR17PerLane": 2,
+    "minTotalEntries": 48,
+    "minUniqueCandidates": 32,
+    "minExecutedCandidates": 12,
+    "maxExecutedCandidates": 16,
+    "minShortlistPerExecutableLane": 2,
+    "maxShortlistPerExecutableLane": 3,
+    "minCommercialBenchmarks": 4,
+    "shortlistMinimumScore": 70,
+    "integrationMinimumScore": 80,
+    "nearTieScoreDelta": 5,
+    "providerCallsAllowed": false,
+    "providerCredentialsAllowed": false,
+    "commercialProductCallsAllowed": false,
+    "publicDiscoveryRequiresHumanApproval": true,
+    "containerExecutionRequiresPerCandidateApproval": true,
+    "trackedCandidateSourceAllowed": false,
+    "trackedRawEvidenceAllowed": false,
+    "productIntegrationAllowed": false
   },
   "prototypeGenerationPolicy": {
     "inputModes": ["text"],
