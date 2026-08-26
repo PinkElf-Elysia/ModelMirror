@@ -34,8 +34,8 @@ class ImageParameterProfile(BaseModel):
 
 
 class ImagePricingItem(BaseModel):
-    billable: Literal["input_image", "output_image"]
-    unit: Literal["image"]
+    billable: Literal["input_image", "input_reference", "output_image"]
+    unit: Literal["image", "request"]
     cost_usd: float = Field(ge=0)
     variant: str | None = None
 
@@ -348,8 +348,12 @@ class ImageCatalogService:
                 unit = str(raw.get("unit") or "")
                 cost = raw.get("cost_usd")
                 if (
-                    billable not in {"input_image", "output_image"}
-                    or unit != "image"
+                    (billable, unit)
+                    not in {
+                        ("input_image", "image"),
+                        ("input_reference", "request"),
+                        ("output_image", "image"),
+                    }
                     or not isinstance(cost, (int, float))
                     or cost < 0
                 ):
@@ -358,7 +362,7 @@ class ImageCatalogService:
                 result.append(
                     ImagePricingItem(
                         billable=billable,
-                        unit="image",
+                        unit=unit,
                         cost_usd=float(cost),
                         variant=variant,
                     )

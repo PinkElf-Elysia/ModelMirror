@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   estimateImageCost,
   GROK_IMAGINE_IMAGE_2_PRICING,
+  RECRAFT_V4_STYLES_PRICING_BY_MODEL_ID,
   SEEDREAM_5_LITE_PRICING,
   SEEDREAM_5_PRO_PRICING,
 } from "./imageCostEstimate";
@@ -74,6 +75,25 @@ describe("estimateImageCost", () => {
       minUsd: 0.14,
       maxUsd: 0.14,
       inputUsd: 0,
+      exact: true,
+    });
+  });
+
+  it("charges Recraft style creation once per request", () => {
+    expect(
+      estimateImageCost(
+        RECRAFT_V4_STYLES_PRICING_BY_MODEL_ID[
+          "recraft/recraft-v4-styles-pro-vector"
+        ],
+        {
+          outputCount: 6,
+          referenceCount: 10,
+        },
+      ),
+    ).toEqual({
+      minUsd: 0.725,
+      maxUsd: 0.725,
+      inputUsd: 0.005,
       exact: true,
     });
   });
