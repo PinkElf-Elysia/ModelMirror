@@ -48,12 +48,17 @@ import {
 } from "../../utils/xpertApi";
 import {
   createWorkflowProject,
+  activateWorkflowVersion,
+  deactivateWorkflowVersion,
   fetchWorkflowExecutions,
   fetchWorkflowProject,
+  publishWorkflowProject,
+  rotateWorkflowFormKey,
   rotateWorkflowWebhookKey,
   saveWorkflowProjectDraft,
   type WorkflowDeploymentSummary,
   type WorkflowExecutionSummary,
+  type WorkflowFormPublicationSummary,
 } from "../../utils/workflowDeployments";
 import {
   isLegacyStarterWorkflow,
@@ -566,6 +571,46 @@ export function createNodeData(
       acceptedContentType: "both",
       maxBodyBytes: 1_048_576,
       bodyVariable: "request_body",
+    };
+  }
+
+  if (kind === "form_event_entry") {
+    return {
+      kind,
+      title: "表单提交入口",
+      description: "通过模镜同源签名表单接收严格类型化提交。",
+      contractVersion: 1,
+      formTitle: "需求登记",
+      formDescription: "请填写以下信息，我们会在收到后开始处理。",
+      submitLabel: "提交登记",
+      privacyNotice: "提交内容仅用于本次流程；长期保存需要工作流显式写入数据表。",
+      successTitle: "已收到提交",
+      successMessage: "你的信息已被安全接收，可以关闭此页面。",
+      theme: "light",
+      eventVariable: "form_event",
+      submissionVariable: "form_submission",
+      fields: [
+        {
+          id: "field_name",
+          outputVariable: "name",
+          label: "姓名",
+          helpText: "用于识别本次登记。",
+          placeholder: "请输入姓名",
+          type: "short_text",
+          required: true,
+          options: [],
+        },
+        {
+          id: "field_email",
+          outputVariable: "email",
+          label: "联系邮箱",
+          helpText: "请填写可联系的邮箱地址。",
+          placeholder: "name@example.com",
+          type: "email",
+          required: true,
+          options: [],
+        },
+      ] as unknown as WorkflowNodeData["fields"],
     };
   }
 
@@ -3814,7 +3859,7 @@ function NodeConfig({
         </Field>
       ) : null}
 
-      {(["scheduled_start", "http_event_entry", "failure_event_entry", "workflow_call_entry", "invoke_workflow", "suspend_wait", "http_event_reply"].includes(data.kind)
+      {(["scheduled_start", "http_event_entry", "form_event_entry", "failure_event_entry", "workflow_call_entry", "invoke_workflow", "suspend_wait", "http_event_reply"].includes(data.kind)
         || (data.kind === "iteration" && isIterationV2(data))) ? (
         <WorkflowDeploymentNodeConfig
           currentProjectId={workflowId.startsWith("wf_") ? workflowId : undefined}
@@ -6086,11 +6131,14 @@ function WorkflowCanvas({
   const [projectRevision, setProjectRevision] = useState<number | null>(null);
   const [activeDeployment, setActiveDeployment] =
     useState<WorkflowDeploymentSummary | null>(null);
+  const [formPublication, setFormPublication] =
+    useState<WorkflowFormPublicationSummary | null>(null);
   const [deploymentExecutions, setDeploymentExecutions] = useState<
     WorkflowExecutionSummary[]
   >([]);
   const [isPublishing, setIsPublishing] = useState(false);
   const [oneTimeWebhookKey, setOneTimeWebhookKey] = useState("");
+  const [oneTimeFormShareUrl, setOneTimeFormShareUrl] = useState("");
   const [isNodePaletteOpen, setIsNodePaletteOpen] = useState(false);
   const [isVariableCenterOpen, setIsVariableCenterOpen] = useState(false);
   const variableCenterTriggerRef = useRef<HTMLButtonElement>(null);
@@ -6129,6 +6177,7 @@ function WorkflowCanvas({
     Boolean(onSave),
     projectRevision,
   );
+  const hasFormEntry = nodes.some((node) => node.data.kind === "form_event_entry");
   const { screenToFlowPosition, fitView } = useReactFlow();
   const navigate = useNavigate();
 
@@ -6165,6 +6214,7 @@ function WorkflowCanvas({
         setVariables(draft.variables ?? []);
         setProjectRevision(project.draft_revision);
         setActiveDeployment(project.active_deployment ?? null);
+        setFormPublication(project.form_publication ?? null);
       })
       .catch((error) => {
         if (!cancelled) {
@@ -6948,11 +6998,13 @@ function WorkflowCanvas({
       );
       setProjectRevision(project.draft_revision);
       setActiveDeployment(project.active_deployment ?? null);
+      setFormPublication(project.form_publication ?? null);
       return project.project_id;
     }
     const project = await createWorkflowProject(savedDefinition);
     setProjectRevision(project.draft_revision);
     setActiveDeployment(project.active_deployment ?? null);
+    setFormPublication(project.form_publication ?? null);
     navigate(`/workflow/${project.project_id}`, { replace: true });
     return project.project_id;
   }
@@ -6996,6 +7048,69 @@ function WorkflowCanvas({
       setOneTimeWebhookKey(deployment.webhook_key ?? "");
     } catch (error) {
       setErrorNotice(error instanceof Error ? error.message : "密钥轮换失败。");
+    } finally {
+      setIsPublishing(false);
+    }
+  }
+
+  async function publishAndEnableForm() {
+    if (onSave || isPublishing || !hasFormEntry) return;
+    setIsPublishing(true);
+    try {
+      const projectId = await saveWorkflow();
+      if (!projectId) return;
+      const release = await publishWorkflowProject(projectId);
+      const deployment = await activateWorkflowVersion(projectId, release.version);
+      setActiveDeployment(deployment);
+      if (deployment.form_publication) {
+        setFormPublication(deployment.form_publication);
+      }
+      if (deployment.form_share_url) {
+        setOneTimeFormShareUrl(deployment.form_share_url);
+      }
+      setSaveNotice(
+        deployment.form_share_url
+          ? "表单已启用，请立即保存一次性分享链接"
+          : "表单已切换到新版本，原分享链接继续有效",
+      );
+      setErrorNotice("");
+    } catch (error) {
+      setErrorNotice(error instanceof Error ? error.message : "表单启用失败。");
+    } finally {
+      setIsPublishing(false);
+    }
+  }
+
+  async function rotateFormKey() {
+    if (!activeDeployment?.active || activeDeployment.trigger_kind !== "form") return;
+    setIsPublishing(true);
+    try {
+      const publication = await rotateWorkflowFormKey(
+        workflowId,
+        activeDeployment.version,
+      );
+      setFormPublication(publication);
+      setOneTimeFormShareUrl(publication.form_share_url ?? "");
+      setErrorNotice("");
+    } catch (error) {
+      setErrorNotice(error instanceof Error ? error.message : "表单链接轮换失败。");
+    } finally {
+      setIsPublishing(false);
+    }
+  }
+
+  async function deactivateForm() {
+    if (!activeDeployment?.active || activeDeployment.trigger_kind !== "form") return;
+    setIsPublishing(true);
+    try {
+      await deactivateWorkflowVersion(workflowId, activeDeployment.version);
+      const project = await fetchWorkflowProject(workflowId);
+      setActiveDeployment(project.active_deployment ?? null);
+      setFormPublication(project.form_publication ?? null);
+      setSaveNotice("表单已停用，新提交将返回不可用");
+      setErrorNotice("");
+    } catch (error) {
+      setErrorNotice(error instanceof Error ? error.message : "表单停用失败。");
     } finally {
       setIsPublishing(false);
     }
@@ -7387,6 +7502,91 @@ function WorkflowCanvas({
               <span className="rounded-md border border-amber-300/20 bg-amber-300/10 px-2.5 py-1 text-[11px] text-amber-100">
                 下次 {new Date(activeDeployment.next_run_at * 1000).toLocaleString()}
               </span>
+            ) : null}
+            {!onSave && hasFormEntry ? (
+              <details className="group relative z-20" data-testid="form-publication-menu">
+                <summary
+                  aria-label="表单发布设置"
+                  className={`flex cursor-pointer list-none items-center gap-2 rounded-md border px-3 py-1.5 text-xs font-semibold transition marker:hidden [&::-webkit-details-marker]:hidden ${
+                    formPublication?.active
+                      ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-100 hover:bg-emerald-300/15"
+                      : "border-white/10 bg-white/[0.05] text-slate-200 hover:border-emerald-200/40 hover:text-emerald-100"
+                  }`}
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`h-1.5 w-1.5 rounded-full ${
+                      formPublication?.active ? "bg-emerald-300" : "bg-slate-500"
+                    }`}
+                  />
+                  <span>
+                    {formPublication?.active
+                      ? `表单 v${formPublication.version}`
+                      : "表单发布"}
+                  </span>
+                  <span className="font-normal text-current/75">
+                    {formPublication?.active
+                      ? "已启用"
+                      : formPublication
+                        ? "已停用"
+                        : "未启用"}
+                  </span>
+                  <span
+                    aria-hidden="true"
+                    className="text-[10px] transition-transform group-open:rotate-180"
+                  >
+                    ▾
+                  </span>
+                </summary>
+                <div className="absolute right-0 top-[calc(100%+0.5rem)] w-64 rounded-lg border border-white/10 bg-slate-950 p-3 shadow-lg">
+                  <div className="mb-3 border-b border-white/10 pb-3">
+                    <p className="text-xs font-semibold text-white">
+                      {formPublication?.active
+                        ? "公开表单正在接收提交"
+                        : formPublication
+                          ? "公开表单已停用"
+                          : "公开表单尚未启用"}
+                    </p>
+                    <p className="mt-1 text-[11px] leading-4 text-slate-400">
+                      {formPublication?.active
+                        ? `固定版本 v${formPublication.version} · 密钥 ${formPublication.form_key_prefix}`
+                        : "发布草稿后会生成一次性分享链接。"}
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <button
+                      className="w-full rounded-md bg-emerald-300 px-3 py-2 text-left text-xs font-semibold text-slate-950 transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={isPublishing || isSaving}
+                      onClick={() => void publishAndEnableForm()}
+                      type="button"
+                    >
+                      {formPublication?.active
+                        ? "发布新版本并切换"
+                        : "发布并启用表单"}
+                    </button>
+                    {formPublication?.active ? (
+                      <>
+                        <button
+                          className="w-full rounded-md border border-white/10 px-3 py-2 text-left text-xs font-semibold text-slate-200 transition hover:border-cyan-300/35 hover:bg-cyan-300/10 hover:text-cyan-100 disabled:opacity-50"
+                          disabled={isPublishing}
+                          onClick={() => void rotateFormKey()}
+                          type="button"
+                        >
+                          轮换分享链接
+                        </button>
+                        <button
+                          className="w-full rounded-md px-3 py-2 text-left text-xs font-semibold text-rose-200 transition hover:bg-rose-300/10 disabled:opacity-50"
+                          disabled={isPublishing}
+                          onClick={() => void deactivateForm()}
+                          type="button"
+                        >
+                          停用表单
+                        </button>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+              </details>
             ) : null}
             {!onSave && activeDeployment?.active && activeDeployment.trigger_kind === "http" ? (
               <button
@@ -7927,6 +8127,20 @@ function WorkflowCanvas({
           )}
         </div>
       </aside>
+      {oneTimeFormShareUrl ? (
+        <div aria-labelledby="form-share-title" aria-modal="true" className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/80 px-4" role="dialog">
+          <div className="w-full max-w-xl rounded-xl border border-white/10 bg-slate-900 p-5 shadow-lg">
+            <p className="text-lg font-semibold text-white" id="form-share-title">保存表单分享链接</p>
+            <p className="mt-2 text-sm leading-6 text-slate-300">完整链接只显示这一次。关闭后无法再次查看；如有遗失，请轮换生成新链接，旧链接会立即失效。</p>
+            <label className="mt-4 block text-xs font-semibold text-slate-200" htmlFor="form-share-url">一次性分享链接</label>
+            <textarea className="mt-2 min-h-24 w-full resize-none rounded-lg border border-white/10 bg-slate-950 px-3 py-2 font-mono text-xs leading-5 text-slate-200" id="form-share-url" readOnly value={oneTimeFormShareUrl} />
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <button className="rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200" onClick={() => setOneTimeFormShareUrl("")} type="button">我已保存，关闭</button>
+              <button className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500" onClick={() => { void navigator.clipboard.writeText(oneTimeFormShareUrl); setSaveNotice("分享链接已复制"); }} type="button">复制分享链接</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <WorkflowVariableCenter
         declarations={variables}
         nodes={nodes}

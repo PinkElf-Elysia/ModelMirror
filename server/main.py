@@ -3003,6 +3003,7 @@ class WorkflowPayload(BaseModel):
             "input": ("variableName",),
             "scheduled_start": ("eventVariable",),
             "http_event_entry": ("eventVariable",),
+            "form_event_entry": ("eventVariable", "submissionVariable"),
             "failure_event_entry": ("eventVariable",),
             "workflow_call_entry": ("eventVariable",),
             "invoke_workflow": ("resultVariable",),
@@ -3054,6 +3055,13 @@ class WorkflowPayload(BaseModel):
                 name = str(node.data.get(field_name) or "").strip()
                 if name:
                     producer_names.add(name)
+            if kind == "form_event_entry":
+                for field in node.data.get("fields", []):
+                    if not isinstance(field, dict):
+                        continue
+                    name = str(field.get("outputVariable") or "").strip()
+                    if name:
+                        producer_names.add(name)
         collisions = producer_names.intersection(declaration_names)
         if collisions:
             raise ValueError(
@@ -5632,6 +5640,7 @@ def workflow_node_kind(node: WorkflowNodePayload) -> WorkflowNodeType:
         "input",
         "scheduled_start",
         "http_event_entry",
+        "form_event_entry",
         "failure_event_entry",
         "workflow_call_entry",
         "invoke_workflow",
@@ -9538,7 +9547,7 @@ async def _run_workflow_response(
         node.id
         for node in payload.workflow.nodes
         if workflow_node_kind(node)
-        in {"input", "scheduled_start", "http_event_entry", "failure_event_entry", "workflow_call_entry"}
+        in {"input", "scheduled_start", "http_event_entry", "form_event_entry", "failure_event_entry", "workflow_call_entry"}
     ]
     if not start_node_ids and order:
         start_node_ids = [order[0]]
@@ -9741,12 +9750,28 @@ async def _run_workflow_response(
             isinstance(runtime_trigger_event, dict)
             and runtime_trigger_event.get("type") == "http_event"
         ),
+        "private_form_event": bool(
+            isinstance(runtime_trigger_event, dict)
+            and runtime_trigger_event.get("type") == "form_submission"
+        ),
         "ephemeral_variable_names": {
             str(node.data.get(field_name) or "").strip()
             for node in payload.workflow.nodes
-            if workflow_node_kind(node) == "http_event_entry"
-            for field_name in ("eventVariable", "bodyVariable")
+            if workflow_node_kind(node) in {"http_event_entry", "form_event_entry"}
+            for field_name in (
+                ("eventVariable", "bodyVariable")
+                if workflow_node_kind(node) == "http_event_entry"
+                else ("eventVariable", "submissionVariable")
+            )
             if str(node.data.get(field_name) or "").strip()
+        }
+        | {
+            str(field.get("outputVariable") or "").strip()
+            for node in payload.workflow.nodes
+            if workflow_node_kind(node) == "form_event_entry"
+            for field in node.data.get("fields", [])
+            if isinstance(field, dict)
+            and str(field.get("outputVariable") or "").strip()
         },
         "cancel_requested": False,
     }
@@ -15118,6 +15143,91 @@ async def _run_workflow_response(
                             )
                     output = json.dumps(event_value, ensure_ascii=False)
 
+                elif kind == "form_event_entry":
+                    runtime_event = dict(task_state.get("runtime_trigger_event") or {})
+                    raw_values = runtime_event.get("values")
+                    if not isinstance(raw_values, dict):
+                        raw_values = {}
+                        for field in node.data.get("fields", []):
+                            if not isinstance(field, dict):
+                                continue
+                            variable = str(field.get("outputVariable") or "").strip()
+                            field_type = str(field.get("type") or "short_text")
+                            options = (
+                                field.get("options")
+                                if isinstance(field.get("options"), list)
+                                else []
+                            )
+                            first_option = (
+                                str(options[0].get("value") or "example")
+                                if options and isinstance(options[0], dict)
+                                else "example"
+                            )
+                            raw_values[variable] = {
+                                "number": 1,
+                                "boolean": bool(field.get("required")),
+                                "date": "2026-01-01",
+                                "email": "user@example.test",
+                                "single_select": first_option,
+                                "multi_select": [first_option],
+                                "long_text": "这是用于手动测试的合成长文本。",
+                            }.get(field_type, "测试值")
+                        runtime_event = {
+                            "type": "form_submission_test",
+                            "test_mode": True,
+                            "form_id": "form_test",
+                            "submission_id": "sub_test",
+                            "received_at": time.time(),
+                            "occurrence_key": "form:test",
+                            "field_count": len(raw_values),
+                            "body_size": 0,
+                            "body_sha256": hashlib.sha256(b"").hexdigest(),
+                            "values": raw_values,
+                        }
+                    safe_event: dict[str, Any] = {
+                        "type": "form_submission",
+                        "formId": str(runtime_event.get("form_id") or "form_test"),
+                        "submissionId": str(
+                            runtime_event.get("submission_id") or "sub_test"
+                        ),
+                        "receivedAt": float(
+                            runtime_event.get("received_at") or time.time()
+                        ),
+                        "occurrenceKey": str(
+                            runtime_event.get("occurrence_key") or "form:test"
+                        ),
+                        "fieldCount": len(raw_values),
+                        "trust": "untrusted_external",
+                    }
+                    if runtime_event.get("test_mode"):
+                        safe_event["testMode"] = True
+                    event_variable = str(
+                        node.data.get("eventVariable") or "form_event"
+                    )
+                    submission_variable = str(
+                        node.data.get("submissionVariable") or "form_submission"
+                    )
+                    variables[event_variable] = normalize_workflow_value(
+                        safe_event, path=f"$.variables.{event_variable}"
+                    )
+                    variables[submission_variable] = normalize_workflow_value(
+                        dict(raw_values), path=f"$.variables.{submission_variable}"
+                    )
+                    for field in node.data.get("fields", []):
+                        if not isinstance(field, dict):
+                            continue
+                        variable = str(field.get("outputVariable") or "").strip()
+                        if variable:
+                            variables[variable] = normalize_workflow_value(
+                                raw_values.get(variable),
+                                path=f"$.variables.{variable}",
+                            )
+                    output = (
+                        f"form submission fields={len(raw_values)} "
+                        f"bytes={int(runtime_event.get('body_size') or 0)} "
+                        f"sha256={str(runtime_event.get('body_sha256') or '')[:64]}"
+                    )
+
                 elif kind == "invoke_workflow":
                     result_variable = str(
                         node.data.get("resultVariable") or "workflow_result"
@@ -20487,7 +20597,8 @@ async def _run_workflow_response(
                                 exc,
                             )
                         output = ""
-                        variables[output_variable] = output
+                        if not bool(task_state.get("private_form_event")):
+                            variables[output_variable] = output
                         if agent_pipeline is not None and agent_context is not None:
                             try:
                                 await agent_pipeline.after_agent(
@@ -20544,6 +20655,8 @@ async def _run_workflow_response(
                                 "message": str(exc),
                             }
                         )
+                        if bool(task_state.get("private_form_event")):
+                            raise
 
                 elif kind == "agent_task" and r20_contract_version(node.data) == 2:
                     output_variable = str(
@@ -22244,11 +22357,20 @@ async def _run_workflow_response(
                 if node_provider_receipt is not None:
                     node_end_event["provider_route_receipts"] = node_provider_receipt
                 workflow_execution_store.append_event(task_id, node_end_event)
+                public_node_output = safe_content_policy_value(output)
+                public_node_variables = safe_content_policy_value(variables)
+                if bool(task_state.get("private_form_event")):
+                    public_node_output = (
+                        output
+                        if kind == "form_event_entry"
+                        else "form workflow node output withheld"
+                    )
+                    public_node_variables = {}
                 yield sse_payload(
                     {
                         **node_end_event,
-                        "output": safe_content_policy_value(output),
-                        "variables": safe_content_policy_value(variables),
+                        "output": public_node_output,
+                        "variables": public_node_variables,
                     }
                 )
 
@@ -22488,10 +22610,15 @@ async def _run_workflow_response(
                 return
 
             persisted_final_output = final_output
-            if bool(task_state.get("private_http_event")):
+            if bool(task_state.get("private_http_event")) or bool(
+                task_state.get("private_form_event")
+            ):
                 encoded_final_output = final_output.encode("utf-8")
+                source_name = (
+                    "form" if bool(task_state.get("private_form_event")) else "webhook"
+                )
                 persisted_final_output = (
-                    f"webhook output_bytes={len(encoded_final_output)} "
+                    f"{source_name} output_bytes={len(encoded_final_output)} "
                     f"sha256={hashlib.sha256(encoded_final_output).hexdigest()}"
                 )
             completed_execution = workflow_execution_store.complete(
@@ -22565,8 +22692,16 @@ async def _run_workflow_response(
                     "event": "workflow_end",
                     "task_id": task_id,
                     "run_id": workflow_run.run_id,
-                    "final_output": safe_content_policy_value(final_output),
-                    "variables": safe_content_policy_value(variables),
+                    "final_output": (
+                        persisted_final_output
+                        if bool(task_state.get("private_form_event"))
+                        else safe_content_policy_value(final_output)
+                    ),
+                    "variables": (
+                        {}
+                        if bool(task_state.get("private_form_event"))
+                        else safe_content_policy_value(variables)
+                    ),
                     "suggestions": conversation_suggestions,
                     "conversation_title": generated_conversation_title or None,
                     "webhook_reply": task_state.get("webhook_reply"),
@@ -22584,6 +22719,25 @@ async def _run_workflow_response(
                 },
             )
         except RuntimeInterrupt as interrupt:
+            if bool(task_state.get("private_form_event")):
+                failure_message = (
+                    "Form workflows cannot persist a continuation."
+                )
+                workflow_execution_store.fail(task_id, error=failure_message)
+                await run_registry.update_run(
+                    workflow_run.run_id,
+                    status="failed",
+                    error=failure_message,
+                )
+                yield sse_payload(
+                    {
+                        "event": "error",
+                        "task_id": task_id,
+                        "run_id": workflow_run.run_id,
+                        "message": failure_message,
+                    }
+                )
+                return
             if (
                 bool(task_state.get("private_http_event"))
                 and interrupt.wait_kind != "timer"

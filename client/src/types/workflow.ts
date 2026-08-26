@@ -5,6 +5,7 @@ export type WorkflowNodeKind =
   | "input"
   | "scheduled_start"
   | "http_event_entry"
+  | "form_event_entry"
   | "failure_event_entry"
   | "workflow_call_entry"
   | "invoke_workflow"
@@ -213,6 +214,33 @@ export interface WorkflowExtractorField {
   nullable: boolean;
 }
 
+export type WorkflowFormFieldType =
+  | "short_text"
+  | "long_text"
+  | "email"
+  | "number"
+  | "boolean"
+  | "date"
+  | "single_select"
+  | "multi_select";
+
+export interface WorkflowFormOption {
+  id: string;
+  value: string;
+  label: string;
+}
+
+export interface WorkflowFormField {
+  id: string;
+  outputVariable: string;
+  label: string;
+  helpText: string;
+  placeholder: string;
+  type: WorkflowFormFieldType;
+  required: boolean;
+  options: WorkflowFormOption[];
+}
+
 export interface WorkflowClassifierCategory {
   id: string;
   label: string;
@@ -232,6 +260,14 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   valueSource?: "literal" | "variable" | "template";
   literalValue?: WorkflowValue;
   eventVariable?: string;
+  submissionVariable?: string;
+  formTitle?: string;
+  formDescription?: string;
+  submitLabel?: string;
+  privacyNotice?: string;
+  successTitle?: string;
+  successMessage?: string;
+  theme?: "light" | "dark";
   scheduleType?: "once" | "interval" | "cron";
   onceAt?: string;
   intervalSeconds?: number | string;

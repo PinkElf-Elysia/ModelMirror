@@ -129,6 +129,13 @@ export const workflowPaletteSections: WorkflowPaletteSection[] = [
         tags: ["webhook", "http", "deployment"],
       },
       {
+        kind: "form_event_entry",
+        icon: "FORM",
+        title: "表单提交入口",
+        description: "发布同源签名表单并接收严格类型化提交。",
+        tags: ["form", "submission", "deployment"],
+      },
+      {
         kind: "failure_event_entry",
         icon: "FAIL",
         title: "失败处置入口",

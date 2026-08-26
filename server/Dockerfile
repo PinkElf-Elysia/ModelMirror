@@ -72,6 +72,7 @@ COPY evaluations ./evaluations
 COPY benchmarks ./benchmarks
 COPY evolutions ./evolutions
 COPY workflow_deployments.py .
+COPY workflow_forms.py .
 COPY workflow_native ./workflow_native
 COPY world ./world
 COPY xpert_runtime ./xpert_runtime

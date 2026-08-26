@@ -165,6 +165,8 @@ export const WORKFLOW_VARIABLE_FIELD_DESCRIPTORS: WorkflowVariableFieldDescripto
   field("scheduled_start", "eventVariable", "declaration", JSON_TYPES),
   field("http_event_entry", "eventVariable", "declaration", JSON_TYPES),
   field("http_event_entry", "bodyVariable", "declaration", ANY_RENDERABLE_TYPES),
+  field("form_event_entry", "eventVariable", "declaration", JSON_TYPES),
+  field("form_event_entry", "submissionVariable", "declaration", JSON_TYPES),
   field("failure_event_entry", "eventVariable", "declaration", JSON_TYPES),
   field("workflow_call_entry", "eventVariable", "declaration", JSON_TYPES),
   field("invoke_workflow", "resultVariable", "declaration", JSON_TYPES),
@@ -349,7 +351,7 @@ const RESOURCE_TARGET_HANDLES = new Set([
 ]);
 
 interface OutputSpec {
-  field: "outputVariable" | "codeOutputVariable" | "variableName" | "eventVariable" | "bodyVariable" | "resultVariable";
+  field: "outputVariable" | "codeOutputVariable" | "variableName" | "eventVariable" | "bodyVariable" | "submissionVariable" | "resultVariable";
   fallback: string;
   valueType:
     | WorkflowVariableValueType
@@ -384,6 +386,10 @@ const DEFAULT_OUTPUT_SPECS: Partial<Record<WorkflowNodeKind, OutputSpec[]>> = {
       valueType: "unknown",
       enabled: (node) => Boolean(String(node.data.bodyVariable ?? "").trim()),
     },
+  ],
+  form_event_entry: [
+    { field: "eventVariable", fallback: "form_event", valueType: "json" },
+    { field: "submissionVariable", fallback: "form_submission", valueType: "json" },
   ],
   failure_event_entry: [
     { field: "eventVariable", fallback: "failure_event", valueType: "json" },
@@ -660,6 +666,29 @@ function collectSources(
         spec.conditional?.(node) ?? false,
       );
     });
+    if (node.data.kind === "form_event_entry") {
+      const fields = Array.isArray(node.data.fields)
+        ? node.data.fields as unknown as Array<Record<string, unknown>>
+        : [];
+      fields.forEach((formField, index) => {
+        const type = String(formField.type || "short_text");
+        const valueType: WorkflowVariableValueType =
+          type === "number"
+            ? "number"
+            : type === "boolean"
+              ? "boolean"
+              : type === "multi_select"
+                ? "json"
+                : "text";
+        add(
+          node,
+          `fields.${index}.outputVariable`,
+          trimmedString(formField.outputVariable),
+          "node_output",
+          valueType,
+        );
+      });
+    }
   });
 
   return sources;

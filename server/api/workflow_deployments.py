@@ -16,6 +16,33 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
 try:
+    from server.workflow_forms import (
+        FORM_BODY_LIMIT,
+        WorkflowFormError,
+        build_share_url,
+        form_schema_checksum,
+        issue_submission_token,
+        loads_strict_json,
+        public_manifest,
+        validate_public_base_url,
+        validate_submission,
+        verify_submission_token,
+    )
+except ModuleNotFoundError:
+    from workflow_forms import (
+        FORM_BODY_LIMIT,
+        WorkflowFormError,
+        build_share_url,
+        form_schema_checksum,
+        issue_submission_token,
+        loads_strict_json,
+        public_manifest,
+        validate_public_base_url,
+        validate_submission,
+        verify_submission_token,
+    )
+
+try:
     from server.workflow_deployments import (
         WorkflowDeploymentConflictError,
         WorkflowDeploymentNotFoundError,
@@ -53,6 +80,7 @@ _trigger_executor: TriggerExecutor | None = None
 _timer_due_source: TimerDueSource | None = None
 _timer_resume_executor: TimerResumeExecutor | None = None
 _rate_windows: dict[str, deque[float]] = defaultdict(deque)
+_form_rate_windows: dict[str, deque[float]] = defaultdict(deque)
 
 
 class CreateWorkflowRequest(BaseModel):
@@ -135,6 +163,16 @@ def workflow_mcp_tools_enabled() -> bool:
     }
 
 
+def workflow_forms_enabled() -> bool:
+    return os.getenv("WORKFLOW_FORMS_ENABLED", "false").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+
+
+def workflow_forms_public_base_url() -> str:
+    return os.getenv("WORKFLOW_FORMS_PUBLIC_BASE_URL", "").strip()
+
+
 def _map_error(exc: Exception) -> HTTPException:
     if isinstance(exc, WorkflowDeploymentNotFoundError):
         return HTTPException(status_code=404, detail=str(exc))
@@ -151,9 +189,15 @@ def _map_error(exc: Exception) -> HTTPException:
 def _project_payload(store: WorkflowDeploymentStore, project_id: str) -> dict[str, Any]:
     project = store.require_project(project_id)
     active = store.active_deployment(project_id)
+    form_publication = store.get_form_publication(project_id)
     return {
         **store.serialize_project(project),
         "active_deployment": store.serialize_deployment(active) if active else None,
+        "form_publication": (
+            store.serialize_form_publication(form_publication)
+            if form_publication is not None
+            else None
+        ),
         "published_versions": [
             store.serialize_version(item) for item in store.list_versions(project_id)
         ],
@@ -296,11 +340,29 @@ async def activate_workflow(project_id: str, version: int) -> dict[str, Any]:
             file_output_assets_enabled=file_output_assets_enabled(),
             mcp_tools_enabled=workflow_mcp_tools_enabled(),
             handoff_executor_enabled=handoff_executor_enabled(),
+            forms_enabled=workflow_forms_enabled(),
+            forms_public_base_url=workflow_forms_public_base_url(),
         )
         payload = store.serialize_deployment(deployment)
         if plaintext_key:
-            payload["webhook_key"] = plaintext_key
-            payload["webhook_key_once"] = True
+            if deployment.trigger_kind == "form":
+                publication = store.get_form_publication(project_id)
+                if publication is None:
+                    raise WorkflowDeploymentConflictError(
+                        "The form publication was not created."
+                    )
+                payload["form_share_url"] = build_share_url(
+                    workflow_forms_public_base_url(),
+                    publication.form_id,
+                    plaintext_key,
+                )
+                payload["form_share_url_once"] = True
+                payload["form_publication"] = store.serialize_form_publication(
+                    publication
+                )
+            else:
+                payload["webhook_key"] = plaintext_key
+                payload["webhook_key_once"] = True
         return payload
     except Exception as exc:
         raise _map_error(exc) from exc
@@ -333,6 +395,29 @@ async def rotate_workflow_webhook_key(project_id: str, version: int) -> dict[str
         raise _map_error(exc) from exc
 
 
+@router.post("/api/workflows/{project_id}/versions/{version}/rotate-form-key")
+async def rotate_workflow_form_key(project_id: str, version: int) -> dict[str, Any]:
+    store = _require_store()
+    try:
+        publication, plaintext_key = store.rotate_form_key(
+            project_id,
+            version,
+            forms_enabled=workflow_forms_enabled(),
+            forms_public_base_url=workflow_forms_public_base_url(),
+        )
+        return {
+            **store.serialize_form_publication(publication),
+            "form_share_url": build_share_url(
+                workflow_forms_public_base_url(),
+                publication.form_id,
+                plaintext_key,
+            ),
+            "form_share_url_once": True,
+        }
+    except Exception as exc:
+        raise _map_error(exc) from exc
+
+
 @router.get("/api/workflows/{project_id}/executions")
 async def list_workflow_executions(project_id: str, limit: int = 100) -> dict[str, Any]:
     store = _require_store()
@@ -354,6 +439,163 @@ def _check_rate_limit(hook_id: str, *, now: float) -> None:
     if len(window) >= 60:
         raise HTTPException(status_code=429, detail="Workflow hook rate limit exceeded.")
     window.append(now)
+
+
+def _check_form_rate_limit(key: str, *, limit: int, now: float) -> None:
+    window = _form_rate_windows[key]
+    while window and window[0] <= now - 60:
+        window.popleft()
+    if len(window) >= limit:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many form requests.",
+            headers={"Retry-After": "60"},
+        )
+    window.append(now)
+
+
+def _public_form_not_found() -> HTTPException:
+    return HTTPException(status_code=404, detail="Workflow form not found.")
+
+
+@router.get("/api/workflow-forms/{form_id}/manifest")
+async def get_workflow_form_manifest(
+    form_id: str,
+    request: Request,
+    response: Response,
+) -> dict[str, Any]:
+    if not workflow_forms_enabled():
+        raise _public_form_not_found()
+    store = _require_store()
+    try:
+        publication, _deployment, release = store.authenticate_form(
+            form_id,
+            request.headers.get("X-ModelMirror-Form-Key", ""),
+        )
+        now = time.time()
+        _check_form_rate_limit(f"manifest:{form_id}", limit=60, now=now)
+        data = store.form_entry_data(release)
+        checksum = form_schema_checksum(data)
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        return {
+            **public_manifest(data),
+            "submissionToken": issue_submission_token(
+                form_id=form_id,
+                form_key_hash=publication.form_key_hash,
+                version=publication.version,
+                schema_checksum=checksum,
+                now=now,
+            ),
+            "expiresInSeconds": 900,
+        }
+    except HTTPException:
+        raise
+    except (WorkflowDeploymentNotFoundError, WorkflowFormError):
+        raise _public_form_not_found()
+    except Exception:
+        logger.exception("Public workflow form manifest failed.")
+        raise _public_form_not_found()
+
+
+@router.post("/api/workflow-forms/{form_id}/submissions", status_code=202)
+async def submit_workflow_form(
+    form_id: str,
+    request: Request,
+    response: Response,
+) -> dict[str, str]:
+    if not workflow_forms_enabled():
+        raise _public_form_not_found()
+    store = _require_store()
+    try:
+        publication, deployment, release = store.authenticate_form(
+            form_id,
+            request.headers.get("X-ModelMirror-Form-Key", ""),
+        )
+        now = time.time()
+        _check_form_rate_limit(f"submit:{form_id}", limit=30, now=now)
+        _check_form_rate_limit("submit:global", limit=300, now=now)
+        content_type = (
+            request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+        )
+        if content_type != "application/json":
+            raise HTTPException(status_code=415, detail="Form submissions require JSON.")
+        content_length = request.headers.get("content-length")
+        if content_length:
+            try:
+                declared_length = int(content_length)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail="Invalid request size.") from exc
+            if declared_length < 0 or declared_length > FORM_BODY_LIMIT:
+                raise HTTPException(status_code=413, detail="Form submission is too large.")
+        chunks: list[bytes] = []
+        body_size = 0
+        async for chunk in request.stream():
+            body_size += len(chunk)
+            if body_size > FORM_BODY_LIMIT:
+                raise HTTPException(status_code=413, detail="Form submission is too large.")
+            chunks.append(chunk)
+        body = b"".join(chunks)
+        payload = loads_strict_json(body)
+        if not isinstance(payload, dict) or set(payload) != {"submissionToken", "values"}:
+            raise WorkflowFormError(
+                "invalid_submission_envelope",
+                "The form submission request is invalid.",
+            )
+        data = store.form_entry_data(release)
+        checksum = form_schema_checksum(data)
+        token_payload = verify_submission_token(
+            str(payload.get("submissionToken") or ""),
+            form_id=form_id,
+            form_key_hash=publication.form_key_hash,
+            version=publication.version,
+            schema_checksum=checksum,
+            now=now,
+        )
+        values = validate_submission(data, payload.get("values"))
+        item, created = store.create_form_execution(
+            deployment,
+            nonce=str(token_payload["nonce"]),
+            field_count=len(values),
+            body_size=len(body),
+            body_sha256=hashlib.sha256(body).hexdigest(),
+            now=now,
+        )
+        if created:
+            event = {
+                "type": "form_submission",
+                "form_id": form_id,
+                "submission_id": item.trigger_summary["submission_id"],
+                "received_at": now,
+                "occurrence_key": item.occurrence_key,
+                "field_count": len(values),
+                "body_size": len(body),
+                "body_sha256": hashlib.sha256(body).hexdigest(),
+                "values": values,
+            }
+            asyncio.create_task(_execute_trigger(item, event))
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        return {"status": "accepted"}
+    except HTTPException:
+        raise
+    except WorkflowDeploymentNotFoundError:
+        raise _public_form_not_found()
+    except WorkflowFormError as exc:
+        if exc.code == "invalid_token":
+            raise _public_form_not_found()
+        raise HTTPException(
+            status_code=422,
+            detail="The form contains invalid values.",
+        ) from exc
+    except Exception:
+        logger.exception("Public workflow form submission failed.")
+        raise HTTPException(
+            status_code=500,
+            detail="The form could not be submitted.",
+        )
 
 
 def _http_entry_limits(

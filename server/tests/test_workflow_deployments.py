@@ -910,7 +910,7 @@ def test_failure_dispatch_is_atomic_idempotent_sanitized_and_persistent(tmp_path
         "failed_node_title": "外部调用 Authorization: [redacted]",
     }
     snapshot = store.snapshot_path.read_text(encoding="utf-8")
-    assert '"version": "workflow-deployments-v2"' in snapshot
+    assert '"version": "workflow-deployments-v3"' in snapshot
     assert "request_body=private" not in snapshot
     assert "secret-token" not in snapshot
     assert "bearer-secret" not in snapshot

@@ -26,6 +26,13 @@ const nodeMeta = {
     bg: "bg-cyan-300/10",
     text: "text-cyan-100",
   },
+  form_event_entry: {
+    icon: "FORM",
+    label: "表单提交入口",
+    border: "border-emerald-300/40",
+    bg: "bg-emerald-300/10",
+    text: "text-emerald-100",
+  },
   failure_event_entry: {
     icon: "!",
     label: "失败处置入口",
@@ -529,6 +536,7 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
           "input",
           "scheduled_start",
           "http_event_entry",
+          "form_event_entry",
           "failure_event_entry",
           "workflow_call_entry",
           "external_xpert",
