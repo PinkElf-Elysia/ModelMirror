@@ -215,7 +215,7 @@ const activationReasonLabels: Record<string, string> = {
   mcp_remote_auth_binding_missing: "请先绑定该候选的访问 Token。",
   mcp_remote_auth_binding_stale: "认证策略或凭据 revision 已变化，请重新绑定。",
   mcp_remote_auth_scope_denied: "认证绑定不属于当前本地主体。",
-  mcp_remote_oauth_runtime_disabled: "OAuth 契约可复核并发布，但 R3A 不会将工具暴露给 Runtime。",
+  mcp_remote_oauth_runtime_disabled: "OAuth Runtime 开关未启用，V3 契约不会暴露工具。",
 };
 
 const safetyReasonLabels: Record<string, string> = {
@@ -241,12 +241,16 @@ const safetyReasonLabels: Record<string, string> = {
   mcp_remote_oauth_review_disabled: "OAuth Review Factory 当前未启用。",
   mcp_remote_oauth_bearer_challenge_required: "端点未返回可验证的 Bearer 挑战，不能升级为 OAuth 候选。",
   mcp_remote_oauth_refresh_required: "Token 即将到期，请显式刷新后重新复核。",
+  mcp_remote_oauth_unauthorized: "上游拒绝了当前 OAuth Token（401）；请显式刷新或重新授权，原操作不会重试。",
+  mcp_remote_oauth_forbidden: "当前 OAuth Token 没有执行该工具的权限（403）。",
+  mcp_remote_oauth_scope_upgrade_required: "上游要求额外 Scope；系统不会自动扩权、重新授权或重试原操作。",
   mcp_remote_oauth_contract_scope_drift: "Scope、Token revision 或发现证据已变化，需要重新复核。",
-  mcp_remote_oauth_high_risk_scope_denied: "Scope 含写入、管理、发布、交易或设备控制语义，R3A 已拒绝复核。",
+  mcp_remote_oauth_high_risk_scope_denied: "Scope 含写入、管理、发布、交易或设备控制语义，已拒绝复核。",
   mcp_remote_oauth_state_replay_denied: "该 OAuth 回调 state 已使用，禁止重复提交。",
   mcp_remote_oauth_token_exchange_unknown_outcome: "授权码换票结果未知，旧授权已封锁；请核对账号状态后创建新授权。",
   mcp_remote_oauth_refresh_unknown_outcome: "Token 刷新结果未知，旧 revision 已封锁；请重新授权。",
   mcp_remote_oauth_refresh_in_progress: "该 Token revision 正在刷新，请稍后刷新授权状态。",
+  mcp_remote_oauth_revocation_unknown_outcome: "本地凭据已撤销，但授权服务器的远程撤销结果未知；不会自动重试。",
 };
 
 function describeSafetyReason(code: string): string {
@@ -579,7 +583,7 @@ export default function McpHubPanel() {
               <h3 className="font-semibold">官方 Registry 受控发现</h3>
             </div>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-              Registry 收录不代表安全认证。这里只允许固定公网 HTTPS 的 Streamable HTTP 端点；静态 Secret 与 OAuth Token 进入外部主密钥加密槽。R3A 可完成 OAuth 复核与 V3 契约发布，但认证型工具仍不会进入 MCP Runtime。
+              Registry 收录不代表安全认证。这里只允许固定公网 HTTPS 的 Streamable HTTP 端点；OAuth 工具仅在 V3 契约、当前 Token revision 与 Schema 全部匹配时进入 Runtime，且每次调用都要审批。
             </p>
           </div>
           <button
@@ -603,6 +607,12 @@ export default function McpHubPanel() {
           </span>
           <span className={`rounded-md border px-2 py-1 ${remoteOAuthAuthorizationOperational ? "border-emerald-300/20 text-emerald-100" : "border-amber-300/20 text-amber-100"}`}>
             OAuth 授权：{remoteOAuthAuthorizationOperational ? "本机可用" : "默认关闭或加密槽未就绪"}
+          </span>
+          <span className={`rounded-md border px-2 py-1 ${remoteOAuthStatus?.runtime_enabled ? "border-emerald-300/20 text-emerald-100" : "border-amber-300/20 text-amber-100"}`}>
+            OAuth Runtime：{remoteOAuthStatus?.runtime_enabled ? "已启用" : "默认关闭"}
+          </span>
+          <span className={`rounded-md border px-2 py-1 ${remoteOAuthStatus?.remote_revocation_enabled ? "border-rose-300/20 text-rose-100" : "border-white/10 text-slate-400"}`}>
+            远程撤销：{remoteOAuthStatus?.remote_revocation_enabled ? "已启用（不可逆）" : "仅本地撤销"}
           </span>
           <span className="rounded-md border border-white/10 px-2 py-1">快照：{status.snapshot_count} 项</span>
           {status.last_sync_skipped_count ? <span className="rounded-md border border-amber-300/20 px-2 py-1 text-amber-100">拒绝异常记录：{status.last_sync_skipped_count}</span> : null}
@@ -840,8 +850,10 @@ export default function McpHubPanel() {
                 const oauthClientId = oauthClientIds[candidate.candidate_id] || "";
                 const requestOAuthRefresh = Boolean(oauthRefreshRequests[candidate.candidate_id]);
                 const oauthAuthorizationUrl = oauthAuthorizationUrls[candidate.candidate_id] || "";
-                const oauthRuntimeBlocked = Boolean(candidate.oauth_discovery_available);
-                const runtimeAuthReady = authReady && !oauthDiscovery && !oauthRuntimeBlocked;
+                const oauthRuntimeReady = !candidate.oauth_discovery_available || Boolean(
+                  oauth?.runtime_eligible && remoteOAuthStatus?.runtime_enabled && candidate.activation_eligible,
+                );
+                const runtimeAuthReady = authReady && oauthRuntimeReady;
                 const candidateError = candidateErrors[candidate.candidate_id];
                 return (
                 <article className="rounded-lg border border-white/10 bg-ink-950/45 p-4" key={candidate.candidate_id}>
@@ -995,12 +1007,12 @@ export default function McpHubPanel() {
                       <div className="flex items-start gap-2">
                         <Shield aria-hidden="true" className="mt-0.5 shrink-0 text-violet-200" size={16} />
                         <div className="min-w-0 text-xs leading-5 text-slate-300">
-                          <p className="font-semibold text-violet-100">OAuth 受控授权与复核（R3A）</p>
+                          <p className="font-semibold text-violet-100">OAuth 受控授权、复核与 Runtime（R3B）</p>
                           <p>冻结 resource、Issuer、登记 revision 与服务端推荐 Scope，再进行一次性授权。</p>
                           {candidate.oauth_discovery_source === "pending_www_authenticate" ? (
                             <p className="mt-1 text-violet-100">匿名预检已收到 401；下一步只接受可验证的 Bearer 挑战与固定 OAuth 元数据。</p>
                           ) : null}
-                          <p className="mt-1 text-amber-100">可进入 Review Factory 并发布 V3 契约；OAuth 工具仍不会进入 Runtime。</p>
+                          <p className="mt-1 text-amber-100">只有已发布 V3 契约且 Token/Scope/Schema 未漂移时才可激活；执行仍需逐次审批。</p>
                         </div>
                       </div>
                       {!remoteOAuthOperational ? (
@@ -1036,6 +1048,7 @@ export default function McpHubPanel() {
                             <p>Scope 来源：{oauthDiscovery.scope_source}</p>
                             <p>精确推荐 Scope：{oauthDiscovery.recommended_scopes.length ? oauthDiscovery.recommended_scopes.join("、") : "省略 scope 参数"}</p>
                             <p>手动刷新：{oauthDiscovery.offline_access_available ? "授权服务器明确支持，可单独请求" : "未明确支持"}</p>
+                            <p>远程撤销：{oauthDiscovery.revocation_endpoint_available ? "支持标准 endpoint" : "无标准 endpoint，仅可本地撤销"}</p>
                             <p className="mt-1 break-all font-mono text-slate-500">fingerprint {oauthDiscovery.discovery_fingerprint.slice(0, 20)}…</p>
                           </div>
                           <button
@@ -1177,7 +1190,7 @@ export default function McpHubPanel() {
                                   <p>Scope：{oauthToken.scopes.join("、")}</p>
                                   <p>revision {oauthToken.revision} · {oauthToken.expires_at ? `到期 ${new Date(oauthToken.expires_at * 1000).toLocaleString()}` : "授权服务器未返回到期时间"}</p>
                                   <p>resource 绑定：{oauthToken.resource_bound ? "已验证" : "旧 Token，必须重新授权"}</p>
-                                  <p className="text-amber-100">R3A 仅允许 Review Factory 临时解析；不会把工具交给 Runtime。</p>
+                                  <p className="text-amber-100">Runtime 不会自动刷新或扩权；Token revision 变化会立即断开旧会话。</p>
                                   <div className="flex flex-wrap gap-2">
                                     {oauthToken.refresh_available ? (
                                       <button
@@ -1205,17 +1218,32 @@ export default function McpHubPanel() {
                                       className="min-h-9 rounded-md border border-rose-300/20 px-3 font-semibold text-rose-100 disabled:opacity-40"
                                       disabled={!remoteOAuthAuthorizationOperational || Boolean(busy)}
                                       onClick={() => {
-                                        if (!window.confirm("撤销本机 OAuth Token？这会立即删除本地可用凭据；R3A 不调用远程撤销端点。")) return;
+                                        const remoteRevoke = Boolean(
+                                          remoteOAuthStatus?.remote_revocation_enabled && oauthDiscovery.revocation_endpoint_available,
+                                        );
+                                        const warning = remoteRevoke
+                                          ? "撤销 OAuth Token？本地凭据会立即失效，并向冻结的 RFC 7009 端点派发一次不可逆撤销；断链后不会自动重试。继续？"
+                                          : "撤销本机 OAuth Token？这会立即删除本地可用凭据；远程撤销未启用或上游未提供端点。";
+                                        if (!window.confirm(warning)) return;
                                         void run(
                                           `oauth-token-revoke:${candidate.candidate_id}`,
-                                          () => requestJson(`/api/mcp/hub/candidates/${candidate.candidate_id}/oauth/tokens/${oauthToken.token_id}`, { method: "DELETE" }),
-                                          () => setNotice(`${candidate.server_name} 的本机 OAuth Token 已撤销。`),
+                                          () => requestJson<{ revocation?: { remote_revocation: string } }>(`/api/mcp/hub/candidates/${candidate.candidate_id}/oauth/tokens/${oauthToken.token_id}`, { method: "DELETE" }),
+                                          (result) => {
+                                            const remoteStatus = result.revocation?.remote_revocation;
+                                            if (remoteStatus === "completed") {
+                                              setNotice(`${candidate.server_name} 的本地与远程 OAuth Token 已撤销。`);
+                                            } else if (remoteStatus === "unknown_outcome") {
+                                              setNotice(`${candidate.server_name} 的本地 Token 已撤销；远程结果未知，不会自动重试。`);
+                                            } else {
+                                              setNotice(`${candidate.server_name} 的本地 OAuth Token 已撤销；远程状态：${remoteStatus || "local_only"}。`);
+                                            }
+                                          },
                                           candidate.candidate_id,
                                         );
                                       }}
                                       type="button"
                                     >
-                                      撤销本机 Token
+                                      撤销 Token
                                     </button>
                                   </div>
                                 </div>

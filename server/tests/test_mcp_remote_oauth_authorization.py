@@ -44,6 +44,7 @@ class FakeBridge:
     def __init__(self) -> None:
         self.exchange_calls = 0
         self.refresh_calls = 0
+        self.revoke_calls = 0
         self.exchange_result: dict[str, Any] = {
             "access_token": "access-one",
             "refresh_token": "refresh-one",
@@ -60,8 +61,10 @@ class FakeBridge:
         }
         self.exchange_error = ""
         self.refresh_error = ""
+        self.revoke_error = ""
         self.last_exchange_digest = ""
         self.last_refresh_digest = ""
+        self.last_revoke_body: dict[str, str] = {}
 
     async def exchange_authorization_code(
         self, target_id: str, url: str, *, request_body: dict[str, str]
@@ -94,6 +97,19 @@ class FakeBridge:
                 "refresh failed", code=self.refresh_error, status_code=502
             )
         return dict(self.refresh_result)
+
+    async def revoke_token(
+        self, target_id: str, url: str, *, request_body: dict[str, str]
+    ) -> dict[str, Any]:
+        self.revoke_calls += 1
+        assert target_id.startswith("mcphub_")
+        assert url == f"{ISSUER}/revoke"
+        self.last_revoke_body = dict(request_body)
+        if self.revoke_error:
+            raise RemoteOAuthError(
+                "revoke failed", code=self.revoke_error, status_code=503
+            )
+        return {"remote_status": "completed"}
 
 
 def configured(
@@ -353,6 +369,31 @@ async def test_execution_resolver_binds_resource_scope_and_token_revision(
         ):
             pass
     assert stale.value.code == "mcp_remote_oauth_token_stale"
+
+
+@pytest.mark.asyncio
+async def test_execution_resolver_rejects_token_within_refresh_window(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, metadata, _vault, bridge, target_id = configured(tmp_path, monkeypatch)
+    _created, state = create_url(service, metadata, target_id)
+    await service.callback(state=state, code="one-time-code", issuer=ISSUER)
+    database = tmp_path / "auth" / "remote-auth.sqlite3"
+    with sqlite3.connect(database) as db:
+        db.execute(
+            "UPDATE remote_oauth_token_revisions SET expires_at=strftime('%s','now')+60 "
+            "WHERE status='active'"
+        )
+
+    with pytest.raises(RemoteOAuthError) as denied:
+        service.execution_metadata(
+            target_type="hub_candidate",
+            target_id=target_id,
+            source_digest=SOURCE,
+        )
+
+    assert denied.value.code == "mcp_remote_oauth_refresh_required"
+    assert bridge.refresh_calls == 0
 
 
 @pytest.mark.asyncio
@@ -1070,3 +1111,226 @@ async def test_callback_rejects_query_injection_without_echoing_values(
     assert response.headers["cache-control"] == "no-store"
     assert observed_query == b""
     assert bridge.exchange_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_remote_revocation_disabled_degrades_to_local_only_without_dispatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MCP_REMOTE_OAUTH_REMOTE_REVOCATION_ENABLED", "false")
+    service, metadata, vault, bridge, target_id = configured(tmp_path, monkeypatch)
+    _, state = create_url(service, metadata, target_id)
+    await service.callback(state=state, code="one-time-code")
+    token = service.summary(
+        target_type="hub_candidate", target_id=target_id, source_digest=SOURCE
+    )["token"]
+    result = await service.revoke_with_remote(
+        target_type="hub_candidate", target_id=target_id, token_id=token["token_id"]
+    )
+    assert result["local_revocation"] == "completed"
+    assert result["remote_revocation"] == "local_only"
+    assert bridge.revoke_calls == 0
+    assert all(record.status == "revoked" for record in vault.list())
+
+
+@pytest.mark.asyncio
+async def test_remote_revocation_prefers_refresh_token_and_never_replays(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MCP_REMOTE_OAUTH_REMOTE_REVOCATION_ENABLED", "true")
+    service, metadata, vault, bridge, target_id = configured(tmp_path, monkeypatch)
+    _, state = create_url(service, metadata, target_id)
+    await service.callback(state=state, code="one-time-code")
+    token = service.summary(
+        target_type="hub_candidate", target_id=target_id, source_digest=SOURCE
+    )["token"]
+    result = await service.revoke_with_remote(
+        target_type="hub_candidate", target_id=target_id, token_id=token["token_id"]
+    )
+    assert result["local_revocation"] == "completed"
+    assert result["remote_revocation"] == "completed"
+    assert bridge.revoke_calls == 1
+    assert bridge.last_revoke_body == {
+        "token": "refresh-one",
+        "token_type_hint": "refresh_token",
+        "client_id": "public-client",
+    }
+    assert all(record.status == "revoked" for record in vault.list())
+    with pytest.raises(RemoteOAuthError) as replay:
+        await service.revoke_with_remote(
+            target_type="hub_candidate",
+            target_id=target_id,
+            token_id=token["token_id"],
+        )
+    assert replay.value.code == "mcp_remote_oauth_token_missing"
+    assert bridge.revoke_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_remote_revocation_unknown_outcome_still_removes_local_use(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MCP_REMOTE_OAUTH_REMOTE_REVOCATION_ENABLED", "true")
+    service, metadata, vault, bridge, target_id = configured(tmp_path, monkeypatch)
+    _, state = create_url(service, metadata, target_id)
+    await service.callback(state=state, code="one-time-code")
+    token = service.summary(
+        target_type="hub_candidate", target_id=target_id, source_digest=SOURCE
+    )["token"]
+    bridge.revoke_error = "mcp_remote_oauth_revocation_unknown_outcome"
+    result = await service.revoke_with_remote(
+        target_type="hub_candidate", target_id=target_id, token_id=token["token_id"]
+    )
+    assert result["local_revocation"] == "completed"
+    assert result["remote_revocation"] == "unknown_outcome"
+    subject = LocalSubjectScopeResolver().resolve()
+    attempt = service.store.revocation_attempt(result["attempt_id"], subject=subject)
+    assert attempt.status == "unknown_outcome"
+    assert attempt.error_code == "mcp_remote_oauth_revocation_unknown_outcome"
+    assert service.store.active_token(
+        subject=subject, target_type="hub_candidate", target_id=target_id
+    ) is None
+    assert all(record.status == "revoked" for record in vault.list())
+    assert bridge.revoke_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_revocation_is_rejected_while_same_revision_is_refreshing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MCP_REMOTE_OAUTH_REMOTE_REVOCATION_ENABLED", "true")
+    service, metadata, _vault, bridge, target_id = configured(tmp_path, monkeypatch)
+    _, state = create_url(service, metadata, target_id)
+    await service.callback(state=state, code="one-time-code")
+    token = service.summary(
+        target_type="hub_candidate", target_id=target_id, source_digest=SOURCE
+    )["token"]
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def controlled_refresh(
+        _target_id: str, _url: str, *, request_body: dict[str, str]
+    ) -> dict[str, Any]:
+        bridge.refresh_calls += 1
+        entered.set()
+        await release.wait()
+        return dict(bridge.refresh_result)
+
+    bridge.refresh_access_token = controlled_refresh  # type: ignore[method-assign]
+    refreshing = asyncio.create_task(service.refresh(
+        target_type="hub_candidate",
+        target_id=target_id,
+        token_id=token["token_id"],
+        expected_revision=token["revision"],
+    ))
+    await entered.wait()
+    with pytest.raises(RemoteOAuthError) as concurrent:
+        await service.revoke_with_remote(
+            target_type="hub_candidate", target_id=target_id, token_id=token["token_id"]
+        )
+    assert concurrent.value.code == "mcp_remote_oauth_refresh_in_progress"
+    assert bridge.revoke_calls == 0
+    release.set()
+    assert (await refreshing).revision == 2
+
+
+@pytest.mark.asyncio
+async def test_cancelled_remote_revocation_is_unknown_and_clears_local_use(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MCP_REMOTE_OAUTH_REMOTE_REVOCATION_ENABLED", "true")
+    service, metadata, vault, bridge, target_id = configured(tmp_path, monkeypatch)
+    _, state = create_url(service, metadata, target_id)
+    await service.callback(state=state, code="one-time-code")
+    token = service.summary(
+        target_type="hub_candidate", target_id=target_id, source_digest=SOURCE
+    )["token"]
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def controlled_revoke(
+        _target_id: str, _url: str, *, request_body: dict[str, str]
+    ) -> dict[str, Any]:
+        bridge.revoke_calls += 1
+        bridge.last_revoke_body = dict(request_body)
+        entered.set()
+        await release.wait()
+        return {"remote_status": "completed"}
+
+    bridge.revoke_token = controlled_revoke  # type: ignore[method-assign]
+    revoking = asyncio.create_task(
+        service.revoke_with_remote(
+            target_type="hub_candidate",
+            target_id=target_id,
+            token_id=token["token_id"],
+        )
+    )
+    await entered.wait()
+    revoking.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await revoking
+    subject = LocalSubjectScopeResolver().resolve()
+    with service.store._connect() as db:
+        row = db.execute(
+            "SELECT attempt_id FROM remote_oauth_revocation_attempts "
+            "ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+    assert row is not None
+    attempt = service.store.revocation_attempt(row["attempt_id"], subject=subject)
+    assert attempt.status == "unknown_outcome"
+    assert attempt.error_code == "mcp_remote_oauth_revocation_unknown_outcome"
+    assert service.store.active_token(
+        subject=subject, target_type="hub_candidate", target_id=target_id
+    ) is None
+    assert all(record.status == "revoked" for record in vault.list())
+    assert bridge.revoke_calls == 1
+
+
+def test_restart_converts_claimed_revocation_to_unknown_and_clears_credential(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, metadata, vault, _bridge, target_id = configured(tmp_path, monkeypatch)
+    _, state = create_url(service, metadata, target_id)
+    asyncio.run(service.callback(state=state, code="one-time-code"))
+    subject = LocalSubjectScopeResolver().resolve()
+    token = service.store.active_token(
+        subject=subject, target_type="hub_candidate", target_id=target_id
+    )
+    discovery = metadata.active_discovery(
+        subject=subject, target_type="hub_candidate", target_id=target_id
+    )
+    registration = metadata.active_registration(
+        subject=subject, target_type="hub_candidate", target_id=target_id
+    )
+    assert token is not None and discovery is not None and registration is not None
+    attempt = service.store.claim_revocation(
+        subject=subject,
+        token=token,
+        discovery=discovery,
+        registration=registration,
+        revocation_endpoint_digest=hashlib.sha256(
+            discovery.policy.revocation_endpoint.encode()
+        ).hexdigest(),
+        token_type_hint="refresh_token",
+    )
+    restarted_store = MCPRemoteOAuthAuthorizationStore(tmp_path / "auth")
+    MCPRemoteOAuthAuthorizationService(
+        restarted_store,
+        metadata_store=metadata,
+        subject_resolver=LocalSubjectScopeResolver(),
+        remote_auth_status=service.remote_auth_status,
+        redirect_uri=lambda: REDIRECT,
+        bridge=service.bridge,
+        credential_creator=vault.create,
+        credential_lookup=vault.get_public,
+        credential_resolver=vault.resolve,
+        credential_rotator=vault.rotate,
+        credential_revoker=vault.revoke,
+    )
+    recovered = restarted_store.revocation_attempt(attempt.attempt_id, subject=subject)
+    assert recovered.status == "unknown_outcome"
+    assert recovered.error_code == "mcp_remote_oauth_revocation_unknown_outcome"
+    assert restarted_store.active_token(
+        subject=subject, target_type="hub_candidate", target_id=target_id
+    ) is None
+    assert all(record.status == "revoked" for record in vault.list())

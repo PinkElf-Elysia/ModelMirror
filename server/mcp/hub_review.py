@@ -56,6 +56,7 @@ MAX_REVIEW_CONCURRENCY = 2
 MAX_EVIDENCE_BYTES = 512 * 1024
 MAX_STAGE_EVENTS = 200
 MAX_TRANSIENT_PREVIEW_BYTES = 4 * 1024
+MAX_PROPOSAL_STRING_LENGTH = 80
 REVIEW_RUN_ID_RE = re.compile(r"^hubreview_[0-9a-f]{32}$")
 REVIEW_ITEM_ID_RE = re.compile(r"^hubitem_[0-9a-f]{32}$")
 PROPOSAL_ID_RE = re.compile(r"^hubproposal_[0-9a-f]{32}$")
@@ -811,18 +812,44 @@ class MCPHubReviewStore:
         return bool(row and row["action"] == "revoke")
 
 
+def _schema_input_field_names(schema: dict[str, Any]) -> list[str]:
+    names: list[str] = []
+    properties = schema.get("properties")
+    if isinstance(properties, dict):
+        for raw_name, child in properties.items():
+            names.append(str(raw_name))
+            if isinstance(child, dict):
+                names.extend(_schema_input_field_names(child))
+    for key in ("items", "additionalProperties", "contains", "not", "if", "then", "else"):
+        child = schema.get(key)
+        if isinstance(child, dict):
+            names.extend(_schema_input_field_names(child))
+    for key in ("allOf", "anyOf", "oneOf", "prefixItems"):
+        children = schema.get(key)
+        if isinstance(children, list):
+            for child in children:
+                if isinstance(child, dict):
+                    names.extend(_schema_input_field_names(child))
+    return names
+
+
 def classify_tool_effect(tool: dict[str, Any]) -> str:
     name = str(tool.get("name") or "")
     description = str(tool.get("description") or "")
     schema = tool.get("input_schema") if isinstance(tool.get("input_schema"), dict) else {}
-    joined = " ".join([name, description, _json_text(schema)]).lower()
-    if SENSITIVE_FIELD_RE.search(joined) or re.search(
+    joined = " ".join([name, description]).lower()
+    sensitive_input = SENSITIVE_FIELD_RE.search(name) or any(
+        SENSITIVE_FIELD_RE.search(field_name)
+        for field_name in _schema_input_field_names(schema)
+    )
+    if sensitive_input or re.search(
         r"\b(?:execute|shell|admin|payment|purchase|send|post|deploy|control)\b", joined
     ):
         return "dangerous_candidate"
     if re.search(r"\b(?:delete|remove|write|update|create|insert|set|upload|publish|mutate)\b", joined):
         return "state_write_candidate"
-    if re.search(r"\b(?:render|convert|generate|chart|artifact|export)\b", joined):
+    normalized_name = re.sub(r"[_-]+", " ", name.lower())
+    if re.search(r"\b(?:render|convert|generate|chart|artifact|export)\b", normalized_name):
         return "artifact_candidate"
     if re.search(r"\b(?:read|search|find|get|list|lookup|query|describe|documentation|metadata)\b", joined):
         return "read_candidate"
@@ -852,11 +879,16 @@ def deterministic_arguments(schema: dict[str, Any]) -> dict[str, Any] | None:
             continue
         kind = field.get("type")
         if kind == "string":
-            max_length = field.get("maxLength")
-            if not isinstance(max_length, int) or max_length < 1 or max_length > 1000:
+            declared_max_length = field.get("maxLength")
+            if declared_max_length is not None and (
+                not isinstance(declared_max_length, int)
+                or isinstance(declared_max_length, bool)
+                or declared_max_length < 1
+            ):
                 return None
             if field.get("pattern") or field.get("format"):
                 return None
+            max_length = min(declared_max_length or MAX_PROPOSAL_STRING_LENGTH, MAX_PROPOSAL_STRING_LENGTH)
             min_length = int(field.get("minLength") or 0)
             if min_length > max_length:
                 return None
@@ -1982,13 +2014,16 @@ class MCPHubReviewService:
             payload={"contract_id": contract.contract_id, "revision_id": revision["revision_id"]},
         )
         self._refresh_run_status(run_id)
-        oauth_contract = isinstance(contract, HubReviewedContractV3)
+        candidate = self.hub.store.require_candidate(
+            item["candidate_id"], self.tenant_id, self.owner_id
+        )
+        activation_eligible, activation_reason = self.hub._activation_review(
+            candidate
+        )
         return {
             **revision,
-            "activation_eligible": not oauth_contract,
-            "activation_reason": (
-                "mcp_remote_oauth_runtime_disabled" if oauth_contract else ""
-            ),
+            "activation_eligible": activation_eligible,
+            "activation_reason": activation_reason,
         }
 
     def export_contract(self, run_id: str, item_id: str) -> bytes:

@@ -28,7 +28,11 @@ from urllib.parse import quote, urlsplit
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
 
-from .hub_contracts import HubContractRegistry, HubReviewedContractV1
+from .hub_contracts import (
+    HubContractRegistry,
+    HubReviewedContractV1,
+    HubReviewedContractV3,
+)
 from .remote_auth import RemoteAuthError, RemoteAuthPolicyV1
 from .remote_oauth import RemoteOAuthError
 
@@ -68,6 +72,14 @@ SAFE_SESSION_RECONNECT_CODES = frozenset(
         "hub_tool_recheck_failed",
     }
 )
+SAFE_OAUTH_CALL_FAILURE_CODES = frozenset(
+    {
+        "mcp_remote_oauth_unauthorized",
+        "mcp_remote_oauth_forbidden",
+        "mcp_remote_oauth_scope_upgrade_required",
+        "mcp_remote_oauth_refresh_required",
+    }
+)
 
 SERVER_NAME_RE = re.compile(r"^[A-Za-z0-9.-]+/[A-Za-z0-9._-]+$")
 VERSION_RE = re.compile(r"^[A-Za-z0-9.+_-]{1,255}$")
@@ -81,10 +93,18 @@ APPROVAL_ID_RE = re.compile(
 
 
 class HubError(RuntimeError):
-    def __init__(self, message: str, *, code: str, status_code: int = 400) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str,
+        status_code: int = 400,
+        details: dict[str, Any] | None = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
         self.status_code = status_code
+        self.details = dict(details or {})
 
 
 class HubUnknownOutcomeError(HubError):
@@ -934,7 +954,11 @@ class MCPHubStore:
                 or current.get("status") not in {"active", "published"}
                 or current.get("source_digest") != candidate["source_digest"]
                 or remote is None
-                or remote.get("eligibility") not in {"eligible", "static_token_candidate"}
+                or remote.get("eligibility") not in {
+                    "eligible",
+                    "static_token_candidate",
+                    "oauth_discovery_candidate",
+                }
                 or remote.get("url") != candidate["remote_url"]
                 or remote.get("origin") != candidate["origin"]
                 or (remote.get("auth_policy") or {}) != candidate.get("auth_policy", {})
@@ -1104,7 +1128,36 @@ class HubSocketBridge:
             raise HubError("MCP Hub 隔离服务响应无效。", code="hub_sidecar_invalid", status_code=502) from exc
         if not isinstance(response, dict) or not response.get("ok"):
             code = str(response.get("code") if isinstance(response, dict) else "hub_sidecar_invalid")
-            raise HubError("MCP Hub 隔离服务拒绝请求。", code=code or "hub_sidecar_invalid", status_code=502)
+            details: dict[str, Any] = {}
+            raw_details = response.get("details") if isinstance(response, dict) else None
+            if isinstance(raw_details, dict) and set(raw_details) <= {"required_scopes"}:
+                raw_scopes = raw_details.get("required_scopes")
+                if (
+                    isinstance(raw_scopes, list)
+                    and len(raw_scopes) <= 20
+                    and all(
+                        isinstance(scope, str)
+                        and 0 < len(scope) <= 160
+                        and all(0x21 <= ord(character) <= 0x7E for character in scope)
+                        for scope in raw_scopes
+                    )
+                ):
+                    details["required_scopes"] = list(raw_scopes)
+            message = "MCP Hub 隔离服务拒绝请求。"
+            if code in {"mcp_remote_oauth_refresh_required", "mcp_remote_oauth_unauthorized"}:
+                message = "OAuth token 需要显式刷新或重新授权。"
+            elif code == "mcp_remote_oauth_forbidden":
+                message = "OAuth token 无权执行该工具。"
+            elif code == "mcp_remote_oauth_scope_upgrade_required":
+                message = "OAuth 需要额外 Scope，不会自动扩权或重试。"
+                if details.get("required_scopes"):
+                    message += " 需要：" + "、".join(details["required_scopes"])
+            raise HubError(
+                message,
+                code=code or "hub_sidecar_invalid",
+                status_code=(409 if code in SAFE_OAUTH_CALL_FAILURE_CODES else 502),
+                details=details,
+            )
         return response
 
     async def authorize(self, candidate_id: str, url: str) -> str:
@@ -1170,6 +1223,8 @@ class LiveHubSession:
     session_owner: str
     created_at: float
     last_activity: float
+    auth_mode: str = ""
+    auth_context_digest: str = ""
 
 
 class MCPHubService:
@@ -1226,6 +1281,30 @@ class MCPHubService:
 
     def set_remote_oauth(self, service: Any) -> None:
         self.remote_oauth_service = service
+        authorization = getattr(service, "authorization_service", None)
+        setter = getattr(authorization, "set_target_change_handler", None)
+        if callable(setter):
+            setter(self._oauth_target_changed)
+
+    def _oauth_target_changed(self, target_type: str, target_id: str) -> None:
+        if target_type != "hub_candidate":
+            return
+        live = self._live.pop(target_id, None)
+        if live is None:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+
+        async def close_changed_session() -> None:
+            await asyncio.gather(
+                self.bridge.close(live.session_id),
+                self.bridge.revoke(live.capability),
+                return_exceptions=True,
+            )
+
+        loop.create_task(close_changed_session())
 
     def _require_enabled(self) -> None:
         if not hub_enabled():
@@ -1646,6 +1725,71 @@ class MCPHubService:
     def _raise_remote_oauth(exc: RemoteOAuthError) -> None:
         raise HubError(str(exc), code=exc.code, status_code=exc.status_code) from None
 
+    @staticmethod
+    def _oauth_auth_context_digest(metadata: Any) -> str:
+        return hashlib.sha256(
+            ":".join(
+                (
+                    metadata.policy_fingerprint,
+                    metadata.resource_digest,
+                    metadata.scope_digest,
+                    metadata.token_revision_digest,
+                )
+            ).encode("ascii")
+        ).hexdigest()
+
+    def _oauth_execution_context(
+        self,
+        candidate: dict[str, Any],
+        contract: dict[str, Any],
+    ) -> tuple[Any, str]:
+        try:
+            contract_model = HubReviewedContractV3.model_validate(contract)
+        except ValidationError as exc:
+            raise HubError(
+                "OAuth V3 契约无效。",
+                code="hub_reviewed_contract_drift",
+                status_code=409,
+            ) from exc
+        if not self._candidate_oauth_source(candidate):
+            raise HubError(
+                "OAuth 候选来源已漂移。",
+                code="hub_source_drift",
+                status_code=409,
+            )
+        authorization = self._require_oauth_authorization()
+        try:
+            subject = authorization.subject_resolver.resolve()
+            if subject.tenant_id != self.tenant_id or subject.owner_id != self.owner_id:
+                raise HubError(
+                    "OAuth 执行主体与 Hub Owner 不一致。",
+                    code="mcp_remote_oauth_scope_denied",
+                    status_code=403,
+                )
+            metadata = authorization.execution_metadata(
+                target_type="hub_candidate",
+                target_id=candidate["candidate_id"],
+                source_digest=candidate["source_digest"],
+            )
+        except RemoteOAuthError as exc:
+            self._raise_remote_oauth(exc)
+        policy = contract_model.remote_oauth_policy
+        if (
+            metadata.origin != candidate["origin"]
+            or policy.origin != metadata.origin
+            or policy.resource_uri != metadata.resource_uri
+            or policy.policy_fingerprint != metadata.policy_fingerprint
+            or tuple(contract_model.authorized_scopes) != tuple(metadata.scopes)
+            or contract_model.authorized_scope_digest != metadata.scope_digest
+            or contract_model.protocol_version != metadata.protocol_version
+        ):
+            raise HubError(
+                "OAuth Scope 或执行策略已漂移。",
+                code="mcp_remote_oauth_contract_scope_drift",
+                status_code=409,
+            )
+        return metadata, self._oauth_auth_context_digest(metadata)
+
     def candidate_oauth(self, candidate_id: str) -> dict[str, Any]:
         self._require_enabled()
         candidate = self.store.require_candidate(
@@ -1837,6 +1981,7 @@ class MCPHubService:
             )
             self._require_oauth_candidate(candidate)
             try:
+                await self._disconnect_live(clean)
                 await self._require_oauth_authorization().refresh(
                     target_type="hub_candidate",
                     target_id=candidate["candidate_id"],
@@ -1858,12 +2003,16 @@ class MCPHubService:
             )
             self._require_oauth_candidate(candidate)
             try:
-                self._require_oauth_authorization().revoke(
+                await self._disconnect_live(clean)
+                revocation = await self._require_oauth_authorization().revoke_with_remote(
                     target_type="hub_candidate",
                     target_id=candidate["candidate_id"],
                     token_id=token_id,
                 )
-                return self.candidate_oauth(clean)
+                return {
+                    **self.candidate_oauth(clean),
+                    "revocation": revocation,
+                }
             except RemoteOAuthError as exc:
                 self._raise_remote_oauth(exc)
 
@@ -2217,8 +2366,14 @@ class MCPHubService:
             if loaded is None:
                 return None, reason
             normalized = loaded.model_dump(mode="json")
-        if normalized.get("schema_version") == "hub-reviewed-contract-v3":
-            return None, "mcp_remote_oauth_runtime_disabled"
+        oauth_contract = normalized.get("schema_version") == "hub-reviewed-contract-v3"
+        if oauth_contract:
+            if not _flag("MCP_REMOTE_OAUTH_RUNTIME_ENABLED"):
+                return None, "mcp_remote_oauth_runtime_disabled"
+            try:
+                self._oauth_execution_context(candidate, normalized)
+            except HubError as exc:
+                return None, exc.code
         current_server = self.store.get_server(identity[0], identity[1])
         current_remote = next(
             (
@@ -2238,36 +2393,37 @@ class MCPHubService:
             != (candidate.get("auth_policy") or {})
         ):
             return None, "hub_source_drift"
-        policy = self._candidate_auth_policy(candidate)
-        frozen_policy = normalized.get("remote_auth_policy")
-        if policy is None:
-            if frozen_policy is not None:
-                return None, "hub_reviewed_contract_drift"
-        else:
-            if not isinstance(frozen_policy, dict):
-                return None, "hub_contract_unreviewed"
-            try:
-                contract_policy = RemoteAuthPolicyV1.model_validate(frozen_policy)
-            except RemoteAuthError:
-                return None, "hub_reviewed_contract_drift"
-            if contract_policy != policy:
-                return None, "hub_reviewed_contract_drift"
-            binding_id = str(candidate.get("auth_binding_id") or "")
-            if not binding_id or self.remote_auth_broker is None:
-                return None, "mcp_remote_auth_binding_missing"
-            try:
-                binding = self.remote_auth_broker.get_binding(
-                    binding_id,
-                    current_policy=policy,
-                    target_type="hub_candidate",
-                    target_id=str(candidate.get("candidate_id") or ""),
-                )
-            except RemoteAuthError as exc:
-                return None, exc.code
-            if binding.target_type != "hub_candidate" or binding.target_id != candidate.get(
-                "candidate_id"
-            ):
-                return None, "mcp_remote_auth_scope_denied"
+        if not oauth_contract:
+            policy = self._candidate_auth_policy(candidate)
+            frozen_policy = normalized.get("remote_auth_policy")
+            if policy is None:
+                if frozen_policy is not None:
+                    return None, "hub_reviewed_contract_drift"
+            else:
+                if not isinstance(frozen_policy, dict):
+                    return None, "hub_contract_unreviewed"
+                try:
+                    contract_policy = RemoteAuthPolicyV1.model_validate(frozen_policy)
+                except RemoteAuthError:
+                    return None, "hub_reviewed_contract_drift"
+                if contract_policy != policy:
+                    return None, "hub_reviewed_contract_drift"
+                binding_id = str(candidate.get("auth_binding_id") or "")
+                if not binding_id or self.remote_auth_broker is None:
+                    return None, "mcp_remote_auth_binding_missing"
+                try:
+                    binding = self.remote_auth_broker.get_binding(
+                        binding_id,
+                        current_policy=policy,
+                        target_type="hub_candidate",
+                        target_id=str(candidate.get("candidate_id") or ""),
+                    )
+                except RemoteAuthError as exc:
+                    return None, exc.code
+                if binding.target_type != "hub_candidate" or binding.target_id != candidate.get(
+                    "candidate_id"
+                ):
+                    return None, "mcp_remote_auth_scope_denied"
         frozen_source = str(normalized.get("source_digest") or "")
         if frozen_source and frozen_source != str(candidate.get("source_digest") or ""):
             return None, "hub_contract_source_drift"
@@ -2421,6 +2577,8 @@ class MCPHubService:
     ) -> LiveHubSession:
         capability = await self.bridge.authorize(candidate["candidate_id"], candidate["remote_url"])
         session_id = ""
+        auth_mode = ""
+        auth_context_digest = ""
         try:
             session_owner = (
                 "hub:"
@@ -2442,10 +2600,24 @@ class MCPHubService:
             )
             oauth_candidate = bool(self._candidate_oauth_source(candidate, remote=remote))
             if oauth_candidate:
-                if not allow_oauth_review or not _flag("MCP_REMOTE_OAUTH_REVIEW_ENABLED"):
+                runtime_contract: dict[str, Any] | None = None
+                if allow_oauth_review:
+                    allowed = _flag("MCP_REMOTE_OAUTH_REVIEW_ENABLED")
+                    denied_code = "mcp_remote_oauth_review_disabled"
+                else:
+                    allowed = _flag("MCP_REMOTE_OAUTH_RUNTIME_ENABLED")
+                    denied_code = "mcp_remote_oauth_runtime_disabled"
+                    runtime_contract, contract_reason = self._reviewed_contract(candidate)
+                    if runtime_contract is None:
+                        raise HubError(
+                            "OAuth Runtime 契约当前不可执行。",
+                            code=contract_reason,
+                            status_code=409,
+                        )
+                if not allowed:
                     raise HubError(
-                        "OAuth 候选仅允许通过启用的 Review Factory 内部路径连接。",
-                        code="mcp_remote_oauth_review_disabled",
+                        "OAuth 运行路径当前未启用。",
+                        code=denied_code,
                         status_code=409,
                     )
                 authorization = self._require_oauth_authorization()
@@ -2460,11 +2632,17 @@ class MCPHubService:
                             code="mcp_remote_oauth_scope_denied",
                             status_code=403,
                         )
-                    metadata = authorization.execution_metadata(
-                        target_type="hub_candidate",
-                        target_id=candidate["candidate_id"],
-                        source_digest=candidate["source_digest"],
-                    )
+                    if runtime_contract is None:
+                        metadata = authorization.execution_metadata(
+                            target_type="hub_candidate",
+                            target_id=candidate["candidate_id"],
+                            source_digest=candidate["source_digest"],
+                        )
+                        auth_context_digest = self._oauth_auth_context_digest(metadata)
+                    else:
+                        metadata, auth_context_digest = self._oauth_execution_context(
+                            candidate, runtime_contract
+                        )
                     if metadata.origin != candidate["origin"]:
                         raise HubError(
                             "OAuth Origin 与 Registry 候选不一致。",
@@ -2517,6 +2695,7 @@ class MCPHubService:
                             "target_id": candidate["candidate_id"],
                             "token_revision_digest": metadata.token_revision_digest,
                         }
+                        auth_mode = "oauth_authorization_code_pkce"
                         try:
                             response = await self.bridge.open(
                                 candidate["candidate_id"],
@@ -2588,6 +2767,8 @@ class MCPHubService:
                 session_owner=session_owner,
                 created_at=now,
                 last_activity=now,
+                auth_mode=auth_mode,
+                auth_context_digest=auth_context_digest,
             )
             self.store.update_candidate(
                 candidate["candidate_id"],
@@ -2660,11 +2841,19 @@ class MCPHubService:
             None,
         )
         if self._candidate_oauth_source(candidate, remote=current_remote):
-            raise HubError(
-                "OAuth 契约复核使用专用内部路径；R3A 不开放 Runtime 激活。",
-                code="mcp_remote_oauth_runtime_disabled",
-                status_code=409,
-            )
+            if not _flag("MCP_REMOTE_OAUTH_RUNTIME_ENABLED"):
+                raise HubError(
+                    "OAuth Runtime 当前未启用。",
+                    code="mcp_remote_oauth_runtime_disabled",
+                    status_code=409,
+                )
+            contract, reason = self._reviewed_contract(candidate)
+            if contract is None:
+                raise HubError(
+                    "OAuth Runtime 契约当前不可执行。",
+                    code=reason,
+                    status_code=409,
+                )
         async with self._candidate_locks.setdefault(candidate["candidate_id"], asyncio.Lock()):
             await self._disconnect_live(candidate["candidate_id"])
             try:
@@ -2935,6 +3124,17 @@ class MCPHubService:
             if live is not None and not self._live_session_current(live):
                 await self._disconnect_live(clean_id)
                 live = None
+            if live is not None and live.auth_mode == "oauth_authorization_code_pkce":
+                try:
+                    _metadata, current_context = self._oauth_execution_context(
+                        candidate, contract
+                    )
+                except HubError:
+                    await self._disconnect_live(clean_id)
+                    raise
+                if current_context != live.auth_context_digest:
+                    await self._disconnect_live(clean_id)
+                    live = None
             try:
                 if live is None:
                     live = await self._open_candidate(candidate)
@@ -2997,6 +3197,16 @@ class MCPHubService:
                     raise HubError("远程结果结构或大小无效。", code="hub_result_denied", status_code=502)
                 self.store.finish_execution(approval_id, state="completed", result=result)
                 return result
+            except HubError as exc:
+                await self._disconnect_live(clean_id)
+                if exc.code in SAFE_OAUTH_CALL_FAILURE_CODES:
+                    self.store.finish_execution(
+                        approval_id, state="failed", error_code=exc.code
+                    )
+                    raise
+                self.store.finish_execution(approval_id, state="unknown", error_code="unknown_outcome")
+                self.store.update_candidate(clean_id, self.tenant_id, self.owner_id, state="tainted", taint_reason="unknown_outcome")
+                raise HubUnknownOutcomeError() from exc
             except Exception as exc:
                 self.store.finish_execution(approval_id, state="unknown", error_code="unknown_outcome")
                 await self._disconnect_live(clean_id)
@@ -3072,7 +3282,10 @@ def _service() -> MCPHubService:
 
 
 def _raise_http(exc: HubError) -> None:
-    raise HTTPException(status_code=exc.status_code, detail={"code": exc.code, "error": str(exc)}) from exc
+    detail: dict[str, Any] = {"code": exc.code, "error": str(exc)}
+    if exc.details:
+        detail["details"] = exc.details
+    raise HTTPException(status_code=exc.status_code, detail=detail) from exc
 
 
 async def _redacted_request_model(

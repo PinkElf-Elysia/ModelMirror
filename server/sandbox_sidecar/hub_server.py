@@ -100,14 +100,13 @@ SAFE_PREFLIGHT_RETRY_CODES = frozenset(
 
 
 class HubSidecarError(RuntimeError):
-    def __init__(self, code: str) -> None:
+    def __init__(self, code: str, *, details: dict[str, Any] | None = None) -> None:
         super().__init__(code)
         self.code = code
+        self.details = dict(details or {})
 
 
-def _fixed_preflight_error(error: BaseException, *, authenticated: bool = False) -> str:
-    """Reduce SDK/HTTP failures to bounded codes without retaining content."""
-
+def _flattened_errors(error: BaseException) -> list[BaseException]:
     pending: list[BaseException] = [error]
     seen: set[int] = set()
     flattened: list[BaseException] = []
@@ -126,7 +125,67 @@ def _fixed_preflight_error(error: BaseException, *, authenticated: bool = False)
             pending.append(cause)
         if isinstance(context, BaseException):
             pending.append(context)
+    return flattened
 
+
+def _bounded_insufficient_scope(header: str) -> list[str]:
+    if not header or len(header) > 4096 or not header[:6].lower() == "bearer":
+        return []
+    parameters = header[6:]
+    if re.search(
+        r'(?:^|,)\s*error\s*=\s*"insufficient_scope"(?:\s*,|$)',
+        parameters,
+        flags=re.IGNORECASE,
+    ) is None:
+        return []
+    match = re.search(
+        r'(?:^|,)\s*scope\s*=\s*"([^"]{1,2048})"(?:\s*,|$)',
+        parameters,
+        flags=re.IGNORECASE,
+    )
+    if match is None:
+        return []
+    scopes = match.group(1).split()
+    if not scopes or len(scopes) > 20 or len(set(scopes)) != len(scopes):
+        return []
+    for scope in scopes:
+        if len(scope) > 160 or any(
+            not (
+                ord(character) == 0x21
+                or 0x23 <= ord(character) <= 0x5B
+                or 0x5D <= ord(character) <= 0x7E
+            )
+            for character in scope
+        ):
+            return []
+    return scopes
+
+
+def _oauth_call_failure(error: BaseException) -> HubSidecarError | None:
+    for current in _flattened_errors(error):
+        if not isinstance(current, httpx.HTTPStatusError):
+            continue
+        if current.response.status_code == 401:
+            return HubSidecarError("mcp_remote_oauth_unauthorized")
+        if current.response.status_code == 403:
+            scopes = _bounded_insufficient_scope(
+                str(current.response.headers.get("www-authenticate") or "")
+            )
+            if scopes:
+                return HubSidecarError(
+                    "mcp_remote_oauth_scope_upgrade_required",
+                    details={"required_scopes": scopes},
+                )
+            return HubSidecarError("mcp_remote_oauth_forbidden")
+    return None
+
+
+def _fixed_preflight_error(
+    error: BaseException, *, authenticated: bool = False, auth_mode: str = ""
+) -> str:
+    """Reduce SDK/HTTP failures to bounded codes without retaining content."""
+
+    flattened = _flattened_errors(error)
     for current in flattened:
         if isinstance(current, HubSidecarError):
             return current.code
@@ -135,9 +194,13 @@ def _fixed_preflight_error(error: BaseException, *, authenticated: bool = False)
             continue
         status = int(current.response.status_code)
         if status == 401 and authenticated:
-            return "mcp_remote_auth_unauthorized"
+            return (
+                "mcp_remote_oauth_unauthorized"
+                if auth_mode == "oauth"
+                else "mcp_remote_auth_unauthorized"
+            )
         if status == 403 and authenticated:
-            return "mcp_remote_auth_forbidden"
+            return "mcp_remote_oauth_forbidden" if auth_mode == "oauth" else "mcp_remote_auth_forbidden"
         if status in {401, 403}:
             return "hub_upstream_auth_required"
         if status == 404:
@@ -769,6 +832,7 @@ class RemoteSession:
     auth_policy_fingerprint: str
     auth_binding_revision: int
     auth_context_digest: str
+    auth_mode: str
     tools: list[dict[str, Any]]
     created_at: float
     last_activity: float
@@ -830,6 +894,9 @@ class HubRemoteService:
             candidate_id=candidate_id,
             normalized_url=normalized,
         )
+        auth_mode = (
+            "oauth" if isinstance(auth, dict) and auth.get("auth_mode") == "oauth_authorization_code_pkce" else "static" if auth_envelope else ""
+        )
         async with self.lock:
             if len(self.sessions) >= MAX_SESSIONS:
                 raise HubSidecarError("hub_session_limit")
@@ -843,6 +910,7 @@ class HubRemoteService:
                     tool_name=None,
                     arguments=None,
                     auth_header=(auth_envelope[0], auth_envelope[1]) if auth_envelope else None,
+                    auth_mode=auth_mode,
                 )
                 now = time.monotonic()
                 session_id = "hubsession_" + uuid_hex()
@@ -858,6 +926,7 @@ class HubRemoteService:
                     auth_policy_fingerprint=auth_envelope[2] if auth_envelope else "",
                     auth_binding_revision=auth_envelope[3] if auth_envelope else 0,
                     auth_context_digest=auth_envelope[4] if auth_envelope else "",
+                    auth_mode=auth_mode,
                     tools=tools,
                     created_at=now,
                     last_activity=now,
@@ -893,6 +962,7 @@ class HubRemoteService:
         tool_name: str | None,
         arguments: dict[str, Any] | None,
         auth_header: tuple[str, str] | None = None,
+        auth_mode: str = "",
     ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
         """Run one complete SDK exchange without crossing asyncio tasks.
 
@@ -962,6 +1032,13 @@ class HubRemoteService:
                             except HubSidecarError:
                                 raise
                             except BaseException as exc:
+                                oauth_failure = (
+                                    _oauth_call_failure(exc)
+                                    if auth_mode == "oauth"
+                                    else None
+                                )
+                                if oauth_failure is not None:
+                                    raise oauth_failure from exc
                                 raise HubSidecarError(
                                     "hub_upstream_unknown_outcome"
                                 ) from exc
@@ -978,11 +1055,18 @@ class HubRemoteService:
             self._clear_sdk_cancellation()
             if isinstance(failure, HubSidecarError):
                 raise failure
+            oauth_failure = (
+                _oauth_call_failure(failure) if auth_mode == "oauth" else None
+            )
+            if oauth_failure is not None:
+                raise oauth_failure from failure
             code = (
                 "hub_upstream_unknown_outcome"
                 if tool_name is not None
                 else _fixed_preflight_error(
-                    failure, authenticated=auth_header is not None
+                    failure,
+                    authenticated=auth_header is not None,
+                    auth_mode=auth_mode,
                 )
             )
             raise HubSidecarError(code) from failure
@@ -1091,6 +1175,7 @@ class HubRemoteService:
                         if session.auth_header_name
                         else None
                     ),
+                    auth_mode=session.auth_mode,
                 )
                 if result is None:
                     raise HubSidecarError("hub_upstream_unknown_outcome")
@@ -1127,6 +1212,7 @@ class HubRemoteService:
                             if session.auth_header_name
                             else None
                         ),
+                        auth_mode=session.auth_mode,
                     )
                     session.tools = tools
                     session.last_activity = time.monotonic()
@@ -1183,6 +1269,8 @@ class HubRemoteService:
                 raise HubSidecarError("hub_action_denied")
         except HubSidecarError as exc:
             response = {"ok": False, "code": exc.code}
+            if exc.details:
+                response["details"] = exc.details
         except Exception:
             response = {"ok": False, "code": "hub_sidecar_internal_error"}
         await _write_response(writer, response)

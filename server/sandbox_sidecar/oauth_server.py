@@ -44,6 +44,25 @@ RESOURCE_METADATA_RE = re.compile(
 )
 SCOPE_RE = re.compile(r'(?:^|[\s,])scope="([^"\\]{1,2048})"', re.IGNORECASE)
 PKCE_VERIFIER_RE = re.compile(r"^[A-Za-z0-9._~-]{43,128}$")
+TOKEN_TYPE_HINTS = frozenset({"access_token", "refresh_token"})
+
+
+def _has_unambiguous_json_content_type(headers: Any) -> bool:
+    get_list = getattr(headers, "get_list", None)
+    if callable(get_list):
+        values = get_list("content-type")
+    else:
+        value = str(headers.get("content-type", ""))
+        values = [value] if value else []
+    media_types = tuple(
+        value.split(";", 1)[0].strip().lower()
+        for value in values
+        if isinstance(value, str) and value.strip()
+    )
+    if not media_types or len(set(media_types)) != 1:
+        return False
+    media_type = media_types[0]
+    return media_type == "application/json" or media_type.endswith("+json")
 
 
 def _contract(
@@ -243,8 +262,7 @@ class OAuthMetadataService:
                     raise HubSidecarError("hub_upstream_redirect_denied")
                 if response.status_code != 200:
                     raise HubSidecarError("mcp_remote_oauth_upstream_http")
-                content_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
-                if content_type not in {"application/json"} and not content_type.endswith("+json"):
+                if not _has_unambiguous_json_content_type(response.headers):
                     raise HubSidecarError("mcp_remote_oauth_content_type_denied")
                 raw = await _bounded_body(response)
             try:
@@ -283,9 +301,14 @@ class OAuthMetadataService:
             "client_name",
         }:
             raise HubSidecarError("mcp_remote_oauth_registration_invalid")
+        grant_types = request_body.get("grant_types")
         if (
             request_body.get("token_endpoint_auth_method") != "none"
-            or request_body.get("grant_types") != ["authorization_code"]
+            or grant_types
+            not in (
+                ["authorization_code"],
+                ["authorization_code", "refresh_token"],
+            )
             or request_body.get("response_types") != ["code"]
             or request_body.get("application_type") != "native"
             or request_body.get("client_name")
@@ -312,15 +335,7 @@ class OAuthMetadataService:
                     raise HubSidecarError(
                         "mcp_remote_oauth_registration_unknown_outcome"
                     )
-                content_type = (
-                    response.headers.get("content-type", "")
-                    .split(";", 1)[0]
-                    .strip()
-                    .lower()
-                )
-                if content_type != "application/json" and not content_type.endswith(
-                    "+json"
-                ):
+                if not _has_unambiguous_json_content_type(response.headers):
                     raise HubSidecarError(
                         "mcp_remote_oauth_registration_unknown_outcome"
                     )
@@ -349,7 +364,7 @@ class OAuthMetadataService:
             if (
                 document.get("redirect_uris") != request_body["redirect_uris"]
                 or document.get("token_endpoint_auth_method") != "none"
-                or document.get("grant_types") != ["authorization_code"]
+                or document.get("grant_types") != request_body["grant_types"]
                 or document.get("response_types") != ["code"]
                 or document.get("application_type", "native") != "native"
             ):
@@ -479,15 +494,7 @@ class OAuthMetadataService:
                         if action == "exchange_authorization_code"
                         else "mcp_remote_oauth_refresh_unknown_outcome"
                     )
-                content_type = (
-                    response.headers.get("content-type", "")
-                    .split(";", 1)[0]
-                    .strip()
-                    .lower()
-                )
-                if content_type != "application/json" and not content_type.endswith(
-                    "+json"
-                ):
+                if not _has_unambiguous_json_content_type(response.headers):
                     raise HubSidecarError(
                         "mcp_remote_oauth_token_exchange_unknown_outcome"
                         if action == "exchange_authorization_code"
@@ -535,6 +542,79 @@ class OAuthMetadataService:
             for key in ("code", "code_verifier", "refresh_token"):
                 if key in body:
                     body[key] = ""
+            await client.aclose()
+            await proxy.close()
+
+    async def revoke_token(
+        self,
+        url: str,
+        host: str,
+        capability: str,
+        request_body: Any,
+    ) -> dict[str, Any]:
+        if not isinstance(request_body, dict) or set(request_body) != {
+            "token",
+            "token_type_hint",
+            "client_id",
+        }:
+            raise HubSidecarError("mcp_remote_oauth_revocation_request_invalid")
+        token = request_body.get("token")
+        hint = request_body.get("token_type_hint")
+        client_id = request_body.get("client_id")
+        if (
+            not isinstance(token, str)
+            or not token
+            or len(token) > 20_000
+            or any(ord(char) < 0x20 or ord(char) == 0x7F for char in token)
+            or hint not in TOKEN_TYPE_HINTS
+            or not isinstance(client_id, str)
+            or not client_id
+            or len(client_id) > 2048
+            or any(ord(char) < 0x20 or ord(char) == 0x7F for char in client_id)
+        ):
+            raise HubSidecarError("mcp_remote_oauth_revocation_request_invalid")
+        body = {
+            "token": token,
+            "token_type_hint": hint,
+            "client_id": client_id,
+        }
+        if len(_json_bytes(body)) > 24 * 1024:
+            body["token"] = ""
+            raise HubSidecarError("mcp_remote_oauth_revocation_request_invalid")
+        proxy, client = await self._client(capability, host)
+        dispatched = False
+        try:
+            dispatched = True
+            async with client.stream(
+                "POST",
+                url,
+                data=body,
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Accept": "application/json",
+                },
+            ) as response:
+                if 300 <= response.status_code < 400:
+                    raise HubSidecarError(
+                        "mcp_remote_oauth_revocation_unknown_outcome"
+                    )
+                if response.status_code == 200:
+                    return {"remote_status": "completed"}
+                if response.status_code in {400, 401, 403, 429}:
+                    raise HubSidecarError("mcp_remote_oauth_revocation_rejected")
+                raise HubSidecarError(
+                    "mcp_remote_oauth_revocation_unknown_outcome"
+                )
+        except HubSidecarError:
+            raise
+        except (httpx.TimeoutException, httpx.TransportError) as exc:
+            if dispatched:
+                raise HubSidecarError(
+                    "mcp_remote_oauth_revocation_unknown_outcome"
+                ) from exc
+            raise HubSidecarError("mcp_remote_oauth_upstream_unavailable") from exc
+        finally:
+            body["token"] = ""
             await client.aclose()
             await proxy.close()
 
@@ -591,6 +671,19 @@ class OAuthMetadataService:
                     "ok": True,
                     **await self.exchange_token(
                         action,
+                        url,
+                        host,
+                        capability,
+                        request.get("request_body"),
+                    ),
+                }
+            elif action == "revoke_token":
+                url, host, capability = _contract(
+                    request, action=action, extra=frozenset({"request_body"})
+                )
+                response = {
+                    "ok": True,
+                    **await self.revoke_token(
                         url,
                         host,
                         capability,
