@@ -116,27 +116,37 @@ def normalize_provider_catalog(
     offerings: dict[tuple[str, str, str], dict[str, object]] = {}
     for record in records:
         model_id = _clean_model_id(record.get("id"))
-        if model_id is None or model_id in normalized:
+        if model_id is None:
             continue
         declared = _declared_operations(record)
+        operation_catalog = str(record.get("_catalog_operation") or "").strip()
+        if operation_catalog in KNOWN_OPERATIONS:
+            declared.add(operation_catalog)
+        else:
+            operation_catalog = ""
         metadata = {
             key: safe
             for key in ("object", "owned_by", "created", "name")
             if (safe := _safe_scalar(record.get(key))) is not None
         }
-        normalized[model_id] = {
-            "model_id": model_id,
-            "normalized_model_id": model_id.casefold(),
-            "metadata": metadata,
-            "capability_state": (
-                "declared" if declared else "capabilities_unclassified"
-            ),
-        }
+        if model_id not in normalized:
+            normalized[model_id] = {
+                "model_id": model_id,
+                "normalized_model_id": model_id.casefold(),
+                "metadata": metadata,
+                "capability_state": (
+                    "declared" if declared else "capabilities_unclassified"
+                ),
+            }
+        elif declared:
+            normalized[model_id]["capability_state"] = "declared"
         pricing = _reported_pricing(record, observed_at)
         operation_sources: dict[str, str] = {
             operation: "provider_declared" for operation in declared
         }
-        if "chat" in connection.scopes:
+        if operation_catalog:
+            operation_sources[operation_catalog] = "provider_operation_catalog"
+        if "chat" in connection.scopes and not operation_catalog:
             operation_sources.setdefault("chat", "connection_scope")
         for operation, capability_source in operation_sources.items():
             key = (model_id, operation, "managed")
@@ -207,6 +217,20 @@ class ProviderCatalogService:
                 persist_result=False,
                 require_chat_scope=False,
             )
+            embedding_result = None
+            if connection.kind == "openrouter" and "embedding" in connection.scopes:
+                embedding_result, embedding_records = (
+                    await self.router_service.fetch_connection_embedding_model_records(
+                        connection_id
+                    )
+                )
+                records.extend(
+                    {
+                        **record,
+                        "_catalog_operation": "embed",
+                    }
+                    for record in embedding_records
+                )
         except ProviderEgressError as exc:
             checked_at = utc_now()
             self.repository.fail_catalog_refresh(
@@ -244,6 +268,29 @@ class ProviderCatalogService:
                 checked_at=result.checked_at,
                 error_code=error_code,
                 message=result.message,
+            )
+
+        if embedding_result is not None and not embedding_result.ok:
+            error_code = self.router_service._result_error_code(embedding_result)
+            self.repository.fail_catalog_refresh(
+                self.router_service.tenant_id,
+                refresh_id,
+                connection_id=connection_id,
+                error_code=error_code,
+                health=embedding_result.health,
+                model_count=embedding_result.model_count,
+                checked_at=embedding_result.checked_at,
+                error_hint=embedding_result.message,
+            )
+            return ProviderCatalogRefreshResponse(
+                contract_version=PROVIDER_CATALOG_CONTRACT_VERSION,
+                refresh_id=refresh_id,
+                connection_id=connection_id,
+                status="failed",
+                model_count=0,
+                checked_at=embedding_result.checked_at,
+                error_code=error_code,
+                message=embedding_result.message,
             )
 
         models, offerings, model_count, truncated = normalize_provider_catalog(

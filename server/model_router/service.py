@@ -15,6 +15,7 @@ from .repository import (
 )
 from .egress import ProviderEgressError, ProviderEgressPolicy
 from .provider_chat import ProviderChatEndpointResolver
+from .provider_operations import ProviderOperationEndpointResolver
 from .schemas import (
     ConnectionScope,
     ConnectionTestResult,
@@ -216,6 +217,27 @@ class ModelRouterService:
             )
         return result, records
 
+    async def fetch_connection_embedding_model_records(
+        self,
+        connection_id: str,
+    ) -> tuple[ConnectionTestResult, list[dict[str, object]]]:
+        connection = self.repository.get_connection(self.tenant_id, connection_id)
+        if not connection.enabled:
+            raise RouterServiceError(
+                "connection_disabled",
+                "该模型服务已停用。",
+                status_code=409,
+            )
+        if connection.kind != "openrouter" or "embedding" not in connection.scopes:
+            return self._scope_mismatch_result(connection), []
+        api_key = self.repository.resolve_api_key(self.tenant_id, connection_id)
+        endpoint = ProviderOperationEndpointResolver.resolve(
+            provider_kind=connection.kind,
+            base_url=connection.base_url,
+        ).embeddings_models_url
+        result, _, records = await self._probe_models_url(endpoint, api_key)
+        return result, records
+
     def get_policy(self) -> RouterPolicy:
         return self.repository.get_policy(self.tenant_id)
 
@@ -329,8 +351,12 @@ class ModelRouterService:
     async def _probe_with_models(
         self, base_url: str, api_key: str
     ) -> tuple[ConnectionTestResult, list[str], list[dict[str, object]]]:
+        return await self._probe_models_url(self._models_url(base_url), api_key)
+
+    async def _probe_models_url(
+        self, models_url: str, api_key: str
+    ) -> tuple[ConnectionTestResult, list[str], list[dict[str, object]]]:
         checked_at = utc_now()
-        models_url = self._models_url(base_url)
         headers = {"Authorization": f"Bearer {api_key.strip()}"}
         try:
             async with self._client_factory() as client:

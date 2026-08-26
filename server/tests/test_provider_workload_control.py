@@ -22,6 +22,7 @@ from server.model_router.provider_operations import (
     ProviderOperationEndpointResolver,
     ProviderOperationTarget,
     ProviderOperationTransport,
+    provider_operation_model_matches,
 )
 from server.model_router.schemas import (
     ProviderWorkloadActivationRequest,
@@ -868,19 +869,35 @@ async def test_workload_certification_rejects_oversized_unary_response(
     assert b"x" * 1024 not in repository.database_path.read_bytes()
 
 
+@pytest.mark.parametrize(
+    ("provider_kind", "requested_model", "actual_model", "expected_warning"),
+    [
+        ("openai_compatible", "provider/embed", "provider/embed", None),
+        (
+            "openrouter",
+            "openai/text-embedding-3-small",
+            "text-embedding-3-small",
+            "actual_model_provider_prefix_omitted",
+        ),
+    ],
+)
 @pytest.mark.asyncio
 async def test_embedding_certification_validates_exact_finite_vector_space(
     tmp_path: Path,
+    provider_kind: str,
+    requested_model: str,
+    actual_model: str,
+    expected_warning: str | None,
 ) -> None:
     requests: list[Request] = []
 
     def handler(request: Request) -> Response:
         requests.append(request)
         if request.method == "GET":
-            return Response(200, json={"data": [{"id": "provider/embed"}]})
+            return Response(200, json={"data": [{"id": requested_model}]})
         assert request.url.path.endswith("/v1/embeddings")
         assert json.loads(request.content) == {
-            "model": "provider/embed",
+            "model": requested_model,
             "input": [
                 "ModelMirror embedding certification one.",
                 "ModelMirror embedding certification two.",
@@ -890,7 +907,7 @@ async def test_embedding_certification_validates_exact_finite_vector_space(
         return Response(
             200,
             json={
-                "model": "provider/embed",
+                "model": actual_model,
                 "data": [
                     {"index": 0, "embedding": [0.1, 0.2, 0.3]},
                     {"index": 1, "embedding": [0.4, 0.5, 0.6]},
@@ -905,7 +922,7 @@ async def test_embedding_certification_validates_exact_finite_vector_space(
         "local",
         RouterConnectionCreate(
             name="Embedding Provider",
-            kind="openai_compatible",
+            kind=provider_kind,
             base_url="https://provider.example/v1",
             api_key="embedding-cert-secret",
             scopes=["embedding"],
@@ -929,7 +946,7 @@ async def test_embedding_certification_validates_exact_finite_vector_space(
         connection.id,
         ProviderWorkloadCertificationRequest(
             execution_shape="embedding_vectors",
-            model_id="provider/embed",
+            model_id=requested_model,
             acknowledge_billed_call=True,
         ),
         idempotency_key="embedding-certification",
@@ -939,10 +956,11 @@ async def test_embedding_certification_validates_exact_finite_vector_space(
     assert result.checks.embedding_vectors_verified is True
     assert result.checks.actual_model_verified is True
     assert result.vector_dimension == 3
+    assert (expected_warning in result.warning_codes) is bool(expected_warning)
     offering = repository.list_catalog_offerings(
         "local",
         connection_id=connection.id,
-        model_id="provider/embed",
+        model_id=requested_model,
         operation="embed",
         include_stale=False,
     )
@@ -955,6 +973,24 @@ async def test_embedding_certification_validates_exact_finite_vector_space(
     serialized = repository.database_path.read_bytes()
     assert b"0.1" not in serialized
     assert b"embedding-cert-secret" not in serialized
+
+
+def test_operation_model_match_only_allows_openrouter_provider_prefix_omission() -> None:
+    assert provider_operation_model_matches(
+        provider_kind="openrouter",
+        requested_model="openai/text-embedding-3-small",
+        actual_model="text-embedding-3-small",
+    )
+    assert not provider_operation_model_matches(
+        provider_kind="openai_compatible",
+        requested_model="openai/text-embedding-3-small",
+        actual_model="text-embedding-3-small",
+    )
+    assert not provider_operation_model_matches(
+        provider_kind="openrouter",
+        requested_model="openai/text-embedding-3-small",
+        actual_model="text-embedding-3-large",
+    )
 
 
 @pytest.mark.asyncio
@@ -1883,7 +1919,12 @@ async def test_workload_admin_api_is_session_and_csrf_protected_and_public_redac
             or item["entry_id"] in {"skill_rerank", "openrouter_batch"}
         }
         assert len(r7_policies) == 6
-        assert all(item["data_plane_integrated"] is False for item in r7_policies.values())
+        assert r7_policies["rag_embedding"]["data_plane_integrated"] is True
+        assert all(
+            item["data_plane_integrated"] is False
+            for entry_id, item in r7_policies.items()
+            if entry_id != "rag_embedding"
+        )
         assert all(item["feature_enabled"] is False for item in r7_policies.values())
         assert all(item["local_fallback_mode"] == "none" for item in r7_policies.values())
         assert policies.json()["contract_version"] == PROVIDER_WORKLOAD_CONTRACT_VERSION
