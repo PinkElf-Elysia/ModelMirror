@@ -30,6 +30,7 @@ describe("ModelServiceConnections editing", () => {
     render(<ModelServiceConnections csrfToken="csrf-test" />);
     fireEvent.click(await screen.findByRole("button", { name: "编辑" }));
     fireEvent.change(screen.getByLabelText("连接名称"), { target: { value: "更新后的 newAPI" } });
+    fireEvent.click(screen.getByLabelText("Embedding"));
     fireEvent.click(screen.getByRole("button", { name: "保存修改并测试" }));
 
     await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) => String(input) === "/api/router/connections/connection-1/test" && init?.method === "POST")).toBe(true));
@@ -37,7 +38,7 @@ describe("ModelServiceConnections editing", () => {
     expect(JSON.parse(String(patchCall?.[1]?.body))).toEqual({
       name: "更新后的 newAPI",
       base_url: "https://provider.example/v1",
-      scopes: ["chat"],
+      scopes: ["chat", "embedding"],
     });
   });
 

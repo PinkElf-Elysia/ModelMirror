@@ -31,6 +31,16 @@ describe("ProviderWorkloadControlSettings", () => {
       "chat_json_object",
     ]);
   });
+
+  it("keeps R7 retrieval and batch operations explicit and uncombined", () => {
+    expect(ENTRY_SHAPES.rag_embedding).toEqual(["embedding_vectors"]);
+    expect(ENTRY_SHAPES.rag_rerank).toEqual(["rerank_documents"]);
+    expect(ENTRY_SHAPES.skill_rerank).toEqual(["rerank_documents"]);
+    expect(ENTRY_SHAPES.openrouter_batch).toEqual([
+      "openrouter_batch_chat",
+      "openrouter_batch_embeddings",
+    ]);
+  });
   afterEach(() => vi.unstubAllGlobals());
 
   it("requires an explicit confirmation before one billed workload certification", async () => {
@@ -59,7 +69,7 @@ describe("ProviderWorkloadControlSettings", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(<ProviderWorkloadControlSettings csrfToken="csrf-value" view="certifications" />);
-    await screen.findByText("R6 非流式、JSON 与原生 Fusion 合同");
+    await screen.findByText("R6 / R7 精确 Operation 合同");
     fireEvent.change(screen.getByLabelText("执行形态"), {
       target: { value: "chat_json_object" },
     });
@@ -124,7 +134,7 @@ describe("ProviderWorkloadControlSettings", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(<ProviderWorkloadControlSettings csrfToken="csrf-value" view="routing" />);
-    await screen.findByText("R6 入口、精确 Binding 与 Receipt");
+    await screen.findByText("R6 / R7 入口、精确 Binding 与 Receipt");
     expect(screen.getByRole("button", { name: /激活 Managed/ })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "添加 Binding" }));
     fireEvent.change(screen.getByLabelText("Binding 1 模型 ID"), {
@@ -141,12 +151,139 @@ describe("ProviderWorkloadControlSettings", () => {
     );
     expect(JSON.parse(String(call?.[1]?.body))).toEqual({
       expected_revision: 3,
+      local_fallback_mode: "none",
       bindings: [{
         execution_shape: "chat_tools",
         model_id: "openai/gpt-test",
         connection_id: connection.id,
       }],
     });
+  });
+
+  it("persists the explicitly selected Rerank access mode in a binding", async () => {
+    const rerankConnection = {
+      ...connection,
+      id: "connection-rerank",
+      name: "Rerank managed",
+      scopes: ["rerank"],
+    };
+    const policy = {
+      contract_version: "modelmirror-provider-workload-routing-v1",
+      entry_id: "rag_rerank",
+      feature_enabled: false,
+      data_plane_integrated: false,
+      configured_status: "legacy",
+      effective_status: "legacy",
+      revision: 2,
+      policy_fingerprint: "rerank-fingerprint",
+      local_fallback_mode: "none",
+      bindings: [],
+      approval_valid: false,
+      blocking_reason_codes: ["provider_workload_data_plane_not_integrated"],
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/router/workload-control/policies" && !init) {
+        return jsonResponse({ policies: [policy] });
+      }
+      if (url === "/api/router/connections") return jsonResponse([rerankConnection]);
+      if (url.startsWith("/api/router/workload-control/receipts")) {
+        return jsonResponse({ runs: [] });
+      }
+      if (url === "/api/router/workload-control/policies/rag_rerank" && init?.method === "PUT") {
+        return jsonResponse({ ...policy, revision: 3 });
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<ProviderWorkloadControlSettings csrfToken="csrf-value" view="routing" />);
+    await screen.findByText("R6 / R7 入口、精确 Binding 与 Receipt");
+    fireEvent.change(screen.getByLabelText("入口"), {
+      target: { value: "rag_rerank" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "添加 Binding" }));
+    fireEvent.change(screen.getByLabelText("Binding 1 Rerank 访问方式"), {
+      target: { value: "llm_json" },
+    });
+    fireEvent.change(screen.getByLabelText("Binding 1 模型 ID"), {
+      target: { value: "provider/rerank" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存 Binding" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/router/workload-control/policies/rag_rerank",
+      expect.objectContaining({ method: "PUT" }),
+    ));
+    const call = fetchMock.mock.calls.find(([url, options]) =>
+      url === "/api/router/workload-control/policies/rag_rerank"
+      && options?.method === "PUT"
+    );
+    expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({
+      expected_revision: 2,
+      bindings: [{
+        execution_shape: "rerank_documents",
+        model_id: "provider/rerank",
+        connection_id: rerankConnection.id,
+        rerank_access_mode: "llm_json",
+      }],
+    });
+  });
+
+  it("never initializes an OpenRouter Batch binding with another provider kind", async () => {
+    const newApiBatchConnection = {
+      ...connection,
+      id: "connection-newapi-batch",
+      name: "newAPI Batch",
+      kind: "newapi",
+      scopes: ["batch"],
+    };
+    const openRouterBatchConnection = {
+      ...connection,
+      id: "connection-openrouter-batch",
+      name: "OpenRouter Batch",
+      scopes: ["batch"],
+    };
+    const policy = {
+      contract_version: "modelmirror-provider-workload-routing-v1",
+      entry_id: "openrouter_batch",
+      feature_enabled: false,
+      data_plane_integrated: false,
+      configured_status: "legacy",
+      effective_status: "legacy",
+      revision: 0,
+      policy_fingerprint: "batch-fingerprint",
+      local_fallback_mode: "none",
+      bindings: [],
+      approval_valid: false,
+      blocking_reason_codes: ["provider_workload_data_plane_not_integrated"],
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/router/workload-control/policies") {
+        return jsonResponse({ policies: [policy] });
+      }
+      if (url === "/api/router/connections") {
+        return jsonResponse([newApiBatchConnection, openRouterBatchConnection]);
+      }
+      if (url.startsWith("/api/router/workload-control/receipts")) {
+        return jsonResponse({ runs: [] });
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<ProviderWorkloadControlSettings csrfToken="csrf-value" view="routing" />);
+    await screen.findByText("R6 / R7 入口、精确 Binding 与 Receipt");
+    fireEvent.change(screen.getByLabelText("入口"), {
+      target: { value: "openrouter_batch" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "添加 Binding" }));
+
+    expect(screen.getByLabelText("Binding 1 连接")).toHaveValue(
+      openRouterBatchConnection.id,
+    );
+    expect(screen.queryByRole("option", { name: newApiBatchConnection.name })).not.toBeInTheDocument();
   });
 
   it("requires both operator acknowledgements before activating an integrated entry", async () => {
@@ -202,7 +339,7 @@ describe("ProviderWorkloadControlSettings", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(<ProviderWorkloadControlSettings csrfToken="csrf-value" view="routing" />);
-    await screen.findByText("R6 入口、精确 Binding 与 Receipt");
+    await screen.findByText("R6 / R7 入口、精确 Binding 与 Receipt");
     const activateButton = screen.getByRole("button", { name: "激活 Managed 必经" });
     expect(activateButton).toBeEnabled();
     fireEvent.click(activateButton);
@@ -268,7 +405,7 @@ describe("ProviderWorkloadControlSettings", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(<ProviderWorkloadControlSettings csrfToken="csrf-value" view="routing" />);
-    await screen.findByText("R6 入口、精确 Binding 与 Receipt");
+    await screen.findByText("R6 / R7 入口、精确 Binding 与 Receipt");
     fireEvent.change(screen.getByLabelText("入口"), {
       target: { value: "expert_team_planner" },
     });
@@ -326,7 +463,7 @@ describe("ProviderWorkloadControlSettings", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(<ProviderWorkloadControlSettings csrfToken="csrf-value" view="routing" />);
-    await screen.findByText("R6 入口、精确 Binding 与 Receipt");
+    await screen.findByText("R6 / R7 入口、精确 Binding 与 Receipt");
     fireEvent.click(screen.getByText("Workflow 交互 LLM · passed"));
 
     expect(screen.getByText("请求模型：openai/gpt-test")).toBeInTheDocument();

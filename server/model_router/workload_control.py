@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import math
 import os
 import time
 import uuid
@@ -15,6 +16,10 @@ from .chat_control import ProviderChatControlService
 from .egress import AuthorizedProviderTarget, ProviderEgressError
 from .provider_catalog import ProviderCatalogService
 from .provider_chat import ProviderChatTarget, ProviderChatTransport
+from .provider_operations import (
+    ProviderOperationTarget,
+    ProviderOperationTransport,
+)
 from .repository import RouterCredentialUnavailable, RouterRepositoryError
 from .schemas import (
     ProviderWorkloadActivationRequest,
@@ -45,6 +50,16 @@ PROVIDER_WORKLOAD_CERTIFICATION_ENABLED_ENV = (
 )
 SYNTHETIC_UNARY_PROMPT = "Reply with OK."
 SYNTHETIC_JSON_PROMPT = 'Return exactly one JSON object: {"ok":true}'
+SYNTHETIC_EMBEDDING_INPUTS = (
+    "ModelMirror embedding certification one.",
+    "ModelMirror embedding certification two.",
+)
+SYNTHETIC_RERANK_QUERY = "ModelMirror provider routing certification"
+SYNTHETIC_RERANK_DOCUMENTS = (
+    "ModelMirror routes requests through an explicit provider control plane.",
+    "This document is unrelated to provider routing.",
+    "Managed bindings select one exact provider model.",
+)
 MAX_WORKLOAD_UNARY_RESPONSE_BYTES = 1024 * 1024
 MAX_WORKLOAD_SSE_EVENT_BYTES = 256 * 1024
 MAX_WORKLOAD_STREAM_BYTES = 4 * 1024 * 1024
@@ -69,6 +84,12 @@ ENTRY_FEATURE_FLAGS: dict[ProviderWorkloadEntryId, tuple[str, ...]] = {
     "fusion": ("MODEL_CONTROL_FUSION_ENABLED",),
     "route_agent": ("MODEL_CONTROL_ROUTE_AGENT_ENABLED",),
     "team_chat": ("MODEL_CONTROL_TEAM_CHAT_ENABLED",),
+    "rag_query_generate": ("MODEL_CONTROL_RAG_QUERY_ENABLED",),
+    "rag_processor_generate": ("MODEL_CONTROL_RAG_PROCESSOR_ENABLED",),
+    "rag_embedding": ("MODEL_CONTROL_RAG_EMBEDDING_ENABLED",),
+    "rag_rerank": ("MODEL_CONTROL_RAG_RERANK_ENABLED",),
+    "skill_rerank": ("MODEL_CONTROL_SKILL_RERANK_ENABLED",),
+    "openrouter_batch": ("MODEL_CONTROL_OPENROUTER_BATCH_ENABLED",),
 }
 
 ENTRY_ALLOWED_SHAPES: dict[
@@ -98,7 +119,26 @@ ENTRY_ALLOWED_SHAPES: dict[
     "fusion": frozenset({"chat_text", "fusion_native"}),
     "route_agent": frozenset({"chat_text"}),
     "team_chat": frozenset({"chat_text"}),
+    "rag_query_generate": frozenset({"chat_text_unary"}),
+    "rag_processor_generate": frozenset({"chat_json_object"}),
+    "rag_embedding": frozenset({"embedding_vectors"}),
+    "rag_rerank": frozenset({"rerank_documents"}),
+    "skill_rerank": frozenset({"rerank_documents"}),
+    "openrouter_batch": frozenset(
+        {"openrouter_batch_chat", "openrouter_batch_embeddings"}
+    ),
 }
+
+ENTRY_ALLOWED_LOCAL_FALLBACKS: dict[ProviderWorkloadEntryId, frozenset[str]] = {
+    entry_id: frozenset({"none"}) for entry_id in ENTRY_FEATURE_FLAGS
+}
+ENTRY_ALLOWED_LOCAL_FALLBACKS.update(
+    {
+        "rag_query_generate": frozenset({"none", "extractive"}),
+        "rag_rerank": frozenset({"none", "lexical"}),
+        "skill_rerank": frozenset({"none", "lexical"}),
+    }
+)
 
 # R6A deliberately provides only the control-plane foundation. Each later data-plane
 # PR adds its entry here after its dedicated tests and real smoke are complete.
@@ -144,6 +184,12 @@ class _WorkloadCertificationFailure(Exception):
         self.code = code
 
 
+class _WorkloadCertificationUncertain(Exception):
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
 @dataclass(slots=True)
 class _CertificationEvidence:
     checks: dict[str, bool]
@@ -153,6 +199,7 @@ class _CertificationEvidence:
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
     total_tokens: int | None = None
+    vector_dimension: int | None = None
 
     @classmethod
     def create(cls) -> "_CertificationEvidence":
@@ -166,6 +213,9 @@ class _CertificationEvidence:
                 "json_object_verified": False,
                 "fusion_profile_verified": False,
                 "actual_model_verified": False,
+                "embedding_vectors_verified": False,
+                "rerank_results_verified": False,
+                "batch_terminal_verified": False,
             },
             warning_codes=[],
         )
@@ -179,14 +229,21 @@ class ProviderWorkloadCertificationService:
         router_service: ModelRouterService,
         *,
         client_factory: Callable[[], httpx.AsyncClient] | None = None,
+        batch_poll_interval_seconds: float = 1.0,
     ) -> None:
         self.router_service = router_service
         self.repository = router_service.repository
         self.transport = ProviderChatTransport(router_service.egress_policy)
+        self.operation_transport = ProviderOperationTransport(
+            router_service.egress_policy
+        )
         self._client_factory = client_factory or (
             lambda: httpx.AsyncClient(
                 **ProviderChatTransport.client_kwargs(certification=True)
             )
+        )
+        self._batch_poll_interval_seconds = max(
+            0.0, float(batch_poll_interval_seconds)
         )
 
     @staticmethod
@@ -276,6 +333,18 @@ class ProviderWorkloadCertificationService:
                     "该 Idempotency-Key 已用于另一份 Workload 资格配置。",
                     status_code=409,
                 )
+            if (
+                payload.execution_shape
+                in {"openrouter_batch_chat", "openrouter_batch_embeddings"}
+                and str(existing["status"]) == "uncertain"
+            ):
+                resumed = await self._resume_batch_certification(
+                    connection,
+                    existing,
+                    payload,
+                )
+                if resumed is not None:
+                    return resumed
             return self._summary(connection, existing)
 
         refreshed = await ProviderCatalogService(
@@ -359,49 +428,76 @@ class ProviderWorkloadCertificationService:
             api_key = self.repository.resolve_api_key(
                 self.router_service.tenant_id, connection_id
             )
-            target = ProviderChatTarget.create(
-                source="managed",
-                provider_kind=connection.kind,
-                base_url=connection.base_url,
-                api_key=api_key,
-                connection_id=connection.id,
-            )
-            request_payload = self._request_payload(payload)
             async with asyncio.timeout(60):
                 async with self._client_factory() as client:
-                    authorized = await self.transport.authorize_managed_target(target)
-                    request = self.transport.build_authorized_stream_request(
-                        client,
-                        target,
-                        authorized,
-                        request_payload,
-                    )
-                    response = await self.transport.send_authorized_stream(client, request)
-                    try:
-                        self._validate_status(response.status_code)
-                        evidence.checks["http_ok"] = True
-                        if payload.execution_shape == "fusion_native":
-                            await self._consume_fusion_stream(
-                                response,
-                                evidence,
-                                started,
-                                expected_model=(
-                                    payload.judge_model_id or payload.model_id
-                                ),
-                            )
-                        else:
-                            await self._consume_unary_response(
-                                response,
-                                evidence,
-                                started,
-                                requested_model=payload.model_id,
-                                execution_shape=payload.execution_shape,
-                            )
-                    finally:
-                        await response.aclose()
+                    if payload.execution_shape in {
+                        "embedding_vectors",
+                        "rerank_documents",
+                        "openrouter_batch_chat",
+                        "openrouter_batch_embeddings",
+                    }:
+                        terminal = await self._run_operation_certification(
+                            client,
+                            connection,
+                            api_key,
+                            payload,
+                            evidence,
+                            started,
+                            certification_id=str(row["id"]),
+                            idempotency_key_hash=idempotency_hash,
+                            connection_fingerprint=connection_fingerprint,
+                        )
+                        if not terminal:
+                            status = "uncertain"
+                            error_code = "provider_batch_certification_pending"
+                    else:
+                        target = ProviderChatTarget.create(
+                            source="managed",
+                            provider_kind=connection.kind,
+                            base_url=connection.base_url,
+                            api_key=api_key,
+                            connection_id=connection.id,
+                        )
+                        request_payload = self._request_payload(payload)
+                        authorized = await self.transport.authorize_managed_target(target)
+                        request = self.transport.build_authorized_stream_request(
+                            client,
+                            target,
+                            authorized,
+                            request_payload,
+                        )
+                        response = await self.transport.send_authorized_stream(
+                            client, request
+                        )
+                        try:
+                            self._validate_status(response.status_code)
+                            evidence.checks["http_ok"] = True
+                            if payload.execution_shape == "fusion_native":
+                                await self._consume_fusion_stream(
+                                    response,
+                                    evidence,
+                                    started,
+                                    expected_model=(
+                                        payload.judge_model_id or payload.model_id
+                                    ),
+                                )
+                            else:
+                                await self._consume_unary_response(
+                                    response,
+                                    evidence,
+                                    started,
+                                    requested_model=payload.model_id,
+                                    execution_shape=payload.execution_shape,
+                                )
+                        finally:
+                            await response.aclose()
             if payload.execution_shape == "fusion_native":
                 evidence.checks["fusion_profile_verified"] = True
-            status = "passed"
+            if status != "uncertain":
+                status = "passed"
+        except _WorkloadCertificationUncertain as exc:
+            status = "uncertain"
+            error_code = exc.code
         except _WorkloadCertificationFailure as exc:
             error_code = exc.code
         except httpx.ConnectTimeout:
@@ -411,7 +507,14 @@ class ProviderWorkloadCertificationService:
         except httpx.TimeoutException:
             error_code = "provider_workload_timeout"
         except TimeoutError:
-            error_code = "provider_workload_total_timeout"
+            if payload.execution_shape in {
+                "openrouter_batch_chat",
+                "openrouter_batch_embeddings",
+            }:
+                status = "uncertain"
+                error_code = "provider_batch_certification_pending"
+            else:
+                error_code = "provider_workload_total_timeout"
         except httpx.ConnectError:
             error_code = "provider_workload_connect_error"
         except ProviderEgressError as exc:
@@ -442,8 +545,199 @@ class ProviderWorkloadCertificationService:
                 prompt_tokens=evidence.prompt_tokens,
                 completion_tokens=evidence.completion_tokens,
                 total_tokens=evidence.total_tokens,
+                vector_dimension=evidence.vector_dimension,
             )
+        if status == "passed":
+            self._record_certified_offering(connection, completed)
         return self._summary(connection, completed)
+
+    async def resume_pending_batch_certifications(self) -> int:
+        """Resume only GET polling for persisted Batch certifications."""
+
+        resumed = 0
+        jobs = self._repository_method("list_provider_batch_jobs")(
+            self.router_service.tenant_id,
+            limit=500,
+        )
+        for job in jobs:
+            if (
+                str(job.get("status") or "")
+                not in {"validating", "in_progress", "finalizing"}
+                or not job.get("upstream_batch_id")
+                or not job.get("certification_id")
+            ):
+                continue
+            certification = self._repository_method(
+                "get_workload_certification"
+            )(
+                self.router_service.tenant_id,
+                str(job["certification_id"]),
+            )
+            if certification is None or str(certification["status"]) != "uncertain":
+                continue
+            try:
+                connection = self.repository.get_connection(
+                    self.router_service.tenant_id,
+                    str(certification["connection_id"]),
+                )
+                payload = ProviderWorkloadCertificationRequest(
+                    execution_shape=str(certification["execution_shape"]),  # type: ignore[arg-type]
+                    model_id=str(certification["requested_model"]),
+                    acknowledge_billed_call=True,
+                )
+                result = await self._resume_batch_certification(
+                    connection,
+                    certification,
+                    payload,
+                )
+                if result is not None:
+                    resumed += 1
+            except (RouterRepositoryError, RouterServiceError, ValueError):
+                continue
+        return resumed
+
+    async def _resume_batch_certification(
+        self,
+        connection: RouterConnection,
+        certification: dict[str, object],
+        payload: ProviderWorkloadCertificationRequest,
+    ) -> ProviderWorkloadCertificationSummary | None:
+        job = self._repository_method("get_provider_batch_job_by_certification")(
+            self.router_service.tenant_id,
+            str(certification["id"]),
+        )
+        if (
+            job is None
+            or str(job.get("status") or "")
+            not in {"validating", "in_progress", "finalizing"}
+            or not job.get("upstream_batch_id")
+        ):
+            return None
+        current_fingerprint = self.repository.connection_config_fingerprint(
+            self.router_service.tenant_id,
+            connection.id,
+        )
+        if (
+            str(certification["connection_fingerprint"]) != current_fingerprint
+            or str(job["connection_fingerprint"]) != current_fingerprint
+        ):
+            return None
+        try:
+            running = self._repository_method("resume_workload_certification")(
+                self.router_service.tenant_id,
+                str(certification["id"]),
+            )
+        except RouterRepositoryError as exc:
+            if str(exc) in {
+                "provider_workload_certification_not_resumable",
+                "provider_workload_certification_already_running",
+            }:
+                latest = self._repository_method("get_workload_certification")(
+                    self.router_service.tenant_id,
+                    str(certification["id"]),
+                )
+                return self._summary(connection, latest) if latest else None
+            raise
+
+        evidence = _CertificationEvidence.create()
+        status = "failed"
+        error_code: str | None = None
+        started = time.perf_counter()
+        try:
+            api_key = self.repository.resolve_api_key(
+                self.router_service.tenant_id,
+                connection.id,
+            )
+            target = ProviderOperationTarget.create(
+                provider_kind=connection.kind,
+                connection_id=connection.id,
+                base_url=connection.base_url,
+                api_key=api_key,
+            )
+            async with asyncio.timeout(60):
+                async with self._client_factory() as client:
+                    await self._poll_batch_until_terminal(
+                        client,
+                        target,
+                        payload,
+                        evidence,
+                        job_id=str(job["id"]),
+                        upstream_batch_id=str(job["upstream_batch_id"]),
+                    )
+            status = "passed"
+        except _WorkloadCertificationUncertain as exc:
+            status = "uncertain"
+            error_code = exc.code
+        except _WorkloadCertificationFailure as exc:
+            error_code = exc.code
+        except (httpx.TimeoutException, TimeoutError):
+            status = "uncertain"
+            error_code = "provider_batch_certification_pending"
+        except ProviderEgressError as exc:
+            status = "uncertain"
+            error_code = exc.code
+        except (RouterCredentialUnavailable, httpx.HTTPError):
+            status = "uncertain"
+            error_code = "provider_batch_poll_unavailable"
+        except asyncio.CancelledError:
+            status = "uncertain"
+            error_code = "provider_workload_cancelled"
+            raise
+        except Exception:
+            status = "uncertain"
+            error_code = "provider_workload_unexpected_error"
+        finally:
+            completed = self._repository_method(
+                "complete_workload_certification"
+            )(
+                self.router_service.tenant_id,
+                str(running["id"]),
+                status=status,
+                checks=evidence.checks,
+                warning_codes=evidence.warning_codes,
+                error_code=error_code,
+                actual_model=evidence.actual_model,
+                ttft_ms=evidence.ttft_ms,
+                e2e_ms=(time.perf_counter() - started) * 1000,
+                prompt_tokens=evidence.prompt_tokens,
+                completion_tokens=evidence.completion_tokens,
+                total_tokens=evidence.total_tokens,
+                vector_dimension=evidence.vector_dimension,
+            )
+        if status == "passed":
+            self._record_certified_offering(connection, completed)
+        return self._summary(connection, completed)
+
+    def _record_certified_offering(
+        self,
+        connection: RouterConnection,
+        certification: dict[str, object],
+    ) -> None:
+        execution_shape = str(certification["execution_shape"])
+        profile = _safe_json_object(
+            json.loads(str(certification.get("profile_json") or "{}"))
+        )
+        mapping: dict[str, tuple[str, str]] = {
+            "embedding_vectors": ("embed", "managed_embedding"),
+            "openrouter_batch_chat": ("chat", "openrouter_batch"),
+            "openrouter_batch_embeddings": ("embed", "openrouter_batch"),
+        }
+        if execution_shape == "rerank_documents":
+            access = str(profile.get("rerank_access_mode") or "")
+            if access not in {"dedicated", "llm_json"}:
+                return
+            operation, access_mode = "rerank", f"managed_rerank_{access}"
+        elif execution_shape in mapping:
+            operation, access_mode = mapping[execution_shape]
+        else:
+            return
+        self._repository_method("upsert_certified_catalog_offering")(
+            self.router_service.tenant_id,
+            connection_id=connection.id,
+            model_id=str(certification["requested_model"]),
+            operation=operation,
+            access_mode=access_mode,
+        )
 
     @staticmethod
     def _profile(
@@ -454,6 +748,7 @@ class ProviderWorkloadCertificationService:
             "model_id": payload.model_id,
             "candidate_model_ids": list(payload.candidate_model_ids),
             "judge_model_id": payload.judge_model_id,
+            "rerank_access_mode": payload.rerank_access_mode,
         }
 
     @staticmethod
@@ -495,6 +790,575 @@ class ProviderWorkloadCertificationService:
                 }
             )
         return request
+
+    async def _run_operation_certification(
+        self,
+        client: httpx.AsyncClient,
+        connection: RouterConnection,
+        api_key: str,
+        payload: ProviderWorkloadCertificationRequest,
+        evidence: _CertificationEvidence,
+        started: float,
+        *,
+        certification_id: str,
+        idempotency_key_hash: str,
+        connection_fingerprint: str,
+    ) -> bool:
+        target = ProviderOperationTarget.create(
+            provider_kind=connection.kind,
+            connection_id=connection.id,
+            base_url=connection.base_url,
+            api_key=api_key,
+        )
+        if payload.execution_shape in {
+            "openrouter_batch_chat",
+            "openrouter_batch_embeddings",
+        }:
+            return await self._run_batch_certification(
+                client,
+                target,
+                payload,
+                evidence,
+                certification_id=certification_id,
+                idempotency_key_hash=idempotency_key_hash,
+                connection_fingerprint=connection_fingerprint,
+            )
+
+        operation = payload.execution_shape
+        authorized = await self.operation_transport.authorize(
+            target,
+            operation,  # type: ignore[arg-type]
+            rerank_access_mode=payload.rerank_access_mode,
+        )
+        request = self.operation_transport.build_authorized_request(
+            client,
+            target,
+            authorized,
+            method="POST",
+            payload=self._operation_request_payload(payload),
+        )
+        response = await self.operation_transport.send_authorized(client, request)
+        try:
+            self._validate_status(response.status_code)
+            evidence.checks["http_ok"] = True
+            response_payload = await self._read_json_response(response)
+            if operation == "embedding_vectors":
+                self._validate_embedding_response(
+                    response_payload,
+                    evidence,
+                    requested_model=payload.model_id,
+                )
+            else:
+                self._validate_rerank_response(
+                    response_payload,
+                    evidence,
+                    requested_model=payload.model_id,
+                    access_mode=payload.rerank_access_mode,
+                )
+            evidence.ttft_ms = (time.perf_counter() - started) * 1000
+            return True
+        finally:
+            await response.aclose()
+
+    @staticmethod
+    def _operation_request_payload(
+        payload: ProviderWorkloadCertificationRequest,
+    ) -> dict[str, object]:
+        if payload.execution_shape == "embedding_vectors":
+            return {
+                "model": payload.model_id,
+                "input": list(SYNTHETIC_EMBEDDING_INPUTS),
+                "encoding_format": "float",
+            }
+        if payload.rerank_access_mode == "dedicated":
+            return {
+                "model": payload.model_id,
+                "query": SYNTHETIC_RERANK_QUERY,
+                "documents": list(SYNTHETIC_RERANK_DOCUMENTS),
+                "top_n": len(SYNTHETIC_RERANK_DOCUMENTS),
+            }
+        return {
+            "model": payload.model_id,
+            "temperature": 0,
+            "max_tokens": 128,
+            "stream": False,
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {
+                    "role": "user",
+                    "content": (
+                        "Return JSON with results containing every document index 0, 1, 2 "
+                        "exactly once and a score from 0 to 1. Query: "
+                        f"{SYNTHETIC_RERANK_QUERY} Documents: "
+                        + " | ".join(SYNTHETIC_RERANK_DOCUMENTS)
+                    ),
+                }
+            ],
+        }
+
+    @staticmethod
+    async def _read_json_response(response: httpx.Response) -> dict[str, object]:
+        chunks: list[bytes] = []
+        total_bytes = 0
+        async for chunk in response.aiter_bytes(
+            chunk_size=WORKLOAD_RESPONSE_CHUNK_BYTES
+        ):
+            total_bytes += len(chunk)
+            if total_bytes > MAX_WORKLOAD_UNARY_RESPONSE_BYTES:
+                raise _WorkloadCertificationFailure(
+                    "provider_workload_response_too_large"
+                )
+            chunks.append(chunk)
+        try:
+            parsed = json.loads(b"".join(chunks))
+        except (json.JSONDecodeError, UnicodeDecodeError, TypeError) as exc:
+            raise _WorkloadCertificationFailure(
+                "provider_workload_invalid_json_response"
+            ) from exc
+        if not isinstance(parsed, dict):
+            raise _WorkloadCertificationFailure(
+                "provider_workload_invalid_json_response"
+            )
+        return parsed
+
+    @staticmethod
+    def _validate_actual_model(
+        response_payload: Mapping[str, object],
+        evidence: _CertificationEvidence,
+        *,
+        requested_model: str,
+    ) -> None:
+        model = response_payload.get("model")
+        if isinstance(model, str) and model:
+            evidence.actual_model = model
+            if model != requested_model:
+                raise _WorkloadCertificationFailure(
+                    "provider_workload_model_mismatch"
+                )
+            evidence.checks["actual_model_verified"] = True
+        else:
+            evidence.warning_codes.append("actual_model_missing")
+
+    @classmethod
+    def _validate_embedding_response(
+        cls,
+        response_payload: dict[str, object],
+        evidence: _CertificationEvidence,
+        *,
+        requested_model: str,
+    ) -> None:
+        cls._validate_actual_model(
+            response_payload, evidence, requested_model=requested_model
+        )
+        if not evidence.checks["actual_model_verified"]:
+            raise _WorkloadCertificationFailure(
+                "provider_embedding_actual_model_missing"
+            )
+        data = response_payload.get("data")
+        if not isinstance(data, list) or len(data) != len(SYNTHETIC_EMBEDDING_INPUTS):
+            raise _WorkloadCertificationFailure(
+                "provider_embedding_vector_count_mismatch"
+            )
+        dimensions: set[int] = set()
+        indexes: set[int] = set()
+        for item in data:
+            if not isinstance(item, dict):
+                raise _WorkloadCertificationFailure(
+                    "provider_embedding_invalid_vector"
+                )
+            index = item.get("index")
+            vector = item.get("embedding")
+            if not isinstance(index, int) or isinstance(index, bool):
+                raise _WorkloadCertificationFailure(
+                    "provider_embedding_invalid_index"
+                )
+            if not isinstance(vector, list) or not vector:
+                raise _WorkloadCertificationFailure(
+                    "provider_embedding_invalid_vector"
+                )
+            if any(
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                for value in vector
+            ):
+                raise _WorkloadCertificationFailure(
+                    "provider_embedding_non_finite_vector"
+                )
+            indexes.add(index)
+            dimensions.add(len(vector))
+        if indexes != set(range(len(SYNTHETIC_EMBEDDING_INPUTS))):
+            raise _WorkloadCertificationFailure(
+                "provider_embedding_invalid_index"
+            )
+        if len(dimensions) != 1:
+            raise _WorkloadCertificationFailure(
+                "provider_embedding_dimension_mismatch"
+            )
+        evidence.vector_dimension = next(iter(dimensions))
+        cls._read_usage(response_payload, evidence)
+        evidence.checks["response_complete"] = True
+        evidence.checks["content_observed"] = True
+        evidence.checks["embedding_vectors_verified"] = True
+
+    @classmethod
+    def _validate_rerank_response(
+        cls,
+        response_payload: dict[str, object],
+        evidence: _CertificationEvidence,
+        *,
+        requested_model: str,
+        access_mode: str | None,
+    ) -> None:
+        cls._validate_actual_model(
+            response_payload, evidence, requested_model=requested_model
+        )
+        cls._read_usage(response_payload, evidence)
+        result_payload: object = response_payload
+        if access_mode == "llm_json":
+            choices = response_payload.get("choices")
+            first = choices[0] if isinstance(choices, list) and choices else None
+            message = first.get("message") if isinstance(first, dict) else None
+            content = message.get("content") if isinstance(message, dict) else None
+            if not isinstance(content, str) or not content.strip():
+                raise _WorkloadCertificationFailure(
+                    "provider_rerank_empty_response"
+                )
+            try:
+                result_payload = json.loads(content)
+            except json.JSONDecodeError as exc:
+                raise _WorkloadCertificationFailure(
+                    "provider_rerank_invalid_json"
+                ) from exc
+        if not isinstance(result_payload, dict):
+            raise _WorkloadCertificationFailure("provider_rerank_invalid_results")
+        results = result_payload.get("results")
+        if not isinstance(results, list) or len(results) != len(
+            SYNTHETIC_RERANK_DOCUMENTS
+        ):
+            raise _WorkloadCertificationFailure(
+                "provider_rerank_incomplete_results"
+            )
+        indexes: set[int] = set()
+        for result in results:
+            if not isinstance(result, dict):
+                raise _WorkloadCertificationFailure(
+                    "provider_rerank_invalid_results"
+                )
+            index = result.get("index")
+            score = result.get("relevance_score", result.get("score"))
+            if (
+                not isinstance(index, int)
+                or isinstance(index, bool)
+                or isinstance(score, bool)
+                or not isinstance(score, (int, float))
+                or not math.isfinite(float(score))
+                or not 0 <= float(score) <= 1
+            ):
+                raise _WorkloadCertificationFailure(
+                    "provider_rerank_invalid_results"
+                )
+            indexes.add(index)
+        if indexes != set(range(len(SYNTHETIC_RERANK_DOCUMENTS))):
+            raise _WorkloadCertificationFailure(
+                "provider_rerank_duplicate_or_missing_index"
+            )
+        evidence.checks["response_complete"] = True
+        evidence.checks["content_observed"] = True
+        evidence.checks["rerank_results_verified"] = True
+
+    async def _run_batch_certification(
+        self,
+        client: httpx.AsyncClient,
+        target: ProviderOperationTarget,
+        payload: ProviderWorkloadCertificationRequest,
+        evidence: _CertificationEvidence,
+        *,
+        certification_id: str,
+        idempotency_key_hash: str,
+        connection_fingerprint: str,
+    ) -> bool:
+        operation = payload.execution_shape
+        endpoint = (
+            "/v1/chat/completions"
+            if operation == "openrouter_batch_chat"
+            else "/v1/embeddings"
+        )
+        body: dict[str, object]
+        if operation == "openrouter_batch_chat":
+            body = {
+                "model": payload.model_id,
+                "messages": [{"role": "user", "content": SYNTHETIC_UNARY_PROMPT}],
+                "max_tokens": 16,
+                "temperature": 0,
+            }
+        else:
+            body = {
+                "model": payload.model_id,
+                "input": SYNTHETIC_EMBEDDING_INPUTS[0],
+                "encoding_format": "float",
+            }
+        request_payload = {
+            "endpoint": endpoint,
+            "model": payload.model_id,
+            "requests": [{"custom_id": "modelmirror-certification", "body": body}],
+        }
+        request_fingerprint = _fingerprint(request_payload)
+        authorized = await self.operation_transport.authorize(
+            target, operation  # type: ignore[arg-type]
+        )
+        job_id = f"mmbatch_{uuid.uuid4().hex}"
+        job, created = self._repository_method("claim_provider_batch_job")(
+            self.router_service.tenant_id,
+            job_id=job_id,
+            connection_id=target.connection_id,
+            connection_fingerprint=connection_fingerprint,
+            endpoint=endpoint,
+            model_id=payload.model_id,
+            certification_id=certification_id,
+            idempotency_key_hash=idempotency_key_hash,
+            request_fingerprint=request_fingerprint,
+            purpose="certification",
+            request_count=1,
+        )
+        if not created:
+            if str(job["request_fingerprint"]) != request_fingerprint:
+                raise _WorkloadCertificationFailure(
+                    "provider_batch_idempotency_conflict"
+                )
+            return str(job["status"]) == "completed"
+        request = self.operation_transport.build_authorized_request(
+            client,
+            target,
+            authorized,
+            method="POST",
+            payload=request_payload,
+        )
+        try:
+            response = await self.operation_transport.send_authorized(client, request)
+        except (httpx.HTTPError, TimeoutError) as exc:
+            self._repository_method("mark_provider_batch_uncertain")(
+                self.router_service.tenant_id,
+                job_id,
+                error_code="provider_batch_submission_uncertain",
+            )
+            raise _WorkloadCertificationUncertain(
+                "provider_batch_submission_uncertain"
+            ) from exc
+        try:
+            try:
+                self._validate_status(response.status_code)
+                submitted_payload = await self._read_json_response(response)
+            except _WorkloadCertificationFailure as exc:
+                self._repository_method("fail_provider_batch_submission")(
+                    self.router_service.tenant_id,
+                    job_id,
+                    error_code=exc.code,
+                )
+                raise
+        finally:
+            await response.aclose()
+        upstream_id = submitted_payload.get("id")
+        upstream_status = str(submitted_payload.get("status") or "validating")
+        if not isinstance(upstream_id, str) or not upstream_id:
+            self._repository_method("fail_provider_batch_submission")(
+                self.router_service.tenant_id,
+                job_id,
+                error_code="provider_batch_missing_upstream_id",
+            )
+            raise _WorkloadCertificationFailure(
+                "provider_batch_missing_upstream_id"
+            )
+        initial_status = (
+            upstream_status
+            if upstream_status in {"validating", "in_progress", "finalizing"}
+            else "validating"
+        )
+        self._repository_method("mark_provider_batch_submitted")(
+            self.router_service.tenant_id,
+            job_id,
+            upstream_batch_id=upstream_id,
+            status=initial_status,
+        )
+        return await self._poll_batch_until_terminal(
+            client,
+            target,
+            payload,
+            evidence,
+            job_id=job_id,
+            upstream_batch_id=upstream_id,
+            initial_payload=submitted_payload,
+        )
+
+    async def _poll_batch_until_terminal(
+        self,
+        client: httpx.AsyncClient,
+        target: ProviderOperationTarget,
+        payload: ProviderWorkloadCertificationRequest,
+        evidence: _CertificationEvidence,
+        *,
+        job_id: str,
+        upstream_batch_id: str,
+        initial_payload: dict[str, object] | None = None,
+    ) -> bool:
+        operation = payload.execution_shape
+        polled_payload = initial_payload
+        current_status = "validating"
+        poll_count = 0
+        while True:
+            if polled_payload is None:
+                if poll_count and self._batch_poll_interval_seconds:
+                    await asyncio.sleep(self._batch_poll_interval_seconds)
+                authorized_poll = await self.operation_transport.authorize(
+                    target,
+                    operation,  # type: ignore[arg-type]
+                    upstream_batch_id=upstream_batch_id,
+                )
+                poll_request = self.operation_transport.build_authorized_request(
+                    client,
+                    target,
+                    authorized_poll,
+                    method="GET",
+                )
+                try:
+                    poll_response = await self.operation_transport.send_authorized(
+                        client, poll_request
+                    )
+                    try:
+                        self._validate_status(poll_response.status_code)
+                        polled_payload = await self._read_json_response(poll_response)
+                    finally:
+                        await poll_response.aclose()
+                except _WorkloadCertificationFailure as exc:
+                    self._repository_method("update_provider_batch_job")(
+                        self.router_service.tenant_id,
+                        job_id,
+                        status="failed",
+                        error_code=exc.code,
+                    )
+                    raise
+                except (httpx.HTTPError, TimeoutError) as exc:
+                    self._repository_method("update_provider_batch_job")(
+                        self.router_service.tenant_id,
+                        job_id,
+                        status=current_status,
+                        error_code="provider_batch_poll_uncertain",
+                    )
+                    raise _WorkloadCertificationUncertain(
+                        "provider_batch_poll_uncertain"
+                    ) from exc
+                poll_count += 1
+
+            status = str(polled_payload.get("status") or "in_progress")
+            normalized_status = (
+                status
+                if status
+                in {
+                    "validating",
+                    "in_progress",
+                    "finalizing",
+                    "completed",
+                    "failed",
+                    "cancelled",
+                    "expired",
+                }
+                else "in_progress"
+            )
+            current_status = normalized_status
+            terminal = normalized_status in {
+                "completed",
+                "failed",
+                "cancelled",
+                "expired",
+            }
+            counts = polled_payload.get("request_counts")
+            count_map = counts if isinstance(counts, dict) else {}
+            completed_count = self._integer(count_map.get("completed")) or 0
+            failed_count = self._integer(count_map.get("failed")) or 0
+            usage = polled_payload.get("usage")
+            usage_map = {
+                key: value
+                for key, value in (
+                    usage.items() if isinstance(usage, dict) else []
+                )
+                if key in {"prompt_tokens", "completion_tokens", "total_tokens"}
+                and isinstance(value, (int, float))
+                and not isinstance(value, bool)
+                and math.isfinite(float(value))
+            }
+            self._repository_method("update_provider_batch_job")(
+                self.router_service.tenant_id,
+                job_id,
+                status=normalized_status,
+                completed_count=completed_count,
+                failed_count=failed_count,
+                usage=usage_map,
+                error_code=(
+                    None
+                    if normalized_status in {"validating", "in_progress", "finalizing", "completed"}
+                    else f"provider_batch_{normalized_status}"
+                ),
+            )
+            if not terminal:
+                polled_payload = None
+                continue
+            if (
+                normalized_status != "completed"
+                or completed_count != 1
+                or failed_count != 0
+            ):
+                raise _WorkloadCertificationFailure(
+                    f"provider_batch_{normalized_status if normalized_status != 'completed' else 'result_failed'}"
+                )
+            results = polled_payload.get("results")
+            first_result = (
+                results[0]
+                if isinstance(results, list) and len(results) == 1
+                else None
+            )
+            if (
+                not isinstance(first_result, dict)
+                or first_result.get("custom_id") != "modelmirror-certification"
+            ):
+                raise _WorkloadCertificationFailure(
+                    "provider_batch_result_mismatch"
+                )
+            result_response = first_result.get("response")
+            result_status = (
+                result_response.get("status_code")
+                if isinstance(result_response, dict)
+                else None
+            )
+            result_body = (
+                result_response.get("body")
+                if isinstance(result_response, dict)
+                else None
+            )
+            actual_model = (
+                result_body.get("model") if isinstance(result_body, dict) else None
+            )
+            if not isinstance(result_status, int) or not 200 <= result_status < 300:
+                raise _WorkloadCertificationFailure("provider_batch_result_failed")
+            if not isinstance(actual_model, str) or not actual_model:
+                raise _WorkloadCertificationFailure(
+                    "provider_batch_actual_model_missing"
+                )
+            if actual_model != payload.model_id:
+                raise _WorkloadCertificationFailure(
+                    "provider_workload_model_mismatch"
+                )
+            evidence.actual_model = actual_model
+            evidence.checks["actual_model_verified"] = True
+            evidence.checks["http_ok"] = True
+            evidence.checks["response_complete"] = True
+            evidence.checks["content_observed"] = True
+            evidence.checks["batch_terminal_verified"] = True
+            evidence.prompt_tokens = self._integer(usage_map.get("prompt_tokens"))
+            evidence.completion_tokens = self._integer(
+                usage_map.get("completion_tokens")
+            )
+            evidence.total_tokens = self._integer(usage_map.get("total_tokens"))
+            return True
 
     @staticmethod
     async def _consume_unary_response(
@@ -740,10 +1604,11 @@ class ProviderWorkloadCertificationService:
             raise RouterServiceError(
                 "connection_disabled", "该模型服务已停用。", status_code=409
             )
-        if "chat" not in connection.scopes:
+        required_scope = self._required_scope(execution_shape)
+        if required_scope not in connection.scopes:
             raise RouterServiceError(
-                "connection_chat_scope_required",
-                "Workload 资格要求连接启用 Chat scope。",
+                f"connection_{required_scope}_scope_required",
+                f"Workload 资格要求连接启用 {required_scope} scope。",
                 status_code=409,
             )
         if execution_shape == "fusion_native" and connection.kind != "openrouter":
@@ -752,6 +1617,28 @@ class ProviderWorkloadCertificationService:
                 "原生 Fusion 资格只允许 OpenRouter 类型连接。",
                 status_code=409,
             )
+        if execution_shape in {
+            "openrouter_batch_chat",
+            "openrouter_batch_embeddings",
+        } and connection.kind != "openrouter":
+            raise RouterServiceError(
+                "provider_workload_batch_requires_openrouter",
+                "Batch 资格只允许 OpenRouter 类型连接。",
+                status_code=409,
+            )
+
+    @staticmethod
+    def _required_scope(execution_shape: ProviderWorkloadExecutionShape) -> str:
+        if execution_shape == "embedding_vectors":
+            return "embedding"
+        if execution_shape == "rerank_documents":
+            return "rerank"
+        if execution_shape in {
+            "openrouter_batch_chat",
+            "openrouter_batch_embeddings",
+        }:
+            return "batch"
+        return "chat"
 
     def _summary(
         self,
@@ -778,10 +1665,14 @@ class ProviderWorkloadCertificationService:
                 blocked_reason = time_reason.replace(
                     "provider_chat_", "provider_workload_", 1
                 )
+        profile = _safe_json_object(json.loads(str(row["profile_json"] or "{}")))
+        required_scope = self._required_scope(
+            str(row["execution_shape"])  # type: ignore[arg-type]
+        )
         if blocked_reason is None and not connection.enabled:
             blocked_reason = "connection_disabled"
-        elif blocked_reason is None and "chat" not in connection.scopes:
-            blocked_reason = "connection_chat_scope_required"
+        elif blocked_reason is None and required_scope not in connection.scopes:
+            blocked_reason = f"connection_{required_scope}_scope_required"
         elif blocked_reason is None and connection.health != "online":
             blocked_reason = "provider_connection_not_online"
         elif blocked_reason is None:
@@ -791,9 +1682,22 @@ class ProviderWorkloadCertificationService:
                 )
             except RouterCredentialUnavailable:
                 blocked_reason = "provider_workload_credential_unavailable"
-        profile = _safe_json_object(json.loads(str(row["profile_json"] or "{}")))
         checks = _safe_json_object(json.loads(str(row["checks_json"] or "{}")))
         warnings = json.loads(str(row["warnings_json"] or "[]"))
+        batch_job = None
+        if str(row["execution_shape"]).startswith("openrouter_batch_"):
+            batch_job = next(
+                (
+                    item
+                    for item in self._repository_method("list_provider_batch_jobs")(
+                        self.router_service.tenant_id,
+                        connection_id=connection.id,
+                        limit=100,
+                    )
+                    if str(item.get("certification_id") or "") == str(row["id"])
+                ),
+                None,
+            )
         return ProviderWorkloadCertificationSummary(
             certification_id=str(row["id"]),
             connection_id=connection.id,
@@ -821,11 +1725,19 @@ class ProviderWorkloadCertificationService:
                 else None
             ),
             profile_fingerprint=str(row["profile_fingerprint"]),
+            rerank_access_mode=(
+                str(profile["rerank_access_mode"])  # type: ignore[arg-type]
+                if profile.get("rerank_access_mode")
+                else None
+            ),
+            batch_job_id=(str(batch_job["id"]) if batch_job else None),
+            batch_status=(str(batch_job["status"]) if batch_job else None),
             ttft_ms=self._float(row["ttft_ms"]),
             e2e_ms=self._float(row["e2e_ms"]),
             prompt_tokens=self._integer(row["prompt_tokens"]),
             completion_tokens=self._integer(row["completion_tokens"]),
             total_tokens=self._integer(row["total_tokens"]),
+            vector_dimension=self._integer(row.get("vector_dimension")),
             created_at=str(row["created_at"]),
             completed_at=str(row["completed_at"]) if row["completed_at"] else None,
         )
@@ -894,6 +1806,12 @@ class ProviderWorkloadControlService:
         payload: ProviderWorkloadPolicyUpdate,
     ) -> ProviderWorkloadPolicyResponse:
         allowed_shapes = ENTRY_ALLOWED_SHAPES[entry_id]
+        if payload.local_fallback_mode not in ENTRY_ALLOWED_LOCAL_FALLBACKS[entry_id]:
+            raise RouterServiceError(
+                "provider_workload_local_fallback_not_allowed",
+                "该入口不允许所选本地降级模式。",
+                status_code=422,
+            )
         qualified: list[dict[str, object]] = []
         for binding in payload.bindings:
             if binding.execution_shape not in allowed_shapes:
@@ -906,6 +1824,7 @@ class ProviderWorkloadControlService:
                 connection_id=binding.connection_id,
                 model_id=binding.model_id,
                 execution_shape=binding.execution_shape,
+                rerank_access_mode=binding.rerank_access_mode,
             )
             if qualification is None:
                 raise RouterServiceError(
@@ -914,13 +1833,18 @@ class ProviderWorkloadControlService:
                     status_code=409,
                 )
             qualified.append(qualification)
-        policy_fingerprint = self._policy_fingerprint(entry_id, qualified)
+        policy_fingerprint = self._policy_fingerprint(
+            entry_id,
+            qualified,
+            local_fallback_mode=payload.local_fallback_mode,
+        )
         try:
             bundle = self._repository_method("replace_workload_policy")(
                 self.router_service.tenant_id,
                 entry_id=entry_id,
                 expected_revision=payload.expected_revision,
                 policy_fingerprint=policy_fingerprint,
+                local_fallback_mode=payload.local_fallback_mode,
                 bindings=qualified,
             )
         except RouterRepositoryError as exc:
@@ -1155,7 +2079,9 @@ class ProviderWorkloadControlService:
         fingerprint = (
             str(policy["policy_fingerprint"])
             if isinstance(policy, dict)
-            else self._policy_fingerprint(entry_id, [])
+            else self._policy_fingerprint(
+                entry_id, [], local_fallback_mode="none"
+            )
         )
         configured_status = (
             str(policy["status"]) if isinstance(policy, dict) else "legacy"
@@ -1180,6 +2106,11 @@ class ProviderWorkloadControlService:
                     certification_source=str(row["certification_source"]),  # type: ignore[arg-type]
                     connection_fingerprint=str(row["connection_fingerprint"]),
                     qualification_fingerprint=str(row["qualification_fingerprint"]),
+                    rerank_access_mode=(
+                        str(row["rerank_access_mode"])  # type: ignore[arg-type]
+                        if row.get("rerank_access_mode")
+                        else None
+                    ),
                     valid=valid,
                     reason_code=reason,
                 )
@@ -1221,6 +2152,11 @@ class ProviderWorkloadControlService:
             effective_status=effective_status,  # type: ignore[arg-type]
             revision=int(policy["revision"]) if isinstance(policy, dict) else 0,
             policy_fingerprint=fingerprint,
+            local_fallback_mode=(
+                str(policy.get("local_fallback_mode") or "none")  # type: ignore[arg-type]
+                if isinstance(policy, dict)
+                else "none"
+            ),
             bindings=binding_summaries,
             approval_valid=approval_valid,
             blocking_reason_codes=list(dict.fromkeys(blockers)),
@@ -1235,7 +2171,13 @@ class ProviderWorkloadControlService:
         connection_id: str,
         model_id: str,
         execution_shape: ProviderWorkloadExecutionShape,
+        rerank_access_mode: str | None = None,
     ) -> tuple[dict[str, object] | None, str]:
+        if execution_shape == "rerank_documents":
+            if rerank_access_mode not in {"dedicated", "llm_json"}:
+                return None, "provider_workload_rerank_access_mode_required"
+        elif rerank_access_mode is not None:
+            return None, "provider_workload_rerank_access_mode_not_allowed"
         if execution_shape in {"chat_text", "chat_tools"}:
             qualification, reason = ProviderChatControlService(
                 self.router_service
@@ -1263,8 +2205,11 @@ class ProviderWorkloadControlService:
             return None, "provider_workload_connection_missing"
         if not connection.enabled:
             return None, "connection_disabled"
-        if "chat" not in connection.scopes:
-            return None, "connection_chat_scope_required"
+        required_scope = ProviderWorkloadCertificationService._required_scope(
+            execution_shape
+        )
+        if required_scope not in connection.scopes:
+            return None, f"connection_{required_scope}_scope_required"
         if connection.health != "online":
             return None, "provider_connection_not_online"
         try:
@@ -1275,6 +2220,11 @@ class ProviderWorkloadControlService:
             return None, "provider_workload_credential_unavailable"
         if execution_shape == "fusion_native" and connection.kind != "openrouter":
             return None, "provider_workload_fusion_requires_openrouter"
+        if execution_shape in {
+            "openrouter_batch_chat",
+            "openrouter_batch_embeddings",
+        } and connection.kind != "openrouter":
+            return None, "provider_workload_batch_requires_openrouter"
         fingerprint = self.repository.connection_config_fingerprint(
             self.router_service.tenant_id, connection_id
         )
@@ -1312,6 +2262,7 @@ class ProviderWorkloadControlService:
             connection_id,
             model_id,
             execution_shape,
+            rerank_access_mode=rerank_access_mode,
         )
         if certification is None:
             return None, "provider_workload_certification_required"
@@ -1347,6 +2298,7 @@ class ProviderWorkloadControlService:
             "connection_fingerprint": fingerprint,
             "contract_version": PROVIDER_WORKLOAD_CONTRACT_VERSION,
             "profile_fingerprint": str(certification["profile_fingerprint"]),
+            "rerank_access_mode": rerank_access_mode,
         }
         qualification["qualification_fingerprint"] = _fingerprint(qualification)
         return qualification, "qualified"
@@ -1364,6 +2316,11 @@ class ProviderWorkloadControlService:
             connection_id=str(row["connection_id"]),
             model_id=str(row["model_id"]),
             execution_shape=str(row["execution_shape"]),  # type: ignore[arg-type]
+            rerank_access_mode=(
+                str(row["rerank_access_mode"])
+                if row.get("rerank_access_mode")
+                else None
+            ),
         )
         if current is None:
             return False, reason, connection
@@ -1387,12 +2344,15 @@ class ProviderWorkloadControlService:
     def _policy_fingerprint(
         entry_id: ProviderWorkloadEntryId,
         bindings: list[dict[str, object]],
+        *,
+        local_fallback_mode: str,
     ) -> str:
         material = [
             {
                 "execution_shape": item["execution_shape"],
                 "model_id": item["model_id"],
                 "connection_id": item["connection_id"],
+                "rerank_access_mode": item.get("rerank_access_mode"),
                 "qualification_fingerprint": item["qualification_fingerprint"],
             }
             for item in sorted(
@@ -1408,6 +2368,7 @@ class ProviderWorkloadControlService:
             {
                 "contract_version": PROVIDER_WORKLOAD_CONTRACT_VERSION,
                 "entry_id": entry_id,
+                "local_fallback_mode": local_fallback_mode,
                 "bindings": material,
             }
         )

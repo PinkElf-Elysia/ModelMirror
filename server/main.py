@@ -1302,9 +1302,17 @@ except ModuleNotFoundError:
     )
 
 try:
-    from server.model_router.api import get_catalog_coordinator
+    from server.model_router.api import (
+        get_catalog_coordinator,
+        start_provider_batch_recovery,
+        stop_provider_batch_recovery,
+    )
 except ModuleNotFoundError:
-    from model_router.api import get_catalog_coordinator
+    from model_router.api import (
+        get_catalog_coordinator,
+        start_provider_batch_recovery,
+        stop_provider_batch_recovery,
+    )
 
 try:
     from server.model_router.expert_team_gateway import (
@@ -26836,6 +26844,7 @@ async def start_mcp_ttl_cleanup() -> None:
     get_xpert_evaluation_executor().start()
     start_skill_creator_evaluation_runtime()
     get_benchmark_job_executor().start()
+    start_provider_batch_recovery()
     if skill_creator_resource_build_service.enabled:
         try:
             await asyncio.to_thread(skill_creator_resource_build_store.recover_interrupted)
@@ -26854,6 +26863,7 @@ async def start_mcp_ttl_cleanup() -> None:
 
 @app.on_event("shutdown")
 async def shutdown_mcp_sessions() -> None:
+    await stop_provider_batch_recovery()
     await close_shared_llm_client()
     await get_pipeline_executor().stop()
     await get_evaluation_executor().stop()

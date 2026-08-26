@@ -15,7 +15,14 @@ ConnectionKind = Literal[
     "openai_compatible",
     "openai",
 ]
-ConnectionScope = Literal["chat", "audio", "realtime"]
+ConnectionScope = Literal[
+    "chat",
+    "audio",
+    "realtime",
+    "embedding",
+    "rerank",
+    "batch",
+]
 ConnectionHealth = Literal["untested", "online", "offline", "disabled"]
 ProviderChatCertificationStatus = Literal[
     "not_run",
@@ -57,6 +64,12 @@ ProviderWorkloadEntryId = Literal[
     "fusion",
     "route_agent",
     "team_chat",
+    "rag_query_generate",
+    "rag_processor_generate",
+    "rag_embedding",
+    "rag_rerank",
+    "skill_rerank",
+    "openrouter_batch",
 ]
 ProviderWorkloadExecutionShape = Literal[
     "chat_text",
@@ -64,7 +77,13 @@ ProviderWorkloadExecutionShape = Literal[
     "chat_text_unary",
     "chat_json_object",
     "fusion_native",
+    "embedding_vectors",
+    "rerank_documents",
+    "openrouter_batch_chat",
+    "openrouter_batch_embeddings",
 ]
+ProviderWorkloadLocalFallbackMode = Literal["none", "extractive", "lexical"]
+ProviderWorkloadRerankAccessMode = Literal["dedicated", "llm_json"]
 ProviderWorkloadPolicyStatus = Literal[
     "legacy",
     "managed_required",
@@ -120,6 +139,9 @@ CONNECTION_SCOPE_ORDER: tuple[ConnectionScope, ...] = (
     "chat",
     "audio",
     "realtime",
+    "embedding",
+    "rerank",
+    "batch",
 )
 
 
@@ -161,7 +183,7 @@ class RouterConnectionCreate(BaseModel):
     kind: ConnectionKind
     base_url: str = Field(min_length=1, max_length=2048)
     api_key: SecretStr
-    scopes: list[ConnectionScope] = Field(default_factory=list, max_length=3)
+    scopes: list[ConnectionScope] = Field(default_factory=list, max_length=6)
     enabled: bool = True
 
     @field_validator("name")
@@ -198,7 +220,7 @@ class RouterConnectionUpdate(BaseModel):
     api_key: SecretStr | None = None
     scopes: list[ConnectionScope] | None = Field(
         default=None,
-        max_length=3,
+        max_length=6,
     )
     enabled: bool | None = None
 
@@ -718,6 +740,7 @@ class ProviderWorkloadCertificationRequest(BaseModel):
     acknowledge_billed_call: bool
     candidate_model_ids: list[str] = Field(default_factory=list, max_length=5)
     judge_model_id: str | None = Field(default=None, max_length=512)
+    rerank_access_mode: ProviderWorkloadRerankAccessMode | None = None
 
     @field_validator("model_id")
     @classmethod
@@ -753,6 +776,11 @@ class ProviderWorkloadCertificationRequest(BaseModel):
                 )
         elif self.candidate_model_ids or self.judge_model_id is not None:
             raise ValueError("fusion profile is only valid for fusion_native")
+        if self.execution_shape == "rerank_documents":
+            if self.rerank_access_mode is None:
+                raise ValueError("rerank_documents requires rerank_access_mode")
+        elif self.rerank_access_mode is not None:
+            raise ValueError("rerank_access_mode is only valid for rerank_documents")
         if self.execution_shape in {"chat_text", "chat_tools"}:
             raise ValueError("chat_text and chat_tools reuse Provider Chat certification")
         return self
@@ -767,6 +795,9 @@ class ProviderWorkloadCertificationChecks(BaseModel):
     json_object_verified: bool = False
     fusion_profile_verified: bool = False
     actual_model_verified: bool = False
+    embedding_vectors_verified: bool = False
+    rerank_results_verified: bool = False
+    batch_terminal_verified: bool = False
 
 
 class ProviderWorkloadCertificationSummary(BaseModel):
@@ -788,6 +819,10 @@ class ProviderWorkloadCertificationSummary(BaseModel):
     candidate_model_ids: list[str] = Field(default_factory=list)
     judge_model_id: str | None = None
     profile_fingerprint: str | None = None
+    rerank_access_mode: ProviderWorkloadRerankAccessMode | None = None
+    vector_dimension: int | None = None
+    batch_job_id: str | None = None
+    batch_status: str | None = None
     ttft_ms: float | None = None
     e2e_ms: float | None = None
     prompt_tokens: int | None = None
@@ -809,15 +844,28 @@ class ProviderWorkloadBindingUpdate(BaseModel):
     execution_shape: ProviderWorkloadExecutionShape
     model_id: str = Field(min_length=1, max_length=512)
     connection_id: str = Field(min_length=1, max_length=128)
+    rerank_access_mode: ProviderWorkloadRerankAccessMode | None = None
 
     @field_validator("model_id", "connection_id")
     @classmethod
     def validate_required_text(cls, value: str, info) -> str:
         return _required_text(value, field_name=info.field_name, limit=512)
 
+    @model_validator(mode="after")
+    def validate_rerank_access_mode(self) -> "ProviderWorkloadBindingUpdate":
+        if self.execution_shape == "rerank_documents":
+            if self.rerank_access_mode is None:
+                raise ValueError("rerank_documents binding requires rerank_access_mode")
+        elif self.rerank_access_mode is not None:
+            raise ValueError(
+                "rerank_access_mode is only valid for rerank_documents binding"
+            )
+        return self
+
 
 class ProviderWorkloadPolicyUpdate(BaseModel):
     expected_revision: int = Field(ge=0)
+    local_fallback_mode: ProviderWorkloadLocalFallbackMode = "none"
     bindings: list[ProviderWorkloadBindingUpdate] = Field(
         default_factory=list,
         max_length=500,
@@ -844,6 +892,7 @@ class ProviderWorkloadBindingSummary(BaseModel):
     certification_source: Literal["provider_chat", "provider_workload"]
     connection_fingerprint: str
     qualification_fingerprint: str
+    rerank_access_mode: ProviderWorkloadRerankAccessMode | None = None
     valid: bool
     reason_code: str
 
@@ -857,6 +906,7 @@ class ProviderWorkloadPolicyResponse(BaseModel):
     effective_status: ProviderWorkloadPolicyStatus
     revision: int
     policy_fingerprint: str
+    local_fallback_mode: ProviderWorkloadLocalFallbackMode = "none"
     bindings: list[ProviderWorkloadBindingSummary] = Field(default_factory=list)
     approval_valid: bool = False
     blocking_reason_codes: list[str] = Field(default_factory=list)
