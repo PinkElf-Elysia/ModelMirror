@@ -42,6 +42,20 @@ class RerankOutcome:
     fallback_reason: str | None = None
     provider_target: str = ""
     attempted_targets: tuple[str, ...] = ()
+    execution_mode: str = "legacy"
+    provider_route_receipts: dict[str, Any] | None = None
+    fallback_reason_codes: tuple[str, ...] = ()
+
+
+@dataclass(slots=True)
+class PreparedRerankInput:
+    query: str
+    documents: list[RerankDocument]
+    requested_input_count: int
+    input_char_count: int
+    candidate_limit: int
+    input_char_limit: int
+    timeout_seconds: float
 
 
 @dataclass(slots=True)
@@ -67,6 +81,43 @@ class RerankService:
             "llm_configured": llm_configured,
             "llm_model": self._llm_model() if llm_configured else "",
         }
+
+    def prepare_managed_input(
+        self,
+        query: str,
+        documents: list[RerankDocument],
+        *,
+        model: str,
+        access_mode: str,
+        top_n: int,
+    ) -> PreparedRerankInput:
+        candidate_limit = _bounded_env_int(
+            "RAG_RERANK_MAX_CANDIDATES", 20, minimum=1, maximum=100
+        )
+        input_char_limit = _bounded_env_int(
+            "RAG_RERANK_MAX_INPUT_CHARS", 24_000, minimum=1_000, maximum=200_000
+        )
+        timeout_seconds = _bounded_env_float(
+            "RAG_RERANK_TIMEOUT_SECONDS", 5.0, minimum=0.01, maximum=60.0
+        )
+        kind = "api" if access_mode == "dedicated" else "llm"
+        limited_query, limited_documents, input_char_count = _limit_rerank_payload(
+            query,
+            documents,
+            candidate_limit=candidate_limit,
+            input_char_limit=input_char_limit,
+            top_n=top_n,
+            payload_specs=[(kind, model)],
+        )
+        return PreparedRerankInput(
+            query=limited_query,
+            documents=limited_documents,
+            requested_input_count=len(documents),
+            input_char_count=input_char_count,
+            candidate_limit=candidate_limit,
+            input_char_limit=input_char_limit,
+            timeout_seconds=timeout_seconds,
+        )
 
     async def rerank(
         self,

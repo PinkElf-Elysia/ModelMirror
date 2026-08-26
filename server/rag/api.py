@@ -31,6 +31,7 @@ from .rag_service import (
     PipelineVersionNotFoundError,
     ManagedEmbeddingRouteError,
     ManagedRagGenerationRouteError,
+    ManagedRagRerankRouteError,
     RagService,
     UnsupportedDocumentError,
 )
@@ -2267,6 +2268,16 @@ async def query_pipeline_version(
                 "provider_route_receipts": exc.receipt,
             },
         ) from exc
+    except ManagedRagRerankRouteError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "code": exc.code,
+                "message": str(exc),
+                "execution_mode": "managed",
+                "provider_route_receipts": exc.receipt,
+            },
+        ) from exc
     except PipelineDraftValidationError as exc:
         raise HTTPException(
             status_code=409,
@@ -2368,6 +2379,11 @@ async def create_pipeline_citations(payload: CitationAnchorRequest) -> CitationA
             status_code=502,
             detail={"code": exc.code, "message": str(exc)},
         ) from exc
+    except ManagedRagRerankRouteError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
     except PipelineDraftValidationError as exc:
         raise HTTPException(
             status_code=409,
@@ -2402,6 +2418,16 @@ async def query_knowledge_base(payload: RagQueryRequest) -> RagQueryResponse:
             detail={"code": exc.code, "message": str(exc)},
         ) from exc
     except ManagedRagGenerationRouteError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "code": exc.code,
+                "message": str(exc),
+                "execution_mode": "managed",
+                "provider_route_receipts": exc.receipt,
+            },
+        ) from exc
+    except ManagedRagRerankRouteError as exc:
         raise HTTPException(
             status_code=502,
             detail={

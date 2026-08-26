@@ -8,6 +8,7 @@ import pytest
 
 from server.skills.finder import SkillFinder, _fingerprint
 from server.skills.semantic_rerank import SkillRankingReceipt, SkillRerankOutcome
+from server.skills.semantic_rerank_service import SkillSemanticRerankError
 from server.skills.skill_manager import SkillManager
 from server.xpert_runtime import (
     MiddlewareContext,
@@ -194,6 +195,23 @@ class StubShadowReranker:
         )
 
 
+class StubManagedFailClosedReranker:
+    async def rerank_router_results(self, **_kwargs: object) -> SkillRerankOutcome:
+        raise SkillSemanticRerankError(
+            "private provider failure",
+            code="provider_rerank_timeout",
+            status_code=504,
+        )
+
+
+class StubUnexpectedManagedFailureReranker:
+    def managed_errors_fail_closed(self) -> bool:
+        return True
+
+    async def rerank_router_results(self, **_kwargs: object) -> SkillRerankOutcome:
+        raise RuntimeError("private post-processing failure")
+
+
 def test_router_omits_and_rejects_manual_only_candidate(tmp_path: Path) -> None:
     repo, source_ref = create_skill_repo(tmp_path)
     index_path = tmp_path / "runtime-index.json"
@@ -273,6 +291,38 @@ async def test_router_shadow_receipt_is_metadata_only_and_keeps_lexical_output(
     assert receipt["queryHash"] == "a" * 64
     assert receipt["candidateFingerprints"][0]["candidateFingerprint"]
     assert "提取 PDF 合同" not in json.dumps(found.metadata, ensure_ascii=False)
+
+
+@pytest.mark.asyncio
+async def test_router_managed_rerank_failure_does_not_silently_return_lexical(
+    tmp_path: Path,
+) -> None:
+    provider, _manager, _candidate = provider_fixture(tmp_path)
+    provider.semantic_rerank_service = StubManagedFailClosedReranker()
+
+    with pytest.raises(RuntimeToolError) as failed:
+        await provider.call_tool(
+            RuntimeToolCall("skill_find", {"need": "提取 PDF 合同"}, metadata())
+        )
+
+    assert failed.value.code == "provider_rerank_timeout"
+    assert "private provider failure" not in failed.value.message
+
+
+@pytest.mark.asyncio
+async def test_router_unexpected_managed_failure_also_fails_closed(
+    tmp_path: Path,
+) -> None:
+    provider, _manager, _candidate = provider_fixture(tmp_path)
+    provider.semantic_rerank_service = StubUnexpectedManagedFailureReranker()
+
+    with pytest.raises(RuntimeToolError) as failed:
+        await provider.call_tool(
+            RuntimeToolCall("skill_find", {"need": "提取 PDF 合同"}, metadata())
+        )
+
+    assert failed.value.code == "provider_rerank_internal_error"
+    assert "private post-processing failure" not in failed.value.message
 
 
 @pytest.mark.asyncio

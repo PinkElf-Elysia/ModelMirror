@@ -20,7 +20,10 @@ from .semantic_rerank import (
     SkillSearchIndexError,
     SkillSearchIndexV1,
 )
-from .semantic_rerank_service import SkillSemanticRerankService
+from .semantic_rerank_service import (
+    SkillSemanticRerankError,
+    SkillSemanticRerankService,
+)
 from .rerank_governance import (
     SkillRerankGovernanceError,
     SkillRerankGovernanceService,
@@ -641,6 +644,16 @@ async def search_skills(payload: SkillSearchRequestPayload):
             detail={
                 "code": exc.code,
                 "message": str(exc),
+            },
+        ) from exc
+    except SkillSemanticRerankError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={
+                "code": exc.code,
+                "message": str(exc),
+                "execution_mode": "managed",
+                "provider_route_receipts": exc.receipt,
             },
         ) from exc
 

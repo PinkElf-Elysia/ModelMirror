@@ -12,6 +12,9 @@ const SEARCH_OUTPUT_PATH = resolve("server/skills/data/skill_search_index.json")
 const CLIENT_SUMMARY_PATH = resolve(
   "client/src/data/skillSearchIndex.generated.json",
 );
+const SERVER_CLIENT_SUMMARY_PATH = resolve(
+  "server/skills/data/skill_search_client_summary.json",
+);
 
 async function loadNeedCandidates() {
   const entry = `
@@ -60,6 +63,7 @@ async function main() {
     [OUTPUT_PATH, `${JSON.stringify(index)}\n`],
     [SEARCH_OUTPUT_PATH, `${JSON.stringify(searchIndex)}\n`],
     [CLIENT_SUMMARY_PATH, `${JSON.stringify(clientSummary)}\n`],
+    [SERVER_CLIENT_SUMMARY_PATH, `${JSON.stringify(clientSummary)}\n`],
   ];
   const previous = new Map();
   const replaced = [];

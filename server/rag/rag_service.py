@@ -41,7 +41,7 @@ from .document_parser import (
 from .document_processor import ProcessedDocument, StructuredDocumentProcessor
 from .embedder import EmbeddingClient, EmbeddingError
 from .lexical_store import LexicalChunk, LexicalSearchResult, SqliteLexicalStore
-from .reranker import RerankDocument, RerankService
+from .reranker import RerankDocument, RerankItem, RerankOutcome, RerankService
 from .retrieval import (
     RetrievalCandidate,
     RetrievalConfig,
@@ -204,6 +204,21 @@ class ManagedRagGenerationRouteError(RagError):
         self.receipt = receipt
 
 
+class ManagedRagRerankRouteError(RagError):
+    """Stable, redacted failure for managed RAG rerank."""
+
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        receipt: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.receipt = receipt
+
+
 class KnowledgeWriteProposalNotFoundError(RagError):
     """Raised when a knowledge write proposal does not exist."""
 
@@ -247,6 +262,7 @@ class RagService:
         vision_processor: VisionUnderstandingService | None = None,
         managed_embedding_gateway: Any | None = None,
         managed_generation_gateway: Any | None = None,
+        managed_rerank_gateway: Any | None = None,
         llm_enabled: bool | None = None,
     ) -> None:
         root = Path(__file__).resolve().parent
@@ -278,6 +294,7 @@ class RagService:
         self.vision_processor = vision_processor or VisionUnderstandingService()
         self.managed_embedding_gateway = managed_embedding_gateway
         self.managed_generation_gateway = managed_generation_gateway
+        self.managed_rerank_gateway = managed_rerank_gateway
         self.splitter = splitter or TextSplitter(
             chunk_size=int(os.getenv("RAG_CHUNK_SIZE", "500")),
             chunk_overlap=int(os.getenv("RAG_CHUNK_OVERLAP", "50")),
@@ -5138,13 +5155,22 @@ class RagService:
         rerank_details: dict[str, Any] = {}
         if config.rerank_enabled and fused:
             fused_before_rerank = list(fused)
-            outcome = await self.reranker.rerank(
+            outcome = await self._rerank_with_control(
+                kb_id,
+                namespace,
                 clean_question,
                 [RerankDocument(chunk_id=item.chunk_id, text=item.matched_text) for item in fused],
                 provider=config.rerank_provider,
                 model=config.rerank_model,
                 top_n=min(config.rerank_top_n, len(fused)),
             )
+            provider_route_receipts = self._merge_provider_route_receipts(
+                provider_route_receipts,
+                outcome.provider_route_receipts,
+            )
+            if outcome.execution_mode != "legacy":
+                execution_mode = outcome.execution_mode
+            fallback_reason_codes.extend(outcome.fallback_reason_codes)
             rerank_provider = outcome.provider
             rerank_model = outcome.model
             rerank_input_count = int(outcome.input_count or len(fused_before_rerank))
@@ -5182,8 +5208,8 @@ class RagService:
                     0, len(fused_before_rerank) - rerank_output_count
                 )
             else:
-                # Provider failure is explicitly fail-open: preserve the full
-                # fused ranking and surface the warning/receipt to the caller.
+                # Legacy behavior or an explicit lexical policy preserves the
+                # full fused ranking and surfaces the warning/receipt.
                 fused = fused_before_rerank
                 rerank_output_count = len(fused_before_rerank)
 
@@ -5226,7 +5252,7 @@ class RagService:
                 answer,
                 generation_receipt,
                 generation_mode,
-                fallback_reason_codes,
+                generation_fallback_reason_codes,
             ) = await self._generate_answer_with_control(
                 kb_id,
                 namespace,
@@ -5239,6 +5265,7 @@ class RagService:
             )
             if generation_mode is not None:
                 execution_mode = generation_mode
+            fallback_reason_codes.extend(generation_fallback_reason_codes)
         else:
             answer = ""
         return {
@@ -5287,6 +5314,153 @@ class RagService:
                 embedding_profile=resolved_embedding_profile,
             ),
         }
+
+    async def _rerank_with_control(
+        self,
+        kb_id: str,
+        namespace: str,
+        query: str,
+        documents: list[RerankDocument],
+        *,
+        provider: str,
+        model: str,
+        top_n: int,
+    ) -> Any:
+        gateway = self._managed_rerank_gateway()
+        if gateway is None or str(gateway.routing_mode("rag_rerank")) == "legacy":
+            return await self.reranker.rerank(
+                query,
+                documents,
+                provider=provider,
+                model=model,
+                top_n=top_n,
+            )
+
+        started = time.perf_counter()
+        run: Any | None = None
+        try:
+            if str(gateway.routing_mode("rag_rerank")) != "managed_required":
+                code = "provider_workload_policy_not_active"
+                raise ManagedRagRerankRouteError(
+                    code,
+                    "RAG Rerank 的 Managed Provider 策略已退化并失败关闭。",
+                    receipt=gateway.blocked_receipt("rag_rerank", code),
+                )
+            qualification = gateway.qualification(
+                "rag_rerank",
+                requested_model=model or None,
+            )
+            prepared = self.reranker.prepare_managed_input(
+                query,
+                documents,
+                model=qualification.model_id,
+                access_mode=qualification.access_mode,
+                top_n=top_n,
+            )
+            if not prepared.documents:
+                code = "provider_rerank_input_budget_exhausted"
+                raise ManagedRagRerankRouteError(
+                    code,
+                    "RAG Rerank 输入预算不足，调用已在派发前阻断。",
+                    receipt=gateway.blocked_receipt("rag_rerank", code),
+                )
+            effective_top_n = min(top_n, len(prepared.documents))
+            run = gateway.start_run(
+                "rag_rerank",
+                parent_run_reference=(
+                    f"rag_rerank:{kb_id}:{namespace[:120]}:{uuid.uuid4().hex}"
+                ),
+            )
+            managed = await run.rerank(
+                prepared.query,
+                [item.text for item in prepared.documents],
+                model_id=qualification.model_id,
+                top_n=effective_top_n,
+                logical_call_key="rag_rerank:0",
+                call_sequence=1,
+                timeout_seconds=prepared.timeout_seconds,
+            )
+            receipt = run.finish_success()
+            return RerankOutcome(
+                items=[
+                    RerankItem(prepared.documents[item.index].chunk_id, item.score)
+                    for item in managed.items
+                ],
+                provider="managed",
+                model=managed.actual_model,
+                requested_input_count=prepared.requested_input_count,
+                input_count=len(prepared.documents),
+                input_char_count=prepared.input_char_count,
+                output_count=len(managed.items),
+                candidate_limit=prepared.candidate_limit,
+                input_char_limit=prepared.input_char_limit,
+                timeout_budget_ms=int(round(prepared.timeout_seconds * 1000)),
+                elapsed_ms=round((time.perf_counter() - started) * 1000, 3),
+                attempted_provider="managed",
+                attempted_model=qualification.model_id,
+                provider_target=f"managed_rerank_{qualification.access_mode}",
+                attempted_targets=(f"managed_rerank_{qualification.access_mode}",),
+                execution_mode="managed",
+                provider_route_receipts=receipt,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            code = str(getattr(exc, "code", "provider_rerank_failed"))
+            receipt = getattr(exc, "receipt", None)
+            if run is not None and not isinstance(receipt, dict):
+                receipt = run.receipt_summary()
+            if not isinstance(receipt, dict):
+                receipt = gateway.blocked_receipt("rag_rerank", code)
+            if gateway.local_fallback_mode("rag_rerank") == "lexical":
+                return self._managed_rerank_fallback_outcome(
+                    code=code,
+                    warning="Managed Rerank 失败；已按显式策略保留原融合顺序。",
+                    receipt=receipt,
+                    requested_input_count=len(documents),
+                    input_count=len(documents),
+                    input_char_count=sum(len(item.text) for item in documents),
+                    elapsed_ms=(time.perf_counter() - started) * 1000,
+                )
+            if isinstance(exc, ManagedRagRerankRouteError):
+                raise
+            raise ManagedRagRerankRouteError(
+                code,
+                "RAG Rerank 的 Managed Provider 调用失败，系统未重试或切换目标。",
+                receipt=receipt,
+            ) from exc
+
+    @staticmethod
+    def _managed_rerank_fallback_outcome(
+        *,
+        code: str,
+        warning: str,
+        receipt: dict[str, Any] | None,
+        requested_input_count: int,
+        input_count: int,
+        input_char_count: int,
+        candidate_limit: int = 20,
+        input_char_limit: int = 24_000,
+        timeout_seconds: float = 5.0,
+        elapsed_ms: float = 0.0,
+    ) -> Any:
+        return RerankOutcome(
+            items=[],
+            provider="none",
+            warning=warning,
+            requested_input_count=requested_input_count,
+            input_count=input_count,
+            input_char_count=input_char_count,
+            candidate_limit=candidate_limit,
+            input_char_limit=input_char_limit,
+            timeout_budget_ms=int(round(timeout_seconds * 1000)),
+            elapsed_ms=round(elapsed_ms, 3),
+            attempted_provider="managed",
+            fallback_reason=code,
+            execution_mode="local_non_model",
+            provider_route_receipts=receipt,
+            fallback_reason_codes=(code, "local_non_model_fallback"),
+        )
 
     async def _generate_answer_with_control(
         self,
@@ -6015,6 +6189,34 @@ class RagService:
                 "Managed RAG generation control plane is unavailable."
             ) from exc
         return self.managed_generation_gateway
+
+    def _managed_rerank_gateway(self) -> Any | None:
+        if self.managed_rerank_gateway is not None:
+            return self.managed_rerank_gateway
+        if os.getenv("MODEL_CONTROL_RAG_RERANK_ENABLED", "").strip().casefold() in {
+            "",
+            "0",
+            "false",
+            "no",
+            "off",
+        }:
+            return None
+        try:
+            try:
+                from server.model_router import get_model_router_service
+                from server.model_router.rerank_gateway import ManagedRerankGateway
+            except ModuleNotFoundError:
+                from model_router import get_model_router_service
+                from model_router.rerank_gateway import ManagedRerankGateway
+
+            self.managed_rerank_gateway = ManagedRerankGateway.for_router(
+                get_model_router_service()
+            )
+        except Exception as exc:
+            raise PipelineDraftValidationError(
+                "Managed Rerank control plane is unavailable."
+            ) from exc
+        return self.managed_rerank_gateway
 
     async def _generate_processor_items(
         self,
