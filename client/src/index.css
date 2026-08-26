@@ -112,6 +112,15 @@ textarea {
     background-size: 42px 42px, 42px 42px, 100% 100%, 100% 100%;
   }
 
+  .help-center-shell {
+    background-color: #04111f;
+    background-image:
+      linear-gradient(rgba(148, 163, 184, 0.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(148, 163, 184, 0.045) 1px, transparent 1px),
+      radial-gradient(circle at 82% 8%, rgba(34, 211, 238, 0.075), transparent 32%);
+    background-size: 48px 48px, 48px 48px, 100% 100%;
+  }
+
   .prism-line {
     background: linear-gradient(90deg, transparent, rgba(36, 217, 255, 0.72), rgba(124, 58, 237, 0.72), transparent);
   }
