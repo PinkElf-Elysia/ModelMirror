@@ -1,7 +1,8 @@
 <div align="center">
   <img src="client/public/logo.png" alt="ModelMirror 标志" width="136" />
   <h1>模镜 ModelMirror</h1>
-  <p><strong>让异构 AI Workload 有明确契约、精确绑定与可审计执行。</strong></p>
+  <p><strong> 从寻找一个模型，到编译一套智能。<br>
+ From choosing a model to compiling intelligence.</strong></p>
   <p>
     面向中文用户的本地工作台：以操作级 Provider Contract、精确 Workload Binding、<br />
     脱敏路由回执和隔离 Runtime，贯通资源发现、组合与受控执行。
