@@ -38,6 +38,22 @@ function validSmokeSource(extra = "") {
   ].join("\n");
 }
 
+function validR18DiscoverySource(extra = "") {
+  return [
+    `const EXPECTED_HOSTS = Object.freeze(${JSON.stringify(committedPolicy.r18LandscapePolicy.publicDiscoveryHosts)});`,
+    "const state = { querySet: { timeoutMs: 1, responseMaxBytes: 1, totalResponseMaxBytes: 1 }, counts: { host: 1 } };",
+    "const maximum = 1;",
+    "const host = \"host\";",
+    "const url = new URL(\"https:\" + String.fromCharCode(47, 47) + host);",
+    "if (url.protocol !== \"https:\" || url.hostname !== host || state.counts[host] > maximum) throw new Error();",
+    "fetch(url, { redirect: \"error\", credentials: \"omit\", signal: AbortSignal.timeout(state.querySet.timeoutMs) });",
+    "void state.querySet.responseMaxBytes;",
+    "void state.querySet.totalResponseMaxBytes;",
+    extra,
+    "",
+  ].join("\n");
+}
+
 function boundaryPolicy() {
   return structuredClone(committedPolicy);
 }
@@ -784,6 +800,42 @@ const negativeCases = [
         `${capability}("https://example.invalid/tool");\n`,
         "utf8",
       );
+    },
+  },
+  {
+    name: "R18 discovery adds a second request site",
+    expectedRule: "r18-discovery-network-invalid",
+    setup: async ({ root }) => {
+      const target = path.join(root, "scripts", "lib", "r18-discovery-core.mjs");
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.writeFile(target, validR18DiscoverySource("fetch(url);"), "utf8");
+    },
+  },
+  {
+    name: "R18 discovery adds an unapproved host",
+    expectedRule: "r18-discovery-network-invalid",
+    setup: async ({ root }) => {
+      const target = path.join(root, "scripts", "lib", "r18-discovery-core.mjs");
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.writeFile(target, validR18DiscoverySource().replace("rosebud.ai\"]", 'rosebud.ai","example.invalid"]'), "utf8");
+    },
+  },
+  {
+    name: "R18 discovery permits redirects",
+    expectedRule: "r18-discovery-network-invalid",
+    setup: async ({ root }) => {
+      const target = path.join(root, "scripts", "lib", "r18-discovery-core.mjs");
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.writeFile(target, validR18DiscoverySource().replace('redirect: "error"', 'redirect: "follow"'), "utf8");
+    },
+  },
+  {
+    name: "R18 discovery reads process credentials",
+    expectedRule: "r18-discovery-network-invalid",
+    setup: async ({ root }) => {
+      const target = path.join(root, "scripts", "lib", "r18-discovery-core.mjs");
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.writeFile(target, validR18DiscoverySource("void process.env.TOKEN;"), "utf8");
     },
   },
   {

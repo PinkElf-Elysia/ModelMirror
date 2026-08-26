@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "profile": "matrix-oasis.v2-landscape-candidate-seeds/1",
+  "r17Candidates": [
+    {"id":"beehave","name":"Beehave","laneIds":["godot-behavior"]},
+    {"id":"limboai","name":"LimboAI","laneIds":["godot-behavior"]},
+    {"id":"dialogue-manager","name":"Dialogue Manager","laneIds":["dialogue-presentation"]},
+    {"id":"mem0","name":"Mem0","laneIds":["memory-relationships"]},
+    {"id":"letta","name":"Letta","laneIds":["memory-relationships","npc-orchestration"]},
+    {"id":"worldx","name":"WorldX","laneIds":["dynamic-events","creator-commercial-benchmark"]},
+    {"id":"concordia","name":"Concordia","laneIds":["npc-orchestration","dynamic-events"]},
+    {"id":"ai-town","name":"AI Town","laneIds":["npc-orchestration","dynamic-events","creator-commercial-benchmark"]},
+    {"id":"generative-agents","name":"Generative Agents","laneIds":["memory-relationships","dynamic-events"]},
+    {"id":"tinytroupe","name":"TinyTroupe","laneIds":["npc-orchestration","memory-relationships","dynamic-events"]},
+    {"id":"sotopia","name":"SOTOPIA","laneIds":["npc-orchestration","evaluation-observability"]},
+    {"id":"graphiti","name":"Graphiti","laneIds":["memory-relationships"]},
+    {"id":"voyager","name":"Voyager","laneIds":["npc-orchestration","dynamic-events","evaluation-observability"]},
+    {"id":"kenney-animated-characters-retro","name":"Kenney Animated Characters Retro","laneIds":["character-animation"]},
+    {"id":"kaykit-animated-character","name":"KayKit Animated Character","laneIds":["character-animation"]},
+    {"id":"godogen","name":"Godogen","laneIds":["creator-commercial-benchmark","evaluation-observability"]},
+    {"id":"gamecraft-bench","name":"GameCraft-Bench","laneIds":["evaluation-observability"]}
+  ],
+  "searchCandidates": [
+    {"id":"tradingagents","name":"TradingAgents","repository":"TauricResearch/TradingAgents","laneIds":["npc-orchestration"],"staticExclusionCode":null},
+    {"id":"ecc","name":"ECC","repository":"affaan-m/ECC","laneIds":["memory-relationships"],"staticExclusionCode":"R18_DOMAIN_MISMATCH"},
+    {"id":"arrow","name":"Arrow","repository":"mhgolkar/Arrow","laneIds":["dynamic-events","dialogue-presentation"],"staticExclusionCode":null},
+    {"id":"pixelorama","name":"Pixelorama","repository":"Orama-Interactive/Pixelorama","laneIds":["character-animation"],"staticExclusionCode":null},
+    {"id":"agentmemory","name":"agentmemory","repository":"rohitg00/agentmemory","laneIds":["memory-relationships","evaluation-observability"],"staticExclusionCode":null},
+    {"id":"nginx-lua-anti-ddos","name":"Nginx Lua Anti DDoS","repository":"C0nw0nk/Nginx-Lua-Anti-DDoS","laneIds":["creator-commercial-benchmark"],"staticExclusionCode":"R18_DOMAIN_MISMATCH"},
+    {"id":"deer-flow","name":"DeerFlow","repository":"bytedance/deer-flow","laneIds":["npc-orchestration","memory-relationships","dynamic-events"],"staticExclusionCode":null},
+    {"id":"yarnclassic","name":"YarnClassic","repository":"blurymind/YarnClassic","laneIds":["dynamic-events","dialogue-presentation"],"staticExclusionCode":null},
+    {"id":"cua","name":"Cua","repository":"trycua/cua","laneIds":["evaluation-observability"],"staticExclusionCode":null},
+    {"id":"roguesharp","name":"RogueSharp","repository":"FaronBracy/RogueSharp","laneIds":["creator-commercial-benchmark"],"staticExclusionCode":null},
+    {"id":"metagpt","name":"MetaGPT","repository":"FoundationAgents/MetaGPT","laneIds":["npc-orchestration"],"staticExclusionCode":null},
+    {"id":"ruflo","name":"Ruflo","repository":"ruvnet/ruflo","laneIds":["npc-orchestration","memory-relationships"],"staticExclusionCode":null},
+    {"id":"story-to-game","name":"Story to Game","repository":"Shanyin-ai/Story-to-game","laneIds":["dynamic-events","creator-commercial-benchmark"],"staticExclusionCode":null},
+    {"id":"godot-behavior-tree","name":"Godot Behavior Tree","repository":"kagenash1/godot-behavior-tree","laneIds":["godot-behavior"],"staticExclusionCode":null},
+    {"id":"rakugo-dialogue-system","name":"Rakugo Dialogue System","repository":"rakugoteam/Rakugo-Dialogue-System","laneIds":["dialogue-presentation","dynamic-events"],"staticExclusionCode":null},
+    {"id":"sprouty-dialogs","name":"SproutyDialogs","repository":"SproutyLabs/SproutyDialogs","laneIds":["dialogue-presentation"],"staticExclusionCode":null},
+    {"id":"anima","name":"Anima","repository":"ceceppa/anima","laneIds":["character-animation"],"staticExclusionCode":null},
+    {"id":"pyod","name":"PyOD","repository":"yzhao062/pyod","laneIds":["evaluation-observability"],"staticExclusionCode":"R18_DOMAIN_MISMATCH"},
+    {"id":"worldpainter","name":"WorldPainter","repository":"Captain-Chaos/WorldPainter","laneIds":["creator-commercial-benchmark"],"staticExclusionCode":"R18_LICENSE_NOT_ALLOWED"},
+    {"id":"godot-behavior-tree-plugin","name":"Godot Behavior Tree Plugin","repository":"godot-addons/godot-behavior-tree-plugin","laneIds":["godot-behavior"],"staticExclusionCode":"R18_IDENTITY_NOT_LOCKED"},
+    {"id":"godot-yet-another-behavior-tree","name":"Godot Yet Another Behavior Tree","repository":"Earewien/godot-yet-another-behavior-tree","laneIds":["godot-behavior"],"staticExclusionCode":"R18_IDENTITY_NOT_LOCKED"},
+    {"id":"godot-aseprite-wizard","name":"Godot Aseprite Wizard","repository":"viniciusgerevini/godot-aseprite-wizard","laneIds":["character-animation"],"staticExclusionCode":null}
+  ],
+  "internalCandidates": [
+    {"id":"deterministic-runtime-baseline","name":"Deterministic Runtime Baseline","path":"packages/runtime-pack-simulator","laneIds":["npc-orchestration","dynamic-events","godot-behavior"]},
+    {"id":"world-event-ledger-baseline","name":"World Event Ledger Baseline","path":"packages/runtime-pack-contracts","laneIds":["npc-orchestration","memory-relationships","dynamic-events","evaluation-observability"]},
+    {"id":"native-control-dialogue-baseline","name":"Native Control Dialogue Baseline","path":"packages/game-pack-simulator","laneIds":["dialogue-presentation"]},
+    {"id":"static-character-asset-baseline","name":"Static Character Asset Baseline","path":"packages/prototype-asset-pipeline","laneIds":["character-animation"]},
+    {"id":"runtime-evidence-baseline","name":"Runtime Evidence Baseline","path":"packages/prototype-runtime-evidence","laneIds":["evaluation-observability"]},
+    {"id":"creator-qualification-baseline","name":"Creator Qualification Baseline","path":"packages/prototype-creator-qualification","laneIds":["creator-commercial-benchmark","evaluation-observability"]}
+  ],
+  "commercialCandidates": [
+    {"id":"inworld","name":"Inworld","documentIds":["inworld-overview","inworld-api-reference"],"laneIds":["npc-orchestration","dialogue-presentation","creator-commercial-benchmark"]},
+    {"id":"convai","name":"Convai","documentIds":["convai-overview","convai-core-api"],"laneIds":["npc-orchestration","dialogue-presentation","creator-commercial-benchmark"]},
+    {"id":"nvidia-ace","name":"NVIDIA ACE","documentIds":["nvidia-ace-games","nvidia-ace-architecture"],"laneIds":["npc-orchestration","character-animation","creator-commercial-benchmark"]},
+    {"id":"rosebud","name":"Rosebud","documentIds":["rosebud-overview"],"laneIds":["dynamic-events","creator-commercial-benchmark"]}
+  ]
+}

@@ -259,6 +259,28 @@ const REQUIRED_POLICY_VALUES = [
   [["r18LandscapePolicy", "providerCredentialsAllowed"], false],
   [["r18LandscapePolicy", "commercialProductCallsAllowed"], false],
   [["r18LandscapePolicy", "publicDiscoveryRequiresHumanApproval"], true],
+  [["r18LandscapePolicy", "publicDiscoveryHosts"], [
+    "api.github.com",
+    "github.com",
+    "godotengine.org",
+    "docs.inworld.ai",
+    "docs.convai.com",
+    "developer.nvidia.com",
+    "rosebud.ai",
+  ]],
+  [["r18LandscapePolicy", "publicDiscoveryRequestBudget"], {
+    "api.github.com": 48,
+    "github.com": 40,
+    "godotengine.org": 4,
+    "docs.inworld.ai": 2,
+    "docs.convai.com": 2,
+    "developer.nvidia.com": 2,
+    "rosebud.ai": 2,
+  }],
+  [["r18LandscapePolicy", "publicDiscoveryRequestMaximum"], 100],
+  [["r18LandscapePolicy", "publicDiscoveryResponseMaxBytes"], 2 * 1024 * 1024],
+  [["r18LandscapePolicy", "publicDiscoveryTotalResponseMaxBytes"], 128 * 1024 * 1024],
+  [["r18LandscapePolicy", "publicDiscoveryTimeoutMs"], 15000],
   [["r18LandscapePolicy", "containerExecutionRequiresPerCandidateApproval"], true],
   [["r18LandscapePolicy", "trackedCandidateSourceAllowed"], false],
   [["r18LandscapePolicy", "trackedRawEvidenceAllowed"], false],
@@ -1417,6 +1439,40 @@ function checkSmokeNetwork(relative, content, specifiers, violations) {
 }
 
 function checkScriptNetwork(relative, content, specifiers, policy, violations) {
+  if (relative === "scripts/lib/r18-discovery-core.mjs") {
+    const hostBlock = content.match(/const EXPECTED_HOSTS = Object\.freeze\(\[([\s\S]*?)\]\);/u)?.[1] ?? "";
+    const declaredHosts = [...hostBlock.matchAll(/"([a-z0-9.-]+)"/gu)].map((match) => match[1]);
+    const approvedHosts = policy.r18LandscapePolicy.publicDiscoveryHosts;
+    const requiredControls = [
+      /const EXPECTED_HOSTS = Object\.freeze\(\[/u,
+      /url\.protocol !== "https:"/u,
+      /url\.hostname !== host/u,
+      /redirect: "error"/u,
+      /credentials: "omit"/u,
+      /AbortSignal\.timeout\(state\.querySet\.timeoutMs\)/u,
+      /state\.counts\[host\] > maximum/u,
+      /state\.querySet\.responseMaxBytes/u,
+      /state\.querySet\.totalResponseMaxBytes/u,
+    ];
+    const fetchCalls = [...content.matchAll(new RegExp(`\\b${FETCH_GLOBAL_NAME}\\s*\\(`, "gu"))];
+    if (
+      usesNetworkModule(specifiers) ||
+      !isDeepStrictEqual(declaredHosts, approvedHosts) ||
+      fetchCalls.length !== 1 ||
+      requiredControls.some((pattern) => !pattern.test(content)) ||
+      /\bprocess\.env\b/u.test(content) ||
+      /\b(?:eval|Function)\s*\(/u.test(content) ||
+      /\bhttp:\/\//u.test(content)
+    ) {
+      addViolation(
+        violations,
+        "r18-discovery-network-invalid",
+        relative,
+        "R18 discovery may use one native HTTPS request site with exact hosts, no credentials, no redirects, and fixed request, byte, and timeout bounds.",
+      );
+    }
+    return;
+  }
   if (relative === "scripts/lib/spatial-analysis-core.mjs") {
     const nonNamespaceContent = content.replace(/http:\/\/www\.w3\.org\/2000\/svg/gu, "");
     if (

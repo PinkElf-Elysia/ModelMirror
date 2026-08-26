@@ -13,6 +13,7 @@ const steps = [
   ["r17-agent-candidates", ["run", "verify:r17-agent"]],
   ["r17-frozen-evidence", ["run", "test:r18-sources"]],
   ["r18-landscape-contracts", ["run", "test:r18-landscape-contracts"]],
+  ["r18-source-lock", ["run", "verify:r18-sources"]],
 ];
 
 for (const [id, args] of steps) {
