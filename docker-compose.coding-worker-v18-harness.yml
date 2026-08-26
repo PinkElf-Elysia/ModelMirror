@@ -12,6 +12,18 @@ services:
         source: ${CODING_WORKER_HARNESS_V3_FIXTURE_FILE:?set the absolute V18 fixture bundle path}
         target: /harness-v3/fixture-bundle.json
         read_only: true
+      - type: bind
+        source: ${CODING_IMPLEMENTATION_WORKTREE:?set the implementation worktree}/benchmarks/coding-worker-v18/tasks/session-clarify-before-edit/scenario.json
+        target: /harness-v3/tasks/session-clarify-before-edit/scenario.json
+        read_only: true
+      - type: bind
+        source: ${CODING_IMPLEMENTATION_WORKTREE:?set the implementation worktree}/benchmarks/coding-worker-v18/tasks/session-restart-command-reconcile/scenario.json
+        target: /harness-v3/tasks/session-restart-command-reconcile/scenario.json
+        read_only: true
+      - type: bind
+        source: ${CODING_IMPLEMENTATION_WORKTREE:?set the implementation worktree}/benchmarks/coding-worker-v18/tasks/session-steering-compaction/scenario.json
+        target: /harness-v3/tasks/session-steering-compaction/scenario.json
+        read_only: true
 
   coding-worker-provider-a:
     environment:

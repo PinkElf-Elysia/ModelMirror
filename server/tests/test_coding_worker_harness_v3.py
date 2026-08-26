@@ -1590,6 +1590,77 @@ def test_worker_facts_preserve_recovered_platform_failures_from_the_event_ledger
     assert derive_diagnostics(facts).platform_coordination_failures == 1
 
 
+@pytest.mark.parametrize(
+    ("reason", "expected_stage", "expected_coordination_failures"),
+    (
+        ("tool_broker_internal_error", HarnessFailureStage.HARNESS, 1),
+        ("operation_result_unknown", HarnessFailureStage.HARNESS, 1),
+        ("tool_request_invalid", HarnessFailureStage.TOOL_VALIDATION, 0),
+    ),
+)
+def test_worker_task_ledger_distinguishes_platform_tool_failures_from_input_validation(
+    reason: str,
+    expected_stage: HarnessFailureStage,
+    expected_coordination_failures: int,
+) -> None:
+    task_id = f"task_{reason}"
+    run_binding, export_binding = _worker_binding(task_id)
+    trajectory = {
+        "schema_version": "ATIF-v1.7",
+        "session_id": task_id,
+        "agent": {"name": "modelmirror-worker"},
+        "steps": [{"source": "user", "message": "test instruction"}],
+    }
+    export = {
+        "task": {
+            "task_id": task_id,
+            "state": "failed",
+            "reason": reason,
+            "spec": export_binding["spec"],
+        },
+        "artifact_index": export_binding["artifact_index"],
+        "workspace_tree_hash": export_binding["workspace_tree_hash"],
+        "operation_index": [],
+        "questions": [],
+        "subtask_index": [],
+    }
+    task_state_event = ModelMirrorWorkerAgent._ledger_event(
+        {
+            "sequence": 41,
+            "event_type": "task_state",
+            "payload": {
+                "from": "running",
+                "to": "failed",
+                "reason": reason,
+            },
+        }
+    )
+    assert task_state_event is not None
+
+    facts = HarnessFactSet.model_validate(
+        ModelMirrorWorkerAgent._facts(
+            export=export,
+            events=[task_state_event],
+            approvals=(),
+            trajectory=trajectory,
+            run_binding=run_binding,
+        )
+    )
+    diagnostics = derive_diagnostics(facts)
+
+    assert facts.coordination == (
+        HarnessCoordinationFact(
+            evidence_id=f"event_{task_id}_41",
+            stage=expected_stage,
+            failed=True,
+        ),
+    )
+    assert diagnostics.platform_coordination_failures == expected_coordination_failures
+    assert diagnostics.evidence["platform_coordination_failures"] == (
+        (f"event_{task_id}_41",) if expected_coordination_failures else ()
+    )
+
+
 def test_worker_facts_reject_cross_task_trajectory_and_export() -> None:
     run_binding, export_binding = _worker_binding("task_B")
     export = {
@@ -1711,6 +1782,17 @@ def test_worker_ledger_rejects_workspace_artifact_tree_mismatch(
     (
         ("compaction_failed", HarnessFailureStage.INTERACTION),
         ("shell_executor_failed", HarnessFailureStage.EXECUTOR),
+        ("harness_transport_unavailable", HarnessFailureStage.PROVIDER_TRANSPORT),
+        ("harness_protocol_invalid", HarnessFailureStage.PROVIDER_PROTOCOL),
+        ("harness_authentication_failed", HarnessFailureStage.PROVIDER_PROTOCOL),
+        ("harness_rate_limited", HarnessFailureStage.PROVIDER_PROTOCOL),
+        ("harness_policy_rejected", HarnessFailureStage.POLICY),
+        ("harness_budget_exhausted", HarnessFailureStage.BUDGET),
+        ("harness_interrupted", HarnessFailureStage.HARNESS),
+        ("control_plane_internal_error", HarnessFailureStage.HARNESS),
+        ("tool_broker_internal_error", HarnessFailureStage.HARNESS),
+        ("operation_result_unknown", HarnessFailureStage.HARNESS),
+        ("tool_request_invalid", HarnessFailureStage.TOOL_VALIDATION),
         ("turn_parked_compaction", None),
     ),
 )
