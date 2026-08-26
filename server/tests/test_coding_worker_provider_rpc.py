@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 from pathlib import Path
 
@@ -8,7 +9,10 @@ import pytest
 from cryptography.fernet import Fernet
 
 from server.coding_worker.broker_rpc import BrokerRPCServer
+from server.coding_worker.adapters import LegacyHarnessDriver
 from server.coding_worker.contracts import PolicyProfile, TaskBudget
+from server.coding_worker.harness_contracts import HarnessEventKind, HarnessOpenRequest
+from server.coding_worker.ports import CodingSubstrateError
 from server.coding_worker.provider import (
     FakeCodingAgentProvider,
     ProviderCapabilities,
@@ -18,6 +22,7 @@ from server.coding_worker.provider import (
     ProviderSession,
 )
 from server.coding_worker.provider_rpc import (
+    MAX_PROVIDER_RPC_BYTES,
     ProviderRPCError,
     ProviderRPCRequest,
     ProviderRPCServer,
@@ -28,11 +33,13 @@ from server.coding_worker.harness_v3 import (
     harness_code_bundle_sha256,
 )
 from server.coding_worker.harness_protocol import (
+    HarnessBinding,
     HarnessCapabilityState,
     HarnessDescriptor,
     HarnessPersistenceLevel,
     HarnessToolOwnership,
 )
+from server.coding_worker.service import CodingWorkerService
 from server.coding_worker.executor import (
     ExecutorRPCError,
     ExecutorRPCServer,
@@ -75,6 +82,85 @@ class _AbortTrackingProvider(FakeCodingAgentProvider):
         return True
 
 
+class _CloseRequiresQuiescentProvider(FakeCodingAgentProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.message_started = asyncio.Event()
+        self.release_message = asyncio.Event()
+        self.active_messages = 0
+
+    async def message(self, session, text):
+        self.active_messages += 1
+        self.message_started.set()
+        try:
+            await self.release_message.wait()
+        finally:
+            self.active_messages -= 1
+        if False:  # pragma: no cover - keeps this an async generator
+            yield ProviderEvent(kind=ProviderEventKind.TURN_COMPLETED)
+
+    async def cancel(self, session):
+        return True
+
+    async def close(self, session):
+        if self.active_messages:
+            raise ValueError("provider message stream is still active")
+        await super().close(session)
+
+
+class _TerminalTrackingProvider(FakeCodingAgentProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.cancel_count = 0
+        self.message_count = 0
+
+    async def message(self, session, text):
+        self.message_count += 1
+        yield ProviderEvent(kind=ProviderEventKind.TURN_COMPLETED)
+
+    async def cancel(self, session):
+        self.cancel_count += 1
+        return True
+
+
+class _ManualProviderStream:
+    def __init__(self) -> None:
+        self._sent = False
+        self._release = asyncio.Event()
+        self.close_count = 0
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if not self._sent:
+            self._sent = True
+            return ProviderEvent(
+                kind=ProviderEventKind.MESSAGE,
+                data={"text": "provider turn started"},
+            )
+        await self._release.wait()
+        raise StopAsyncIteration
+
+    async def aclose(self) -> None:
+        self.close_count += 1
+        self._release.set()
+
+
+class _ManualStreamProvider(FakeCodingAgentProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.stream = _ManualProviderStream()
+        self.interrupt_count = 0
+
+    def message(self, session, text):
+        return self.stream
+
+    async def interrupt_turn(self, session):
+        self.interrupt_count += 1
+        return True
+
+
 class _NoShellProvider(FakeCodingAgentProvider):
     async def capabilities(self) -> ProviderCapabilities:
         capabilities = await super().capabilities()
@@ -98,6 +184,67 @@ class _ConstantSessionProvider(FakeCodingAgentProvider):
         return session
 
 
+class _BoundaryFailureProvider(FakeCodingAgentProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.failure_action: str | None = None
+        self.failure: Exception | None = None
+
+    def _fail(self, action: str) -> None:
+        if self.failure_action == action and self.failure is not None:
+            raise self.failure
+
+    async def open(self, request: ProviderOpenRequest) -> ProviderSession:
+        self._fail("open")
+        return await super().open(request)
+
+    async def restore(self, request, checkpoint):
+        self._fail("restore")
+        return await super().restore(request, checkpoint)
+
+    async def message(self, session, text):
+        self._fail("message")
+        async for event in super().message(session, text):
+            yield event
+
+    async def checkpoint(self, session):
+        self._fail("checkpoint")
+        return await super().checkpoint(session)
+
+    async def interrupt_turn(self, session):
+        self._fail("interrupt_turn")
+        return await super().interrupt_turn(session)
+
+    async def close(self, session):
+        self._fail("close")
+        await super().close(session)
+
+
+class _DelayedSecondTurnProvider(FakeCodingAgentProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.turn_count = 0
+        self.first_stream_closed = asyncio.Event()
+        self.second_turn_started = asyncio.Event()
+        self.release_second_turn = asyncio.Event()
+
+    async def message(self, session, text):
+        self.turn_count += 1
+        if self.turn_count == 1:
+            try:
+                yield ProviderEvent(kind=ProviderEventKind.TURN_COMPLETED)
+            finally:
+                self.first_stream_closed.set()
+            return
+        self.second_turn_started.set()
+        await self.release_second_turn.wait()
+        yield ProviderEvent(
+            kind=ProviderEventKind.MESSAGE,
+            data={"text": "second turn remained active"},
+        )
+        yield ProviderEvent(kind=ProviderEventKind.TURN_COMPLETED)
+
+
 def _harness_descriptor() -> HarnessDescriptor:
     return HarnessDescriptor(
         protocol_id="modelmirror-provider-v4",
@@ -110,6 +257,314 @@ def _harness_descriptor() -> HarnessDescriptor:
             "checkpoint": HarnessCapabilityState(supported=True, available=True)
         },
     )
+
+
+def _harness_binding(task_id: str) -> HarnessBinding:
+    return HarnessBinding(
+        task_id=task_id,
+        route_id="coding/default",
+        slot_id="slot-a",
+        binding_sha256="b" * 64,
+        driver_generation=1,
+        descriptor=_harness_descriptor(),
+    )
+
+
+@pytest.mark.asyncio
+async def test_v20_driver_replaces_supplier_tool_ids_before_public_events() -> None:
+    raw_operation_id = "toolu_supplier_private_1"
+    provider = FakeCodingAgentProvider(
+        script=(
+            ProviderEvent(
+                kind=ProviderEventKind.TOOL_STARTED,
+                data={
+                    "operation_id": raw_operation_id,
+                    "tool_name": "run_shell",
+                    "summary": "Tool execution started.",
+                },
+            ),
+            ProviderEvent(
+                kind=ProviderEventKind.TOOL_COMPLETED,
+                data={
+                    "operation_id": raw_operation_id,
+                    "tool_name": "run_shell",
+                    "summary": "Tool execution completed.",
+                    "success": True,
+                    "artifact_id": None,
+                },
+            ),
+            ProviderEvent(kind=ProviderEventKind.TURN_COMPLETED),
+        )
+    )
+    task_id = "task_private_tool_id"
+    driver = LegacyHarnessDriver(provider)
+    request = HarnessOpenRequest.model_validate(
+        _request(task_id, "workspace_private_tool_id").model_dump(mode="json")
+    )
+    session = await driver.open(request, binding=_harness_binding(task_id))
+
+    events = [
+        event
+        async for event in driver.message(
+            session, "continue", turn_id="turn_private_tool_id"
+        )
+    ]
+
+    public_ids = [
+        str(event.data["operation_id"])
+        for event in events
+        if event.kind in {
+            HarnessEventKind.TOOL_STARTED,
+            HarnessEventKind.TOOL_COMPLETED,
+        }
+    ]
+    assert len(public_ids) == 2
+    assert public_ids[0] == public_ids[1]
+    assert public_ids[0].startswith("harness_call_")
+    assert raw_operation_id not in repr(events)
+    await driver.close(session)
+
+
+@pytest.mark.asyncio
+async def test_stale_stream_cleanup_cannot_interrupt_the_next_harness_turn() -> None:
+    task_id = "task_turn_cleanup"
+    provider = _DelayedSecondTurnProvider()
+    driver = LegacyHarnessDriver(provider)
+    request = HarnessOpenRequest.model_validate(
+        _request(task_id, "workspace_turn_cleanup").model_dump(mode="json")
+    )
+    session = await driver.open(request, binding=_harness_binding(task_id))
+
+    first_stream = driver.message(session, "first", turn_id="turn_first")
+    first_terminal = await anext(first_stream)
+    assert first_terminal.kind is HarnessEventKind.TURN_COMPLETED
+
+    second_stream = driver.message(session, "second", turn_id="turn_second")
+    second_event = asyncio.create_task(anext(second_stream))
+    await asyncio.wait_for(provider.second_turn_started.wait(), timeout=1)
+
+    # Reproduce the service boundary: the first generator is finalized only
+    # after the successor has already registered its turn.
+    await first_stream.aclose()
+    assert provider.first_stream_closed.is_set()
+    provider.release_second_turn.set()
+
+    assert (await asyncio.wait_for(second_event, timeout=1)).data == {
+        "text": "second turn remained active"
+    }
+    assert (await anext(second_stream)).kind is HarnessEventKind.TURN_COMPLETED
+    await second_stream.aclose()
+    await driver.close(session)
+
+
+@pytest.mark.asyncio
+async def test_harness_interrupt_deterministically_closes_nested_provider_stream() -> None:
+    task_id = "task_nested_stream_close"
+    provider = _ManualStreamProvider()
+    driver = LegacyHarnessDriver(provider)
+    request = HarnessOpenRequest.model_validate(
+        _request(task_id, "workspace_nested_stream_close").model_dump(mode="json")
+    )
+    session = await driver.open(request, binding=_harness_binding(task_id))
+    stream = driver.message(session, "continue", turn_id="turn_nested_stream_close")
+
+    assert (await anext(stream)).kind is HarnessEventKind.MESSAGE
+    await stream.aclose()
+    assert provider.stream.close_count == 0
+
+    assert await driver.interrupt_turn(session) is True
+    assert provider.interrupt_count == 1
+    assert provider.stream.close_count == 1
+
+    await driver.close(session)
+    assert provider.stream.close_count == 1
+
+
+async def _invoke_driver_boundary(
+    provider: _BoundaryFailureProvider,
+    action: str,
+    failure: Exception,
+    *,
+    v20: bool,
+) -> None:
+    task_id = f"task_{action}"
+    request = HarnessOpenRequest.model_validate(
+        _request(task_id, f"workspace_{action}").model_dump(mode="json")
+    )
+    driver = LegacyHarnessDriver(provider)
+    binding = _harness_binding(task_id) if v20 else None
+    if action == "open":
+        provider.failure_action = action
+        provider.failure = failure
+        await driver.open(request, binding=binding)
+        return
+
+    session = await driver.open(request, binding=binding)
+    checkpoint = await driver.checkpoint(session) if action == "restore" else None
+    provider.failure_action = action
+    provider.failure = failure
+    if action == "restore":
+        assert checkpoint is not None
+        await driver.restore(request, checkpoint, binding=binding)
+    elif action == "message":
+        await anext(driver.message(session, "continue", turn_id="turn_test"))
+    elif action == "checkpoint":
+        await driver.checkpoint(session)
+    elif action == "interrupt_turn":
+        await driver.interrupt_turn(session)
+    elif action == "close":
+        await driver.close(session)
+    else:  # pragma: no cover - test helper invariant
+        raise AssertionError(f"unsupported action: {action}")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "action", ("open", "restore", "message", "checkpoint", "interrupt_turn", "close")
+)
+@pytest.mark.parametrize(
+    ("failure", "expected_code"),
+    (
+        (ConnectionResetError("reset"), "harness_transport_unavailable"),
+        (ValueError("bad provider frame"), "harness_protocol_invalid"),
+        (RuntimeError("driver bug"), "harness_driver_internal"),
+    ),
+)
+async def test_v20_driver_lifecycle_classifies_boundary_failures(
+    action: str, failure: Exception, expected_code: str
+) -> None:
+    provider = _BoundaryFailureProvider()
+    with pytest.raises(CodingSubstrateError) as rejected:
+        await _invoke_driver_boundary(provider, action, failure, v20=True)
+    assert rejected.value.code == expected_code
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "action", ("open", "restore", "message", "checkpoint", "interrupt_turn", "close")
+)
+async def test_legacy_driver_lifecycle_preserves_provider_reason(action: str) -> None:
+    provider = _BoundaryFailureProvider()
+    failure = ProviderRPCError("legacy failure", code="provider_failed")
+    with pytest.raises(ProviderRPCError) as rejected:
+        await _invoke_driver_boundary(provider, action, failure, v20=False)
+    assert rejected.value is failure
+    assert rejected.value.code == "provider_failed"
+
+
+@pytest.mark.asyncio
+async def test_provider_rpc_response_frames_distinguish_transport_and_protocol() -> None:
+    reader = asyncio.StreamReader(limit=MAX_PROVIDER_RPC_BYTES)
+    reader.feed_eof()
+    with pytest.raises(ProviderRPCError) as eof:
+        await ProviderSidecarClientPool._read(reader)
+    assert eof.value.code == "provider_transport_unavailable"
+
+    reader = asyncio.StreamReader(limit=MAX_PROVIDER_RPC_BYTES)
+    reader.feed_data(b"{invalid-json}\n")
+    with pytest.raises(ProviderRPCError) as malformed:
+        await ProviderSidecarClientPool._read(reader)
+    assert malformed.value.code == "provider_invalid_response"
+
+    reader = asyncio.StreamReader(limit=MAX_PROVIDER_RPC_BYTES)
+    reader.feed_data(b"x" * (MAX_PROVIDER_RPC_BYTES + 1) + b"\n")
+    with pytest.raises(ProviderRPCError) as oversize:
+        await ProviderSidecarClientPool._read(reader)
+    assert oversize.value.code == "provider_response_too_large"
+
+
+@pytest.mark.asyncio
+async def test_provider_rpc_first_frame_connection_reset_is_transport(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = CodingWorkerStore(tmp_path / "control", master_key=Fernet.generate_key())
+    workspace = WorkspaceBroker(tmp_path / "workspace", {}, id_key=b"r" * 32)
+    broker_rpc = BrokerRPCServer(ToolBroker(store=store, workspace_broker=workspace))
+    pool = ProviderSidecarClientPool(
+        endpoints={"slot-a": "tcp:127.0.0.1:1"},
+        tokens={"slot-a": "r" * 48},
+        workspace_slot_resolver=lambda _workspace_id: "slot-a",
+        broker_rpc=broker_rpc,
+    )
+
+    class _ResetReader:
+        async def readline(self) -> bytes:
+            raise ConnectionResetError("first frame reset")
+
+    class _Writer:
+        def write(self, _data: bytes) -> None:
+            return None
+
+        async def drain(self) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+        async def wait_closed(self) -> None:
+            return None
+
+    async def reset_connection(_slot_id: str):
+        return _ResetReader(), _Writer()
+
+    monkeypatch.setattr(pool, "_connect", reset_connection)
+    with pytest.raises(ProviderRPCError) as reset:
+        await pool._call("slot-a", "capabilities", {})
+    assert reset.value.code == "provider_transport_unavailable"
+
+
+def test_checkpoint_failure_preserves_v20_driver_attribution() -> None:
+    failure = CodingSubstrateError(
+        "checkpoint transport failed",
+        code="harness_transport_unavailable",
+        status=503,
+    )
+    assert CodingWorkerService._checkpoint_failure_reason(
+        failure,
+        fallback="checkpoint_failed",
+        v20=True,
+    ) == "harness_transport_unavailable"
+    assert CodingWorkerService._checkpoint_failure_reason(
+        failure,
+        fallback="checkpoint_failed",
+        v20=False,
+    ) == "checkpoint_failed"
+
+
+def test_harness_v3_maps_driver_internal_failure_to_harness_stage() -> None:
+    from scripts.coding_worker_harbor_agent import ModelMirrorWorkerAgent
+
+    assert ModelMirrorWorkerAgent._failure_stage("harness_driver_internal") == "harness"
+
+
+@pytest.mark.asyncio
+async def test_capabilities_for_slots_probes_only_requested_slots(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = CodingWorkerStore(tmp_path / "control", master_key=Fernet.generate_key())
+    workspace = WorkspaceBroker(tmp_path / "workspace", {}, id_key=b"c" * 32)
+    pool = ProviderSidecarClientPool(
+        endpoints={
+            "slot-a": "tcp:127.0.0.1:1",
+            "slot-b": "tcp:127.0.0.1:2",
+        },
+        tokens={"slot-a": "a" * 48, "slot-b": "b" * 48},
+        workspace_slot_resolver=lambda _workspace_id: "slot-a",
+        broker_rpc=BrokerRPCServer(
+            ToolBroker(store=store, workspace_broker=workspace)
+        ),
+    )
+    calls: list[str] = []
+
+    async def record(slot_id: str, _action: str, _payload: dict[str, object]):
+        calls.append(slot_id)
+        return (await FakeCodingAgentProvider().capabilities()).model_dump(mode="json")
+
+    monkeypatch.setattr(pool, "_call", record)
+    result = await pool.capabilities_for_slots(("slot-a",))
+
+    assert result["slot-a"] is not None
+    assert calls == ["slot-a"]
 
 
 @pytest.mark.asyncio
@@ -321,8 +776,9 @@ async def test_provider_pool_scopes_equal_private_session_ids_by_task(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("explicit_interrupt", (False, True))
 async def test_closing_provider_stream_aborts_the_unfinished_sidecar_turn(
-    tmp_path: Path,
+    tmp_path: Path, explicit_interrupt: bool,
 ) -> None:
     loop = asyncio.get_running_loop()
     previous_handler = loop.get_exception_handler()
@@ -355,6 +811,8 @@ async def test_closing_provider_stream_aborts_the_unfinished_sidecar_turn(
     first = await anext(stream)
     assert first.kind is ProviderEventKind.MESSAGE
 
+    if explicit_interrupt:
+        assert await pool.interrupt_turn(session) is True
     await stream.aclose()
     for _ in range(100):
         if provider.cancel_count == 1:
@@ -367,6 +825,97 @@ async def test_closing_provider_stream_aborts_the_unfinished_sidecar_turn(
     await broker_rpc.close()
     loop.set_exception_handler(previous_handler)
     assert unhandled == []
+
+
+@pytest.mark.asyncio
+async def test_closing_session_quiesces_sidecar_stream_before_reusing_slot(
+    tmp_path: Path,
+) -> None:
+    store = CodingWorkerStore(tmp_path / "control", master_key=Fernet.generate_key())
+    workspace = WorkspaceBroker(tmp_path / "workspace", {}, id_key=b"q" * 32)
+    broker_rpc = BrokerRPCServer(ToolBroker(store=store, workspace_broker=workspace))
+    await broker_rpc.start_tcp_for_tests()
+    provider = _CloseRequiresQuiescentProvider()
+    server = ProviderRPCServer(provider, token="q" * 48)
+    endpoint = await server.start_tcp_for_tests()
+    pool = ProviderSidecarClientPool(
+        endpoints={"slot-a": endpoint},
+        tokens={"slot-a": "q" * 48},
+        workspace_slot_resolver=lambda _workspace_id: "slot-a",
+        broker_rpc=broker_rpc,
+    )
+    from server.tests.test_coding_worker_service import _request as task_request
+    from server.coding_worker.contracts import Origin, TaskSpec
+
+    task_ids = [
+        store.create_task(
+            TaskSpec(
+                **task_request(f"rpc-quiesce-{index}").model_dump(),
+                origin=Origin(module="test", object_id=f"rpc-quiesce-{index}"),
+            )
+        ).task_id
+        for index in range(2)
+    ]
+    first = await pool.open(_request(task_ids[0], "workspace_one"))
+    stream = pool.message(first, "continue")
+    pending = asyncio.create_task(anext(stream))
+    await asyncio.wait_for(provider.message_started.wait(), timeout=1)
+
+    assert await pool.cancel(first) is True
+    pending.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await pending
+    await stream.aclose()
+    await pool.close(first)
+
+    second = await pool.open(_request(task_ids[1], "workspace_two"))
+    await pool.close(second)
+    await server.close()
+    await broker_rpc.close()
+
+    assert provider.active_messages == 0
+
+
+@pytest.mark.asyncio
+async def test_closing_provider_stream_after_terminal_does_not_abort_next_turn(
+    tmp_path: Path,
+) -> None:
+    store = CodingWorkerStore(tmp_path / "control", master_key=Fernet.generate_key())
+    workspace = WorkspaceBroker(tmp_path / "workspace", {}, id_key=b"t" * 32)
+    broker_rpc = BrokerRPCServer(ToolBroker(store=store, workspace_broker=workspace))
+    await broker_rpc.start_tcp_for_tests()
+    provider = _TerminalTrackingProvider()
+    server = ProviderRPCServer(provider, token="t" * 48)
+    endpoint = await server.start_tcp_for_tests()
+    pool = ProviderSidecarClientPool(
+        endpoints={"slot-a": endpoint},
+        tokens={"slot-a": "t" * 48},
+        workspace_slot_resolver=lambda _workspace_id: "slot-a",
+        broker_rpc=broker_rpc,
+    )
+    from server.tests.test_coding_worker_service import _request as task_request
+    from server.coding_worker.contracts import Origin, TaskSpec
+
+    task_id = store.create_task(
+        TaskSpec(
+            **task_request("rpc-terminal").model_dump(),
+            origin=Origin(module="test", object_id="rpc-terminal"),
+        )
+    ).task_id
+    session = await pool.open(_request(task_id, "workspace_terminal"))
+
+    first = pool.message(session, "first")
+    assert (await anext(first)).kind is ProviderEventKind.TURN_COMPLETED
+    await first.aclose()
+    second = [event async for event in pool.message(session, "second")]
+
+    assert [event.kind for event in second] == [ProviderEventKind.TURN_COMPLETED]
+    assert provider.message_count == 2
+    assert provider.cancel_count == 0
+
+    await pool.close(session)
+    await server.close()
+    await broker_rpc.close()
 
 
 @pytest.mark.asyncio
