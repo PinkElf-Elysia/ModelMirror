@@ -36,6 +36,8 @@ import XpertEvaluationsPage from "./pages/XpertEvaluationsPage";
 import XpertEvolutionPage from "./pages/XpertEvolutionPage";
 import AgentWorkbenchPage from "./pages/AgentWorkbenchPage";
 import AgentConfigPage from "./pages/AgentConfigPage";
+import HelpArticlePage from "./pages/HelpArticlePage";
+import HelpCenterPage from "./pages/HelpCenterPage";
 
 const CodingPage = lazy(() => import("./pages/CodingPage"));
 const SkillCreatorIndexPage = lazy(() => import("./pages/SkillCreatorIndexPage"));
@@ -160,6 +162,12 @@ export default function App() {
       <Route element={<WorkflowNativePage />} path="/workflow-native" />
       <Route element={<WorkflowNativePage />} path="/workflow-native/:id" />
       <Route element={<SystemSettingsPage />} path="/settings" />
+      <Route element={<HelpCenterPage />} path="/help" />
+      <Route element={<HelpArticlePage />} path="/help/sections/:sectionId" />
+      <Route element={<Navigate replace to="/help/modules/agents/expert-team" />} path="/help/modules/expert-team" />
+      <Route element={<HelpArticlePage />} path="/help/modules/:moduleId" />
+      <Route element={<HelpArticlePage />} path="/help/modules/:moduleId/:topicId" />
+      <Route element={<HelpArticlePage />} path="/help/:slug" />
       <Route element={<Navigate replace to="/models" />} path="*" />
     </Routes>
   );
