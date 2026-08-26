@@ -51,10 +51,10 @@ describe("help center content catalog", () => {
       const images = [...article.content.matchAll(/!\[([^\]]*)\]\(([^)]+)\)/g)];
       images.forEach((image) => {
         expect(image[1].trim(), article.slug).not.toBe("");
-        expect(image[2]).toMatch(/^\/help-center\/d4bd6b8d\//);
+        expect(image[2]).toMatch(/^\/help-center\/cc49136c\//);
       });
     });
-    expect(helpArticles.find((article) => article.slug === "start-with-a-model")?.content).toContain("/help-center/d4bd6b8d/kimi-k3-add-image-menu.png");
+    expect(helpArticles.find((article) => article.slug === "start-with-a-model")?.content).toContain("/help-center/cc49136c/kimi-k3-add-image-menu.png");
     expect(helpArticles.find((article) => article.slug === "start-with-a-model")?.content).not.toContain("kimi-k3-ready-to-send.png");
   });
 

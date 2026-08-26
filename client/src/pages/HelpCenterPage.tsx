@@ -206,7 +206,7 @@ export default function HelpCenterPage() {
               <section
                 aria-label="第一次使用推荐路径"
                 aria-roledescription="carousel"
-                className="rounded-xl border border-white/10 bg-[#071a2b]/82 p-4 sm:p-5"
+                className="min-w-0 rounded-xl border border-white/10 bg-[#071a2b]/82 p-4 sm:p-5"
                 onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setInteracting(false); }}
                 onFocusCapture={() => setInteracting(true)}
                 onMouseEnter={() => setInteracting(true)}
@@ -224,7 +224,7 @@ export default function HelpCenterPage() {
                       </div>
                       <div className="mt-5 min-w-0 flex-1 sm:mt-0">
                         <p className="text-xs font-semibold text-cyan-200">{active.eyebrow}</p>
-                        <h3 className="mt-2 break-keep text-2xl font-bold text-white">{active.title}</h3>
+                        <h3 className="mt-2 break-words text-2xl font-bold text-white sm:break-keep">{active.title}</h3>
                         <p className="mt-2 text-sm leading-6 text-slate-300">{active.summary}</p>
                         <p className="mt-3 flex items-center gap-2 text-xs text-slate-400"><Clock3 aria-hidden="true" className="h-4 w-4" />{active.meta}</p>
                         <Link className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-lg bg-cyan-300 px-4 text-sm font-bold text-[#04111f] hover:bg-cyan-200" to={active.to}>{active.action}<ArrowRight aria-hidden="true" className="h-4 w-4" /></Link>
@@ -247,13 +247,13 @@ export default function HelpCenterPage() {
                 <div className="mt-4 flex items-center justify-center gap-4">
                   <button aria-label="上一个入门主题" className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 text-slate-300 hover:border-cyan-300/30 hover:text-cyan-100" onClick={() => selectSlide(activeSlide - 1)} type="button"><ArrowLeft aria-hidden="true" className="h-4 w-4" /></button>
                   <span className="min-w-10 text-center text-sm text-slate-300">{activeSlide + 1} / {carouselSlides.length}</span>
-                  <div className="flex gap-2" aria-hidden="true">{carouselSlides.map((slide, index) => <span className={`h-1.5 w-10 rounded-full ${index === activeSlide ? "bg-cyan-300" : "bg-white/10"}`} key={slide.title} />)}</div>
+                  <div className="hidden gap-2 sm:flex" aria-hidden="true">{carouselSlides.map((slide, index) => <span className={`h-1.5 w-10 rounded-full ${index === activeSlide ? "bg-cyan-300" : "bg-white/10"}`} key={slide.title} />)}</div>
                   <button aria-label="下一个入门主题" className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 text-slate-300 hover:border-cyan-300/30 hover:text-cyan-100" onClick={() => selectSlide(activeSlide + 1)} type="button"><ArrowRight aria-hidden="true" className="h-4 w-4" /></button>
                   <button aria-label={paused ? "继续自动切换" : "暂停自动切换"} className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 text-slate-300 hover:border-cyan-300/30 hover:text-cyan-100" onClick={() => setPaused((value) => !value)} type="button">{paused ? <Play aria-hidden="true" className="h-4 w-4" /> : <Pause aria-hidden="true" className="h-4 w-4" />}</button>
                 </div>
               </section>
 
-              <section className="rounded-xl border border-white/10 bg-[#071a2b]/82 p-5 sm:p-6">
+              <section className="min-w-0 rounded-xl border border-white/10 bg-[#071a2b]/82 p-5 sm:p-6">
                 <Link className="group flex items-center justify-between gap-3" to={goals.path}>
                   <span><h2 className="text-xl font-bold text-white group-hover:text-cyan-100">按目标找指南</h2><span className="mt-1 block text-sm leading-6 text-slate-400">先选任务类型，再决定从哪里开始。</span></span>
                   <ChevronRight aria-hidden="true" className="h-5 w-5 text-slate-600 group-hover:text-cyan-200" />

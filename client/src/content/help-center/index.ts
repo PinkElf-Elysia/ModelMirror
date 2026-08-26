@@ -72,7 +72,7 @@ export type HelpSearchEntry = {
   category: HelpCategory;
 };
 
-export const verifiedBaseline = { commit: "d4bd6b8d", date: "2026-08-25" };
+export const verifiedBaseline = { commit: "cc49136c", date: "2026-08-26" };
 
 export const helpContentTypeLabels: Record<HelpContentType, string> = {
   tutorial: "入门教程",
@@ -210,7 +210,7 @@ export const helpModules: HelpModule[] = [
     topics: [
       { id: "tool-shelf", title: "工具货架", summary: "按用途、分类和适配状态查找目录中的 MCP 工具。", outcome: "找到与任务有关的工具，并看懂它当前是否已适配。", points: ["工具货架是目录，不代表工具已经连接", "先按任务筛选，再查看适配状态", "需要凭据的工具由有权限的人配置"], productRoute: "/mcps", keywords: ["工具货架", "浏览", "目录", "筛选"] },
       { id: "connected-registry", title: "已连接注册表", summary: "查看当前连接后已经注册的工具。", outcome: "确认 MCP 服务是否已经向平台提供可见工具。", points: ["这里显示连接后注册的工具，不是完整目录", "没有记录时先回到工具货架连接服务", "运行状态也可在 Runtime 中查看"], productRoute: "/mcps?view=registry", keywords: ["已连接注册表", "已注册工具", "连接"] },
-      { id: "mcp-hub", title: "MCP Hub", summary: "从官方 Registry 受控发现远程 MCP 服务。", outcome: "了解远程候选、复核和连接边界。", points: ["Registry 收录不等于安全认证", "当前同步按钮可能因功能开关而不可用", "认证型工具仍受独立运行门禁"], productRoute: "/mcps?view=hub", badge: "受限", keywords: ["MCP Hub", "Registry", "远程", "OAuth"] },
+      { id: "mcp-hub", title: "MCP Hub", summary: "从官方 Registry 受控发现远程 MCP 服务。", outcome: "了解远程候选、复核和连接边界。", points: ["Registry 收录不等于安全认证", "功能默认关闭时，同步和远程试连不可用", "OAuth 工具只有在契约、当前 Token 版本和 Schema 匹配时才能进入 Runtime，且每次调用都要审批"], productRoute: "/mcps?view=hub", badge: "受限", keywords: ["MCP Hub", "Registry", "远程", "OAuth"] },
       { id: "toolsets", title: "Toolset Runtime", summary: "连接 MCP，或导入 OpenAPI、OData 并发布固定版本。", outcome: "把经过配置和测试的工具集发布给 Agent 绑定。", points: ["Toolset 与 MCP 目录承担不同职责", "凭据只通过加密引用保存", "测试和发布前要检查工具权限与审批要求"], productRoute: "/toolsets", badge: "管理", keywords: ["Toolset", "OpenAPI", "OData", "发布", "凭据"] },
     ],
   },
