@@ -1,6 +1,21 @@
 import { type WorkflowDefinition } from "../types/workflow";
 
-export type WorkflowTriggerKind = "manual" | "schedule" | "http" | "failure" | "call";
+export type WorkflowTriggerKind = "manual" | "schedule" | "http" | "form" | "failure" | "call";
+
+export interface WorkflowFormPublicationSummary {
+  form_id: string;
+  project_id: string;
+  version: number;
+  deployment_id: string;
+  form_key_prefix: string;
+  active: boolean;
+  activated_at?: number | null;
+  deactivated_at?: number | null;
+  rotated_at?: number | null;
+  updated_at: number;
+  form_share_url?: string;
+  form_share_url_once?: boolean;
+}
 
 export interface WorkflowVersionSummary {
   project_id: string;
@@ -25,6 +40,9 @@ export interface WorkflowDeploymentSummary {
   deactivated_at?: number | null;
   webhook_key?: string;
   webhook_key_once?: boolean;
+  form_share_url?: string;
+  form_share_url_once?: boolean;
+  form_publication?: WorkflowFormPublicationSummary;
 }
 
 export interface WorkflowProjectResponse {
@@ -34,6 +52,7 @@ export interface WorkflowProjectResponse {
   draft_revision: number;
   active_version?: number | null;
   active_deployment?: WorkflowDeploymentSummary | null;
+  form_publication?: WorkflowFormPublicationSummary | null;
   published_versions: WorkflowVersionSummary[];
   created_at: number;
   updated_at: number;
@@ -177,6 +196,13 @@ export function deactivateWorkflowVersion(projectId: string, version: number) {
 export function rotateWorkflowWebhookKey(projectId: string, version: number) {
   return requestJson<WorkflowDeploymentSummary>(
     `/api/workflows/${projectId}/versions/${version}/rotate-webhook-key`,
+    { method: "POST" },
+  );
+}
+
+export function rotateWorkflowFormKey(projectId: string, version: number) {
+  return requestJson<WorkflowFormPublicationSummary>(
+    `/api/workflows/${projectId}/versions/${version}/rotate-form-key`,
     { method: "POST" },
   );
 }

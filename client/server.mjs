@@ -97,6 +97,7 @@ async function proxyApi(req, res) {
 }
 
 async function serveStatic(req, res) {
+  const requestPath = new URL(req.url || "/", "http://localhost").pathname;
   const requestedPath = safeFilePath(req.url || "/");
   const filePath =
     existsSync(requestedPath) && statSync(requestedPath).isFile()
@@ -104,9 +105,32 @@ async function serveStatic(req, res) {
       : path.join(distDir, "index.html");
 
   const extension = path.extname(filePath);
-  res.writeHead(200, {
+  const headers = {
     "Content-Type": contentTypes.get(extension) || "application/octet-stream",
-  });
+  };
+  if (requestPath === "/forms" || requestPath.startsWith("/forms/")) {
+    Object.assign(headers, {
+      "Cache-Control": "no-store",
+      "Content-Security-Policy": [
+        "default-src 'self'",
+        "base-uri 'none'",
+        "connect-src 'self'",
+        "font-src 'self'",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+        "img-src 'self' data:",
+        "object-src 'none'",
+        "script-src 'self'",
+        "style-src 'self' 'unsafe-inline'",
+      ].join("; "),
+      "Permissions-Policy": "camera=(), geolocation=(), microphone=(), payment=()",
+      "Referrer-Policy": "no-referrer",
+      "X-Content-Type-Options": "nosniff",
+      "X-Frame-Options": "DENY",
+      "X-Robots-Tag": "noindex, nofollow",
+    });
+  }
+  res.writeHead(200, headers);
 
   createReadStream(filePath).pipe(res);
 }

@@ -238,6 +238,7 @@ describe("analyzeXpertWorkflowConversion", () => {
   it.each([
     "scheduled_start",
     "http_event_entry",
+    "form_event_entry",
     "failure_event_entry",
     "invoke_workflow",
     "http_event_reply",

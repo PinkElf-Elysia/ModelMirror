@@ -76,6 +76,11 @@ from .schemas import (
     ValidateWorkflowResponse,
 )
 
+try:
+    from server.workflow_forms import WorkflowFormError, validate_form_config
+except ModuleNotFoundError:
+    from workflow_forms import WorkflowFormError, validate_form_config
+
 
 NODE_KIND_ALIASES = {
     "start": "input",
@@ -85,6 +90,8 @@ NODE_KIND_ALIASES = {
     "scheduled-start": "scheduled_start",
     "http_event_entry": "http_event_entry",
     "http-event-entry": "http_event_entry",
+    "form_event_entry": "form_event_entry",
+    "form-event-entry": "form_event_entry",
     "failure_event_entry": "failure_event_entry",
     "failure-event-entry": "failure_event_entry",
     "workflow_call_entry": "workflow_call_entry",
@@ -563,7 +570,7 @@ def validate_workflow_graph(workflow: NativeWorkflowDefinition) -> ValidateWorkf
             )
 
     if not any(
-        kind in {"input", "scheduled_start", "http_event_entry", "failure_event_entry", "workflow_call_entry"}
+        kind in {"input", "scheduled_start", "http_event_entry", "form_event_entry", "failure_event_entry", "workflow_call_entry"}
         for kind in kinds_by_id.values()
     ):
         issues.append(
@@ -1254,6 +1261,7 @@ def validate_node_configuration(
                     node_id=node.id,
                 )
             )
+
         accepted_content_type = str(
             data.get("acceptedContentType") or "both"
         ).strip()
@@ -1274,6 +1282,18 @@ def validate_node_configuration(
                 ValidationIssue(
                     code="invalid_http_event_max_body_bytes",
                     message="HTTP maxBodyBytes must be between 1024 and 1048576.",
+                    node_id=node.id,
+                )
+            )
+
+    if kind == "form_event_entry":
+        try:
+            validate_form_config(data)
+        except WorkflowFormError as exc:
+            issues.append(
+                ValidationIssue(
+                    code=f"invalid_form_entry_{exc.code}",
+                    message=exc.safe_message,
                     node_id=node.id,
                 )
             )
@@ -4101,7 +4121,7 @@ def collect_declared_variables(
     for node in nodes:
         data = node.data
         kind = kinds_by_id[node.id]
-        if kind in {"input", "scheduled_start", "http_event_entry", "failure_event_entry", "workflow_call_entry"}:
+        if kind in {"input", "scheduled_start", "http_event_entry", "form_event_entry", "failure_event_entry", "workflow_call_entry"}:
             field_name = "variableName" if kind == "input" else "eventVariable"
             variable = str(data.get(field_name) or "").strip()
             if is_variable_name(variable):
@@ -4110,6 +4130,16 @@ def collect_declared_variables(
             body_variable = str(data.get("bodyVariable") or "").strip()
             if is_variable_name(body_variable):
                 variables.add(body_variable)
+        if kind == "form_event_entry":
+            submission_variable = str(data.get("submissionVariable") or "").strip()
+            if is_variable_name(submission_variable):
+                variables.add(submission_variable)
+            for field in data.get("fields", []):
+                if not isinstance(field, dict):
+                    continue
+                output_variable = str(field.get("outputVariable") or "").strip()
+                if is_variable_name(output_variable):
+                    variables.add(output_variable)
         if kind == "llm":
             variable = str(data.get("outputVariable") or "").strip()
             if is_variable_name(variable):
@@ -4195,6 +4225,7 @@ def collect_node_variable_producers(
         "input": ("variableName",),
         "scheduled_start": ("eventVariable",),
         "http_event_entry": ("eventVariable", "bodyVariable"),
+        "form_event_entry": ("eventVariable", "submissionVariable"),
         "failure_event_entry": ("eventVariable",),
         "workflow_call_entry": ("eventVariable",),
         "invoke_workflow": ("resultVariable",),
@@ -4247,6 +4278,13 @@ def collect_node_variable_producers(
             if not is_variable_name(name):
                 continue
             producers.setdefault(name, []).append(node.id)
+        if kind == "form_event_entry":
+            for field in node.data.get("fields", []):
+                if not isinstance(field, dict):
+                    continue
+                name = str(field.get("outputVariable") or "").strip()
+                if is_variable_name(name):
+                    producers.setdefault(name, []).append(node.id)
     return producers
 
 

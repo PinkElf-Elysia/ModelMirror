@@ -85,9 +85,9 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     assert len({row["来源条目标识"] for row in rows}) == 563
     assert Counter(row["覆盖等级"] for row in rows) == {
         "exact": 35,
-        "limited": 70,
+        "limited": 72,
         "composable": 271,
-        "none": 187,
+        "none": 185,
     }
     mapped = {row["n8n内部标识"]: row for row in rows}
     mapped_by_source = {row["来源条目标识"]: row for row in rows}
@@ -155,7 +155,6 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
         assert "不执行" in code_row["判断说明"]
     assert all("template_transform" not in row["模镜对应节点"] for row in rows)
     for key in (
-        "form",
         "splitOut",
         "moveBinaryData",
         "clearbit",
@@ -171,7 +170,11 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
         assert mapped[key]["模镜对应节点"] == "document_extractor"
         assert mapped[key]["覆盖等级"] == "limited"
         assert mapped[key]["人工复核"] == "R2.4"
-    assert mapped["formTrigger"]["覆盖等级"] == "none"
+    for key in ("form", "formTrigger"):
+        assert mapped[key]["模镜当前状态"] == "部分实现"
+        assert mapped[key]["模镜对应节点"] == "form_event_entry"
+        assert mapped[key]["覆盖等级"] == "limited"
+        assert mapped[key]["人工复核"] == "R2.5"
     assert mapped["aiTransform"]["模镜对应节点"] == "llm / variable_assign"
     assert all(mapped[key]["模镜当前状态"] == "已实现" for key in (
         "scheduleTrigger", "webhook", "wait", "respondToWebhook", "errorTrigger",
@@ -200,6 +203,8 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
         "htmlExtract": "R2.4",
         "markdown": "R2.4",
         "xml": "R2.4",
+        "form": "R2.5",
+        "formTrigger": "R2.5",
     }
     assert all(
         row["人工复核"]
@@ -266,7 +271,7 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
         for contract in workflow_node_contract_registry.list()
     )
     assert "911593f505b05b01037769f578e21f22d2a1c9af" in markdown
-    assert "R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0/R2.1/R2.2/R2.3" in markdown
+    assert "R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0/R2.1/R2.2/R2.3/R2.4/R2.5" in markdown
     assert "44、画布目录项 42" in markdown
     assert "R1.6 结果" in markdown
     assert "自研节点总数 47、画布目录项 45、当前 18 个" in markdown
@@ -278,9 +283,9 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     assert current_registry_line in markdown
     assert f"Planner 可生成类型仍固定为 {planner_count} 类" in markdown
     assert "R1.8 结果" in markdown
-    assert native_count == 51
-    assert palette_count == 47
-    assert complete_count == 48
+    assert native_count == 52
+    assert palette_count == 48
+    assert complete_count == 49
     assert compatibility_count == 3
     assert planner_count == 7
     assert "R1.9 结果" in markdown
@@ -328,12 +333,16 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
         "- R2.4 结果：不新增节点类型，将 `document_extractor` 升级为“内容解析”V3"
     ) in markdown
     assert (
+        "- R2.5 结果：新增完整合同 `form_event_entry`，发布同源签名表单、"
+        "严格类型字段与固定接受页"
+    ) in markdown
+    assert (
         "- R2.2 PR1 结果：将 `variable_aggregator` 提升为“变量打包”V2 完整合同，"
         "修正元智能体新图的报告汇总，并为 563 行参考清单增加 "
         "exact/limited/composable/none 证据门禁；" + r22_pr2_snapshot
     ) not in markdown
     assert "覆盖等级用于表达证据强度" in markdown
     assert current_registry_line == (
-        "当前 Registry 事实：51 Native、47 个可新增 Palette 项、48 个完整合同、"
+        "当前 Registry 事实：52 Native、48 个可新增 Palette 项、49 个完整合同、"
         "3 个 compatibility 合同、7 个 Planner 节点"
     )

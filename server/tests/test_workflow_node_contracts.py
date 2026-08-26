@@ -110,7 +110,7 @@ def test_r22_variable_pack_contract_is_complete_and_not_plannable() -> None:
 def test_contract_registry_covers_every_native_kind_once() -> None:
     expected = set(get_args(NativeNodeKind))
 
-    assert len(expected) == 51
+    assert len(expected) == 52
     assert workflow_node_contract_registry.kinds() == expected
     assert len(workflow_node_contract_registry.list()) == len(expected)
     assert workflow_node_contract_registry.get("not-a-node") is None
@@ -577,6 +577,7 @@ def test_policy_service_preserves_current_entrypoint_boundaries() -> None:
     independent_deployment_kinds = {
         "scheduled_start",
         "http_event_entry",
+        "form_event_entry",
         "failure_event_entry",
         "workflow_call_entry",
         "invoke_workflow",
@@ -596,6 +597,7 @@ def test_policy_service_preserves_current_entrypoint_boundaries() -> None:
         "data_table_delete",
         "scheduled_start",
         "http_event_entry",
+        "form_event_entry",
         "failure_event_entry",
         "workflow_call_entry",
         "invoke_workflow",
@@ -617,6 +619,7 @@ def test_policy_service_preserves_current_entrypoint_boundaries() -> None:
         "data_table_delete",
         "scheduled_start",
         "http_event_entry",
+        "form_event_entry",
         "failure_event_entry",
         "workflow_call_entry",
         "invoke_workflow",
@@ -688,7 +691,7 @@ def test_registry_ui_projection_is_v4_and_contains_no_runtime_payloads() -> None
         for item in section["items"]
     ] + list(payload["knowledge_pipeline"]["items"])
 
-    assert len({item["kind"] for item in items}) == 47
+    assert len({item["kind"] for item in items}) == 48
     assert payload["version"] == "xpert-workflow-node-registry-v4"
     assert payload["contract_version"] == 3
     assert payload["contract_checksum"] == workflow_node_contract_registry.checksum

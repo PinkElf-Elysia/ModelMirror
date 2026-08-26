@@ -3,6 +3,8 @@ import type {
   WorkflowEdge,
   WorkflowNode,
   WorkflowNodeData,
+  WorkflowFormField,
+  WorkflowFormFieldType,
   WorkflowVariableDeclaration,
 } from "../../types/workflow";
 import {
@@ -1118,6 +1120,212 @@ function IterationV2Config({
   );
 }
 
+const FORM_FIELD_LABELS: Record<WorkflowFormFieldType, string> = {
+  short_text: "短文本",
+  long_text: "长文本",
+  email: "邮箱",
+  number: "数字",
+  boolean: "确认勾选",
+  date: "日期",
+  single_select: "单选",
+  multi_select: "多选",
+};
+
+function stableFormId(prefix: "field" | "option") {
+  return `${prefix}_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
+}
+
+function safeVariableCandidate(label: string, fallback: string) {
+  const ascii = label
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 56);
+  return /^[a-z_]/.test(ascii) ? ascii : fallback;
+}
+
+function FormEntryPreview({
+  data,
+  fields,
+  viewport,
+}: {
+  data: WorkflowNodeData;
+  fields: WorkflowFormField[];
+  viewport: "desktop" | "mobile";
+}) {
+  const dark = data.theme === "dark";
+  return (
+    <div className={`mx-auto transition-[max-width] duration-200 ${viewport === "mobile" ? "max-w-[320px]" : "max-w-xl"}`}>
+      <div className={`rounded-xl p-5 ${dark ? "bg-slate-950 text-slate-100" : "bg-slate-100 text-slate-950"}`}>
+        <div className={`rounded-xl p-5 ${dark ? "border border-white/10 bg-slate-900" : "border border-slate-200 bg-white"}`}>
+          <h4 className="text-lg font-semibold">{String(data.formTitle || "未命名表单")}</h4>
+          {data.formDescription ? <p className={`mt-2 text-xs leading-5 ${dark ? "text-slate-300" : "text-slate-600"}`}>{String(data.formDescription)}</p> : null}
+          <div className="mt-5 space-y-4">
+            {fields.map((field) => (
+              <div key={field.id}>
+                <p className="text-xs font-semibold">{field.label}{field.required ? <span className="ml-1 text-rose-500">*</span> : null}</p>
+                <div className={`mt-1.5 min-h-9 rounded-lg border px-3 py-2 text-xs ${dark ? "border-white/15 bg-slate-950 text-slate-400" : "border-slate-300 bg-white text-slate-500"}`}>
+                  {field.type === "boolean" ? field.placeholder || "确认此项" : field.placeholder || FORM_FIELD_LABELS[field.type]}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="mt-5 inline-flex min-h-9 items-center rounded-lg bg-cyan-700 px-4 text-xs font-semibold text-white">{String(data.submitLabel || "提交")}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FormEventEntryConfig({
+  node,
+  nodes,
+  edges,
+  contract,
+  declarations,
+  data,
+  onChange,
+}: {
+  node: WorkflowNode;
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+  contract: WorkflowNodeContractProjection | null;
+  declarations: WorkflowVariableDeclaration[];
+  data: WorkflowNodeData;
+  onChange: (patch: Partial<WorkflowNodeData>) => void;
+}) {
+  const fields = (data.fields ?? []) as unknown as WorkflowFormField[];
+  const [previewViewport, setPreviewViewport] = useState<"desktop" | "mobile">("desktop");
+  const updateFields = (next: WorkflowFormField[]) => onChange({
+    fields: next as unknown as WorkflowNodeData["fields"],
+  });
+  const variableReferenced = (variable: string) => nodes.some((candidate) => (
+    candidate.id !== node.id
+    && JSON.stringify(candidate.data).includes(variable)
+  ));
+  const updateField = (index: number, patch: Partial<WorkflowFormField>) => {
+    const current = fields[index];
+    if (
+      patch.outputVariable
+      && patch.outputVariable !== current.outputVariable
+      && variableReferenced(current.outputVariable)
+      && !window.confirm(`变量 ${current.outputVariable} 已被下游节点引用。确认改名后，请同步检查这些引用。`)
+    ) return;
+    updateFields(fields.map((field, fieldIndex) => fieldIndex === index ? { ...field, ...patch } : field));
+  };
+  const removeField = (index: number) => {
+    const field = fields[index];
+    const downstream = variableReferenced(field.outputVariable);
+    const message = downstream
+      ? `字段“${field.label}”的变量 ${field.outputVariable} 已被下游引用。删除后这些节点会校验失败，仍要删除吗？`
+      : `删除字段“${field.label}”？此操作可通过撤销恢复。`;
+    if (window.confirm(message)) updateFields(fields.filter((_, fieldIndex) => fieldIndex !== index));
+  };
+  const addField = () => {
+    if (fields.length >= 30) return;
+    let variable = `field_${fields.length + 1}`;
+    const used = new Set(fields.map((field) => field.outputVariable));
+    while (used.has(variable)) variable = `field_${fields.length + 1}_${used.size}`;
+    updateFields([
+      ...fields,
+      {
+        id: stableFormId("field"),
+        outputVariable: variable,
+        label: `字段 ${fields.length + 1}`,
+        helpText: "",
+        placeholder: "",
+        type: "short_text",
+        required: false,
+        options: [],
+      },
+    ]);
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-lg border border-emerald-300/25 bg-emerald-300/10 px-3 py-2 text-xs leading-5 text-emerald-50">
+        启用后由模镜同源发布签名表单。链接密钥只显示一次，提交者不会看到工作流状态或结果。
+      </div>
+      <Section title="页面内容" description="所有文案均为固定纯文本，不解析 HTML、脚本或变量模板。">
+        <Field label="表单标题"><input className={inputClass} maxLength={120} onChange={(event) => onChange({ formTitle: event.target.value })} value={String(data.formTitle ?? "")} /></Field>
+        <Field label="表单说明"><textarea className={`${inputClass} min-h-20 resize-y`} maxLength={1000} onChange={(event) => onChange({ formDescription: event.target.value })} value={String(data.formDescription ?? "")} /></Field>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="提交按钮"><input className={inputClass} maxLength={40} onChange={(event) => onChange({ submitLabel: event.target.value })} value={String(data.submitLabel ?? "")} /></Field>
+          <Field label="页面主题"><select className={inputClass} onChange={(event) => onChange({ theme: event.target.value as "light" | "dark" })} value={data.theme ?? "light"}><option value="light">浅色</option><option value="dark">深色</option></select></Field>
+        </div>
+        <Field label="隐私说明" hint="说明数据用途，不要填写链接"><textarea className={`${inputClass} min-h-16 resize-y`} maxLength={1000} onChange={(event) => onChange({ privacyNotice: event.target.value })} value={String(data.privacyNotice ?? "")} /></Field>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="成功标题"><input className={inputClass} maxLength={120} onChange={(event) => onChange({ successTitle: event.target.value })} value={String(data.successTitle ?? "")} /></Field>
+          <Field label="成功说明"><input className={inputClass} maxLength={1000} onChange={(event) => onChange({ successMessage: event.target.value })} value={String(data.successMessage ?? "")} /></Field>
+        </div>
+      </Section>
+
+      <Section title="提交字段" description="字段 ID 和选项值保持稳定；重排或改标签不会改变下游语义。">
+        <div className="space-y-3">
+          {fields.map((field, index) => {
+            const selectField = field.type === "single_select" || field.type === "multi_select";
+            return (
+              <div className="rounded-xl border border-white/10 bg-black/15 p-3" key={field.id}>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-white">{index + 1}. {field.label || "未命名字段"}</p>
+                    <p className="mt-1 font-mono text-[11px] text-slate-500">{field.id}</p>
+                  </div>
+                  <div className="flex gap-1">
+                    <button className="rounded-md border border-white/10 px-2 py-1 text-xs text-slate-300 disabled:opacity-30" disabled={index === 0} onClick={() => updateFields(fields.map((item, itemIndex) => itemIndex === index - 1 ? fields[index] : itemIndex === index ? fields[index - 1] : item))} type="button">上移</button>
+                    <button className="rounded-md border border-white/10 px-2 py-1 text-xs text-slate-300 disabled:opacity-30" disabled={index === fields.length - 1} onClick={() => updateFields(fields.map((item, itemIndex) => itemIndex === index + 1 ? fields[index] : itemIndex === index ? fields[index + 1] : item))} type="button">下移</button>
+                    <button className="rounded-md border border-rose-300/20 px-2 py-1 text-xs text-rose-200 disabled:opacity-30" disabled={fields.length <= 1} onClick={() => removeField(index)} type="button">删除</button>
+                  </div>
+                </div>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <Field label="字段标签"><input className={inputClass} maxLength={120} onBlur={(event) => { if (!field.outputVariable) updateField(index, { outputVariable: safeVariableCandidate(event.target.value, `field_${index + 1}`) }); }} onChange={(event) => updateField(index, { label: event.target.value })} value={field.label} /></Field>
+                  <Field label="字段类型"><select className={inputClass} onChange={(event) => { const type = event.target.value as WorkflowFormFieldType; updateField(index, { type, options: ["single_select", "multi_select"].includes(type) && field.options.length < 2 ? [{ id: stableFormId("option"), value: "option_1", label: "选项 1" }, { id: stableFormId("option"), value: "option_2", label: "选项 2" }] : ["single_select", "multi_select"].includes(type) ? field.options : [] }); }} value={field.type}>{Object.entries(FORM_FIELD_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
+                </div>
+                <div className="mt-3">
+                  <GlobalVariableField contract={contract} declarations={declarations} edges={edges} fieldName={`fields.${index}.outputVariable`} hint="例如 contact_email" label="输出变量" node={node} nodes={nodes} onChange={(outputVariable) => updateField(index, { outputVariable })} value={field.outputVariable} />
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="输入提示"><input className={inputClass} maxLength={200} onChange={(event) => updateField(index, { placeholder: event.target.value })} value={field.placeholder} /></Field>
+                  <Field label="帮助说明"><input className={inputClass} maxLength={500} onChange={(event) => updateField(index, { helpText: event.target.value })} value={field.helpText} /></Field>
+                </div>
+                <label className="mt-3 flex min-h-10 items-center gap-2 text-sm text-slate-200"><input checked={field.required} className="h-4 w-4 accent-cyan-500" onChange={(event) => updateField(index, { required: event.target.checked })} type="checkbox" />提交前必须完成</label>
+                {selectField ? (
+                  <div className="mt-3 space-y-2 border-t border-white/10 pt-3">
+                    <p className="text-xs font-semibold text-slate-200">选项</p>
+                    {field.options.map((option, optionIndex) => (
+                      <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]" key={option.id}>
+                        <input aria-label={`选项 ${optionIndex + 1} 标签`} className={inputClass} maxLength={120} onChange={(event) => updateField(index, { options: field.options.map((item, itemIndex) => itemIndex === optionIndex ? { ...item, label: event.target.value } : item) })} placeholder="显示标签" value={option.label} />
+                        <input aria-label={`选项 ${optionIndex + 1} 稳定值`} className={`${inputClass} font-mono`} maxLength={64} onChange={(event) => updateField(index, { options: field.options.map((item, itemIndex) => itemIndex === optionIndex ? { ...item, value: event.target.value } : item) })} placeholder="stable_value" value={option.value} />
+                        <button className="rounded-lg border border-rose-300/20 px-3 text-xs text-rose-200 disabled:opacity-30" disabled={field.options.length <= 2} onClick={() => updateField(index, { options: field.options.filter((_, itemIndex) => itemIndex !== optionIndex) })} type="button">删除</button>
+                      </div>
+                    ))}
+                    <button className="rounded-lg border border-white/10 px-3 py-2 text-xs font-semibold text-slate-200 disabled:opacity-30" disabled={field.options.length >= 20} onClick={() => updateField(index, { options: [...field.options, { id: stableFormId("option"), value: `option_${field.options.length + 1}`, label: `选项 ${field.options.length + 1}` }] })} type="button">添加选项</button>
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+          <button className="w-full rounded-lg border border-dashed border-cyan-300/30 px-3 py-3 text-sm font-semibold text-cyan-100 disabled:opacity-40" disabled={fields.length >= 30} onClick={addField} type="button">添加字段（{fields.length}/30）</button>
+        </div>
+      </Section>
+
+      <Section title="运行变量" description="事件对象只含安全元数据；提交对象和每个字段值仅存在于本次执行内存。">
+        <GlobalVariableField contract={contract} declarations={declarations} edges={edges} fieldName="eventVariable" hint="例如 form_event" label="事件元数据变量" node={node} nodes={nodes} onChange={(eventVariable) => onChange({ eventVariable })} value={String(data.eventVariable ?? "")} />
+        <GlobalVariableField contract={contract} declarations={declarations} edges={edges} fieldName="submissionVariable" hint="例如 form_submission" label="完整提交对象变量" node={node} nodes={nodes} onChange={(submissionVariable) => onChange({ submissionVariable })} value={String(data.submissionVariable ?? "")} />
+      </Section>
+
+      <Section title="本地预览" description="预览不会创建分享链接、调用 API 或保存填写内容。">
+        <div className="flex gap-2">
+          <button className={`rounded-lg px-3 py-2 text-xs font-semibold ${previewViewport === "desktop" ? "bg-cyan-500/20 text-cyan-100" : "border border-white/10 text-slate-300"}`} onClick={() => setPreviewViewport("desktop")} type="button">桌面</button>
+          <button className={`rounded-lg px-3 py-2 text-xs font-semibold ${previewViewport === "mobile" ? "bg-cyan-500/20 text-cyan-100" : "border border-white/10 text-slate-300"}`} onClick={() => setPreviewViewport("mobile")} type="button">移动端</button>
+        </div>
+        <FormEntryPreview data={data} fields={fields} viewport={previewViewport} />
+      </Section>
+    </div>
+  );
+}
+
 export default function WorkflowDeploymentNodeConfig({
   currentProjectId,
   node,
@@ -1137,6 +1345,20 @@ export default function WorkflowDeploymentNodeConfig({
   data: WorkflowNodeData;
   onChange: (patch: Partial<WorkflowNodeData>) => void;
 }) {
+  if (data.kind === "form_event_entry") {
+    return (
+      <FormEventEntryConfig
+        contract={contract}
+        data={data}
+        declarations={declarations}
+        edges={edges}
+        node={node}
+        nodes={nodes}
+        onChange={onChange}
+      />
+    );
+  }
+
   if (data.kind === "failure_event_entry") {
     return (
       <FailureEntryConfig

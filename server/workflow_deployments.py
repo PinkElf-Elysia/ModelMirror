@@ -38,6 +38,13 @@ try:
     )
     from server.workflow_native.r23_iteration import is_workflow_map
     from server.workflow_native.content_parser import document_extractor_uses_file_asset
+    from server.workflow_forms import (
+        WorkflowFormError,
+        form_schema_checksum,
+        new_form_key,
+        validate_form_config,
+        validate_public_base_url,
+    )
     from server.xpert_runtime.automation_store import (
         AutomationStore,
         AutomationTrigger,
@@ -65,6 +72,13 @@ except ModuleNotFoundError:
     )
     from workflow_native.r23_iteration import is_workflow_map
     from workflow_native.content_parser import document_extractor_uses_file_asset
+    from workflow_forms import (
+        WorkflowFormError,
+        form_schema_checksum,
+        new_form_key,
+        validate_form_config,
+        validate_public_base_url,
+    )
     from xpert_runtime.automation_store import (
         AutomationStore,
         AutomationTrigger,
@@ -72,7 +86,7 @@ except ModuleNotFoundError:
     )
 
 
-WorkflowTriggerKind = Literal["manual", "schedule", "http", "failure", "call"]
+WorkflowTriggerKind = Literal["manual", "schedule", "http", "form", "failure", "call"]
 WorkflowTriggerExecutionStatus = Literal[
     "pending", "running", "waiting", "completed", "failed", "skipped", "cancelled"
 ]
@@ -80,6 +94,7 @@ ENTRY_NODE_KINDS = {
     "input",
     "scheduled_start",
     "http_event_entry",
+    "form_event_entry",
     "failure_event_entry",
     "workflow_call_entry",
 }
@@ -196,6 +211,21 @@ class WorkflowFailureSubscription:
 
 
 @dataclass(slots=True)
+class WorkflowFormPublication:
+    form_id: str
+    project_id: str
+    version: int
+    deployment_id: str
+    form_key_hash: str
+    form_key_prefix: str
+    active: bool = False
+    activated_at: float | None = None
+    deactivated_at: float | None = None
+    rotated_at: float | None = None
+    updated_at: float = field(default_factory=time.time)
+
+
+@dataclass(slots=True)
 class WorkflowSubworkflowRelation:
     occurrence_key: str
     parent_execution_id: str
@@ -247,6 +277,7 @@ class WorkflowDeploymentStore:
         self._deployments: dict[str, WorkflowDeployment] = {}
         self._executions: dict[str, WorkflowTriggerExecution] = {}
         self._failure_subscriptions: dict[str, WorkflowFailureSubscription] = {}
+        self._form_publications: dict[str, WorkflowFormPublication] = {}
         self._subworkflow_relations: dict[str, WorkflowSubworkflowRelation] = {}
         self._subworkflow_batches: dict[str, WorkflowSubworkflowBatch] = {}
         self._credential_validator = credential_validator
@@ -406,6 +437,8 @@ class WorkflowDeploymentStore:
         file_output_assets_enabled: bool = False,
         mcp_tools_enabled: bool = False,
         handoff_executor_enabled: bool = False,
+        forms_enabled: bool = False,
+        forms_public_base_url: str = "",
         now: float | None = None,
     ) -> tuple[WorkflowDeployment, str | None]:
         current = time.time() if now is None else float(now)
@@ -422,6 +455,13 @@ class WorkflowDeploymentStore:
                 raise WorkflowDeploymentConflictError(
                     "Workflow failure triggers are disabled."
                 )
+            if release.trigger_kind == "form":
+                if not forms_enabled:
+                    raise WorkflowDeploymentConflictError("Workflow forms are disabled.")
+                try:
+                    validate_public_base_url(forms_public_base_url)
+                except WorkflowFormError as exc:
+                    raise WorkflowDeploymentConflictError(exc.safe_message) from exc
             http_v2_nodes = [
                 node
                 for node in release.workflow.get("nodes", [])
@@ -562,6 +602,34 @@ class WorkflowDeploymentStore:
             plaintext_key: str | None = None
             if release.trigger_kind == "http":
                 plaintext_key = self._set_new_webhook_key_unlocked(deployment)
+            elif release.trigger_kind == "form":
+                publication = next(
+                    (
+                        item
+                        for item in self._form_publications.values()
+                        if item.project_id == project_id
+                    ),
+                    None,
+                )
+                if publication is None:
+                    plaintext_key = self._new_form_publication_key()
+                    publication = WorkflowFormPublication(
+                        form_id=f"form_{secrets.token_hex(16)}",
+                        project_id=project_id,
+                        version=version,
+                        deployment_id=deployment.deployment_id,
+                        form_key_hash=hashlib.sha256(
+                            plaintext_key.encode("utf-8")
+                        ).hexdigest(),
+                        form_key_prefix=plaintext_key[:15],
+                    )
+                    self._form_publications[publication.form_id] = publication
+                publication.version = version
+                publication.deployment_id = deployment.deployment_id
+                publication.active = True
+                publication.activated_at = current
+                publication.deactivated_at = None
+                publication.updated_at = current
             deployment.active = True
             deployment.activated_at = current
             deployment.deactivated_at = None
@@ -573,6 +641,8 @@ class WorkflowDeploymentStore:
             )
             project.active_version = version
             project.updated_at = current
+            if release.trigger_kind != "form":
+                self._deactivate_form_publication_unlocked(project_id, current)
             self._remove_failure_subscriptions_for_handler_unlocked(project_id)
             if release.trigger_kind == "failure":
                 for source_project_id in failure_sources:
@@ -596,6 +666,9 @@ class WorkflowDeploymentStore:
             deployment.next_run_at = None
             deployment.deactivated_at = time.time()
             deployment.updated_at = deployment.deactivated_at
+            self._deactivate_form_publication_unlocked(
+                project_id, deployment.deactivated_at
+            )
             self._remove_failure_subscriptions_for_deployment_unlocked(
                 deployment.deployment_id
             )
@@ -622,6 +695,186 @@ class WorkflowDeploymentStore:
             deployment.updated_at = time.time()
             self._persist_unlocked()
             return deployment, plaintext
+
+    def rotate_form_key(
+        self,
+        project_id: str,
+        version: int,
+        *,
+        forms_enabled: bool,
+        forms_public_base_url: str,
+    ) -> tuple[WorkflowFormPublication, str]:
+        if not forms_enabled:
+            raise WorkflowDeploymentConflictError("Workflow forms are disabled.")
+        try:
+            validate_public_base_url(forms_public_base_url)
+        except WorkflowFormError as exc:
+            raise WorkflowDeploymentConflictError(exc.safe_message) from exc
+        with self._lock:
+            deployment = self._require_deployment_for_version_unlocked(
+                project_id, version
+            )
+            if (
+                deployment.trigger_kind != "form"
+                or not deployment.active
+            ):
+                raise WorkflowDeploymentConflictError(
+                    "Only the active form deployment can rotate its share key."
+                )
+            publication = next(
+                (
+                    item
+                    for item in self._form_publications.values()
+                    if item.project_id == project_id
+                ),
+                None,
+            )
+            if (
+                publication is None
+                or not publication.active
+                or publication.version != int(version)
+                or publication.deployment_id != deployment.deployment_id
+            ):
+                raise WorkflowDeploymentConflictError(
+                    "The active form publication is unavailable."
+                )
+            plaintext = self._new_form_publication_key()
+            publication.form_key_hash = hashlib.sha256(
+                plaintext.encode("utf-8")
+            ).hexdigest()
+            publication.form_key_prefix = plaintext[:15]
+            publication.rotated_at = time.time()
+            publication.updated_at = publication.rotated_at
+            self._persist_unlocked()
+            return publication, plaintext
+
+    def get_form_publication(
+        self, project_id: str
+    ) -> WorkflowFormPublication | None:
+        with self._lock:
+            return next(
+                (
+                    item
+                    for item in self._form_publications.values()
+                    if item.project_id == project_id
+                ),
+                None,
+            )
+
+    def authenticate_form(
+        self,
+        form_id: str,
+        plaintext_key: str,
+    ) -> tuple[WorkflowFormPublication, WorkflowDeployment, WorkflowVersion]:
+        supplied_hash = hashlib.sha256(
+            str(plaintext_key).encode("utf-8")
+        ).hexdigest()
+        with self._lock:
+            publication = self._form_publications.get(str(form_id))
+            deployment = (
+                self._deployments.get(publication.deployment_id)
+                if publication is not None
+                else None
+            )
+            release = (
+                self._versions.get((publication.project_id, publication.version))
+                if publication is not None
+                else None
+            )
+            if (
+                publication is None
+                or not publication.active
+                or not publication.form_key_hash
+                or not secrets.compare_digest(
+                    publication.form_key_hash, supplied_hash
+                )
+                or deployment is None
+                or not deployment.active
+                or deployment.trigger_kind != "form"
+                or deployment.project_id != publication.project_id
+                or deployment.version != publication.version
+                or release is None
+                or release.trigger_kind != "form"
+                or release.entry_node_id not in {
+                    str(node.get("id") or "")
+                    for node in release.workflow.get("nodes", [])
+                    if isinstance(node, dict)
+                }
+            ):
+                raise WorkflowDeploymentNotFoundError("Workflow form not found.")
+            return publication, deployment, release
+
+    @staticmethod
+    def form_entry_data(release: WorkflowVersion) -> dict[str, Any]:
+        node = next(
+            (
+                item
+                for item in release.workflow.get("nodes", [])
+                if isinstance(item, dict)
+                and str(item.get("id") or "") == release.entry_node_id
+                and _raw_node_kind(item) == "form_event_entry"
+            ),
+            None,
+        )
+        if node is None:
+            raise WorkflowDeploymentValidationError(
+                "Published form entry is unavailable."
+            )
+        return validate_form_config(dict(node.get("data") or {}))
+
+    def create_form_execution(
+        self,
+        deployment: WorkflowDeployment,
+        *,
+        nonce: str,
+        field_count: int,
+        body_size: int,
+        body_sha256: str,
+        now: float | None = None,
+    ) -> tuple[WorkflowTriggerExecution, bool]:
+        clean_nonce = str(nonce).strip()
+        if not re.fullmatch(r"[A-Za-z0-9_-]{20,80}", clean_nonce):
+            raise WorkflowDeploymentValidationError(
+                "Form submission nonce is invalid."
+            )
+        current = time.time() if now is None else float(now)
+        idempotency_hash = hashlib.sha256(
+            f"{deployment.deployment_id}:{clean_nonce}".encode("utf-8")
+        ).hexdigest()
+        with self._lock:
+            existing = next(
+                (
+                    item
+                    for item in self._executions.values()
+                    if item.deployment_id == deployment.deployment_id
+                    and item.idempotency_hash == idempotency_hash
+                ),
+                None,
+            )
+            if existing is not None:
+                return existing, False
+            submission_id = f"sub_{idempotency_hash[:24]}"
+            item = WorkflowTriggerExecution(
+                execution_id=f"wfx_{uuid.uuid4().hex}",
+                project_id=deployment.project_id,
+                version=deployment.version,
+                deployment_id=deployment.deployment_id,
+                trigger_kind="form",
+                occurrence_key=f"form:{idempotency_hash[:32]}",
+                scheduled_at=current,
+                idempotency_hash=idempotency_hash,
+                trigger_summary={
+                    "submission_id": submission_id,
+                    "field_count": max(0, int(field_count)),
+                    "body_size": max(0, int(body_size)),
+                    "body_sha256": str(body_sha256)[:64],
+                },
+                created_at=current,
+                updated_at=current,
+            )
+            self._executions[item.execution_id] = item
+            self._persist_unlocked()
+            return item, True
 
     def authenticate_hook(self, hook_id: str, plaintext_key: str) -> WorkflowDeployment:
         supplied_hash = hashlib.sha256(str(plaintext_key).encode("utf-8")).hexdigest()
@@ -1240,6 +1493,14 @@ class WorkflowDeploymentStore:
         return payload
 
     @staticmethod
+    def serialize_form_publication(
+        item: WorkflowFormPublication,
+    ) -> dict[str, Any]:
+        payload = asdict(item)
+        payload.pop("form_key_hash", None)
+        return payload
+
+    @staticmethod
     def serialize_execution(item: WorkflowTriggerExecution) -> dict[str, Any]:
         payload = asdict(item)
         payload.pop("idempotency_hash", None)
@@ -1332,6 +1593,27 @@ class WorkflowDeploymentStore:
         deployment.webhook_key_hash = hashlib.sha256(plaintext.encode("utf-8")).hexdigest()
         deployment.webhook_key_prefix = plaintext[:8]
         return plaintext
+
+    @staticmethod
+    def _new_form_publication_key() -> str:
+        return new_form_key()
+
+    def _deactivate_form_publication_unlocked(
+        self, project_id: str, timestamp: float
+    ) -> None:
+        publication = next(
+            (
+                item
+                for item in self._form_publications.values()
+                if item.project_id == project_id
+            ),
+            None,
+        )
+        if publication is None or not publication.active:
+            return
+        publication.active = False
+        publication.deactivated_at = timestamp
+        publication.updated_at = timestamp
 
     def _require_project_unlocked(self, project_id: str) -> WorkflowProject:
         item = self._projects.get(project_id)
@@ -1735,13 +2017,16 @@ class WorkflowDeploymentStore:
     def _persist_unlocked(self) -> None:
         self.snapshot_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
-            "version": "workflow-deployments-v2",
+            "version": "workflow-deployments-v3",
             "projects": [asdict(item) for item in self._projects.values()],
             "versions": [asdict(item) for item in self._versions.values()],
             "deployments": [asdict(item) for item in self._deployments.values()],
             "executions": [asdict(item) for item in self._executions.values()],
             "failure_subscriptions": [
                 asdict(item) for item in self._failure_subscriptions.values()
+            ],
+            "form_publications": [
+                asdict(item) for item in self._form_publications.values()
             ],
             "subworkflow_relations": [
                 asdict(item) for item in self._subworkflow_relations.values()
@@ -1779,10 +2064,22 @@ class WorkflowDeploymentStore:
                 raw.setdefault("batch_index", None)
                 raw.setdefault("test_mode", False)
                 item = WorkflowTriggerExecution(**raw)
-                if item.status == "running":
+                if (
+                    item.trigger_kind == "form"
+                    and item.status not in TERMINAL_EXECUTION_STATUSES
+                ):
+                    item.status = "failed"
+                    item.error_summary = (
+                        "Form submission values were not persisted; execution was not replayed."
+                    )
+                    item.completed_at = time.time()
+                    self._clear_lease(item)
+                elif item.status == "running":
                     if item.trigger_kind == "http":
                         item.status = "failed"
-                        item.error_summary = "HTTP request body was not persisted; execution was not replayed."
+                        item.error_summary = (
+                            "External trigger input was not persisted; execution was not replayed."
+                        )
                         item.completed_at = time.time()
                     else:
                         item.status = "pending"
@@ -1795,6 +2092,16 @@ class WorkflowDeploymentStore:
                     raise ValueError("Duplicate workflow failure subscription source.")
                 seen_failure_sources.add(item.source_project_id)
                 self._failure_subscriptions[item.source_project_id] = item
+            seen_form_projects: set[str] = set()
+            for raw in payload.get("form_publications", []):
+                item = WorkflowFormPublication(**raw)
+                if (
+                    item.form_id in self._form_publications
+                    or item.project_id in seen_form_projects
+                ):
+                    raise ValueError("Duplicate workflow form publication.")
+                seen_form_projects.add(item.project_id)
+                self._form_publications[item.form_id] = item
             for raw in payload.get("subworkflow_batches", []):
                 batch = WorkflowSubworkflowBatch(**raw)
                 if batch.occurrence_key in self._subworkflow_batches:
@@ -1862,6 +2169,7 @@ class WorkflowDeploymentStore:
                     raise ValueError("Subworkflow relation batch metadata is incomplete.")
                 self._subworkflow_relations[relation.occurrence_key] = relation
             self._validate_loaded_failure_subscriptions_unlocked()
+            self._validate_loaded_form_publications_unlocked()
         except Exception as exc:
             raise WorkflowDeploymentValidationError(
                 "Workflow deployment snapshot is invalid; refusing to start with empty state."
@@ -1890,6 +2198,26 @@ class WorkflowDeploymentStore:
                 or deployment.trigger_kind != "failure"
             ):
                 raise ValueError("Workflow failure subscription handler is invalid.")
+
+    def _validate_loaded_form_publications_unlocked(self) -> None:
+        for form_id, publication in self._form_publications.items():
+            deployment = self._deployments.get(publication.deployment_id)
+            release = self._versions.get((publication.project_id, publication.version))
+            if (
+                not re.fullmatch(r"form_[a-f0-9]{32}", form_id)
+                or publication.project_id not in self._projects
+                or not re.fullmatch(r"[a-f0-9]{64}", publication.form_key_hash)
+                or not publication.form_key_prefix.startswith("mmform_")
+                or deployment is None
+                or deployment.project_id != publication.project_id
+                or deployment.version != publication.version
+                or deployment.trigger_kind != "form"
+                or release is None
+                or release.trigger_kind != "form"
+                or (publication.active and not deployment.active)
+            ):
+                raise ValueError("Workflow form publication is invalid.")
+            self.form_entry_data(release)
 
 
 def validate_publishable_workflow(
@@ -1927,6 +2255,7 @@ def validate_publishable_workflow(
     trigger_kind: WorkflowTriggerKind = (
         "schedule" if entry_kind == "scheduled_start"
         else "http" if entry_kind == "http_event_entry"
+        else "form" if entry_kind == "form_event_entry"
         else "failure" if entry_kind == "failure_event_entry"
         else "call" if entry_kind == "workflow_call_entry"
         else "manual"
@@ -1990,6 +2319,37 @@ def validate_publishable_workflow(
             raise WorkflowDeploymentValidationError(
                 "HTTP deployments cannot wait for an Agent Handoff result."
             )
+        if trigger_kind == "form":
+            if kind == "form_event_entry":
+                try:
+                    validate_form_config(node.data)
+                except WorkflowFormError as exc:
+                    raise WorkflowDeploymentValidationError(
+                        exc.safe_message
+                    ) from exc
+            if kind == "http_event_reply":
+                raise WorkflowDeploymentValidationError(
+                    "Form deployments use a fixed receipt page and cannot contain HTTP event reply nodes."
+                )
+            if kind in {"suspend_wait", "human_intervention", "mcp_tool"}:
+                raise WorkflowDeploymentValidationError(
+                    "Form deployments cannot contain persistent waiting nodes."
+                )
+            if (
+                kind in {"agent_handoff", "handoff_router"}
+                and bool(node.data.get("waitForCompletion"))
+            ):
+                raise WorkflowDeploymentValidationError(
+                    "Form deployments cannot wait for an Agent Handoff result."
+                )
+            if (
+                kind == "runtime_middleware"
+                and str(node.data.get("runtimeMiddlewareId") or "")
+                != "content_policy"
+            ):
+                raise WorkflowDeploymentValidationError(
+                    "Form deployments only support the non-waiting content policy middleware."
+                )
         if (
             kind in {"agent_handoff", "handoff_router"}
             and r20_contract_version(node.data) == 2

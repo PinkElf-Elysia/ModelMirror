@@ -6,8 +6,15 @@ import { type WorkflowDefinition, type WorkflowNodeKind } from "../../types/work
 import { type RuntimeMiddlewareNode } from "../../types/runtimeMiddleware";
 import WorkflowEditor from "./WorkflowEditor";
 import { type WorkflowNodeRegistryResponse } from "./workflowNodeRegistry";
+import {
+  type WorkflowDeploymentSummary,
+  type WorkflowFormPublicationSummary,
+} from "../../utils/workflowDeployments";
 
 let registryAvailable = true;
+let serverWorkflow: WorkflowDefinition | null = null;
+let serverActiveDeployment: WorkflowDeploymentSummary | null = null;
+let serverFormPublication: WorkflowFormPublicationSummary | null = null;
 let staticValidation = {
   valid: true,
   issues: [] as Array<Record<string, unknown>>,
@@ -19,6 +26,7 @@ let staticValidation = {
 function registry(): WorkflowNodeRegistryResponse {
   const kinds: WorkflowNodeKind[] = [
     "input",
+    "form_event_entry",
     "workflow_call_entry",
     "workflow_agent",
     "output",
@@ -139,6 +147,50 @@ function ordinaryWorkflow(): WorkflowDefinition {
   return definition;
 }
 
+function signedFormWorkflow(): WorkflowDefinition {
+  return {
+    id: "signed-form-editor",
+    title: "Signed form editor",
+    updatedAt: "2026-08-26T00:00:00.000Z",
+    variables: [],
+    nodes: [
+      {
+        id: "form-entry",
+        type: "form_event_entry" as "workflowNode",
+        position: { x: 10, y: 20 },
+        data: {
+          kind: "form_event_entry",
+          title: "表单提交入口",
+          description: "",
+          contractVersion: 1,
+          formTitle: "需求登记",
+          formDescription: "请填写需求。",
+          submitLabel: "提交",
+          privacyNotice: "仅用于本次处理。",
+          successTitle: "已收到",
+          successMessage: "可以关闭页面。",
+          theme: "light",
+          eventVariable: "form_event",
+          submissionVariable: "form_submission",
+          fields: [
+            {
+              id: "field_contact",
+              outputVariable: "contact",
+              label: "联系人",
+              helpText: "",
+              placeholder: "请输入联系人",
+              type: "short_text",
+              required: true,
+              options: [],
+            },
+          ] as never,
+        },
+      },
+    ],
+    edges: [],
+  };
+}
+
 function legacyVariableAggregatorWorkflow(): WorkflowDefinition {
   const definition = ordinaryWorkflow();
   definition.id = "legacy-variable-aggregator";
@@ -242,6 +294,9 @@ function workflowWithSkillRuntime(): WorkflowDefinition {
 describe("WorkflowEditor Xpert entry repair", () => {
   beforeEach(() => {
     registryAvailable = true;
+    serverWorkflow = null;
+    serverActiveDeployment = null;
+    serverFormPublication = null;
     staticValidation = {
       valid: true,
       issues: [],
@@ -268,6 +323,20 @@ describe("WorkflowEditor Xpert entry repair", () => {
         }
         if (url === "/api/workflow-native/validate") {
           return Promise.resolve(jsonResponse(staticValidation));
+        }
+        if (url.startsWith("/api/workflows/wf_") && serverWorkflow) {
+          return Promise.resolve(jsonResponse({
+            project_id: serverWorkflow.id,
+            title: serverWorkflow.title,
+            draft: serverWorkflow,
+            draft_revision: 1,
+            active_version: 1,
+            active_deployment: serverActiveDeployment,
+            form_publication: serverFormPublication,
+            published_versions: [],
+            created_at: 0,
+            updated_at: 0,
+          }));
         }
         if (url === "/api/runtime/middleware-nodes") {
           return Promise.resolve(jsonResponse([skillRuntimeMiddleware()]));
@@ -324,6 +393,80 @@ describe("WorkflowEditor Xpert entry repair", () => {
 
     expect(await screen.findByText("变量赋值")).toBeInTheDocument();
     expect(screen.queryByText(/未找到变量生产者/)).not.toBeInTheDocument();
+  });
+
+  it("preserves signed-form field variables in the full editor", async () => {
+    render(
+      <MemoryRouter>
+        <WorkflowEditor
+          initialDefinition={signedFormWorkflow()}
+          workflowId="signed-form-editor"
+        />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByText("表单提交入口"));
+
+    expect(await screen.findByLabelText("输出变量")).toHaveValue("contact");
+  });
+
+  it("preserves signed-form field variables after loading a server draft", async () => {
+    serverWorkflow = signedFormWorkflow();
+    serverWorkflow.id = "wf_signed_form_editor";
+    render(
+      <MemoryRouter>
+        <WorkflowEditor workflowId="wf_signed_form_editor" />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByText("表单提交入口"));
+
+    expect(await screen.findByLabelText("输出变量")).toHaveValue("contact");
+  });
+
+  it("keeps form publication actions behind one compact status control", async () => {
+    serverWorkflow = signedFormWorkflow();
+    serverWorkflow.id = "wf_signed_form_editor";
+    serverFormPublication = {
+      form_id: "form_test",
+      project_id: "wf_signed_form_editor",
+      version: 1,
+      deployment_id: "deploy_test",
+      form_key_prefix: "mmform_test",
+      active: true,
+      updated_at: 1,
+    };
+    serverActiveDeployment = {
+      deployment_id: "deploy_test",
+      project_id: "wf_signed_form_editor",
+      version: 1,
+      trigger_kind: "form",
+      active: true,
+      form_publication: serverFormPublication,
+    };
+
+    render(
+      <MemoryRouter>
+        <WorkflowEditor workflowId="wf_signed_form_editor" />
+      </MemoryRouter>,
+    );
+
+    const menu = await screen.findByTestId("form-publication-menu");
+    const trigger = screen.getByLabelText("表单发布设置");
+    expect(trigger).toHaveTextContent("表单 v1");
+    expect(trigger).toHaveTextContent("已启用");
+    expect(trigger).not.toHaveTextContent("mmform_test");
+    expect(menu).not.toHaveAttribute("open");
+
+    fireEvent.click(trigger);
+
+    expect(menu).toHaveAttribute("open");
+    expect(screen.getByText("固定版本 v1 · 密钥 mmform_test")).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "发布新版本并切换" }),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "轮换分享链接" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "停用表单" })).toBeVisible();
   });
 
   it("repairs only the Xpert copy, supports undo, and saves explicitly", async () => {

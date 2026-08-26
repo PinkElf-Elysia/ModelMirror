@@ -255,6 +255,15 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     metadata={"classic_only": True, "planner_enabled": False},
                 ),
                 WorkflowPaletteItem(
+                    kind="form_event_entry",
+                    icon="FORM",
+                    title="表单提交入口",
+                    description="发布同源签名表单并接收严格类型化提交。",
+                    category="logic",
+                    tags=["form", "submission", "deployment"],
+                    metadata={"classic_only": True, "planner_enabled": False},
+                ),
+                WorkflowPaletteItem(
                     kind="failure_event_entry",
                     icon="FAIL",
                     title="失败处置入口",

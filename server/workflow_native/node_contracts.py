@@ -593,6 +593,107 @@ def _complete_contracts() -> dict[str, NodeContract]:
         availability=deployment_only_availability,
         planner=_planner(),
     )
+    form_option_schema = _object_schema(
+        {
+            "id": {"type": "string", "pattern": r"^option_[A-Za-z0-9_-]{1,55}$"},
+            "value": {"type": "string", "pattern": r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$"},
+            "label": {"type": "string", "minLength": 1, "maxLength": 120},
+        },
+        required=["id", "value", "label"],
+        additional_properties=False,
+    )
+    form_field_schema = _object_schema(
+        {
+            "id": {"type": "string", "pattern": r"^field_[A-Za-z0-9_-]{1,56}$"},
+            "outputVariable": {"type": "string"},
+            "label": {"type": "string", "minLength": 1, "maxLength": 120},
+            "helpText": {"type": "string", "maxLength": 500},
+            "placeholder": {"type": "string", "maxLength": 200},
+            "type": {
+                "type": "string",
+                "enum": [
+                    "short_text",
+                    "long_text",
+                    "email",
+                    "number",
+                    "boolean",
+                    "date",
+                    "single_select",
+                    "multi_select",
+                ],
+            },
+            "required": {"type": "boolean"},
+            "options": {
+                "type": "array",
+                "items": form_option_schema,
+                "maxItems": 20,
+            },
+        },
+        required=[
+            "id",
+            "outputVariable",
+            "label",
+            "helpText",
+            "placeholder",
+            "type",
+            "required",
+            "options",
+        ],
+        additional_properties=False,
+    )
+    contracts["form_event_entry"] = NodeContract(
+        kind="form_event_entry",
+        contract_status="complete",
+        config_schema=_object_schema(
+            {
+                "kind": {"type": "string", "const": "form_event_entry"},
+                "contractVersion": {"type": "integer", "const": 1},
+                "formTitle": {"type": "string", "minLength": 1, "maxLength": 120},
+                "formDescription": {"type": "string", "maxLength": 1000},
+                "submitLabel": {"type": "string", "minLength": 1, "maxLength": 40},
+                "privacyNotice": {"type": "string", "maxLength": 1000},
+                "successTitle": {"type": "string", "minLength": 1, "maxLength": 120},
+                "successMessage": {"type": "string", "minLength": 1, "maxLength": 1000},
+                "theme": {"type": "string", "enum": ["light", "dark"]},
+                "eventVariable": {"type": "string"},
+                "submissionVariable": {"type": "string"},
+                "fields": {
+                    "type": "array",
+                    "items": form_field_schema,
+                    "minItems": 1,
+                    "maxItems": 30,
+                },
+            },
+            required=[
+                "contractVersion",
+                "formTitle",
+                "formDescription",
+                "submitLabel",
+                "privacyNotice",
+                "successTitle",
+                "successMessage",
+                "theme",
+                "eventVariable",
+                "submissionVariable",
+                "fields",
+            ],
+            additional_properties=False,
+        ),
+        ports=(
+            NodePortContract(name="event", direction="output", value_schema=event_value),
+            NodePortContract(name="submission", direction="output", value_schema=object_value),
+        ),
+        execution=NodeExecutionPolicy(
+            side_effect="external_read",
+            deterministic=False,
+            idempotent=True,
+            external_io=True,
+            error_semantics="fail_closed",
+            security_category="public_form",
+        ),
+        availability=deployment_only_availability,
+        planner=_planner(),
+    )
     contracts["failure_event_entry"] = NodeContract(
         kind="failure_event_entry",
         contract_status="complete",

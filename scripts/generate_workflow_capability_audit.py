@@ -37,9 +37,20 @@ SPECIALIZED_REVIEW_OVERRIDES = {
     "htmlExtract": "R2.4",
     "markdown": "R2.4",
     "xml": "R2.4",
+    "form": "R2.5",
+    "formTrigger": "R2.5",
 }
 
 DIRECT_UPDATES = {
+    "formTrigger": {
+        "模镜建议节点名": "表单提交入口",
+        "模镜当前状态": "部分实现",
+        "模镜对应节点": "form_event_entry",
+        "判断说明": (
+            "自研表单提交入口发布同源能力链接，提供严格类型字段、短时提交 token、"
+            "原子幂等执行与固定接受页；首版不提供账户身份、附件、验证码、多页或条件表单。"
+        ),
+    },
     "splitInBatches": {
         "模镜当前状态": "部分实现",
         "模镜对应节点": "iteration",
@@ -293,9 +304,10 @@ BASELINE_CORRECTIONS = {
 
 AUDIT_TRUST_CORRECTIONS = {
     "form": {
-        "模镜当前状态": "未实现",
-        "模镜对应节点": "—",
-        "判断说明": "当前没有浏览器表单展示、字段提交、签名校验或固定回执页的专用运行合同。",
+        "模镜建议节点名": "固定表单回执",
+        "模镜当前状态": "部分实现",
+        "模镜对应节点": "form_event_entry",
+        "判断说明": "自研部署面在原生表单提交物化后展示固定成功文案；不等待工作流结果，不支持动态页面步骤、外站跳转或自定义 HTML。",
     },
     "splitOut": {
         "模镜当前状态": "未实现",
@@ -688,7 +700,7 @@ def main() -> None:
         f"{row['n8n原名参考']} | {row['模镜当前状态']} |"
         for row in direct_rows
     ]
-    markdown = f"""# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0/R2.1/R2.2/R2.3/R2.4）
+    markdown = f"""# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0/R2.1/R2.2/R2.3/R2.4/R2.5）
 
 - 审计日期：2026-08-25
 - 唯一基线：PR #213 合并提交 `911593f505b05b01037769f578e21f22d2a1c9af`
@@ -707,6 +719,7 @@ def main() -> None:
 - R2.2 PR2 结果：将 `agent_task`、`agent_handoff`、`handoff_router` 提升为类型化 V2 合同，新增 occurrence 幂等索引、原子 Router 与持久 Handoff 恢复，并退役旧 `agent` 新增入口；当时 {r22_pr2['native']} Native、{r22_pr2['palette']} 个可新增 Palette 项、{r22_pr2['complete']} 个完整合同、{r22_pr2['compatibility']} 个 compatibility 合同、{r22_pr2['planner']} 个 Planner 节点
 - R2.3 结果：不新增节点类型，将 `iteration` 提升为“批量处理”V2 完整合同；本地模式执行严格数组模板映射，工作流模式以最多 32 项顺序调用固定发布版本并复用稳定子执行；当前保持 51 Native、47 个可新增 Palette 项、48 个完整合同、3 个 compatibility 合同、7 个 Planner 节点
 - R2.4 结果：不新增节点类型，将 `document_extractor` 升级为“内容解析”V3；可把安全 HTTP 响应或明确共享文件解析为受限 HTML、Markdown、XML 结构或带不可信边界的文本，不提供网页渲染、选择器抽取或 XML Schema/XPath/XSLT；Registry 数量不变
+- R2.5 结果：新增完整合同 `form_event_entry`，发布同源签名表单、严格类型字段与固定接受页；表单密钥只返回一次，公开提交原文不写入部署 Store，Planner 与全部 Xpert 类型均禁用
 - 当前 Registry 事实：{native_count} Native、{palette_count} 个可新增 Palette 项、{complete_count} 个完整合同、{compatibility_count} 个 compatibility 合同、{planner_count} 个 Planner 节点
 - 参考清单：563 条节点名称/类型，其中 `.ee` {ee_count} 条仅保留名称审计
 
@@ -744,7 +757,7 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 - 前端 `WorkflowNodeKind`、后端 `NativeNodeKind`、NodeContract Registry 必须完全一致。
 - Palette 必须是 NodeContract 合法子集；每个启用项必须有默认数据和配置入口。
 - compatibility 合同不得超过 #213 冻结白名单；新节点必须直接提供完整合同。
-- Planner 只接受完整合同、匹配 checksum 且显式启用的节点；R1–R2.3 增量节点均禁止 Planner 自动生成，Planner 可生成类型仍固定为 {planner_count} 类。
+- Planner 只接受完整合同、匹配 checksum 且显式启用的节点；R1–R2.5 增量节点均禁止 Planner 自动生成，Planner 可生成类型仍固定为 {planner_count} 类。
 """
     (args.output_dir / "N8N_NODE_CAPABILITY_MATRIX.md").write_text(
         markdown,

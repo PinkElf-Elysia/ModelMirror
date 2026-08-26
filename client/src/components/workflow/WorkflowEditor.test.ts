@@ -309,6 +309,21 @@ describe("WorkflowEditor palette defaults", () => {
     });
   });
 
+  it("provides a native signed-form default without external page configuration", () => {
+    expect(createNodeData("form_event_entry")).toMatchObject({
+      contractVersion: 1,
+      formTitle: "需求登记",
+      submitLabel: "提交登记",
+      theme: "light",
+      eventVariable: "form_event",
+      submissionVariable: "form_submission",
+      fields: [
+        expect.objectContaining({ id: "field_name", outputVariable: "name", type: "short_text" }),
+        expect.objectContaining({ id: "field_email", outputVariable: "email", type: "email" }),
+      ],
+    });
+  });
+
   it("rejects missing or duplicate data merge target handles before connecting", () => {
     expect(dataMergeConnectionError("data_merge", "merge-1", null, [])).toMatch(/左侧数据/);
     expect(dataMergeConnectionError("data_merge", "merge-1", "left", [

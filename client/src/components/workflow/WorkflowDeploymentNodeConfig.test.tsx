@@ -112,6 +112,53 @@ describe("WorkflowDeploymentNodeConfig", () => {
     expect(onChange).toHaveBeenCalledWith({ acceptedContentType: "json" });
   });
 
+  it("configures native form fields with stable IDs, variables, and local previews", () => {
+    const onChange = renderConfig({
+      kind: "form_event_entry",
+      title: "表单提交入口",
+      description: "",
+      contractVersion: 1,
+      formTitle: "需求登记",
+      formDescription: "请填写需求。",
+      submitLabel: "提交",
+      privacyNotice: "仅用于本次处理。",
+      successTitle: "已收到",
+      successMessage: "可以关闭页面。",
+      theme: "light",
+      eventVariable: "form_event",
+      submissionVariable: "form_submission",
+      fields: [{
+        id: "field_contact",
+        outputVariable: "contact",
+        label: "联系人",
+        helpText: "",
+        placeholder: "请输入联系人",
+        type: "short_text",
+        required: true,
+        options: [],
+      }] as never,
+    });
+
+    expect(screen.getByLabelText("表单标题")).toHaveValue("需求登记");
+    expect(screen.getByText("field_contact")).toBeInTheDocument();
+    expect(screen.getByLabelText("字段类型")).toHaveValue("short_text");
+    expect(screen.getByLabelText("输出变量")).toHaveValue("contact");
+    expect(screen.getByLabelText("事件元数据变量")).toHaveValue("form_event");
+    expect(screen.getByLabelText("完整提交对象变量")).toHaveValue("form_submission");
+    expect(screen.getByRole("button", { name: "移动端" })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("字段类型"), { target: { value: "single_select" } });
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
+      fields: [expect.objectContaining({
+        id: "field_contact",
+        type: "single_select",
+        options: [
+          expect.objectContaining({ value: "option_1" }),
+          expect.objectContaining({ value: "option_2" }),
+        ],
+      })],
+    }));
+  });
+
   it("uses readable wait and reply choices", () => {
     const waitChange = renderConfig({
       kind: "suspend_wait",
