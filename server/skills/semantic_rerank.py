@@ -110,6 +110,9 @@ class SkillRerankOutcome:
     status: RerankStatus
     warnings: tuple[str, ...]
     receipt: SkillRankingReceipt
+    execution_mode: Literal["managed", "legacy", "local_non_model"] = "legacy"
+    provider_route_receipts: dict[str, Any] | None = None
+    fallback_reason_codes: tuple[str, ...] = tuple()
 
     def serialize(self) -> dict[str, Any]:
         return {
@@ -118,6 +121,9 @@ class SkillRerankOutcome:
             "status": self.status,
             "warnings": list(self.warnings),
             "receipt": self.receipt.serialize(),
+            "executionMode": self.execution_mode,
+            "providerRouteReceipts": self.provider_route_receipts,
+            "fallbackReasonCodes": list(self.fallback_reason_codes),
         }
 
 
@@ -130,7 +136,6 @@ class SkillSearchIndexV1:
         trust_index_path: str | Path | None = None,
         client_summary_path: str | Path | None = None,
     ) -> None:
-        root = Path(__file__).resolve().parents[2]
         self.index_path = Path(
             index_path or Path(__file__).resolve().parent / "data" / "skill_search_index.json"
         )
@@ -144,7 +149,9 @@ class SkillSearchIndexV1:
         )
         self.client_summary_path = Path(
             client_summary_path
-            or root / "client" / "src" / "data" / "skillSearchIndex.generated.json"
+            or Path(__file__).resolve().parent
+            / "data"
+            / "skill_search_client_summary.json"
         )
         self._payload: dict[str, Any] | None = None
         self._runtime_by_id: dict[str, dict[str, Any]] = {}

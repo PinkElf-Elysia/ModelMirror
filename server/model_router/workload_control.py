@@ -161,6 +161,8 @@ DATA_PLANE_INTEGRATED_ENTRIES: frozenset[ProviderWorkloadEntryId] = frozenset(
         "rag_query_generate",
         "rag_processor_generate",
         "rag_embedding",
+        "rag_rerank",
+        "skill_rerank",
     }
 )
 
@@ -2440,6 +2442,7 @@ class ProviderWorkloadPreparedCall:
     policy_fingerprint: str
     target: ProviderChatTarget
     operation_target: ProviderOperationTarget | None
+    rerank_access_mode: str | None
     authorized_target: AuthorizedProviderTarget
 
 
@@ -2648,6 +2651,7 @@ class ProviderWorkloadCallService:
             policy_fingerprint=policy.policy_fingerprint,
             target=target,
             operation_target=operation_target,
+            rerank_access_mode=binding.rerank_access_mode,
             authorized_target=authorized,
         )
 

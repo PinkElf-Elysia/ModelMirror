@@ -14,7 +14,10 @@ from typing import Any, Callable
 try:
     from server.skills.finder import SkillFinder, SkillFinderError
     from server.skills.package_validation import compute_skill_content_digest
-    from server.skills.semantic_rerank_service import SkillSemanticRerankService
+    from server.skills.semantic_rerank_service import (
+        SkillSemanticRerankError,
+        SkillSemanticRerankService,
+    )
     from server.skills.trust_service import (
         SkillRuntimeEnvironment,
         SkillTrustError,
@@ -25,7 +28,10 @@ except ModuleNotFoundError as exc:  # Docker image copies server/* directly into
         raise
     from skills.finder import SkillFinder, SkillFinderError
     from skills.package_validation import compute_skill_content_digest
-    from skills.semantic_rerank_service import SkillSemanticRerankService
+    from skills.semantic_rerank_service import (
+        SkillSemanticRerankError,
+        SkillSemanticRerankService,
+    )
     from skills.trust_service import (
         SkillRuntimeEnvironment,
         SkillTrustError,
@@ -1285,7 +1291,24 @@ class SandboxToolsetProvider:
                     "skill_ranking_warnings": list(outcome.warnings),
                 },
             )
-        except Exception:
+        except SkillSemanticRerankError as exc:
+            raise RuntimeToolError(
+                call.tool_name,
+                "Skill Managed Rerank failed closed before returning results.",
+                code=exc.code,
+            ) from exc
+        except Exception as exc:
+            fail_closed = getattr(
+                self.semantic_rerank_service,
+                "managed_errors_fail_closed",
+                None,
+            )
+            if callable(fail_closed) and fail_closed():
+                raise RuntimeToolError(
+                    call.tool_name,
+                    "Skill Managed Rerank failed closed before returning results.",
+                    code="provider_rerank_internal_error",
+                ) from exc
             # Search index/provider failures may never break the lexical Router.
             fallback = self._skill_find(call)
             return RuntimeToolResult(

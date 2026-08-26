@@ -21,6 +21,9 @@ SEARCH_INDEX_PATH = ROOT / "server" / "skills" / "data" / "skill_search_index.js
 RUNTIME_INDEX_PATH = ROOT / "server" / "skills" / "data" / "skill_runtime_index.json"
 TRUST_INDEX_PATH = ROOT / "server" / "skills" / "data" / "skill_trust_index.json"
 CLIENT_SUMMARY_PATH = ROOT / "client" / "src" / "data" / "skillSearchIndex.generated.json"
+SERVER_CLIENT_SUMMARY_PATH = (
+    ROOT / "server" / "skills" / "data" / "skill_search_client_summary.json"
+)
 EVALUATION_PATH = ROOT / "server" / "skills" / "data" / "skill_rerank_eval_v1.json"
 
 
@@ -30,6 +33,8 @@ def test_search_index_covers_market_and_binds_runtime_trust_and_client_summary()
     candidates = index.candidates()
     runtime = SkillFinder(index_path=RUNTIME_INDEX_PATH)._load_index()
 
+    assert index.client_summary_path == SERVER_CLIENT_SUMMARY_PATH
+    assert SERVER_CLIENT_SUMMARY_PATH.read_bytes() == CLIENT_SUMMARY_PATH.read_bytes()
     assert len(candidates) == 4_735
     assert len(runtime["candidates"]) == 4_333
     assert len(index.candidates(scope="router")) < len(runtime["candidates"])

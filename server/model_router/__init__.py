@@ -67,6 +67,11 @@ from .workload_control import (
     ProviderWorkloadCertificationService,
     ProviderWorkloadControlService,
 )
+from .rerank_gateway import (
+    ManagedRerankError,
+    ManagedRerankGateway,
+    ManagedRerankResult,
+)
 
 __all__ = [
     "CompressionMode",
@@ -99,6 +104,9 @@ __all__ = [
     "ProviderWorkloadCallService",
     "ProviderWorkloadCertificationService",
     "ProviderWorkloadControlService",
+    "ManagedRerankError",
+    "ManagedRerankGateway",
+    "ManagedRerankResult",
     "AUTO_SIDECAR_ATTEMPTS_NOT_OBSERVED",
     "RouterConnection",
     "RouterConnectionCreate",

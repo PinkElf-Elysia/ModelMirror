@@ -268,12 +268,37 @@ python -m server.model_router.migrate_credentials --storage-dir <path>
 - Receipt 清理命令现在同时检查 R5 Chat 与 R6 Workload 记录，仍默认 dry-run；`--apply`
   才删除超过保留期的已完成运行、尝试或调用。
 
+## Retrieval 与 Skill Rerank Managed 控制面（Round 7A—7D）
+
+- Round 7 复用 `modelmirror-provider-workload-routing-v1` 的 Policy、Binding、资格与 Receipt
+  外壳，新增 `embedding_vectors`、`rerank_documents` 和 OpenRouter Batch 形态。RAG、
+  Skill 与 Batch 使用独立入口，不共享资格或运行证据。
+- RAG 与 Skill Rerank 分别使用 `rag_rerank`、`skill_rerank` Policy，且都必须精确绑定
+  `rerank_documents`、模型、连接和访问方式。`dedicated` 调用 Provider `/rerank`；
+  `llm_json` 调用 OpenAI-compatible `/chat/completions`。运行时不在两者间探测或切换。
+- Feature Flag 默认关闭；关闭或 Policy 为 `legacy` 时保留原路径。激活
+  `managed_required` 后，每个逻辑重排最多派发一个 POST；请求前重新执行连接指纹、Inventory、
+  资格、DNS/SSRF 与单 IP 审批，派发后不切换第二 IP、连接、模型或 legacy Provider。
+- Provider 响应必须返回精确实际模型、完整且无重复的排序索引、有限的 0—1 分数，并满足输入、
+  响应体和超时上限。模型漂移、缺项、重复索引、非法分数、超时和不确定传输都写入脱敏
+  Receipt；不保存查询、候选正文、排序正文、向量、完整上游错误或凭据。
+- `local_fallback_mode=lexical` 是唯一允许的 Rerank 本地降级。它保留派发前的原候选顺序，
+  同时记录 Provider 失败与 `local_non_model_fallback`；默认 `none` 失败关闭，不能无条件
+  fail-open，也不能调用第二个远程 Provider。
+- RAG 返回继续保留既有字段，并加法合并 Rerank 与生成阶段的 `provider_route_receipts`、
+  `execution_mode` 和 `fallback_reason_codes`。引用锚点、查询和 Pipeline Preview 使用同一
+  Rerank 数据面，不建立旁路。
+- Skill 市场与 Runtime Router 共享同一 Managed Transport，但保留各自现有 Shadow/on 行为。
+  Managed Provider 成功只证明本次调用；固定金标评测、身份指纹、晋级、回退和权限治理仍由
+  Skill Rerank Governance 独立决定，RAG 资格也不能证明 Skill 已晋级。
+
 ## 回退
 
 关闭管理面或回退路由不得删除 Provider SQLite、newAPI 数据目录、旧主密钥或迁移
 备份。将 `MODEL_MIRROR_PROVIDER_CHAT_CANARY_ENABLED=false` 可立即关闭 Round 3 入口；
 将 `MODEL_CONTROL_CHAT_ENABLED=false` 保持 R5 数据面关闭。关闭各入口对应的
 `MODEL_CONTROL_*_ENABLED` 可保持 R6 数据面为 legacy。代码回退保留 v15/v16 表和
-脱敏证据；只需将策略 `auto_enabled=false` 即可停止新增 Auto 证据而不改变 Auto 调度。
+脱敏证据；关闭 R7 对应 Feature Flag 可恢复 RAG/Skill 的 legacy 路径，并保留 v17 表、
+资格与 Receipt。只需将策略 `auto_enabled=false` 即可停止新增 Auto 证据而不改变 Auto 调度。
 旧版本可忽略新表继续运行。部署回退通过恢复上一版本
 Compose 与对应显式环境配置完成。

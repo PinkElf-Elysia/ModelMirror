@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import math
 import os
 import re
 import time
+import uuid
 from dataclasses import dataclass
 from typing import Any, Callable, Literal
 
@@ -32,9 +34,18 @@ RouterMode = Literal["off", "shadow", "on"]
 
 
 class SkillSemanticRerankError(RuntimeError):
-    def __init__(self, message: str, *, code: str) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str,
+        status_code: int = 502,
+        receipt: dict[str, Any] | None = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
+        self.status_code = status_code
+        self.receipt = receipt
 
 
 class _ProviderFailure(SkillSemanticRerankError):
@@ -90,7 +101,7 @@ class SkillSemanticRerankConfig:
 class _ProviderResult:
     indexes: tuple[int, ...]
     scores: tuple[float, ...]
-    provider: Literal["api", "llm"]
+    provider: str
     model: str | None
     warnings: tuple[str, ...] = tuple()
 
@@ -210,6 +221,7 @@ class SkillSemanticRerankService:
         router_mode_resolver: Callable[[], RouterMode] | None = None,
         router_identity_validator: Callable[[str, str | None], bool] | None = None,
         shadow_receipt_sink: Callable[[dict[str, Any]], None] | None = None,
+        managed_rerank_gateway: Any | None = None,
     ) -> None:
         self.search_index = search_index or SkillSearchIndexV1()
         self.config = config or SkillSemanticRerankConfig.from_env()
@@ -217,6 +229,7 @@ class SkillSemanticRerankService:
         self.router_mode_resolver = router_mode_resolver
         self.router_identity_validator = router_identity_validator
         self.shadow_receipt_sink = shadow_receipt_sink
+        self.managed_rerank_gateway = managed_rerank_gateway
 
     def configure_governance(
         self,
@@ -362,24 +375,98 @@ class SkillSemanticRerankService:
             )
 
         warnings: list[str] = list(self.config.warnings)
-        try:
-            provider_result = await self._run_provider(
-                query=str(query or "")[:MAX_QUERY_LENGTH],
-                documents=documents,
-                timeout_seconds=timeout_seconds,
-            )
-            warnings.extend(provider_result.warnings)
-        except _ProviderFailure as exc:
-            warnings.append(exc.code)
-            return self._lexical_outcome(
-                query=query,
-                lexical_results=lexical,
-                limit=safe_limit,
-                status="lexical_fallback",
-                fallback_reason=exc.code,
-                warnings=warnings,
-                duration_ms=self._duration_ms(started),
-            )
+        provider_route_receipts: dict[str, Any] | None = None
+        execution_mode: Literal["managed", "legacy", "local_non_model"] = "legacy"
+        managed_gateway = self._managed_gateway()
+        managed_mode = (
+            str(managed_gateway.routing_mode("skill_rerank"))
+            if managed_gateway is not None
+            else "legacy"
+        )
+        if managed_mode == "legacy":
+            try:
+                provider_result = await self._run_provider(
+                    query=str(query or "")[:MAX_QUERY_LENGTH],
+                    documents=documents,
+                    timeout_seconds=timeout_seconds,
+                )
+                warnings.extend(provider_result.warnings)
+            except _ProviderFailure as exc:
+                warnings.append(exc.code)
+                return self._lexical_outcome(
+                    query=query,
+                    lexical_results=lexical,
+                    limit=safe_limit,
+                    status="lexical_fallback",
+                    fallback_reason=exc.code,
+                    warnings=warnings,
+                    duration_ms=self._duration_ms(started),
+                )
+        else:
+            run: Any | None = None
+            try:
+                if managed_mode != "managed_required":
+                    raise SkillSemanticRerankError(
+                        "Skill Managed Rerank policy is degraded.",
+                        code="provider_workload_policy_not_active",
+                        status_code=409,
+                        receipt=managed_gateway.blocked_receipt(
+                            "skill_rerank", "provider_workload_policy_not_active"
+                        ),
+                    )
+                qualification = managed_gateway.qualification("skill_rerank")
+                run = managed_gateway.start_run(
+                    "skill_rerank",
+                    parent_run_reference=f"skill_rerank:{scope}:{uuid.uuid4().hex}",
+                )
+                managed = await run.rerank(
+                    str(query or "")[:MAX_QUERY_LENGTH],
+                    documents,
+                    model_id=qualification.model_id,
+                    top_n=len(documents),
+                    logical_call_key="skill_rerank:0",
+                    call_sequence=1,
+                    timeout_seconds=timeout_seconds,
+                )
+                provider_route_receipts = run.finish_success()
+                provider_result = _ProviderResult(
+                    indexes=tuple(item.index for item in managed.items),
+                    scores=tuple(item.score for item in managed.items),
+                    provider=(
+                        "api" if managed.access_mode == "dedicated" else "llm"
+                    ),
+                    model=managed.actual_model,
+                )
+                execution_mode = "managed"
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                code = str(getattr(exc, "code", "provider_rerank_failed"))
+                receipt = getattr(exc, "receipt", None)
+                if run is not None and not isinstance(receipt, dict):
+                    receipt = run.receipt_summary()
+                if not isinstance(receipt, dict):
+                    receipt = managed_gateway.blocked_receipt("skill_rerank", code)
+                if managed_gateway.local_fallback_mode("skill_rerank") == "lexical":
+                    warnings.append(code)
+                    return self._lexical_outcome(
+                        query=query,
+                        lexical_results=lexical,
+                        limit=safe_limit,
+                        status="lexical_fallback",
+                        fallback_reason=code,
+                        warnings=warnings,
+                        duration_ms=self._duration_ms(started),
+                        execution_mode="local_non_model",
+                        provider_route_receipts=receipt,
+                        fallback_reason_codes=(code, "local_non_model_fallback"),
+                    )
+                raise SkillSemanticRerankError(
+                    "Skill Managed Rerank failed without remote fallback.",
+                    code=code,
+                    status_code=int(getattr(exc, "status_code", 502)),
+                    receipt=receipt,
+                ) from exc
 
         semantic_public = [public_results[index] for index in provider_result.indexes]
         returned_ids = {str(item["candidateId"]) for item in semantic_public}
@@ -482,7 +569,48 @@ class SkillSemanticRerankService:
             status="shadow" if shadow else "semantic",
             warnings=tuple(dict.fromkeys(warnings)),
             receipt=receipt,
+            execution_mode=execution_mode,
+            provider_route_receipts=provider_route_receipts,
         )
+
+    def _managed_gateway(self) -> Any | None:
+        if self.managed_rerank_gateway is not None:
+            return self.managed_rerank_gateway
+        if os.getenv("MODEL_CONTROL_SKILL_RERANK_ENABLED", "").strip().casefold() in {
+            "",
+            "0",
+            "false",
+            "no",
+            "off",
+        }:
+            return None
+        try:
+            try:
+                from server.model_router import get_model_router_service
+                from server.model_router.rerank_gateway import ManagedRerankGateway
+            except ModuleNotFoundError:
+                from model_router import get_model_router_service
+                from model_router.rerank_gateway import ManagedRerankGateway
+            self.managed_rerank_gateway = ManagedRerankGateway.for_router(
+                get_model_router_service()
+            )
+        except Exception as exc:
+            raise SkillSemanticRerankError(
+                "Skill Managed Rerank control plane is unavailable.",
+                code="provider_workload_control_unavailable",
+                status_code=503,
+            ) from exc
+        return self.managed_rerank_gateway
+
+    def managed_errors_fail_closed(self) -> bool:
+        """Return whether unexpected Router errors must not become lexical output."""
+        try:
+            gateway = self._managed_gateway()
+            return gateway is not None and str(
+                gateway.routing_mode("skill_rerank")
+            ) != "legacy"
+        except Exception:
+            return True
 
     async def _run_provider(
         self,
@@ -644,6 +772,9 @@ class SkillSemanticRerankService:
         fallback_reason: str | None = None,
         warnings: list[str] | tuple[str, ...] = tuple(),
         duration_ms: int = 0,
+        execution_mode: Literal["managed", "legacy", "local_non_model"] = "legacy",
+        provider_route_receipts: dict[str, Any] | None = None,
+        fallback_reason_codes: tuple[str, ...] = tuple(),
     ) -> SkillRerankOutcome:
         lexical = tuple(dict(item) for item in lexical_results[:MAX_RECALL_RESULTS])
         candidate_fingerprints = tuple(
@@ -674,6 +805,9 @@ class SkillSemanticRerankService:
             status=status,
             warnings=tuple(dict.fromkeys(warnings)),
             receipt=receipt,
+            execution_mode=execution_mode,
+            provider_route_receipts=provider_route_receipts,
+            fallback_reason_codes=fallback_reason_codes,
         )
 
     @staticmethod

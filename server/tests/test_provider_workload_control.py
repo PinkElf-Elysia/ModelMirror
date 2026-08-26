@@ -1922,6 +1922,8 @@ async def test_workload_admin_api_is_session_and_csrf_protected_and_public_redac
         assert r7_policies["rag_embedding"]["data_plane_integrated"] is True
         assert r7_policies["rag_query_generate"]["data_plane_integrated"] is True
         assert r7_policies["rag_processor_generate"]["data_plane_integrated"] is True
+        assert r7_policies["rag_rerank"]["data_plane_integrated"] is True
+        assert r7_policies["skill_rerank"]["data_plane_integrated"] is True
         assert all(
             item["data_plane_integrated"] is False
             for entry_id, item in r7_policies.items()
@@ -1930,6 +1932,8 @@ async def test_workload_admin_api_is_session_and_csrf_protected_and_public_redac
                 "rag_embedding",
                 "rag_query_generate",
                 "rag_processor_generate",
+                "rag_rerank",
+                "skill_rerank",
             }
         )
         assert all(item["feature_enabled"] is False for item in r7_policies.values())
