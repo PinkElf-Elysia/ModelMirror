@@ -9,7 +9,7 @@ import os
 import re
 import time
 import uuid
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from dataclasses import dataclass
 
 from .contracts import (
@@ -49,24 +49,44 @@ from .harness_contracts import (
     HarnessCheckpoint,
     HarnessEvent,
     HarnessEventKind,
+    HarnessFailureKind,
     HarnessOpenRequest,
     HarnessSession,
     harness_tools_for_policy,
 )
-from .ports import HarnessDriver, HarnessSupervisor
+from .ports import CodingSubstrateError, HarnessDriver, HarnessSupervisor
 from .harness_protocol import (
     HarnessBinding,
     HarnessDescriptorObservation,
     HarnessPersistenceLevel,
     HarnessToolOwnership,
 )
-from .store import CodingWorkerStore, WorkerConflictError
+from .store import CodingWorkerStore, WorkerConflictError, WorkerNotFoundError
 from .changeset import ChangesetError
 from .tool_broker import ToolBroker, ToolBrokerError
 from .workspace import WorkspaceBroker, WorkspaceError, WorkspaceSnapshot
 
 
 PROVIDER_CAPABILITY_TTL_SECONDS = 30.0
+TURN_PARKING_SHUTDOWN_GRACE_SECONDS = 5.0
+V20_HARNESS_EVENT_STALL_SECONDS = 300.0
+
+_HARNESS_FAILURE_REASONS = {
+    HarnessFailureKind.UNAVAILABLE: "harness_transport_unavailable",
+    HarnessFailureKind.AUTHENTICATION: "harness_authentication_failed",
+    HarnessFailureKind.RATE_LIMITED: "harness_rate_limited",
+    HarnessFailureKind.INVALID_RESPONSE: "harness_protocol_invalid",
+    HarnessFailureKind.POLICY: "harness_policy_rejected",
+    HarnessFailureKind.BUDGET: "harness_budget_exhausted",
+    HarnessFailureKind.INTERRUPTED: "harness_interrupted",
+}
+_NORMALIZED_HARNESS_FAILURE_REASONS = frozenset(
+    (*_HARNESS_FAILURE_REASONS.values(), "harness_driver_internal")
+)
+
+
+class _HarnessTurnFenceUnconfirmed(WorkerConflictError):
+    pass
 
 
 @dataclass(frozen=True)
@@ -95,6 +115,11 @@ class CodingWorkerService:
         max_active_tasks: int = 2,
         tool_broker: ToolBroker | None = None,
         route_slots: Mapping[str, Sequence[str]] | None = None,
+        schedulable_route_slots: Mapping[str, Sequence[str]] | None = None,
+        new_task_model_routes: Sequence[str] | None = None,
+        disabled_model_routes: Sequence[str] = (),
+        disabled_slot_ids: Sequence[str] = (),
+        capability_route_slots: Mapping[str, Sequence[str]] | None = None,
         route_context_tokens: Mapping[str, int] | None = None,
     ) -> None:
         if not 1 <= max_active_tasks <= 16:
@@ -123,6 +148,62 @@ class CodingWorkerService:
                 for route_id, slot_ids in self._route_slots.items()
             ):
                 raise ValueError("provider route slot configuration is invalid")
+        self._schedulable_route_slots = (
+            {
+                route_id: tuple(dict.fromkeys(slot_ids))
+                for route_id, slot_ids in schedulable_route_slots.items()
+            }
+            if schedulable_route_slots is not None
+            else self._route_slots
+        )
+        if self._schedulable_route_slots is not None and any(
+            not route_id
+            or not slot_ids
+            or self._route_slots is not None
+            and (
+                route_id not in self._route_slots
+                or not set(slot_ids).issubset(self._route_slots[route_id])
+            )
+            for route_id, slot_ids in self._schedulable_route_slots.items()
+        ):
+            raise ValueError("schedulable route slot configuration is invalid")
+        self._new_task_model_routes = (
+            frozenset(new_task_model_routes)
+            if new_task_model_routes is not None
+            else None
+        )
+        self._disabled_model_routes = frozenset(disabled_model_routes)
+        self._disabled_slot_ids = frozenset(disabled_slot_ids)
+        if not self._disabled_slot_ids.issubset(self.workspace_broker.slot_ids):
+            raise ValueError("disabled slot configuration is invalid")
+        if self._new_task_model_routes is not None and not (
+            self._disabled_model_routes.isdisjoint(self._new_task_model_routes)
+        ):
+            raise ValueError("disabled model route configuration is invalid")
+        self._capability_route_slots = (
+            {
+                route_id: tuple(dict.fromkeys(slot_ids))
+                for route_id, slot_ids in capability_route_slots.items()
+            }
+            if capability_route_slots is not None
+            else self._schedulable_route_slots
+        )
+        if self._capability_route_slots is not None:
+            known_slots = set(self.workspace_broker.slot_ids)
+            if any(
+                not route_id
+                or not slot_ids
+                or not set(slot_ids).issubset(known_slots)
+                or (
+                    self._route_slots is not None
+                    and (
+                        route_id not in self._route_slots
+                        or not set(slot_ids).issubset(self._route_slots[route_id])
+                    )
+                )
+                for route_id, slot_ids in self._capability_route_slots.items()
+            ):
+                raise ValueError("capability route slot configuration is invalid")
         self._route_context_tokens = dict(route_context_tokens or {})
         if any(
             not route_id
@@ -216,6 +297,9 @@ class CodingWorkerService:
         self._started = True
         self._closing = False
         await self._interrupt_v20_tasks_if_disabled()
+        for record in self.store.list_tasks():
+            if record.state is TaskState.WAITING_SUBTASKS:
+                self._resume_parent_after_subtasks(record.task_id)
         self._scheduler = asyncio.create_task(
             self._scheduler_loop(), name="coding-worker-scheduler"
         )
@@ -229,25 +313,140 @@ class CodingWorkerService:
         if not self._started:
             return
         self._closing = True
-        for task_id, session in tuple(self._sessions.items()):
-            with contextlib.suppress(Exception):
-                await self.provider.cancel(session)
-            current = self.store.get_task(task_id)
-            if current.state not in TERMINAL_STATES:
-                with contextlib.suppress(WorkerConflictError):
-                    self.store.transition(task_id, TaskState.INTERRUPTED, reason="service_shutdown")
-        for task in tuple(self._active.values()):
-            task.cancel()
-        if self._active:
-            await asyncio.gather(*tuple(self._active.values()), return_exceptions=True)
+        shutdown_failures: list[str] = []
         if self._scheduler is not None:
             self._scheduler.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._scheduler
+            _done, pending = await asyncio.wait(
+                {self._scheduler},
+                timeout=TURN_PARKING_SHUTDOWN_GRACE_SECONDS,
+            )
+            if pending:
+                self._scheduler.cancel()
+                _done, pending = await asyncio.wait(
+                    pending,
+                    timeout=TURN_PARKING_SHUTDOWN_GRACE_SECONDS,
+                )
+            if pending:
+                shutdown_failures.append("scheduler")
+            else:
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    self._scheduler.result()
         if self._capability_refresher is not None:
             self._capability_refresher.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._capability_refresher
+            _done, pending = await asyncio.wait(
+                {self._capability_refresher},
+                timeout=TURN_PARKING_SHUTDOWN_GRACE_SECONDS,
+            )
+            if pending:
+                self._capability_refresher.cancel()
+                _done, pending = await asyncio.wait(
+                    pending,
+                    timeout=TURN_PARKING_SHUTDOWN_GRACE_SECONDS,
+                )
+            if pending:
+                shutdown_failures.append("capability_refresher")
+            else:
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    self._capability_refresher.result()
+        active = tuple(self._active.items())
+        sessions = dict(self._sessions)
+        parking_runners = tuple(
+            runner
+            for task_id, runner in active
+            if (
+                (turn := self.store.current_turn_transaction(task_id)) is not None
+                and turn.state is TurnTransactionState.PARKING
+            )
+        )
+        if parking_runners:
+            await asyncio.wait(
+                parking_runners,
+                timeout=TURN_PARKING_SHUTDOWN_GRACE_SECONDS,
+            )
+        unfinished = tuple(runner for _task_id, runner in active if not runner.done())
+        for runner in unfinished:
+            runner.cancel()
+        still_running: set[asyncio.Task[None]] = set()
+        if unfinished:
+            _done, still_running = await asyncio.wait(
+                unfinished,
+                timeout=TURN_PARKING_SHUTDOWN_GRACE_SECONDS,
+            )
+        cancel_requests = tuple(
+            asyncio.create_task(self.provider.cancel(session))
+            for task_id, session in sessions.items()
+            if any(
+                candidate_task_id == task_id and runner in still_running
+                for candidate_task_id, runner in active
+            )
+        )
+        if cancel_requests:
+            done, pending = await asyncio.wait(
+                cancel_requests,
+                timeout=TURN_PARKING_SHUTDOWN_GRACE_SECONDS,
+            )
+            for request in pending:
+                request.cancel()
+            if pending:
+                cancelled, pending = await asyncio.wait(
+                    pending,
+                    timeout=TURN_PARKING_SHUTDOWN_GRACE_SECONDS,
+                )
+                done |= cancelled
+            if pending:
+                shutdown_failures.append("harness_cancel")
+            for request in done:
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    request.result()
+        remaining: set[asyncio.Task[None]] = set()
+        if active:
+            remaining = {
+                runner for _task_id, runner in active if not runner.done()
+            }
+            for runner in remaining:
+                runner.cancel()
+            if remaining:
+                _done, remaining = await asyncio.wait(
+                    remaining,
+                    timeout=TURN_PARKING_SHUTDOWN_GRACE_SECONDS,
+                )
+            if remaining:
+                shutdown_failures.append("runner")
+        for task_id, runner in active:
+            if runner in remaining:
+                continue
+            turn = self.store.current_turn_transaction(task_id)
+            if turn is not None and turn.state is TurnTransactionState.OPEN:
+                with contextlib.suppress(WorkerConflictError):
+                    self.store.finish_turn_transaction(
+                        task_id=task_id,
+                        turn_id=turn.turn_id,
+                        state=TurnTransactionState.INTERRUPTED,
+                    )
+            current = self.store.get_task(task_id)
+            if current.state not in TERMINAL_STATES and current.state not in {
+                TaskState.PAUSED,
+                TaskState.INTERRUPTED,
+                TaskState.WAITING_APPROVAL,
+                TaskState.WAITING_INPUT,
+                TaskState.WAITING_SUBTASKS,
+            }:
+                with contextlib.suppress(WorkerConflictError):
+                    self.store.transition(
+                        task_id,
+                        TaskState.INTERRUPTED,
+                        reason=(
+                            "turn_checkpoint_failed"
+                            if turn is not None
+                            and turn.state is TurnTransactionState.PARKING
+                            else "service_shutdown"
+                        ),
+                    )
+        if shutdown_failures:
+            raise RuntimeError(
+                "Coding Worker shutdown did not quiesce: "
+                + ", ".join(sorted(set(shutdown_failures)))
+            )
         self._active.clear()
         self._task_slots.clear()
         self._sessions.clear()
@@ -260,9 +459,23 @@ class CodingWorkerService:
         existing = self._idempotent_task(origin, request.client_task_id, spec)
         if existing is not None:
             return existing
+        if (
+            self._new_task_model_routes is not None
+            and request.model_route not in self._new_task_model_routes
+        ):
+            raise WorkerConflictError(
+                "Model route is unavailable.", code="model_route_unavailable"
+            )
         if self._route_slots is not None and request.model_route not in self._route_slots:
             raise WorkerConflictError(
                 "Model route is unavailable.", code="model_route_unavailable"
+            )
+        v20_enabled = self._v20_enabled()
+        runtime_protocol = self._runtime_protocol()
+        if v20_enabled and runtime_protocol is not RuntimeProtocol.V17:
+            raise WorkerConflictError(
+                "V20 Harness prerequisites are disabled.",
+                code="harness_v20_prerequisites_disabled",
             )
         frozen_checks = getattr(self.tool_broker, "frozen_checks", None)
         if isinstance(frozen_checks, Mapping):
@@ -285,13 +498,11 @@ class CodingWorkerService:
             observation = await self.provider_capability_observation(
                 request.model_route, force=True
             )
-            v20_enabled = self._v20_enabled()
             if v20_enabled and not self._v20_route_ready(observation):
                 raise WorkerConflictError(
                     "Model route does not satisfy the V20 Harness contract.",
                     code="harness_v20_route_unavailable",
                 )
-            runtime_protocol = self._runtime_protocol()
             if runtime_protocol is RuntimeProtocol.V17 and not self._v17_route_ready(
                 observation.capabilities
             ):
@@ -476,11 +687,11 @@ class CodingWorkerService:
             ):
                 return
             observations: dict[str, ProviderCapabilityObservation] = {}
-            if self._route_slots is not None:
+            if self._capability_route_slots is not None:
                 all_slots = tuple(
                     dict.fromkeys(
                         slot_id
-                        for slot_ids in self._route_slots.values()
+                        for slot_ids in self._capability_route_slots.values()
                         for slot_id in slot_ids
                     )
                 )
@@ -488,7 +699,7 @@ class CodingWorkerService:
                     self.harness_supervisor.capabilities_for_slots(all_slots),
                     self.harness_supervisor.harness_descriptors_for_slots(all_slots),
                 )
-                for route_id, slot_ids in self._route_slots.items():
+                for route_id, slot_ids in self._capability_route_slots.items():
                     values = [slot_values.get(slot_id) for slot_id in slot_ids]
                     descriptors = [
                         descriptor_values.get(slot_id) for slot_id in slot_ids
@@ -599,6 +810,14 @@ class CodingWorkerService:
             raise WorkerConflictError(
                 "V20 Harness tasks are disabled.", code="harness_v20_disabled"
             )
+        if (
+            self._task_uses_v20(task_id)
+            and task.runtime_protocol is not RuntimeProtocol.V17
+        ):
+            raise WorkerConflictError(
+                "V20 Harness task prerequisites are invalid.",
+                code="harness_v20_prerequisites_disabled",
+            )
         if task.state not in {
             TaskState.INTERRUPTED,
             TaskState.PAUSED,
@@ -612,9 +831,40 @@ class CodingWorkerService:
         turn = self.store.current_turn_transaction(task_id)
         if task.runtime_protocol is RuntimeProtocol.V17 and turn is not None:
             if turn.state is TurnTransactionState.PARKING:
-                raise WorkerConflictError(
-                    "Turn checkpoint is not durable yet.", code="turn_not_parked"
+                if (
+                    task.state is not TaskState.INTERRUPTED
+                    or turn.checkpoint_id is None
+                ):
+                    raise WorkerConflictError(
+                        "Turn checkpoint is not durable yet.", code="turn_not_parked"
+                    )
+                try:
+                    checkpoint = self.store.get_checkpoint(
+                        task_id, turn.checkpoint_id
+                    )
+                except WorkerNotFoundError as exc:
+                    raise WorkerConflictError(
+                        "Turn checkpoint is invalid.",
+                        code="turn_checkpoint_invalid",
+                    ) from exc
+                current_tree_hash = self.workspace_broker.current_tree_hash(
+                    task.workspace_id or ""
                 )
+                if (
+                    checkpoint.workspace_tree_hash != current_tree_hash
+                    or turn.workspace_tree_hash != current_tree_hash
+                ):
+                    raise WorkerConflictError(
+                        "Turn checkpoint Workspace changed.",
+                        code="checkpoint_workspace_changed",
+                    )
+                resumed = self.store.resume_interrupted_parking_turn(
+                    task_id=task_id,
+                    turn_id=turn.turn_id,
+                    checkpoint_id=turn.checkpoint_id,
+                )
+                self._wake.set()
+                return resumed
             if turn.state is TurnTransactionState.PARKED:
                 if turn.checkpoint_id is None:
                     raise WorkerConflictError(
@@ -669,17 +919,30 @@ class CodingWorkerService:
         task = self.store.get_task(task_id)
         if task.state in TERMINAL_STATES:
             return task
+        # Persist the user's terminal intent before asking the Harness to
+        # abort. OpenCode can synchronously publish ``session.error: Aborted``
+        # from the abort request; if the provider is called first, that frame
+        # can win the race and incorrectly turn an explicit cancellation into
+        # a failed task.
+        cancelled = self.store.transition(
+            task_id, TaskState.CANCELLED, reason="user_cancelled"
+        )
         session = self._sessions.get(task_id)
-        if session is not None:
-            await self.provider.cancel(session)
         active = self._active.get(task_id)
-        if active is not None:
-            active.cancel()
-        cancelled = self.store.transition(task_id, TaskState.CANCELLED, reason="user_cancelled")
-        if active is not None:
-            with contextlib.suppress(asyncio.CancelledError):
-                await active
+        cancel_failure: Exception | None = None
+        try:
+            if session is not None:
+                await self.provider.cancel(session)
+        except Exception as exc:
+            cancel_failure = exc
+        finally:
+            if active is not None:
+                active.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await active
         self._wake.set()
+        if cancel_failure is not None:
+            raise cancel_failure
         return cancelled
 
     async def append_message(self, task_id: str, text: str) -> TaskRecord:
@@ -1498,6 +1761,27 @@ class CodingWorkerService:
         if not available:
             return None
         for record in queued:
+            if (
+                self._task_uses_v20(record.task_id)
+                and record.runtime_protocol is not RuntimeProtocol.V17
+            ):
+                with contextlib.suppress(WorkerConflictError):
+                    self.store.transition(
+                        record.task_id,
+                        TaskState.INTERRUPTED,
+                        reason="harness_v20_prerequisites_disabled",
+                        expected_state=TaskState.QUEUED,
+                    )
+                continue
+            if record.spec.model_route in self._disabled_model_routes:
+                with contextlib.suppress(WorkerConflictError):
+                    self.store.transition(
+                        record.task_id,
+                        TaskState.INTERRUPTED,
+                        reason="model_route_disabled",
+                        expected_state=TaskState.QUEUED,
+                    )
+                continue
             if self._task_uses_v20(record.task_id) and not self._v20_enabled():
                 with contextlib.suppress(WorkerConflictError):
                     self.store.transition(
@@ -1530,6 +1814,15 @@ class CodingWorkerService:
                     )
                 if required_slot is None:
                     continue
+                if required_slot in self._disabled_slot_ids:
+                    with contextlib.suppress(WorkerConflictError):
+                        self.store.transition(
+                            record.task_id,
+                            TaskState.INTERRUPTED,
+                            reason="model_route_disabled",
+                            expected_state=TaskState.QUEUED,
+                        )
+                    continue
                 if required_slot not in route_slots:
                     with contextlib.suppress(WorkerConflictError):
                         self.store.transition(
@@ -1556,6 +1849,80 @@ class CodingWorkerService:
             snapshot is not None
             and snapshot.snapshot.get("harness_protocol") == "v20"
         )
+
+    @staticmethod
+    def _normalize_failure_reason(
+        raw_code: object, *, fallback: str, v20: bool
+    ) -> str:
+        code = (
+            raw_code
+            if isinstance(raw_code, str) and SAFE_ID.fullmatch(raw_code) is not None
+            else fallback
+        )
+        if not v20:
+            return code
+        exact = {
+            "provider_failed": "harness_transport_unavailable",
+            "provider_unavailable": "harness_transport_unavailable",
+            "provider_offline": "harness_transport_unavailable",
+            "provider_unauthorized": "harness_authentication_failed",
+            "provider_invalid_response": "harness_protocol_invalid",
+            "tool_failed": "tool_broker_internal_error",
+            "executor_failed": "executor_runtime_failed",
+            "worker_failed": "control_plane_internal_error",
+        }
+        if code in exact:
+            return exact[code]
+        if code.startswith("provider_"):
+            if any(marker in code for marker in ("auth", "unauthorized")):
+                return "harness_authentication_failed"
+            if "rate" in code:
+                return "harness_rate_limited"
+            if any(
+                marker in code
+                for marker in (
+                    "invalid",
+                    "protocol",
+                    "request",
+                    "session",
+                    "binding",
+                    "checkpoint",
+                    "controller",
+                )
+            ):
+                return "harness_protocol_invalid"
+            return "harness_transport_unavailable"
+        return code
+
+    def _task_failure_reason(
+        self, task_id: str, raw_code: object, *, fallback: str
+    ) -> str:
+        return self._normalize_failure_reason(
+            raw_code,
+            fallback=fallback,
+            v20=self._task_uses_v20(task_id),
+        )
+
+    @staticmethod
+    def _checkpoint_failure_reason(
+        exc: Exception, *, fallback: str, v20: bool
+    ) -> str:
+        code = getattr(exc, "code", None)
+        if v20 and code in _NORMALIZED_HARNESS_FAILURE_REASONS:
+            return str(code)
+        return fallback
+
+    def _task_checkpoint_failure_reason(
+        self, task_id: str, exc: Exception, *, fallback: str
+    ) -> str:
+        return self._checkpoint_failure_reason(
+            exc, fallback=fallback, v20=self._task_uses_v20(task_id)
+        )
+
+    @staticmethod
+    def _harness_failure_reason(event: HarnessEvent) -> str:
+        failure_kind = HarnessFailureKind(str(event.data["failure_kind"]))
+        return _HARNESS_FAILURE_REASONS[failure_kind]
 
     async def _v20_binding_for_task(
         self, task: TaskRecord, *, slot_id: str | None
@@ -1593,54 +1960,21 @@ class CodingWorkerService:
                 "V20 Harness descriptor snapshot is invalid.",
                 code="harness_binding_changed",
             ) from exc
-        expected_slots = (
-            self._allowed_slots(task.spec.model_route)
-            if self._route_slots is not None
-            else ("*",)
-        )
-        if expected_slots is None or tuple(item[0] for item in descriptors) != tuple(
-            expected_slots
-        ):
+        frozen_slots = tuple(item[0] for item in descriptors)
+        if len(set(frozen_slots)) != len(frozen_slots):
             raise WorkerConflictError(
                 "V20 Harness route binding changed.",
                 code="harness_binding_changed",
             )
         selected_slot = slot_id if slot_id is not None else "*"
-        current_descriptors = (
-            await self.harness_supervisor.harness_descriptors_for_slots(
-                tuple(expected_slots)
-            )
-        )
-        if any(
-            current_descriptors.get(frozen_slot) != frozen
-            for frozen_slot, frozen in descriptors
-        ):
-            raise WorkerConflictError(
-                "V20 Harness sidecar binding changed.",
-                code="harness_binding_changed",
-            )
-        current_capability_values = (
-            await self.harness_supervisor.capabilities_for_slots(
-                tuple(expected_slots)
-            )
-        )
-        current_capabilities = tuple(
-            current_capability_values.get(expected_slot)
-            for expected_slot in expected_slots
-        )
-        frozen_capabilities = stored.snapshot.get("capabilities")
+        allowed_slots = self._allowed_slots(task.spec.model_route)
         if (
-            not current_capabilities
-            or any(item is None for item in current_capabilities)
-            or not isinstance(frozen_capabilities, dict)
-            or _intersect_provider_capabilities(
-                tuple(item for item in current_capabilities if item is not None)
-            )
-            != HarnessCapabilities.model_validate(frozen_capabilities)
+            selected_slot != "*"
+            and (allowed_slots is None or selected_slot not in allowed_slots)
         ):
             raise WorkerConflictError(
-                "V20 Harness capability health changed.",
-                code="harness_binding_changed",
+                "V20 Harness route is unavailable.",
+                code="harness_v20_route_unavailable",
             )
         frozen = next(
             (item for frozen_slot, item in descriptors if frozen_slot == selected_slot),
@@ -1651,9 +1985,32 @@ class CodingWorkerService:
                 "V20 Harness sidecar binding changed.",
                 code="harness_binding_changed",
             )
+        current_descriptors, current_capability_values = await asyncio.gather(
+            self.harness_supervisor.harness_descriptors_for_slots((selected_slot,)),
+            self.harness_supervisor.capabilities_for_slots((selected_slot,)),
+        )
+        if current_descriptors.get(selected_slot) != frozen:
+            raise WorkerConflictError(
+                "V20 Harness sidecar binding changed.",
+                code="harness_binding_changed",
+            )
+        current_capabilities = current_capability_values.get(selected_slot)
+        frozen_capabilities = stored.snapshot.get("capabilities")
+        if (
+            current_capabilities is None
+            or not isinstance(frozen_capabilities, dict)
+            or not _provider_capabilities_cover(
+                current_capabilities,
+                HarnessCapabilities.model_validate(frozen_capabilities),
+            )
+        ):
+            raise WorkerConflictError(
+                "V20 Harness capability health changed.",
+                code="harness_binding_changed",
+            )
         recalculated = self._capability_binding(
             task.spec.model_route,
-            tuple(expected_slots),
+            frozen_slots,
             tuple(descriptors),
         )
         if recalculated != stored.binding_sha256:
@@ -1674,14 +2031,6 @@ class CodingWorkerService:
         stored = self.store.get_task_capability_snapshot(task.task_id)
         if stored is None or stored.snapshot.get("harness_protocol") != "v20":
             return
-        observation = await self.provider_capability_observation(
-            task.spec.model_route, force=True
-        )
-        if not self._v20_route_ready(observation):
-            raise WorkerConflictError(
-                "V20 Harness route is unavailable.",
-                code="harness_v20_route_unavailable",
-            )
         raw_frozen = stored.snapshot.get("harness_descriptors")
         if not isinstance(raw_frozen, list):
             raise WorkerConflictError(
@@ -1703,21 +2052,118 @@ class CodingWorkerService:
                 "V20 Harness descriptor snapshot is invalid.",
                 code="harness_binding_changed",
             ) from exc
-        if len(frozen) != len(raw_frozen) or tuple(
-            slot_id for slot_id, _item in frozen
-        ) != tuple(slot_id for slot_id, _item in observation.harness_descriptors):
+        frozen_slots = tuple(slot_id for slot_id, _item in frozen)
+        if len(frozen) != len(raw_frozen) or len(set(frozen_slots)) != len(frozen):
             raise WorkerConflictError(
                 "V20 Harness route binding changed.",
                 code="harness_binding_changed",
             )
-        if any(
-            previous.descriptor != current.descriptor
-            for (_slot_id, previous), (_current_slot, current) in zip(
-                frozen, observation.harness_descriptors, strict=True
+        allowed_slots = self._allowed_slots(task.spec.model_route)
+        if task.workspace_id is None:
+            current_route_slots = (
+                tuple(allowed_slots)
+                if self._schedulable_route_slots is not None
+                and allowed_slots is not None
+                else ("*",)
             )
+            if current_route_slots != frozen_slots:
+                raise WorkerConflictError(
+                    "V20 Harness route binding changed.",
+                    code="harness_binding_changed",
+                )
+            target_slots = frozen_slots
+        else:
+            if self.workspace_broker.dedicated_slots:
+                try:
+                    required_slot = self.workspace_broker.workspace_slot(
+                        task.workspace_id
+                    )
+                except WorkspaceError as exc:
+                    raise WorkerConflictError(
+                        "V20 Harness Workspace binding is unavailable.",
+                        code="harness_binding_changed",
+                    ) from exc
+            else:
+                required_slot = "*"
+            if (
+                (required_slot != "*" and required_slot in self._disabled_slot_ids)
+                or allowed_slots is None
+                or (required_slot != "*" and required_slot not in allowed_slots)
+            ):
+                raise WorkerConflictError(
+                    "V20 Harness route is unavailable.",
+                    code="harness_v20_route_unavailable",
+                )
+            if required_slot not in frozen_slots:
+                raise WorkerConflictError(
+                    "V20 Harness route binding changed.",
+                    code="harness_binding_changed",
+                )
+            target_slots = (required_slot,)
+        descriptor_values, capability_values = await asyncio.gather(
+            self.harness_supervisor.harness_descriptors_for_slots(target_slots),
+            self.harness_supervisor.capabilities_for_slots(target_slots),
+        )
+        current_descriptors = tuple(
+            (slot_id, descriptor_values.get(slot_id)) for slot_id in target_slots
+        )
+        current_capability_values = tuple(
+            capability_values.get(slot_id) for slot_id in target_slots
+        )
+        if any(item is None for _slot_id, item in current_descriptors) or any(
+            item is None for item in current_capability_values
+        ):
+            raise WorkerConflictError(
+                "V20 Harness route is unavailable.",
+                code="harness_v20_route_unavailable",
+            )
+        capabilities = _intersect_provider_capabilities(
+            tuple(item for item in current_capability_values if item is not None)
+        )
+        concrete_descriptors = tuple(
+            (slot_id, item)
+            for slot_id, item in current_descriptors
+            if item is not None
+        )
+        if capabilities is None:
+            raise WorkerConflictError(
+                "V20 Harness route is unavailable.",
+                code="harness_v20_route_unavailable",
+            )
+        now = time.time()
+        observation = ProviderCapabilityObservation(
+            capabilities=capabilities,
+            binding_sha256=self._capability_binding(
+                task.spec.model_route,
+                target_slots,
+                concrete_descriptors,
+            ),
+            observed_at=now,
+            expires_at=now + PROVIDER_CAPABILITY_TTL_SECONDS,
+            reason=None,
+            harness_descriptors=concrete_descriptors,
+        )
+        if not self._v20_route_ready(observation):
+            raise WorkerConflictError(
+                "V20 Harness route is unavailable.",
+                code="harness_v20_route_unavailable",
+            )
+        frozen_by_slot = dict(frozen)
+        if any(
+            frozen_by_slot[slot_id].descriptor != current.descriptor
+            for slot_id, current in concrete_descriptors
         ):
             raise WorkerConflictError(
                 "V20 Harness implementation changed.",
+                code="harness_binding_changed",
+            )
+        raw_frozen_capabilities = stored.snapshot.get("capabilities")
+        if not isinstance(raw_frozen_capabilities, dict) or not _provider_capabilities_cover(
+            capabilities,
+            HarnessCapabilities.model_validate(raw_frozen_capabilities),
+        ):
+            raise WorkerConflictError(
+                "V20 Harness capability health changed.",
                 code="harness_binding_changed",
             )
         refreshed_snapshot = dict(stored.snapshot)
@@ -1765,9 +2211,9 @@ class CodingWorkerService:
                 runner.cancel()
 
     def _allowed_slots(self, model_route: str) -> tuple[str, ...] | None:
-        if self._route_slots is None:
+        if self._schedulable_route_slots is None:
             return self.workspace_broker.slot_ids
-        return self._route_slots.get(model_route)
+        return self._schedulable_route_slots.get(model_route)
 
     def _task_finished(self, task_id: str, _task: asyncio.Task[None]) -> None:
         owned_runner = self._active.get(task_id) is _task
@@ -1780,10 +2226,40 @@ class CodingWorkerService:
                 self._resume_parent_after_subtasks(task_id)
             self._wake.set()
 
+    async def _close_harness_before_slot_release(
+        self, session: HarnessSession
+    ) -> None:
+        if self._closing:
+            with contextlib.suppress(Exception):
+                await self.provider.close(session)
+            return
+        close_task = asyncio.create_task(self.provider.close(session))
+        while not close_task.done():
+            try:
+                await asyncio.shield(close_task)
+            except asyncio.CancelledError:
+                # The runner owns the slot until the exact Harness close has
+                # settled.  A second cancellation must not detach cleanup and
+                # let the scheduler race a new session against the sidecar.
+                continue
+        with contextlib.suppress(Exception):
+            close_task.result()
+
     async def _run_task(self, task_id: str, *, slot_id: str | None = None) -> None:
         session: HarnessSession | None = None
         try:
             task = self.store.get_task(task_id)
+            if (
+                self._task_uses_v20(task_id)
+                and task.runtime_protocol is not RuntimeProtocol.V17
+            ):
+                self.store.transition(
+                    task_id,
+                    TaskState.INTERRUPTED,
+                    reason="harness_v20_prerequisites_disabled",
+                    expected_state=TaskState.PREPARING,
+                )
+                return
             if self._task_uses_v20(task_id) and not self._v20_enabled():
                 self.store.transition(
                     task_id,
@@ -1824,6 +2300,13 @@ class CodingWorkerService:
                 raise WorkspaceError(
                     "Workspace slot binding changed.", code="workspace_slot_changed"
                 )
+            tool_allowlist = harness_tools_for_policy(task.spec.policy_profile)
+            if self._task_uses_v20(task_id):
+                tool_allowlist = tuple(
+                    tool_name
+                    for tool_name in tool_allowlist
+                    if tool_name != "run_command"
+                )
             request = HarnessOpenRequest(
                 task_id=task_id,
                 workspace_id=workspace.workspace_id,
@@ -1837,7 +2320,7 @@ class CodingWorkerService:
                 repository_instructions=self.workspace_broker.repository_instructions(
                     workspace.workspace_id
                 ),
-                tool_allowlist=harness_tools_for_policy(task.spec.policy_profile),
+                tool_allowlist=tool_allowlist,
             )
             resume_phase: str | None = None
             resume_context: dict[str, object] | None = None
@@ -1846,7 +2329,19 @@ class CodingWorkerService:
             resume_turn_public_before: dict[str, object] | None = None
             completed_turns = 0
             message_cursor = 0
-            checkpoint = self.store.latest_checkpoint(task_id)
+            recovery_turn = (
+                self.store.current_turn_transaction(task_id)
+                if task.runtime_protocol is RuntimeProtocol.V17
+                else None
+            )
+            checkpoint = (
+                self.store.get_checkpoint(task_id, recovery_turn.checkpoint_id)
+                if recovery_turn is not None
+                and recovery_turn.state is TurnTransactionState.RESUMING
+                and recovery_turn.barrier is not None
+                and recovery_turn.checkpoint_id is not None
+                else self.store.latest_checkpoint(task_id)
+            )
             uncheckpointed_turns = self._uncheckpointed_completed_turns(task_id)
             if uncheckpointed_turns:
                 current_tree_hash = self.workspace_broker.current_tree_hash(
@@ -1984,8 +2479,21 @@ class CodingWorkerService:
                 TaskState.PAUSED,
                 TaskState.INTERRUPTED,
             }:
+                turn = self.store.current_turn_transaction(task_id)
                 with contextlib.suppress(WorkerConflictError):
-                    self.store.transition(task_id, TaskState.INTERRUPTED, reason="runner_cancelled")
+                    self.store.transition(
+                        task_id,
+                        TaskState.INTERRUPTED,
+                        reason=(
+                            "turn_checkpoint_failed"
+                            if self._closing
+                            and turn is not None
+                            and turn.state is TurnTransactionState.PARKING
+                            else "service_shutdown"
+                            if self._closing
+                            else "runner_cancelled"
+                        ),
+                    )
             raise
         except WorkspaceError as exc:
             current = self.store.get_task(task_id)
@@ -1994,11 +2502,10 @@ class CodingWorkerService:
         except Exception as exc:
             current = self.store.get_task(task_id)
             if current.state not in TERMINAL_STATES:
-                code = getattr(exc, "code", "worker_failed")
-                reason = (
-                    code
-                    if isinstance(code, str) and SAFE_ID.fullmatch(code) is not None
-                    else "worker_failed"
+                reason = self._task_failure_reason(
+                    task_id,
+                    getattr(exc, "code", None),
+                    fallback="worker_failed",
                 )
                 with contextlib.suppress(WorkerConflictError):
                     self.store.transition(task_id, TaskState.FAILED, reason=reason)
@@ -2006,8 +2513,7 @@ class CodingWorkerService:
             with contextlib.suppress(Exception):
                 self._settle_terminal_subtask(task_id)
             if session is not None:
-                with contextlib.suppress(Exception):
-                    await self.provider.close(session)
+                await self._close_harness_before_slot_release(session)
 
     def _uncheckpointed_completed_turns(self, task_id: str) -> int:
         cursor = 0
@@ -2080,8 +2586,12 @@ class CodingWorkerService:
         finally:
             if not driver.done():
                 driver.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await driver
+            # The outer runner can be cancelled in the same loop turn in
+            # which the inner driver finishes with an exception.  Always
+            # retrieve the inner result so that cancellation cannot leave an
+            # unobserved task exception behind or replace the outer outcome.
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await driver
 
     async def _drive_session_steps(
         self,
@@ -2166,6 +2676,44 @@ class CodingWorkerService:
                 + "\nMerge only approved implement changes by exact child task id "
                 "and CAS, then rerun the immutable parent acceptance checks.",
             )
+        recovery_turn = (
+            self.store.current_turn_transaction(task_id)
+            if task.runtime_protocol is RuntimeProtocol.V17
+            else None
+        )
+        if (
+            resume_phase == "turn_open"
+            and recovery_turn is not None
+            and recovery_turn.state is TurnTransactionState.RESUMING
+            and recovery_turn.barrier is not None
+        ):
+            self.store.begin_turn_parking(
+                task_id=task_id,
+                turn_id=recovery_turn.turn_id,
+                barrier=recovery_turn.barrier,
+            )
+            try:
+                await self._park_v17_turn(
+                    task,
+                    session,
+                    turn_id=recovery_turn.turn_id,
+                    turns=turns,
+                    message_cursor=message_cursor,
+                    turn_before=resume_turn_before,
+                    turn_public_before=resume_turn_public_before or {},
+                    interrupt_provider=False,
+                )
+            except Exception:
+                current = self.store.get_task(task_id)
+                if current.state is TaskState.RUNNING:
+                    with contextlib.suppress(WorkerConflictError):
+                        self.store.transition(
+                            task_id,
+                            TaskState.INTERRUPTED,
+                            reason="turn_checkpoint_failed",
+                            expected_state=TaskState.RUNNING,
+                        )
+            return
         while True:
             durable_usage = self.store.budget_usage(task_id)
             turns = max(turns, durable_usage.turns_started)
@@ -2228,7 +2776,7 @@ class CodingWorkerService:
                                 turn_before=turn_before,
                                 turn_public_before=turn_public_before,
                             )
-                        except Exception:
+                        except Exception as exc:
                             with contextlib.suppress(WorkerConflictError):
                                 self.store.finish_turn_transaction(
                                     task_id=task_id,
@@ -2238,7 +2786,9 @@ class CodingWorkerService:
                             self.store.transition(
                                 task_id,
                                 TaskState.BLOCKED,
-                                reason="turn_checkpoint_failed",
+                                reason=self._task_checkpoint_failure_reason(
+                                    task_id, exc, fallback="turn_checkpoint_failed"
+                                ),
                                 expected_state=TaskState.RUNNING,
                             )
                         return
@@ -2250,7 +2800,9 @@ class CodingWorkerService:
                     self.store.transition(
                         task_id,
                         TaskState.BLOCKED,
-                        reason=exc.code,
+                        reason=self._task_failure_reason(
+                            task_id, exc.code, fallback="tool_failed"
+                        ),
                         expected_state=TaskState.RUNNING,
                     )
                     return
@@ -2311,7 +2863,7 @@ class CodingWorkerService:
                             turn_id=turn_id,
                             checkpoint_id=checkpoint.checkpoint_id,
                         )
-                    except Exception:
+                    except Exception as exc:
                         self.store.finish_session_turn(
                             task_id, turn_id=turn_id, result_state="interrupted"
                         )
@@ -2323,13 +2875,17 @@ class CodingWorkerService:
                         self.store.transition(
                             task_id,
                             TaskState.BLOCKED,
-                            reason="turn_entry_checkpoint_failed",
+                            reason=self._task_checkpoint_failure_reason(
+                                task_id, exc, fallback="turn_entry_checkpoint_failed"
+                            ),
                             expected_state=TaskState.RUNNING,
                         )
                         return
             outcome = "interrupted"
             question_data: dict[str, object] | None = None
-            compaction_failed = False
+            compaction_failure_reason: str | None = None
+            harness_failure_reason: str | None = None
+            stream: AsyncIterator[HarnessEvent] | None = None
             try:
                 stream = self.provider.message(
                     session, message, turn_id=turn_id
@@ -2400,9 +2956,15 @@ class CodingWorkerService:
                                 message_cursor=message_cursor,
                                 provider_note=str(event.data["summary"]),
                             )
-                        except Exception:
+                        except Exception as exc:
                             outcome = "interrupted"
-                            compaction_failed = True
+                            compaction_failure_reason = (
+                                self._task_checkpoint_failure_reason(
+                                    task_id,
+                                    exc,
+                                    fallback="context_compaction_failed",
+                                )
+                            )
                             break
                     if event.kind is HarnessEventKind.TURN_COMPLETED:
                         outcome = "completed"
@@ -2411,6 +2973,11 @@ class CodingWorkerService:
                         outcome = "cancelled"
                         break
                     if event.kind is HarnessEventKind.FAILED:
+                        harness_failure_reason = (
+                            self._harness_failure_reason(event)
+                            if self._task_uses_v20(task_id)
+                            else "provider_failed"
+                        )
                         outcome = "failed"
                         break
             except BaseException:
@@ -2418,6 +2985,9 @@ class CodingWorkerService:
                     task_id, turn_id=turn_id, result_state="interrupted"
                 )
                 raise
+            finally:
+                if stream is not None:
+                    await self._close_provider_stream(stream)
             if outcome == "turn_parking":
                 try:
                     await self._park_v17_turn(
@@ -2429,19 +2999,31 @@ class CodingWorkerService:
                         turn_before=turn_before,
                         turn_public_before=turn_public_before,
                     )
-                except Exception:
-                    with contextlib.suppress(WorkerConflictError):
-                        self.store.finish_turn_transaction(
-                            task_id=task_id,
-                            turn_id=turn_id,
-                            state=TurnTransactionState.INTERRUPTED,
-                        )
+                except Exception as exc:
                     current = self.store.get_task(task_id)
-                    if current.state is TaskState.RUNNING:
+                    if self._closing:
+                        if current.state is TaskState.RUNNING:
+                            with contextlib.suppress(WorkerConflictError):
+                                self.store.transition(
+                                    task_id,
+                                    TaskState.INTERRUPTED,
+                                    reason="turn_checkpoint_failed",
+                                    expected_state=TaskState.RUNNING,
+                                )
+                    else:
+                        if not isinstance(exc, _HarnessTurnFenceUnconfirmed):
+                            with contextlib.suppress(WorkerConflictError):
+                                self.store.finish_turn_transaction(
+                                    task_id=task_id,
+                                    turn_id=turn_id,
+                                    state=TurnTransactionState.INTERRUPTED,
+                                )
                         self.store.transition(
                             task_id,
                             TaskState.BLOCKED,
-                            reason="turn_checkpoint_failed",
+                            reason=self._task_checkpoint_failure_reason(
+                                task_id, exc, fallback="turn_checkpoint_failed"
+                            ),
                             expected_state=TaskState.RUNNING,
                         )
                 return
@@ -2520,11 +3102,13 @@ class CodingWorkerService:
                             ),
                         },
                     )
-                except Exception:
+                except Exception as exc:
                     self.store.transition(
                         task_id,
                         TaskState.BLOCKED,
-                        reason="question_checkpoint_failed",
+                        reason=self._task_checkpoint_failure_reason(
+                            task_id, exc, fallback="question_checkpoint_failed"
+                        ),
                         expected_state=TaskState.RUNNING,
                     )
                     return
@@ -2535,21 +3119,37 @@ class CodingWorkerService:
                     expected_state=TaskState.RUNNING,
                 )
                 return
-            if compaction_failed:
+            if compaction_failure_reason is not None:
                 self.store.transition(
                     task_id,
                     TaskState.BLOCKED,
-                    reason="context_compaction_failed",
+                    reason=compaction_failure_reason,
                     expected_state=TaskState.RUNNING,
                 )
                 return
             if outcome == "cancelled":
-                self.store.transition(
-                    task_id, TaskState.CANCELLED, reason="provider_cancelled"
-                )
+                try:
+                    self.store.transition(
+                        task_id,
+                        TaskState.CANCELLED,
+                        reason="provider_cancelled",
+                        expected_state=TaskState.RUNNING,
+                    )
+                except WorkerConflictError:
+                    if self.store.get_task(task_id).state not in TERMINAL_STATES:
+                        raise
                 return
             if outcome == "failed":
-                self.store.transition(task_id, TaskState.FAILED, reason="provider_failed")
+                try:
+                    self.store.transition(
+                        task_id,
+                        TaskState.FAILED,
+                        reason=harness_failure_reason or "harness_protocol_invalid",
+                        expected_state=TaskState.RUNNING,
+                    )
+                except WorkerConflictError:
+                    if self.store.get_task(task_id).state not in TERMINAL_STATES:
+                        raise
                 return
             if outcome == "state_changed":
                 return
@@ -2588,11 +3188,13 @@ class CodingWorkerService:
                             ),
                         },
                     )
-                except Exception:
+                except Exception as exc:
                     self.store.transition(
                         task_id,
                         TaskState.BLOCKED,
-                        reason="subtask_checkpoint_failed",
+                        reason=self._task_checkpoint_failure_reason(
+                            task_id, exc, fallback="subtask_checkpoint_failed"
+                        ),
                         expected_state=TaskState.WAITING_SUBTASKS,
                     )
                 return
@@ -2632,11 +3234,13 @@ class CodingWorkerService:
                             ),
                         },
                     )
-                except Exception:
+                except Exception as exc:
                     self.store.transition(
                         task_id,
                         TaskState.BLOCKED,
-                        reason="subtask_checkpoint_failed",
+                        reason=self._task_checkpoint_failure_reason(
+                            task_id, exc, fallback="subtask_checkpoint_failed"
+                        ),
                         expected_state=TaskState.WAITING_SUBTASKS,
                     )
                 return
@@ -2665,11 +3269,13 @@ class CodingWorkerService:
                         ),
                     },
                 )
-            except Exception:
+            except Exception as exc:
                 self.store.transition(
                     task_id,
                     TaskState.BLOCKED,
-                    reason="checkpoint_failed",
+                    reason=self._task_checkpoint_failure_reason(
+                        task_id, exc, fallback="checkpoint_failed"
+                    ),
                     expected_state=TaskState.RUNNING,
                 )
                 return
@@ -2722,6 +3328,11 @@ class CodingWorkerService:
             break
 
         pending = asyncio.create_task(anext(stream))
+        stall_deadline = (
+            time.monotonic() + V20_HARNESS_EVENT_STALL_SECONDS
+            if self._task_uses_v20(task_id)
+            else None
+        )
         try:
             while True:
                 current = self.store.get_task(task_id)
@@ -2768,7 +3379,18 @@ class CodingWorkerService:
                         await self._close_provider_stream(stream)
                         return None, None
                     return event, None
-                await asyncio.wait({pending}, timeout=0.05)
+                wait_seconds = 0.05
+                if stall_deadline is not None:
+                    stall_remaining = stall_deadline - time.monotonic()
+                    if stall_remaining <= 0:
+                        await self._close_provider_stream(stream, pending=pending)
+                        raise CodingSubstrateError(
+                            "Harness turn stopped making observable progress.",
+                            code="harness_transport_unavailable",
+                            status=503,
+                        )
+                    wait_seconds = min(wait_seconds, stall_remaining)
+                await asyncio.wait({pending}, timeout=wait_seconds)
         except BaseException:
             if not pending.done():
                 pending.cancel()
@@ -2928,15 +3550,25 @@ class CodingWorkerService:
             lease_id=approval.lease.lease_id,
             network_lease_id=network_lease_id,
         )
-        self.store.append_event(
-            task_id,
-            "operation_reconciled",
-            {
-                "operation_id": operation.operation_id,
-                "state": result.state.value,
-                "source": "approved_resume",
-            },
-        )
+        if operation.state is not OperationState.UNKNOWN or not self._task_uses_v20(
+            task_id
+        ):
+            self.store.append_event(
+                task_id,
+                "operation_reconciled",
+                {
+                    "operation_id": operation.operation_id,
+                    "state": result.state.value,
+                    "source": "approved_resume",
+                },
+            )
+        if result.state is OperationState.FAILED and self._task_uses_v20(task_id):
+            return (
+                f"Exact approved operation {operation.operation_id} is durably "
+                "settled as failed and must not be replayed under that operation_id. "
+                "Reinspect the current Workspace state; if the work is still required, "
+                "use a new operation_id with current input and obtain re-approval."
+            )
         output = str(result.data.get("output", ""))[:4096]
         exit_code = result.data.get("exit_code")
         summary = (
@@ -2958,6 +3590,7 @@ class CodingWorkerService:
         message_cursor: int,
         turn_before: WorkspaceSnapshot | None,
         turn_public_before: dict[str, object],
+        interrupt_provider: bool = True,
     ) -> None:
         transaction = self.store.get_turn_transaction(task.task_id, turn_id)
         if (
@@ -2969,7 +3602,14 @@ class CodingWorkerService:
             )
         workspace_id = self.store.get_task(task.task_id).workspace_id or ""
         tree_hash = self.workspace_broker.current_tree_hash(workspace_id)
-        await self.provider.interrupt_turn(session)
+        if interrupt_provider:
+            await self._interrupt_turn_for_parking(
+                task_id=task.task_id,
+                turn_id=turn_id,
+                session=session,
+            )
+        else:
+            self.store.interrupt_open_session_tools(task.task_id, turn_id)
         provider_checkpoint = await self.provider.checkpoint(session)
         provider_checkpoint = self._bind_provider_checkpoint_tree(
             provider_checkpoint, task_id=task.task_id, tree_hash=tree_hash
@@ -3235,6 +3875,41 @@ class CodingWorkerService:
             },
         )
 
+    async def _interrupt_turn_for_parking(
+        self,
+        *,
+        task_id: str,
+        turn_id: str,
+        session: HarnessSession,
+    ) -> None:
+        try:
+            interrupted = await self.provider.interrupt_turn(session)
+            if interrupted is not True:
+                raise WorkerConflictError(
+                    "Harness turn interruption was not confirmed.",
+                    code="harness_interrupted",
+                )
+        except Exception as interrupt_error:
+            cancel_confirmed = False
+            close_confirmed = False
+            try:
+                cancel_confirmed = await self.provider.cancel(session)
+            except Exception:
+                pass
+            try:
+                await self.provider.close(session)
+                close_confirmed = True
+            except Exception:
+                pass
+            if cancel_confirmed or close_confirmed:
+                self.store.interrupt_open_session_tools(task_id, turn_id)
+                raise
+            raise _HarnessTurnFenceUnconfirmed(
+                "Harness turn interruption could not be fenced.",
+                code="harness_interrupted",
+            ) from interrupt_error
+        self.store.interrupt_open_session_tools(task_id, turn_id)
+
     @staticmethod
     def _bind_provider_checkpoint_tree(
         checkpoint: HarnessCheckpoint, *, task_id: str, tree_hash: str
@@ -3484,7 +4159,9 @@ class CodingWorkerService:
             self.store.transition(
                 task_id,
                 TaskState.BLOCKED,
-                reason=exc.code,
+                reason=self._task_failure_reason(
+                    task_id, exc.code, fallback="tool_failed"
+                ),
                 expected_state=TaskState.TESTING,
             )
             return None, message_cursor
@@ -3660,11 +4337,16 @@ class CodingWorkerService:
         runner = self._active.get(parent_task_id)
         if runner is not None and not runner.done():
             return
-        self.store.append_message(
-            parent_task_id,
-            role="system",
-            content=self._subtask_results_message(parent_task_id),
-        )
+        summary = self._subtask_results_message(parent_task_id)
+        if not any(
+            item.role == "system" and item.content == summary
+            for item in self.store.list_messages(parent_task_id)
+        ):
+            self.store.append_message(
+                parent_task_id,
+                role="system",
+                content=summary,
+            )
         if parent.runtime_protocol is RuntimeProtocol.V17:
             self.store.settle_parked_turn(
                 task_id=parent_task_id,
@@ -3761,3 +4443,27 @@ def _intersect_provider_capabilities(
             tool_name for tool_name in values[0].tool_names if tool_name in tool_names
         ),
     )
+
+
+def _provider_capabilities_cover(
+    current: HarnessCapabilities, frozen: HarnessCapabilities
+) -> bool:
+    if current.contract_version != frozen.contract_version:
+        return False
+    fields = (
+        "supports_streaming",
+        "supports_cancel",
+        "supports_checkpoint",
+        "supports_restore",
+        "supports_steering",
+        "supports_usage",
+        "supports_structured_plan",
+        "supports_todo",
+        "supports_questions",
+        "supports_compaction",
+        "supports_tool_boundaries",
+        "supports_turn_interrupt",
+    )
+    return all(not getattr(frozen, name) or getattr(current, name) for name in fields) and set(
+        frozen.tool_names
+    ).issubset(current.tool_names)

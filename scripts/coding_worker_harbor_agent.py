@@ -1149,6 +1149,28 @@ class ModelMirrorWorkerAgent(BaseAgent):  # type: ignore[misc]
         }
         if reason in expected_states or reason.startswith("turn_parked_"):
             return None
+        if reason.startswith("harness_transport_"):
+            return "provider_transport"
+        if reason.startswith(
+            (
+                "harness_protocol_",
+                "harness_authentication_",
+                "harness_rate_",
+            )
+        ):
+            return "provider_protocol"
+        if reason.startswith("harness_policy_"):
+            return "policy"
+        if reason.startswith("harness_budget_"):
+            return "budget"
+        if reason in {
+            "harness_interrupted",
+            "harness_driver_internal",
+            "control_plane_internal_error",
+            "tool_broker_internal_error",
+            "operation_result_unknown",
+        }:
+            return "harness"
         mapping = (
             (("source",), "source_admission"),
             (("slot", "scheduler", "route_unavailable", "model_route"), "scheduler"),
@@ -1163,7 +1185,7 @@ class ModelMirrorWorkerAgent(BaseAgent):  # type: ignore[misc]
             (("acceptance", "evidence"), "visible_acceptance"),
             (("policy", "forbidden"), "policy"),
             (("budget",), "budget"),
-            (("operation_result_unknown", "tool_"), "tool_validation"),
+            (("tool_",), "tool_validation"),
             (("service_shutdown", "runner_cancelled"), "harness"),
         )
         for markers, stage in mapping:

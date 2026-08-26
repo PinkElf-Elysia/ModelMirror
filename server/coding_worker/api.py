@@ -53,6 +53,8 @@ from .ports import (
 from .runtime import (
     CodingWorkerRuntime,
     build_runtime_from_environment,
+    configured_model_route_catalog_from_environment,
+    configured_model_routes_from_environment,
     record_coding_substrate_unavailability,
 )
 
@@ -1283,15 +1285,11 @@ async def _fetch_preview(url: str) -> httpx.Response:
 
 
 def _configured_model_routes() -> list[str]:
-    return sorted({
-        value.strip()
-        for value in os.getenv("CODING_WORKER_MODEL_ROUTES", "coding/default").split(",")
-        if value.strip()
-    })
+    return list(configured_model_routes_from_environment())
 
 
 def _validate_model_route(model_route: str) -> None:
-    configured = set(_configured_model_routes())
+    configured = set(configured_model_route_catalog_from_environment())
     if model_route not in configured:
         raise HTTPException(
             status_code=400,

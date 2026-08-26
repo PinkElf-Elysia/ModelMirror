@@ -13,8 +13,9 @@ from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from .contracts import StrictModel
 from .harness_protocol import (
@@ -94,6 +95,26 @@ class ClaudeCodeRoute(StrictModel):
     route_id: str
     model_id: str = Field(min_length=1, max_length=128)
     max_budget_usd: float = Field(default=20.0, gt=0, le=1_000)
+    gateway_base_url: str | None = None
+
+    @field_validator("gateway_base_url")
+    @classmethod
+    def validate_gateway_base_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        parsed = urlparse(value)
+        path = parsed.path.rstrip("/").lower()
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+            or path.endswith(("/messages", "/chat/completions", "/responses"))
+        ):
+            raise ValueError("Claude gateway must use an HTTPS API root URL")
+        return value.rstrip("/")
 
 
 @dataclass(slots=True)
@@ -109,6 +130,7 @@ class ClaudeSessionHandle:
     resumed_once: bool = False
     active_process: asyncio.subprocess.Process | None = None
     public_context: list[str] = field(default_factory=list)
+    active_tool_names: dict[str, str] = field(default_factory=dict)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
@@ -185,6 +207,7 @@ class ClaudeCodeProvider(CodingAgentProvider):
         )
 
     async def capabilities(self) -> ProviderCapabilities:
+        self._validate_secret_file()
         return ProviderCapabilities(
             supports_streaming=True,
             supports_cancel=True,
@@ -302,7 +325,11 @@ class ClaudeCodeProvider(CodingAgentProvider):
                             await _stop_process(process)
                             yield self._failure_event(ProviderFailureKind.BUDGET)
                             return
-                        events = self.map_stream_frame(line, session.session_id)
+                        events = self.map_stream_frame(
+                            line,
+                            session.session_id,
+                            tool_names=handle.active_tool_names,
+                        )
                         for event in events:
                             if event.kind is ProviderEventKind.MESSAGE:
                                 value = event.data.get("text")
@@ -352,7 +379,12 @@ class ClaudeCodeProvider(CodingAgentProvider):
         return True
 
     async def interrupt_turn(self, session: ProviderSession) -> bool:
-        return await self.cancel(session)
+        handle = self._require_session(session)
+        process = handle.active_process
+        if process is None or process.returncode is not None:
+            return True
+        await _stop_process(process)
+        return True
 
     async def checkpoint(self, session: ProviderSession) -> ProviderCheckpoint:
         handle = self._require_session(session)
@@ -480,7 +512,6 @@ class ClaudeCodeProvider(CodingAgentProvider):
             "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
             "HOME": str(handle.home),
             "TMPDIR": str(handle.state_root),
-            "ANTHROPIC_API_KEY": api_key,
             "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
             "CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL": "1",
             "CLAUDE_CODE_DONT_INHERIT_ENV": "1",
@@ -489,6 +520,12 @@ class ClaudeCodeProvider(CodingAgentProvider):
             "DISABLE_PLUGIN_AUTOLOAD": "1",
             "DISABLE_TELEMETRY": "1",
         }
+        if handle.route.gateway_base_url is None:
+            environment["ANTHROPIC_API_KEY"] = api_key
+        else:
+            environment["ANTHROPIC_BASE_URL"] = handle.route.gateway_base_url
+            environment["ANTHROPIC_AUTH_TOKEN"] = api_key
+            environment["ANTHROPIC_API_KEY"] = ""
         if self._provider_proxy_url is not None:
             environment["HTTPS_PROXY"] = self._provider_proxy_url
             environment["HTTP_PROXY"] = self._provider_proxy_url
@@ -508,7 +545,10 @@ class ClaudeCodeProvider(CodingAgentProvider):
 
     @staticmethod
     def map_stream_frame(
-        encoded: bytes, session_id: str
+        encoded: bytes,
+        session_id: str,
+        *,
+        tool_names: dict[str, str] | None = None,
     ) -> tuple[ProviderEvent, ...]:
         if len(encoded) > 1_048_576:
             return ()
@@ -546,6 +586,8 @@ class ClaudeCodeProvider(CodingAgentProvider):
                     ):
                         normalized_name = tool_name.rsplit("__", 1)[-1]
                         if normalized_name in PROVIDER_TOOL_NAMES:
+                            if tool_names is not None:
+                                tool_names[operation_id] = normalized_name
                             events.append(
                                 ProviderEvent(
                                     kind=ProviderEventKind.TOOL_STARTED,
@@ -580,12 +622,19 @@ class ClaudeCodeProvider(CodingAgentProvider):
                         continue
                     operation_id = item.get("tool_use_id")
                     if isinstance(operation_id, str):
+                        normalized_name = (
+                            tool_names.pop(operation_id, None)
+                            if tool_names is not None
+                            else "run_command"
+                        )
+                        if normalized_name not in PROVIDER_TOOL_NAMES:
+                            continue
                         events.append(
                             ProviderEvent(
                                 kind=ProviderEventKind.TOOL_COMPLETED,
                                 data={
                                     "operation_id": operation_id,
-                                    "tool_name": "run_command",
+                                    "tool_name": normalized_name,
                                     "summary": "Tool execution completed.",
                                     "success": item.get("is_error") is not True,
                                     "artifact_id": None,
@@ -603,7 +652,7 @@ class ClaudeCodeProvider(CodingAgentProvider):
                 failure = (
                     ProviderFailureKind.BUDGET
                     if subtype in {"error_max_budget_usd", "error_max_turns"}
-                    else ProviderFailureKind.UNAVAILABLE
+                    else _failure_kind_from_result(value)
                 )
                 events.append(ClaudeCodeProvider._failure_event(failure))
             else:
@@ -661,6 +710,10 @@ class ClaudeCodeProvider(CodingAgentProvider):
             )
         return metadata
 
+    def validate_environment(self) -> None:
+        """Fail closed before the sidecar publishes route capabilities."""
+        self._validate_secret_file()
+
     def _read_secret(self) -> str:
         expected = self._validate_secret_file()
         descriptor = os.open(self._secret_path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
@@ -706,6 +759,35 @@ class ClaudeCodeProvider(CodingAgentProvider):
             os.fsync(descriptor)
         finally:
             os.close(descriptor)
+
+
+def _failure_kind_from_result(value: dict[str, Any]) -> ProviderFailureKind:
+    fragments: list[str] = []
+    stack: list[Any] = [value.get("error"), value.get("errors")]
+    while stack and len(fragments) < 64:
+        item = stack.pop()
+        if isinstance(item, dict):
+            stack.extend(item.values())
+        elif isinstance(item, (list, tuple)):
+            stack.extend(item[:64])
+        elif isinstance(item, str):
+            fragments.append(item[:2_048].lower())
+    combined = " ".join(fragments)
+    if any(
+        marker in combined
+        for marker in ("authentication", "unauthorized", "invalid api key")
+    ):
+        return ProviderFailureKind.AUTHENTICATION
+    if any(
+        marker in combined for marker in ("rate limit", "rate_limit", "overloaded")
+    ):
+        return ProviderFailureKind.RATE_LIMITED
+    if any(
+        marker in combined
+        for marker in ("credit balance", "insufficient credit", "billing")
+    ):
+        return ProviderFailureKind.BUDGET
+    return ProviderFailureKind.UNAVAILABLE
 
 
 def _usage_from_mapping(value: Any, *, cost: Any) -> ProviderUsage | None:

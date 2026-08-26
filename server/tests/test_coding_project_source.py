@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import subprocess
+import threading
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -61,6 +63,37 @@ def _manifest(root: Path, projects: list[tuple[str, str]]) -> None:
         ),
         encoding="utf-8",
     )
+
+
+def test_project_catalog_inspection_is_bounded_parallel_and_ordered(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "projects"
+    root.mkdir()
+    projects = [(f"Project {index}", f"team/project-{index}") for index in range(8)]
+    _manifest(root, projects)
+    expected_ids = [entry.project_id for entry in load_project_manifest(root)]
+    barrier = threading.Barrier(4)
+    counter_lock = threading.Lock()
+    active = 0
+    maximum_active = 0
+
+    def inspect(_root: Path, entry: object) -> SimpleNamespace:
+        nonlocal active, maximum_active
+        with counter_lock:
+            active += 1
+            maximum_active = max(maximum_active, active)
+        barrier.wait(timeout=5)
+        with counter_lock:
+            active -= 1
+        return SimpleNamespace(to_public_dict=lambda: {"id": entry.project_id})
+
+    monkeypatch.setattr("server.coding_project_source.server.inspect_project", inspect)
+
+    projects = ProjectSnapshotBroker(root, tmp_path / "slot").list_projects()
+
+    assert maximum_active == 4
+    assert [project["id"] for project in projects] == expected_ids
 
 
 def test_snapshot_uses_head_blob_bytes_and_never_changes_source_repository(tmp_path: Path) -> None:

@@ -103,14 +103,22 @@ def _provider_from_environment(
     model_id = _required_environment("CODING_WORKER_MODEL_ID")
     command = ("python", "-m", "coding_worker.broker_mcp")
     if provider_kind == "claude-code":
-        route = ClaudeCodeRoute(route_id=route_id, model_id=model_id)
-        return ClaudeCodeProvider(
+        route = ClaudeCodeRoute(
+            route_id=route_id,
+            model_id=model_id,
+            gateway_base_url=(
+                os.getenv("CODING_WORKER_CLAUDE_GATEWAY_BASE_URL") or None
+            ),
+        )
+        provider = ClaudeCodeProvider(
             runtime_root=runtime_root,
             routes={route_id: route},
             secret_path=Path(_required_environment("CODING_WORKER_CLAUDE_SECRET_PATH")),
             tool_broker_command=command,
             provider_proxy_url=os.getenv("CODING_WORKER_PROVIDER_PROXY_URL") or None,
         )
+        provider.validate_environment()
+        return provider
     if provider_kind != "opencode":
         raise RuntimeError("CODING_WORKER_PROVIDER_KIND is invalid")
     route = OpenCodeRoute(
@@ -130,6 +138,7 @@ def _provider_from_environment(
         runtime_root=runtime_root,
         routes={route_id: route},
         tool_broker_command=command,
+        provider_proxy_url=os.getenv("CODING_WORKER_PROVIDER_PROXY_URL") or None,
     )
 
 

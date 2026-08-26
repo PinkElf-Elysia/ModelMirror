@@ -9,6 +9,7 @@ from cryptography.fernet import Fernet
 from server.coding_worker.contracts import (
     AcceptanceCheck,
     AcceptanceContract,
+    ApprovalStatus,
     Origin,
     OperationState,
     RuntimeProtocol,
@@ -76,6 +77,55 @@ def test_idempotency_key_rejects_changed_intent(tmp_path: Path) -> None:
     with pytest.raises(WorkerConflictError) as raised:
         store.create_task(_spec(objective="Different"))
     assert raised.value.code == "task_intent_conflict"
+
+
+def test_cancel_atomically_settles_pending_approval_and_revokes_lease(
+    tmp_path: Path,
+) -> None:
+    store = CodingWorkerStore(tmp_path / "worker", master_key=Fernet.generate_key())
+    task = store.create_task(_spec())
+    store.transition(task.task_id, TaskState.PREPARING)
+    store.transition(task.task_id, TaskState.RUNNING)
+    approved = store.create_approval(
+        task_id=task.task_id,
+        operation_id="operation_cancel_approved",
+        capability="shell",
+        request={
+            "operation_id": "operation_cancel_approved",
+            "script_sha256": "b" * 64,
+            "cwd": ".",
+            "mode": "inspect",
+            "timeout_seconds": 60,
+            "network_scope_sha256": None,
+        },
+    )
+    assert (
+        store.decide_approval(approved.approval_id, approved=True).status
+        is ApprovalStatus.APPROVED
+    )
+    assert store.has_active_lease(task.task_id)
+    pending = store.create_approval(
+        task_id=task.task_id,
+        operation_id="operation_cancel_pending",
+        capability="shell",
+        request={"script_sha256": "a" * 64},
+    )
+
+    cancelled = store.transition(task.task_id, TaskState.CANCELLED)
+
+    assert cancelled.state is TaskState.CANCELLED
+    assert store.get_approval(pending.approval_id).status is ApprovalStatus.CANCELLED
+    assert store.get_approval(approved.approval_id).status is ApprovalStatus.APPROVED
+    assert not store.has_active_lease(task.task_id)
+    events = store.list_events(task.task_id)
+    assert [event.type for event in events[-2:]] == [
+        "approval_decided",
+        "task_state",
+    ]
+    assert events[-2].payload == {
+        "approval_id": pending.approval_id,
+        "status": "cancelled",
+    }
 
 
 def test_v17_turn_transaction_parks_and_rejects_new_operations(tmp_path: Path) -> None:
@@ -247,6 +297,56 @@ def test_restart_preserves_durably_parked_v17_approval_turn(tmp_path: Path) -> N
     assert resumed_turn.checkpoint_id == checkpoint.checkpoint_id
 
 
+def test_restart_canonicalizes_parked_approval_before_task_waiting_state(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "worker"
+    key = Fernet.generate_key()
+    store = CodingWorkerStore(root, master_key=key)
+    task = store.create_task(_spec(), runtime_protocol=RuntimeProtocol.V17)
+    store.transition(task.task_id, TaskState.PREPARING)
+    store.transition(task.task_id, TaskState.RUNNING)
+    turn = store.open_turn_transaction(
+        task_id=task.task_id,
+        turn_id="turn_v17_parked_before_waiting",
+        workspace_tree_hash="a" * 64,
+    )
+    approvals = store.create_approvals_and_begin_turn_parking(
+        task_id=task.task_id,
+        turn_id=turn.turn_id,
+        requests=(("operation-v17-parked-crash", "command", {"argv": ["pytest"]}),),
+    )
+    checkpoint = store.create_checkpoint(
+        task_id=task.task_id,
+        workspace_tree_hash="a" * 64,
+        payload={"phase": "waiting_approval"},
+    )
+    store.park_turn_transaction(
+        task_id=task.task_id,
+        turn_id=turn.turn_id,
+        checkpoint_id=checkpoint.checkpoint_id,
+    )
+    assert store.get_task(task.task_id).state is TaskState.RUNNING
+
+    restarted = CodingWorkerStore(root, master_key=key)
+
+    waiting = restarted.get_task(task.task_id)
+    assert waiting.state is TaskState.WAITING_APPROVAL
+    assert waiting.reason == "turn_parked_approval"
+    parked = restarted.current_turn_transaction(task.task_id)
+    assert parked is not None
+    assert parked.turn_id == turn.turn_id
+    assert parked.state is TurnTransactionState.PARKED
+    assert parked.checkpoint_id == checkpoint.checkpoint_id
+    decided = restarted.decide_approval(approvals[0].approval_id, approved=True)
+    assert decided.status is ApprovalStatus.APPROVED
+    assert restarted.get_task(task.task_id).state is TaskState.QUEUED
+    resuming = restarted.current_turn_transaction(task.task_id)
+    assert resuming is not None
+    assert resuming.turn_id == turn.turn_id
+    assert resuming.state is TurnTransactionState.RESUMING
+
+
 def test_restart_interrupts_v17_parking_before_checkpoint(tmp_path: Path) -> None:
     root = tmp_path / "worker"
     key = Fernet.generate_key()
@@ -273,6 +373,68 @@ def test_restart_interrupts_v17_parking_before_checkpoint(tmp_path: Path) -> Non
     assert restarted.get_turn_transaction(
         task.task_id, turn.turn_id
     ).state is TurnTransactionState.INTERRUPTED
+
+
+def test_restart_preserves_interrupted_parking_with_entry_checkpoint(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "worker"
+    key = Fernet.generate_key()
+    store = CodingWorkerStore(root, master_key=key)
+    task = store.create_task(_spec(), runtime_protocol=RuntimeProtocol.V17)
+    store.transition(task.task_id, TaskState.PREPARING)
+    store.transition(task.task_id, TaskState.RUNNING)
+    turn = store.open_turn_transaction(
+        task_id=task.task_id,
+        turn_id="turn_v17_parking_entry_restart",
+        workspace_tree_hash="a" * 64,
+    )
+    entry = store.create_checkpoint(
+        task_id=task.task_id,
+        workspace_tree_hash="a" * 64,
+        payload={"phase": "turn_open"},
+    )
+    store.bind_turn_recovery_checkpoint(
+        task_id=task.task_id,
+        turn_id=turn.turn_id,
+        checkpoint_id=entry.checkpoint_id,
+    )
+    approvals = store.create_approvals_and_begin_turn_parking(
+        task_id=task.task_id,
+        turn_id=turn.turn_id,
+        requests=(("operation-v17-parking-entry", "command", {"argv": ["pytest"]}),),
+    )
+    orphan = store.create_checkpoint(
+        task_id=task.task_id,
+        workspace_tree_hash="a" * 64,
+        payload={"phase": "waiting_approval"},
+    )
+
+    restarted = CodingWorkerStore(root, master_key=key)
+
+    interrupted = restarted.get_task(task.task_id)
+    assert interrupted.state is TaskState.INTERRUPTED
+    assert interrupted.reason == "turn_checkpoint_failed"
+    preserved = restarted.current_turn_transaction(task.task_id)
+    assert preserved is not None
+    assert preserved.turn_id == turn.turn_id
+    assert preserved.state is TurnTransactionState.PARKING
+    assert preserved.barrier is TurnBarrier.APPROVAL
+    assert preserved.checkpoint_id == entry.checkpoint_id
+    assert restarted.latest_checkpoint(task.task_id) == orphan
+    assert restarted.get_checkpoint(task.task_id, entry.checkpoint_id) == entry
+    assert restarted.list_approvals(task.task_id) == list(approvals)
+    resumed = restarted.resume_interrupted_parking_turn(
+        task_id=task.task_id,
+        turn_id=turn.turn_id,
+        checkpoint_id=entry.checkpoint_id,
+    )
+    assert resumed.state is TaskState.QUEUED
+    retrying = restarted.current_turn_transaction(task.task_id)
+    assert retrying is not None
+    assert retrying.turn_id == turn.turn_id
+    assert retrying.state is TurnTransactionState.RESUMING
+    assert len(restarted.list_approvals(task.task_id)) == 1
 
 
 @pytest.mark.parametrize(

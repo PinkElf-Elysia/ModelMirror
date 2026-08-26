@@ -19,12 +19,15 @@ from server.coding_worker.adapters import (
 from server.coding_worker.ports import CodingSubstrateHandle
 from server.coding_worker.sdk import CodingWorkerModuleClient, CodingWorkerSDKError
 from server.coding_worker.service import CodingWorkerService
-from server.coding_worker.store import CodingWorkerStore
+from server.coding_worker.store import CodingWorkerStore, WorkerConflictError
 from server.coding_worker.workspace import InMemoryWorkspaceSourceAdapter, WorkspaceBroker
 
 
 def _client(
     tmp_path: Path,
+    *,
+    service_routes: tuple[str, ...] | None = None,
+    module_routes: frozenset[str] = frozenset({"coding/default"}),
 ) -> tuple[CodingWorkerModuleClient, CodingSubstrateHandle]:
     store = CodingWorkerStore(tmp_path / "store", master_key=Fernet.generate_key())
     provider = FakeCodingAgentProvider()
@@ -41,6 +44,7 @@ def _client(
         ),
         provider=LegacyHarnessDriver(provider),
         harness_supervisor=LegacyHarnessSupervisor(provider),
+        new_task_model_routes=service_routes,
     )
     substrate = legacy_substrate_from_service(service)
     return CodingWorkerModuleClient(
@@ -48,7 +52,7 @@ def _client(
         substrate=substrate,
         source_kinds=frozenset({"manifest"}),
         check_ids=frozenset({"python-tests"}),
-        model_routes=frozenset({"coding/default"}),
+        model_routes=module_routes,
         context_validators={"artifact": lambda value: value == "artifact_context"},
     ), substrate
 
@@ -117,6 +121,23 @@ async def test_module_client_rejects_unregistered_execution_inputs(
     with pytest.raises(CodingWorkerSDKError) as raised:
         await client.create_task(business_object_id="skill_01", request=request)
     assert raised.value.code == expected
+
+
+@pytest.mark.asyncio
+async def test_module_route_allowed_by_policy_but_disabled_by_runtime_is_unavailable(
+    tmp_path: Path,
+) -> None:
+    client, _substrate = _client(
+        tmp_path,
+        service_routes=("coding/default",),
+        module_routes=frozenset({"coding/default", "coding/quality"}),
+    )
+    request = _request().model_copy(update={"model_route": "coding/quality"})
+
+    with pytest.raises(WorkerConflictError) as rejected:
+        await client.create_task(business_object_id="skill_01", request=request)
+
+    assert rejected.value.code == "model_route_unavailable"
 
 
 @pytest.mark.asyncio

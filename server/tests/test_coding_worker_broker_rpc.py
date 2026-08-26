@@ -6,11 +6,10 @@ from pathlib import Path
 
 import pytest
 from cryptography.fernet import Fernet
+from mcp.server.fastmcp.exceptions import ToolError
 
 from server.coding_worker.broker_rpc import BrokerRPCClient, BrokerRPCError, BrokerRPCServer
 from server.coding_worker.broker_mcp import (
-    BrokerReplaceChange,
-    _replace_change_as_write,
     _workspace_relative_cwd,
     _workspace_relative_shell_script,
     build_server,
@@ -243,6 +242,24 @@ async def test_mcp_exposes_only_modelmirror_broker_tools() -> None:
 
 
 @pytest.mark.asyncio
+async def test_mcp_rejects_empty_shell_arguments_before_rpc() -> None:
+    calls: list[dict[str, object]] = []
+
+    class RecordingClient:
+        async def call(self, **kwargs: object) -> dict[str, object]:
+            calls.append(kwargs)
+            return {"ok": True}
+
+    with pytest.raises(
+        ToolError,
+        match=r"(?s)operation_id.*Field required.*script.*Field required",
+    ):
+        await build_server(RecordingClient()).call_tool("run_shell", {})
+
+    assert calls == []
+
+
+@pytest.mark.asyncio
 async def test_mcp_defaults_omitted_plan_status_before_rpc() -> None:
     calls: list[dict[str, object]] = []
 
@@ -343,50 +360,93 @@ async def test_mcp_changeset_schema_computes_content_and_patch_digests() -> None
     ]
 
 
-def test_replace_change_preserves_unrelated_bytes_and_final_newline(
+@pytest.mark.asyncio
+async def test_mcp_replace_is_resolved_by_authoritative_workspace(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    source = "before\nold value\nafter\n"
-    target = tmp_path / "app.py"
-    target.write_text(source, encoding="utf-8", newline="")
-    expected_sha256 = hashlib.sha256(source.encode()).hexdigest()
+    monkeypatch.setenv("CODING_WORKER_V15_ENABLED", "true")
+    server, task_id, endpoint, _ = await _rpc(tmp_path)
+    token = server.register_task(task_id)
+    client = BrokerRPCClient(endpoint, token=token, task_id=task_id)
+    task = server.broker.store.get_task(task_id)
+    assert task.workspace_id is not None
+    workspace = server.broker.workspace_broker
+    repository = workspace.repository_path(task.workspace_id)
+    source = b"before\nold value\nafter\n"
+    (repository / "app.py").write_bytes(source)
+    base_tree_hash = workspace.current_tree_hash(task.workspace_id)
 
-    encoded = _replace_change_as_write(
-        BrokerReplaceChange(
-            kind="replace",
-            path="app.py",
-            expected_sha256=expected_sha256,
-            old_text="old value",
-            new_text="new value",
-        ),
-        workspace=tmp_path,
-    )
+    try:
+        await build_server(client).call_tool(
+            "apply_changeset",
+            {
+                "operation_id": "replace-authoritative-workspace",
+                "base_tree_hash": base_tree_hash,
+                "changes": [
+                        {
+                            "kind": "replace",
+                            "path": "app.py",
+                            "expected_sha256": hashlib.sha256(source).hexdigest(),
+                            "old_text": "old value",
+                            "new_text": "new value",
+                        }
+                    ],
+                },
+            )
+        assert (repository / "app.py").read_bytes() == b"before\nnew value\nafter\n"
+        assert (
+            server.broker.store.get_operation("replace-authoritative-workspace").state
+            is OperationState.COMPLETED
+        )
+    finally:
+        await server.close()
 
-    assert encoded == {
-        "kind": "write",
-        "path": "app.py",
-        "expected_sha256": expected_sha256,
-        "expected_absent": False,
-        "content": "before\nnew value\nafter\n",
-        "content_sha256": hashlib.sha256(
-            b"before\nnew value\nafter\n"
-        ).hexdigest(),
-    }
-    assert target.read_bytes() == source.encode()
 
+@pytest.mark.asyncio
+async def test_mcp_replace_rejects_ambiguous_preimage_without_modifying_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CODING_WORKER_V15_ENABLED", "true")
+    server, task_id, endpoint, _ = await _rpc(tmp_path)
+    token = server.register_task(task_id)
+    client = BrokerRPCClient(endpoint, token=token, task_id=task_id)
+    task = server.broker.store.get_task(task_id)
+    assert task.workspace_id is not None
+    workspace = server.broker.workspace_broker
+    repository = workspace.repository_path(task.workspace_id)
+    source = b"same\nsame\n"
+    (repository / "app.py").write_bytes(source)
 
-def test_replace_change_requires_one_exact_preimage_match(tmp_path: Path) -> None:
-    content = "same\nsame\n"
-    (tmp_path / "app.py").write_text(content, encoding="utf-8", newline="")
-    change = BrokerReplaceChange(
-        kind="replace",
-        path="app.py",
-        expected_sha256=hashlib.sha256(content.encode()).hexdigest(),
-        old_text="same",
-        new_text="different",
-    )
-    with pytest.raises(ValueError, match="exactly once"):
-        _replace_change_as_write(change, workspace=tmp_path)
+    try:
+        with pytest.raises(ToolError, match="Changeset operation failed"):
+            await build_server(client).call_tool(
+                "apply_changeset",
+                {
+                    "operation_id": "replace-ambiguous-preimage",
+                    "base_tree_hash": workspace.current_tree_hash(task.workspace_id),
+                    "changes": [
+                        {
+                            "kind": "replace",
+                            "path": "app.py",
+                            "expected_sha256": hashlib.sha256(source).hexdigest(),
+                            "old_text": "same",
+                            "new_text": "different",
+                        }
+                    ],
+                },
+            )
+        assert (repository / "app.py").read_bytes() == source
+        assert (
+            server.broker.store.get_operation("replace-ambiguous-preimage").state
+            is OperationState.FAILED
+        )
+        assert server.broker.store.get_operation(
+            "replace-ambiguous-preimage"
+        ).result == {"code": "tool_input_invalid"}
+    finally:
+        await server.close()
 
 
 def test_shell_adapter_canonicalizes_only_current_workspace_references(

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import shlex
 import uuid
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -21,7 +23,12 @@ from .provider_rpc import ProviderSidecarClientPool
 from .ports import CodingSubstrateHandle
 from .service import CodingWorkerService
 from .store import CodingWorkerStore, DEFAULT_RETENTION_SECONDS
-from .tool_broker import FrozenCheck, ToolBroker
+from .tool_broker import (
+    FrozenApprovalRule,
+    FrozenCheck,
+    ToolBroker,
+    frozen_approval_request_sha256,
+)
 from .workspace import (
     InMemoryWorkspaceSourceAdapter,
     WorkspaceBroker,
@@ -30,6 +37,7 @@ from .workspace import (
 from .source_adapters import (
     BuiltinGitWorkspaceSourceAdapter,
     HostSnapshotWorkspaceSourceAdapter,
+    ProjectSnapshotLeaseGate,
     ProjectSnapshotWorkspaceSourceAdapter,
 )
 
@@ -42,6 +50,69 @@ class CodingWorkerRuntimeError(RuntimeError):
 
 _ACTIVE_SUBSTRATE: CodingSubstrateHandle | None = None
 _SUBSTRATE_UNAVAILABLE_REASON: str | None = None
+
+
+def _environment_flag_enabled(name: str) -> bool:
+    return os.getenv(name, "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _configured_model_route_catalog() -> set[str]:
+    return {
+        value.strip()
+        for value in os.getenv(
+            "CODING_WORKER_MODEL_ROUTES", "coding/default"
+        ).split(",")
+        if value.strip()
+    }
+
+
+def configured_model_route_catalog_from_environment() -> tuple[str, ...]:
+    """Return the complete provider-neutral route catalog, including disabled routes."""
+
+    return tuple(sorted(_configured_model_route_catalog()))
+
+
+def _schedulable_route_slots(
+    route_slots: Mapping[str, Sequence[str]], disabled_slot_ids: frozenset[str]
+) -> dict[str, tuple[str, ...]]:
+    """Remove disabled slots without disabling a route that still has capacity."""
+
+    return {
+        route_id: enabled_slots
+        for route_id, slot_ids in route_slots.items()
+        if (
+            enabled_slots := tuple(
+                slot_id for slot_id in dict.fromkeys(slot_ids) if slot_id not in disabled_slot_ids
+            )
+        )
+    }
+
+
+def configured_model_routes_from_environment() -> tuple[str, ...]:
+    """Return routes admitted for new tasks by the deployment composition."""
+
+    routes = set(configured_model_route_catalog_from_environment())
+    if _environment_flag_enabled("CODING_WORKER_CLAUDE_ENABLED"):
+        return tuple(sorted(routes))
+    claude_slots = {
+        value.strip()
+        for value in os.getenv("CODING_WORKER_CLAUDE_SLOT_IDS", "").split(",")
+        if value.strip()
+    }
+    if not claude_slots:
+        return tuple(sorted(routes))
+    route_slots = _route_slot_catalog_from_environment()
+    if route_slots is None:
+        return ()
+    routes.intersection_update(
+        _schedulable_route_slots(route_slots, frozenset(claude_slots))
+    )
+    return tuple(sorted(routes))
 
 
 def is_coding_substrate_enabled() -> bool:
@@ -105,10 +176,19 @@ class CodingWorkerRuntime:
         sidecar_uid: int = 65532,
         sidecar_gid: int = 65532,
         route_slots: Mapping[str, Sequence[str]] | None = None,
+        schedulable_route_slots: Mapping[str, Sequence[str]] | None = None,
+        new_task_model_routes: Sequence[str] | None = None,
+        disabled_model_routes: Sequence[str] = (),
+        disabled_slot_ids: Sequence[str] = (),
+        capability_route_slots: Mapping[str, Sequence[str]] | None = None,
         route_context_tokens: Mapping[str, int] | None = None,
         documentation_resources: Mapping[str, str] | None = None,
         harness_faults_enabled: bool = False,
         evaluation_profile: str | None = None,
+        frozen_approval_rules: Mapping[
+            tuple[str, str, str], Sequence[FrozenApprovalRule]
+        ]
+        | None = None,
     ) -> None:
         if (
             set(slot_roots) != set(provider_endpoints)
@@ -141,6 +221,7 @@ class CodingWorkerRuntime:
             egress_proxy_url=egress_proxy_url,
             documentation_resources=documentation_resources,
             harness_faults_enabled=harness_faults_enabled,
+            frozen_approval_rules=frozen_approval_rules,
         )
         self.broker_rpc = BrokerRPCServer(self.tool_broker)
         controller_id = f"controller_{uuid.uuid4().hex}"
@@ -193,6 +274,11 @@ class CodingWorkerRuntime:
             max_active_tasks=max_active_tasks,
             tool_broker=self.tool_broker,
             route_slots=route_slots,
+            schedulable_route_slots=schedulable_route_slots,
+            new_task_model_routes=new_task_model_routes,
+            disabled_model_routes=disabled_model_routes,
+            disabled_slot_ids=disabled_slot_ids,
+            capability_route_slots=capability_route_slots,
             route_context_tokens=route_context_tokens,
         )
         self.tool_broker.subtask_handler = self.service.create_subtask
@@ -354,6 +440,30 @@ def build_runtime_from_environment() -> CodingWorkerRuntime:
         "slot-b": os.getenv("CODING_WORKER_SLOT_B_TOKEN", ""),
     }
     route_slots = _route_slots_from_environment(tuple(slot_roots))
+    claude_slots = {
+        value.strip()
+        for value in os.getenv("CODING_WORKER_CLAUDE_SLOT_IDS", "").split(",")
+        if value.strip()
+    }
+    if not claude_slots.issubset(slot_roots):
+        raise CodingWorkerRuntimeError(
+            "Claude slot declaration is invalid.", code="coding_worker_config_invalid"
+        )
+    claude_enabled = _environment_flag_enabled("CODING_WORKER_CLAUDE_ENABLED")
+    disabled_slot_ids = frozenset() if claude_enabled else frozenset(claude_slots)
+    new_task_model_routes = configured_model_routes_from_environment()
+    disabled_model_routes = tuple(
+        sorted(_configured_model_route_catalog().difference(new_task_model_routes))
+    )
+    if route_slots is None:
+        schedulable_route_slots = {} if disabled_slot_ids else None
+    elif disabled_slot_ids:
+        schedulable_route_slots = _schedulable_route_slots(
+            route_slots, disabled_slot_ids
+        )
+    else:
+        schedulable_route_slots = route_slots
+    capability_route_slots = schedulable_route_slots
     executor_endpoints = {
         "slot-a": os.getenv(
             "CODING_WORKER_EXECUTOR_A_ENDPOINT",
@@ -383,6 +493,9 @@ def build_runtime_from_environment() -> CodingWorkerRuntime:
     )
     source_adapters = dict(_SOURCE_ADAPTERS)
     frozen_checks = {**_DEFAULT_FROZEN_CHECKS, **_FROZEN_CHECKS}
+    frozen_approval_rules: dict[
+        tuple[str, str, str], tuple[FrozenApprovalRule, ...]
+    ] | None = None
     builtin_root = os.getenv("CODING_WORKER_BUILTIN_SOURCE_ROOT")
     builtin_revision = os.getenv("CODING_WORKER_BUILTIN_REVISION")
     if bool(builtin_root) != bool(builtin_revision):
@@ -435,9 +548,11 @@ def build_runtime_from_environment() -> CodingWorkerRuntime:
                 )
             frozen_checks[check_id] = check
     elif harness_v3_enabled and harness_v3_assets:
-        harness_adapter, harness_checks = _load_harness_v3_fixtures(
-            Path(harness_v3_assets)
-        )
+        (
+            harness_adapter,
+            harness_checks,
+            frozen_approval_rules,
+        ) = _load_harness_v3_fixtures(Path(harness_v3_assets))
         if "builtin" in source_adapters:
             raise CodingWorkerRuntimeError(
                 "Harness v3 fixtures conflict with a registered builtin source.",
@@ -470,9 +585,11 @@ def build_runtime_from_environment() -> CodingWorkerRuntime:
         except ModuleNotFoundError:
             from coding_runtime.project_source_client import CodingProjectSourceClient
         project_source_client = CodingProjectSourceClient(project_source_socket)
+        project_snapshot_gate = ProjectSnapshotLeaseGate()
         project_adapter = ProjectSnapshotWorkspaceSourceAdapter(
             project_source_client,
             Path(os.getenv("CODING_WORKER_PROJECT_SNAPSHOT_ROOT", "/project-snapshots")),
+            lease_gate=project_snapshot_gate,
         )
         source_adapters.setdefault("manifest", project_adapter)
         try:
@@ -492,6 +609,7 @@ def build_runtime_from_environment() -> CodingWorkerRuntime:
                             "/project-snapshots",
                         )
                     ),
+                    lease_gate=project_snapshot_gate,
                 ),
             )
     return CodingWorkerRuntime(
@@ -520,9 +638,15 @@ def build_runtime_from_environment() -> CodingWorkerRuntime:
         egress_proxy_url=os.getenv("CODING_WORKER_EGRESS_PROXY_URL") or None,
         network_grant_key=os.getenv("CODING_WORKER_EGRESS_GRANT_KEY") or None,
         route_slots=route_slots,
+        schedulable_route_slots=schedulable_route_slots,
+        new_task_model_routes=new_task_model_routes,
+        disabled_model_routes=disabled_model_routes,
+        disabled_slot_ids=tuple(sorted(disabled_slot_ids)),
+        capability_route_slots=capability_route_slots,
         route_context_tokens=_route_context_tokens_from_environment(),
         documentation_resources=_documentation_resources_from_environment(),
         harness_faults_enabled=harness_v3_enabled,
+        frozen_approval_rules=frozen_approval_rules,
         evaluation_profile=(
             "harness_v3"
             if harness_v3_enabled
@@ -570,7 +694,11 @@ def _load_parity_public_fixtures(
 
 def _load_harness_v3_fixtures(
     path: Path,
-) -> tuple[InMemoryWorkspaceSourceAdapter, dict[str, FrozenCheck]]:
+) -> tuple[
+    InMemoryWorkspaceSourceAdapter,
+    dict[str, FrozenCheck],
+    dict[tuple[str, str, str], tuple[FrozenApprovalRule, ...]],
+]:
     try:
         from .harness_v3 import load_harness_fixture_bundle
 
@@ -581,7 +709,11 @@ def _load_harness_v3_fixtures(
             code="coding_worker_config_invalid",
         ) from exc
     checks: dict[str, FrozenCheck] = {}
+    approval_rules: dict[
+        tuple[str, str, str], tuple[FrozenApprovalRule, ...]
+    ] = {}
     for fixture in bundle.fixtures:
+        rules: dict[tuple[str, str | None], FrozenApprovalRule] = {}
         for visible in fixture.visible_checks:
             check = FrozenCheck(
                 check_id=visible.check_id,
@@ -595,7 +727,78 @@ def _load_harness_v3_fixtures(
                     code="coding_worker_config_invalid",
                 )
             checks[check.check_id] = check
-    return InMemoryWorkspaceSourceAdapter(bundle.source_snapshots()), checks
+            command_rule = FrozenApprovalRule(
+                request_sha256=frozen_approval_request_sha256(
+                    "run_command",
+                    {
+                        "argv": list(visible.argv),
+                        "timeout_seconds": visible.timeout_seconds,
+                    },
+                ),
+                acceptance_check_id=visible.check_id,
+            )
+            rules[(command_rule.request_sha256, visible.check_id)] = command_rule
+            for rendered in (shlex.join(visible.argv), " ".join(visible.argv)):
+                shell_rule = FrozenApprovalRule(
+                    request_sha256=frozen_approval_request_sha256(
+                        "run_shell",
+                        {
+                            "script": rendered,
+                            "cwd": ".",
+                            "mode": "inspect",
+                            "timeout_seconds": visible.timeout_seconds,
+                        },
+                    ),
+                    acceptance_check_id=visible.check_id,
+                )
+                rules[(shell_rule.request_sha256, visible.check_id)] = shell_rule
+        scenario_path = path.parent / "tasks" / fixture.task_id / "scenario.json"
+        if fixture.scenario_sha256 is not None:
+            try:
+                encoded_scenario = scenario_path.read_bytes()
+                scenario = json.loads(encoded_scenario)
+            except (OSError, json.JSONDecodeError) as exc:
+                raise CodingWorkerRuntimeError(
+                    "Harness v3 scenario is unavailable.",
+                    code="coding_worker_config_invalid",
+                ) from exc
+            allowed = scenario.get("allowed_approvals") if isinstance(scenario, dict) else None
+            if (
+                hashlib.sha256(encoded_scenario).hexdigest()
+                != fixture.scenario_sha256
+                or not isinstance(allowed, list)
+            ):
+                raise CodingWorkerRuntimeError(
+                    "Harness v3 scenario binding is invalid.",
+                    code="coding_worker_config_invalid",
+                )
+            for approval in allowed:
+                if not isinstance(approval, dict):
+                    raise CodingWorkerRuntimeError(
+                        "Harness v3 approval is invalid.",
+                        code="coding_worker_config_invalid",
+                    )
+                tool_name = "run_command" if "argv" in approval else "run_shell"
+                try:
+                    approval_rule = FrozenApprovalRule(
+                        request_sha256=frozen_approval_request_sha256(
+                            tool_name, approval
+                        )
+                    )
+                except ValueError as exc:
+                    raise CodingWorkerRuntimeError(
+                        "Harness v3 approval is invalid.",
+                        code="coding_worker_config_invalid",
+                    ) from exc
+                rules[(approval_rule.request_sha256, None)] = approval_rule
+        approval_rules[("builtin", fixture.source_id, fixture.revision)] = tuple(
+            rules.values()
+        )
+    return (
+        InMemoryWorkspaceSourceAdapter(bundle.source_snapshots()),
+        checks,
+        approval_rules,
+    )
 
 
 def _documentation_resources_from_environment() -> dict[str, str]:
@@ -646,9 +849,7 @@ def _route_context_tokens_from_environment() -> dict[str, int]:
     return dict(value)
 
 
-def _route_slots_from_environment(
-    slot_ids: tuple[str, ...]
-) -> dict[str, tuple[str, ...]] | None:
+def _route_slot_catalog_from_environment() -> dict[str, tuple[str, ...]] | None:
     encoded = os.getenv("CODING_WORKER_ROUTE_SLOTS_JSON", "").strip()
     if not encoded:
         return None
@@ -662,7 +863,6 @@ def _route_slots_from_environment(
         raise CodingWorkerRuntimeError(
             "Worker route catalog is invalid.", code="coding_worker_config_invalid"
         )
-    allowed_slots = set(slot_ids)
     result: dict[str, tuple[str, ...]] = {}
     for route_id, raw_slots in value.items():
         if (
@@ -677,10 +877,19 @@ def _route_slots_from_environment(
                 code="coding_worker_config_invalid",
             )
         slots = tuple(dict.fromkeys(raw_slots))
-        if not set(slots).issubset(allowed_slots):
-            raise CodingWorkerRuntimeError(
-                "Worker route catalog is invalid.",
-                code="coding_worker_config_invalid",
-            )
         result[route_id] = slots
+    return result
+
+
+def _route_slots_from_environment(
+    slot_ids: tuple[str, ...]
+) -> dict[str, tuple[str, ...]] | None:
+    result = _route_slot_catalog_from_environment()
+    if result is None:
+        return None
+    allowed_slots = set(slot_ids)
+    if any(not set(slots).issubset(allowed_slots) for slots in result.values()):
+        raise CodingWorkerRuntimeError(
+            "Worker route catalog is invalid.", code="coding_worker_config_invalid"
+        )
     return result

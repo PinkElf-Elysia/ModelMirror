@@ -61,6 +61,19 @@ class ProjectHostSnapshotClient(Protocol):
     def finish_transfer(self, transfer_id: str) -> None: ...
 
 
+class ProjectSnapshotLeaseGate:
+    """Serialize one Project Source lease through copy and release."""
+
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+
+    async def __aenter__(self) -> None:
+        await self._lock.acquire()
+
+    async def __aexit__(self, *exc_info: object) -> None:
+        self._lock.release()
+
+
 _DANGEROUS_CONFIG = re.compile(
     r"^(?:include(?:if)?\.|filter\.|credential\.|url\.|diff\..*\.textconv$|"
     r"core\.worktree$|core\.excludesfile$|extensions\.(?:worktreeconfig|partialclone|refstorage)$|"
@@ -333,9 +346,16 @@ class ProjectSnapshotWorkspaceSourceAdapter:
 
     _KINDS = {"manifest": "local_clone"}
 
-    def __init__(self, client: ProjectSnapshotClient, snapshot_root: Path) -> None:
+    def __init__(
+        self,
+        client: ProjectSnapshotClient,
+        snapshot_root: Path,
+        *,
+        lease_gate: ProjectSnapshotLeaseGate | None = None,
+    ) -> None:
         self._client = client
         self._snapshot_root = Path(snapshot_root)
+        self._lease_gate = lease_gate or ProjectSnapshotLeaseGate()
 
     async def admit(self, source: WorkspaceSource) -> SourceAdmissionReceipt:
         expected_kind = self._KINDS.get(source.kind)
@@ -374,10 +394,64 @@ class ProjectSnapshotWorkspaceSourceAdapter:
             raise WorkspaceError(
                 "Workspace source kind is unsupported.", code="source_not_found"
             )
-        lease = await self._client.acquire(
-            source.source_id, expected_head=source.revision
-        )
-        return await self.consume_lease(source, lease, expected_kind=expected_kind)
+        async with self._lease_gate:
+            try:
+                lease = await self._client.acquire(
+                    source.source_id, expected_head=source.revision
+                )
+            except BaseException as exc:
+                if not self._acquire_result_is_unknown(exc):
+                    raise
+                await self._reconcile_unknown_acquire(source, expected_kind)
+                raise
+            return await self.consume_lease(
+                source, lease, expected_kind=expected_kind
+            )
+
+    @staticmethod
+    def _acquire_result_is_unknown(exc: BaseException) -> bool:
+        return isinstance(exc, (asyncio.CancelledError, TimeoutError)) or getattr(
+            exc, "code", None
+        ) in {
+            "project_source_timeout",
+            "project_source_unavailable",
+            "invalid_project_source_response",
+        }
+
+    async def _reconcile_unknown_acquire(
+        self, source: WorkspaceSource, expected_kind: str
+    ) -> None:
+        async def reconcile() -> None:
+            lease = await self._client.acquire(
+                source.source_id, expected_head=source.revision
+            )
+            lease_id = lease.get("lease_id")
+            if (
+                lease.get("kind") != expected_kind
+                or lease.get("project_id") != source.source_id
+                or lease.get("head") != source.revision
+                or not isinstance(lease_id, str)
+            ):
+                raise WorkspaceError(
+                    "Project source acquire could not be reconciled.",
+                    code="source_release_failed",
+                )
+            if not await self._release_reliably(source.source_id, lease_id):
+                raise WorkspaceError(
+                    "Project source lease could not be released.",
+                    code="source_release_failed",
+                )
+
+        task = asyncio.create_task(reconcile())
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            await task
+        except Exception as cleanup_error:
+            raise WorkspaceError(
+                "Project source acquire result is unknown.",
+                code="source_release_failed",
+            ) from cleanup_error
 
     async def consume_lease(
         self,
@@ -393,7 +467,7 @@ class ProjectSnapshotWorkspaceSourceAdapter:
             or lease.get("head") != source.revision
             or not isinstance(lease_id, str)
         ):
-            await self._release(source.source_id, lease_id)
+            await self._release_reliably(source.source_id, lease_id)
             raise WorkspaceError(
                 "Project source lease is inconsistent.",
                 code="source_revision_changed",
@@ -405,7 +479,7 @@ class ProjectSnapshotWorkspaceSourceAdapter:
             snapshot = await asyncio.to_thread(self._read_snapshot, source, lease)
         except BaseException as exc:
             failure = exc
-        released = await self._release(source.source_id, lease_id)
+        released = await self._release_reliably(source.source_id, lease_id)
         if not released:
             raise WorkspaceError(
                 "Project source lease could not be released.",
@@ -426,6 +500,13 @@ class ProjectSnapshotWorkspaceSourceAdapter:
                 "Project source lease could not be released.",
                 code="source_release_failed",
             ) from exc
+
+    async def _release_reliably(self, project_id: str, lease_id: object) -> bool:
+        task = asyncio.create_task(self._release(project_id, lease_id))
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            return await task
 
     def _read_snapshot(
         self, source: WorkspaceSource, lease: dict[str, Any]
@@ -558,11 +639,14 @@ class HostSnapshotWorkspaceSourceAdapter:
         host: ProjectHostSnapshotClient,
         project_source: ProjectSnapshotClient,
         snapshot_root: Path,
+        *,
+        lease_gate: ProjectSnapshotLeaseGate | None = None,
     ) -> None:
         self._host = host
         self._project_source = project_source
+        self._lease_gate = lease_gate or ProjectSnapshotLeaseGate()
         self._reader = ProjectSnapshotWorkspaceSourceAdapter(
-            project_source, snapshot_root
+            project_source, snapshot_root, lease_gate=self._lease_gate
         )
 
     async def admit(self, source: WorkspaceSource) -> SourceAdmissionReceipt:
@@ -604,39 +688,40 @@ class HostSnapshotWorkspaceSourceAdapter:
             )
         transfer_id: str | None = None
         try:
-            transfer = await self._host.request_snapshot(
-                source.source_id,
-                expected_head=source.revision,
-            )
-            project = transfer.get("project")
-            transfer_id = transfer.get("upload_id")
-            archive_sha256 = transfer.get("archive_sha256")
-            if (
-                not isinstance(project, dict)
-                or project.get("project_id") != source.source_id
-                or project.get("head") != source.revision
-                or not isinstance(project.get("name"), str)
-                or not isinstance(project.get("branch"), str)
-                or not isinstance(transfer_id, str)
-                or re.fullmatch(r"[a-f0-9]{32}", transfer_id) is None
-                or not isinstance(archive_sha256, str)
-                or re.fullmatch(r"[a-f0-9]{64}", archive_sha256) is None
-            ):
-                raise WorkspaceError(
-                    "Host snapshot response is inconsistent.",
-                    code="source_revision_changed",
+            async with self._lease_gate:
+                transfer = await self._host.request_snapshot(
+                    source.source_id,
+                    expected_head=source.revision,
                 )
-            lease = await self._project_source.import_uploaded(
-                upload_id=transfer_id,
-                archive_sha256=archive_sha256,
-                project_id=source.source_id,
-                name=project["name"],
-                branch=project["branch"],
-                head=source.revision,
-            )
-            return await self._reader.consume_lease(
-                source, lease, expected_kind="host_git"
-            )
+                project = transfer.get("project")
+                transfer_id = transfer.get("upload_id")
+                archive_sha256 = transfer.get("archive_sha256")
+                if (
+                    not isinstance(project, dict)
+                    or project.get("project_id") != source.source_id
+                    or project.get("head") != source.revision
+                    or not isinstance(project.get("name"), str)
+                    or not isinstance(project.get("branch"), str)
+                    or not isinstance(transfer_id, str)
+                    or re.fullmatch(r"[a-f0-9]{32}", transfer_id) is None
+                    or not isinstance(archive_sha256, str)
+                    or re.fullmatch(r"[a-f0-9]{64}", archive_sha256) is None
+                ):
+                    raise WorkspaceError(
+                        "Host snapshot response is inconsistent.",
+                        code="source_revision_changed",
+                    )
+                lease = await self._project_source.import_uploaded(
+                    upload_id=transfer_id,
+                    archive_sha256=archive_sha256,
+                    project_id=source.source_id,
+                    name=project["name"],
+                    branch=project["branch"],
+                    head=source.revision,
+                )
+                return await self._reader.consume_lease(
+                    source, lease, expected_kind="host_git"
+                )
         except WorkspaceError:
             raise
         except Exception as exc:

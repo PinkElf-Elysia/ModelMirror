@@ -260,6 +260,26 @@ class ProviderOpenRequest(StrictModel):
 def provider_message_with_repository_instructions(
     request: ProviderOpenRequest, text: str
 ) -> str:
+    acceptance_guidance = (
+        "- Frozen acceptance is platform-owned. Use run_check for checks returned by "
+        "list_acceptance_checks, or end the turn so the platform runs the immutable "
+        "required checks. After using an explicitly authorized reproduction command "
+        "and editing the workspace, do not repeat that acceptance command through "
+        "run_command or run_shell for verification. A one-time reproduction approval "
+        "does not authorize a later verification call.\n"
+    )
+    command_guidance = (
+        "- Prefer run_command for an exact argv command that is not a frozen "
+        "acceptance check. run_shell mode is exactly inspect or mutate; use mutate "
+        "only when the requested product change is intentionally produced by that "
+        "command. Never add ad-hoc debug, output, or test-runner files to inspect "
+        "command output.\n"
+        if "run_command" in request.tool_allowlist
+        else "- Use run_shell only for a task-authorized exact script. run_shell mode "
+        "is exactly inspect or mutate; use mutate only when the requested product "
+        "change is intentionally produced by that command. Never add ad-hoc debug, "
+        "output, or test-runner files to inspect command output.\n"
+    )
     broker_contract = (
         "ModelMirror Tool Broker contract:\n"
         "- Call only the exact tool names shown in the current provider tool list. "
@@ -277,10 +297,8 @@ def provider_message_with_repository_instructions(
         "unique text fragment can express the edit.\n"
         "- Refresh the workspace tree hash and affected file SHA after every "
         "successful write or mutate operation before submitting another changeset.\n"
-        "- Prefer run_command for an exact argv command. run_shell mode is exactly "
-        "inspect or mutate; use mutate only when the requested product change is "
-        "intentionally produced by that command. Never add ad-hoc debug, output, or "
-        "test-runner files to inspect command output.\n"
+        f"{acceptance_guidance}"
+        f"{command_guidance}"
         "- Shell output artifacts are not workspace paths. Read streamed shell "
         "output with read_operation_output using the original operation_id instead "
         "of rerunning a command or creating a helper file.\n"

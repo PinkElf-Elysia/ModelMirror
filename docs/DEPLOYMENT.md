@@ -915,14 +915,14 @@ CLI 的 `validate`、Fake `smoke`、`report` 和 `certify` 可以在自动门禁
 
 Harbor `0.21.0` 是评测工具，不是 Server 依赖，也不得加入共享产品栈。任务包位于 `benchmarks/coding-worker-v18/`，原生对照固定 OpenCode `1.18.9`。公开任务包不得保存隐藏 checker 正文；发布窗口另行提供仓库外只读绝对目录，并通过 `--sealed-checker-root` 交给 `validate`、`task-gate` 与 `run-round`。CLI 在临时任务副本中注入正文并绑定实际 bundle digest。先用专用 Python 环境安装固定 Harbor，再运行 `compile --write`、`validate` 和确定性任务门禁；不得修改 Server 的生产 requirements。
 
-评测 Server 只有在独立校准环境中才加载 `docker-compose.coding-worker-v18-harness.yml`；默认保持关闭，并且不能与 parity v2 同时启用。宿主变量只提供公开 fixture bundle 的绝对路径，overlay 把它只读挂到固定容器路径：
+评测 Server 只有在独立校准环境中才加载 `docker-compose.coding-worker-v18-harness.yml`；默认保持关闭，并且不能与 parity v2 同时启用。宿主变量提供公开 fixture bundle 的绝对路径，overlay 把它只读挂到固定容器路径：
 
 ```dotenv
 CODING_WORKER_HARNESS_V3_FIXTURE_FILE=C:\absolute\evaluation\fixture-bundle.json
 CODING_WORKER_HARNESS_CONTROLLER_TOKEN=<random-at-least-32-bytes>
 ```
 
-overlay 内固定 `CODING_WORKER_HARNESS_V3_ENABLED=true`、`CODING_WORKER_PARITY_ENABLED=false` 与容器路径 `/harness-v3/fixture-bundle.json`，并清空 V14 overlay 的单一 builtin source root/revision，让 Server 只注册公开的 12 项 fixture。Controller token 只进入评测 Server 与本次 Harbor Worker Agent 环境，不进入 route binding、日志或 Artifact。受控故障接口只在该 profile 可见，只能绑定唯一待批准的 mutate shell operation。overlay 不挂载 solution、公开 verifier 或密封 checker，不能加入共享产品栈。
+overlay 内固定 `CODING_WORKER_HARNESS_V3_ENABLED=true`、`CODING_WORKER_PARITY_ENABLED=false` 与容器路径 `/harness-v3/fixture-bundle.json`。它从 `CODING_IMPLEMENTATION_WORKTREE` 只读挂载三个固定的公开 `scenario.json`，供 Server 按 bundle 中的 `scenario_sha256` 校验冻结审批；不会挂载整个任务目录、`solution/`、`tests/`、公开 verifier 或密封 checker。overlay 同时清空 V14 overlay 的单一 builtin source root/revision，让 Server 只注册公开的 12 项 fixture。Controller token 只进入评测 Server 与本次 Harbor Worker Agent 环境，不进入 route binding、日志或 Artifact。受控故障接口只在该 profile 可见，只能绑定唯一待批准的 mutate shell operation，且不能加入共享产品栈。
 
 Docker Desktop 无法满足 Harbor 标准动态出站控制时，确定性 Oracle/Nop/near-miss 仍只能使用仓库提供的 `StaticNoNetworkDockerEnvironment`；该环境对所有阶段强制 `network_mode:none`。评测专用 `DockerDesktopAllowlistProbeEnvironment` 可让少量明确选择的场景经 exact-host sidecar 做真实模型探测，但 `run-round` 会硬拒绝该适配器，因此结果不是校准证据。探测 overlay 使用显式可路由子网；将其标成 `internal:true` 会在到达 sidecar 前阻断 DNS/egress，真正的边界是任务网络中只允许访问 exact-host sidecar，直连仍拒绝。真实 `run-round` 必须迁移到 Linux、使用 Harbor 标准 Docker environment，并先验证动态 egress preflight。容器化 controller 的仓库和 jobs 参数必须使用 Docker host 看到的真实绝对路径；把 controller 内 `/jobs` 直接交给 Docker API 会导致 verifier 产物对宿主不可见，必须传入 Docker host 可解析的同一绝对路径。
 

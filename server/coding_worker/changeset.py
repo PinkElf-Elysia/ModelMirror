@@ -73,8 +73,16 @@ class _PatchChange(StrictModel):
     patch_sha256: str = Field(pattern=_DIGEST)
 
 
+class _ReplaceChange(StrictModel):
+    kind: Literal["replace"]
+    path: str = Field(min_length=1, max_length=1024)
+    expected_sha256: str = Field(pattern=_DIGEST)
+    old_text: str = Field(min_length=1, max_length=MAX_CHANGESET_BYTES)
+    new_text: str = Field(max_length=MAX_CHANGESET_BYTES)
+
+
 _Change = Annotated[
-    _WriteChange | _DeleteChange | _MoveChange | _PatchChange,
+    _WriteChange | _DeleteChange | _MoveChange | _PatchChange | _ReplaceChange,
     Field(discriminator="kind"),
 ]
 _CHANGE_ADAPTER = TypeAdapter(tuple[_Change, ...])
@@ -528,7 +536,7 @@ class ChangesetEngine:
                         destination=destination,
                     )
                 )
-            else:
+            elif isinstance(change, _PatchChange):
                 existing = self._read_regular(target, required=True)
                 assert existing is not None
                 self._require_digest(existing[0], change.expected_sha256)
@@ -538,6 +546,37 @@ class ChangesetEngine:
                     content = apply_unified_patch(path, existing[0], change.patch)
                 except UnifiedPatchError as exc:
                     raise ChangesetError(str(exc), code=exc.code) from exc
+                digest = hashlib.sha256(content).hexdigest()
+                desired_content[path] = (content, existing[1])
+                entries.append(
+                    self._entry(
+                        workspace_id,
+                        operation_id,
+                        path,
+                        ChangeKind.MODIFY,
+                        change.expected_sha256,
+                        digest,
+                    )
+                )
+            else:
+                existing = self._read_regular(target, required=True)
+                assert existing is not None
+                self._require_digest(existing[0], change.expected_sha256)
+                try:
+                    text = existing[0].decode("utf-8")
+                except UnicodeDecodeError as exc:
+                    raise ChangesetError(
+                        "Replace target must be UTF-8 text.",
+                        code="tool_input_invalid",
+                    ) from exc
+                if text.count(change.old_text) != 1:
+                    raise ChangesetError(
+                        "Replace preimage must occur exactly once.",
+                        code="tool_input_invalid",
+                    )
+                content = text.replace(change.old_text, change.new_text, 1).encode(
+                    "utf-8"
+                )
                 digest = hashlib.sha256(content).hexdigest()
                 desired_content[path] = (content, existing[1])
                 entries.append(

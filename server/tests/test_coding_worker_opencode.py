@@ -29,11 +29,15 @@ from server.coding_worker.opencode_provider import (
     TOOL_BROKER_MCP_NAME,
 )
 from server.coding_worker.store import CodingWorkerStore
-from server.coding_worker.sidecar import _provider_harness_identity
+from server.coding_worker.sidecar import (
+    _provider_from_environment,
+    _provider_harness_identity,
+)
 from server.coding_worker.tool_broker import ToolBroker
 from server.coding_worker.workspace import InMemoryWorkspaceSourceAdapter, WorkspaceBroker
 from server.coding_worker.provider import (
     ProviderEventKind,
+    ProviderFailureKind,
     ProviderOpenRequest,
     provider_message_with_repository_instructions,
     provider_tools_for_policy,
@@ -107,6 +111,25 @@ def test_harness_identity_observes_the_actual_opencode_cli(
         _provider_harness_identity(provider)
 
 
+def test_sidecar_passes_the_managed_proxy_to_opencode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CODING_WORKER_PROVIDER_KIND", "opencode")
+    monkeypatch.setenv("CODING_WORKER_ROUTE_ID", "coding/default")
+    monkeypatch.setenv("CODING_WORKER_MODEL_ID", "test-model")
+    monkeypatch.setenv("CODING_WORKER_MODEL_BASE_URL", "https://openrouter.ai/api/v1")
+    monkeypatch.setenv("CODING_WORKER_ROUTE_KEY", "ephemeral-route-key")
+    monkeypatch.setenv(
+        "CODING_WORKER_PROVIDER_PROXY_URL",
+        "http://task-token@provider-egress:8081",
+    )
+
+    provider = _provider_from_environment(tmp_path / "workspace", tmp_path / "runtime")
+
+    assert isinstance(provider, OpenCodeProvider)
+    assert provider._provider_proxy_url == "http://task-token@provider-egress:8081"
+
+
 def test_config_disables_direct_tools_plugins_sharing_and_supplier_surface(tmp_path: Path) -> None:
     provider = OpenCodeProvider(
         workspace_resolver=lambda _workspace_id: tmp_path,
@@ -142,6 +165,90 @@ def test_config_disables_direct_tools_plugins_sharing_and_supplier_surface(tmp_p
         "OPENCODE_DISABLE_LSP_DOWNLOAD": "1",
         "OPENCODE_DISABLE_SHARE": "1",
     }
+
+
+def test_provider_proxy_is_applied_without_bypassing_the_route_host(tmp_path: Path) -> None:
+    provider = OpenCodeProvider(
+        workspace_resolver=lambda _workspace_id: tmp_path,
+        runtime_root=tmp_path / "runtime",
+        routes={"coding/default": _route()},
+        tool_broker_command=("python", "-m", "coding_worker.tool_mcp"),
+        provider_proxy_url="http://task-token@provider-egress:8081",
+    )
+
+    environment = provider._build_server_environment(
+        home=tmp_path / "home",
+        route=OpenCodeRoute(
+            route_id="coding/default",
+            model_id="test-model",
+            base_url="https://openrouter.ai/api/v1",
+            api_key="ephemeral-route-key",
+        ),
+        password="server-password",
+        broker_environment={"CODING_WORKER_TASK_ID": "task-01"},
+        tool_allowlist=tuple(),
+    )
+
+    assert environment["HTTPS_PROXY"] == "http://task-token@provider-egress:8081"
+    assert environment["HTTP_PROXY"] == environment["HTTPS_PROXY"]
+    assert environment["NO_PROXY"] == "localhost,127.0.0.1"
+    assert "openrouter.ai" not in environment["NO_PROXY"]
+    assert environment["CODING_WORKER_ROUTE_KEY"] == "ephemeral-route-key"
+
+
+def test_route_rejects_a_concrete_chat_completion_endpoint() -> None:
+    with pytest.raises(ValueError, match="API root URL"):
+        OpenCodeRoute(
+            route_id="coding/default",
+            model_id="test-model",
+            base_url="http://new-api:3000/v1/chat/completions",
+            api_key="ephemeral-route-key",
+        )
+
+
+@pytest.mark.parametrize(
+    ("error", "failure"),
+    [
+        ({"data": {"statusCode": 401}}, ProviderFailureKind.AUTHENTICATION),
+        ({"data": {"statusCode": 429}}, ProviderFailureKind.RATE_LIMITED),
+        ({"message": "Credit balance is too low"}, ProviderFailureKind.BUDGET),
+        ({"data": {"statusCode": 404}}, ProviderFailureKind.INVALID_RESPONSE),
+    ],
+)
+def test_error_frame_uses_a_sanitized_failure_classification(
+    error: dict[str, object], failure: ProviderFailureKind
+) -> None:
+    event = OpenCodeProvider._map_event(
+        {
+            "type": "session.error",
+            "properties": {
+                "sessionID": "ses_test",
+                "error": error,
+                "raw_frame": "must-not-leak",
+            },
+        },
+        "ses_test",
+    )
+
+    assert event is not None and event.kind is ProviderEventKind.FAILED
+    assert event.data == {"failure_kind": failure.value}
+
+
+@pytest.mark.parametrize("marker", ("Aborted", "AbortError", "cancelled", "canceled"))
+def test_error_frame_maps_explicit_abort_to_cancelled(marker: str) -> None:
+    event = OpenCodeProvider._map_event(
+        {
+            "type": "session.error",
+            "properties": {
+                "sessionID": "ses_test",
+                "error": {"name": marker, "raw_frame": "must-not-leak"},
+            },
+        },
+        "ses_test",
+    )
+
+    assert event is not None and event.kind is ProviderEventKind.CANCELLED
+    assert event.data == {}
 
 
 def test_develop_provider_uses_atomic_changesets_not_legacy_file_writes() -> None:
@@ -310,6 +417,11 @@ async def test_headless_adapter_maps_events_cancel_and_checkpoint_without_public
     assert "Use a replace change" in prompt
     assert "Refresh the workspace tree hash" in prompt
     assert "the file's final newline" in prompt
+    assert "Frozen acceptance is platform-owned" in prompt
+    assert "Use run_check for checks returned by list_acceptance_checks" in prompt
+    assert "do not repeat that acceptance command" in prompt
+    assert "does not authorize a later verification call" in prompt
+    assert "run_command for an exact argv command that is not a frozen acceptance check" in prompt
     assert "run_shell mode is exactly inspect or mutate" in prompt
     assert "read_operation_output" in prompt
     assert "Never add ad-hoc debug" in prompt
@@ -333,6 +445,24 @@ async def test_headless_adapter_maps_events_cancel_and_checkpoint_without_public
     assert restored.task_id == session.task_id
     await provider.close(restored)
     assert closed == [True, True]
+
+
+def test_prompt_does_not_recommend_a_legacy_command_tool_when_not_available() -> None:
+    request = _request().model_copy(
+        update={
+            "tool_allowlist": tuple(
+                tool_name
+                for tool_name in _request().tool_allowlist
+                if tool_name != "run_command"
+            )
+        }
+    )
+
+    prompt = provider_message_with_repository_instructions(request, "continue")
+
+    assert "Prefer run_command" not in prompt
+    assert "Use run_check for checks returned by list_acceptance_checks" in prompt
+    assert "Use run_shell only for a task-authorized exact script" in prompt
 
 
 def test_provider_session_is_excluded_from_public_task_record() -> None:

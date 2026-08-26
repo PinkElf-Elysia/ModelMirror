@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "candidate_base_sha": "d4bd6b8dc151b79001efc0bbe3f06e22716dae0a",
+  "candidate_diff_sha256": "3e78fd2341e51e9608894e22a0d01351215498764a9fc63cfbd3ce658596c06b",
+  "compose_config_sha256": "6bdfd9d9e8aef81fa1696f65677ba8de43062068b5ee99161c72ea8efaa2219b",
+  "restart_boundary_sequence": 13,
+  "events": [
+    {"sequence": 12, "type": "turn_parked"},
+    {"sequence": 15, "type": "turn_resumed"},
+    {"sequence": 18, "type": "task_state", "reason": "harness_binding_changed"},
+    {"sequence": 19, "type": "capability_changed"},
+    {"sequence": 31, "type": "operation_reconciled"},
+    {"sequence": 87, "type": "evidence_recorded"},
+    {"sequence": 90, "type": "task_state", "state": "completed"}
+  ],
+  "metrics": {
+    "events": 90,
+    "usage_events": 14,
+    "evidence_passed": 1,
+    "operations": 10,
+    "unsettled_operations": 0,
+    "duplicate_side_effects": 0,
+    "orphaned_interactions": 0,
+    "generic_failures": 0,
+    "public_leaks": 0,
+    "diff_bytes": 487
+  }
+}

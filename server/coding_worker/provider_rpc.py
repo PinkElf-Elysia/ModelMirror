@@ -21,6 +21,7 @@ from .provider import (
     ProviderCapabilities,
     ProviderCheckpoint,
     ProviderEvent,
+    ProviderEventKind,
     ProviderOpenRequest,
     ProviderSession,
 )
@@ -86,6 +87,7 @@ class ProviderRPCServer:
         self._controller_generation = 0
         self._lock = asyncio.Lock()
         self._connections: dict[asyncio.Task[None], asyncio.StreamWriter] = {}
+        self._message_tasks: dict[tuple[str, str], asyncio.Task[None]] = {}
 
     async def start_unix(self, socket_path: Path) -> str:
         if self._server is not None:
@@ -130,6 +132,7 @@ class ProviderRPCServer:
         current = asyncio.current_task()
         if current is not None:
             self._connections[current] = writer
+        message_key: tuple[str, str] | None = None
         try:
             request = await self._read_request(reader)
             if request.action == "message":
@@ -145,6 +148,15 @@ class ProviderRPCServer:
                 self._require_active_session(
                     session, controller_id, controller_generation
                 )
+                message_key = (session.task_id, session.session_id)
+                existing = self._message_tasks.get(message_key)
+                if existing is not None and existing is not current:
+                    raise ProviderRPCError(
+                        "Provider session already has an active stream.",
+                        code="provider_session_busy",
+                    )
+                if current is not None:
+                    self._message_tasks[message_key] = current
                 async for event in self.provider.message(session, text):
                     self._require_active_session(
                         session, controller_id, controller_generation
@@ -181,6 +193,11 @@ class ProviderRPCServer:
                 *_CLIENT_DISCONNECTED,
             ):
                 await asyncio.wait_for(writer.wait_closed(), timeout=1)
+            if (
+                message_key is not None
+                and self._message_tasks.get(message_key) is current
+            ):
+                self._message_tasks.pop(message_key, None)
             if current is not None:
                 self._connections.pop(current, None)
 
@@ -371,6 +388,7 @@ class ProviderRPCServer:
         if request.action == "checkpoint":
             return (await self.provider.checkpoint(session)).model_dump(mode="json")
         if request.action == "close":
+            await self._stop_message_stream(session)
             await self.provider.close(session)
             if self._executor is not None:
                 await self._executor.stop_task(session.task_id)
@@ -416,10 +434,23 @@ class ProviderRPCServer:
                 "Provider session was not found.", code="session_not_found"
             )
 
+    async def _stop_message_stream(self, session: ProviderSession) -> None:
+        stream = self._message_tasks.pop(
+            (session.task_id, session.session_id), None
+        )
+        current = asyncio.current_task()
+        if stream is None or stream is current:
+            return
+        stream.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await stream
+
     async def _release_active(self) -> None:
         session = self._active_session
         task_id = self._active_task_id
         if session is not None:
+            with contextlib.suppress(Exception):
+                await self._stop_message_stream(session)
             with contextlib.suppress(Exception):
                 await self.provider.cancel(session)
             with contextlib.suppress(Exception):
@@ -502,6 +533,7 @@ class ProviderSidecarClientPool(CodingAgentProvider):
         self._controller_id = controller_id
         self._controller_generation = controller_generation
         self._sessions: dict[tuple[str, str], tuple[str, str, str]] = {}
+        self._fenced_streams: set[tuple[str, str]] = set()
 
     async def capabilities(self) -> ProviderCapabilities:
         values = [
@@ -522,12 +554,20 @@ class ProviderSidecarClientPool(CodingAgentProvider):
         return self._controller_generation
 
     async def slot_capabilities(
-        self,
+        self, slot_ids: Sequence[str] | None = None
     ) -> dict[str, ProviderCapabilities | None]:
         """Return one fail-closed observation per configured provider slot."""
 
         observations: dict[str, ProviderCapabilities | None] = {}
-        for slot_id in self._endpoints:
+        targets = (
+            tuple(self._endpoints)
+            if slot_ids is None
+            else tuple(dict.fromkeys(slot_ids))
+        )
+        for slot_id in targets:
+            if slot_id not in self._endpoints:
+                observations[slot_id] = None
+                continue
             try:
                 observations[slot_id] = ProviderCapabilities.model_validate(
                     await self._call(slot_id, "capabilities", {})
@@ -539,7 +579,7 @@ class ProviderSidecarClientPool(CodingAgentProvider):
     async def capabilities_for_slots(
         self, slot_ids: Sequence[str]
     ) -> dict[str, ProviderCapabilities | None]:
-        observations = await self.slot_capabilities()
+        observations = await self.slot_capabilities(slot_ids)
         return {slot_id: observations.get(slot_id) for slot_id in slot_ids}
 
     async def harness_attestations(self) -> dict[str, dict[str, Any]]:
@@ -627,15 +667,17 @@ class ProviderSidecarClientPool(CodingAgentProvider):
         self, session: ProviderSession, text: str
     ) -> AsyncIterator[ProviderEvent]:
         slot_id = self._require_session(session)
+        session_key = self._session_key(session)
+        self._fenced_streams.discard(session_key)
         reader, writer = await self._connect(slot_id)
-        await self._send(
-            writer,
-            "message",
-            {"session": session.model_dump(mode="json"), "text": text},
-            slot_id,
-        )
         completed = False
         try:
+            await self._send(
+                writer,
+                "message",
+                {"session": session.model_dump(mode="json"), "text": text},
+                slot_id,
+            )
             while True:
                 value = await self._read(reader)
                 if value.get("done") is True:
@@ -646,20 +688,36 @@ class ProviderSidecarClientPool(CodingAgentProvider):
                     raise ProviderRPCError(
                         "Provider stream is invalid.", code="provider_invalid_response"
                     )
-                yield ProviderEvent.model_validate(event)
+                parsed = ProviderEvent.model_validate(event)
+                if parsed.kind in {
+                    ProviderEventKind.TURN_COMPLETED,
+                    ProviderEventKind.CANCELLED,
+                    ProviderEventKind.FAILED,
+                }:
+                    # The normalized terminal event is the durable stream
+                    # boundary consumed by the control plane.  A caller may
+                    # stop here without reading the sidecar's trailing ``done``
+                    # frame; that must not emit a late abort into the next turn.
+                    completed = True
+                yield parsed
         finally:
             writer.close()
-            await writer.wait_closed()
-            if not completed:
+            with contextlib.suppress(OSError, TimeoutError):
+                await asyncio.wait_for(writer.wait_closed(), timeout=1)
+            if not completed and session_key not in self._fenced_streams:
                 with contextlib.suppress(Exception):
                     await self.interrupt_turn(session)
+            self._fenced_streams.discard(session_key)
 
     async def cancel(self, session: ProviderSession) -> bool:
         slot_id = self._require_session(session)
         result = await self._call(
             slot_id, "cancel", {"session": session.model_dump(mode="json")}
         )
-        return result.get("cancelled") is True
+        cancelled = result.get("cancelled") is True
+        if cancelled:
+            self._fenced_streams.add(self._session_key(session))
+        return cancelled
 
     async def interrupt_turn(self, session: ProviderSession) -> bool:
         slot_id = self._require_session(session)
@@ -668,7 +726,10 @@ class ProviderSidecarClientPool(CodingAgentProvider):
             "interrupt_turn",
             {"session": session.model_dump(mode="json")},
         )
-        return result.get("interrupted") is True
+        interrupted = result.get("interrupted") is True
+        if interrupted:
+            self._fenced_streams.add(self._session_key(session))
+        return interrupted
 
     async def checkpoint(self, session: ProviderSession) -> ProviderCheckpoint:
         slot_id = self._require_session(session)
@@ -679,7 +740,8 @@ class ProviderSidecarClientPool(CodingAgentProvider):
         )
 
     async def close(self, session: ProviderSession) -> None:
-        binding = self._sessions.pop(self._session_key(session), None)
+        session_key = self._session_key(session)
+        binding = self._sessions.pop(session_key, None)
         if binding is None or binding[1] != session.task_id:
             return
         slot_id = binding[0]
@@ -688,6 +750,7 @@ class ProviderSidecarClientPool(CodingAgentProvider):
                 slot_id, "close", {"session": session.model_dump(mode="json")}
             )
         finally:
+            self._fenced_streams.discard(session_key)
             if self._executor_pool is not None:
                 with contextlib.suppress(Exception):
                     await self._executor_pool.close_task(session.task_id, binding[2])
@@ -791,8 +854,8 @@ class ProviderSidecarClientPool(CodingAgentProvider):
         self, slot_id: str, action: str, payload: dict[str, Any]
     ) -> dict[str, Any]:
         reader, writer = await self._connect(slot_id)
-        await self._send(writer, action, payload, slot_id)
         try:
+            await self._send(writer, action, payload, slot_id)
             value = await self._read(reader)
             result = value.get("result")
             if not isinstance(result, dict):
@@ -802,7 +865,8 @@ class ProviderSidecarClientPool(CodingAgentProvider):
             return result
         finally:
             writer.close()
-            await writer.wait_closed()
+            with contextlib.suppress(OSError, TimeoutError):
+                await asyncio.wait_for(writer.wait_closed(), timeout=1)
 
     async def _send(
         self,
@@ -824,32 +888,68 @@ class ProviderSidecarClientPool(CodingAgentProvider):
                 "Provider request is too large.", code="provider_request_too_large"
             )
         writer.write(encoded)
-        await writer.drain()
+        try:
+            await writer.drain()
+        except (OSError, TimeoutError) as exc:
+            raise ProviderRPCError(
+                "Provider transport is unavailable.",
+                code="provider_transport_unavailable",
+            ) from exc
 
     async def _connect(
         self, slot_id: str
     ) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
         endpoint = self._endpoints[slot_id]
-        if endpoint.startswith("unix:"):
-            return await asyncio.open_unix_connection(
-                endpoint.removeprefix("unix:"), limit=MAX_PROVIDER_RPC_BYTES
-            )
-        if endpoint.startswith("tcp:127.0.0.1:"):
-            return await asyncio.open_connection(
-                "127.0.0.1", int(endpoint.rsplit(":", 1)[1]), limit=MAX_PROVIDER_RPC_BYTES
-            )
+        try:
+            if endpoint.startswith("unix:"):
+                return await asyncio.open_unix_connection(
+                    endpoint.removeprefix("unix:"), limit=MAX_PROVIDER_RPC_BYTES
+                )
+            if endpoint.startswith("tcp:127.0.0.1:"):
+                return await asyncio.open_connection(
+                    "127.0.0.1",
+                    int(endpoint.rsplit(":", 1)[1]),
+                    limit=MAX_PROVIDER_RPC_BYTES,
+                )
+        except (OSError, TimeoutError) as exc:
+            raise ProviderRPCError(
+                "Provider transport is unavailable.",
+                code="provider_transport_unavailable",
+            ) from exc
         raise ProviderRPCError(
             "Provider endpoint is invalid.", code="provider_endpoint_invalid"
         )
 
     @staticmethod
     async def _read(reader: asyncio.StreamReader) -> dict[str, Any]:
-        raw = await reader.readline()
-        if not raw or len(raw) > MAX_PROVIDER_RPC_BYTES:
+        try:
+            raw = await reader.readline()
+        except (OSError, TimeoutError) as exc:
+            raise ProviderRPCError(
+                "Provider transport is unavailable.",
+                code="provider_transport_unavailable",
+            ) from exc
+        except ValueError as exc:
+            raise ProviderRPCError(
+                "Provider response is too large.",
+                code="provider_response_too_large",
+            ) from exc
+        if not raw or not raw.endswith(b"\n"):
+            raise ProviderRPCError(
+                "Provider transport ended before a complete response.",
+                code="provider_transport_unavailable",
+            )
+        if len(raw) > MAX_PROVIDER_RPC_BYTES:
+            raise ProviderRPCError(
+                "Provider response is too large.",
+                code="provider_response_too_large",
+            )
+        try:
+            value = json.loads(raw)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ProviderRPCError(
                 "Provider response is invalid.", code="provider_invalid_response"
-            )
-        value = json.loads(raw)
+            ) from exc
         if not isinstance(value, dict) or value.get("ok") is not True:
             error = value.get("error") if isinstance(value, dict) else None
             code = error.get("code") if isinstance(error, dict) else "provider_failed"

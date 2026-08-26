@@ -41,12 +41,14 @@ from .harness_contracts import (
     HarnessOpenRequest,
     HarnessSession,
 )
-from .harness_driver import ProviderV4HarnessTranslator
+from .harness_driver import HarnessDriverProtocolError, ProviderV4HarnessTranslator
 from .harness_protocol import HarnessBinding, HarnessDescriptorObservation
 from .provider import (
     CodingAgentProvider,
     ProviderCapabilities,
     ProviderCheckpoint,
+    ProviderEvent,
+    ProviderEventKind,
     ProviderOpenRequest,
     ProviderSession,
 )
@@ -121,10 +123,42 @@ class LegacyHarnessDriver:
             tuple[str, str], ProviderV4HarnessTranslator
         ] = {}
         self._active_turns: dict[tuple[str, str], str] = {}
+        self._provider_streams: dict[
+            tuple[str, str, str], AsyncIterator[ProviderEvent]
+        ] = {}
 
     @staticmethod
     def _session_key(session: HarnessSession | ProviderSession) -> tuple[str, str]:
         return session.task_id, session.session_id
+
+    @staticmethod
+    def _public_v20_event(
+        event: ProviderEvent,
+        *,
+        binding: HarnessBinding,
+        turn_id: str,
+    ) -> ProviderEvent:
+        """Replace supplier-local tool ids before an event reaches persistence.
+
+        Provider-v4 needs the original id inside its private stream to match a
+        tool result to its start frame.  The public ledger only needs a stable
+        correlation id, so derive one from the frozen task binding and turn.
+        """
+
+        if event.kind not in {
+            ProviderEventKind.TOOL_STARTED,
+            ProviderEventKind.TOOL_COMPLETED,
+        }:
+            return event
+        data = dict(event.data)
+        raw_operation_id = str(data["operation_id"])
+        digest = hashlib.sha256(
+            "\0".join(
+                (binding.binding_sha256, turn_id, raw_operation_id)
+            ).encode("utf-8")
+        ).hexdigest()
+        data["operation_id"] = f"harness_call_{digest[:32]}"
+        return event.model_copy(update={"data": data})
 
     @staticmethod
     def _provider_request(request: HarnessOpenRequest) -> ProviderOpenRequest:
@@ -154,6 +188,74 @@ class LegacyHarnessDriver:
             )
         return provider_session
 
+    @staticmethod
+    def _v20_boundary_error(exc: Exception) -> CodingSubstrateError:
+        code = getattr(exc, "code", None)
+        if code in {
+            "harness_transport_unavailable",
+            "harness_protocol_invalid",
+            "harness_driver_internal",
+            "harness_authentication_failed",
+            "harness_rate_limited",
+            "harness_policy_rejected",
+            "harness_budget_exhausted",
+            "harness_interrupted",
+        }:
+            return CodingSubstrateError(
+                "Harness request failed.", code=str(code), status=503
+            )
+        if isinstance(exc, (OSError, TimeoutError)) or code in {
+            "provider_unavailable",
+            "provider_offline",
+            "provider_stream_ended",
+            "provider_transport_unavailable",
+        }:
+            return CodingSubstrateError(
+                "Harness transport is unavailable.",
+                code="harness_transport_unavailable",
+                status=503,
+            )
+        if code in {
+            "provider_unauthorized",
+            "provider_credential_unavailable",
+        }:
+            return CodingSubstrateError(
+                "Harness authentication failed.",
+                code="harness_authentication_failed",
+                status=503,
+            )
+        if isinstance(exc, (HarnessDriverProtocolError, ValueError)) or code in {
+            "provider_invalid_response",
+            "provider_response_too_large",
+            "provider_request_too_large",
+            "provider_request_invalid",
+            "provider_endpoint_invalid",
+            "provider_capability_mismatch",
+            "provider_controller_stale",
+            "provider_session_busy",
+            "provider_slot_busy",
+            "provider_version_mismatch",
+            "session_not_found",
+            "checkpoint_invalid",
+            "harness_session_unavailable",
+        }:
+            return CodingSubstrateError(
+                "Harness protocol response is invalid.",
+                code="harness_protocol_invalid",
+                status=502,
+            )
+        return CodingSubstrateError(
+            "Harness driver failed internally.",
+            code="harness_driver_internal",
+            status=502,
+        )
+
+    @classmethod
+    def _raise_boundary(cls, exc: Exception, *, v20: bool) -> None:
+        if v20:
+            raise cls._v20_boundary_error(exc) from exc
+        raise exc
+
     def _bind(
         self,
         session: ProviderSession,
@@ -172,9 +274,13 @@ class LegacyHarnessDriver:
         *,
         binding: HarnessBinding | None = None,
     ) -> HarnessSession:
-        session = await self._provider.open(self._provider_request(request))
-        self._bind(session, binding)
-        return self._harness_session(session)
+        try:
+            session = await self._provider.open(self._provider_request(request))
+            self._bind(session, binding)
+            return self._harness_session(session)
+        except Exception as exc:
+            self._raise_boundary(exc, v20=binding is not None)
+            raise AssertionError("unreachable")
 
     def message(
         self,
@@ -188,20 +294,87 @@ class LegacyHarnessDriver:
         translator = self._translators.get(key)
 
         async def stream() -> AsyncIterator[HarnessEvent]:
-            if translator is not None:
-                translator.start_turn(turn_id)
-                self._active_turns[key] = turn_id
+            failed = False
+            finished = False
+            provider_stream = self._provider.message(provider_session, text).__aiter__()
+            stream_key = (*key, turn_id)
+            self._provider_streams[stream_key] = provider_stream
             try:
-                async for event in self._provider.message(provider_session, text):
+                if translator is not None:
+                    translator.start_turn(turn_id)
+                    self._active_turns[key] = turn_id
+                async for event in provider_stream:
                     if translator is not None:
                         translator.accept(event, turn_id=turn_id)
+                        event = self._public_v20_event(
+                            event,
+                            binding=translator.session.binding,
+                            turn_id=turn_id,
+                        )
+                    if event.kind in {
+                        ProviderEventKind.TURN_COMPLETED,
+                        ProviderEventKind.CANCELLED,
+                        ProviderEventKind.FAILED,
+                    }:
+                        finished = True
                     yield HarnessEvent.model_validate(event.model_dump(mode="json"))
+                finished = True
+            except Exception as exc:
+                failed = True
+                finished = True
+                self._raise_boundary(exc, v20=translator is not None)
             finally:
-                active_turn = self._active_turns.pop(key, None)
-                if translator is not None and active_turn is not None:
-                    translator.interrupt_turn(turn_id=active_turn)
+                owned_stream = self._provider_streams.get(stream_key)
+                if (
+                    (finished or translator is None)
+                    and owned_stream is provider_stream
+                ):
+                    try:
+                        await self._close_provider_stream(key, turn_id=turn_id)
+                    except Exception as exc:
+                        if not failed:
+                            self._raise_boundary(exc, v20=translator is not None)
+                # A completed stream can be finalized after its successor has
+                # already started.  Only the stream that still owns this exact
+                # turn may clear or interrupt it; otherwise stale cleanup would
+                # fence the newer turn as a protocol violation.
+                if (
+                    finished
+                    and translator is not None
+                    and self._active_turns.get(key) == turn_id
+                ):
+                    self._active_turns.pop(key, None)
+                    try:
+                        translator.interrupt_turn(turn_id=turn_id)
+                    except Exception as exc:
+                        if not failed:
+                            self._raise_boundary(exc, v20=True)
 
         return stream()
+
+    async def _close_provider_stream(
+        self, key: tuple[str, str], *, turn_id: str | None = None
+    ) -> None:
+        stream_keys = (
+            [(*key, turn_id)]
+            if turn_id is not None
+            else [item for item in tuple(self._provider_streams) if item[:2] == key]
+        )
+        failure: Exception | None = None
+        for stream_key in stream_keys:
+            current = self._provider_streams.pop(stream_key, None)
+            if current is None:
+                continue
+            close = getattr(current, "aclose", None)
+            if close is None:
+                continue
+            try:
+                await close()
+            except Exception as exc:
+                if failure is None:
+                    failure = exc
+        if failure is not None:
+            raise failure
 
     async def steer(self, session: HarnessSession, text: str) -> bool:
         # Provider v4 queues steering through the control plane at a durable
@@ -209,23 +382,60 @@ class LegacyHarnessDriver:
         return False
 
     async def cancel(self, session: HarnessSession) -> bool:
-        return await self._provider.cancel(self._require_provider_session(session))
+        provider_session = self._require_provider_session(session)
+        key = self._session_key(session)
+        v20 = key in self._translators
+        try:
+            # ``cancel`` fences the whole session but does not own the task
+            # currently awaiting the nested provider iterator.  The control
+            # plane cancels that reader next and ``close`` performs the final
+            # deterministic stream cleanup.  Calling ``aclose`` here races
+            # with the in-flight ``anext`` and can raise ``async generator is
+            # already running`` before the task is fenced.
+            return await self._provider.cancel(provider_session)
+        except Exception as exc:
+            self._raise_boundary(exc, v20=v20)
+            raise AssertionError("unreachable")
 
     async def interrupt_turn(self, session: HarnessSession) -> bool:
         provider_session = self._require_provider_session(session)
-        interrupted = await self._provider.interrupt_turn(provider_session)
         key = self._session_key(session)
-        active_turn = self._active_turns.pop(key, None)
         translator = self._translators.get(key)
+        failure: Exception | None = None
+        interrupted = False
+        try:
+            interrupted = await self._provider.interrupt_turn(provider_session)
+        except Exception as exc:
+            failure = exc
+        try:
+            await self._close_provider_stream(key)
+        except Exception as exc:
+            if failure is None:
+                failure = exc
+        active_turn = self._active_turns.pop(key, None)
         if translator is not None and active_turn is not None:
-            translator.interrupt_turn(turn_id=active_turn)
+            try:
+                translator.interrupt_turn(turn_id=active_turn)
+            except Exception as exc:
+                if failure is None:
+                    failure = exc
+        if failure is not None:
+            self._raise_boundary(failure, v20=translator is not None)
+            raise AssertionError("unreachable")
         return interrupted
 
     async def checkpoint(self, session: HarnessSession) -> HarnessCheckpoint:
-        checkpoint = await self._provider.checkpoint(
-            self._require_provider_session(session)
-        )
-        return HarnessCheckpoint.model_validate(checkpoint.model_dump(mode="json"))
+        key = self._session_key(session)
+        try:
+            checkpoint = await self._provider.checkpoint(
+                self._require_provider_session(session)
+            )
+            return HarnessCheckpoint.model_validate(
+                checkpoint.model_dump(mode="json")
+            )
+        except Exception as exc:
+            self._raise_boundary(exc, v20=key in self._translators)
+            raise AssertionError("unreachable")
 
     async def restore(
         self,
@@ -234,23 +444,45 @@ class LegacyHarnessDriver:
         *,
         binding: HarnessBinding | None = None,
     ) -> HarnessSession:
-        session = await self._provider.restore(
-            self._provider_request(request), self._provider_checkpoint(checkpoint)
-        )
-        self._bind(session, binding)
-        return self._harness_session(session)
+        try:
+            session = await self._provider.restore(
+                self._provider_request(request), self._provider_checkpoint(checkpoint)
+            )
+            self._bind(session, binding)
+            return self._harness_session(session)
+        except Exception as exc:
+            self._raise_boundary(exc, v20=binding is not None)
+            raise AssertionError("unreachable")
 
     async def close(self, session: HarnessSession) -> None:
         provider_session = self._require_provider_session(session)
+        key = self._session_key(session)
+        translator = self._translators.get(key)
+        failure: Exception | None = None
+        try:
+            await self._close_provider_stream(key)
+        except Exception as exc:
+            failure = exc
         try:
             await self._provider.close(provider_session)
+        except Exception as exc:
+            if failure is None:
+                failure = exc
         finally:
-            key = self._session_key(session)
             self._active_turns.pop(key, None)
-            translator = self._translators.pop(key, None)
+            for stream_key in tuple(self._provider_streams):
+                if stream_key[:2] == key:
+                    self._provider_streams.pop(stream_key, None)
+            self._translators.pop(key, None)
             if translator is not None:
-                translator.close()
+                try:
+                    translator.close()
+                except Exception as exc:
+                    if failure is None:
+                        failure = exc
             self._sessions.pop(key, None)
+        if failure is not None:
+            self._raise_boundary(failure, v20=translator is not None)
 
 
 class LegacyExecutionBackend:

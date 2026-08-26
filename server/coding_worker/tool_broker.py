@@ -56,6 +56,15 @@ from .workspace import WorkspaceBroker, WorkspaceError
 MAX_TOOL_OUTPUT_BYTES = 2 * 1024 * 1024
 MAX_WRITE_BYTES = 8 * 1024 * 1024
 SAFE_TOOL_NAME = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+SHELL_HOST_PATH = re.compile(
+    r"(?:^|[\s\"'=<>;&(])(?:[A-Za-z]:[\\/]|\\\\|~(?:[\\/]|$)|file://)",
+    re.IGNORECASE,
+)
+SHELL_PRIVATE_RUNTIME_PATH = re.compile(
+    r"/(?:worker-data/workspaces|project-snapshots|project-uploads)(?:/|$)"
+    r"|/run/modelmirror-[A-Za-z0-9_.-]+",
+    re.IGNORECASE,
+)
 ALWAYS_DENIED_EXECUTABLES = frozenset(
     {
         "bash",
@@ -84,6 +93,15 @@ CODE_INTELLIGENCE_TO_OPERATION = {
     "code_hover": "hover",
     "code_diagnostics": "diagnostics",
 }
+V20_SHELL_NO_SIDE_EFFECT_ERROR_CODES = frozenset(
+    {
+        "executor_binding_invalid",
+        "executor_request_invalid",
+        "executor_slot_busy",
+        "executor_unauthorized",
+        "executor_unavailable",
+    }
+)
 
 
 class ToolBrokerError(RuntimeError):
@@ -96,6 +114,67 @@ class FrozenCheck(StrictModel):
     check_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
     argv: tuple[str, ...] = Field(min_length=1, max_length=64)
     timeout_seconds: int = Field(default=300, ge=1, le=1800)
+
+
+class FrozenApprovalRule(StrictModel):
+    request_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    acceptance_check_id: str | None = Field(
+        default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"
+    )
+
+
+def frozen_approval_request_sha256(
+    tool_name: str, arguments: Mapping[str, Any]
+) -> str:
+    if tool_name == "run_command":
+        if set(arguments) != {"argv", "timeout_seconds"}:
+            raise ValueError("frozen command request is invalid")
+        argv = arguments.get("argv")
+        timeout_seconds = arguments.get("timeout_seconds")
+        if (
+            not isinstance(argv, list)
+            or not argv
+            or not all(isinstance(value, str) and value for value in argv)
+            or isinstance(timeout_seconds, bool)
+            or not isinstance(timeout_seconds, int)
+            or not 1 <= timeout_seconds <= 1800
+        ):
+            raise ValueError("frozen command request is invalid")
+        normalized: dict[str, Any] = {
+            "tool_name": tool_name,
+            "argv": argv,
+            "timeout_seconds": timeout_seconds,
+        }
+    elif tool_name == "run_shell":
+        if set(arguments) != {"script", "cwd", "mode", "timeout_seconds"}:
+            raise ValueError("frozen shell request is invalid")
+        script = arguments.get("script")
+        cwd = arguments.get("cwd")
+        mode = arguments.get("mode")
+        timeout_seconds = arguments.get("timeout_seconds")
+        if (
+            not isinstance(script, str)
+            or not script
+            or not isinstance(cwd, str)
+            or not cwd
+            or mode not in {ShellMode.INSPECT.value, ShellMode.MUTATE.value}
+            or isinstance(timeout_seconds, bool)
+            or not isinstance(timeout_seconds, int)
+            or not 1 <= timeout_seconds <= 1800
+        ):
+            raise ValueError("frozen shell request is invalid")
+        normalized = {
+            "tool_name": tool_name,
+            "script_sha256": hashlib.sha256(script.encode("utf-8")).hexdigest(),
+            "cwd": cwd,
+            "mode": mode,
+            "timeout_seconds": timeout_seconds,
+        }
+    else:
+        raise ValueError("tool has no frozen approval contract")
+    return hashlib.sha256(
+        json.dumps(normalized, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
 
 
 class ToolResult(StrictModel):
@@ -134,6 +213,10 @@ class ToolBroker:
         ]
         | None = None,
         harness_faults_enabled: bool = False,
+        frozen_approval_rules: Mapping[
+            tuple[str, str, str], Sequence[FrozenApprovalRule]
+        ]
+        | None = None,
     ) -> None:
         if not 1024 <= max_output_bytes <= 16 * 1024 * 1024:
             raise ValueError("tool output limit is invalid")
@@ -153,6 +236,93 @@ class ToolBroker:
         self.changesets = ChangesetEngine(workspace_broker)
         self._harness_faults_enabled = harness_faults_enabled
         self._harness_faults: set[tuple[str, str, str, str]] = set()
+        self._frozen_approval_rules = (
+            None
+            if frozen_approval_rules is None
+            else {
+                key: tuple(value) for key, value in frozen_approval_rules.items()
+            }
+        )
+
+    def _enforce_frozen_approval(
+        self,
+        *,
+        task_id: str,
+        tool_name: str,
+        arguments: Mapping[str, Any],
+    ) -> None:
+        if self._frozen_approval_rules is None or tool_name not in {
+            "run_command",
+            "run_shell",
+        }:
+            return
+        task = self.store.get_task(task_id)
+        source = task.spec.workspace_source
+        rules = self._frozen_approval_rules.get(
+            (source.kind, source.source_id, source.revision), ()
+        )
+        required_checks = {
+            check.check_id for check in task.spec.acceptance.required_checks
+        }
+        try:
+            request_sha256 = frozen_approval_request_sha256(tool_name, arguments)
+        except ValueError as exc:
+            raise ToolBrokerError(
+                "Evaluation command is not frozen for this task.",
+                code="evaluation_command_not_allowed",
+            ) from exc
+        if not any(
+            rule.request_sha256 == request_sha256
+            and (
+                rule.acceptance_check_id is None
+                or rule.acceptance_check_id in required_checks
+            )
+            for rule in rules
+        ):
+            raise ToolBrokerError(
+                "Evaluation command is not frozen for this task.",
+                code="evaluation_command_not_allowed",
+            )
+
+    def _task_uses_v20(self, task_id: str) -> bool:
+        snapshot = self.store.get_task_capability_snapshot(task_id)
+        return (
+            snapshot is not None
+            and snapshot.snapshot.get("harness_protocol") == "v20"
+        )
+
+    def _failure_code(self, task_id: str, raw_code: object) -> str:
+        code = raw_code if isinstance(raw_code, str) else "tool_failed"
+        if not self._task_uses_v20(task_id):
+            return code
+        return {
+            "tool_failed": "tool_broker_internal_error",
+            "executor_failed": "executor_runtime_failed",
+        }.get(code, code)
+
+    def _v20_changeset_result_requires_reconcile(
+        self,
+        *,
+        task_id: str,
+        workspace_id: str,
+        operation_id: str,
+        tool_name: str,
+        request: Mapping[str, Any],
+        operation_state: OperationState,
+    ) -> bool:
+        if (
+            operation_state is not OperationState.RUNNING
+            or not self._task_uses_v20(task_id)
+            or not self._tool_can_publish_changeset(tool_name)
+            or not self.operation_side_effecting(tool_name, request)
+        ):
+            return False
+        try:
+            return self.changesets.has_transaction(
+                workspace_id=workspace_id, operation_id=operation_id
+            )
+        except Exception:
+            return True
 
     @staticmethod
     def operation_side_effecting(
@@ -465,15 +635,28 @@ class ToolBroker:
             OSError,
             asyncio.TimeoutError,
         ) as exc:
+            failure_code = self._failure_code(
+                task_id, getattr(exc, "code", "tool_failed")
+            )
             current = self.store.get_operation(operation_id)
             awaiting_approval = (
                 isinstance(exc, ToolBrokerError)
                 and exc.code == "approval_required"
                 and current.state is OperationState.PREPARED
             )
-            unknown_result = (
+            explicit_unknown_result = (
                 isinstance(exc, ToolBrokerError)
                 and exc.code == "operation_result_unknown"
+            )
+            unknown_result = explicit_unknown_result or (
+                self._v20_changeset_result_requires_reconcile(
+                    task_id=task_id,
+                    workspace_id=task.workspace_id,
+                    operation_id=operation_id,
+                    tool_name=tool_name,
+                    request=current.request,
+                    operation_state=current.state,
+                )
             )
             if unknown_result and current.state in {
                 OperationState.PREPARED,
@@ -498,27 +681,64 @@ class ToolBroker:
                 self.store.transition_operation(
                     operation_id,
                     OperationState.FAILED,
-                    result={"code": getattr(exc, "code", "tool_failed")},
+                    result={"code": failure_code},
                     expected_state=current.state,
                 )
+            if unknown_result and not explicit_unknown_result:
+                raise ToolBrokerError(
+                    "Durable tool result must be reconciled.",
+                    code="operation_result_unknown",
+                ) from exc
             if isinstance(exc, (ToolBrokerError, ChangesetError)):
                 if isinstance(exc, ChangesetError):
                     raise ToolBrokerError(
                         "Changeset operation failed.", code=exc.code
                     ) from exc
+                if failure_code != exc.code:
+                    raise ToolBrokerError(
+                        "Tool operation failed.", code=failure_code
+                    ) from exc
                 raise
-            raise ToolBrokerError("Tool operation failed.", code=getattr(exc, "code", "tool_failed")) from exc
+            raise ToolBrokerError("Tool operation failed.", code=failure_code) from exc
         except Exception as exc:
+            failure_code = self._failure_code(
+                task_id, getattr(exc, "code", "tool_failed")
+            )
             current = self.store.get_operation(operation_id)
+            unknown_result = self._v20_changeset_result_requires_reconcile(
+                task_id=task_id,
+                workspace_id=task.workspace_id,
+                operation_id=operation_id,
+                tool_name=tool_name,
+                request=current.request,
+                operation_state=current.state,
+            )
+            if unknown_result:
+                self.store.transition_operation(
+                    operation_id,
+                    OperationState.UNKNOWN,
+                    result={"code": "operation_result_unknown"},
+                    expected_state=current.state,
+                )
+                if task.runtime_protocol is RuntimeProtocol.V17 and current_turn is not None:
+                    self.store.begin_turn_parking(
+                        task_id=task_id,
+                        turn_id=current_turn.turn_id,
+                        barrier=TurnBarrier.OPERATION_UNKNOWN,
+                    )
+                raise ToolBrokerError(
+                    "Durable tool result must be reconciled.",
+                    code="operation_result_unknown",
+                ) from exc
             if current.state in {OperationState.PREPARED, OperationState.RUNNING}:
                 self.store.transition_operation(
                     operation_id,
                     OperationState.FAILED,
-                    result={"code": getattr(exc, "code", "tool_failed")},
+                    result={"code": failure_code},
                     expected_state=current.state,
                 )
             raise ToolBrokerError(
-                "Tool operation failed.", code=getattr(exc, "code", "tool_failed")
+                "Tool operation failed.", code=failure_code
             ) from exc
 
     def reconcile(self, operation_id: str) -> ToolResult:
@@ -788,6 +1008,11 @@ class ToolBroker:
             return None
         capability: CapabilityName
         approval_scope = request["arguments"]
+        self._enforce_frozen_approval(
+            task_id=task_id,
+            tool_name=tool_name,
+            arguments=request["arguments"],
+        )
         if tool_name == "run_shell":
             shell_scope = self._shell_approval_scope(
                 operation_id, request["arguments"]
@@ -1892,6 +2117,14 @@ class ToolBroker:
             or len(script.encode("utf-8")) > 64 * 1024
         ):
             raise ToolBrokerError("Shell input is invalid.", code="tool_input_invalid")
+        if (
+            SHELL_HOST_PATH.search(script) is not None
+            or SHELL_PRIVATE_RUNTIME_PATH.search(script) is not None
+        ):
+            raise ToolBrokerError(
+                "Shell scripts cannot reference host or private runtime paths.",
+                code="workspace_path_invalid",
+            )
         try:
             return ShellApprovalScope(
                 operation_id=operation_id,
@@ -1905,6 +2138,17 @@ class ToolBroker:
             raise ToolBrokerError(
                 "Shell input is invalid.", code="tool_input_invalid"
             ) from exc
+
+    @staticmethod
+    def _shell_executor_result_uncertain(exc: Exception) -> bool:
+        return (
+            isinstance(exc, (OSError, asyncio.TimeoutError, json.JSONDecodeError))
+            or getattr(exc, "code", None) == "executor_invalid_response"
+        )
+
+    @staticmethod
+    def _shell_executor_rejection_proves_no_effect(exc: Exception) -> bool:
+        return getattr(exc, "code", None) in V20_SHELL_NO_SIDE_EFFECT_ERROR_CODES
 
     async def _run_shell(
         self,
@@ -1954,12 +2198,36 @@ class ToolBroker:
                 timeout_seconds=scope.timeout_seconds,
                 output_callback=persist_output,
             )
-        except Exception:
+        except Exception as exc:
             if output:
                 self._archive_shell_output(
                     task_id, operation_id, bytes(output), state="interrupted"
                 )
-            raise
+            if not self._task_uses_v20(task_id):
+                raise
+            uncertain = self._shell_executor_result_uncertain(exc)
+            if (
+                scope.mode is ShellMode.MUTATE
+                and not self._shell_executor_rejection_proves_no_effect(exc)
+            ):
+                raise ToolBrokerError(
+                    "Mutating shell executor result is unknown.",
+                    code="operation_result_unknown",
+                ) from exc
+            if isinstance(exc, ToolBrokerError):
+                raise
+            raw_code = getattr(exc, "code", None)
+            failure_code = (
+                str(raw_code)
+                if isinstance(raw_code, str)
+                else "executor_transport_failed"
+                if uncertain
+                else self._failure_code(task_id, "executor_failed")
+            )
+            failure_code = self._failure_code(task_id, failure_code)
+            raise ToolBrokerError(
+                "Shell executor request failed.", code=failure_code
+            ) from exc
         result = self._validate_shell_result(
             raw_result,
             expected_mode=scope.mode,
@@ -2180,6 +2448,21 @@ class ToolBroker:
             and item.metadata.get("operation_id") == operation_id
         ]
         if not artifacts:
+            workspace_id = str(operation.request["workspace_id"])
+            try:
+                changeset_pending = self.changesets.has_transaction(
+                    workspace_id=workspace_id, operation_id=operation_id
+                )
+            except ChangesetError as exc:
+                raise ToolBrokerError(
+                    "Shell changeset state is unavailable.",
+                    code="operation_result_unknown",
+                ) from exc
+            if changeset_pending:
+                raise ToolBrokerError(
+                    "Shell receipt is unavailable while its changeset remains pending.",
+                    code="operation_result_unknown",
+                )
             failed = self.store.transition_operation(
                 operation_id,
                 OperationState.FAILED,

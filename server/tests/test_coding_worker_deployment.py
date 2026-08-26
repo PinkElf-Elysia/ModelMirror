@@ -92,7 +92,10 @@ def test_v15_claude_provider_has_a_pinned_private_image_and_secret_only_mount() 
     assert "internal: true" in compose
     assert "CODING_WORKER_ROUTE_SLOTS_JSON" in compose
     assert "coding-worker-claude-egress:" in compose
-    assert "CODING_WORKER_PROVIDER_NETWORK_DOMAINS: api.anthropic.com" in compose
+    assert (
+        "CODING_WORKER_PROVIDER_NETWORK_DOMAINS: "
+        "${CODING_WORKER_CLAUDE_EGRESS_DOMAINS:-api.anthropic.com}"
+    ) in compose
     assert "CODING_WORKER_PROVIDER_EGRESS_TOKEN" in compose
     assert (
         "CODING_WORKER_PROVIDER_ALLOW_DOCKER_DESKTOP_DNS_PROXY: "
@@ -106,7 +109,7 @@ def test_v15_claude_provider_has_a_pinned_private_image_and_secret_only_mount() 
     assert "coding_worker_provider_b" not in proxy
 
 
-def test_v18_harness_overlay_mounts_only_the_public_fixture_bundle() -> None:
+def test_v18_harness_overlay_mounts_only_public_evaluation_inputs() -> None:
     root = Path(__file__).parents[2]
     compose = (root / "docker-compose.coding-worker-v18-harness.yml").read_text()
 
@@ -118,7 +121,17 @@ def test_v18_harness_overlay_mounts_only_the_public_fixture_bundle() -> None:
     assert 'CODING_WORKER_BUILTIN_REVISION: ""' in compose
     assert "CODING_WORKER_HARNESS_V3_FIXTURE_FILE" in compose
     assert "target: /harness-v3/fixture-bundle.json" in compose
+    assert "CODING_WORKER_HARNESS_V3_TASKS_DIR" not in compose
+    assert compose.count("/scenario.json") == 6
+    assert "target: /harness-v3/tasks/session-clarify-before-edit/scenario.json" in compose
+    assert (
+        "target: /harness-v3/tasks/session-restart-command-reconcile/scenario.json"
+        in compose
+    )
+    assert "target: /harness-v3/tasks/session-steering-compaction/scenario.json" in compose
     assert "read_only: true" in compose
     assert "sealed" not in compose.lower()
     assert "checker" not in compose.lower()
+    assert "/solution/" not in compose
+    assert "/tests/" not in compose
     assert "docker.sock" not in compose

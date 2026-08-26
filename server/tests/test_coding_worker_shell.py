@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import json
+import time
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -13,10 +16,15 @@ from server.coding_worker.contracts import (
     OperationState,
     Origin,
     PolicyProfile,
+    RuntimeProtocol,
     TaskSpec,
     TaskState,
+    TurnBarrier,
+    TurnTransactionState,
     WorkspaceSource,
 )
+from server.coding_worker.changeset import ChangesetError
+from server.coding_worker.executor import ExecutorRPCError
 from server.coding_worker.store import CodingWorkerStore
 from server.coding_worker.tool_broker import ToolBroker, ToolBrokerError
 from server.coding_worker.workspace import InMemoryWorkspaceSourceAdapter, WorkspaceBroker
@@ -50,6 +58,8 @@ async def _broker(
     *,
     profile: PolicyProfile,
     harness_faults_enabled: bool = False,
+    runtime_protocol: RuntimeProtocol = RuntimeProtocol.V16,
+    harness_v20: bool = False,
 ) -> tuple[ToolBroker, CodingWorkerStore, str, Path, AsyncMock]:
     monkeypatch.setenv("CODING_WORKER_V15_ENABLED", "true")
     monkeypatch.setenv("CODING_WORKER_SHELL_ENABLED", "true")
@@ -65,6 +75,7 @@ async def _broker(
     )
     prepared = await workspace.prepare(source)
     store = CodingWorkerStore(tmp_path / "store", master_key=Fernet.generate_key())
+    observed_at = time.time()
     task = store.create_task(
         TaskSpec(
             client_task_id="shell-client",
@@ -81,12 +92,23 @@ async def _broker(
             ),
             policy_profile=profile,
             model_route="coding/default",
-        )
+        ),
+        runtime_protocol=runtime_protocol,
+        capability_binding_sha256="a" * 64 if harness_v20 else None,
+        capability_snapshot={"harness_protocol": "v20"} if harness_v20 else None,
+        capability_observed_at=observed_at if harness_v20 else None,
+        capability_expires_at=observed_at + 30 if harness_v20 else None,
     )
     store.transition(task.task_id, TaskState.PREPARING)
     store.transition(
         task.task_id, TaskState.RUNNING, workspace_id=prepared.workspace_id
     )
+    if runtime_protocol is RuntimeProtocol.V17:
+        store.open_turn_transaction(
+            task_id=task.task_id,
+            turn_id="turn_shell_transport",
+            workspace_tree_hash=workspace.current_tree_hash(prepared.workspace_id),
+        )
     executor = AsyncMock()
     broker = ToolBroker(
         store=store,
@@ -147,6 +169,85 @@ async def _approve(
         expected_state=TaskState.WAITING_APPROVAL,
     )
     return lease.lease_id
+
+
+@pytest.mark.parametrize(
+    "script",
+    (
+        "cd /worker-data/workspaces/workspace_deadbeef/repo && pytest",
+        r"python C:\private\repo\test.py",
+        r"type \\host\share\test.py",
+        "cat file:///private/repo/result.txt",
+        "python ~/repo/test.py",
+    ),
+)
+@pytest.mark.asyncio
+async def test_shell_rejects_absolute_paths_before_approval(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    script: str,
+) -> None:
+    broker, store, task_id, _, executor = await _broker(
+        tmp_path, monkeypatch, profile=PolicyProfile.DEVELOP
+    )
+
+    with pytest.raises(ToolBrokerError) as rejected:
+        await broker.execute(
+            task_id=task_id,
+            operation_id="absolute_path",
+            tool_name="run_shell",
+            arguments={
+                "script": script,
+                "cwd": ".",
+                "mode": "inspect",
+                "timeout_seconds": 120,
+            },
+        )
+
+    assert rejected.value.code == "workspace_path_invalid"
+    assert store.list_approvals(task_id) == []
+    operation = store.get_operation("absolute_path")
+    assert operation.state is OperationState.FAILED
+    assert operation.result == {"code": "workspace_path_invalid"}
+    executor.run_shell.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "script",
+    (
+        "python -m pytest tests/test_cache.py -v 2>&1",
+        "sed -n '/foo/p' src/a.txt",
+        "grep '/api/' src/a.txt",
+    ),
+)
+@pytest.mark.asyncio
+async def test_shell_allows_workspace_relative_paths_to_reach_approval(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    script: str,
+) -> None:
+    broker, store, task_id, _, executor = await _broker(
+        tmp_path, monkeypatch, profile=PolicyProfile.DEVELOP
+    )
+    arguments = {
+        "script": script,
+        "cwd": ".",
+        "mode": "inspect",
+        "timeout_seconds": 120,
+    }
+
+    with pytest.raises(ToolBrokerError) as required:
+        await broker.execute(
+            task_id=task_id,
+            operation_id="relative_path",
+            tool_name="run_shell",
+            arguments=arguments,
+        )
+
+    assert required.value.code == "approval_required"
+    approval = store.list_approvals(task_id)[-1]
+    assert approval.operation_id == "relative_path"
+    executor.run_shell.assert_not_awaited()
 
 
 def _shell_result(
@@ -358,8 +459,11 @@ async def test_failed_shell_never_publishes_clone_changes(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("receipt_available", (True, False))
 async def test_shell_applied_unknown_reconciles_without_rerunning_executor(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    receipt_available: bool,
 ) -> None:
     broker, store, task_id, repository, executor = await _broker(
         tmp_path, monkeypatch, profile=PolicyProfile.DEVELOP
@@ -425,6 +529,26 @@ async def test_shell_applied_unknown_reconciles_without_rerunning_executor(
     assert unknown.value.code == "operation_result_unknown"
     assert store.get_operation("shell_unknown").state is OperationState.UNKNOWN
     assert repository.joinpath("app.py").read_bytes() == changed
+
+    if not receipt_available:
+        visible_artifacts = [
+            item
+            for item in store.list_artifacts(task_id)
+            if item.metadata.get("kind") != "shell_result"
+        ]
+        monkeypatch.setattr(
+            store, "list_artifacts", lambda _task_id: visible_artifacts
+        )
+        with pytest.raises(ToolBrokerError) as still_unknown:
+            broker.reconcile("shell_unknown")
+        assert still_unknown.value.code == "operation_result_unknown"
+        assert store.get_operation("shell_unknown").state is OperationState.UNKNOWN
+        assert broker.changesets.has_transaction(
+            workspace_id=str(store.get_task(task_id).workspace_id),
+            operation_id="shell_unknown",
+        )
+        assert executor.run_shell.await_count == 1
+        return
 
     reconciled = broker.reconcile("shell_unknown")
     assert reconciled.state is OperationState.COMPLETED
@@ -496,3 +620,405 @@ async def test_harness_executor_reset_after_changeset_requires_exact_reconcile(
     assert reconciled.state is OperationState.COMPLETED
     assert reconciled.data["changeset"]["state"] == "applied"
     assert executor.run_shell.await_count == 1
+
+
+@pytest.mark.parametrize(
+    "failure",
+    (
+        ExecutorRPCError("EOF", code="executor_invalid_response"),
+        ConnectionResetError("reset"),
+        asyncio.TimeoutError("timeout"),
+        json.JSONDecodeError("invalid frame", "{", 1),
+    ),
+)
+def test_v20_shell_transport_failures_are_uncertain(failure: Exception) -> None:
+    assert ToolBroker._shell_executor_result_uncertain(failure) is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure",
+    (
+        UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid frame"),
+        ValueError("Separator is not found, and chunk exceed the limit"),
+    ),
+)
+async def test_v20_mutate_unclassified_post_dispatch_failure_is_unknown(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: Exception,
+) -> None:
+    broker, store, task_id, _, executor = await _broker(
+        tmp_path,
+        monkeypatch,
+        profile=PolicyProfile.DEVELOP,
+        runtime_protocol=RuntimeProtocol.V17,
+        harness_v20=True,
+    )
+    monkeypatch.setattr(broker, "_authorize", lambda *_args, **_kwargs: None)
+    executor.run_shell.side_effect = failure
+
+    with pytest.raises(ToolBrokerError) as unknown:
+        await broker.execute(
+            task_id=task_id,
+            operation_id="shell_unclassified_transport",
+            tool_name="run_shell",
+            arguments={
+                "script": "python fix.py",
+                "cwd": ".",
+                "mode": "mutate",
+                "timeout_seconds": 60,
+            },
+        )
+
+    assert unknown.value.code == "operation_result_unknown"
+    assert (
+        store.get_operation("shell_unclassified_transport").state
+        is OperationState.UNKNOWN
+    )
+    turn = store.current_turn_transaction(task_id)
+    assert turn is not None
+    assert (turn.state, turn.barrier) == (
+        TurnTransactionState.PARKING,
+        TurnBarrier.OPERATION_UNKNOWN,
+    )
+    assert executor.run_shell.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_v20_mutate_structured_pre_dispatch_rejection_is_failed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    broker, store, task_id, _, executor = await _broker(
+        tmp_path,
+        monkeypatch,
+        profile=PolicyProfile.DEVELOP,
+        runtime_protocol=RuntimeProtocol.V17,
+        harness_v20=True,
+    )
+    monkeypatch.setattr(broker, "_authorize", lambda *_args, **_kwargs: None)
+    executor.run_shell.side_effect = ExecutorRPCError(
+        "Executor rejected the request before dispatch.",
+        code="executor_request_invalid",
+    )
+
+    with pytest.raises(ToolBrokerError) as rejected:
+        await broker.execute(
+            task_id=task_id,
+            operation_id="shell_structured_rejection",
+            tool_name="run_shell",
+            arguments={
+                "script": "python fix.py",
+                "cwd": ".",
+                "mode": "mutate",
+                "timeout_seconds": 60,
+            },
+        )
+
+    assert rejected.value.code == "executor_request_invalid"
+    assert (
+        store.get_operation("shell_structured_rejection").state
+        is OperationState.FAILED
+    )
+    turn = store.current_turn_transaction(task_id)
+    assert turn is not None and turn.state is TurnTransactionState.OPEN
+
+
+@pytest.mark.asyncio
+async def test_v20_shell_changeset_rollback_failure_stays_unknown_until_reconciled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    broker, store, task_id, repository, executor = await _broker(
+        tmp_path,
+        monkeypatch,
+        profile=PolicyProfile.DEVELOP,
+        runtime_protocol=RuntimeProtocol.V17,
+        harness_v20=True,
+    )
+    monkeypatch.setattr(broker, "_authorize", lambda *_args, **_kwargs: None)
+    old = repository.joinpath("app.py").read_bytes()
+    changed = b"print('partially-published')\n"
+    executor.run_shell.return_value = _shell_result(
+        broker,
+        store,
+        task_id,
+        mode="mutate",
+        output="",
+        changes=[
+            {
+                "kind": "write",
+                "path": "app.py",
+                "expected_sha256": hashlib.sha256(old).hexdigest(),
+                "content": changed.decode(),
+                "content_sha256": hashlib.sha256(changed).hexdigest(),
+            }
+        ],
+    )
+
+    def interrupt_publication(index: int) -> None:
+        if index == 0:
+            raise OSError("simulated interruption after first install")
+
+    original_rollback = broker.changesets._rollback
+
+    def fail_rollback(*_args: object) -> None:
+        raise ChangesetError(
+            "Rollback result is unknown.", code="changeset_rollback_failed"
+        )
+
+    broker.changesets.fault_hook = interrupt_publication
+    monkeypatch.setattr(broker.changesets, "_rollback", fail_rollback)
+
+    with pytest.raises(ToolBrokerError) as unknown:
+        await broker.execute(
+            task_id=task_id,
+            operation_id="shell_rollback_unknown",
+            tool_name="run_shell",
+            arguments={
+                "script": "python fix.py",
+                "cwd": ".",
+                "mode": "mutate",
+                "timeout_seconds": 60,
+            },
+        )
+
+    assert unknown.value.code == "operation_result_unknown"
+    assert store.get_operation("shell_rollback_unknown").state is OperationState.UNKNOWN
+    assert repository.joinpath("app.py").read_bytes() == changed
+    workspace_id = str(store.get_task(task_id).workspace_id)
+    assert broker.changesets.has_transaction(
+        workspace_id=workspace_id, operation_id="shell_rollback_unknown"
+    )
+    turn = store.current_turn_transaction(task_id)
+    assert turn is not None
+    assert (turn.state, turn.barrier) == (
+        TurnTransactionState.PARKING,
+        TurnBarrier.OPERATION_UNKNOWN,
+    )
+
+    with pytest.raises(ToolBrokerError) as still_unknown:
+        broker.reconcile("shell_rollback_unknown")
+    assert still_unknown.value.code == "changeset_rollback_failed"
+    assert store.get_operation("shell_rollback_unknown").state is OperationState.UNKNOWN
+
+    monkeypatch.setattr(broker.changesets, "_rollback", original_rollback)
+    broker.changesets.fault_hook = None
+    with pytest.raises(ToolBrokerError) as rolled_back:
+        broker.reconcile("shell_rollback_unknown")
+    assert rolled_back.value.code == "changeset_rolled_back"
+    assert store.get_operation("shell_rollback_unknown").state is OperationState.FAILED
+    assert repository.joinpath("app.py").read_bytes() == old
+
+
+@pytest.mark.asyncio
+async def test_v20_shell_unprovable_changeset_journal_is_unknown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    broker, store, task_id, repository, executor = await _broker(
+        tmp_path,
+        monkeypatch,
+        profile=PolicyProfile.DEVELOP,
+        runtime_protocol=RuntimeProtocol.V17,
+        harness_v20=True,
+    )
+    monkeypatch.setattr(broker, "_authorize", lambda *_args, **_kwargs: None)
+    old = repository.joinpath("app.py").read_bytes()
+    changed = b"print('must-not-be-published')\n"
+    executor.run_shell.return_value = _shell_result(
+        broker,
+        store,
+        task_id,
+        mode="mutate",
+        output="",
+        changes=[
+            {
+                "kind": "write",
+                "path": "app.py",
+                "expected_sha256": hashlib.sha256(old).hexdigest(),
+                "content": changed.decode(),
+                "content_sha256": hashlib.sha256(changed).hexdigest(),
+            }
+        ],
+    )
+    repository.parent.joinpath("changesets").symlink_to(
+        repository, target_is_directory=True
+    )
+
+    with pytest.raises(ToolBrokerError) as unknown:
+        await broker.execute(
+            task_id=task_id,
+            operation_id="shell_unprovable_journal",
+            tool_name="run_shell",
+            arguments={
+                "script": "python fix.py",
+                "cwd": ".",
+                "mode": "mutate",
+                "timeout_seconds": 60,
+            },
+        )
+
+    assert unknown.value.code == "operation_result_unknown"
+    assert (
+        store.get_operation("shell_unprovable_journal").state
+        is OperationState.UNKNOWN
+    )
+    assert repository.joinpath("app.py").read_bytes() == old
+    turn = store.current_turn_transaction(task_id)
+    assert turn is not None
+    assert (turn.state, turn.barrier) == (
+        TurnTransactionState.PARKING,
+        TurnBarrier.OPERATION_UNKNOWN,
+    )
+    assert executor.run_shell.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_v20_mutate_transport_loss_parks_reconciles_and_retries_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    broker, store, task_id, _, executor = await _broker(
+        tmp_path,
+        monkeypatch,
+        profile=PolicyProfile.DEVELOP,
+        runtime_protocol=RuntimeProtocol.V17,
+        harness_v20=True,
+    )
+    monkeypatch.setattr(broker, "_authorize", lambda *_args, **_kwargs: None)
+    arguments = {
+        "script": "node fix.mjs",
+        "cwd": ".",
+        "mode": "mutate",
+        "timeout_seconds": 60,
+    }
+    operation_id = "shell_transport_unknown"
+    executor.run_shell.side_effect = ExecutorRPCError(
+        "Executor response ended before a receipt.",
+        code="executor_invalid_response",
+    )
+
+    with pytest.raises(ToolBrokerError) as unknown:
+        await broker.execute(
+            task_id=task_id,
+            operation_id=operation_id,
+            tool_name="run_shell",
+            arguments=arguments,
+        )
+    assert unknown.value.code == "operation_result_unknown"
+    assert store.get_operation(operation_id).state is OperationState.UNKNOWN
+    turn = store.current_turn_transaction(task_id)
+    task = store.get_task(task_id)
+    assert turn is not None and task.workspace_id is not None
+    assert (turn.state, turn.barrier) == (
+        TurnTransactionState.PARKING,
+        TurnBarrier.OPERATION_UNKNOWN,
+    )
+
+    checkpoint = store.create_checkpoint(
+        task_id=task_id,
+        workspace_tree_hash=broker.workspace_broker.current_tree_hash(
+            task.workspace_id
+        ),
+        payload={"phase": "operation_unknown"},
+    )
+    store.park_turn_transaction(
+        task_id=task_id,
+        turn_id=turn.turn_id,
+        checkpoint_id=checkpoint.checkpoint_id,
+    )
+    store.transition(
+        task_id,
+        TaskState.INTERRUPTED,
+        reason="operation_result_unknown",
+        expected_state=TaskState.RUNNING,
+    )
+    store.settle_parked_turn(
+        task_id=task_id,
+        barrier=TurnBarrier.OPERATION_UNKNOWN,
+        expected_state=TaskState.INTERRUPTED,
+    )
+    store.transition(task_id, TaskState.PREPARING)
+    store.transition(task_id, TaskState.RUNNING)
+
+    reconciled = await broker.execute(
+        task_id=task_id,
+        operation_id=operation_id,
+        tool_name="run_shell",
+        arguments=arguments,
+    )
+    assert reconciled.state is OperationState.FAILED
+    assert reconciled.data == {"code": "shell_result_unavailable"}
+    assert executor.run_shell.await_count == 1
+
+    executor.run_shell.side_effect = None
+    executor.run_shell.return_value = _shell_result(
+        broker, store, task_id, mode="mutate", output=""
+    )
+    retried = await broker.execute(
+        task_id=task_id,
+        operation_id="shell_transport_retry",
+        tool_name="run_shell",
+        arguments=arguments,
+    )
+    assert retried.state is OperationState.COMPLETED
+    assert executor.run_shell.await_count == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("runtime_protocol", "harness_v20", "mode", "failure", "expected_code"),
+    (
+        (
+            RuntimeProtocol.V17,
+            True,
+            "inspect",
+            ConnectionResetError("reset"),
+            "executor_transport_failed",
+        ),
+        (
+            RuntimeProtocol.V16,
+            False,
+            "mutate",
+            ExecutorRPCError("EOF", code="executor_invalid_response"),
+            "executor_invalid_response",
+        ),
+        (
+            RuntimeProtocol.V17,
+            True,
+            "inspect",
+            ExecutorRPCError("failed", code="executor_failed"),
+            "executor_runtime_failed",
+        ),
+    ),
+)
+async def test_v20_inspect_and_legacy_mutate_transport_fail_explicitly(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_protocol: RuntimeProtocol,
+    harness_v20: bool,
+    mode: str,
+    failure: Exception,
+    expected_code: str,
+) -> None:
+    broker, store, task_id, _, executor = await _broker(
+        tmp_path,
+        monkeypatch,
+        profile=PolicyProfile.DEVELOP,
+        runtime_protocol=runtime_protocol,
+        harness_v20=harness_v20,
+    )
+    monkeypatch.setattr(broker, "_authorize", lambda *_args, **_kwargs: None)
+    executor.run_shell.side_effect = failure
+    with pytest.raises(ToolBrokerError) as failed:
+        await broker.execute(
+            task_id=task_id,
+            operation_id="shell_explicit_failure",
+            tool_name="run_shell",
+            arguments={
+                "script": "pytest -q",
+                "cwd": ".",
+                "mode": mode,
+                "timeout_seconds": 60,
+            },
+        )
+    assert failed.value.code == expected_code
+    assert store.get_operation("shell_explicit_failure").state is OperationState.FAILED

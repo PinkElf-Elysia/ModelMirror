@@ -15,7 +15,7 @@ from typing import Any
 from urllib.parse import quote, urlparse
 
 import httpx
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from .broker_rpc import BrokerRPCServer
 from .contracts import PolicyProfile, StrictModel
@@ -97,6 +97,23 @@ class OpenCodeRoute(StrictModel):
     # task-level output budget remains independent and spans all turns.
     output_tokens: int = Field(default=8_192, ge=1_024, le=262_144)
 
+    @field_validator("base_url")
+    @classmethod
+    def validate_api_root(cls, value: str) -> str:
+        parsed = urlparse(value)
+        path = parsed.path.rstrip("/").lower()
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+            or path.endswith(("/chat/completions", "/completions", "/responses"))
+        ):
+            raise ValueError("OpenCode route must use an API root URL")
+        return value.rstrip("/")
+
 
 @dataclass(slots=True)
 class OpenCodeServerHandle:
@@ -128,6 +145,7 @@ class OpenCodeProvider(CodingAgentProvider):
         tool_broker_command: tuple[str, ...] | None = None,
         broker_rpc: BrokerRPCServer | None = None,
         server_factory: ServerFactory | None = None,
+        provider_proxy_url: str | None = None,
     ) -> None:
         self._workspace_resolver = workspace_resolver
         self._runtime_root = Path(runtime_root)
@@ -140,6 +158,7 @@ class OpenCodeProvider(CodingAgentProvider):
             else None
         )
         self._server_factory = server_factory or self._launch_server
+        self._provider_proxy_url = provider_proxy_url
         self._handles: dict[str, OpenCodeServerHandle] = {}
         self._requests: dict[str, ProviderOpenRequest] = {}
         self._public_context: dict[str, list[str]] = {}
@@ -475,35 +494,13 @@ class OpenCodeProvider(CodingAgentProvider):
         password = secrets.token_urlsafe(32)
         port = _unused_loopback_port()
         broker_environment, revoke_broker = self._broker_environment(request.task_id)
-        provider_host = urlparse(route.base_url).hostname
-        no_proxy = ",".join(
-            ["localhost", "127.0.0.1", *([provider_host] if provider_host else [])]
+        environment = self._build_server_environment(
+            home=home,
+            route=route,
+            password=password,
+            broker_environment=broker_environment,
+            tool_allowlist=request.tool_allowlist,
         )
-        environment = {
-            "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
-            "HOME": str(home),
-            "XDG_CONFIG_HOME": str(home / ".config"),
-            "XDG_DATA_HOME": str(home / ".local/share"),
-            "XDG_STATE_HOME": str(home / ".local/state"),
-            "XDG_CACHE_HOME": str(home / ".cache"),
-            "OPENCODE_CONFIG_CONTENT": json.dumps(
-                self.build_config(route, request.tool_allowlist),
-                ensure_ascii=False,
-                separators=(",", ":"),
-            ),
-            "OPENCODE_DISABLE_PROJECT_CONFIG": "1",
-            "OPENCODE_PURE": "1",
-            "OPENCODE_DISABLE_AUTOUPDATE": "1",
-            "OPENCODE_DISABLE_AUTOCOMPACT": "1",
-            "OPENCODE_DISABLE_MODELS_FETCH": "1",
-            "OPENCODE_AUTH_CONTENT": "{}",
-            "OPENCODE_SERVER_PASSWORD": password,
-            "CODING_WORKER_ROUTE_KEY": route.api_key,
-            "NO_PROXY": no_proxy,
-            "no_proxy": no_proxy,
-            **OPENCODE_SECURITY_ENVIRONMENT,
-            **broker_environment,
-        }
         try:
             process = await asyncio.create_subprocess_exec(
                 self._executable,
@@ -555,6 +552,50 @@ class OpenCodeProvider(CodingAgentProvider):
             client=client,
             close_callback=close,
         )
+
+    def _build_server_environment(
+        self,
+        *,
+        home: Path,
+        route: OpenCodeRoute,
+        password: str,
+        broker_environment: Mapping[str, str],
+        tool_allowlist: tuple[str, ...],
+    ) -> dict[str, str]:
+        provider_host = urlparse(route.base_url).hostname
+        bypass_hosts = ["localhost", "127.0.0.1"]
+        if self._provider_proxy_url is None and provider_host:
+            bypass_hosts.append(provider_host)
+        no_proxy = ",".join(bypass_hosts)
+        environment = {
+            "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
+            "HOME": str(home),
+            "XDG_CONFIG_HOME": str(home / ".config"),
+            "XDG_DATA_HOME": str(home / ".local/share"),
+            "XDG_STATE_HOME": str(home / ".local/state"),
+            "XDG_CACHE_HOME": str(home / ".cache"),
+            "OPENCODE_CONFIG_CONTENT": json.dumps(
+                self.build_config(route, tool_allowlist),
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
+            "OPENCODE_DISABLE_PROJECT_CONFIG": "1",
+            "OPENCODE_PURE": "1",
+            "OPENCODE_DISABLE_AUTOUPDATE": "1",
+            "OPENCODE_DISABLE_AUTOCOMPACT": "1",
+            "OPENCODE_DISABLE_MODELS_FETCH": "1",
+            "OPENCODE_AUTH_CONTENT": "{}",
+            "OPENCODE_SERVER_PASSWORD": password,
+            "CODING_WORKER_ROUTE_KEY": route.api_key,
+            "NO_PROXY": no_proxy,
+            "no_proxy": no_proxy,
+            **OPENCODE_SECURITY_ENVIRONMENT,
+            **broker_environment,
+        }
+        if self._provider_proxy_url is not None:
+            environment["HTTPS_PROXY"] = self._provider_proxy_url
+            environment["HTTP_PROXY"] = self._provider_proxy_url
+        return environment
 
     def _broker_environment(self, task_id: str) -> tuple[dict[str, str], Callable[[], None]]:
         if self._broker_rpc is not None:
@@ -730,9 +771,16 @@ class OpenCodeProvider(CodingAgentProvider):
         if event_type in {"session.aborted", "session.cancelled"}:
             return ProviderEvent(kind=ProviderEventKind.CANCELLED)
         if event_type in {"session.error", "message.error"}:
+            failure_kind = _failure_kind_from_value(properties.get("error"))
+            # OpenCode reports an explicit session abort as an error frame
+            # instead of the session.cancelled frame used by some versions.
+            # Treat that supplier quirk as cancellation so a controller-led
+            # cleanup cannot be misreported as a Harness transport outage.
+            if failure_kind is ProviderFailureKind.INTERRUPTED:
+                return ProviderEvent(kind=ProviderEventKind.CANCELLED)
             return ProviderEvent(
                 kind=ProviderEventKind.FAILED,
-                data={"failure_kind": ProviderFailureKind.UNAVAILABLE.value},
+                data={"failure_kind": failure_kind.value},
             )
         return None
 
@@ -743,6 +791,51 @@ def _nonnegative_int(value: Any) -> int:
         if isinstance(value, int) and not isinstance(value, bool) and value >= 0
         else 0
     )
+
+
+def _failure_kind_from_value(value: Any) -> ProviderFailureKind:
+    statuses: set[int] = set()
+    fragments: list[str] = []
+    stack = [value]
+    while stack and len(fragments) < 64:
+        item = stack.pop()
+        if isinstance(item, dict):
+            for key, child in item.items():
+                normalized_key = str(key).lower()
+                if (
+                    normalized_key in {"status", "statuscode", "status_code"}
+                    and isinstance(child, int)
+                    and not isinstance(child, bool)
+                ):
+                    statuses.add(child)
+                stack.append(child)
+        elif isinstance(item, (list, tuple)):
+            stack.extend(item[:64])
+        elif isinstance(item, str):
+            fragments.append(item[:2_048].lower())
+    combined = " ".join(fragments)
+    if any(
+        marker in combined
+        for marker in ("aborted", "aborterror", "cancelled", "canceled")
+    ):
+        return ProviderFailureKind.INTERRUPTED
+    if statuses.intersection({401, 403}) or any(
+        marker in combined
+        for marker in ("authentication", "unauthorized", "invalid api key")
+    ):
+        return ProviderFailureKind.AUTHENTICATION
+    if 429 in statuses or any(
+        marker in combined for marker in ("rate limit", "rate_limit", "overloaded")
+    ):
+        return ProviderFailureKind.RATE_LIMITED
+    if 402 in statuses or any(
+        marker in combined
+        for marker in ("credit balance", "insufficient credit", "billing")
+    ):
+        return ProviderFailureKind.BUDGET
+    if statuses.intersection({400, 404, 405, 415, 422}):
+        return ProviderFailureKind.INVALID_RESPONSE
+    return ProviderFailureKind.UNAVAILABLE
 
 
 async def _iter_sse_json(response: httpx.Response) -> AsyncIterator[dict[str, Any]]:
