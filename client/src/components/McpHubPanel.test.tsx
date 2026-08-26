@@ -32,7 +32,8 @@ describe("McpHubPanel", () => {
 
     expect(await screen.findByText(/功能开关默认关闭/)).toBeVisible();
     expect(screen.getByText(/Registry 收录不代表安全认证/)).toBeVisible();
-    expect(screen.getByText(/R3A 可完成 OAuth 复核与 V3 契约发布/)).toBeVisible();
+    expect(screen.getByText(/OAuth 工具仅在 V3 契约/)).toBeVisible();
+    expect(screen.getByText(/OAuth Runtime：默认关闭/)).toBeVisible();
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -298,6 +299,8 @@ describe("McpHubPanel", () => {
     let discovered = false;
     let registered = false;
     let authorizationPending = false;
+    let tokenActive = false;
+    let remoteRevocationEnabled = false;
     const candidate = {
       candidate_id: candidateId,
       server_name: "io.example/oauth",
@@ -359,12 +362,24 @@ describe("McpHubPanel", () => {
         created_at: 1,
         expires_at: 9999999999,
       } : null,
-      token: null,
+      token: tokenActive ? {
+        token_id: "mcpoauthtoken_" + "4".repeat(32),
+        revision: 1,
+        status: "active",
+        scopes: ["mcp:read"],
+        scope_digest: "2".repeat(64),
+        scope_source: "protected_resource_metadata",
+        resource_bound: true,
+        protocol_version: "2025-11-25",
+        expires_at: 9999999999,
+        refresh_available: true,
+        stored_encrypted: true,
+      } : null,
       authorization_enabled: true,
       token_storage_enabled: true,
       review_enabled: true,
       runtime_enabled: false,
-      remote_revocation_enabled: false,
+      remote_revocation_enabled: remoteRevocationEnabled,
       runtime_eligible: false,
       local_single_owner_warning: true,
     });
@@ -388,7 +403,7 @@ describe("McpHubPanel", () => {
           token_storage_enabled: true,
           review_enabled: true,
           runtime_enabled: false,
-          remote_revocation_enabled: false,
+          remote_revocation_enabled: remoteRevocationEnabled,
           multi_tenant: false,
         });
       }
@@ -410,6 +425,13 @@ describe("McpHubPanel", () => {
           authorization_url: "https://auth.example.com/authorize?state=server-owned",
         }, 201);
       }
+      if (url.endsWith(`/api/mcp/hub/candidates/${candidateId}/oauth/tokens/mcpoauthtoken_${"4".repeat(32)}`) && init?.method === "DELETE") {
+        tokenActive = false;
+        return json({
+          ...oauthPayload(),
+          revocation: { local_revocation: "completed", remote_revocation: "unknown_outcome" },
+        });
+      }
       throw new Error(`unexpected URL: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -417,12 +439,13 @@ describe("McpHubPanel", () => {
 
     const card = (await screen.findByText("io.example/oauth")).closest("article");
     expect(card).not.toBeNull();
-    expect(within(card!).getByText(/可进入 Review Factory 并发布 V3 契约/)).toBeVisible();
+    expect(within(card!).getByText(/只有已发布 V3 契约/)).toBeVisible();
     expect(within(card!).getByRole("button", { name: "安全预检" })).toBeDisabled();
     fireEvent.click(within(card!).getByRole("button", { name: "检查并冻结 OAuth 元数据" }));
 
     expect(await within(card!).findByText(/Issuer：https:\/\/auth.example.com\//)).toBeVisible();
     expect(within(card!).getByText(/PKCE：S256/)).toBeVisible();
+    expect(within(card!).getByText("远程撤销：支持标准 endpoint")).toBeVisible();
     expect(within(card!).getByRole("button", { name: "重新发现 OAuth 元数据" })).toBeVisible();
     expect(within(card!).getByRole("button", { name: "安全预检" })).toBeDisabled();
     expect(within(card!).getByRole("button", { name: "激活" })).toBeDisabled();
@@ -467,6 +490,24 @@ describe("McpHubPanel", () => {
     fireEvent.click(within(card!).getByRole("button", { name: "刷新授权状态" }));
     await waitFor(() => expect(oauthSummaryCalls()).toBeGreaterThan(beforeRefresh));
     expect(await screen.findByRole("status")).toHaveTextContent("io.example/oauth 的 OAuth 授权状态已刷新");
+
+    tokenActive = true;
+    remoteRevocationEnabled = true;
+    fireEvent.click(within(card!).getByRole("button", { name: "刷新授权状态" }));
+    expect(await within(card!).findByText(/revision 1/)).toBeVisible();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    fireEvent.click(within(card!).getByRole("button", { name: "撤销 Token" }));
+    expect(confirm).toHaveBeenCalledWith(expect.stringMatching(/RFC 7009.*不可逆撤销/));
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "io.example/oauth 的本地 Token 已撤销；远程结果未知，不会自动重试",
+    );
+    const revokeCall = fetchMock.mock.calls.find(([url, init]) => (
+      String(url).includes("/oauth/tokens/mcpoauthtoken_") &&
+      (init as RequestInit | undefined)?.method === "DELETE"
+    ));
+    expect(revokeCall).toBeTruthy();
+    expect((revokeCall?.[1] as RequestInit).body).toBeUndefined();
+    expect(within(card!).queryByRole("button", { name: "撤销 Token" })).not.toBeInTheDocument();
   });
 
   it("keeps OAuth summary failures visible with their fixed error code", async () => {

@@ -18,6 +18,7 @@ from server.mcp.hub import (
     HubUnknownOutcomeError,
     MCPHubService,
     MCPHubStore,
+    arguments_digest,
     normalize_registry_entry,
     stable_digest,
 )
@@ -47,6 +48,7 @@ from server.mcp.hub_review import (
     MCPHubReviewStore,
     configure_mcp_hub_review,
     assess_oauth_scopes,
+    classify_tool_effect,
     deterministic_arguments,
     router as review_router,
 )
@@ -121,6 +123,8 @@ class FakeBridge:
         self.closed: list[str] = []
         self.revoked: list[str] = []
         self.fail_call = False
+        self.call_error_code = ""
+        self.call_error_details: dict[str, Any] = {}
         self.auth_envelopes: list[dict[str, Any]] = []
 
     async def authorize(self, candidate_id: str, url: str) -> str:
@@ -155,6 +159,13 @@ class FakeBridge:
         self.call_count += 1
         if self.fail_call:
             raise HubError("lost", code="hub_sidecar_unavailable", status_code=503)
+        if self.call_error_code:
+            raise HubError(
+                "bounded oauth failure",
+                code=self.call_error_code,
+                status_code=409,
+                details=self.call_error_details,
+            )
         return {
             "result": {
                 "content": [{"type": "text", "text": f"result:{arguments['query']}"}],
@@ -707,6 +718,118 @@ async def test_oauth_sop_publishes_v3_but_runtime_remains_closed(
         for envelope in bridge.auth_envelopes
     )
 
+    monkeypatch.setenv("MCP_REMOTE_OAUTH_RUNTIME_ENABLED", "true")
+    republished = review.publish(
+        run["run_id"], item["item_id"], decided["contract_fingerprint"]
+    )
+    assert republished["activation_eligible"] is True
+    assert republished["activation_reason"] == ""
+    candidate = hub.store.require_candidate(
+        candidate["candidate_id"], "local", "local"
+    )
+    assert hub._activation_review(candidate) == (True, "")
+    verified = await hub.preflight(candidate["candidate_id"])
+    active = await hub.activate(candidate["candidate_id"], verified["schema_digest"])
+    runtime = hub.runtime_tools()[0]
+    assert runtime["upstream_tool_name"] == "search"
+    provided = (await HubMCPToolsetProvider(hub).list_tools())[0]
+    assert provided.requires_approval is True
+    assert provided.sensitive is True
+    assert provided.read_only is False
+    assert provided.parallel_safe is False
+    assert provided.public_app_allowed is False
+    assert provided.metadata["retry_on_failure"] is False
+
+    def approval(approval_id: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "approval_id": approval_id,
+            "status": "decided",
+            "decision": "approve",
+            "tool_name": runtime["name"],
+            "metadata": {
+                "hub_approval": {
+                    "candidate_id": active["candidate_id"],
+                    "tenant_id": "local",
+                    "owner_id": "local",
+                    "server_name": active["server_name"],
+                    "version": active["version"],
+                    "origin": active["origin"],
+                    "schema_digest": active["schema_digest"],
+                    "tool_schema_digest": runtime["tool_schema_digest"],
+                    "arguments_digest": arguments_digest(arguments),
+                    "contract_fingerprint": runtime["contract_fingerprint"],
+                }
+            },
+        }
+
+    arguments = {"query": "runtime-one"}
+    first = await hub.execute(
+        candidate_id=active["candidate_id"],
+        runtime_tool_name=runtime["name"],
+        upstream_tool_name=runtime["upstream_tool_name"],
+        arguments=arguments,
+        approval=approval("11111111-1111-4111-8111-111111111111", arguments),
+    )
+    assert first["content"][0]["text"] == "result:runtime-one"
+    assert bridge.call_count == 2
+
+    old_closed_count = len(bridge.closed)
+    oauth.authorization_service.token_revision_digest = "6" * 64
+    rotated_arguments = {"query": "runtime-two"}
+    rotated = await hub.execute(
+        candidate_id=active["candidate_id"],
+        runtime_tool_name=runtime["name"],
+        upstream_tool_name=runtime["upstream_tool_name"],
+        arguments=rotated_arguments,
+        approval=approval(
+            "22222222-2222-4222-8222-222222222222", rotated_arguments
+        ),
+    )
+    assert rotated["content"][0]["text"] == "result:runtime-two"
+    assert len(bridge.closed) > old_closed_count
+    assert bridge.auth_envelopes[-1]["token_revision_digest"] == "6" * 64
+    assert bridge.call_count == 3
+
+    bridge.call_error_code = "mcp_remote_oauth_scope_upgrade_required"
+    bridge.call_error_details = {"required_scopes": ["documents.read"]}
+    denied_arguments = {"query": "runtime-three"}
+    denied_approval = approval(
+        "33333333-3333-4333-8333-333333333333", denied_arguments
+    )
+    with pytest.raises(HubError) as denied:
+        await hub.execute(
+            candidate_id=active["candidate_id"],
+            runtime_tool_name=runtime["name"],
+            upstream_tool_name=runtime["upstream_tool_name"],
+            arguments=denied_arguments,
+            approval=denied_approval,
+        )
+    assert denied.value.code == "mcp_remote_oauth_scope_upgrade_required"
+    assert denied.value.details == {"required_scopes": ["documents.read"]}
+    assert bridge.call_count == 4
+    current = hub.get_candidate(active["candidate_id"])
+    assert current["state"] == "active"
+    assert current["taint_reason"] == ""
+    ledger = hub.store.find_execution(
+        approval_id=denied_approval["approval_id"],
+        tenant_id="local",
+        owner_id="local",
+        candidate_id=active["candidate_id"],
+        tool_name=runtime["name"],
+        args_digest=arguments_digest(denied_arguments),
+    )
+    assert ledger == ("failed", None)
+    with pytest.raises(HubError) as replay:
+        await hub.execute(
+            candidate_id=active["candidate_id"],
+            runtime_tool_name=runtime["name"],
+            upstream_tool_name=runtime["upstream_tool_name"],
+            arguments=denied_arguments,
+            approval=denied_approval,
+        )
+    assert replay.value.code == "hub_execution_state_invalid"
+    assert bridge.call_count == 4
+
 def test_deterministic_proposal_rejects_sensitive_and_unbounded_schemas() -> None:
     assert assess_oauth_scopes(("files.read", "account.admin")) == {
         "classification": "dangerous",
@@ -724,7 +847,65 @@ def test_deterministic_proposal_rejects_sensitive_and_unbounded_schemas() -> Non
             "properties": {"query": {"type": "string"}},
             "required": ["query"],
         }
+    ) == {"query": "modelmirror-review"}
+    assert deterministic_arguments(
+        {
+            "type": "object",
+            "properties": {"query": {"type": "string", "minLength": 81}},
+            "required": ["query"],
+        }
     ) is None
+
+
+def test_effect_classifier_uses_input_fields_not_descriptive_output_terms() -> None:
+    read_tool = {
+        "name": "available_data",
+        "description": "Search public data and render a chart with source URLs and file paths as output metadata.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"query": {"type": "string", "minLength": 2}},
+            "required": ["query"],
+        },
+    }
+    assert classify_tool_effect(read_tool) == "read_candidate"
+    assert deterministic_arguments(read_tool["input_schema"]) == {
+        "query": "modelmirror-review"
+    }
+
+    for field_name in ("url", "file_path", "api_token"):
+        dangerous = {
+            **read_tool,
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "maxLength": 80},
+                    field_name: {"type": "string"},
+                },
+                "required": ["query"],
+            },
+        }
+        assert classify_tool_effect(dangerous) == "dangerous_candidate"
+
+    nested_sensitive = {
+        **read_tool,
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "options": {
+                    "type": "object",
+                    "properties": {"header": {"type": "string"}},
+                }
+            },
+            "required": [],
+        },
+    }
+    assert classify_tool_effect(nested_sensitive) == "dangerous_candidate"
+    assert classify_tool_effect(
+        {
+            **read_tool,
+            "name": "generate_chart",
+        }
+    ) == "artifact_candidate"
 
 
 def test_reproducible_selection_uses_namespace_for_missing_publisher(

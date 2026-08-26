@@ -1,7 +1,8 @@
-"""Discovery-only OAuth foundation for fixed remote MCP resources.
+"""OAuth metadata, isolation bridge, and status foundation for remote MCP.
 
-R2A deliberately stops before browser authorization or token handling. Every
-network target is derived from a server-owned candidate and validated metadata.
+Every network target is derived from a server-owned candidate and validated
+metadata. Authorization, token storage, review, runtime, and remote revocation
+remain independently gated by their owning services and feature flags.
 """
 
 from __future__ import annotations
@@ -34,6 +35,7 @@ MAX_SCOPES = 100
 MAX_SCOPE_LENGTH = 200
 MAX_RECOMMENDED_SCOPES = 20
 MCP_PROTOCOL_VERSION = "2025-11-25"
+OAUTH_RUNTIME_MIN_TTL_SECONDS = 60
 OAuthTargetType = Literal["hub_candidate", "catalog_project"]
 OAuthRegistrationMode = Literal[
     "pre_registered", "client_id_metadata_document", "dynamic"
@@ -270,6 +272,10 @@ class RemoteOAuthBridgeProtocol(Protocol):
         self, target_id: str, url: str, *, request_body: dict[str, str]
     ) -> dict[str, Any]: ...
 
+    async def revoke_token(
+        self, target_id: str, url: str, *, request_body: dict[str, str]
+    ) -> dict[str, Any]: ...
+
 
 class RemoteOAuthSocketBridge:
     """Backend control client for the network-less OAuth metadata sidecar."""
@@ -294,6 +300,8 @@ class RemoteOAuthSocketBridge:
         *,
         timeout: float = 15.0,
         ambiguous_after_write: bool = False,
+        ambiguous_code: str = "mcp_remote_oauth_registration_unknown_outcome",
+        ambiguous_message: str = "OAuth 动态登记结果未知。",
     ) -> dict[str, Any]:
         writer: asyncio.StreamWriter | None = None
         dispatched = False
@@ -307,11 +315,11 @@ class RemoteOAuthSocketBridge:
             raw = await asyncio.wait_for(reader.readline(), timeout=timeout)
         except (asyncio.TimeoutError, ConnectionError, OSError) as exc:
             raise RemoteOAuthError(
-                "OAuth 动态登记结果未知。"
+                ambiguous_message
                 if ambiguous_after_write and dispatched
                 else "OAuth 隔离发现服务不可用。",
                 code=(
-                    "mcp_remote_oauth_registration_unknown_outcome"
+                    ambiguous_code
                     if ambiguous_after_write and dispatched
                     else "mcp_remote_oauth_sidecar_unavailable"
                 ),
@@ -326,11 +334,11 @@ class RemoteOAuthSocketBridge:
                     pass
         if not raw or len(raw) > MAX_METADATA_BYTES + 4096:
             raise RemoteOAuthError(
-                "OAuth 动态登记结果未知。"
+                ambiguous_message
                 if ambiguous_after_write
                 else "OAuth 隔离发现服务响应无效。",
                 code=(
-                    "mcp_remote_oauth_registration_unknown_outcome"
+                    ambiguous_code
                     if ambiguous_after_write
                     else "mcp_remote_oauth_sidecar_invalid"
                 ),
@@ -340,11 +348,11 @@ class RemoteOAuthSocketBridge:
             response = json.loads(raw.decode("utf-8"))
         except (UnicodeError, json.JSONDecodeError) as exc:
             raise RemoteOAuthError(
-                "OAuth 动态登记结果未知。"
+                ambiguous_message
                 if ambiguous_after_write
                 else "OAuth 隔离发现服务响应无效。",
                 code=(
-                    "mcp_remote_oauth_registration_unknown_outcome"
+                    ambiguous_code
                     if ambiguous_after_write
                     else "mcp_remote_oauth_sidecar_invalid"
                 ),
@@ -381,6 +389,8 @@ class RemoteOAuthSocketBridge:
         *,
         timeout: float,
         ambiguous_after_write: bool = False,
+        ambiguous_code: str = "mcp_remote_oauth_registration_unknown_outcome",
+        ambiguous_message: str = "OAuth 动态登记结果未知。",
     ) -> dict[str, Any]:
         capability = await self._authorize(target_id, url)
         try:
@@ -394,6 +404,8 @@ class RemoteOAuthSocketBridge:
                 },
                 timeout=timeout,
                 ambiguous_after_write=ambiguous_after_write,
+                ambiguous_code=ambiguous_code,
+                ambiguous_message=ambiguous_message,
             )
         finally:
             try:
@@ -457,6 +469,22 @@ class RemoteOAuthSocketBridge:
             )
         finally:
             request_body["refresh_token"] = ""
+
+    async def revoke_token(
+        self, target_id: str, url: str, *, request_body: dict[str, str]
+    ) -> dict[str, Any]:
+        try:
+            return await self._exchange(
+                target_id,
+                url,
+                {"action": "revoke_token", "request_body": request_body},
+                timeout=20,
+                ambiguous_after_write=True,
+                ambiguous_code="mcp_remote_oauth_revocation_unknown_outcome",
+                ambiguous_message="OAuth 远程撤销结果未知。",
+            )
+        finally:
+            request_body["token"] = ""
 
 
 class MCPRemoteOAuthStore:
@@ -1239,8 +1267,10 @@ class MCPRemoteOAuthService:
                 authorization.get("token_storage_enabled")
             ),
             "review_enabled": bool(authorization.get("review_enabled")),
-            "runtime_enabled": False,
-            "remote_revocation_enabled": False,
+            "runtime_enabled": bool(authorization.get("runtime_enabled")),
+            "remote_revocation_enabled": bool(
+                authorization.get("remote_revocation_enabled")
+            ),
             "multi_tenant": False,
         }
 
@@ -1643,13 +1673,21 @@ class MCPRemoteOAuthService:
             if self.authorization_service is not None
             else {"authorization_session": None, "token": None}
         )
+        token = authorization.get("token")
+        runtime_enabled = bool(authorization.get("runtime_enabled"))
+        token_expires_at = token.get("expires_at") if isinstance(token, dict) else None
+        token_has_runtime_ttl = token_expires_at is None or (
+            isinstance(token_expires_at, (int, float))
+            and not isinstance(token_expires_at, bool)
+            and token_expires_at > time.time() + OAUTH_RUNTIME_MIN_TTL_SECONDS
+        )
         return {
             "discovery": self._public_discovery(discovery) if discovery else None,
             "registration": (
                 self._public_registration(registration) if registration else None
             ),
             "authorization_session": authorization.get("authorization_session"),
-            "token": authorization.get("token"),
+            "token": token,
             "authorization_enabled": bool(
                 authorization.get("authorization_enabled")
             ),
@@ -1657,9 +1695,17 @@ class MCPRemoteOAuthService:
                 authorization.get("token_storage_enabled")
             ),
             "review_enabled": bool(authorization.get("review_enabled")),
-            "runtime_enabled": False,
-            "remote_revocation_enabled": False,
-            "runtime_eligible": False,
+            "runtime_enabled": runtime_enabled,
+            "remote_revocation_enabled": bool(
+                authorization.get("remote_revocation_enabled")
+            ),
+            "runtime_eligible": bool(
+                runtime_enabled
+                and isinstance(token, dict)
+                and token.get("status") == "active"
+                and token.get("resource_bound")
+                and token_has_runtime_ttl
+            ),
             "local_single_owner_warning": True,
         }
 
@@ -1814,10 +1860,13 @@ class MCPRemoteOAuthService:
                     status_code=409,
                 )
             redirect_uri = self._redirect_uri()
+            grant_types = ["authorization_code"]
+            if isinstance(discovery.policy, RemoteOAuthPolicyV2) and discovery.policy.offline_access_available:
+                grant_types.append("refresh_token")
             request_body = {
                 "redirect_uris": [redirect_uri],
                 "token_endpoint_auth_method": "none",
-                "grant_types": ["authorization_code"],
+                "grant_types": grant_types,
                 "response_types": ["code"],
                 "application_type": "native",
                 "client_name": "ModelMirror local MCP OAuth",

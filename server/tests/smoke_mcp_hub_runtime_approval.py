@@ -2,8 +2,8 @@
 
 This harness intentionally has no public HTTP tool-call endpoint.  It exercises
 the same provider and middleware used by AI Runtime, records one explicit local
-operator decision, performs exactly one real call, then revokes the contract and
-proves that the live Hub session and Runtime tool disappear immediately.
+operator decision, and performs exactly one real call. Contract revocation is
+the default; an operator may defer it when validating OAuth token revocation next.
 """
 
 from __future__ import annotations
@@ -60,7 +60,14 @@ def _hub_approval(
     }
 
 
-async def run(storage_dir: Path, server_name: str, upstream_tool: str) -> dict[str, Any]:
+async def run(
+    storage_dir: Path,
+    server_name: str,
+    upstream_tool: str,
+    *,
+    arguments: dict[str, Any],
+    revoke_contract: bool,
+) -> dict[str, Any]:
     store = MCPHubStore(storage_dir)
     hub = MCPHubService(
         store,
@@ -131,7 +138,6 @@ async def run(storage_dir: Path, server_name: str, upstream_tool: str) -> dict[s
             "node_title": "Hub Runtime smoke",
         },
     )
-    arguments: dict[str, Any] = {}
     hub_approval = _hub_approval(hub, candidate, tool, arguments)
     base_call = RuntimeToolCall(
         tool_name=tool.name,
@@ -178,16 +184,24 @@ async def run(storage_dir: Path, server_name: str, upstream_tool: str) -> dict[s
     if not connected_before_revoke:
         raise RuntimeError("runtime_session_not_connected")
 
-    contract_id = str(tool.metadata["hub_contract_id"])
-    revoked = await review.revoke(contract_id, "independent preview acceptance")
-    connected_after_revoke = hub.get_candidate(candidate["candidate_id"])["connected"]
-    remaining_tools = [
-        item
-        for item in await provider.list_tools()
-        if item.metadata.get("hub_candidate_id") == candidate["candidate_id"]
-    ]
-    if connected_after_revoke or remaining_tools:
-        raise RuntimeError("contract_revocation_not_immediate")
+    revoked_contract_id = ""
+    disconnected_candidates: list[str] = []
+    if revoke_contract:
+        contract_id = str(tool.metadata["hub_contract_id"])
+        revoked = await review.revoke(contract_id, "independent preview acceptance")
+        revoked_contract_id = str(revoked["contract_id"])
+        disconnected_candidates = list(revoked["disconnected_candidates"])
+        connected_after_revoke = hub.get_candidate(candidate["candidate_id"])["connected"]
+        remaining_tools = [
+            item
+            for item in await provider.list_tools()
+            if item.metadata.get("hub_candidate_id") == candidate["candidate_id"]
+        ]
+        if connected_after_revoke or remaining_tools:
+            raise RuntimeError("contract_revocation_not_immediate")
+    else:
+        connected_after_revoke = connected_before_revoke
+        remaining_tools = [tool]
 
     output = result.output or ""
     return {
@@ -203,8 +217,8 @@ async def run(storage_dir: Path, server_name: str, upstream_tool: str) -> dict[s
         "result_sha256": hashlib.sha256(output.encode("utf-8")).hexdigest(),
         "connected_before_revoke": connected_before_revoke,
         "connected_after_revoke": connected_after_revoke,
-        "revoked_contract_id": revoked["contract_id"],
-        "disconnected_candidates": revoked["disconnected_candidates"],
+        "revoked_contract_id": revoked_contract_id,
+        "disconnected_candidates": disconnected_candidates,
         "runtime_tools_after_revoke": len(remaining_tools),
     }
 
@@ -214,8 +228,21 @@ def main() -> int:
     parser.add_argument("--storage-dir", type=Path, required=True)
     parser.add_argument("--server-name", required=True)
     parser.add_argument("--upstream-tool", required=True)
+    parser.add_argument("--arguments-json", default="{}")
+    parser.add_argument("--keep-contract", action="store_true")
     args = parser.parse_args()
-    result = asyncio.run(run(args.storage_dir, args.server_name, args.upstream_tool))
+    arguments = json.loads(args.arguments_json)
+    if not isinstance(arguments, dict):
+        parser.error("--arguments-json must decode to an object")
+    result = asyncio.run(
+        run(
+            args.storage_dir,
+            args.server_name,
+            args.upstream_tool,
+            arguments=arguments,
+            revoke_contract=not args.keep_contract,
+        )
+    )
     print("runtime_approval_proof=" + json.dumps(result, sort_keys=True), flush=True)
     return 0
 

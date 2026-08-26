@@ -1,10 +1,10 @@
-"""R3A local-single-owner OAuth authorization and reviewed execution resolver.
+"""Local-single-owner OAuth authorization and reviewed execution resolver.
 
 The authorization server and token endpoint are always taken from an active
 R2A discovery snapshot. Client requests cannot supply a URL, Header, client ID,
 tenant, owner, authorization code, verifier, or refresh token to write APIs.
-OAuth tokens may be resolved only for the internal Review Factory path. They
-remain unavailable to MCP Runtime until R3B explicitly opens activation.
+OAuth tokens may be resolved only for internal Review Factory or V3 Runtime
+paths whose independent feature gates and frozen execution context are current.
 """
 
 from __future__ import annotations
@@ -41,6 +41,7 @@ from .remote_oauth import (
     RemoteOAuthBridgeProtocol,
     RemoteOAuthPolicyV2,
     MCP_PROTOCOL_VERSION,
+    OAUTH_RUNTIME_MIN_TTL_SECONDS,
 )
 
 
@@ -300,6 +301,29 @@ class RemoteOAuthRefreshAttemptV1(BaseModel):
     updated_at: float = Field(ge=0)
 
 
+class RemoteOAuthRevocationAttemptV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    attempt_id: str = Field(pattern=r"^mcpoauthrevoke_[0-9a-f]{32}$")
+    subject: SubjectScopeV1
+    target_type: OAuthTargetType
+    target_id: str
+    token_id: str = Field(pattern=r"^mcpoauthtoken_[0-9a-f]{32}$")
+    expected_revision: int = Field(ge=1)
+    discovery_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    registration_id: str
+    registration_revision: int = Field(ge=1)
+    policy_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    revocation_endpoint_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    token_type_hint: Literal["access_token", "refresh_token"]
+    status: Literal[
+        "started", "completed", "failed", "unknown_outcome", "local_only"
+    ]
+    error_code: str = ""
+    created_at: float = Field(ge=0)
+    updated_at: float = Field(ge=0)
+
+
 class RemoteOAuthExecutionMetadataV1(BaseModel):
     """Secret-free, short-lived execution identity for Review Factory.
 
@@ -440,6 +464,30 @@ class MCPRemoteOAuthAuthorizationStore:
                     ON remote_oauth_refresh_attempts(
                         tenant_id,owner_id,token_id,expected_revision
                     ) WHERE status='started';
+                CREATE TABLE IF NOT EXISTS remote_oauth_revocation_attempts (
+                    attempt_id TEXT PRIMARY KEY,
+                    tenant_id TEXT NOT NULL,
+                    owner_id TEXT NOT NULL,
+                    subject_mode TEXT NOT NULL,
+                    target_type TEXT NOT NULL,
+                    target_id TEXT NOT NULL,
+                    token_id TEXT NOT NULL,
+                    expected_revision INTEGER NOT NULL,
+                    discovery_fingerprint TEXT NOT NULL,
+                    registration_id TEXT NOT NULL,
+                    registration_revision INTEGER NOT NULL,
+                    policy_fingerprint TEXT NOT NULL,
+                    revocation_endpoint_digest TEXT NOT NULL,
+                    token_type_hint TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    error_code TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS remote_oauth_one_started_revocation
+                    ON remote_oauth_revocation_attempts(
+                        tenant_id,owner_id,token_id,expected_revision
+                    ) WHERE status='started';
                 """
             )
             db.execute(
@@ -459,6 +507,12 @@ class MCPRemoteOAuthAuthorizationStore:
             db.execute(
                 "UPDATE remote_oauth_refresh_attempts SET status='unknown_outcome',"
                 "error_code='mcp_remote_oauth_refresh_unknown_outcome',updated_at=? "
+                "WHERE status='started'",
+                (now,),
+            )
+            db.execute(
+                "UPDATE remote_oauth_revocation_attempts SET status='unknown_outcome',"
+                "error_code='mcp_remote_oauth_revocation_unknown_outcome',updated_at=? "
                 "WHERE status='started'",
                 (now,),
             )
@@ -1323,6 +1377,175 @@ class MCPRemoteOAuthAuthorizationStore:
         self._scope(value.subject, subject)
         return value
 
+    def claim_revocation(
+        self,
+        *,
+        subject: SubjectScopeV1,
+        token: RemoteOAuthTokenRevisionV1,
+        discovery: RemoteOAuthDiscoverySnapshotV1,
+        registration: RemoteOAuthClientRegistrationV1,
+        revocation_endpoint_digest: str,
+        token_type_hint: Literal["access_token", "refresh_token"],
+    ) -> RemoteOAuthRevocationAttemptV1:
+        now = time.time()
+        attempt = RemoteOAuthRevocationAttemptV1(
+            attempt_id=f"mcpoauthrevoke_{uuid.uuid4().hex}",
+            subject=subject,
+            target_type=token.target_type,
+            target_id=token.target_id,
+            token_id=token.token_id,
+            expected_revision=token.revision,
+            discovery_fingerprint=discovery.discovery_fingerprint,
+            registration_id=registration.registration_id,
+            registration_revision=registration.revision,
+            policy_fingerprint=discovery.policy.policy_fingerprint,
+            revocation_endpoint_digest=revocation_endpoint_digest,
+            token_type_hint=token_type_hint,
+            status="started",
+            created_at=now,
+            updated_at=now,
+        )
+        with self._lock, self._connect() as db:
+            try:
+                db.execute("BEGIN IMMEDIATE")
+                current = db.execute(
+                    "SELECT * FROM remote_oauth_token_revisions WHERE token_id=? "
+                    "AND tenant_id=? AND owner_id=? AND status='active'",
+                    (token.token_id, subject.tenant_id, subject.owner_id),
+                ).fetchone()
+                if (
+                    current is None
+                    or current["revision"] != token.revision
+                    or current["discovery_fingerprint"]
+                    != discovery.discovery_fingerprint
+                    or current["registration_id"] != registration.registration_id
+                    or current["registration_revision"] != registration.revision
+                    or current["policy_fingerprint"]
+                    != discovery.policy.policy_fingerprint
+                ):
+                    raise RemoteOAuthError(
+                        "OAuth token revision 或发现证据已变化。",
+                        code="mcp_remote_oauth_token_stale",
+                        status_code=409,
+                    )
+                refresh_started = db.execute(
+                    "SELECT 1 FROM remote_oauth_refresh_attempts WHERE tenant_id=? "
+                    "AND owner_id=? AND token_id=? AND expected_revision=? "
+                    "AND status='started' LIMIT 1",
+                    (
+                        subject.tenant_id,
+                        subject.owner_id,
+                        token.token_id,
+                        token.revision,
+                    ),
+                ).fetchone()
+                if refresh_started is not None:
+                    raise RemoteOAuthError(
+                        "该 OAuth token revision 正在刷新，不能并发撤销。",
+                        code="mcp_remote_oauth_refresh_in_progress",
+                        status_code=409,
+                    )
+                db.execute(
+                    "INSERT INTO remote_oauth_revocation_attempts VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        attempt.attempt_id,
+                        subject.tenant_id,
+                        subject.owner_id,
+                        subject.mode,
+                        attempt.target_type,
+                        attempt.target_id,
+                        attempt.token_id,
+                        attempt.expected_revision,
+                        attempt.discovery_fingerprint,
+                        attempt.registration_id,
+                        attempt.registration_revision,
+                        attempt.policy_fingerprint,
+                        attempt.revocation_endpoint_digest,
+                        attempt.token_type_hint,
+                        attempt.status,
+                        "",
+                        attempt.created_at,
+                        attempt.updated_at,
+                    ),
+                )
+                changed = db.execute(
+                    "UPDATE remote_oauth_token_revisions SET status='revoked',"
+                    "revision=revision+1,updated_at=?,revoked_at=? WHERE token_id=? "
+                    "AND status='active' AND revision=?",
+                    (now, now, token.token_id, token.revision),
+                )
+                if changed.rowcount != 1:
+                    raise RemoteOAuthError(
+                        "OAuth token 撤销无法原子封锁旧 revision。",
+                        code="mcp_remote_oauth_revocation_unknown_outcome",
+                        status_code=409,
+                    )
+            except sqlite3.IntegrityError as exc:
+                raise RemoteOAuthError(
+                    "该 OAuth token revision 正在撤销。",
+                    code="mcp_remote_oauth_revocation_in_progress",
+                    status_code=409,
+                ) from exc
+        return attempt
+
+    def finish_revocation_attempt(
+        self,
+        attempt_id: str,
+        *,
+        subject: SubjectScopeV1,
+        status: Literal["completed", "failed", "unknown_outcome", "local_only"],
+        error_code: str = "",
+    ) -> RemoteOAuthRevocationAttemptV1:
+        attempt = self.revocation_attempt(attempt_id, subject=subject)
+        now = time.time()
+        with self._lock, self._connect() as db:
+            changed = db.execute(
+                "UPDATE remote_oauth_revocation_attempts SET status=?,error_code=?,"
+                "updated_at=? WHERE attempt_id=? AND status='started'",
+                (status, error_code[:160], now, attempt_id),
+            )
+            if changed.rowcount != 1:
+                current = db.execute(
+                    "SELECT * FROM remote_oauth_revocation_attempts WHERE attempt_id=?",
+                    (attempt_id,),
+                ).fetchone()
+                if current is not None and current["status"] == status:
+                    return self._revocation_attempt(current)
+                raise RemoteOAuthError(
+                    "OAuth token 撤销记录已完成。",
+                    code="mcp_remote_oauth_revocation_unknown_outcome",
+                    status_code=409,
+                )
+            row = db.execute(
+                "SELECT * FROM remote_oauth_revocation_attempts WHERE attempt_id=?",
+                (attempt.attempt_id,),
+            ).fetchone()
+        return self._revocation_attempt(row)
+
+    def revocation_attempt(
+        self, attempt_id: str, *, subject: SubjectScopeV1
+    ) -> RemoteOAuthRevocationAttemptV1:
+        if re.fullmatch(r"mcpoauthrevoke_[0-9a-f]{32}", attempt_id) is None:
+            raise RemoteOAuthError(
+                "OAuth token 撤销记录不存在。",
+                code="mcp_remote_oauth_revocation_unknown_outcome",
+                status_code=404,
+            )
+        with self._lock, self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM remote_oauth_revocation_attempts WHERE attempt_id=?",
+                (attempt_id,),
+            ).fetchone()
+        if row is None:
+            raise RemoteOAuthError(
+                "OAuth token 撤销记录不存在。",
+                code="mcp_remote_oauth_revocation_unknown_outcome",
+                status_code=404,
+            )
+        value = self._revocation_attempt(row)
+        self._scope(value.subject, subject)
+        return value
+
     def rotate_token(
         self,
         token_id: str,
@@ -1647,6 +1870,38 @@ class MCPRemoteOAuthAuthorizationStore:
                 status_code=503,
             ) from exc
 
+    @staticmethod
+    def _revocation_attempt(row: sqlite3.Row) -> RemoteOAuthRevocationAttemptV1:
+        try:
+            return RemoteOAuthRevocationAttemptV1(
+                attempt_id=row["attempt_id"],
+                subject=SubjectScopeV1(
+                    tenant_id=row["tenant_id"],
+                    owner_id=row["owner_id"],
+                    mode=row["subject_mode"],
+                ),
+                target_type=row["target_type"],
+                target_id=row["target_id"],
+                token_id=row["token_id"],
+                expected_revision=row["expected_revision"],
+                discovery_fingerprint=row["discovery_fingerprint"],
+                registration_id=row["registration_id"],
+                registration_revision=row["registration_revision"],
+                policy_fingerprint=row["policy_fingerprint"],
+                revocation_endpoint_digest=row["revocation_endpoint_digest"],
+                token_type_hint=row["token_type_hint"],
+                status=row["status"],
+                error_code=row["error_code"],
+                created_at=row["created_at"],
+                updated_at=row["updated_at"],
+            )
+        except (ValueError, TypeError) as exc:
+            raise RemoteOAuthError(
+                "OAuth token 撤销记录损坏。",
+                code="mcp_remote_oauth_storage_corrupt",
+                status_code=503,
+            ) from exc
+
 
 class MCPRemoteOAuthAuthorizationService:
     def __init__(
@@ -1677,10 +1932,22 @@ class MCPRemoteOAuthAuthorizationService:
         self.credential_resolver = credential_resolver
         self.credential_rotator = credential_rotator
         self.credential_revoker = credential_revoker
+        self.target_change_handler: Callable[[OAuthTargetType, str], None] | None = None
         self._locks = tuple(asyncio.Lock() for _ in range(64))
         subject = self.subject_resolver.resolve()
         for credential_id in self.store.recovery_credential_ids(subject=subject):
             self._revoke_safely(credential_id, subject)
+
+    def set_target_change_handler(
+        self, handler: Callable[[OAuthTargetType, str], None]
+    ) -> None:
+        self.target_change_handler = handler
+
+    def _notify_target_changed(
+        self, target_type: OAuthTargetType, target_id: str
+    ) -> None:
+        if self.target_change_handler is not None:
+            self.target_change_handler(target_type, target_id)
 
     def status(self) -> dict[str, Any]:
         configured = all(
@@ -1703,8 +1970,10 @@ class MCPRemoteOAuthAuthorizationService:
             )
             and configured,
             "review_enabled": _flag("MCP_REMOTE_OAUTH_REVIEW_ENABLED"),
-            "runtime_enabled": False,
-            "remote_revocation_enabled": False,
+            "runtime_enabled": _flag("MCP_REMOTE_OAUTH_RUNTIME_ENABLED"),
+            "remote_revocation_enabled": _flag(
+                "MCP_REMOTE_OAUTH_REMOTE_REVOCATION_ENABLED"
+            ),
             "storage_ready": self.store.ready(),
         }
 
@@ -2045,6 +2314,7 @@ class MCPRemoteOAuthAuthorizationService:
                 expires_at=expires_at,
                 refresh_available=bool(bundle["refresh_token"]),
             )
+            self._notify_target_changed(session.target_type, session.target_id)
             return self.store.session(session.session_id, subject=subject)
         except asyncio.CancelledError:
             self._finish_safely(
@@ -2222,13 +2492,15 @@ class MCPRemoteOAuthAuthorizationService:
                 tenant_id=subject.tenant_id,
                 owner_id=subject.owner_id,
             )
-            return self.store.complete_refresh(
+            refreshed = self.store.complete_refresh(
                 attempt.attempt_id,
                 subject=subject,
                 scopes=granted,
                 expires_at=expires_at,
                 refresh_available=bool(new_bundle["refresh_token"]),
             )
+            self._notify_target_changed(target_type, target_id)
+            return refreshed
         except asyncio.CancelledError:
             try:
                 self.store.finish_refresh_attempt(
@@ -2325,8 +2597,122 @@ class MCPRemoteOAuthAuthorizationService:
                 code="mcp_remote_oauth_token_missing",
                 status_code=404,
             )
+        revoked = self.store.set_token_status(
+            token_id, subject=subject, status="revoked"
+        )
+        self._notify_target_changed(target_type, target_id)
         self._revoke_credential(token.credential_id, subject)
-        return self.store.set_token_status(token_id, subject=subject, status="revoked")
+        return revoked
+
+    async def revoke_with_remote(
+        self,
+        *,
+        target_type: OAuthTargetType,
+        target_id: str,
+        token_id: str,
+    ) -> dict[str, Any]:
+        subject = self._require()
+        token = self.store.active_token(
+            subject=subject, target_type=target_type, target_id=target_id
+        )
+        if token is None or token.token_id != token_id:
+            raise RemoteOAuthError(
+                "OAuth token 不存在。",
+                code="mcp_remote_oauth_token_missing",
+                status_code=404,
+            )
+        discovery, registration = self._current(
+            subject=subject, target_type=target_type, target_id=target_id
+        )
+        if (
+            not isinstance(discovery.policy, RemoteOAuthPolicyV2)
+            or token.discovery_fingerprint != discovery.discovery_fingerprint
+            or token.registration_id != registration.registration_id
+            or token.registration_revision != registration.revision
+            or token.policy_fingerprint != discovery.policy.policy_fingerprint
+        ):
+            raise RemoteOAuthError(
+                "OAuth token 与当前发现证据不一致。",
+                code="mcp_remote_oauth_token_stale",
+                status_code=409,
+            )
+        bundle = self._token_bundle(token, subject)
+        selected_token = bundle.get("refresh_token") or bundle.get("access_token", "")
+        token_type_hint: Literal["access_token", "refresh_token"] = (
+            "refresh_token" if bundle.get("refresh_token") else "access_token"
+        )
+        endpoint = discovery.policy.revocation_endpoint
+        endpoint_digest = hashlib.sha256(endpoint.encode("utf-8")).hexdigest()
+        try:
+            attempt = self.store.claim_revocation(
+                subject=subject,
+                token=token,
+                discovery=discovery,
+                registration=registration,
+                revocation_endpoint_digest=endpoint_digest,
+                token_type_hint=token_type_hint,
+            )
+        except Exception:
+            selected_token = ""
+            bundle.clear()
+            raise
+        self._notify_target_changed(target_type, target_id)
+        remote_status: Literal[
+            "completed", "failed", "unknown_outcome", "local_only"
+        ] = "local_only"
+        error_code = ""
+        try:
+            if (
+                endpoint
+                and _flag("MCP_REMOTE_OAUTH_REMOTE_REVOCATION_ENABLED")
+            ):
+                try:
+                    await self.bridge.revoke_token(
+                        target_id,
+                        endpoint,
+                        request_body={
+                            "token": selected_token,
+                            "token_type_hint": token_type_hint,
+                            "client_id": registration.client_id,
+                        },
+                    )
+                    remote_status = "completed"
+                except RemoteOAuthError as exc:
+                    if exc.code == "mcp_remote_oauth_revocation_unknown_outcome":
+                        remote_status = "unknown_outcome"
+                        error_code = exc.code
+                    else:
+                        remote_status = "failed"
+                        error_code = exc.code
+            persisted = self.store.finish_revocation_attempt(
+                attempt.attempt_id,
+                subject=subject,
+                status=remote_status,
+                error_code=error_code,
+            )
+        except asyncio.CancelledError:
+            try:
+                self.store.finish_revocation_attempt(
+                    attempt.attempt_id,
+                    subject=subject,
+                    status="unknown_outcome",
+                    error_code="mcp_remote_oauth_revocation_unknown_outcome",
+                )
+            except Exception:
+                # The durable started row remains fail-closed and is recovered
+                # as unknown_outcome on the next service start.
+                pass
+            raise
+        finally:
+            selected_token = ""
+            bundle.clear()
+            self._revoke_safely(token.credential_id, subject)
+        return {
+            "local_revocation": "completed",
+            "remote_revocation": persisted.status,
+            "remote_error_code": persisted.error_code,
+            "attempt_id": persisted.attempt_id,
+        }
 
     def invalidate_target(
         self, *, target_type: OAuthTargetType, target_id: str
@@ -2337,6 +2723,7 @@ class MCPRemoteOAuthAuthorizationService:
         )
         for credential_id in (*pkce_ids, *token_ids):
             self._revoke_safely(credential_id, subject)
+        self._notify_target_changed(target_type, target_id)
 
     def summary(
         self,
@@ -2454,7 +2841,10 @@ class MCPRemoteOAuthAuthorizationService:
                 code="mcp_remote_oauth_token_stale",
                 status_code=409,
             )
-        if token.expires_at is not None and token.expires_at <= time.time() + 60:
+        if (
+            token.expires_at is not None
+            and token.expires_at <= time.time() + OAUTH_RUNTIME_MIN_TTL_SECONDS
+        ):
             raise RemoteOAuthError(
                 "OAuth token 即将到期，需要显式刷新。",
                 code="mcp_remote_oauth_refresh_required",

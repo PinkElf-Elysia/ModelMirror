@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sqlite3
+import time
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,8 @@ class FakeBridge:
         self.client_metadata_document: dict[str, Any] | None = None
         self.client_metadata_document_supported = True
         self.challenge_scopes: list[str] = []
+        self.authorization_scopes = ["mcp:read"]
+        self.registration_requests: list[dict[str, Any]] = []
 
     async def probe_resource(self, target_id: str, url: str) -> dict[str, Any]:
         self.calls.append(("probe", url))
@@ -73,7 +76,7 @@ class FakeBridge:
                     "grant_types_supported": ["authorization_code"],
                     "response_types_supported": ["code"],
                     "client_id_metadata_document_supported": self.client_metadata_document_supported,
-                    "scopes_supported": ["mcp:read"],
+                    "scopes_supported": list(self.authorization_scopes),
                 }
             }
         if document_kind == "client_id_metadata_document":
@@ -94,6 +97,7 @@ class FakeBridge:
         self, target_id: str, url: str, *, request_body: dict[str, Any]
     ) -> dict[str, Any]:
         self.calls.append(("register", url))
+        self.registration_requests.append(dict(request_body))
         assert request_body["token_endpoint_auth_method"] == "none"
         assert request_body["application_type"] == "native"
         if self.registration_error_code:
@@ -133,6 +137,51 @@ def service(
         },
         bridge=bridge or FakeBridge(),
     )
+
+
+class FakeAuthorizationSummary:
+    def __init__(self, expires_at: float | None) -> None:
+        self.expires_at = expires_at
+
+    def status(self) -> dict[str, Any]:
+        return {"authorization_enabled": True, "token_storage_enabled": True}
+
+    def summary(self, **_kwargs: Any) -> dict[str, Any]:
+        return {
+            "authorization_enabled": True,
+            "token_storage_enabled": True,
+            "review_enabled": True,
+            "runtime_enabled": True,
+            "remote_revocation_enabled": True,
+            "authorization_session": None,
+            "token": {
+                "status": "active",
+                "resource_bound": True,
+                "expires_at": self.expires_at,
+            },
+        }
+
+
+def test_runtime_summary_requires_more_than_execution_ttl_window(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    current = service(tmp_path, monkeypatch)
+    current.set_authorization_service(FakeAuthorizationSummary(time.time() + 60))
+
+    expiring = current.summary(
+        target_type="hub_candidate",
+        target_id="mcphub_" + "0" * 32,
+        source_digest=SOURCE,
+    )
+    assert expiring["runtime_eligible"] is False
+
+    current.set_authorization_service(FakeAuthorizationSummary(time.time() + 120))
+    usable = current.summary(
+        target_type="hub_candidate",
+        target_id="mcphub_" + "0" * 32,
+        source_digest=SOURCE,
+    )
+    assert usable["runtime_eligible"] is True
 
 
 def test_oauth_url_policy_rejects_client_controlled_network_shapes() -> None:
@@ -711,6 +760,45 @@ async def test_registration_evidence_fingerprint_fails_closed_on_tamper(
             source_digest=SOURCE,
         )
     assert corrupt.value.code == "mcp_remote_oauth_storage_corrupt"
+
+
+@pytest.mark.asyncio
+async def test_dynamic_registration_declares_refresh_grant_only_when_supported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bridge = FakeBridge()
+    bridge.authorization_scopes = ["mcp:read", "offline_access"]
+    current = service(tmp_path, monkeypatch, bridge=bridge)
+    target_id = "mcphub_" + "3" * 32
+    discovered = await current.discover(
+        target_type="hub_candidate",
+        target_id=target_id,
+        resource_url=RESOURCE,
+        source_digest=SOURCE,
+    )
+    monkeypatch.setenv("MCP_REMOTE_OAUTH_DYNAMIC_REGISTRATION_ENABLED", "true")
+    monkeypatch.setenv(
+        "MCP_REMOTE_OAUTH_REDIRECT_URI", "http://127.0.0.1:8765/oauth/callback"
+    )
+
+    await current.register_client(
+        target_type="hub_candidate",
+        target_id=target_id,
+        source_digest=SOURCE,
+        expected_discovery_fingerprint=discovered.discovery_fingerprint,
+        mode="dynamic",
+    )
+
+    assert bridge.registration_requests == [
+        {
+            "redirect_uris": ["http://127.0.0.1:8765/oauth/callback"],
+            "token_endpoint_auth_method": "none",
+            "grant_types": ["authorization_code", "refresh_token"],
+            "response_types": ["code"],
+            "application_type": "native",
+            "client_name": "ModelMirror local MCP OAuth",
+        }
+    ]
 
 
 @pytest.mark.asyncio

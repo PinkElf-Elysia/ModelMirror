@@ -165,6 +165,46 @@ def test_authenticated_401_and_403_have_fixed_non_retryable_codes() -> None:
     ) == "mcp_remote_auth_forbidden"
 
 
+def test_oauth_401_and_bounded_403_scope_challenge_are_not_unknown_outcomes() -> None:
+    request = httpx.Request("POST", "https://mcp.example.com/mcp")
+    unauthorized = hub_server._oauth_call_failure(
+        httpx.HTTPStatusError(
+            "untrusted body",
+            request=request,
+            response=httpx.Response(401, text="secret upstream content"),
+        )
+    )
+    assert unauthorized is not None
+    assert unauthorized.code == "mcp_remote_oauth_unauthorized"
+    assert unauthorized.details == {}
+
+    scope_upgrade = hub_server._oauth_call_failure(
+        httpx.HTTPStatusError(
+            "untrusted body",
+            request=request,
+            response=httpx.Response(
+                403,
+                headers={
+                    "WWW-Authenticate": (
+                        'Bearer error="insufficient_scope", '
+                        'scope="documents.read profile.read"'
+                    )
+                },
+            ),
+        )
+    )
+    assert scope_upgrade is not None
+    assert scope_upgrade.code == "mcp_remote_oauth_scope_upgrade_required"
+    assert scope_upgrade.details == {
+        "required_scopes": ["documents.read", "profile.read"]
+    }
+
+    malformed = hub_server._bounded_insufficient_scope(
+        'Bearer error="insufficient_scope", scope="read\\\" injected"'
+    )
+    assert malformed == []
+
+
 @pytest.mark.asyncio
 async def test_remote_auth_envelope_is_scope_bound_and_cleared_on_close(
     monkeypatch: pytest.MonkeyPatch,

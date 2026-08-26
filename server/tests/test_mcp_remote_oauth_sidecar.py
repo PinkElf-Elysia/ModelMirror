@@ -23,6 +23,22 @@ def request(**extra: Any) -> dict[str, Any]:
     }
 
 
+def test_json_content_type_accepts_only_consistent_json_duplicates() -> None:
+    duplicate_json = oauth_server.httpx.Headers(
+        [("content-type", "application/json"), ("content-type", "application/json")]
+    )
+    conflicting = oauth_server.httpx.Headers(
+        [("content-type", "application/json"), ("content-type", "text/plain")]
+    )
+
+    assert oauth_server._has_unambiguous_json_content_type(duplicate_json) is True
+    assert oauth_server._has_unambiguous_json_content_type(
+        {"content-type": "application/problem+json; charset=utf-8"}
+    ) is True
+    assert oauth_server._has_unambiguous_json_content_type(conflicting) is False
+    assert oauth_server._has_unambiguous_json_content_type({}) is False
+
+
 def test_sidecar_contract_rejects_client_network_and_header_injection() -> None:
     normalized, host, capability = oauth_server._contract(
         request(),
@@ -204,6 +220,22 @@ async def test_dynamic_registration_contract_rejects_arbitrary_payload_before_ne
         )
     assert client_name.value.code == "mcp_remote_oauth_registration_invalid"
 
+    with pytest.raises(oauth_server.HubSidecarError) as grant_type:
+        await service.register_public_client(
+            "https://auth.example.com/register",
+            "auth.example.com",
+            "a" * 64,
+            {
+                "redirect_uris": ["http://127.0.0.1:8765/callback"],
+                "token_endpoint_auth_method": "none",
+                "grant_types": ["authorization_code", "client_credentials"],
+                "response_types": ["code"],
+                "application_type": "native",
+                "client_name": "ModelMirror local MCP OAuth",
+            },
+        )
+    assert grant_type.value.code == "mcp_remote_oauth_registration_invalid"
+
     assert oauth_server._valid_redirect_uri("http://127.0.0.1:bad/callback") is False
 
 
@@ -312,6 +344,66 @@ async def test_dynamic_registration_marks_confidential_response_without_returnin
     )
     assert result == {"client_id": "public-looking", "contains_secret": True}
     assert "hidden" not in json.dumps(result)
+
+
+@pytest.mark.asyncio
+async def test_dynamic_registration_accepts_matching_refresh_grant_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Proxy:
+        async def close(self) -> None:
+            pass
+
+    class Response:
+        status_code = 201
+        headers = {"content-type": "application/json"}
+
+        async def aiter_bytes(self):
+            yield (
+                b'{"client_id":"public-client","redirect_uris":'
+                b'["http://127.0.0.1:8765/callback"],'
+                b'"token_endpoint_auth_method":"none",'
+                b'"grant_types":["authorization_code","refresh_token"],'
+                b'"response_types":["code"],"application_type":"native"}'
+            )
+
+    class Stream:
+        async def __aenter__(self) -> Response:
+            return Response()
+
+        async def __aexit__(self, *_args: Any) -> None:
+            pass
+
+    class Client:
+        def stream(self, *_args: Any, **_kwargs: Any) -> Stream:
+            return Stream()
+
+        async def aclose(self) -> None:
+            pass
+
+    service = oauth_server.OAuthMetadataService()
+
+    async def fake_client(*_args: Any) -> tuple[Proxy, Client]:
+        return Proxy(), Client()
+
+    monkeypatch.setattr(service, "_client", fake_client)
+    result = await service.register_public_client(
+        "https://auth.example.com/register",
+        "auth.example.com",
+        "a" * 64,
+        {
+            "redirect_uris": ["http://127.0.0.1:8765/callback"],
+            "token_endpoint_auth_method": "none",
+            "grant_types": ["authorization_code", "refresh_token"],
+            "response_types": ["code"],
+            "application_type": "native",
+            "client_name": "ModelMirror local MCP OAuth",
+        },
+    )
+
+    assert result["client_id"] == "public-client"
+    assert result["contains_secret"] is False
+    assert len(result["registration_response_digest"]) == 64
 
 
 @pytest.mark.asyncio
@@ -615,3 +707,114 @@ def test_compose_keeps_oauth_http_in_a_networkless_non_root_sidecar() -> None:
     )
     assert "COPY oauth_server.py ./sandbox_sidecar/oauth_server.py" in dockerfile
     assert "USER 65532:65532" in dockerfile
+
+
+@pytest.mark.asyncio
+async def test_revocation_posts_only_frozen_rfc7009_fields_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: list[dict[str, Any]] = []
+
+    class Proxy:
+        async def close(self) -> None:
+            pass
+
+    class Response:
+        status_code = 200
+
+    class Stream:
+        async def __aenter__(self) -> Response:
+            return Response()
+
+        async def __aexit__(self, *_args: Any) -> None:
+            pass
+
+    class Client:
+        def stream(self, method: str, url: str, **kwargs: Any) -> Stream:
+            observed.append({
+                "method": method,
+                "url": url,
+                **kwargs,
+                "data": dict(kwargs.get("data") or {}),
+            })
+            return Stream()
+
+        async def aclose(self) -> None:
+            pass
+
+    service = oauth_server.OAuthMetadataService()
+
+    async def fake_client(*_args: Any) -> tuple[Proxy, Client]:
+        return Proxy(), Client()
+
+    monkeypatch.setattr(service, "_client", fake_client)
+    request_body = {
+        "token": "refresh-secret",
+        "token_type_hint": "refresh_token",
+        "client_id": "public-client",
+    }
+    result = await service.revoke_token(
+        "https://auth.example.com/revoke",
+        "auth.example.com",
+        "a" * 64,
+        request_body,
+    )
+    assert result == {"remote_status": "completed"}
+    assert len(observed) == 1
+    assert observed[0]["method"] == "POST"
+    assert observed[0]["url"] == "https://auth.example.com/revoke"
+    assert observed[0]["data"] == {
+        "token": "refresh-secret",
+        "token_type_hint": "refresh_token",
+        "client_id": "public-client",
+    }
+    assert request_body["token"] == "refresh-secret"
+
+
+@pytest.mark.asyncio
+async def test_revocation_timeout_is_unknown_outcome_and_never_retried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    class Proxy:
+        async def close(self) -> None:
+            pass
+
+    class Stream:
+        async def __aenter__(self) -> Any:
+            nonlocal calls
+            calls += 1
+            import httpx
+
+            raise httpx.ReadTimeout("ambiguous")
+
+        async def __aexit__(self, *_args: Any) -> None:
+            pass
+
+    class Client:
+        def stream(self, *_args: Any, **_kwargs: Any) -> Stream:
+            return Stream()
+
+        async def aclose(self) -> None:
+            pass
+
+    service = oauth_server.OAuthMetadataService()
+
+    async def fake_client(*_args: Any) -> tuple[Proxy, Client]:
+        return Proxy(), Client()
+
+    monkeypatch.setattr(service, "_client", fake_client)
+    with pytest.raises(oauth_server.HubSidecarError) as unknown:
+        await service.revoke_token(
+            "https://auth.example.com/revoke",
+            "auth.example.com",
+            "a" * 64,
+            {
+                "token": "access-secret",
+                "token_type_hint": "access_token",
+                "client_id": "public-client",
+            },
+        )
+    assert unknown.value.code == "mcp_remote_oauth_revocation_unknown_outcome"
+    assert calls == 1
