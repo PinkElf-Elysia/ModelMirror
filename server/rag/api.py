@@ -30,6 +30,7 @@ from .rag_service import (
     PipelineJobStateError,
     PipelineVersionNotFoundError,
     ManagedEmbeddingRouteError,
+    ManagedRagGenerationRouteError,
     RagService,
     UnsupportedDocumentError,
 )
@@ -491,6 +492,8 @@ class ProcessorPreviewResponse(BaseModel):
     warnings: list[str]
     blocks: list[dict[str, Any]]
     generated_items: list[dict[str, Any]]
+    execution_mode: Literal["managed", "legacy"] = "legacy"
+    provider_route_receipts: dict[str, Any] | None = None
 
 
 class PipelinePreflightStagePayload(BaseModel):
@@ -570,6 +573,8 @@ class PipelineDocumentResultPayload(BaseModel):
     vision_block_count: int = 0
     vision_warnings: list[str] = Field(default_factory=list)
     vision_error: str | None = None
+    execution_mode: Literal["managed", "legacy"] = "legacy"
+    provider_route_receipts: dict[str, Any] | None = None
 
 
 class PipelineJobPayload(BaseModel):
@@ -661,6 +666,7 @@ class PipelineVersionQueryResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     execution_mode: Literal["managed", "legacy", "local_non_model"] = "legacy"
     provider_route_receipts: dict[str, Any] | None = None
+    fallback_reason_codes: list[str] = Field(default_factory=list)
     retrieval: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -2251,6 +2257,16 @@ async def query_pipeline_version(
             status_code=502,
             detail={"code": exc.code, "message": str(exc)},
         ) from exc
+    except ManagedRagGenerationRouteError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "code": exc.code,
+                "message": str(exc),
+                "execution_mode": "managed",
+                "provider_route_receipts": exc.receipt,
+            },
+        ) from exc
     except PipelineDraftValidationError as exc:
         raise HTTPException(
             status_code=409,
@@ -2384,6 +2400,16 @@ async def query_knowledge_base(payload: RagQueryRequest) -> RagQueryResponse:
         raise HTTPException(
             status_code=502,
             detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+    except ManagedRagGenerationRouteError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "code": exc.code,
+                "message": str(exc),
+                "execution_mode": "managed",
+                "provider_route_receipts": exc.receipt,
+            },
         ) from exc
     except PipelineDraftValidationError as exc:
         raise HTTPException(

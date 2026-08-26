@@ -41,6 +41,10 @@ import ChatFileComposer, {
   type PreparedChatFile,
 } from "../components/ChatFileComposer";
 import FileOutputTray from "../components/FileOutputTray";
+import {
+  RagExecutionNotice,
+  type RagExecutionMode,
+} from "../components/RagExecutionNotice";
 import ChatVisualAnalysisPanel, {
   type ChatVisualAnalysisState,
 } from "../components/ChatVisualAnalysisPanel";
@@ -421,6 +425,7 @@ interface ChatMessage {
   displayContent: string;
   images?: UploadedImage[];
   routeReceipt?: RouteReceipt;
+  ragExecutionMode?: RagExecutionMode;
   audio?: AssistantMessageAudio;
   videoContext?: VideoUnderstandingContext;
   files?: Array<{
@@ -503,6 +508,8 @@ interface RagSource {
 interface RagQueryResponse {
   answer: string;
   sources: RagSource[];
+  execution_mode?: RagExecutionMode;
+  fallback_reason_codes?: string[];
 }
 
 interface InstalledSkill extends TrustSelectableSkill {
@@ -1296,6 +1303,10 @@ const MessageBubble = memo(function MessageBubble({
               </button>
             ))}
           </div>
+        ) : null}
+
+        {!isUser ? (
+          <RagExecutionNotice executionMode={message.ragExecutionMode} />
         ) : null}
 
         {cleanedContent ? (
@@ -3181,6 +3192,7 @@ function ChatConversationPage() {
                   ...message,
                   content: answer,
                   displayContent: answer,
+                  ragExecutionMode: data.execution_mode,
                 }
             : message,
           ),

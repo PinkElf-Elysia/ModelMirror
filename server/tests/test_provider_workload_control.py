@@ -1480,7 +1480,7 @@ def test_r7_local_fallback_policy_is_explicit_and_entry_scoped(
         ),
     )
     assert policy.local_fallback_mode == "extractive"
-    assert policy.data_plane_integrated is False
+    assert policy.data_plane_integrated is True
     with pytest.raises(RouterServiceError) as invalid:
         control.update_policy(
             "rag_embedding",
@@ -1920,10 +1920,17 @@ async def test_workload_admin_api_is_session_and_csrf_protected_and_public_redac
         }
         assert len(r7_policies) == 6
         assert r7_policies["rag_embedding"]["data_plane_integrated"] is True
+        assert r7_policies["rag_query_generate"]["data_plane_integrated"] is True
+        assert r7_policies["rag_processor_generate"]["data_plane_integrated"] is True
         assert all(
             item["data_plane_integrated"] is False
             for entry_id, item in r7_policies.items()
-            if entry_id != "rag_embedding"
+            if entry_id
+            not in {
+                "rag_embedding",
+                "rag_query_generate",
+                "rag_processor_generate",
+            }
         )
         assert all(item["feature_enabled"] is False for item in r7_policies.values())
         assert all(item["local_fallback_mode"] == "none" for item in r7_policies.values())
