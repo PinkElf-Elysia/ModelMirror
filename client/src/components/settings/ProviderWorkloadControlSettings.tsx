@@ -21,14 +21,26 @@ type EntryId =
   | "expert_team_dag"
   | "fusion"
   | "route_agent"
-  | "team_chat";
+  | "team_chat"
+  | "rag_query_generate"
+  | "rag_processor_generate"
+  | "rag_embedding"
+  | "rag_rerank"
+  | "skill_rerank"
+  | "openrouter_batch";
 type ExecutionShape =
   | "chat_text"
   | "chat_tools"
   | "chat_text_unary"
   | "chat_json_object"
-  | "fusion_native";
+  | "fusion_native"
+  | "embedding_vectors"
+  | "rerank_documents"
+  | "openrouter_batch_chat"
+  | "openrouter_batch_embeddings";
 type PolicyStatus = "legacy" | "managed_required" | "degraded_required";
+type LocalFallbackMode = "none" | "extractive" | "lexical";
+type RerankAccessMode = "dedicated" | "llm_json";
 
 interface ConnectionSummary {
   id: string;
@@ -55,6 +67,10 @@ interface CertificationSummary {
   e2e_ms?: number | null;
   total_tokens?: number | null;
   completed_at?: string | null;
+  rerank_access_mode?: RerankAccessMode | null;
+  vector_dimension?: number | null;
+  batch_job_id?: string | null;
+  batch_status?: string | null;
 }
 
 interface BindingSummary {
@@ -64,6 +80,7 @@ interface BindingSummary {
   connection_name: string;
   provider_kind: string;
   certification_id: string;
+  rerank_access_mode?: RerankAccessMode | null;
   valid: boolean;
   reason_code: string;
 }
@@ -76,6 +93,7 @@ interface PolicySummary {
   effective_status: PolicyStatus;
   revision: number;
   policy_fingerprint: string;
+  local_fallback_mode: LocalFallbackMode;
   bindings: BindingSummary[];
   approval_valid: boolean;
   blocking_reason_codes: string[];
@@ -114,6 +132,7 @@ interface EditableBinding {
   execution_shape: ExecutionShape;
   model_id: string;
   connection_id: string;
+  rerank_access_mode?: RerankAccessMode | null;
 }
 
 const ENTRY_LABELS: Record<EntryId, string> = {
@@ -130,6 +149,12 @@ const ENTRY_LABELS: Record<EntryId, string> = {
   fusion: "Fusion",
   route_agent: "Route Agent",
   team_chat: "Team Chat",
+  rag_query_generate: "RAG 问答生成",
+  rag_processor_generate: "RAG AI Processor",
+  rag_embedding: "RAG Embedding",
+  rag_rerank: "RAG Rerank",
+  skill_rerank: "Skill Rerank",
+  openrouter_batch: "OpenRouter Batch",
 };
 
 const SHAPE_LABELS: Record<ExecutionShape, string> = {
@@ -138,12 +163,20 @@ const SHAPE_LABELS: Record<ExecutionShape, string> = {
   chat_text_unary: "非流式文本",
   chat_json_object: "JSON Object",
   fusion_native: "OpenRouter 原生 Fusion",
+  embedding_vectors: "Embedding 向量",
+  rerank_documents: "Rerank 文档",
+  openrouter_batch_chat: "OpenRouter Chat Batch",
+  openrouter_batch_embeddings: "OpenRouter Embedding Batch",
 };
 
 const NEW_CERTIFICATION_SHAPES: ExecutionShape[] = [
   "chat_text_unary",
   "chat_json_object",
   "fusion_native",
+  "embedding_vectors",
+  "rerank_documents",
+  "openrouter_batch_chat",
+  "openrouter_batch_embeddings",
 ];
 
 export const ENTRY_SHAPES: Record<EntryId, ExecutionShape[]> = {
@@ -160,7 +193,33 @@ export const ENTRY_SHAPES: Record<EntryId, ExecutionShape[]> = {
   fusion: ["chat_text", "fusion_native"],
   route_agent: ["chat_text"],
   team_chat: ["chat_text"],
+  rag_query_generate: ["chat_text_unary"],
+  rag_processor_generate: ["chat_json_object"],
+  rag_embedding: ["embedding_vectors"],
+  rag_rerank: ["rerank_documents"],
+  skill_rerank: ["rerank_documents"],
+  openrouter_batch: ["openrouter_batch_chat", "openrouter_batch_embeddings"],
 };
+
+const FALLBACK_OPTIONS: Record<EntryId, LocalFallbackMode[]> = Object.fromEntries(
+  (Object.keys(ENTRY_LABELS) as EntryId[]).map((entry) => [entry, ["none"]]),
+) as Record<EntryId, LocalFallbackMode[]>;
+FALLBACK_OPTIONS.rag_query_generate = ["none", "extractive"];
+FALLBACK_OPTIONS.rag_rerank = ["none", "lexical"];
+FALLBACK_OPTIONS.skill_rerank = ["none", "lexical"];
+
+const FALLBACK_LABELS: Record<LocalFallbackMode, string> = {
+  none: "不使用本地降级",
+  extractive: "本地抽取式答案（非模型）",
+  lexical: "保留词法顺序（非模型）",
+};
+
+function requiredScope(shape: ExecutionShape) {
+  if (shape === "embedding_vectors") return "embedding";
+  if (shape === "rerank_documents") return "rerank";
+  if (shape.startsWith("openrouter_batch_")) return "batch";
+  return "chat";
+}
 
 const REASON_LABELS: Record<string, string> = {
   provider_workload_bindings_required: "尚未配置精确模型 Binding",
@@ -224,10 +283,15 @@ export default function ProviderWorkloadControlSettings({
   const [certificationModel, setCertificationModel] = useState("");
   const [candidateModels, setCandidateModels] = useState("");
   const [judgeModel, setJudgeModel] = useState("");
+  const [rerankAccessMode, setRerankAccessMode] = useState<RerankAccessMode>(
+    "dedicated",
+  );
   const [confirmCertification, setConfirmCertification] = useState(false);
 
   const [entryId, setEntryId] = useState<EntryId>("agent_shadow");
   const [editableBindings, setEditableBindings] = useState<EditableBinding[]>([]);
+  const [localFallbackMode, setLocalFallbackMode] =
+    useState<LocalFallbackMode>("none");
   const [confirmActivation, setConfirmActivation] = useState(false);
   const [confirmNoOpenP0P1, setConfirmNoOpenP0P1] = useState(false);
   const [acknowledgeFailClosed, setAcknowledgeFailClosed] = useState(false);
@@ -295,23 +359,35 @@ export default function ProviderWorkloadControlSettings({
     setConfirmActivation(false);
     setConfirmNoOpenP0P1(false);
     setAcknowledgeFailClosed(false);
+    setLocalFallbackMode(selectedPolicy.local_fallback_mode ?? "none");
     setEditableBindings(
       selectedPolicy.bindings.map((binding) => ({
         execution_shape: binding.execution_shape,
         model_id: binding.model_id,
         connection_id: binding.connection_id,
+        rerank_access_mode: binding.rerank_access_mode ?? null,
       })),
     );
   }, [selectedPolicy]);
 
   const eligibleConnections = useMemo(
-    () =>
-      connections.filter(
-        (connection) =>
-          connection.enabled && (connection.scopes ?? []).includes("chat"),
-      ),
+    () => connections.filter((connection) => connection.enabled),
     [connections],
   );
+  const certificationEligibleConnections = useMemo(
+    () => eligibleConnections.filter((connection) =>
+      (connection.scopes ?? []).includes(requiredScope(certificationShape))
+      && (!certificationShape.startsWith("openrouter_batch_") || connection.kind === "openrouter"),
+    ),
+    [certificationShape, eligibleConnections],
+  );
+
+  useEffect(() => {
+    if (certificationEligibleConnections.some((item) => item.id === connectionId)) {
+      return;
+    }
+    setConnectionId(certificationEligibleConnections[0]?.id ?? "");
+  }, [certificationEligibleConnections, connectionId]);
 
   const runCertification = useCallback(async () => {
     if (!connectionId || !certificationModel.trim()) return;
@@ -338,6 +414,8 @@ export default function ProviderWorkloadControlSettings({
                 : [],
             judge_model_id:
               certificationShape === "fusion_native" ? judgeModel.trim() : null,
+            rerank_access_mode:
+              certificationShape === "rerank_documents" ? rerankAccessMode : null,
           }),
         },
       );
@@ -363,15 +441,24 @@ export default function ProviderWorkloadControlSettings({
     csrfToken,
     judgeModel,
     load,
+    rerankAccessMode,
   ]);
 
   const addBinding = () => {
-    const firstConnection = eligibleConnections[0]?.id ?? "";
     const shape = ENTRY_SHAPES[entryId][0];
+    const firstConnection = eligibleConnections.find((connection) =>
+      (connection.scopes ?? []).includes(requiredScope(shape))
+      && (!shape.startsWith("openrouter_batch_") || connection.kind === "openrouter"),
+    )?.id ?? "";
     if (!firstConnection || !shape) return;
     setEditableBindings((current) => [
       ...current,
-      { execution_shape: shape, model_id: "", connection_id: firstConnection },
+      {
+        execution_shape: shape,
+        model_id: "",
+        connection_id: firstConnection,
+        rerank_access_mode: shape === "rerank_documents" ? "dedicated" : null,
+      },
     ]);
   };
 
@@ -391,9 +478,14 @@ export default function ProviderWorkloadControlSettings({
           },
           body: JSON.stringify({
             expected_revision: selectedPolicy.revision,
+            local_fallback_mode: localFallbackMode,
             bindings: editableBindings.map((binding) => ({
-              ...binding,
+              execution_shape: binding.execution_shape,
               model_id: binding.model_id.trim(),
+              connection_id: binding.connection_id,
+              ...(binding.execution_shape === "rerank_documents"
+                ? { rerank_access_mode: binding.rerank_access_mode ?? "dedicated" }
+                : {}),
             })),
           }),
         },
@@ -408,7 +500,7 @@ export default function ProviderWorkloadControlSettings({
     } finally {
       setBusy(false);
     }
-  }, [csrfToken, editableBindings, entryId, load, selectedPolicy]);
+  }, [csrfToken, editableBindings, entryId, load, localFallbackMode, selectedPolicy]);
 
   const activate = useCallback(async () => {
     if (!selectedPolicy || !confirmNoOpenP0P1 || !acknowledgeFailClosed) return;
@@ -498,10 +590,10 @@ export default function ProviderWorkloadControlSettings({
       <section className="mb-6 overflow-hidden rounded-lg border border-violet-300/15 bg-ink-950/82 shadow-prism">
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-white/10 bg-violet-300/[0.04] px-5 py-5">
           <div>
-            <p className="text-sm font-semibold text-violet-100">Agent / Workflow 资格</p>
-            <h2 className="mt-2 text-xl font-semibold text-white">R6 非流式、JSON 与原生 Fusion 合同</h2>
+            <p className="text-sm font-semibold text-violet-100">Managed Workload 资格</p>
+            <h2 className="mt-2 text-xl font-semibold text-white">R6 / R7 精确 Operation 合同</h2>
             <p className="mt-2 max-w-[78ch] text-sm leading-6 text-slate-300">
-              仅发送固定合成输入，自动刷新完整目录，并对精确连接、模型和执行形态留存脱敏资格。流式文本与工具调用继续复用 R5 认证。
+              仅发送固定合成输入，自动刷新完整目录，并对精确连接、模型和执行形态留存脱敏资格。Embedding、Rerank 与 Batch 不会因此自动接管数据面。
             </p>
           </div>
           <button className="inline-flex items-center gap-2 rounded-full border border-white/15 px-3 py-2 text-xs font-semibold text-slate-200" onClick={() => void load()} type="button">
@@ -514,7 +606,7 @@ export default function ProviderWorkloadControlSettings({
               Managed 连接
               <select className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 text-white" value={connectionId} onChange={(event) => setConnectionId(event.target.value)}>
                 <option value="">选择连接</option>
-                {eligibleConnections.map((connection) => <option key={connection.id} value={connection.id}>{connection.name} · {connection.kind}</option>)}
+                {certificationEligibleConnections.map((connection) => <option key={connection.id} value={connection.id}>{connection.name} · {connection.kind}</option>)}
               </select>
             </label>
             <label className="block text-sm text-slate-300">
@@ -531,6 +623,13 @@ export default function ProviderWorkloadControlSettings({
               <label className="block text-sm text-slate-300">有序候选模型（每行一个）<textarea className="mt-2 min-h-24 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 font-mono text-xs text-white" onChange={(event) => setCandidateModels(event.target.value)} value={candidateModels} /></label>
               <label className="block text-sm text-slate-300">裁判模型 ID<input className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 text-white" onChange={(event) => setJudgeModel(event.target.value)} value={judgeModel} /></label>
             </> : null}
+            {certificationShape === "rerank_documents" ? <label className="block text-sm text-slate-300">
+              Rerank 访问方式
+              <select aria-label="Rerank 访问方式" className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 text-white" onChange={(event) => setRerankAccessMode(event.target.value as RerankAccessMode)} value={rerankAccessMode}>
+                <option value="dedicated">Dedicated Rerank API</option>
+                <option value="llm_json">LLM JSON Adapter</option>
+              </select>
+            </label> : null}
             <button className="inline-flex items-center gap-2 rounded-full bg-violet-200 px-4 py-2 text-sm font-semibold text-ink-950 disabled:cursor-not-allowed disabled:opacity-40" disabled={!canConfirm || busy} onClick={() => setConfirmCertification(true)} type="button">
               <ShieldCheck className="h-4 w-4" />运行资格认证
             </button>
@@ -542,13 +641,16 @@ export default function ProviderWorkloadControlSettings({
                 <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-semibold text-white">{item.connection_name} · {SHAPE_LABELS[item.execution_shape]}</p><span className={`rounded-full border px-2.5 py-1 text-xs ${item.status === "passed" ? "border-emerald-300/25 text-emerald-200" : "border-amber-300/25 text-amber-100"}`}>{item.status}</span></div>
                 <p className="mt-2 break-all font-mono text-xs text-slate-300">{item.requested_model ?? "尚未运行"}</p>
                 <p className="mt-1 text-xs text-slate-400">{item.error_code ?? (item.total_tokens != null ? `${item.total_tokens} tokens` : "不保存合成输入或模型正文")}</p>
-              </div>) : <p className="rounded-lg border border-dashed border-white/10 p-4 text-sm text-slate-400">尚无 R6 Workload 资格记录。</p>}
+                {item.rerank_access_mode ? <p className="mt-1 text-xs text-slate-500">访问方式：{item.rerank_access_mode}</p> : null}
+                {item.vector_dimension != null ? <p className="mt-1 text-xs text-slate-500">向量维度：{item.vector_dimension}</p> : null}
+                {item.batch_status ? <p className="mt-1 text-xs text-slate-500">Batch：{item.batch_status} · {item.batch_job_id}</p> : null}
+              </div>) : <p className="rounded-lg border border-dashed border-white/10 p-4 text-sm text-slate-400">尚无 Workload 资格记录。</p>}
             </div>
           </div>
         </div>
         {confirmCertification ? <div aria-modal="true" className="border-t border-amber-300/20 bg-amber-300/[0.05] p-5" role="dialog">
           <p className="text-sm font-semibold text-amber-100">确认一次真实付费资格调用</p>
-          <p className="mt-2 text-sm leading-6 text-slate-300">将发送固定合成文本；不发送用户会话、文件或工具参数。最多一个 Provider POST、零自动重试，可能产生少量费用。</p>
+          <p className="mt-2 text-sm leading-6 text-slate-300">将发送固定合成输入；不发送用户会话、文件或工具参数。{certificationShape.startsWith("openrouter_batch_") ? "最多提交一个异步 Batch；后续只读轮询不会重放提交" : "最多一个 Provider POST、零自动重试"}，可能产生少量费用。</p>
           <div className="mt-3 flex gap-2"><button className="rounded-full bg-amber-200 px-4 py-2 text-sm font-semibold text-ink-950" disabled={busy} onClick={() => void runCertification()} type="button">确认并运行</button><button className="rounded-full border border-white/15 px-4 py-2 text-sm text-slate-200" onClick={() => setConfirmCertification(false)} type="button">取消</button></div>
         </div> : null}
         {error ? <p className="m-5 flex items-center gap-2 rounded-lg border border-rose-300/20 bg-rose-300/10 p-3 text-sm text-rose-100"><CircleAlert className="h-4 w-4" />{error}</p> : null}
@@ -562,7 +664,7 @@ export default function ProviderWorkloadControlSettings({
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-white/10 bg-sky-300/[0.04] px-5 py-5">
         <div>
           <p className="text-sm font-semibold text-sky-100">Managed Workload 控制策略</p>
-          <h2 className="mt-2 text-xl font-semibold text-white">R6 入口、精确 Binding 与 Receipt</h2>
+          <h2 className="mt-2 text-xl font-semibold text-white">R6 / R7 入口、精确 Binding 与 Receipt</h2>
           <p className="mt-2 max-w-[80ch] text-sm leading-6 text-slate-300">仅已完成对应数据面子轮次、资格有效且通过人工 fail-closed 确认的入口可以激活；其他入口继续保持 Legacy。</p>
         </div>
         <button className="inline-flex items-center gap-2 rounded-full border border-white/15 px-3 py-2 text-xs font-semibold text-slate-200" onClick={() => void load()} type="button"><RefreshCw className="h-3.5 w-3.5" />刷新</button>
@@ -573,15 +675,31 @@ export default function ProviderWorkloadControlSettings({
           {selectedPolicy ? <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.025] p-4">
             <div className="flex items-center justify-between gap-3"><span className="text-sm font-semibold text-white">{statusLabel(selectedPolicy.effective_status)}</span><span className="text-xs text-slate-400">revision {selectedPolicy.revision}</span></div>
             <dl className="mt-3 grid gap-2 text-xs text-slate-300"><div className="flex justify-between"><dt>部署开关</dt><dd>{selectedPolicy.feature_enabled ? "开启" : "关闭"}</dd></div><div className="flex justify-between"><dt>数据面接入</dt><dd>{selectedPolicy.data_plane_integrated ? "已接入" : "当前子轮次未接入"}</dd></div><div className="flex justify-between"><dt>人工批准</dt><dd>{selectedPolicy.approval_valid ? "有效" : "未生效"}</dd></div></dl>
+            <label className="mt-3 block text-xs text-slate-300">本地降级模式<select aria-label="本地降级模式" className="mt-1.5 w-full rounded-lg border border-white/10 bg-ink-950 px-2 py-2 text-sm text-white" onChange={(event) => setLocalFallbackMode(event.target.value as LocalFallbackMode)} value={localFallbackMode}>{FALLBACK_OPTIONS[entryId].map((mode) => <option key={mode} value={mode}>{FALLBACK_LABELS[mode]}</option>)}</select></label>
+            {localFallbackMode !== "none" ? <p className="mt-2 text-xs text-amber-100">本地降级必须在用户结果中标记为非模型结果，不会调用第二个远程 Provider。</p> : null}
             <div className="mt-3 space-y-1">{selectedPolicy.blocking_reason_codes.map((reason) => <p className="text-xs text-amber-100" key={reason}>· {REASON_LABELS[reason] ?? reason}</p>)}</div>
           </div> : null}
         </div>
         <div>
           <div className="flex items-center justify-between"><h3 className="flex items-center gap-2 text-sm font-semibold text-white"><Route className="h-4 w-4" />精确模型 Binding</h3><button className="rounded-full border border-white/15 px-3 py-1.5 text-xs text-slate-200 disabled:opacity-40" disabled={!eligibleConnections.length} onClick={addBinding} type="button">添加 Binding</button></div>
-          <div className="mt-3 space-y-3">{editableBindings.map((binding, index) => <div className="grid gap-2 rounded-lg border border-white/10 bg-white/[0.025] p-3 md:grid-cols-[0.8fr_1.2fr_1fr_auto]" key={`${index}-${binding.execution_shape}`}>
-            <select aria-label={`Binding ${index + 1} 执行形态`} className="rounded-lg border border-white/10 bg-ink-950 px-2 py-2 text-sm text-white" value={binding.execution_shape} onChange={(event) => setEditableBindings((current) => current.map((item, position) => position === index ? { ...item, execution_shape: event.target.value as ExecutionShape } : item))}>{ENTRY_SHAPES[entryId].map((shape) => <option key={shape} value={shape}>{SHAPE_LABELS[shape]}</option>)}</select>
+          <div className="mt-3 space-y-3">{editableBindings.map((binding, index) => <div className="grid gap-2 rounded-lg border border-white/10 bg-white/[0.025] p-3 md:grid-cols-[0.8fr_0.85fr_1.2fr_1fr_auto]" key={`${index}-${binding.execution_shape}`}>
+            <select aria-label={`Binding ${index + 1} 执行形态`} className="rounded-lg border border-white/10 bg-ink-950 px-2 py-2 text-sm text-white" value={binding.execution_shape} onChange={(event) => setEditableBindings((current) => current.map((item, position) => {
+              if (position !== index) return item;
+              const executionShape = event.target.value as ExecutionShape;
+              const nextConnection = eligibleConnections.find((connection) =>
+                (connection.scopes ?? []).includes(requiredScope(executionShape))
+                && (!executionShape.startsWith("openrouter_batch_") || connection.kind === "openrouter")
+              )?.id ?? "";
+              return {
+                ...item,
+                execution_shape: executionShape,
+                connection_id: nextConnection,
+                rerank_access_mode: executionShape === "rerank_documents" ? "dedicated" : null,
+              };
+            }))}>{ENTRY_SHAPES[entryId].map((shape) => <option key={shape} value={shape}>{SHAPE_LABELS[shape]}</option>)}</select>
+            {binding.execution_shape === "rerank_documents" ? <select aria-label={`Binding ${index + 1} Rerank 访问方式`} className="rounded-lg border border-white/10 bg-ink-950 px-2 py-2 text-sm text-white" onChange={(event) => setEditableBindings((current) => current.map((item, position) => position === index ? { ...item, rerank_access_mode: event.target.value as RerankAccessMode } : item))} value={binding.rerank_access_mode ?? "dedicated"}><option value="dedicated">Dedicated API</option><option value="llm_json">LLM JSON Adapter</option></select> : <span className="flex items-center rounded-lg border border-white/5 px-2 text-xs text-slate-500">固定契约</span>}
             <input aria-label={`Binding ${index + 1} 模型 ID`} className="rounded-lg border border-white/10 bg-ink-950 px-2 py-2 font-mono text-xs text-white" onChange={(event) => setEditableBindings((current) => current.map((item, position) => position === index ? { ...item, model_id: event.target.value } : item))} placeholder="精确模型 ID" value={binding.model_id} />
-            <select aria-label={`Binding ${index + 1} 连接`} className="rounded-lg border border-white/10 bg-ink-950 px-2 py-2 text-sm text-white" value={binding.connection_id} onChange={(event) => setEditableBindings((current) => current.map((item, position) => position === index ? { ...item, connection_id: event.target.value } : item))}>{eligibleConnections.map((connection) => <option key={connection.id} value={connection.id}>{connection.name}</option>)}</select>
+            <select aria-label={`Binding ${index + 1} 连接`} className="rounded-lg border border-white/10 bg-ink-950 px-2 py-2 text-sm text-white" value={binding.connection_id} onChange={(event) => setEditableBindings((current) => current.map((item, position) => position === index ? { ...item, connection_id: event.target.value } : item))}>{eligibleConnections.filter((connection) => (connection.scopes ?? []).includes(requiredScope(binding.execution_shape)) && (!binding.execution_shape.startsWith("openrouter_batch_") || connection.kind === "openrouter")).map((connection) => <option key={connection.id} value={connection.id}>{connection.name}</option>)}</select>
             <button className="rounded-full border border-rose-300/20 px-3 py-2 text-xs text-rose-100" onClick={() => setEditableBindings((current) => current.filter((_, position) => position !== index))} type="button">移除</button>
           </div>)}{!editableBindings.length ? <p className="rounded-lg border border-dashed border-white/10 p-4 text-sm text-slate-400">尚未配置；没有 Binding 时不能激活。</p> : null}</div>
           <div className="mt-4 flex flex-wrap gap-2"><button className="rounded-full bg-sky-200 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-40" disabled={busy || !selectedPolicy || editableBindings.some((item) => !item.model_id.trim() || !item.connection_id)} onClick={() => void savePolicy()} type="button">保存 Binding</button>{selectedPolicy?.configured_status !== "legacy" ? <button className="rounded-full border border-white/15 px-4 py-2 text-sm text-slate-200" disabled={busy} onClick={() => void deactivate()} type="button">显式恢复 Legacy</button> : null}{selectedPolicy && (selectedPolicy.configured_status === "legacy" || !selectedPolicy.approval_valid) ? <button className="rounded-full border border-amber-300/30 px-4 py-2 text-sm text-amber-100 disabled:cursor-not-allowed disabled:opacity-40" disabled={busy || !selectedPolicy.data_plane_integrated || !selectedPolicy.feature_enabled || selectedPolicy.blocking_reason_codes.length > 0} onClick={() => setConfirmActivation(true)} type="button">{selectedPolicy.configured_status === "legacy" ? "激活 Managed 必经" : "重新批准 Managed 必经"}</button> : null}</div>

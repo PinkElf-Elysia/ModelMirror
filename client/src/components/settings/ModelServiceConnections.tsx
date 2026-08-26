@@ -14,7 +14,13 @@ type ConnectionKind =
   | "newapi"
   | "openai_compatible"
   | "openai";
-type ConnectionScope = "chat" | "audio" | "realtime";
+type ConnectionScope =
+  | "chat"
+  | "audio"
+  | "realtime"
+  | "embedding"
+  | "rerank"
+  | "batch";
 type ConnectionHealth = "untested" | "online" | "offline" | "disabled";
 
 interface RouterConnection {
@@ -92,7 +98,12 @@ const SCOPE_LABELS: Record<ConnectionScope, string> = {
   chat: "普通模型调用",
   audio: "音频能力",
   realtime: "实时语音",
+  embedding: "Embedding",
+  rerank: "Rerank",
+  batch: "异步 Batch",
 };
+
+const ALL_SCOPES = Object.keys(SCOPE_LABELS) as ConnectionScope[];
 
 const INITIAL_FORM: ConnectionForm = {
   kind: "openrouter",
@@ -201,6 +212,19 @@ export default function ModelServiceConnections({
     },
     [updateForm],
   );
+
+  const toggleScope = useCallback((scope: ConnectionScope) => {
+    setForm((current) => {
+      const selected = current.scopes.includes(scope);
+      if (selected && current.scopes.length === 1) return current;
+      return {
+        ...current,
+        scopes: selected
+          ? current.scopes.filter((item) => item !== scope)
+          : ALL_SCOPES.filter((item) => [...current.scopes, scope].includes(item)),
+      };
+    });
+  }, []);
 
   const payload = useMemo(
     () => ({
@@ -445,16 +469,31 @@ export default function ModelServiceConnections({
             <span className="mt-2 block text-xs leading-5 text-slate-400">
               {provider.hint}
             </span>
-            <span className="mt-2 flex flex-wrap gap-2">
-              {form.scopes.map((scope) => (
-                <span
-                  className="rounded-full bg-white/[0.055] px-2.5 py-1 text-xs text-slate-300"
-                  key={scope}
-                >
-                  {SCOPE_LABELS[scope]}
-                </span>
-              ))}
-            </span>
+            <fieldset className="mt-3">
+              <legend className="text-xs font-medium text-slate-300">
+                授权用途（旧连接不会自动扩大）
+              </legend>
+              <span className="mt-2 flex flex-wrap gap-2">
+                {ALL_SCOPES.map((scope) => {
+                  const checked = form.scopes.includes(scope);
+                  return (
+                    <label
+                      className={`cursor-pointer rounded-full border px-2.5 py-1 text-xs transition ${checked ? "border-cyan-300/35 bg-cyan-300/10 text-cyan-100" : "border-white/10 text-slate-400"}`}
+                      key={scope}
+                    >
+                      <input
+                        checked={checked}
+                        className="sr-only"
+                        disabled={checked && form.scopes.length === 1}
+                        onChange={() => toggleScope(scope)}
+                        type="checkbox"
+                      />
+                      {SCOPE_LABELS[scope]}
+                    </label>
+                  );
+                })}
+              </span>
+            </fieldset>
           </label>
 
           <div className="grid gap-4 sm:grid-cols-2">

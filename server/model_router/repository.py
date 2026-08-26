@@ -33,7 +33,7 @@ from .schemas import (
 )
 
 
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17
 DEFAULT_TENANT_ID = "local"
 CANONICAL_MASTER_KEY_ENV = "MODEL_MIRROR_CREDENTIAL_MASTER_KEY"
 LEGACY_MASTER_KEY_ENV = "MODEL_ROUTER_CREDENTIAL_MASTER_KEY"
@@ -559,6 +559,7 @@ class SQLiteRouterRepository:
             prompt_tokens INTEGER,
             completion_tokens INTEGER,
             total_tokens INTEGER,
+            vector_dimension INTEGER,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             completed_at TEXT,
@@ -571,6 +572,7 @@ class SQLiteRouterRepository:
             status TEXT NOT NULL DEFAULT 'legacy',
             revision INTEGER NOT NULL DEFAULT 0,
             policy_fingerprint TEXT NOT NULL,
+            local_fallback_mode TEXT NOT NULL DEFAULT 'none',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             PRIMARY KEY (tenant_id, entry_id)
@@ -585,6 +587,7 @@ class SQLiteRouterRepository:
             certification_source TEXT NOT NULL,
             connection_fingerprint TEXT NOT NULL,
             qualification_fingerprint TEXT NOT NULL,
+            rerank_access_mode TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             PRIMARY KEY (tenant_id, entry_id, execution_shape, model_id)
@@ -641,6 +644,34 @@ class SQLiteRouterRepository:
             approved_at TEXT NOT NULL,
             revoked_at TEXT,
             PRIMARY KEY (tenant_id, entry_id, policy_fingerprint)
+        );
+        CREATE TABLE IF NOT EXISTS provider_batch_jobs (
+            id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            connection_id TEXT NOT NULL,
+            connection_fingerprint TEXT NOT NULL,
+            endpoint TEXT NOT NULL,
+            model_id TEXT NOT NULL,
+            certification_id TEXT,
+            workload_run_id TEXT,
+            idempotency_key_hash TEXT NOT NULL,
+            request_fingerprint TEXT NOT NULL,
+            upstream_batch_id TEXT,
+            status TEXT NOT NULL,
+            request_count INTEGER NOT NULL DEFAULT 0,
+            completed_count INTEGER NOT NULL DEFAULT 0,
+            failed_count INTEGER NOT NULL DEFAULT 0,
+            usage_json TEXT NOT NULL DEFAULT '{}',
+            cost_value TEXT,
+            cost_currency TEXT,
+            billing_authoritative INTEGER NOT NULL DEFAULT 0,
+            purpose TEXT NOT NULL,
+            error_code TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            completed_at TEXT,
+            PRIMARY KEY (tenant_id, id),
+            UNIQUE (tenant_id, idempotency_key_hash)
         );
         CREATE INDEX IF NOT EXISTS idx_router_connections_tenant_enabled
             ON router_connections (tenant_id, enabled);
@@ -731,6 +762,8 @@ class SQLiteRouterRepository:
             ON provider_workload_runs (tenant_id, created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_provider_workload_calls_run
             ON provider_workload_calls (tenant_id, run_id, call_sequence);
+        CREATE INDEX IF NOT EXISTS idx_provider_batch_jobs_status
+            ON provider_batch_jobs (tenant_id, status, updated_at DESC);
         """
         with self._lock, self._connect() as connection:
             previous_schema_version = int(
@@ -748,6 +781,39 @@ class SQLiteRouterRepository:
                     "ALTER TABLE router_connections "
                     "ADD COLUMN scopes_json "
                     """TEXT NOT NULL DEFAULT '["chat"]'"""
+                )
+            workload_policy_columns = {
+                row["name"]
+                for row in connection.execute(
+                    "PRAGMA table_info(provider_workload_policies)"
+                ).fetchall()
+            }
+            if "local_fallback_mode" not in workload_policy_columns:
+                connection.execute(
+                    "ALTER TABLE provider_workload_policies "
+                    "ADD COLUMN local_fallback_mode TEXT NOT NULL DEFAULT 'none'"
+                )
+            workload_binding_columns = {
+                row["name"]
+                for row in connection.execute(
+                    "PRAGMA table_info(provider_workload_bindings)"
+                ).fetchall()
+            }
+            if "rerank_access_mode" not in workload_binding_columns:
+                connection.execute(
+                    "ALTER TABLE provider_workload_bindings "
+                    "ADD COLUMN rerank_access_mode TEXT"
+                )
+            workload_certification_columns = {
+                row["name"]
+                for row in connection.execute(
+                    "PRAGMA table_info(provider_workload_certifications)"
+                ).fetchall()
+            }
+            if "vector_dimension" not in workload_certification_columns:
+                connection.execute(
+                    "ALTER TABLE provider_workload_certifications "
+                    "ADD COLUMN vector_dimension INTEGER"
                 )
             if previous_schema_version < 8:
                 connection.execute(
@@ -1002,6 +1068,15 @@ class SQLiteRouterRepository:
                     reason_codes_json = '["server_restarted"]',
                     updated_at = ?, completed_at = ?
                 WHERE status = 'running'
+                """,
+                (now, now),
+            )
+            connection.execute(
+                """
+                UPDATE provider_batch_jobs
+                SET status = 'uncertain', error_code = 'server_restarted',
+                    updated_at = ?, completed_at = ?
+                WHERE status = 'submitting' AND upstream_batch_id IS NULL
                 """,
                 (now, now),
             )
@@ -1590,6 +1665,75 @@ class SQLiteRouterRepository:
                 tuple(values),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def upsert_certified_catalog_offering(
+        self,
+        tenant_id: str,
+        *,
+        connection_id: str,
+        model_id: str,
+        operation: str,
+        access_mode: str,
+    ) -> dict[str, object]:
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            inventory = connection.execute(
+                """
+                SELECT last_refresh_id FROM provider_catalog_models
+                WHERE tenant_id = ? AND connection_id = ? AND model_id = ?
+                    AND status = 'active'
+                """,
+                (clean_tenant, connection_id, model_id),
+            ).fetchone()
+            if inventory is None:
+                raise RouterRepositoryError(
+                    "provider_workload_model_inventory_missing"
+                )
+            connection.execute(
+                """
+                INSERT INTO provider_catalog_offerings (
+                    tenant_id, connection_id, model_id, operation,
+                    access_mode, capability_source, pricing_json,
+                    pricing_source, pricing_status, pricing_observed_at,
+                    billing_authoritative, stale, observed_at,
+                    last_refresh_id
+                ) VALUES (?, ?, ?, ?, ?, 'certification', NULL, NULL,
+                    'unknown', NULL, 0, 0, ?, ?)
+                ON CONFLICT(
+                    tenant_id, connection_id, model_id, operation, access_mode
+                ) DO UPDATE SET
+                    capability_source = 'certification',
+                    billing_authoritative = 0,
+                    stale = 0,
+                    observed_at = excluded.observed_at,
+                    last_refresh_id = excluded.last_refresh_id
+                """,
+                (
+                    clean_tenant,
+                    connection_id,
+                    model_id,
+                    operation,
+                    access_mode,
+                    now,
+                    str(inventory["last_refresh_id"]),
+                ),
+            )
+            row = connection.execute(
+                """
+                SELECT * FROM provider_catalog_offerings
+                WHERE tenant_id = ? AND connection_id = ? AND model_id = ?
+                    AND operation = ? AND access_mode = ?
+                """,
+                (
+                    clean_tenant,
+                    connection_id,
+                    model_id,
+                    operation,
+                    access_mode,
+                ),
+            ).fetchone()
+        return dict(row)
 
     def claim_chat_certification(
         self,
@@ -2710,6 +2854,274 @@ class SQLiteRouterRepository:
             "attempts": attempt_count,
         }
 
+    def claim_provider_batch_job(
+        self,
+        tenant_id: str,
+        *,
+        job_id: str,
+        connection_id: str,
+        connection_fingerprint: str,
+        endpoint: str,
+        model_id: str,
+        idempotency_key_hash: str,
+        request_fingerprint: str,
+        purpose: str,
+        request_count: int,
+        certification_id: str | None = None,
+        workload_run_id: str | None = None,
+    ) -> tuple[dict[str, object], bool]:
+        clean_tenant = self._tenant_id(tenant_id)
+        self.get_connection(clean_tenant, connection_id)
+        if purpose not in {"certification", "runtime"}:
+            raise RouterRepositoryError("provider_batch_invalid_purpose")
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            existing = connection.execute(
+                """
+                SELECT * FROM provider_batch_jobs
+                WHERE tenant_id = ? AND idempotency_key_hash = ?
+                """,
+                (clean_tenant, idempotency_key_hash),
+            ).fetchone()
+            if existing is not None:
+                if str(existing["request_fingerprint"]) != request_fingerprint:
+                    raise RouterRepositoryError(
+                        "provider_batch_idempotency_conflict"
+                    )
+                return dict(existing), False
+            connection.execute(
+                """
+                INSERT INTO provider_batch_jobs (
+                    id, tenant_id, connection_id, connection_fingerprint,
+                    endpoint, model_id, certification_id, workload_run_id,
+                    idempotency_key_hash, request_fingerprint, status,
+                    request_count, purpose, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'submitting', ?, ?, ?, ?)
+                """,
+                (
+                    job_id,
+                    clean_tenant,
+                    connection_id,
+                    connection_fingerprint,
+                    endpoint,
+                    model_id,
+                    certification_id,
+                    workload_run_id,
+                    idempotency_key_hash,
+                    request_fingerprint,
+                    max(0, int(request_count)),
+                    purpose,
+                    now,
+                    now,
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM provider_batch_jobs WHERE tenant_id = ? AND id = ?",
+                (clean_tenant, job_id),
+            ).fetchone()
+        return dict(row), True
+
+    def mark_provider_batch_submitted(
+        self,
+        tenant_id: str,
+        job_id: str,
+        *,
+        upstream_batch_id: str,
+        status: str,
+    ) -> dict[str, object]:
+        if status not in {"validating", "in_progress", "finalizing"}:
+            raise RouterRepositoryError("provider_batch_invalid_submitted_status")
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE provider_batch_jobs
+                SET upstream_batch_id = ?, status = ?, error_code = NULL,
+                    updated_at = ?
+                WHERE tenant_id = ? AND id = ? AND status = 'submitting'
+                    AND upstream_batch_id IS NULL
+                """,
+                (upstream_batch_id, status, now, clean_tenant, job_id),
+            )
+            if cursor.rowcount != 1:
+                raise RouterRepositoryError(
+                    "provider_batch_submission_already_recorded"
+                )
+            row = connection.execute(
+                "SELECT * FROM provider_batch_jobs WHERE tenant_id = ? AND id = ?",
+                (clean_tenant, job_id),
+            ).fetchone()
+        return dict(row)
+
+    def mark_provider_batch_uncertain(
+        self,
+        tenant_id: str,
+        job_id: str,
+        *,
+        error_code: str,
+    ) -> dict[str, object]:
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE provider_batch_jobs
+                SET status = 'uncertain', error_code = ?, updated_at = ?,
+                    completed_at = ?
+                WHERE tenant_id = ? AND id = ? AND status = 'submitting'
+                    AND upstream_batch_id IS NULL
+                """,
+                (error_code, now, now, clean_tenant, job_id),
+            )
+            if cursor.rowcount != 1:
+                raise RouterRepositoryError("provider_batch_job_not_submitting")
+            row = connection.execute(
+                "SELECT * FROM provider_batch_jobs WHERE tenant_id = ? AND id = ?",
+                (clean_tenant, job_id),
+            ).fetchone()
+        return dict(row)
+
+    def fail_provider_batch_submission(
+        self,
+        tenant_id: str,
+        job_id: str,
+        *,
+        error_code: str,
+    ) -> dict[str, object]:
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE provider_batch_jobs
+                SET status = 'failed', error_code = ?, updated_at = ?,
+                    completed_at = ?
+                WHERE tenant_id = ? AND id = ? AND status = 'submitting'
+                    AND upstream_batch_id IS NULL
+                """,
+                (error_code, now, now, clean_tenant, job_id),
+            )
+            if cursor.rowcount != 1:
+                raise RouterRepositoryError("provider_batch_job_not_submitting")
+            row = connection.execute(
+                "SELECT * FROM provider_batch_jobs WHERE tenant_id = ? AND id = ?",
+                (clean_tenant, job_id),
+            ).fetchone()
+        return dict(row)
+
+    def update_provider_batch_job(
+        self,
+        tenant_id: str,
+        job_id: str,
+        *,
+        status: str,
+        completed_count: int = 0,
+        failed_count: int = 0,
+        usage: dict[str, object] | None = None,
+        cost_value: str | None = None,
+        cost_currency: str | None = None,
+        error_code: str | None = None,
+    ) -> dict[str, object]:
+        allowed = {
+            "validating",
+            "in_progress",
+            "finalizing",
+            "completed",
+            "failed",
+            "cancelled",
+            "expired",
+            "uncertain",
+        }
+        if status not in allowed:
+            raise RouterRepositoryError("provider_batch_invalid_status")
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        terminal = status in {"completed", "failed", "cancelled", "expired", "uncertain"}
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE provider_batch_jobs
+                SET status = ?, completed_count = ?, failed_count = ?,
+                    usage_json = ?, cost_value = ?, cost_currency = ?,
+                    billing_authoritative = 0, error_code = ?, updated_at = ?,
+                    completed_at = ?
+                WHERE tenant_id = ? AND id = ? AND upstream_batch_id IS NOT NULL
+                    AND status NOT IN ('completed', 'failed', 'cancelled', 'expired', 'uncertain')
+                """,
+                (
+                    status,
+                    max(0, int(completed_count)),
+                    max(0, int(failed_count)),
+                    json.dumps(usage or {}, sort_keys=True, separators=(",", ":")),
+                    cost_value,
+                    cost_currency,
+                    error_code,
+                    now,
+                    now if terminal else None,
+                    clean_tenant,
+                    job_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise RouterRepositoryError("provider_batch_job_not_pollable")
+            row = connection.execute(
+                "SELECT * FROM provider_batch_jobs WHERE tenant_id = ? AND id = ?",
+                (clean_tenant, job_id),
+            ).fetchone()
+        return dict(row)
+
+    def get_provider_batch_job(
+        self, tenant_id: str, job_id: str
+    ) -> dict[str, object] | None:
+        clean_tenant = self._tenant_id(tenant_id)
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM provider_batch_jobs WHERE tenant_id = ? AND id = ?",
+                (clean_tenant, job_id),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def get_provider_batch_job_by_certification(
+        self, tenant_id: str, certification_id: str
+    ) -> dict[str, object] | None:
+        clean_tenant = self._tenant_id(tenant_id)
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM provider_batch_jobs
+                WHERE tenant_id = ? AND certification_id = ?
+                ORDER BY created_at DESC, id DESC LIMIT 1
+                """,
+                (clean_tenant, certification_id),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def list_provider_batch_jobs(
+        self,
+        tenant_id: str,
+        *,
+        connection_id: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, object]]:
+        clean_tenant = self._tenant_id(tenant_id)
+        clause = ""
+        values: list[object] = [clean_tenant]
+        if connection_id is not None:
+            clause = " AND connection_id = ?"
+            values.append(connection_id)
+        values.append(max(1, min(int(limit), 500)))
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT * FROM provider_batch_jobs
+                WHERE tenant_id = ?{clause}
+                ORDER BY created_at DESC, id DESC LIMIT ?
+                """,
+                tuple(values),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def claim_workload_certification(
         self,
         tenant_id: str,
@@ -2803,6 +3215,53 @@ class SQLiteRouterRepository:
             ).fetchone()
         return dict(row) if row is not None else None
 
+    def get_workload_certification(
+        self, tenant_id: str, certification_id: str
+    ) -> dict[str, object] | None:
+        clean_tenant = self._tenant_id(tenant_id)
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM provider_workload_certifications
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, certification_id),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def resume_workload_certification(
+        self, tenant_id: str, certification_id: str
+    ) -> dict[str, object]:
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            try:
+                cursor = connection.execute(
+                    """
+                    UPDATE provider_workload_certifications
+                    SET status = 'running', error_code = NULL,
+                        updated_at = ?, completed_at = NULL
+                    WHERE tenant_id = ? AND id = ? AND status = 'uncertain'
+                    """,
+                    (now, clean_tenant, certification_id),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise RouterRepositoryError(
+                    "provider_workload_certification_already_running"
+                ) from exc
+            if cursor.rowcount != 1:
+                raise RouterRepositoryError(
+                    "provider_workload_certification_not_resumable"
+                )
+            row = connection.execute(
+                """
+                SELECT * FROM provider_workload_certifications
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, certification_id),
+            ).fetchone()
+        return dict(row)
+
     def complete_workload_certification(
         self,
         tenant_id: str,
@@ -2818,6 +3277,7 @@ class SQLiteRouterRepository:
         prompt_tokens: int | None = None,
         completion_tokens: int | None = None,
         total_tokens: int | None = None,
+        vector_dimension: int | None = None,
     ) -> dict[str, object]:
         if status not in {"passed", "failed", "uncertain"}:
             raise RouterRepositoryError(
@@ -2832,7 +3292,7 @@ class SQLiteRouterRepository:
                 SET status = ?, checks_json = ?, warnings_json = ?,
                     error_code = ?, actual_model = ?, ttft_ms = ?, e2e_ms = ?,
                     prompt_tokens = ?, completion_tokens = ?, total_tokens = ?,
-                    updated_at = ?, completed_at = ?
+                    vector_dimension = ?, updated_at = ?, completed_at = ?
                 WHERE tenant_id = ? AND id = ? AND status = 'running'
                 """,
                 (
@@ -2846,6 +3306,7 @@ class SQLiteRouterRepository:
                     prompt_tokens,
                     completion_tokens,
                     total_tokens,
+                    vector_dimension,
                     now,
                     now,
                     clean_tenant,
@@ -2907,6 +3368,7 @@ class SQLiteRouterRepository:
         execution_shape: str,
         *,
         profile_fingerprint: str | None = None,
+        rerank_access_mode: str | None = None,
     ) -> dict[str, object] | None:
         clean_tenant = self._tenant_id(tenant_id)
         profile_clause = ""
@@ -2920,18 +3382,28 @@ class SQLiteRouterRepository:
             profile_clause = " AND profile_fingerprint = ?"
             values.append(profile_fingerprint)
         with self._lock, self._connect() as connection:
-            row = connection.execute(
+            rows = connection.execute(
                 f"""
                 SELECT * FROM provider_workload_certifications
                 WHERE tenant_id = ? AND connection_id = ?
                     AND requested_model = ? AND execution_shape = ?
                     {profile_clause}
                 ORDER BY created_at DESC, id DESC
-                LIMIT 1
                 """,
                 tuple(values),
-            ).fetchone()
-        return dict(row) if row is not None else None
+            ).fetchall()
+        for row in rows:
+            if rerank_access_mode is not None:
+                try:
+                    profile = json.loads(str(row["profile_json"] or "{}"))
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(profile, dict) or str(
+                    profile.get("rerank_access_mode") or ""
+                ) != rerank_access_mode:
+                    continue
+            return dict(row)
+        return None
 
     def get_workload_policy_bundle(
         self, tenant_id: str, *, entry_id: str | None = None
@@ -2980,6 +3452,7 @@ class SQLiteRouterRepository:
         entry_id: str,
         expected_revision: int,
         policy_fingerprint: str,
+        local_fallback_mode: str,
         bindings: list[dict[str, object]],
     ) -> dict[str, object]:
         clean_tenant = self._tenant_id(tenant_id)
@@ -3013,12 +3486,13 @@ class SQLiteRouterRepository:
                 """
                 INSERT INTO provider_workload_policies (
                     tenant_id, entry_id, status, revision,
-                    policy_fingerprint, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    policy_fingerprint, local_fallback_mode, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(tenant_id, entry_id) DO UPDATE SET
                     status = excluded.status,
                     revision = excluded.revision,
                     policy_fingerprint = excluded.policy_fingerprint,
+                    local_fallback_mode = excluded.local_fallback_mode,
                     updated_at = excluded.updated_at
                 """,
                 (
@@ -3027,6 +3501,7 @@ class SQLiteRouterRepository:
                     status,
                     revision,
                     policy_fingerprint,
+                    local_fallback_mode,
                     created_at,
                     now,
                 ),
@@ -3043,8 +3518,8 @@ class SQLiteRouterRepository:
                         tenant_id, entry_id, execution_shape, model_id,
                         connection_id, certification_id, certification_source,
                         connection_fingerprint, qualification_fingerprint,
-                        created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        rerank_access_mode, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         clean_tenant,
@@ -3056,6 +3531,7 @@ class SQLiteRouterRepository:
                         binding["certification_source"],
                         binding["connection_fingerprint"],
                         binding["qualification_fingerprint"],
+                        binding.get("rerank_access_mode"),
                         now,
                         now,
                     ),
@@ -5374,7 +5850,14 @@ class SQLiteRouterRepository:
             [
                 scope
                 for scope in decoded_scopes
-                if scope in {"chat", "audio", "realtime"}
+                if scope in {
+                    "chat",
+                    "audio",
+                    "realtime",
+                    "embedding",
+                    "rerank",
+                    "batch",
+                }
             ],
             kind=kind,
         )

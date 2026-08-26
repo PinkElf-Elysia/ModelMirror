@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 import os
 import threading
 from typing import Literal
@@ -88,6 +90,8 @@ _service: ModelRouterService | None = None
 _service_lock = threading.Lock()
 _catalog_coordinator: object | None = None
 _native_engine: object | None = None
+_batch_recovery_task: asyncio.Task[int] | None = None
+logger = logging.getLogger(__name__)
 
 
 def configure_model_router(service: ModelRouterService) -> None:
@@ -105,6 +109,45 @@ def get_model_router_service() -> ModelRouterService:
             if _service is None:
                 _service = ModelRouterService()
     return _service
+
+
+def start_provider_batch_recovery() -> None:
+    """Start one background GET-only recovery pass for persisted Batch jobs."""
+
+    global _batch_recovery_task
+    if _batch_recovery_task is not None and not _batch_recovery_task.done():
+        return
+
+    async def recover() -> int:
+        try:
+            return await ProviderWorkloadCertificationService(
+                get_model_router_service()
+            ).resume_pending_batch_certifications()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning(
+                "Provider Batch certification recovery stopped: %s",
+                type(exc).__name__,
+            )
+            return 0
+
+    _batch_recovery_task = asyncio.create_task(
+        recover(), name="provider-batch-certification-recovery"
+    )
+
+
+async def stop_provider_batch_recovery() -> None:
+    global _batch_recovery_task
+    task = _batch_recovery_task
+    _batch_recovery_task = None
+    if task is None or task.done():
+        return
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
 
 
 def get_catalog_coordinator():
@@ -527,13 +570,20 @@ async def run_workload_certification(
     _principal: ProviderControlPrincipal = Depends(require_provider_admin_csrf),
 ) -> ProviderWorkloadCertificationSummary:
     try:
-        return await ProviderWorkloadCertificationService(
+        result = await ProviderWorkloadCertificationService(
             get_model_router_service()
         ).run(
             connection_id,
             payload,
             idempotency_key=idempotency_key,
         )
+        if (
+            result.status == "uncertain"
+            and payload.execution_shape
+            in {"openrouter_batch_chat", "openrouter_batch_embeddings"}
+        ):
+            start_provider_batch_recovery()
+        return result
     except (
         ProviderEgressError,
         RouterServiceError,

@@ -17,6 +17,12 @@ from server.model_router.repository import (
     RouterRepositoryError,
     SQLiteRouterRepository,
 )
+from server.model_router.provider_operations import (
+    OPENROUTER_BATCHES_URL,
+    ProviderOperationEndpointResolver,
+    ProviderOperationTarget,
+    ProviderOperationTransport,
+)
 from server.model_router.schemas import (
     ProviderWorkloadActivationRequest,
     ProviderWorkloadCertificationRequest,
@@ -40,13 +46,14 @@ from server.model_router.cleanup_chat_receipts import cleanup_receipts
 
 
 PAIRING_SECRET = "provider-admin-test-secret-at-least-32-chars"
-V16_TABLES = {
+V17_TABLES = {
     "provider_workload_certifications",
     "provider_workload_policies",
     "provider_workload_bindings",
     "provider_workload_runs",
     "provider_workload_calls",
     "provider_workload_approvals",
+    "provider_batch_jobs",
 }
 
 
@@ -57,30 +64,229 @@ def _reset_admin_auth() -> None:
     reset_provider_admin_auth()
 
 
-def test_v15_to_v16_is_additive_and_tenant_scoped(tmp_path: Path) -> None:
+def test_v16_to_v17_is_additive_and_tenant_scoped(tmp_path: Path) -> None:
     database_path = tmp_path / "router.sqlite3"
     with sqlite3.connect(database_path) as connection:
         connection.execute("CREATE TABLE preserved_v15_data (value TEXT NOT NULL)")
         connection.execute("INSERT INTO preserved_v15_data VALUES ('keep-me')")
-        connection.execute("PRAGMA user_version = 15")
+        connection.execute(
+            """
+            CREATE TABLE provider_workload_policies (
+                tenant_id TEXT NOT NULL,
+                entry_id TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'legacy',
+                revision INTEGER NOT NULL DEFAULT 0,
+                policy_fingerprint TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (tenant_id, entry_id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO provider_workload_policies VALUES (
+                'local', 'meta_agent', 'legacy', 1, 'preserved-policy',
+                '2026-08-25T00:00:00Z', '2026-08-25T00:00:00Z'
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE provider_workload_bindings (
+                tenant_id TEXT NOT NULL,
+                entry_id TEXT NOT NULL,
+                execution_shape TEXT NOT NULL,
+                model_id TEXT NOT NULL,
+                connection_id TEXT NOT NULL,
+                certification_id TEXT NOT NULL,
+                certification_source TEXT NOT NULL,
+                connection_fingerprint TEXT NOT NULL,
+                qualification_fingerprint TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (tenant_id, entry_id, execution_shape, model_id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO provider_workload_bindings VALUES (
+                'local', 'meta_agent', 'chat_json_object', 'provider/model',
+                'conn-old', 'cert-old', 'provider_workload', 'conn-fp',
+                'qualification-fp', '2026-08-25T00:00:00Z',
+                '2026-08-25T00:00:00Z'
+            )
+            """
+        )
+        connection.execute("PRAGMA user_version = 16")
 
     repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
 
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 16
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 17
         tables = {
             row[0]
             for row in connection.execute(
                 "SELECT name FROM sqlite_master WHERE type = 'table'"
             )
         }
-        assert V16_TABLES <= tables
+        assert V17_TABLES <= tables
         assert connection.execute("SELECT value FROM preserved_v15_data").fetchone()[0] == (
             "keep-me"
         )
-    assert SCHEMA_VERSION == 16
-    assert repository.get_workload_policy_bundle("local")["policies"] == []
+        policy = connection.execute(
+            "SELECT policy_fingerprint, local_fallback_mode "
+            "FROM provider_workload_policies WHERE tenant_id = 'local'"
+        ).fetchone()
+        assert policy == ("preserved-policy", "none")
+        binding = connection.execute(
+            "SELECT certification_id, rerank_access_mode "
+            "FROM provider_workload_bindings WHERE tenant_id = 'local'"
+        ).fetchone()
+        assert binding == ("cert-old", None)
+        assert "vector_dimension" in {
+            row[1]
+            for row in connection.execute(
+                "PRAGMA table_info(provider_workload_certifications)"
+            )
+        }
+    assert SCHEMA_VERSION == 17
+    assert len(repository.get_workload_policy_bundle("local")["policies"]) == 1
     assert repository.get_workload_policy_bundle("other")["policies"] == []
+
+
+@pytest.mark.asyncio
+async def test_operation_endpoints_are_explicit_and_transport_is_single_ip() -> None:
+    endpoints = ProviderOperationEndpointResolver.resolve(
+        provider_kind="openrouter",
+        base_url="https://openrouter.ai/api/v1",
+    )
+    assert endpoints.embeddings_url == "https://openrouter.ai/api/v1/embeddings"
+    assert endpoints.rerank_url == "https://openrouter.ai/api/v1/rerank"
+    assert endpoints.batches_url == OPENROUTER_BATCHES_URL
+
+    target = ProviderOperationTarget.create(
+        provider_kind="openrouter",
+        connection_id="conn-openrouter",
+        base_url="https://openrouter.ai/api/v1",
+        api_key="operation-secret",
+    )
+    assert target.endpoint_for("rerank_documents", rerank_access_mode="llm_json") == (
+        "https://openrouter.ai/api/v1/chat/completions"
+    )
+    assert target.endpoint_for("openrouter_batch_chat") == OPENROUTER_BATCHES_URL
+    assert target.endpoint_for(
+        "openrouter_batch_chat", upstream_batch_id="batch_123"
+    ) == f"{OPENROUTER_BATCHES_URL}/batch_123"
+
+    egress = ProviderEgressPolicy(
+        resolver=lambda _host, _port: ["93.184.216.34"]
+    )
+    transport = ProviderOperationTransport(egress)
+    authorized = await transport.authorize(target, "embedding_vectors")
+    observed: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        observed.append(request)
+        assert request.url == "https://93.184.216.34/api/v1/embeddings"
+        assert request.headers["host"] == "openrouter.ai"
+        assert request.headers["authorization"] == "Bearer operation-secret"
+        assert request.extensions["sni_hostname"] == "openrouter.ai"
+        return httpx.Response(200, json={"data": []})
+
+    async with httpx.AsyncClient(
+        transport=MockTransport(handler),
+        follow_redirects=False,
+        trust_env=False,
+    ) as client:
+        request = transport.build_authorized_request(
+            client,
+            target,
+            authorized,
+            method="POST",
+            payload={"model": "provider/embed", "input": ["one", "two"]},
+        )
+        response = await transport.send_authorized(client, request)
+        await response.aclose()
+    assert len(observed) == 1
+    assert ProviderOperationTransport.client_kwargs()["follow_redirects"] is False
+    assert ProviderOperationTransport.client_kwargs()["trust_env"] is False
+
+
+def test_provider_batch_job_is_tenant_scoped_idempotent_and_restart_safe(
+    tmp_path: Path,
+) -> None:
+    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    connection = repository.create_connection(
+        "local",
+        RouterConnectionCreate(
+            name="OpenRouter batch",
+            kind="openrouter",
+            base_url="https://openrouter.ai/api/v1",
+            api_key="test-secret",
+            scopes=["batch"],
+        ),
+    )
+    base = {
+        "connection_id": connection.id,
+        "connection_fingerprint": "connection-fingerprint",
+        "endpoint": "/v1/chat/completions",
+        "model_id": "provider/model",
+        "idempotency_key_hash": "idem-one",
+        "request_fingerprint": "request-one",
+        "purpose": "certification",
+        "request_count": 1,
+    }
+    claimed, created = repository.claim_provider_batch_job(
+        "local", job_id="mmbatch_one", **base
+    )
+    replay, replay_created = repository.claim_provider_batch_job(
+        "local", job_id="must-not-be-used", **base
+    )
+    assert created is True
+    assert replay_created is False
+    assert replay["id"] == claimed["id"] == "mmbatch_one"
+    with pytest.raises(RouterRepositoryError) as conflict:
+        repository.claim_provider_batch_job(
+            "local",
+            job_id="mmbatch_conflict",
+            **{**base, "request_fingerprint": "different"},
+        )
+    assert str(conflict.value) == "provider_batch_idempotency_conflict"
+    assert repository.list_provider_batch_jobs("other") == []
+
+    submitted = repository.mark_provider_batch_submitted(
+        "local",
+        "mmbatch_one",
+        upstream_batch_id="batch_upstream_1",
+        status="validating",
+    )
+    assert submitted["upstream_batch_id"] == "batch_upstream_1"
+    repository.update_provider_batch_job(
+        "local",
+        "mmbatch_one",
+        status="in_progress",
+        completed_count=0,
+        failed_count=0,
+        usage={"total_tokens": 0},
+    )
+
+    repository.claim_provider_batch_job(
+        "local",
+        job_id="mmbatch_uncertain",
+        **{**base, "idempotency_key_hash": "idem-two"},
+    )
+    restarted = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    assert restarted.get_provider_batch_job("local", "mmbatch_one")["status"] == (
+        "in_progress"
+    )
+    uncertain = restarted.get_provider_batch_job("local", "mmbatch_uncertain")
+    assert uncertain["status"] == "uncertain"
+    assert uncertain["error_code"] == "server_restarted"
+    serialized = json.dumps(restarted.list_provider_batch_jobs("local"))
+    assert "test-secret" not in serialized
+    assert "prompt" not in serialized.casefold()
 
 
 def test_policy_revision_drift_and_receipt_replay_guards(tmp_path: Path) -> None:
@@ -90,6 +296,7 @@ def test_policy_revision_drift_and_receipt_replay_guards(tmp_path: Path) -> None
         entry_id="meta_agent",
         expected_revision=0,
         policy_fingerprint="policy-one",
+        local_fallback_mode="none",
         bindings=[
             {
                 "execution_shape": "chat_json_object",
@@ -110,6 +317,7 @@ def test_policy_revision_drift_and_receipt_replay_guards(tmp_path: Path) -> None
             entry_id="meta_agent",
             expected_revision=0,
             policy_fingerprint="stale",
+            local_fallback_mode="none",
             bindings=[],
         )
     assert str(exc_info.value) == "provider_workload_policy_revision_conflict"
@@ -119,6 +327,7 @@ def test_policy_revision_drift_and_receipt_replay_guards(tmp_path: Path) -> None
         entry_id="meta_agent",
         expected_revision=0,
         policy_fingerprint="other-policy",
+        local_fallback_mode="none",
         bindings=[],
     )
     assert other_saved["policies"][0]["revision"] == 1
@@ -660,6 +869,595 @@ async def test_workload_certification_rejects_oversized_unary_response(
 
 
 @pytest.mark.asyncio
+async def test_embedding_certification_validates_exact_finite_vector_space(
+    tmp_path: Path,
+) -> None:
+    requests: list[Request] = []
+
+    def handler(request: Request) -> Response:
+        requests.append(request)
+        if request.method == "GET":
+            return Response(200, json={"data": [{"id": "provider/embed"}]})
+        assert request.url.path.endswith("/v1/embeddings")
+        assert json.loads(request.content) == {
+            "model": "provider/embed",
+            "input": [
+                "ModelMirror embedding certification one.",
+                "ModelMirror embedding certification two.",
+            ],
+            "encoding_format": "float",
+        }
+        return Response(
+            200,
+            json={
+                "model": "provider/embed",
+                "data": [
+                    {"index": 0, "embedding": [0.1, 0.2, 0.3]},
+                    {"index": 1, "embedding": [0.4, 0.5, 0.6]},
+                ],
+                "usage": {"prompt_tokens": 4, "total_tokens": 4},
+            },
+        )
+
+    transport = MockTransport(handler)
+    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    connection = repository.create_connection(
+        "local",
+        RouterConnectionCreate(
+            name="Embedding Provider",
+            kind="openai_compatible",
+            base_url="https://provider.example/v1",
+            api_key="embedding-cert-secret",
+            scopes=["embedding"],
+        ),
+    )
+    router_service = ModelRouterService(
+        repository,
+        client_factory=lambda: httpx.AsyncClient(
+            transport=transport, follow_redirects=False, trust_env=False
+        ),
+        egress_policy=ProviderEgressPolicy(
+            resolver=lambda _host, _port: ["8.8.8.8"]
+        ),
+    )
+    result = await ProviderWorkloadCertificationService(
+        router_service,
+        client_factory=lambda: httpx.AsyncClient(
+            transport=transport, follow_redirects=False, trust_env=False
+        ),
+    ).run(
+        connection.id,
+        ProviderWorkloadCertificationRequest(
+            execution_shape="embedding_vectors",
+            model_id="provider/embed",
+            acknowledge_billed_call=True,
+        ),
+        idempotency_key="embedding-certification",
+    )
+
+    assert result.status == "passed"
+    assert result.checks.embedding_vectors_verified is True
+    assert result.checks.actual_model_verified is True
+    assert result.vector_dimension == 3
+    offering = repository.list_catalog_offerings(
+        "local",
+        connection_id=connection.id,
+        model_id="provider/embed",
+        operation="embed",
+        include_stale=False,
+    )
+    assert any(
+        item["capability_source"] == "certification"
+        and item["access_mode"] == "managed_embedding"
+        for item in offering
+    )
+    assert sum(request.method == "POST" for request in requests) == 1
+    serialized = repository.database_path.read_bytes()
+    assert b"0.1" not in serialized
+    assert b"embedding-cert-secret" not in serialized
+
+
+@pytest.mark.asyncio
+async def test_rerank_certification_keeps_dedicated_and_llm_json_modes_explicit(
+    tmp_path: Path,
+) -> None:
+    post_paths: list[str] = []
+
+    def handler(request: Request) -> Response:
+        if request.method == "GET":
+            return Response(200, json={"data": [{"id": "provider/rerank"}]})
+        post_paths.append(request.url.path)
+        results = [
+            {"index": 0, "relevance_score": 0.9},
+            {"index": 2, "relevance_score": 0.7},
+            {"index": 1, "relevance_score": 0.1},
+        ]
+        if request.url.path.endswith("/rerank"):
+            return Response(
+                200,
+                json={"model": "provider/rerank", "results": results},
+            )
+        return Response(
+            200,
+            json={
+                "model": "provider/rerank",
+                "choices": [
+                    {"message": {"content": json.dumps({"results": results})}}
+                ],
+            },
+        )
+
+    transport = MockTransport(handler)
+    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    connection = repository.create_connection(
+        "local",
+        RouterConnectionCreate(
+            name="Rerank Provider",
+            kind="openai_compatible",
+            base_url="https://provider.example/v1",
+            api_key="rerank-cert-secret",
+            scopes=["rerank"],
+        ),
+    )
+    router_service = ModelRouterService(
+        repository,
+        client_factory=lambda: httpx.AsyncClient(
+            transport=transport, follow_redirects=False, trust_env=False
+        ),
+        egress_policy=ProviderEgressPolicy(
+            resolver=lambda _host, _port: ["8.8.8.8"]
+        ),
+    )
+    service = ProviderWorkloadCertificationService(
+        router_service,
+        client_factory=lambda: httpx.AsyncClient(
+            transport=transport, follow_redirects=False, trust_env=False
+        ),
+    )
+    dedicated = await service.run(
+        connection.id,
+        ProviderWorkloadCertificationRequest(
+            execution_shape="rerank_documents",
+            model_id="provider/rerank",
+            rerank_access_mode="dedicated",
+            acknowledge_billed_call=True,
+        ),
+        idempotency_key="rerank-dedicated",
+    )
+    llm_json = await service.run(
+        connection.id,
+        ProviderWorkloadCertificationRequest(
+            execution_shape="rerank_documents",
+            model_id="provider/rerank",
+            rerank_access_mode="llm_json",
+            acknowledge_billed_call=True,
+        ),
+        idempotency_key="rerank-llm-json",
+    )
+
+    assert dedicated.status == llm_json.status == "passed"
+    assert dedicated.rerank_access_mode == "dedicated"
+    assert llm_json.rerank_access_mode == "llm_json"
+    assert dedicated.profile_fingerprint != llm_json.profile_fingerprint
+    assert post_paths == ["/v1/rerank", "/v1/chat/completions"]
+    control = ProviderWorkloadControlService(router_service)
+    dedicated_policy = control.update_policy(
+        "rag_rerank",
+        ProviderWorkloadPolicyUpdate(
+            expected_revision=0,
+            bindings=[
+                ProviderWorkloadBindingUpdate(
+                    execution_shape="rerank_documents",
+                    model_id="provider/rerank",
+                    connection_id=connection.id,
+                    rerank_access_mode="dedicated",
+                )
+            ],
+        ),
+    )
+    assert dedicated_policy.bindings[0].certification_id == dedicated.certification_id
+    assert dedicated_policy.bindings[0].rerank_access_mode == "dedicated"
+    llm_policy = control.update_policy(
+        "rag_rerank",
+        ProviderWorkloadPolicyUpdate(
+            expected_revision=dedicated_policy.revision,
+            bindings=[
+                ProviderWorkloadBindingUpdate(
+                    execution_shape="rerank_documents",
+                    model_id="provider/rerank",
+                    connection_id=connection.id,
+                    rerank_access_mode="llm_json",
+                )
+            ],
+        ),
+    )
+    assert llm_policy.bindings[0].certification_id == llm_json.certification_id
+    assert llm_policy.bindings[0].rerank_access_mode == "llm_json"
+    assert llm_policy.policy_fingerprint != dedicated_policy.policy_fingerprint
+    with pytest.raises(ValueError, match="rerank_access_mode"):
+        ProviderWorkloadCertificationRequest(
+            execution_shape="rerank_documents",
+            model_id="provider/rerank",
+            acknowledge_billed_call=True,
+        )
+    with pytest.raises(ValueError, match="rerank_access_mode"):
+        ProviderWorkloadBindingUpdate(
+            execution_shape="rerank_documents",
+            model_id="provider/rerank",
+            connection_id=connection.id,
+        )
+
+
+@pytest.mark.asyncio
+async def test_embedding_and_rerank_reject_invalid_contract_evidence(
+    tmp_path: Path,
+) -> None:
+    def handler(request: Request) -> Response:
+        if request.method == "GET":
+            return Response(
+                200,
+                json={
+                    "data": [
+                        {"id": "provider/embed"},
+                        {"id": "provider/rerank"},
+                    ]
+                },
+            )
+        if request.url.path.endswith("/embeddings"):
+            return Response(
+                200,
+                content=(
+                    b'{"model":"provider/embed","data":['
+                    b'{"index":0,"embedding":[0.1,NaN]},'
+                    b'{"index":1,"embedding":[0.2,0.3]}]}'
+                ),
+                headers={"content-type": "application/json"},
+            )
+        return Response(
+            200,
+            json={
+                "model": "provider/rerank",
+                "results": [
+                    {"index": 0, "relevance_score": 0.9},
+                    {"index": 0, "relevance_score": 0.8},
+                    {"index": 2, "relevance_score": 0.1},
+                ],
+            },
+        )
+
+    transport = MockTransport(handler)
+    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    embedding_connection = repository.create_connection(
+        "local",
+        RouterConnectionCreate(
+            name="Invalid Embedding",
+            kind="openai_compatible",
+            base_url="https://provider.example/v1",
+            api_key="invalid-evidence-secret",
+            scopes=["embedding"],
+        ),
+    )
+    rerank_connection = repository.create_connection(
+        "local",
+        RouterConnectionCreate(
+            name="Invalid Rerank",
+            kind="openai_compatible",
+            base_url="https://provider.example/v1",
+            api_key="invalid-evidence-secret",
+            scopes=["rerank"],
+        ),
+    )
+    router_service = ModelRouterService(
+        repository,
+        client_factory=lambda: httpx.AsyncClient(
+            transport=transport, follow_redirects=False, trust_env=False
+        ),
+        egress_policy=ProviderEgressPolicy(
+            resolver=lambda _host, _port: ["8.8.8.8"]
+        ),
+    )
+    service = ProviderWorkloadCertificationService(
+        router_service,
+        client_factory=lambda: httpx.AsyncClient(
+            transport=transport, follow_redirects=False, trust_env=False
+        ),
+    )
+    embedding = await service.run(
+        embedding_connection.id,
+        ProviderWorkloadCertificationRequest(
+            execution_shape="embedding_vectors",
+            model_id="provider/embed",
+            acknowledge_billed_call=True,
+        ),
+        idempotency_key="invalid-embedding",
+    )
+    rerank = await service.run(
+        rerank_connection.id,
+        ProviderWorkloadCertificationRequest(
+            execution_shape="rerank_documents",
+            model_id="provider/rerank",
+            rerank_access_mode="dedicated",
+            acknowledge_billed_call=True,
+        ),
+        idempotency_key="invalid-rerank",
+    )
+    assert embedding.status == rerank.status == "failed"
+    assert embedding.error_code == "provider_embedding_non_finite_vector"
+    assert rerank.error_code == "provider_rerank_duplicate_or_missing_index"
+    database_bytes = repository.database_path.read_bytes()
+    assert b"invalid-evidence-secret" not in database_bytes
+    assert b"relevance_score" not in database_bytes
+
+
+@pytest.mark.asyncio
+async def test_batch_certification_posts_once_then_polls_without_storing_results(
+    tmp_path: Path,
+) -> None:
+    requests: list[Request] = []
+
+    def handler(request: Request) -> Response:
+        requests.append(request)
+        if request.url.path.endswith("/api/v1/models"):
+            return Response(200, json={"data": [{"id": "provider/model"}]})
+        if request.method == "POST":
+            assert request.url.path == "/api/beta/batches"
+            return Response(202, json={"id": "batch_cert_1", "status": "validating"})
+        assert request.url.path == "/api/beta/batches/batch_cert_1"
+        return Response(
+            200,
+            json={
+                "id": "batch_cert_1",
+                "status": "completed",
+                "request_counts": {"total": 1, "completed": 1, "failed": 0},
+                "usage": {"prompt_tokens": 3, "completion_tokens": 1, "total_tokens": 4},
+                "results": [
+                    {
+                        "custom_id": "modelmirror-certification",
+                        "response": {
+                            "status_code": 200,
+                            "body": {
+                                "model": "provider/model",
+                                "choices": [{"message": {"content": "OK"}}],
+                            },
+                        },
+                    }
+                ],
+            },
+        )
+
+    transport = MockTransport(handler)
+    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    connection = repository.create_connection(
+        "local",
+        RouterConnectionCreate(
+            name="OpenRouter Batch",
+            kind="openrouter",
+            base_url="https://openrouter.ai/api/v1",
+            api_key="batch-cert-secret",
+            scopes=["batch"],
+        ),
+    )
+    router_service = ModelRouterService(
+        repository,
+        client_factory=lambda: httpx.AsyncClient(
+            transport=transport, follow_redirects=False, trust_env=False
+        ),
+        egress_policy=ProviderEgressPolicy(
+            resolver=lambda _host, _port: ["8.8.8.8"]
+        ),
+    )
+    result = await ProviderWorkloadCertificationService(
+        router_service,
+        client_factory=lambda: httpx.AsyncClient(
+            transport=transport, follow_redirects=False, trust_env=False
+        ),
+    ).run(
+        connection.id,
+        ProviderWorkloadCertificationRequest(
+            execution_shape="openrouter_batch_chat",
+            model_id="provider/model",
+            acknowledge_billed_call=True,
+        ),
+        idempotency_key="batch-certification",
+    )
+
+    assert result.status == "passed"
+    assert result.batch_status == "completed"
+    assert result.checks.batch_terminal_verified is True
+    assert sum(request.method == "POST" for request in requests) == 1
+    assert sum(request.method == "GET" for request in requests) == 2
+    database_bytes = repository.database_path.read_bytes()
+    assert b"modelmirror-certification" not in database_bytes
+    assert b'"content":"OK"' not in database_bytes
+    assert b"batch-cert-secret" not in database_bytes
+
+
+@pytest.mark.asyncio
+async def test_batch_poll_recovers_after_restart_without_second_post(
+    tmp_path: Path,
+) -> None:
+    requests: list[Request] = []
+    poll_attempts = 0
+
+    def handler(request: Request) -> Response:
+        nonlocal poll_attempts
+        requests.append(request)
+        if request.url.path.endswith("/api/v1/models"):
+            return Response(200, json={"data": [{"id": "provider/model"}]})
+        if request.method == "POST":
+            return Response(202, json={"id": "batch_restart_1", "status": "validating"})
+        poll_attempts += 1
+        if poll_attempts == 1:
+            raise httpx.ReadTimeout("poll interrupted", request=request)
+        return Response(
+            200,
+            json={
+                "id": "batch_restart_1",
+                "status": "completed",
+                "request_counts": {"total": 1, "completed": 1, "failed": 0},
+                "results": [
+                    {
+                        "custom_id": "modelmirror-certification",
+                        "response": {
+                            "status_code": 200,
+                            "body": {"model": "provider/model"},
+                        },
+                    }
+                ],
+            },
+        )
+
+    transport = MockTransport(handler)
+    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    connection = repository.create_connection(
+        "local",
+        RouterConnectionCreate(
+            name="Restart-safe Batch",
+            kind="openrouter",
+            base_url="https://openrouter.ai/api/v1",
+            api_key="batch-restart-secret",
+            scopes=["batch"],
+        ),
+    )
+
+    def service_for(repository: SQLiteRouterRepository) -> ProviderWorkloadCertificationService:
+        router_service = ModelRouterService(
+            repository,
+            client_factory=lambda: httpx.AsyncClient(
+                transport=transport, follow_redirects=False, trust_env=False
+            ),
+            egress_policy=ProviderEgressPolicy(
+                resolver=lambda _host, _port: ["8.8.8.8"]
+            ),
+        )
+        return ProviderWorkloadCertificationService(
+            router_service,
+            client_factory=lambda: httpx.AsyncClient(
+                transport=transport, follow_redirects=False, trust_env=False
+            ),
+            batch_poll_interval_seconds=0,
+        )
+
+    payload = ProviderWorkloadCertificationRequest(
+        execution_shape="openrouter_batch_chat",
+        model_id="provider/model",
+        acknowledge_billed_call=True,
+    )
+    first = await service_for(repository).run(
+        connection.id,
+        payload,
+        idempotency_key="restart-safe-batch",
+    )
+    assert first.status == "uncertain"
+    assert first.error_code == "provider_batch_poll_uncertain"
+
+    restarted = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    restarted_service = service_for(restarted)
+    assert await restarted_service.resume_pending_batch_certifications() == 1
+    resumed = next(
+        item
+        for item in restarted_service.list().certifications
+        if item.certification_id == first.certification_id
+    )
+    assert resumed.status == "passed"
+    assert resumed.checks.batch_terminal_verified is True
+    assert sum(request.method == "POST" for request in requests) == 1
+    assert poll_attempts == 2
+    assert restarted.list_provider_batch_jobs("local")[0]["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_batch_submission_uncertainty_never_reposts_same_idempotency_key(
+    tmp_path: Path,
+) -> None:
+    requests: list[Request] = []
+
+    def handler(request: Request) -> Response:
+        requests.append(request)
+        if request.url.path.endswith("/api/v1/models"):
+            return Response(200, json={"data": [{"id": "provider/model"}]})
+        raise httpx.ReadTimeout("submission outcome unknown", request=request)
+
+    transport = MockTransport(handler)
+    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    connection = repository.create_connection(
+        "local",
+        RouterConnectionCreate(
+            name="Uncertain OpenRouter Batch",
+            kind="openrouter",
+            base_url="https://openrouter.ai/api/v1",
+            api_key="batch-uncertain-secret",
+            scopes=["batch"],
+        ),
+    )
+    router_service = ModelRouterService(
+        repository,
+        client_factory=lambda: httpx.AsyncClient(
+            transport=transport, follow_redirects=False, trust_env=False
+        ),
+        egress_policy=ProviderEgressPolicy(
+            resolver=lambda _host, _port: ["8.8.8.8"]
+        ),
+    )
+    service = ProviderWorkloadCertificationService(
+        router_service,
+        client_factory=lambda: httpx.AsyncClient(
+            transport=transport, follow_redirects=False, trust_env=False
+        ),
+    )
+    payload = ProviderWorkloadCertificationRequest(
+        execution_shape="openrouter_batch_chat",
+        model_id="provider/model",
+        acknowledge_billed_call=True,
+    )
+    first = await service.run(
+        connection.id,
+        payload,
+        idempotency_key="uncertain-batch-certification",
+    )
+    replay = await service.run(
+        connection.id,
+        payload,
+        idempotency_key="uncertain-batch-certification",
+    )
+    assert first.status == replay.status == "uncertain"
+    assert first.error_code == "provider_batch_submission_uncertain"
+    assert sum(request.method == "POST" for request in requests) == 1
+    jobs = repository.list_provider_batch_jobs("local")
+    assert len(jobs) == 1
+    assert jobs[0]["status"] == "uncertain"
+    assert b"batch-uncertain-secret" not in repository.database_path.read_bytes()
+
+
+def test_r7_local_fallback_policy_is_explicit_and_entry_scoped(
+    tmp_path: Path,
+) -> None:
+    control = ProviderWorkloadControlService(
+        ModelRouterService(SQLiteRouterRepository(tmp_path, master_key=b"x" * 32))
+    )
+    policy = control.update_policy(
+        "rag_query_generate",
+        ProviderWorkloadPolicyUpdate(
+            expected_revision=0,
+            local_fallback_mode="extractive",
+            bindings=[],
+        ),
+    )
+    assert policy.local_fallback_mode == "extractive"
+    assert policy.data_plane_integrated is False
+    with pytest.raises(RouterServiceError) as invalid:
+        control.update_policy(
+            "rag_embedding",
+            ProviderWorkloadPolicyUpdate(
+                expected_revision=0,
+                local_fallback_mode="lexical",
+                bindings=[],
+            ),
+        )
+    assert invalid.value.code == "provider_workload_local_fallback_not_allowed"
+
+
+@pytest.mark.asyncio
 async def test_json_certification_qualifies_exact_binding_and_new_evidence_stales_it(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1078,7 +1876,16 @@ async def test_workload_admin_api_is_session_and_csrf_protected_and_public_redac
         csrf = paired.json()["csrf_token"]
         policies = await client.get("/api/router/workload-control/policies")
         assert policies.status_code == 200
-        assert len(policies.json()["policies"]) == 13
+        assert len(policies.json()["policies"]) == 19
+        r7_policies = {
+            item["entry_id"]: item for item in policies.json()["policies"]
+            if item["entry_id"].startswith("rag_")
+            or item["entry_id"] in {"skill_rerank", "openrouter_batch"}
+        }
+        assert len(r7_policies) == 6
+        assert all(item["data_plane_integrated"] is False for item in r7_policies.values())
+        assert all(item["feature_enabled"] is False for item in r7_policies.values())
+        assert all(item["local_fallback_mode"] == "none" for item in r7_policies.values())
         assert policies.json()["contract_version"] == PROVIDER_WORKLOAD_CONTRACT_VERSION
 
         update = {
