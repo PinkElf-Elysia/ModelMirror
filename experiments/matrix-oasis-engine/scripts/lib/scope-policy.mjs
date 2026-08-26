@@ -1,7 +1,7 @@
 export const MODULE_PREFIX = "experiments/matrix-oasis-engine";
 export const ACTIVE_ROUND = "R17";
 export const ACTIVE_ROUND_BASELINE_SHA =
-  "66b57c3c83277bea960464decc2d4e46965a5ef1";
+  "cc49136c955aa98cab7e3877848bacd9e3381126";
 
 export const ROUND_ALLOWED_MODULE_FILES = Object.freeze([
   "AGENTS.md",
@@ -36,6 +36,10 @@ export const ROUND_ALLOWED_MODULE_FILES = Object.freeze([
   "scripts/verify-r17-evidence.mjs",
   "scripts/verify-r17-references.mjs",
   "scripts/verify-r17.mjs",
+  "scripts/verify-spatial-builder.mjs",
+  "scripts/verify-spatial-solution.mjs",
+  "scripts/lib/godot-core.mjs",
+  "scripts/lib/godot-runtime-core.mjs",
   "scripts/lib/boundary-core.mjs",
   "scripts/lib/mvp-claim-core.mjs",
   "scripts/lib/v2-claim-core.mjs",
@@ -59,6 +63,11 @@ export const ROUND_ALLOWED_MODULE_FILES = Object.freeze([
   "tests/r17-godot-qualification.test.mjs",
   "tests/r17-agent-qualification.test.mjs",
   "tests/round-scope.test.mjs",
+  "tests/godot-harness.test.mjs",
+  "tests/godot-runtime-adapter.test.mjs",
+  "packages/prototype-spatial-verifier/src/index.mjs",
+  "packages/prototype-spatial-verifier/src/index.d.ts",
+  "packages/prototype-spatial-verifier/tests/verifier.test.mjs",
 ]);
 
 export const ROUND_ALLOWED_MODULE_PREFIXES = Object.freeze([

@@ -1,12 +1,8 @@
 import { spawnSync } from "node:child_process";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const npmExecPath = process.env.npm_execpath;
-if (!npmExecPath) {
-  console.error("VERIFY_RUNTIME_UNAVAILABLE: run this command through npm.");
-  process.exit(2);
-}
-
-const steps = [
+export const VERIFY_STEPS = Object.freeze([
   ["doctor", ["run", "doctor"]],
   ["round-scope", ["run", "check:round-scope"]],
   ["boundary", ["run", "check:boundary"]],
@@ -34,22 +30,34 @@ const steps = [
   ["tests", ["test"]],
   ["creator-build", ["run", "build:creator"]],
   ["creator-smoke", ["run", "smoke:creator"]],
-];
+].map(([id, args]) => Object.freeze([id, Object.freeze(args)])));
 
-for (const [id, args] of steps) {
-  console.log(`VERIFY_STEP_START ${id}`);
-  const result = spawnSync(process.execPath, [npmExecPath, ...args], {
-    stdio: "inherit",
-    shell: false,
-    windowsHide: true,
-  });
+const isDirectExecution =
+  typeof process.argv[1] === "string" &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 
-  if (result.error || result.status !== 0) {
-    console.error(`VERIFY_STEP_FAILED ${id}`);
-    process.exit(result.status ?? 1);
+if (isDirectExecution) {
+  const npmExecPath = process.env.npm_execpath;
+  if (!npmExecPath) {
+    console.error("VERIFY_RUNTIME_UNAVAILABLE: run this command through npm.");
+    process.exit(2);
   }
 
-  console.log(`VERIFY_STEP_OK ${id}`);
-}
+  for (const [id, args] of VERIFY_STEPS) {
+    console.log(`VERIFY_STEP_START ${id}`);
+    const result = spawnSync(process.execPath, [npmExecPath, ...args], {
+      stdio: "inherit",
+      shell: false,
+      windowsHide: true,
+    });
 
-console.log(`VERIFY_OK steps=${steps.length}`);
+    if (result.error || result.status !== 0) {
+      console.error(`VERIFY_STEP_FAILED ${id}`);
+      process.exit(result.status ?? 1);
+    }
+
+    console.log(`VERIFY_STEP_OK ${id}`);
+  }
+
+  console.log(`VERIFY_OK steps=${VERIFY_STEPS.length}`);
+}

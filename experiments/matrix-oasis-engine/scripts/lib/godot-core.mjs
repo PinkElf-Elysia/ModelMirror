@@ -6,15 +6,31 @@ export const GODOT_READINESS_MARKER =
   "MATRIX_OASIS_R4_GODOT_FOUNDATION_READY";
 
 export class GodotHarnessError extends Error {
-  constructor(code) {
+  constructor(code, processFailure = null) {
     super(code);
     this.name = "GodotHarnessError";
     this.code = code;
+    Object.defineProperty(this, "processFailure", {
+      value: processFailure,
+      enumerable: false,
+      writable: false,
+      configurable: false,
+    });
   }
 }
 
-function fail(code) {
-  throw new GodotHarnessError(code);
+function fail(code, processFailure = null) {
+  throw new GodotHarnessError(code, processFailure);
+}
+
+export function classifyGodotProcessFailure(result) {
+  if (!result || typeof result !== "object") return "unknown";
+  if (result.error?.code === "ETIMEDOUT") return "timeout";
+  if (result.error?.code === "ENOBUFS") return "output-limit";
+  if (result.error) return "spawn-error";
+  if (typeof result.signal === "string" && result.signal) return "signal";
+  if (result.status !== 0) return "nonzero-exit";
+  return null;
 }
 
 export function extractGodotVersion(output) {
@@ -59,9 +75,8 @@ export function runGodotCommand({ command, args, cwd, timeout = 60_000, spawn = 
     timeout,
     windowsHide: true,
   });
-  if (result.error || result.status !== 0) {
-    fail("GODOT_COMMAND_FAILED");
-  }
+  const processFailure = classifyGodotProcessFailure(result);
+  if (processFailure !== null) fail("GODOT_COMMAND_FAILED", processFailure);
   return `${result.stdout ?? ""}${result.stderr ?? ""}`;
 }
 

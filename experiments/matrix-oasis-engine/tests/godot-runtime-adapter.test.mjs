@@ -10,6 +10,7 @@ import {
   GODOT_ADAPTER_MARKER,
   GodotRuntimeHarnessError,
   parseGodotAdapterOutput,
+  runGodotAdapterCases,
 } from "../scripts/lib/godot-runtime-core.mjs";
 
 const moduleRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -87,6 +88,41 @@ test("adapter marker parser rejects extra fields, dynamic paths, and duplicate m
         !String(error).includes(secret),
     );
   }
+});
+
+test("adapter cold import uses the bounded Godot import contract without retry", () => {
+  const calls = [];
+  const results = runGodotAdapterCases({
+    moduleRoot,
+    sourceProjectRoot: path.join(moduleRoot, "apps", "runtime-godot"),
+    godotCommand: "godot-fixture",
+    cases: [{
+      name: "fixture",
+      runtimeBytes: Buffer.from("{}", "utf8"),
+      receiptBytes: Buffer.from("{}", "utf8"),
+      expected: { ok: true },
+    }],
+    spawn(command, args, options) {
+      calls.push({ command, args, options });
+      if (args.includes("--import")) {
+        return { status: 0, stdout: "", stderr: "", signal: null };
+      }
+      return {
+        status: 0,
+        stdout: `${GODOT_ADAPTER_MARKER}{"ok":true}\n`,
+        stderr: "",
+        signal: null,
+      };
+    },
+  });
+
+  assert.equal(results.length, 1);
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[0].args.slice(0, 2), ["--headless", "--path"]);
+  assert.deepEqual(calls[0].args.slice(-1), ["--import"]);
+  assert.equal(calls[0].args.includes("--editor"), false);
+  assert.equal(calls[0].args.includes("--quit"), false);
+  assert.equal(calls[0].options.timeout, 300_000);
 });
 
 test("Godot adapter sources remain independent from JavaScript evaluators and topic IDs", () => {

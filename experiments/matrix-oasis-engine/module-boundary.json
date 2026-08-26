@@ -4,7 +4,7 @@
   "moduleRoot": ".",
   "moduleRootResolution": "directory-containing-module-boundary",
   "activeRound": "R17",
-  "activeRoundBaselineSha": "66b57c3c83277bea960464decc2d4e46965a5ef1",
+  "activeRoundBaselineSha": "cc49136c955aa98cab7e3877848bacd9e3381126",
   "activeRoundChangePolicy": {
     "allowedModuleFiles": [
       "AGENTS.md", "README.md", ".gitattributes", ".gitignore", "module-boundary.json", "package-lock.json", "package.json",
@@ -15,9 +15,11 @@
       "docs/adr/0018-r17-v2-qualification-governance.md", "docs/rounds/R17_ACCEPTANCE.md",
       "scripts/check-round-scope.mjs", "scripts/check-mvp-claim.mjs", "scripts/check-v2-claim.mjs", "scripts/check-godot-boundary.mjs",
       "scripts/plan-r17-qualification.mjs", "scripts/qualify-r17.mjs", "scripts/verify-r17-evidence.mjs", "scripts/verify-r17-references.mjs", "scripts/verify-r17.mjs",
+      "scripts/verify-spatial-builder.mjs", "scripts/verify-spatial-solution.mjs", "scripts/lib/godot-core.mjs", "scripts/lib/godot-runtime-core.mjs",
       "scripts/lib/boundary-core.mjs", "scripts/lib/mvp-claim-core.mjs", "scripts/lib/v2-claim-core.mjs", "scripts/lib/r17-reference-core.mjs", "scripts/lib/r17-qualification-core.mjs", "scripts/lib/r17-evidence-core.mjs", "scripts/lib/r17-godot-qualification-core.mjs", "scripts/lib/r17-agent-qualification-core.mjs", "scripts/lib/parent-scope-core.mjs", "scripts/lib/scope-policy.mjs",
       "scripts/run-verify.mjs", "scripts/verify-extraction.mjs", "tests/boundary.test.mjs", "tests/godot-boundary.test.mjs", "tests/extraction-contract.test.mjs",
-      "tests/mvp-claim.test.mjs", "tests/v2-claim.test.mjs", "tests/r17-reference.test.mjs", "tests/r17-qualification.test.mjs", "tests/r17-evidence.test.mjs", "tests/r17-godot-qualification.test.mjs", "tests/r17-agent-qualification.test.mjs", "tests/round-scope.test.mjs"
+      "tests/mvp-claim.test.mjs", "tests/v2-claim.test.mjs", "tests/r17-reference.test.mjs", "tests/r17-qualification.test.mjs", "tests/r17-evidence.test.mjs", "tests/r17-godot-qualification.test.mjs", "tests/r17-agent-qualification.test.mjs", "tests/round-scope.test.mjs", "tests/godot-harness.test.mjs", "tests/godot-runtime-adapter.test.mjs",
+      "packages/prototype-spatial-verifier/src/index.mjs", "packages/prototype-spatial-verifier/src/index.d.ts", "packages/prototype-spatial-verifier/tests/verifier.test.mjs"
     ],
     "allowedModulePrefixes": [
       "packages/v2-qualification-contracts",

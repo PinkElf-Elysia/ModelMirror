@@ -428,9 +428,9 @@ export function runGodotAdapterCases({
     fs.mkdirSync(inputsRoot);
     const importOutput = runGodotCommand({
       command: godotCommand,
-      args: ["--headless", "--editor", "--path", projectRoot, "--quit"],
+      args: ["--headless", "--path", projectRoot, "--import"],
       cwd: moduleRoot,
-      timeout: 120_000,
+      timeout: 300_000,
       spawn,
     });
     assertGodotOutputClean(importOutput);

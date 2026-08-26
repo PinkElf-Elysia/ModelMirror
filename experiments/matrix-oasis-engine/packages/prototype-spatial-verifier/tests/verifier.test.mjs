@@ -14,7 +14,14 @@ test("public surface and operational error are exact", () => {
   const error = new verifier.PrototypeSpatialVerifierOperationalError();
   assert.equal(error.code, "PROTOTYPE_SPATIAL_VERIFIER_INTERNAL_ERROR");
   assert.equal(error.message, error.code);
+  assert.equal(error.stage, "operation");
+  assert.equal(error.processFailure, "unknown");
   assert.equal("cause" in error, false);
+  const timed = new verifier.PrototypeSpatialVerifierOperationalError("verification", "timeout");
+  assert.equal(timed.message, "PROTOTYPE_SPATIAL_VERIFIER_INTERNAL_ERROR");
+  assert.equal(timed.stage, "verification");
+  assert.equal(timed.processFailure, "timeout");
+  assert.equal(JSON.stringify(timed).includes("timeout"), false);
 });
 
 test("configuration capture is descriptor-safe and redacted", () => {
@@ -40,6 +47,8 @@ test("Node bridge is disposable, offline and topic-neutral", async () => {
   assert.match(source, /matrix-oasis-r14-verifier-/u);
   assert.match(source, /finally[\s\S]*rm\(temporaryRoot/u);
   assert.match(source, /shell: false/u);
+  assert.match(source, /\["--headless", "--path", analysisProjectRoot, "--import"\]/u);
+  assert.match(source, /timeout: 300_000/u);
   for (const forbidden of [
     ["fe", "tch("].join(""), ["node", ":http"].join(""), ["node", ":https"].join(""),
     ["open", "ai"].join(""), ["meshy", ".ai"].join(""), ["world", "labs"].join(""),

@@ -424,7 +424,15 @@ test("round path classifier exposes stable R17 guard categories", () => {
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-spatial-verifier/src/index.mjs`),
-    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
+    null,
+  );
+  assert.equal(
+    classifyRoundPath(`${MODULE_PREFIX}/scripts/lib/godot-runtime-core.mjs`),
+    null,
+  );
+  assert.equal(
+    classifyRoundPath(`${MODULE_PREFIX}/tests/godot-runtime-adapter.test.mjs`),
+    null,
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/apps/runtime-godot/spatial_solution_verification/verifier.gd`),

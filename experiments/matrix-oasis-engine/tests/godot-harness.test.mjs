@@ -11,8 +11,10 @@ import {
   assertGdUnitSuccess,
   assertGodotOutputClean,
   assertSingleReadinessMarker,
+  classifyGodotProcessFailure,
   extractGodotVersion,
   resolveGodotBinary,
+  runGodotCommand,
 } from "../scripts/lib/godot-core.mjs";
 import {
   CAPTURE_FRAME_COUNT,
@@ -101,6 +103,36 @@ test("Godot output gates reject errors and duplicate readiness", () => {
     () => assertSingleReadinessMarker(`${GODOT_READINESS_MARKER}\n${GODOT_READINESS_MARKER}`),
     (error) => error instanceof GodotHarnessError && error.code === "GODOT_READINESS_MARKER_INVALID",
   );
+});
+
+test("Godot subprocess failures are bounded and classified without leaking causes", () => {
+  assert.equal(classifyGodotProcessFailure({ error: { code: "ETIMEDOUT", message: "sensitive-detail" } }), "timeout");
+  assert.equal(classifyGodotProcessFailure({ error: { code: "ENOBUFS", message: "sensitive-detail" } }), "output-limit");
+  assert.equal(classifyGodotProcessFailure({ error: new Error("sensitive-detail") }), "spawn-error");
+  assert.equal(classifyGodotProcessFailure({ status: null, signal: "SIGTERM" }), "signal");
+  assert.equal(classifyGodotProcessFailure({ status: 7, signal: null }), "nonzero-exit");
+  assert.equal(classifyGodotProcessFailure({ status: 0, signal: null }), null);
+  let options;
+  assert.throws(() => runGodotCommand({
+    command: "godot", args: ["--import"], cwd: path.join("temporary", "root"), timeout: 321_000,
+    spawn: (_command, _args, captured) => {
+      options = captured;
+      return { error: { code: "ETIMEDOUT", message: "sensitive-detail" }, status: null, stdout: "", stderr: "" };
+    },
+  }), (error) => error instanceof GodotHarnessError && error.code === "GODOT_COMMAND_FAILED" &&
+      error.message === "GODOT_COMMAND_FAILED" && error.processFailure === "timeout" &&
+      !String(error).includes("secret"));
+  assert.equal(options.timeout, 321_000);
+  assert.equal(options.shell, false);
+  assert.equal(options.windowsHide, true);
+});
+
+test("spatial builder cold import waits for resources once without retry", () => {
+  const source = readFileSync(path.join(moduleRoot, "scripts", "verify-spatial-builder.mjs"), "utf8");
+  assert.equal((source.match(/args: \["--headless", "--path", preview\.projectRoot, "--import"\]/gu) ?? []).length, 1);
+  assert.equal((source.match(/timeout: 300_000/gu) ?? []).length, 1);
+  assert.doesNotMatch(source, /args: \["--headless", "--editor", "--path", preview\.projectRoot, "--quit"\]/u);
+  assert.doesNotMatch(source, /retry|attempt/u);
 });
 
 test("GdUnit output gate requires complete zero-failure accounting", () => {

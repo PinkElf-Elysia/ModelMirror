@@ -59,9 +59,9 @@ try {
   configureGdgsProject(preview.projectRoot);
   const imported = runGodotCommand({
     command: godot.command,
-    args: ["--headless", "--editor", "--path", preview.projectRoot, "--quit"],
+    args: ["--headless", "--path", preview.projectRoot, "--import"],
     cwd: moduleRoot,
-    timeout: 120_000,
+    timeout: 300_000,
   });
   assertGodotOutputClean(imported);
   verifyHeadlessGuard(godot, preview.projectRoot);
@@ -69,7 +69,10 @@ try {
 } catch (error) {
   const code = typeof error?.message === "string" && /^[A-Z][A-Z0-9_]{2,127}$/u.test(error.message)
     ? error.message : "SPATIAL_BUILDER_VERIFY_FAILED";
-  process.stderr.write(`${code}\n`);
+  const processFailure = typeof error?.processFailure === "string" &&
+    /^(?:nonzero-exit|output-limit|signal|spawn-error|timeout|unknown)$/u.test(error.processFailure)
+    ? error.processFailure : null;
+  process.stderr.write(`${code}${processFailure === null ? "" : ` process=${processFailure}`}\n`);
   process.exitCode = 1;
 } finally {
   if (preview) {

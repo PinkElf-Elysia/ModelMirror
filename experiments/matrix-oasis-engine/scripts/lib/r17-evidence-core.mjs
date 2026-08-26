@@ -38,7 +38,7 @@ export function verifyR17QualificationSummary(moduleRoot) {
   let summary;
   try { summary = JSON.parse(text); } catch { fail("R17_SUMMARY_INVALID"); }
   if (`${canonicalizeJsonValue(summary)}\n` !== text) fail("R17_SUMMARY_NON_CANONICAL");
-  if (summary.schemaVersion !== 1 || summary.profile !== "matrix-oasis.v2-qualification/1" || summary.baseSha !== "66b57c3c83277bea960464decc2d4e46965a5ef1" || summary.status !== "r17-selection-qualified" || summary.providerRequests !== 0) fail("R17_SUMMARY_POLICY_INVALID");
+  if (summary.schemaVersion !== 1 || summary.profile !== "matrix-oasis.v2-qualification/1" || summary.baseSha !== "cc49136c955aa98cab7e3877848bacd9e3381126" || summary.status !== "r17-selection-qualified" || summary.providerRequests !== 0) fail("R17_SUMMARY_POLICY_INVALID");
   const ids = summary.candidates.map((candidate) => candidate.id);
   if (JSON.stringify(ids) !== JSON.stringify([...ids].sort()) || JSON.stringify(ids) !== JSON.stringify(["beehave", "dialogue-manager", "letta", "limboai", "mem0"])) fail("R17_SUMMARY_CANDIDATE_DRIFT");
   for (const candidate of summary.candidates) {

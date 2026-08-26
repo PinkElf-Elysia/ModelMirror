@@ -1,24 +1,27 @@
 # R17第二版开源资格验收记录
 
-状态：证伪攻击后的Harness修复与仓外重新取证完成；V2仍不可声明，修复结论待用户人工确认
+状态：证伪攻击后的Harness修复与仓外重新取证已由用户确认；V2仍不可声明
 
 ## 固定基线
 
-- `R17_BASE_SHA=66b57c3c83277bea960464decc2d4e46965a5ef1`
+- `R17_BASE_SHA=cc49136c955aa98cab7e3877848bacd9e3381126`
 - 分支：`codex/matrix-oasis-r17-v2-qualification`
 - 版本：`0.17.0-r17`
 - 仓外旧证据（已失效）：`C:\tmp\matrix-oasis-r17-evidence-final-v2-20260824`
 - 仓外修复后证据：`C:\tmp\matrix-oasis-r17-evidence-remediated-20260825`
 - 供应商请求：0；Docker/容器：未使用；候选源码、二进制、日志和资格输出：未提交
 
-## 六批交付
+## 七批交付
 
-1. `69785429` `chore: 建立矩阵绿洲 R17 第二版选型边界`
-2. `76068d63` `chore: 固定矩阵绿洲 第二版候选来源`
-3. `1c0f9d62` `test: 添加矩阵绿洲 第二版资格验证框架`
-4. `645a5f7d` `test: 资格验证矩阵绿洲 Godot NPC候选`
-5. `3fdb89ff` `test: 资格验证矩阵绿洲 Agent与记忆候选`
-6. `docs: 记录矩阵绿洲 R17 第二版选型结论`
+1. `2f5d216a` `chore: 建立矩阵绿洲 R17 第二版选型边界`
+2. `321f3648` `chore: 固定矩阵绿洲 第二版候选来源`
+3. `c72c1b0f` `test: 添加矩阵绿洲 第二版资格验证框架`
+4. `8d160d49` `test: 资格验证矩阵绿洲 Godot NPC候选`
+5. `0c074bbe` `test: 资格验证矩阵绿洲 Agent与记忆候选`
+6. `fc388088` `docs: 记录矩阵绿洲 R17 第二版选型结论`
+7. `fix: 稳定矩阵绿洲 standalone Godot 冷启动验证`
+
+第七批是用户单独批准的发布前稳定性修复，不改变R17选型结论。完整extraction在持续高负载后偶发出现R11/R14隔离Godot工程失败，而同一工程立即单独复验通过；修复后根全量验证又实际捕获到R5 adapter在同一冷导入阶段失败，其一次性目录中已有`.godot/imported`但尚未生成测试输入，立即单独复验同样通过。根因是冷工程使用`--editor --quit`，它没有“等待所有资源导入完成”的合同；三个实际故障入口现改用Godot官方专用`--import`模式，单次有界超时提高至300秒，仍无重试。R5 parity/smoke及其他历史入口继续冻结。子进程失败只输出`timeout`、`output-limit`、`spawn-error`、`signal`、`nonzero-exit`、`output-error`或`marker-missing`等静态分类，不回显底层异常、绝对路径或输出正文。另一次extraction现场显示，单个长期嵌套`standalone-verify`在已通过前22个阶段后被Windows以`0x40010004`外部终止；紧接的独立空间分析命令在同一standalone树重放通过。extraction现直接复用根验证器导出的同一27步清单，逐步启动短进程并各自留证；不减少、跳过或替换任何门禁，全部成功后才写汇总并继续归档。
 
 ## 资格结论
 
@@ -36,19 +39,22 @@
 - `npm.cmd run doctor:godot`：Godot `4.6.3`通过。
 - `npm.cmd run verify:r17-evidence -- --evidence-root C:\tmp\matrix-oasis-r17-evidence-remediated-20260825`：5份报告及其raw artifact派生重算通过；旧证据因缺少报告声明的raw artifact已被新验证器拒绝。
 - `npm.cmd run verify:r17`：6阶段通过。
-- `npm.cmd run verify`：27阶段通过；综合测试920/920，Creator build与smoke通过。stdout日志SHA-256为`87d0b5f97eeacb67aadcbf29c42394bf475f131cd2c7a57d62d05b8e1c772ca4`；stderr为0字节，SHA-256为`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`。日志仅在`C:\tmp`。
-- `npm.cmd run check:round-scope`：`checked=77 changed=72`。
-- `npm.cmd run check:parent-scope -- --base 66b57c3c83277bea960464decc2d4e46965a5ef1`：`checked=77 changed=72`。
+- R17.7定向复验：Godot subprocess分类、三个精确`--import`入口和无重试断言通过；R5 adapter合同测试19/19通过，`verify:spatial-builder`输出`SPATIAL_BUILDER_VERIFY_OK import=1 headless_fail_closed=1`，R14隔离复验输出`SPATIAL_SOLUTION_VERIFICATION_OK placements=2 nodes=5 paths=9 terminals=9`。
+- `npm.cmd run verify`：27阶段通过；综合测试923/923，Creator build与smoke通过。
+- `npm.cmd run check:round-scope`：`checked=83 changed=83`。
+- `npm.cmd run check:parent-scope -- --base cc49136c955aa98cab7e3877848bacd9e3381126`：`checked=83 changed=83`。
 - 父`client`：clean `npm.cmd ci`、`npm.cmd run test:run`（108个文件、625/625测试）与`npm.cmd run build`通过；build仅报告既有大chunk告警，安装审计仍报告父仓既有5项漏洞，均未在R17扩张范围内修复。仓外辅助脚本在写结果JSON时因Windows PowerShell不支持`utf8NoBOM`枚举而报错，发生在测试和build均成功完成之后，不影响命令输出证据。
 - `git diff --check`：通过。
-- `npm.cmd run verify:extraction`：在人工作出选型确认并形成第六提交后，以显式锁定的仓外Godot 4.6.3对clean源码树执行通过；最终source/split/tree/archive身份由仓外交付清单记录。
+- `npm.cmd run verify:extraction`：在人工作出选型确认并形成第七提交后，以显式锁定的仓外Godot 4.6.3对clean源码树执行相同27阶段门禁；最终source/split/tree/archive身份由仓外交付清单记录。
 
 ## 已知边界
 
 - R17没有正式引入LimboAI、Dialogue Manager、Mem0或任何动画资产，也没有修改Creator和Godot产品路径。
 - 当前没有外部候选达到`recommended`或`backup`；这是一项有效选型结论，不得通过README功能声明、一次成功运行或分数覆盖硬门。
 - 修复后Harness可清理超时进程树并验证raw artifact闭包，但非容器Windows进程不能证明文件系统和网络隔离；相关硬门保持`not-proven`。
+- R17.7只为已观察到失败的R5 adapter、R11 builder和R14 verifier冷导入入口使用`--import`，没有批量改写其他历史预览器；R5 parity/smoke及未观察到失败的旧入口保持冻结，避免把稳定性修复扩张成历史重构。
+- extraction分段只改变长进程调度和日志粒度；根验证与standalone验证消费同一个深冻结步骤表，合同测试拒绝递归、重复ID和步骤漂移。
 - 证伪修复已纳入第六提交；standalone extraction只验证clean `HEAD`，没有使用`--allow-dirty`或旧提交冒充修复版证据。
 - Context7当前月度额度不足；本轮以固定上游commit、许可证、manifest/lockfile和真实Godot/loopback执行证据完成资格，未把不可获取的二手文档当作运行证据。
 - `docs/MVP_STATUS.json`保持R16完成；`docs/V2_STATUS.json`为`r17-selection-qualified`、`claimAllowed=false`、`blockingRound=R24`。
-- R18只能定义NPC意图、事件账本、裁决结果、派生记忆和观察投影合同；不得提前开发AI人格、长期关系、动态任务、模型驱动事件或运行期供应商调用。
+- 后续已批准的R18只补全第二版全景候选、分类资格与R19-R25路线，不开发AI人格、长期关系、动态任务、模型驱动事件或运行期供应商调用。
