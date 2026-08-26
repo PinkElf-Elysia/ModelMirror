@@ -1804,6 +1804,49 @@ def test_worker_failure_stage_classifies_platform_control_reasons(
     assert observed == (stage.value if stage is not None else None)
 
 
+def test_r11_claude_restart_replay_uses_the_fault_boundary_not_projection_order() -> None:
+    replay_path = (
+        Path(__file__).parent
+        / "fixtures"
+        / "coding_worker_v20_replays"
+        / "r11_claude_approval_restart.json"
+    )
+    replay = json.loads(replay_path.read_text(encoding="utf-8"))
+    assert replay["schema_version"] == 1
+    assert replay["candidate_diff_sha256"] == (
+        "3e78fd2341e51e9608894e22a0d01351215498764a9fc63cfbd3ce658596c06b"
+    )
+
+    boundary = replay["restart_boundary_sequence"]
+    events = sorted(replay["events"], key=lambda item: item["sequence"])
+    assert len({item["sequence"] for item in events}) == len(events)
+    resumed = [
+        item["sequence"]
+        for item in events
+        if item["type"] == "turn_resumed" and item["sequence"] > boundary
+    ]
+    changed = [
+        item["sequence"]
+        for item in events
+        if item["type"] == "capability_changed" and item["sequence"] > boundary
+    ]
+    assert resumed and changed
+    assert resumed[0] < changed[0], "fixture must attack the old strict event ordering"
+    assert any(
+        item["type"] == "task_state" and item.get("state") == "completed"
+        for item in events
+    )
+    assert replay["metrics"]["evidence_passed"] == 1
+    for key in (
+        "unsettled_operations",
+        "duplicate_side_effects",
+        "orphaned_interactions",
+        "generic_failures",
+        "public_leaks",
+    ):
+        assert replay["metrics"][key] == 0
+
+
 def test_run_record_rejects_caller_supplied_zero_diagnostics() -> None:
     facts = _facts()
     forged = derive_diagnostics(
