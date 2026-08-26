@@ -208,7 +208,7 @@ Agent 画布使用 `toolset_resource -> workflow_agent` 的 `toolset` 绑定边�
 
 ## 2. 如何适配冻结目录中的 MCP Server
 
-目录总数固定为 300 项；第二阶段新增 100 项已完成逐项目适配判定，Wave 24 的第三阶段 100 项仅以 `planned/blocked` 非执行身份导入，后续状态变化仍必须单项通过安全门槛。中文展示数据与后端执行清单分别位于：
+三阶段目录基线固定为 300 项；第二阶段新增 100 项已完成逐项目适配判定，Wave 24 的第三阶段 100 项仅以 `planned/blocked` 非执行身份导入。R4A 经单独审批追加官方 Registry 精确身份 `tako-mcp` 作为 Catalog OAuth 真实门禁目标，当前总数为 301；后续状态变化仍必须单项通过安全门槛。中文展示数据与后端执行清单分别位于：
 
 ```text
 client/src/data/mcpProjects.ts
@@ -243,7 +243,7 @@ npm view @example/mcp-server version
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/mcp/catalog/adapters` | 返回 300 项安全状态，不返回命令、端点或 Secret |
+| GET | `/api/mcp/catalog/adapters` | 返回 301 项安全状态，不返回命令、端点或 Secret |
 | GET/POST | `/api/mcp/catalog/{project_id}/credentials` | 列出当前卡片的脱敏凭据，或创建绑定当前项目与固定槽位的加密凭据 |
 | DELETE | `/api/mcp/catalog/{project_id}/credentials/{credential_id}` | 撤销当前卡片凭据，并立即断开关联会话、清除失效配置 |
 | POST | `/api/mcp/catalog/{project_id}/prepare` | 使用后端固定安装配置准备已验收适配器 |
@@ -552,7 +552,7 @@ python server/mcp/test_manager.py
 | `server/tests/mock_mcp_server.py` | 本地 mock MCP Server。 |
 | `server/tests/test_mcp_integration.py` | FastAPI MCP 端点集成测试。 |
 | `server/tests/test_mcp_multisession.py` | 多 session、TTL 与 ToolRegistry 集成测试。 |
-| `server/tests/test_mcp_catalog.py` | 300 项契约、前后端 ID、服务端配置来源与 fail-closed 测试。 |
+| `server/tests/test_mcp_catalog.py` | 301 项契约、前后端 ID、服务端配置来源与 fail-closed 测试。 |
 | `server/tests/test_mcp_compute_adapters.py` | 批次 1 工具契约、输入上限、URL 拒绝与沙箱配置测试。 |
 | `server/tests/test_mcp_public_adapters.py` | 批次 2 SSRF、DNS、robots、响应上限、工具契约与容器隔离测试。 |
 | `server/tests/test_mcp_file_workspaces.py` | 批次 3 路径/ZIP、租户隔离、产物越权和一次性审批安全测试。 |

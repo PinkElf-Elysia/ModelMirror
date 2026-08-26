@@ -97,7 +97,13 @@ def test_only_static_tool_surface_is_accepted() -> None:
         },
     ):
         hub_server.HubRemoteService._validate_capabilities(Initialized(accepted))
+    hub_server.HubRemoteService._validate_capabilities(
+        Initialized({"completions": {}, "tools": {}}),
+        allowed_inert_capabilities=frozenset({"completions"}),
+    )
     for denied in (
+        {"completions": {}, "tools": {}},
+        {"completions": {"unexpected": False}, "tools": {}},
         {"sampling": {}, "tools": {}},
         {"logging": {}, "tools": {}},
         {"prompts": {"unexpected": False}, "tools": {}},
@@ -110,6 +116,32 @@ def test_only_static_tool_surface_is_accepted() -> None:
     ):
         with pytest.raises(hub_server.HubSidecarError):
             hub_server.HubRemoteService._validate_capabilities(Initialized(denied))
+
+    with pytest.raises(hub_server.HubSidecarError, match="hub_open_contract_invalid"):
+        hub_server.HubRemoteService._validate_capabilities(
+            Initialized({"sampling": {}, "tools": {}}),
+            allowed_inert_capabilities=frozenset({"sampling"}),
+        )
+    with pytest.raises(
+        hub_server.HubSidecarError, match="hub_non_tool_capability_denied"
+    ):
+        hub_server.HubRemoteService._validate_capabilities(
+            Initialized({"completions": {"unexpected": False}, "tools": {}}),
+            allowed_inert_capabilities=frozenset({"completions"}),
+        )
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["completions", ["completions", "completions"], ["sampling"], [1]],
+)
+def test_inert_capability_request_is_exact_and_bounded(value: Any) -> None:
+    with pytest.raises(hub_server.HubSidecarError, match="hub_open_contract_invalid"):
+        hub_server._validated_inert_capabilities(value)
+
+    assert hub_server._validated_inert_capabilities(["completions"]) == frozenset(
+        {"completions"}
+    )
 
 
 @pytest.mark.parametrize(

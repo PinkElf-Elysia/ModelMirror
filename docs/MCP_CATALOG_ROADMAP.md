@@ -15,7 +15,7 @@
 - [Awesome-MCP-ZH](https://github.com/yzfly/Awesome-MCP-ZH)
 - [awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers)
 
-截至 2026-08-13，产品目录固定为 300 个 MCP 条目、18 个分类。Wave 28 将已通过真实原生只读服务验收的 GreptimeDB 晋级；Wave 29 仅晋级固定 arXiv ID 与官方出口的 LaTeX 只读子集，并因 PyMuPDF/pymupdf4llm 的 AGPL-3.0 或商业许可要求阻断 PDFMux；Wave 30 将固定 VictoriaMetrics 目标与指标的只读子集晋级；Wave 31 将 YFinance、重复 YouTube 实现与许可证漂移条目收敛为 blocked。第三阶段新增 100 项现为 **8 ready / 34 planned / 58 blocked**，产品目录总计 **79 ready / 61 planned / 160 blocked**。Wave 21 状态化资源、Wave 22 多租户/OAuth、任意执行、桌面宿主、云资源写入、账号发布、交易与设备控制继续冻结。
+截至 2026-08-26，产品目录为 301 个 MCP 条目、18 个分类。原三阶段 300 项冻结目录保持不变；R4A 仅额外加入官方 Registry 精确身份 `io.github.TakoData/tako-mcp`，用于验证 Catalog OAuth 复核产品链，不开放 Runtime。Wave 28 将已通过真实原生只读服务验收的 GreptimeDB 晋级；Wave 29 仅晋级固定 arXiv ID 与官方出口的 LaTeX 只读子集，并因 PyMuPDF/pymupdf4llm 的 AGPL-3.0 或商业许可要求阻断 PDFMux；Wave 30 将固定 VictoriaMetrics 目标与指标的只读子集晋级；Wave 31 将 YFinance、重复 YouTube 实现与许可证漂移条目收敛为 blocked。第三阶段新增 100 项现为 **8 ready / 34 planned / 58 blocked**，产品目录总计 **79 ready / 62 planned / 160 blocked**。Wave 21 状态化资源、Wave 22 多租户/OAuth、任意执行、桌面宿主、云资源写入、账号发布、交易与设备控制继续冻结。
 
 Wave 28—31 的实现、真实验收、许可证阻断与回退边界见 [Wave 28—31 收口](./MCP_ADAPTATION_WAVE28_31.md)。
 
@@ -107,7 +107,7 @@ Wave 26A 仅晋级断网 Calculator，ImageSorcery 继续 planned；Wave 26B 为
 
 ## 5. 固定批次
 
-第一阶段 100 项继续冻结在批次 0—11；第二阶段批准的 100 项由批次 12 纳入目录、批次 13 完成适配判定，批次 14—20 按安全条件逐项验收和收敛；第三阶段批准的 100 项由批次 24 仅以非执行清单纳入。目录总数固定为 300，Wave 25—27 只能逐项改变状态，不能静默增加条目或直接制造 ready。
+第一阶段 100 项继续冻结在批次 0—11；第二阶段批准的 100 项由批次 12 纳入目录、批次 13 完成适配判定，批次 14—20 按安全条件逐项验收和收敛；第三阶段批准的 100 项由批次 24 仅以非执行清单纳入。三阶段目录基线固定为 300；R4A 经单独审批追加的 `tako-mcp` 是 Catalog OAuth 产品链真实门禁目标，不改变 Wave 25—27 只能逐项改变状态、不能静默增加条目或直接制造 ready 的约束。
 
 | 批次 | 能力与条目 | 数量 | 主要退出门槛 |
 | --- | --- | ---: | --- |

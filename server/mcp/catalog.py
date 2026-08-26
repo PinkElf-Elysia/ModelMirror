@@ -564,8 +564,23 @@ class CatalogAdapterManifest:
     enabled_by_default: bool = False
     operation_timeout: float = 30.0
     max_output_bytes: int = 256 * 1024
-    remote_auth_mode: Literal["", "static_bearer", "static_header"] = ""
+    remote_auth_mode: Literal[
+        "",
+        "static_bearer",
+        "static_header",
+        "oauth_authorization_code_pkce",
+    ] = ""
     remote_auth_header_name: str = ""
+    remote_oauth_registration_mode: Literal[
+        "",
+        "pre_registered",
+        "client_id_metadata_document",
+        "dynamic",
+    ] = ""
+    remote_oauth_client_id: str = ""
+    allowed_inert_server_capabilities: tuple[
+        Literal["completions"], ...
+    ] = ()
 
     @property
     def feature_flag(self) -> str:
@@ -589,6 +604,20 @@ class CatalogAdapterManifest:
                 or self.stateful_saas_gate_enabled
             )
             and bool(self.server_command or self.endpoint)
+        )
+
+    @property
+    def remote_review_capable(self) -> bool:
+        return bool(
+            self.connection_kind == "remote-mcp"
+            and self.endpoint
+            and self.transport == "streamable-http"
+            and self.remote_auth_mode
+            in {
+                "static_bearer",
+                "static_header",
+                "oauth_authorization_code_pkce",
+            }
         )
 
     @property
@@ -672,6 +701,11 @@ class CatalogAdapterManifest:
                 else None
             ),
             "stateful_saas_gate_enabled": self.stateful_saas_gate_enabled,
+            "remote_auth_mode": self.remote_auth_mode,
+            "remote_review_capable": self.remote_review_capable,
+            "allowed_inert_server_capabilities": list(
+                self.allowed_inert_server_capabilities
+            ),
         }
 
 
@@ -2553,6 +2587,7 @@ WAVE_PROJECTS: dict[int, tuple[str, ...]] = {
         "linear-mcp",
         "neon-mcp",
         "slack-mcp",
+        "tako-mcp",
     ),
     11: (
         "xiaohongshu-mcp",
@@ -2641,6 +2676,125 @@ WAVE_METADATA: dict[
         "critical",
         ("versioned-desktop-bridge", "per-app-consent"),
         ("等待本机桥接协议、宿主版本和逐应用授权验证。",),
+    ),
+}
+
+
+R4A_REMOTE_REVIEW_ADAPTERS: dict[str, CatalogAdapterManifest] = {
+    "github-mcp-server": CatalogAdapterManifest(
+        project_id="github-mcp-server",
+        wave=10,
+        availability="planned",
+        connection_kind="remote-mcp",
+        risk="high",
+        required_capabilities=(
+            "encrypted-credential-binding",
+            "remote-review-contract",
+            "read-only-tool-policy",
+            "schema-drift-recovery",
+        ),
+        limitations=(
+            "固定为 GitHub 官方远程 MCP 的 repos/readonly 单一工具集；只接受服务端构造的 Bearer PAT，不接受客户端 URL、Header 或环境变量。",
+            "R4A 只允许完成隔离复核和契约发布；保持 planned、默认关闭且不向 Runtime 暴露工具。",
+        ),
+        adapter_version="github/github-mcp-server@v1.6.0+6206edb67f08+remote-repos-readonly",
+        network_policy="allowlist:api.githubcopilot.com",
+        filesystem_policy="read-only-empty-workspace",
+        resource_limits=(
+            ("operation_timeout", "20 seconds"),
+            ("tool_output", "256 KiB"),
+            ("max_concurrency", "1"),
+        ),
+        transport="streamable-http",
+        endpoint="https://api.githubcopilot.com/mcp/x/repos/readonly",
+        credential_slots=("personal_access_token",),
+        credential_policies=(
+            _credential(
+                "personal_access_token",
+                "GitHub Personal Access Token",
+                "仅用于固定 GitHub readonly 远程 MCP Origin；保存后不再显示明文。",
+            ),
+        ),
+        preparation_kind="bundled",
+        enabled_by_default=False,
+        operation_timeout=20.0,
+        max_output_bytes=256 * 1024,
+        remote_auth_mode="static_bearer",
+        remote_auth_header_name="Authorization",
+        allowed_inert_server_capabilities=("completions",),
+    ),
+    "sentry-mcp": CatalogAdapterManifest(
+        project_id="sentry-mcp",
+        wave=10,
+        availability="planned",
+        connection_kind="remote-mcp",
+        risk="high",
+        required_capabilities=(
+            "oauth-pkce",
+            "oauth-revocation",
+            "scope-review",
+            "remote-review-contract",
+            "schema-drift-recovery",
+        ),
+        limitations=(
+            "固定为 Sentry 官方远程 MCP；OAuth resource、issuer、Scope 与 Token revision 全部由服务端发现并冻结。",
+            "R4A 只允许完成真实授权、隔离复核和契约发布；保持 planned、默认关闭且不向 Runtime 暴露工具。",
+        ),
+        adapter_version="getsentry/sentry-mcp@fa6f9375880c14537fcdd77a73cf4260f6de0d90",
+        network_policy="allowlist:mcp.sentry.dev",
+        filesystem_policy="read-only-empty-workspace",
+        resource_limits=(
+            ("operation_timeout", "20 seconds"),
+            ("tool_output", "256 KiB"),
+            ("max_concurrency", "1"),
+        ),
+        transport="streamable-http",
+        endpoint="https://mcp.sentry.dev/mcp",
+        preparation_kind="bundled",
+        enabled_by_default=False,
+        operation_timeout=20.0,
+        max_output_bytes=256 * 1024,
+        remote_auth_mode="oauth_authorization_code_pkce",
+        remote_auth_header_name="Authorization",
+        remote_oauth_registration_mode="dynamic",
+    ),
+    "tako-mcp": CatalogAdapterManifest(
+        project_id="tako-mcp",
+        wave=10,
+        availability="planned",
+        connection_kind="remote-mcp",
+        risk="high",
+        required_capabilities=(
+            "oauth-pkce",
+            "oauth-revocation",
+            "scope-review",
+            "remote-review-contract",
+            "schema-drift-recovery",
+        ),
+        limitations=(
+            "固定为 Tako 官方 Registry 身份 io.github.TakoData/tako-mcp@0.22.2 与 https://mcp.tako.com/mcp；OAuth resource、issuer、Scope 与 Token revision 由服务端发现并冻结。",
+            "R4A 只允许完成真实授权、隔离复核和契约发布；保持 planned、默认关闭且不向 Runtime 暴露工具。",
+        ),
+        adapter_version=(
+            "TakoData/tako-mcp@0.22.2+registry-"
+            "e1438997a4efd36977b3bf8411a0584153ab74a3a211dca2a95c93ef0d94957f"
+        ),
+        network_policy="allowlist:mcp.tako.com",
+        filesystem_policy="read-only-empty-workspace",
+        resource_limits=(
+            ("operation_timeout", "20 seconds"),
+            ("tool_output", "256 KiB"),
+            ("max_concurrency", "1"),
+        ),
+        transport="streamable-http",
+        endpoint="https://mcp.tako.com/mcp",
+        preparation_kind="bundled",
+        enabled_by_default=False,
+        operation_timeout=20.0,
+        max_output_bytes=256 * 1024,
+        remote_auth_mode="oauth_authorization_code_pkce",
+        remote_auth_header_name="Authorization",
+        remote_oauth_registration_mode="dynamic",
     ),
 }
 
@@ -3404,6 +3558,11 @@ def build_catalog_manifests() -> dict[str, CatalogAdapterManifest]:
         filesystem_policy="blocked:no-runtime",
     )
 
+    for project_id, manifest in R4A_REMOTE_REVIEW_ADAPTERS.items():
+        if project_id in manifests:
+            raise RuntimeError(f"duplicate R4A remote review id: {project_id}")
+        manifests[project_id] = manifest
+
     for wave, project_ids in WAVE_PROJECTS.items():
         connection_kind, risk, capabilities, limitations = WAVE_METADATA[wave]
         for project_id in project_ids:
@@ -3818,8 +3977,8 @@ def build_catalog_manifests() -> dict[str, CatalogAdapterManifest]:
             filesystem_policy=f"{adapter.availability}:no-runtime",
         )
 
-    if len(manifests) != 300:
-        raise RuntimeError(f"MCP catalog must contain 300 adapters, got {len(manifests)}")
+    if len(manifests) != 301:
+        raise RuntimeError(f"MCP catalog must contain 301 adapters, got {len(manifests)}")
     return manifests
 
 
@@ -4175,7 +4334,9 @@ class MCPCatalogService:
             raise CatalogAdapterPolicyError("目录远程认证只允许一个固定上游 Origin。")
         origin = f"https://{hosts[0]}"
         remote_identity = (
-            f"catalog:{manifest.project_id}:{manifest.adapter_version}:{origin}"
+            manifest.endpoint
+            if manifest.connection_kind == "remote-mcp" and manifest.endpoint
+            else f"catalog:{manifest.project_id}:{manifest.adapter_version}:{origin}"
         )
         try:
             return RemoteAuthPolicyV1(
@@ -4308,6 +4469,16 @@ class MCPCatalogService:
             item = manifest.to_public(
                 connected=scope_key in self._sessions,
                 session_id=self._sessions.get(scope_key),
+            )
+            item["remote_review_credential_ready"] = (
+                self._remote_review_credential_ready(manifest)
+            )
+            item["remote_review_enabled"] = bool(
+                manifest.remote_review_capable
+                and os.getenv(
+                    "MCP_REMOTE_REVIEW_UNIFICATION_ENABLED", "false"
+                ).strip().lower()
+                in {"1", "true", "yes", "on"}
             )
             configuration = self._configurations.get(scope_key)
             item["configured"] = configuration is not None
@@ -4443,7 +4614,11 @@ class MCPCatalogService:
         request: CatalogConfigurationRequest,
     ) -> dict[str, Any]:
         manifest = self.get_manifest(project_id)
-        if manifest.availability not in {"adapting", "ready"}:
+        remote_review_configuration = self._remote_review_credential_ready(manifest)
+        if (
+            manifest.availability not in {"adapting", "ready"}
+            and not remote_review_configuration
+        ):
             raise CatalogAdapterUnavailableError(
                 "该 MCP 仍处于待适配状态，当前不能提交配置。"
             )
@@ -7211,10 +7386,41 @@ class MCPCatalogService:
         return manifest
 
     def _require_credential_adapter(self, project_id: str) -> CatalogAdapterManifest:
-        manifest = self._require_executable(project_id)
+        manifest = self.get_manifest(project_id)
+        remote_review_credentials = self._remote_review_credential_ready(manifest)
+        if not manifest.executable and not remote_review_credentials:
+            raise CatalogAdapterUnavailableError(
+                "该 MCP 尚未通过生产级适配验收，当前不可创建或绑定凭据。"
+            )
         if not manifest.credential_policies:
             raise CatalogAdapterPolicyError("该目录项目不使用加密凭据。")
         return manifest
+
+    def _remote_review_credential_ready(
+        self, manifest: CatalogAdapterManifest
+    ) -> bool:
+        if not (
+            manifest.remote_review_capable
+            and manifest.remote_auth_mode in {"static_bearer", "static_header"}
+            and os.getenv(
+                "MCP_REMOTE_REVIEW_UNIFICATION_ENABLED", "false"
+            ).strip().lower()
+            in {"1", "true", "yes", "on"}
+            and self.remote_auth_broker is not None
+        ):
+            return False
+        status = self.remote_auth_broker.status()
+        return all(
+            bool(status.get(key))
+            for key in (
+                "enabled",
+                "static_token_enabled",
+                "single_owner_acknowledged",
+                "external_master_key_available",
+                "external_master_key_enforced",
+                "storage_ready",
+            )
+        )
 
     def project_for_session(self, session_id: str) -> str | None:
         """Return the catalog owner so generic call routes can fail closed."""

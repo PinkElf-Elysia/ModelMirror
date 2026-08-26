@@ -304,6 +304,7 @@ def make_service(
         "cred_asana": ("asana-mcp", "personal_access_token"),
         "cred_gitlab": ("gitlab-mcp", "personal_access_token"),
         "cred_notion": ("notion-mcp-server", "integration_token"),
+        "cred_github": ("github-mcp-server", "personal_access_token"),
     }
 
     def credential_validator(credential_id: str) -> SimpleNamespace:
@@ -332,17 +333,17 @@ def make_service(
     return service, manager, installer, registry
 
 
-def test_catalog_freezes_300_projects_and_maps_all_waves_once() -> None:
+def test_catalog_freezes_301_projects_and_maps_all_waves_once() -> None:
     phased = [project for projects in WAVE_PROJECTS.values() for project in projects]
     expansion_v2_ids = {item.project_id for item in CATALOG_EXPANSION_V2_ADAPTERS}
     expansion_v3_ids = {item.project_id for item in CATALOG_EXPANSION_V3_ADAPTERS}
 
-    assert len(CATALOG_ADAPTERS) == 300
+    assert len(CATALOG_ADAPTERS) == 301
     assert len(LOCAL_STDIO_ADAPTERS) == 7
-    assert len(phased) == 93
+    assert len(phased) == 94
     assert len(expansion_v2_ids) == 100
     assert len(expansion_v3_ids) == 100
-    assert len(set(phased)) == 93
+    assert len(set(phased)) == 94
     assert set(phased).isdisjoint(LOCAL_STDIO_ADAPTERS)
     assert expansion_v2_ids.isdisjoint(set(phased) | set(LOCAL_STDIO_ADAPTERS))
     assert expansion_v3_ids.isdisjoint(
@@ -358,6 +359,55 @@ def test_catalog_freezes_300_projects_and_maps_all_waves_once() -> None:
     }
     assert set(WAVE_THREE_ADAPTERS) == set(WAVE_PROJECTS[3]) - {"manim-mcp"}
     assert set(WAVE_FOUR_ADAPTERS) == set(WAVE_PROJECTS[4]) - {"snyk-mcp"}
+
+
+def test_planned_remote_review_accepts_fixed_credential_only_when_gate_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    status_state = {
+        "enabled": True,
+        "static_token_enabled": True,
+        "single_owner_acknowledged": True,
+        "external_master_key_available": True,
+        "external_master_key_enforced": True,
+        "storage_ready": True,
+    }
+    broker = SimpleNamespace(
+        status=lambda: dict(status_state),
+        binding_for_target=lambda **_kwargs: None,
+        create_binding=lambda **_kwargs: SimpleNamespace(
+            binding_id="mcpra_" + "a" * 32
+        ),
+    )
+    service, _manager, _installer, _registry = make_service(
+        remote_auth_broker=broker
+    )
+    request = CatalogConfigurationRequest(
+        credential_bindings={"personal_access_token": "cred_github"}
+    )
+
+    monkeypatch.setenv("MCP_REMOTE_REVIEW_UNIFICATION_ENABLED", "false")
+    with pytest.raises(catalog.CatalogAdapterUnavailableError):
+        service.configure("github-mcp-server", request)
+
+    monkeypatch.setenv("MCP_REMOTE_REVIEW_UNIFICATION_ENABLED", "true")
+    monkeypatch.setenv("MCP_REMOTE_AUTH_ENABLED", "true")
+    configured = service.configure("github-mcp-server", request)
+
+    assert configured["configured"] is True
+    assert configured["configured_credential_slots"] == ["personal_access_token"]
+    assert CATALOG_ADAPTERS["github-mcp-server"].availability == "planned"
+    assert CATALOG_ADAPTERS["github-mcp-server"].executable is False
+    github_status = next(
+        item
+        for item in service.list_adapters()["adapters"]
+        if item["project_id"] == "github-mcp-server"
+    )
+    assert github_status["remote_review_credential_ready"] is True
+
+    status_state["external_master_key_enforced"] = False
+    with pytest.raises(catalog.CatalogAdapterUnavailableError):
+        service.configure("github-mcp-server", request)
     assert set(WAVE_FIVE_ADAPTERS) == {
         "dbhub",
         "mongodb-mcp",
@@ -389,7 +439,7 @@ def test_catalog_freezes_300_projects_and_maps_all_waves_once() -> None:
     assert sum(
         manifest.availability == "planned"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 61
+    ) == 62
     assert sum(
         manifest.availability == "blocked"
         for manifest in CATALOG_ADAPTERS.values()
@@ -2021,9 +2071,9 @@ async def test_catalog_api_hides_execution_details_and_rejects_planned_connect()
             response = await client.get("/api/mcp/catalog/adapters")
             assert response.status_code == 200
             payload = response.json()
-            assert payload["total"] == 300
+            assert payload["total"] == 301
             assert payload["ready"] == 79
-            assert payload["planned"] == 61
+            assert payload["planned"] == 62
             assert payload["blocked"] == 160
             serialized = response.text.lower()
             assert "server_command" not in serialized
@@ -2050,7 +2100,7 @@ async def test_main_app_registers_catalog_status_endpoint() -> None:
         response = await client.get("/api/mcp/catalog/adapters")
 
     assert response.status_code == 200
-    assert response.json()["total"] == 300
+    assert response.json()["total"] == 301
 
 
 @pytest.mark.asyncio

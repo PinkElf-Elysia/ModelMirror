@@ -114,6 +114,43 @@ async def test_socket_bridge_accepts_bounded_response_above_asyncio_default_limi
     assert response == expected
 
 
+@pytest.mark.asyncio
+async def test_socket_bridge_serializes_only_explicit_inert_capabilities(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bridge = HubSocketBridge(remote_socket="/tmp/hub.sock")
+    requests: list[dict[str, Any]] = []
+
+    async def fake_request(
+        _socket_path: str,
+        payload: dict[str, Any],
+        *,
+        timeout: int,
+    ) -> dict[str, Any]:
+        assert timeout == 35
+        requests.append(payload)
+        return {"ok": True, "session_id": "hub_" + "a" * 32, "tools": []}
+
+    monkeypatch.setattr(bridge, "_request", fake_request)
+
+    await bridge.open(
+        "candidate",
+        "https://mcp.example.com/mcp",
+        "b" * 64,
+        "catalog:local:local:github-mcp-server",
+    )
+    await bridge.open(
+        "candidate",
+        "https://mcp.example.com/mcp",
+        "c" * 64,
+        "catalog:local:local:github-mcp-server",
+        allowed_inert_capabilities=("completions",),
+    )
+
+    assert "allowed_inert_capabilities" not in requests[0]
+    assert requests[1]["allowed_inert_capabilities"] == ["completions"]
+
+
 def reviewed_test_contracts() -> dict[tuple[str, str, str], dict[str, Any]]:
     normalized = [
         {

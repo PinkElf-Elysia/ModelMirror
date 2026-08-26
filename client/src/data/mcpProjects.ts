@@ -30,7 +30,10 @@ export const mcpCategories = [
 
 export type McpCategory = (typeof mcpCategories)[number];
 export type McpInstallMode = "one-click" | "manual";
-export type McpCatalogSourceId = "awesome-mcp-zh" | "awesome-mcp-servers";
+export type McpCatalogSourceId =
+  | "awesome-mcp-zh"
+  | "awesome-mcp-servers"
+  | "official-mcp-registry";
 export type McpRequirement =
   | "oauth"
   | "token"
@@ -120,6 +123,13 @@ export const mcpCatalogSources = [
     url: "https://github.com/punkpeye/awesome-mcp-servers",
     license: "MIT",
     verifiedAt: "2026-08-02",
+  },
+  {
+    id: "official-mcp-registry",
+    name: "官方 MCP Registry",
+    url: "https://registry.modelcontextprotocol.io/",
+    license: "上游项目 MIT",
+    verifiedAt: "2026-08-26",
   },
 ] as const satisfies ReadonlyArray<{
   id: McpCatalogSourceId;
@@ -823,6 +833,20 @@ const expandedMcpProjectSeeds: McpProjectSeed[] = [
     requirements: ["token", "remote-transport"],
     usageExamples: ["为报告收集多来源证据", "提取指定网页的正文"],
     sources: ["awesome-mcp-zh", "awesome-mcp-servers"],
+  }),
+  plannedMcp({
+    id: "tako-mcp",
+    name: "Tako MCP",
+    repoName: "TakoData/tako-mcp",
+    repoUrl: "https://github.com/TakoData/tako-mcp",
+    category: "搜索与研究",
+    description: "通过固定的官方远程 MCP 查询公开网页与授权后的结构化数据。",
+    readmeSummary: "Tako 官方托管 MCP，Registry 身份固定为 io.github.TakoData/tako-mcp；R4A 仅开放本地单主体 OAuth 复核，不开放 Runtime。",
+    language: "TypeScript",
+    tags: ["Tako 官方", "结构化数据", "OAuth"],
+    requirements: ["oauth", "account-binding", "remote-transport"],
+    usageExamples: ["确认某项经济指标是否有覆盖", "检索带来源的公开数据线索"],
+    sources: ["official-mcp-registry"],
   }),
   plannedMcp({
     id: "kagi-mcp",

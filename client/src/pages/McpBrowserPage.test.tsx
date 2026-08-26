@@ -139,7 +139,7 @@ describe("McpBrowserPage first-screen shell", () => {
   it("keeps the all filter visible and toggles wrapped secondary categories", () => {
     renderPage();
 
-    expect(screen.getByRole("button", { name: "全部 · 300" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "全部 · 301" })).toBeVisible();
     const primaryGroup = screen.getByRole("group", { name: "按工具类别筛选" });
     expect(within(primaryGroup).getAllByRole("button")).toHaveLength(4);
     expect(primaryGroup.parentElement).not.toHaveClass("overflow-x-auto");

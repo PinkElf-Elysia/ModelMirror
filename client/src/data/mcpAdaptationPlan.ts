@@ -162,6 +162,14 @@ export interface McpCatalogAdapterStatus {
   saas_policy?: McpSaasPolicy | null;
   browser_policy?: McpBrowserPolicy | null;
   stateful_saas_gate_enabled?: boolean;
+  remote_auth_mode?:
+    | ""
+    | "static_bearer"
+    | "static_header"
+    | "oauth_authorization_code_pkce";
+  remote_review_capable?: boolean;
+  remote_review_credential_ready?: boolean;
+  remote_review_enabled?: boolean;
   account_status?: McpSaasAccountStatus;
   preflight_status: McpDatabasePreflightStatus;
   tool_policies: Record<
@@ -329,6 +337,7 @@ export const mcpAdaptationWaves: Record<number, readonly string[]> = {
     "gmail-mcp", "atlassian-mcp", "google-calendar-mcp", "google-drive-mcp",
     "microsoft-365-mcp", "onedrive-mcp", "sentry-mcp", "azure-mcp", "box-mcp",
     "cloudflare-mcp", "github-mcp-server", "linear-mcp", "neon-mcp", "slack-mcp",
+    "tako-mcp",
   ],
   11: [
     "xiaohongshu-mcp", "ableton-mcp", "binary-ninja-mcp", "blender-mcp",
@@ -858,8 +867,8 @@ function buildAdaptationPlan() {
       limitations: [...project.adaptation.limitations],
     };
   }
-  if (Object.keys(records).length !== 300) {
-    throw new Error(`MCP 适配计划必须包含 300 个条目，当前为 ${Object.keys(records).length}`);
+  if (Object.keys(records).length !== 301) {
+    throw new Error(`MCP 适配计划必须包含 301 个条目，当前为 ${Object.keys(records).length}`);
   }
   return records;
 }

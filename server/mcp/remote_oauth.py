@@ -29,6 +29,7 @@ from .remote_auth import SubjectScopeResolver, SubjectScopeV1
 
 HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
 TARGET_ID_RE = re.compile(r"^[A-Za-z0-9._:/-]{1,255}$")
+SIDECAR_CANDIDATE_ID_RE = re.compile(r"^mcphub_[0-9a-f]{32}$")
 REGISTRATION_ID_RE = re.compile(r"^mcpoauthreg_[0-9a-f]{32}$")
 MAX_METADATA_BYTES = 64 * 1024
 MAX_SCOPES = 100
@@ -368,9 +369,14 @@ class RemoteOAuthSocketBridge:
         return response
 
     async def _authorize(self, target_id: str, url: str) -> str:
+        sidecar_target_id = _sidecar_candidate_id(target_id)
         response = await self._request(
             self.egress_socket,
-            {"action": "authorize", "candidate_id": target_id, "url": url},
+            {
+                "action": "authorize",
+                "candidate_id": sidecar_target_id,
+                "url": url,
+            },
         )
         capability = str(response.get("capability") or "")
         if HEX64_RE.fullmatch(capability) is None:
@@ -392,13 +398,14 @@ class RemoteOAuthSocketBridge:
         ambiguous_code: str = "mcp_remote_oauth_registration_unknown_outcome",
         ambiguous_message: str = "OAuth 动态登记结果未知。",
     ) -> dict[str, Any]:
-        capability = await self._authorize(target_id, url)
+        sidecar_target_id = _sidecar_candidate_id(target_id)
+        capability = await self._authorize(sidecar_target_id, url)
         try:
             return await self._request(
                 self.oauth_socket,
                 {
                     **payload,
-                    "target_id": target_id,
+                    "target_id": sidecar_target_id,
                     "url": url,
                     "capability": capability,
                 },
@@ -1194,6 +1201,22 @@ def _target(value: str) -> str:
             status_code=403,
         )
     return clean
+
+
+def _sidecar_candidate_id(value: str) -> str:
+    """Translate logical Catalog targets into the egress candidate namespace.
+
+    Existing Hub candidates already use the sidecar's fixed identifier shape
+    and must remain byte-for-byte compatible. Catalog project IDs stay as the
+    durable Broker/store identity, but cannot cross the UDS boundary directly.
+    """
+
+    clean = _target(value)
+    if SIDECAR_CANDIDATE_ID_RE.fullmatch(clean) is not None:
+        return clean
+    return "mcphub_" + hashlib.sha256(
+        f"catalog_project:{clean}".encode("utf-8")
+    ).hexdigest()[:32]
 
 
 class MCPRemoteOAuthService:
