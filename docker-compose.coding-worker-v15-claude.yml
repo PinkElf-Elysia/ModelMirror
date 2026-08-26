@@ -2,6 +2,7 @@ services:
   server:
     environment:
       CODING_WORKER_CLAUDE_ENABLED: ${CODING_WORKER_CLAUDE_ENABLED:-false}
+      CODING_WORKER_CLAUDE_SLOT_IDS: slot-b
       CODING_WORKER_MODEL_ROUTES: coding/default,coding/quality
       CODING_WORKER_ROUTE_SLOTS_JSON: '{"coding/default":["slot-a"],"coding/quality":["slot-b"]}'
 
@@ -20,6 +21,7 @@ services:
       CODING_WORKER_ROUTE_ID: coding/quality
       CODING_WORKER_MODEL_ID: ${CODING_WORKER_CLAUDE_MODEL_ID:?set the controlled Claude model id}
       CODING_WORKER_CLAUDE_SECRET_PATH: /run/secrets/modelmirror_claude_api_key
+      CODING_WORKER_CLAUDE_GATEWAY_BASE_URL: ${CODING_WORKER_CLAUDE_GATEWAY_BASE_URL:-}
       CODING_WORKER_PROVIDER_PROXY_URL: http://provider:${CODING_WORKER_CLAUDE_PROXY_TOKEN:?set a random URL-safe Claude proxy token}@coding-worker-claude-egress:8081
     volumes: !override
       - coding_worker_provider_b:/run/modelmirror-coding
@@ -54,7 +56,7 @@ services:
       - /tmp:rw,nosuid,noexec,size=8m,uid=65532,gid=65532,mode=0700
     environment:
       CODING_WORKER_PROVIDER_EGRESS_TOKEN: ${CODING_WORKER_CLAUDE_PROXY_TOKEN:?set a random URL-safe Claude proxy token}
-      CODING_WORKER_PROVIDER_NETWORK_DOMAINS: api.anthropic.com
+      CODING_WORKER_PROVIDER_NETWORK_DOMAINS: ${CODING_WORKER_CLAUDE_EGRESS_DOMAINS:-api.anthropic.com}
       CODING_WORKER_PROVIDER_ALLOW_DOCKER_DESKTOP_DNS_PROXY: ${CODING_WORKER_PROVIDER_ALLOW_DOCKER_DESKTOP_DNS_PROXY:-false}
     restart: unless-stopped
 
