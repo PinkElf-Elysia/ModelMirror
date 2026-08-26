@@ -1219,6 +1219,53 @@ async def test_r18_private_xpert_file_nodes_are_fail_closed_by_feature_flag(
 
 
 @pytest.mark.asyncio
+async def test_r24_private_xpert_http_content_parser_ignores_file_asset_flag(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created_response = await client.post(
+        "/api/xperts",
+        json={"name": "R2.4 HTTP content parser"},
+    )
+    assert created_response.status_code == 200, created_response.text
+    xpert = created_response.json()
+    draft = xpert["draft"]
+    workflow = draft["workflow"]
+    base_nodes = {node["id"]: node for node in workflow["nodes"]}
+    workflow["nodes"] = [
+        base_nodes["input-1"],
+        {
+            "id": "content-1",
+            "type": "document_extractor",
+            "position": {"x": 220, "y": 140},
+            "data": {
+                "kind": "document_extractor",
+                "contractVersion": 3,
+                "sourceMode": "http_response",
+                "inputVariable": "user_input",
+                "format": "html",
+                "outputMode": "text",
+                "outputVariable": "parsed_content",
+            },
+        },
+        base_nodes["workflow-agent-1"],
+        base_nodes["output-1"],
+    ]
+    workflow["edges"] = [
+        {"id": "input-content", "source": "input-1", "target": "content-1"},
+        {"id": "content-agent", "source": "content-1", "target": "workflow-agent-1"},
+        {"id": "agent-output", "source": "workflow-agent-1", "target": "output-1"},
+    ]
+    updated = await client.patch(f"/api/xperts/{xpert['id']}", json={"draft": draft})
+    assert updated.status_code == 200, updated.text
+
+    monkeypatch.setenv("WORKFLOW_FILE_ASSETS_ENABLED", "false")
+    published = await client.post(f"/api/xperts/{xpert['id']}/publish", json={})
+
+    assert published.status_code == 200, published.text
+
+
+@pytest.mark.asyncio
 async def test_r18_xpert_document_publish_rejects_unbound_or_legacy_file_sources(
     client: httpx.AsyncClient,
     monkeypatch: pytest.MonkeyPatch,

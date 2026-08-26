@@ -24,6 +24,11 @@ from .control_data import (
     validate_terminate_error_config,
 )
 from .node_contracts import workflow_node_contract_registry
+from .content_parser import (
+    WorkflowContentParserError,
+    is_document_extractor_v3,
+    validate_document_extractor_v3_config,
+)
 from .file_data import (
     WorkflowFileDataError,
     is_time_v2,
@@ -2011,78 +2016,90 @@ def validate_node_configuration(
             )
 
     if kind == "document_extractor":
-        asset_id_variable = str(data.get("assetIdVariable") or "").strip()
-        legacy_path_variable = str(data.get("sourcePathVariable") or "").strip()
-        if asset_id_variable and legacy_path_variable:
-            issues.append(
-                ValidationIssue(
-                    code="ambiguous_document_extractor_source",
-                    message=(
-                        "Document extractor cannot combine assetIdVariable with the "
-                        "legacy sourcePathVariable."
-                    ),
-                    node_id=node.id,
-                )
-            )
-        elif asset_id_variable:
-            if not is_variable_name(asset_id_variable):
+        if is_document_extractor_v3(data):
+            try:
+                validate_document_extractor_v3_config(data)
+            except WorkflowContentParserError as exc:
                 issues.append(
                     ValidationIssue(
-                        code="invalid_document_extractor_asset_id_variable",
-                        message=(
-                            "Document extractor assetIdVariable must be an identifier."
-                        ),
+                        code=exc.code.lower(),
+                        message=exc.safe_message,
                         node_id=node.id,
                     )
                 )
-        elif legacy_path_variable:
-            if not is_variable_name(legacy_path_variable):
-                issues.append(
-                    ValidationIssue(
-                        code="invalid_document_extractor_source_path_variable",
-                        message=(
-                            "Legacy document extractor sourcePathVariable must be an "
-                            "identifier."
-                        ),
-                        node_id=node.id,
-                    )
-                )
-            issues.append(
-                ValidationIssue(
-                    code="legacy_document_extractor_source_path_read_only",
-                    message=(
-                        "Legacy path-based document extractors are read-only compatible; "
-                        "new nodes must use data.assetIdVariable."
-                    ),
-                    severity="warning",
-                    node_id=node.id,
-                )
-            )
         else:
-            issues.append(
-                ValidationIssue(
-                    code="missing_document_extractor_asset_id_variable",
-                    message="Document extractor needs data.assetIdVariable.",
-                    node_id=node.id,
+            asset_id_variable = str(data.get("assetIdVariable") or "").strip()
+            legacy_path_variable = str(data.get("sourcePathVariable") or "").strip()
+            if asset_id_variable and legacy_path_variable:
+                issues.append(
+                    ValidationIssue(
+                        code="ambiguous_document_extractor_source",
+                        message=(
+                            "Document extractor cannot combine assetIdVariable with the "
+                            "legacy sourcePathVariable."
+                        ),
+                        node_id=node.id,
+                    )
                 )
-            )
-        output_variable = str(data.get("outputVariable") or "").strip()
-        if not output_variable:
-            issues.append(
-                ValidationIssue(
-                    code="missing_document_extractor_output_variable",
-                    message="Document extractor needs data.outputVariable.",
-                    node_id=node.id,
+            elif asset_id_variable:
+                if not is_variable_name(asset_id_variable):
+                    issues.append(
+                        ValidationIssue(
+                            code="invalid_document_extractor_asset_id_variable",
+                            message=(
+                                "Document extractor assetIdVariable must be an identifier."
+                            ),
+                            node_id=node.id,
+                        )
+                    )
+            elif legacy_path_variable:
+                if not is_variable_name(legacy_path_variable):
+                    issues.append(
+                        ValidationIssue(
+                            code="invalid_document_extractor_source_path_variable",
+                            message=(
+                                "Legacy document extractor sourcePathVariable must be an "
+                                "identifier."
+                            ),
+                            node_id=node.id,
+                        )
+                    )
+                issues.append(
+                    ValidationIssue(
+                        code="legacy_document_extractor_source_path_read_only",
+                        message=(
+                            "Legacy path-based document extractors are read-only compatible; "
+                            "new nodes must use data.assetIdVariable."
+                        ),
+                        severity="warning",
+                        node_id=node.id,
+                    )
                 )
-            )
-        elif not is_variable_name(output_variable):
-            issues.append(
-                ValidationIssue(
-                    code="invalid_document_extractor_output_variable",
-                    message="Document extractor outputVariable must be an identifier.",
-                    node_id=node.id,
+            else:
+                issues.append(
+                    ValidationIssue(
+                        code="missing_document_extractor_asset_id_variable",
+                        message="Document extractor needs data.assetIdVariable.",
+                        node_id=node.id,
+                    )
                 )
-            )
+            output_variable = str(data.get("outputVariable") or "").strip()
+            if not output_variable:
+                issues.append(
+                    ValidationIssue(
+                        code="missing_document_extractor_output_variable",
+                        message="Document extractor needs data.outputVariable.",
+                        node_id=node.id,
+                    )
+                )
+            elif not is_variable_name(output_variable):
+                issues.append(
+                    ValidationIssue(
+                        code="invalid_document_extractor_output_variable",
+                        message="Document extractor outputVariable must be an identifier.",
+                        node_id=node.id,
+                    )
+                )
 
     if kind == "vision_understanding":
         asset_id_variable = str(data.get("assetIdVariable") or "").strip()
@@ -4217,7 +4234,15 @@ def collect_node_variable_producers(
         "suspend_wait": ("outputVariable",),
     }
     for node in nodes:
-        for field_name in declaration_fields.get(kinds_by_id[node.id], ()):
+        kind = kinds_by_id[node.id]
+        field_names = declaration_fields.get(kind, ())
+        if kind == "document_extractor" and is_document_extractor_v3(node.data):
+            field_names = (
+                ("assetIdVariable", "outputVariable")
+                if str(node.data.get("sourceMode") or "") == "file_asset"
+                else ("outputVariable",)
+            )
+        for field_name in field_names:
             name = str(node.data.get(field_name) or "").strip()
             if not is_variable_name(name):
                 continue
@@ -4504,6 +4529,23 @@ def validate_variable_references(
     if kind == "document_extractor":
         asset_id_variable = str(data.get("assetIdVariable") or "").strip()
         legacy_path_variable = str(data.get("sourcePathVariable") or "").strip()
+        input_variable = str(data.get("inputVariable") or "").strip()
+        if (
+            is_document_extractor_v3(data)
+            and str(data.get("sourceMode") or "") == "http_response"
+            and input_variable
+            and input_variable not in available_variables
+        ):
+            issues.append(
+                ValidationIssue(
+                    code="missing_content_input_variable_reference",
+                    message=(
+                        "Content parser references undefined variable "
+                        f"'{input_variable}'."
+                    ),
+                    node_id=node.id,
+                )
+            )
         # assetIdVariable is an explicit run input supplied by the Workflow file
         # selector. Legacy path variables still have to originate upstream.
         if (

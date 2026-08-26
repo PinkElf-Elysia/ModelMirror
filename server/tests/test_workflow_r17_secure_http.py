@@ -207,6 +207,27 @@ async def test_http_v2_accepts_dns_json_media_type_as_structured_json() -> None:
 
 
 @pytest.mark.asyncio
+async def test_http_v2_accepts_utf8_xml_as_text_for_downstream_content_parser() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/atom+xml; charset=utf-8"},
+            content="<feed><title>示例</title></feed>".encode(),
+        )
+
+    result = await execute_workflow_http_request(
+        http_config(),
+        {"item_id": "42"},
+        FakeCredentials(),
+        transport=httpx.MockTransport(handler),
+        url_validator=allow_public,
+    )
+
+    assert result["contentType"] == "application/atom+xml"
+    assert result["body"] == "<feed><title>示例</title></feed>"
+
+
+@pytest.mark.asyncio
 async def test_http_v2_still_rejects_other_application_media_types() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(

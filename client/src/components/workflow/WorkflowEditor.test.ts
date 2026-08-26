@@ -5,6 +5,7 @@ import {
   createNodeData,
   dataMergeConnectionError,
   findAvailablePalettePosition,
+  migrateDocumentExtractorFileToV3,
   normalizeWorkflowNodePositions,
   parseSkillRuntimeIds,
   reconcileMcpArgumentBindings,
@@ -218,6 +219,62 @@ describe("WorkflowEditor palette defaults", () => {
     ).toBe(false);
   });
 
+  it("creates content parser nodes in structured HTTP mode by default", () => {
+    expect(createNodeData("document_extractor")).toMatchObject({
+      title: "内容解析",
+      contractVersion: 3,
+      sourceMode: "http_response",
+      inputVariable: "http_response",
+      format: "auto",
+      outputMode: "structured",
+      outputVariable: "parsed_content",
+    });
+    const paletteItem = workflowPaletteSections
+      .flatMap((section) => section.items)
+      .find((item) => item.kind === "document_extractor");
+    expect(paletteItem?.title).toBe("内容解析");
+  });
+
+  it("migrates V2 file extraction without changing its variable bindings", () => {
+    const migrated = migrateDocumentExtractorFileToV3({
+      kind: "document_extractor",
+      title: "旧文档提取",
+      description: "legacy",
+      contractVersion: 2,
+      assetIdVariable: "selected_file_asset_id",
+      outputVariable: "document_text",
+    });
+    expect(migrated.reason).toBeUndefined();
+    expect(migrated.data).toMatchObject({
+      kind: "document_extractor",
+      contractVersion: 3,
+      sourceMode: "file_asset",
+      assetIdVariable: "selected_file_asset_id",
+      format: "auto",
+      outputMode: "text",
+      outputVariable: "document_text",
+    });
+    expect(
+      migrateDocumentExtractorFileToV3({
+        kind: "document_extractor",
+        title: "invalid",
+        description: "invalid",
+        contractVersion: 2,
+        assetIdVariable: "same",
+        outputVariable: "same",
+      }).reason,
+    ).toContain("不能覆盖");
+    expect(
+      migrateDocumentExtractorFileToV3({
+        kind: "document_extractor",
+        title: "旧安全文件",
+        description: "legacy asset",
+        assetIdVariable: "selected_file_asset_id",
+        outputVariable: "document_text",
+      }).data,
+    ).toMatchObject({ contractVersion: 3, sourceMode: "file_asset" });
+  });
+
   it("provides safe structured defaults for R1.6 control and data nodes", () => {
     expect(createNodeData("terminate_error")).toMatchObject({
       errorCode: "WORKFLOW_STOPPED",
@@ -299,11 +356,14 @@ describe("WorkflowEditor palette defaults", () => {
     });
   });
 
-  it("provides safe structured defaults for R1.8 file and deterministic data nodes", () => {
+  it("provides safe structured defaults for content parsing and deterministic data nodes", () => {
     expect(createNodeData("document_extractor")).toMatchObject({
-      contractVersion: 2,
-      assetIdVariable: "selected_file_asset_id",
-      outputVariable: "document_text",
+      contractVersion: 3,
+      sourceMode: "http_response",
+      inputVariable: "http_response",
+      format: "auto",
+      outputMode: "structured",
+      outputVariable: "parsed_content",
     });
     expect(createNodeData("time_tool")).toMatchObject({
       contractVersion: 2,

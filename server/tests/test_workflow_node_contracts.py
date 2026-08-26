@@ -302,6 +302,35 @@ def test_r18_file_data_contracts_are_complete_scoped_and_not_plannable() -> None
     ) == 3
 
 
+def test_r24_content_parser_contract_accepts_v3_http_and_file_modes() -> None:
+    contract = workflow_node_contract_registry.require("document_extractor")
+    validator = Draft202012Validator(contract.config_schema)
+
+    http_config = {
+        "contractVersion": 3,
+        "sourceMode": "http_response",
+        "inputVariable": "http_result",
+        "format": "auto",
+        "outputMode": "structured",
+        "outputVariable": "parsed_content",
+    }
+    file_config = {
+        "contractVersion": 3,
+        "sourceMode": "file_asset",
+        "assetIdVariable": "selected_file_asset_id",
+        "format": "auto",
+        "outputMode": "text",
+        "outputVariable": "document_text",
+    }
+
+    assert list(validator.iter_errors(http_config)) == []
+    assert list(validator.iter_errors(file_config)) == []
+    assert list(validator.iter_errors({**http_config, "assetIdVariable": "asset"}))
+    assert [port.name for port in contract.ports] == ["content", "parsed"]
+    assert contract.execution.error_semantics == "fail_closed"
+    assert contract.planner.enabled is False
+
+
 def test_r22_agent_collaboration_contracts_are_typed_and_not_plannable() -> None:
     task = workflow_node_contract_registry.require("agent_task")
     handoff = workflow_node_contract_registry.require("agent_handoff")

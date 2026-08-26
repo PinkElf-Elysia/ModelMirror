@@ -31,7 +31,13 @@ HISTORICAL_REGISTRY_SNAPSHOTS = {
 }
 
 SPECIALIZED_REVIEW_DEFAULT = "R2.2"
-SPECIALIZED_REVIEW_OVERRIDES = {"splitInBatches": "R2.3"}
+SPECIALIZED_REVIEW_OVERRIDES = {
+    "splitInBatches": "R2.3",
+    "html": "R2.4",
+    "htmlExtract": "R2.4",
+    "markdown": "R2.4",
+    "xml": "R2.4",
+}
 
 DIRECT_UPDATES = {
     "splitInBatches": {
@@ -307,24 +313,24 @@ AUDIT_TRUST_CORRECTIONS = {
         "判断说明": "workflow_agent 内嵌受控记忆能力，但没有可独立连线、管理和迁移的记忆节点。",
     },
     "html": {
-        "模镜当前状态": "未实现",
-        "模镜对应节点": "—",
-        "判断说明": "安全文本加工只执行大小写、固定替换和拼接，不具备 HTML 解析或转换合同。",
+        "模镜当前状态": "部分实现",
+        "模镜对应节点": "document_extractor",
+        "判断说明": "自研内容解析 V3 可移除主动内容并按标题层级提取安全正文；不支持 CSS/XPath 选择器、网页渲染、表单执行或 HTML 生成。",
     },
     "htmlExtract": {
-        "模镜当前状态": "未实现",
-        "模镜对应节点": "—",
-        "判断说明": "当前没有 HTML DOM 解析、选择器提取或结构化输出的节点合同和运行测试。",
+        "模镜当前状态": "部分实现",
+        "模镜对应节点": "document_extractor",
+        "判断说明": "自研内容解析 V3 输出标题、正文和标题路径章节；不提供任意 DOM 选择器、属性抓取或多项目抽取。",
     },
     "markdown": {
-        "模镜当前状态": "未实现",
-        "模镜对应节点": "—",
-        "判断说明": "文本模板可以生成 Markdown 文本，但没有 Markdown 解析或格式转换合同。",
+        "模镜当前状态": "部分实现",
+        "模镜对应节点": "document_extractor",
+        "判断说明": "自研内容解析 V3 识别 ATX/Setext 标题与围栏代码并保留行范围；不做 Markdown 到 HTML 转换、表格、脚注或厂商方言处理。",
     },
     "xml": {
-        "模镜当前状态": "未实现",
-        "模镜对应节点": "—",
-        "判断说明": "当前没有 XML 解析、序列化或 Schema 校验的节点合同和运行测试。",
+        "模镜当前状态": "部分实现",
+        "模镜对应节点": "document_extractor",
+        "判断说明": "自研内容解析 V3 使用安全解析器输出有界稳定树并拒绝 DTD、实体与 XInclude；不支持 Schema、XPath、XSLT 或远程引用。",
     },
 }
 
@@ -682,7 +688,7 @@ def main() -> None:
         f"{row['n8n原名参考']} | {row['模镜当前状态']} |"
         for row in direct_rows
     ]
-    markdown = f"""# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0/R2.1/R2.2/R2.3）
+    markdown = f"""# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0/R2.1/R2.2/R2.3/R2.4）
 
 - 审计日期：2026-08-25
 - 唯一基线：PR #213 合并提交 `911593f505b05b01037769f578e21f22d2a1c9af`
@@ -700,6 +706,7 @@ def main() -> None:
 - R2.2 PR1 结果：将 `variable_aggregator` 提升为“变量打包”V2 完整合同，修正元智能体新图的报告汇总，并为 563 行参考清单增加 exact/limited/composable/none 证据门禁；当时 {r22_pr1['native']} Native、{r22_pr1['palette']} 个可新增 Palette 项、{r22_pr1['complete']} 个完整合同、{r22_pr1['compatibility']} 个 compatibility 合同、{r22_pr1['planner']} 个 Planner 节点
 - R2.2 PR2 结果：将 `agent_task`、`agent_handoff`、`handoff_router` 提升为类型化 V2 合同，新增 occurrence 幂等索引、原子 Router 与持久 Handoff 恢复，并退役旧 `agent` 新增入口；当时 {r22_pr2['native']} Native、{r22_pr2['palette']} 个可新增 Palette 项、{r22_pr2['complete']} 个完整合同、{r22_pr2['compatibility']} 个 compatibility 合同、{r22_pr2['planner']} 个 Planner 节点
 - R2.3 结果：不新增节点类型，将 `iteration` 提升为“批量处理”V2 完整合同；本地模式执行严格数组模板映射，工作流模式以最多 32 项顺序调用固定发布版本并复用稳定子执行；当前保持 51 Native、47 个可新增 Palette 项、48 个完整合同、3 个 compatibility 合同、7 个 Planner 节点
+- R2.4 结果：不新增节点类型，将 `document_extractor` 升级为“内容解析”V3；可把安全 HTTP 响应或明确共享文件解析为受限 HTML、Markdown、XML 结构或带不可信边界的文本，不提供网页渲染、选择器抽取或 XML Schema/XPath/XSLT；Registry 数量不变
 - 当前 Registry 事实：{native_count} Native、{palette_count} 个可新增 Palette 项、{complete_count} 个完整合同、{compatibility_count} 个 compatibility 合同、{planner_count} 个 Planner 节点
 - 参考清单：563 条节点名称/类型，其中 `.ee` {ee_count} 条仅保留名称审计
 

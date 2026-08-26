@@ -285,9 +285,9 @@ export const workflowPaletteSections: WorkflowPaletteSection[] = [
       {
         kind: "document_extractor",
         icon: "□",
-        title: "文档提取器",
-        description: "提取经典工作流文件或私有智能体明确共享附件中的文本。",
-        tags: ["document", "file"],
+        title: "内容解析",
+        description: "把安全 HTTP 响应或明确共享的文件解析为结构化内容。",
+        tags: ["content", "html", "markdown", "xml", "file"],
       },
       {
         kind: "llm",

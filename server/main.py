@@ -135,6 +135,7 @@ try:
         verified_chat_output_provider,
     )
     from server.file_assets.contracts import FilePurpose
+    from server.file_assets.document_parser import ParsedDocument, ParsedSection
     from server.file_assets.output_media import ChatMediaCapture
     from server.file_assets.output_service import get_file_output_service
     from server.file_assets.service import (
@@ -151,6 +152,7 @@ except ModuleNotFoundError:
         verified_chat_output_provider,
     )
     from file_assets.contracts import FilePurpose
+    from file_assets.document_parser import ParsedDocument, ParsedSection
     from file_assets.output_media import ChatMediaCapture
     from file_assets.output_service import get_file_output_service
     from file_assets.service import (
@@ -583,6 +585,14 @@ try:
         select_multi_route,
         validate_terminate_error_config,
     )
+    from server.workflow_native.content_parser import (
+        WorkflowContentParserError,
+        build_content_output,
+        content_output_summary,
+        is_document_extractor_v3,
+        parse_http_response_content,
+        validate_document_extractor_v3_config,
+    )
     from server.workflow_native.file_data import (
         WorkflowFileDataError,
         build_file_output_render_spec,
@@ -685,6 +695,14 @@ except ModuleNotFoundError:
         execute_list_operation,
         select_multi_route,
         validate_terminate_error_config,
+    )
+    from workflow_native.content_parser import (
+        WorkflowContentParserError,
+        build_content_output,
+        content_output_summary,
+        is_document_extractor_v3,
+        parse_http_response_content,
+        validate_document_extractor_v3_config,
     )
     from workflow_native.file_data import (
         WorkflowFileDataError,
@@ -3025,7 +3043,14 @@ class WorkflowPayload(BaseModel):
         }
         for node in self.nodes:
             kind = str(node.type or node.data.get("kind") or "").strip()
-            for field_name in declaration_fields.get(kind, ()):
+            field_names = declaration_fields.get(kind, ())
+            if kind == "document_extractor" and is_document_extractor_v3(node.data):
+                field_names = (
+                    ("assetIdVariable", "outputVariable")
+                    if str(node.data.get("sourceMode") or "") == "file_asset"
+                    else ("outputVariable",)
+                )
+            for field_name in field_names:
                 name = str(node.data.get(field_name) or "").strip()
                 if name:
                     producer_names.add(name)
@@ -6577,6 +6602,68 @@ def resolve_private_xpert_document_text(
             text,
             "[用户文件内容结束]",
         )
+    )
+
+
+def resolve_private_xpert_parsed_document(
+    *,
+    node_id: str,
+    asset_id: str,
+    runtime_metadata: dict[str, Any],
+) -> ParsedDocument:
+    """Resolve one explicitly shared Xpert attachment as a bounded document."""
+
+    allowed_asset_ids = {
+        str(value).strip()
+        for value in runtime_metadata.get("file_asset_ids", [])
+        if str(value).strip()
+    }
+    if asset_id not in allowed_asset_ids:
+        raise WorkflowDocumentFatalError(
+            node_id,
+            "workflow_document_asset_not_shared",
+            "该附件未显式共享给当前运行。",
+        )
+    owner_xpert_id = str(runtime_metadata.get("file_owner_xpert_id") or "").strip()
+    conversation_id = str(runtime_metadata.get("file_conversation_id") or "").strip()
+    if not owner_xpert_id or not conversation_id:
+        raise WorkflowDocumentFatalError(
+            node_id,
+            "workflow_document_scope_missing",
+            "当前运行缺少附件作用域信息。",
+        )
+    try:
+        asset = xpert_context_store.get_file(
+            owner_xpert_id,
+            asset_id,
+            conversation_id=conversation_id,
+            include_archived=True,
+        )
+        text = xpert_context_store.read_file_text(asset)
+    except XpertContextError:
+        raise WorkflowDocumentFatalError(
+            node_id,
+            "workflow_document_asset_unavailable",
+            "该附件不属于当前运行或已不可用。",
+        ) from None
+    if len(text) > 500_000:
+        raise WorkflowDocumentFatalError(
+            node_id,
+            "workflow_document_text_too_large",
+            "文档提取结果超过安全上限。",
+        )
+    warnings = (
+        ("附件提取文本已按既有文件资产上限截断。",)
+        if bool(asset.extracted_truncated)
+        else ()
+    )
+    return ParsedDocument(
+        format=str(asset.extension or "plain_text").lstrip(".") or "plain_text",
+        title=asset.filename or None,
+        sections=(ParsedSection(text=text),),
+        warnings=warnings,
+        extracted_chars=max(int(asset.character_count or 0), len(text)),
+        truncated=bool(asset.extracted_truncated),
     )
 
 
@@ -16975,102 +17062,199 @@ async def _run_workflow_response(
                                 "目标与移交运行不允许读取文档附件。",
                             )
                         output_variable = str(
-                            node.data.get("outputVariable") or "document_text"
-                        )
-                        asset_id_variable = str(
-                            node.data.get("assetIdVariable") or ""
-                        ).strip()
-                        legacy_path_variable = str(
-                            node.data.get("sourcePathVariable") or ""
-                        ).strip()
-                        if asset_id_variable and legacy_path_variable:
-                            raise WorkflowDocumentFatalError(
-                                node.id,
-                                "workflow_document_source_ambiguous",
-                                "文档提取器不能同时配置文件资产变量和旧路径变量。",
+                            node.data.get("outputVariable")
+                            or (
+                                "parsed_content"
+                                if is_document_extractor_v3(node.data)
+                                else "document_text"
                             )
-                        if asset_id_variable:
-                            if re.fullmatch(
-                                r"[A-Za-z_][A-Za-z0-9_]*", asset_id_variable
-                            ) is None:
-                                raise WorkflowDocumentFatalError(
-                                    node.id,
-                                    "workflow_document_asset_variable_invalid",
-                                    "文件资产变量名无效。",
-                                )
-                            if not WORKFLOW_FILE_ASSETS_ENABLED:
-                                raise WorkflowDocumentFatalError(
-                                    node.id,
-                                    "workflow_file_assets_disabled",
-                                    "工作流文件资产当前未启用，请联系管理员开启后重试。",
-                                )
-                            asset_id = workflow_value_to_text(
-                                variables.get(asset_id_variable, "")
-                            ).strip()
-                            if not asset_id:
-                                raise WorkflowDocumentFatalError(
-                                    node.id,
-                                    "workflow_document_asset_missing",
-                                    "文件资产变量为空，请先选择文件。",
-                                )
-                            if runtime_run_type == "workflow":
-                                document = await asyncio.to_thread(
-                                    get_file_asset_service().resolve_workflow_document,
-                                    asset_id,
-                                    scope_id=workflow_file_scope_id(payload.workflow.id),
-                                )
-                                output = render_workflow_asset_document(document)
-                            elif runtime_run_type == "xpert":
-                                output = await asyncio.to_thread(
-                                    resolve_private_xpert_document_text,
-                                    node_id=node.id,
-                                    asset_id=asset_id,
-                                    runtime_metadata=dict(
-                                        task_state.get("runtime_metadata") or {}
+                        )
+                        if is_document_extractor_v3(node.data):
+                            validate_document_extractor_v3_config(node.data)
+                            source_mode = str(node.data.get("sourceMode") or "")
+                            output_mode = str(node.data.get("outputMode") or "")
+                            if source_mode == "http_response":
+                                input_variable = str(
+                                    node.data.get("inputVariable") or ""
+                                ).strip()
+                                if input_variable not in variables:
+                                    raise WorkflowContentParserError(
+                                        "CONTENT_INPUT_UNAVAILABLE",
+                                        "HTTP 响应变量在当前节点之前不可用。",
+                                    )
+                                stored_output = parse_http_response_content(
+                                    variables[input_variable],
+                                    requested_format=str(
+                                        node.data.get("format") or "auto"
                                     ),
+                                    output_mode=output_mode,
+                                )
+                            else:
+                                asset_id_variable = str(
+                                    node.data.get("assetIdVariable") or ""
+                                ).strip()
+                                if not WORKFLOW_FILE_ASSETS_ENABLED:
+                                    raise WorkflowDocumentFatalError(
+                                        node.id,
+                                        "workflow_file_assets_disabled",
+                                        "工作流文件资产当前未启用，请联系管理员开启后重试。",
+                                    )
+                                asset_id = workflow_value_to_text(
+                                    variables.get(asset_id_variable, "")
+                                ).strip()
+                                if not asset_id:
+                                    raise WorkflowDocumentFatalError(
+                                        node.id,
+                                        "workflow_document_asset_missing",
+                                        "文件资产变量为空，请先选择文件。",
+                                    )
+                                if runtime_run_type == "workflow":
+                                    document = await asyncio.to_thread(
+                                        get_file_asset_service().resolve_workflow_document,
+                                        asset_id,
+                                        scope_id=workflow_file_scope_id(payload.workflow.id),
+                                    )
+                                elif runtime_run_type == "xpert":
+                                    document = await asyncio.to_thread(
+                                        resolve_private_xpert_parsed_document,
+                                        node_id=node.id,
+                                        asset_id=asset_id,
+                                        runtime_metadata=dict(
+                                            task_state.get("runtime_metadata") or {}
+                                        ),
+                                    )
+                                else:
+                                    raise WorkflowDocumentFatalError(
+                                        node.id,
+                                        "workflow_document_runtime_forbidden",
+                                        "当前运行入口不允许读取文档附件。",
+                                    )
+                                stored_output = build_content_output(
+                                    document,
+                                    source_kind="file_asset",
+                                    content_type=None,
+                                    output_mode=output_mode,
+                                )
+                            variables[output_variable] = normalize_workflow_value(
+                                stored_output,
+                                path=f"$.variables.{output_variable}",
+                            )
+                            summary = content_output_summary(stored_output)
+                            yield sse_payload(
+                                {
+                                    "event": "node_delta",
+                                    "node_id": node.id,
+                                    "node_title": title,
+                                    "node_type": kind,
+                                    "output": (
+                                        "内容解析完成："
+                                        f"格式 {summary['format'] or 'text'}，"
+                                        f"{summary['sectionCount']} 个章节，"
+                                        f"{summary['characterCount']} 个字符。"
+                                    ),
+                                    "variable": output_variable,
+                                    "content_summary": summary,
+                                }
+                            )
+                        else:
+                            asset_id_variable = str(
+                                node.data.get("assetIdVariable") or ""
+                            ).strip()
+                            legacy_path_variable = str(
+                                node.data.get("sourcePathVariable") or ""
+                            ).strip()
+                            if asset_id_variable and legacy_path_variable:
+                                raise WorkflowDocumentFatalError(
+                                    node.id,
+                                    "workflow_document_source_ambiguous",
+                                    "文档提取器不能同时配置文件资产变量和旧路径变量。",
+                                )
+                            if asset_id_variable:
+                                if re.fullmatch(
+                                    r"[A-Za-z_][A-Za-z0-9_]*", asset_id_variable
+                                ) is None:
+                                    raise WorkflowDocumentFatalError(
+                                        node.id,
+                                        "workflow_document_asset_variable_invalid",
+                                        "文件资产变量名无效。",
+                                    )
+                                if not WORKFLOW_FILE_ASSETS_ENABLED:
+                                    raise WorkflowDocumentFatalError(
+                                        node.id,
+                                        "workflow_file_assets_disabled",
+                                        "工作流文件资产当前未启用，请联系管理员开启后重试。",
+                                    )
+                                asset_id = workflow_value_to_text(
+                                    variables.get(asset_id_variable, "")
+                                ).strip()
+                                if not asset_id:
+                                    raise WorkflowDocumentFatalError(
+                                        node.id,
+                                        "workflow_document_asset_missing",
+                                        "文件资产变量为空，请先选择文件。",
+                                    )
+                                if runtime_run_type == "workflow":
+                                    document = await asyncio.to_thread(
+                                        get_file_asset_service().resolve_workflow_document,
+                                        asset_id,
+                                        scope_id=workflow_file_scope_id(payload.workflow.id),
+                                    )
+                                    output = render_workflow_asset_document(document)
+                                elif runtime_run_type == "xpert":
+                                    output = await asyncio.to_thread(
+                                        resolve_private_xpert_document_text,
+                                        node_id=node.id,
+                                        asset_id=asset_id,
+                                        runtime_metadata=dict(
+                                            task_state.get("runtime_metadata") or {}
+                                        ),
+                                    )
+                                else:
+                                    raise WorkflowDocumentFatalError(
+                                        node.id,
+                                        "workflow_document_runtime_forbidden",
+                                        "当前运行入口不允许读取文档附件。",
+                                    )
+                            elif legacy_path_variable:
+                                # One-release read compatibility for existing graphs. The
+                                # editor no longer creates or edits path-based nodes, and
+                                # private/public Xpert entrypoints never receive path access.
+                                if runtime_run_type != "workflow":
+                                    raise WorkflowDocumentFatalError(
+                                        node.id,
+                                        "workflow_document_runtime_forbidden",
+                                        "当前运行入口不允许读取旧版路径文档。",
+                                    )
+                                raw_path = workflow_value_to_text(
+                                    variables.get(legacy_path_variable, "")
+                                )
+                                output = await asyncio.to_thread(
+                                    read_legacy_workflow_document, raw_path
                                 )
                             else:
                                 raise WorkflowDocumentFatalError(
                                     node.id,
-                                    "workflow_document_runtime_forbidden",
-                                    "当前运行入口不允许读取文档附件。",
+                                    "workflow_document_asset_variable_missing",
+                                    "文档提取器缺少文件资产变量；新节点不再接受服务器路径。",
                                 )
-                        elif legacy_path_variable:
-                            # One-release read compatibility for existing graphs. The
-                            # editor no longer creates or edits path-based nodes, and
-                            # private/public Xpert entrypoints never receive path access.
-                            if runtime_run_type != "workflow":
-                                raise WorkflowDocumentFatalError(
-                                    node.id,
-                                    "workflow_document_runtime_forbidden",
-                                    "当前运行入口不允许读取旧版路径文档。",
-                                )
-                            raw_path = workflow_value_to_text(
-                                variables.get(legacy_path_variable, "")
+                            variables[output_variable] = output
+                            yield sse_payload(
+                                {
+                                    "event": "node_delta",
+                                    "node_id": node.id,
+                                    "node_title": title,
+                                    "node_type": kind,
+                                    "output": output[:500],
+                                    "variable": output_variable,
+                                }
                             )
-                            output = await asyncio.to_thread(
-                                read_legacy_workflow_document, raw_path
-                            )
-                        else:
-                            raise WorkflowDocumentFatalError(
-                                node.id,
-                                "workflow_document_asset_variable_missing",
-                                "文档提取器缺少文件资产变量；新节点不再接受服务器路径。",
-                            )
-                        variables[output_variable] = output
-                        yield sse_payload(
-                            {
-                                "event": "node_delta",
-                                "node_id": node.id,
-                                "node_title": title,
-                                "node_type": kind,
-                                "output": output[:500],
-                                "variable": output_variable,
-                            }
-                        )
                     except FileAssetServiceError as exc:
                         raise WorkflowDocumentFatalError(
                             node.id, exc.error_code, exc.message
+                        ) from None
+                    except WorkflowContentParserError as exc:
+                        raise WorkflowDocumentFatalError(
+                            node.id, exc.code, exc.safe_message
                         ) from None
                     except WorkflowDocumentFatalError:
                         raise

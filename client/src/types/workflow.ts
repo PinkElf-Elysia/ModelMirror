@@ -394,7 +394,12 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   message?: string;
   sourceProjectIds?: string[];
   inputVariable?: string;
+  sourceMode?: "http_response" | "file_asset";
+  outputMode?: "structured" | "text";
   format?:
+    | "auto"
+    | "html"
+    | "xml"
     | "compact"
     | "pretty"
     | "plain_text"

@@ -1,4 +1,4 @@
-# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0/R2.1/R2.2/R2.3）
+# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0/R2.1/R2.2/R2.3/R2.4）
 
 - 审计日期：2026-08-25
 - 唯一基线：PR #213 合并提交 `911593f505b05b01037769f578e21f22d2a1c9af`
@@ -16,6 +16,7 @@
 - R2.2 PR1 结果：将 `variable_aggregator` 提升为“变量打包”V2 完整合同，修正元智能体新图的报告汇总，并为 563 行参考清单增加 exact/limited/composable/none 证据门禁；当时 51 Native、48 个可新增 Palette 项、44 个完整合同、7 个 compatibility 合同、7 个 Planner 节点
 - R2.2 PR2 结果：将 `agent_task`、`agent_handoff`、`handoff_router` 提升为类型化 V2 合同，新增 occurrence 幂等索引、原子 Router 与持久 Handoff 恢复，并退役旧 `agent` 新增入口；当时 51 Native、47 个可新增 Palette 项、47 个完整合同、4 个 compatibility 合同、7 个 Planner 节点
 - R2.3 结果：不新增节点类型，将 `iteration` 提升为“批量处理”V2 完整合同；本地模式执行严格数组模板映射，工作流模式以最多 32 项顺序调用固定发布版本并复用稳定子执行；当前保持 51 Native、47 个可新增 Palette 项、48 个完整合同、3 个 compatibility 合同、7 个 Planner 节点
+- R2.4 结果：不新增节点类型，将 `document_extractor` 升级为“内容解析”V3；可把安全 HTTP 响应或明确共享文件解析为受限 HTML、Markdown、XML 结构或带不可信边界的文本，不提供网页渲染、选择器抽取或 XML Schema/XPath/XSLT；Registry 数量不变
 - 当前 Registry 事实：51 Native、47 个可新增 Palette 项、48 个完整合同、3 个 compatibility 合同、7 个 Planner 节点
 - 参考清单：563 条节点名称/类型，其中 `.ee` 2 条仅保留名称审计
 
@@ -28,10 +29,10 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 ## 状态汇总
 
 - 已实现：35
-- 部分实现：66
+- 部分实现：70
 - 通用节点可覆盖：271（不等于已有专用连接器）
 - 目录声明：0
-- 未实现：191
+- 未实现：187
 
 覆盖等级用于表达证据强度：`exact` 只允许完整 NodeContract 且必须绑定运行/测试证据；`limited` 必须写明语义缺口；`composable` 只表示受控通用组合路径，不代表专用连接器；`none` 表示没有运行合同。
 
@@ -40,7 +41,7 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 | 触发与事件 | 112 | 6 | 1 | 0 | 0 | 105 |
 | 流程控制与编排 | 8 | 6 | 1 | 0 | 0 | 1 |
 | 数据变换与计算 | 17 | 11 | 4 | 0 | 0 | 2 |
-| 文件与内容处理 | 20 | 2 | 4 | 6 | 0 | 8 |
+| 文件与内容处理 | 20 | 2 | 8 | 6 | 0 | 4 |
 | 网络与接口 | 3 | 2 | 0 | 1 | 0 | 0 |
 | 数据库与存储 | 63 | 0 | 1 | 61 | 0 | 1 |
 | 消息与协作 | 33 | 0 | 0 | 33 | 0 | 0 |
@@ -89,11 +90,11 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 | 数据变换与计算 | 字段重命名 | object_transform | (Rename Keys) | 已实现 |
 | 数据变换与计算 | Convert to/from binary data 能力节点 | — | (Convert to/from binary data) | 未实现 |
 | 文件与内容处理 | 内容转文件 | file_output | (Convert to File) | 已实现 |
-| 文件与内容处理 | 网页内容处理 | — | (HTML) | 未实现 |
-| 文件与内容处理 | 网页内容提取（遗留） | — | (HTML Extract) | 未实现 |
+| 文件与内容处理 | 网页内容处理 | document_extractor | (HTML) | 部分实现 |
+| 文件与内容处理 | 网页内容提取（遗留） | document_extractor | (HTML Extract) | 部分实现 |
 | 文件与内容处理 | 文件内容提取 | document_extractor | (Extract from File) | 已实现 |
-| 文件与内容处理 | Markdown 转换 | — | (Markdown) | 未实现 |
-| 文件与内容处理 | XML 转换 | — | (XML) | 未实现 |
+| 文件与内容处理 | Markdown 转换 | document_extractor | (Markdown) | 部分实现 |
+| 文件与内容处理 | XML 转换 | document_extractor | (XML) | 部分实现 |
 | 网络与接口 | HTTP 调用 | http_request | (HTTP Request) | 已实现 |
 | 网络与接口 | HTTP 事件回执 | http_event_reply | (Respond to Webhook) | 已实现 |
 | 数据库与存储 | 内置数据表 | data_table_query / data_table_insert / data_table_update / data_table_delete | (Data table) | 部分实现 |

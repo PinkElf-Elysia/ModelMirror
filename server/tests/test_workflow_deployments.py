@@ -480,6 +480,44 @@ def test_r18_document_v2_cannot_fall_through_to_legacy_schema(tmp_path) -> None:
         store.publish(project.project_id)
 
 
+def test_r24_http_content_parser_activation_does_not_require_file_assets(tmp_path) -> None:
+    workflow = manual_workflow()
+    workflow["nodes"].insert(
+        1,
+        {
+            "id": "content",
+            "type": "document_extractor",
+            "data": {
+                "kind": "document_extractor",
+                "contractVersion": 3,
+                "sourceMode": "http_response",
+                "inputVariable": "user_input",
+                "format": "html",
+                "outputMode": "structured",
+                "outputVariable": "parsed_content",
+            },
+        },
+    )
+    workflow["nodes"][2]["data"]["outputVariable"] = "parsed_content"
+    workflow["edges"] = [
+        {"id": "e1", "source": "start", "target": "content"},
+        {"id": "e2", "source": "content", "target": "end"},
+    ]
+    store = WorkflowDeploymentStore(tmp_path / "http-content")
+    project = store.create_project(workflow)
+    release = store.publish(project.project_id)
+
+    deployment, plaintext = store.activate(
+        project.project_id,
+        release.version,
+        webhooks_enabled=False,
+        workflow_file_assets_enabled=False,
+    )
+
+    assert deployment.active is True
+    assert plaintext is None
+
+
 def test_secure_http_publish_rejects_legacy_and_missing_credentials(tmp_path) -> None:
     legacy = manual_workflow()
     legacy["nodes"].insert(
