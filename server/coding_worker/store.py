@@ -958,6 +958,46 @@ class CodingWorkerStore:
                 require_transition(current, target)
             except ValueError as exc:
                 raise WorkerConflictError(str(exc), code="task_state_conflict") from exc
+            if target is TaskState.CANCELLED:
+                pending_approval_rows = connection.execute(
+                    """
+                    SELECT approval_id FROM worker_approvals
+                    WHERE task_id = ? AND status = ?
+                    ORDER BY created_at, approval_id
+                    """,
+                    (task_id, ApprovalStatus.PENDING.value),
+                ).fetchall()
+                connection.execute(
+                    """
+                    UPDATE worker_approvals
+                    SET status = ?, lease_ciphertext = NULL, decided_at = ?
+                    WHERE task_id = ? AND status = ?
+                    """,
+                    (
+                        ApprovalStatus.CANCELLED.value,
+                        now,
+                        task_id,
+                        ApprovalStatus.PENDING.value,
+                    ),
+                )
+                connection.execute(
+                    """
+                    UPDATE worker_leases SET remaining_operations = 0
+                    WHERE task_id = ? AND remaining_operations > 0
+                    """,
+                    (task_id,),
+                )
+                for approval_row in pending_approval_rows:
+                    self._append_event_locked(
+                        connection,
+                        task_id=task_id,
+                        event_type="approval_decided",
+                        payload={
+                            "approval_id": str(approval_row["approval_id"]),
+                            "status": ApprovalStatus.CANCELLED.value,
+                        },
+                        created_at=now,
+                    )
             encrypted_reason = self._codec.encrypt(reason) if reason is not None else None
             encrypted_provider = (
                 self._codec.encrypt(provider_session_id)
@@ -1372,6 +1412,55 @@ class CodingWorkerStore:
                     (task_id,),
                 ).fetchone()[0]
             )
+
+    def interrupt_open_session_tools(
+        self, task_id: str, turn_id: str
+    ) -> list[WorkerSessionLedgerEntry]:
+        """Close unreceipted provider observations without inferring tool failure."""
+        now = self._now()
+        appended: list[WorkerSessionLedgerEntry] = []
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._require_task_row(connection, task_id)
+            self._require_open_turn(connection, task_id, turn_id)
+            rows = connection.execute(
+                """
+                SELECT started.operation_id, started.payload_ciphertext
+                FROM worker_session_ledger AS started
+                LEFT JOIN worker_session_ledger AS finished
+                  ON finished.task_id = started.task_id
+                 AND finished.operation_id = started.operation_id
+                 AND finished.kind = ?
+                WHERE started.task_id = ? AND started.turn_id = ?
+                  AND started.kind = ? AND finished.ledger_id IS NULL
+                ORDER BY started.sequence
+                """,
+                (
+                    SessionLedgerKind.TOOL_FINISHED.value,
+                    task_id,
+                    turn_id,
+                    SessionLedgerKind.TOOL_STARTED.value,
+                ),
+            ).fetchall()
+            for row in rows:
+                started = self._decrypt_dict(row["payload_ciphertext"])
+                appended.append(
+                    self._append_session_ledger_locked(
+                        connection,
+                        task_id=task_id,
+                        kind=SessionLedgerKind.TOOL_FINISHED,
+                        turn_id=turn_id,
+                        operation_id=str(row["operation_id"]),
+                        payload={
+                            "tool_name": started["tool_name"],
+                            "summary": "Provider turn was interrupted before a completion receipt.",
+                            "result_state": "unknown",
+                            "artifact_id": None,
+                        },
+                        created_at=now,
+                    )
+                )
+        return appended
 
     def latest_plan(self, task_id: str) -> WorkerPlan | None:
         with self._connect() as connection:
@@ -2303,6 +2392,86 @@ class CodingWorkerStore:
             )
         return self.get_turn_transaction(task_id, turn_id)
 
+    def resume_interrupted_parking_turn(
+        self, *, task_id: str, turn_id: str, checkpoint_id: str
+    ) -> TaskRecord:
+        """Retry one interrupted parking handshake from its exact entry checkpoint."""
+
+        now = self._now()
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            task_row = self._require_task_row(connection, task_id)
+            task = self._task(task_row, connection)
+            if (
+                task.runtime_protocol is not RuntimeProtocol.V17
+                or task.state is not TaskState.INTERRUPTED
+                or task.reason != "turn_checkpoint_failed"
+            ):
+                raise WorkerConflictError(
+                    "Task cannot retry an interrupted parking turn.",
+                    code="turn_state_conflict",
+                )
+            turn_row = self._require_turn_row(connection, task_id, turn_id)
+            turn = self._turn_transaction(turn_row)
+            if (
+                turn.state is not TurnTransactionState.PARKING
+                or turn.barrier is None
+                or turn.checkpoint_id != checkpoint_id
+            ):
+                raise WorkerConflictError(
+                    "Interrupted parking checkpoint changed.",
+                    code="turn_checkpoint_conflict",
+                )
+            checkpoint = connection.execute(
+                "SELECT task_id, workspace_tree_hash FROM worker_checkpoints "
+                "WHERE checkpoint_id = ?",
+                (checkpoint_id,),
+            ).fetchone()
+            if (
+                checkpoint is None
+                or str(checkpoint["task_id"]) != task_id
+                or str(checkpoint["workspace_tree_hash"])
+                != turn.workspace_tree_hash
+            ):
+                raise WorkerConflictError(
+                    "Interrupted parking checkpoint is invalid.",
+                    code="turn_checkpoint_invalid",
+                )
+            connection.execute(
+                "UPDATE worker_turn_transactions SET state = ?, updated_at = ? "
+                "WHERE task_id = ? AND turn_id = ?",
+                (
+                    TurnTransactionState.RESUMING.value,
+                    now,
+                    task_id,
+                    turn_id,
+                ),
+            )
+            connection.execute(
+                "UPDATE worker_tasks SET state = ?, reason_ciphertext = NULL, "
+                "updated_at = ? WHERE task_id = ?",
+                (TaskState.QUEUED.value, now, task_id),
+            )
+            self._append_event_locked(
+                connection,
+                task_id=task_id,
+                event_type="turn_resumed",
+                payload={"turn_id": turn_id, "checkpoint_id": checkpoint_id},
+                created_at=now,
+            )
+            self._append_event_locked(
+                connection,
+                task_id=task_id,
+                event_type="task_state",
+                payload={
+                    "from": TaskState.INTERRUPTED.value,
+                    "to": TaskState.QUEUED.value,
+                    "reason": None,
+                },
+                created_at=now,
+            )
+        return self.get_task(task_id)
+
     def settle_parked_turn(
         self,
         *,
@@ -2797,6 +2966,22 @@ class CodingWorkerStore:
                 (task_id,),
             ).fetchone()
         return self._checkpoint(row) if row is not None else None
+
+    def get_checkpoint(self, task_id: str, checkpoint_id: str) -> WorkerCheckpoint:
+        if SAFE_ID.fullmatch(checkpoint_id) is None:
+            raise ValueError("checkpoint identifier is invalid")
+        with self._connect() as connection:
+            self._require_task_row(connection, task_id)
+            row = connection.execute(
+                "SELECT * FROM worker_checkpoints "
+                "WHERE task_id = ? AND checkpoint_id = ?",
+                (task_id, checkpoint_id),
+            ).fetchone()
+        if row is None:
+            raise WorkerNotFoundError(
+                "Checkpoint was not found.", code="checkpoint_not_found"
+            )
+        return self._checkpoint(row)
 
     def create_turn_checkpoint(
         self,
@@ -3314,6 +3499,85 @@ class CodingWorkerStore:
                 ).fetchone()
                 if (
                     str(row["runtime_protocol"]) == RuntimeProtocol.V17.value
+                    and str(row["state"]) == TaskState.RUNNING.value
+                    and turn_row is not None
+                    and str(turn_row["state"])
+                    == TurnTransactionState.PARKED.value
+                    and turn_row["barrier"] is not None
+                    and turn_row["checkpoint_id"] is not None
+                ):
+                    barrier = TurnBarrier(str(turn_row["barrier"]))
+                    waiting_state = {
+                        TurnBarrier.APPROVAL: TaskState.WAITING_APPROVAL,
+                        TurnBarrier.INPUT: TaskState.WAITING_INPUT,
+                        TurnBarrier.SUBTASKS: TaskState.WAITING_SUBTASKS,
+                    }.get(barrier)
+                    if waiting_state is not None:
+                        reason = f"turn_parked_{barrier.value}"
+                        connection.execute(
+                            "UPDATE worker_tasks SET state = ?, reason_ciphertext = ?, "
+                            "updated_at = ? WHERE task_id = ?",
+                            (
+                                waiting_state.value,
+                                self._codec.encrypt(reason),
+                                now,
+                                task_id,
+                            ),
+                        )
+                        self._append_event_locked(
+                            connection,
+                            task_id=task_id,
+                            event_type="task_state",
+                            payload={
+                                "from": TaskState.RUNNING.value,
+                                "to": waiting_state.value,
+                                "reason": reason,
+                            },
+                            created_at=now,
+                        )
+                        count += 1
+                        continue
+                    if barrier is TurnBarrier.COMPACTION:
+                        connection.execute(
+                            "UPDATE worker_turn_transactions SET state = ?, "
+                            "updated_at = ? WHERE task_id = ? AND turn_id = ?",
+                            (
+                                TurnTransactionState.RESUMING.value,
+                                now,
+                                task_id,
+                                str(turn_row["turn_id"]),
+                            ),
+                        )
+                        connection.execute(
+                            "UPDATE worker_tasks SET state = ?, reason_ciphertext = NULL, "
+                            "updated_at = ? WHERE task_id = ?",
+                            (TaskState.QUEUED.value, now, task_id),
+                        )
+                        self._append_event_locked(
+                            connection,
+                            task_id=task_id,
+                            event_type="turn_resumed",
+                            payload={
+                                "turn_id": str(turn_row["turn_id"]),
+                                "checkpoint_id": str(turn_row["checkpoint_id"]),
+                            },
+                            created_at=now,
+                        )
+                        self._append_event_locked(
+                            connection,
+                            task_id=task_id,
+                            event_type="task_state",
+                            payload={
+                                "from": TaskState.RUNNING.value,
+                                "to": TaskState.QUEUED.value,
+                                "reason": None,
+                            },
+                            created_at=now,
+                        )
+                        count += 1
+                        continue
+                if (
+                    str(row["runtime_protocol"]) == RuntimeProtocol.V17.value
                     and str(row["state"]) == TaskState.WAITING_APPROVAL.value
                     and turn_row is not None
                     and str(turn_row["state"]) == TurnTransactionState.PARKED.value
@@ -3338,6 +3602,15 @@ class CodingWorkerStore:
                         and turn_row is not None
                     )
                     else None
+                )
+                preserve_incomplete_parking = bool(
+                    str(row["runtime_protocol"]) == RuntimeProtocol.V17.value
+                    and turn_row is not None
+                    and str(turn_row["state"])
+                    == TurnTransactionState.PARKING.value
+                    and turn_row["barrier"] is not None
+                    and turn_row["checkpoint_id"] is not None
+                    and unknown_operation is None
                 )
                 if unknown_operation is not None and turn_row["checkpoint_id"] is not None:
                     connection.execute(
@@ -3367,12 +3640,14 @@ class CodingWorkerStore:
                         created_at=now,
                     )
                     reason = "operation_result_unknown"
+                elif preserve_incomplete_parking:
+                    reason = "turn_checkpoint_failed"
                 else:
                     reason = "server_restart"
                 if turn_row is not None and str(turn_row["state"]) in {
                     TurnTransactionState.OPEN.value,
                     TurnTransactionState.PARKING.value,
-                } and unknown_operation is None:
+                } and unknown_operation is None and not preserve_incomplete_parking:
                     connection.execute(
                         """
                         UPDATE worker_turn_transactions
