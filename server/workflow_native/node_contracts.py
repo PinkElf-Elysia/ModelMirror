@@ -462,6 +462,27 @@ def _complete_contracts() -> dict[str, NodeContract]:
             message="Evolution does not allow workflow file nodes.",
         ),
     )
+    private_content_availability = NodeAvailabilityPolicy(
+        workflow=_rule("allow"),
+        xpert=_rule("allow"),
+        goal=_rule("deny"),
+        handoff=_rule("deny"),
+        app=_rule(
+            "deny",
+            code="public_content_parser_forbidden",
+            message="Public Xpert Apps cannot deploy content parser nodes.",
+        ),
+        evaluation=_rule(
+            "deny",
+            code="evaluation_content_parser_forbidden",
+            message="Evaluation does not allow content parser nodes.",
+        ),
+        evolution=_rule(
+            "deny",
+            code="evolution_content_parser_forbidden",
+            message="Evolution does not allow content parser nodes.",
+        ),
+    )
 
     contracts["input"] = NodeContract(
         kind="input",
@@ -1968,16 +1989,73 @@ def _complete_contracts() -> dict[str, NodeContract]:
         },
         required=["contractVersion", "assetIdVariable", "outputVariable"],
     )
+    document_v3_http_schema = _object_schema(
+        {
+            "contractVersion": {"const": 3},
+            "sourceMode": {"const": "http_response"},
+            "inputVariable": {"type": "string"},
+            "format": {
+                "type": "string",
+                "enum": ["auto", "html", "markdown", "xml"],
+            },
+            "outputMode": {"type": "string", "enum": ["structured", "text"]},
+            "outputVariable": {"type": "string"},
+        },
+        required=[
+            "contractVersion",
+            "sourceMode",
+            "inputVariable",
+            "format",
+            "outputMode",
+            "outputVariable",
+        ],
+    )
+    document_v3_http_schema["not"] = {
+        "anyOf": [
+            {"required": ["assetIdVariable"]},
+            {"required": ["sourcePathVariable"]},
+        ]
+    }
+    document_v3_file_schema = _object_schema(
+        {
+            "contractVersion": {"const": 3},
+            "sourceMode": {"const": "file_asset"},
+            "assetIdVariable": {"type": "string"},
+            "format": {"const": "auto"},
+            "outputMode": {"type": "string", "enum": ["structured", "text"]},
+            "outputVariable": {"type": "string"},
+        },
+        required=[
+            "contractVersion",
+            "sourceMode",
+            "assetIdVariable",
+            "format",
+            "outputMode",
+            "outputVariable",
+        ],
+    )
+    document_v3_file_schema["not"] = {
+        "anyOf": [
+            {"required": ["inputVariable"]},
+            {"required": ["sourcePathVariable"]},
+        ]
+    }
     contracts["document_extractor"] = NodeContract(
         kind="document_extractor",
         contract_status="complete",
         config_schema={
             "type": "object",
-            "anyOf": [document_asset_schema, document_legacy_schema, document_v2_schema],
+            "anyOf": [
+                document_asset_schema,
+                document_legacy_schema,
+                document_v2_schema,
+                document_v3_http_schema,
+                document_v3_file_schema,
+            ],
         },
         ports=(
-            NodePortContract(name="asset", direction="input", value_schema=string_value),
-            NodePortContract(name="text", direction="output", value_schema=string_value),
+            NodePortContract(name="content", direction="input", value_schema=any_value),
+            NodePortContract(name="parsed", direction="output", value_schema=any_value),
         ),
         execution=NodeExecutionPolicy(
             side_effect="read",
@@ -1987,7 +2065,7 @@ def _complete_contracts() -> dict[str, NodeContract]:
             error_semantics="fail_closed",
             security_category="file_read",
         ),
-        availability=private_file_availability,
+        availability=private_content_availability,
         resources=(
             NodeResourceContract(
                 kind="file_asset", id_field="assetIdVariable", dynamic_schema=True

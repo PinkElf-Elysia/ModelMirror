@@ -110,6 +110,96 @@ async def test_document_extractor_resolves_only_current_workflow_scope(
 
 
 @pytest.mark.asyncio
+async def test_content_parser_v3_file_mode_returns_structured_document(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class StubFileService:
+        def resolve_workflow_document(
+            self, asset_id: str, *, scope_id: str
+        ) -> ParsedDocument:
+            assert asset_id == "file_v3"
+            assert scope_id == "workflow:workflow-files"
+            return ParsedDocument(
+                format="markdown",
+                title="guide.md",
+                sections=[
+                    ParsedSection(
+                        text="安全正文",
+                        line_range="1-2",
+                        heading_path=("说明",),
+                    )
+                ],
+                warnings=[],
+                extracted_chars=4,
+                truncated=False,
+            )
+
+    monkeypatch.setattr(main_module, "WORKFLOW_FILE_ASSETS_ENABLED", True)
+    monkeypatch.setattr(
+        main_module,
+        "get_file_asset_service",
+        lambda: StubFileService(),
+    )
+    transport = httpx.ASGITransport(app=main_module.app)
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://testserver",
+    ) as client:
+        response = await client.post(
+            "/api/workflow/run",
+            json={
+                "workflow": _workflow(
+                    {
+                        "contractVersion": 3,
+                        "sourceMode": "file_asset",
+                        "assetIdVariable": "document_asset_id",
+                        "format": "auto",
+                        "outputMode": "structured",
+                    }
+                ),
+                "inputs": {"document_asset_id": "file_v3"},
+            },
+        )
+
+    events = _events(response)
+    document_delta = next(
+        event
+        for event in events
+        if event.get("event") == "node_delta" and event.get("node_id") == "document"
+    )
+    assert document_delta["content_summary"] == {
+        "format": "markdown",
+        "sectionCount": 1,
+        "characterCount": 4,
+        "truncated": False,
+    }
+    workflow_end = next(event for event in events if event.get("event") == "workflow_end")
+    assert workflow_end["variables"]["document_text"] == {
+        "sourceKind": "file_asset",
+        "format": "markdown",
+        "contentType": None,
+        "title": "guide.md",
+        "text": "安全正文",
+        "sections": [
+            {
+                "text": "安全正文",
+                "headingPath": ["说明"],
+                "page": None,
+                "slide": None,
+                "sheet": None,
+                "lineRange": "1-2",
+                "rowRange": None,
+                "timeRange": None,
+            }
+        ],
+        "data": None,
+        "warnings": [],
+        "truncated": False,
+        "untrusted": True,
+    }
+
+
+@pytest.mark.asyncio
 async def test_document_extractor_rejects_cross_scope_asset_without_path_leak(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

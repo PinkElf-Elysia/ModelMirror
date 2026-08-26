@@ -494,6 +494,36 @@ export function localizeWorkflowStepOutput(
   return output.replace(/^completed (\d+)\/(\d+)$/gm, "已完成 $1/$2");
 }
 
+const HTTP_BODY_PREVIEW_LIMIT = 2_000;
+
+export function workflowStepOutputPreview(
+  output: string,
+  nodeType: WorkflowRunEvent["node_type"],
+  variable?: string,
+) {
+  if (nodeType !== "http_request") return output;
+  try {
+    const payload = JSON.parse(output) as Record<string, unknown>;
+    if (!payload || Array.isArray(payload) || typeof payload.body !== "string") {
+      return output;
+    }
+    if (payload.body.length <= HTTP_BODY_PREVIEW_LIMIT) return output;
+    const details = [
+      typeof payload.statusCode === "number" ? `HTTP ${payload.statusCode}` : "HTTP 响应",
+      typeof payload.contentType === "string" && payload.contentType
+        ? payload.contentType
+        : null,
+      typeof payload.receivedBytes === "number" && Number.isFinite(payload.receivedBytes)
+        ? `${payload.receivedBytes} 字节`
+        : null,
+    ].filter((detail): detail is string => Boolean(detail));
+    const destination = variable ? `变量 ${variable} 中` : "该节点完整输出中";
+    return `${details.join(" · ")}\n响应正文已折叠（${payload.body.length} 个字符），完整内容仍保存在${destination}，后续节点可继续读取。`;
+  } catch {
+    return output;
+  }
+}
+
 function appendStepOutput(
   current: string,
   next: string | undefined,
@@ -2323,7 +2353,15 @@ export default function WorkflowRun({
             </div>
           ) : (
             runSteps.map((step) => {
-              const batchReceipts = parseWorkflowBatchReceipts(step.output);
+              const outputPreview = workflowStepOutputPreview(
+                step.output,
+                step.type,
+                step.variable,
+              );
+              const batchReceipts =
+                step.type === "http_request"
+                  ? null
+                  : parseWorkflowBatchReceipts(step.output);
               return (
               <div className="rounded-lg border border-white/10 bg-white/[0.045]" key={step.id}>
                 <button
@@ -2352,9 +2390,9 @@ export default function WorkflowRun({
                     <WorkflowBatchReceiptList compact receipts={batchReceipts} />
                   ) : (
                     <>
-                    <DataXResultCard content={step.output} />
+                    <DataXResultCard content={outputPreview} />
                     <p className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded-md bg-slate-950/35 p-2 text-xs leading-5 text-slate-300">
-                      {step.output}
+                      {outputPreview}
                     </p>
                     </>
                   )

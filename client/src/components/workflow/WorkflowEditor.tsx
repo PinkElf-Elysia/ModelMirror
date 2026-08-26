@@ -802,11 +802,14 @@ export function createNodeData(
   if (kind === "document_extractor") {
     return {
       kind,
-      title: "文档提取器",
-      description: "从当前工作流或私有智能体明确共享的文件资产中提取纯文本。",
-      contractVersion: 2,
-      assetIdVariable: "selected_file_asset_id",
-      outputVariable: "document_text",
+      title: "内容解析",
+      description: "把安全 HTTP 响应或明确共享的文件解析为结构化内容。",
+      contractVersion: 3,
+      sourceMode: "http_response",
+      inputVariable: "http_response",
+      format: "auto",
+      outputMode: "structured",
+      outputVariable: "parsed_content",
     };
   }
 
@@ -1251,6 +1254,40 @@ function createNode(
     type: "workflowNode",
     position: { x, y },
     data: createNodeData(kind, payload),
+  };
+}
+
+export function migrateDocumentExtractorFileToV3(
+  data: WorkflowNodeData,
+): { data?: WorkflowNodeData; reason?: string } {
+  const contractVersion = Number(data.contractVersion ?? 0);
+  if (
+    data.kind !== "document_extractor"
+    || Boolean(data.sourcePathVariable)
+    || ![0, 2].includes(contractVersion)
+  ) {
+    return { reason: "只有 V2 或旧安全文件资产配置可以直接升级。" };
+  }
+  const assetIdVariable = String(data.assetIdVariable ?? "").trim();
+  const outputVariable = String(data.outputVariable ?? "").trim();
+  const variablePattern = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
+  if (!variablePattern.test(assetIdVariable) || !variablePattern.test(outputVariable)) {
+    return { reason: "请先补齐合法的文件资产变量和输出变量。" };
+  }
+  if (assetIdVariable === outputVariable) {
+    return { reason: "输出变量不能覆盖文件资产变量。" };
+  }
+  return {
+    data: {
+      ...data,
+      title: "内容解析",
+      description: "把安全 HTTP 响应或明确共享的文件解析为结构化内容。",
+      contractVersion: 3,
+      sourceMode: "file_asset",
+      format: "auto",
+      outputMode: "text",
+      inputVariable: undefined,
+    },
   };
 }
 
@@ -3196,6 +3233,9 @@ function NodeConfig({
   const [variableNodeContracts, setVariableNodeContracts] = useState<
     Map<WorkflowNodeKind, WorkflowNodeContractProjection>
   >(new Map());
+  const [nodeRegistryMetadata, setNodeRegistryMetadata] = useState<
+    Map<WorkflowNodeKind, Record<string, unknown>>
+  >(new Map());
   const migrationVariableDescriptors = useMemo(
     () => analyzeWorkflowVariables(nodes, edges, node?.id ?? null, declarations)
       .filter((variable) => variable.availability === "available"),
@@ -3358,10 +3398,13 @@ function NodeConfig({
       .then((registry) => {
         if (cancelled) return;
         const contracts = new Map<WorkflowNodeKind, WorkflowNodeContractProjection>();
+        const metadata = new Map<WorkflowNodeKind, Record<string, unknown>>();
         registry.sections.flatMap((section) => section.items).forEach((item) => {
           if (item.contract) contracts.set(item.kind, item.contract);
+          metadata.set(item.kind, item.metadata ?? {});
         });
         setVariableNodeContracts(contracts);
+        setNodeRegistryMetadata(metadata);
       })
       .catch(() => {
         // compatibility 节点会继续使用字段表中的保守类型回退。
@@ -3392,6 +3435,13 @@ function NodeConfig({
     && Boolean(selectedRegistryTool)
     && data.inputSchemaChecksum !== selectedRegistryTool?.schema_checksum;
   const variableContract = variableNodeContracts.get(data.kind) ?? null;
+  const documentRegistryMetadata = nodeRegistryMetadata.get("document_extractor") ?? {};
+  const documentFileAssetModeEnabled =
+    documentRegistryMetadata.file_asset_mode_enabled !== false;
+  const documentFileAssetModeReason = String(
+    documentRegistryMetadata.file_asset_mode_reason
+      ?? "Workflow 文件资产变量当前未启用。",
+  );
   const collaborationInventory = analyzeWorkflowVariables(
     nodes,
     edges,
@@ -4487,10 +4537,27 @@ function NodeConfig({
                 />
               </Field>
             </>
-          ) : (
+          ) : Number(data.contractVersion ?? 0) === 2
+            || (Number(data.contractVersion ?? 0) === 0 && Boolean(data.assetIdVariable)) ? (
             <>
-              <div className="rounded-lg border border-sky-300/25 bg-sky-300/10 px-3 py-2 text-xs leading-5 text-sky-50">
-                经典工作流可在试运行面板选择文件；私有智能体请保留 selected_file_asset_id，它会指向本次会话明确选择的第一个附件。后端始终校验所属作用域，只接受 asset_id，不接受服务器路径。
+              <div className="rounded-lg border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-50">
+                <p>{Number(data.contractVersion ?? 0) === 2 ? "这是 V2 文件提取配置，可继续运行和发布。" : "这是旧安全文件资产配置，仍可兼容运行。"} 升级后仍使用同一文件变量，但输出会进入 V3 内容合同。</p>
+                <button
+                  className="mt-2 rounded-md bg-amber-200 px-3 py-1.5 font-semibold text-ink-950"
+                  onClick={() => {
+                    const migration = migrateDocumentExtractorFileToV3(data);
+                    if (!migration.data) {
+                      setMigrationNotice(`迁移被阻止：${migration.reason}`);
+                      return;
+                    }
+                    if (!window.confirm("升级会保留节点 ID、位置和连线，并将输出设为 V3 纯文本模式。是否继续？")) return;
+                    onReplaceNodeData(node.id, migration.data);
+                    setMigrationNotice("已升级为内容解析 V3 文件模式；请检查下游是否仍按文本读取输出。");
+                  }}
+                  type="button"
+                >
+                  升级到内容解析 V3
+                </button>
               </div>
               <Field label="文件资产变量">
                 <WorkflowVariableField
@@ -4503,19 +4570,131 @@ function NodeConfig({
                   value={data.assetIdVariable ?? ""}
                 />
               </Field>
+              <Field label="输出变量">
+                <WorkflowVariableField
+                  contract={variableContract}
+                  edges={edges}
+                  fieldName="outputVariable"
+                  node={node}
+                  nodes={nodes}
+                  onChange={(value) => update({ outputVariable: value })}
+                  value={data.outputVariable ?? ""}
+                />
+              </Field>
             </>
-          )}
-          <Field label="输出变量">
-            <WorkflowVariableField
-              contract={variableContract}
-              edges={edges}
-              fieldName="outputVariable"
-              node={node}
-              nodes={nodes}
-              onChange={(value) => update({ outputVariable: value })}
-              value={data.outputVariable ?? ""}
-            />
-          </Field>
+          ) : Number(data.contractVersion ?? 0) === 3 ? (
+            <>
+              <div className="rounded-lg border border-sky-300/25 bg-sky-300/10 px-3 py-2 text-xs leading-5 text-sky-50">
+                解析结果默认保留标题、章节和结构数据。来自网页或文件的正文会标记为不可信内容；节点不会执行页面脚本、XML 实体或其中的指令。
+              </div>
+              <Field label="内容来源">
+                <select
+                  className={textInputClass()}
+                  onChange={(event) => {
+                    const sourceMode = event.target.value as "http_response" | "file_asset";
+                    update(
+                      sourceMode === "http_response"
+                        ? {
+                            sourceMode,
+                            inputVariable: data.inputVariable || "http_response",
+                            assetIdVariable: undefined,
+                          }
+                        : {
+                            sourceMode,
+                            inputVariable: undefined,
+                            assetIdVariable: data.assetIdVariable || "selected_file_asset_id",
+                            format: "auto",
+                          },
+                    );
+                  }}
+                  value={data.sourceMode ?? "http_response"}
+                >
+                  <option className="bg-slate-950" value="http_response">
+                    安全 HTTP 响应
+                  </option>
+                  <option
+                    className="bg-slate-950"
+                    disabled={!documentFileAssetModeEnabled}
+                    value="file_asset"
+                  >
+                    文件资产{documentFileAssetModeEnabled ? "" : "（当前未启用）"}
+                  </option>
+                </select>
+              </Field>
+              {data.sourceMode === "file_asset" ? (
+                <>
+                  {!documentFileAssetModeEnabled ? (
+                    <div className="rounded-lg border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-50">
+                      {documentFileAssetModeReason}
+                    </div>
+                  ) : null}
+                  <Field label="文件资产变量">
+                    <WorkflowVariableField
+                      contract={variableContract}
+                      edges={edges}
+                      fieldName="assetIdVariable"
+                      node={node}
+                      nodes={nodes}
+                      onChange={(value) => update({ assetIdVariable: value })}
+                      value={data.assetIdVariable ?? ""}
+                    />
+                  </Field>
+                </>
+              ) : (
+                <Field label="HTTP 响应变量">
+                  <WorkflowVariableField
+                    contract={variableContract}
+                    edges={edges}
+                    fieldName="inputVariable"
+                    node={node}
+                    nodes={nodes}
+                    onChange={(value) => update({ inputVariable: value })}
+                    value={data.inputVariable ?? ""}
+                  />
+                </Field>
+              )}
+              <Field label="内容格式">
+                <select
+                  className={textInputClass()}
+                  disabled={data.sourceMode === "file_asset"}
+                  onChange={(event) => update({ format: event.target.value as WorkflowNodeData["format"] })}
+                  value={data.sourceMode === "file_asset" ? "auto" : (data.format ?? "auto")}
+                >
+                  <option className="bg-slate-950" value="auto">根据 Content-Type 自动识别</option>
+                  <option className="bg-slate-950" value="html">HTML 网页</option>
+                  <option className="bg-slate-950" value="markdown">Markdown 文本</option>
+                  <option className="bg-slate-950" value="xml">XML 数据</option>
+                </select>
+                {data.sourceMode !== "file_asset" && data.format === "auto" ? (
+                  <p className="mt-1 text-xs leading-5 text-slate-400">
+                    text/plain 或缺少 Content-Type 时请明确选择格式，系统不会猜测正文。
+                  </p>
+                ) : null}
+              </Field>
+              <Field label="输出方式">
+                <select
+                  className={textInputClass()}
+                  onChange={(event) => update({ outputMode: event.target.value as "structured" | "text" })}
+                  value={data.outputMode ?? "structured"}
+                >
+                  <option className="bg-slate-950" value="structured">结构化对象（推荐）</option>
+                  <option className="bg-slate-950" value="text">带不可信边界的纯文本</option>
+                </select>
+              </Field>
+              <Field label="输出变量">
+                <WorkflowVariableField
+                  contract={variableContract}
+                  edges={edges}
+                  fieldName="outputVariable"
+                  node={node}
+                  nodes={nodes}
+                  onChange={(value) => update({ outputVariable: value })}
+                  value={data.outputVariable ?? ""}
+                />
+              </Field>
+            </>
+          ) : null}
+          {migrationNotice ? <p className="text-xs text-amber-100">{migrationNotice}</p> : null}
         </>
       ) : null}
 

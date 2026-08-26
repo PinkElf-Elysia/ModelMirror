@@ -85,9 +85,9 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     assert len({row["来源条目标识"] for row in rows}) == 563
     assert Counter(row["覆盖等级"] for row in rows) == {
         "exact": 35,
-        "limited": 66,
+        "limited": 70,
         "composable": 271,
-        "none": 191,
+        "none": 187,
     }
     mapped = {row["n8n内部标识"]: row for row in rows}
     mapped_by_source = {row["来源条目标识"]: row for row in rows}
@@ -158,10 +158,6 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
         "form",
         "splitOut",
         "moveBinaryData",
-        "html",
-        "htmlExtract",
-        "markdown",
-        "xml",
         "clearbit",
         "deepL",
         "hunter",
@@ -170,6 +166,11 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
         assert mapped[key]["模镜当前状态"] == "未实现"
         assert mapped[key]["模镜对应节点"] == "—"
         assert mapped[key]["覆盖等级"] == "none"
+    for key in ("html", "htmlExtract", "markdown", "xml"):
+        assert mapped[key]["模镜当前状态"] == "部分实现"
+        assert mapped[key]["模镜对应节点"] == "document_extractor"
+        assert mapped[key]["覆盖等级"] == "limited"
+        assert mapped[key]["人工复核"] == "R2.4"
     assert mapped["formTrigger"]["覆盖等级"] == "none"
     assert mapped["aiTransform"]["模镜对应节点"] == "llm / variable_assign"
     assert all(mapped[key]["模镜当前状态"] == "已实现" for key in (
@@ -193,9 +194,16 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     }
     assert all(row["覆盖等级"] == expected_level[row["模镜当前状态"]] for row in rows)
     assert all(row["模镜证据"].strip() for row in rows)
+    expected_review_round = {
+        "splitInBatches": "R2.3",
+        "html": "R2.4",
+        "htmlExtract": "R2.4",
+        "markdown": "R2.4",
+        "xml": "R2.4",
+    }
     assert all(
         row["人工复核"]
-        == ("R2.3" if row["n8n内部标识"] == "splitInBatches" else "R2.2")
+        == expected_review_round.get(row["n8n内部标识"], "R2.2")
         for row in rows
         if row["覆盖等级"] in {"exact", "limited"}
     )
@@ -315,6 +323,9 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     assert r22_pr1_snapshot != r22_pr2_snapshot
     assert (
         "- R2.3 结果：不新增节点类型，将 `iteration` 提升为“批量处理”V2 完整合同"
+    ) in markdown
+    assert (
+        "- R2.4 结果：不新增节点类型，将 `document_extractor` 升级为“内容解析”V3"
     ) in markdown
     assert (
         "- R2.2 PR1 结果：将 `variable_aggregator` 提升为“变量打包”V2 完整合同，"

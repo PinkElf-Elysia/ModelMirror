@@ -3,6 +3,7 @@ import {
   localizeWorkflowStepOutput,
   parseWorkflowBatchReceipts,
   workflowRunCompletedSummary,
+  workflowStepOutputPreview,
 } from "./WorkflowRun";
 
 const validReceipt = {
@@ -47,5 +48,28 @@ describe("workflow batch receipt presentation", () => {
     expect(localizeWorkflowStepOutput("order completed 1/2", "iteration")).toBe(
       "order completed 1/2",
     );
+  });
+
+  it("folds only large HTTP response bodies while keeping the real output intact", () => {
+    const sentinel = "R24_LARGE_BODY_SENTINEL";
+    const output = JSON.stringify({
+      statusCode: 200,
+      contentType: "text/html",
+      receivedBytes: 140004,
+      body: sentinel.repeat(100),
+    });
+
+    const preview = workflowStepOutputPreview(output, "http_request", "http_response");
+    expect(preview).toContain("HTTP 200 · text/html · 140004 字节");
+    expect(preview).toContain("完整内容仍保存在变量 http_response 中");
+    expect(preview).not.toContain(sentinel);
+    expect(output).toContain(sentinel);
+    expect(workflowStepOutputPreview(output, "output", "http_response")).toBe(output);
+  });
+
+  it("keeps small or malformed HTTP output unchanged", () => {
+    const small = JSON.stringify({ statusCode: 200, body: "简短响应" });
+    expect(workflowStepOutputPreview(small, "http_request")).toBe(small);
+    expect(workflowStepOutputPreview("not-json", "http_request")).toBe("not-json");
   });
 });

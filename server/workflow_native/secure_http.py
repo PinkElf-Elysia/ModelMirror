@@ -595,7 +595,11 @@ def _content_type_kind(raw: str) -> str:
         return "text"
     if media_type in {"application/json", "application/dns-json"} or media_type.endswith("+json"):
         return "json"
-    if media_type.startswith("text/"):
+    if (
+        media_type.startswith("text/")
+        or media_type == "application/xml"
+        or media_type.endswith("+xml")
+    ):
         return "text"
     _fail("HTTP_BINARY_RESPONSE_FORBIDDEN", "HTTP response must be JSON or UTF-8 text.")
 

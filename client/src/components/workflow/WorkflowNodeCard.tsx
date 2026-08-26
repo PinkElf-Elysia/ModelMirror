@@ -140,7 +140,7 @@ const nodeMeta = {
   },
   document_extractor: {
     icon: "📄",
-    label: "文档工位",
+    label: "内容解析",
     border: "border-teal-300/40",
     bg: "bg-teal-300/10",
     text: "text-teal-100",
@@ -384,6 +384,13 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
   const legacyCode =
     data.kind === "code" && !isSafeTextV2(data);
   const retiredTemplate = data.kind === "template_transform";
+  const contentParserSummary = data.kind === "document_extractor"
+    ? Number(data.contractVersion ?? 0) === 3
+      ? `${data.sourceMode === "file_asset" ? "文件" : "HTTP"} · ${String(data.format ?? "auto").toUpperCase()}`
+      : data.sourcePathVariable
+        ? "旧路径 · 只读"
+        : "V2 文件"
+    : "";
 
   const statusClassName =
     runStatus === "running"
@@ -546,6 +553,11 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
         <h3 className="max-w-24 truncate text-xs font-semibold leading-tight text-white">
           {data.title}
         </h3>
+        {contentParserSummary ? (
+          <span className="max-w-28 truncate rounded-full border border-teal-300/25 bg-teal-300/10 px-2 py-0.5 text-[9px] font-semibold text-teal-100">
+            {contentParserSummary}
+          </span>
+        ) : null}
         {legacySkillCreator ? (
           <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-100">
             Legacy

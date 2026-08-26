@@ -64,7 +64,7 @@ def test_enabled_workflow_node_kinds_are_supported() -> None:
     assert registry.enabled_kinds().issubset(SUPPORTED_NODE_KINDS)
 
 
-def test_document_extractor_palette_follows_file_asset_gate(monkeypatch) -> None:
+def test_content_parser_palette_keeps_http_mode_when_file_assets_are_disabled(monkeypatch) -> None:
     monkeypatch.delenv("WORKFLOW_FILE_ASSETS_ENABLED", raising=False)
     monkeypatch.delenv("FILE_ASSET_STORE_MODE", raising=False)
     disabled = _registry()
@@ -74,9 +74,10 @@ def test_document_extractor_palette_follows_file_asset_gate(monkeypatch) -> None
         for item in section.items
         if item.kind == "document_extractor"
     )
-    assert item.enabled is False
-    assert item.metadata["status_reason"]
-    assert "本地路径" not in item.description
+    assert item.enabled is True
+    assert item.title == "内容解析"
+    assert item.metadata["file_asset_mode_enabled"] is False
+    assert item.metadata["file_asset_mode_reason"]
 
     monkeypatch.setenv("WORKFLOW_FILE_ASSETS_ENABLED", "true")
     legacy_store = _registry()
@@ -86,7 +87,8 @@ def test_document_extractor_palette_follows_file_asset_gate(monkeypatch) -> None
         for item in section.items
         if item.kind == "document_extractor"
     )
-    assert item.enabled is False
+    assert item.enabled is True
+    assert item.metadata["file_asset_mode_enabled"] is False
 
     monkeypatch.setenv("FILE_ASSET_STORE_MODE", "shadow")
     enabled = _registry()
@@ -97,7 +99,8 @@ def test_document_extractor_palette_follows_file_asset_gate(monkeypatch) -> None
         if item.kind == "document_extractor"
     )
     assert item.enabled is True
-    assert item.metadata == {}
+    assert item.metadata["file_asset_mode_enabled"] is True
+    assert "file_asset_mode_reason" not in item.metadata
     projection = item.to_payload()
     assert projection["contract"]["contract_status"] == "complete"
     assert projection["planner"]["enabled"] is False

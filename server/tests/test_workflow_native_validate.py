@@ -1017,6 +1017,47 @@ async def test_validate_document_extractor_legacy_path_is_read_only_warning(
 
 
 @pytest.mark.asyncio
+async def test_validate_content_parser_v3_http_source_and_undefined_reference(
+    client: httpx.AsyncClient,
+) -> None:
+    workflow = linear_workflow()
+    workflow["nodes"][1] = {
+        "id": "content",
+        "type": "document_extractor",
+        "data": {
+            "kind": "document_extractor",
+            "contractVersion": 3,
+            "sourceMode": "http_response",
+            "inputVariable": "user_input",
+            "format": "html",
+            "outputMode": "structured",
+            "outputVariable": "parsed_content",
+        },
+    }
+    workflow["nodes"][2]["data"]["outputVariable"] = "parsed_content"
+    workflow["edges"] = [
+        {"id": "e1", "source": "input", "target": "content"},
+        {"id": "e2", "source": "content", "target": "output"},
+    ]
+
+    data = await validate(client, workflow)
+    assert data["valid"] is True
+
+    workflow["nodes"][1]["data"]["inputVariable"] = "missing_response"
+    data = await validate(client, workflow)
+    assert data["valid"] is False
+    assert "missing_content_input_variable_reference" in issue_codes(data)
+
+    workflow["nodes"][1]["data"].update(
+        inputVariable="user_input",
+        assetIdVariable="selected_file_asset_id",
+    )
+    data = await validate(client, workflow)
+    assert data["valid"] is False
+    assert "content_source_ambiguous" in issue_codes(data)
+
+
+@pytest.mark.asyncio
 async def test_validate_vision_understanding_contract(
     client: httpx.AsyncClient,
 ) -> None:

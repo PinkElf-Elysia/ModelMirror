@@ -37,6 +37,7 @@ try:
         validate_mcp_tool_v2_config,
     )
     from server.workflow_native.r23_iteration import is_workflow_map
+    from server.workflow_native.content_parser import document_extractor_uses_file_asset
     from server.xpert_runtime.automation_store import (
         AutomationStore,
         AutomationTrigger,
@@ -63,6 +64,7 @@ except ModuleNotFoundError:
         validate_mcp_tool_v2_config,
     )
     from workflow_native.r23_iteration import is_workflow_map
+    from workflow_native.content_parser import document_extractor_uses_file_asset
     from xpert_runtime.automation_store import (
         AutomationStore,
         AutomationTrigger,
@@ -501,7 +503,7 @@ class WorkflowDeploymentStore:
                     )
             if any(
                 _raw_node_kind(node) == "document_extractor"
-                and bool(str(dict(node.get("data") or {}).get("assetIdVariable") or "").strip())
+                and document_extractor_uses_file_asset(dict(node.get("data") or {}))
                 for node in nodes
             ):
                 if not workflow_file_assets_enabled:

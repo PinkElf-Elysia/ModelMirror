@@ -59,6 +59,7 @@ try:
         WorkflowR20NodeError,
         contract_version as r20_contract_version,
     )
+    from server.workflow_native.content_parser import document_extractor_uses_file_asset
 except ModuleNotFoundError:
     from file_assets.contracts import FileInputKind, FilePurpose
     from file_assets.registry import get_file_format_registry
@@ -81,6 +82,7 @@ except ModuleNotFoundError:
         WorkflowR20NodeError,
         contract_version as r20_contract_version,
     )
+    from workflow_native.content_parser import document_extractor_uses_file_asset
 
 
 router = APIRouter(prefix="/api/xperts", tags=["xperts"])
@@ -960,9 +962,9 @@ def preview_xpert_for_publish(
                     node_id=node.id,
                 )
             )
-        if kind == "document_extractor" and str(
-            data.get("assetIdVariable") or ""
-        ).strip() and os.getenv(
+        if kind == "document_extractor" and document_extractor_uses_file_asset(
+            data
+        ) and os.getenv(
             "WORKFLOW_FILE_ASSETS_ENABLED", "false"
         ).strip().lower() not in {"1", "true", "yes", "on"}:
             feature_issues.append(
@@ -986,7 +988,10 @@ def preview_xpert_for_publish(
                         node_id=node.id,
                     )
                 )
-            elif asset_id_variable != "selected_file_asset_id":
+            elif (
+                document_extractor_uses_file_asset(data)
+                and asset_id_variable != "selected_file_asset_id"
+            ):
                 feature_issues.append(
                     ValidationIssue(
                         code="xpert_document_asset_binding_required",

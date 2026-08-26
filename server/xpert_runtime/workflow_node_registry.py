@@ -449,18 +449,22 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                 WorkflowPaletteItem(
                     kind="document_extractor",
                     icon="DOC",
-                    title="文档提取器",
-                    description="从当前工作流或私有 Xpert 明确共享的文件资产提取文本。",
+                    title="内容解析",
+                    description="把安全 HTTP 响应或明确共享的文件解析为结构化内容。",
                     category="transform",
-                    tags=["document", "file"],
-                    enabled=workflow_file_assets_enabled,
-                    metadata=(
-                        {}
-                        if workflow_file_assets_enabled
-                        else {
-                            "status_reason": "Workflow 文件资产变量当前未启用。"
-                        }
-                    ),
+                    tags=["content", "html", "markdown", "xml", "file"],
+                    enabled=True,
+                    metadata={
+                        "planner_enabled": False,
+                        "file_asset_mode_enabled": workflow_file_assets_enabled,
+                        **(
+                            {}
+                            if workflow_file_assets_enabled
+                            else {
+                                "file_asset_mode_reason": "Workflow 文件资产变量当前未启用。"
+                            }
+                        ),
+                    },
                 ),
                 WorkflowPaletteItem(
                     kind="file_output",
