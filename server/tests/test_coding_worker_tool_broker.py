@@ -27,7 +27,13 @@ from server.coding_worker.store import CodingWorkerStore
 from server.coding_worker.process_manager import BackgroundProcessManager
 from server.coding_worker.network_policy import EgressPolicy
 from server.coding_worker.executor import SidecarExecutor
-from server.coding_worker.tool_broker import FrozenCheck, ToolBroker, ToolBrokerError
+from server.coding_worker.tool_broker import (
+    FrozenApprovalRule,
+    FrozenCheck,
+    ToolBroker,
+    ToolBrokerError,
+    frozen_approval_request_sha256,
+)
 from server.coding_worker.workspace import InMemoryWorkspaceSourceAdapter, WorkspaceBroker
 
 
@@ -36,6 +42,10 @@ async def _broker(
     *,
     profile: PolicyProfile = PolicyProfile.DEVELOP,
     runtime_protocol: RuntimeProtocol = RuntimeProtocol.V16,
+    frozen_approval_rules: dict[
+        tuple[str, str, str], tuple[FrozenApprovalRule, ...]
+    ]
+    | None = None,
 ) -> tuple[ToolBroker, CodingWorkerStore, str, Path]:
     source = WorkspaceSource(kind="manifest", source_id="source", revision="h0")
     workspace = WorkspaceBroker(
@@ -80,6 +90,7 @@ async def _broker(
         frozen_checks={
             "syntax": FrozenCheck(check_id="syntax", argv=(sys.executable, "-m", "py_compile", "app.py"))
         },
+        frozen_approval_rules=frozen_approval_rules,
     )
     return broker, store, task.task_id, workspace.repository_path(prepared.workspace_id)
 
@@ -766,6 +777,51 @@ async def test_command_requires_exact_once_lease_and_denies_shell_remote_and_env
                 lease_id=denied_lease.lease_id,
             )
         assert error.value.code == "command_denied"
+
+
+@pytest.mark.asyncio
+async def test_evaluation_command_fails_before_creating_approval(
+    tmp_path: Path,
+) -> None:
+    allowed = {
+        "argv": ["python", "-m", "pytest", "-q"],
+        "timeout_seconds": 180,
+    }
+    broker, store, task_id, _ = await _broker(
+        tmp_path,
+        frozen_approval_rules={
+            ("manifest", "source", "h0"): (
+                FrozenApprovalRule(
+                    request_sha256=frozen_approval_request_sha256(
+                        "run_command", allowed
+                    ),
+                    acceptance_check_id="syntax",
+                ),
+            )
+        },
+    )
+    with pytest.raises(ToolBrokerError) as rejected:
+        await broker.execute(
+            task_id=task_id,
+            operation_id="not-frozen-command",
+            tool_name="run_command",
+            arguments={
+                "argv": ["python", "-c", "print('not frozen')"],
+                "timeout_seconds": 180,
+            },
+        )
+    assert rejected.value.code == "evaluation_command_not_allowed"
+    assert store.list_approvals(task_id) == []
+
+    with pytest.raises(ToolBrokerError) as approval:
+        await broker.execute(
+            task_id=task_id,
+            operation_id="frozen-command",
+            tool_name="run_command",
+            arguments=allowed,
+        )
+    assert approval.value.code == "approval_required"
+    assert len(store.list_approvals(task_id)) == 1
 
 
 @pytest.mark.asyncio

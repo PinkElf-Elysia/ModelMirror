@@ -3,9 +3,7 @@ from __future__ import annotations
 import hashlib
 import os
 from pathlib import Path
-from pathlib import PurePosixPath
 import re
-import stat
 import uuid
 from typing import Annotated, Any, Literal
 
@@ -77,62 +75,6 @@ BrokerChange = Annotated[
     | BrokerReplaceChange,
     Field(discriminator="kind"),
 ]
-
-
-def _replace_change_as_write(
-    change: BrokerReplaceChange, *, workspace: Path | None = None
-) -> dict[str, Any]:
-    """Resolve a unique replace inside the trusted adapter.
-
-    The model supplies the exact tree and file preimage bindings. This adapter
-    reads only the current task workspace and converts the focused replacement
-    into the private write contract; the Broker still performs the authoritative
-    tree/preimage CAS before publishing the batch.
-    """
-    relative = PurePosixPath(change.path)
-    if (
-        relative.is_absolute()
-        or relative.as_posix() != change.path
-        or any(part in {"", ".", ".."} for part in relative.parts)
-        or relative.parts[0] == ".git"
-        or "\\" in change.path
-        or "\x00" in change.path
-    ):
-        raise ValueError("replace path must be a canonical workspace-relative path")
-    root = (workspace or Path.cwd()).resolve(strict=True)
-    lexical = root.joinpath(*relative.parts)
-    current = root
-    for part in relative.parts:
-        current = current / part
-        metadata = current.lstat()
-        if stat.S_ISLNK(metadata.st_mode):
-            raise ValueError("replace path cannot traverse a symbolic link")
-    candidate = lexical.resolve(strict=True)
-    try:
-        candidate.relative_to(root)
-    except ValueError as exc:
-        raise ValueError("replace path escapes the task workspace") from exc
-    metadata = candidate.stat()
-    if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > 32 * 1024 * 1024:
-        raise ValueError("replace target must be a bounded regular file")
-    raw = candidate.read_bytes()
-    if hashlib.sha256(raw).hexdigest() != change.expected_sha256:
-        raise ValueError("replace target no longer matches expected_sha256")
-    try:
-        text = raw.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise ValueError("replace target must be UTF-8 text") from exc
-    if text.count(change.old_text) != 1:
-        raise ValueError("old_text must occur exactly once")
-    updated = text.replace(change.old_text, change.new_text, 1)
-    return {
-        "kind": "write",
-        "path": change.path,
-        "expected_sha256": change.expected_sha256,
-        "expected_absent": False,
-        "content": updated,
-        "content_sha256": hashlib.sha256(updated.encode("utf-8")).hexdigest(),
-    }
 
 
 def _workspace_relative_shell_script(
@@ -315,9 +257,6 @@ def build_server(client: BrokerRPCClient) -> FastMCP:
         """Atomically publish a preimage-bound write, replace, patch, move, or delete batch."""
         encoded_changes: list[dict[str, Any]] = []
         for change in changes:
-            if isinstance(change, BrokerReplaceChange):
-                encoded_changes.append(_replace_change_as_write(change))
-                continue
             encoded = change.model_dump(mode="json", exclude_none=True)
             if isinstance(change, BrokerWriteChange):
                 encoded["content_sha256"] = hashlib.sha256(
