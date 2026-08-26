@@ -69,6 +69,7 @@ def _client(
     blocked: bool = False,
     provider: FakeCodingAgentProvider | None = None,
     master_key: bytes | None = None,
+    new_task_model_routes: tuple[str, ...] | None = None,
 ) -> tuple[TestClient, CodingWorkerService]:
     store = CodingWorkerStore(
         tmp_path / "worker", master_key=master_key or Fernet.generate_key()
@@ -91,6 +92,7 @@ def _client(
         workspace_broker=broker,
         provider=LegacyHarnessDriver(selected_provider),
         harness_supervisor=supervisor,
+        new_task_model_routes=new_task_model_routes,
     )
     evaluation = LegacyEvaluationAdapter(
         service,
@@ -551,6 +553,33 @@ def test_model_route_is_catalog_controlled(tmp_path: Path) -> None:
     response = client.post("/api/coding-worker/v1/tasks", json=payload)
     assert response.status_code == 400
     assert response.json()["detail"]["code"] == "model_route_not_allowed"
+
+
+def test_configured_but_disabled_route_uses_control_plane_conflict(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(
+        "CODING_WORKER_MODEL_ROUTES", "coding/default,coding/quality"
+    )
+    monkeypatch.setenv(
+        "CODING_WORKER_ROUTE_SLOTS_JSON",
+        '{"coding/default":["slot-a"],"coding/quality":["slot-b"]}',
+    )
+    monkeypatch.setenv("CODING_WORKER_CLAUDE_SLOT_IDS", "slot-b")
+    monkeypatch.setenv("CODING_WORKER_CLAUDE_ENABLED", "false")
+    client, _service = _client(
+        tmp_path, new_task_model_routes=("coding/default",)
+    )
+    payload = _payload("disabled-quality")
+    payload["model_route"] = "coding/quality"
+
+    with client:
+        status = client.get("/api/coding-worker/v1").json()
+        response = client.post("/api/coding-worker/v1/tasks", json=payload)
+
+    assert status["model_routes"] == ["coding/default"]
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "model_route_unavailable"
 
 
 def test_workspace_endpoints_use_task_and_opaque_entry_ids(tmp_path: Path) -> None:

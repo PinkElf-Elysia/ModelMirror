@@ -719,6 +719,87 @@ def test_provider_parks_immediately_after_delegation_and_resumes_after_release(
     asyncio.run(scenario())
 
 
+def test_start_reconciles_completed_subtasks_after_parent_parking_crash(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        root = tmp_path / "worker"
+        key = Fernet.generate_key()
+        store = CodingWorkerStore(root, master_key=key)
+        parent = store.create_task(_spec(), runtime_protocol=RuntimeProtocol.V17)
+        store.transition(parent.task_id, TaskState.PREPARING)
+        store.transition(parent.task_id, TaskState.RUNNING)
+        relation = _create(
+            store,
+            parent.task_id,
+            client_subtask_id="completed-before-parent-park",
+            kind=SubtaskKind.EXPLORE,
+        )
+        store.finish_subtask(
+            relation.child_task_id,
+            result_tree_hash="2" * 64,
+            changed_paths=(),
+            summary="Inspected the requested module.",
+        )
+        turn = store.open_turn_transaction(
+            task_id=parent.task_id,
+            turn_id="turn_parent_subtasks_restart",
+            workspace_tree_hash="1" * 64,
+        )
+        store.begin_turn_parking(
+            task_id=parent.task_id,
+            turn_id=turn.turn_id,
+            barrier=TurnBarrier.SUBTASKS,
+        )
+        checkpoint = store.create_checkpoint(
+            task_id=parent.task_id,
+            workspace_tree_hash="1" * 64,
+            payload={"phase": "waiting_subtasks"},
+        )
+        store.park_turn_transaction(
+            task_id=parent.task_id,
+            turn_id=turn.turn_id,
+            checkpoint_id=checkpoint.checkpoint_id,
+        )
+
+        restarted = CodingWorkerStore(root, master_key=key)
+        assert restarted.get_task(parent.task_id).state is TaskState.WAITING_SUBTASKS
+        adapter = InMemoryWorkspaceSourceAdapter(
+            {("source", "revision"): {"main.py": b"print('ok')\n"}}
+        )
+        workspace_broker = WorkspaceBroker(
+            root, {"manifest": adapter}, id_key=b"s" * 32
+        )
+        service = _service_with_legacy_provider(
+            store=restarted,
+            workspace_broker=workspace_broker,
+            provider=FakeCodingAgentProvider(),
+        )
+
+        await service.start()
+
+        assert restarted.get_task(parent.task_id).state is TaskState.QUEUED
+        resuming = restarted.current_turn_transaction(parent.task_id)
+        assert resuming is not None
+        assert resuming.turn_id == turn.turn_id
+        assert resuming.state is TurnTransactionState.RESUMING
+        summary = service._subtask_results_message(parent.task_id)
+        assert [
+            item.content
+            for item in restarted.list_messages(parent.task_id)
+            if item.role == "system" and item.content == summary
+        ] == [summary]
+        service._resume_parent_after_subtasks(parent.task_id)
+        assert [
+            item.content
+            for item in restarted.list_messages(parent.task_id)
+            if item.role == "system" and item.content == summary
+        ] == [summary]
+        await service.shutdown()
+
+    asyncio.run(scenario())
+
+
 def test_inspect_parent_cannot_delegate_implementation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
