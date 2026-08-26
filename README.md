@@ -4,7 +4,7 @@
   <p><strong> 从寻找一个模型，到编译一套智能。<br>
  From choosing a model to compiling intelligence.</strong></p>
   <p>
-    面向中文用户的本地工作台：以操作级 Provider Contract、精确 Workload Binding、<br />
+    面向中文用户的AI Capability OS生态级自进化工作台：以操作级 Provider Contract、精确 Workload Binding、<br />
     脱敏路由回执和隔离 Runtime，贯通资源发现、组合与受控执行。
   </p>
   <p>
