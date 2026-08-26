@@ -580,6 +580,7 @@ class KnowledgePipelineExecutor:
         profile = snapshot.get("embedding_profile", {}) if isinstance(snapshot, dict) else {}
         effective = profile.get("effective") if isinstance(profile, dict) else None
         effective_profile = effective if isinstance(effective, dict) else profile
+        access_mode = str(effective_profile.get("access_mode") or "legacy")
         provider = str(effective_profile.get("provider") or profile.get("provider") or "")
         dimension = int(
             effective_profile.get("dimension")
@@ -591,32 +592,37 @@ class KnowledgePipelineExecutor:
             or profile.get("model")
             or self.service.embedder.model
         )
-        embedder = self.service.embedder
-        if (
-            provider == "hash"
-            and (
-                bool(self.service.embedder.api_key)
-                or self.service.embedder.dimension != dimension
+        texts = [str(item.get("index_text") or "") for item in chunks]
+        if access_mode == "managed":
+            embeddings = await self.service.embed_managed_pipeline_chunks(
+                job_id,
+                texts,
             )
-        ):
-            embedder = EmbeddingClient(
-                api_base="",
-                api_key="",
-                model=model,
-                dimension=dimension,
-            )
-            embedder.api_key = ""
-            embedder.embedding_mode = "hash"
-        elif provider != "hash" and model != self.service.embedder.model:
-            embedder = EmbeddingClient(
-                api_base=self.service.embedder.api_base,
-                api_key=self.service.embedder.api_key,
-                model=model,
-                dimension=dimension,
-            )
-        embeddings = await embedder.embed_texts(
-            [str(item.get("index_text") or "") for item in chunks]
-        )
+        else:
+            embedder = self.service.embedder
+            if (
+                provider == "hash"
+                and (
+                    bool(self.service.embedder.api_key)
+                    or self.service.embedder.dimension != dimension
+                )
+            ):
+                embedder = EmbeddingClient(
+                    api_base="",
+                    api_key="",
+                    model=model,
+                    dimension=dimension,
+                )
+                embedder.api_key = ""
+                embedder.embedding_mode = "hash"
+            elif provider != "hash" and model != self.service.embedder.model:
+                embedder = EmbeddingClient(
+                    api_base=self.service.embedder.api_base,
+                    api_key=self.service.embedder.api_key,
+                    model=model,
+                    dimension=dimension,
+                )
+            embeddings = await embedder.embed_texts(texts)
         if len(embeddings) != len(chunks):
             raise EmbeddingError(
                 "Embedding provider returned a different number of vectors than inputs."

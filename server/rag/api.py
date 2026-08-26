@@ -29,6 +29,7 @@ from .rag_service import (
     PipelineJobNotFoundError,
     PipelineJobStateError,
     PipelineVersionNotFoundError,
+    ManagedEmbeddingRouteError,
     RagService,
     UnsupportedDocumentError,
 )
@@ -257,6 +258,9 @@ class RagQueryResponse(BaseModel):
     answer: str
     sources: list[RagSourcePayload]
     warnings: list[str] = Field(default_factory=list)
+    execution_mode: Literal["managed", "legacy", "local_non_model"] = "legacy"
+    provider_route_receipts: dict[str, Any] | None = None
+    fallback_reason_codes: list[str] = Field(default_factory=list)
     retrieval: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -586,7 +590,11 @@ class PipelineJobPayload(BaseModel):
     attempt: int
     cancel_requested: bool
     error: str | None = None
+    error_code: str | None = None
     warnings: list[str] = Field(default_factory=list)
+    embedding_execution_mode: str = "legacy"
+    embedding_space_fingerprint: str = ""
+    provider_route_receipts: dict[str, Any] | None = None
     created_at: float
     updated_at: float
     started_at: float | None = None
@@ -620,6 +628,9 @@ class PipelineVersionPayload(BaseModel):
     activated_at: float | None = None
     index_schema_version: int = 1
     embedding_profile: dict[str, Any] = Field(default_factory=dict)
+    embedding_execution_mode: str = "legacy"
+    embedding_space_fingerprint: str = ""
+    provider_route_receipts: dict[str, Any] | None = None
     retrieval_profile: dict[str, Any] = Field(default_factory=dict)
     vector_index_ready: bool = True
     lexical_index_ready: bool = False
@@ -648,6 +659,8 @@ class PipelineVersionQueryResponse(BaseModel):
     answer: str
     sources: list[RagSourcePayload]
     warnings: list[str] = Field(default_factory=list)
+    execution_mode: Literal["managed", "legacy", "local_non_model"] = "legacy"
+    provider_route_receipts: dict[str, Any] | None = None
     retrieval: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -2233,6 +2246,19 @@ async def query_pipeline_version(
         return PipelineVersionQueryResponse.model_validate(result)
     except PipelineVersionNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ManagedEmbeddingRouteError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+    except PipelineDraftValidationError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "provider_embedding_preflight_failed",
+                "message": str(exc),
+            },
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -2321,6 +2347,19 @@ async def create_pipeline_citations(payload: CitationAnchorRequest) -> CitationA
         )
     except KnowledgeBaseNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ManagedEmbeddingRouteError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+    except PipelineDraftValidationError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "provider_embedding_preflight_failed",
+                "message": str(exc),
+            },
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -2341,5 +2380,18 @@ async def query_knowledge_base(payload: RagQueryRequest) -> RagQueryResponse:
         return RagQueryResponse.model_validate(result)
     except KnowledgeBaseNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ManagedEmbeddingRouteError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+    except PipelineDraftValidationError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "provider_embedding_preflight_failed",
+                "message": str(exc),
+            },
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -88,6 +88,7 @@ HASH_EMBEDDING_MODEL_ALIASES = {
 EMBEDDING_PROVIDER_HASH = "hash"
 EMBEDDING_PROVIDER_OPENAI_COMPATIBLE = "openai_compatible"
 EMBEDDING_PROVIDER_UNAVAILABLE = "unavailable"
+EMBEDDING_SPACE_CONTRACT_VERSION = "modelmirror-provider-embedding-space-v1"
 _WARNING_CONTROL_CHARACTERS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
@@ -176,6 +177,14 @@ class PipelineGraphRevisionError(RagError):
     """Raised when a graph save uses a stale optimistic revision."""
 
 
+class ManagedEmbeddingRouteError(EmbeddingError):
+    """Raised with a stable, redacted Managed Embedding failure code."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
 class KnowledgeWriteProposalNotFoundError(RagError):
     """Raised when a knowledge write proposal does not exist."""
 
@@ -217,6 +226,7 @@ class RagService:
         document_processor: StructuredDocumentProcessor | None = None,
         processor_generator: ProcessorGenerationService | None = None,
         vision_processor: VisionUnderstandingService | None = None,
+        managed_embedding_gateway: Any | None = None,
         llm_enabled: bool | None = None,
     ) -> None:
         root = Path(__file__).resolve().parent
@@ -246,6 +256,7 @@ class RagService:
         self.document_processor = document_processor or StructuredDocumentProcessor()
         self.processor_generator = processor_generator or ProcessorGenerationService()
         self.vision_processor = vision_processor or VisionUnderstandingService()
+        self.managed_embedding_gateway = managed_embedding_gateway
         self.splitter = splitter or TextSplitter(
             chunk_size=int(os.getenv("RAG_CHUNK_SIZE", "500")),
             chunk_overlap=int(os.getenv("RAG_CHUNK_OVERLAP", "50")),
@@ -2494,6 +2505,9 @@ class RagService:
                 }
                 for index, source in enumerate(manifest)
             ]
+            embedding_metadata = self._embedding_job_metadata(
+                draft["embedding_profile"]
+            )
             job = {
                 "job_id": job_id,
                 "kb_id": kb_id,
@@ -2526,6 +2540,7 @@ class RagService:
                 "error": None,
                 "warnings": [],
                 "processor_error": None,
+                **embedding_metadata,
                 "created_at": now,
                 "updated_at": now,
                 "started_at": None,
@@ -2689,6 +2704,9 @@ class RagService:
                 "promotion_required": True,
                 "source_run_id": str(tuning_run_id)[:200],
             }
+            embedding_metadata = self._embedding_job_metadata(
+                config_snapshot.get("embedding_profile")
+            )
             job = {
                 "job_id": job_id,
                 "kb_id": kb_id,
@@ -2712,6 +2730,7 @@ class RagService:
                 "error": None,
                 "warnings": [],
                 "processor_error": None,
+                **embedding_metadata,
                 "created_at": now,
                 "updated_at": now,
                 "started_at": None,
@@ -2821,6 +2840,36 @@ class RagService:
                 namespace = str(job.get("candidate_namespace") or "")
                 self.vector_store.delete_knowledge_base(namespace)
                 self.lexical_store.delete_namespace(namespace)
+                if str(job.get("embedding_execution_mode") or "") == "managed":
+                    try:
+                        gateway = self._managed_embedding_gateway()
+                        run_status = (
+                            gateway.index_run_status(str(job.get("job_id") or ""))
+                            if gateway is not None
+                            else None
+                        )
+                    except Exception:
+                        run_status = "uncertain"
+                    if run_status is not None:
+                        now = time.time()
+                        job["status"] = "failed"
+                        job["error_code"] = (
+                            "provider_embedding_dispatch_uncertain"
+                            if run_status in {"running", "uncertain"}
+                            else "provider_embedding_run_already_recorded"
+                        )
+                        job["error"] = (
+                            "Managed Embedding dispatch is uncertain after process restart; "
+                            "create a new pipeline job."
+                        )
+                        job["completed_at"] = now
+                        job["updated_at"] = now
+                        for stage in job.get("stages", []):
+                            if stage.get("status") in {"pending", "running"}:
+                                stage["status"] = "failed"
+                                stage["error"] = job["error"]
+                        recovered += 1
+                        continue
                 if job.get("deletion_invalidated"):
                     job["status"] = "cancelled"
                     job["cancel_requested"] = True
@@ -3263,6 +3312,11 @@ class RagService:
                 raise PipelineJobStateError(
                     "This job was invalidated by source deletion and cannot be retried."
                 )
+            if str(job.get("embedding_execution_mode") or "") == "managed":
+                raise PipelineJobStateError(
+                    "Managed embedding evidence is immutable; create a new pipeline job "
+                    "instead of retrying this job."
+                )
             job.update(
                 {
                     "status": "queued",
@@ -3405,6 +3459,15 @@ class RagService:
                 "embedding_profile": json.loads(
                     json.dumps(job["config_snapshot"].get("embedding_profile", {}))
                 ),
+                "embedding_space_fingerprint": str(
+                    job.get("embedding_space_fingerprint") or ""
+                ),
+                "embedding_execution_mode": str(
+                    job.get("embedding_execution_mode") or "legacy"
+                ),
+                "provider_route_receipts": json.loads(
+                    json.dumps(job.get("provider_route_receipts"))
+                ),
                 "retrieval_profile": json.loads(
                     json.dumps(job["config_snapshot"].get("retrieval_profile", {}))
                 ),
@@ -3520,6 +3583,12 @@ class RagService:
                 "degraded": bool(effective.get("degraded")),
                 "ready": bool(effective.get("ready")),
                 "reason": str(effective.get("reason") or "") or None,
+                "access_mode": str(effective.get("access_mode") or "legacy"),
+                "embedding_space_fingerprint": str(
+                    version.get("embedding_space_fingerprint")
+                    or embedding.get("embedding_space_fingerprint")
+                    or ""
+                ),
             },
         }
         retrieval = self._retrieval_config_for_version(
@@ -3888,9 +3957,175 @@ class RagService:
             effective = profile.get("effective")
             if not isinstance(effective, dict) or not bool(effective.get("ready")):
                 raise PipelineJobStateError("Pipeline embedding profile is unavailable.")
+            access_mode = str(effective.get("access_mode") or "legacy")
+            if access_mode == "managed" and int(
+                effective.get("vector_dimension") or effective.get("dimension") or 0
+            ) != int(dimension):
+                raise PipelineJobStateError(
+                    "Managed Embedding dimension differs from its certified space."
+                )
+            if access_mode == "local_hash":
+                identity = self._embedding_space_identity(
+                    provider_kind=EMBEDDING_PROVIDER_HASH,
+                    endpoint="local://deterministic-hash-v1",
+                    model_id=HASH_EMBEDDING_MODEL,
+                    vector_dimension=dimension,
+                )
+            elif access_mode == "legacy":
+                base = self.embedder.api_base or "https://api.openai.com/v1"
+                identity = self._embedding_space_identity(
+                    provider_kind=EMBEDDING_PROVIDER_OPENAI_COMPATIBLE,
+                    endpoint=f"{base.rstrip('/')}/embeddings",
+                    model_id=str(effective.get("model") or self.embedder.model),
+                    vector_dimension=dimension,
+                )
+            else:
+                identity = None
             effective["dimension"] = int(dimension)
             profile["effective"] = effective
             profile["dimension"] = int(dimension)
+            if identity is not None:
+                profile["embedding_space_fingerprint"] = str(identity["fingerprint"])
+            job["embedding_space_fingerprint"] = str(
+                profile.get("embedding_space_fingerprint") or ""
+            )
+
+        self._update_pipeline_job(job_id, update)
+
+    async def embed_managed_pipeline_chunks(
+        self,
+        job_id: str,
+        texts: list[str],
+    ) -> list[list[float]]:
+        job = self.get_pipeline_job(job_id)
+        snapshot = job.get("config_snapshot")
+        profile = (
+            snapshot.get("embedding_profile")
+            if isinstance(snapshot, dict)
+            else None
+        )
+        effective = (
+            dict(profile.get("effective") or {})
+            if isinstance(profile, dict)
+            else {}
+        )
+        if str(effective.get("access_mode") or "") != "managed":
+            raise PipelineJobStateError(
+                "Pipeline embedding profile is not managed."
+            )
+        gateway = self._managed_embedding_gateway()
+        if gateway is None or str(gateway.routing_mode()) != "managed_required":
+            raise PipelineDraftValidationError(
+                "Managed Embedding policy is not active."
+            )
+        model_id = str(effective.get("model") or "")
+        expected_fingerprint = str(
+            profile.get("embedding_space_fingerprint") or ""
+        )
+        if not model_id or not expected_fingerprint:
+            raise PipelineJobStateError(
+                "Managed Embedding snapshot is missing its exact space identity."
+            )
+        try:
+            run = gateway.start_index_run(job_id)
+        except Exception as exc:
+            receipt = getattr(exc, "receipt", None)
+            if isinstance(receipt, dict):
+                self._update_pipeline_embedding_evidence(
+                    job_id,
+                    identity=None,
+                    receipt=receipt,
+                )
+            code = str(
+                getattr(exc, "code", "provider_embedding_preflight_failed")
+            )
+            raise ManagedEmbeddingRouteError(
+                code,
+                f"Managed Embedding failed: {code}",
+            ) from exc
+
+        vectors: list[list[float]] = []
+        configured_batch_size = min(
+            256,
+            _safe_env_int("RAG_MANAGED_EMBEDDING_BATCH_SIZE", 64),
+        )
+        batch_size = gateway.response_bounded_batch_size(
+            vector_dimension=int(effective.get("dimension") or 0),
+            requested_batch_size=configured_batch_size,
+        )
+        identity_payload: dict[str, Any] | None = None
+        try:
+            for offset in range(0, len(texts), batch_size):
+                batch_index = offset // batch_size
+                result = await run.embed(
+                    texts[offset : offset + batch_size],
+                    model_id=model_id,
+                    logical_call_key=f"embedding_batch:{batch_index}",
+                    call_sequence=batch_index + 1,
+                    expected_space_fingerprint=expected_fingerprint,
+                )
+                vectors.extend(result.vectors)
+                identity_payload = dict(result.identity.payload())
+            receipt = run.finish_success()
+        except Exception as exc:
+            receipt = getattr(exc, "receipt", None)
+            self._update_pipeline_embedding_evidence(
+                job_id,
+                identity=identity_payload,
+                receipt=(receipt if isinstance(receipt, dict) else run.receipt_summary()),
+            )
+            code = str(getattr(exc, "code", "provider_embedding_failed"))
+            raise ManagedEmbeddingRouteError(
+                code,
+                f"Managed Embedding failed: {code}",
+            ) from exc
+        self._update_pipeline_embedding_evidence(
+            job_id,
+            identity=identity_payload,
+            receipt=receipt,
+        )
+        return vectors
+
+    def _update_pipeline_embedding_evidence(
+        self,
+        job_id: str,
+        *,
+        identity: dict[str, Any] | None,
+        receipt: dict[str, Any] | None,
+    ) -> None:
+        safe_receipt = json.loads(json.dumps(receipt)) if receipt is not None else None
+
+        def update(job: dict[str, Any]) -> None:
+            job["provider_route_receipts"] = safe_receipt
+            if not identity:
+                return
+            snapshot = job.get("config_snapshot")
+            profile = (
+                snapshot.get("embedding_profile")
+                if isinstance(snapshot, dict)
+                else None
+            )
+            effective = (
+                profile.get("effective")
+                if isinstance(profile, dict)
+                else None
+            )
+            if not isinstance(effective, dict):
+                raise PipelineJobStateError(
+                    "Pipeline embedding profile is missing."
+                )
+            expected = str(profile.get("embedding_space_fingerprint") or "")
+            actual = str(identity.get("fingerprint") or "")
+            if not expected or actual != expected:
+                raise PipelineJobStateError(
+                    "Managed Embedding space changed while building the index."
+                )
+            effective["dimension"] = int(identity["vector_dimension"])
+            profile["effective"] = effective
+            profile["dimension"] = int(identity["vector_dimension"])
+            profile["embedding_space_fingerprint"] = actual
+            snapshot["embedding_profile"] = profile
+            job["embedding_space_fingerprint"] = actual
 
         self._update_pipeline_job(job_id, update)
 
@@ -4736,14 +4971,18 @@ class RagService:
         warnings: list[str] = []
         vector_results: list[SearchResult] = []
         lexical_results: list[LexicalSearchResult] = []
+        provider_route_receipts: dict[str, Any] | None = None
+        execution_mode = "local_non_model"
         resolved_embedding_profile = self._resolved_embedding_profile_for_query(
             embedding_profile
         )
 
         async def query_vector_candidates() -> list[SearchResult]:
-            query_embedding = await self._embed_query(
+            nonlocal provider_route_receipts, execution_mode
+            query_embedding, provider_route_receipts, execution_mode = await self._embed_query(
                 clean_question,
                 resolved_embedding_profile,
+                version_reference=namespace,
             )
             return self.vector_store.query(namespace, query_embedding, candidate_count)
 
@@ -4868,6 +5107,8 @@ class RagService:
                 "answer": "没有在该知识库中找到相关内容，请尝试换一种问法或上传更多资料。",
                 "sources": [],
                 "warnings": warnings,
+                "execution_mode": execution_mode,
+                "provider_route_receipts": provider_route_receipts,
                 "retrieval": self._retrieval_diagnostics(
                     config,
                     vector_count=len(vector_results),
@@ -4913,6 +5154,8 @@ class RagService:
                 for result in results
             ],
             "warnings": warnings,
+            "execution_mode": execution_mode,
+            "provider_route_receipts": provider_route_receipts,
             "retrieval": self._retrieval_diagnostics(
                 config,
                 vector_count=len(vector_results),
@@ -5129,18 +5372,66 @@ class RagService:
             "embedding_provider": str(effective.get("provider") or ""),
             "embedding_model": str(effective.get("model") or ""),
             "embedding_dimension": int(effective.get("dimension") or 0),
+            "embedding_space_fingerprint": str(
+                embedding_profile.get("embedding_space_fingerprint") or ""
+            ),
         }
 
     def _resolved_embedding_profile_for_query(
         self,
         profile: dict[str, Any] | None,
     ) -> dict[str, Any]:
-        if not isinstance(profile, dict):
-            return self._default_embedding_profile()
-        resolved = self._validated_embedding_profile(profile, None)
-        stored_effective = profile.get("effective")
+        profile_is_stored = isinstance(profile, dict)
+        stored_profile = (
+            profile if isinstance(profile, dict) else self._default_embedding_profile()
+        )
+        stored_effective = stored_profile.get("effective")
+        stored_access_mode = (
+            str(stored_effective.get("access_mode") or "")
+            if isinstance(stored_effective, dict)
+            else ""
+        )
+        managed_gateway = self._managed_embedding_gateway()
+        managed_mode = (
+            str(managed_gateway.routing_mode())
+            if managed_gateway is not None
+            else "legacy"
+        )
+        requested = self._requested_embedding_profile(stored_profile)
+        stored_fingerprint = str(
+            stored_profile.get("embedding_space_fingerprint") or ""
+        )
+        if (
+            managed_mode == "managed_required"
+            and (
+                not profile_is_stored
+                or requested["provider"] != EMBEDDING_PROVIDER_HASH
+            )
+            and (stored_access_mode != "managed" or not stored_fingerprint)
+        ):
+            blocked = self._validated_embedding_profile(stored_profile, None)
+            blocked_effective = dict(blocked.get("effective") or {})
+            blocked_effective.update(
+                {
+                    "ready": False,
+                    "reason": "provider_embedding_index_rebuild_required",
+                    "access_mode": "managed",
+                }
+            )
+            blocked["effective"] = blocked_effective
+            blocked["ready"] = False
+            blocked["reason"] = "provider_embedding_index_rebuild_required"
+            blocked["embedding_space_fingerprint"] = ""
+            return blocked
+        if (
+            isinstance(stored_effective, dict)
+            and stored_access_mode == "managed"
+        ):
+            return json.loads(json.dumps(stored_profile))
+        resolved = self._validated_embedding_profile(stored_profile, None)
+        stored_effective = stored_profile.get("effective")
         if not isinstance(stored_effective, dict):
-            stored_effective = profile
+            stored_effective = stored_profile
         resolved_effective = dict(resolved.get("effective") or {})
         stored_dimension = int(stored_effective.get("dimension") or 0)
         if (
@@ -5160,14 +5451,54 @@ class RagService:
         self,
         text: str,
         profile: dict[str, Any],
-    ) -> list[float]:
-        self._ensure_embedding_profile_ready(profile)
+        *,
+        version_reference: str,
+    ) -> tuple[list[float], dict[str, Any] | None, str]:
         effective = dict(profile.get("effective") or {})
+        if str(effective.get("reason") or "") == (
+            "provider_embedding_index_rebuild_required"
+        ):
+            raise ManagedEmbeddingRouteError(
+                "provider_embedding_index_rebuild_required",
+                "Managed Embedding requires an explicit index rebuild before use.",
+            )
+        self._ensure_embedding_profile_ready(profile)
         provider = str(effective.get("provider") or "")
         model = str(effective.get("model") or "")
         dimension = int(effective.get("dimension") or 0)
         if dimension <= 0:
             raise EmbeddingError("Embedding profile has no valid vector dimension.")
+
+        access_mode = str(effective.get("access_mode") or "legacy")
+        if access_mode == "managed":
+            gateway = self._managed_embedding_gateway()
+            if gateway is None or str(gateway.routing_mode()) != "managed_required":
+                raise PipelineDraftValidationError(
+                    "Managed Embedding policy is not active for this index version."
+                )
+            run = gateway.start_query_run(version_reference)
+            try:
+                result = await run.embed(
+                    [text],
+                    model_id=model,
+                    logical_call_key="embedding_query:0",
+                    call_sequence=1,
+                    expected_space_fingerprint=str(
+                        profile.get("embedding_space_fingerprint") or ""
+                    ),
+                )
+                receipt = run.finish_success()
+            except Exception as exc:
+                code = str(getattr(exc, "code", "provider_embedding_failed"))
+                raise ManagedEmbeddingRouteError(
+                    code,
+                    f"Managed Embedding query failed: {code}",
+                ) from exc
+            if len(result.vectors) != 1:
+                raise EmbeddingError(
+                    "Managed Embedding query returned an invalid vector count."
+                )
+            return result.vectors[0], receipt, "managed"
 
         if provider == EMBEDDING_PROVIDER_HASH:
             embedder = EmbeddingClient(
@@ -5195,7 +5526,13 @@ class RagService:
                 "Embedding query dimension mismatch: "
                 f"expected {dimension}, received {actual}."
             )
-        return vectors[0]
+        return (
+            vectors[0],
+            None,
+            "local_non_model"
+            if provider == EMBEDDING_PROVIDER_HASH
+            else "legacy",
+        )
 
     def _default_embedding_profile(self) -> dict[str, Any]:
         use_hash = self.embedder.embedding_mode == "hash" or not self.embedder.api_key
@@ -5306,7 +5643,14 @@ class RagService:
         model: str,
     ) -> dict[str, Any]:
         requested = {"provider": provider, "model": model}
+        identity: dict[str, Any] | None = None
         if provider == EMBEDDING_PROVIDER_HASH:
+            identity = self._embedding_space_identity(
+                provider_kind=EMBEDDING_PROVIDER_HASH,
+                endpoint="local://deterministic-hash-v1",
+                model_id=HASH_EMBEDDING_MODEL,
+                vector_dimension=self.embedder.dimension,
+            )
             effective = {
                 "provider": EMBEDDING_PROVIDER_HASH,
                 "model": HASH_EMBEDDING_MODEL,
@@ -5317,20 +5661,59 @@ class RagService:
             }
         else:
             reason: str | None = None
-            if not self.embedder.api_key:
+            managed_gateway = self._managed_embedding_gateway()
+            managed_mode = (
+                str(managed_gateway.routing_mode())
+                if managed_gateway is not None
+                else "legacy"
+            )
+            managed_identity: dict[str, Any] | None = None
+            if managed_mode == "managed_required":
+                try:
+                    managed_identity = dict(
+                        managed_gateway.qualification(model).payload()
+                    )
+                except Exception as exc:
+                    reason = str(
+                        getattr(exc, "code", "provider_embedding_qualification_unavailable")
+                    )
+            elif managed_mode == "degraded_required":
+                reason = "provider_workload_policy_not_active"
+            elif not self.embedder.api_key:
                 reason = "embedding_credentials_missing"
             elif self.embedder.embedding_mode == "hash":
                 reason = "embedding_hash_mode_forced"
-            if reason:
+            if reason or (managed_mode == "managed_required" and managed_identity is None):
                 effective = {
                     "provider": EMBEDDING_PROVIDER_UNAVAILABLE,
                     "model": "",
                     "dimension": 0,
                     "degraded": False,
                     "ready": False,
-                    "reason": reason,
+                    "reason": reason or "provider_embedding_qualification_unavailable",
+                    "access_mode": (
+                        "managed" if managed_mode != "legacy" else "legacy"
+                    ),
                 }
+            elif managed_identity is not None:
+                effective = {
+                    "provider": EMBEDDING_PROVIDER_OPENAI_COMPATIBLE,
+                    "model": model,
+                    "dimension": int(managed_identity["vector_dimension"]),
+                    "degraded": False,
+                    "ready": True,
+                    "reason": None,
+                    "access_mode": "managed",
+                }
+                identity = managed_identity
             else:
+                base = self.embedder.api_base or "https://api.openai.com/v1"
+                identity = self._embedding_space_identity(
+                    provider_kind=EMBEDDING_PROVIDER_OPENAI_COMPATIBLE,
+                    endpoint=f"{base.rstrip('/')}/embeddings",
+                    model_id=model,
+                    vector_dimension=self.embedder.dimension,
+                )
                 effective = {
                     "provider": EMBEDDING_PROVIDER_OPENAI_COMPATIBLE,
                     "model": model,
@@ -5348,6 +5731,98 @@ class RagService:
             "reason": effective["reason"],
             "requested": requested,
             "effective": effective,
+            "embedding_space_fingerprint": str(
+                (identity or {}).get("fingerprint") or ""
+            ),
+        }
+
+    def _managed_embedding_gateway(self) -> Any | None:
+        if self.managed_embedding_gateway is not None:
+            return self.managed_embedding_gateway
+        if os.getenv("MODEL_CONTROL_RAG_EMBEDDING_ENABLED", "").strip().casefold() in {
+            "",
+            "0",
+            "false",
+            "no",
+            "off",
+        }:
+            return None
+        try:
+            try:
+                from server.model_router import get_model_router_service
+                from server.model_router.rag_embedding_gateway import (
+                    ManagedRagEmbeddingGateway,
+                )
+            except ModuleNotFoundError:
+                from model_router import get_model_router_service
+                from model_router.rag_embedding_gateway import (
+                    ManagedRagEmbeddingGateway,
+                )
+
+            self.managed_embedding_gateway = ManagedRagEmbeddingGateway.for_router(
+                get_model_router_service()
+            )
+        except Exception as exc:
+            raise PipelineDraftValidationError(
+                "Managed Embedding control plane is unavailable."
+            ) from exc
+        return self.managed_embedding_gateway
+
+    @staticmethod
+    def _embedding_space_identity(
+        *,
+        provider_kind: str,
+        endpoint: str,
+        model_id: str,
+        vector_dimension: int,
+    ) -> dict[str, Any]:
+        endpoint_digest = hashlib.sha256(endpoint.encode("utf-8")).hexdigest()
+        material = {
+            "contract_version": EMBEDDING_SPACE_CONTRACT_VERSION,
+            "provider_kind": provider_kind,
+            "endpoint_identity_sha256": endpoint_digest,
+            "model_id": model_id,
+            "vector_dimension": int(vector_dimension),
+            "provider_operation_contract_version": "modelmirror-provider-operation-v1",
+        }
+        return {
+            **material,
+            "fingerprint": hashlib.sha256(
+                json.dumps(material, sort_keys=True, separators=(",", ":")).encode(
+                    "utf-8"
+                )
+            ).hexdigest(),
+        }
+
+    @staticmethod
+    def _embedding_job_metadata(profile: Any) -> dict[str, Any]:
+        effective = (
+            dict(profile.get("effective") or {})
+            if isinstance(profile, dict)
+            else {}
+        )
+        access_mode = str(effective.get("access_mode") or "")
+        if not access_mode:
+            access_mode = (
+                "local_hash"
+                if str(effective.get("provider") or "") == EMBEDDING_PROVIDER_HASH
+                else "legacy"
+            )
+        execution_mode = (
+            "managed"
+            if access_mode == "managed"
+            else "local_non_model"
+            if access_mode == "local_hash"
+            else "legacy"
+        )
+        return {
+            "embedding_execution_mode": execution_mode,
+            "embedding_space_fingerprint": str(
+                profile.get("embedding_space_fingerprint")
+                if isinstance(profile, dict)
+                else ""
+            ) or "",
+            "provider_route_receipts": None,
         }
 
     @staticmethod

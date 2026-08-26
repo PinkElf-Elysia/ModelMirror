@@ -19,6 +19,7 @@ from .provider_chat import ProviderChatTarget, ProviderChatTransport
 from .provider_operations import (
     ProviderOperationTarget,
     ProviderOperationTransport,
+    provider_operation_model_matches,
 )
 from .repository import RouterCredentialUnavailable, RouterRepositoryError
 from .schemas import (
@@ -140,8 +141,8 @@ ENTRY_ALLOWED_LOCAL_FALLBACKS.update(
     }
 )
 
-# R6A deliberately provides only the control-plane foundation. Each later data-plane
-# PR adds its entry here after its dedicated tests and real smoke are complete.
+# Each data-plane PR adds its entry here only after the corresponding transport and
+# fail-closed integration exist.  A control-plane-only entry must stay absent.
 DATA_PLANE_INTEGRATED_ENTRIES: frozenset[ProviderWorkloadEntryId] = frozenset(
     {
         "agent_shadow",
@@ -157,6 +158,7 @@ DATA_PLANE_INTEGRATED_ENTRIES: frozenset[ProviderWorkloadEntryId] = frozenset(
         "fusion",
         "route_agent",
         "team_chat",
+        "rag_embedding",
     }
 )
 
@@ -847,6 +849,7 @@ class ProviderWorkloadCertificationService:
                     response_payload,
                     evidence,
                     requested_model=payload.model_id,
+                    provider_kind=connection.kind,
                 )
             else:
                 self._validate_rerank_response(
@@ -946,13 +949,26 @@ class ProviderWorkloadCertificationService:
         evidence: _CertificationEvidence,
         *,
         requested_model: str,
+        provider_kind: str,
     ) -> None:
-        cls._validate_actual_model(
-            response_payload, evidence, requested_model=requested_model
-        )
-        if not evidence.checks["actual_model_verified"]:
+        actual_model = response_payload.get("model")
+        if not isinstance(actual_model, str) or not actual_model:
             raise _WorkloadCertificationFailure(
                 "provider_embedding_actual_model_missing"
+            )
+        evidence.actual_model = actual_model
+        if not provider_operation_model_matches(
+            provider_kind=provider_kind,
+            requested_model=requested_model,
+            actual_model=actual_model,
+        ):
+            raise _WorkloadCertificationFailure(
+                "provider_workload_model_mismatch"
+            )
+        evidence.checks["actual_model_verified"] = True
+        if actual_model != requested_model:
+            evidence.warning_codes.append(
+                "actual_model_provider_prefix_omitted"
             )
         data = response_payload.get("data")
         if not isinstance(data, list) or len(data) != len(SYNTHETIC_EMBEDDING_INPUTS):
@@ -2287,8 +2303,18 @@ class ProviderWorkloadControlService:
                 return None, "provider_workload_fusion_profile_mismatch"
             expected_actual_model = judge_model_id
         actual_model = certification.get("actual_model")
-        if actual_model and str(actual_model) != expected_actual_model:
-            return None, "provider_workload_certification_model_mismatch"
+        if actual_model:
+            matches = (
+                provider_operation_model_matches(
+                    provider_kind=connection.kind,
+                    requested_model=expected_actual_model,
+                    actual_model=str(actual_model),
+                )
+                if execution_shape == "embedding_vectors"
+                else str(actual_model) == expected_actual_model
+            )
+            if not matches:
+                return None, "provider_workload_certification_model_mismatch"
         qualification = {
             "execution_shape": execution_shape,
             "connection_id": connection_id,
@@ -2411,6 +2437,7 @@ class ProviderWorkloadPreparedCall:
     connection_fingerprint: str
     policy_fingerprint: str
     target: ProviderChatTarget
+    operation_target: ProviderOperationTarget | None
     authorized_target: AuthorizedProviderTarget
 
 
@@ -2422,6 +2449,9 @@ class ProviderWorkloadCallService:
         self.repository = router_service.repository
         self.control = ProviderWorkloadControlService(router_service)
         self.transport = ProviderChatTransport(router_service.egress_policy)
+        self.operation_transport = ProviderOperationTransport(
+            router_service.egress_policy
+        )
 
     def start_run(
         self,
@@ -2458,16 +2488,7 @@ class ProviderWorkloadCallService:
             )
         policy = self.control.get_policy(entry_id)
         self._ensure_active(policy)
-        material = json.dumps(
-            {
-                "tenant_id": self.router_service.tenant_id,
-                "entry_id": entry_id,
-                "parent_run_reference": clean_parent,
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        run_id = f"workrun_{hashlib.sha256(material.encode('utf-8')).hexdigest()}"
+        run_id = self.stable_run_id(entry_id, clean_parent)
         row, created = self.repository.claim_stable_workload_run(
             self.router_service.tenant_id,
             run_id=run_id,
@@ -2491,6 +2512,22 @@ class ProviderWorkloadCallService:
                 status_code=409,
             )
         return run_id
+
+    def stable_run_id(
+        self,
+        entry_id: ProviderWorkloadEntryId,
+        parent_run_reference: str,
+    ) -> str:
+        material = json.dumps(
+            {
+                "tenant_id": self.router_service.tenant_id,
+                "entry_id": entry_id,
+                "parent_run_reference": parent_run_reference,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return f"workrun_{hashlib.sha256(material.encode('utf-8')).hexdigest()}"
 
     async def prepare_call(
         self,
@@ -2554,7 +2591,26 @@ class ProviderWorkloadCallService:
             api_key=api_key,
             connection_id=connection.id,
         )
-        authorized = await self.transport.authorize_managed_target(target)
+        operation_target: ProviderOperationTarget | None = None
+        if execution_shape in {
+            "embedding_vectors",
+            "rerank_documents",
+            "openrouter_batch_chat",
+            "openrouter_batch_embeddings",
+        }:
+            operation_target = ProviderOperationTarget.create(
+                provider_kind=connection.kind,
+                connection_id=connection.id,
+                base_url=connection.base_url,
+                api_key=api_key,
+            )
+            authorized = await self.operation_transport.authorize(
+                operation_target,
+                execution_shape,
+                rerank_access_mode=binding.rerank_access_mode,
+            )
+        else:
+            authorized = await self.transport.authorize_managed_target(target)
         call_id = f"workcall_{uuid.uuid4().hex}"
         row, created = self.repository.claim_workload_call(
             self.router_service.tenant_id,
@@ -2589,6 +2645,7 @@ class ProviderWorkloadCallService:
             connection_fingerprint=binding.connection_fingerprint,
             policy_fingerprint=policy.policy_fingerprint,
             target=target,
+            operation_target=operation_target,
             authorized_target=authorized,
         )
 

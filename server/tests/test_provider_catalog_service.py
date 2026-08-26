@@ -22,6 +22,8 @@ def _service(
     handler,
     *,
     scopes: list[str] | None = None,
+    kind: str = "newapi",
+    base_url: str = "https://newapi.example/v1",
     resolver=lambda _host, _port: ["8.8.8.8"],
 ) -> tuple[ProviderCatalogService, SQLiteRouterRepository, str, list[Request]]:
     requests: list[Request] = []
@@ -35,8 +37,8 @@ def _service(
         "local",
         RouterConnectionCreate(
             name="newAPI",
-            kind="newapi",
-            base_url="https://newapi.example/v1",
+            kind=kind,
+            base_url=base_url,
             api_key="catalog-secret",
             scopes=scopes or ["chat"],
         ),
@@ -86,6 +88,48 @@ async def test_refresh_persists_normalized_inventory_without_paid_call(
     connection = repository.get_connection("local", connection_id)
     assert connection.health == "online"
     assert connection.model_count == 2
+
+
+@pytest.mark.asyncio
+async def test_openrouter_embedding_scope_merges_dedicated_model_catalog(
+    tmp_path: Path,
+) -> None:
+    def handler(request: Request) -> Response:
+        if request.url.path == "/api/v1/embeddings/models":
+            return Response(
+                200,
+                json={"data": [{"id": "openai/text-embedding-3-small"}]},
+            )
+        return Response(200, json={"data": [{"id": "provider/chat-model"}]})
+
+    service, repository, connection_id, requests = _service(
+        tmp_path,
+        handler,
+        scopes=["chat", "embedding"],
+        kind="openrouter",
+        base_url="https://openrouter.ai/api/v1",
+    )
+
+    result = await service.refresh_connection(connection_id)
+
+    assert result.status == "succeeded"
+    assert result.model_count == 2
+    assert [request.url.path for request in requests] == [
+        "/api/v1/models",
+        "/api/v1/embeddings/models",
+    ]
+    offerings = repository.list_catalog_offerings("local")
+    assert {
+        (row["model_id"], row["operation"], row["capability_source"])
+        for row in offerings
+    } == {
+        ("provider/chat-model", "chat", "connection_scope"),
+        (
+            "openai/text-embedding-3-small",
+            "embed",
+            "provider_operation_catalog",
+        ),
+    }
 
 
 @pytest.mark.asyncio

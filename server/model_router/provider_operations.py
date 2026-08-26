@@ -21,10 +21,29 @@ ProviderOperation = Literal[
 ProviderRerankAccessMode = Literal["dedicated", "llm_json"]
 
 
+def provider_operation_model_matches(
+    *,
+    provider_kind: str,
+    requested_model: str,
+    actual_model: str,
+) -> bool:
+    """Match exact IDs, plus OpenRouter's documented provider-local response form."""
+
+    if actual_model == requested_model:
+        return True
+    if str(provider_kind).casefold() != "openrouter":
+        return False
+    provider, separator, provider_local_model = requested_model.partition("/")
+    return bool(provider and separator and provider_local_model) and (
+        actual_model == provider_local_model
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class ProviderOperationEndpoints:
     base_url: str
     embeddings_url: str
+    embeddings_models_url: str
     rerank_url: str
     chat_completions_url: str
     batches_url: str | None
@@ -42,6 +61,7 @@ class ProviderOperationEndpointResolver:
         return ProviderOperationEndpoints(
             base_url=base,
             embeddings_url=f"{base}/embeddings",
+            embeddings_models_url=f"{base}/embeddings/models",
             rerank_url=f"{base}/rerank",
             chat_completions_url=chat.chat_completions_url,
             batches_url=(
