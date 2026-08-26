@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
@@ -42,6 +43,24 @@ class GeneratedIndexItem:
 
 class ProcessorGenerationError(RuntimeError):
     """Raised when all configured generation targets or attempts fail."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "rag_processor_generation_failed",
+        receipt: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.receipt = receipt
+
+
+@dataclass(slots=True)
+class ProcessorGenerationOutcome:
+    items: list[GeneratedIndexItem]
+    execution_mode: str
+    provider_route_receipts: dict[str, Any] | None
 
 
 class ProcessorGenerationService:
@@ -123,6 +142,106 @@ class ProcessorGenerationService:
         for index, item in enumerate(generated[:max_items]):
             item.item_id = f"{mode}_{index}"
         return generated[:max_items]
+
+    async def generate_managed(
+        self,
+        document: ProcessedDocument,
+        *,
+        mode: str,
+        model_id: str,
+        max_items: int,
+        managed_run: Any,
+    ) -> ProcessorGenerationOutcome:
+        """Generate through one exact Managed Binding with no hidden retry."""
+
+        if mode not in {"qa", "summary"}:
+            return ProcessorGenerationOutcome([], "managed", None)
+        try:
+            source_blocks = [block for block in document.blocks if block.text.strip()]
+            if not source_blocks:
+                raise ProcessorGenerationError(
+                    "Document contains no blocks for generation.",
+                    code="rag_processor_document_empty",
+                )
+            compact = [
+                {
+                    "block_id": block.block_id,
+                    "kind": block.kind,
+                    "heading_path": block.heading_path,
+                    "page_number": block.page_number,
+                    "text": block.text[:5000],
+                }
+                for block in source_blocks[:100]
+            ]
+            if mode == "qa":
+                batches = self._block_batches(compact)
+            else:
+                summary_blocks: list[dict[str, Any]] = []
+                summary_chars = 0
+                for block in compact:
+                    size = len(str(block.get("text") or ""))
+                    if summary_blocks and summary_chars + size > 60_000:
+                        break
+                    summary_blocks.append(block)
+                    summary_chars += size
+                batches = [summary_blocks]
+
+            generated: list[GeneratedIndexItem] = []
+            for batch_index, batch in enumerate(batches):
+                remaining = max_items - len(generated)
+                if remaining <= 0:
+                    break
+                payload = self._payload(
+                    mode=mode,
+                    model_id=model_id,
+                    title=document.title,
+                    blocks=batch,
+                    max_items=remaining,
+                )
+                content = await managed_run.complete_json_object(
+                    logical_call_key=f"processor_batch:{batch_index}",
+                    call_sequence=batch_index + 1,
+                    model_id=model_id,
+                    messages=list(payload["messages"]),
+                    temperature=float(payload["temperature"]),
+                    max_tokens=int(payload["max_tokens"]),
+                )
+                data = _parse_json_object(content)
+                generated.extend(
+                    self._parse_items(
+                        data,
+                        document=document,
+                        mode=mode,
+                        max_items=remaining,
+                    )
+                )
+            if not generated:
+                raise ProcessorGenerationError(
+                    f"Processor model returned no valid {mode} items.",
+                    code="rag_processor_empty_result",
+                )
+            for index, item in enumerate(generated[:max_items]):
+                item.item_id = f"{mode}_{index}"
+            receipt = managed_run.finish_success()
+            return ProcessorGenerationOutcome(
+                generated[:max_items],
+                "managed",
+                receipt,
+            )
+        except asyncio.CancelledError:
+            managed_run.finish_cancelled()
+            raise
+        except Exception as exc:
+            code = str(getattr(exc, "code", "rag_processor_generation_failed"))
+            receipt = managed_run.finish_failure(code)
+            if isinstance(exc, ProcessorGenerationError):
+                exc.receipt = receipt
+                raise
+            raise ProcessorGenerationError(
+                "Managed Processor generation failed without retrying the batch.",
+                code=code,
+                receipt=receipt,
+            ) from exc
 
     async def _generate_batch(
         self,

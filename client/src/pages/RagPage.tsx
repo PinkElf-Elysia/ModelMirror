@@ -1,6 +1,10 @@
 import { type DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import PageContainer from "../components/PageContainer";
+import {
+  RagExecutionNotice,
+  type RagExecutionMode,
+} from "../components/RagExecutionNotice";
 import XlsxDestinationChooser, {
   isXlsxFile,
 } from "../components/XlsxDestinationChooser";
@@ -302,6 +306,8 @@ interface PipelineVersionQueryResponse {
   version: number;
   answer: string;
   warnings: string[];
+  execution_mode?: RagExecutionMode;
+  fallback_reason_codes?: string[];
   retrieval: Record<string, unknown>;
   sources: Array<{
     chunk_id: string;
@@ -2915,7 +2921,10 @@ export default function RagPage() {
                                     {String(pipelinePreview.retrieval.mode ?? pipelineDraftEdits.retrievalMode)} · Top-{String(pipelinePreview.retrieval.top_k ?? pipelineDraftEdits.topK)}
                                   </span>
                                 </div>
-                                <p className="mt-2 line-clamp-5 text-xs leading-5 text-slate-200">{pipelinePreview.answer}</p>
+                                <div className="mt-2">
+                                  <RagExecutionNotice executionMode={pipelinePreview.execution_mode} />
+                                  <p className="line-clamp-5 text-xs leading-5 text-slate-200">{pipelinePreview.answer}</p>
+                                </div>
                                 {pipelinePreview.warnings.length > 0 ? (
                                   <div className="mt-2 rounded-md border border-amber-300/20 bg-amber-300/10 px-2.5 py-2 text-[11px] leading-5 text-amber-100">
                                     {pipelinePreview.warnings.map((warning) => <p key={warning}>{warning}</p>)}

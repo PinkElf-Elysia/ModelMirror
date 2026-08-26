@@ -49,7 +49,11 @@ from .retrieval import (
     select_candidates,
 )
 from .source_metadata import normalize_heading_path
-from .processor_generator import ProcessorGenerationService
+from .processor_generator import (
+    ProcessorGenerationError,
+    ProcessorGenerationOutcome,
+    ProcessorGenerationService,
+)
 from .pipeline_graph import (
     GraphValidationIssue,
     KnowledgePipelineCompileResult,
@@ -185,6 +189,21 @@ class ManagedEmbeddingRouteError(EmbeddingError):
         self.code = code
 
 
+class ManagedRagGenerationRouteError(RagError):
+    """Stable, redacted failure for a managed RAG generation operation."""
+
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        receipt: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.receipt = receipt
+
+
 class KnowledgeWriteProposalNotFoundError(RagError):
     """Raised when a knowledge write proposal does not exist."""
 
@@ -227,6 +246,7 @@ class RagService:
         processor_generator: ProcessorGenerationService | None = None,
         vision_processor: VisionUnderstandingService | None = None,
         managed_embedding_gateway: Any | None = None,
+        managed_generation_gateway: Any | None = None,
         llm_enabled: bool | None = None,
     ) -> None:
         root = Path(__file__).resolve().parent
@@ -257,6 +277,7 @@ class RagService:
         self.processor_generator = processor_generator or ProcessorGenerationService()
         self.vision_processor = vision_processor or VisionUnderstandingService()
         self.managed_embedding_gateway = managed_embedding_gateway
+        self.managed_generation_gateway = managed_generation_gateway
         self.splitter = splitter or TextSplitter(
             chunk_size=int(os.getenv("RAG_CHUNK_SIZE", "500")),
             chunk_overlap=int(os.getenv("RAG_CHUNK_OVERLAP", "50")),
@@ -2048,7 +2069,9 @@ class RagService:
         chunk_count = int(stages["stage_chunker"]["metadata"].get("chunk_count", 0))
         processor_config = dict(stages["stage_processor"].get("config") or {})
         processor_mode = str(processor_config.get("mode") or "general")
-        processor_capabilities = self.processor_generator.capabilities()
+        processor_capabilities = self._processor_generation_capabilities(
+            str(processor_config.get("model_id") or "")
+        )
         vision_stage = stages["stage_image_understanding"]
         vision_config = dict(vision_stage.get("config") or {})
         vision_capabilities = self.vision_processor.capabilities()
@@ -2153,7 +2176,7 @@ class RagService:
         }
 
     def processor_capabilities(self) -> dict[str, Any]:
-        generation = self.processor_generator.capabilities()
+        generation = self._processor_generation_capabilities()
         return {
             "version": "rag-processor-capabilities-v1",
             "parser": "structured_local_parser",
@@ -2176,6 +2199,45 @@ class RagService:
                 "preview_items": 20,
                 "preview_text_characters": 600,
             },
+        }
+
+    def _processor_generation_capabilities(
+        self,
+        model_id: str | None = None,
+    ) -> dict[str, Any]:
+        gateway = self._managed_generation_gateway()
+        if gateway is None or str(
+            gateway.routing_mode("rag_processor_generate")
+        ) == "legacy":
+            return self.processor_generator.capabilities()
+        if str(gateway.routing_mode("rag_processor_generate")) != "managed_required":
+            return {
+                "llm_configured": False,
+                "model": str(model_id or ""),
+                "targets": ["managed_degraded"],
+            }
+        if model_id is not None and not str(model_id).strip():
+            return {
+                "llm_configured": False,
+                "model": "",
+                "targets": ["managed"],
+            }
+        try:
+            exact_model = gateway.exact_model_id(
+                "rag_processor_generate",
+                "chat_json_object",
+                requested_model=model_id,
+            )
+        except Exception:
+            return {
+                "llm_configured": False,
+                "model": str(model_id or ""),
+                "targets": ["managed"],
+            }
+        return {
+            "llm_configured": True,
+            "model": exact_model,
+            "targets": ["managed"],
         }
 
     def vision_capabilities(self) -> dict[str, Any]:
@@ -2255,12 +2317,17 @@ class RagService:
             )
         except (DocumentParseError, OSError, UnicodeError) as exc:
             raise PipelineDraftValidationError(self._safe_pipeline_error(exc)) from exc
-        generated = await self.processor_generator.generate(
+        generation = await self._generate_processor_items(
             processed,
             mode=str(config.get("mode") or "general"),
             model_id=str(config.get("model_id") or ""),
             max_items=min(20, int(config.get("max_generated_items", 20))),
+            parent_run_reference=(
+                f"rag_processor:preview:{kb_id}:{document_id}:{uuid.uuid4().hex}"
+            ),
+            stable=False,
         )
+        generated = generation.items
         return {
             "kb_id": kb_id,
             "document_id": document_id,
@@ -2278,6 +2345,8 @@ class RagService:
             "generated_items": [
                 item.payload(max_text=600) for item in generated[:20]
             ],
+            "execution_mode": generation.execution_mode,
+            "provider_route_receipts": generation.provider_route_receipts,
         }
 
     def create_pipeline_job(
@@ -3193,12 +3262,15 @@ class RagService:
                         "Structured processor returned an unsupported document payload."
                     )
                 mode = str(profile.get("mode") or "general")
-                generated = await self.processor_generator.generate(
+                generation = await self._generate_processor_items(
                     document,
                     mode=mode,
                     model_id=str(profile.get("model_id") or ""),
                     max_items=int(profile.get("max_generated_items", 20)),
+                    parent_run_reference=f"rag_processor:job:{job_id}:{source_id}",
+                    stable=True,
                 )
+                generated = generation.items
                 artifact = {
                     "processed_document": document.payload(
                         include_text=True,
@@ -3226,6 +3298,10 @@ class RagService:
                     "warnings": list(document.warnings),
                     "error": None,
                     "duration_ms": duration_ms,
+                    "execution_mode": generation.execution_mode,
+                    "provider_route_receipts": (
+                        generation.provider_route_receipts
+                    ),
                 }
                 self._update_pipeline_document_result(
                     job_id,
@@ -3243,6 +3319,16 @@ class RagService:
                         "status": "failed",
                         "error": error,
                         "duration_ms": duration_ms,
+                        "execution_mode": (
+                            "managed"
+                            if isinstance(getattr(exc, "receipt", None), dict)
+                            else "legacy"
+                        ),
+                        "provider_route_receipts": (
+                            getattr(exc, "receipt", None)
+                            if isinstance(getattr(exc, "receipt", None), dict)
+                            else None
+                        ),
                     },
                 )
                 failed.append({"source_id": source_id, "error": error})
@@ -3315,6 +3401,16 @@ class RagService:
             if str(job.get("embedding_execution_mode") or "") == "managed":
                 raise PipelineJobStateError(
                     "Managed embedding evidence is immutable; create a new pipeline job "
+                    "instead of retrying this job."
+                )
+            if any(
+                isinstance(item, dict)
+                and str(item.get("execution_mode") or "") == "managed"
+                and isinstance(item.get("provider_route_receipts"), dict)
+                for item in job.get("document_results", [])
+            ):
+                raise PipelineJobStateError(
+                    "Managed processor evidence is immutable; create a new pipeline job "
                     "instead of retrying this job."
                 )
             job.update(
@@ -4969,6 +5065,7 @@ class RagService:
 
         candidate_count = min(200, config.top_k * config.candidate_multiplier)
         warnings: list[str] = []
+        fallback_reason_codes: list[str] = []
         vector_results: list[SearchResult] = []
         lexical_results: list[LexicalSearchResult] = []
         provider_route_receipts: dict[str, Any] | None = None
@@ -5107,6 +5204,7 @@ class RagService:
                 "answer": "没有在该知识库中找到相关内容，请尝试换一种问法或上传更多资料。",
                 "sources": [],
                 "warnings": warnings,
+                "fallback_reason_codes": fallback_reason_codes,
                 "execution_mode": execution_mode,
                 "provider_route_receipts": provider_route_receipts,
                 "retrieval": self._retrieval_diagnostics(
@@ -5123,7 +5221,26 @@ class RagService:
                 ),
             }
 
-        answer = await self._generate_answer(clean_question, results) if generate_answer else ""
+        if generate_answer:
+            (
+                answer,
+                generation_receipt,
+                generation_mode,
+                fallback_reason_codes,
+            ) = await self._generate_answer_with_control(
+                kb_id,
+                namespace,
+                clean_question,
+                results,
+            )
+            provider_route_receipts = self._merge_provider_route_receipts(
+                provider_route_receipts,
+                generation_receipt,
+            )
+            if generation_mode is not None:
+                execution_mode = generation_mode
+        else:
+            answer = ""
         return {
             "answer": answer,
             "sources": [
@@ -5154,6 +5271,7 @@ class RagService:
                 for result in results
             ],
             "warnings": warnings,
+            "fallback_reason_codes": fallback_reason_codes,
             "execution_mode": execution_mode,
             "provider_route_receipts": provider_route_receipts,
             "retrieval": self._retrieval_diagnostics(
@@ -5170,6 +5288,120 @@ class RagService:
             ),
         }
 
+    async def _generate_answer_with_control(
+        self,
+        kb_id: str,
+        namespace: str,
+        question: str,
+        results: list[RetrievalCandidate],
+    ) -> tuple[str, dict[str, Any] | None, str | None, list[str]]:
+        gateway = self._managed_generation_gateway()
+        if gateway is None or str(
+            gateway.routing_mode("rag_query_generate")
+        ) == "legacy":
+            return await self._generate_answer(question, results), None, None, []
+        if str(gateway.routing_mode("rag_query_generate")) != "managed_required":
+            code = "provider_workload_policy_not_active"
+            raise ManagedRagGenerationRouteError(
+                code,
+                "RAG Query 的 Managed Provider 策略已退化并失败关闭。",
+                receipt=gateway.blocked_receipt("rag_query_generate", code),
+            )
+
+        run: Any | None = None
+        try:
+            model_id = gateway.exact_model_id(
+                "rag_query_generate",
+                "chat_text_unary",
+            )
+            run = gateway.start_run(
+                "rag_query_generate",
+                parent_run_reference=(
+                    f"rag_query:{kb_id}:{namespace[:120]}:{uuid.uuid4().hex}"
+                ),
+                stable=False,
+            )
+            messages, temperature, max_tokens = await self._answer_request(
+                question,
+                results,
+            )
+            answer = await run.complete_text_unary(
+                logical_call_key="rag_query_answer:0",
+                call_sequence=1,
+                model_id=model_id,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            return answer.strip(), run.finish_success(), "managed", []
+        except asyncio.CancelledError:
+            if run is not None:
+                run.finish_cancelled()
+            raise
+        except Exception as exc:
+            code = str(getattr(exc, "code", "rag_query_generation_failed"))
+            receipt = getattr(exc, "receipt", None)
+            if run is not None:
+                receipt = run.finish_failure(code)
+            if not isinstance(receipt, dict):
+                receipt = gateway.blocked_receipt("rag_query_generate", code)
+            if gateway.local_fallback_mode("rag_query_generate") == "extractive":
+                return (
+                    self._extractive_answer(results),
+                    receipt,
+                    "local_non_model",
+                    [code, "local_non_model_fallback"],
+                )
+            raise ManagedRagGenerationRouteError(
+                code,
+                "RAG Query 的 Managed Provider 调用失败，系统未重试或切换目标。",
+                receipt=receipt,
+            ) from exc
+
+    @staticmethod
+    def _merge_provider_route_receipts(
+        first: dict[str, Any] | None,
+        second: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        receipts = [item for item in (first, second) if isinstance(item, dict)]
+        if not receipts:
+            return None
+        if len(receipts) == 1:
+            return receipts[0]
+        calls = [
+            dict(call)
+            for receipt in receipts
+            for call in receipt.get("calls", [])
+            if isinstance(call, dict)
+        ]
+        reason_codes = list(
+            dict.fromkeys(
+                str(code)
+                for receipt in receipts
+                for code in receipt.get("reason_codes", [])
+                if str(code)
+            )
+        )
+        statuses = {str(receipt.get("status") or "") for receipt in receipts}
+        status = (
+            "uncertain"
+            if "uncertain" in statuses
+            else "failed"
+            if "failed" in statuses
+            else "passed"
+        )
+        return {
+            "contract_version": "modelmirror-provider-rag-route-receipts-v1",
+            "routing_mode": "composed",
+            "status": status,
+            "call_count": sum(
+                max(0, int(receipt.get("call_count") or 0)) for receipt in receipts
+            ),
+            "reason_codes": reason_codes,
+            "calls": calls,
+            "components": receipts,
+        }
+
     async def _generate_answer(
         self,
         question: str,
@@ -5179,6 +5411,53 @@ class RagService:
         if not self.llm_enabled or not api_key:
             return self._extractive_answer(results)
 
+        messages, temperature, max_tokens = await self._answer_request(
+            question,
+            results,
+        )
+        payload = {
+            "model": os.getenv("RAG_LLM_MODEL", os.getenv("OPENROUTER_TEXT_FALLBACK_MODEL", "deepseek/deepseek-chat")),
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": False,
+        }
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": os.getenv("OPENROUTER_HTTP_REFERER", "http://localhost:5173"),
+            "X-Title": os.getenv("OPENROUTER_APP_TITLE", "ModelMirror"),
+        }
+        proxy = os.getenv("OPENROUTER_PROXY") or os.getenv("HTTPS_PROXY") or os.getenv("HTTP_PROXY")
+        client_kwargs: dict[str, Any] = {"timeout": httpx.Timeout(45.0, connect=15.0)}
+        if proxy:
+            client_kwargs["proxy"] = proxy
+
+        try:
+            async with httpx.AsyncClient(**client_kwargs) as client:
+                response = await client.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers=headers,
+                    json=payload,
+                )
+                response.raise_for_status()
+                data = response.json()
+        except Exception:
+            return self._extractive_answer(results)
+
+        choices = data.get("choices")
+        if isinstance(choices, list) and choices:
+            message = choices[0].get("message") if isinstance(choices[0], dict) else None
+            content = message.get("content") if isinstance(message, dict) else None
+            if isinstance(content, str) and content.strip():
+                return content.strip()
+        return self._extractive_answer(results)
+
+    async def _answer_request(
+        self,
+        question: str,
+        results: list[RetrievalCandidate],
+    ) -> tuple[list[dict[str, str]], float, int]:
         context = "\n\n".join(
             f"[来源：{result.document_name}]\n{result.context_text}" for result in results
         )
@@ -5214,46 +5493,14 @@ class RagService:
             f"<context>\n{context}\n</context>\n\n"
             f"用户问题：{question}"
         )
-        payload = {
-            "model": os.getenv("RAG_LLM_MODEL", os.getenv("OPENROUTER_TEXT_FALLBACK_MODEL", "deepseek/deepseek-chat")),
-            "messages": [
+        return (
+            [
                 {"role": "system", "content": "你是模镜的知识库问答助手，严谨、简洁，只基于给定资料回答。"},
                 {"role": "user", "content": prompt},
             ],
-            "temperature": float(os.getenv("RAG_TEMPERATURE", "0.2")),
-            "max_tokens": int(os.getenv("RAG_MAX_TOKENS", "1200")),
-            "stream": False,
-        }
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": os.getenv("OPENROUTER_HTTP_REFERER", "http://localhost:5173"),
-            "X-Title": os.getenv("OPENROUTER_APP_TITLE", "ModelMirror"),
-        }
-        proxy = os.getenv("OPENROUTER_PROXY") or os.getenv("HTTPS_PROXY") or os.getenv("HTTP_PROXY")
-        client_kwargs: dict[str, Any] = {"timeout": httpx.Timeout(45.0, connect=15.0)}
-        if proxy:
-            client_kwargs["proxy"] = proxy
-
-        try:
-            async with httpx.AsyncClient(**client_kwargs) as client:
-                response = await client.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    headers=headers,
-                    json=payload,
-                )
-                response.raise_for_status()
-                data = response.json()
-        except Exception:
-            return self._extractive_answer(results)
-
-        choices = data.get("choices")
-        if isinstance(choices, list) and choices:
-            message = choices[0].get("message") if isinstance(choices[0], dict) else None
-            content = message.get("content") if isinstance(message, dict) else None
-            if isinstance(content, str) and content.strip():
-                return content.strip()
-        return self._extractive_answer(results)
+            float(os.getenv("RAG_TEMPERATURE", "0.2")),
+            int(os.getenv("RAG_MAX_TOKENS", "1200")),
+        )
 
     def _extractive_answer(self, results: list[RetrievalCandidate]) -> str:
         best = results[0]
@@ -5736,6 +5983,125 @@ class RagService:
             ),
         }
 
+    def _managed_generation_gateway(self) -> Any | None:
+        if self.managed_generation_gateway is not None:
+            return self.managed_generation_gateway
+        enabled_values = (
+            os.getenv("MODEL_CONTROL_RAG_QUERY_ENABLED", ""),
+            os.getenv("MODEL_CONTROL_RAG_PROCESSOR_ENABLED", ""),
+        )
+        if not any(
+            value.strip().casefold() not in {"", "0", "false", "no", "off"}
+            for value in enabled_values
+        ):
+            return None
+        try:
+            try:
+                from server.model_router import get_model_router_service
+                from server.model_router.rag_generation_gateway import (
+                    ManagedRagGenerationGateway,
+                )
+            except ModuleNotFoundError:
+                from model_router import get_model_router_service
+                from model_router.rag_generation_gateway import (
+                    ManagedRagGenerationGateway,
+                )
+
+            self.managed_generation_gateway = ManagedRagGenerationGateway.for_router(
+                get_model_router_service()
+            )
+        except Exception as exc:
+            raise PipelineDraftValidationError(
+                "Managed RAG generation control plane is unavailable."
+            ) from exc
+        return self.managed_generation_gateway
+
+    async def _generate_processor_items(
+        self,
+        document: ProcessedDocument,
+        *,
+        mode: str,
+        model_id: str,
+        max_items: int,
+        parent_run_reference: str,
+        stable: bool,
+    ) -> ProcessorGenerationOutcome:
+        if mode not in {"qa", "summary"}:
+            return ProcessorGenerationOutcome(
+                await self.processor_generator.generate(
+                    document,
+                    mode=mode,
+                    model_id=model_id,
+                    max_items=max_items,
+                ),
+                "legacy",
+                None,
+            )
+        gateway = self._managed_generation_gateway()
+        if gateway is None or str(
+            gateway.routing_mode("rag_processor_generate")
+        ) == "legacy":
+            return ProcessorGenerationOutcome(
+                await self.processor_generator.generate(
+                    document,
+                    mode=mode,
+                    model_id=model_id,
+                    max_items=max_items,
+                ),
+                "legacy",
+                None,
+            )
+        if str(gateway.routing_mode("rag_processor_generate")) != "managed_required":
+            code = "provider_workload_policy_not_active"
+            raise ProcessorGenerationError(
+                "Managed RAG Processor policy is degraded and fails closed.",
+                code=code,
+                receipt=gateway.blocked_receipt("rag_processor_generate", code),
+            )
+        try:
+            clean_model_id = str(model_id or "").strip()
+            if not clean_model_id:
+                code = "provider_workload_model_required"
+                raise ProcessorGenerationError(
+                    "Managed RAG Processor requires an exact Draft model ID.",
+                    code=code,
+                    receipt=gateway.blocked_receipt(
+                        "rag_processor_generate",
+                        code,
+                    ),
+                )
+            exact_model = gateway.exact_model_id(
+                "rag_processor_generate",
+                "chat_json_object",
+                requested_model=clean_model_id,
+            )
+            run = gateway.start_run(
+                "rag_processor_generate",
+                parent_run_reference=parent_run_reference,
+                stable=stable,
+            )
+            return await self.processor_generator.generate_managed(
+                document,
+                mode=mode,
+                model_id=exact_model,
+                max_items=max_items,
+                managed_run=run,
+            )
+        except ProcessorGenerationError:
+            raise
+        except Exception as exc:
+            code = str(getattr(exc, "code", "rag_processor_generation_failed"))
+            receipt = getattr(exc, "receipt", None)
+            raise ProcessorGenerationError(
+                "Managed RAG Processor failed before dispatch.",
+                code=code,
+                receipt=(
+                    receipt
+                    if isinstance(receipt, dict)
+                    else gateway.blocked_receipt("rag_processor_generate", code)
+                ),
+            ) from exc
+
     def _managed_embedding_gateway(self) -> Any | None:
         if self.managed_embedding_gateway is not None:
             return self.managed_embedding_gateway
@@ -6020,7 +6386,9 @@ class RagService:
                         )
                     ], None
             if str(processor.get("mode") or "general") in {"qa", "summary"}:
-                capabilities = self.processor_generator.capabilities()
+                capabilities = self._processor_generation_capabilities(
+                    str(processor.get("model_id") or "")
+                )
                 if not bool(capabilities.get("llm_configured")):
                     processor_node = next(
                         (

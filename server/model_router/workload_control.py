@@ -158,6 +158,8 @@ DATA_PLANE_INTEGRATED_ENTRIES: frozenset[ProviderWorkloadEntryId] = frozenset(
         "fusion",
         "route_agent",
         "team_chat",
+        "rag_query_generate",
+        "rag_processor_generate",
         "rag_embedding",
     }
 )
