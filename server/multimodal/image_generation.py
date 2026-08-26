@@ -3,10 +3,12 @@ from __future__ import annotations
 import base64
 import binascii
 from collections.abc import Callable
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
 import httpx
+from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, Field
 
 try:
@@ -33,6 +35,15 @@ ALLOWED_OUTPUT_MEDIA_TYPES = {
     "image/webp",
     "image/svg+xml",
 }
+RECRAFT_STYLE_MODEL_IDS = frozenset(
+    {
+        "recraft/recraft-v4-styles",
+        "recraft/recraft-v4-styles-pro",
+        "recraft/recraft-v4-styles-pro-vector",
+        "recraft/recraft-v4-styles-vector",
+    }
+)
+RECRAFT_STYLE_MIN_REFERENCE_EDGE_PX = 256
 
 
 class ImageGenerationItem(BaseModel):
@@ -295,9 +306,16 @@ class ImageGenerationService:
         content_types: list[str | None],
         contents: list[bytes],
     ) -> list[str]:
-        if not contents:
-            return []
         descriptor = profile.supported_parameters.get("input_references")
+        minimum = int(descriptor.min or 0) if descriptor is not None else 0
+        if not contents:
+            if minimum > 0:
+                raise MultimodalServiceError(
+                    "not_enough_image_references",
+                    f"该模型至少需要 {minimum} 张风格参考图。",
+                    status_code=422,
+                )
+            return []
         if descriptor is None:
             raise MultimodalServiceError(
                 "image_references_not_supported",
@@ -311,6 +329,12 @@ class ImageGenerationService:
                 status_code=422,
             )
         maximum = int(descriptor.max or 1)
+        if len(contents) < minimum:
+            raise MultimodalServiceError(
+                "not_enough_image_references",
+                f"该模型至少需要 {minimum} 张风格参考图。",
+                status_code=422,
+            )
         if len(contents) > maximum:
             raise MultimodalServiceError(
                 "too_many_image_references",
@@ -345,6 +369,22 @@ class ImageGenerationService:
                     "参考图内容与文件格式不一致，请重新导出后上传。",
                     status_code=422,
                 )
+            if profile.model_id in RECRAFT_STYLE_MODEL_IDS:
+                try:
+                    with Image.open(BytesIO(content)) as image:
+                        width, height = image.size
+                except (OSError, UnidentifiedImageError) as exc:
+                    raise MultimodalServiceError(
+                        "invalid_image_reference_content",
+                        "参考图内容无法读取，请重新导出后上传。",
+                        status_code=422,
+                    ) from exc
+                if min(width, height) < RECRAFT_STYLE_MIN_REFERENCE_EDGE_PX:
+                    raise MultimodalServiceError(
+                        "image_reference_too_small",
+                        "Recraft 风格参考图的短边至少需要 256 像素。",
+                        status_code=422,
+                    )
             result.append(
                 f"data:{media_type};base64,{base64.b64encode(content).decode('ascii')}"
             )

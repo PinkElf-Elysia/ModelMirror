@@ -1,6 +1,6 @@
 export interface ImagePricingItem {
-  billable: "input_image" | "output_image";
-  unit: "image";
+  billable: "input_image" | "input_reference" | "output_image";
+  unit: "image" | "request";
   cost_usd: number;
   variant?: string | null;
 }
@@ -49,6 +49,30 @@ export const SEEDREAM_5_LITE_PRICING: ImagePricingItem[] = [
   { billable: "output_image", unit: "image", cost_usd: 0.035 },
 ];
 
+// Verified against the four Recraft Styles endpoint profiles on 2026-08-26.
+// Style creation is billed once per request, not once per reference image.
+export const RECRAFT_V4_STYLES_PRICING_BY_MODEL_ID: Record<
+  string,
+  ImagePricingItem[]
+> = {
+  "recraft/recraft-v4-styles": [
+    { billable: "input_reference", unit: "request", cost_usd: 0.005 },
+    { billable: "output_image", unit: "image", cost_usd: 0.035 },
+  ],
+  "recraft/recraft-v4-styles-pro": [
+    { billable: "input_reference", unit: "request", cost_usd: 0.005 },
+    { billable: "output_image", unit: "image", cost_usd: 0.1 },
+  ],
+  "recraft/recraft-v4-styles-vector": [
+    { billable: "input_reference", unit: "request", cost_usd: 0.005 },
+    { billable: "output_image", unit: "image", cost_usd: 0.05 },
+  ],
+  "recraft/recraft-v4-styles-pro-vector": [
+    { billable: "input_reference", unit: "request", cost_usd: 0.005 },
+    { billable: "output_image", unit: "image", cost_usd: 0.12 },
+  ],
+};
+
 function normalized(value?: string) {
   return value?.trim().toLowerCase() ?? "";
 }
@@ -64,9 +88,17 @@ export function estimateImageCost(
   const hasHighResolutionVariant = pricing.some(
     (item) => normalized(item.variant ?? undefined) === "high_resolution",
   );
-  const inputRates = pricing
-    .filter((item) => item.billable === "input_image")
-    .map((item) => item.cost_usd)
+  const inputCosts = pricing
+    .filter(
+      (item) =>
+        item.billable === "input_image" ||
+        item.billable === "input_reference",
+    )
+    .map((item) =>
+      item.unit === "request"
+        ? item.cost_usd
+        : referenceCount * item.cost_usd,
+    )
     .filter((value) => Number.isFinite(value) && value >= 0);
   let outputRates = pricing
     .filter((item) => item.billable === "output_image")
@@ -94,12 +126,12 @@ export function estimateImageCost(
       .map((item) => item.cost_usd)
       .filter((value) => Number.isFinite(value) && value >= 0);
   }
-  if (!outputRates.length || (referenceCount > 0 && !inputRates.length)) {
+  if (!outputRates.length || (referenceCount > 0 && !inputCosts.length)) {
     return null;
   }
 
-  const inputRate = inputRates.length ? Math.max(...inputRates) : 0;
-  const inputUsd = referenceCount * inputRate;
+  const inputUsd =
+    referenceCount > 0 && inputCosts.length ? Math.max(...inputCosts) : 0;
   const minUsd = inputUsd + outputCount * Math.min(...outputRates);
   const maxUsd = inputUsd + outputCount * Math.max(...outputRates);
   return {

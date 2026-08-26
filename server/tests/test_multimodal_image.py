@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import base64
+from io import BytesIO
 from pathlib import Path
 
 import httpx
 import pytest
 from httpx import MockTransport, Request, Response
+from PIL import Image
 
 from server.model_router.repository import SQLiteRouterRepository
 from server.model_router.egress import ProviderEgressPolicy
@@ -17,6 +19,13 @@ from server.multimodal.stt import MultimodalServiceError
 
 
 PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"image-payload"
+SVG_BYTES = b'<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"/>'
+
+
+def png_reference(edge: int) -> bytes:
+    output = BytesIO()
+    Image.new("RGB", (edge, edge), "#7c3aed").save(output, format="PNG")
+    return output.getvalue()
 
 
 def openrouter_service(tmp_path: Path) -> ModelRouterService:
@@ -534,6 +543,248 @@ async def test_image_catalog_fetches_pricing_for_every_generation_model(
     assert by_id["provider/image-a"].pricing[0].cost_usd == 0.025
     assert by_id["provider/image-b"].pricing == []
     assert by_id["provider/image-b"].interaction_status == "ready"
+
+
+@pytest.mark.asyncio
+async def test_recraft_v4_styles_profiles_preserve_dedicated_contract(
+    tmp_path: Path,
+) -> None:
+    model_prices = {
+        "recraft/recraft-v4-styles": 0.035,
+        "recraft/recraft-v4-styles-pro": 0.1,
+        "recraft/recraft-v4-styles-vector": 0.05,
+        "recraft/recraft-v4-styles-pro-vector": 0.12,
+    }
+    vector_ids = {
+        "recraft/recraft-v4-styles-vector",
+        "recraft/recraft-v4-styles-pro-vector",
+    }
+
+    def handler(request: Request) -> Response:
+        if request.url.path.endswith("/images/models"):
+            return Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "id": model_id,
+                            "name": model_id,
+                            "architecture": {
+                                "input_modalities": ["text", "image"],
+                                "output_modalities": ["image"],
+                            },
+                            "supported_parameters": {
+                                "aspect_ratio": {
+                                    "type": "enum",
+                                    "values": ["1:1", "16:9", "auto"],
+                                },
+                                **(
+                                    {
+                                        "output_format": {
+                                            "type": "enum",
+                                            "values": ["svg"],
+                                        }
+                                    }
+                                    if model_id in vector_ids
+                                    else {}
+                                ),
+                                "n": {"type": "range", "min": 1, "max": 6},
+                                "input_references": {
+                                    "type": "range",
+                                    "min": 1,
+                                    "max": 10,
+                                },
+                            },
+                            "supports_streaming": False,
+                        }
+                        for model_id in model_prices
+                    ]
+                },
+            )
+        if "/images/models/" in request.url.path:
+            model_id = request.url.path.split("/images/models/", 1)[1].split(
+                "/endpoints", 1
+            )[0]
+            return Response(
+                200,
+                json={
+                    "endpoints": [
+                        {
+                            "pricing": [
+                                {
+                                    "billable": "output_image",
+                                    "unit": "image",
+                                    "cost_usd": model_prices[model_id],
+                                },
+                                {
+                                    "billable": "input_reference",
+                                    "unit": "request",
+                                    "cost_usd": 0.005,
+                                },
+                            ],
+                            "allowed_passthrough_parameters": [
+                                "style_id",
+                                "style_match",
+                                "controls",
+                                "random_seed",
+                            ],
+                        }
+                    ]
+                },
+            )
+        return Response(200, json={"data": []})
+
+    catalog = ImageCatalogService(
+        openrouter_service(tmp_path),
+        client_factory=lambda: httpx.AsyncClient(
+            transport=MockTransport(handler)
+        ),
+    )
+    result = await catalog.get_catalog()
+    profiles = {
+        item.model_id: item
+        for item in result.profiles
+        if item.model_id in model_prices
+    }
+
+    assert set(profiles) == set(model_prices)
+    for model_id, output_price in model_prices.items():
+        profile = profiles[model_id]
+        assert profile.supports_streaming is False
+        assert profile.supported_parameters["n"].max == 6
+        assert profile.supported_parameters["input_references"].min == 1
+        assert profile.supported_parameters["input_references"].max == 10
+        assert [item.model_dump() for item in profile.pricing] == [
+            {
+                "billable": "output_image",
+                "unit": "image",
+                "cost_usd": output_price,
+                "variant": None,
+            },
+            {
+                "billable": "input_reference",
+                "unit": "request",
+                "cost_usd": 0.005,
+                "variant": None,
+            },
+        ]
+        if model_id in vector_ids:
+            assert profile.supported_parameters["output_format"].values == [
+                "svg"
+            ]
+        else:
+            assert "output_format" not in profile.supported_parameters
+
+
+@pytest.mark.asyncio
+async def test_recraft_styles_requires_valid_reference_and_accepts_svg_output(
+    tmp_path: Path,
+) -> None:
+    model_id = "recraft/recraft-v4-styles-pro-vector"
+
+    def catalog_handler(request: Request) -> Response:
+        if request.url.path.endswith(f"/images/models/{model_id}/endpoints"):
+            return Response(200, json={"endpoints": []})
+        if request.url.path.endswith("/images/models"):
+            return Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "id": model_id,
+                            "name": "Recraft V4 Styles Pro Vector",
+                            "architecture": {
+                                "input_modalities": ["text", "image"],
+                                "output_modalities": ["image"],
+                            },
+                            "supported_parameters": {
+                                "output_format": {
+                                    "type": "enum",
+                                    "values": ["svg"],
+                                },
+                                "n": {"type": "range", "min": 1, "max": 6},
+                                "input_references": {
+                                    "type": "range",
+                                    "min": 1,
+                                    "max": 10,
+                                },
+                            },
+                            "supports_streaming": False,
+                        }
+                    ]
+                },
+            )
+        return Response(200, json={"data": []})
+
+    catalog = ImageCatalogService(
+        openrouter_service(tmp_path),
+        client_factory=lambda: httpx.AsyncClient(
+            transport=MockTransport(catalog_handler)
+        ),
+    )
+    submitted: list[dict[str, object]] = []
+
+    def generation_handler(request: Request) -> Response:
+        submitted.append(httpx.Response(200, content=request.content).json())
+        return Response(
+            200,
+            headers={"x-request-id": "req_recraft_svg"},
+            json={
+                "model": model_id,
+                "data": [
+                    {
+                        "b64_json": base64.b64encode(SVG_BYTES).decode(),
+                        "media_type": "image/svg+xml",
+                    }
+                ],
+            },
+        )
+
+    service = ImageGenerationService(
+        catalog,
+        client_factory=lambda: httpx.AsyncClient(
+            transport=MockTransport(generation_handler)
+        ),
+    )
+
+    with pytest.raises(MultimodalServiceError) as missing:
+        await service.generate(
+            model_id=model_id,
+            prompt="测试风格",
+            output_format="svg",
+            reference_filenames=[],
+            reference_content_types=[],
+            reference_contents=[],
+        )
+    assert missing.value.code == "not_enough_image_references"
+
+    with pytest.raises(MultimodalServiceError) as too_small:
+        await service.generate(
+            model_id=model_id,
+            prompt="测试风格",
+            output_format="svg",
+            reference_filenames=["small.png"],
+            reference_content_types=["image/png"],
+            reference_contents=[png_reference(128)],
+        )
+    assert too_small.value.code == "image_reference_too_small"
+
+    result = await service.generate(
+        model_id=model_id,
+        prompt="测试风格",
+        n=2,
+        output_format="svg",
+        reference_filenames=["style.png"],
+        reference_content_types=["image/png"],
+        reference_contents=[png_reference(256)],
+    )
+
+    assert result.request_id == "req_recraft_svg"
+    assert result.images[0].media_type == "image/svg+xml"
+    assert submitted[0]["model"] == model_id
+    assert submitted[0]["n"] == 2
+    assert submitted[0]["output_format"] == "svg"
+    assert len(submitted[0]["input_references"]) == 1
 
 
 @pytest.mark.asyncio

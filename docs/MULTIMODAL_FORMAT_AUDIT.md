@@ -284,6 +284,17 @@ UI：模型卡进入“分析视频”或“生成视频”专用工作区
 
 实时翻译、语音/视频电话、SIP、自定义持久音色库、实时工具调用、音频 URL、Chat 视频 URL、Agent 统一文件资产 binding、跨模块免重选转交和其他尚未开放格式继续延期，必须重新建立独立验收路线。
 
+### Recraft V4 Styles 图片契约
+
+2026-08-26 对 OpenRouter 专用 Images 目录与四个端点逐项核对后，已适配 `recraft/recraft-v4-styles`、`recraft/recraft-v4-styles-pro`、`recraft/recraft-v4-styles-vector` 和 `recraft/recraft-v4-styles-pro-vector`：
+
+- 四款均走 `POST /api/v1/images`，不进入 Chat SSE；输入为文本与 1–10 张风格参考图，单次输出 1–6 张图片，支持 12 种画幅比例。
+- 每张参考图只接受 JPG、PNG 或 WebP，短边至少 256 像素；前后端都阻止缺少参考图的付费请求。
+- Vector 两款只开放目录声明的 `output_format=svg`，返回内容继续经过完整 base64、MIME 与 SVG 文件签名校验。
+- 费用由“每张输出图 + 每次请求一次风格创建”组成；风格创建费为 $0.005/请求，不按参考图数量重复计算。四款输出价依次为 $0.035、$0.10、$0.05、$0.12/张。
+- 端点列出的 `style_id`、`style_match`、`controls` 和 `random_seed` 缺少公开类型约束，本轮不猜测 UI 或任意透传 JSON。
+- 本轮只完成公开契约、模拟提交、输出校验和费用估算回归；未执行真实付费生成，不将其描述为人工成片验收。
+
 ### 通用 STT 后端契约
 
 批次 B 新增：

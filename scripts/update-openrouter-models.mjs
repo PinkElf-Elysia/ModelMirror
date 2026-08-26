@@ -27,6 +27,11 @@ const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
   "deepgram/flux-tts:free",
   "heygen/avatar-iv",
   "alibaba/wan-3.0",
+  "black-forest-labs/flux-video-upscale",
+  "recraft/recraft-v4-styles",
+  "recraft/recraft-v4-styles-pro",
+  "recraft/recraft-v4-styles-pro-vector",
+  "recraft/recraft-v4-styles-vector",
   "x-ai/grok-imagine-image-2.0",
 ]);
 
@@ -55,6 +60,30 @@ function readInputPath() {
 
 function existingModelsOnly() {
   return process.argv.includes("--existing-only");
+}
+
+const PHASE_FLAGS = new Map([
+  ["--missing-only", "missing"],
+  ["--batch-only", "batch"],
+  ["--metadata-only", "metadata"],
+  ["--lifecycle-only", "lifecycle"],
+]);
+
+function refreshPhase() {
+  const selected = [...PHASE_FLAGS.entries()].filter(([flag]) =>
+    process.argv.includes(flag),
+  );
+  if (selected.length > 1) {
+    throw new Error(
+      `Refresh phase flags are mutually exclusive: ${selected
+        .map(([flag]) => flag)
+        .join(", ")}`,
+    );
+  }
+  if (selected.length && existingModelsOnly()) {
+    throw new Error("--existing-only cannot be combined with a phase flag");
+  }
+  return selected[0]?.[1] ?? "full";
 }
 
 function providerSlug(modelId) {
@@ -188,6 +217,30 @@ function parseCatalogModels(source) {
   return JSON.parse(rawJson);
 }
 
+function parseBatchServingVariants(source) {
+  const start = source.indexOf(BATCH_VARIANT_ARRAY_MARKER);
+  const end = source.indexOf(UNCERTAIN_BLOCK_MARKER, start);
+  if (start < 0 || end < 0) {
+    throw new Error("Unable to locate rawBatchServingVariants in models.ts");
+  }
+  const rawJson = source
+    .slice(start + BATCH_VARIANT_ARRAY_MARKER.length, end)
+    .replace(/;\s*$/, "");
+  return JSON.parse(rawJson);
+}
+
+function parseUncertainModelIds(source) {
+  const start = source.indexOf(UNCERTAIN_MARKER);
+  const end = source.indexOf(CURRENT_TIME_MARKER, start);
+  if (start < 0 || end < 0) {
+    throw new Error("Unable to locate uncertainCatalogModelIds in models.ts");
+  }
+  const rawJson = source
+    .slice(start + UNCERTAIN_MARKER.length, end)
+    .replace(/\);\s*$/, "");
+  return JSON.parse(rawJson);
+}
+
 function parseExistingAuthors(...sources) {
   const authors = new Map();
   for (const source of sources) {
@@ -243,6 +296,11 @@ function normalizeModel(model, existingAuthors) {
   };
 }
 
+function preserveLocalOverlay(model, currentModel) {
+  if (!currentModel?.note) return model;
+  return { ...model, note: currentModel.note };
+}
+
 async function main() {
   const source = await fs.readFile(TARGET_PATH, "utf8");
   const existingAuthors = parseExistingAuthors(source);
@@ -252,9 +310,14 @@ async function main() {
   }
 
   const currentModels = parseCatalogModels(source).map(compactStoredModel);
+  const currentBatchServingVariants = parseBatchServingVariants(source).map(
+    compactStoredModel,
+  );
+  const currentUncertainModelIds = parseUncertainModelIds(source);
   const currentModelsById = new Map(
     currentModels.map((model) => [model.id, model]),
   );
+  const phase = refreshPhase();
   const updateExistingOnly = existingModelsOnly();
   const catalogModels = payload.data
     .filter((model) => model && typeof model.id === "string")
@@ -262,24 +325,28 @@ async function main() {
   const liveModels = catalogModels.filter(
     (model) => !model.id.endsWith(BATCH_VARIANT_SUFFIX),
   );
-  const batchServingVariants = catalogModels
+  const liveBatchServingVariants = catalogModels
     .filter((model) => model.id.endsWith(BATCH_VARIANT_SUFFIX))
     .sort(
       (left, right) =>
         right.created - left.created || left.id.localeCompare(right.id),
     );
-  const retainedModels = currentModels;
   const liveModelIds = new Set(liveModels.map((model) => model.id));
-  const mergedById = new Map(retainedModels.map((model) => [model.id, model]));
-  for (const model of liveModels) {
-    if (updateExistingOnly && !currentModelsById.has(model.id)) continue;
-    const specializedModel = currentModelsById.get(model.id);
-    mergedById.set(
-      model.id,
-      SPECIALIZED_CATALOG_MODEL_IDS.has(model.id) && specializedModel
-        ? specializedModel
-        : model,
-    );
+  const mergedById = new Map(currentModels.map((model) => [model.id, model]));
+  if (phase === "full" || phase === "missing" || phase === "metadata") {
+    for (const model of liveModels) {
+      const currentModel = currentModelsById.get(model.id);
+      if (phase === "missing" && currentModel) continue;
+      if ((updateExistingOnly || phase === "metadata") && !currentModel) {
+        continue;
+      }
+      mergedById.set(
+        model.id,
+        SPECIALIZED_CATALOG_MODEL_IDS.has(model.id) && currentModel
+          ? currentModel
+          : preserveLocalOverlay(model, currentModel),
+      );
+    }
   }
   const normalized = [...mergedById.values()]
     .sort(
@@ -287,17 +354,24 @@ async function main() {
         right.created - left.created || left.id.localeCompare(right.id),
     );
   const nowSeconds = Math.floor(Date.now() / 1000);
-  const uncertainModelIds = normalized
-    .filter(
-      (model) =>
-        !liveModelIds.has(model.id) &&
-        !(
-          model.expiration_date !== null &&
-          model.expiration_date <= nowSeconds
-        ),
-    )
-    .map((model) => model.id)
-    .sort((left, right) => left.localeCompare(right));
+  const refreshLifecycle = phase === "full" || phase === "lifecycle";
+  const uncertainModelIds = refreshLifecycle
+    ? normalized
+        .filter(
+          (model) =>
+            !liveModelIds.has(model.id) &&
+            !(
+              model.expiration_date !== null &&
+              model.expiration_date <= nowSeconds
+            ),
+        )
+        .map((model) => model.id)
+        .sort((left, right) => left.localeCompare(right))
+    : currentUncertainModelIds;
+  const batchServingVariants =
+    phase === "full" || phase === "batch"
+      ? liveBatchServingVariants
+      : currentBatchServingVariants;
 
   const start = source.indexOf(ARRAY_MARKER);
   const currentTimeStart = source.indexOf(CURRENT_TIME_MARKER, start);
@@ -336,7 +410,7 @@ async function main() {
 
   await fs.writeFile(TARGET_PATH, nextSource, "utf8");
   process.stdout.write(
-    `Updated ${path.relative(process.cwd(), TARGET_PATH)} with ${normalized.length} snapshot models (${liveModels.length} live, ${uncertainModelIds.length} uncertain) and ${batchServingVariants.length} uncounted batch serving variants.\n`,
+    `Updated ${path.relative(process.cwd(), TARGET_PATH)} in ${phase} mode with ${normalized.length} snapshot models (${liveModels.length} upstream live, ${uncertainModelIds.length} uncertain) and ${batchServingVariants.length} uncounted batch serving variants.\n`,
   );
 }
 

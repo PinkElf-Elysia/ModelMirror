@@ -10,6 +10,7 @@ import type { Model } from "../data/models";
 import {
   estimateImageCost,
   GROK_IMAGINE_IMAGE_2_PRICING,
+  RECRAFT_V4_STYLES_PRICING_BY_MODEL_ID,
   SEEDREAM_5_LITE_PRICING,
   SEEDREAM_5_PRO_PRICING,
   type ImagePricingItem,
@@ -128,6 +129,17 @@ export default function ImageGenerationWorkspace({
     0,
     Number(supported.input_references?.max ?? 0),
   );
+  const referenceMinimum = Math.max(
+    0,
+    Number(supported.input_references?.min ?? 0),
+  );
+  const estimatedReferenceCount = Math.max(
+    references.length,
+    referenceMinimum,
+  );
+  const requiresRecraftReferenceSize = model.id.startsWith(
+    "recraft/recraft-v4-styles",
+  );
   const costEstimate = useMemo(
     () => {
       if (!profile) return null;
@@ -139,10 +151,10 @@ export default function ImageGenerationWorkspace({
             ? SEEDREAM_5_PRO_PRICING
           : model.id === "bytedance-seed/seedream-5-0-lite"
             ? SEEDREAM_5_LITE_PRICING
-          : [];
+            : RECRAFT_V4_STYLES_PRICING_BY_MODEL_ID[model.id] ?? [];
       return estimateImageCost(pricing, {
         outputCount: Number(parameters.n || 1),
-        referenceCount: references.length,
+        referenceCount: estimatedReferenceCount,
         resolution: parameters.resolution,
         quality: parameters.quality,
       });
@@ -153,7 +165,7 @@ export default function ImageGenerationWorkspace({
       parameters.quality,
       parameters.resolution,
       profile,
-      references.length,
+      estimatedReferenceCount,
     ],
   );
   const costLabel = costEstimate
@@ -183,6 +195,10 @@ export default function ImageGenerationWorkspace({
     event.preventDefault();
     if (!profile || profile.interaction_status !== "ready") {
       setError("该模型的图片生成能力尚未获得实时确认，请刷新后重试。");
+      return;
+    }
+    if (references.length < referenceMinimum) {
+      setError(`该模型至少需要 ${referenceMinimum} 张风格参考图。`);
       return;
     }
     setBusy(true);
@@ -309,7 +325,11 @@ export default function ImageGenerationWorkspace({
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold text-white">参考图</p>
-                    <p className="mt-1 text-xs text-slate-400">用于图片编辑或保持主体风格，最多 {referenceLimit} 张。</p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      {referenceMinimum > 0
+                        ? `用于创建生成风格，必须上传 ${referenceMinimum}–${referenceLimit} 张${requiresRecraftReferenceSize ? "；每张短边至少 256 像素" : ""}。`
+                        : `用于图片编辑或保持主体风格，最多 ${referenceLimit} 张。`}
+                    </p>
                   </div>
                   <label className="cursor-pointer rounded-full border border-white/15 px-3 py-2 text-xs font-semibold hover:bg-white/[0.06]">
                     选择图片
@@ -346,7 +366,7 @@ export default function ImageGenerationWorkspace({
                   </p>
                   <p className="mt-1 text-xs leading-5 text-slate-400">
                     {costEstimate.inputUsd > 0
-                      ? `已包含 ${references.length} 张参考图 ${formatUsd(costEstimate.inputUsd)}。`
+                      ? `已包含参考图相关费用 ${formatUsd(costEstimate.inputUsd)}。`
                       : costEstimate.exact
                         ? "按当前分辨率、质量和生成数量估算。"
                         : "选择分辨率和质量后可缩小估算区间。"}
@@ -362,7 +382,12 @@ export default function ImageGenerationWorkspace({
             {error ? <p className="rounded-lg border border-rose-300/25 bg-rose-300/10 px-4 py-3 text-sm text-rose-100">{error}</p> : null}
             <button
               className="w-full rounded-lg bg-fuchsia-300 px-4 py-3 text-sm font-semibold text-ink-950 disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={busy || !prompt.trim() || profile?.interaction_status !== "ready"}
+              disabled={
+                busy ||
+                !prompt.trim() ||
+                profile?.interaction_status !== "ready" ||
+                references.length < referenceMinimum
+              }
               type="submit"
             >
               {busy

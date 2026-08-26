@@ -18,6 +18,11 @@ const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
   "deepgram/flux-tts:free",
   "heygen/avatar-iv",
   "alibaba/wan-3.0",
+  "black-forest-labs/flux-video-upscale",
+  "recraft/recraft-v4-styles",
+  "recraft/recraft-v4-styles-pro",
+  "recraft/recraft-v4-styles-pro-vector",
+  "recraft/recraft-v4-styles-vector",
   "x-ai/grok-imagine-image-2.0",
 ]);
 
@@ -333,15 +338,9 @@ async function main() {
       generalVideoOutputWithoutDedicatedApi,
     uncertain_status_mismatches: uncertainStatusMismatches,
     expired_model_ids: expiredIds,
-    specialized_metadata_exceptions: [
-      "bytedance-seed/seedream-5-0-pro uses the dedicated image catalog contract",
-      "bytedance-seed/seedream-5-0-lite uses the dedicated image catalog contract",
-      "bytedance/seedance-2.0-mini uses the dedicated video catalog contract",
-      "deepgram/flux-tts:free uses the dedicated speech catalog contract",
-      "heygen/avatar-iv uses the dedicated video catalog contract",
-      "alibaba/wan-3.0 uses the dedicated video catalog contract",
-      "x-ai/grok-imagine-image-2.0 uses the dedicated image catalog contract",
-    ],
+    specialized_metadata_exceptions: [...SPECIALIZED_CATALOG_MODEL_IDS]
+      .sort((left, right) => left.localeCompare(right))
+      .map((modelId) => `${modelId} uses a dedicated media catalog contract`),
   };
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   if (
