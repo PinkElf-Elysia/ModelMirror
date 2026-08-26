@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import subprocess
 import sys
+from collections import Counter
 from pathlib import Path
 from typing import get_args
 
@@ -82,6 +83,12 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
 
     assert len(rows) == 563
     assert len({row["来源条目标识"] for row in rows}) == 563
+    assert Counter(row["覆盖等级"] for row in rows) == {
+        "exact": 35,
+        "limited": 66,
+        "composable": 271,
+        "none": 191,
+    }
     mapped = {row["n8n内部标识"]: row for row in rows}
     mapped_by_source = {row["来源条目标识"]: row for row in rows}
     assert mapped["scheduleTrigger"]["模镜对应节点"] == "scheduled_start"
@@ -148,6 +155,7 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
         assert "不执行" in code_row["判断说明"]
     assert all("template_transform" not in row["模镜对应节点"] for row in rows)
     for key in (
+        "form",
         "splitOut",
         "moveBinaryData",
         "html",
@@ -162,6 +170,7 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
         assert mapped[key]["模镜当前状态"] == "未实现"
         assert mapped[key]["模镜对应节点"] == "—"
         assert mapped[key]["覆盖等级"] == "none"
+    assert mapped["formTrigger"]["覆盖等级"] == "none"
     assert mapped["aiTransform"]["模镜对应节点"] == "llm / variable_assign"
     assert all(mapped[key]["模镜当前状态"] == "已实现" for key in (
         "scheduleTrigger", "webhook", "wait", "respondToWebhook", "errorTrigger",
