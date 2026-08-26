@@ -118,3 +118,106 @@ R2 不启用 ACP/Codex transport，也不调用真实模型。范围只覆盖生
 - Adapter 与 `ProviderSidecarClientPool` 均以 `task_id + private session_id` 绑定会话，防止两个隔离槽使用相同私有 ID 时发生覆盖或串路由。
 
 R2 的结论只允许表述为“中立 HarnessDriver 边界完成收口”。真实 OpenCode/Claude 任务、ACP/Codex 实时 transport、校准、认证和任何等效表述仍不属于本轮。
+
+## 12. R3 真实烟测复盘与收口决定
+
+R3 在自动门禁通过后尝试四项真实任务，但按停止条件未形成一次完整矩阵。后续不再通过增加付费重试或针对单次模型行为继续追加补丁。
+
+### 12.1 冻结事实
+
+| 指标 | 结果 |
+| --- | ---: |
+| Smoke Journal | 14 |
+| 已创建任务 | 41 |
+| 完成 | 2 |
+| 失败 | 11 |
+| budget_limited | 1 |
+| fail-closed 后取消 | 27 |
+| 计划但未创建 | 15 |
+| 完整四项矩阵 | 0 |
+| Task 4 实际创建 | 0 |
+
+Controller 先并行创建 Task 1/3，再创建排队的 Task 2；只有前三项全部完成后才创建 Task 4。因此该矩阵适合作为最终门禁，不适合作为故障定位工具。任一前置失败都会取消其余任务并遮蔽 Task 4 覆盖。
+
+### 12.2 十四次运行台账
+
+planned 表示未创建，不消耗该任务额度。Schema v1 的 cleanup_success 只证明清理成功；它覆盖了主失败，不能作为运行成功或精确归因证据。
+
+| Journal | Schema | Task 1 / 2 / 3 / 4 | 可证明主结论 |
+| --- | --- | --- | --- |
+| final-01 | v1 | cancelled / cancelled / failed / planned | 主失败不可恢复归因 |
+| final-02 | v1 | failed / cancelled / cancelled / planned | 主失败不可恢复归因 |
+| openrouter-01 | v1 | failed / planned / failed / planned | 主失败不可恢复归因 |
+| openrouter-02 | v1 | failed / cancelled / failed / planned | 主失败不可恢复归因 |
+| openrouter-03 | v1 | cancelled / cancelled / cancelled / planned | 主失败不可恢复归因 |
+| openrouter-04 | v1 | cancelled / cancelled / cancelled / planned | 主失败不可恢复归因 |
+| openrouter-05 | v1 | completed / failed / cancelled / planned | 仅 Task 1 单项完成 |
+| openrouter-06 | v1 | cancelled / failed / failed / planned | 主失败不可恢复归因 |
+| r3-01 | v2 | budget_limited / cancelled / completed / planned | OpenCode 流停滞；仅 Claude Python 完成 |
+| streamfix-01 | v2 | cancelled / cancelled / cancelled / planned | unexpected_approval_intent |
+| cleanupfix-01 | v2 | cancelled / cancelled / cancelled / planned | unexpected_approval_intent |
+| racefix-01 | v2 | failed / cancelled / cancelled / planned | Driver transport failure 与越界审批并存 |
+| cancelracefix-01 | v2 | failed / cancelled / cancelled / planned | 隔离栈短占位 Key，运行无效 |
+| cancelracefix-02 | v2 | cancelled / cancelled / cancelled / planned | 无必要的依赖安装 Shell 意图 |
+
+最后一次 Task 1 的冻结 python -m pytest -q 已实际运行并得到 1 failed, 2 passed，证明 pytest 与异步插件可用；随后请求 pip install pytest-asyncio 属于 Agent 策略偏离，不是夹具缺依赖。
+
+### 12.3 归因与保留范围
+
+保留的产品不变量修复：
+
+- Provider stream 由精确 session/turn 所有，interrupt/close 后确定回收；迟到清理不能 fence 新 turn。
+- stall、认证、协议、Broker 与 Executor 错误使用稳定中立分类，不再全部折叠为通用失败。
+- 公共事件使用供应商中立调用 ID，不暴露供应商原始工具 ID。
+- 取消先持久化终态，再中止 Provider；未决审批与剩余租约原子结算。
+- 外层取消必须回收同 tick 完成的 Driver 异常，禁止 cancelled -> failed 和未观察异常。
+- mutate 副作用结果无法证明时保持 operation_result_unknown，只允许精确 reconcile。
+
+对应离线回归包括：
+
+- test_v20_driver_replaces_supplier_tool_ids_before_public_events
+- test_stale_stream_cleanup_cannot_interrupt_the_next_harness_turn
+- test_harness_interrupt_deterministically_closes_nested_provider_stream
+- test_v20_stalled_harness_stream_is_transport_failure_not_budget
+- test_user_cancel_wins_over_concurrent_provider_abort_frame
+- test_cancel_atomically_settles_pending_approval_and_revokes_lease
+- test_outer_cancellation_retrieves_driver_exception_that_finished_same_tick
+- test_mcp_rejects_empty_shell_arguments_before_rpc
+- test_closing_session_quiesces_sidecar_stream_before_reusing_slot
+
+不作为根因修复保留的内容：
+
+- 不依靠提示词禁止 Shell 浏览、搜索或安装依赖。
+- 不依靠包管理器字符串正则证明 Shell 策略完备。
+- 不为某次采样中的新命令继续追加命令特例。
+
+现有相对路径、宿主/private runtime 路径拒绝仍属于 Broker 安全边界。评测场景的冻结命令白名单必须在审批创建前由 EvaluationAdapter/Broker 共同执行；在该能力完成前，外置 Controller 的事后 fail-closed 只能算评测保护，不能算生产策略证明。
+
+### 12.4 交付状态与重新进入条件
+
+V20 当前保持 Experimental，不得使用本任务卡第 6 节的最终结论，不得据此进入 V21。当前只允许表述：
+
+> Harness Protocol Kernel 的若干真实生命周期与副作用不变量已修复；标准 Driver 的完整生产闭环尚未通过。
+
+零额度收口中，空参数 fail-closed、冻结命令匹配、Provider RPC/Runtime 专项和一次完整 Coding Worker 套件通过；完整套件此前仍曾在压力下复现取消后槽位复用失败。单次 `611 passed / 5 skipped` 不能覆盖该历史失败，因此不作为稳定性封板证据。
+
+sidecar 现会在 session close 前精确回收该 session 的服务端 message handler；这修复了“Provider 要求流先静默”时的可证问题，但不宣称已解释或消除全部压力竞态。
+
+重新进入真实验证前必须同时满足：
+
+1. 用已捕获的真实失败帧完成无模型离线 replay，覆盖空工具参数、断流、迟到事件、取消竞态和越界命令。
+2. 每个 Driver 先独立、顺序完成资格探针；最终四项矩阵只用于封板，不再承担调试。
+3. 冻结命令策略在审批创建前生效，而不是只存在于提示词和外置 Controller。
+4. 候选迁移到最新主线并重新执行受影响自动门禁。
+
+R3 不新增公共 API、数据库或运行协议，不调用额外模型。回退方式仍为关闭 V20 开关并恢复上一镜像；已有任务、Workspace、Evidence、operation 和 checkpoint 不删除、不降级、不自动重放。
+
+### 12.5 R7 脱敏回放与 replace 边界修正
+
+授权冒烟在 Task 3 请求非冻结 Shell 时由外置 Controller 以 `unexpected_approval_intent` 停止；Task 4 未创建，完整矩阵仍为零。保留 Store 的无网络只读回放证明：冻结 pytest 与只读文件工具均形成持久 operation，但两次 `apply_changeset` 和一次兼容 `write_file` 失败均发生在权威 operation 创建之前。
+
+可证根因位于 `replace` 适配边界：Claude Provider 明确不挂载 Workspace，MCP adapter 却按 Provider 私有 state cwd 读取目标文件并把 replace 展开为完整 write。因此任何 replace 都可能在到达 Tool Broker 前以文件不存在失败。修正后，MCP 只转发已绑定 preimage 的 replace 意图，由 `ChangesetEngine` 在权威 Workspace 内校验路径、文件摘要、UTF-8 与唯一片段，再以既有原子 changeset 事务发布；歧义片段保持全旧并持久化 `tool_input_invalid`。未扩大 Shell 白名单、未新增工具、公共 API、数据库或运行协议。
+
+离线证据：真实失败形状的回放测试修正前稳定复现 Provider cwd 下 `FileNotFoundError`；修正后 replace 成功/歧义失败两项通过，Broker/Tool Broker/Shell/Session Controls 为 `81 passed`，OpenCode/Claude/Provider RPC/Service 为 `153 passed`，最终精确展开的完整 Coding Worker 套件为 `616 passed, 5 skipped`。兼容 `write_file` 的原始无效参数未被持久化，现有证据不能独立重建该次供应商输入；因此本修复只关闭已证明的 replace 结构性缺口，不将其外推为完整四项烟测通过。
+
+该候选仍为 Experimental，未追加真实模型额度。进入下一次付费验证前仍需迁移到最新主线、重建候选镜像并重跑完整自动门禁；不得通过放宽冻结命令掩盖 Agent 偏离。
