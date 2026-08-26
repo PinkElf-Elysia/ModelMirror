@@ -78,6 +78,11 @@ async def test_pairing_cookie_csrf_and_logout(
         assert "samesite=strict" in cookie
         assert "path=/api/router" in cookie
         assert "secure" not in cookie
+        set_cookies = [value.lower() for value in paired.headers.get_list("set-cookie")]
+        assert any(
+            "modelmirror_rag_admin=" in value and "path=/api/rag" in value
+            for value in set_cookies
+        )
         parsed_cookie = SimpleCookie()
         parsed_cookie.load(paired.headers["set-cookie"])
         assert parsed_cookie["modelmirror_provider_admin"].value not in paired.text

@@ -376,12 +376,11 @@ async def create_calibration(payload: BenchmarkCalibrationRequest) -> dict[str, 
             pending_reviews = [
                 case
                 for case in dataset.get("cases") or []
-                if case.get("expected_no_result")
-                and str(case.get("review_status") or "pending") != "approved"
+                if str(case.get("review_status") or "pending") != "approved"
             ]
             if pending_reviews:
                 raise EvaluationStateError(
-                    "Approve every corpus-near no-result case before calibration."
+                    "Approve every generated case before calibration."
                 )
             preflight = await _to_thread(
                 get_knowledge_benchmark_generation_service().preflight,

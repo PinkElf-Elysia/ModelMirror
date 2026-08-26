@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import hmac
 import math
 import os
+import random
+import re
 import threading
 import time
 import uuid
@@ -42,6 +45,14 @@ class EvaluationPromotionError(EvaluationError):
 
 
 DEFAULT_KS = [1, 3, 5, 10]
+FORMAL_POSITIVE_QUERY_TYPES = (
+    "factual_lookup",
+    "paraphrase",
+    "section_context",
+    "cross_language",
+    "multi_evidence",
+    "confusable_content",
+)
 DEFAULT_GATE_POLICY: dict[str, Any] = {
     "mode": "advisory",
     "min_recall_at_5": 0.8,
@@ -53,6 +64,9 @@ DEFAULT_GATE_POLICY: dict[str, Any] = {
     "min_citation_coverage": 0.0,
     "max_p95_latency_ratio": 2.0,
     "max_p95_latency_ms": 1500.0,
+    "max_paired_primary_regression": 0.03,
+    "paired_confidence_level": 0.95,
+    "require_comparable_corpus": True,
     "require_zero_errors": True,
 }
 
@@ -179,9 +193,21 @@ def aggregate_target_metrics(
 
     normalized_ks = sorted(set(ks or DEFAULT_KS))
     completed = [item for item in case_results if item.get("status") == "completed"]
-    positive = [item for item in completed if not item.get("expected_no_result")]
-    no_result_cases = [item for item in completed if item.get("expected_no_result")]
-    errors = [item for item in case_results if item.get("status") == "failed"]
+    failed = [item for item in case_results if item.get("status") != "completed"]
+    positive = [item for item in case_results if not item.get("expected_no_result")]
+    completed_positive = [
+        item for item in completed if not item.get("expected_no_result")
+    ]
+    failed_positive = [
+        item for item in failed if not item.get("expected_no_result")
+    ]
+    no_result_cases = [item for item in case_results if item.get("expected_no_result")]
+    completed_no_result = [
+        item for item in completed if item.get("expected_no_result")
+    ]
+    failed_no_result = [
+        item for item in failed if item.get("expected_no_result")
+    ]
     metric_names = [
         *(f"hit_at_{k}" for k in normalized_ks),
         *(f"recall_at_{k}" for k in normalized_ks),
@@ -193,7 +219,10 @@ def aggregate_target_metrics(
     ]
     metrics = {
         name: round(
-            sum(float(item.get("metrics", {}).get(name, 0.0)) for item in positive)
+            sum(
+                float(item.get("metrics", {}).get(name, 0.0))
+                for item in completed_positive
+            )
             / len(positive),
             6,
         )
@@ -201,40 +230,65 @@ def aggregate_target_metrics(
         else 0.0
         for name in metric_names
     }
-    latencies = sorted(float(item.get("latency_ms", 0.0)) for item in completed)
+    latencies = sorted(float(item.get("latency_ms", 0.0)) for item in case_results)
     metrics.update(
         {
             "case_count": len(case_results),
+            "expected_case_count": len(case_results),
             "completed_case_count": len(completed),
-            "error_count": len(errors),
+            "failed_case_count": len(failed),
+            "error_count": len(failed),
             "positive_case_count": len(positive),
+            "completed_positive_case_count": len(completed_positive),
+            "failed_positive_case_count": len(failed_positive),
+            "positive_quality_denominator": len(positive),
             "no_result_case_count": len(no_result_cases),
+            "completed_no_result_case_count": len(completed_no_result),
+            "failed_no_result_case_count": len(failed_no_result),
+            "no_result_quality_denominator": len(no_result_cases),
             "no_result_accuracy": round(
-                sum(float(item.get("metrics", {}).get("no_result_accuracy", 0.0)) for item in no_result_cases)
+                sum(
+                    float(item.get("metrics", {}).get("no_result_accuracy", 0.0))
+                    for item in completed_no_result
+                )
                 / len(no_result_cases),
                 6,
             ) if no_result_cases else 1.0,
             "false_positive_rate": round(
-                sum(float(item.get("metrics", {}).get("false_positive_rate", 0.0)) for item in no_result_cases)
+                (
+                    sum(
+                        float(item.get("metrics", {}).get("false_positive_rate", 0.0))
+                        for item in completed_no_result
+                    )
+                    + len(failed_no_result)
+                )
                 / len(no_result_cases),
                 6,
             ) if no_result_cases else 0.0,
             "no_result_rate": round(
-                sum(1 for item in completed if item.get("no_result")) / len(completed), 6
+                sum(1 for item in case_results if item.get("no_result"))
+                / len(case_results),
+                6,
             )
-            if completed
+            if case_results
             else 1.0,
             "positive_no_result_rate": round(
-                sum(1 for item in positive if item.get("no_result")) / len(positive), 6
+                sum(1 for item in positive if item.get("no_result"))
+                / len(positive),
+                6,
             )
             if positive
             else 0.0,
             "warning_rate": round(
-                sum(1 for item in completed if int(item.get("warning_count", 0)) > 0)
-                / len(completed),
+                sum(
+                    1
+                    for item in case_results
+                    if int(item.get("warning_count", 0)) > 0
+                )
+                / len(case_results),
                 6,
             )
-            if completed
+            if case_results
             else 0.0,
             "average_latency_ms": round(sum(latencies) / len(latencies), 3)
             if latencies
@@ -245,12 +299,110 @@ def aggregate_target_metrics(
     return metrics
 
 
+def paired_primary_confidence_report(
+    baseline_results: list[dict[str, Any]],
+    candidate_results: list[dict[str, Any]],
+    *,
+    cases: list[dict[str, Any]],
+    seed: str,
+    bootstrap_samples: int = 10_000,
+    confidence_level: float = 0.95,
+    max_regression: float = 0.03,
+) -> dict[str, Any]:
+    baseline_by_id = {
+        str(item.get("case_id") or ""): item for item in baseline_results
+    }
+    candidate_by_id = {
+        str(item.get("case_id") or ""): item for item in candidate_results
+    }
+    expected_ids = [str(case.get("case_id") or "") for case in cases]
+    missing = [
+        case_id
+        for case_id in expected_ids
+        if case_id not in baseline_by_id or case_id not in candidate_by_id
+    ]
+    failed = [
+        case_id
+        for case_id in expected_ids
+        if case_id in baseline_by_id
+        and case_id in candidate_by_id
+        and (
+            baseline_by_id[case_id].get("status") != "completed"
+            or candidate_by_id[case_id].get("status") != "completed"
+        )
+    ]
+    if missing or failed or not expected_ids:
+        return {
+            "contract_version": "rag-paired-confidence-v1",
+            "status": "insufficient",
+            "passed": False,
+            "missing_case_ids": missing,
+            "failed_case_ids": failed,
+            "reason": "paired_results_incomplete",
+        }
+
+    cases_by_id = {str(case.get("case_id") or ""): case for case in cases}
+
+    def primary_score(result: dict[str, Any], case: dict[str, Any]) -> float:
+        metrics = result.get("metrics") or {}
+        return float(
+            metrics.get("no_result_accuracy", 0.0)
+            if case.get("expected_no_result")
+            else metrics.get("recall_at_5", 0.0)
+        )
+
+    deltas = {
+        case_id: primary_score(candidate_by_id[case_id], cases_by_id[case_id])
+        - primary_score(baseline_by_id[case_id], cases_by_id[case_id])
+        for case_id in expected_ids
+    }
+    strata: dict[str, list[str]] = {}
+    for case_id in expected_ids:
+        case = cases_by_id[case_id]
+        case_type = "negative" if case.get("expected_no_result") else "positive"
+        locale = str((case.get("targeting") or {}).get("locale") or "unknown")
+        strata.setdefault(f"{case_type}:{locale}", []).append(case_id)
+    seed_value = int(_checksum({"seed": seed})[:16], 16)
+    rng = random.Random(seed_value)
+    samples: list[float] = []
+    for _ in range(max(1, int(bootstrap_samples))):
+        selected: list[str] = []
+        for key in sorted(strata):
+            values = strata[key]
+            selected.extend(rng.choice(values) for _ in range(len(values)))
+        samples.append(sum(deltas[case_id] for case_id in selected) / len(selected))
+    samples.sort()
+    tail = (1.0 - float(confidence_level)) / 2.0
+    lower = _percentile(samples, tail)
+    upper = _percentile(samples, 1.0 - tail)
+    point_delta = sum(deltas.values()) / len(deltas)
+    return {
+        "contract_version": "rag-paired-confidence-v1",
+        "status": "completed",
+        "passed": lower >= -float(max_regression),
+        "primary_metric": "recall_at_5_or_no_result_accuracy",
+        "point_delta": round(point_delta, 6),
+        "confidence_level": float(confidence_level),
+        "confidence_interval": {
+            "lower": round(lower, 6),
+            "upper": round(upper, 6),
+        },
+        "bootstrap_samples": len(samples),
+        "max_regression": float(max_regression),
+        "case_count": len(expected_ids),
+        "strata": {key: len(value) for key, value in sorted(strata.items())},
+    }
+
+
 def evaluate_promotion_gate(
     candidate: dict[str, Any],
     *,
     baseline: dict[str, Any] | None,
     policy: dict[str, Any] | None = None,
     evidence_qualification: dict[str, Any] | None = None,
+    paired_confidence: dict[str, Any] | None = None,
+    comparability: dict[str, Any] | None = None,
+    run_mode: str = "diagnostic",
 ) -> dict[str, Any]:
     """Evaluate absolute and regression thresholds for one candidate target."""
 
@@ -403,6 +555,39 @@ def evaluate_promotion_gate(
             }
         )
 
+    if run_mode == "formal":
+        comparable = bool((comparability or {}).get("comparable")) and bool(
+            (comparability or {}).get("same_corpus")
+        )
+        checks.append(
+            {
+                "id": "comparable_corpus",
+                "passed": comparable,
+                "actual": comparable,
+                "required": bool(effective["require_comparable_corpus"]),
+                "message": "Formal targets must share the immutable Gold corpus.",
+            }
+        )
+        paired = paired_confidence or {}
+        lower = float(
+            (paired.get("confidence_interval") or {}).get("lower", -1.0)
+        )
+        paired_passed = (
+            paired.get("status") == "completed"
+            and lower >= -float(effective["max_paired_primary_regression"])
+        )
+        checks.append(
+            {
+                "id": "paired_non_inferiority",
+                "passed": paired_passed,
+                "actual": round(lower, 6),
+                "threshold": -float(effective["max_paired_primary_regression"]),
+                "confidence_level": float(effective["paired_confidence_level"]),
+                "bootstrap_samples": int(paired.get("bootstrap_samples") or 0),
+                "message": "Paired primary-score CI must satisfy non-inferiority.",
+            }
+        )
+
     return {
         "passed": all(item["passed"] for item in checks),
         "mode": str(effective["mode"]),
@@ -470,6 +655,369 @@ def qualify_promotion_evidence(snapshot: dict[str, Any]) -> dict[str, Any]:
             "reviewed_hard_negative": reviewed_hard_negative_count,
         },
         "checks": checks,
+    }
+
+
+def qualify_formal_evidence(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """Validate immutable rag-gold-v2 evidence without trusting stored labels."""
+
+    cases = [item for item in snapshot.get("cases", []) if isinstance(item, dict)]
+    positives = [item for item in cases if not bool(item.get("expected_no_result"))]
+    negatives = [item for item in cases if bool(item.get("expected_no_result"))]
+    corpus = snapshot.get("corpus_snapshot")
+    corpus = corpus if isinstance(corpus, dict) else {}
+    corpus_without_checksum = {
+        key: value for key, value in corpus.items() if key != "checksum"
+    }
+    corpus_checksum_valid = bool(corpus_without_checksum) and hmac.compare_digest(
+        str(corpus.get("checksum") or ""), _checksum(corpus_without_checksum)
+    )
+    provenance = snapshot.get("provenance")
+    provenance = provenance if isinstance(provenance, dict) else {}
+    attempts = provenance.get("generation_attempts")
+    attempts = attempts if isinstance(attempts, list) else []
+    provenance_hashes = (
+        str(provenance.get("target_checksum") or ""),
+        str(provenance.get("source_summary_hash") or ""),
+        str(provenance.get("evidence_hash") or ""),
+        str(provenance.get("blueprint_hash") or ""),
+        str(provenance.get("prompt_contract_hash") or ""),
+    )
+    generation_provenance_valid = (
+        provenance.get("generator") == "modelmirror-targeted-rag-benchmark-v2"
+        and bool(str(provenance.get("generation_job_id") or ""))
+        and bool(str(provenance.get("generator_model_id") or ""))
+        and isinstance(provenance.get("seed"), int)
+        and not isinstance(provenance.get("seed"), bool)
+        and all(re.fullmatch(r"[0-9a-f]{64}", value) for value in provenance_hashes)
+        and provenance.get("repair_used") is False
+        and len(attempts) == 1
+        and isinstance(attempts[0], dict)
+        and attempts[0].get("attempt") == "initial"
+        and not attempts[0].get("error_code")
+    )
+    block_refs: set[tuple[str, str]] = set()
+    corpus_documents: set[str] = set()
+    corpus_contains_text = False
+    for document in corpus.get("documents", []):
+        if not isinstance(document, dict):
+            continue
+        document_id = str(document.get("document_id") or "")
+        if not document_id:
+            continue
+        corpus_documents.add(document_id)
+        for block in document.get("source_blocks", []):
+            if isinstance(block, dict) and str(block.get("source_block_id") or ""):
+                corpus_contains_text = corpus_contains_text or "text" in block
+                block_refs.add((document_id, str(block["source_block_id"])))
+
+    def trusted_review(case: dict[str, Any]) -> bool:
+        evidence = case.get("review_evidence")
+        if not isinstance(evidence, dict):
+            return False
+        reviewer = evidence.get("reviewer")
+        return (
+            str(case.get("review_status") or "") == "approved"
+            and str(evidence.get("decision") or "") == "approved"
+            and str(evidence.get("source") or "") == "authenticated_ui"
+            and isinstance(reviewer, dict)
+            and bool(str(reviewer.get("tenant_id") or ""))
+            and bool(str(reviewer.get("role") or ""))
+            and isinstance(evidence.get("reviewed_at"), (int, float))
+            and int(evidence.get("dataset_revision") or 0) >= 1
+            and (
+                not (case.get("targeting") or {}).get("leakage_warning")
+                or bool(str(evidence.get("reason") or "").strip())
+            )
+            and hmac.compare_digest(
+                str(evidence.get("case_checksum") or ""),
+                _case_review_checksum(case),
+            )
+        )
+
+    stable_positive_refs: list[tuple[str, str]] = []
+    positive_refs_valid = True
+    for case in positives:
+        references = case.get("expected_refs") or []
+        if not references:
+            positive_refs_valid = False
+            continue
+        for reference in references:
+            if not isinstance(reference, dict):
+                positive_refs_valid = False
+                continue
+            key = (
+                str(reference.get("document_id") or ""),
+                str(reference.get("source_block_id") or ""),
+            )
+            stable_positive_refs.append(key)
+            if (
+                str(reference.get("match_mode") or "") != "source_block"
+                or not all(key)
+                or key not in block_refs
+            ):
+                positive_refs_valid = False
+
+    negative_contexts: list[tuple[str, str]] = []
+    hard_negatives_valid = True
+    for case in negatives:
+        tags = {str(tag) for tag in case.get("tags", [])}
+        contexts = (case.get("targeting") or {}).get("context_refs") or []
+        if "hard_negative" not in tags or "corpus_near" not in tags or len(contexts) != 1:
+            hard_negatives_valid = False
+            continue
+        context = contexts[0] if isinstance(contexts[0], dict) else {}
+        key = (
+            str(context.get("document_id") or ""),
+            str(context.get("source_block_id") or ""),
+        )
+        negative_contexts.append(key)
+        if not all(key) or key not in block_refs:
+            hard_negatives_valid = False
+
+    def locale_counts(items: list[dict[str, Any]]) -> dict[str, int]:
+        result = {"zh": 0, "en": 0}
+        for case in items:
+            raw_locale = str(
+                (case.get("targeting") or {}).get("locale") or ""
+            ).casefold().replace("_", "-")
+            locale = (
+                "zh"
+                if raw_locale == "zh" or raw_locale.startswith("zh-")
+                else "en"
+                if raw_locale == "en" or raw_locale.startswith("en-")
+                else raw_locale
+            )
+            if locale in result:
+                result[locale] += 1
+        return result
+
+    positive_locales = locale_counts(positives)
+    negative_locales = locale_counts(negatives)
+    positive_query_types = {
+        query_type: sum(
+            1
+            for case in positives
+            if str((case.get("targeting") or {}).get("query_type") or "")
+            == query_type
+        )
+        for query_type in FORMAL_POSITIVE_QUERY_TYPES
+    }
+    normalized_queries = [
+        " ".join(str(case.get("query") or "").casefold().split()) for case in cases
+    ]
+    query_tokens = [_formal_query_tokens(query) for query in normalized_queries]
+    has_near_duplicate = any(
+        bool(query_tokens[left] or query_tokens[right])
+        and len(query_tokens[left] & query_tokens[right])
+        / max(1, len(query_tokens[left] | query_tokens[right]))
+        >= 0.8
+        for left in range(len(query_tokens))
+        for right in range(left + 1, len(query_tokens))
+    )
+    positive_documents = {
+        document_id for document_id, _ in stable_positive_refs if document_id
+    }
+    per_document: dict[str, int] = {}
+    for document_id, _ in stable_positive_refs:
+        per_document[document_id] = per_document.get(document_id, 0) + 1
+    max_document_share = (
+        max(per_document.values(), default=0) / len(positives) if positives else 1.0
+    )
+    source_block_counts: dict[tuple[str, str], int] = {}
+    for key in stable_positive_refs:
+        source_block_counts[key] = source_block_counts.get(key, 0) + 1
+
+    checks = [
+        {
+            "id": "gold_contract_v2",
+            "passed": snapshot.get("benchmark_contract_version") == "rag-gold-v2",
+        },
+        {
+            "id": "promotion_evidence_role",
+            "passed": snapshot.get("benchmark_role") == "promotion_evidence",
+        },
+        {
+            "id": "generation_provenance",
+            "passed": generation_provenance_valid,
+        },
+        {
+            "id": "immutable_evaluation_version",
+            "passed": bool(snapshot.get("version_id") and snapshot.get("published_at")),
+        },
+        {
+            "id": "published_checksum",
+            "passed": hmac.compare_digest(
+                str(snapshot.get("checksum") or ""), _published_gold_checksum(snapshot)
+            ),
+        },
+        {
+            "id": "corpus_snapshot",
+            "passed": corpus.get("contract_version") == "rag-corpus-snapshot-v1"
+            and corpus_checksum_valid
+            and bool(corpus_documents)
+            and not corpus_contains_text,
+        },
+        {"id": "exact_case_counts", "passed": len(positives) == 30 and len(negatives) == 12},
+        {
+            "id": "trusted_case_reviews",
+            "passed": len(cases) == 42 and all(trusted_review(case) for case in cases),
+        },
+        {
+            "id": "stable_source_block_gold",
+            "passed": positive_refs_valid and len(stable_positive_refs) >= len(positives),
+        },
+        {
+            "id": "hard_negative_contexts",
+            "passed": hard_negatives_valid
+            and len(negative_contexts) == 12
+            and len(set(negative_contexts)) == 12,
+        },
+        {
+            "id": "locale_balance",
+            "passed": positive_locales == {"zh": 15, "en": 15}
+            and negative_locales == {"zh": 6, "en": 6},
+        },
+        {
+            "id": "positive_query_type_balance",
+            "passed": positive_query_types
+            == {query_type: 5 for query_type in FORMAL_POSITIVE_QUERY_TYPES},
+        },
+        {
+            "id": "document_coverage",
+            "passed": positive_documents == corpus_documents and max_document_share <= 0.4,
+        },
+        {
+            "id": "source_block_reuse",
+            "passed": max(source_block_counts.values(), default=0) <= 2,
+        },
+        {
+            "id": "unique_queries",
+            "passed": len(normalized_queries) == 42
+            and len(set(normalized_queries)) == len(normalized_queries)
+            and not has_near_duplicate,
+        },
+    ]
+    qualified = all(bool(check["passed"]) for check in checks)
+    return {
+        "version": "rag-formal-evidence-v2",
+        "status": "qualified" if qualified else "diagnostic_only",
+        "qualified": qualified,
+        "counts": {
+            "total": len(cases),
+            "positive": len(positives),
+            "hard_negative": len(negatives),
+            "trusted_reviews": sum(1 for case in cases if trusted_review(case)),
+            "positive_query_types": positive_query_types,
+        },
+        "checks": checks,
+    }
+
+
+def validate_formal_run_admission(
+    evaluation_version: dict[str, Any],
+    targets: list[dict[str, Any]],
+    *,
+    baseline_version_id: str | None,
+) -> dict[str, Any]:
+    qualification = qualify_formal_evidence(evaluation_version)
+    if not qualification["qualified"]:
+        raise ValueError("Formal evaluation requires qualified rag-gold-v2 evidence.")
+    if len(targets) != 2 or len({str(item.get("version_id") or "") for item in targets}) != 2:
+        raise ValueError("Formal evaluation requires exactly one baseline and one candidate.")
+    version_ids = {str(item.get("version_id") or "") for item in targets}
+    if not baseline_version_id or baseline_version_id not in version_ids:
+        raise ValueError("Formal evaluation requires one explicit baseline target.")
+
+    expected_corpus = str(
+        (evaluation_version.get("corpus_snapshot") or {}).get("checksum") or ""
+    )
+    corpus_hashes = {str(item.get("corpus_snapshot_hash") or "") for item in targets}
+    if not expected_corpus or corpus_hashes != {expected_corpus}:
+        raise ValueError(
+            "Formal baseline and candidate must use the same immutable corpus as Gold."
+        )
+
+    manifest_targets: list[dict[str, Any]] = []
+    for target in targets:
+        if target.get("retrieval"):
+            raise ValueError(
+                "Formal evaluation does not allow per-run retrieval overrides."
+            )
+        evidence = target.get("version_evidence")
+        evidence = evidence if isinstance(evidence, dict) else {}
+        effective = (evidence.get("embedding") or {}).get("effective") or {}
+        processor = evidence.get("processor")
+        processor = processor if isinstance(processor, dict) else {}
+        retrieval = evidence.get("retrieval")
+        retrieval = retrieval if isinstance(retrieval, dict) else {}
+        required_hashes = (
+            str(evidence.get("version_fingerprint") or ""),
+            str(evidence.get("configuration_fingerprint") or ""),
+            str(processor.get("fingerprint") or ""),
+        )
+        if (
+            evidence.get("schema_version") != "rag-version-evidence-v1"
+            or str(evidence.get("version_id") or "")
+            != str(target.get("version_id") or "")
+            or any(re.fullmatch(r"[0-9a-f]{64}", value) is None for value in required_hashes)
+            or not str(effective.get("provider") or "")
+            or not str(effective.get("model") or "")
+            or int(effective.get("dimension") or 0) <= 0
+            or not str(processor.get("mode") or "")
+            or not retrieval
+        ):
+            raise ValueError("Formal evaluation target identity is incomplete.")
+        rerank = {
+            "enabled": bool(retrieval.get("rerank_enabled")),
+            "provider": str(retrieval.get("rerank_provider") or "none"),
+            "model": str(retrieval.get("rerank_model") or ""),
+            "top_n": int(retrieval.get("rerank_top_n") or 0),
+        }
+        manifest_targets.append(
+            {
+                "version_id": str(target["version_id"]),
+                "role": (
+                    "baseline"
+                    if str(target["version_id"]) == baseline_version_id
+                    else "candidate"
+                ),
+                "version_fingerprint": required_hashes[0],
+                "configuration_fingerprint": required_hashes[1],
+                "corpus_snapshot_hash": expected_corpus,
+                "processor": _copy(processor),
+                "embedding": _copy(effective),
+                "retrieval": _copy(retrieval),
+                "rerank": rerank,
+            }
+        )
+    manifest_targets.sort(key=lambda item: item["role"])
+    seed = _checksum(
+        {
+            "evaluation_checksum": evaluation_version.get("checksum"),
+            "corpus_snapshot_hash": expected_corpus,
+            "targets": manifest_targets,
+        }
+    )
+    return {
+        "evidence_qualification": qualification,
+        "comparability": {
+            "contract_version": "rag-comparability-v1",
+            "comparable": True,
+            "same_corpus": True,
+            "corpus_snapshot_hash": expected_corpus,
+            "reason": None,
+        },
+        "execution_manifest": {
+            "contract_version": "rag-eval-v2",
+            "metric_contract_version": "rag-metrics-v2",
+            "evaluation_version_id": evaluation_version.get("version_id"),
+            "evaluation_checksum": evaluation_version.get("checksum"),
+            "corpus_snapshot_hash": expected_corpus,
+            "execution_seed": seed,
+            "order_contract": "paired-interleaved-sha256-v1",
+            "targets": manifest_targets,
+        },
     }
 
 
@@ -591,6 +1139,7 @@ class KnowledgeEvaluationStore:
         expected_revision: int,
         release_notes: str = "",
         acknowledge_calibration_warnings: bool = False,
+        corpus_snapshot: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         with self._lock:
             data = self._read_unlocked()
@@ -639,6 +1188,23 @@ class KnowledgeEvaluationStore:
             ) + 1
             now = time.time()
             version_id = f"evalsetver_{uuid.uuid4().hex}"
+            qualification_manifest = {
+                "contract_version": "rag-gold-qualification-v2",
+                "case_count": len(cases),
+                "positive_case_count": sum(
+                    1 for case in cases if not case.get("expected_no_result")
+                ),
+                "hard_negative_count": sum(
+                    1 for case in cases if case.get("expected_no_result")
+                ),
+                "trusted_review_count": sum(
+                    1
+                    for case in cases
+                    if isinstance(case.get("review_evidence"), dict)
+                    and case["review_evidence"].get("source")
+                    == "authenticated_ui"
+                ),
+            }
             version = {
                 "version_id": version_id,
                 "eval_set_id": eval_set_id,
@@ -659,9 +1225,31 @@ class KnowledgeEvaluationStore:
                     catalog_ref=dict(item.get("catalog_ref") or {}),
                 ),
                 "release_notes": str(release_notes or "")[:1000],
-                "checksum": _checksum({"cases": cases, "coverage": item.get("coverage") or {}}),
+                "benchmark_contract_version": "rag-gold-v2",
+                "corpus_snapshot": _copy(corpus_snapshot or {}),
+                "qualification_manifest": qualification_manifest,
                 "published_at": now,
             }
+            version["checksum"] = _published_gold_checksum(version)
+            formal_qualification = qualify_formal_evidence(version)
+            if not formal_qualification["qualified"]:
+                version["benchmark_contract_version"] = "rag-gold-v1"
+                version["qualification_manifest"] = {
+                    **qualification_manifest,
+                    "status": "diagnostic_only",
+                    "failed_checks": [
+                        check["id"]
+                        for check in formal_qualification["checks"]
+                        if not check["passed"]
+                    ],
+                }
+            else:
+                version["qualification_manifest"] = {
+                    **qualification_manifest,
+                    "status": "qualified",
+                    "failed_checks": [],
+                }
+            version["checksum"] = _published_gold_checksum(version)
             data["versions"][version_id] = version
             item["latest_version"] = version_number
             item["updated_at"] = now
@@ -786,10 +1374,74 @@ class KnowledgeEvaluationStore:
             if index is None:
                 raise EvaluationSetNotFoundError("Knowledge evaluation case not found.")
             merged = {**item["cases"][index], **values, "case_id": case_id}
+            merged.pop("review_evidence", None)
+            merged["review_status"] = (
+                "pending" if bool(merged.get("expected_no_result")) else "not_required"
+            )
             item["cases"][index] = self._normalize_case(merged, preserve_id=True)
             self._touch_set(item)
             self._write_unlocked(data)
             return _copy(item)
+
+    def review_case(
+        self,
+        eval_set_id: str,
+        case_id: str,
+        *,
+        expected_revision: int,
+        decision: str,
+        reason: str,
+        reviewer: dict[str, str],
+    ) -> dict[str, Any]:
+        if decision not in {"approved", "rejected"}:
+            raise ValueError("Evaluation review decision is invalid.")
+        clean_reviewer = {
+            "tenant_id": str(reviewer.get("tenant_id") or "")[:160],
+            "role": str(reviewer.get("role") or "")[:80],
+        }
+        if not all(clean_reviewer.values()):
+            raise ValueError("Evaluation review requires an authenticated reviewer.")
+        with self._lock:
+            data = self._read_unlocked()
+            item = self._set_or_raise(data, eval_set_id)
+            self._check_revision(item, expected_revision)
+            case = next(
+                (
+                    value
+                    for value in item.get("cases", [])
+                    if value.get("case_id") == case_id
+                ),
+                None,
+            )
+            if not isinstance(case, dict):
+                raise EvaluationSetNotFoundError(
+                    "Knowledge evaluation case not found."
+                )
+            item["revision"] = int(item.get("revision", 0)) + 1
+            item["updated_at"] = time.time()
+            calibration = item.get("calibration")
+            if isinstance(calibration, dict) and calibration:
+                calibration["dataset_revision"] = int(item["revision"])
+            case["review_status"] = decision
+            if (
+                decision == "approved"
+                and (case.get("targeting") or {}).get("leakage_warning")
+                and not str(reason or "").strip()
+            ):
+                raise ValueError(
+                    "Leakage warnings require an explicit human review reason."
+                )
+            case["review_evidence"] = {
+                "decision": decision,
+                "reviewed_at": time.time(),
+                "dataset_revision": int(item["revision"]),
+                "source": "authenticated_ui",
+                "reviewer": clean_reviewer,
+                "reason": str(reason or "").strip()[:1000],
+                "case_checksum": _case_review_checksum(case),
+            }
+            self._write_unlocked(data)
+            return self._set_payload(item)
 
     def delete_case(
         self,
@@ -820,7 +1472,15 @@ class KnowledgeEvaluationStore:
         gate_policy: dict[str, Any],
         evaluation_set_version: dict[str, Any] | None = None,
         case_ids: list[str] | None = None,
+        run_mode: str = "diagnostic",
+        execution_manifest: dict[str, Any] | None = None,
+        comparability: dict[str, Any] | None = None,
+        evidence_qualification: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        if run_mode not in {"diagnostic", "formal"}:
+            raise ValueError("Evaluation run_mode is invalid.")
+        if run_mode == "formal" and case_ids is not None:
+            raise EvaluationStateError("Formal evaluation cannot run a case subset.")
         now = time.time()
         snapshot = _copy(evaluation_set_version or evaluation_set)
         if case_ids is not None:
@@ -854,7 +1514,23 @@ class KnowledgeEvaluationStore:
                 else None
             ),
             "eval_set_snapshot": snapshot,
-            "evidence_qualification": qualify_promotion_evidence(snapshot),
+            "run_mode": run_mode,
+            "metric_contract_version": (
+                "rag-metrics-v2" if run_mode == "formal" else "rag-metrics-v1"
+            ),
+            "evidence_qualification": _copy(
+                evidence_qualification or qualify_promotion_evidence(snapshot)
+            ),
+            "execution_manifest": _copy(execution_manifest or {}),
+            "comparability": _copy(
+                comparability
+                or {
+                    "contract_version": "rag-comparability-v1",
+                    "comparable": False,
+                    "same_corpus": False,
+                    "reason": "diagnostic_run",
+                }
+            ),
             "case_ids": [
                 str(case.get("case_id") or "") for case in snapshot.get("cases", [])
             ],
@@ -866,6 +1542,7 @@ class KnowledgeEvaluationStore:
             "progress": 0,
             "cancel_requested": False,
             "case_results": {},
+            "inflight_slots": {},
             "target_results": [],
             "run_registry_id": None,
             "error": None,
@@ -920,12 +1597,99 @@ class KnowledgeEvaluationStore:
             data = self._read_unlocked()
             for run in data["runs"].values():
                 if run.get("status") == "running":
+                    for slot in list((run.get("inflight_slots") or {}).values()):
+                        if not isinstance(slot, dict):
+                            continue
+                        target_id = str(slot.get("target_id") or "")
+                        case_id = str(slot.get("case_id") or "")
+                        if not target_id or not case_id:
+                            continue
+                        case = next(
+                            (
+                                item
+                                for item in run.get("eval_set_snapshot", {}).get(
+                                    "cases", []
+                                )
+                                if str(item.get("case_id") or "") == case_id
+                            ),
+                            {},
+                        )
+                        results = run.setdefault("case_results", {}).setdefault(
+                            target_id, {}
+                        )
+                        results.setdefault(
+                            case_id,
+                            {
+                                "status": "failed",
+                                "metrics": {},
+                                "latency_ms": round(
+                                    max(
+                                        0.0,
+                                        time.time()
+                                        - float(slot.get("claimed_at") or time.time()),
+                                    )
+                                    * 1000,
+                                    3,
+                                ),
+                                "source_count": 0,
+                                "expected_count": len(
+                                    case.get("expected_refs") or []
+                                ),
+                                "matched_expected_count": 0,
+                                "expected_no_result": bool(
+                                    case.get("expected_no_result")
+                                ),
+                                "no_result": True,
+                                "warning_count": 0,
+                                "warnings": [],
+                                "ranking": [],
+                                "error": (
+                                    "Interrupted evaluation call was not retried."
+                                ),
+                                "case_id": case_id,
+                            },
+                        )
+                    run["inflight_slots"] = {}
                     run["status"] = "queued"
                     run["updated_at"] = time.time()
                     recovered += 1
             if recovered:
                 self._write_unlocked(data)
         return recovered
+
+    def claim_case_slot(
+        self,
+        run_id: str,
+        target_id: str,
+        case_id: str,
+    ) -> bool:
+        with self._lock:
+            data = self._read_unlocked()
+            run = self._run_or_raise(data, run_id)
+            existing = (
+                run.get("case_results", {}).get(target_id, {}).get(case_id)
+            )
+            if isinstance(existing, dict):
+                return False
+            inflight = run.setdefault("inflight_slots", {})
+            if any(
+                isinstance(slot, dict)
+                and str(slot.get("target_id") or "") == target_id
+                and str(slot.get("case_id") or "") == case_id
+                for slot in inflight.values()
+            ):
+                return False
+            slot_id = _checksum(
+                {"run_id": run_id, "target_id": target_id, "case_id": case_id}
+            )
+            inflight[slot_id] = {
+                "target_id": target_id,
+                "case_id": case_id,
+                "claimed_at": time.time(),
+            }
+            run["updated_at"] = time.time()
+            self._write_unlocked(data)
+            return True
 
     def request_cancel(self, run_id: str) -> dict[str, Any]:
         with self._lock:
@@ -956,6 +1720,16 @@ class KnowledgeEvaluationStore:
             run = self._run_or_raise(data, run_id)
             target_results = run.setdefault("case_results", {}).setdefault(target_id, {})
             target_results[case_id] = _copy(result)
+            inflight = run.setdefault("inflight_slots", {})
+            run["inflight_slots"] = {
+                slot_id: slot
+                for slot_id, slot in inflight.items()
+                if not (
+                    isinstance(slot, dict)
+                    and str(slot.get("target_id") or "") == target_id
+                    and str(slot.get("case_id") or "") == case_id
+                )
+            }
             total = max(1, len(run["targets"]) * len(run["eval_set_snapshot"]["cases"]))
             completed = sum(len(items) for items in run["case_results"].values())
             run["progress"] = min(99, int(completed * 100 / total))
@@ -970,6 +1744,8 @@ class KnowledgeEvaluationStore:
         self,
         run_id: str,
         target_results: list[dict[str, Any]],
+        *,
+        paired_confidence: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return self._update_run(
             run_id,
@@ -977,6 +1753,7 @@ class KnowledgeEvaluationStore:
                 "status": "succeeded",
                 "progress": 100,
                 "target_results": _copy(target_results),
+                "paired_confidence": _copy(paired_confidence or {}),
                 "completed_at": time.time(),
                 "error": None,
             },
@@ -1029,6 +1806,14 @@ class KnowledgeEvaluationStore:
         run = self.get_run(evaluation_run_id)
         if run["status"] != "succeeded" or run["kb_id"] != kb_id:
             raise EvaluationPromotionError("Evaluation run is not a successful run for this knowledge base.")
+        if (
+            str(run.get("run_mode") or "diagnostic") != "formal"
+            or str(run.get("metric_contract_version") or "") != "rag-metrics-v2"
+            or not bool((run.get("comparability") or {}).get("comparable"))
+        ):
+            raise EvaluationPromotionError(
+                "Candidate promotion requires a comparable Formal rag-eval-v2 run."
+            )
         if run.get("eval_set_version") is None:
             current_set = self.get_set(str(run["eval_set_id"]))
             if int(current_set["revision"]) != int(run["eval_set_revision"]):
@@ -1091,7 +1876,7 @@ class KnowledgeEvaluationStore:
                     "catalog_anchor_key": _optional_string(reference.get("catalog_anchor_key"), 200),
                 }
             )
-        return {
+        normalized = {
             "case_id": str(raw.get("case_id")) if preserve_id and raw.get("case_id") else f"evalcase_{uuid.uuid4().hex}",
             "query": query,
             "expected_refs": normalized_refs,
@@ -1103,6 +1888,10 @@ class KnowledgeEvaluationStore:
             "notes": str(raw.get("notes") or "")[:1000],
             "targeting": _safe_targeting(raw.get("targeting")),
         }
+        review_evidence = raw.get("review_evidence")
+        if isinstance(review_evidence, dict):
+            normalized["review_evidence"] = _copy(review_evidence)
+        return normalized
 
     def _touch_set(self, item: dict[str, Any]) -> None:
         item["revision"] = int(item.get("revision", 0)) + 1
@@ -1218,12 +2007,23 @@ def _source_matches_reference(source: dict[str, Any], reference: dict[str, Any])
 
 def _normalize_review_status(value: Any, *, expected_no_result: bool) -> str:
     status = str(value or ("pending" if expected_no_result else "not_required")).strip()
-    allowed = {"not_required", "pending", "approved"}
+    allowed = {"not_required", "pending", "approved", "rejected"}
     if status not in allowed:
         raise ValueError("Evaluation case review_status is invalid.")
-    if not expected_no_result and status != "not_required":
-        raise ValueError("Only no-result cases can require manual review.")
     return status
+
+
+def _case_review_checksum(case: dict[str, Any]) -> str:
+    return _checksum(
+        {
+            "case_id": str(case.get("case_id") or ""),
+            "query": str(case.get("query") or ""),
+            "expected_refs": case.get("expected_refs") or [],
+            "expected_no_result": bool(case.get("expected_no_result")),
+            "tags": case.get("tags") or [],
+            "targeting": case.get("targeting") or {},
+        }
+    )
 
 
 def _safe_targeting(value: Any) -> dict[str, Any]:
@@ -1253,10 +2053,27 @@ def _safe_targeting(value: Any) -> dict[str, Any]:
             for item in context_refs
             if isinstance(item, dict)
             and item.get("document_id")
-            and item.get("chunk_id")
             and item.get("source_block_id")
         ][:3] if isinstance(context_refs, list) else [],
+        "leakage_warning": (
+            {
+                "threshold": max(
+                    1,
+                    min(
+                        int((value.get("leakage_warning") or {}).get("threshold") or 0),
+                        32,
+                    ),
+                ),
+                "reason_required": True,
+            }
+            if isinstance(value.get("leakage_warning"), dict)
+            else None
+        ),
     }
+
+
+def _formal_query_tokens(value: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+|[\u3400-\u9fff]", value.casefold()))
 
 
 def _ndcg_at_k(
@@ -1292,6 +2109,8 @@ def _validate_gate_policy(policy: dict[str, Any]) -> dict[str, Any]:
         "max_no_result_increase",
         "min_no_result_accuracy",
         "min_citation_coverage",
+        "max_paired_primary_regression",
+        "paired_confidence_level",
     ]
     for key in bounded:
         value = float(policy[key])
@@ -1306,6 +2125,9 @@ def _validate_gate_policy(policy: dict[str, Any]) -> dict[str, Any]:
     if absolute_latency < 1 or absolute_latency > 120_000:
         raise ValueError("max_p95_latency_ms must be between 1 and 120000.")
     policy["max_p95_latency_ms"] = absolute_latency
+    policy["require_comparable_corpus"] = bool(
+        policy.get("require_comparable_corpus", True)
+    )
     policy["require_zero_errors"] = bool(policy.get("require_zero_errors", True))
     return policy
 
@@ -1434,6 +2256,22 @@ def _checksum(value: Any) -> str:
 
     payload = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _published_gold_checksum(snapshot: dict[str, Any]) -> str:
+    return _checksum(
+        {
+            "benchmark_contract_version": snapshot.get(
+                "benchmark_contract_version"
+            ),
+            "cases": snapshot.get("cases") or [],
+            "coverage": snapshot.get("coverage") or {},
+            "provenance": snapshot.get("provenance") or {},
+            "calibration": snapshot.get("calibration") or {},
+            "corpus_snapshot": snapshot.get("corpus_snapshot") or {},
+            "qualification_manifest": snapshot.get("qualification_manifest") or {},
+        }
+    )
 
 
 def _safe_error(value: Any) -> str:

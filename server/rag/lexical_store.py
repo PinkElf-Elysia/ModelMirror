@@ -38,6 +38,7 @@ class LexicalChunk:
     row_range: str | None = None
     visual_kind: str | None = None
     source_block_id: str | None = None
+    source_block_hash: str | None = None
 
 
 @dataclass(slots=True)
@@ -61,6 +62,7 @@ class LexicalSearchResult:
     row_range: str | None = None
     visual_kind: str | None = None
     source_block_id: str | None = None
+    source_block_hash: str | None = None
 
 
 class SqliteLexicalStore:
@@ -89,8 +91,8 @@ class SqliteLexicalStore:
                         chunk_id, namespace, doc_id, document_name, text, chunk_index,
                         parent_chunk_id, parent_text, chunk_type, start_char, end_char
                         , page_number, slide, heading_path_json, sheet, row_range,
-                        visual_kind, source_block_id
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        visual_kind, source_block_id, source_block_hash
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         chunk.chunk_id,
@@ -111,6 +113,7 @@ class SqliteLexicalStore:
                         chunk.row_range,
                         chunk.visual_kind,
                         chunk.source_block_id,
+                        chunk.source_block_hash,
                     ),
                 )
                 connection.execute(
@@ -163,6 +166,7 @@ class SqliteLexicalStore:
                 row_range=str(row["row_range"]) if row["row_range"] else None,
                 visual_kind=str(row["visual_kind"]) if row["visual_kind"] else None,
                 source_block_id=str(row["source_block_id"]) if row["source_block_id"] else None,
+                source_block_hash=str(row["source_block_hash"]) if row["source_block_hash"] else None,
             )
             for index, row in enumerate(rows)
         ]
@@ -223,6 +227,7 @@ class SqliteLexicalStore:
                     , row_range TEXT
                     , visual_kind TEXT
                     , source_block_id TEXT
+                    , source_block_hash TEXT
                 )
                 """
             )
@@ -237,6 +242,7 @@ class SqliteLexicalStore:
                 ("row_range", "TEXT"),
                 ("visual_kind", "TEXT"),
                 ("source_block_id", "TEXT"),
+                ("source_block_hash", "TEXT"),
             ):
                 if name not in columns:
                     connection.execute(f"ALTER TABLE rag_chunks ADD COLUMN {name} {sql_type}")

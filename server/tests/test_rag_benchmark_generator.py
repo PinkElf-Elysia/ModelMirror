@@ -288,6 +288,7 @@ def test_generation_contract_fixes_source_block_gold_and_reviews_no_result(tmp_p
 
     positive = [item for item in generated["cases"] if not item["expected_no_result"]]
     negative = [item for item in generated["cases"] if item["expected_no_result"]]
+    assert all(item["review_status"] == "pending" for item in generated["cases"])
     assert all(
         reference["match_mode"] == "source_block"
         and reference["chunk_id"]
@@ -298,6 +299,56 @@ def test_generation_contract_fixes_source_block_gold_and_reviews_no_result(tmp_p
     assert negative[0]["review_status"] == "pending"
     assert {"corpus_near", "hard_negative"}.issubset(negative[0]["tags"])
     assert negative[0]["targeting"]["context_refs"][0]["source_block_id"]
+
+
+def test_cross_language_generation_does_not_require_source_marker_copy(
+    tmp_path: Path,
+) -> None:
+    service, _ = _service(tmp_path)
+    snapshot, _ = service.snapshot_target(
+        {
+            "kind": "knowledge_version",
+            "kb_id": "kb_target",
+            "pipeline_version_id": "pipeline_v2",
+        }
+    )
+    context = service.prepare_generation(
+        snapshot=snapshot,
+        case_count=1,
+        locales=["zh", "en"],
+        requested_coverage=["cross_language"],
+        no_result_count=0,
+        seed=11,
+    )
+    blueprint = context["blueprints"][0]
+    evidence_id = blueprint["required_evidence_ids"][0]
+    evidence = context["evidence_by_id"][evidence_id]
+    generated = service.parse_generated_cases(
+        json.dumps(
+            {
+                "dataset": {
+                    "cases": [
+                        {
+                            "blueprint_id": blueprint["blueprint_id"],
+                            "query": "这项规定要求多长的发布审查周期？",
+                            "evidence_ids": [evidence_id],
+                            "anchor_quotes": [
+                                {
+                                    "evidence_id": evidence_id,
+                                    "quote": evidence["text"][:20],
+                                }
+                            ],
+                        }
+                    ]
+                }
+            }
+        ),
+        snapshot=snapshot,
+        context=context,
+        expected_count=1,
+    )
+
+    assert generated["cases"][0]["targeting"]["query_type"] == "cross_language"
 
 
 @pytest.mark.asyncio
@@ -363,11 +414,17 @@ async def test_strategy_tuning_generation_waits_for_hard_negative_review(
     negatives = [item for item in dataset["cases"] if item["expected_no_result"]]
     assert completed["status"] == "completed"
     assert completed["calibration"]["status"] == "awaiting_review"
+    assert completed["calibration"]["pending_review_count"] == 42
     assert completed["evaluation_run_id"] is None
     assert rag_executor.notifications == 0
     assert dataset["benchmark_role"] == "promotion_evidence"
+    assert dataset["provenance"]["generator"] == "modelmirror-targeted-rag-benchmark-v2"
+    assert len(dataset["provenance"]["prompt_contract_hash"]) == 64
+    assert dataset["provenance"]["repair_used"] is False
+    assert len(dataset["provenance"]["generation_attempts"]) == 1
     assert len(positives) == 30
     assert len(negatives) == 12
+    assert all(case["review_status"] == "pending" for case in dataset["cases"])
     assert all(
         reference["match_mode"] == "source_block"
         and reference["source_block_id"]
@@ -596,6 +653,14 @@ async def test_knowledge_preflight_and_evidence_api_are_bounded(
             coverage={},
             calibration={"status": "pending", "dataset_revision": 1},
         )
+        generated = store.review_case(
+            generated["eval_set_id"],
+            generated["cases"][0]["case_id"],
+            expected_revision=generated["revision"],
+            decision="approved",
+            reason="Fixed evidence reviewed for calibration.",
+            reviewer={"tenant_id": "local", "role": "provider_admin"},
+        )
         benchmark_jobs = BenchmarkJobStore(tmp_path / "api-benchmark-jobs")
         monkeypatch.setattr(benchmark_api, "_job_store", benchmark_jobs)
         monkeypatch.setattr(
@@ -603,7 +668,10 @@ async def test_knowledge_preflight_and_evidence_api_are_bounded(
         )
         calibration = await client.post(
             "/api/benchmarks/calibrations",
-            json={"dataset_id": generated["eval_set_id"], "dataset_revision": 1},
+            json={
+                "dataset_id": generated["eval_set_id"],
+                "dataset_revision": generated["revision"],
+            },
         )
         assert calibration.status_code == 200
         calibration_job = benchmark_jobs.require_job(calibration.json()["job_id"])
@@ -664,7 +732,7 @@ async def test_knowledge_preflight_and_evidence_api_are_bounded(
             json={"dataset_id": pending["eval_set_id"], "dataset_revision": 1},
         )
         assert blocked_calibration.status_code == 400
-        assert "approve every corpus-near" in blocked_calibration.text.lower()
+        assert "approve every generated case" in blocked_calibration.text.lower()
         assert len(benchmark_jobs.list_jobs()) == 1
 
         negative_case_id = pending["cases"][0]["case_id"]
@@ -772,13 +840,16 @@ async def test_generation_restart_reuses_dataset_without_second_model_call(
     assert claimed is not None
     await executor._run_knowledge_generation(claimed)
     first = job_store.require_job(created["job_id"])
-    assert first["status"] == "calibrating"
+    assert first["status"] == "completed"
+    assert first["calibration"]["status"] == "awaiting_review"
+    assert first["calibration"]["pending_review_count"] == 6
     assert first["dataset_id"]
     assert calls == 1
 
     await executor._run_knowledge_generation(first)
     second = job_store.require_job(created["job_id"])
-    assert second["status"] == "calibrating"
+    assert second["status"] == "completed"
+    assert second["calibration"]["status"] == "awaiting_review"
     assert second["dataset_id"] == first["dataset_id"]
     assert calls == 1
-    assert rag_executor.notifications == 2
+    assert rag_executor.notifications == 0

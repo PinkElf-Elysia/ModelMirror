@@ -671,6 +671,13 @@ class BenchmarkJobExecutor:
                 dataset_revision=existing["revision"],
                 warnings=target_warnings,
             )
+            if await self._hold_knowledge_generation_for_review(
+                job_id=job["job_id"],
+                dataset=existing,
+                snapshot=snapshot,
+                reference=reference,
+            ):
+                return
             await self._start_knowledge_evaluation(
                 job_id=job["job_id"],
                 dataset=existing,
@@ -788,7 +795,7 @@ class BenchmarkJobExecutor:
             generated["description"],
             cases=generated["cases"],
             provenance={
-                "generator": "modelmirror-targeted-rag-benchmark-v1",
+                "generator": "modelmirror-targeted-rag-benchmark-v2",
                 "generation_purpose": str(
                     request.get("generation_purpose") or "general"
                 ),
@@ -801,6 +808,7 @@ class BenchmarkJobExecutor:
                 "source_summary_hash": snapshot["source_summary_hash"],
                 "evidence_hash": context["evidence_hash"],
                 "blueprint_hash": context["blueprint_hash"],
+                "prompt_contract_hash": context["prompt_contract_hash"],
                 "seed": int(request.get("seed") or 0),
                 "repair_used": repair_used,
                 "generation_attempts": copy.deepcopy(attempts),
@@ -844,36 +852,12 @@ class BenchmarkJobExecutor:
             dataset_id=dataset["eval_set_id"],
             dataset_revision=dataset["revision"],
         )
-        pending_reviews = [
-            case
-            for case in dataset.get("cases") or []
-            if case.get("expected_no_result")
-            and str(case.get("review_status") or "pending") != "approved"
-        ]
-        if pending_reviews:
-            calibration = {
-                "status": "awaiting_review",
-                "dataset_revision": int(dataset["revision"]),
-                "target_reference": copy.deepcopy(reference),
-                "target_checksum": snapshot["checksum"],
-                "pending_review_count": len(pending_reviews),
-                "reason": (
-                    "Approve every corpus-near no-result case before starting "
-                    "real retrieval calibration."
-                ),
-            }
-            await asyncio.to_thread(
-                self.rag_evaluation_store.set_calibration,
-                dataset["eval_set_id"],
-                expected_revision=int(dataset["revision"]),
-                calibration=calibration,
-            )
-            await asyncio.to_thread(
-                self.store.update_job,
-                job["job_id"],
-                status="completed",
-                calibration=calibration,
-            )
+        if await self._hold_knowledge_generation_for_review(
+            job_id=job["job_id"],
+            dataset=dataset,
+            snapshot=snapshot,
+            reference=reference,
+        ):
             return
         await self._start_knowledge_evaluation(
             job_id=job["job_id"],
@@ -881,6 +865,48 @@ class BenchmarkJobExecutor:
             snapshot=snapshot,
             reference=reference,
         )
+
+    async def _hold_knowledge_generation_for_review(
+        self,
+        *,
+        job_id: str,
+        dataset: dict[str, Any],
+        snapshot: dict[str, Any],
+        reference: dict[str, Any],
+    ) -> bool:
+        pending_reviews = [
+            case
+            for case in dataset.get("cases") or []
+            if str(case.get("review_status") or "pending") != "approved"
+        ]
+        if not pending_reviews:
+            return False
+        calibration = {
+            "status": "awaiting_review",
+            "dataset_revision": int(dataset["revision"]),
+            "target_reference": copy.deepcopy(reference),
+            "target_checksum": snapshot["checksum"],
+            "pending_review_count": len(pending_reviews),
+            "reason": (
+                "Approve every generated case before starting real retrieval "
+                "calibration."
+            ),
+        }
+        await asyncio.to_thread(
+            self.rag_evaluation_store.set_calibration,
+            dataset["eval_set_id"],
+            expected_revision=int(dataset["revision"]),
+            calibration=calibration,
+        )
+        await asyncio.to_thread(
+            self.store.update_job,
+            job_id,
+            status="completed",
+            calibration=calibration,
+            dataset_id=dataset["eval_set_id"],
+            dataset_revision=int(dataset["revision"]),
+        )
+        return True
 
     async def _run_knowledge_calibration(self, job: dict[str, Any]) -> None:
         if self.knowledge_service is None or self.rag_evaluation_store is None:

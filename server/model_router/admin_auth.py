@@ -20,6 +20,8 @@ from pydantic import BaseModel, Field, SecretStr
 PAIRING_SECRET_ENV = "MODEL_MIRROR_PROVIDER_ADMIN_PAIRING_SECRET"
 COOKIE_NAME = "modelmirror_provider_admin"
 COOKIE_PATH = "/api/router"
+RAG_COOKIE_NAME = "modelmirror_rag_admin"
+RAG_COOKIE_PATH = "/api/rag"
 SESSION_TTL_SECONDS = 8 * 60 * 60
 MIN_PAIRING_SECRET_CHARS = 32
 MAX_SESSIONS = 128
@@ -162,6 +164,15 @@ class ProviderAdminAuth:
             samesite="strict",
             path=COOKIE_PATH,
         )
+        response.set_cookie(
+            RAG_COOKIE_NAME,
+            token,
+            max_age=SESSION_TTL_SECONDS,
+            httponly=True,
+            secure=secure,
+            samesite="strict",
+            path=RAG_COOKIE_PATH,
+        )
         return AdminSessionResponse(
             configured=True,
             authenticated=True,
@@ -199,7 +210,7 @@ class ProviderAdminAuth:
 
     def logout(self, request: Request, response: Response) -> None:
         self.require_csrf(request)
-        token = request.cookies.get(COOKIE_NAME, "")
+        token = self._token_from_request(request)
         if token:
             with self._lock:
                 self._sessions.pop(self._token_hash(token), None)
@@ -208,9 +219,10 @@ class ProviderAdminAuth:
             self._source_fingerprint(self._client_key(request)),
         )
         response.delete_cookie(COOKIE_NAME, path=COOKIE_PATH, samesite="strict")
+        response.delete_cookie(RAG_COOKIE_NAME, path=RAG_COOKIE_PATH, samesite="strict")
 
     def _session_from_request(self, request: Request) -> _Session | None:
-        token = request.cookies.get(COOKIE_NAME, "")
+        token = self._token_from_request(request)
         if not token:
             return None
         now = time.time()
@@ -218,6 +230,14 @@ class ProviderAdminAuth:
         with self._lock:
             self._purge_expired(now)
             return self._sessions.get(token_hash)
+
+    @staticmethod
+    def _token_from_request(request: Request) -> str:
+        return str(
+            request.cookies.get(COOKIE_NAME)
+            or request.cookies.get(RAG_COOKIE_NAME)
+            or ""
+        )
 
     def _active_failures(self, client_key: str, now: float) -> deque[float]:
         failures = self._failures[client_key]
