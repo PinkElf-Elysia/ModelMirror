@@ -1,0 +1,5 @@
+赛道：记忆派生索引。
+用途边界：只能索引 World Event Ledger；add/search/correct/delete/export 都必须保留权威事件身份，不得反向写 Runtime。
+初步集成面：TypeScript OSS 包存在大量可选 peer provider 与向量库依赖，资格只安装固定 mem0-ts 路径并使用 loopback 模型/embedding。
+主要风险：网络型 provider 默认、原生 SQLite 依赖、可选依赖许可证面与删除语义。
+切换信号：若最小 OSS 路径不能在无服务/无凭据下完成隔离与重启恢复，则保持 deferred，不扩建基础设施。

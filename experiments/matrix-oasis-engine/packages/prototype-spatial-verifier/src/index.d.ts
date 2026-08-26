@@ -48,6 +48,8 @@ export type PrototypeSpatialSolutionVerificationResult =
 
 export declare class PrototypeSpatialVerifierOperationalError extends Error {
   readonly code: "PROTOTYPE_SPATIAL_VERIFIER_INTERNAL_ERROR";
+  readonly stage: "operation" | "probe" | "import" | "verification" | "result";
+  readonly processFailure: "marker-missing" | "nonzero-exit" | "output-error" | "output-limit" | "signal" | "spawn-error" | "timeout" | "unknown";
 }
 
 export declare function createGodotSpatialSolutionVerifier(

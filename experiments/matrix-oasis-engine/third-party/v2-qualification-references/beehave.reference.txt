@@ -1,0 +1,5 @@
+赛道：Godot 行为树。
+用途边界：只评估纯 GDScript 行为编排；不得成为 Runtime、世界状态或任务权威源。
+初步集成面：addon 可直接在标准 Godot 中导入，仓库同时 vendoring GdUnit4，因此资格时只执行固定插件与测试路径。
+主要待证项：4.6.3 解析、abort/timeout/blackboard 隔离、20 次 trace 和 64 Agent 负载。
+切换信号：若语义缺口必须改上游源码，或 64 Agent 负载不能满足预算，转向 LimboAI 的受限 GDExtension 路径。

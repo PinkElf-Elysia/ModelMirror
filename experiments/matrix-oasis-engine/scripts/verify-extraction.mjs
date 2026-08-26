@@ -5,6 +5,7 @@ import { createReadStream } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { VERIFY_STEPS } from "./run-verify.mjs";
 
 const MODULE_PREFIX = "experiments/matrix-oasis-engine";
 const TEMP_PREFIX = "matrix-oasis-extraction-";
@@ -348,7 +349,18 @@ try {
     throw new Error("Standalone dependency tree contains missing or extraneous packages.");
   }
 
-  await npmStep("standalone-verify", ["run", "verify"], standaloneRoot);
+  for (const [verifyId, verifyArgs] of VERIFY_STEPS) {
+    await npmStep(`standalone-verify-${verifyId}`, verifyArgs, standaloneRoot);
+  }
+  await fs.writeFile(
+    path.join(logsRoot, "standalone-verify.log"),
+    [
+      `steps=${VERIFY_STEPS.length}`,
+      ...VERIFY_STEPS.map(([verifyId]) => `ok=${verifyId}`),
+      "",
+    ].join("\n"),
+    "utf8",
+  );
   await npmStep("standalone-smoke", ["run", "smoke:creator"], standaloneRoot);
 
   await runStep(

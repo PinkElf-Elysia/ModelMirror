@@ -9,6 +9,7 @@ import {
   assertDirtyStatusWithinModule,
   parsePorcelainV1Z,
 } from "../scripts/verify-extraction.mjs";
+import { VERIFY_STEPS } from "../scripts/run-verify.mjs";
 
 const moduleRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const modulePrefix = "experiments/matrix-oasis-engine";
@@ -87,6 +88,12 @@ test("extraction is explicit and never recursive through verify", async () => {
 
   assert.equal(manifest.scripts["verify:extraction"], "node scripts/verify-extraction.mjs");
   assert.equal(manifest.scripts.verify.includes("verify:extraction"), false);
+  assert.equal(VERIFY_STEPS.length, 27);
+  assert.equal(new Set(VERIFY_STEPS.map(([id]) => id)).size, VERIFY_STEPS.length);
+  assert.equal(
+    VERIFY_STEPS.some(([, args]) => args.includes("verify:extraction")),
+    false,
+  );
 });
 
 test("extraction script preserves history and verifies a clean standalone root", async () => {
@@ -131,6 +138,16 @@ test("extraction script preserves history and verifies a clean standalone root",
     source,
     /command === "git"[\s\S]*?\["-c", "core\.longpaths=true", \.\.\.args\]/,
     "every extraction Git subprocess must enable long paths without global configuration",
+  );
+  assert.match(
+    source,
+    /for \(const \[verifyId, verifyArgs\] of VERIFY_STEPS\)/,
+    "standalone verification must consume the exact root verification step list",
+  );
+  assert.doesNotMatch(
+    source,
+    /npmStep\("standalone-verify", \["run", "verify"\]/,
+    "one long nested verification process is not stable on Windows",
   );
 });
 

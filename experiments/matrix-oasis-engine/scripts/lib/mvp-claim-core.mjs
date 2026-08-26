@@ -33,7 +33,7 @@ export function checkMvpClaim({ moduleRoot }) {
 
   const claimPolicy = policy.mvpClaimPolicy;
   if (
-    policy.activeRound !== "R16" ||
+    !/^R(?:1[6-9]|[2-9][0-9]+)$/.test(policy.activeRound) ||
     claimPolicy?.blockingRound !== null ||
     claimPolicy?.acceptanceRecord !== "docs/rounds/R16_ACCEPTANCE.md" ||
     claimPolicy?.machineStatus !== "docs/MVP_STATUS.json" ||

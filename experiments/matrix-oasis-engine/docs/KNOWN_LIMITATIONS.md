@@ -26,3 +26,14 @@
 - 历史R14阶段Creator不能复现同一求解/复验/overlay发布链，第二个真实环境未从Creator入口重新资格；R16已完成迁移并通过双案例验收。
 - R15当时已将中性真实缓存重新资格为当前合同，并与末班地铁走同一实际输入证据链；R16随后让两案都通过Creator入口复现和MVP重新资格。
 - 现有通用实现不含地铁题材ID或案例坐标，但仍采用固定视觉占用阈值、单一全局支撑高度及旧walkable envelope兼容入口；非平面、多层、不同点云噪声或碰撞拓扑可能需要新合同，而不是继续调节单一样例参数。
+
+# R17第二版选型限制
+
+- R17只完成来源锁、仓外资格、评分和架构边界，不把LimboAI、Dialogue Manager或Mem0加入产品依赖，也不实现AI NPC、记忆、对话或事件功能。
+- R17证伪复验后没有任何外部行为树、对话或记忆候选达到`recommended`或`backup`；R18必须继续使用现有Runtime状态机、原生Control和Ledger派生索引边界。
+- LimboAI的固定Godot 4.6.3 Windows trace稳定，但实际运行包的CC-BY许可证面和GDExtension二进制来源未闭合，当前包被拒绝；不得据此引入依赖。
+- Dialogue Manager只在禁用状态变更、成员访问和资源内加载的Compatibility fixture中运行，且仍观察到资源泄漏；未证明Forward+资格。
+- Mem0只验证了SDK对测试自建loopback API的传输；测试中的add/search/correct/delete/export语义来自夹具自己的Map，不是Mem0本地记忆实现。
+- 当前Windows无容器Harness可以净化环境变量并终止超时进程树，但不能强制文件系统或网络隔离；相关硬门统一为`not-proven`。
+- Letta与动画夹具均为deferred；本轮未申请容器，不以README或项目热度替代运行证据。
+- R17没有把WorldX设为默认架构；其时间线和阶段化编排仅作为参考，并受现有R16权威合同约束。

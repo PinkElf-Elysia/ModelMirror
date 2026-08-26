@@ -145,3 +145,16 @@ R13.2固定四个只读、非执行的设计来源，不加入任何运行依赖
 3. 运行 `npm ci`、`npm ls --all` 和完整验证；
 4. 重新执行拆分验证；
 5. 若许可证不在准入清单，先取得人工批准。
+
+## R17第二版资格候选
+
+R17没有新增产品运行依赖。Beehave、LimboAI、Dialogue Manager、Mem0和Letta的完整checkout、安装依赖、GDExtension、npm tarball和日志均只存在于`C:\tmp`仓外资格目录；仓库只保存精确commit/tree/archive/license锁、MIT/Apache许可证复用、原创笔记和脱敏哈希。
+
+- LimboAI `v1.8.1`：源码顶层为MIT，但本轮实际运行包包含CC-BY-4.0标识/演示资产，且GDExtension二进制无法追溯到固定源码构建；当前运行包硬门失败并拒绝引入。
+- Beehave `v2.9.3`：顶层为MIT；Godot 4.6.3下测试工具链解析失败，完整许可闭包及20次语义trace未证成，结论为延后。
+- Dialogue Manager `v4.0.3`：顶层为MIT；只在Compatibility渲染下完成受限fixture，仍有资源泄漏且完整许可/隔离未证成，结论为延后。
+- Mem0 `ts-v3.1.6`：顶层为Apache-2.0；loopback仅验证SDK传输，记忆语义由测试夹具实现，且依赖树不完整，结论为延后。
+- Letta `0.16.8`：Apache-2.0；服务/数据库面延后，未安装或运行。
+- Kenney Animated Characters Retro：CC0；固定归档版本和clip与计划不符，未提交资产。
+
+所有候选均不进入Creator、Godot产品场景、Runtime/Scene/Spatial合同或供应商适配器。未来正式引入仍需单独依赖变更、平台包锁和全量验证。

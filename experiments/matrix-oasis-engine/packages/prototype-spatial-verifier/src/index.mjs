@@ -36,11 +36,28 @@ const GODOT_FAILURE_CODES = new Set([
   "PROTOTYPE_SPATIAL_VERIFY_TERMINAL_SIGHT_BLOCKED",
 ]);
 
+const OPERATION_STAGES = new Set(["operation", "probe", "import", "verification", "result"]);
+const PROCESS_FAILURES = new Set([
+  "marker-missing", "nonzero-exit", "output-error", "output-limit", "signal", "spawn-error", "timeout", "unknown",
+]);
+
 export class PrototypeSpatialVerifierOperationalError extends Error {
-  constructor() {
+  constructor(stage = "operation", processFailure = "unknown") {
     super(INTERNAL_CODE);
     this.name = "PrototypeSpatialVerifierOperationalError";
     this.code = INTERNAL_CODE;
+    Object.defineProperty(this, "stage", {
+      value: OPERATION_STAGES.has(stage) ? stage : "operation",
+      enumerable: false,
+      writable: false,
+      configurable: false,
+    });
+    Object.defineProperty(this, "processFailure", {
+      value: PROCESS_FAILURES.has(processFailure) ? processFailure : "unknown",
+      enumerable: false,
+      writable: false,
+      configurable: false,
+    });
   }
 }
 
@@ -48,6 +65,18 @@ function operational(error) {
   return error instanceof PrototypeSpatialVerifierOperationalError
     ? error
     : new PrototypeSpatialVerifierOperationalError();
+}
+
+function classifyProcessFailure(result, output, { markerRequired = false } = {}) {
+  if (!result || typeof result !== "object") return "unknown";
+  if (result.error?.code === "ETIMEDOUT") return "timeout";
+  if (result.error?.code === "ENOBUFS") return "output-limit";
+  if (result.error) return "spawn-error";
+  if (typeof result.signal === "string" && result.signal) return "signal";
+  if (result.status !== 0) return "nonzero-exit";
+  if (/(?:SCRIPT ERROR:|(?:^|\n)ERROR:)/u.test(output)) return "output-error";
+  if (markerRequired && !hasSingleMarker(output)) return "marker-missing";
+  return null;
 }
 
 function deepFreeze(value) {
@@ -457,11 +486,12 @@ export async function verifyPrototypeSpatialSolution(request, verifier) {
       [path.join(projectRoot, "playable", "action_terminal_3d.tscn"), path.join(playableDirectory, "action_terminal_3d.tscn")],
     ]) await writeFile(destination, await readFile(source), { flag: "wx" });
 
-    const imported = spawnSync(state.godotBin, ["--headless", "--editor", "--path", analysisProjectRoot, "--quit"], {
-      cwd: temporaryRoot, encoding: "utf8", maxBuffer: 16 * 1024 * 1024, shell: false, timeout: 180_000, windowsHide: true,
+    const imported = spawnSync(state.godotBin, ["--headless", "--path", analysisProjectRoot, "--import"], {
+      cwd: temporaryRoot, encoding: "utf8", maxBuffer: 16 * 1024 * 1024, shell: false, timeout: 300_000, windowsHide: true,
     });
     const importOutput = `${imported.stdout ?? ""}${imported.stderr ?? ""}`;
-    if (imported.error || imported.status !== 0 || /(?:SCRIPT ERROR:|(?:^|\n)ERROR:)/u.test(importOutput)) throw new PrototypeSpatialVerifierOperationalError();
+    const importFailure = classifyProcessFailure(imported, importOutput);
+    if (importFailure !== null) throw new PrototypeSpatialVerifierOperationalError("import", importFailure);
 
     const artifactDirectory = path.join(temporaryRoot, "artifacts");
     const assetDirectory = path.join(artifactDirectory, "assets");
@@ -510,11 +540,12 @@ export async function verifyPrototypeSpatialSolution(request, verifier) {
     const result = spawnSync(state.godotBin, [
       "--headless", "--path", analysisProjectRoot, "res://spatial_solution_verification/solution_verifier.tscn", "--",
       `--matrix-oasis-verification-request=${requestPath}`, `--matrix-oasis-verification-output=${outputPath}`,
-    ], { cwd: moduleRoot, encoding: "utf8", maxBuffer: 16 * 1024 * 1024, shell: false, timeout: 180_000, windowsHide: true });
+    ], { cwd: moduleRoot, encoding: "utf8", maxBuffer: 16 * 1024 * 1024, shell: false, timeout: 300_000, windowsHide: true });
     const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
-    if (result.error || result.status !== 0 || !hasSingleMarker(output)) throw new PrototypeSpatialVerifierOperationalError();
+    const verificationFailure = classifyProcessFailure(result, output, { markerRequired: true });
+    if (verificationFailure !== null) throw new PrototypeSpatialVerifierOperationalError("verification", verificationFailure);
     const parsed = exactGodotResult(JSON.parse(await readFile(outputPath, "utf8")));
-    if (!parsed) throw new PrototypeSpatialVerifierOperationalError();
+    if (!parsed) throw new PrototypeSpatialVerifierOperationalError("result", "unknown");
     if (!parsed.ok) return staticFailure("verification", parsed.code, parsed.path);
     const terminalCount = solution.nodeContexts.reduce((sum, context) => sum + context.actionTerminal.actionCount, 0);
     if (parsed.value.solutionSha256 !== sha256(captured.spatialSolutionJson) ||
@@ -522,7 +553,7 @@ export async function verifyPrototypeSpatialSolution(request, verifier) {
         parsed.value.nodeContextCount !== solution.nodeContexts.length ||
         parsed.value.checkedTerminalCount !== terminalCount || parsed.value.checkedPathCount !== terminalCount ||
         parsed.value.checkedVisualSafetyBoxCount !== visualSafety.boxes.length) {
-      throw new PrototypeSpatialVerifierOperationalError();
+      throw new PrototypeSpatialVerifierOperationalError("result", "unknown");
     }
     const canonicalVerificationReportJson = canonicalizeJsonValue({
       format: "matrix-oasis.prototype-spatial-verification-report", formatVersion: "0.1.0",

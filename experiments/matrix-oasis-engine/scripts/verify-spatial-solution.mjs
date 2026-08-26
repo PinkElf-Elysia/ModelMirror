@@ -109,7 +109,13 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(`SPATIAL_SOLUTION_VERIFICATION_FAILED stage=${stage}`);
-  console.error(error instanceof Error ? error.stack : String(error));
+  const code = typeof error?.code === "string" && /^PROTOTYPE_[A-Z0-9_]{2,127}$/u.test(error.code)
+    ? error.code : "PROTOTYPE_SPATIAL_VERIFY_UNEXPECTED";
+  const processStage = typeof error?.stage === "string" && /^(?:operation|probe|import|verification|result)$/u.test(error.stage)
+    ? error.stage : "operation";
+  const processFailure = typeof error?.processFailure === "string" &&
+    /^(?:marker-missing|nonzero-exit|output-error|output-limit|signal|spawn-error|timeout|unknown)$/u.test(error.processFailure)
+    ? error.processFailure : "unknown";
+  console.error(`SPATIAL_SOLUTION_VERIFICATION_FAILED stage=${stage} code=${code} processStage=${processStage} process=${processFailure}`);
   process.exitCode = 1;
 });
