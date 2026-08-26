@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Sequence
@@ -42,6 +43,7 @@ from server.coding_runtime.host_snapshot import (
 
 MAX_SOURCE_FRAME_BYTES = 64 * 1024
 SNAPSHOT_BUILD_TIMEOUT_SECONDS = 60.0
+PROJECT_LIST_MAX_WORKERS = 4
 SOURCE_SOCKET_PATH = Path(
     os.getenv(
         "CODING_PROJECT_SOURCE_SOCKET_PATH",
@@ -143,10 +145,17 @@ class ProjectSnapshotBroker:
             entries = load_project_manifest(self._projects_root)
         except ProjectCatalogError:
             entries = ()
-        return tuple(
-            inspect_project(self._projects_root, entry).to_public_dict()
-            for entry in entries
-        )
+        if not entries:
+            return ()
+
+        def inspect(entry: ProjectManifestEntry) -> dict[str, Any]:
+            return inspect_project(self._projects_root, entry).to_public_dict()
+
+        with ThreadPoolExecutor(
+            max_workers=min(PROJECT_LIST_MAX_WORKERS, len(entries)),
+            thread_name_prefix="project-catalog",
+        ) as executor:
+            return tuple(executor.map(inspect, entries))
 
     def import_uploaded(
         self,

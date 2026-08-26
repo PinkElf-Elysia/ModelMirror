@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from pathlib import Path
 import subprocess
@@ -11,6 +12,7 @@ from server.coding_worker.contracts import WorkspaceSource
 from server.coding_worker.source_adapters import (
     BuiltinGitWorkspaceSourceAdapter,
     HostSnapshotWorkspaceSourceAdapter,
+    ProjectSnapshotLeaseGate,
     ProjectSnapshotWorkspaceSourceAdapter,
 )
 from server.coding_worker.workspace import (
@@ -59,6 +61,45 @@ class FakeProjectSource:
     async def import_uploaded(self, **payload: str) -> dict[str, object]:
         self.imports.append(payload)
         return dict(self.lease)
+
+
+class SingleLeaseProjectSource(FakeProjectSource):
+    def __init__(self, lease: dict[str, object]) -> None:
+        super().__init__(lease)
+        self.active = False
+        self.max_active = 0
+
+    async def acquire(
+        self, project_id: str, *, expected_head: str | None = None
+    ) -> dict[str, object]:
+        if self.active:
+            raise RuntimeError("snapshot_busy")
+        self.active = True
+        self.max_active = max(self.max_active, 1)
+        self.acquired.append((project_id, expected_head))
+        await asyncio.sleep(0.02)
+        return {**self.lease, "project_id": project_id, "head": expected_head}
+
+    async def release(self, project_id: str, lease_id: str) -> bool:
+        assert self.active is True
+        self.active = False
+        return await super().release(project_id, lease_id)
+
+
+class CancelledAcquireProjectSource(SingleLeaseProjectSource):
+    def __init__(self, lease: dict[str, object]) -> None:
+        super().__init__(lease)
+        self.first_acquire_started = asyncio.Event()
+
+    async def acquire(
+        self, project_id: str, *, expected_head: str | None = None
+    ) -> dict[str, object]:
+        self.acquired.append((project_id, expected_head))
+        if not self.active:
+            self.active = True
+            self.first_acquire_started.set()
+            await asyncio.Event().wait()
+        return {**self.lease, "project_id": project_id, "head": expected_head}
 
 
 class FakeProjectHost:
@@ -230,6 +271,71 @@ async def test_project_snapshot_adapter_copies_exact_lease_and_releases(
     assert [(item.path, item.content) for item in snapshot.files] == sorted(files.items())
     assert client.acquired == [(source.source_id, source.revision)]
     assert client.released == [(source.source_id, "lease_1")]
+
+
+@pytest.mark.asyncio
+async def test_project_snapshot_adapter_serializes_complete_single_lease_lifecycle(
+    tmp_path: Path,
+) -> None:
+    files = {"README.md": b"hello\n"}
+    lease = _lease("local_clone", files)
+    client = SingleLeaseProjectSource(lease)
+    gate = ProjectSnapshotLeaseGate()
+    adapter = ProjectSnapshotWorkspaceSourceAdapter(
+        client,
+        _source_root(tmp_path, files),
+        lease_gate=gate,
+    )
+    sources = [
+        WorkspaceSource(
+            kind="manifest",
+            source_id="local-" + marker * 24,
+            revision=str(lease["head"]),
+        )
+        for marker in ("1", "2")
+    ]
+
+    snapshots = await asyncio.gather(*(adapter.acquire(source) for source in sources))
+
+    assert [snapshot.source for snapshot in snapshots] == sources
+    assert client.acquired == [
+        (source.source_id, source.revision) for source in sources
+    ]
+    assert client.released == [
+        (source.source_id, "lease_1") for source in sources
+    ]
+    assert client.active is False
+
+
+@pytest.mark.asyncio
+async def test_project_snapshot_adapter_reconciles_cancelled_acquire_side_effect(
+    tmp_path: Path,
+) -> None:
+    files = {"README.md": b"hello\n"}
+    lease = _lease("local_clone", files)
+    client = CancelledAcquireProjectSource(lease)
+    source = WorkspaceSource(
+        kind="manifest",
+        source_id=str(lease["project_id"]),
+        revision=str(lease["head"]),
+    )
+    task = asyncio.create_task(
+        ProjectSnapshotWorkspaceSourceAdapter(
+            client, _source_root(tmp_path, files)
+        ).acquire(source)
+    )
+    await client.first_acquire_started.wait()
+
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert client.acquired == [
+        (source.source_id, source.revision),
+        (source.source_id, source.revision),
+    ]
+    assert client.released == [(source.source_id, "lease_1")]
+    assert client.active is False
 
 
 @pytest.mark.asyncio
