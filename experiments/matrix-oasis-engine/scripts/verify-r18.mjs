@@ -12,6 +12,7 @@ const steps = [
   ["r17-godot-candidates", ["run", "verify:r17-godot"]],
   ["r17-agent-candidates", ["run", "verify:r17-agent"]],
   ["r17-frozen-evidence", ["run", "test:r18-sources"]],
+  ["r18-landscape-contracts", ["run", "test:r18-landscape-contracts"]],
 ];
 
 for (const [id, args] of steps) {
