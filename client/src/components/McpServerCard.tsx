@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Link2,
   Settings2,
@@ -16,6 +17,7 @@ import McpApprovalDialog, {
   type McpCatalogApprovalRequest,
 } from "./McpApprovalDialog";
 import McpBrowserPanel from "./McpBrowserPanel";
+import McpCatalogRemotePanel from "./McpCatalogRemotePanel";
 import {
   mcpRequirementLabels,
   type McpProject,
@@ -495,6 +497,7 @@ export default function McpServerCard({
   const approvalCallbackRef = useRef<(() => void) | null>(null);
   const approvalToolRef = useRef<string | null>(null);
   const [isInstallOpen, setIsInstallOpen] = useState(false);
+  const [isRemoteReviewOpen, setIsRemoteReviewOpen] = useState(false);
   const [installState, setInstallState] = useState<InstallState>("checking");
   const [installError, setInstallError] = useState("");
   const [browserRefreshKey, setBrowserRefreshKey] = useState(0);
@@ -514,7 +517,14 @@ export default function McpServerCard({
   const isPlaywrightCard = project.id === "playwright-mcp";
   const isReadyProductCard = availability === "ready";
   const isConnected = state === "connected" || adapterStatus?.connected === true;
-  const unavailableStatusLabel = availability === "adapting" ? "适配中" : "未适配";
+  const remoteReviewEntryEnabled = Boolean(
+    adapterStatus?.remote_review_capable && adapterStatus.remote_review_enabled,
+  );
+  const unavailableStatusLabel = remoteReviewEntryEnabled
+    ? "待复核"
+    : availability === "adapting"
+      ? "适配中"
+      : "未适配";
   const unavailableReason = compactUnavailableReason(
     availability,
     limitations,
@@ -533,6 +543,9 @@ export default function McpServerCard({
   const databasePreflight = adapterStatus?.preflight_status ?? "not-applicable";
   const needsCatalogConfiguration = Boolean(
     adapterStatus?.credential_fields.length || adapterStatus?.setting_fields.length,
+  );
+  const canConfigureCatalog = Boolean(
+    canConnect || adapterStatus?.remote_review_credential_ready,
   );
   const readyCardCopy = useMemo(() => {
     switch (project.id) {
@@ -1412,13 +1425,24 @@ export default function McpServerCard({
         ) : null}
       </div>
 
-      <button
-        className="relative mt-auto min-h-11 w-full cursor-not-allowed rounded-full border border-white/10 bg-white/[0.035] px-4 py-2 text-sm font-semibold text-slate-500"
-        disabled
-        type="button"
-      >
-        {unavailableStatusLabel}
-      </button>
+      {remoteReviewEntryEnabled ? (
+        <button
+          aria-haspopup="dialog"
+          className="relative mt-auto min-h-11 w-full rounded-full border border-cyan-300/30 bg-cyan-300/10 px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:border-cyan-200/50 hover:bg-cyan-300/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
+          onClick={() => setIsRemoteReviewOpen(true)}
+          type="button"
+        >
+          认证与复核
+        </button>
+      ) : (
+        <button
+          className="relative mt-auto min-h-11 w-full cursor-not-allowed rounded-full border border-white/10 bg-white/[0.035] px-4 py-2 text-sm font-semibold text-slate-500"
+          disabled
+          type="button"
+        >
+          {unavailableStatusLabel}
+        </button>
+      )}
         </>
       )}
 
@@ -1646,7 +1670,7 @@ export default function McpServerCard({
         />
       ) : null}
 
-      {canConnect && needsCatalogConfiguration && adapterStatus ? (
+      {canConfigureCatalog && needsCatalogConfiguration && adapterStatus ? (
         <McpCredentialPanel
           connectionPending={state === "connecting"}
           credentialFields={adapterStatus.credential_fields}
@@ -1943,6 +1967,63 @@ export default function McpServerCard({
           onConfirm={confirmApproval}
         />
       ) : null}
+
+      {remoteReviewEntryEnabled && isRemoteReviewOpen
+        ? createPortal(
+          <div
+            aria-labelledby={`mcp-remote-review-${project.id}`}
+            aria-modal="true"
+            className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/78 p-4 backdrop-blur-sm"
+            role="dialog"
+          >
+          <div className="surface-card max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-lg p-5 sm:p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold text-cyan-100">本地运维者功能</p>
+                <h2
+                  className="mt-1 text-xl font-semibold text-white"
+                  id={`mcp-remote-review-${project.id}`}
+                >
+                  {project.name} · 认证与复核
+                </h2>
+                <p className="mt-1 text-xs leading-5 text-slate-400">
+                  此流程只生成受控执行契约；R4A 不会激活或暴露 Runtime 工具。
+                </p>
+              </div>
+              <button
+                aria-label="关闭认证与复核"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-slate-200 transition hover:bg-white/[0.09] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
+                onClick={() => setIsRemoteReviewOpen(false)}
+                type="button"
+              >
+                <X aria-hidden="true" className="h-5 w-5" />
+              </button>
+            </div>
+            {canConfigureCatalog && needsCatalogConfiguration && adapterStatus ? (
+              <McpCredentialPanel
+                connectionPending={state === "connecting"}
+                credentialFields={adapterStatus.credential_fields}
+                disabled={state === "connected" || state === "connecting"}
+                initialBindings={adapterStatus.credential_bindings}
+                initialSettings={adapterStatus.configuration_values}
+                initiallyConfigured={adapterStatus.configured}
+                credentialVerification={adapterStatus.credential_verification}
+                accountStatus={adapterStatus.account_status}
+                databasePreflightStatus={adapterStatus.preflight_status}
+                mode="service"
+                onConfigurationSaved={handleConfigurationSaved}
+                onConfigured={setCatalogConfigured}
+                onSessionInvalidated={invalidateCredentialSession}
+                projectId={project.id}
+                settingFields={adapterStatus.setting_fields}
+              />
+            ) : null}
+            <McpCatalogRemotePanel projectId={project.id} />
+          </div>
+        </div>,
+          document.body,
+        )
+        : null}
 
       {isInstallOpen ? (
         <div

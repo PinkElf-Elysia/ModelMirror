@@ -11,7 +11,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
@@ -911,6 +911,13 @@ def deterministic_arguments(schema: dict[str, Any]) -> dict[str, Any] | None:
     return result
 
 
+def deterministic_proposal_sort_key(tool: dict[str, Any]) -> tuple[int, str]:
+    schema = tool.get("input_schema")
+    required = schema.get("required", []) if isinstance(schema, dict) else []
+    required_count = len(required) if isinstance(required, list) else 4
+    return required_count, str(tool.get("name") or "")
+
+
 def _redacted_preview(value: Any) -> str:
     def clean(item: Any, key: str = "") -> Any:
         if key and SENSITIVE_FIELD_RE.search(key):
@@ -951,6 +958,16 @@ class MCPHubReviewService:
         )
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._item_locks: dict[str, asyncio.Lock] = {}
+        self._external_run_admission: Callable[[], None] | None = None
+        self._external_run_lock: threading.RLock | None = None
+
+    def set_external_run_admission(
+        self,
+        admission: Callable[[], None] | None,
+        run_lock: threading.RLock | None = None,
+    ) -> None:
+        self._external_run_admission = admission
+        self._external_run_lock = run_lock
 
     def _require_enabled(self) -> None:
         if not review_factory_enabled():
@@ -1037,6 +1054,28 @@ class MCPHubReviewService:
         allow_queued_when_busy: bool = False,
     ) -> dict[str, Any]:
         self._require_enabled()
+        if self._external_run_lock is not None:
+            with self._external_run_lock:
+                return self._create_run_unlocked(
+                    identities,
+                    trigger=trigger,
+                    allow_queued_when_busy=allow_queued_when_busy,
+                )
+        return self._create_run_unlocked(
+            identities,
+            trigger=trigger,
+            allow_queued_when_busy=allow_queued_when_busy,
+        )
+
+    def _create_run_unlocked(
+        self,
+        identities: list[dict[str, str]],
+        *,
+        trigger: str,
+        allow_queued_when_busy: bool,
+    ) -> dict[str, Any]:
+        if self._external_run_admission is not None:
+            self._external_run_admission()
         normalized: list[dict[str, str]] = []
         seen: set[tuple[str, str, str]] = set()
         for identity in identities:
@@ -1474,7 +1513,7 @@ class MCPHubReviewService:
         effects: dict[str, str],
         schema_digest: str,
     ) -> dict[str, Any] | None:
-        for tool in sorted(tools, key=lambda entry: str(entry.get("name") or "")):
+        for tool in sorted(tools, key=deterministic_proposal_sort_key):
             name = str(tool.get("name") or "")
             if effects.get(name) != "read_candidate":
                 continue

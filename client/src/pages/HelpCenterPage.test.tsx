@@ -3,7 +3,12 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import ResourceNav from "../components/ResourceNav";
-import { helpArticles, helpModules, helpSections } from "../content/help-center";
+import {
+  helpArticles,
+  helpModules,
+  helpSections,
+  remoteMcpReviewBaseline,
+} from "../content/help-center";
 import HelpArticlePage from "./HelpArticlePage";
 import HelpCenterPage from "./HelpCenterPage";
 
@@ -98,6 +103,11 @@ describe("unified help reading shell", () => {
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(screen.getAllByRole("navigation", { name: "帮助目录" })).toHaveLength(2);
     expect(screen.getAllByRole("link", { name: "安全、费用与数据" }).length).toBeGreaterThan(0);
+  });
+
+  it("renders the evidence baseline owned by the current article", () => {
+    renderHelp("/help/review-remote-mcp-auth");
+    expect(screen.getByText(remoteMcpReviewBaseline.commit)).toBeInTheDocument();
   });
 
   it("renders a first-level index and module topic in the same shell", () => {

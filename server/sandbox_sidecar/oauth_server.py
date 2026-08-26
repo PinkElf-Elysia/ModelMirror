@@ -45,6 +45,21 @@ RESOURCE_METADATA_RE = re.compile(
 SCOPE_RE = re.compile(r'(?:^|[\s,])scope="([^"\\]{1,2048})"', re.IGNORECASE)
 PKCE_VERIFIER_RE = re.compile(r"^[A-Za-z0-9._~-]{43,128}$")
 TOKEN_TYPE_HINTS = frozenset({"access_token", "refresh_token"})
+UPSTREAM_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9._~-]{1,256}$")
+MCP_PROTOCOL_VERSION = "2025-11-25"
+MCP_CHALLENGE_PROBE = {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+        "protocolVersion": MCP_PROTOCOL_VERSION,
+        "capabilities": {},
+        "clientInfo": {
+            "name": "ModelMirror OAuth Discovery",
+            "version": "1",
+        },
+    },
+}
 
 
 def _has_unambiguous_json_content_type(headers: Any) -> bool:
@@ -123,6 +138,22 @@ def _resource_metadata(header: str) -> str:
     """Backward-compatible pure parser used by the sidecar regression harness."""
 
     return _bearer_challenge(header)[0]
+
+
+def _probe_result(status_code: int, headers: Any) -> dict[str, Any]:
+    challenge = (
+        headers.get("www-authenticate", "") if status_code == 401 else ""
+    )
+    bearer_challenge = bool(
+        re.match(r"^Bearer(?:\s|$)", challenge.strip(), re.IGNORECASE)
+    )
+    metadata_url, challenge_scopes = _bearer_challenge(challenge)
+    return {
+        "status_class": f"{status_code // 100}xx",
+        "bearer_challenge": bearer_challenge,
+        "resource_metadata_url": metadata_url,
+        "challenge_scopes": list(challenge_scopes),
+    }
 
 
 async def _bounded_body(response: httpx.Response) -> bytes:
@@ -223,21 +254,46 @@ class OAuthMetadataService:
             async with client.stream("GET", url) as response:
                 if 300 <= response.status_code < 400:
                     raise HubSidecarError("hub_upstream_redirect_denied")
-                challenge = (
-                    response.headers.get("www-authenticate", "")
-                    if response.status_code == 401
-                    else ""
+                if response.status_code != 405:
+                    return _probe_result(response.status_code, response.headers)
+
+            # Streamable HTTP endpoints may reject GET before a session exists.
+            # A single fixed initialize request can obtain the RFC 9728 Bearer
+            # challenge without exposing a caller-controlled MCP method,
+            # capability, Header, or request body.
+            async with client.stream(
+                "POST",
+                url,
+                headers={
+                    "Accept": "application/json, text/event-stream",
+                    "Content-Type": "application/json",
+                    "MCP-Protocol-Version": MCP_PROTOCOL_VERSION,
+                },
+                json=MCP_CHALLENGE_PROBE,
+            ) as response:
+                if 300 <= response.status_code < 400:
+                    raise HubSidecarError("hub_upstream_redirect_denied")
+                result = _probe_result(response.status_code, response.headers)
+                upstream_session_id = str(
+                    response.headers.get("mcp-session-id", "")
                 )
-                bearer_challenge = bool(
-                    re.match(r"^Bearer(?:\s|$)", challenge.strip(), re.IGNORECASE)
+            if upstream_session_id:
+                if UPSTREAM_SESSION_ID_RE.fullmatch(upstream_session_id) is None:
+                    raise HubSidecarError(
+                        "mcp_remote_oauth_probe_session_invalid"
+                    )
+                cleanup = await client.delete(
+                    url,
+                    headers={
+                        "Mcp-Session-Id": upstream_session_id,
+                        "MCP-Protocol-Version": MCP_PROTOCOL_VERSION,
+                    },
                 )
-                metadata_url, challenge_scopes = _bearer_challenge(challenge)
-                return {
-                    "status_class": f"{response.status_code // 100}xx",
-                    "bearer_challenge": bearer_challenge,
-                    "resource_metadata_url": metadata_url,
-                    "challenge_scopes": list(challenge_scopes),
-                }
+                if cleanup.status_code < 200 or cleanup.status_code >= 300:
+                    raise HubSidecarError(
+                        "mcp_remote_oauth_probe_cleanup_failed"
+                    )
+            return result
         except HubSidecarError:
             raise
         except httpx.TimeoutException as exc:

@@ -4,6 +4,7 @@ import {
   helpArticles,
   helpModules,
   helpSections,
+  remoteMcpReviewBaseline,
   searchHelpContent,
   verifiedBaseline,
 } from ".";
@@ -25,16 +26,17 @@ describe("help center content catalog", () => {
     });
   });
 
-  it("keeps the five formal article slugs unique and metadata complete", () => {
-    expect(helpArticles.map((article) => article.slug)).toEqual(["start-with-a-model", "choose-model-agent-workflow", "modules-and-terms", "recover-unavailable-feature", "check-availability-cost-data"]);
+  it("keeps the formal article slugs unique and metadata complete", () => {
+    expect(helpArticles.map((article) => article.slug)).toEqual(["start-with-a-model", "choose-model-agent-workflow", "modules-and-terms", "recover-unavailable-feature", "review-remote-mcp-auth", "check-availability-cost-data"]);
     expect(new Set(helpArticles.map((article) => article.slug)).size).toBe(helpArticles.length);
     helpArticles.forEach((article) => {
       requiredMetadata.forEach((field) => expect(article[field], `${article.slug}.${field}`).toBeTruthy());
-      expect(article.verifiedCommit).toBe(verifiedBaseline.commit);
       expect(article.verifiedCommit).toMatch(/^[0-9a-f]{8}$/);
       expect(article.verifiedDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       expect(article.content).not.toMatch(/内容稍后补充|coming soon/i);
     });
+    expect(helpArticles.filter((article) => article.slug !== "review-remote-mcp-auth").every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
+    expect(helpArticles.find((article) => article.slug === "review-remote-mcp-auth")?.verifiedCommit).toBe(remoteMcpReviewBaseline.commit);
   });
 
   it("keeps operational articles within the required structure and step count", () => {
@@ -51,7 +53,7 @@ describe("help center content catalog", () => {
       const images = [...article.content.matchAll(/!\[([^\]]*)\]\(([^)]+)\)/g)];
       images.forEach((image) => {
         expect(image[1].trim(), article.slug).not.toBe("");
-        expect(image[2]).toMatch(/^\/help-center\/cc49136c\//);
+        expect(image[2]).toMatch(new RegExp(`^/help-center/${article.verifiedCommit}/`));
       });
     });
     expect(helpArticles.find((article) => article.slug === "start-with-a-model")?.content).toContain("/help-center/cc49136c/kimi-k3-add-image-menu.png");
@@ -65,6 +67,7 @@ describe("help center content catalog", () => {
     expect(searchHelpContent("Science").some((entry) => entry.id === "experimental/science")).toBe(true);
     expect(searchHelpContent("专家团").some((entry) => entry.id === "agents/expert-team")).toBe(true);
     expect(searchHelpContent("运行记录").some((entry) => entry.id === "runtime/run-records")).toBe(true);
+    expect(searchHelpContent("Review Factory").some((entry) => entry.id === "review-remote-mcp-auth")).toBe(true);
     const ids = getHelpSearchEntries().map((entry) => `${entry.kind}:${entry.id}`);
     expect(new Set(ids).size).toBe(ids.length);
   });

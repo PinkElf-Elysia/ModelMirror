@@ -97,6 +97,7 @@ SAFE_PREFLIGHT_RETRY_CODES = frozenset(
         "hub_upstream_unavailable",
     }
 )
+ALLOWED_INERT_SERVER_CAPABILITIES = frozenset({"completions"})
 
 
 class HubSidecarError(RuntimeError):
@@ -104,6 +105,20 @@ class HubSidecarError(RuntimeError):
         super().__init__(code)
         self.code = code
         self.details = dict(details or {})
+
+
+def _validated_inert_capabilities(value: Any) -> frozenset[str]:
+    if value is None:
+        return frozenset()
+    if (
+        not isinstance(value, (list, tuple))
+        or len(value) > len(ALLOWED_INERT_SERVER_CAPABILITIES)
+        or any(not isinstance(item, str) for item in value)
+        or len(set(value)) != len(value)
+        or any(item not in ALLOWED_INERT_SERVER_CAPABILITIES for item in value)
+    ):
+        raise HubSidecarError("hub_open_contract_invalid")
+    return frozenset(value)
 
 
 def _flattened_errors(error: BaseException) -> list[BaseException]:
@@ -833,6 +848,7 @@ class RemoteSession:
     auth_binding_revision: int
     auth_context_digest: str
     auth_mode: str
+    allowed_inert_capabilities: frozenset[str]
     tools: list[dict[str, Any]]
     created_at: float
     last_activity: float
@@ -880,6 +896,7 @@ class HubRemoteService:
         capability: str,
         session_owner: str,
         auth: Any = None,
+        allowed_inert_capabilities: Any = None,
     ) -> dict[str, Any]:
         if (
             CANDIDATE_ID_RE.fullmatch(candidate_id) is None
@@ -893,6 +910,9 @@ class HubRemoteService:
             auth,
             candidate_id=candidate_id,
             normalized_url=normalized,
+        )
+        inert_capabilities = _validated_inert_capabilities(
+            allowed_inert_capabilities
         )
         auth_mode = (
             "oauth" if isinstance(auth, dict) and auth.get("auth_mode") == "oauth_authorization_code_pkce" else "static" if auth_envelope else ""
@@ -911,6 +931,7 @@ class HubRemoteService:
                     arguments=None,
                     auth_header=(auth_envelope[0], auth_envelope[1]) if auth_envelope else None,
                     auth_mode=auth_mode,
+                    allowed_inert_capabilities=inert_capabilities,
                 )
                 now = time.monotonic()
                 session_id = "hubsession_" + uuid_hex()
@@ -927,6 +948,7 @@ class HubRemoteService:
                     auth_binding_revision=auth_envelope[3] if auth_envelope else 0,
                     auth_context_digest=auth_envelope[4] if auth_envelope else "",
                     auth_mode=auth_mode,
+                    allowed_inert_capabilities=inert_capabilities,
                     tools=tools,
                     created_at=now,
                     last_activity=now,
@@ -963,6 +985,7 @@ class HubRemoteService:
         arguments: dict[str, Any] | None,
         auth_header: tuple[str, str] | None = None,
         auth_mode: str = "",
+        allowed_inert_capabilities: frozenset[str] = frozenset(),
     ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
         """Run one complete SDK exchange without crossing asyncio tasks.
 
@@ -1011,7 +1034,10 @@ class HubRemoteService:
                         initialized = await asyncio.wait_for(
                             client.initialize(), timeout=CALL_TIMEOUT_SECONDS
                         )
-                        self._validate_capabilities(initialized)
+                        self._validate_capabilities(
+                            initialized,
+                            allowed_inert_capabilities=allowed_inert_capabilities,
+                        )
                         tools = await self._list_tools(client)
                         if expected_tools is not None and tools != expected_tools:
                             raise HubSidecarError("hub_schema_drift")
@@ -1075,7 +1101,11 @@ class HubRemoteService:
         return output
 
     @staticmethod
-    def _validate_capabilities(initialized: Any) -> None:
+    def _validate_capabilities(
+        initialized: Any,
+        *,
+        allowed_inert_capabilities: frozenset[str] = frozenset(),
+    ) -> None:
         capabilities = getattr(initialized, "capabilities", None)
         if capabilities is None or not hasattr(capabilities, "model_dump"):
             raise HubSidecarError("hub_server_capabilities_invalid")
@@ -1084,8 +1114,19 @@ class HubRemoteService:
         )
         if not isinstance(dumped, dict) or "tools" not in dumped:
             raise HubSidecarError("hub_tools_capability_required")
-        allowed_capabilities = {"tools", "prompts", "resources"}
+        if not allowed_inert_capabilities.issubset(
+            ALLOWED_INERT_SERVER_CAPABILITIES
+        ):
+            raise HubSidecarError("hub_open_contract_invalid")
+        allowed_capabilities = {
+            "tools",
+            "prompts",
+            "resources",
+            *allowed_inert_capabilities,
+        }
         if any(key not in allowed_capabilities for key in dumped):
+            raise HubSidecarError("hub_non_tool_capability_denied")
+        if "completions" in dumped and dumped.get("completions") != {}:
             raise HubSidecarError("hub_non_tool_capability_denied")
         for name, allowed_flags in (
             ("prompts", {"listChanged", "list_changed"}),
@@ -1176,6 +1217,7 @@ class HubRemoteService:
                         else None
                     ),
                     auth_mode=session.auth_mode,
+                    allowed_inert_capabilities=session.allowed_inert_capabilities,
                 )
                 if result is None:
                     raise HubSidecarError("hub_upstream_unknown_outcome")
@@ -1213,6 +1255,7 @@ class HubRemoteService:
                             else None
                         ),
                         auth_mode=session.auth_mode,
+                        allowed_inert_capabilities=session.allowed_inert_capabilities,
                     )
                     session.tools = tools
                     session.last_activity = time.monotonic()
@@ -1251,6 +1294,7 @@ class HubRemoteService:
                     str(request.get("capability") or ""),
                     str(request.get("session_owner") or ""),
                     request.get("auth"),
+                    request.get("allowed_inert_capabilities"),
                 )
                 response = {"ok": True, **result}
             elif action == "call":

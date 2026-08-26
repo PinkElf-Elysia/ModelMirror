@@ -882,6 +882,12 @@ try:
         configure_mcp_remote_oauth_authorization,
         router as mcp_remote_oauth_authorization_router,
     )
+    from server.mcp.remote_review import (
+        MCPRemoteReviewService,
+        MCPRemoteReviewStore,
+        configure_mcp_remote_review,
+        router as mcp_remote_review_router,
+    )
     from server.mcp.workspace import MCPCatalogWorkspaceStore
     from server.registry.tool_registry import ToolRegistry
 except ModuleNotFoundError:
@@ -936,6 +942,12 @@ except ModuleNotFoundError:
         MCPRemoteOAuthAuthorizationStore,
         configure_mcp_remote_oauth_authorization,
         router as mcp_remote_oauth_authorization_router,
+    )
+    from mcp.remote_review import (
+        MCPRemoteReviewService,
+        MCPRemoteReviewStore,
+        configure_mcp_remote_review,
+        router as mcp_remote_review_router,
     )
     from mcp.workspace import MCPCatalogWorkspaceStore
     from registry.tool_registry import ToolRegistry
@@ -1651,6 +1663,7 @@ app.include_router(mcp_hub_trusted_router)
 app.include_router(mcp_remote_auth_router)
 app.include_router(mcp_remote_oauth_router)
 app.include_router(mcp_remote_oauth_authorization_router)
+app.include_router(mcp_remote_review_router)
 
 request_windows: dict[str, deque[float]] = defaultdict(deque)
 mcp_connect_windows: dict[str, deque[float]] = defaultdict(deque)
@@ -1776,6 +1789,18 @@ mcp_catalog_service = MCPCatalogService(
     owner_id=os.getenv("MODELMIRROR_DEFAULT_OWNER_ID", "local"),
 )
 configure_mcp_catalog(mcp_catalog_service)
+mcp_remote_review_store = MCPRemoteReviewStore(mcp_hub_store.storage_dir)
+mcp_remote_review_service = MCPRemoteReviewService(
+    hub=mcp_hub_service,
+    hub_review=mcp_hub_review_service,
+    catalog=mcp_catalog_service,
+    broker=mcp_remote_auth_broker,
+    oauth=mcp_remote_oauth_service,
+    authorization=mcp_remote_oauth_authorization_service,
+    store=mcp_remote_review_store,
+    signing_key=contract_signing_key(),
+)
+configure_mcp_remote_review(mcp_remote_review_service)
 workflow_catalog_mcp_provider = CatalogMCPToolsetProvider(mcp_catalog_service)
 workflow_mcp_provider = CompositeMCPToolsetProvider(
     workflow_curated_mcp_provider,
@@ -27169,6 +27194,7 @@ async def start_mcp_ttl_cleanup() -> None:
     mcp_manager.start_ttl_cleanup(on_cleanup=cleanup_mcp_session_state)
     await mcp_hub_service.start()
     await mcp_hub_review_service.start()
+    await mcp_remote_review_service.start()
     await mcp_hub_trusted_service.start()
     builtin_warnings = await toolset_service.ensure_builtin_toolsets()
     for warning in builtin_warnings:
@@ -27224,6 +27250,7 @@ async def shutdown_mcp_sessions() -> None:
         await automation_coordinator.stop()
     await workflow_trigger_coordinator.stop()
     await mcp_hub_trusted_service.close()
+    await mcp_remote_review_service.close()
     await mcp_hub_review_service.close()
     await mcp_hub_service.close()
     await mcp_catalog_service.clear_sessions()

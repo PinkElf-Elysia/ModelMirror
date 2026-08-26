@@ -50,6 +50,7 @@ from server.mcp.hub_review import (
     assess_oauth_scopes,
     classify_tool_effect,
     deterministic_arguments,
+    deterministic_proposal_sort_key,
     router as review_router,
 )
 
@@ -855,6 +856,36 @@ def test_deterministic_proposal_rejects_sensitive_and_unbounded_schemas() -> Non
             "required": ["query"],
         }
     ) is None
+
+
+def test_deterministic_proposal_prefers_fewer_required_fields() -> None:
+    tools = [
+        {
+            "name": "a_entity_lookup",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "owner": {"type": "string"},
+                    "repo": {"type": "string"},
+                    "sha": {"type": "string"},
+                },
+                "required": ["owner", "repo", "sha"],
+            },
+        },
+        {
+            "name": "z_search",
+            "input_schema": {
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+                "required": ["query"],
+            },
+        },
+    ]
+
+    assert [
+        tool["name"]
+        for tool in sorted(tools, key=deterministic_proposal_sort_key)
+    ] == ["z_search", "a_entity_lookup"]
 
 
 def test_effect_classifier_uses_input_fields_not_descriptive_output_terms() -> None:

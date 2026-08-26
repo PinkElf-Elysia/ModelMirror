@@ -245,6 +245,49 @@ async def test_socket_bridge_maps_invalid_post_write_registration_reply_to_unkno
 
 
 @pytest.mark.asyncio
+async def test_socket_bridge_maps_catalog_identity_without_changing_hub_identity() -> None:
+    bridge = RemoteOAuthSocketBridge(oauth_socket="oauth.sock", egress_socket="egress.sock")
+    requests: list[dict[str, Any]] = []
+
+    async def request(_path: str, payload: dict[str, Any], **_kwargs: Any) -> dict[str, Any]:
+        requests.append(payload)
+        return {"ok": True, "capability": "a" * 64}
+
+    bridge._request = request  # type: ignore[method-assign]
+    hub_id = "mcphub_" + "1" * 32
+    await bridge._authorize(hub_id, RESOURCE)
+    await bridge._authorize("sentry-mcp", RESOURCE)
+    await bridge._authorize("sentry-mcp", RESOURCE)
+
+    assert requests[0]["candidate_id"] == hub_id
+    assert requests[1]["candidate_id"] == requests[2]["candidate_id"]
+    assert requests[1]["candidate_id"] != "sentry-mcp"
+    assert requests[1]["candidate_id"].startswith("mcphub_")
+    assert len(requests[1]["candidate_id"]) == len(hub_id)
+
+
+@pytest.mark.asyncio
+async def test_socket_bridge_uses_same_catalog_mapping_for_egress_and_oauth() -> None:
+    bridge = RemoteOAuthSocketBridge(oauth_socket="oauth.sock", egress_socket="egress.sock")
+    requests: list[tuple[str, dict[str, Any]]] = []
+
+    async def request(path: str, payload: dict[str, Any], **_kwargs: Any) -> dict[str, Any]:
+        requests.append((path, payload))
+        if path == "egress.sock" and payload.get("action") == "authorize":
+            return {"ok": True, "capability": "a" * 64}
+        return {"ok": True, "status_class": "4xx", "bearer_challenge": True}
+
+    bridge._request = request  # type: ignore[method-assign]
+    await bridge.probe_resource("sentry-mcp", RESOURCE)
+
+    authorize = next(payload for path, payload in requests if path == "egress.sock" and payload["action"] == "authorize")
+    probe = next(payload for path, payload in requests if path == "oauth.sock")
+    assert authorize["candidate_id"] == probe["target_id"]
+    assert probe["target_id"] != "sentry-mcp"
+    assert probe["target_id"].startswith("mcphub_")
+
+
+@pytest.mark.asyncio
 async def test_discovery_freezes_resource_issuer_pkce_and_endpoints(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

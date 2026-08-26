@@ -187,6 +187,78 @@ async def test_probe_marks_only_a_401_bearer_challenge(
 
 
 @pytest.mark.asyncio
+async def test_probe_uses_fixed_initialize_only_after_get_method_denied(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict[str, Any]]] = []
+
+    class Proxy:
+        async def close(self) -> None:
+            pass
+
+    class Response:
+        def __init__(self, status_code: int, headers: dict[str, str]) -> None:
+            self.status_code = status_code
+            self.headers = headers
+
+    class Stream:
+        def __init__(self, response: Response) -> None:
+            self.response = response
+
+        async def __aenter__(self) -> Response:
+            return self.response
+
+        async def __aexit__(self, *_args: Any) -> None:
+            pass
+
+    class Client:
+        def stream(self, method: str, _url: str, **kwargs: Any) -> Stream:
+            calls.append((method, kwargs))
+            if method == "GET":
+                return Stream(Response(405, {}))
+            return Stream(
+                Response(
+                    401,
+                    {
+                        "www-authenticate": (
+                            'Bearer resource_metadata="https://mcp.example.com/meta", '
+                            'scope="mcp:read"'
+                        )
+                    },
+                )
+            )
+
+        async def aclose(self) -> None:
+            pass
+
+    service = oauth_server.OAuthMetadataService()
+
+    async def fake_client(*_args: Any) -> tuple[Proxy, Client]:
+        return Proxy(), Client()
+
+    monkeypatch.setattr(service, "_client", fake_client)
+    result = await service.probe_resource(
+        "https://mcp.example.com/mcp", "mcp.example.com", "a" * 64
+    )
+
+    assert [method for method, _kwargs in calls] == ["GET", "POST"]
+    assert calls[1][1] == {
+        "headers": {
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+            "MCP-Protocol-Version": "2025-11-25",
+        },
+        "json": oauth_server.MCP_CHALLENGE_PROBE,
+    }
+    assert result == {
+        "status_class": "4xx",
+        "bearer_challenge": True,
+        "resource_metadata_url": "https://mcp.example.com/meta",
+        "challenge_scopes": ["mcp:read"],
+    }
+
+
+@pytest.mark.asyncio
 async def test_dynamic_registration_contract_rejects_arbitrary_payload_before_network() -> None:
     service = oauth_server.OAuthMetadataService()
     with pytest.raises(oauth_server.HubSidecarError) as denied:

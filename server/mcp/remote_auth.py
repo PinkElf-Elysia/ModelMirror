@@ -770,6 +770,7 @@ class MCPRemoteAuthStore:
 CredentialLookup = Callable[..., Any]
 CredentialResolver = Callable[..., str]
 CredentialSecurityAttestor = Callable[[], tuple[bool, bool]]
+TargetChangeHandler = Callable[[RemoteAuthTargetType, str], None]
 
 
 class MCPRemoteAuthBroker:
@@ -790,6 +791,17 @@ class MCPRemoteAuthBroker:
         self._credential_resolver = credential_resolver
         self._credential_security_attestor = credential_security_attestor
         self._binding_locks = tuple(threading.RLock() for _ in range(64))
+        self._target_change_handlers: list[TargetChangeHandler] = []
+
+    def add_target_change_handler(self, handler: TargetChangeHandler) -> None:
+        if handler not in self._target_change_handlers:
+            self._target_change_handlers.append(handler)
+
+    def _notify_target_changed(
+        self, target_type: RemoteAuthTargetType, target_id: str
+    ) -> None:
+        for handler in tuple(self._target_change_handlers):
+            handler(target_type, target_id)
 
     def status(self) -> dict[str, Any]:
         external_key_available, external_key_enforced = (
@@ -820,13 +832,15 @@ class MCPRemoteAuthBroker:
         subject = self._require_operational()
         self._require_static_policy_enabled(policy)
         self._credential_metadata(credential_id, subject=subject)
-        return self.store.create_binding(
+        binding = self.store.create_binding(
             subject=subject,
             target_type=target_type,
             target_id=target_id,
             policy=policy,
             credential_id=credential_id,
         )
+        self._notify_target_changed(binding.target_type, binding.target_id)
+        return binding
 
     def get_binding(
         self,
@@ -928,12 +942,14 @@ class MCPRemoteAuthBroker:
             )
             self._require_binding_target(binding, target_type, target_id)
             self._credential_metadata(credential_id, subject=subject)
-            return self.store.rotate_binding(
+            updated = self.store.rotate_binding(
                 binding.binding_id,
                 subject=subject,
                 credential_id=credential_id,
                 expected_revision=expected_revision,
             )
+        self._notify_target_changed(updated.target_type, updated.target_id)
+        return updated
 
     def revoke_binding(
         self,
@@ -946,7 +962,9 @@ class MCPRemoteAuthBroker:
             subject = self._require_operational()
             binding = self.store.get_binding(binding_id, subject=subject)
             self._require_binding_target(binding, target_type, target_id)
-            return self.store.revoke_binding(binding_id, subject=subject)
+            updated = self.store.revoke_binding(binding_id, subject=subject)
+        self._notify_target_changed(updated.target_type, updated.target_id)
+        return updated
 
     @contextmanager
     def resolve_for_execution(

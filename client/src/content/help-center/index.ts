@@ -2,6 +2,7 @@ import checkAvailabilityCostData from "./articles/check-availability-cost-data.m
 import chooseModelAgentWorkflow from "./articles/choose-model-agent-workflow.md?raw";
 import modulesAndTerms from "./articles/modules-and-terms.md?raw";
 import recoverUnavailableFeature from "./articles/recover-unavailable-feature.md?raw";
+import reviewRemoteMcpAuth from "./articles/review-remote-mcp-auth.md?raw";
 import startWithAModel from "./articles/start-with-a-model.md?raw";
 
 export type HelpCategory = "第一次使用" | "按目标找指南" | "按模块浏览" | "解决问题" | "安全、费用与数据";
@@ -73,6 +74,7 @@ export type HelpSearchEntry = {
 };
 
 export const verifiedBaseline = { commit: "cc49136c", date: "2026-08-26" };
+export const remoteMcpReviewBaseline = { commit: "f9e3cfe2", date: "2026-08-26" };
 
 export const helpContentTypeLabels: Record<HelpContentType, string> = {
   tutorial: "入门教程",
@@ -140,6 +142,21 @@ export const helpArticles: HelpArticle[] = [
     verifiedCommit: verifiedBaseline.commit,
     verifiedDate: verifiedBaseline.date,
     content: recoverUnavailableFeature,
+    nextSlug: "review-remote-mcp-auth",
+  },
+  {
+    slug: "review-remote-mcp-auth",
+    title: "连接并复核需要认证的远程 MCP",
+    summary: "核对固定 Origin，保存静态 Token 或完成 OAuth，并通过 Review Factory 发布最小只读契约。",
+    category: "安全、费用与数据",
+    contentType: "how-to",
+    audience: "在本地单主体部署中配置和审核远程 MCP 的运维者",
+    estimatedMinutes: 8,
+    keywords: ["MCP", "远程 MCP", "Token", "OAuth", "Review Factory", "契约", "Origin", "Scope"],
+    relatedRoutes: ["/mcps", "/mcps?view=hub"],
+    verifiedCommit: remoteMcpReviewBaseline.commit,
+    verifiedDate: remoteMcpReviewBaseline.date,
+    content: reviewRemoteMcpAuth,
     nextSlug: "check-availability-cost-data",
   },
   {

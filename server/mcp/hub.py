@@ -1085,6 +1085,7 @@ class HubBridgeProtocol:
         session_owner: str,
         *,
         auth: dict[str, Any] | None = None,
+        allowed_inert_capabilities: tuple[str, ...] = (),
     ) -> dict[str, Any]: ...
     async def list_tools(self, session_id: str) -> dict[str, Any]: ...
     async def call(self, session_id: str, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]: ...
@@ -1179,6 +1180,7 @@ class HubSocketBridge:
         session_owner: str,
         *,
         auth: dict[str, Any] | None = None,
+        allowed_inert_capabilities: tuple[str, ...] = (),
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
                 "action": "open",
@@ -1189,6 +1191,10 @@ class HubSocketBridge:
         }
         if auth is not None:
             payload["auth"] = dict(auth)
+        if allowed_inert_capabilities:
+            payload["allowed_inert_capabilities"] = list(
+                allowed_inert_capabilities
+            )
         try:
             return await self._request(self.remote_socket, payload, timeout=35)
         finally:

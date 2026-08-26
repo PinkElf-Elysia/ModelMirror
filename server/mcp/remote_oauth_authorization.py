@@ -1932,7 +1932,9 @@ class MCPRemoteOAuthAuthorizationService:
         self.credential_resolver = credential_resolver
         self.credential_rotator = credential_rotator
         self.credential_revoker = credential_revoker
-        self.target_change_handler: Callable[[OAuthTargetType, str], None] | None = None
+        self.target_change_handlers: list[
+            Callable[[OAuthTargetType, str], None]
+        ] = []
         self._locks = tuple(asyncio.Lock() for _ in range(64))
         subject = self.subject_resolver.resolve()
         for credential_id in self.store.recovery_credential_ids(subject=subject):
@@ -1941,13 +1943,14 @@ class MCPRemoteOAuthAuthorizationService:
     def set_target_change_handler(
         self, handler: Callable[[OAuthTargetType, str], None]
     ) -> None:
-        self.target_change_handler = handler
+        if handler not in self.target_change_handlers:
+            self.target_change_handlers.append(handler)
 
     def _notify_target_changed(
         self, target_type: OAuthTargetType, target_id: str
     ) -> None:
-        if self.target_change_handler is not None:
-            self.target_change_handler(target_type, target_id)
+        for handler in tuple(self.target_change_handlers):
+            handler(target_type, target_id)
 
     def status(self) -> dict[str, Any]:
         configured = all(
