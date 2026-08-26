@@ -221,3 +221,25 @@ R3 不新增公共 API、数据库或运行协议，不调用额外模型。回�
 离线证据：真实失败形状的回放测试修正前稳定复现 Provider cwd 下 `FileNotFoundError`；修正后 replace 成功/歧义失败两项通过，Broker/Tool Broker/Shell/Session Controls 为 `81 passed`，OpenCode/Claude/Provider RPC/Service 为 `153 passed`，最终精确展开的完整 Coding Worker 套件为 `616 passed, 5 skipped`。兼容 `write_file` 的原始无效参数未被持久化，现有证据不能独立重建该次供应商输入；因此本修复只关闭已证明的 replace 结构性缺口，不将其外推为完整四项烟测通过。
 
 该候选仍为 Experimental，未追加真实模型额度。进入下一次付费验证前仍需迁移到最新主线、重建候选镜像并重跑完整自动门禁；不得通过放宽冻结命令掩盖 Agent 偏离。
+
+### 12.6 R11/R12 定向收口与提交前门禁
+
+本次只收口已证明的 Project Source 并发阻塞、Claude 审批重启和既有生命周期/副作用边界，不恢复四项矩阵。原候选基于 `d4bd6b8d`；实现 Diff 以二进制 patch 固化，SHA-256 为 `3e78fd2341e51e9608894e22a0d01351215498764a9fc63cfbd3ce658596c06b`。该实现被拆为 11 个、每个不超过 5 个文件的逻辑提交后，迁移到最新主线 `cc49136c`；range-diff 全部为 `=`。另以 2 文件测试提交加入脱敏 Claude 审批重启回放，未改变产品行为。
+
+Project Source 的隔离资格探针连续为 `5.129s / 4.960s / 3.231s`；7 个来源均 `available`，四个 exact source 均正确绑定，未复现 `BrokenPipe`。实现仅将独立来源检查放入有界 4-worker executor，并保持清单顺序、精确 revision 和安全错误语义。
+
+经明确授权只执行了一次付费 Claude 任务。任务在审批等待点重启 Provider 后唯一恢复并完成：Evidence `1/1`、operation `10`、未结算 operation `0`、重复副作用 `0`、孤立交互 `0`、公共泄漏 `0`。原始 journal 曾因控制器错误要求 `turn_resumed` 晚于 `capability_changed` 而给出 `post_restart_turn_resume_missing` 假阴性；脱敏回放现在以重启边界为权威，固定验证 `turn_resumed` 与 `capability_changed` 均发生在边界之后，并允许二者的合法投影顺序。该证据只关闭审批重启的已知判断缺口，不代表四项真实矩阵通过。
+
+R12 最终自动门禁：
+
+- Coding Worker 与 Project Source：`625 passed, 5 skipped`。
+- Agent Workspace、Coding Runtime 与 Project Host：`439 passed, 9 skipped`。
+- 后端首次全量因 RAG PDF safety 子进程在 10 秒阈值内未返回而为 `1 failed, 4798 passed, 29 skipped`；该用例在全新无网络容器中精确复跑通过，未修改 RAG 代码或阈值。随后从零再次执行完整后端套件，结果为 `4799 passed, 29 skipped`。
+- 前端：`116 files / 678 tests`，production build 通过；保留既有大 chunk 警告。
+- 主 Worker 与 V20 evaluation Compose 静态展开通过；V18 compile 与 Fake smoke 通过，Fake smoke 仍为 8 条、四类别齐全，摘要 `472b88ae9de93f3816de84bc40d07e7c192ec82c4eca6cb67ef2f56dc60a1df3`。
+- OpenCode、Claude、Project Source、ACP evaluation、Codex evaluation 五个镜像均以 UID/GID `65532:65532` 运行；无网络探针分别确认 OpenCode `1.18.9`、Claude Code `2.1.89`、ACP SDK `0.12.0` 与 Codex CLI `0.149.0`。
+- `git diff --check`、秘密候选和禁止产物扫描通过；所有逻辑提交仍不超过 5 个文件。
+
+生产 Server Dockerfile 仍显式使用 root，这是既有部署偏差，不在本次最小修复边界内；不得以 sidecar 非 root 结论掩盖。客户端锁文件未变化，`npm ci` 仍报告 5 个既有 audit 项，本次不升级依赖或运行 `audit fix`。
+
+交付状态继续为 **Experimental**：完整 OpenCode/Claude 四项真实矩阵仍为零，没有运行 calibration、parity、certification 或 48/288 对照，不使用“现有 OpenCode/Claude 已通过该内核运行”、能力提升、接近或等效表述，也不据此进入 V21。回退仍为关闭 V20/evaluation 开关并恢复上一镜像；已有任务、Workspace、Evidence、operation 与 checkpoint 保留，不降级、不自动重放。
