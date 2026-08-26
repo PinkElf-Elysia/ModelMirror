@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import io
+import hashlib
+import json
 from pathlib import Path
 
 import httpx
@@ -14,8 +16,12 @@ from server.rag.api import (
     set_rag_service_for_tests,
 )
 from server.rag.embedder import EmbeddingClient
-from server.rag.pipeline_executor import KnowledgePipelineExecutor
-from server.rag.rag_service import KnowledgeWriteProposalConflictError, RagService
+from server.rag.pipeline_executor import KnowledgePipelineExecutor, _source_block_hash
+from server.rag.rag_service import (
+    KnowledgeWriteProposalConflictError,
+    PipelineJobStateError,
+    RagService,
+)
 from server.rag.vector_store import LocalJsonVectorStore
 from server.xpert_runtime.run_registry import RunRegistry
 from server.xperts.api import set_xpert_context_store_for_tests
@@ -95,6 +101,60 @@ async def execute_current_draft(
     completed = (await client.get(f"/api/rag/pipeline/jobs/{created['job_id']}")).json()
     assert completed["status"] == "succeeded"
     return completed
+
+
+def test_source_block_hash_preserves_exact_corpus_text() -> None:
+    text = "  stable evidence block\n"
+    canonical = json.dumps(
+        text,
+        allow_nan=False,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+
+    assert _source_block_hash(text) == hashlib.sha256(canonical).hexdigest()
+    assert _source_block_hash(text) != hashlib.sha256(text.encode("utf-8")).hexdigest()
+    assert _source_block_hash(" \n\t") is None
+
+
+@pytest.mark.asyncio
+async def test_pipeline_corpus_snapshot_binds_artifact_and_index(
+    pipeline_runtime,
+) -> None:
+    client, service, executor, _, _ = pipeline_runtime
+    kb_id = await create_kb(client, "corpus identity")
+    document_id = await upload_text(
+        client,
+        kb_id,
+        "identity.txt",
+        "Immutable corpus evidence binds this exact source block.",
+    )
+    job = await execute_current_draft(
+        client,
+        executor,
+        kb_id,
+        source_document_ids=[document_id],
+    )
+    version_id = str(job["candidate_version_id"])
+
+    snapshot = service.pipeline_corpus_snapshot(version_id)
+    assert snapshot["contract_version"] == "rag-corpus-snapshot-v1"
+    assert len(snapshot["documents"]) == 1
+    assert len(snapshot["documents"][0]["source_blocks"]) == 1
+    assert len(snapshot["checksum"]) == 64
+    assert service.pipeline_corpus_snapshot(version_id) == snapshot
+
+    stored_job = service.get_pipeline_job(str(job["job_id"]))
+    artifact_path = service._pipeline_processed_path(  # noqa: SLF001
+        stored_job["document_results"][0]["artifact_key"]
+    )
+    artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+    artifact["processed_document"]["blocks"][0]["text"] = "tampered"
+    artifact_path.write_text(json.dumps(artifact), encoding="utf-8")
+
+    with pytest.raises(PipelineJobStateError, match="source-block index is inconsistent"):
+        service.pipeline_corpus_snapshot(version_id)
 
 
 def test_knowledge_write_proposal_persists_deduplicates_and_checks_revision(

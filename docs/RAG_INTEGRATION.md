@@ -2,12 +2,38 @@
 
 本文件说明模镜本地 RAG 模块的架构、API、扩展方式和测试方法。该模块位于 `server/rag/`，前端入口为 `/rag`，聊天页可选择知识库进行检索增强问答。
 
-最后更新日期：2026-08-17
+最后更新日期：2026-08-26
 
 > **当前状态：** `/rag` 是 ModelMirror 本地主路径。知识流水线已支持候选版本、
 > 人工激活/回滚、Processor、可选视觉理解、向量 + FTS5 双索引、检索评测和
 > Promotion Gate。下方按日期保留的段落是增量记录；较早段落中的“planned”
 > 只代表当时状态。
+
+## 2026-08-26 P0：可信 Gold 与 Formal 评测合同
+
+知识评测新增 `diagnostic | formal` 两种运行模式。默认 `diagnostic` 保持旧记录、子集和
+单目标排障兼容，但不能授权候选晋级。`formal` 必须显式选择一个已发布、资格完整的
+`rag-gold-v2`，且恰好包含一个 baseline 和一个 candidate；两者必须与 Gold 的
+`corpus_snapshot_hash` 相同，并提供版本、Processor、Retrieval、Embedding 与 Rerank 身份。
+Formal 不接受请求级 Retrieval override，避免实际执行参数与不可变目标清单错位。
+
+`rag-gold-v2` 的语料身份由不可变文档 ID/content hash 和 source block ID/内容 hash 组成，
+快照不包含正文，也不绑定 embedding、retrieval 或 chunk 索引参数。30 条正例和 12 条
+语料近邻困难负例必须全部通过认证管理会话和 CSRF 保护的审核接口逐条批准；服务器记录
+revision、审核时间、角色和 case checksum。修改题目、Gold、targeting 或标签会自动清除
+审核。生成器不再强制语义改写/跨语言题复制原文 marker；连续复制 32 个归一化字符直接
+阻断，较短重合触发需要逐条填写理由的泄漏警告。v2 provenance 还绑定生成模型、seed、
+Prompt 合同、证据内容、Blueprint 与单次 initial 调用回执；自动 repair 后的数据只作诊断。
+
+Formal 执行使用固定 seed 将每题的 baseline/candidate 调用相邻交错，每个声明槽位只执行
+一次。进程崩溃后，已领取但未闭合的槽位按失败及真实已耗时记账，不会自动重复外部调用。
+Recall、Citation、No-result Accuracy 和延迟均使用预声明固定分母；失败正/负例以零分计入
+对应质量分母，失败耗时进入 P95，且 `error_count > 0` 必然阻断。门禁除绝对指标外，还要求
+按正负类型与语言分层的 10,000 次确定性配对 bootstrap 95% CI 下界不低于 `-0.03`。
+
+真实 Gold 生成、Embedding、Rerank 或 Formal 调用仍需每次单独授权；本地诊断、发布和候选
+构建不会自动激活索引。回滚本轮代码只需撤销对应提交，不需要迁移或重写历史评测记录；
+v1 与旧运行继续只读展示为 legacy/diagnostic。
 
 ## 2026-08-17 P0：Embedding 请求与生效合同
 

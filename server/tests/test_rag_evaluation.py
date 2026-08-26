@@ -7,6 +7,7 @@ import pytest
 import pytest_asyncio
 
 from server.main import app
+from server.model_router.admin_auth import reset_provider_admin_auth
 from server.rag.api import (
     set_evaluation_executor_for_tests,
     set_pipeline_executor_for_tests,
@@ -20,9 +21,14 @@ from server.rag.evaluation import (
     aggregate_target_metrics,
     evaluate_promotion_gate,
     evaluate_retrieval_case,
+    paired_primary_confidence_report,
+    qualify_formal_evidence,
     qualify_promotion_evidence,
+    validate_formal_run_admission,
+    _case_review_checksum,
+    _published_gold_checksum,
 )
-from server.rag.evaluation_executor import KnowledgeEvaluationExecutor
+from server.rag.evaluation_executor import KnowledgeEvaluationExecutor, _execution_slots
 from server.rag.pipeline_executor import KnowledgePipelineExecutor
 from server.rag.rag_service import RagService
 from server.rag.vector_store import LocalJsonVectorStore
@@ -102,6 +108,315 @@ async def _execute_draft(
     job = (await client.get(f"/api/rag/pipeline/jobs/{response.json()['job_id']}")).json()
     assert job["status"] == "succeeded", job
     return job
+
+
+@pytest.mark.asyncio
+async def test_case_review_requires_authenticated_server_evidence(
+    evaluation_runtime,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, _, _, _, _ = evaluation_runtime
+    pairing_secret = "rag-review-test-secret-at-least-32-characters"
+    monkeypatch.setenv(
+        "MODEL_MIRROR_PROVIDER_ADMIN_PAIRING_SECRET", pairing_secret
+    )
+    reset_provider_admin_auth()
+    try:
+        kb_id = await _create_kb(client, "review-auth")
+        created = (
+            await client.post(
+                "/api/rag/evaluation-sets",
+                json={"kb_id": kb_id, "name": "review-auth"},
+            )
+        ).json()
+        injected = await client.post(
+            f"/api/rag/evaluation-sets/{created['eval_set_id']}/cases",
+            json={
+                "expected_revision": created["revision"],
+                "case": {
+                    "query": "Which source contains the answer?",
+                    "expected_refs": [{"document_id": "doc-a"}],
+                    "review_status": "approved",
+                },
+            },
+        )
+        assert injected.status_code == 422
+
+        added = (
+            await client.post(
+                f"/api/rag/evaluation-sets/{created['eval_set_id']}/cases",
+                json={
+                    "expected_revision": created["revision"],
+                    "case": {
+                        "query": "Which source contains the answer?",
+                        "expected_refs": [{"document_id": "doc-a"}],
+                    },
+                },
+            )
+        ).json()
+        case_id = added["cases"][0]["case_id"]
+        review_url = (
+            f"/api/rag/evaluation-sets/{created['eval_set_id']}"
+            f"/cases/{case_id}/review"
+        )
+        review_payload = {
+            "expected_revision": added["revision"],
+            "decision": "approved",
+            "reason": "Source evidence checked in the review workbench.",
+        }
+        unauthenticated = await client.post(review_url, json=review_payload)
+        assert unauthenticated.status_code == 401
+        assert unauthenticated.json()["detail"]["code"] == "admin_session_required"
+
+        paired = await client.post(
+            "/api/router/admin/session",
+            headers={"Origin": "http://localhost"},
+            json={"pairing_secret": pairing_secret},
+        )
+        assert paired.status_code == 200
+        missing_csrf = await client.post(review_url, json=review_payload)
+        assert missing_csrf.status_code == 403
+
+        reviewed = await client.post(
+            review_url,
+            headers={"X-ModelMirror-CSRF": paired.json()["csrf_token"]},
+            json=review_payload,
+        )
+        assert reviewed.status_code == 200, reviewed.text
+        reviewed_case = reviewed.json()["cases"][0]
+        assert reviewed_case["review_status"] == "approved"
+        evidence = reviewed_case["review_evidence"]
+        assert evidence["decision"] == "approved"
+        assert evidence["source"] == "authenticated_ui"
+        assert evidence["reviewer"] == {
+            "tenant_id": "local",
+            "role": "provider_admin",
+        }
+        assert evidence["dataset_revision"] == reviewed.json()["revision"]
+        assert len(evidence["case_checksum"]) == 64
+        assert isinstance(evidence["reviewed_at"], float)
+
+        edited = await client.patch(
+            f"/api/rag/evaluation-sets/{created['eval_set_id']}/cases/{case_id}",
+            json={
+                "expected_revision": reviewed.json()["revision"],
+                "case": {
+                    "query": "Which exact source contains the answer?",
+                    "expected_refs": [{"document_id": "doc-a"}],
+                },
+            },
+        )
+        assert edited.status_code == 200, edited.text
+        edited_case = edited.json()["cases"][0]
+        assert edited_case["review_status"] == "not_required"
+        assert "review_evidence" not in edited_case
+    finally:
+        reset_provider_admin_auth()
+
+
+@pytest.mark.asyncio
+async def test_formal_api_runs_only_published_reviewed_same_corpus_gold(
+    evaluation_runtime,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, service, pipeline_executor, evaluation_executor, _ = evaluation_runtime
+    pairing_secret = "formal-api-test-secret-at-least-32-characters"
+    monkeypatch.setenv(
+        "MODEL_MIRROR_PROVIDER_ADMIN_PAIRING_SECRET", pairing_secret
+    )
+    reset_provider_admin_auth()
+    try:
+        kb_id = await _create_kb(client, "formal-api")
+        document_ids = []
+        for document_index in range(3):
+            paragraphs = [
+                (
+                    f"Document {document_index} evidence block {block_index}. "
+                    f"Stable marker D{document_index}B{block_index} and supporting detail."
+                )
+                for block_index in range(20)
+            ]
+            document_ids.append(
+                await _upload_text(
+                    client,
+                    kb_id,
+                    f"formal-{document_index}.txt",
+                    "\n\n".join(paragraphs),
+                )
+            )
+        baseline_job = await _execute_draft(
+            client, pipeline_executor, kb_id, document_ids
+        )
+        candidate_job = await _execute_draft(
+            client, pipeline_executor, kb_id, document_ids
+        )
+        baseline_id = str(baseline_job["candidate_version_id"])
+        candidate_id = str(candidate_job["candidate_version_id"])
+        corpus = service.pipeline_corpus_snapshot(baseline_id)
+        blocks_by_document = {
+            str(document["document_id"]): list(document["source_blocks"])
+            for document in corpus["documents"]
+        }
+        assert all(len(blocks) >= 14 for blocks in blocks_by_document.values())
+
+        chunk_by_block: dict[tuple[str, str], str] = {}
+        for document_id in document_ids:
+            indexed_id = f"{baseline_id}_{document_id}"
+            for chunk in service.vector_store.list_document_chunks(indexed_id):
+                key = (document_id, str(chunk.source_block_id or ""))
+                if key[1] and key not in chunk_by_block:
+                    chunk_by_block[key] = str(chunk.chunk_id)
+
+        cases: list[dict] = []
+        ordered_documents = sorted(blocks_by_document)
+        for document_offset, document_id in enumerate(ordered_documents):
+            blocks = blocks_by_document[document_id]
+            for local_index in range(10):
+                global_index = document_offset * 10 + local_index
+                block_id = str(blocks[local_index]["source_block_id"])
+                cases.append(
+                    {
+                        "query": f"Stable answer query {global_index}",
+                        "expected_refs": [
+                            {
+                                "document_id": document_id,
+                                "source_block_id": block_id,
+                                "match_mode": "source_block",
+                            }
+                        ],
+                        "expected_no_result": False,
+                        "tags": ["positive"],
+                        "targeting": {
+                            "locale": "zh" if global_index % 2 == 0 else "en",
+                            "query_type": [
+                                "factual_lookup",
+                                "paraphrase",
+                                "section_context",
+                                "cross_language",
+                                "multi_evidence",
+                                "confusable_content",
+                            ][global_index // 5],
+                        },
+                    }
+                )
+            for local_index in range(4):
+                global_index = document_offset * 4 + local_index
+                block_id = str(blocks[10 + local_index]["source_block_id"])
+                cases.append(
+                    {
+                        "query": f"Absent nearby policy {global_index}",
+                        "expected_refs": [],
+                        "expected_no_result": True,
+                        "review_status": "pending",
+                        "tags": ["hard_negative", "corpus_near"],
+                        "targeting": {
+                            "locale": "zh" if global_index % 2 == 0 else "en",
+                            "context_refs": [
+                                {
+                                    "document_id": document_id,
+                                    "source_block_id": block_id,
+                                    "chunk_id": chunk_by_block[
+                                        (document_id, block_id)
+                                    ],
+                                }
+                            ],
+                        },
+                    }
+                )
+        store = evaluation_executor.store
+        evaluation_set = store.create_generated_set(
+            kb_id,
+            "Formal reviewed Gold",
+            "",
+            cases=cases,
+            provenance={
+                "generator": "modelmirror-targeted-rag-benchmark-v2",
+                "generation_job_id": "local-formal-e2e",
+                "generator_model_id": "local-no-network-fixture",
+                "target_checksum": "d" * 64,
+                "source_summary_hash": "e" * 64,
+                "evidence_hash": "f" * 64,
+                "blueprint_hash": "1" * 64,
+                "prompt_contract_hash": "2" * 64,
+                "seed": 11,
+                "repair_used": False,
+                "generation_attempts": [
+                    {"attempt": "initial", "error_code": None, "diagnostics": {}}
+                ],
+                "pipeline_version_id": baseline_id,
+            },
+            coverage={},
+            calibration={"status": "calibrated", "dataset_revision": 1},
+            benchmark_role="promotion_evidence",
+        )
+        for case in evaluation_set["cases"]:
+            evaluation_set = store.review_case(
+                evaluation_set["eval_set_id"],
+                case["case_id"],
+                expected_revision=evaluation_set["revision"],
+                decision="approved",
+                reason="Fixed local test evidence reviewed.",
+                reviewer={"tenant_id": "local", "role": "provider_admin"},
+            )
+
+        published = await client.post(
+            f"/api/rag/evaluation-sets/{evaluation_set['eval_set_id']}/publish",
+            json={"expected_revision": evaluation_set["revision"]},
+        )
+        assert published.status_code == 200, published.text
+        assert published.json()["benchmark_contract_version"] == "rag-gold-v2"
+        assert published.json()["qualification_manifest"]["status"] == "qualified"
+        assert "Stable marker" not in published.text
+
+        unauthenticated = await client.post(
+            "/api/rag/evaluation-runs",
+            json={
+                "eval_set_id": evaluation_set["eval_set_id"],
+                "eval_set_version": 1,
+                "targets": [
+                    {"version_id": baseline_id},
+                    {"version_id": candidate_id},
+                ],
+                "baseline_version_id": baseline_id,
+                "run_mode": "formal",
+            },
+        )
+        assert unauthenticated.status_code == 401
+        paired = await client.post(
+            "/api/router/admin/session",
+            headers={"Origin": "http://localhost"},
+            json={"pairing_secret": pairing_secret},
+        )
+        assert paired.status_code == 200
+        created = await client.post(
+            "/api/rag/evaluation-runs",
+            headers={"X-ModelMirror-CSRF": paired.json()["csrf_token"]},
+            json={
+                "eval_set_id": evaluation_set["eval_set_id"],
+                "eval_set_version": 1,
+                "targets": [
+                    {"version_id": baseline_id},
+                    {"version_id": candidate_id},
+                ],
+                "baseline_version_id": baseline_id,
+                "run_mode": "formal",
+            },
+        )
+        assert created.status_code == 200, created.text
+        assert created.json()["comparability"]["comparable"] is True
+        assert created.json()["execution_manifest"]["contract_version"] == "rag-eval-v2"
+        assert await evaluation_executor.run_once() is True
+        completed = store.get_run(created.json()["run_id"])
+        assert completed["status"] == "succeeded"
+        assert completed["run_mode"] == "formal"
+        assert completed["metric_contract_version"] == "rag-metrics-v2"
+        assert completed["paired_confidence"]["bootstrap_samples"] == 10_000
+        assert all(
+            target["metrics"]["expected_case_count"] == 42
+            for target in completed["target_results"]
+        )
+    finally:
+        reset_provider_admin_auth()
 
 
 def test_evaluation_metrics_match_stable_references_and_rankings() -> None:
@@ -194,6 +509,308 @@ def test_promotion_gate_rejects_diagnostic_only_evidence() -> None:
     )
     assert evidence_check["passed"] is False
     assert gate["passed"] is False
+
+
+def _formal_gold_snapshot() -> dict:
+    cases: list[dict] = []
+    query_types = [
+        "factual_lookup",
+        "paraphrase",
+        "section_context",
+        "cross_language",
+        "multi_evidence",
+        "confusable_content",
+    ]
+    for index in range(30):
+        case = {
+            "case_id": f"positive-{index}",
+            "query": f"Answerable question {index}",
+            "expected_refs": [
+                {
+                    "document_id": f"doc-{index % 3}",
+                    "source_block_id": f"answer-block-{index}",
+                    "match_mode": "source_block",
+                    "relevance": 1,
+                }
+            ],
+            "expected_no_result": False,
+            "review_status": "approved",
+            "tags": ["positive"],
+            "targeting": {
+                "locale": "en" if index % 2 else "zh",
+                "query_type": query_types[index // 5],
+            },
+        }
+        case["review_evidence"] = {
+            "decision": "approved",
+            "reviewed_at": 1_000.0 + index,
+            "dataset_revision": index + 2,
+            "source": "authenticated_ui",
+            "reviewer": {"tenant_id": "local", "role": "provider_admin"},
+            "reason": "reviewed",
+            "case_checksum": _case_review_checksum(case),
+        }
+        cases.append(case)
+    for index in range(12):
+        case = {
+            "case_id": f"negative-{index}",
+            "query": f"Unanswerable nearby question {index}",
+            "expected_refs": [],
+            "expected_no_result": True,
+            "review_status": "approved",
+            "tags": ["hard_negative", "corpus_near"],
+            "targeting": {
+                "locale": "en" if index % 2 else "zh",
+                "context_refs": [
+                    {
+                        "document_id": f"doc-{index % 3}",
+                        "source_block_id": f"context-block-{index}",
+                    }
+                ],
+            },
+        }
+        case["review_evidence"] = {
+            "decision": "approved",
+            "reviewed_at": 2_000.0 + index,
+            "dataset_revision": index + 32,
+            "source": "authenticated_ui",
+            "reviewer": {"tenant_id": "local", "role": "provider_admin"},
+            "reason": "answer absence checked",
+            "case_checksum": _case_review_checksum(case),
+        }
+        cases.append(case)
+    corpus = {
+        "contract_version": "rag-corpus-snapshot-v1",
+        "knowledge_base_hash": "a" * 64,
+        "documents": [
+            {
+                "document_id": f"doc-{document_index}",
+                "content_hash": f"{document_index + 1}" * 64,
+                "document_hash": f"{document_index + 4}" * 64,
+                "source_blocks": [
+                    *[
+                        {
+                            "source_block_id": f"answer-block-{case_index}",
+                            "block_hash": "b" * 64,
+                        }
+                        for case_index in range(30)
+                        if case_index % 3 == document_index
+                    ],
+                    *[
+                        {
+                            "source_block_id": f"context-block-{case_index}",
+                            "block_hash": "c" * 64,
+                        }
+                        for case_index in range(12)
+                        if case_index % 3 == document_index
+                    ],
+                ],
+            }
+            for document_index in range(3)
+        ],
+    }
+    from hashlib import sha256
+    import json
+
+    corpus["checksum"] = sha256(
+        json.dumps(
+            corpus, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+    ).hexdigest()
+    snapshot = {
+        "version_id": "evalsetver-formal",
+        "published_at": 3_000.0,
+        "benchmark_contract_version": "rag-gold-v2",
+        "benchmark_role": "promotion_evidence",
+        "cases": cases,
+        "coverage": {},
+        "provenance": {
+            "generator": "modelmirror-targeted-rag-benchmark-v2",
+            "generation_job_id": "benchmark-job-formal",
+            "generator_model_id": "test-generator",
+            "target_checksum": "d" * 64,
+            "source_summary_hash": "e" * 64,
+            "evidence_hash": "f" * 64,
+            "blueprint_hash": "1" * 64,
+            "prompt_contract_hash": "2" * 64,
+            "seed": 7,
+            "repair_used": False,
+            "generation_attempts": [
+                {"attempt": "initial", "error_code": None, "diagnostics": {}}
+            ],
+        },
+        "calibration": {},
+        "corpus_snapshot": corpus,
+    }
+    snapshot["checksum"] = _published_gold_checksum(snapshot)
+    return snapshot
+
+
+def test_formal_evidence_fails_closed_on_tampering_or_legacy_contract() -> None:
+    snapshot = _formal_gold_snapshot()
+    qualified = qualify_formal_evidence(snapshot)
+    assert qualified["qualified"] is True
+    assert qualified["status"] == "qualified"
+
+    snapshot["cases"][0]["query"] = "tampered after review"
+    tampered = qualify_formal_evidence(snapshot)
+    assert tampered["qualified"] is False
+    assert {
+        check["id"] for check in tampered["checks"] if not check["passed"]
+    } >= {"published_checksum", "trusted_case_reviews"}
+
+    provenance_tampered = _formal_gold_snapshot()
+    provenance_tampered["provenance"]["prompt_contract_hash"] = "0" * 64
+    assert qualify_formal_evidence(provenance_tampered)["qualified"] is False
+
+    legacy = _formal_gold_snapshot()
+    legacy["benchmark_contract_version"] = "rag-gold-v1"
+    legacy["checksum"] = _published_gold_checksum(legacy)
+    rejected = qualify_formal_evidence(legacy)
+    assert rejected["qualified"] is False
+    assert next(
+        check for check in rejected["checks"] if check["id"] == "gold_contract_v2"
+    )["passed"] is False
+
+
+def test_formal_evidence_rejects_coverage_imbalance_and_near_duplicates() -> None:
+    imbalanced = _formal_gold_snapshot()
+    for case in imbalanced["cases"][:30]:
+        case["targeting"]["query_type"] = "factual_lookup"
+        case["review_evidence"]["case_checksum"] = _case_review_checksum(case)
+    imbalanced["checksum"] = _published_gold_checksum(imbalanced)
+    qualification = qualify_formal_evidence(imbalanced)
+    assert qualification["qualified"] is False
+    assert next(
+        check
+        for check in qualification["checks"]
+        if check["id"] == "positive_query_type_balance"
+    )["passed"] is False
+
+    duplicated = _formal_gold_snapshot()
+    duplicated["cases"][0]["query"] = (
+        "one two three four five six seven eight nine alpha"
+    )
+    duplicated["cases"][1]["query"] = (
+        "one two three four five six seven eight nine beta"
+    )
+    for case in duplicated["cases"][:2]:
+        case["review_evidence"]["case_checksum"] = _case_review_checksum(case)
+    duplicated["checksum"] = _published_gold_checksum(duplicated)
+    qualification = qualify_formal_evidence(duplicated)
+    assert qualification["qualified"] is False
+    assert next(
+        check for check in qualification["checks"] if check["id"] == "unique_queries"
+    )["passed"] is False
+
+
+def test_leakage_warning_approval_requires_a_human_reason(tmp_path: Path) -> None:
+    store = KnowledgeEvaluationStore(tmp_path / "evaluation.json")
+    evaluation_set = store.create_generated_set(
+        "kb-a",
+        "leakage warning",
+        "",
+        cases=[
+            {
+                "query": "semantic query",
+                "expected_refs": [
+                    {
+                        "document_id": "doc-a",
+                        "source_block_id": "block-a",
+                        "match_mode": "source_block",
+                    }
+                ],
+                "targeting": {
+                    "query_type": "paraphrase",
+                    "locale": "en",
+                    "leakage_warning": {"threshold": 12},
+                },
+            }
+        ],
+        provenance={},
+        coverage={},
+        calibration={"status": "calibrated", "dataset_revision": 1},
+    )
+    with pytest.raises(ValueError, match="explicit human review reason"):
+        store.review_case(
+            evaluation_set["eval_set_id"],
+            evaluation_set["cases"][0]["case_id"],
+            expected_revision=1,
+            decision="approved",
+            reason="",
+            reviewer={"tenant_id": "local", "role": "provider_admin"},
+        )
+
+
+def test_formal_admission_requires_same_corpus_and_complete_target_identity() -> None:
+    snapshot = _formal_gold_snapshot()
+    corpus_checksum = snapshot["corpus_snapshot"]["checksum"]
+
+    def target(version_id: str, fingerprint: str) -> dict:
+        return {
+            "target_id": version_id,
+            "version_id": version_id,
+            "retrieval": {},
+            "corpus_snapshot_hash": corpus_checksum,
+            "version_evidence": {
+                "schema_version": "rag-version-evidence-v1",
+                "version_id": version_id,
+                "version_fingerprint": fingerprint,
+                "configuration_fingerprint": fingerprint[::-1],
+                "processor": {
+                    "mode": "general",
+                    "vision_enabled": False,
+                    "fingerprint": "c" * 64,
+                },
+                "embedding": {
+                    "effective": {
+                        "provider": "local",
+                        "model": "hash-embedding",
+                        "dimension": 128,
+                    }
+                },
+                "retrieval": {"mode": "hybrid"},
+            },
+        }
+
+    baseline = target("pipeline-baseline", "a" * 64)
+    candidate = target("pipeline-candidate", "b" * 64)
+    admitted = validate_formal_run_admission(
+        snapshot,
+        [baseline, candidate],
+        baseline_version_id="pipeline-baseline",
+    )
+    assert admitted["comparability"]["comparable"] is True
+    assert admitted["execution_manifest"]["contract_version"] == "rag-eval-v2"
+    assert len(admitted["execution_manifest"]["execution_seed"]) == 64
+    assert admitted["execution_manifest"]["targets"][0]["processor"]["mode"] == "general"
+    assert "rerank" in admitted["execution_manifest"]["targets"][0]
+
+    candidate["retrieval"] = {"top_k": 3}
+    with pytest.raises(ValueError, match="per-run retrieval overrides"):
+        validate_formal_run_admission(
+            snapshot,
+            [baseline, candidate],
+            baseline_version_id="pipeline-baseline",
+        )
+    candidate["retrieval"] = {}
+
+    candidate["corpus_snapshot_hash"] = "f" * 64
+    with pytest.raises(ValueError, match="same immutable corpus"):
+        validate_formal_run_admission(
+            snapshot,
+            [baseline, candidate],
+            baseline_version_id="pipeline-baseline",
+        )
+
+    candidate = target("pipeline-candidate", "b" * 64)
+    candidate["version_evidence"].pop("configuration_fingerprint")
+    with pytest.raises(ValueError, match="target identity"):
+        validate_formal_run_admission(
+            snapshot,
+            [baseline, candidate],
+            baseline_version_id="pipeline-baseline",
+        )
 
 
 def test_promotion_evidence_requires_30_stable_positives_and_12_hard_negatives() -> None:
@@ -381,6 +998,60 @@ def test_source_block_and_no_result_metrics_are_aggregated_separately() -> None:
     assert aggregate["false_positive_rate"] == 0.5
 
 
+def test_failed_cases_remain_in_quality_and_latency_denominators() -> None:
+    positive = evaluate_retrieval_case(
+        [{"chunk_id": "answer", "source_document_id": "doc-a", "score": 0.9}],
+        [{"document_id": "doc-a"}],
+        ks=[1, 5, 10],
+        latency_ms=10.0,
+    )
+    negative = evaluate_retrieval_case(
+        [],
+        [],
+        ks=[1, 5, 10],
+        expected_no_result=True,
+        latency_ms=20.0,
+    )
+    failed_positive = {
+        "status": "failed",
+        "metrics": {},
+        "latency_ms": 2_000.0,
+        "expected_no_result": False,
+        "no_result": True,
+        "warning_count": 0,
+    }
+    failed_negative = {
+        "status": "failed",
+        "metrics": {},
+        "latency_ms": 3_000.0,
+        "expected_no_result": True,
+        "no_result": True,
+        "warning_count": 0,
+    }
+
+    aggregate = aggregate_target_metrics(
+        [positive, failed_positive, negative, failed_negative],
+        ks=[1, 5, 10],
+    )
+
+    assert aggregate["case_count"] == 4
+    assert aggregate["completed_case_count"] == 2
+    assert aggregate["failed_case_count"] == 2
+    assert aggregate["positive_case_count"] == 2
+    assert aggregate["completed_positive_case_count"] == 1
+    assert aggregate["failed_positive_case_count"] == 1
+    assert aggregate["no_result_case_count"] == 2
+    assert aggregate["completed_no_result_case_count"] == 1
+    assert aggregate["failed_no_result_case_count"] == 1
+    assert aggregate["positive_quality_denominator"] == 2
+    assert aggregate["no_result_quality_denominator"] == 2
+    assert aggregate["recall_at_5"] == 0.5
+    assert aggregate["citation_precision_at_5"] == 0.1
+    assert aggregate["no_result_accuracy"] == 0.5
+    assert aggregate["false_positive_rate"] == 0.5
+    assert aggregate["p95_latency_ms"] == 3_000.0
+
+
 def test_default_gate_rejects_false_positive_no_result_behavior() -> None:
     positive = evaluate_retrieval_case(
         [{"chunk_id": "answer", "source_document_id": "doc-a", "score": 0.9}],
@@ -488,7 +1159,12 @@ def test_promotion_gate_does_not_penalize_correct_no_result_abstention() -> None
     assert gate["passed"] is True
 
 
-def test_evaluation_store_persists_revisions_runs_and_recovery(tmp_path: Path) -> None:
+def test_evaluation_store_persists_revisions_runs_and_recovery(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = [1_000.0]
+    monkeypatch.setattr("server.rag.evaluation.time.time", lambda: clock[0])
     path = tmp_path / "evaluations.json"
     store = KnowledgeEvaluationStore(path)
     evaluation_set = store.create_set("kb-a", "Regression set")
@@ -517,11 +1193,108 @@ def test_evaluation_store_persists_revisions_runs_and_recovery(tmp_path: Path) -
         gate_policy=store.get_gate_policy("kb-a"),
     )
     assert store.claim_next_run()["status"] == "running"
+    case_id = updated["cases"][0]["case_id"]
+    assert store.claim_case_slot(run["run_id"], "version-a", case_id) is True
+    clock[0] += 2.0
 
     reloaded = KnowledgeEvaluationStore(path)
     assert reloaded.get_set(evaluation_set["eval_set_id"])["cases"][0]["query"].startswith("Where")
     assert reloaded.recover_runs() == 1
-    assert reloaded.get_run(run["run_id"])["status"] == "queued"
+    recovered = reloaded.get_run(run["run_id"])
+    assert recovered["status"] == "queued"
+    interrupted = recovered["case_results"]["version-a"][case_id]
+    assert interrupted["status"] == "failed"
+    assert interrupted["error"] == "Interrupted evaluation call was not retried."
+    assert interrupted["latency_ms"] == 2_000.0
+    assert recovered["inflight_slots"] == {}
+
+
+def test_formal_execution_slots_are_deterministic_and_case_paired() -> None:
+    run = {
+        "run_mode": "formal",
+        "execution_manifest": {"execution_seed": "a" * 64},
+        "targets": [
+            {"target_id": "baseline"},
+            {"target_id": "candidate"},
+        ],
+        "eval_set_snapshot": {
+            "cases": [
+                {"case_id": "case-a"},
+                {"case_id": "case-b"},
+                {"case_id": "case-c"},
+            ]
+        },
+    }
+    first = _execution_slots(run)
+    second = _execution_slots(run)
+
+    assert first == second
+    assert len(first) == 6
+    for index in range(0, len(first), 2):
+        assert first[index][1]["case_id"] == first[index + 1][1]["case_id"]
+        assert {
+            first[index][0]["target_id"], first[index + 1][0]["target_id"]
+        } == {"baseline", "candidate"}
+
+
+def test_paired_confidence_gate_rejects_uncertain_non_inferiority() -> None:
+    cases = [
+        {
+            "case_id": f"case-{index}",
+            "expected_no_result": index >= 30,
+            "targeting": {"locale": "zh" if index % 2 == 0 else "en"},
+        }
+        for index in range(42)
+    ]
+
+    def result(case: dict, score: float) -> dict:
+        return {
+            "case_id": case["case_id"],
+            "status": "completed",
+            "expected_no_result": case["expected_no_result"],
+            "metrics": (
+                {"no_result_accuracy": score}
+                if case["expected_no_result"]
+                else {"recall_at_5": score}
+            ),
+        }
+
+    baseline = [result(case, 1.0) for case in cases]
+    candidate = [result(case, 0.0 if index == 0 else 1.0) for index, case in enumerate(cases)]
+    first = paired_primary_confidence_report(
+        baseline, candidate, cases=cases, seed="b" * 64
+    )
+    second = paired_primary_confidence_report(
+        baseline, candidate, cases=cases, seed="b" * 64
+    )
+    assert first == second
+    assert first["point_delta"] >= -0.03
+    assert first["confidence_interval"]["lower"] < -0.03
+    assert first["passed"] is False
+
+    metrics = {
+        "recall_at_5": 1.0,
+        "mrr_at_10": 1.0,
+        "citation_precision_at_5": 0.2,
+        "citation_coverage": 1.0,
+        "no_result_accuracy": 1.0,
+        "positive_no_result_rate": 0.0,
+        "p95_latency_ms": 10.0,
+        "error_count": 0,
+    }
+    gate = evaluate_promotion_gate(
+        metrics,
+        baseline=metrics,
+        evidence_qualification={"qualified": True, "status": "qualified"},
+        paired_confidence=first,
+        comparability={"comparable": True, "same_corpus": True},
+        run_mode="formal",
+    )
+    assert gate["passed"] is False
+    paired_check = next(
+        check for check in gate["checks"] if check["id"] == "paired_non_inferiority"
+    )
+    assert paired_check["passed"] is False
 
 
 def test_evaluation_set_versions_are_immutable_and_pin_run_snapshot(tmp_path: Path) -> None:
@@ -711,6 +1484,8 @@ async def test_evaluation_api_runs_versions_and_enforces_required_gate(
     evidence = candidate["version_evidence"]
     assert evidence["version_id"] == candidate_version
     assert evidence["version_fingerprint"]
+    assert evidence["processor"]["mode"] == "general"
+    assert len(evidence["processor"]["fingerprint"]) == 64
     assert evidence["embedding"]["effective"]["provider"] == "hash"
     assert evidence["embedding"]["effective"]["model"] == "deterministic-hash-v1"
     receipt = candidate["case_results"][0]["retrieval_receipt"]

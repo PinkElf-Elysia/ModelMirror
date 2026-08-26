@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 try:
@@ -15,6 +15,17 @@ try:
 except ModuleNotFoundError:
     from file_assets.service import FileAssetServiceError
     from file_assets.validation import FileValidationError
+
+try:
+    from server.model_router.admin_auth import (
+        ProviderControlPrincipal,
+        require_provider_admin_csrf,
+    )
+except ModuleNotFoundError:
+    from model_router.admin_auth import (
+        ProviderControlPrincipal,
+        require_provider_admin_csrf,
+    )
 
 from .rag_service import (
     DocumentDeletionError,
@@ -48,6 +59,7 @@ from .evaluation import (
     EvaluationSetNotFoundError,
     EvaluationStateError,
     KnowledgeEvaluationStore,
+    validate_formal_run_admission,
 )
 from .evaluation_executor import KnowledgeEvaluationExecutor
 from .strategy_router import (
@@ -716,7 +728,7 @@ class EvaluationCaseInput(BaseModel):
     expected_refs: list[EvaluationReferenceInput] = Field(default_factory=list, max_length=50)
     expected_no_result: bool = False
     review_status: str = Field(
-        default="not_required", pattern="^(not_required|pending|approved)$"
+        default="not_required", pattern="^(not_required|pending|approved|rejected)$"
     )
     tags: list[str] = Field(default_factory=list, max_length=20)
     notes: str = Field(default="", max_length=1000)
@@ -727,6 +739,10 @@ class EvaluationCaseInput(BaseModel):
             raise ValueError("No-result cases cannot define expected references.")
         if not self.expected_no_result and not self.expected_refs:
             raise ValueError("Answerable cases require expected references.")
+        if self.review_status in {"approved", "rejected"}:
+            raise ValueError(
+                "Case review decisions require the authenticated review endpoint."
+            )
         if not self.expected_no_result and self.review_status != "not_required":
             raise ValueError("Only no-result cases can require manual review.")
         return self
@@ -767,6 +783,12 @@ class EvaluationCaseUpdateRequest(BaseModel):
     case: EvaluationCaseInput
 
 
+class EvaluationCaseReviewRequest(BaseModel):
+    expected_revision: int = Field(ge=1)
+    decision: Literal["approved", "rejected"]
+    reason: str = Field(default="", max_length=1000)
+
+
 class EvaluationTargetInput(BaseModel):
     version_id: str = Field(min_length=1, max_length=200)
     label: str | None = Field(default=None, max_length=120)
@@ -779,6 +801,7 @@ class EvaluationRunCreateRequest(BaseModel):
     targets: list[EvaluationTargetInput] = Field(min_length=1, max_length=5)
     baseline_version_id: str | None = Field(default=None, max_length=200)
     ks: list[int] = Field(default_factory=lambda: [1, 3, 5, 10], min_length=1, max_length=8)
+    run_mode: Literal["diagnostic", "formal"] = "diagnostic"
 
 
 class EvaluationGateUpdateRequest(BaseModel):
@@ -794,6 +817,9 @@ class EvaluationGateUpdateRequest(BaseModel):
     min_citation_coverage: float = Field(default=0, ge=0, le=1)
     max_p95_latency_ratio: float = Field(ge=1, le=10)
     max_p95_latency_ms: float = Field(default=1500, ge=1, le=120_000)
+    max_paired_primary_regression: float = Field(default=0.03, ge=0, le=1)
+    paired_confidence_level: float = Field(default=0.95, gt=0, lt=1)
+    require_comparable_corpus: bool = True
     require_zero_errors: bool = True
 
 
@@ -1867,17 +1893,31 @@ async def publish_evaluation_set(
     payload: EvaluationSetPublishRequest,
 ) -> dict[str, Any]:
     try:
+        evaluation_set = get_evaluation_store().get_set(eval_set_id)
+        corpus_snapshot: dict[str, Any] | None = None
+        if str(evaluation_set.get("origin") or "manual") == "generated":
+            pipeline_version_id = str(
+                (evaluation_set.get("provenance") or {}).get(
+                    "pipeline_version_id"
+                )
+                or ""
+            )
+            if pipeline_version_id:
+                corpus_snapshot = get_rag_service().pipeline_corpus_snapshot(
+                    pipeline_version_id
+                )
         return get_evaluation_store().publish_set(
             eval_set_id,
             expected_revision=payload.expected_revision,
             release_notes=payload.release_notes,
             acknowledge_calibration_warnings=payload.acknowledge_calibration_warnings,
+            corpus_snapshot=corpus_snapshot,
         )
     except EvaluationSetNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except EvaluationRevisionError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except (EvaluationStateError, ValueError) as exc:
+    except (EvaluationStateError, PipelineJobStateError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -1929,6 +1969,30 @@ async def update_evaluation_case(
             case_id,
             expected_revision=payload.expected_revision,
             values=payload.case.model_dump(),
+        )
+    except EvaluationSetNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except EvaluationRevisionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/evaluation-sets/{eval_set_id}/cases/{case_id}/review")
+async def review_evaluation_case(
+    eval_set_id: str,
+    case_id: str,
+    payload: EvaluationCaseReviewRequest,
+    principal: ProviderControlPrincipal = Depends(require_provider_admin_csrf),
+) -> dict[str, Any]:
+    try:
+        return get_evaluation_store().review_case(
+            eval_set_id,
+            case_id,
+            expected_revision=payload.expected_revision,
+            decision=payload.decision,
+            reason=payload.reason,
+            reviewer={"tenant_id": principal.tenant_id, "role": principal.role},
         )
     except EvaluationSetNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -2103,7 +2167,10 @@ async def update_evaluation_gate(
 
 
 @router.post("/evaluation-runs")
-async def create_evaluation_run(payload: EvaluationRunCreateRequest) -> dict[str, Any]:
+async def create_evaluation_run(
+    payload: EvaluationRunCreateRequest,
+    request: Request,
+) -> dict[str, Any]:
     try:
         evaluation_set = get_evaluation_store().get_set(payload.eval_set_id)
         evaluation_version = (
@@ -2114,6 +2181,12 @@ async def create_evaluation_run(payload: EvaluationRunCreateRequest) -> dict[str
             else None
         )
         evaluation_snapshot = evaluation_version or evaluation_set
+        if payload.run_mode == "formal":
+            require_provider_admin_csrf(request)
+            if evaluation_version is None:
+                raise ValueError(
+                    "Formal evaluation requires an explicit published evaluation version."
+                )
         if not evaluation_snapshot.get("cases"):
             raise ValueError("Evaluation set snapshot must contain at least one case.")
         if evaluation_version is None and evaluation_set.get("status") != "active":
@@ -2133,6 +2206,11 @@ async def create_evaluation_run(payload: EvaluationRunCreateRequest) -> dict[str
                 raise ValueError("All evaluation versions must belong to the evaluation knowledge base.")
             if version.get("status") not in {"ready", "active"}:
                 raise ValueError("Only ready or active knowledge versions can be evaluated.")
+            corpus_snapshot = (
+                get_rag_service().pipeline_corpus_snapshot(target.version_id)
+                if payload.run_mode == "formal"
+                else None
+            )
             targets.append(
                 {
                     "target_id": target.version_id,
@@ -2143,7 +2221,19 @@ async def create_evaluation_run(payload: EvaluationRunCreateRequest) -> dict[str
                     "version_evidence": get_rag_service().pipeline_version_evidence(
                         target.version_id
                     ),
+                    "corpus_snapshot_hash": (
+                        str(corpus_snapshot.get("checksum") or "")
+                        if corpus_snapshot is not None
+                        else None
+                    ),
                 }
+            )
+        formal_admission: dict[str, Any] | None = None
+        if payload.run_mode == "formal":
+            formal_admission = validate_formal_run_admission(
+                evaluation_snapshot,
+                targets,
+                baseline_version_id=payload.baseline_version_id,
             )
         run = get_evaluation_store().create_run(
             evaluation_set=evaluation_set,
@@ -2152,6 +2242,12 @@ async def create_evaluation_run(payload: EvaluationRunCreateRequest) -> dict[str
             baseline_version_id=payload.baseline_version_id,
             ks=evaluation_ks,
             gate_policy=get_evaluation_store().get_gate_policy(str(evaluation_set["kb_id"])),
+            run_mode=payload.run_mode,
+            execution_manifest=(formal_admission or {}).get("execution_manifest"),
+            comparability=(formal_admission or {}).get("comparability"),
+            evidence_qualification=(formal_admission or {}).get(
+                "evidence_qualification"
+            ),
         )
         get_evaluation_executor().notify()
         return run
@@ -2159,7 +2255,7 @@ async def create_evaluation_run(payload: EvaluationRunCreateRequest) -> dict[str
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PipelineVersionNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except ValueError as exc:
+    except (PipelineJobStateError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 

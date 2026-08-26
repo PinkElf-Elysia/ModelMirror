@@ -43,7 +43,8 @@ interface EvaluationCase {
   query: string;
   expected_refs: ExpectedReference[];
   expected_no_result?: boolean;
-  review_status?: "not_required" | "pending" | "approved";
+  review_status?: "not_required" | "pending" | "approved" | "rejected";
+  review_evidence?: Record<string, unknown>;
   targeting?: Record<string, unknown>;
   tags: string[];
   notes: string;
@@ -72,6 +73,8 @@ interface EvaluationSetVersion extends EvaluationSet {
   source_revision: number;
   checksum: string;
   published_at: number;
+  benchmark_contract_version?: "rag-gold-v1" | "rag-gold-v2";
+  qualification_manifest?: Record<string, unknown>;
 }
 
 interface GatePolicy {
@@ -86,6 +89,9 @@ interface GatePolicy {
   min_citation_coverage: number;
   max_p95_latency_ratio: number;
   max_p95_latency_ms: number;
+  max_paired_primary_regression: number;
+  paired_confidence_level: number;
+  require_comparable_corpus: boolean;
   require_zero_errors: boolean;
 }
 
@@ -130,6 +136,10 @@ interface EvaluationRun {
   eval_set_id: string;
   eval_set_version?: number | null;
   baseline_version_id?: string | null;
+  run_mode?: "diagnostic" | "formal";
+  metric_contract_version?: string;
+  comparability?: { comparable?: boolean; same_corpus?: boolean; reason?: string | null };
+  paired_confidence?: Record<string, unknown>;
   target_results: TargetResult[];
   evidence_qualification?: {
     status: "qualified" | "diagnostic_only";
@@ -170,6 +180,13 @@ function timestamp(value: number) {
   return new Date(value * 1000).toLocaleString("zh-CN", { hour12: false });
 }
 
+function leakageWarningThreshold(item: EvaluationCase) {
+  const warning = item.targeting?.leakage_warning;
+  if (!warning || typeof warning !== "object") return null;
+  const threshold = Number((warning as { threshold?: unknown }).threshold);
+  return Number.isFinite(threshold) ? threshold : null;
+}
+
 export default function KnowledgeEvaluationPage() {
   const { kbId = "" } = useParams();
   const importRef = useRef<HTMLInputElement>(null);
@@ -185,6 +202,8 @@ export default function KnowledgeEvaluationPage() {
   const [selectedRun, setSelectedRun] = useState<EvaluationRun | null>(null);
   const [selectedVersions, setSelectedVersions] = useState<string[]>([]);
   const [baselineVersionId, setBaselineVersionId] = useState("");
+  const [runMode, setRunMode] = useState<"diagnostic" | "formal">("diagnostic");
+  const [adminCsrfToken, setAdminCsrfToken] = useState("");
   const [newSetName, setNewSetName] = useState("");
   const [query, setQuery] = useState("");
   const [tags, setTags] = useState("");
@@ -197,21 +216,30 @@ export default function KnowledgeEvaluationPage() {
   const [notice, setNotice] = useState("");
   const [acknowledgeCalibrationWarnings, setAcknowledgeCalibrationWarnings] = useState(false);
   const [caseEvidence, setCaseEvidence] = useState<Record<string, Array<Record<string, unknown>>>>({});
+  const [reviewReasons, setReviewReasons] = useState<Record<string, string>>({});
   const [calibrationJob, setCalibrationJob] = useState<{ job_id: string; status: string; error?: string | null } | null>(null);
 
   const selectedSet = useMemo(
     () => evaluationSets.find((item) => item.eval_set_id === selectedSetId) ?? null,
     [evaluationSets, selectedSetId],
   );
-  const pendingNoResultReviewCount = useMemo(
-    () => selectedSet?.cases.filter((item) => item.expected_no_result && item.review_status !== "approved").length ?? 0,
+  const pendingReviewCount = useMemo(
+    () => selectedSet?.cases.filter((item) => item.review_status !== "approved" || !item.review_evidence).length ?? 0,
     [selectedSet],
   );
 
   useEffect(() => {
     if (!kbId) return;
     void loadWorkspace();
+    void loadAdminSession();
   }, [kbId]);
+
+  async function loadAdminSession() {
+    const response = await fetch("/api/router/admin/session");
+    if (!response.ok) return setAdminCsrfToken("");
+    const session = await response.json().catch(() => null);
+    setAdminCsrfToken(session?.authenticated && session?.csrf_token ? String(session.csrf_token) : "");
+  }
 
   useEffect(() => {
     if (!selectedSetId) {
@@ -417,13 +445,17 @@ export default function KnowledgeEvaluationPage() {
     setError("");
     const response = await fetch("/api/rag/evaluation-runs", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(runMode === "formal" && adminCsrfToken ? { "X-ModelMirror-CSRF": adminCsrfToken } : {}),
+      },
       body: JSON.stringify({
         eval_set_id: selectedSet.eval_set_id,
         eval_set_version: selectedEvaluationVersion === "draft" ? null : Number(selectedEvaluationVersion),
         targets: selectedVersions.map((versionId) => ({ version_id: versionId })),
         baseline_version_id: selectedVersions.includes(baselineVersionId) ? baselineVersionId : null,
         ks: [1, 3, 5, 10],
+        run_mode: runMode,
       }),
     });
     const data = await response.json().catch(() => null);
@@ -471,27 +503,27 @@ export default function KnowledgeEvaluationPage() {
     setCaseEvidence((current) => ({ ...current, [caseId]: data.evidence ?? [] }));
   }
 
-  async function approveNoResultCase(item: EvaluationCase) {
-    if (!selectedSet || !item.expected_no_result) return;
-    const response = await fetch(`/api/rag/evaluation-sets/${encodeURIComponent(selectedSet.eval_set_id)}/cases/${encodeURIComponent(item.case_id)}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+  async function reviewCase(item: EvaluationCase, decision: "approved" | "rejected") {
+    if (!selectedSet) return;
+    if (!adminCsrfToken) return setError("请先在设置页完成 Provider 管理员配对，再提交人工审核结论。");
+    const leakageWarning = leakageWarningThreshold(item) != null;
+    const suppliedReason = String(reviewReasons[item.case_id] || "").trim();
+    if (decision === "approved" && leakageWarning && !suppliedReason) {
+      return setError("该样例存在原文重合警告，请填写逐条审核理由后再批准。");
+    }
+    const response = await fetch(`/api/rag/evaluation-sets/${encodeURIComponent(selectedSet.eval_set_id)}/cases/${encodeURIComponent(item.case_id)}/review`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-ModelMirror-CSRF": adminCsrfToken },
       body: JSON.stringify({
         expected_revision: selectedSet.revision,
-        case: {
-          query: item.query,
-          expected_no_result: true,
-          expected_refs: [],
-          review_status: "approved",
-          tags: item.tags,
-          notes: item.notes,
-        },
+        decision,
+        reason: suppliedReason || (decision === "approved" ? "已在评测审核工作台核对固定证据。" : "人工审核拒绝。"),
       }),
     });
     const data = await response.json().catch(() => null);
-    if (!response.ok) return setError(errorMessage(data, "无答案样例确认失败。"));
+    if (!response.ok) return setError(errorMessage(data, "样例审核失败。"));
     await reloadSets(selectedSet.eval_set_id);
-    setNotice("无答案样例已确认；评测集已变更，需要重新校准。" );
+    setNotice(decision === "approved" ? "审核结论已由服务器记录。" : "样例已拒绝，不能进入 Formal Gold。" );
   }
 
   async function recalibrateGeneratedSet() {
@@ -546,7 +578,10 @@ export default function KnowledgeEvaluationPage() {
     setBusy(`promote:${versionId}`);
     const response = await fetch(`/api/rag/pipeline/versions/${encodeURIComponent(versionId)}/promote`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(adminCsrfToken ? { "X-ModelMirror-CSRF": adminCsrfToken } : {}),
+      },
       body: JSON.stringify({ evaluation_run_id: selectedRun.run_id }),
     });
     const data = await response.json().catch(() => null);
@@ -614,8 +649,8 @@ export default function KnowledgeEvaluationPage() {
                 </select>
                 <button className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 disabled:opacity-40" disabled={!selectedSet} onClick={() => importRef.current?.click()} type="button">导入</button>
                 {selectedSet?.origin === "generated" && selectedSet.calibration?.status === "warning" ? <label className="flex items-center gap-2 text-xs text-amber-100"><input checked={acknowledgeCalibrationWarnings} onChange={(event) => setAcknowledgeCalibrationWarnings(event.target.checked)} type="checkbox" />确认校准警告</label> : null}
-                {selectedSet?.origin === "generated" ? <button className="rounded-lg border border-cyan-300/25 px-3 py-2 text-sm font-semibold text-cyan-100 disabled:opacity-40" disabled={pendingNoResultReviewCount > 0 || busy === "calibration" || Boolean(calibrationJob && !["completed", "failed", "cancelled"].includes(calibrationJob.status))} onClick={() => void recalibrateGeneratedSet()} type="button">{selectedSet.calibration?.status === "awaiting_review" ? "开始真实校准" : "重新校准"}</button> : null}
-                <button className="rounded-lg border border-emerald-300/25 bg-emerald-300/10 px-3 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-40" disabled={!selectedSet?.cases.length || busy === "publish-set" || (selectedSet?.origin === "generated" && (!["calibrated", "warning"].includes(String(selectedSet.calibration?.status || "")) || pendingNoResultReviewCount > 0 || (selectedSet.calibration?.status === "warning" && !acknowledgeCalibrationWarnings)))} onClick={() => void publishEvaluationSet()} type="button">发布版本</button>
+                {selectedSet?.origin === "generated" ? <button className="rounded-lg border border-cyan-300/25 px-3 py-2 text-sm font-semibold text-cyan-100 disabled:opacity-40" disabled={pendingReviewCount > 0 || busy === "calibration" || Boolean(calibrationJob && !["completed", "failed", "cancelled"].includes(calibrationJob.status))} onClick={() => void recalibrateGeneratedSet()} type="button">{selectedSet.calibration?.status === "awaiting_review" ? "开始真实校准" : "重新校准"}</button> : null}
+                <button className="rounded-lg border border-emerald-300/25 bg-emerald-300/10 px-3 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-40" disabled={!selectedSet?.cases.length || busy === "publish-set" || (selectedSet?.origin === "generated" && (!["calibrated", "warning"].includes(String(selectedSet.calibration?.status || "")) || pendingReviewCount > 0 || (selectedSet.calibration?.status === "warning" && !acknowledgeCalibrationWarnings)))} onClick={() => void publishEvaluationSet()} type="button">发布版本</button>
                 <input accept=".json,.csv,application/json,text/csv" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void importCases(file); event.target.value = ""; }} ref={importRef} type="file" />
               </div>
             </div>
@@ -675,8 +710,9 @@ export default function KnowledgeEvaluationPage() {
             <div className="mt-5 max-h-[360px] divide-y divide-white/10 overflow-y-auto border-t border-white/10">
               {selectedSet?.cases.length ? selectedSet.cases.map((item, index) => (
                 <div className="py-3" key={item.case_id}>
-                  <div className="flex gap-3"><span className="text-xs font-semibold text-slate-500">{index + 1}</span><p className="min-w-0 flex-1 text-sm text-slate-100">{item.query}</p>{selectedSet.origin === "generated" ? <button className="text-xs text-cyan-100" onClick={() => void loadCaseEvidence(item.case_id)} type="button">{caseEvidence[item.case_id] ? "收起证据" : item.expected_no_result ? "查看近邻语料" : "查看 Gold"}</button> : null}{selectedSet.origin === "generated" && item.expected_no_result && item.review_status !== "approved" ? <button className="text-xs text-amber-100 disabled:cursor-not-allowed disabled:opacity-35" disabled={!caseEvidence[item.case_id]?.length} onClick={() => void approveNoResultCase(item)} type="button">确认无答案</button> : null}<button className="text-xs text-rose-200" onClick={() => void deleteCase(item.case_id)} type="button">删除</button></div>
-                  <p className="mt-2 pl-7 text-xs text-slate-500">{item.expected_no_result ? "期望无结果" : `${item.expected_refs.length} 个期望引用 · ${[...new Set(item.expected_refs.map((ref) => ref.match_mode || "legacy"))].join(" / ")}`} · {item.tags.join(" · ") || "未标记"}</p>
+                  <div className="flex gap-3"><span className="text-xs font-semibold text-slate-500">{index + 1}</span><p className="min-w-0 flex-1 text-sm text-slate-100">{item.query}</p>{selectedSet.origin === "generated" ? <button className="text-xs text-cyan-100" onClick={() => void loadCaseEvidence(item.case_id)} type="button">{caseEvidence[item.case_id] ? "收起证据" : item.expected_no_result ? "查看近邻语料" : "查看 Gold"}</button> : null}{selectedSet.origin === "generated" && item.review_status !== "approved" ? <><button className="text-xs text-emerald-100 disabled:cursor-not-allowed disabled:opacity-35" disabled={!caseEvidence[item.case_id]?.length || !adminCsrfToken} onClick={() => void reviewCase(item, "approved")} type="button">批准</button><button className="text-xs text-rose-200 disabled:cursor-not-allowed disabled:opacity-35" disabled={!caseEvidence[item.case_id]?.length || !adminCsrfToken} onClick={() => void reviewCase(item, "rejected")} type="button">拒绝</button></> : null}<button className="text-xs text-rose-200" onClick={() => void deleteCase(item.case_id)} type="button">删除</button></div>
+                  <p className="mt-2 pl-7 text-xs text-slate-500">{item.expected_no_result ? "期望无结果" : `${item.expected_refs.length} 个期望引用 · ${[...new Set(item.expected_refs.map((ref) => ref.match_mode || "legacy"))].join(" / ")}`} · {String(item.targeting?.query_type || "未分类")} · {String(item.targeting?.locale || "未知语言")} · {item.tags.join(" · ") || "未标记"}</p>
+                  {leakageWarningThreshold(item) != null ? <div className="mt-2 ml-7 rounded-md border border-amber-300/25 bg-amber-300/10 p-2"><p className="text-[11px] text-amber-100">检测到至少 {leakageWarningThreshold(item)} 个归一化连续字符与证据重合；批准前必须填写独立审核理由。</p><input className="mt-2 w-full rounded border border-amber-300/20 bg-surface-950 px-2 py-1.5 text-xs text-white" onChange={(event) => setReviewReasons((current) => ({ ...current, [item.case_id]: event.target.value }))} placeholder="说明为何该重合不构成答案泄漏" value={reviewReasons[item.case_id] || ""} /></div> : null}
                   {caseEvidence[item.case_id] ? <div className="mt-2 ml-7 space-y-2 border-l border-cyan-300/20 pl-3">{item.expected_no_result ? <p className="text-[11px] text-amber-100">近邻语料只用于确认问题与语料易混淆；请确认其中确实没有该问题的答案。</p> : null}{caseEvidence[item.case_id].map((evidence, evidenceIndex) => <div className="text-xs" key={`${item.case_id}:${evidenceIndex}`}><p className="font-semibold text-slate-200">{String(evidence.document_name || evidence.document_id || "Gold evidence")}{evidence.page_number ? ` · p${evidence.page_number}` : ""}</p><p className="mt-1 whitespace-pre-wrap text-slate-500">{String(evidence.text || "")}</p></div>)}</div> : null}
                 </div>
               )) : <p className="py-10 text-center text-sm text-slate-500">尚无评估问题</p>}
@@ -691,9 +727,16 @@ export default function KnowledgeEvaluationPage() {
             <label className="mt-3 block text-xs text-slate-400">评测数据版本
               <select className="mt-1 w-full rounded-lg border border-white/10 bg-surface-950 px-3 py-2 text-sm text-white" onChange={(event) => setSelectedEvaluationVersion(event.target.value)} value={selectedEvaluationVersion}>
                 <option value="draft">草稿 revision {selectedSet?.revision ?? "-"}（兼容模式）</option>
-                {evaluationSetVersions.map((item) => <option key={item.version_id} value={String(item.version)}>不可变 v{item.version} · {item.cases.length} cases</option>)}
+                {evaluationSetVersions.map((item) => <option key={item.version_id} value={String(item.version)}>不可变 v{item.version} · {item.cases.length} cases · {item.benchmark_contract_version ?? "legacy"}</option>)}
               </select>
             </label>
+            <label className="mt-3 block text-xs text-slate-400">运行模式
+              <select className="mt-1 w-full rounded-lg border border-white/10 bg-surface-950 px-3 py-2 text-sm text-white" onChange={(event) => setRunMode(event.target.value as "diagnostic" | "formal")} value={runMode}>
+                <option value="diagnostic">Diagnostic（兼容诊断）</option>
+                <option value="formal">Formal（固定 42 条与同语料门禁）</option>
+              </select>
+            </label>
+            {runMode === "formal" && !adminCsrfToken ? <p className="mt-2 text-xs text-amber-100">Formal 需要先在设置页完成 Provider 管理员配对，然后刷新本页。</p> : null}
             <div className="mt-3 divide-y divide-white/10 rounded-lg border border-white/10">
               {versions.map((version) => {
                 const checked = selectedVersions.includes(version.version_id);
@@ -706,7 +749,7 @@ export default function KnowledgeEvaluationPage() {
                 );
               })}
             </div>
-            <button className="mt-3 w-full rounded-lg bg-cyan-300 px-4 py-2.5 text-sm font-bold text-surface-950 disabled:opacity-40" disabled={!selectedSet?.cases.length || selectedVersions.length === 0 || busy === "run"} onClick={() => void createRun()} type="button">运行离线评估</button>
+            <button className="mt-3 w-full rounded-lg bg-cyan-300 px-4 py-2.5 text-sm font-bold text-surface-950 disabled:opacity-40" disabled={!selectedSet?.cases.length || selectedVersions.length === 0 || busy === "run" || (runMode === "formal" && (selectedEvaluationVersion === "draft" || selectedVersions.length !== 2 || !selectedVersions.includes(baselineVersionId) || !adminCsrfToken))} onClick={() => void createRun()} type="button">{runMode === "formal" ? "运行 Formal 评估" : "运行离线诊断"}</button>
 
             <div className="mt-5 border-t border-white/10 pt-4">
               <div className="flex items-center justify-between"><h3 className="text-sm font-semibold text-white">Promotion Gate</h3><button className="text-xs font-semibold text-hire-100 disabled:opacity-40" disabled={!gate || busy === "gate"} onClick={() => void saveGate()} type="button">保存</button></div>
@@ -720,6 +763,7 @@ export default function KnowledgeEvaluationPage() {
                   <label className="text-xs text-slate-400">Precision@5 最大回退<input className="mt-1 w-full rounded-lg border border-white/10 bg-surface-950 px-2 py-2 text-sm text-white" max={1} min={0} onChange={(event) => setGate({ ...gate, max_citation_precision_at_5_regression: Number(event.target.value) })} step={0.01} type="number" value={gate.max_citation_precision_at_5_regression} /></label>
                   <label className="text-xs text-slate-400">P95 延迟倍数<input className="mt-1 w-full rounded-lg border border-white/10 bg-surface-950 px-2 py-2 text-sm text-white" max={10} min={1} onChange={(event) => setGate({ ...gate, max_p95_latency_ratio: Number(event.target.value) })} step={0.1} type="number" value={gate.max_p95_latency_ratio} /></label>
                   <label className="text-xs text-slate-400">P95 绝对上限（ms）<input className="mt-1 w-full rounded-lg border border-white/10 bg-surface-950 px-2 py-2 text-sm text-white" max={120000} min={1} onChange={(event) => setGate({ ...gate, max_p95_latency_ms: Number(event.target.value) })} step={50} type="number" value={gate.max_p95_latency_ms} /></label>
+                  <label className="text-xs text-slate-400">配对主指标最大回退<input className="mt-1 w-full rounded-lg border border-white/10 bg-surface-950 px-2 py-2 text-sm text-white" max={1} min={0} onChange={(event) => setGate({ ...gate, max_paired_primary_regression: Number(event.target.value) })} step={0.01} type="number" value={gate.max_paired_primary_regression} /></label>
                 </div>
               ) : null}
             </div>
@@ -735,7 +779,7 @@ export default function KnowledgeEvaluationPage() {
 
         <section className="surface-panel overflow-hidden rounded-lg border border-white/10">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
-            <div><div className="flex items-center gap-2"><h2 className="text-sm font-semibold text-white">评估结果</h2>{selectedRun?.evidence_qualification ? <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${selectedRun.evidence_qualification.qualified ? "border-emerald-300/30 text-emerald-200" : "border-amber-300/30 text-amber-100"}`}>{selectedRun.evidence_qualification.qualified ? "qualified" : "diagnostic_only"}</span> : null}</div><p className="mt-1 text-xs text-slate-500">{selectedRun ? `${selectedRun.status} · ${selectedRun.progress}% · ${selectedRun.run_id}` : "选择或运行一次评估"}</p>{selectedRun?.evidence_qualification && !selectedRun.evidence_qualification.qualified ? <p className="mt-1 text-xs text-amber-100">仅供诊断：正式门禁要求 30 条稳定 Gold 正例与 12 条已审核困难负例。</p> : null}</div>
+            <div><div className="flex items-center gap-2"><h2 className="text-sm font-semibold text-white">评估结果</h2>{selectedRun?.run_mode ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[10px] font-semibold text-slate-300">{selectedRun.run_mode}</span> : null}{selectedRun?.evidence_qualification ? <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${selectedRun.evidence_qualification.qualified ? "border-emerald-300/30 text-emerald-200" : "border-amber-300/30 text-amber-100"}`}>{selectedRun.evidence_qualification.qualified ? "qualified" : "diagnostic_only"}</span> : null}</div><p className="mt-1 text-xs text-slate-500">{selectedRun ? `${selectedRun.status} · ${selectedRun.progress}% · ${selectedRun.run_id}` : "选择或运行一次评估"}</p>{selectedRun?.evidence_qualification && !selectedRun.evidence_qualification.qualified ? <p className="mt-1 text-xs text-amber-100">仅供诊断：正式门禁要求已发布 rag-gold-v2、42 条可信审核证据与同一语料快照。</p> : null}</div>
             {selectedRun?.error ? <span className="text-xs text-rose-200">{selectedRun.error}</span> : null}
           </div>
           {selectedRun?.target_results.length ? (

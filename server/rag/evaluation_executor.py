@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import time
 from typing import Any
@@ -10,11 +11,40 @@ from .evaluation import (
     aggregate_target_metrics,
     evaluate_promotion_gate,
     evaluate_retrieval_case,
+    paired_primary_confidence_report,
 )
 from .rag_service import RagService
 
 
 logger = logging.getLogger(__name__)
+
+
+def _execution_slots(
+    run: dict[str, Any],
+) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    targets = list(run.get("targets") or [])
+    cases = list((run.get("eval_set_snapshot") or {}).get("cases") or [])
+    if str(run.get("run_mode") or "diagnostic") != "formal":
+        return [(target, case) for target in targets for case in cases]
+    seed = str((run.get("execution_manifest") or {}).get("execution_seed") or "")
+    cases.sort(
+        key=lambda case: hashlib.sha256(
+            f"{seed}:case:{case.get('case_id')}".encode("utf-8")
+        ).hexdigest()
+    )
+    slots: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for case in cases:
+        paired_targets = sorted(
+            targets,
+            key=lambda target: hashlib.sha256(
+                (
+                    f"{seed}:case:{case.get('case_id')}:"
+                    f"target:{target.get('target_id')}"
+                ).encode("utf-8")
+            ).hexdigest(),
+        )
+        slots.extend((target, case) for target in paired_targets)
+    return slots
 
 
 class KnowledgeEvaluationExecutor:
@@ -87,7 +117,7 @@ class KnowledgeEvaluationExecutor:
                 },
             )
             max_k = max(run["ks"])
-            for target in run["targets"]:
+            for target, case in _execution_slots(run):
                 target_id = str(target["target_id"])
                 target_top_k = max_k
                 if bool(target.get("respect_profile_top_k")):
@@ -98,70 +128,92 @@ class KnowledgeEvaluationExecutor:
                             max_k,
                         ),
                     )
-                for case in run["eval_set_snapshot"]["cases"]:
-                    case_id = str(case["case_id"])
-                    current = self.store.get_run(run_id)
-                    if self.store.cancel_requested(run_id):
-                        self.store.complete_cancel(run_id)
-                        await self._finish_registry(registry_id, "cancelled", "Cancelled by user.")
-                        return
-                    existing = current.get("case_results", {}).get(target_id, {}).get(case_id)
-                    if isinstance(existing, dict):
-                        continue
-                    started = time.perf_counter()
-                    try:
-                        retrieval = await self.service.query_pipeline_version(
-                            str(target["version_id"]),
-                            str(case["query"]),
-                            top_k=target_top_k,
-                            retrieval={
-                                **dict(target.get("retrieval") or {}),
-                                "top_k": target_top_k,
-                            },
-                            generate_answer=False,
-                        )
-                        case_result = evaluate_retrieval_case(
-                            list(retrieval.get("sources") or []),
-                            list(case.get("expected_refs") or []),
-                            ks=list(run["ks"]),
-                            latency_ms=(time.perf_counter() - started) * 1000,
-                            warnings=list(retrieval.get("warnings") or []),
-                            expected_no_result=bool(case.get("expected_no_result")),
-                            retrieval_receipt=dict(retrieval.get("retrieval") or {}),
-                        )
-                    except asyncio.CancelledError:
-                        raise
-                    except Exception as exc:
-                        logger.warning(
-                            "Knowledge evaluation case failed run=%s target=%s case=%s",
-                            run_id,
-                            target_id,
-                            case_id,
-                            exc_info=True,
-                        )
-                        case_result = {
-                            "status": "failed",
-                            "metrics": {},
-                            "latency_ms": round((time.perf_counter() - started) * 1000, 3),
-                            "source_count": 0,
-                            "expected_count": len(case.get("expected_refs") or []),
-                            "matched_expected_count": 0,
-                            "expected_no_result": bool(case.get("expected_no_result")),
-                            "no_result": True,
-                            "warning_count": 0,
-                            "warnings": [],
-                            "ranking": [],
-                            "error": self.service._safe_pipeline_error(exc),
-                        }
-                    case_result.update(
-                        {
-                            "case_id": case_id,
-                            "query_preview": str(case["query"])[:160],
-                        }
+                case_id = str(case["case_id"])
+                current = self.store.get_run(run_id)
+                if self.store.cancel_requested(run_id):
+                    self.store.complete_cancel(run_id)
+                    await self._finish_registry(registry_id, "cancelled", "Cancelled by user.")
+                    return
+                existing = current.get("case_results", {}).get(target_id, {}).get(case_id)
+                if isinstance(existing, dict):
+                    continue
+                if not self.store.claim_case_slot(run_id, target_id, case_id):
+                    continue
+                started = time.perf_counter()
+                try:
+                    retrieval = await self.service.query_pipeline_version(
+                        str(target["version_id"]),
+                        str(case["query"]),
+                        top_k=target_top_k,
+                        retrieval={
+                            **dict(target.get("retrieval") or {}),
+                            "top_k": target_top_k,
+                        },
+                        generate_answer=False,
                     )
-                    self.store.record_case_result(run_id, target_id, case_id, case_result)
+                    case_result = evaluate_retrieval_case(
+                        list(retrieval.get("sources") or []),
+                        list(case.get("expected_refs") or []),
+                        ks=list(run["ks"]),
+                        latency_ms=(time.perf_counter() - started) * 1000,
+                        warnings=list(retrieval.get("warnings") or []),
+                        expected_no_result=bool(case.get("expected_no_result")),
+                        retrieval_receipt=dict(retrieval.get("retrieval") or {}),
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    logger.warning(
+                        "Knowledge evaluation case failed run=%s target=%s case=%s",
+                        run_id,
+                        target_id,
+                        case_id,
+                        exc_info=True,
+                    )
+                    case_result = {
+                        "status": "failed",
+                        "metrics": {},
+                        "latency_ms": round(
+                            (time.perf_counter() - started) * 1000, 3
+                        ),
+                        "source_count": 0,
+                        "expected_count": len(case.get("expected_refs") or []),
+                        "matched_expected_count": 0,
+                        "expected_no_result": bool(case.get("expected_no_result")),
+                        "no_result": True,
+                        "warning_count": 0,
+                        "warnings": [],
+                        "ranking": [],
+                        "error": self.service._safe_pipeline_error(exc),
+                    }
+                case_result.update(
+                    {
+                        "case_id": case_id,
+                        "query_preview": str(case["query"])[:160],
+                    }
+                )
+                self.store.record_case_result(run_id, target_id, case_id, case_result)
 
             completed = self.store.get_run(run_id)
+            if str(completed.get("run_mode") or "diagnostic") == "formal":
+                expected_case_ids = {
+                    str(case["case_id"])
+                    for case in completed["eval_set_snapshot"]["cases"]
+                }
+                incomplete_targets = [
+                    str(target["target_id"])
+                    for target in completed["targets"]
+                    if set(
+                        completed.get("case_results", {}).get(
+                            str(target["target_id"]), {}
+                        )
+                    )
+                    != expected_case_ids
+                ]
+                if incomplete_targets:
+                    raise ValueError(
+                        "Formal evaluation did not record every declared execution slot."
+                    )
             aggregates: list[dict[str, Any]] = []
             for target in completed["targets"]:
                 target_id = str(target["target_id"])
@@ -179,15 +231,70 @@ class KnowledgeEvaluationExecutor:
                     }
                 )
 
-            baseline = next(
+            baseline_target = next(
                 (
-                    item["metrics"]
+                    item
                     for item in aggregates
                     if item["version_id"] == completed.get("baseline_version_id")
                 ),
                 None,
             )
+            baseline = baseline_target["metrics"] if baseline_target else None
+            paired_confidence: dict[str, Any] | None = None
+            if str(completed.get("run_mode") or "diagnostic") == "formal":
+                candidate_target = next(
+                    (
+                        item
+                        for item in aggregates
+                        if item["version_id"]
+                        != completed.get("baseline_version_id")
+                    ),
+                    None,
+                )
+                if baseline_target is None or candidate_target is None:
+                    raise ValueError(
+                        "Formal evaluation lost its baseline/candidate pairing."
+                    )
+                policy = dict(completed["gate_policy"])
+                paired_confidence = paired_primary_confidence_report(
+                    baseline_target["case_results"],
+                    candidate_target["case_results"],
+                    cases=list(completed["eval_set_snapshot"]["cases"]),
+                    seed=str(
+                        (completed.get("execution_manifest") or {}).get(
+                            "execution_seed"
+                        )
+                        or ""
+                    ),
+                    confidence_level=float(
+                        policy.get("paired_confidence_level") or 0.95
+                    ),
+                    max_regression=float(
+                        policy.get("max_paired_primary_regression") or 0.03
+                    ),
+                )
             for item in aggregates:
+                item_paired_confidence = paired_confidence
+                if (
+                    paired_confidence is not None
+                    and item["version_id"] == completed.get("baseline_version_id")
+                ):
+                    item_paired_confidence = {
+                        "contract_version": "rag-paired-confidence-v1",
+                        "status": "completed",
+                        "passed": True,
+                        "point_delta": 0.0,
+                        "confidence_level": float(
+                            completed["gate_policy"].get(
+                                "paired_confidence_level", 0.95
+                            )
+                        ),
+                        "confidence_interval": {"lower": 0.0, "upper": 0.0},
+                        "bootstrap_samples": int(
+                            paired_confidence.get("bootstrap_samples") or 0
+                        ),
+                    }
+                item["paired_confidence"] = item_paired_confidence
                 item["promotion_gate"] = evaluate_promotion_gate(
                     item["metrics"],
                     baseline=baseline if item["version_id"] != completed.get("baseline_version_id") else item["metrics"],
@@ -195,8 +302,15 @@ class KnowledgeEvaluationExecutor:
                     evidence_qualification=dict(
                         completed.get("evidence_qualification") or {}
                     ),
+                    paired_confidence=item_paired_confidence,
+                    comparability=dict(completed.get("comparability") or {}),
+                    run_mode=str(completed.get("run_mode") or "diagnostic"),
                 )
-            final = self.store.complete_run(run_id, aggregates)
+            final = self.store.complete_run(
+                run_id,
+                aggregates,
+                paired_confidence=paired_confidence,
+            )
             await self._checkpoint(
                 registry_id,
                 event_type="knowledge_evaluation.completed",

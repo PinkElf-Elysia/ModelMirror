@@ -3712,13 +3712,21 @@ class RagService:
         source_manifest_fingerprint = self._mapping_sha256(
             {"sources": list(version.get("source_summary") or [])}
         )
+        processor_profile = dict(version.get("processor_profile") or {})
+        vision_profile = dict(version.get("vision_profile") or {})
+        processor_fingerprint = self._mapping_sha256(
+            {
+                "processor": processor_profile,
+                "vision": vision_profile,
+            }
+        )
         configuration_fingerprint = self._mapping_sha256(
             {
                 "index_schema_version": int(version.get("index_schema_version") or 1),
                 "embedding": safe_embedding,
                 "retrieval": retrieval,
-                "processor": dict(version.get("processor_profile") or {}),
-                "vision": dict(version.get("vision_profile") or {}),
+                "processor": processor_profile,
+                "vision": vision_profile,
             }
         )
         version_fingerprint = self._mapping_sha256(
@@ -3738,12 +3746,222 @@ class RagService:
             "index_schema_version": int(version.get("index_schema_version") or 1),
             "document_count": int(version.get("document_count") or 0),
             "chunk_count": int(version.get("chunk_count") or 0),
+            "processor": {
+                "mode": str(processor_profile.get("mode") or ""),
+                "vision_enabled": bool(vision_profile.get("enabled")),
+                "fingerprint": processor_fingerprint,
+            },
             "embedding": safe_embedding,
             "retrieval": retrieval,
             "source_manifest_fingerprint": source_manifest_fingerprint,
             "configuration_fingerprint": configuration_fingerprint,
             "version_fingerprint": version_fingerprint,
         }
+
+    def _pipeline_corpus_provenance(
+        self,
+        version_id: str,
+    ) -> tuple[dict[str, Any], dict[str, Any], dict[str, dict[str, Any]]]:
+        version = self.get_pipeline_version(version_id)
+        if (
+            version.get("status") not in {"ready", "active"}
+            or version.get("vector_index_ready") is not True
+            or not str(version.get("job_id") or "")
+        ):
+            raise PipelineJobStateError(
+                "Pipeline version cannot provide a stable corpus snapshot."
+            )
+        index_owner_id = str(version.get("index_owner_version_id") or version_id)
+        index_owner = version
+        if index_owner_id != version_id:
+            try:
+                index_owner = self.get_pipeline_version(index_owner_id)
+            except PipelineVersionNotFoundError as exc:
+                raise PipelineJobStateError(
+                    "Pipeline version corpus provenance is inconsistent."
+                ) from exc
+            if (
+                str(version.get("base_version_id") or "") != index_owner_id
+                or index_owner.get("kb_id") != version.get("kb_id")
+                or index_owner.get("status") not in {"ready", "active"}
+                or index_owner.get("vector_index_ready") is not True
+                or str(index_owner.get("namespace") or "")
+                != str(version.get("namespace") or "")
+                or str(index_owner.get("job_id") or "")
+                != str(version.get("job_id") or "")
+                or str(index_owner.get("index_owner_version_id") or index_owner_id)
+                != index_owner_id
+            ):
+                raise PipelineJobStateError(
+                    "Pipeline version corpus provenance is inconsistent."
+                )
+        job = self.get_pipeline_job(str(index_owner["job_id"]))
+        if (
+            str(job.get("candidate_version_id") or "") != index_owner_id
+            or str(job.get("candidate_namespace") or "")
+            != str(index_owner.get("namespace") or "")
+            or str(job.get("status") or "") != "succeeded"
+        ):
+            raise PipelineJobStateError(
+                "Pipeline version corpus provenance is inconsistent."
+            )
+        raw_results = [
+            item
+            for item in job.get("document_results", [])
+            if isinstance(item, dict) and str(item.get("source_id") or "")
+        ]
+        results = {
+            str(item.get("source_id") or ""): item for item in raw_results
+        }
+        if len(results) != len(raw_results):
+            raise PipelineJobStateError(
+                "Pipeline version corpus provenance is inconsistent."
+            )
+        return version, job, results
+
+    @staticmethod
+    def _representative_source_block_chunk(chunks: list[Any]) -> Any:
+        return min(
+            chunks,
+            key=lambda item: (
+                0 if str(item.chunk_type or "") in {"parent", "standard"} else 1,
+                -len(str(item.text or "")),
+                int(item.chunk_index),
+                str(item.chunk_id),
+            ),
+        )
+
+    def pipeline_corpus_snapshot(self, version_id: str) -> dict[str, Any]:
+        """Rebuild and verify the exact source-block corpus behind an index."""
+
+        version, _, results = self._pipeline_corpus_provenance(version_id)
+        documents: list[dict[str, Any]] = []
+        seen_documents: set[str] = set()
+        index_owner = str(version.get("index_owner_version_id") or version_id)
+        for source in version.get("source_summary", []):
+            if not isinstance(source, dict):
+                raise PipelineJobStateError(
+                    "Pipeline version source provenance is invalid."
+                )
+            document_id = str(source.get("source_id") or "")
+            result = results.get(document_id)
+            content_hash = str(
+                source.get("content_hash")
+                or (result or {}).get("content_hash")
+                or ""
+            )
+            if (
+                not document_id
+                or document_id in seen_documents
+                or not re.fullmatch(r"[0-9a-f]{64}", content_hash)
+            ):
+                raise PipelineJobStateError(
+                    "Pipeline version source provenance is invalid."
+                )
+            seen_documents.add(document_id)
+            artifact_key = str((result or {}).get("artifact_key") or "")
+            if not artifact_key or str((result or {}).get("status") or "") != "completed":
+                raise PipelineJobStateError(
+                    "Pipeline version processed source artifact is unavailable."
+                )
+            artifact_path = self._pipeline_processed_path(artifact_key)
+            try:
+                artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise PipelineJobStateError(
+                    "Pipeline version processed source artifact is unavailable."
+                ) from exc
+            processed = artifact.get("processed_document")
+            raw_blocks = processed.get("blocks") if isinstance(processed, dict) else None
+            if not isinstance(raw_blocks, list) or not raw_blocks:
+                raise PipelineJobStateError(
+                    "Pipeline version processed source blocks are unavailable."
+                )
+            chunks_by_block: dict[str, list[Any]] = {}
+            for chunk in self.vector_store.list_document_chunks(
+                f"{index_owner}_{document_id}"
+            ):
+                source_block_id = str(chunk.source_block_id or "")
+                if source_block_id:
+                    chunks_by_block.setdefault(source_block_id, []).append(chunk)
+            source_blocks: list[dict[str, str]] = []
+            seen_blocks: set[str] = set()
+            for raw_block in raw_blocks:
+                if not isinstance(raw_block, dict):
+                    raise PipelineJobStateError(
+                        "Pipeline version processed source block is invalid."
+                    )
+                source_block_id = str(raw_block.get("block_id") or "")
+                text = raw_block.get("text")
+                if (
+                    not source_block_id
+                    or source_block_id in seen_blocks
+                    or not isinstance(text, str)
+                    or not text.strip()
+                ):
+                    raise PipelineJobStateError(
+                        "Pipeline version processed source block is invalid."
+                    )
+                block_hash = self._canonical_sha256(text)
+                indexed_chunks = chunks_by_block.get(source_block_id) or []
+                stored_hashes = {
+                    str(chunk.source_block_hash or "")
+                    for chunk in indexed_chunks
+                    if str(chunk.source_block_hash or "")
+                }
+                if stored_hashes:
+                    index_matches = stored_hashes == {block_hash}
+                elif indexed_chunks:
+                    representative = self._representative_source_block_chunk(
+                        indexed_chunks
+                    )
+                    index_matches = text.strip() in str(
+                        representative.text or ""
+                    ).strip()
+                else:
+                    index_matches = False
+                if not index_matches:
+                    raise PipelineJobStateError(
+                        "Pipeline version source-block index is inconsistent."
+                    )
+                seen_blocks.add(source_block_id)
+                source_blocks.append(
+                    {
+                        "source_block_id": source_block_id,
+                        "block_hash": block_hash,
+                    }
+                )
+            if set(chunks_by_block) != seen_blocks:
+                raise PipelineJobStateError(
+                    "Pipeline version source-block index is inconsistent."
+                )
+            source_blocks.sort(key=lambda item: item["source_block_id"])
+            documents.append(
+                {
+                    "document_id": document_id,
+                    "document_hash": self._canonical_sha256(
+                        {
+                            "contract_version": "rag-document-identity-v1",
+                            "document_id": document_id,
+                            "content_hash": content_hash,
+                        }
+                    ),
+                    "content_hash": content_hash,
+                    "source_blocks": source_blocks,
+                }
+            )
+        if not documents or set(results) != seen_documents:
+            raise PipelineJobStateError(
+                "Pipeline version document set does not match its processed artifacts."
+            )
+        documents.sort(key=lambda item: item["document_id"])
+        corpus = {
+            "contract_version": "rag-corpus-snapshot-v1",
+            "knowledge_base_hash": self._canonical_sha256(str(version["kb_id"])),
+            "documents": documents,
+        }
+        corpus["checksum"] = self._canonical_sha256(corpus)
+        return json.loads(json.dumps(corpus))
 
     def pipeline_version_payload(
         self,
@@ -4250,8 +4468,12 @@ class RagService:
         return digest.hexdigest()
 
     def _mapping_sha256(self, value: dict[str, Any]) -> str:
+        return self._canonical_sha256(value)
+
+    def _canonical_sha256(self, value: Any) -> str:
         encoded = json.dumps(
             value,
+            allow_nan=False,
             ensure_ascii=False,
             sort_keys=True,
             separators=(",", ":"),

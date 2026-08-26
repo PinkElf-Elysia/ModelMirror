@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -502,6 +504,11 @@ class KnowledgePipelineExecutor:
                                 if len(source_blocks) == 1
                                 else None
                             ),
+                            "source_block_hash": (
+                                _source_block_hash(source_blocks[0].get("text"))
+                                if len(source_blocks) == 1
+                                else None
+                            ),
                         }
                     )
                 continue
@@ -511,7 +518,8 @@ class KnowledgePipelineExecutor:
             for block in raw_blocks:
                 if not isinstance(block, dict):
                     continue
-                block_text = str(block.get("text") or "").strip()
+                raw_block_text = str(block.get("text") or "")
+                block_text = raw_block_text.strip()
                 if not block_text:
                     continue
                 heading_path = list(
@@ -563,6 +571,7 @@ class KnowledgePipelineExecutor:
                                 else None
                             ),
                             "source_block_id": block.get("block_id"),
+                            "source_block_hash": _source_block_hash(raw_block_text),
                         }
                     )
         if not chunks:
@@ -669,6 +678,7 @@ class KnowledgePipelineExecutor:
                 "row_range": item.get("row_range"),
                 "visual_kind": item.get("visual_kind"),
                 "source_block_id": item.get("source_block_id"),
+                "source_block_hash": item.get("source_block_hash"),
             }
             vector_chunks.append(
                 VectorChunk(
@@ -697,3 +707,17 @@ class KnowledgePipelineExecutor:
         self.service.lexical_store.add_chunks(lexical_chunks)
         if self.service.lexical_store.count_namespace(namespace) != len(lexical_chunks):
             raise RuntimeError("Full-text index count does not match the vector candidate index.")
+
+
+def _source_block_hash(value: Any) -> str | None:
+    text = str(value or "")
+    if not text.strip():
+        return None
+    encoded = json.dumps(
+        text,
+        allow_nan=False,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()

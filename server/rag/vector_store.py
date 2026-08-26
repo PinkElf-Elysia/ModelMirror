@@ -37,6 +37,7 @@ class VectorChunk:
     row_range: str | None = None
     visual_kind: str | None = None
     source_block_id: str | None = None
+    source_block_hash: str | None = None
 
 
 @dataclass(slots=True)
@@ -59,6 +60,7 @@ class SearchResult:
     row_range: str | None = None
     visual_kind: str | None = None
     source_block_id: str | None = None
+    source_block_hash: str | None = None
 
 
 @dataclass(slots=True)
@@ -80,6 +82,7 @@ class StoredVectorChunk:
     row_range: str | None = None
     visual_kind: str | None = None
     source_block_id: str | None = None
+    source_block_hash: str | None = None
 
 
 class VectorStore(Protocol):
@@ -146,6 +149,7 @@ class LocalJsonVectorStore:
                     row_range=str(record.get("row_range") or "") or None,
                     visual_kind=str(record.get("visual_kind") or "") or None,
                     source_block_id=str(record.get("source_block_id") or "") or None,
+                    source_block_hash=str(record.get("source_block_hash") or "") or None,
                 )
             )
         return sorted(scored, key=lambda item: item.score, reverse=True)[:top_k]
@@ -180,6 +184,7 @@ class LocalJsonVectorStore:
                 row_range=str(record.get("row_range") or "") or None,
                 visual_kind=str(record.get("visual_kind") or "") or None,
                 source_block_id=str(record.get("source_block_id") or "") or None,
+                source_block_hash=str(record.get("source_block_hash") or "") or None,
             )
             for record in self._read_records()
             if record.get("doc_id") == doc_id
@@ -208,6 +213,7 @@ class LocalJsonVectorStore:
                 row_range=str(record.get("row_range") or "") or None,
                 visual_kind=str(record.get("visual_kind") or "") or None,
                 source_block_id=str(record.get("source_block_id") or "") or None,
+                source_block_hash=str(record.get("source_block_hash") or "") or None,
             )
         return None
 
@@ -281,6 +287,7 @@ class ChromaVectorStore:
                     "row_range": chunk.row_range or "",
                     "visual_kind": chunk.visual_kind or "",
                     "source_block_id": chunk.source_block_id or "",
+                    "source_block_hash": chunk.source_block_hash or "",
                     "updated_at": time.time(),
                 }
                 for chunk in chunks
@@ -347,6 +354,7 @@ class ChromaVectorStore:
                     row_range=str(metadata.get("row_range") or "") or None,
                     visual_kind=str(metadata.get("visual_kind") or "") or None,
                     source_block_id=str(metadata.get("source_block_id") or "") or None,
+                    source_block_hash=str(metadata.get("source_block_hash") or "") or None,
                 )
             )
         return results
@@ -405,6 +413,7 @@ class ChromaVectorStore:
                     row_range=str(metadata.get("row_range") or "") or None,
                     visual_kind=str(metadata.get("visual_kind") or "") or None,
                     source_block_id=str(metadata.get("source_block_id") or "") or None,
+                    source_block_hash=str(metadata.get("source_block_hash") or "") or None,
                 )
             )
         return chunks
@@ -461,6 +470,7 @@ class ChromaVectorStore:
             row_range=str(metadata.get("row_range") or "") or None,
             visual_kind=str(metadata.get("visual_kind") or "") or None,
             source_block_id=str(metadata.get("source_block_id") or "") or None,
+            source_block_hash=str(metadata.get("source_block_hash") or "") or None,
         )
 
     @classmethod
@@ -542,6 +552,7 @@ def _chunk_to_record(chunk: VectorChunk) -> dict[str, Any]:
         "row_range": chunk.row_range,
         "visual_kind": chunk.visual_kind,
         "source_block_id": chunk.source_block_id,
+        "source_block_hash": chunk.source_block_hash,
     }
 
 

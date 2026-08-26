@@ -22,6 +22,7 @@ KNOWLEDGE_COVERAGE = (
 MAX_EVIDENCE_UNITS = 40
 MAX_EVIDENCE_CHARS = 48_000
 MAX_EVIDENCE_UNIT_CHARS = 1_200
+KNOWLEDGE_PROMPT_CONTRACT_VERSION = "rag-gold-generation-prompt-v2"
 
 
 class KnowledgeBenchmarkGenerationService:
@@ -311,9 +312,11 @@ class KnowledgeBenchmarkGenerationService:
                 "locale": locales[index % len(locales)],
                 "difficulty": self._difficulty(index, positives),
                 "required_evidence_ids": [item["evidence_id"] for item in required],
-                "required_query_marker_groups": [
-                    self._query_markers(item) for item in required
-                ],
+                "required_query_marker_groups": (
+                    []
+                    if coverage in {"paraphrase", "cross_language"}
+                    else [self._query_markers(item) for item in required]
+                ),
                 "expected_no_result": False,
             }
             if coverage == "confusable_content" and len(evidence_wheel) > 1:
@@ -346,11 +349,21 @@ class KnowledgeBenchmarkGenerationService:
                         "evidence_id": item["evidence_id"],
                         "chunk_id": item["chunk_id"],
                         "source_block_id": item["source_block_id"],
+                        "text_hash": self._checksum(str(item.get("text") or "")),
                     }
                     for item in sampled
                 ]
             ),
             "blueprint_hash": self._checksum(blueprints),
+            "prompt_contract_hash": self._checksum(
+                {
+                    "contract_version": KNOWLEDGE_PROMPT_CONTRACT_VERSION,
+                    "coverage": list(KNOWLEDGE_COVERAGE),
+                    "long_copy_block_chars": 32,
+                    "semantic_warning_chars": 12,
+                    "other_warning_chars": 24,
+                }
+            ),
         }
 
     def generation_prompt(
@@ -414,9 +427,10 @@ class KnowledgeBenchmarkGenerationService:
             f"Create exactly {case_count} cases in blueprint order. Seed={seed}. "
             f"Locales={locales}. Keep each query between 3 and 4000 characters. "
             "For positive cases evidence_ids must exactly equal required_evidence_ids. "
-            "The query must contain at least one exact token from every corresponding "
-            "required_query_marker_groups entry. Preserve these target markers even for "
-            "paraphrase and cross-language cases. "
+            "When required_query_marker_groups is non-empty, the query must contain at "
+            "least one exact token from every corresponding entry. Paraphrase and "
+            "cross-language cases intentionally omit marker requirements and must use "
+            "semantic grounding plus the exact anchor quote contract instead. "
             "For no-result cases evidence_ids and anchor_quotes must be empty.\n\n"
             f"Fixed target summary:\n{json.dumps(self.public_target(snapshot), ensure_ascii=False)}\n\n"
             f"Server blueprints:\n{json.dumps(context['blueprints'], ensure_ascii=False)}\n\n"
@@ -510,6 +524,27 @@ class KnowledgeBenchmarkGenerationService:
                         raise BenchmarkGenerationError(
                             f"Case {index + 1} query is not specific to every assigned evidence block."
                         )
+                warning_threshold = (
+                    12
+                    if str(blueprint.get("query_type") or "")
+                    in {"paraphrase", "cross_language"}
+                    else 24
+                )
+                leakage_warning = False
+                for evidence_id in required_ids:
+                    evidence = evidence_by_id.get(evidence_id)
+                    evidence_key = self._normalize_text(
+                        str((evidence or {}).get("text") or "")
+                    )
+                    if self._has_common_window(query_key, evidence_key, 32):
+                        raise BenchmarkGenerationError(
+                            f"Case {index + 1} copies too much source text into the query."
+                        )
+                    leakage_warning = leakage_warning or self._has_common_window(
+                        query_key, evidence_key, warning_threshold
+                    )
+            else:
+                leakage_warning = False
             quotes = list(raw_case.get("anchor_quotes") or [])
             if expected_no_result:
                 if evidence_ids or quotes:
@@ -560,7 +595,7 @@ class KnowledgeBenchmarkGenerationService:
                             "relevance": 3 if ref_index == 0 else 2,
                         }
                     )
-                review_status = "not_required"
+                review_status = "pending"
             rationale = str(raw_case.get("rationale") or "").strip()[:500]
             context_refs = [
                 {
@@ -595,6 +630,14 @@ class KnowledgeBenchmarkGenerationService:
                         "difficulty": blueprint["difficulty"],
                         "evidence_ids": required_ids,
                         "context_refs": context_refs,
+                        "leakage_warning": (
+                            {
+                                "threshold": warning_threshold,
+                                "reason_required": True,
+                            }
+                            if leakage_warning
+                            else None
+                        ),
                     },
                 }
             )
@@ -733,6 +776,16 @@ class KnowledgeBenchmarkGenerationService:
     @staticmethod
     def _normalize_text(value: str) -> str:
         return re.sub(r"[^\w\u3400-\u9fff]+", "", str(value).casefold())
+
+    @staticmethod
+    def _has_common_window(left: str, right: str, size: int) -> bool:
+        if size <= 0 or len(left) < size or len(right) < size:
+            return False
+        shorter, longer = (left, right) if len(left) <= len(right) else (right, left)
+        return any(
+            shorter[index : index + size] in longer
+            for index in range(len(shorter) - size + 1)
+        )
 
     @staticmethod
     def _extract_json(raw: str) -> dict[str, Any]:
