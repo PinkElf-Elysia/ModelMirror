@@ -47,6 +47,10 @@ ExperienceCandidateState = Literal[
     "stale",
     "archived",
 ]
+ExperienceAnalysisStatus = Literal["running", "succeeded", "manual_required"]
+ExperienceBriefSuggestion = Literal["create", "update", "no_skill"]
+ExperienceBriefSource = Literal["model", "manual", "user"]
+ExperienceDecisionKind = Literal["create", "update", "dismiss"]
 
 _STATES = {
     "captured",
@@ -76,11 +80,26 @@ _APPLICATION_METHODS = {
 }
 _APPLICATION_STATUSES = {"selected", "applied", "failed"}
 _COMPLIANCE_STATUSES = {"verified", "incomplete", "unverified"}
+_ANALYSIS_STATUSES = {"running", "succeeded", "manual_required"}
+_BRIEF_SUGGESTIONS = {"create", "update", "no_skill"}
+_BRIEF_SOURCES = {"model", "manual", "user"}
+_DECISION_KINDS = {"create", "update", "dismiss"}
+_NO_SKILL_REASONS = {
+    "one_off_task",
+    "preference_or_environment_fact",
+    "insufficient_evidence",
+    "already_covered",
+    "cannot_generalize",
+}
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:@/-]{0,239}$")
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 _MAX_RECORDS = 2_000
 _MAX_SELECTED_EVIDENCE = 6
 _MAX_RECEIPT_REFERENCES = 64
+_MAX_BRIEF_EXAMPLES = 6
+_MAX_BRIEF_LIST_ITEMS = 12
+_MAX_OVERLAPS = 168
+_MAX_OVERLAP_CASES = 7
 _MAX_SNAPSHOT_BYTES = 32 * 1024 * 1024
 
 
@@ -136,6 +155,76 @@ class SkillExperienceReceiptReferenceV1:
 
 
 @dataclass(frozen=True, slots=True)
+class SkillExperienceAnalysisAttemptV1:
+    attempt_id: str
+    analysis_key: str
+    base_revision: int
+    base_digest: str
+    status: ExperienceAnalysisStatus
+    executor_mode: Literal["model", "manual"]
+    error_code: str | None
+    started_at: float
+    finished_at: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DistilledSkillBriefV1:
+    version: str
+    revision: int
+    digest: str
+    suggestion: ExperienceBriefSuggestion
+    recommendation_reason: str
+    no_skill_reason: str | None
+    intent: str
+    positive_examples: tuple[str, ...]
+    negative_examples: tuple[str, ...]
+    expected_output: str
+    success_criteria: tuple[str, ...]
+    reusable_steps: tuple[str, ...]
+    failure_boundaries: tuple[str, ...]
+    resource_clues: tuple[str, ...]
+    overfitting_risk: str
+    source: ExperienceBriefSource
+    complete: bool
+
+    def serialize(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class SkillExperienceOverlapRankV1:
+    case_hash: str
+    rank: int
+    reasons: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class SkillExperienceOverlapV1:
+    candidate_id: str
+    candidate_fingerprint: str
+    name: str
+    source_type: str
+    source_kind: str
+    installed_skill_id: str | None
+    creator_draft_id: str | None
+    update_target_eligible: bool
+    best_rank: int
+    major_overlap: bool
+    case_ranks: tuple[SkillExperienceOverlapRankV1, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class SkillExperienceDecisionV1:
+    decision: ExperienceDecisionKind
+    target_skill_id: str | None
+    target_draft_id: str | None
+    override_reason: str | None
+    new_boundary: str | None
+    actor_kind: Literal["local_console"]
+    decided_at: float
+
+
+@dataclass(frozen=True, slots=True)
 class SkillExperienceCandidateV1:
     candidate_id: str
     version: str
@@ -153,6 +242,11 @@ class SkillExperienceCandidateV1:
     evidence_preview_fingerprint: str
     selected_evidence: tuple[SkillExperienceEvidenceV1, ...]
     application_receipts: tuple[SkillExperienceReceiptReferenceV1, ...]
+    analysis_attempt: SkillExperienceAnalysisAttemptV1 | None = None
+    brief: DistilledSkillBriefV1 | None = None
+    overlaps: tuple[SkillExperienceOverlapV1, ...] = ()
+    overlap_fingerprint: str | None = None
+    decision: SkillExperienceDecisionV1 | None = None
     dismissal_reason: str | None = None
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
@@ -328,6 +422,11 @@ class SkillExperienceCandidateStore:
                 evidence_preview_fingerprint=capture.preview.preview_fingerprint,
                 application_receipts=capture.application_receipts,
                 selected_evidence=selected,
+                analysis_attempt=None,
+                brief=None,
+                overlaps=(),
+                overlap_fingerprint=None,
+                decision=None,
             )
 
     def refresh_capture(
@@ -387,6 +486,198 @@ class SkillExperienceCandidateStore:
                 current,
                 state="dismissed",
                 dismissal_reason=clean_reason,
+            )
+
+    def begin_analysis(
+        self,
+        candidate_id: str,
+        *,
+        expected_revision: int,
+        expected_digest: str,
+        analysis_key: str,
+    ) -> tuple[SkillExperienceCandidateV1, bool]:
+        clean_key = _digest(analysis_key, "analysis_key")
+        with self._lock:
+            self._ensure_readable_unlocked()
+            current = self._require_unlocked(candidate_id)
+            attempt = current.analysis_attempt
+            if attempt is not None and attempt.analysis_key == clean_key:
+                supplied_revision = _positive_int(expected_revision, "expected_revision")
+                supplied_digest = _digest(expected_digest, "expected_digest")
+                is_current = (
+                    supplied_revision == current.revision
+                    and supplied_digest == current.digest
+                )
+                is_original_retry = (
+                    supplied_revision == attempt.base_revision
+                    and supplied_digest == attempt.base_digest
+                )
+                if not (is_current or is_original_retry):
+                    self._assert_expected(current, expected_revision, expected_digest)
+                return copy.deepcopy(current), attempt.status == "running"
+            self._assert_expected(current, expected_revision, expected_digest)
+            if current.state != "captured" or not current.selected_evidence:
+                raise SkillExperienceConflictError(
+                    "Select current evidence before analyzing this experience.",
+                    code="skill_experience_decision_required",
+                )
+            now = time.time()
+            attempt = SkillExperienceAnalysisAttemptV1(
+                attempt_id=f"skillexperienceanalysis_{uuid.uuid4().hex}",
+                analysis_key=clean_key,
+                base_revision=current.revision,
+                base_digest=current.digest,
+                status="running",
+                executor_mode="model",
+                error_code=None,
+                started_at=now,
+            )
+            updated = self._replace_unlocked(
+                current,
+                state="analyzing",
+                analysis_attempt=attempt,
+                brief=None,
+                overlaps=(),
+                overlap_fingerprint=None,
+                decision=None,
+                dismissal_reason=None,
+            )
+            return updated, True
+
+    def complete_analysis(
+        self,
+        candidate_id: str,
+        *,
+        attempt_id: str,
+        analysis_key: str,
+        brief: DistilledSkillBriefV1,
+        overlaps: Iterable[SkillExperienceOverlapV1],
+        overlap_fingerprint: str,
+        executor_mode: Literal["model", "manual"],
+        error_code: str | None = None,
+    ) -> SkillExperienceCandidateV1:
+        clean_attempt_id = _identifier(attempt_id, "attempt_id")
+        clean_key = _digest(analysis_key, "analysis_key")
+        clean_fingerprint = _digest(overlap_fingerprint, "overlap_fingerprint")
+        clean_error = (
+            _identifier(error_code, "analysis_error_code") if error_code else None
+        )
+        if (executor_mode == "model" and clean_error is not None) or (
+            executor_mode == "manual" and clean_error is None
+        ):
+            raise SkillExperienceError(
+                "Skill experience analysis outcome is inconsistent.",
+                code="skill_experience_analysis_invalid",
+            )
+        overlap_items = tuple(overlaps)
+        _validate_brief_instance(brief)
+        _validate_overlaps(overlap_items)
+        with self._lock:
+            self._ensure_readable_unlocked()
+            current = self._require_unlocked(candidate_id)
+            attempt = current.analysis_attempt
+            if (
+                attempt is None
+                or attempt.attempt_id != clean_attempt_id
+                or attempt.analysis_key != clean_key
+            ):
+                raise SkillExperienceConflictError(
+                    "Skill experience analysis changed before completion.",
+                    code="skill_experience_candidate_conflict",
+                )
+            if attempt.status != "running":
+                return copy.deepcopy(current)
+            if current.state != "analyzing":
+                raise SkillExperienceConflictError(
+                    "Skill experience analysis can no longer be completed.",
+                    code="skill_experience_promotion_stale",
+                )
+            completed_attempt = replace(
+                attempt,
+                status=("succeeded" if executor_mode == "model" else "manual_required"),
+                executor_mode=executor_mode,
+                error_code=clean_error,
+                finished_at=time.time(),
+            )
+            return self._replace_unlocked(
+                current,
+                state="awaiting_review",
+                analysis_attempt=completed_attempt,
+                brief=brief,
+                overlaps=overlap_items,
+                overlap_fingerprint=clean_fingerprint,
+            )
+
+    def update_brief(
+        self,
+        candidate_id: str,
+        *,
+        expected_revision: int,
+        expected_digest: str,
+        brief: DistilledSkillBriefV1,
+        overlaps: Iterable[SkillExperienceOverlapV1],
+        overlap_fingerprint: str,
+    ) -> SkillExperienceCandidateV1:
+        overlap_items = tuple(overlaps)
+        clean_fingerprint = _digest(overlap_fingerprint, "overlap_fingerprint")
+        _validate_brief_instance(brief)
+        _validate_overlaps(overlap_items)
+        with self._lock:
+            self._ensure_readable_unlocked()
+            current = self._require_unlocked(candidate_id)
+            self._assert_expected(current, expected_revision, expected_digest)
+            if current.state != "awaiting_review" or current.brief is None:
+                raise SkillExperienceConflictError(
+                    "Skill experience brief is not editable in its current state.",
+                    code="skill_experience_candidate_conflict",
+                )
+            if brief.revision != current.brief.revision + 1:
+                raise SkillExperienceConflictError(
+                    "Skill experience brief revision is stale.",
+                    code="skill_experience_candidate_conflict",
+                )
+            return self._replace_unlocked(
+                current,
+                brief=brief,
+                overlaps=overlap_items,
+                overlap_fingerprint=clean_fingerprint,
+                decision=None,
+            )
+
+    def decide(
+        self,
+        candidate_id: str,
+        *,
+        expected_revision: int,
+        expected_digest: str,
+        decision: SkillExperienceDecisionV1,
+    ) -> SkillExperienceCandidateV1:
+        _validate_decision(decision)
+        with self._lock:
+            self._ensure_readable_unlocked()
+            current = self._require_unlocked(candidate_id)
+            self._assert_expected(current, expected_revision, expected_digest)
+            if (
+                current.state != "awaiting_review"
+                or current.brief is None
+                or not current.brief.complete
+            ):
+                raise SkillExperienceConflictError(
+                    "Complete and review the Skill brief before deciding.",
+                    code="skill_experience_decision_required",
+                )
+            next_state: ExperienceCandidateState = (
+                "dismissed" if decision.decision == "dismiss" else "promotion_ready"
+            )
+            return self._replace_unlocked(
+                current,
+                state=next_state,
+                decision=decision,
+                dismissal_reason=(
+                    decision.override_reason
+                    if decision.decision == "dismiss"
+                    else None
+                ),
             )
 
     def _replace_unlocked(
@@ -542,6 +833,9 @@ class SkillExperienceCandidateStore:
             for raw in payload["candidates"]:
                 try:
                     item = _decode_candidate(raw)
+                    normalized_digest = _candidate_digest(replace(item, digest=""))
+                    if item.digest != normalized_digest:
+                        item = replace(item, digest=normalized_digest)
                     key = _source_key(item.source_kind, item.source_task_id)
                     if item.candidate_id in items or key in source_index:
                         raise ValueError("duplicate candidate")
@@ -666,6 +960,41 @@ class SkillExperienceService:
     def list_candidates(self, *, limit: int = 200) -> list[SkillExperienceCandidateV1]:
         self.require_enabled()
         return self.store.list_candidates(limit=limit)
+
+    def require_current_candidate(
+        self, candidate_id: str
+    ) -> SkillExperienceCandidateV1:
+        """Revalidate the trusted source before any analysis or decision write."""
+
+        self.require_enabled()
+        current = self.store.require(candidate_id)
+        try:
+            capture = self._capture(_source_from_candidate(current))
+        except SkillExperienceStorageError:
+            raise
+        except SkillExperienceError as exc:
+            if current.state not in {"dismissed", "promoted", "archived", "stale"}:
+                self.store.mark_stale(
+                    current.candidate_id,
+                    expected_revision=current.revision,
+                    expected_digest=current.digest,
+                )
+            raise SkillExperienceConflictError(
+                "The trusted experience source is no longer current.",
+                code="skill_experience_promotion_stale",
+            ) from exc
+        if not self.store._capture_matches(current, capture):
+            if current.state not in {"dismissed", "promoted", "archived", "stale"}:
+                self.store.mark_stale(
+                    current.candidate_id,
+                    expected_revision=current.revision,
+                    expected_digest=current.digest,
+                )
+            raise SkillExperienceConflictError(
+                "The trusted experience source changed. Reload the evidence before continuing.",
+                code="skill_experience_promotion_stale",
+            )
+        return current
 
     def select_evidence(
         self,
@@ -857,6 +1186,8 @@ def _reject_ineligible_execution(execution: WorkflowExecution) -> None:
         "evaluation_run_id",
         "skill_evaluation_run_id",
         "creator_session_id",
+        "experience_analysis_key",
+        "experience_phase",
         "automation_execution_id",
         "external_xpert_source_id",
     }
@@ -901,11 +1232,48 @@ def _receipt_reference(
 def _decode_candidate(raw: Any) -> SkillExperienceCandidateV1:
     if not isinstance(raw, dict) or raw.get("version") != EXPERIENCE_CANDIDATE_VERSION:
         raise ValueError("invalid candidate")
+    allowed_fields = {
+        "candidate_id",
+        "version",
+        "revision",
+        "digest",
+        "state",
+        "source_kind",
+        "source_task_id",
+        "source_run_id",
+        "source_xpert_id",
+        "source_conversation_id",
+        "source_message_id",
+        "execution_revision",
+        "execution_digest",
+        "evidence_preview_fingerprint",
+        "selected_evidence",
+        "application_receipts",
+        "analysis_attempt",
+        "brief",
+        "overlaps",
+        "overlap_fingerprint",
+        "decision",
+        "dismissal_reason",
+        "created_at",
+        "updated_at",
+    }
+    if set(raw) - allowed_fields:
+        raise ValueError("candidate contains unknown fields")
     evidence_raw = raw.get("selected_evidence") or []
     receipts_raw = raw.get("application_receipts") or []
-    if not isinstance(evidence_raw, list) or not isinstance(receipts_raw, list):
+    overlaps_raw = raw.get("overlaps") or []
+    if (
+        not isinstance(evidence_raw, list)
+        or not isinstance(receipts_raw, list)
+        or not isinstance(overlaps_raw, list)
+    ):
         raise ValueError("invalid candidate children")
-    if len(evidence_raw) > _MAX_SELECTED_EVIDENCE or len(receipts_raw) > _MAX_RECEIPT_REFERENCES:
+    if (
+        len(evidence_raw) > _MAX_SELECTED_EVIDENCE
+        or len(receipts_raw) > _MAX_RECEIPT_REFERENCES
+        or len(overlaps_raw) > _MAX_OVERLAPS
+    ):
         raise ValueError("candidate exceeds limits")
     state = str(raw.get("state") or "")
     source_kind = str(raw.get("source_kind") or "")
@@ -938,6 +1306,22 @@ def _decode_candidate(raw: Any) -> SkillExperienceCandidateV1:
     receipts = tuple(_decode_receipt_reference(item) for item in receipts_raw)
     if len({item.receipt_id for item in receipts}) != len(receipts):
         raise ValueError("duplicate receipt reference")
+    analysis_attempt = (
+        _decode_analysis_attempt(raw.get("analysis_attempt"))
+        if raw.get("analysis_attempt") is not None
+        else None
+    )
+    brief = _decode_brief(raw.get("brief")) if raw.get("brief") is not None else None
+    overlaps = tuple(_decode_overlap(item) for item in overlaps_raw)
+    _validate_overlaps(overlaps)
+    overlap_fingerprint = _optional_digest(
+        raw.get("overlap_fingerprint"), "overlap_fingerprint"
+    )
+    decision = (
+        _decode_decision(raw.get("decision"))
+        if raw.get("decision") is not None
+        else None
+    )
     candidate = SkillExperienceCandidateV1(
         candidate_id=_identifier(raw.get("candidate_id"), "candidate_id"),
         version=EXPERIENCE_CANDIDATE_VERSION,
@@ -959,6 +1343,11 @@ def _decode_candidate(raw: Any) -> SkillExperienceCandidateV1:
         ),
         selected_evidence=evidence,
         application_receipts=receipts,
+        analysis_attempt=analysis_attempt,
+        brief=brief,
+        overlaps=overlaps,
+        overlap_fingerprint=overlap_fingerprint,
+        decision=decision,
         dismissal_reason=(
             _bounded_text(raw.get("dismissal_reason"), "dismissal_reason", 1_000)
             if raw.get("dismissal_reason") is not None
@@ -993,9 +1382,525 @@ def _decode_candidate(raw: Any) -> SkillExperienceCandidateV1:
         raise ValueError("invalid candidate timestamps")
     if candidate.dismissal_reason is not None:
         _reject_credentials(candidate.dismissal_reason)
-    if candidate.digest != _candidate_digest(replace(candidate, digest="")):
+    if candidate.overlaps and not candidate.overlap_fingerprint:
+        raise ValueError("overlap fingerprint is incomplete")
+    if candidate.overlap_fingerprint and candidate.brief is None:
+        raise ValueError("overlap fingerprint has no brief")
+    if candidate.state == "analyzing" and (
+        candidate.analysis_attempt is None
+        or candidate.analysis_attempt.status != "running"
+        or candidate.brief is not None
+    ):
+        raise ValueError("invalid analyzing candidate")
+    if candidate.state == "captured" and any(
+        (
+            candidate.analysis_attempt,
+            candidate.brief,
+            candidate.overlaps,
+            candidate.overlap_fingerprint,
+            candidate.decision,
+        )
+    ):
+        raise ValueError("captured candidate contains analysis state")
+    if candidate.state in {"awaiting_review", "promotion_ready"} and (
+        candidate.analysis_attempt is None
+        or candidate.analysis_attempt.status not in {"succeeded", "manual_required"}
+        or candidate.brief is None
+        or candidate.overlap_fingerprint is None
+    ):
+        raise ValueError("invalid reviewed candidate")
+    if candidate.state == "promotion_ready" and (
+        candidate.decision is None
+        or candidate.decision.decision not in {"create", "update"}
+        or not candidate.brief
+        or not candidate.brief.complete
+    ):
+        raise ValueError("invalid promotion-ready candidate")
+    if candidate.decision is not None and candidate.state not in {
+        "promotion_ready",
+        "promoted",
+        "dismissed",
+        "stale",
+        "archived",
+    }:
+        raise ValueError("candidate decision is in an invalid state")
+    digest_payload = dict(raw)
+    digest_payload.pop("digest", None)
+    if candidate.digest != _sha256(digest_payload):
         raise ValueError("candidate digest mismatch")
     return candidate
+
+
+def build_distilled_skill_brief(
+    payload: dict[str, Any],
+    *,
+    revision: int,
+    source: ExperienceBriefSource,
+    allow_incomplete: bool = False,
+) -> DistilledSkillBriefV1:
+    if not isinstance(payload, dict):
+        raise SkillExperienceError(
+            "Skill experience brief must be an object.",
+            code="skill_experience_analysis_invalid",
+        )
+    suggestion = str(payload.get("suggestion") or "").strip()
+    if suggestion not in _BRIEF_SUGGESTIONS:
+        raise SkillExperienceError(
+            "Skill experience brief has an invalid suggestion.",
+            code="skill_experience_analysis_invalid",
+        )
+    if source not in _BRIEF_SOURCES:
+        raise SkillExperienceError(
+            "Skill experience brief source is invalid.",
+            code="skill_experience_analysis_invalid",
+        )
+    no_skill_reason = str(payload.get("no_skill_reason") or "").strip() or None
+    if suggestion == "no_skill":
+        if no_skill_reason not in _NO_SKILL_REASONS:
+            if not allow_incomplete:
+                raise SkillExperienceError(
+                    "A no-Skill recommendation requires a fixed reason.",
+                    code="skill_experience_analysis_invalid",
+                )
+            no_skill_reason = None
+    elif no_skill_reason is not None:
+        raise SkillExperienceError(
+            "Only a no-Skill recommendation may include a no-Skill reason.",
+            code="skill_experience_analysis_invalid",
+        )
+    intent = _optional_bounded_text(payload.get("intent"), "brief_intent", 2_000)
+    recommendation_reason = _optional_bounded_text(
+        payload.get("recommendation_reason"), "recommendation_reason", 2_000
+    )
+    expected_output = _optional_bounded_text(
+        payload.get("expected_output"), "expected_output", 4_000
+    )
+    overfitting_risk = _optional_bounded_text(
+        payload.get("overfitting_risk"), "overfitting_risk", 2_000
+    )
+    positive_examples = _brief_text_list(
+        payload.get("positive_examples"),
+        "positive_examples",
+        maximum=_MAX_BRIEF_EXAMPLES,
+        item_limit=1_200,
+    )
+    negative_examples = _brief_text_list(
+        payload.get("negative_examples"),
+        "negative_examples",
+        maximum=_MAX_BRIEF_EXAMPLES,
+        item_limit=1_200,
+    )
+    success_criteria = _brief_text_list(
+        payload.get("success_criteria"),
+        "success_criteria",
+        maximum=_MAX_BRIEF_LIST_ITEMS,
+        item_limit=1_000,
+    )
+    reusable_steps = _brief_text_list(
+        payload.get("reusable_steps"),
+        "reusable_steps",
+        maximum=_MAX_BRIEF_LIST_ITEMS,
+        item_limit=1_000,
+    )
+    failure_boundaries = _brief_text_list(
+        payload.get("failure_boundaries"),
+        "failure_boundaries",
+        maximum=_MAX_BRIEF_LIST_ITEMS,
+        item_limit=1_000,
+    )
+    resource_clues = _brief_text_list(
+        payload.get("resource_clues"),
+        "resource_clues",
+        maximum=_MAX_BRIEF_LIST_ITEMS,
+        item_limit=1_000,
+    )
+    if set(_normalized_unique(positive_examples)) & set(
+        _normalized_unique(negative_examples)
+    ):
+        raise SkillExperienceError(
+            "Positive and negative examples must not overlap.",
+            code="skill_experience_analysis_invalid",
+        )
+    complete = bool(
+        intent
+        and recommendation_reason
+        and expected_output
+        and overfitting_risk
+        and 2 <= len(positive_examples) <= _MAX_BRIEF_EXAMPLES
+        and 2 <= len(negative_examples) <= _MAX_BRIEF_EXAMPLES
+        and success_criteria
+        and reusable_steps
+        and failure_boundaries
+        and (suggestion != "no_skill" or no_skill_reason in _NO_SKILL_REASONS)
+    )
+    if not allow_incomplete and not complete:
+        raise SkillExperienceError(
+            "Skill experience analysis did not produce a complete brief.",
+            code="skill_experience_analysis_invalid",
+        )
+    values = [
+        intent,
+        recommendation_reason,
+        expected_output,
+        overfitting_risk,
+        *positive_examples,
+        *negative_examples,
+        *success_criteria,
+        *reusable_steps,
+        *failure_boundaries,
+        *resource_clues,
+    ]
+    for value in values:
+        if value:
+            _reject_credentials(value)
+            _reject_keyword_stuffing(value)
+    if sum(len(value) for value in values) > 48_000:
+        raise SkillExperienceError(
+            "Skill experience brief is too large.",
+            code="skill_experience_analysis_invalid",
+        )
+    brief = DistilledSkillBriefV1(
+        version="distilled-skill-brief-v1",
+        revision=_positive_int(revision, "brief_revision"),
+        digest="",
+        suggestion=suggestion,  # type: ignore[arg-type]
+        recommendation_reason=recommendation_reason,
+        no_skill_reason=no_skill_reason,
+        intent=intent,
+        positive_examples=positive_examples,
+        negative_examples=negative_examples,
+        expected_output=expected_output,
+        success_criteria=success_criteria,
+        reusable_steps=reusable_steps,
+        failure_boundaries=failure_boundaries,
+        resource_clues=resource_clues,
+        overfitting_risk=overfitting_risk,
+        source=source,
+        complete=complete,
+    )
+    return replace(brief, digest=_brief_digest(brief))
+
+
+def build_manual_distilled_skill_brief(
+    candidate: SkillExperienceCandidateV1,
+) -> DistilledSkillBriefV1:
+    summaries = [item.summary[:1_200] for item in candidate.selected_evidence]
+    intent_item = next(
+        (item.summary for item in candidate.selected_evidence if item.kind == "intent_summary"),
+        summaries[0] if summaries else "请补充这次运行中值得复用的目标。",
+    )
+    intent_item = intent_item[:2_000]
+    steps = [
+        item.summary
+        for item in candidate.selected_evidence
+        if item.kind in {"successful_steps", "tool_names", "user_correction"}
+    ][:3]
+    steps = [item[:1_000] for item in steps]
+    return build_distilled_skill_brief(
+        {
+            "suggestion": "create",
+            "recommendation_reason": "请检查证据并决定是否值得沉淀为 Skill。",
+            "no_skill_reason": None,
+            "intent": intent_item,
+            "positive_examples": summaries[:1],
+            "negative_examples": [],
+            "expected_output": "请补充这个 Skill 应稳定交付的结果。",
+            "success_criteria": [],
+            "reusable_steps": steps,
+            "failure_boundaries": [],
+            "resource_clues": [],
+            "overfitting_risk": "请说明哪些内容只适用于这一次运行。",
+        },
+        revision=1,
+        source="manual",
+        allow_incomplete=True,
+    )
+
+
+def _decode_analysis_attempt(raw: Any) -> SkillExperienceAnalysisAttemptV1:
+    if not isinstance(raw, dict) or set(raw) != {
+        "attempt_id",
+        "analysis_key",
+        "base_revision",
+        "base_digest",
+        "status",
+        "executor_mode",
+        "error_code",
+        "started_at",
+        "finished_at",
+    }:
+        raise ValueError("invalid analysis attempt")
+    status = str(raw.get("status") or "")
+    executor_mode = str(raw.get("executor_mode") or "")
+    if status not in _ANALYSIS_STATUSES or executor_mode not in {"model", "manual"}:
+        raise ValueError("invalid analysis attempt state")
+    started_at = float(raw.get("started_at") or 0)
+    finished_at = (
+        float(raw["finished_at"]) if raw.get("finished_at") is not None else None
+    )
+    if (
+        not math.isfinite(started_at)
+        or started_at <= 0
+        or (finished_at is not None and (not math.isfinite(finished_at) or finished_at < started_at))
+        or (status == "running" and finished_at is not None)
+        or (status != "running" and finished_at is None)
+    ):
+        raise ValueError("invalid analysis attempt timestamps")
+    if (
+        (status == "succeeded" and executor_mode != "model")
+        or (status == "manual_required" and executor_mode != "manual")
+        or (status == "succeeded" and raw.get("error_code") is not None)
+        or (status == "manual_required" and raw.get("error_code") is None)
+    ):
+        raise ValueError("invalid analysis attempt outcome")
+    return SkillExperienceAnalysisAttemptV1(
+        attempt_id=_identifier(raw.get("attempt_id"), "attempt_id"),
+        analysis_key=_digest(raw.get("analysis_key"), "analysis_key"),
+        base_revision=_positive_int(raw.get("base_revision"), "base_revision"),
+        base_digest=_digest(raw.get("base_digest"), "base_digest"),
+        status=status,  # type: ignore[arg-type]
+        executor_mode=executor_mode,  # type: ignore[arg-type]
+        error_code=_optional_identifier(raw.get("error_code"), "analysis_error_code"),
+        started_at=started_at,
+        finished_at=finished_at,
+    )
+
+
+def _decode_brief(raw: Any) -> DistilledSkillBriefV1:
+    if not isinstance(raw, dict) or set(raw) != {
+        "version",
+        "revision",
+        "digest",
+        "suggestion",
+        "recommendation_reason",
+        "no_skill_reason",
+        "intent",
+        "positive_examples",
+        "negative_examples",
+        "expected_output",
+        "success_criteria",
+        "reusable_steps",
+        "failure_boundaries",
+        "resource_clues",
+        "overfitting_risk",
+        "source",
+        "complete",
+    }:
+        raise ValueError("invalid distilled brief")
+    if raw.get("version") != "distilled-skill-brief-v1":
+        raise ValueError("invalid distilled brief version")
+    source = str(raw.get("source") or "")
+    if source not in _BRIEF_SOURCES:
+        raise ValueError("invalid distilled brief source")
+    decoded = build_distilled_skill_brief(
+        raw,
+        revision=_positive_int(raw.get("revision"), "brief_revision"),
+        source=source,  # type: ignore[arg-type]
+        allow_incomplete=True,
+    )
+    if (
+        raw.get("complete") is not decoded.complete
+        or _digest(raw.get("digest"), "brief_digest") != decoded.digest
+    ):
+        raise ValueError("distilled brief digest mismatch")
+    return decoded
+
+
+def _decode_overlap(raw: Any) -> SkillExperienceOverlapV1:
+    if not isinstance(raw, dict) or set(raw) != {
+        "candidate_id",
+        "candidate_fingerprint",
+        "name",
+        "source_type",
+        "source_kind",
+        "installed_skill_id",
+        "creator_draft_id",
+        "update_target_eligible",
+        "best_rank",
+        "major_overlap",
+        "case_ranks",
+    }:
+        raise ValueError("invalid overlap")
+    ranks_raw = raw.get("case_ranks")
+    if not isinstance(ranks_raw, (list, tuple)) or not 1 <= len(ranks_raw) <= _MAX_OVERLAP_CASES:
+        raise ValueError("invalid overlap ranks")
+    if not isinstance(raw.get("update_target_eligible"), bool) or not isinstance(
+        raw.get("major_overlap"), bool
+    ):
+        raise ValueError("invalid overlap flags")
+    ranks = tuple(_decode_overlap_rank(item) for item in ranks_raw)
+    overlap = SkillExperienceOverlapV1(
+        candidate_id=_identifier(raw.get("candidate_id"), "overlap_candidate_id"),
+        candidate_fingerprint=_digest(
+            raw.get("candidate_fingerprint"), "candidate_fingerprint"
+        ),
+        name=_bounded_text(raw.get("name"), "overlap_name", 200),
+        source_type=_identifier(raw.get("source_type"), "overlap_source_type"),
+        source_kind=_identifier(raw.get("source_kind"), "overlap_source_kind"),
+        installed_skill_id=_optional_identifier(
+            raw.get("installed_skill_id"), "installed_skill_id"
+        ),
+        creator_draft_id=_optional_identifier(
+            raw.get("creator_draft_id"), "creator_draft_id"
+        ),
+        update_target_eligible=bool(raw.get("update_target_eligible")),
+        best_rank=_positive_int(raw.get("best_rank"), "best_rank"),
+        major_overlap=bool(raw.get("major_overlap")),
+        case_ranks=ranks,
+    )
+    if overlap.best_rank != min(item.rank for item in ranks):
+        raise ValueError("invalid overlap best rank")
+    if overlap.major_overlap is not any(item.rank <= 6 for item in ranks):
+        raise ValueError("invalid overlap major flag")
+    if overlap.update_target_eligible and not (
+        overlap.installed_skill_id and overlap.creator_draft_id
+    ):
+        raise ValueError("invalid update target overlap")
+    return overlap
+
+
+def _decode_overlap_rank(raw: Any) -> SkillExperienceOverlapRankV1:
+    if not isinstance(raw, dict) or set(raw) != {"case_hash", "rank", "reasons"}:
+        raise ValueError("invalid overlap rank")
+    reasons = raw.get("reasons")
+    if (
+        not isinstance(reasons, (list, tuple))
+        or len(reasons) > 6
+        or any(not isinstance(item, str) for item in reasons)
+    ):
+        raise ValueError("invalid overlap reasons")
+    return SkillExperienceOverlapRankV1(
+        case_hash=_digest(raw.get("case_hash"), "case_hash"),
+        rank=_positive_int(raw.get("rank"), "rank"),
+        reasons=tuple(_bounded_text(item, "overlap_reason", 120) for item in reasons),
+    )
+
+
+def _decode_decision(raw: Any) -> SkillExperienceDecisionV1:
+    if not isinstance(raw, dict) or set(raw) != {
+        "decision",
+        "target_skill_id",
+        "target_draft_id",
+        "override_reason",
+        "new_boundary",
+        "actor_kind",
+        "decided_at",
+    }:
+        raise ValueError("invalid experience decision")
+    decided_at = float(raw.get("decided_at") or 0)
+    if not math.isfinite(decided_at) or decided_at <= 0:
+        raise ValueError("invalid decision timestamp")
+    decision = SkillExperienceDecisionV1(
+        decision=str(raw.get("decision") or ""),  # type: ignore[arg-type]
+        target_skill_id=_optional_identifier(raw.get("target_skill_id"), "target_skill_id"),
+        target_draft_id=_optional_identifier(raw.get("target_draft_id"), "target_draft_id"),
+        override_reason=(
+            _bounded_text(raw.get("override_reason"), "override_reason", 2_000)
+            if raw.get("override_reason") is not None
+            else None
+        ),
+        new_boundary=(
+            _bounded_text(raw.get("new_boundary"), "new_boundary", 2_000)
+            if raw.get("new_boundary") is not None
+            else None
+        ),
+        actor_kind=str(raw.get("actor_kind") or ""),  # type: ignore[arg-type]
+        decided_at=decided_at,
+    )
+    _validate_decision(decision)
+    return decision
+
+
+def _validate_brief_instance(brief: DistilledSkillBriefV1) -> None:
+    if not isinstance(brief, DistilledSkillBriefV1):
+        raise SkillExperienceError(
+            "Skill experience brief is invalid.", code="skill_experience_analysis_invalid"
+        )
+    decoded = build_distilled_skill_brief(
+        brief.serialize(),
+        revision=brief.revision,
+        source=brief.source,
+        allow_incomplete=True,
+    )
+    if decoded != brief:
+        raise SkillExperienceError(
+            "Skill experience brief digest is invalid.",
+            code="skill_experience_analysis_invalid",
+        )
+
+
+def _validate_overlaps(overlaps: tuple[SkillExperienceOverlapV1, ...]) -> None:
+    if len(overlaps) > _MAX_OVERLAPS:
+        raise SkillExperienceError(
+            "Skill experience overlap result is too large.",
+            code="skill_experience_analysis_invalid",
+        )
+    if len({item.candidate_id for item in overlaps}) != len(overlaps):
+        raise SkillExperienceError(
+            "Skill experience overlap result contains duplicates.",
+            code="skill_experience_analysis_invalid",
+        )
+    for item in overlaps:
+        decoded = _decode_overlap(asdict(item))
+        if decoded != item:
+            raise SkillExperienceError(
+                "Skill experience overlap result is invalid.",
+                code="skill_experience_analysis_invalid",
+            )
+
+
+def _validate_decision(decision: SkillExperienceDecisionV1) -> None:
+    if decision.decision not in _DECISION_KINDS or decision.actor_kind != "local_console":
+        raise SkillExperienceError(
+            "Skill experience decision is invalid.",
+            code="skill_experience_decision_required",
+        )
+    if decision.decision == "update":
+        if not decision.target_skill_id or not decision.target_draft_id:
+            raise SkillExperienceError(
+                "An update decision requires a verified Creator Skill target.",
+                code="skill_experience_update_target_invalid",
+            )
+    elif decision.target_skill_id is not None or decision.target_draft_id is not None:
+        raise SkillExperienceError(
+            "Only an update decision may include a target Skill.",
+            code="skill_experience_update_target_invalid",
+        )
+    for value in (decision.override_reason, decision.new_boundary):
+        if value:
+            _reject_credentials(value)
+
+
+def _brief_digest(brief: DistilledSkillBriefV1) -> str:
+    payload = brief.serialize()
+    payload.pop("digest", None)
+    return _sha256(payload)
+
+
+def _brief_text_list(
+    value: Any,
+    field_name: str,
+    *,
+    maximum: int,
+    item_limit: int,
+) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, (list, tuple)) or len(value) > maximum:
+        raise SkillExperienceError(
+            f"Invalid {field_name}.", code="skill_experience_analysis_invalid"
+        )
+    items = tuple(_bounded_text(item, field_name, item_limit) for item in value)
+    normalized = _normalized_unique(items)
+    if len(set(normalized)) != len(items):
+        raise SkillExperienceError(
+            f"Duplicate {field_name}.", code="skill_experience_analysis_invalid"
+        )
+    return items
+
+
+def _normalized_unique(values: Iterable[str]) -> tuple[str, ...]:
+    return tuple(" ".join(str(item).casefold().split()) for item in values)
 
 
 def _decode_receipt_reference(raw: Any) -> SkillExperienceReceiptReferenceV1:
@@ -1129,9 +2034,30 @@ def _bounded_text(value: Any, field_name: str, max_chars: int) -> str:
     return text
 
 
+def _optional_bounded_text(value: Any, field_name: str, max_chars: int) -> str:
+    text = str(value or "").strip()
+    if len(text) > max_chars:
+        raise SkillExperienceError(
+            f"Invalid {field_name}.", code="skill_experience_analysis_invalid"
+        )
+    return text
+
+
 def _reject_credentials(value: str) -> None:
     if scan_skill_package_credentials(skill_markdown=value):
         raise SkillExperienceError(
             "Sensitive credential material cannot be stored as Skill experience data.",
             code="skill_experience_source_invalid",
+        )
+
+
+def _reject_keyword_stuffing(value: str) -> None:
+    tokens = re.findall(r"[A-Za-z0-9+#.]{2,}|[\u3400-\u9fff]{2,}", value.casefold())
+    if len(tokens) < 8:
+        return
+    most_common = max(tokens.count(token) for token in set(tokens))
+    if most_common >= 8 and most_common / len(tokens) >= 0.5:
+        raise SkillExperienceError(
+            "Skill experience brief contains repeated keyword stuffing.",
+            code="skill_experience_analysis_invalid",
         )

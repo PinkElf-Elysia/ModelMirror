@@ -16,10 +16,12 @@ from .experience import (
     SkillExperienceSource,
     SkillExperienceStorageError,
 )
+from .experience_distillation import SkillExperienceDistillationService
 
 
 router = APIRouter(prefix="/api/skills/experience", tags=["skill-experience"])
 _service: SkillExperienceService | None = None
+_distillation_service: SkillExperienceDistillationService | None = None
 
 
 class ExperienceSourceRequest(BaseModel):
@@ -59,9 +61,44 @@ class ExperienceDismissRequest(ExperienceMutationRequest):
     reason: str = Field(default="", max_length=1_000)
 
 
+class ExperienceBriefRequest(ExperienceMutationRequest):
+    suggestion: Literal["create", "update", "no_skill"]
+    recommendation_reason: str = Field(default="", max_length=2_000)
+    no_skill_reason: Literal[
+        "one_off_task",
+        "preference_or_environment_fact",
+        "insufficient_evidence",
+        "already_covered",
+        "cannot_generalize",
+    ] | None = None
+    intent: str = Field(default="", max_length=2_000)
+    positive_examples: list[str] = Field(default_factory=list, max_length=6)
+    negative_examples: list[str] = Field(default_factory=list, max_length=6)
+    expected_output: str = Field(default="", max_length=4_000)
+    success_criteria: list[str] = Field(default_factory=list, max_length=12)
+    reusable_steps: list[str] = Field(default_factory=list, max_length=12)
+    failure_boundaries: list[str] = Field(default_factory=list, max_length=12)
+    resource_clues: list[str] = Field(default_factory=list, max_length=12)
+    overfitting_risk: str = Field(default="", max_length=2_000)
+
+
+class ExperienceDecisionRequest(ExperienceMutationRequest):
+    decision: Literal["create", "update", "dismiss"]
+    target_skill_id: str | None = Field(default=None, min_length=1, max_length=240)
+    override_reason: str | None = Field(default=None, max_length=2_000)
+    new_boundary: str | None = Field(default=None, max_length=2_000)
+
+
 def configure_skill_experience(service: SkillExperienceService | None) -> None:
     global _service
     _service = service
+
+
+def configure_skill_experience_distillation(
+    service: SkillExperienceDistillationService | None,
+) -> None:
+    global _distillation_service
+    _distillation_service = service
 
 
 def get_skill_experience_service() -> SkillExperienceService:
@@ -79,6 +116,16 @@ def _require_enabled() -> SkillExperienceService:
     return service
 
 
+def _require_distillation() -> SkillExperienceDistillationService:
+    _require_enabled()
+    if _distillation_service is None:
+        raise SkillExperienceStorageError(
+            "Skill experience distillation is unavailable.",
+            code="skill_experience_store_unavailable",
+        )
+    return _distillation_service
+
+
 def _api_error(exc: SkillExperienceError) -> HTTPException:
     if exc.code == "skill_experience_disabled":
         status_code = 404
@@ -87,6 +134,9 @@ def _api_error(exc: SkillExperienceError) -> HTTPException:
     elif isinstance(exc, SkillExperienceConflictError) or exc.code in {
         "skill_experience_evidence_stale",
         "skill_experience_candidate_conflict",
+        "skill_experience_decision_required",
+        "skill_experience_update_target_invalid",
+        "skill_experience_promotion_stale",
     }:
         status_code = 409
     elif isinstance(exc, SkillExperienceStorageError) or exc.code == "skill_experience_store_unavailable":
@@ -133,7 +183,10 @@ async def skill_experience_status() -> dict[str, Any]:
             "evidence_version": "creator-evidence-v1",
             "model_calls_enabled": False,
         }
-    return await asyncio.to_thread(_service.status)
+    status = await asyncio.to_thread(_service.status)
+    if _distillation_service is not None:
+        status.update(await asyncio.to_thread(_distillation_service.status))
+    return status
 
 
 @router.get("/candidates")
@@ -212,6 +265,67 @@ async def dismiss_skill_experience_candidate(
             expected_revision=payload.expected_revision,
             expected_digest=payload.expected_digest.lower(),
             reason=payload.reason,
+        )
+        return {"candidate": _serialize_candidate(candidate)}
+    except SkillExperienceError as exc:
+        raise _api_error(exc) from exc
+
+
+@router.post("/candidates/{candidate_id}/analyze", status_code=202)
+async def analyze_skill_experience_candidate(
+    candidate_id: str,
+    payload: ExperienceMutationRequest,
+) -> dict[str, Any]:
+    try:
+        service = _require_distillation()
+        candidate = await service.start_analysis(
+            candidate_id,
+            expected_revision=payload.expected_revision,
+            expected_digest=payload.expected_digest.lower(),
+        )
+        return {"candidate": _serialize_candidate(candidate)}
+    except SkillExperienceError as exc:
+        raise _api_error(exc) from exc
+
+
+@router.patch("/candidates/{candidate_id}/brief")
+async def patch_skill_experience_brief(
+    candidate_id: str,
+    payload: ExperienceBriefRequest,
+) -> dict[str, Any]:
+    try:
+        service = _require_distillation()
+        values = payload.model_dump(
+            exclude={"expected_revision", "expected_digest"}
+        )
+        candidate = await asyncio.to_thread(
+            service.update_brief,
+            candidate_id,
+            expected_revision=payload.expected_revision,
+            expected_digest=payload.expected_digest.lower(),
+            payload=values,
+        )
+        return {"candidate": _serialize_candidate(candidate)}
+    except SkillExperienceError as exc:
+        raise _api_error(exc) from exc
+
+
+@router.post("/candidates/{candidate_id}/decision")
+async def decide_skill_experience_candidate(
+    candidate_id: str,
+    payload: ExperienceDecisionRequest,
+) -> dict[str, Any]:
+    try:
+        service = _require_distillation()
+        candidate = await asyncio.to_thread(
+            service.decide,
+            candidate_id,
+            expected_revision=payload.expected_revision,
+            expected_digest=payload.expected_digest.lower(),
+            decision=payload.decision,
+            target_skill_id=payload.target_skill_id,
+            override_reason=payload.override_reason,
+            new_boundary=payload.new_boundary,
         )
         return {"candidate": _serialize_candidate(candidate)}
     except SkillExperienceError as exc:

@@ -110,6 +110,11 @@ class WorkflowExecutionStore:
                 == "skill-creator-workflow-v1"
                 and str(safe_runtime_metadata.get("creator_session_id") or "").strip()
             )
+            is_skill_experience_distillation = (
+                self._is_skill_experience_distillation_runtime(
+                    str(run_type), safe_runtime_metadata
+                )
+            )
             if is_skill_evaluation:
                 allowed_metadata = {
                     "runtime_run_type",
@@ -158,6 +163,26 @@ class WorkflowExecutionStore:
                 inputs = {
                     "creator_session_id": safe_runtime_metadata.get(
                         "creator_session_id"
+                    )
+                }
+            elif is_skill_experience_distillation:
+                allowed_metadata = {
+                    "experience_analysis_key",
+                    "experience_workflow_version",
+                    "experience_phase",
+                }
+                safe_runtime_metadata = {
+                    key: value
+                    for key, value in safe_runtime_metadata.items()
+                    if key in allowed_metadata
+                }
+                workflow = {
+                    "id": str(workflow.get("id") or "skill-experience-distillation"),
+                    "title": "Skill experience distillation",
+                }
+                inputs = {
+                    "experience_analysis_key": safe_runtime_metadata.get(
+                        "experience_analysis_key"
                     )
                 }
             item = WorkflowExecution(
@@ -214,9 +239,12 @@ class WorkflowExecutionStore:
     ) -> WorkflowExecution:
         with self._lock:
             item = self._require_unlocked(task_id)
-            if item.run_type == "skill_evaluation":
+            if (
+                item.run_type == "skill_evaluation"
+                or self._is_skill_experience_distillation(item)
+            ):
                 raise WorkflowExecutionConflictError(
-                    "Skill evaluation cannot enter an interactive wait state."
+                    "Private Skill analysis cannot enter an interactive wait state."
                 )
             item.status = "waiting"
             resolved_wait_id = str(wait_id or approval_id or "").strip()
@@ -440,13 +468,21 @@ class WorkflowExecutionStore:
             if item.status == "cancelled" and status != "cancelled":
                 return item
             item.status = status
-            if item.run_type == "skill_evaluation" or self._is_skill_creator(item):
+            if (
+                item.run_type == "skill_evaluation"
+                or self._is_skill_creator(item)
+                or self._is_skill_experience_distillation(item)
+            ):
                 item.result = None
                 item.error = (
                     (
                         "skill_evaluation_failed"
                         if item.run_type == "skill_evaluation"
-                        else "skill_creator_generation_failed"
+                        else (
+                            "skill_experience_analysis_failed"
+                            if self._is_skill_experience_distillation(item)
+                            else "skill_creator_generation_failed"
+                        )
                     )
                     if error is not None
                     else None
@@ -500,7 +536,11 @@ class WorkflowExecutionStore:
             event,
             agency_execution=item.source_kind == "expert_team_agency",
         )
-        if item.run_type == "skill_evaluation" or self._is_skill_creator(item):
+        if (
+            item.run_type == "skill_evaluation"
+            or self._is_skill_creator(item)
+            or self._is_skill_experience_distillation(item)
+        ):
             clean.pop("message", None)
             clean.pop("final_output", None)
             clean.pop("variable", None)
@@ -785,6 +825,30 @@ class WorkflowExecutionStore:
             and metadata.get("creator_workflow_version")
             == "skill-creator-workflow-v1"
             and str(metadata.get("creator_session_id") or "").strip()
+        )
+
+    @staticmethod
+    def _is_skill_experience_distillation_runtime(
+        run_type: str,
+        metadata: dict[str, Any],
+    ) -> bool:
+        analysis_key = (
+            str(metadata.get("experience_analysis_key") or "").strip().lower()
+        )
+        return bool(
+            run_type == "workflow"
+            and len(analysis_key) == 64
+            and all(character in "0123456789abcdef" for character in analysis_key)
+            and metadata.get("experience_workflow_version")
+            == "skill-experience-distillation-v1"
+            and metadata.get("experience_phase") == "distillation"
+        )
+
+    @classmethod
+    def _is_skill_experience_distillation(cls, item: WorkflowExecution) -> bool:
+        return cls._is_skill_experience_distillation_runtime(
+            item.run_type,
+            item.runtime_metadata,
         )
 
     def _require_unlocked(self, task_id: str) -> WorkflowExecution:
