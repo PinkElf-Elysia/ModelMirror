@@ -49,6 +49,13 @@ export const SEEDREAM_5_LITE_PRICING: ImagePricingItem[] = [
   { billable: "output_image", unit: "image", cost_usd: 0.035 },
 ];
 
+// Verified against the Muse Image model page and dedicated Images catalog on
+// 2026-08-26. The endpoint-detail feed is currently empty, so this fallback is
+// used only when no live structured pricing item is available.
+export const MUSE_IMAGE_PRICING: ImagePricingItem[] = [
+  { billable: "output_image", unit: "image", cost_usd: 0.01 },
+];
+
 // Verified against the four Recraft Styles endpoint profiles on 2026-08-26.
 // Style creation is billed once per request, not once per reference image.
 export const RECRAFT_V4_STYLES_PRICING_BY_MODEL_ID: Record<

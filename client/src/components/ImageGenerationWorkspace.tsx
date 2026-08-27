@@ -10,6 +10,7 @@ import type { Model } from "../data/models";
 import {
   estimateImageCost,
   GROK_IMAGINE_IMAGE_2_PRICING,
+  MUSE_IMAGE_PRICING,
   RECRAFT_V4_STYLES_PRICING_BY_MODEL_ID,
   SEEDREAM_5_LITE_PRICING,
   SEEDREAM_5_PRO_PRICING,
@@ -151,6 +152,8 @@ export default function ImageGenerationWorkspace({
             ? SEEDREAM_5_PRO_PRICING
           : model.id === "bytedance-seed/seedream-5-0-lite"
             ? SEEDREAM_5_LITE_PRICING
+          : model.id === "meta/muse-image"
+            ? MUSE_IMAGE_PRICING
             : RECRAFT_V4_STYLES_PRICING_BY_MODEL_ID[model.id] ?? [];
       return estimateImageCost(pricing, {
         outputCount: Number(parameters.n || 1),

@@ -546,6 +546,114 @@ async def test_image_catalog_fetches_pricing_for_every_generation_model(
 
 
 @pytest.mark.asyncio
+async def test_muse_image_uses_prompt_only_dedicated_images_contract(
+    tmp_path: Path,
+) -> None:
+    model_id = "meta/muse-image"
+
+    def catalog_handler(request: Request) -> Response:
+        if request.url.path.endswith("/images/models"):
+            return Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "id": model_id,
+                            "name": "Meta: Muse Image",
+                            "architecture": {
+                                "input_modalities": ["text", "image"],
+                                "output_modalities": ["image"],
+                            },
+                            "supported_parameters": {},
+                            "supports_streaming": False,
+                        }
+                    ]
+                },
+            )
+        if request.url.path.endswith(
+            f"/images/models/{model_id}/endpoints"
+        ):
+            return Response(200, json={"id": model_id, "endpoints": []})
+        return Response(200, json={"data": []})
+
+    catalog = ImageCatalogService(
+        openrouter_service(tmp_path),
+        client_factory=lambda: httpx.AsyncClient(
+            transport=MockTransport(catalog_handler)
+        ),
+    )
+    catalog_result = await catalog.get_catalog()
+    profile = next(
+        item for item in catalog_result.profiles if item.model_id == model_id
+    )
+
+    assert profile.operation == "generate_image"
+    assert profile.interaction_status == "ready"
+    assert profile.input_modalities == ["text", "image"]
+    assert profile.output_modalities == ["image"]
+    assert profile.supported_parameters == {}
+    assert profile.pricing == []
+
+    submitted: list[tuple[str, dict[str, object]]] = []
+
+    def generation_handler(request: Request) -> Response:
+        submitted.append(
+            (
+                request.url.path,
+                httpx.Response(200, content=request.content).json(),
+            )
+        )
+        return Response(
+            200,
+            headers={"x-request-id": "req_muse_image"},
+            json={
+                "model": model_id,
+                "data": [
+                    {"b64_json": base64.b64encode(PNG_BYTES).decode()}
+                ],
+                "usage": {"cost": 0.01},
+            },
+        )
+
+    service = ImageGenerationService(
+        catalog,
+        client_factory=lambda: httpx.AsyncClient(
+            transport=MockTransport(generation_handler)
+        ),
+    )
+    result = await service.generate(
+        model_id=model_id,
+        prompt="一张纸雕风格的森林海报",
+        reference_filenames=[],
+        reference_content_types=[],
+        reference_contents=[],
+    )
+
+    assert result.request_id == "req_muse_image"
+    assert result.usage.cost_usd == 0.01
+    assert submitted == [
+        (
+            "/api/v1/images",
+            {
+                "model": model_id,
+                "prompt": "一张纸雕风格的森林海报",
+            },
+        )
+    ]
+
+    with pytest.raises(MultimodalServiceError) as error:
+        await service.generate(
+            model_id=model_id,
+            prompt="修改参考图",
+            reference_filenames=["reference.png"],
+            reference_content_types=["image/png"],
+            reference_contents=[PNG_BYTES],
+        )
+    assert error.value.code == "image_references_not_supported"
+    assert len(submitted) == 1
+
+
+@pytest.mark.asyncio
 async def test_recraft_v4_styles_profiles_preserve_dedicated_contract(
     tmp_path: Path,
 ) -> None:

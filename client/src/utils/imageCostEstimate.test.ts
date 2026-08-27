@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   estimateImageCost,
   GROK_IMAGINE_IMAGE_2_PRICING,
+  MUSE_IMAGE_PRICING,
   RECRAFT_V4_STYLES_PRICING_BY_MODEL_ID,
   SEEDREAM_5_LITE_PRICING,
   SEEDREAM_5_PRO_PRICING,
@@ -74,6 +75,20 @@ describe("estimateImageCost", () => {
     ).toEqual({
       minUsd: 0.14,
       maxUsd: 0.14,
+      inputUsd: 0,
+      exact: true,
+    });
+  });
+
+  it("uses Muse Image's flat output price when endpoint details are empty", () => {
+    expect(
+      estimateImageCost(MUSE_IMAGE_PRICING, {
+        outputCount: 1,
+        referenceCount: 0,
+      }),
+    ).toEqual({
+      minUsd: 0.01,
+      maxUsd: 0.01,
       inputUsd: 0,
       exact: true,
     });

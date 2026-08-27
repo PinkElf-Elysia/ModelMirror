@@ -1,6 +1,6 @@
-﻿// Merged with OpenRouter model catalog on 2026-08-26T14:41:12.580Z.
+﻿// Merged with OpenRouter model catalog on 2026-08-27T04:26:43.075Z.
 // Current OpenRouter refresh verified on 2026-08-26 against the live all-modalities catalog.
-// Refreshed with media-only entries published through 2026-08-26T11:10:40.000Z.
+// Refreshed with media-only entries published through 2026-08-26T17:15:32.000Z.
 // Source: https://openrouter.ai/api/v1/models?output_modalities=all&sort=newest&offset=0&limit=1000
 // Full OpenRouter catalog audit refresh: 2026-08-16. Batch catalog entries are
 // attached to their canonical models as serving variants and excluded from
@@ -209,11 +209,77 @@ interface RawCatalogModel {
 
 const rawCatalogModels: RawCatalogModel[] = [
   {
+    "id": "qwen/qwen3.8-flash",
+    "canonical_slug": "qwen/qwen3.8-flash-20260826",
+    "name": "Qwen: Qwen3.8 Flash",
+    "raw_description": "Qwen3.8 Flash is a multimodal reasoning model from Alibaba. It is suited for coding assistance, agentic workflows, visual understanding, document and codebase analysis, desktop interaction, chart analysis, and long-video analysis.",
+    "context_length": 1000000,
+    "pricing": {
+      "input": 0.16,
+      "output": 0.47
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Qwen",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logprobs",
+      "max_tokens",
+      "presence_penalty",
+      "reasoning",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_logprobs",
+      "top_p"
+    ],
+    "created": 1787773060,
+    "expiration_date": null,
+    "model_author": "Qwen",
+    "reasoning_declared": true
+  },
+  {
+    "id": "meta/muse-image",
+    "canonical_slug": "meta/muse-image-1.0-eval-20260824",
+    "name": "Meta: Muse Image",
+    "raw_description": "Muse Image is an agentic image generation model from Meta for text-to-image generation. OpenRouter also describes reference-image editing, but its dedicated typed capability directory does not yet expose input_references or other configurable image parameters.",
+    "context_length": 65536,
+    "pricing": {
+      "input": -1,
+      "output": -1
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "image"
+    ],
+    "tokenizer": "Media",
+    "supported_parameters": [],
+    "created": 1787764532,
+    "expiration_date": null,
+    "model_author": "Meta",
+    "note": "OpenRouter 专用 Images API：当前已确认文生图与 $0.01/张目录价；专用能力目录尚未声明参考图、分辨率、画幅或生成数量参数，因此本地暂不开放这些控件。"
+  },
+  {
     "id": "z-ai/glm-5.3-flash",
     "canonical_slug": "z-ai/glm-5.3-flash-20260826",
     "name": "Z.ai: GLM 5.3 Flash",
     "raw_description": "GLM-5.3-Flash is a native multimodal model from Z.ai. It is suited for efficient coding and long-horizon agent tasks. Its hybrid sparse and linear attention architecture maintains accurate long-context behavior while...",
-    "context_length": 1048576,
+    "context_length": 1310720,
     "pricing": {
       "input": 0.075,
       "output": 0.25
@@ -228,15 +294,25 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "tokenizer": "Other",
     "supported_parameters": [
+      "frequency_penalty",
       "include_reasoning",
+      "logit_bias",
+      "logprobs",
       "max_tokens",
+      "min_p",
+      "presence_penalty",
       "reasoning",
       "reasoning_effort",
+      "repetition_penalty",
       "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
       "temperature",
       "tool_choice",
       "tools",
       "top_k",
+      "top_logprobs",
       "top_p"
     ],
     "created": 1787752741,
@@ -467,8 +543,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Flash Vision Exp is an experimental vision-enabled version of [DeepSeek V4 Flash 0731](https://openrouter.ai/deepseek/deepseek-v4-flash-0731) from DeepSeek, adding image understanding while matching the base model on text capabilities including agents,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.22,
-      "output": 0.66,
+      "input": 0.44,
+      "output": 1.32,
       "time_overrides": [
         {
           "utc_start": 0,
@@ -1386,8 +1462,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Pro 0813 is a large-scale mixture-of-experts model from DeepSeek. This is the GA release of DeepSeek V4 Pro.",
     "context_length": 1048576,
     "pricing": {
-      "input": 1.32,
-      "output": 3.9600000000000004
+      "input": 1.122,
+      "output": 3.366
     },
     "input_modalities": [
       "text"
@@ -2008,7 +2084,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1310720,
     "pricing": {
       "input": 0.03,
-      "output": 0.075
+      "output": 0.09999999999999999
     },
     "input_modalities": [
       "text"
@@ -7152,8 +7228,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3.6 27B is a dense 27-billion-parameter language model from the Qwen Team at Alibaba, released in April 2026. It features hybrid multimodal capabilities — accepting text, image, and video inputs...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.32,
-      "output": 3.1999999999999997
+      "input": 0.6,
+      "output": 3.5999999999999996
     },
     "input_modalities": [
       "text",
@@ -7327,8 +7403,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Flash is an efficiency-optimized Mixture-of-Experts model from DeepSeek with 284B total parameters and 13B activated parameters, supporting a 1M-token context window. It is designed for fast inference and...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.08106,
-      "output": 0.16212
+      "input": 0.07952,
+      "output": 0.15904
     },
     "input_modalities": [
       "text"
@@ -9761,8 +9837,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "The Qwen3.5 Series 35B-A3B is a native vision-language model designed with a hybrid architecture that integrates linear attention mechanisms and a sparse mixture-of-experts model, achieving higher inference efficiency. Its overall...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.25,
-      "output": 1.25
+      "input": 0.22499999999999998,
+      "output": 1.7999999999999998
     },
     "input_modalities": [
       "text",
@@ -10632,8 +10708,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Kimi K2.5 is Moonshot AI's native multimodal model, delivering state-of-the-art visual coding capability and a self-directed agent swarm paradigm. Built on Kimi K2 with continued pretraining over approximately 15T mixed...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.6,
-      "output": 3
+      "input": 0.44999999999999996,
+      "output": 2.25
     },
     "input_modalities": [
       "text",
@@ -10665,7 +10741,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1769487076,
-    "expiration_date": 1788134400,
+    "expiration_date": null,
     "model_author": "MoonshotAI",
     "reasoning_declared": true
   },
@@ -13956,8 +14032,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Compared with GLM-4.5, this generation brings several key improvements: Longer context window: The context window has been expanded from 128K to 200K tokens, enabling the model to handle more complex...",
     "context_length": 204800,
     "pricing": {
-      "input": 0.5,
-      "output": 2
+      "input": 0.43,
+      "output": 1.75
     },
     "input_modalities": [
       "text"
@@ -15821,8 +15897,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3-235B-A22B-Instruct-2507 is a multilingual, instruction-tuned mixture-of-experts language model based on the Qwen3-235B architecture, with 22B active parameters per forward pass. It is optimized for general-purpose text generation, including instruction following,...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.09,
-      "output": 0.55
+      "input": 0.0875,
+      "output": 0.35
     },
     "input_modalities": [
       "text"
@@ -20842,47 +20918,6 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "reasoning_declared": true
   },
   {
-    "id": "z-ai/glm-5.2:batch",
-    "canonical_slug": "z-ai/glm-5.2-20260616",
-    "name": "Z.ai: GLM 5.2 (batch)",
-    "raw_description": "GLM 5.2 is a large-scale reasoning model from Z.ai. It supports text input and output with a 1M-token context window, and is suited for long-horizon agent workflows, project-level software engineering,...",
-    "context_length": 1048575,
-    "pricing": {
-      "input": 1.4,
-      "output": 4.4
-    },
-    "input_modalities": [
-      "text"
-    ],
-    "output_modalities": [
-      "text"
-    ],
-    "tokenizer": "Other",
-    "supported_parameters": [
-      "frequency_penalty",
-      "include_reasoning",
-      "logit_bias",
-      "max_tokens",
-      "min_p",
-      "presence_penalty",
-      "reasoning",
-      "reasoning_effort",
-      "repetition_penalty",
-      "response_format",
-      "stop",
-      "structured_outputs",
-      "temperature",
-      "tool_choice",
-      "tools",
-      "top_k",
-      "top_p"
-    ],
-    "created": 1781631930,
-    "expiration_date": null,
-    "model_author": "Z.ai",
-    "reasoning_declared": true
-  },
-  {
     "id": "moonshotai/kimi-k2.7-code:batch",
     "canonical_slug": "moonshotai/kimi-k2.7-code-20260612",
     "name": "MoonshotAI: Kimi K2.7 Code (batch)",
@@ -23639,6 +23674,8 @@ const MID_CATALOG_MODEL_IDS = [
   "inclusionai/ling-3.0-tiny:free",
 ];
 const LATEST_REFRESH_MODEL_IDS = [
+  "qwen/qwen3.8-flash",
+  "meta/muse-image",
   "z-ai/glm-5.3-flash",
   "tencent/hy-mt2-7b",
   "thinkingmachines/inkling-small:free",

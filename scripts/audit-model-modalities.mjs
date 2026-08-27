@@ -19,6 +19,7 @@ const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
   "heygen/avatar-iv",
   "alibaba/wan-3.0",
   "black-forest-labs/flux-video-upscale",
+  "meta/muse-image",
   "recraft/recraft-v4-styles",
   "recraft/recraft-v4-styles-pro",
   "recraft/recraft-v4-styles-pro-vector",
