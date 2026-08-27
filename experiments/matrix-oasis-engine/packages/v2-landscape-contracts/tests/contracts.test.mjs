@@ -38,11 +38,13 @@ function candidate(index, laneIds, candidateType = "open-source") {
     license: {
       spdx: commercial ? "LicenseRef-Public-Docs" : "MIT",
       reuseAllowed: !commercial,
+      qualificationAllowed: !commercial,
       closureStatus: commercial ? "reference-only" : "approved",
       evidenceSha256: String((index + 2) % 10).repeat(64),
     },
     surface: {
       runtimeClass: commercial ? "commercial" : git ? "service" : "internal",
+      evidenceStatus: "complete",
       requiresContainer: false,
       lifecycleScripts: 0,
       nativeBinaries: 0,
@@ -289,6 +291,14 @@ test("commercial products remain references while qualified reusable candidates 
   const reusable = source.catalog.candidates[0];
   const qualified = evaluateV2CandidateForTier(reusable, evidence(reusable.id, V2_LANES[0]));
   assert.deepEqual({ tier: qualified.tier, conclusion: qualified.conclusion, total: qualified.total }, { tier: "integration-recommended", conclusion: "recommended", total: 81 });
+
+  const directOnly = structuredClone(reusable);
+  Object.assign(directOnly.license, { closureStatus: "direct-approved", qualificationAllowed: true, reuseAllowed: false });
+  const planned = evidence(directOnly.id, V2_LANES[0], "service", { executionStatus: "planned" });
+  const shortlisted = evaluateV2CandidateForTier(directOnly, planned);
+  assert.deepEqual({ tier: shortlisted.tier, conclusion: shortlisted.conclusion }, { tier: "executable-shortlist", conclusion: "backup" });
+  const executed = evaluateV2CandidateForTier(directOnly, evidence(directOnly.id, V2_LANES[0]));
+  assert.notEqual(executed.tier, "integration-recommended");
 });
 
 test("shortlists are stable and near ties prefer the smaller runtime surface", () => {
@@ -301,6 +311,10 @@ test("shortlists are stable and near ties prefer the smaller runtime surface", (
   const shortlist = selectV2LaneShortlist(source, items).find((item) => item.laneId === lane.id);
   assert.deepEqual(shortlist.candidateIds, [lane.candidateIds[1], lane.candidateIds[2], lane.candidateIds[0]]);
   assert.deepEqual(selectV2LaneShortlist(source, [...items, items[0]]), []);
+
+  const commercialLane = source.catalog.lanes.at(-1);
+  const commercialEvidence = commercialLane.candidateIds.slice(0, 3).map((id) => evidence(id, commercialLane.id, "service"));
+  assert.deepEqual(selectV2LaneShortlist(source, commercialEvidence).find((item) => item.laneId === commercialLane.id).candidateIds, []);
 });
 
 test("all validators and evaluators are byte-stable for twenty runs and preserve inputs", () => {

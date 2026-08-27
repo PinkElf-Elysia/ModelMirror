@@ -158,6 +158,14 @@ function buildInternalCandidate(moduleRoot, seed) {
   return baseCandidate(seed, "internal-baseline", source({ kind: "internal-baseline", host: "internal", sourcePath: packagePath, identity }), license("reference-only", "INTERNAL", identity), maintenance("active", "2026-08", identity), discovery("internal", "identity-locked", identity), null, true);
 }
 
+function buildPlannedCandidate(seed, queryHash) {
+  const identity = evidenceHash(seed);
+  const sourceValue = seed.repository
+    ? source({ kind: "github-search-result", host: "github.com", sourcePath: seed.repository, identity })
+    : source({ kind: "public-documentation", host: seed.host, sourcePath: seed.path, identity });
+  return baseCandidate(seed, seed.candidateType, sourceValue, license("unknown", "NOASSERTION", identity), maintenance("unknown", null, identity), discovery("r18-public-search", "identity-gap", queryHash), "R18_IDENTITY_NOT_LOCKED", true);
+}
+
 function buildCommercialCandidate(seed, documentMap, documentHash) {
   const documents = seed.documentIds.map((id) => {
     const document = documentMap.get(id);
@@ -201,6 +209,7 @@ export function buildR18SourceLock({ moduleRoot, searchDirectory, identityDirect
   const candidates = [
     ...seed.r17Candidates.map((item) => buildR17Candidate(item, r17Descriptor.value, r13, r17Hash)),
     ...seed.searchCandidates.map((item) => buildSearchCandidate(item, searchMap, identityMap, sha256(search.bytes))),
+    ...seed.plannedCandidates.map((item) => buildPlannedCandidate(item, queryHash)),
     ...seed.internalCandidates.map((item) => buildInternalCandidate(moduleRoot, item)),
     ...seed.commercialCandidates.map((item) => buildCommercialCandidate(item, documentMap, sha256(documents.bytes))),
   ].sort((left, right) => left.id.localeCompare(right.id));

@@ -165,14 +165,25 @@ function catalogSemantics(value) {
     if (candidate.license.reuseAllowed !== (candidate.license.closureStatus === "approved")) {
       diagnostics.push(diagnostic("semantic", "V2_CANDIDATE_CATALOG_LICENSE_INCONSISTENT", `/catalog/candidates/${index}/license`));
     }
+    if (candidate.license.qualificationAllowed !== ["approved", "direct-approved"].includes(candidate.license.closureStatus)) {
+      diagnostics.push(diagnostic("semantic", "V2_CANDIDATE_CATALOG_LICENSE_QUALIFICATION_INCONSISTENT", `/catalog/candidates/${index}/license`));
+    }
     const git = candidate.source.kind === "git-repository";
     if (git !== (candidate.source.location.host === "github.com" && candidate.source.commit !== null && candidate.source.gitTreeSha1 !== null)) {
       diagnostics.push(diagnostic("semantic", "V2_CANDIDATE_CATALOG_SOURCE_IDENTITY_INCONSISTENT", `/catalog/candidates/${index}/source`));
     }
+    const gitReference = candidate.source.kind === "git-reference";
+    if (gitReference !== (candidate.source.location.host === "github.com" && candidate.source.commit !== null && candidate.source.gitTreeSha1 === null)) {
+      diagnostics.push(diagnostic("semantic", "V2_CANDIDATE_CATALOG_SOURCE_REFERENCE_INCONSISTENT", `/catalog/candidates/${index}/source`));
+    }
+    const searchResult = candidate.source.kind === "github-search-result";
+    if (searchResult && (candidate.source.location.host !== "github.com" || candidate.source.commit !== null || candidate.source.gitTreeSha1 !== null)) {
+      diagnostics.push(diagnostic("semantic", "V2_CANDIDATE_CATALOG_SEARCH_IDENTITY_INCONSISTENT", `/catalog/candidates/${index}/source`));
+    }
     if (candidate.source.kind === "source-archive" && candidate.source.archiveSha256 === null) {
       diagnostics.push(diagnostic("semantic", "V2_CANDIDATE_CATALOG_ARCHIVE_IDENTITY_MISSING", `/catalog/candidates/${index}/source/archiveSha256`));
     }
-    if (!["git-repository", "source-archive"].includes(candidate.source.kind) && (candidate.source.commit !== null || candidate.source.gitTreeSha1 !== null || candidate.source.archiveSha256 !== null)) {
+    if (!["git-repository", "git-reference", "source-archive"].includes(candidate.source.kind) && (candidate.source.commit !== null || candidate.source.gitTreeSha1 !== null || candidate.source.archiveSha256 !== null)) {
       diagnostics.push(diagnostic("semantic", "V2_CANDIDATE_CATALOG_SOURCE_IDENTITY_UNEXPECTED", `/catalog/candidates/${index}/source`));
     }
     if (candidate.candidateType === "commercial-benchmark" && candidate.source.kind !== "public-documentation") {

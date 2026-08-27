@@ -14,6 +14,7 @@ const steps = [
   ["r17-frozen-evidence", ["run", "test:r18-sources"]],
   ["r18-landscape-contracts", ["run", "test:r18-landscape-contracts"]],
   ["r18-source-lock", ["run", "verify:r18-sources"]],
+  ["r18-desktop-landscape", ["run", "test:r18-landscape"]],
 ];
 
 for (const [id, args] of steps) {

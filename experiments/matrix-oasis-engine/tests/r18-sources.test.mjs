@@ -88,12 +88,17 @@ test("R18 identity-only recovery accepts only the published search-only evidence
 
 test("R18 source lock meets the broad landscape quota without treating reported licenses as reusable", () => {
   const report = verifyR18Sources({ moduleRoot });
-  assert.equal(report.candidates, 49);
-  assert.equal(report.entries, 82);
+  assert.equal(report.candidates, 62);
+  assert.equal(report.entries, 96);
   assert.equal(report.githubIdentities, 23);
   assert.equal(report.publicDocuments, 8);
   const lock = JSON.parse(readFileSync(path.join(moduleRoot, "third-party", "v2-landscape-references", "reference.lock.json"), "utf8"));
   assert.deepEqual(lock.licensePolicy.allowedSpdx, ["Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "CC0-1.0", "ISC", "MIT"]);
   assert.equal(lock.candidates.filter((item) => item.license.status === "reported" && item.license.reuseEligible).length, 0);
   assert.equal(lock.candidates.filter((item) => item.candidateType === "commercial-benchmark" && item.license.reuseEligible).length, 0);
+  for (const id of ["langgraph", "autogen", "camel", "langmem", "cognee", "agentmembench", "dialogic", "quaternius-animated-characters"]) {
+    const candidate = lock.candidates.find((item) => item.id === id);
+    assert.equal(candidate.discovery.status, "identity-gap");
+    assert.equal(candidate.license.reuseEligible, false);
+  }
 });

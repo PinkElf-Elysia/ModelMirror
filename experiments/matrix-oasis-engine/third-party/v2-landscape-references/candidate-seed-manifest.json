@@ -44,6 +44,21 @@
     {"id":"godot-yet-another-behavior-tree","name":"Godot Yet Another Behavior Tree","repository":"Earewien/godot-yet-another-behavior-tree","laneIds":["godot-behavior"],"staticExclusionCode":"R18_IDENTITY_NOT_LOCKED"},
     {"id":"godot-aseprite-wizard","name":"Godot Aseprite Wizard","repository":"viniciusgerevini/godot-aseprite-wizard","laneIds":["character-animation"],"staticExclusionCode":null}
   ],
+  "plannedCandidates": [
+    {"id":"langgraph","name":"LangGraph","candidateType":"open-source","repository":"langchain-ai/langgraph","laneIds":["npc-orchestration"]},
+    {"id":"autogen","name":"AutoGen","candidateType":"open-source","repository":"microsoft/autogen","laneIds":["npc-orchestration"]},
+    {"id":"camel","name":"CAMEL","candidateType":"open-source","repository":"camel-ai/camel","laneIds":["npc-orchestration"]},
+    {"id":"langmem","name":"LangMem","candidateType":"open-source","repository":"langchain-ai/langmem","laneIds":["memory-relationships"]},
+    {"id":"cognee","name":"Cognee","candidateType":"open-source","repository":"topoteretes/cognee","laneIds":["memory-relationships"]},
+    {"id":"agentmembench","name":"AgentMemBench","candidateType":"open-source","repository":"mazaiying/AgentMemBench","laneIds":["memory-relationships","evaluation-observability"]},
+    {"id":"dialogic","name":"Dialogic","candidateType":"open-source","repository":"dialogic-godot/dialogic","laneIds":["dialogue-presentation"]},
+    {"id":"godot-ink","name":"Godot Ink","candidateType":"open-source","repository":"paulloz/godot-ink","laneIds":["dialogue-presentation"]},
+    {"id":"yarn-spinner-godot","name":"Yarn Spinner for Godot","candidateType":"open-source","repository":"YarnSpinnerTool/YarnSpinner-Godot","laneIds":["dialogue-presentation"]},
+    {"id":"agentbench","name":"AgentBench","candidateType":"open-source","repository":"THUDM/AgentBench","laneIds":["evaluation-observability"]},
+    {"id":"inspect-ai","name":"Inspect AI","candidateType":"open-source","repository":"UKGovernmentBEIS/inspect_ai","laneIds":["evaluation-observability"]},
+    {"id":"openai-evals","name":"OpenAI Evals","candidateType":"open-source","repository":"openai/evals","laneIds":["evaluation-observability"]},
+    {"id":"quaternius-animated-characters","name":"Quaternius Animated Characters","candidateType":"public-asset","host":"quaternius.com","path":"packs/animated-characters","laneIds":["character-animation"]}
+  ],
   "internalCandidates": [
     {"id":"deterministic-runtime-baseline","name":"Deterministic Runtime Baseline","path":"packages/runtime-pack-simulator","laneIds":["npc-orchestration","dynamic-events","godot-behavior"]},
     {"id":"world-event-ledger-baseline","name":"World Event Ledger Baseline","path":"packages/runtime-pack-contracts","laneIds":["npc-orchestration","memory-relationships","dynamic-events","evaluation-observability"]},

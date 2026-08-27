@@ -54,6 +54,14 @@ export const V2_CLASS_GATES = deepFreeze({
   internal: ["authority-boundary", "determinism", "fail-closed", "runtime-compatibility"],
 });
 
+export const V2_DESKTOP_GATES = deepFreeze({
+  "embedded-godot": ["license", "source-identity"],
+  service: ["license", "source-identity"],
+  asset: ["license", "source-identity"],
+  commercial: ["public-evidence"],
+  internal: ["authority-boundary"],
+});
+
 const laneId = { enum: V2_LANES };
 const hash = string(64, HASH);
 const gitSha = string(40, GIT_SHA);
@@ -63,7 +71,7 @@ const code = string(96, CODE);
 const sourceSchema = closed(
   ["kind", "location", "commit", "gitTreeSha1", "archiveSha256", "identitySha256"],
   {
-    kind: { enum: ["git-repository", "source-archive", "internal-baseline", "public-documentation"] },
+    kind: { enum: ["git-repository", "git-reference", "github-search-result", "source-archive", "internal-baseline", "public-documentation"] },
     location: closed(
       ["host", "path"],
       {
@@ -88,18 +96,20 @@ const candidateSchema = closed(
     laneIds: { type: "array", minItems: 1, maxItems: 8, uniqueItems: true, items: laneId },
     source: sourceSchema,
     license: closed(
-      ["spdx", "reuseAllowed", "closureStatus", "evidenceSha256"],
+      ["spdx", "reuseAllowed", "qualificationAllowed", "closureStatus", "evidenceSha256"],
       {
         spdx: string(64, "^[A-Za-z0-9.+-]+$"),
         reuseAllowed: { type: "boolean" },
-        closureStatus: { enum: ["approved", "reference-only", "unknown"] },
+        qualificationAllowed: { type: "boolean" },
+        closureStatus: { enum: ["approved", "direct-approved", "reference-only", "unknown"] },
         evidenceSha256: hash,
       },
     ),
     surface: closed(
-      ["runtimeClass", "requiresContainer", "lifecycleScripts", "nativeBinaries", "defaultNetwork", "externalServices", "dependencyCount"],
+      ["runtimeClass", "evidenceStatus", "requiresContainer", "lifecycleScripts", "nativeBinaries", "defaultNetwork", "externalServices", "dependencyCount"],
       {
         runtimeClass: { enum: ["embedded-godot", "service", "asset", "commercial", "internal"] },
+        evidenceStatus: { enum: ["complete", "partial", "unknown"] },
         requiresContainer: { type: "boolean" },
         lifecycleScripts: { type: "integer", minimum: 0, maximum: 64 },
         nativeBinaries: { type: "integer", minimum: 0, maximum: 64 },

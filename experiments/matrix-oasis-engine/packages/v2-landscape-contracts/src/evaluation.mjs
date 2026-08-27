@@ -1,4 +1,4 @@
-import { V2_CLASS_GATES, V2_LANES, V2_SCORE_LIMITS } from "./schema.mjs";
+import { V2_CLASS_GATES, V2_DESKTOP_GATES, V2_LANES, V2_SCORE_LIMITS } from "./schema.mjs";
 
 function deepFreeze(value) {
   if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
@@ -93,6 +93,7 @@ export function evaluateV2CandidateForTier(candidateInput, evidenceInput, policy
   const laneId = V2_LANES.includes(evidence?.laneId) ? evidence.laneId : "invalid";
   const qualificationClass = evidence?.qualificationClass;
   const requiredGates = V2_CLASS_GATES[qualificationClass];
+  const desktopGates = V2_DESKTOP_GATES[qualificationClass];
   if (
     candidateId === "invalid" ||
     laneId === "invalid" ||
@@ -100,6 +101,7 @@ export function evaluateV2CandidateForTier(candidateInput, evidenceInput, policy
     !Array.isArray(candidate?.laneIds) ||
     !candidate.laneIds.includes(laneId) ||
     !requiredGates ||
+    !desktopGates ||
     !scoresValid(evidence?.scores)
   ) return invalidEvaluation();
   const score = total(evidence?.scores);
@@ -115,24 +117,25 @@ export function evaluateV2CandidateForTier(candidateInput, evidenceInput, policy
   ) return invalidEvaluation();
   const explicitFailure = [...gateMap.values()].includes("fail");
   const productionGatesPassed = requiredGates.length > 0 && requiredGates.every((gate) => gateMap.get(gate) === "pass");
+  const desktopGatesPassed = desktopGates.every((gate) => gateMap.get(gate) === "pass");
   const unresolvedFailure = evidence?.executionStatus === "failed" && evidence?.harnessAttribution === "unresolved";
   const evidenceGap = unresolvedFailure || evidence?.executionStatus === "evidence-gap" || requiredGates.some((gate) => !gateMap.has(gate) || gateMap.get(gate) === "not-proven");
   const reusable = candidate?.license?.reuseAllowed === true && candidate?.license?.closureStatus === "approved";
+  const qualifiable = candidate?.license?.qualificationAllowed === true && ["approved", "direct-approved"].includes(candidate?.license?.closureStatus);
   const commercial = candidate?.candidateType === "commercial-benchmark" || evidence?.qualificationClass === "commercial";
   const candidateFailure = evidence?.executionStatus === "failed" && evidence?.harnessAttribution === "candidate";
   let tier = "architecture-reference";
   let conclusion = "deferred";
   if (candidate?.staticExclusion?.excluded === true || candidateFailure || (explicitFailure && !unresolvedFailure)) conclusion = "rejected";
-  else if (evidenceGap) conclusion = "deferred";
-  else if (commercial) conclusion = "backup";
+  else if (commercial) conclusion = desktopGatesPassed ? "backup" : "deferred";
   else if (productionGatesPassed && reusable && score >= integrationMinimum && evidence?.executionStatus === "executed") {
     tier = "integration-recommended";
     conclusion = "recommended";
-  } else if (reusable && score >= shortlistMinimum && ["planned", "executed"].includes(evidence?.executionStatus)) {
+  } else if (desktopGatesPassed && qualifiable && score >= shortlistMinimum && ["planned", "executed"].includes(evidence?.executionStatus)) {
     tier = "executable-shortlist";
     conclusion = "backup";
-  } else if (score < shortlistMinimum) conclusion = "rejected";
-  else conclusion = "backup";
+  } else if (score < shortlistMinimum && !evidenceGap) conclusion = "rejected";
+  else conclusion = "deferred";
   return deepFreeze({
     candidateId,
     laneId,
@@ -141,6 +144,7 @@ export function evaluateV2CandidateForTier(candidateInput, evidenceInput, policy
     total: score,
     evidenceGap,
     productionGatesPassed,
+    desktopGatesPassed,
     runtimeSurface: surface(candidate, evidence),
     switchConditions: Array.isArray(evidence?.switchConditions) ? evidence.switchConditions.map((condition) => ({ ...condition })) : [],
   });
@@ -173,6 +177,11 @@ export function selectV2LaneShortlist(catalogInput, evidenceInput, policyInput =
   }
   const results = [];
   for (const laneId of V2_LANES) {
+    const lane = catalog?.catalog?.lanes?.find((item) => item.id === laneId);
+    if (!lane?.executable) {
+      results.push({ laneId, candidateIds: [] });
+      continue;
+    }
     const evaluations = evidence
       .filter((item) => item?.laneId === laneId)
       .map((item) => evaluateV2CandidateForTier(candidateById.get(item.candidateId), item, policy))

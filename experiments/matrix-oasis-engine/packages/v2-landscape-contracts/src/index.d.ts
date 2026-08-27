@@ -38,6 +38,7 @@ export interface V2TierEvaluation {
   total: number;
   evidenceGap: boolean;
   productionGatesPassed: boolean;
+  desktopGatesPassed: boolean;
   runtimeSurface: Readonly<{ services: number; nativeBinaries: number; dependencies: number }>;
   switchConditions: readonly unknown[];
 }
@@ -58,6 +59,7 @@ export declare function selectV2LaneShortlist(
 
 export declare const V2_CANDIDATE_CATALOG_SCHEMA: Readonly<Record<string, unknown>>;
 export declare const V2_CLASS_GATES: Readonly<Record<string, readonly string[]>>;
+export declare const V2_DESKTOP_GATES: Readonly<Record<string, readonly string[]>>;
 export declare const V2_DECISION_LANDSCAPE_SCHEMA: Readonly<Record<string, unknown>>;
 export declare const V2_ROADMAP_SCHEMA: Readonly<Record<string, unknown>>;
 export declare const V2_LANES: readonly V2LaneId[];
