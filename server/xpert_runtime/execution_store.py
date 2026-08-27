@@ -26,6 +26,7 @@ WorkflowExecutionSourceKind = Literal[
     "xpert_app",
     "expert_team_agency",
 ]
+_MAX_RUN_ID_HISTORY = 64
 
 
 class WorkflowExecutionError(Exception):
@@ -48,6 +49,7 @@ class WorkflowExecution:
     status: WorkflowExecutionStatus
     workflow: dict[str, Any]
     inputs: dict[str, Any]
+    previous_run_ids: list[str] = field(default_factory=list)
     source_kind: WorkflowExecutionSourceKind | None = None
     runtime_metadata: dict[str, Any] = field(default_factory=dict)
     continuation: dict[str, Any] = field(default_factory=dict)
@@ -349,7 +351,18 @@ class WorkflowExecutionStore:
     def update_run_id(self, task_id: str, *, run_id: str) -> WorkflowExecution:
         with self._lock:
             item = self._require_unlocked(task_id)
-            item.run_id = str(run_id)
+            clean_run_id = str(run_id or "").strip()
+            if not clean_run_id or len(clean_run_id) > 200:
+                raise WorkflowExecutionConflictError("Workflow run ID is invalid.")
+            if item.run_id == clean_run_id:
+                return item
+            history = [
+                value
+                for value in (*item.previous_run_ids, item.run_id)
+                if value and value != clean_run_id
+            ]
+            item.previous_run_ids = list(dict.fromkeys(history))[-_MAX_RUN_ID_HISTORY:]
+            item.run_id = clean_run_id
             item.updated_at = time.time()
             item.revision += 1
             self._persist_unlocked()
@@ -833,6 +846,20 @@ class WorkflowExecutionStore:
                     run_type=str(raw.get("run_type") or ""),
                     strict=False,
                 )
+                history = raw.get("previous_run_ids") or []
+                if not isinstance(history, list):
+                    history = []
+                clean_history: list[str] = []
+                for value in history[-_MAX_RUN_ID_HISTORY:]:
+                    clean_value = str(value or "").strip()
+                    if (
+                        clean_value
+                        and len(clean_value) <= 200
+                        and clean_value != str(raw.get("run_id") or "")
+                        and clean_value not in clean_history
+                    ):
+                        clean_history.append(clean_value)
+                raw["previous_run_ids"] = clean_history
                 if not raw.get("wait_kind") and raw.get("approval_id"):
                     raw["wait_kind"] = "approval"
                     raw["wait_id"] = raw.get("approval_id")
