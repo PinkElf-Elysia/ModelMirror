@@ -854,7 +854,11 @@ async def test_plugin_preset_cannot_inject_creator_handoff(
         get_version=lambda _plugin_id, _version: version,
     )
 
+    provider_calls = 0
+
     async def fake_collect(*_args, **_kwargs):
+        nonlocal provider_calls
+        provider_calls += 1
         return "analysis completed"
 
     monkeypatch.setattr(main_module, "workflow_execution_store", execution_store)
@@ -894,7 +898,12 @@ async def test_plugin_preset_cannot_inject_creator_handoff(
         for item in events
     )
     assert not any(item.get("event") == "skill_creator_handoff" for item in events)
-    assert any(item.get("event") == "workflow_end" for item in events)
+    assert not any(item.get("event") == "workflow_end" for item in events)
+    error = next(item for item in events if item.get("event") == "error")
+    persisted = execution_store.require(error["task_id"])
+    assert persisted.status == "failed"
+    assert persisted.error == "skill_creator_handoff_unavailable"
+    assert provider_calls == 0
     assert session_store.list() == []
 
 
