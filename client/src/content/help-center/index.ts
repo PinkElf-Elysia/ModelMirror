@@ -4,6 +4,7 @@ import modulesAndTerms from "./articles/modules-and-terms.md?raw";
 import recoverUnavailableFeature from "./articles/recover-unavailable-feature.md?raw";
 import reviewRemoteMcpAuth from "./articles/review-remote-mcp-auth.md?raw";
 import startWithAModel from "./articles/start-with-a-model.md?raw";
+import submitKnowledgeProposal from "./articles/submit-knowledge-proposal.md?raw";
 
 export type HelpCategory = "第一次使用" | "按目标找指南" | "按模块浏览" | "解决问题" | "安全、费用与数据";
 export type HelpContentType = "tutorial" | "how-to" | "explanation" | "reference";
@@ -113,6 +114,21 @@ export const helpArticles: HelpArticle[] = [
     verifiedDate: verifiedBaseline.date,
     content: chooseModelAgentWorkflow,
     nextSlug: "modules-and-terms",
+  },
+  {
+    slug: "submit-knowledge-proposal",
+    title: "从工作流提交待审知识",
+    summary: "把确定性文本送入 Knowledge Inbox，并保持人工审批与活动版本隔离。",
+    category: "按目标找指南",
+    contentType: "how-to",
+    audience: "需要让公告、规范或整理结果进入知识审核流程的工作流用户",
+    estimatedMinutes: 5,
+    keywords: ["工作流", "知识写入提议", "Knowledge Inbox", "知识库", "审批", "去重"],
+    relatedRoutes: ["/workflow/classic", "/rag"],
+    verifiedCommit: verifiedBaseline.commit,
+    verifiedDate: verifiedBaseline.date,
+    content: submitKnowledgeProposal,
+    nextSlug: "check-availability-cost-data",
   },
   {
     slug: "modules-and-terms",
@@ -281,7 +297,7 @@ export const helpModules: HelpModule[] = [
     keywords: ["工作台", "工作流", "RAG", "数据表", "Coding", "设置"],
     homeTopicIds: ["rag", "coding"],
     topics: [
-      { id: "workflow", title: "经典工作流", summary: "在稳定画布中编排并试运行多步骤任务。", outcome: "把固定顺序、条件分支和资源调用组织成可重复流程。", points: ["经典画布是当前稳定工作流入口", "草稿可本地保存并通过后端试运行", "本轮索引不继续展开工作流节点"], productRoute: "/workflow", keywords: ["工作流", "经典画布", "流程", "分支"] },
+      { id: "workflow", title: "经典工作流", summary: "在稳定画布中编排并试运行多步骤任务。", outcome: "把固定顺序、条件分支和资源调用组织成可重复流程。", points: ["经典画布是当前稳定工作流入口", "草稿可本地保存并通过后端试运行", "需要把确定性文本交给知识管理员时，可使用“知识写入提议”进入 Knowledge Inbox"], productRoute: "/workflow", keywords: ["工作流", "经典画布", "流程", "分支", "知识写入提议", "Knowledge Inbox"] },
       { id: "rag", title: "RAG 知识库", summary: "创建资料库、上传文档，并让回答引用指定资料。", outcome: "知道什么时候使用自己的资料库，而不是普通聊天。", points: ["RAG 可以理解为先从指定资料找内容，再让模型回答", "当前空白页从“新建知识库”开始", "上传前确认资料权限和数据边界"], productRoute: "/rag", keywords: ["RAG", "知识库", "资料", "引用"] },
       { id: "data-tables", title: "本地数据表", summary: "为私有工作流维护有固定字段的业务记录。", outcome: "创建数据表、发布 Schema，并管理本地记录。", points: ["数据表用于类型化业务记录", "Schema 以不可变版本发布", "字段和记录操作属于数据表内部条目，本轮不展开"], productRoute: "/data-tables", keywords: ["数据表", "Schema", "业务记录", "数据库"] },
       { id: "coding", title: "Coding", summary: "在只读实验工作台中查看项目并询问代码问题。", outcome: "理解当前入口的只读边界和启用状态。", points: ["当前页面说明只能读取项目并回答问题", "不能修改文件或运行命令", "页面显示“代码助手暂时不可用”时，应等待管理员启用"], productRoute: "/coding", keywords: ["Coding", "代码", "只读实验", "暂时不可用"] },
@@ -325,6 +341,7 @@ export const helpSections: HelpSection[] = [
       { id: "repeat-process", title: "按固定顺序完成多步任务", summary: "需要同一流程重复运行时，查看 Workflow 判断。", to: "/help/choose-model-agent-workflow", keywords: ["多步", "固定顺序", "Workflow"] },
       { id: "connect-tool", title: "让 AI 使用外部工具", summary: "需要访问外部服务时，先查看 MCP 目录与连接状态。", to: "/help/modules/mcps", keywords: ["外部工具", "MCP", "连接"] },
       { id: "use-own-docs", title: "根据自己的资料回答", summary: "需要从指定文档查找内容时，查看 RAG 知识库。", to: "/help/modules/workspace/rag", keywords: ["自己的资料", "文档", "RAG", "知识库"] },
+      { id: "propose-knowledge", title: "把工作流结果提交给知识管理员", summary: "将确定性文本送入 Knowledge Inbox，审批后再决定是否激活。", to: "/help/submit-knowledge-proposal", keywords: ["工作流", "知识", "Inbox", "审批", "提议"] },
       { id: "check-runtime", title: "查找运行或连接问题", summary: "任务失败或工具未连接时，到 Runtime 运维查看状态。", to: "/help/modules/runtime", keywords: ["运行失败", "连接", "Runtime", "运维"] },
     ],
   },

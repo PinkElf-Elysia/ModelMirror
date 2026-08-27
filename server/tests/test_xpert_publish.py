@@ -10,6 +10,10 @@ import pytest_asyncio
 
 import server.main as main_module
 from server.main import app
+from server.rag.api import set_rag_service_for_tests
+from server.rag.embedder import EmbeddingClient
+from server.rag.rag_service import RagService
+from server.rag.vector_store import LocalJsonVectorStore
 from server.workflow_native.r20_nodes import mcp_schema_checksum
 from server.xperts import (
     XpertConflictError,
@@ -1144,6 +1148,96 @@ async def test_r17_secure_http_xpert_publish_is_fail_closed_by_feature_flag(
     monkeypatch.setenv("WORKFLOW_HTTP_REQUESTS_ENABLED", "true")
     published = await client.post(f"/api/xperts/{xpert['id']}/publish", json={})
     assert published.status_code == 200, published.text
+
+
+@pytest.mark.asyncio
+async def test_r26_knowledge_proposal_private_xpert_revalidates_flag_and_target(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    storage = tmp_path / "rag-storage"
+    service = RagService(
+        storage_dir=storage,
+        uploads_dir=tmp_path / "rag-uploads",
+        embedder=EmbeddingClient(api_key="", dimension=32),
+        vector_store=LocalJsonVectorStore(storage / "vectors.json"),
+        llm_enabled=False,
+    )
+    kb = service.create_knowledge_base("private xpert target")
+    set_rag_service_for_tests(service)
+    try:
+        created_response = await client.post(
+            "/api/xperts",
+            json={"name": "R2.6 knowledge proposal"},
+        )
+        assert created_response.status_code == 200, created_response.text
+        xpert = created_response.json()
+        draft = xpert["draft"]
+        workflow = draft["workflow"]
+        nodes = {node["id"]: node for node in workflow["nodes"]}
+        workflow["nodes"] = [
+            nodes["input-1"],
+            {
+                "id": "proposal-1",
+                "type": "knowledge_write_proposal",
+                "position": {"x": 220, "y": 140},
+                "data": {
+                    "kind": "knowledge_write_proposal",
+                    "contractVersion": 1,
+                    "knowledgeBaseId": kb["id"],
+                    "titleTemplate": "Private Xpert proposal",
+                    "contentVariable": "user_input",
+                    "tags": ["private-xpert"],
+                    "outputVariable": "proposal_receipt",
+                },
+            },
+            nodes["workflow-agent-1"],
+            nodes["output-1"],
+        ]
+        workflow["edges"] = [
+            {"id": "input-proposal", "source": "input-1", "target": "proposal-1"},
+            {
+                "id": "proposal-agent",
+                "source": "proposal-1",
+                "target": "workflow-agent-1",
+            },
+            {
+                "id": "agent-output",
+                "source": "workflow-agent-1",
+                "target": "output-1",
+            },
+        ]
+        updated = await client.patch(
+            f"/api/xperts/{xpert['id']}",
+            json={"draft": draft},
+        )
+        assert updated.status_code == 200, updated.text
+
+        monkeypatch.delenv("WORKFLOW_KNOWLEDGE_PROPOSALS_ENABLED", raising=False)
+        blocked = await client.post(f"/api/xperts/{xpert['id']}/publish", json={})
+        assert blocked.status_code == 422
+        assert any(
+            issue["code"] == "xpert_knowledge_proposals_disabled"
+            for issue in blocked.json()["detail"]["issues"]
+        )
+
+        monkeypatch.setenv("WORKFLOW_KNOWLEDGE_PROPOSALS_ENABLED", "true")
+        published = await client.post(f"/api/xperts/{xpert['id']}/publish", json={})
+        assert published.status_code == 200, published.text
+
+        service.delete_knowledge_base(kb["id"])
+        unavailable = await client.post(
+            f"/api/xperts/{xpert['id']}/publish",
+            json={},
+        )
+        assert unavailable.status_code == 422
+        assert any(
+            issue["code"] == "xpert_knowledge_proposal_target_unavailable"
+            for issue in unavailable.json()["detail"]["issues"]
+        )
+    finally:
+        set_rag_service_for_tests(None)
 
 
 @pytest.mark.asyncio

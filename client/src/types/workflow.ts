@@ -17,6 +17,7 @@ export type WorkflowNodeKind =
   | "variable_aggregator"
   | "parameter_extractor"
   | "knowledge_retrieval"
+  | "knowledge_write_proposal"
   | "knowledge_citation"
   | "document_extractor"
   | "vision_understanding"
@@ -312,6 +313,9 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   repairAttempts?: number | string;
   queryVariable?: string;
   knowledgeBaseId?: string;
+  titleTemplate?: string;
+  contentVariable?: string;
+  tags?: string[];
   contractVersion?: number | string;
   toolsetId?: string;
   pluginId?: string;
@@ -446,7 +450,6 @@ export interface WorkflowNodeData extends Record<string, unknown> {
     | "docx"
     | "xlsx";
   filenameTemplate?: string;
-  titleTemplate?: string;
   columns?: WorkflowFileColumn[];
   content?: string;
   operator?: ListOperationOperator | WorkflowComparisonOperator;

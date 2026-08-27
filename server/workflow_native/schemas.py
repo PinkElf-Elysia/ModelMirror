@@ -24,6 +24,7 @@ NativeNodeKind = Literal[
     "variable_aggregator",
     "parameter_extractor",
     "knowledge_retrieval",
+    "knowledge_write_proposal",
     "knowledge_citation",
     "document_extractor",
     "vision_understanding",

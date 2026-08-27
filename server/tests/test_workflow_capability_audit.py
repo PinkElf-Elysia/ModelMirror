@@ -271,7 +271,7 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
         for contract in workflow_node_contract_registry.list()
     )
     assert "911593f505b05b01037769f578e21f22d2a1c9af" in markdown
-    assert "R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0/R2.1/R2.2/R2.3/R2.4/R2.5" in markdown
+    assert "R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0/R2.1/R2.2/R2.3/R2.4/R2.5/R2.6" in markdown
     assert "44、画布目录项 42" in markdown
     assert "R1.6 结果" in markdown
     assert "自研节点总数 47、画布目录项 45、当前 18 个" in markdown
@@ -283,9 +283,9 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     assert current_registry_line in markdown
     assert f"Planner 可生成类型仍固定为 {planner_count} 类" in markdown
     assert "R1.8 结果" in markdown
-    assert native_count == 52
-    assert palette_count == 48
-    assert complete_count == 49
+    assert native_count == 53
+    assert palette_count == 49
+    assert complete_count == 50
     assert compatibility_count == 3
     assert planner_count == 7
     assert "R1.9 结果" in markdown
@@ -337,12 +337,16 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
         "严格类型字段与固定接受页"
     ) in markdown
     assert (
+        "- R2.6 结果：新增完整合同 `knowledge_write_proposal`，只向 Knowledge "
+        "Inbox 创建或复用待审批提议"
+    ) in markdown
+    assert (
         "- R2.2 PR1 结果：将 `variable_aggregator` 提升为“变量打包”V2 完整合同，"
         "修正元智能体新图的报告汇总，并为 563 行参考清单增加 "
         "exact/limited/composable/none 证据门禁；" + r22_pr2_snapshot
     ) not in markdown
     assert "覆盖等级用于表达证据强度" in markdown
     assert current_registry_line == (
-        "当前 Registry 事实：52 Native、48 个可新增 Palette 项、49 个完整合同、"
+        "当前 Registry 事实：53 Native、49 个可新增 Palette 项、50 个完整合同、"
         "3 个 compatibility 合同、7 个 Planner 节点"
     )

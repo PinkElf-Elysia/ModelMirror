@@ -721,6 +721,26 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     tags=["rag", "knowledge", "retrieval"],
                 ),
                 WorkflowPaletteItem(
+                    kind="knowledge_write_proposal",
+                    icon="KWP",
+                    title="知识写入提议",
+                    description="把确定性文本提交到 Knowledge Inbox，等待人工审批。",
+                    category="knowledge-pipeline",
+                    tags=["rag", "knowledge", "proposal", "inbox", "approval"],
+                    metadata={
+                        "private_only": True,
+                        "side_effect": "persistent_proposal",
+                        "approval_required": True,
+                        "feature_enabled": os.getenv(
+                            "WORKFLOW_KNOWLEDGE_PROPOSALS_ENABLED", "false"
+                        ).strip().lower()
+                        in {"1", "true", "yes", "on"},
+                        "feature_disabled_reason": (
+                            "WORKFLOW_KNOWLEDGE_PROPOSALS_ENABLED is disabled."
+                        ),
+                    },
+                ),
+                WorkflowPaletteItem(
                     kind="vision_understanding",
                     icon="VISION",
                     title="视觉理解",

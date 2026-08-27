@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import io
 import hashlib
+import io
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import httpx
@@ -210,6 +211,159 @@ def test_knowledge_write_proposal_persists_deduplicates_and_checks_revision(
             expected_revision=created["revision"],
             title="Stale update",
         )
+
+
+def test_workflow_knowledge_proposal_scopes_occurrence_and_pending_deduplication(
+    tmp_path: Path,
+) -> None:
+    storage = tmp_path / "rag-storage"
+    service = RagService(
+        storage_dir=storage,
+        uploads_dir=tmp_path / "rag-uploads",
+        embedder=EmbeddingClient(api_key="", dimension=64),
+        vector_store=LocalJsonVectorStore(storage / "vectors.json"),
+        llm_enabled=False,
+    )
+    kb = service.create_knowledge_base("workflow proposals")
+    common = {
+        "kb_id": kb["id"],
+        "title": "Stable title",
+        "content": "A deterministic workflow proposal.",
+        "source_scope_kind": "workflow_project",
+        "source_scope_id": "wf_alpha",
+        "source_node_id": "proposal-node",
+    }
+
+    created = service.create_knowledge_write_proposal(
+        **common,
+        source_occurrence_key="execution-1:proposal-node",
+    )
+    same_pending_content = service.create_knowledge_write_proposal(
+        **{**common, "title": "Ignored replacement title"},
+        source_occurrence_key="execution-2:proposal-node",
+    )
+    assert same_pending_content["proposal_id"] == created["proposal_id"]
+    assert same_pending_content["reused"] is True
+    assert same_pending_content["title"] == "Stable title"
+
+    reloaded = RagService(
+        storage_dir=storage,
+        uploads_dir=tmp_path / "rag-uploads",
+        embedder=EmbeddingClient(api_key="", dimension=64),
+        vector_store=LocalJsonVectorStore(storage / "vectors.json"),
+        llm_enabled=False,
+    )
+    recovered_after_create = reloaded.create_knowledge_write_proposal(
+        **{**common, "title": "Must not replace the persisted title"},
+        source_occurrence_key="execution-1:proposal-node",
+    )
+    assert recovered_after_create["proposal_id"] == created["proposal_id"]
+    assert recovered_after_create["reused"] is True
+    assert len(reloaded.list_knowledge_write_proposals(kb_id=kb["id"])) == 1
+
+    rejected = reloaded.reject_knowledge_write_proposal(
+        created["proposal_id"],
+        expected_revision=created["revision"],
+    )
+    exact_replay = reloaded.create_knowledge_write_proposal(
+        **{**common, "content": "Changed after the first attempt."},
+        source_occurrence_key="execution-1:proposal-node",
+    )
+    assert exact_replay["proposal_id"] == created["proposal_id"]
+    assert exact_replay["status"] == "rejected"
+    assert exact_replay["reused"] is True
+
+    after_terminal = reloaded.create_knowledge_write_proposal(
+        **common,
+        source_occurrence_key="execution-3:proposal-node",
+    )
+    assert after_terminal["proposal_id"] != rejected["proposal_id"]
+    assert after_terminal["status"] == "pending"
+    assert after_terminal["reused"] is False
+
+    other_node = reloaded.create_knowledge_write_proposal(
+        **{**common, "source_node_id": "other-node"},
+        source_occurrence_key="execution-4:other-node",
+    )
+    other_project = reloaded.create_knowledge_write_proposal(
+        **{**common, "source_scope_id": "wf_beta"},
+        source_occurrence_key="execution-5:proposal-node",
+    )
+    assert other_node["proposal_id"] != after_terminal["proposal_id"]
+    assert other_project["proposal_id"] != after_terminal["proposal_id"]
+    assert "source_occurrence_hash" not in after_terminal
+    assert "pending_dedupe_hash" not in after_terminal
+
+
+def test_workflow_knowledge_proposal_rehashes_after_inbox_content_edit(
+    tmp_path: Path,
+) -> None:
+    storage = tmp_path / "rag-storage"
+    service = RagService(
+        storage_dir=storage,
+        uploads_dir=tmp_path / "rag-uploads",
+        embedder=EmbeddingClient(api_key="", dimension=64),
+        vector_store=LocalJsonVectorStore(storage / "vectors.json"),
+        llm_enabled=False,
+    )
+    kb = service.create_knowledge_base("editable proposals")
+    created = service.create_knowledge_write_proposal(
+        kb["id"],
+        title="Before edit",
+        content="Original body",
+        source_scope_kind="workflow_project",
+        source_scope_id="wf_alpha",
+        source_node_id="proposal-node",
+        source_occurrence_key="execution-1:proposal-node",
+    )
+    updated = service.update_knowledge_write_proposal(
+        created["proposal_id"],
+        expected_revision=created["revision"],
+        content="Edited body",
+    )
+    reused = service.create_knowledge_write_proposal(
+        kb["id"],
+        title="Must not overwrite the edited proposal",
+        content="Edited body",
+        source_scope_kind="workflow_project",
+        source_scope_id="wf_alpha",
+        source_node_id="proposal-node",
+        source_occurrence_key="execution-2:proposal-node",
+    )
+    assert reused["proposal_id"] == updated["proposal_id"]
+    assert reused["content"] == "Edited body"
+    assert reused["reused"] is True
+
+
+def test_workflow_knowledge_proposal_concurrent_pending_deduplication(
+    tmp_path: Path,
+) -> None:
+    storage = tmp_path / "rag-storage"
+    service = RagService(
+        storage_dir=storage,
+        uploads_dir=tmp_path / "rag-uploads",
+        embedder=EmbeddingClient(api_key="", dimension=64),
+        vector_store=LocalJsonVectorStore(storage / "vectors.json"),
+        llm_enabled=False,
+    )
+    kb = service.create_knowledge_base("concurrent proposals")
+
+    def create(index: int) -> dict:
+        return service.create_knowledge_write_proposal(
+            kb["id"],
+            title=f"Concurrent title {index}",
+            content="The same deterministic body.",
+            source_scope_kind="workflow_project",
+            source_scope_id="wf_concurrent",
+            source_node_id="proposal-node",
+            source_occurrence_key=f"execution-{index}:proposal-node",
+        )
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        results = list(executor.map(create, range(16)))
+
+    assert len({item["proposal_id"] for item in results}) == 1
+    assert len(service.list_knowledge_write_proposals(kb_id=kb["id"])) == 1
 
 
 @pytest.mark.asyncio

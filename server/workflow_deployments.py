@@ -263,6 +263,7 @@ class WorkflowDeploymentStore:
         credential_validator: Callable[[str], Any] | None = None,
         mcp_tool_validator: Callable[[dict[str, Any]], Any] | None = None,
         xpert_target_validator: Callable[[str, int], Any] | None = None,
+        knowledge_proposal_validator: Callable[[str], Any] | None = None,
     ) -> None:
         package_dir = Path(__file__).resolve().parent
         self.storage_dir = Path(
@@ -283,6 +284,7 @@ class WorkflowDeploymentStore:
         self._credential_validator = credential_validator
         self._mcp_tool_validator = mcp_tool_validator
         self._xpert_target_validator = xpert_target_validator
+        self._knowledge_proposal_validator = knowledge_proposal_validator
         self._load()
 
     def create_project(self, workflow: dict[str, Any]) -> WorkflowProject:
@@ -385,6 +387,7 @@ class WorkflowDeploymentStore:
                 mcp_tool_validator=self._mcp_tool_validator,
                 xpert_target_validator=self._xpert_target_validator,
             )
+            self._validate_knowledge_proposal_targets_unlocked(project.draft)
             if trigger_kind == "failure":
                 self._validate_failure_sources_unlocked(
                     project_id,
@@ -439,6 +442,7 @@ class WorkflowDeploymentStore:
         handoff_executor_enabled: bool = False,
         forms_enabled: bool = False,
         forms_public_base_url: str = "",
+        knowledge_proposals_enabled: bool = False,
         now: float | None = None,
     ) -> tuple[WorkflowDeployment, str | None]:
         current = time.time() if now is None else float(now)
@@ -486,6 +490,19 @@ class WorkflowDeploymentStore:
                 for node in release.workflow.get("nodes", [])
                 if isinstance(node, dict)
             ]
+            proposal_nodes = [
+                node
+                for node in nodes
+                if _raw_node_kind(node) == "knowledge_write_proposal"
+            ]
+            if proposal_nodes and not knowledge_proposals_enabled:
+                raise WorkflowDeploymentConflictError(
+                    "Workflow knowledge proposals are disabled."
+                )
+            try:
+                self._validate_knowledge_proposal_targets_unlocked(release.workflow)
+            except WorkflowDeploymentValidationError as exc:
+                raise WorkflowDeploymentConflictError(str(exc)) from exc
             mcp_v2_nodes = [
                 node
                 for node in nodes
@@ -657,6 +674,31 @@ class WorkflowDeploymentStore:
                     )
             self._persist_unlocked()
             return deployment, plaintext_key
+
+    def _validate_knowledge_proposal_targets_unlocked(
+        self,
+        workflow: dict[str, Any],
+    ) -> None:
+        proposal_nodes = [
+            node
+            for node in workflow.get("nodes", [])
+            if isinstance(node, dict)
+            and _raw_node_kind(node) == "knowledge_write_proposal"
+        ]
+        if not proposal_nodes:
+            return
+        if self._knowledge_proposal_validator is None:
+            raise WorkflowDeploymentValidationError(
+                "Knowledge proposal target validation is unavailable."
+            )
+        for node in proposal_nodes:
+            kb_id = str(dict(node.get("data") or {}).get("knowledgeBaseId") or "").strip()
+            try:
+                self._knowledge_proposal_validator(kb_id)
+            except Exception as exc:
+                raise WorkflowDeploymentValidationError(
+                    "The selected knowledge base is unavailable or read-only."
+                ) from exc
 
     def deactivate(self, project_id: str, version: int) -> WorkflowDeployment:
         with self._lock:

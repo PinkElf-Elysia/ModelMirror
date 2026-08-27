@@ -832,6 +832,20 @@ export function createNodeData(
     };
   }
 
+  if (kind === "knowledge_write_proposal") {
+    return {
+      kind,
+      title: "知识写入提议",
+      description: "把确定性文本提交到 Knowledge Inbox，等待人工审批。",
+      contractVersion: 1,
+      knowledgeBaseId: "",
+      titleTemplate: "知识更新提议",
+      contentVariable: "user_input",
+      tags: [],
+      outputVariable: "knowledge_proposal",
+    };
+  }
+
   if (kind === "knowledge_citation") {
     return {
       kind,
@@ -2647,6 +2661,8 @@ interface WorkflowResourceOption {
   published_version?: number | null;
   active_version_id?: string | null;
   document_count?: number;
+  corpus_locked?: boolean;
+  provisioning_status?: string;
   tool_count?: number;
   prompt_count?: number;
   skill_count?: number;
@@ -3153,6 +3169,185 @@ function KnowledgeRetrievalNodeConfig({
   );
 }
 
+function KnowledgeWriteProposalNodeConfig({
+  node,
+  nodes,
+  edges,
+  variableContract,
+  data,
+  update,
+  onOpenVariableCenter,
+  featureEnabled,
+  featureDisabledReason,
+}: {
+  node: WorkflowNode;
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+  variableContract: WorkflowNodeContractProjection | null;
+  data: WorkflowNodeData;
+  update: (patch: Partial<WorkflowNodeData>) => void;
+  onOpenVariableCenter: () => void;
+  featureEnabled: boolean;
+  featureDisabledReason: string;
+}) {
+  const { loadError, options } = useWorkflowResourceOptions("knowledge_base");
+  const [search, setSearch] = useState("");
+  const normalizedSearch = search.trim().toLowerCase();
+  const matchingOptions = options.filter((item) =>
+    !normalizedSearch
+    || item.name.toLowerCase().includes(normalizedSearch)
+    || item.id.toLowerCase().includes(normalizedSearch));
+  const selected = options.find((item) => item.id === data.knowledgeBaseId);
+  const tags = Array.isArray(data.tags) ? data.tags : [];
+
+  return (
+    <ConfigSection
+      description="只创建待审批提议，不会自动批准、构建或切换活动知识版本。"
+      title="知识写入提议"
+    >
+      {!featureEnabled ? (
+        <div className="rounded-lg border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-50">
+          当前功能开关关闭：可继续编辑和静态发布，但激活、私有智能体发布和实际运行会失败关闭。{featureDisabledReason ? ` ${featureDisabledReason}` : ""}
+        </div>
+      ) : null}
+      <div className="rounded-lg border border-teal-300/25 bg-teal-300/10 px-3 py-2 text-xs leading-5 text-teal-50">
+        正文会持久保存到 Knowledge Inbox，仍需人工审批。审批只构建候选版本，不会自动改变活动知识版本。
+      </div>
+      <Field label="搜索知识库">
+        <input
+          className={textInputClass()}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="按名称或 ID 搜索"
+          type="search"
+          value={search}
+        />
+      </Field>
+      <Field label="写入目标">
+        <select
+          className={textInputClass()}
+          onChange={(event) => update({ knowledgeBaseId: event.target.value })}
+          value={data.knowledgeBaseId ?? ""}
+        >
+          <option className="bg-slate-950" value="">选择可写知识库</option>
+          {matchingOptions.map((item) => {
+            const unavailable = item.corpus_locked || item.provisioning_status !== "ready";
+            return (
+              <option
+                className="bg-slate-950"
+                disabled={unavailable}
+                key={item.id}
+                value={item.id}
+              >
+                {item.name} · {unavailable ? "只读或未就绪" : "可提交待审提议"}
+              </option>
+            );
+          })}
+        </select>
+        {!loadError && options.length > 0 && matchingOptions.length === 0 ? (
+          <p className="mt-2 text-xs leading-5 text-slate-300">没有匹配的知识库，请调整搜索词。</p>
+        ) : null}
+        {selected?.corpus_locked ? (
+          <p className="mt-2 text-xs leading-5 text-amber-200">该知识库为锁定语料，不能接收写入提议。</p>
+        ) : null}
+        {selected && !selected.corpus_locked && selected.provisioning_status !== "ready" ? (
+          <p className="mt-2 text-xs leading-5 text-amber-200">该知识库仍在准备中，完成后才能接收写入提议。</p>
+        ) : null}
+        {loadError ? <p className="mt-2 text-xs leading-5 text-amber-200">{loadError}</p> : null}
+      </Field>
+      <Field label="提议标题模板">
+        <textarea
+          className={`${textInputClass()} min-h-24 resize-y`}
+          maxLength={2000}
+          onChange={(event) => update({ titleTemplate: event.target.value })}
+          placeholder="例如：产品公告更新（可插入 {{变量名}}）"
+          value={data.titleTemplate ?? ""}
+        />
+        <p className="mt-1 text-[11px] leading-5 text-slate-400">
+          已输入 {(data.titleTemplate ?? "").length}/2000；运行时渲染后需为 1–160 个字符。
+        </p>
+      </Field>
+      <Field label="正文变量（必须是文本）">
+        <WorkflowVariableField
+          ariaLabel="正文变量（必须是文本）"
+          contract={variableContract}
+          edges={edges}
+          fieldName="contentVariable"
+          node={node}
+          nodes={nodes}
+          onChange={(value) => update({ contentVariable: value })}
+          value={data.contentVariable ?? ""}
+        />
+      </Field>
+      <Field label="固定标签（最多 20 个）">
+        <div className="space-y-2">
+          {tags.map((tag, index) => (
+            <div className="flex gap-2" key={index}>
+              <input
+                aria-label={`标签 ${index + 1}`}
+                className={textInputClass()}
+                maxLength={50}
+                onChange={(event) => {
+                  const next = [...tags];
+                  next[index] = event.target.value;
+                  update({ tags: next });
+                }}
+                placeholder="例如：公告"
+                value={tag}
+              />
+              <button
+                aria-label={`删除标签 ${index + 1}`}
+                className="rounded-md border border-rose-300/20 px-2.5 text-rose-100"
+                onClick={() => update({ tags: tags.filter((_, itemIndex) => itemIndex !== index) })}
+                type="button"
+              >
+                删除
+              </button>
+            </div>
+          ))}
+          <button
+            className="rounded-md border border-white/10 px-3 py-1.5 text-xs font-semibold text-cyan-100 disabled:opacity-40"
+            disabled={tags.length >= 20}
+            onClick={() => update({ tags: [...tags, ""] })}
+            type="button"
+          >
+            添加标签
+          </button>
+          <p className="text-[11px] leading-5 text-slate-400">已添加 {tags.length}/20 个固定标签。</p>
+        </div>
+      </Field>
+      <Field label="回执输出变量">
+        <WorkflowVariableField
+          ariaLabel="回执输出变量"
+          contract={variableContract}
+          edges={edges}
+          fieldName="outputVariable"
+          node={node}
+          nodes={nodes}
+          onChange={(value) => update({ outputVariable: value })}
+          value={data.outputVariable ?? ""}
+        />
+      </Field>
+      <div className="flex flex-wrap gap-3 text-xs font-semibold">
+        <button
+          className="text-cyan-200 underline underline-offset-4"
+          onClick={onOpenVariableCenter}
+          type="button"
+        >
+          打开变量中心
+        </button>
+        <a
+          className="text-teal-200 underline underline-offset-4"
+          href={data.knowledgeBaseId ? `/rag/${encodeURIComponent(data.knowledgeBaseId)}/inbox` : "/rag"}
+          target="_blank"
+          rel="noreferrer"
+        >
+          {data.knowledgeBaseId ? "打开 Knowledge Inbox" : "打开知识库管理"}
+        </a>
+      </div>
+    </ConfigSection>
+  );
+}
+
 function LegacyKnowledgeCitationConfig({
   node,
   nodes,
@@ -3444,7 +3639,10 @@ function NodeConfig({
         if (cancelled) return;
         const contracts = new Map<WorkflowNodeKind, WorkflowNodeContractProjection>();
         const metadata = new Map<WorkflowNodeKind, Record<string, unknown>>();
-        registry.sections.flatMap((section) => section.items).forEach((item) => {
+        [
+          ...registry.sections.flatMap((section) => section.items),
+          ...registry.knowledge_pipeline.items,
+        ].forEach((item) => {
           if (item.contract) contracts.set(item.kind, item.contract);
           metadata.set(item.kind, item.metadata ?? {});
         });
@@ -3481,6 +3679,7 @@ function NodeConfig({
     && data.inputSchemaChecksum !== selectedRegistryTool?.schema_checksum;
   const variableContract = variableNodeContracts.get(data.kind) ?? null;
   const documentRegistryMetadata = nodeRegistryMetadata.get("document_extractor") ?? {};
+  const knowledgeProposalMetadata = nodeRegistryMetadata.get("knowledge_write_proposal") ?? {};
   const documentFileAssetModeEnabled =
     documentRegistryMetadata.file_asset_mode_enabled !== false;
   const documentFileAssetModeReason = String(
@@ -4524,6 +4723,22 @@ function NodeConfig({
           edges={edges}
           node={node}
           nodes={nodes}
+          update={update}
+          variableContract={variableContract}
+        />
+      ) : null}
+
+      {data.kind === "knowledge_write_proposal" ? (
+        <KnowledgeWriteProposalNodeConfig
+          data={data}
+          edges={edges}
+          featureDisabledReason={String(
+            knowledgeProposalMetadata.feature_disabled_reason ?? "",
+          )}
+          featureEnabled={knowledgeProposalMetadata.feature_enabled === true}
+          node={node}
+          nodes={nodes}
+          onOpenVariableCenter={onOpenVariableCenter}
           update={update}
           variableContract={variableContract}
         />

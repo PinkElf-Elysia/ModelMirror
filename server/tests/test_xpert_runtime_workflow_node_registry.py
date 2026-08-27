@@ -40,11 +40,12 @@ def test_workflow_node_registry_returns_workflow_and_knowledge_tabs() -> None:
     assert [item["kind"] for item in knowledge_items] == [
         "knowledge_base",
         "knowledge_retrieval",
+        "knowledge_write_proposal",
         "vision_understanding",
     ]
     assert payload["knowledge_pipeline"]["placeholders"] == []
 
-    knowledge_base, retrieval, vision = knowledge_items
+    knowledge_base, retrieval, proposal, vision = knowledge_items
     assert knowledge_base["planner"]["support"] == "binding_only"
     assert knowledge_base["contracts"]["resources"][0]["kind"] == "knowledge_base"
     assert retrieval["planner"]["enabled"] is False
@@ -55,6 +56,10 @@ def test_workflow_node_registry_returns_workflow_and_knowledge_tabs() -> None:
     assert vision["planner"]["support"] == "unsupported"
     assert vision["contracts"]["outputs"][0]["value_schema"]["type"] == "object"
     assert vision["metadata"]["private_only"] is True
+    assert proposal["planner"]["enabled"] is False
+    assert proposal["contract"]["contract_status"] == "complete"
+    assert proposal["metadata"]["private_only"] is True
+    assert proposal["metadata"]["approval_required"] is True
 
 
 def test_enabled_workflow_node_kinds_are_supported() -> None:
@@ -135,7 +140,12 @@ async def test_workflow_node_registry_api_returns_stable_shape(
     assert isinstance(payload["knowledge_pipeline"], dict)
     assert [
         item["kind"] for item in payload["knowledge_pipeline"]["items"]
-    ] == ["knowledge_base", "knowledge_retrieval", "vision_understanding"]
+    ] == [
+        "knowledge_base",
+        "knowledge_retrieval",
+        "knowledge_write_proposal",
+        "vision_understanding",
+    ]
     assert all(
         item["kind"] != "knowledge_citation"
         for section in payload["sections"]

@@ -357,6 +357,18 @@ class RagService:
         ]
         return sorted(items, key=lambda item: item["created_at"], reverse=True)
 
+    def validate_knowledge_write_target(self, kb_id: str) -> dict[str, Any]:
+        """Return safe metadata only when a knowledge base accepts corpus writes."""
+
+        with self._metadata_lock:
+            metadata = self._read_metadata_unlocked()
+            self._ensure_kb_exists(metadata, kb_id)
+            self._assert_corpus_mutable(metadata, kb_id)
+            item = metadata["knowledge_bases"][kb_id]
+            if str(item.get("provisioning_status") or "ready") != "ready":
+                raise KnowledgeBaseNotFoundError("Knowledge base is not ready.")
+            return self._kb_payload(item, metadata)
+
     def delete_knowledge_base(self, kb_id: str) -> None:
         """Durably isolate, strictly purge, then forget one knowledge base."""
 
@@ -1444,6 +1456,10 @@ class RagService:
         source_goal_id: str | None = None,
         source_handoff_id: str | None = None,
         source_run_id: str | None = None,
+        source_scope_kind: str | None = None,
+        source_scope_id: str | None = None,
+        source_node_id: str | None = None,
+        source_occurrence_key: str | None = None,
     ) -> dict[str, Any]:
         """Create a durable write proposal without mutating the active index."""
 
@@ -1451,19 +1467,56 @@ class RagService:
         clean_content = self._required_proposal_text(content, "content", 20_000)
         clean_tags = self._proposal_tags(tags)
         content_hash = hashlib.sha256(clean_content.encode("utf-8")).hexdigest()
+        clean_scope_kind = self._optional_proposal_text(source_scope_kind, 40)
+        clean_scope_id = self._optional_proposal_text(source_scope_id, 200)
+        clean_node_id = self._optional_proposal_text(source_node_id, 128)
+        clean_occurrence_key = self._optional_proposal_text(
+            source_occurrence_key, 500
+        )
+        occurrence_hash = (
+            hashlib.sha256(clean_occurrence_key.encode("utf-8")).hexdigest()
+            if clean_occurrence_key
+            else None
+        )
+        pending_dedupe_hash = self._knowledge_proposal_pending_dedupe_hash(
+            kb_id=kb_id,
+            content_hash=content_hash,
+            source_scope_kind=clean_scope_kind,
+            source_scope_id=clean_scope_id,
+            source_node_id=clean_node_id,
+        )
         with self._metadata_lock:
             metadata = self._read_metadata_unlocked()
             self._ensure_kb_exists(metadata, kb_id)
             self._assert_corpus_mutable(metadata, kb_id)
             for existing in metadata["knowledge_write_proposals"].values():
                 if (
-                    existing.get("kb_id") == kb_id
+                    occurrence_hash
+                    and existing.get("source_occurrence_hash") == occurrence_hash
+                ):
+                    return self._knowledge_write_proposal_payload(
+                        existing, metadata, reused=True
+                    )
+                if (
+                    pending_dedupe_hash
+                    and existing.get("status") == "pending"
+                    and existing.get("pending_dedupe_hash") == pending_dedupe_hash
+                ):
+                    return self._knowledge_write_proposal_payload(
+                        existing, metadata, reused=True
+                    )
+                if (
+                    not occurrence_hash
+                    and not pending_dedupe_hash
+                    and existing.get("kb_id") == kb_id
                     and existing.get("status") == "pending"
                     and existing.get("content_hash") == content_hash
                     and str(existing.get("source_run_id") or "")
                     == str(source_run_id or "")
                 ):
-                    return self._knowledge_write_proposal_payload(existing, metadata)
+                    return self._knowledge_write_proposal_payload(
+                        existing, metadata, reused=True
+                    )
             now = time.time()
             proposal = {
                 "proposal_id": f"kwp_{uuid.uuid4().hex}",
@@ -1477,6 +1530,11 @@ class RagService:
                 "source_goal_id": self._optional_proposal_text(source_goal_id, 200),
                 "source_handoff_id": self._optional_proposal_text(source_handoff_id, 200),
                 "source_run_id": self._optional_proposal_text(source_run_id, 200),
+                "source_scope_kind": clean_scope_kind,
+                "source_scope_id": clean_scope_id,
+                "source_node_id": clean_node_id,
+                "source_occurrence_hash": occurrence_hash,
+                "pending_dedupe_hash": pending_dedupe_hash,
                 "status": "pending",
                 "revision": 1,
                 "approval_in_progress": False,
@@ -1491,7 +1549,9 @@ class RagService:
             }
             metadata["knowledge_write_proposals"][proposal["proposal_id"]] = proposal
             self._write_metadata_unlocked(metadata)
-            return self._knowledge_write_proposal_payload(proposal, metadata)
+            return self._knowledge_write_proposal_payload(
+                proposal, metadata, reused=False
+            )
 
     def list_knowledge_write_proposals(
         self,
@@ -1549,6 +1609,32 @@ class RagService:
                 proposal["content_hash"] = hashlib.sha256(
                     proposal["content"].encode("utf-8")
                 ).hexdigest()
+                next_dedupe_hash = self._knowledge_proposal_pending_dedupe_hash(
+                    kb_id=str(proposal.get("kb_id") or ""),
+                    content_hash=str(proposal["content_hash"]),
+                    source_scope_kind=str(
+                        proposal.get("source_scope_kind") or ""
+                    )
+                    or None,
+                    source_scope_id=str(proposal.get("source_scope_id") or "")
+                    or None,
+                    source_node_id=str(proposal.get("source_node_id") or "")
+                    or None,
+                )
+                if next_dedupe_hash:
+                    for existing_id, existing in metadata[
+                        "knowledge_write_proposals"
+                    ].items():
+                        if (
+                            existing_id != proposal_id
+                            and existing.get("status") == "pending"
+                            and existing.get("pending_dedupe_hash")
+                            == next_dedupe_hash
+                        ):
+                            raise KnowledgeWriteProposalConflictError(
+                                "An equivalent pending knowledge proposal already exists."
+                            )
+                proposal["pending_dedupe_hash"] = next_dedupe_hash
             if tags is not None:
                 proposal["tags"] = self._proposal_tags(tags)
             proposal["revision"] = int(proposal.get("revision", 1)) + 1
@@ -4747,8 +4833,13 @@ class RagService:
         self,
         proposal: dict[str, Any],
         metadata: dict[str, Any],
+        *,
+        reused: bool = False,
     ) -> dict[str, Any]:
         payload = json.loads(json.dumps(proposal))
+        payload.pop("source_occurrence_hash", None)
+        payload.pop("pending_dedupe_hash", None)
+        payload["reused"] = bool(reused)
         job_id = str(proposal.get("job_id") or "")
         job = metadata["pipeline_jobs"].get(job_id) if job_id else None
         payload["build_status"] = (
@@ -4763,6 +4854,28 @@ class RagService:
             == candidate_id
         )
         return payload
+
+    @staticmethod
+    def _knowledge_proposal_pending_dedupe_hash(
+        *,
+        kb_id: str,
+        content_hash: str,
+        source_scope_kind: str | None,
+        source_scope_id: str | None,
+        source_node_id: str | None,
+    ) -> str | None:
+        if not source_scope_kind or not source_scope_id or not source_node_id:
+            return None
+        payload = "\x1f".join(
+            (
+                source_scope_kind,
+                source_scope_id,
+                source_node_id,
+                kb_id,
+                content_hash,
+            )
+        )
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     def _create_managed_proposal_document(
         self,

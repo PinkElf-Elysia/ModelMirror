@@ -2979,6 +2979,112 @@ def _complete_contracts() -> dict[str, NodeContract]:
         ),
     )
 
+    contracts["knowledge_write_proposal"] = NodeContract(
+        kind="knowledge_write_proposal",
+        contract_status="complete",
+        config_schema=_object_schema(
+            {
+                "contractVersion": {"const": 1},
+                "knowledgeBaseId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "pattern": r"^[^{}]+$",
+                },
+                "titleTemplate": {"type": "string", "minLength": 1, "maxLength": 2_000},
+                "contentVariable": {
+                    "type": "string",
+                    "pattern": r"^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+                },
+                "tags": {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {"type": "string", "minLength": 1, "maxLength": 50},
+                },
+                "outputVariable": {
+                    "type": "string",
+                    "pattern": r"^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+                },
+            },
+            required=[
+                "contractVersion",
+                "knowledgeBaseId",
+                "titleTemplate",
+                "contentVariable",
+                "tags",
+                "outputVariable",
+            ],
+        ),
+        ports=(
+            NodePortContract(
+                name="content",
+                direction="input",
+                value_schema=string_value,
+            ),
+            NodePortContract(
+                name="proposal",
+                direction="output",
+                value_schema=object_value,
+            ),
+        ),
+        execution=NodeExecutionPolicy(
+            side_effect="write",
+            deterministic=False,
+            idempotent=True,
+            external_io=True,
+            can_wait=False,
+            error_semantics="fail_closed",
+            security_category="knowledge_write_proposal",
+        ),
+        availability=NodeAvailabilityPolicy(
+            workflow=_rule("allow"),
+            xpert=_rule("allow"),
+            goal=_rule("allow"),
+            handoff=_rule("allow"),
+            app=_rule(
+                "deny",
+                code="public_knowledge_write_proposal_forbidden",
+                message="Public Xpert Apps cannot create Knowledge Inbox proposals.",
+            ),
+            evaluation=_rule(
+                "deny",
+                code="evaluation_knowledge_write_proposal_forbidden",
+                message="Evaluation cannot create Knowledge Inbox proposals.",
+            ),
+            evolution=_rule(
+                "deny",
+                code="evolution_knowledge_write_proposal_forbidden",
+                message="Evolution cannot create Knowledge Inbox proposals.",
+            ),
+        ),
+        resources=(
+            NodeResourceContract(
+                kind="knowledge_base",
+                id_field="knowledgeBaseId",
+                dynamic_schema=True,
+            ),
+        ),
+        planner=_planner(
+            default_data={
+                "contractVersion": 1,
+                "knowledgeBaseId": "",
+                "titleTemplate": "Knowledge proposal",
+                "contentVariable": "proposal_content",
+                "tags": [],
+                "outputVariable": "knowledge_proposal",
+            },
+            constraints={
+                "required": [
+                    "knowledgeBaseId",
+                    "titleTemplate",
+                    "contentVariable",
+                    "outputVariable",
+                ],
+                "tags_max": 20,
+            },
+        ),
+    )
+
     app_table_denied = _rule(
         "deny",
         code="app_agent_table_forbidden",
