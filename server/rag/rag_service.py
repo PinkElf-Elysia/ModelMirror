@@ -43,6 +43,8 @@ from .embedder import EmbeddingClient, EmbeddingError
 from .lexical_store import LexicalChunk, LexicalSearchResult, SqliteLexicalStore
 from .reranker import RerankDocument, RerankItem, RerankOutcome, RerankService
 from .retrieval import (
+    ABSOLUTE_NO_RESULT_POLICY,
+    LEGACY_NO_RESULT_POLICY,
     RetrievalCandidate,
     RetrievalConfig,
     fuse_rankings,
@@ -2121,7 +2123,7 @@ class RagService:
             for stage_id, config in draft["stages"].items()
         }
         try:
-            next_retrieval = RetrievalConfig.from_mapping(
+            next_retrieval = self._v3_retrieval_config_from_patch(
                 retrieval_profile,
                 base=RetrievalConfig.from_mapping(draft.get("retrieval_profile")),
             ).payload()
@@ -2834,13 +2836,14 @@ class RagService:
                 chunker_profile,
             )
             try:
-                config_snapshot["retrieval_profile"] = RetrievalConfig.from_mapping(
+                base_retrieval = RetrievalConfig.from_mapping(
+                    config_snapshot.get("retrieval_profile")
+                    if isinstance(config_snapshot.get("retrieval_profile"), dict)
+                    else None
+                )
+                config_snapshot["retrieval_profile"] = self._v3_retrieval_config_from_patch(
                     retrieval_profile,
-                    base=RetrievalConfig.from_mapping(
-                        config_snapshot.get("retrieval_profile")
-                        if isinstance(config_snapshot.get("retrieval_profile"), dict)
-                        else None
-                    ),
+                    base=base_retrieval,
                 ).payload()
             except ValueError as exc:
                 raise PipelineDraftValidationError(str(exc)) from exc
@@ -3783,6 +3786,9 @@ class RagService:
             lexical_ready = self.lexical_store.count_namespace(
                 str(job["candidate_namespace"])
             ) > 0
+            retrieval_config = RetrievalConfig.from_mapping(
+                job["config_snapshot"].get("retrieval_profile")
+            )
             version = {
                 "version_id": str(job["candidate_version_id"]),
                 "kb_id": str(job["kb_id"]),
@@ -3807,6 +3813,12 @@ class RagService:
                 ),
                 "retrieval_profile": json.loads(
                     json.dumps(job["config_snapshot"].get("retrieval_profile", {}))
+                ),
+                "threshold_contract_status": retrieval_config.threshold_contract_status,
+                "threshold_calibration_evidence": json.loads(
+                    json.dumps(
+                        job["config_snapshot"].get("threshold_calibration_evidence")
+                    )
                 ),
                 "index_contract": json.loads(json.dumps(index_contract)),
                 "vector_backend_readiness": json.loads(
@@ -4222,6 +4234,10 @@ class RagService:
             for key, value in version.items()
             if key not in {"namespace", "config_snapshot"}
         }
+        payload["threshold_contract_status"] = RetrievalConfig.from_mapping(
+            version.get("retrieval_profile")
+        ).threshold_contract_status
+        payload.setdefault("threshold_calibration_evidence", None)
         payload["active"] = str(active_id or "") == str(version.get("version_id"))
         return payload
 
@@ -4250,6 +4266,8 @@ class RagService:
                 raise PipelineJobStateError(
                     "Legacy V2 indexes remain readable but cannot be newly activated or promoted."
                 )
+            if promotion:
+                self._assert_v3_threshold_promotion_ready(version)
             if previous_id and previous_id in metadata["pipeline_versions"]:
                 metadata["pipeline_versions"][previous_id]["status"] = "ready"
             version["status"] = "active"
@@ -4258,6 +4276,61 @@ class RagService:
             metadata["knowledge_bases"][kb_id]["updated_at"] = time.time()
             self._write_metadata_unlocked(metadata)
             return self.pipeline_version_payload(version, active_id=version_id)
+
+    def _assert_v3_threshold_promotion_ready(
+        self,
+        version: dict[str, Any],
+    ) -> None:
+        config = RetrievalConfig.from_mapping(version.get("retrieval_profile"))
+        if not config.uses_absolute_relevance:
+            raise PipelineJobStateError(
+                "V3 promotion requires the absolute relevance threshold contract."
+            )
+        if config.threshold_contract_status != "configured":
+            raise PipelineJobStateError(
+                "V3 promotion requires all mode-specific relevance thresholds."
+            )
+        evidence = version.get("threshold_calibration_evidence")
+        if not isinstance(evidence, dict):
+            raise PipelineJobStateError(
+                "V3 promotion requires independent threshold calibration evidence."
+            )
+        checksum = str(evidence.get("dataset_checksum") or "")
+        retrieval_profile_checksum = str(
+            evidence.get("retrieval_profile_checksum") or ""
+        )
+        expected_retrieval_profile_checksum = self._mapping_sha256(
+            config.payload()
+        )
+        version_evidence = self.pipeline_version_evidence(str(version["version_id"]))
+        expected_configuration_fingerprint = str(
+            version_evidence["configuration_fingerprint"]
+        )
+        expected_source_manifest_fingerprint = str(
+            version_evidence["source_manifest_fingerprint"]
+        )
+        raw_score_domains = evidence.get("score_domains")
+        score_domains = (
+            {str(item) for item in raw_score_domains}
+            if isinstance(raw_score_domains, list)
+            else set()
+        )
+        if (
+            evidence.get("contract_version") != "rag-threshold-calibration-v1"
+            or evidence.get("status") != "qualified"
+            or evidence.get("independent") is not True
+            or re.fullmatch(r"[0-9a-f]{64}", checksum) is None
+            or retrieval_profile_checksum != expected_retrieval_profile_checksum
+            or str(evidence.get("configuration_fingerprint") or "")
+            != expected_configuration_fingerprint
+            or str(evidence.get("source_manifest_fingerprint") or "")
+            != expected_source_manifest_fingerprint
+            or not isinstance(raw_score_domains, list)
+            or not set(config.required_threshold_score_domains).issubset(score_domains)
+        ):
+            raise PipelineJobStateError(
+                "V3 promotion threshold calibration evidence is incomplete or invalid."
+            )
 
     def pipeline_version_cost_summary(self, version_id: str) -> dict[str, Any]:
         """Return deterministic, explicitly estimated index cost metadata."""
@@ -5707,7 +5780,13 @@ class RagService:
             ]
 
         vector_candidates = [self._candidate_from_vector(item) for item in vector_results]
-        lexical_candidates = [self._candidate_from_lexical(item) for item in lexical_results]
+        lexical_candidates = [
+            self._candidate_from_lexical(
+                item,
+                require_absolute_score=is_v3 and config.uses_absolute_relevance,
+            )
+            for item in lexical_results
+        ]
         effective_config = config
         if (
             not is_v3
@@ -5728,10 +5807,33 @@ class RagService:
                     )
                 ]
                 vector_candidates = [self._candidate_from_vector(item) for item in vector_results]
+        (
+            vector_candidates,
+            lexical_candidates,
+            rejection_diagnostics,
+        ) = config.filter_absolute_channels(vector_candidates, lexical_candidates)
+        promotion_ineligibility_reasons: list[str] = []
+        if not is_v3:
+            promotion_ineligibility_reasons.append("legacy_index_schema")
+        elif not config.uses_absolute_relevance:
+            promotion_ineligibility_reasons.append("legacy_threshold_contract")
+        elif config.uses_absolute_relevance:
+            if config.threshold_contract_status != "configured":
+                promotion_ineligibility_reasons.append(
+                    "threshold_contract_unconfigured"
+                )
+            if any(
+                not bool(item.get("raw_score_contract_valid", True))
+                for item in rejection_diagnostics
+            ):
+                promotion_ineligibility_reasons.append(
+                    "missing_raw_channel_score"
+                )
         fused = fuse_rankings(vector_candidates, lexical_candidates, effective_config)
-        fused = [
-            item for item in fused if item.fused_score >= config.score_threshold
-        ]
+        if not config.uses_absolute_relevance:
+            fused = [
+                item for item in fused if item.fused_score >= config.score_threshold
+            ]
 
         rerank_provider = "none"
         rerank_model = ""
@@ -5789,6 +5891,55 @@ class RagService:
                 # Restoring the unranked tail makes rerank_top_n ineffective and
                 # systematically lowers fixed-cutoff citation precision.
                 fused = reranked
+                if (
+                    config.uses_absolute_relevance
+                    and config.min_rerank_score is not None
+                ):
+                    rerank_threshold = float(config.min_rerank_score)
+                    reranked_ids = {item.chunk_id for item in reranked}
+                    diagnostics_by_id = {
+                        str(item["chunk_id"]): item
+                        for item in rejection_diagnostics
+                    }
+                    for candidate in fused_before_rerank:
+                        current = diagnostics_by_id.setdefault(
+                            candidate.chunk_id,
+                            {
+                                "chunk_id": candidate.chunk_id,
+                                "vector_score": candidate.vector_score,
+                                "fulltext_score": candidate.fulltext_score,
+                                "vector_passed": None,
+                                "fulltext_passed": None,
+                                "accepted": True,
+                                "raw_score_contract_valid": True,
+                                "rejection_reason_codes": [],
+                            },
+                        )
+                        if candidate.chunk_id not in reranked_ids:
+                            current["rerank_score"] = None
+                            current["rerank_passed"] = False
+                            current["accepted"] = False
+                            current["rejection_reason_codes"] = [
+                                "rerank_not_returned"
+                            ]
+                    accepted_reranked: list[RetrievalCandidate] = []
+                    for candidate in reranked:
+                        current = diagnostics_by_id[candidate.chunk_id]
+                        current["rerank_score"] = candidate.rerank_score
+                        current["rerank_passed"] = bool(
+                            candidate.rerank_score is not None
+                            and float(candidate.rerank_score) >= rerank_threshold
+                        )
+                        current["accepted"] = current["rerank_passed"]
+                        current["rejection_reason_codes"] = (
+                            []
+                            if current["rerank_passed"]
+                            else ["below_min_rerank_score"]
+                        )
+                        if current["rerank_passed"]:
+                            accepted_reranked.append(candidate)
+                    rejection_diagnostics = list(diagnostics_by_id.values())
+                    fused = accepted_reranked
                 rerank_output_count = len(reranked)
                 rerank_tail_dropped = max(
                     0, len(fused_before_rerank) - rerank_output_count
@@ -5798,6 +5949,8 @@ class RagService:
                 # full fused ranking and surfaces the warning/receipt.
                 fused = fused_before_rerank
                 rerank_output_count = len(fused_before_rerank)
+                if config.uses_absolute_relevance:
+                    promotion_ineligibility_reasons.append("rerank_fail_open")
 
         deleted_document_ids = self._deleted_document_ids()
         results = select_candidates(
@@ -5808,7 +5961,9 @@ class RagService:
                     str(item.doc_id), deleted_document_ids
                 )
             ],
-            score_threshold=config.score_threshold,
+            score_threshold=(
+                0.0 if config.uses_absolute_relevance else config.score_threshold
+            ),
             top_k=config.top_k,
         )
         if not results:
@@ -5830,6 +5985,8 @@ class RagService:
                     rerank_tail_dropped=rerank_tail_dropped,
                     rerank_details=rerank_details,
                     embedding_profile=resolved_embedding_profile,
+                    rejection_diagnostics=rejection_diagnostics,
+                    promotion_ineligibility_reasons=promotion_ineligibility_reasons,
                 ),
             }
 
@@ -5898,6 +6055,8 @@ class RagService:
                 rerank_tail_dropped=rerank_tail_dropped,
                 rerank_details=rerank_details,
                 embedding_profile=resolved_embedding_profile,
+                rejection_diagnostics=rejection_diagnostics,
+                promotion_ineligibility_reasons=promotion_ineligibility_reasons,
             ),
         }
 
@@ -6462,7 +6621,8 @@ class RagService:
         *,
         top_k: int | None,
     ) -> RetrievalConfig:
-        if version and int(version.get("index_schema_version", 1)) >= 2:
+        schema_version = int(version.get("index_schema_version", 1)) if version else 1
+        if version and schema_version >= 2:
             base = RetrievalConfig.from_mapping(version.get("retrieval_profile"))
         else:
             base = RetrievalConfig.from_mapping(
@@ -6476,7 +6636,50 @@ class RagService:
         merged = dict(override or {})
         if top_k is not None:
             merged["top_k"] = top_k
+        if schema_version >= INDEX_SCHEMA_VERSION:
+            return self._v3_retrieval_config_from_patch(merged, base=base)
         return RetrievalConfig.from_mapping(merged, base=base)
+
+    @staticmethod
+    def _new_v3_retrieval_config() -> RetrievalConfig:
+        return RetrievalConfig.from_mapping(
+            {"no_result_policy": ABSOLUTE_NO_RESULT_POLICY}
+        )
+
+    @staticmethod
+    def _v3_retrieval_config_from_patch(
+        value: dict[str, Any] | None,
+        *,
+        base: RetrievalConfig,
+    ) -> RetrievalConfig:
+        patch = dict(value or {})
+        patch.pop("threshold_contract_status", None)
+        absolute_fields = {
+            "min_vector_similarity",
+            "min_lexical_confidence",
+            "min_rerank_score",
+        }
+        absolute_fields_present = any(field in patch for field in absolute_fields)
+        requests_absolute = (
+            absolute_fields_present
+            or patch.get("no_result_policy") == ABSOLUTE_NO_RESULT_POLICY
+        )
+        if "score_threshold" in patch and requests_absolute:
+            raise ValueError(
+                "retrieval.score_threshold is legacy V2-only and cannot be combined "
+                "with the V3 absolute relevance contract."
+            )
+        if "score_threshold" in patch and base.uses_absolute_relevance:
+            legacy_base = base.payload()
+            legacy_base["no_result_policy"] = LEGACY_NO_RESULT_POLICY
+            legacy_base["score_threshold"] = 0.0
+            base = RetrievalConfig.from_mapping(legacy_base)
+        if requests_absolute and not base.uses_absolute_relevance:
+            upgraded = base.payload()
+            upgraded.pop("score_threshold", None)
+            upgraded["no_result_policy"] = ABSOLUTE_NO_RESULT_POLICY
+            base = RetrievalConfig.from_mapping(upgraded)
+        return RetrievalConfig.from_mapping(patch, base=base)
 
     def _candidate_from_vector(self, item: SearchResult) -> RetrievalCandidate:
         return RetrievalCandidate(
@@ -6499,7 +6702,12 @@ class RagService:
             vector_score=item.score,
         )
 
-    def _candidate_from_lexical(self, item: LexicalSearchResult) -> RetrievalCandidate:
+    def _candidate_from_lexical(
+        self,
+        item: LexicalSearchResult,
+        *,
+        require_absolute_score: bool = False,
+    ) -> RetrievalCandidate:
         return RetrievalCandidate(
             chunk_id=item.chunk_id,
             doc_id=item.doc_id,
@@ -6517,7 +6725,12 @@ class RagService:
             row_range=item.row_range,
             visual_kind=item.visual_kind,
             source_block_id=item.source_block_id,
-            fulltext_score=item.score,
+            fulltext_score=(
+                item.score
+                if not require_absolute_score
+                or item.score_contract == "weighted_term_coverage_v1"
+                else None
+            ),
         )
 
     def _retrieval_diagnostics(
@@ -6533,8 +6746,24 @@ class RagService:
         rerank_tail_dropped: int,
         rerank_details: dict[str, Any],
         embedding_profile: dict[str, Any],
+        rejection_diagnostics: list[dict[str, Any]],
+        promotion_ineligibility_reasons: list[str],
     ) -> dict[str, Any]:
         effective = dict(embedding_profile.get("effective") or {})
+        threshold_score_domain = "fused_score"
+        if config.uses_absolute_relevance:
+            threshold_score_domain = (
+                "rerank_score"
+                if rerank_provider != "none"
+                and config.rerank_enabled
+                and config.min_rerank_score is not None
+                else "channel_absolute_scores"
+                if config.channel_thresholds_configured
+                else "unconfigured"
+            )
+        ineligibility_reasons = list(
+            dict.fromkeys(str(item) for item in promotion_ineligibility_reasons if item)
+        )
         return {
             **config.payload(),
             "vector_candidate_count": vector_count,
@@ -6546,7 +6775,13 @@ class RagService:
             "rerank_output_count": max(0, int(rerank_output_count)),
             "rerank_tail_dropped": max(0, int(rerank_tail_dropped)),
             **rerank_details,
-            "threshold_score_domain": "fused_score",
+            "threshold_score_domain": threshold_score_domain,
+            "threshold_contract_status": config.threshold_contract_status,
+            "rejection_diagnostics": json.loads(
+                json.dumps(rejection_diagnostics)
+            ),
+            "promotion_eligible": not ineligibility_reasons,
+            "promotion_ineligibility_reasons": ineligibility_reasons,
             "embedding_provider": str(effective.get("provider") or ""),
             "embedding_model": str(effective.get("model") or ""),
             "embedding_dimension": int(effective.get("dimension") or 0),
@@ -7230,7 +7465,7 @@ class RagService:
         defaults = self._default_pipeline_draft_stages()
         draft = metadata["pipeline_drafts"].get(kb_id)
         if not isinstance(draft, dict):
-            retrieval_profile = RetrievalConfig().payload()
+            retrieval_profile = self._new_v3_retrieval_config().payload()
             embedding_profile = self._default_embedding_profile()
             return {
                 "draft_id": f"draft_{kb_id}",
@@ -7338,7 +7573,7 @@ class RagService:
                 draft.get("embedding_profile"),
                 compiled.embedding_profile,
             )
-            retrieval = RetrievalConfig.from_mapping(
+            retrieval = self._v3_retrieval_config_from_patch(
                 compiled.retrieval_profile,
                 base=RetrievalConfig.from_mapping(draft.get("retrieval_profile")),
             ).payload()

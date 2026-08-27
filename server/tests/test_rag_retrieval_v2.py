@@ -568,7 +568,8 @@ async def test_successful_rerank_top_n_does_not_restore_unranked_tail(
     assert result["retrieval"]["rerank_input_count"] == 8
     assert result["retrieval"]["rerank_output_count"] == 2
     assert result["retrieval"]["rerank_tail_dropped"] == 6
-    assert result["retrieval"]["threshold_score_domain"] == "fused_score"
+    assert result["retrieval"]["threshold_score_domain"] == "unconfigured"
+    assert result["retrieval"]["threshold_contract_status"] == "unconfigured"
     assert result["retrieval"]["rerank_requested_input_count"] == 8
     assert result["retrieval"]["rerank_timeout_budget_ms"] == 5_000
     assert result["retrieval"]["rerank_elapsed_ms"] == 12.5
@@ -809,8 +810,17 @@ async def test_auto_rerank_timeout_does_not_start_llm_fallback(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("response_kind", ["invalid_json", "empty_results"])
-async def test_invalid_or_empty_rerank_response_falls_back_safely(
+@pytest.mark.parametrize(
+    "response_kind",
+    [
+        "invalid_json",
+        "empty_results",
+        "non_finite_score",
+        "out_of_range_score",
+        "partially_invalid_scores",
+    ],
+)
+async def test_invalid_empty_or_non_finite_rerank_response_falls_back_safely(
     monkeypatch: pytest.MonkeyPatch,
     response_kind: str,
 ) -> None:
@@ -826,6 +836,29 @@ async def test_invalid_or_empty_rerank_response_falls_back_safely(
                 content=b"{not-json",
                 request=httpx.Request("POST", url),
             )
+        if response_kind == "non_finite_score":
+            return httpx.Response(
+                200,
+                json={"results": [{"index": 0, "relevance_score": "NaN"}]},
+                request=httpx.Request("POST", url),
+            )
+        if response_kind == "out_of_range_score":
+            return httpx.Response(
+                200,
+                json={"results": [{"index": 0, "relevance_score": 1.5}]},
+                request=httpx.Request("POST", url),
+            )
+        if response_kind == "partially_invalid_scores":
+            return httpx.Response(
+                200,
+                json={
+                    "results": [
+                        {"index": 0, "relevance_score": 0.9},
+                        {"index": 1, "relevance_score": "NaN"},
+                    ]
+                },
+                request=httpx.Request("POST", url),
+            )
         return httpx.Response(
             200,
             json={"results": []},
@@ -835,7 +868,7 @@ async def test_invalid_or_empty_rerank_response_falls_back_safely(
     monkeypatch.setattr(httpx.AsyncClient, "post", post)
     outcome = await service.rerank(
         "safe fallback",
-        [RerankDocument("a", "alpha")],
+        [RerankDocument("a", "alpha"), RerankDocument("b", "beta")],
         provider="api",
         top_n=1,
     )

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 import re
 import time
@@ -445,19 +446,27 @@ def _parse_ranked_items(
     seen: set[int] = set()
     for raw in raw_results:
         if not isinstance(raw, dict):
-            continue
+            raise ValueError("Rerank provider returned an invalid result item.")
         try:
             index = int(raw.get("index"))
             score = float(raw.get("relevance_score", raw.get("score")))
-        except (TypeError, ValueError):
-            continue
-        if index < 0 or index >= len(documents) or index in seen:
-            continue
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "Rerank provider returned an invalid result item."
+            ) from exc
+        if (
+            index < 0
+            or index >= len(documents)
+            or index in seen
+            or not math.isfinite(score)
+            or not 0.0 <= score <= 1.0
+        ):
+            raise ValueError("Rerank provider returned an invalid result item.")
         seen.add(index)
         items.append(
             RerankItem(
                 chunk_id=documents[index].chunk_id,
-                score=max(0.0, min(1.0, score)),
+                score=score,
             )
         )
     if not items:
