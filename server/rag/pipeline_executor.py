@@ -156,7 +156,8 @@ class KnowledgePipelineExecutor:
                 summary=f"Processing {len(job['sources'])} source files.",
                 metadata={"attempt": job["attempt"], "source_count": len(job["sources"])},
             )
-            self.service.vector_store.delete_knowledge_base(namespace)
+            if self._job_uses_vector(job):
+                self.service.vector_store.delete_knowledge_base(namespace)
             self.service.lexical_store.delete_namespace(namespace)
 
             await self._stage(job_id, "load", self._load_sources)
@@ -164,6 +165,9 @@ class KnowledgePipelineExecutor:
             parsed = await self._stage(job_id, "process", self._parse_sources)
             chunks = await self._stage(job_id, "chunk", self._chunk_sources, parsed)
             embeddings = await self._stage(job_id, "embed", self._embed_chunks, chunks)
+            namespace = str(
+                self.service.get_pipeline_job(job_id)["candidate_namespace"]
+            )
             await self._stage(job_id, "store", self._store_chunks, chunks, embeddings)
 
             version = self.service.complete_pipeline_job(
@@ -265,7 +269,9 @@ class KnowledgePipelineExecutor:
 
     def _discard_pipeline_candidate(self, job_id: str, namespace: str) -> bool:
         try:
-            self.service.vector_store.delete_knowledge_base(namespace)
+            job = self.service.get_pipeline_job(job_id)
+            if self._job_uses_vector(job):
+                self.service.vector_store.delete_knowledge_base(namespace)
             self.service.lexical_store.delete_namespace(namespace)
             self.service.cleanup_invalidated_pipeline_job(job_id)
         except Exception:
@@ -275,6 +281,22 @@ class KnowledgePipelineExecutor:
             )
             return False
         return True
+
+    @staticmethod
+    def _job_uses_vector(job: dict[str, Any]) -> bool:
+        snapshot = job.get("config_snapshot")
+        retrieval = snapshot.get("retrieval_profile") if isinstance(snapshot, dict) else None
+        return str((retrieval or {}).get("mode") or "hybrid") in {"vector", "hybrid"}
+
+    @staticmethod
+    def _job_uses_fulltext(job: dict[str, Any]) -> bool:
+        snapshot = job.get("config_snapshot")
+        retrieval = snapshot.get("retrieval_profile") if isinstance(snapshot, dict) else None
+        return str((retrieval or {}).get("mode") or "hybrid") in {
+            "vector",
+            "fulltext",
+            "hybrid",
+        }
 
     async def _stage(
         self,
@@ -585,6 +607,8 @@ class KnowledgePipelineExecutor:
         chunks: list[dict[str, Any]],
     ) -> list[list[float]]:
         job = self.service.get_pipeline_job(job_id)
+        if not self._job_uses_vector(job):
+            return []
         snapshot = job["config_snapshot"]
         profile = snapshot.get("embedding_profile", {}) if isinstance(snapshot, dict) else {}
         effective = profile.get("effective") if isinstance(profile, dict) else None
@@ -656,6 +680,12 @@ class KnowledgePipelineExecutor:
         namespace = str(job["candidate_namespace"])
         vector_chunks: list[VectorChunk] = []
         lexical_chunks: list[LexicalChunk] = []
+        uses_vector = self._job_uses_vector(job)
+        uses_fulltext = self._job_uses_fulltext(job)
+        if uses_vector and len(embeddings) != len(chunks):
+            raise EmbeddingError(
+                "Vector index input does not match the embedded chunk count."
+            )
         for position, item in enumerate(chunks):
             source = item["source"]
             source_id = str(source["source_id"])
@@ -680,32 +710,41 @@ class KnowledgePipelineExecutor:
                 "source_block_id": item.get("source_block_id"),
                 "source_block_hash": item.get("source_block_hash"),
             }
-            vector_chunks.append(
-                VectorChunk(
-                    id=chunk_id,
-                    kb_id=namespace,
-                    doc_id=doc_id,
-                    document_name=str(source["filename"]),
-                    text=str(item.get("index_text") or ""),
-                    embedding=embeddings[position],
-                    chunk_index=int(item["index"]),
-                    **common,
+            if uses_vector:
+                vector_chunks.append(
+                    VectorChunk(
+                        id=chunk_id,
+                        kb_id=namespace,
+                        doc_id=doc_id,
+                        document_name=str(source["filename"]),
+                        text=str(item.get("index_text") or ""),
+                        embedding=embeddings[position],
+                        chunk_index=int(item["index"]),
+                        **common,
+                    )
                 )
-            )
-            lexical_chunks.append(
-                LexicalChunk(
-                    chunk_id=chunk_id,
-                    namespace=namespace,
-                    doc_id=doc_id,
-                    document_name=str(source["filename"]),
-                    text=str(item.get("index_text") or ""),
-                    chunk_index=int(item["index"]),
-                    **common,
+            if uses_fulltext:
+                lexical_chunks.append(
+                    LexicalChunk(
+                        chunk_id=chunk_id,
+                        namespace=namespace,
+                        doc_id=doc_id,
+                        document_name=str(source["filename"]),
+                        text=str(item.get("index_text") or ""),
+                        chunk_index=int(item["index"]),
+                        **common,
+                    )
                 )
-            )
-        self.service.vector_store.add_chunks(vector_chunks)
-        self.service.lexical_store.add_chunks(lexical_chunks)
-        if self.service.lexical_store.count_namespace(namespace) != len(lexical_chunks):
+        if uses_vector:
+            self.service.vector_store.add_chunks(vector_chunks)
+            count_namespace = getattr(self.service.vector_store, "count_namespace", None)
+            if not callable(count_namespace):
+                raise RuntimeError("Vector backend cannot verify the stored index count.")
+            if int(count_namespace(namespace)) != len(vector_chunks):
+                raise RuntimeError("Vector index count does not match the embedded chunk count.")
+        if uses_fulltext:
+            self.service.lexical_store.add_chunks(lexical_chunks)
+        if uses_fulltext and self.service.lexical_store.count_namespace(namespace) != len(lexical_chunks):
             raise RuntimeError("Full-text index count does not match the vector candidate index.")
 
 

@@ -319,6 +319,15 @@ class KnowledgeBenchmarkProvisioner:
         raw_cases: list[dict[str, Any]],
         document_ids: dict[str, str],
     ) -> list[dict[str, Any]]:
+        version = self.rag_service.get_pipeline_version(version_id)
+        retrieval_mode = str(
+            (version.get("retrieval_profile") or {}).get("mode") or "vector"
+        )
+        chunk_store = (
+            self.rag_service.lexical_store
+            if retrieval_mode == "fulltext"
+            else self.rag_service.vector_store
+        )
         resolved: list[dict[str, Any]] = []
         for raw_case in raw_cases:
             references: list[dict[str, Any]] = []
@@ -330,7 +339,7 @@ class KnowledgeBenchmarkProvisioner:
                         f"Gold document mapping is missing for {document_key}."
                     )
                 phrase = str(reference.get("anchor_phrase") or "")
-                chunks = self.rag_service.vector_store.list_document_chunks(
+                chunks = chunk_store.list_document_chunks(
                     f"{version_id}_{document_id}"
                 )
                 normalized_phrase = _normalize_anchor_text(phrase)

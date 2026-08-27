@@ -218,7 +218,7 @@ async def test_v2_candidate_builds_dual_index_and_lifts_parent_context(tmp_path:
     assert await executor.run_once() is True
     completed = service.get_pipeline_job(job["job_id"])
     version = service.get_pipeline_version(completed["candidate_version_id"])
-    assert version["index_schema_version"] == 2
+    assert version["index_schema_version"] == 3
     assert version["vector_index_ready"] is True
     assert version["lexical_index_ready"] is True
     assert service.lexical_store.count_namespace(version["namespace"]) == version["chunk_count"]
