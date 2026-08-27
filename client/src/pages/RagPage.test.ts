@@ -10,6 +10,7 @@ import RagPage, {
   isRagFileSelectionDisabled,
   ragUploadStatusLabel,
   readError,
+  retrievalProfileFromEdits,
 } from "./RagPage";
 
 function jsonResponse(payload: unknown, status = 200) {
@@ -204,6 +205,73 @@ function renderRagPageWithOfficeUploadError(
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+describe("RAG V3 retrieval threshold serialization", () => {
+  const baseEdits = {
+    processorMode: "general" as const,
+    processorModelId: "",
+    processorFailurePolicy: "continue_on_error" as const,
+    extractTitle: true,
+    preserveTables: true,
+    preserveCodeBlocks: true,
+    removeRepeatedHeadersFooters: true,
+    maxGeneratedItems: "20",
+    strategy: "recursive_character" as const,
+    chunkSize: "500",
+    chunkOverlap: "50",
+    separators: "",
+    parentChunkSize: "1500",
+    parentChunkOverlap: "100",
+    parentSeparators: "",
+    childChunkSize: "400",
+    childChunkOverlap: "50",
+    childSeparators: "",
+    embeddingProvider: "hash" as const,
+    embeddingModel: "deterministic-hash-v1",
+    retrievalMode: "hybrid" as const,
+    vectorWeight: "0.7",
+    fulltextWeight: "0.3",
+    topK: "5",
+    scoreThreshold: "0.42",
+    candidateMultiplier: "4",
+    rerankEnabled: true,
+    rerankProvider: "api" as const,
+    rerankModel: "reranker",
+    rerankTopN: "5",
+  };
+
+  it("sends only absolute score domains for a V3 draft", () => {
+    const payload = retrievalProfileFromEdits({
+      ...baseEdits,
+      absoluteThresholdContract: true,
+      minVectorSimilarity: "0.71",
+      minLexicalConfidence: "0.63",
+      minRerankScore: "",
+    });
+
+    expect(payload).toMatchObject({
+      no_result_policy: "absolute_relevance_v1",
+      min_vector_similarity: 0.71,
+      min_lexical_confidence: 0.63,
+      min_rerank_score: null,
+    });
+    expect(payload).not.toHaveProperty("score_threshold");
+  });
+
+  it("keeps an explicit historical profile in the legacy score domain", () => {
+    const payload = retrievalProfileFromEdits({
+      ...baseEdits,
+      absoluteThresholdContract: false,
+      minVectorSimilarity: "",
+      minLexicalConfidence: "",
+      minRerankScore: "",
+    });
+
+    expect(payload).toMatchObject({ score_threshold: 0.42 });
+    expect(payload).not.toHaveProperty("no_result_policy");
+    expect(payload).not.toHaveProperty("min_vector_similarity");
+  });
 });
 
 describe("RAG structured API errors", () => {

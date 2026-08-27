@@ -50,6 +50,7 @@ class LexicalSearchResult:
     text: str
     score: float
     rank: int
+    score_contract: str = "weighted_term_coverage_v1"
     parent_chunk_id: str | None = None
     parent_text: str | None = None
     chunk_type: str = "standard"
@@ -154,6 +155,11 @@ class SqliteLexicalStore:
                     fallback_rank=index + 1,
                 ),
                 rank=index + 1,
+                score_contract=(
+                    "weighted_term_coverage_v1"
+                    if confidence_weights
+                    else "legacy_rank_fallback"
+                ),
                 parent_chunk_id=str(row["parent_chunk_id"]) if row["parent_chunk_id"] else None,
                 parent_text=str(row["parent_text"]) if row["parent_text"] else None,
                 chunk_type=str(row["chunk_type"] or "standard"),

@@ -709,6 +709,7 @@ export default function KnowledgePipelineCanvasPage() {
 function NodeConfig({ node, onChange }: { node: GraphFlowNode; onChange: (patch: Record<string, unknown>) => void }) {
   const { kind, config } = node.data;
   const meta = NODE_META[kind];
+  const absoluteThresholdContract = config.no_result_policy === "absolute_relevance_v1";
   return (
     <div className="space-y-5">
       <div>
@@ -759,7 +760,19 @@ function NodeConfig({ node, onChange }: { node: GraphFlowNode; onChange: (patch:
           <SelectField label="检索模式" value={String(config.mode || "hybrid")} options={["vector", "fulltext", "hybrid"]} onChange={(value) => onChange({ mode: value })} />
           <NumberField label="向量权重 (%)" min={0} max={100} value={Math.round(Number(config.vector_weight ?? 0.7) * 100)} onChange={(value) => onChange({ vector_weight: value / 100, fulltext_weight: 1 - value / 100 })} />
           <NumberField label="Top-K" min={1} max={50} value={Number(config.top_k || 5)} onChange={(value) => onChange({ top_k: value })} />
-          <NumberField label="Score 阈值 (%)" min={0} max={100} value={Math.round(Number(config.score_threshold || 0) * 100)} onChange={(value) => onChange({ score_threshold: value / 100 })} />
+          {absoluteThresholdContract ? (
+            <>
+              {config.mode !== "fulltext" ? <OptionalNumberField label="最低向量相似度 (%)" min={0} max={100} value={typeof config.min_vector_similarity === "number" ? Math.round(config.min_vector_similarity * 100) : null} onChange={(value) => onChange({ min_vector_similarity: value === null ? null : value / 100 })} /> : null}
+              {config.mode !== "vector" ? <OptionalNumberField label="最低全文置信度 (%)" min={0} max={100} value={typeof config.min_lexical_confidence === "number" ? Math.round(config.min_lexical_confidence * 100) : null} onChange={(value) => onChange({ min_lexical_confidence: value === null ? null : value / 100 })} /> : null}
+              {config.rerank_enabled ? <OptionalNumberField label="最低 Rerank 分数 (%)" min={0} max={100} value={typeof config.min_rerank_score === "number" ? Math.round(config.min_rerank_score * 100) : null} onChange={(value) => onChange({ min_rerank_score: value === null ? null : value / 100 })} /> : null}
+            </>
+          ) : (
+            <div className="space-y-3 rounded-md border border-amber-300/20 bg-amber-300/5 p-3">
+              <NumberField label="Legacy fused score 阈值 (%)" min={0} max={100} value={Math.round(Number(config.score_threshold || 0) * 100)} onChange={(value) => onChange({ score_threshold: value / 100 })} />
+              <p className="text-[11px] leading-5 text-amber-100/70">历史兼容配置仅供诊断。切换后不会自动填写生产阈值。</p>
+              <button className="rounded-md border border-amber-300/30 px-3 py-2 text-xs font-semibold text-amber-100 hover:bg-amber-300/10" onClick={() => onChange({ no_result_policy: "absolute_relevance_v1", score_threshold: undefined, min_vector_similarity: null, min_lexical_confidence: null, min_rerank_score: null })} type="button">切换到 V3 绝对阈值合同</button>
+            </div>
+          )}
           <ToggleField label="启用 Rerank" checked={Boolean(config.rerank_enabled)} onChange={(value) => onChange({ rerank_enabled: value })} />
           <SelectField label="Rerank Provider" value={String(config.rerank_provider || "auto")} options={["auto", "api", "llm", "none"]} onChange={(value) => onChange({ rerank_provider: value })} />
           {config.rerank_enabled ? (
@@ -794,7 +807,7 @@ function defaultConfig(kind: GraphNodeKind): Record<string, unknown> {
   if (kind === "parent_child_chunker") return { strategy: "parent_child", parent_chunk_size: 1500, parent_chunk_overlap: 100, child_chunk_size: 400, child_chunk_overlap: 50, parent_separators: ["\n\n", "\n", ". ", " ", ""], child_separators: ["\n\n", "\n", ". ", " ", ""] };
   if (kind === "embedding") return { model: DEFAULT_EMBEDDING_MODEL_ID };
   if (kind === "dual_index") return { vector_enabled: true, fulltext_enabled: true };
-  if (kind === "retrieval") return { mode: "hybrid", vector_weight: 0.7, fulltext_weight: 0.3, top_k: 5, score_threshold: 0, candidate_multiplier: 4, rerank_enabled: false, rerank_provider: "auto", rerank_model: "", rerank_top_n: 5 };
+  if (kind === "retrieval") return { mode: "hybrid", vector_weight: 0.7, fulltext_weight: 0.3, top_k: 5, min_vector_similarity: null, min_lexical_confidence: null, min_rerank_score: null, no_result_policy: "absolute_relevance_v1", threshold_contract_status: "unconfigured", candidate_multiplier: 4, rerank_enabled: false, rerank_provider: "auto", rerank_model: "", rerank_top_n: 5 };
   if (kind === "image_understanding") return { enabled: true, provider: "openai_compatible_vlm", vision_model_id: "", pdf_page_strategy: "auto", render_dpi: 144, max_pages: 100, max_image_edge: 2048, failure_policy: "continue_on_error" };
   return {};
 }
@@ -859,6 +872,10 @@ function RerankModelField({ value, onChange }: { value: string; onChange: (value
 
 function NumberField({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (value: number) => void }) {
   return <label className="block text-xs font-semibold text-slate-300">{label}<input className="mt-2 w-full rounded-md border border-white/10 bg-surface-950 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50" max={max} min={min} onChange={(event) => onChange(Number(event.target.value))} type="number" value={value} /></label>;
+}
+
+function OptionalNumberField({ label, value, min, max, onChange }: { label: string; value: number | null; min: number; max: number; onChange: (value: number | null) => void }) {
+  return <label className="block text-xs font-semibold text-slate-300">{label}<input className="mt-2 w-full rounded-md border border-white/10 bg-surface-950 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50" max={max} min={min} onChange={(event) => onChange(event.target.value === "" ? null : Number(event.target.value))} placeholder="未配置" type="number" value={value ?? ""} /></label>;
 }
 
 function SelectField({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (value: string) => void }) {

@@ -2,12 +2,41 @@
 
 本文件说明模镜本地 RAG 模块的架构、API、扩展方式和测试方法。该模块位于 `server/rag/`，前端入口为 `/rag`，聊天页可选择知识库进行检索增强问答。
 
-最后更新日期：2026-08-26
+最后更新日期：2026-08-27
 
 > **当前状态：** `/rag` 是 ModelMirror 本地主路径。知识流水线已支持候选版本、
 > 人工激活/回滚、Processor、可选视觉理解、向量 + FTS5 双索引、检索评测和
 > Promotion Gate。下方按日期保留的段落是增量记录；较早段落中的“planned”
 > 只代表当时状态。
+
+## 2026-08-27 P0：V3 绝对相关性与无结果合同
+
+新建 V3 草稿使用 `no_result_policy=absolute_relevance_v1`，并按检索路径分别配置
+`min_vector_similarity`、`min_lexical_confidence` 和可选 Rerank 的
+`min_rerank_score`。阈值不再作用于 RRF：Vector/Full-text 候选先在各自的绝对分数域
+完成准入，Hybrid 只融合至少通过一个通道的候选，RRF 仅决定通过候选的顺序。成功
+Rerank 后，`min_rerank_score` 是最终权威过滤；Provider 失败才退回通道准入后的融合
+排序，并在回执中标记 `rerank_fail_open` 和不可晋级。Rerank Provider 分数必须是
+`[0,1]` 内的有限值；非有限或越界分数按非法响应安全回退，不再静默 clamp。
+
+Full-text 的 V3 绝对分数只接受稀有度加权 term coverage。查询缺少有效 token 时，历史
+V2 仍可读取其 rank fallback，但 V3 会把该分数视为非绝对证据并拒绝，避免单候选因
+Rank 1 自动获得 1.0。
+
+阈值可以留空用于诊断，此时 `threshold_contract_status=unconfigured`，查询不会伪造
+默认生产阈值，但候选不能晋级。检索回执增加每个候选的原始通道分数、通过状态、脱敏
+拒绝原因、实际阈值分数域和本次晋级资格；过滤后无候选会返回真实空结果。V3 晋级要求
+所有当前模式所需阈值均已配置，并绑定独立的 `rag-threshold-calibration-v1` 证据；证据
+中的 `retrieval_profile_checksum` 必须与待晋级版本的完整检索配置一致，旧配置的校准证据
+不能复用到修改后的阈值或 Rerank 模型合同；`configuration_fingerprint` 还必须绑定
+版本的 Embedding、Processor 与检索配置，`source_manifest_fingerprint` 必须绑定校准时的
+语料清单，禁止跨执行配置或跨语料复用校准结论。
+
+历史 `score_threshold` 仍可单独读取和运行，明确标记为 legacy/diagnostic；它继续过滤
+Rerank 前的 `fused_score`。同一请求混用旧字段与任一新绝对阈值会被拒绝，legacy V3
+配置也不能晋级。已有 legacy 草稿可在 Pipeline UI 中显式切换合同，但系统不会迁移或
+猜测任何新阈值。既有 Strategy Tuner 仍只产生 legacy fused-score 诊断结果；在后续
+独立 tuning/calibration 集合同落地前，不把它提升为 V3 校准证据。
 
 ## 2026-08-26 P0：V3 索引身份与后端就绪合同
 
@@ -311,7 +340,7 @@ Preview 最多返回 20 个截断结构块或生成项，不写草稿、Job 或�
 
 ## 2026-07-13 增量：Advanced RAG Retrieval V2
 
-候选知识版本现在固定分块、Embedding 与检索 profile，并原子构建向量和 SQLite FTS5 双索引。`/rag` 可以配置递归字符分块或父子分段、有序分段标识符、Embedding 模型、全文/向量/混合检索、权重、Top-K、score 阈值、候选倍数和可选 Rerank。
+候选知识版本现在固定分块、Embedding 与检索 profile，并原子构建向量和 SQLite FTS5 双索引。`/rag` 可以配置递归字符分块或父子分段、有序分段标识符、Embedding 模型、全文/向量/混合检索、权重、Top-K、score 阈值、候选倍数和可选 Rerank。以下 `score_threshold` 示例只描述历史 V2/legacy 合同；新 V3 草稿使用本文顶部的绝对相关性字段。
 
 新增安全能力摘要：
 

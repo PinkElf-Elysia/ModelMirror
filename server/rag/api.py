@@ -255,11 +255,29 @@ class RetrievalOptionsPayload(BaseModel):
     fulltext_weight: float | None = None
     top_k: int | None = None
     score_threshold: float | None = None
+    min_vector_similarity: float | None = None
+    min_lexical_confidence: float | None = None
+    min_rerank_score: float | None = None
+    no_result_policy: Literal["absolute_relevance_v1"] | None = None
     candidate_multiplier: int | None = None
     rerank_enabled: bool | None = None
     rerank_provider: str | None = None
     rerank_model: str | None = None
     rerank_top_n: int | None = None
+
+
+def _retrieval_options_patch(payload: RetrievalOptionsPayload) -> dict[str, Any]:
+    """Preserve explicit V3 threshold clears without changing other null semantics."""
+
+    value = payload.model_dump(exclude_none=True)
+    for field in {
+        "min_vector_similarity",
+        "min_lexical_confidence",
+        "min_rerank_score",
+    }:
+        if field in payload.model_fields_set and getattr(payload, field) is None:
+            value[field] = None
+    return value
 
 
 class RagQueryRequest(BaseModel):
@@ -655,6 +673,8 @@ class PipelineVersionPayload(BaseModel):
     embedding_space_fingerprint: str = ""
     provider_route_receipts: dict[str, Any] | None = None
     retrieval_profile: dict[str, Any] = Field(default_factory=dict)
+    threshold_contract_status: str = "legacy"
+    threshold_calibration_evidence: dict[str, Any] | None = None
     vector_index_ready: bool = True
     lexical_index_ready: bool = False
     index_contract: dict[str, Any] = Field(default_factory=dict)
@@ -1568,7 +1588,7 @@ async def update_pipeline_draft(
                 for stage_id, stage_update in payload.stages.items()
             },
             retrieval_profile=(
-                payload.retrieval_profile.model_dump(exclude_none=True)
+                _retrieval_options_patch(payload.retrieval_profile)
                 if payload.retrieval_profile
                 else None
             ),
@@ -2242,7 +2262,7 @@ async def create_evaluation_run(
                     "version_id": target.version_id,
                     "version": int(version["version"]),
                     "label": target.label or f"v{version['version']}",
-                    "retrieval": target.retrieval.model_dump(exclude_none=True) if target.retrieval else {},
+                    "retrieval": _retrieval_options_patch(target.retrieval) if target.retrieval else {},
                     "version_evidence": get_rag_service().pipeline_version_evidence(
                         target.version_id
                     ),
@@ -2358,7 +2378,7 @@ async def query_pipeline_version(
             payload.question,
             top_k=payload.top_k,
             retrieval=(
-                payload.retrieval.model_dump(exclude_none=True)
+                _retrieval_options_patch(payload.retrieval)
                 if payload.retrieval
                 else None
             ),
@@ -2429,7 +2449,10 @@ async def activate_pipeline_version(
             evaluation_run_id=payload.evaluation_run_id if payload else None,
             require_passed_run=bool(stored.get("promotion_required")),
         )
-        version = get_rag_service().activate_pipeline_version(version_id)
+        version = get_rag_service().activate_pipeline_version(
+            version_id,
+            promotion=bool(stored.get("promotion_required")),
+        )
         await get_pipeline_executor().record_job_event(
             str(stored["job_id"]),
             event_type="knowledge_pipeline.version_activated",
@@ -2491,7 +2514,7 @@ async def create_pipeline_citations(payload: CitationAnchorRequest) -> CitationA
             payload.question,
             top_k=payload.top_k,
             retrieval=(
-                payload.retrieval.model_dump(exclude_none=True)
+                _retrieval_options_patch(payload.retrieval)
                 if payload.retrieval
                 else None
             ),
@@ -2538,7 +2561,7 @@ async def query_knowledge_base(payload: RagQueryRequest) -> RagQueryResponse:
             payload.question,
             top_k=payload.top_k,
             retrieval=(
-                payload.retrieval.model_dump(exclude_none=True)
+                _retrieval_options_patch(payload.retrieval)
                 if payload.retrieval
                 else None
             ),

@@ -229,6 +229,37 @@ async def test_rag_pipeline_draft_patch_persists_chunker_config(
 
 
 @pytest.mark.asyncio
+async def test_rag_pipeline_draft_patch_preserves_explicit_null_threshold(
+    client: httpx.AsyncClient,
+) -> None:
+    kb_id = await create_kb(client, "clear absolute threshold")
+
+    configured_response = await client.patch(
+        f"/api/rag/pipeline/draft/{kb_id}",
+        json={
+            "retrieval_profile": {
+                "mode": "fulltext",
+                "no_result_policy": "absolute_relevance_v1",
+                "min_lexical_confidence": 0.5,
+            }
+        },
+    )
+    assert configured_response.status_code == 200, configured_response.text
+    configured = configured_response.json()["retrieval_profile"]
+    assert configured["min_lexical_confidence"] == 0.5
+    assert configured["threshold_contract_status"] == "configured"
+
+    cleared_response = await client.patch(
+        f"/api/rag/pipeline/draft/{kb_id}",
+        json={"retrieval_profile": {"min_lexical_confidence": None}},
+    )
+    assert cleared_response.status_code == 200, cleared_response.text
+    cleared = cleared_response.json()["retrieval_profile"]
+    assert cleared["min_lexical_confidence"] is None
+    assert cleared["threshold_contract_status"] == "unconfigured"
+
+
+@pytest.mark.asyncio
 async def test_rag_pipeline_blocks_unavailable_requested_embedding(
     client: httpx.AsyncClient,
 ) -> None:

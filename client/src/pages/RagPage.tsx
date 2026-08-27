@@ -172,6 +172,10 @@ interface PipelineDraftEdits {
   fulltextWeight: string;
   topK: string;
   scoreThreshold: string;
+  absoluteThresholdContract: boolean;
+  minVectorSimilarity: string;
+  minLexicalConfidence: string;
+  minRerankScore: string;
   candidateMultiplier: string;
   rerankEnabled: boolean;
   rerankProvider: "none" | "auto" | "api" | "llm";
@@ -554,6 +558,45 @@ function numericProfileValue(profile: Record<string, unknown>, key: string, fall
   return Number.isFinite(value) ? value : fallback;
 }
 
+function optionalProfileValue(profile: Record<string, unknown>, key: string) {
+  const value = profile[key];
+  return typeof value === "number" && Number.isFinite(value) ? String(value) : "";
+}
+
+function optionalDraftNumber(value: string) {
+  const normalized = value.trim();
+  if (!normalized) return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function retrievalProfileFromEdits(edits: PipelineDraftEdits) {
+  const common = {
+    mode: edits.retrievalMode,
+    vector_weight: Number(edits.vectorWeight),
+    fulltext_weight: Number(edits.fulltextWeight),
+    top_k: Number(edits.topK),
+    candidate_multiplier: Number(edits.candidateMultiplier),
+    rerank_enabled: edits.rerankEnabled,
+    rerank_provider: edits.rerankEnabled ? edits.rerankProvider : "none",
+    rerank_model: edits.rerankModel.trim(),
+    rerank_top_n: Number(edits.rerankTopN),
+  };
+  if (!edits.absoluteThresholdContract) {
+    return {
+      ...common,
+      score_threshold: Number(edits.scoreThreshold),
+    };
+  }
+  return {
+    ...common,
+    no_result_policy: "absolute_relevance_v1",
+    min_vector_similarity: optionalDraftNumber(edits.minVectorSimilarity),
+    min_lexical_confidence: optionalDraftNumber(edits.minLexicalConfidence),
+    min_rerank_score: optionalDraftNumber(edits.minRerankScore),
+  };
+}
+
 function embeddingProfileSection(
   profile: Record<string, unknown> | undefined,
   key: "requested" | "effective",
@@ -612,6 +655,10 @@ function draftEditsFromResponse(draft: PipelineDraftResponse): PipelineDraftEdit
     fulltextWeight: String(numericProfileValue(retrieval, "fulltext_weight", 0.3)),
     topK: String(numericProfileValue(retrieval, "top_k", 5)),
     scoreThreshold: String(numericProfileValue(retrieval, "score_threshold", 0)),
+    absoluteThresholdContract: retrieval.no_result_policy === "absolute_relevance_v1",
+    minVectorSimilarity: optionalProfileValue(retrieval, "min_vector_similarity"),
+    minLexicalConfidence: optionalProfileValue(retrieval, "min_lexical_confidence"),
+    minRerankScore: optionalProfileValue(retrieval, "min_rerank_score"),
     candidateMultiplier: String(numericProfileValue(retrieval, "candidate_multiplier", 4)),
     rerankEnabled: Boolean(retrieval.rerank_enabled),
     rerankProvider: provider,
@@ -801,6 +848,10 @@ export default function RagPage() {
     fulltextWeight: "0.3",
     topK: "5",
     scoreThreshold: "0",
+    absoluteThresholdContract: true,
+    minVectorSimilarity: "",
+    minLexicalConfidence: "",
+    minRerankScore: "",
     candidateMultiplier: "4",
     rerankEnabled: false,
     rerankProvider: "auto",
@@ -1205,20 +1256,7 @@ export default function RagPage() {
             provider: pipelineDraftEdits.embeddingProvider,
             model: pipelineDraftEdits.embeddingModel.trim(),
           },
-          retrieval_profile: {
-            mode: pipelineDraftEdits.retrievalMode,
-            vector_weight: Number(pipelineDraftEdits.vectorWeight),
-            fulltext_weight: Number(pipelineDraftEdits.fulltextWeight),
-            top_k: Number(pipelineDraftEdits.topK),
-            score_threshold: Number(pipelineDraftEdits.scoreThreshold),
-            candidate_multiplier: Number(pipelineDraftEdits.candidateMultiplier),
-            rerank_enabled: pipelineDraftEdits.rerankEnabled,
-            rerank_provider: pipelineDraftEdits.rerankEnabled
-              ? pipelineDraftEdits.rerankProvider
-              : "none",
-            rerank_model: pipelineDraftEdits.rerankModel.trim(),
-            rerank_top_n: Number(pipelineDraftEdits.rerankTopN),
-          },
+          retrieval_profile: retrievalProfileFromEdits(pipelineDraftEdits),
         }),
       });
       if (!response.ok) throw new Error(await readError(response));
@@ -1351,20 +1389,7 @@ export default function RagPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           question,
-          retrieval: {
-            mode: pipelineDraftEdits.retrievalMode,
-            vector_weight: Number(pipelineDraftEdits.vectorWeight),
-            fulltext_weight: Number(pipelineDraftEdits.fulltextWeight),
-            top_k: Number(pipelineDraftEdits.topK),
-            score_threshold: Number(pipelineDraftEdits.scoreThreshold),
-            candidate_multiplier: Number(pipelineDraftEdits.candidateMultiplier),
-            rerank_enabled: pipelineDraftEdits.rerankEnabled,
-            rerank_provider: pipelineDraftEdits.rerankEnabled
-              ? pipelineDraftEdits.rerankProvider
-              : "none",
-            rerank_model: pipelineDraftEdits.rerankModel.trim(),
-            rerank_top_n: Number(pipelineDraftEdits.rerankTopN),
-          },
+          retrieval: retrievalProfileFromEdits(pipelineDraftEdits),
         }),
       });
       if (!response.ok) throw new Error(await readError(response));
@@ -2597,16 +2622,25 @@ export default function RagPage() {
                                     <option value="fulltext">全文检索</option>
                                   </select>
                                 </label>
-                                <div className="grid grid-cols-2 gap-2">
-                                  <label className="block"><span className="text-xs font-medium text-slate-300">Top-K</span><input className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50" min={1} max={50} onChange={(event) => setPipelineDraftEdits((current) => ({ ...current, topK: event.target.value }))} type="number" value={pipelineDraftEdits.topK} /></label>
-                                  <label className="block"><span className="text-xs font-medium text-slate-300">Score 阈值</span><input className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50" min={0} max={1} step={0.05} onChange={(event) => setPipelineDraftEdits((current) => ({ ...current, scoreThreshold: event.target.value }))} type="number" value={pipelineDraftEdits.scoreThreshold} /></label>
-                                </div>
+                                <label className="block"><span className="text-xs font-medium text-slate-300">Top-K</span><input className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50" min={1} max={50} onChange={(event) => setPipelineDraftEdits((current) => ({ ...current, topK: event.target.value }))} type="number" value={pipelineDraftEdits.topK} /></label>
                               </div>
                               <div className="mt-3 grid gap-3 sm:grid-cols-3">
                                 <label className="block"><span className="text-xs font-medium text-slate-300">向量权重</span><input className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50" disabled={pipelineDraftEdits.retrievalMode !== "hybrid"} min={0} max={1} step={0.1} onChange={(event) => setPipelineDraftEdits((current) => ({ ...current, vectorWeight: event.target.value }))} type="number" value={pipelineDraftEdits.vectorWeight} /></label>
                                 <label className="block"><span className="text-xs font-medium text-slate-300">全文权重</span><input className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50" disabled={pipelineDraftEdits.retrievalMode !== "hybrid"} min={0} max={1} step={0.1} onChange={(event) => setPipelineDraftEdits((current) => ({ ...current, fulltextWeight: event.target.value }))} type="number" value={pipelineDraftEdits.fulltextWeight} /></label>
                                 <label className="block"><span className="text-xs font-medium text-slate-300">候选倍数</span><input className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50" min={1} max={10} onChange={(event) => setPipelineDraftEdits((current) => ({ ...current, candidateMultiplier: event.target.value }))} type="number" value={pipelineDraftEdits.candidateMultiplier} /></label>
                               </div>
+                              {pipelineDraftEdits.absoluteThresholdContract ? (
+                                <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                                  {pipelineDraftEdits.retrievalMode !== "fulltext" ? <label className="block"><span className="text-xs font-medium text-slate-300">最低向量相似度</span><input className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50" min={0} max={1} placeholder="未配置" step={0.01} onChange={(event) => setPipelineDraftEdits((current) => ({ ...current, minVectorSimilarity: event.target.value }))} type="number" value={pipelineDraftEdits.minVectorSimilarity} /></label> : null}
+                                  {pipelineDraftEdits.retrievalMode !== "vector" ? <label className="block"><span className="text-xs font-medium text-slate-300">最低全文置信度</span><input className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50" min={0} max={1} placeholder="未配置" step={0.01} onChange={(event) => setPipelineDraftEdits((current) => ({ ...current, minLexicalConfidence: event.target.value }))} type="number" value={pipelineDraftEdits.minLexicalConfidence} /></label> : null}
+                                  {pipelineDraftEdits.rerankEnabled ? <label className="block"><span className="text-xs font-medium text-slate-300">最低 Rerank 分数</span><input className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50" min={0} max={1} placeholder="未配置" step={0.01} onChange={(event) => setPipelineDraftEdits((current) => ({ ...current, minRerankScore: event.target.value }))} type="number" value={pipelineDraftEdits.minRerankScore} /></label> : null}
+                                </div>
+                              ) : (
+                                <div className="mt-3 rounded-lg border border-amber-300/20 bg-amber-300/5 p-3">
+                                  <label className="block"><span className="text-xs font-medium text-amber-100">Legacy fused score 阈值</span><input className="mt-2 w-full rounded-lg border border-amber-300/20 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-amber-300/50" min={0} max={1} step={0.05} onChange={(event) => setPipelineDraftEdits((current) => ({ ...current, scoreThreshold: event.target.value }))} type="number" value={pipelineDraftEdits.scoreThreshold} /><span className="mt-1 block text-[11px] text-amber-100/70">历史兼容配置，仅用于诊断，不能晋级。</span></label>
+                                  <button className="mt-3 rounded-lg border border-amber-300/30 px-3 py-2 text-xs font-semibold text-amber-100 hover:bg-amber-300/10" onClick={() => setPipelineDraftEdits((current) => ({ ...current, absoluteThresholdContract: true, minVectorSimilarity: "", minLexicalConfidence: "", minRerankScore: "" }))} type="button">切换到 V3 绝对阈值合同</button>
+                                </div>
+                              )}
                               <div className="mt-3 flex items-center justify-between gap-3 border-y border-white/10 py-3">
                                 <div><p className="text-xs font-medium text-slate-200">启用 Rerank</p><p className="mt-1 text-[11px] text-slate-500">失败时保留混合融合排序，并返回 warning。</p></div>
                                 <input checked={pipelineDraftEdits.rerankEnabled} className="h-4 w-4 accent-hire-300" onChange={(event) => setPipelineDraftEdits((current) => ({ ...current, rerankEnabled: event.target.checked }))} type="checkbox" />
