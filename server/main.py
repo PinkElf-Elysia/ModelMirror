@@ -244,6 +244,14 @@ try:
         router as skills_router,
     )
     from server.skills.local_import_api import router as skill_local_import_router
+    from server.skills.experience import (
+        SkillExperienceCandidateStore,
+        SkillExperienceService,
+    )
+    from server.skills.experience_api import (
+        configure_skill_experience,
+        router as skill_experience_router,
+    )
     from server.skills.trust_service import SkillRuntimeEnvironment
     from server.skills.creator_api import (
         configure_skill_creator,
@@ -368,6 +376,11 @@ except ModuleNotFoundError:
         router as skills_router,
     )
     from skills.local_import_api import router as skill_local_import_router
+    from skills.experience import SkillExperienceCandidateStore, SkillExperienceService
+    from skills.experience_api import (
+        configure_skill_experience,
+        router as skill_experience_router,
+    )
     from skills.trust_service import SkillRuntimeEnvironment
     from skills.creator_api import (
         configure_skill_creator,
@@ -1654,6 +1667,7 @@ app.include_router(file_assets_router)
 app.include_router(skills_router)
 app.include_router(skill_local_import_router)
 app.include_router(skill_creator_router)
+app.include_router(skill_experience_router)
 app.include_router(agent_workspace_router)
 app.include_router(agent_upstream_router)
 app.include_router(coding_worker_router)
@@ -2142,6 +2156,15 @@ skill_creator_source_provider = TrustedCreatorSourceProvider(
     workflow_execution_store,
     xpert_context_store,
 )
+skill_experience_candidate_store = SkillExperienceCandidateStore(
+    storage_dir=AGENT_TASK_STORAGE_DIR or None
+)
+skill_experience_service = SkillExperienceService(
+    skill_experience_candidate_store,
+    workflow_execution_store,
+    xpert_context_store,
+    skill_application_receipt_store,
+)
 skill_creator_service = SkillCreatorService(
     skill_creator_session_store,
     get_skill_draft_store(),
@@ -2211,6 +2234,7 @@ workflow_skill_creator_provider = AuthoringToolsetProvider(
     authoring_service, "skill"
 )
 configure_runtime_authoring(authoring_service)
+configure_skill_experience(skill_experience_service)
 configure_skill_creator(skill_creator_service)
 configure_skill_creator_resource_planning(skill_creator_resource_planning_service)
 configure_skill_creator_resource_build(skill_creator_resource_build_service)
