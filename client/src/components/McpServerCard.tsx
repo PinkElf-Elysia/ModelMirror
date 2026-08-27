@@ -501,6 +501,7 @@ export default function McpServerCard({
   const [installState, setInstallState] = useState<InstallState>("checking");
   const [installError, setInstallError] = useState("");
   const [browserRefreshKey, setBrowserRefreshKey] = useState(0);
+  const [remoteReviewRefreshKey, setRemoteReviewRefreshKey] = useState(0);
   const [isWorkbenchOpen, setIsWorkbenchOpen] = useState(false);
   const [browserRefOptions, setBrowserRefOptions] = useState<BrowserElementOption[]>([]);
   const ignoredRestoredSessionRef = useRef<string | null>(null);
@@ -939,6 +940,7 @@ export default function McpServerCard({
     setBrowserRefOptions([]);
     setError("");
     setState("idle");
+    setRemoteReviewRefreshKey((current) => current + 1);
     onConnectionChange?.();
   }
 
@@ -965,6 +967,7 @@ export default function McpServerCard({
   ) {
     setCatalogSettings(settings);
     setCatalogBindings(bindings);
+    setRemoteReviewRefreshKey((current) => current + 1);
     onConnectionChange?.();
   }
 
@@ -1987,7 +1990,7 @@ export default function McpServerCard({
                   {project.name} · 认证与复核
                 </h2>
                 <p className="mt-1 text-xs leading-5 text-slate-400">
-                  此流程只生成受控执行契约；R4A 不会激活或暴露 Runtime 工具。
+                  复核发布后仍需显式激活；所有远程工具调用均需逐次审批。
                 </p>
               </div>
               <button
@@ -2018,7 +2021,10 @@ export default function McpServerCard({
                 settingFields={adapterStatus.setting_fields}
               />
             ) : null}
-            <McpCatalogRemotePanel projectId={project.id} />
+            <McpCatalogRemotePanel
+              projectId={project.id}
+              refreshKey={remoteReviewRefreshKey}
+            />
           </div>
         </div>,
           document.body,

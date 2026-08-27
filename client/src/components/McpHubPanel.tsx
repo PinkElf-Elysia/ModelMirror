@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { AlertTriangle, CheckCircle2, KeyRound, RefreshCw, Search, Shield, Trash2 } from "lucide-react";
 import McpHubReviewWorkbench, {
   type HubReviewSelection,
@@ -274,6 +275,14 @@ interface CandidateErrorInfo {
   source: "operation" | "summary";
 }
 
+interface HubConfirmation {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  danger?: boolean;
+  onConfirm: () => void;
+}
+
 class HubRequestError extends Error {
   readonly code: string;
 
@@ -312,6 +321,117 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   return payload;
 }
 
+function HubConfirmationDialog({
+  confirmation,
+  onCancel,
+  onConfirm,
+}: {
+  confirmation: HubConfirmation;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const titleId = useId();
+  const descriptionId = useId();
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const cancelButtonRef = useRef<HTMLButtonElement | null>(null);
+  const cancelRef = useRef(onCancel);
+
+  useEffect(() => {
+    cancelRef.current = onCancel;
+  }, [onCancel]);
+
+  useEffect(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const root = document.getElementById("root");
+    const previousRootInert = root?.inert ?? false;
+    const previousOverflow = document.body.style.overflow;
+    if (root) root.inert = true;
+    document.body.style.overflow = "hidden";
+    const focusTimer = window.setTimeout(() => cancelButtonRef.current?.focus(), 0);
+
+    function handleKeyDown(event: KeyboardEvent) {
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        cancelRef.current();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = Array.from(
+        dialog.querySelectorAll<HTMLElement>('button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'),
+      );
+      if (!focusable.length) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.clearTimeout(focusTimer);
+      document.removeEventListener("keydown", handleKeyDown);
+      if (root) root.inert = previousRootInert;
+      document.body.style.overflow = previousOverflow;
+      previouslyFocused?.focus();
+    };
+  }, [confirmation.message]);
+
+  return createPortal(
+    <div
+      aria-describedby={descriptionId}
+      aria-labelledby={titleId}
+      aria-modal="true"
+      className="fixed inset-0 z-[110] flex items-end justify-center bg-slate-950/85 p-3 backdrop-blur-sm sm:items-center sm:p-6"
+      role="alertdialog"
+    >
+      <div
+        className="surface-card w-full max-w-lg rounded-lg border border-amber-300/25 p-5 sm:p-6"
+        ref={dialogRef}
+        tabIndex={-1}
+      >
+        <div className="flex items-start gap-3">
+          <span className="mt-0.5 rounded-full border border-amber-300/25 bg-amber-300/10 p-2 text-amber-100">
+            <AlertTriangle aria-hidden="true" size={18} />
+          </span>
+          <div className="min-w-0">
+            <h2 className="text-lg font-semibold text-white" id={titleId}>{confirmation.title}</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-300" id={descriptionId}>{confirmation.message}</p>
+          </div>
+        </div>
+        <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <button
+            className="min-h-10 rounded-md border border-white/15 px-4 text-sm font-semibold text-slate-200 hover:bg-white/[0.06]"
+            onClick={onCancel}
+            ref={cancelButtonRef}
+            type="button"
+          >
+            取消
+          </button>
+          <button
+            className={`min-h-10 rounded-md px-4 text-sm font-semibold ${confirmation.danger ? "bg-rose-300 text-ink-950 hover:bg-rose-200" : "bg-amber-300 text-ink-950 hover:bg-amber-200"}`}
+            onClick={onConfirm}
+            type="button"
+          >
+            {confirmation.confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 export default function McpHubPanel() {
   const [status, setStatus] = useState<HubStatus | null>(null);
   const [remoteAuthStatus, setRemoteAuthStatus] = useState<RemoteAuthStatus | null>(null);
@@ -338,6 +458,7 @@ export default function McpHubPanel() {
   const [notice, setNotice] = useState("");
   const [candidateErrors, setCandidateErrors] = useState<Record<string, CandidateErrorInfo>>({});
   const [trustedRefreshToken, setTrustedRefreshToken] = useState(0);
+  const [confirmation, setConfirmation] = useState<HubConfirmation | null>(null);
   const candidateSectionRef = useRef<HTMLElement>(null);
 
   const refresh = useCallback(async () => {
@@ -505,16 +626,18 @@ export default function McpHubPanel() {
       candidate.auth_required ? "本地 Token" : "",
       candidate.oauth_discovery_available ? "本机 OAuth client 登记、待授权会话与加密 Token" : "",
     ].filter(Boolean).join("和");
-    const confirmed = window.confirm(
-      `删除 ${candidate.server_name}？这会${localCredentials ? `撤销${localCredentials}、` : ""}断开当前会话并从“我的 Hub 连接”移除该候选。`,
-    );
-    if (!confirmed) return;
-    void run(
-      `delete:${candidate.candidate_id}`,
-      () => requestJson(`/api/mcp/hub/candidates/${candidate.candidate_id}`, { method: "DELETE" }),
-      () => setNotice(`${candidate.server_name} 已从“我的 Hub 连接”删除。`),
-      candidate.candidate_id,
-    );
+    setConfirmation({
+      title: "删除 Hub 连接",
+      message: `删除 ${candidate.server_name}？这会${localCredentials ? `撤销${localCredentials}、` : ""}断开当前会话并从“我的 Hub 连接”移除该候选。`,
+      confirmLabel: "删除连接",
+      danger: true,
+      onConfirm: () => void run(
+        `delete:${candidate.candidate_id}`,
+        () => requestJson(`/api/mcp/hub/candidates/${candidate.candidate_id}`, { method: "DELETE" }),
+        () => setNotice(`${candidate.server_name} 已从“我的 Hub 连接”删除。`),
+        candidate.candidate_id,
+      ),
+    });
   };
 
   const showAddedCandidate = (title: string) => {
@@ -934,16 +1057,21 @@ export default function McpHubPanel() {
                               className="min-h-10 rounded-md border border-rose-300/20 px-3 text-sm font-semibold text-rose-100 disabled:opacity-40"
                               disabled={!remoteAuthOperational || Boolean(busy)}
                               onClick={() => {
-                                if (!window.confirm(`撤销 ${candidate.server_name} 的 Token？当前 Hub 会话会立即断开。`)) return;
-                                void run(
-                                  `revoke-auth:${candidate.candidate_id}`,
-                                  () => requestJson(`/api/mcp/hub/candidates/${candidate.candidate_id}/auth-bindings/${activeBinding.binding_id}`, { method: "DELETE" }),
-                                  () => {
-                                    clearAuthSecrets(candidate.candidate_id);
-                                    setNotice(`${candidate.server_name} 的 Token 已撤销。`);
-                                  },
-                                  candidate.candidate_id,
-                                );
+                                setConfirmation({
+                                  title: "撤销访问 Token",
+                                  message: `撤销 ${candidate.server_name} 的 Token？当前 Hub 会话会立即断开。`,
+                                  confirmLabel: "撤销 Token",
+                                  danger: true,
+                                  onConfirm: () => void run(
+                                    `revoke-auth:${candidate.candidate_id}`,
+                                    () => requestJson(`/api/mcp/hub/candidates/${candidate.candidate_id}/auth-bindings/${activeBinding.binding_id}`, { method: "DELETE" }),
+                                    () => {
+                                      clearAuthSecrets(candidate.candidate_id);
+                                      setNotice(`${candidate.server_name} 的 Token 已撤销。`);
+                                    },
+                                    candidate.candidate_id,
+                                  ),
+                                });
                               }}
                               type="button"
                             >
@@ -1055,17 +1183,21 @@ export default function McpHubPanel() {
                             className="min-h-9 rounded-md border border-white/10 px-3 text-xs font-semibold text-slate-200 disabled:opacity-40"
                             disabled={!remoteOAuthOperational || Boolean(busy)}
                             onClick={() => {
-                              if (!window.confirm("重新发现会冻结最新 OAuth 元数据；若摘要变化，现有登记与 Token 将失效，并需要重新授权。继续？")) return;
-                              void run(
-                                `oauth-rediscover:${candidate.candidate_id}`,
-                                () => requestJson(`/api/mcp/hub/candidates/${candidate.candidate_id}/oauth/discover`, {
-                                  method: "POST",
-                                  headers: { "Content-Type": "application/json" },
-                                  body: JSON.stringify({ expected_source_digest: candidate.source_digest }),
-                                }),
-                                () => setNotice(`${candidate.server_name} 的 OAuth 元数据已重新冻结；请核对登记与 Scope。`),
-                                candidate.candidate_id,
-                              );
+                              setConfirmation({
+                                title: "重新发现 OAuth 元数据",
+                                message: "重新发现会冻结最新 OAuth 元数据；若摘要变化，现有登记与 Token 将失效，并需要重新授权。",
+                                confirmLabel: "重新发现",
+                                onConfirm: () => void run(
+                                  `oauth-rediscover:${candidate.candidate_id}`,
+                                  () => requestJson(`/api/mcp/hub/candidates/${candidate.candidate_id}/oauth/discover`, {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ expected_source_digest: candidate.source_digest }),
+                                  }),
+                                  () => setNotice(`${candidate.server_name} 的 OAuth 元数据已重新冻结；请核对登记与 Scope。`),
+                                  candidate.candidate_id,
+                                ),
+                              });
                             }}
                             type="button"
                           >
@@ -1082,13 +1214,18 @@ export default function McpHubPanel() {
                                 className="min-h-9 rounded-md border border-rose-300/20 px-3 font-semibold text-rose-100 disabled:opacity-40"
                                 disabled={!remoteOAuthOperational || Boolean(busy)}
                                 onClick={() => {
-                                  if (!window.confirm(`撤销 ${candidate.server_name} 的本机 OAuth client 登记？这不会调用远程删除接口。`)) return;
-                                  void run(
-                                    `oauth-revoke:${candidate.candidate_id}`,
-                                    () => requestJson(`/api/mcp/hub/candidates/${candidate.candidate_id}/oauth/registrations/${oauthRegistration.registration_id}`, { method: "DELETE" }),
-                                    () => setNotice(`${candidate.server_name} 的本机 OAuth client 登记已撤销。`),
-                                    candidate.candidate_id,
-                                  );
+                                  setConfirmation({
+                                    title: "撤销本机 OAuth 登记",
+                                    message: `撤销 ${candidate.server_name} 的本机 OAuth client 登记？这不会调用远程删除接口。`,
+                                    confirmLabel: "撤销登记",
+                                    danger: true,
+                                    onConfirm: () => void run(
+                                      `oauth-revoke:${candidate.candidate_id}`,
+                                      () => requestJson(`/api/mcp/hub/candidates/${candidate.candidate_id}/oauth/registrations/${oauthRegistration.registration_id}`, { method: "DELETE" }),
+                                      () => setNotice(`${candidate.server_name} 的本机 OAuth client 登记已撤销。`),
+                                      candidate.candidate_id,
+                                    ),
+                                  });
                                 }}
                                 type="button"
                               >
@@ -1160,20 +1297,24 @@ export default function McpHubPanel() {
                                   className="ml-2 min-h-9 rounded-md border border-amber-300/20 px-3 text-xs font-semibold text-amber-100 disabled:opacity-40"
                                   disabled={!remoteOAuthOperational || Boolean(busy)}
                                   onClick={() => {
-                                    if (!window.confirm(`动态客户端登记会向 ${oauthDiscovery.registration_endpoint} 执行一次不可自动重试的写操作。继续？`)) return;
-                                    void run(
-                                      `oauth-dcr:${candidate.candidate_id}`,
-                                      () => requestJson(`/api/mcp/hub/candidates/${candidate.candidate_id}/oauth/registrations`, {
-                                        method: "POST",
-                                        headers: { "Content-Type": "application/json" },
-                                        body: JSON.stringify({
-                                          expected_discovery_fingerprint: oauthDiscovery.discovery_fingerprint,
-                                          mode: "dynamic",
+                                    setConfirmation({
+                                      title: "登记动态 Public Client",
+                                      message: `动态客户端登记会向 ${oauthDiscovery.registration_endpoint} 执行一次不可自动重试的写操作。`,
+                                      confirmLabel: "登记 Public Client",
+                                      onConfirm: () => void run(
+                                        `oauth-dcr:${candidate.candidate_id}`,
+                                        () => requestJson(`/api/mcp/hub/candidates/${candidate.candidate_id}/oauth/registrations`, {
+                                          method: "POST",
+                                          headers: { "Content-Type": "application/json" },
+                                          body: JSON.stringify({
+                                            expected_discovery_fingerprint: oauthDiscovery.discovery_fingerprint,
+                                            mode: "dynamic",
+                                          }),
                                         }),
-                                      }),
-                                      () => setNotice(`${candidate.server_name} 已完成一次 public client 动态登记；尚未授权。`),
-                                      candidate.candidate_id,
-                                    );
+                                        () => setNotice(`${candidate.server_name} 已完成一次 public client 动态登记；尚未授权。`),
+                                        candidate.candidate_id,
+                                      ),
+                                    });
                                   }}
                                   type="button"
                                 >
@@ -1197,17 +1338,21 @@ export default function McpHubPanel() {
                                         className="min-h-9 rounded-md border border-violet-300/25 px-3 font-semibold text-violet-100 disabled:opacity-40"
                                         disabled={!remoteOAuthAuthorizationOperational || Boolean(busy)}
                                         onClick={() => {
-                                          if (!window.confirm("刷新可能轮换远程 refresh token；发出后断链将封锁旧 revision。继续？")) return;
-                                          void run(
-                                            `oauth-refresh:${candidate.candidate_id}`,
-                                            () => requestJson(`/api/mcp/hub/candidates/${candidate.candidate_id}/oauth/tokens/${oauthToken.token_id}/refresh`, {
-                                              method: "POST",
-                                              headers: { "Content-Type": "application/json" },
-                                              body: JSON.stringify({ expected_revision: oauthToken.revision }),
-                                            }),
-                                            () => setNotice(`${candidate.server_name} 的 OAuth Token 已轮换。`),
-                                            candidate.candidate_id,
-                                          );
+                                          setConfirmation({
+                                            title: "刷新 OAuth Token",
+                                            message: "刷新可能轮换远程 refresh token；发出后断链将封锁旧 revision。",
+                                            confirmLabel: "刷新 Token",
+                                            onConfirm: () => void run(
+                                              `oauth-refresh:${candidate.candidate_id}`,
+                                              () => requestJson(`/api/mcp/hub/candidates/${candidate.candidate_id}/oauth/tokens/${oauthToken.token_id}/refresh`, {
+                                                method: "POST",
+                                                headers: { "Content-Type": "application/json" },
+                                                body: JSON.stringify({ expected_revision: oauthToken.revision }),
+                                              }),
+                                              () => setNotice(`${candidate.server_name} 的 OAuth Token 已轮换。`),
+                                              candidate.candidate_id,
+                                            ),
+                                          });
                                         }}
                                         type="button"
                                       >
@@ -1224,22 +1369,27 @@ export default function McpHubPanel() {
                                         const warning = remoteRevoke
                                           ? "撤销 OAuth Token？本地凭据会立即失效，并向冻结的 RFC 7009 端点派发一次不可逆撤销；断链后不会自动重试。继续？"
                                           : "撤销本机 OAuth Token？这会立即删除本地可用凭据；远程撤销未启用或上游未提供端点。";
-                                        if (!window.confirm(warning)) return;
-                                        void run(
-                                          `oauth-token-revoke:${candidate.candidate_id}`,
-                                          () => requestJson<{ revocation?: { remote_revocation: string } }>(`/api/mcp/hub/candidates/${candidate.candidate_id}/oauth/tokens/${oauthToken.token_id}`, { method: "DELETE" }),
-                                          (result) => {
-                                            const remoteStatus = result.revocation?.remote_revocation;
-                                            if (remoteStatus === "completed") {
-                                              setNotice(`${candidate.server_name} 的本地与远程 OAuth Token 已撤销。`);
-                                            } else if (remoteStatus === "unknown_outcome") {
-                                              setNotice(`${candidate.server_name} 的本地 Token 已撤销；远程结果未知，不会自动重试。`);
-                                            } else {
-                                              setNotice(`${candidate.server_name} 的本地 OAuth Token 已撤销；远程状态：${remoteStatus || "local_only"}。`);
-                                            }
-                                          },
-                                          candidate.candidate_id,
-                                        );
+                                        setConfirmation({
+                                          title: "撤销 OAuth Token",
+                                          message: warning,
+                                          confirmLabel: "撤销 Token",
+                                          danger: true,
+                                          onConfirm: () => void run(
+                                            `oauth-token-revoke:${candidate.candidate_id}`,
+                                            () => requestJson<{ revocation?: { remote_revocation: string } }>(`/api/mcp/hub/candidates/${candidate.candidate_id}/oauth/tokens/${oauthToken.token_id}`, { method: "DELETE" }),
+                                            (result) => {
+                                              const remoteStatus = result.revocation?.remote_revocation;
+                                              if (remoteStatus === "completed") {
+                                                setNotice(`${candidate.server_name} 的本地与远程 OAuth Token 已撤销。`);
+                                              } else if (remoteStatus === "unknown_outcome") {
+                                                setNotice(`${candidate.server_name} 的本地 Token 已撤销；远程结果未知，不会自动重试。`);
+                                              } else {
+                                                setNotice(`${candidate.server_name} 的本地 OAuth Token 已撤销；远程状态：${remoteStatus || "local_only"}。`);
+                                              }
+                                            },
+                                            candidate.candidate_id,
+                                          ),
+                                        });
                                       }}
                                       type="button"
                                     >
@@ -1387,6 +1537,17 @@ export default function McpHubPanel() {
           </section>
         </>
       )}
+      {confirmation ? (
+        <HubConfirmationDialog
+          confirmation={confirmation}
+          onCancel={() => setConfirmation(null)}
+          onConfirm={() => {
+            const action = confirmation.onConfirm;
+            setConfirmation(null);
+            action();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

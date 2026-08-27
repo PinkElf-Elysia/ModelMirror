@@ -9,6 +9,7 @@ from server.xpert_runtime import (
     CatalogMCPToolsetProvider,
     CapabilityRegistry,
     MCPToolsetProvider,
+    RemoteMCPToolsetProvider,
     RuntimeTool,
     RuntimeToolCall,
     RuntimeToolError,
@@ -254,3 +255,88 @@ async def test_catalog_toolset_calls_through_catalog_policy_service() -> None:
     service.call_tool.assert_awaited_once_with(
         "time-mcp", "get_current_time", {"timezone": "UTC"}
     )
+
+
+@pytest.mark.asyncio
+async def test_catalog_toolset_excludes_authenticated_remote_mcp() -> None:
+    service = SimpleNamespace(
+        list_adapters=lambda: {
+            "adapters": [
+                {
+                    "project_id": "remote-authenticated",
+                    "connection_kind": "remote-mcp",
+                    "remote_review_capable": True,
+                    "connected": True,
+                    "executable": True,
+                    "tool_policies": {
+                        "search": {
+                            "read_only": True,
+                            "requires_approval": False,
+                            "sensitive": False,
+                            "terminal": False,
+                            "effect": "read",
+                        }
+                    },
+                }
+            ]
+        },
+        list_tools=AsyncMock(return_value={"tools": []}),
+    )
+
+    assert await CatalogMCPToolsetProvider(service).list_tools() == []
+    service.list_tools.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_remote_mcp_provider_exposes_catalog_as_approval_only() -> None:
+    runtime_entry = {
+        "name": "catalog__project_abcd1234__search_1234abcd",
+        "description": "Reviewed remote tool",
+        "input_schema": {"type": "object"},
+        "project_id": "project",
+        "upstream_tool_name": "search",
+        "tool_schema_digest": "a" * 64,
+        "schema_digest": "b" * 64,
+        "origin": "https://example.com",
+        "version": "1.0.0",
+        "source_digest": "c" * 64,
+        "auth_context_digest": "d" * 64,
+        "contract_id": "catalogct_" + "e" * 32,
+        "contract_fingerprint": "f" * 64,
+    }
+    service = SimpleNamespace(
+        catalog_runtime_tools=lambda: [runtime_entry],
+        execute_catalog_runtime=AsyncMock(
+            return_value={
+                "content": [{"type": "text", "text": "ok"}],
+                "isError": False,
+            }
+        ),
+    )
+    hub_provider = SimpleNamespace(
+        list_tools=AsyncMock(return_value=[]),
+        call_tool=AsyncMock(),
+    )
+    provider = RemoteMCPToolsetProvider(service, hub_provider)
+
+    tools = await provider.list_tools()
+
+    assert len(tools) == 1
+    assert tools[0].provider == "mcp_remote"
+    assert tools[0].requires_approval is True
+    assert tools[0].sensitive is True
+    assert tools[0].read_only is False
+    assert tools[0].parallel_safe is False
+    assert tools[0].public_app_allowed is False
+    assert tools[0].metadata["retry_on_failure"] is False
+
+    result = await provider.call_tool(
+        RuntimeToolCall(
+            tool_name=runtime_entry["name"],
+            arguments={"query": "modelmirror"},
+            metadata={"resolved_approval": {"status": "decided"}},
+        )
+    )
+    assert result.output == "ok"
+    assert result.metadata["retry_on_failure"] is False
+    service.execute_catalog_runtime.assert_awaited_once()

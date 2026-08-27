@@ -6,14 +6,38 @@ import { mcpProjects } from "../data/mcpProjects";
 import McpServerCard from "./McpServerCard";
 
 vi.mock("./McpCatalogRemotePanel", () => ({
-  default: ({ projectId }: { projectId: string }) => (
-    <section aria-label="远程复核测试面板">{projectId}</section>
+  default: ({ projectId, refreshKey }: { projectId: string; refreshKey?: number }) => (
+    <section aria-label="远程复核测试面板" data-refresh-key={refreshKey}>
+      {projectId}
+    </section>
   ),
 }));
 
 vi.mock("./McpCredentialPanel", () => ({
-  default: ({ projectId }: { projectId: string }) => (
-    <section aria-label="远程凭据测试面板">{projectId}</section>
+  default: ({
+    projectId,
+    onConfigurationSaved,
+    onSessionInvalidated,
+  }: {
+    projectId: string;
+    onConfigurationSaved?: (
+      settings: Record<string, string | number | boolean>,
+      bindings: Record<string, string>,
+    ) => void;
+    onSessionInvalidated?: () => void;
+  }) => (
+    <section aria-label="远程凭据测试面板">
+      {projectId}
+      <button
+        onClick={() => onConfigurationSaved?.({}, { github_token: "credential-2" })}
+        type="button"
+      >
+        模拟保存凭据
+      </button>
+      <button onClick={() => onSessionInvalidated?.()} type="button">
+        模拟撤销凭据
+      </button>
+    </section>
   ),
 }));
 
@@ -98,7 +122,8 @@ describe("McpServerCard remote review entry", () => {
     expect(screen.getByLabelText("远程凭据测试面板")).toHaveTextContent(
       "github-mcp-server",
     );
-    expect(screen.getByText(/R4A 不会激活或暴露 Runtime 工具/)).toBeVisible();
+    expect(screen.getByText(/复核发布后仍需显式激活/)).toBeVisible();
+    expect(screen.getByText(/所有远程工具调用均需逐次审批/)).toBeVisible();
     expect(screen.queryByRole("button", { name: /连接 Server/ })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "关闭认证与复核" }));
@@ -115,5 +140,41 @@ describe("McpServerCard remote review entry", () => {
 
     expect(screen.getByRole("button", { name: "未适配" })).toBeDisabled();
     expect(screen.queryByRole("button", { name: "认证与复核" })).not.toBeInTheDocument();
+  });
+
+  it("refreshes the remote lifecycle summary after credential configuration changes", async () => {
+    const user = userEvent.setup();
+    render(
+      <McpServerCard
+        adapterStatus={remoteStatus(true)}
+        project={project("github-mcp-server")}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "认证与复核" }));
+    const panel = screen.getByLabelText("远程复核测试面板");
+    expect(panel).toHaveAttribute("data-refresh-key", "0");
+
+    await user.click(screen.getByRole("button", { name: "模拟保存凭据" }));
+
+    expect(panel).toHaveAttribute("data-refresh-key", "1");
+  });
+
+  it("refreshes the remote lifecycle summary after credential revocation", async () => {
+    const user = userEvent.setup();
+    render(
+      <McpServerCard
+        adapterStatus={remoteStatus(true)}
+        project={project("github-mcp-server")}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "认证与复核" }));
+    const panel = screen.getByLabelText("远程复核测试面板");
+    expect(panel).toHaveAttribute("data-refresh-key", "0");
+
+    await user.click(screen.getByRole("button", { name: "模拟撤销凭据" }));
+
+    expect(panel).toHaveAttribute("data-refresh-key", "1");
   });
 });

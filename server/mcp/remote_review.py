@@ -1,8 +1,7 @@
-"""Unified, fail-closed review surface for authenticated remote MCP targets.
+"""Unified, fail-closed review and Runtime surface for remote MCP targets.
 
-R4A deliberately keeps Hub V1-V3 contracts byte-compatible.  This module adds
-the target-neutral seam and the Catalog contract family without making Catalog
-remote tools executable in the AI Runtime.
+Hub V1-V3 contracts remain byte-compatible. Catalog remote tools become
+executable only from an explicit activation snapshot of a reviewed contract.
 """
 
 from __future__ import annotations
@@ -27,7 +26,13 @@ from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .catalog import CatalogAdapterManifest, MCPCatalogService
-from .hub import HubBridgeProtocol, HubError, MCPHubService, normalize_hub_remote_url
+from .hub import (
+    HubBridgeProtocol,
+    HubError,
+    MCPHubService,
+    arguments_digest,
+    normalize_hub_remote_url,
+)
 from .hub_contracts import (
     HubReviewedContractV1,
     HubReviewedContractV2,
@@ -69,6 +74,10 @@ HUB_ITEM_ID_RE = re.compile(r"^hubitem_[0-9a-f]{32}$")
 HUB_PROPOSAL_ID_RE = re.compile(r"^hubproposal_[0-9a-f]{32}$")
 HUB_CONTRACT_ID_RE = re.compile(r"^hubct_[0-9a-f]{32}$")
 OAUTH_TOKEN_ID_RE = re.compile(r"^mcpoauthtoken_[0-9a-f]{32}$")
+APPROVAL_ID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
 REMOTE_TARGET_STATES = {
     "draft",
     "reviewing",
@@ -98,6 +107,14 @@ def review_unification_enabled() -> bool:
 
 def catalog_oauth_enabled() -> bool:
     return _flag("MCP_REMOTE_CATALOG_OAUTH_ENABLED")
+
+
+def contract_runtime_enabled() -> bool:
+    return _flag("MCP_REMOTE_CONTRACT_RUNTIME_ENABLED")
+
+
+def catalog_runtime_enabled() -> bool:
+    return _flag("MCP_REMOTE_CATALOG_RUNTIME_ENABLED")
 
 
 def _manifest_source_payload(manifest: CatalogAdapterManifest) -> dict[str, Any]:
@@ -194,6 +211,38 @@ class RemoteTargetStateV1(BaseModel):
     reason_code: str = ""
     revision: int = 1
     updated_at: float
+
+
+class RemoteRuntimeBindingV1(BaseModel):
+    """Immutable execution snapshot created by explicit target activation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["remote-runtime-binding-v1"] = "remote-runtime-binding-v1"
+    target: RemoteTargetRefV1
+    contract_id: str
+    contract_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    source_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    schema_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    auth_context_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    tool_schemas: dict[str, dict[str, Any]]
+    revision: int = Field(ge=1)
+    updated_at: float
+
+    @model_validator(mode="after")
+    def validate_tools(self) -> "RemoteRuntimeBindingV1":
+        if not self.tool_schemas:
+            raise ValueError("runtime binding requires frozen tools")
+        for name, item in self.tool_schemas.items():
+            if not name or not isinstance(item, dict):
+                raise ValueError("runtime tool binding is invalid")
+            digest = str(item.get("schema_digest") or "")
+            schema = item.get("input_schema")
+            if not HEX64_RE.fullmatch(digest) or not isinstance(schema, dict):
+                raise ValueError("runtime tool schema is invalid")
+            if canonical_digest(schema) != digest:
+                raise ValueError("runtime tool schema digest mismatch")
+        return self
 
 
 class CatalogRemoteSnapshotV1(BaseModel):
@@ -679,6 +728,42 @@ class MCPRemoteReviewStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_remote_contract_revocations
                     ON remote_contract_revocations(tenant_id,owner_id,target_type,contract_id,created_at DESC);
+                CREATE TABLE IF NOT EXISTS remote_runtime_bindings (
+                    tenant_id TEXT NOT NULL,
+                    owner_id TEXT NOT NULL,
+                    target_type TEXT NOT NULL,
+                    target_id TEXT NOT NULL,
+                    contract_id TEXT NOT NULL,
+                    contract_fingerprint TEXT NOT NULL,
+                    source_digest TEXT NOT NULL,
+                    schema_digest TEXT NOT NULL,
+                    auth_context_digest TEXT NOT NULL,
+                    tool_schemas_json TEXT NOT NULL,
+                    revision INTEGER NOT NULL,
+                    updated_at REAL NOT NULL,
+                    PRIMARY KEY(tenant_id,owner_id,target_type,target_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_remote_runtime_bindings_owner
+                    ON remote_runtime_bindings(tenant_id,owner_id,updated_at DESC);
+                CREATE TABLE IF NOT EXISTS remote_runtime_execution_ledger (
+                    approval_id TEXT PRIMARY KEY,
+                    tenant_id TEXT NOT NULL,
+                    owner_id TEXT NOT NULL,
+                    target_type TEXT NOT NULL,
+                    target_id TEXT NOT NULL,
+                    contract_fingerprint TEXT NOT NULL,
+                    tool_name TEXT NOT NULL,
+                    arguments_digest TEXT NOT NULL,
+                    state TEXT NOT NULL,
+                    result_json TEXT,
+                    error_code TEXT NOT NULL DEFAULT '',
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_remote_runtime_ledger_target
+                    ON remote_runtime_execution_ledger(
+                        tenant_id,owner_id,target_type,target_id,updated_at DESC
+                    );
                 """
             )
 
@@ -763,6 +848,261 @@ class MCPRemoteReviewStore:
                 ),
             )
         return self.get_target_state(tenant_id, owner_id, target)
+
+    def save_runtime_binding(
+        self,
+        tenant_id: str,
+        owner_id: str,
+        *,
+        target: RemoteTargetRefV1,
+        contract_id: str,
+        contract_fingerprint: str,
+        source_digest: str,
+        schema_digest: str,
+        auth_context_digest: str,
+        tool_schemas: dict[str, dict[str, Any]],
+    ) -> RemoteRuntimeBindingV1:
+        now = time.time()
+        with self._lock, self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT revision FROM remote_runtime_bindings WHERE tenant_id=? AND owner_id=? "
+                "AND target_type=? AND target_id=?",
+                (tenant_id, owner_id, target.target_type, target.target_id),
+            ).fetchone()
+            revision = int(row["revision"]) + 1 if row is not None else 1
+            db.execute(
+                "INSERT INTO remote_runtime_bindings(tenant_id,owner_id,target_type,target_id,"
+                "contract_id,contract_fingerprint,source_digest,schema_digest,auth_context_digest,"
+                "tool_schemas_json,revision,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) "
+                "ON CONFLICT(tenant_id,owner_id,target_type,target_id) DO UPDATE SET "
+                "contract_id=excluded.contract_id,contract_fingerprint=excluded.contract_fingerprint,"
+                "source_digest=excluded.source_digest,schema_digest=excluded.schema_digest,"
+                "auth_context_digest=excluded.auth_context_digest,tool_schemas_json=excluded.tool_schemas_json,"
+                "revision=excluded.revision,updated_at=excluded.updated_at",
+                (
+                    tenant_id,
+                    owner_id,
+                    target.target_type,
+                    target.target_id,
+                    contract_id,
+                    contract_fingerprint,
+                    source_digest,
+                    schema_digest,
+                    auth_context_digest,
+                    json.dumps(tool_schemas, ensure_ascii=False, separators=(",", ":")),
+                    revision,
+                    now,
+                ),
+            )
+        binding = self.get_runtime_binding(tenant_id, owner_id, target)
+        assert binding is not None
+        return binding
+
+    def get_runtime_binding(
+        self, tenant_id: str, owner_id: str, target: RemoteTargetRefV1
+    ) -> RemoteRuntimeBindingV1 | None:
+        with self._lock, self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM remote_runtime_bindings WHERE tenant_id=? AND owner_id=? "
+                "AND target_type=? AND target_id=?",
+                (tenant_id, owner_id, target.target_type, target.target_id),
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            tool_schemas = json.loads(str(row["tool_schemas_json"] or "{}"))
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(tool_schemas, dict):
+            return None
+        try:
+            return RemoteRuntimeBindingV1(
+                target=target,
+                contract_id=str(row["contract_id"]),
+                contract_fingerprint=str(row["contract_fingerprint"]),
+                source_digest=str(row["source_digest"]),
+                schema_digest=str(row["schema_digest"]),
+                auth_context_digest=str(row["auth_context_digest"]),
+                tool_schemas=tool_schemas,
+                revision=int(row["revision"]),
+                updated_at=float(row["updated_at"]),
+            )
+        except ValueError:
+            return None
+
+    def list_runtime_bindings(
+        self, tenant_id: str, owner_id: str
+    ) -> list[RemoteRuntimeBindingV1]:
+        with self._lock, self._connect() as db:
+            rows = db.execute(
+                "SELECT target_type,target_id FROM remote_runtime_bindings "
+                "WHERE tenant_id=? AND owner_id=? ORDER BY updated_at DESC",
+                (tenant_id, owner_id),
+            ).fetchall()
+        result: list[RemoteRuntimeBindingV1] = []
+        for row in rows:
+            target = RemoteTargetRefV1(
+                target_type=str(row["target_type"]),
+                target_id=str(row["target_id"]),
+            )
+            binding = self.get_runtime_binding(tenant_id, owner_id, target)
+            if binding is not None:
+                result.append(binding)
+        return result
+
+    def delete_runtime_binding(
+        self, tenant_id: str, owner_id: str, target: RemoteTargetRefV1
+    ) -> None:
+        with self._lock, self._connect() as db:
+            db.execute(
+                "DELETE FROM remote_runtime_bindings WHERE tenant_id=? AND owner_id=? "
+                "AND target_type=? AND target_id=?",
+                (tenant_id, owner_id, target.target_type, target.target_id),
+            )
+
+    def runtime_execution(
+        self,
+        approval_id: str,
+        *,
+        tenant_id: str,
+        owner_id: str,
+        target: RemoteTargetRefV1,
+        contract_fingerprint: str,
+        tool_name: str,
+        args_digest: str,
+    ) -> tuple[str, dict[str, Any] | None] | None:
+        with self._lock, self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM remote_runtime_execution_ledger WHERE approval_id=?",
+                (approval_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        if (
+            str(row["tenant_id"]) != tenant_id
+            or str(row["owner_id"]) != owner_id
+            or str(row["target_type"]) != target.target_type
+            or str(row["target_id"]) != target.target_id
+            or str(row["contract_fingerprint"]) != contract_fingerprint
+            or str(row["tool_name"]) != tool_name
+            or str(row["arguments_digest"]) != args_digest
+        ):
+            raise HubError(
+                "远程 Runtime 审批回放范围不匹配。",
+                code="mcp_remote_runtime_approval_scope_mismatch",
+                status_code=409,
+            )
+        result: dict[str, Any] | None = None
+        if row["result_json"]:
+            try:
+                decoded = json.loads(str(row["result_json"]))
+            except json.JSONDecodeError:
+                decoded = None
+            if isinstance(decoded, dict):
+                result = decoded
+        return str(row["state"]), result
+
+    def begin_runtime_execution(
+        self,
+        approval_id: str,
+        *,
+        tenant_id: str,
+        owner_id: str,
+        target: RemoteTargetRefV1,
+        contract_fingerprint: str,
+        tool_name: str,
+        args_digest: str,
+    ) -> None:
+        now = time.time()
+        with self._lock, self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT approval_id FROM remote_runtime_execution_ledger WHERE approval_id=?",
+                (approval_id,),
+            ).fetchone()
+            if row is not None:
+                raise HubError(
+                    "远程 Runtime 审批不可重复派发。",
+                    code="mcp_remote_runtime_approval_replay",
+                    status_code=409,
+                )
+            db.execute(
+                "INSERT INTO remote_runtime_execution_ledger(approval_id,tenant_id,owner_id,"
+                "target_type,target_id,contract_fingerprint,tool_name,arguments_digest,state,"
+                "result_json,error_code,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    approval_id,
+                    tenant_id,
+                    owner_id,
+                    target.target_type,
+                    target.target_id,
+                    contract_fingerprint,
+                    tool_name,
+                    args_digest,
+                    "started",
+                    None,
+                    "",
+                    now,
+                    now,
+                ),
+            )
+
+    def finish_runtime_execution(
+        self,
+        approval_id: str,
+        *,
+        state: Literal["completed", "failed", "unknown_outcome"],
+        result: dict[str, Any] | None = None,
+        error_code: str = "",
+    ) -> None:
+        with self._lock, self._connect() as db:
+            cursor = db.execute(
+                "UPDATE remote_runtime_execution_ledger SET state=?,result_json=?,"
+                "error_code=?,updated_at=? WHERE approval_id=?",
+                (
+                    state,
+                    (
+                        json.dumps(result, ensure_ascii=False, separators=(",", ":"))
+                        if result is not None
+                        else None
+                    ),
+                    error_code,
+                    time.time(),
+                    approval_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise HubError(
+                    "远程 Runtime 执行账本不存在。",
+                    code="mcp_remote_runtime_ledger_missing",
+                    status_code=409,
+                )
+
+    def recover_started_runtime_calls(
+        self, tenant_id: str, owner_id: str
+    ) -> list[RemoteTargetRefV1]:
+        now = time.time()
+        with self._lock, self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            rows = db.execute(
+                "SELECT DISTINCT target_type,target_id FROM remote_runtime_execution_ledger "
+                "WHERE tenant_id=? AND owner_id=? AND state='started'",
+                (tenant_id, owner_id),
+            ).fetchall()
+            db.execute(
+                "UPDATE remote_runtime_execution_ledger SET state='unknown_outcome',"
+                "error_code='unknown_outcome',updated_at=? WHERE tenant_id=? AND owner_id=? "
+                "AND state='started'",
+                (now, tenant_id, owner_id),
+            )
+        return [
+            RemoteTargetRefV1(
+                target_type=str(row["target_type"]),
+                target_id=str(row["target_id"]),
+            )
+            for row in rows
+        ]
 
     def create_run(
         self, tenant_id: str, owner_id: str, targets: list[RemoteTargetRefV1]
@@ -1338,6 +1678,37 @@ class CatalogRemoteContractRegistry:
         ]
 
 
+class RemoteTargetSessionCoordinator:
+    """Invalidate executable target state without trusting client-supplied scope."""
+
+    def __init__(
+        self,
+        *,
+        store: MCPRemoteReviewStore,
+        tenant_id: str,
+        owner_id: str,
+    ) -> None:
+        self.store = store
+        self.tenant_id = tenant_id
+        self.owner_id = owner_id
+
+    def invalidate(
+        self,
+        target: RemoteTargetRefV1,
+        *,
+        state: Literal["drifted", "tainted", "disconnected", "revoked"],
+        reason_code: str,
+    ) -> RemoteTargetStateV1:
+        self.store.delete_runtime_binding(self.tenant_id, self.owner_id, target)
+        return self.store.set_target_state(
+            self.tenant_id,
+            self.owner_id,
+            target,
+            state,
+            reason_code=reason_code,
+        )
+
+
 class MCPRemoteReviewService:
     """Target-neutral facade plus the Catalog authenticated review pipeline."""
 
@@ -1372,6 +1743,11 @@ class MCPRemoteReviewService:
             tenant_id=self.tenant_id,
             owner_id=self.owner_id,
             signing_key=self.signing_key,
+        )
+        self.session_coordinator = RemoteTargetSessionCoordinator(
+            store=store,
+            tenant_id=self.tenant_id,
+            owner_id=self.owner_id,
         )
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -1419,11 +1795,9 @@ class MCPRemoteReviewService:
         target = RemoteTargetRefV1(
             target_type="catalog_project", target_id=target_id
         )
-        self.store.set_target_state(
-            self.tenant_id,
-            self.owner_id,
+        self.session_coordinator.invalidate(
             target,
-            "drifted",
+            state="drifted",
             reason_code=reason_code,
         )
         for run_id in self.store.invalidate_target_items(
@@ -1433,6 +1807,9 @@ class MCPRemoteReviewService:
             reason_code,
         ):
             self._refresh_catalog_run(run_id)
+        self._close_catalog_live(target_id)
+
+    def _close_catalog_live(self, target_id: str) -> None:
         live = self._catalog_live.pop(target_id, None)
         if live is None:
             return
@@ -1479,6 +1856,23 @@ class MCPRemoteReviewService:
                 status_code=503,
             )
 
+    def _require_contract_runtime(self) -> None:
+        if not contract_runtime_enabled():
+            raise HubError(
+                "MCP 远程契约 Runtime 当前未启用。",
+                code="mcp_remote_contract_runtime_disabled",
+                status_code=503,
+            )
+
+    def _require_catalog_runtime(self) -> None:
+        self._require_contract_runtime()
+        if not catalog_runtime_enabled():
+            raise HubError(
+                "Catalog 远程 Runtime 当前未启用。",
+                code="mcp_remote_catalog_runtime_disabled",
+                status_code=503,
+            )
+
     def status(self) -> dict[str, Any]:
         runs = self.store.list_runs(self.tenant_id, self.owner_id)
         active = next(
@@ -1496,7 +1890,8 @@ class MCPRemoteReviewService:
             "signing_key_configured": bool(self.signing_key),
             "subject_mode": "local-single-owner",
             "multi_tenant": False,
-            "runtime_enabled": False,
+            "runtime_enabled": contract_runtime_enabled(),
+            "catalog_runtime_enabled": catalog_runtime_enabled(),
             "supported_target_types": ["hub_candidate", "catalog_project"],
             "protocol_version": MCP_PROTOCOL_VERSION,
             "sop_version": REMOTE_REVIEW_SOP_VERSION,
@@ -1506,6 +1901,14 @@ class MCPRemoteReviewService:
 
     async def start(self) -> None:
         self._loop = asyncio.get_running_loop()
+        for target in self.store.recover_started_runtime_calls(
+            self.tenant_id, self.owner_id
+        ):
+            self.session_coordinator.invalidate(
+                target,
+                state="tainted",
+                reason_code="unknown_outcome",
+            )
         for recovered in self.store.recover_started_calls(
             self.tenant_id, self.owner_id
         ):
@@ -1613,6 +2016,10 @@ class MCPRemoteReviewService:
                 self.adapters["catalog_project"].resolve(target.target_id)
             run = self.store.create_run(self.tenant_id, self.owner_id, targets)
             for target in targets:
+                self.store.delete_runtime_binding(
+                    self.tenant_id, self.owner_id, target
+                )
+                self._close_catalog_live(target.target_id)
                 self.store.set_target_state(
                     self.tenant_id, self.owner_id, target, "reviewing"
                 )
@@ -1808,6 +2215,151 @@ class MCPRemoteReviewService:
                 status_code=409,
             )
         return metadata, metadata.token_revision_digest
+
+    def _resolve_catalog_runtime_contract(
+        self, project_id: str
+    ) -> tuple[
+        dict[str, Any],
+        CatalogReviewedRemoteContractV1,
+        ResolvedRemoteContractV1,
+    ]:
+        resolved = self.adapters["catalog_project"].resolve(project_id)
+        snapshot: CatalogRemoteSnapshotV1 = resolved["snapshot"]
+        manifest: CatalogAdapterManifest = resolved["manifest"]
+        contract, error = self.catalog_contracts.lookup_project(
+            project_id, manifest.adapter_version, snapshot.remote_url
+        )
+        if contract is None or error:
+            raise HubError(
+                "Catalog 远程执行契约不可用。",
+                code=error or "mcp_remote_contract_unreviewed",
+                status_code=409,
+            )
+        if (
+            contract.source_digest != snapshot.source_digest
+            or contract.version != snapshot.adapter_version
+            or contract.remote_url != snapshot.remote_url
+            or contract.origin != snapshot.origin
+            or contract.protocol_version != MCP_PROTOCOL_VERSION
+            or contract.transport != "streamable-http"
+        ):
+            raise HubError(
+                "Catalog manifest 或远程 Origin 已漂移。",
+                code="mcp_remote_catalog_manifest_drift",
+                status_code=409,
+            )
+        return resolved, contract, ResolvedRemoteContractV1.from_catalog(contract)
+
+    def _catalog_runtime_auth_context(
+        self,
+        *,
+        resolved: dict[str, Any],
+        contract: CatalogReviewedRemoteContractV1,
+    ) -> str:
+        snapshot: CatalogRemoteSnapshotV1 = resolved["snapshot"]
+        manifest: CatalogAdapterManifest = resolved["manifest"]
+        if snapshot.auth_mode in {"static_bearer", "static_header"}:
+            policy, _binding, revision_digest = self._catalog_binding_context(manifest)
+            if (
+                contract.remote_auth_policy is None
+                or policy.policy_fingerprint
+                != contract.remote_auth_policy.policy_fingerprint
+                or contract.auth_mode != snapshot.auth_mode
+            ):
+                raise HubError(
+                    "Catalog 静态认证策略已漂移。",
+                    code="mcp_remote_auth_binding_stale",
+                    status_code=409,
+                )
+            scope_digest = ""
+        else:
+            metadata, revision_digest = self._catalog_oauth_context(snapshot)
+            if (
+                contract.remote_oauth_policy is None
+                or metadata.policy_fingerprint
+                != contract.remote_oauth_policy.policy_fingerprint
+                or metadata.scope_digest != contract.authorized_scope_digest
+                or tuple(metadata.scopes) != tuple(contract.authorized_scopes)
+            ):
+                raise HubError(
+                    "Catalog OAuth Scope 或策略已漂移。",
+                    code="mcp_remote_oauth_contract_scope_drift",
+                    status_code=409,
+                )
+            scope_digest = metadata.scope_digest
+        return canonical_digest(
+            {
+                "schema_version": "catalog-runtime-auth-context-v1",
+                "target_type": "catalog_project",
+                "target_id": snapshot.project_id,
+                "contract_fingerprint": contract.contract_fingerprint,
+                "auth_policy_fingerprint": (
+                    contract.remote_auth_policy.policy_fingerprint
+                    if contract.remote_auth_policy is not None
+                    else contract.remote_oauth_policy.policy_fingerprint
+                ),
+                "auth_revision_digest": revision_digest,
+                "authorized_scope_digest": scope_digest,
+            }
+        )
+
+    def _validate_catalog_runtime_session(
+        self,
+        *,
+        resolved: dict[str, Any],
+        contract: CatalogReviewedRemoteContractV1,
+        session: dict[str, Any],
+    ) -> tuple[dict[str, dict[str, Any]], str]:
+        tools = session.get("tools")
+        if not isinstance(tools, list):
+            raise HubError(
+                "Catalog 远程工具列表无效。",
+                code="hub_schema_drift",
+                status_code=409,
+            )
+        current = {
+            str(item.get("name") or ""): str(item.get("schema_digest") or "")
+            for item in tools
+            if isinstance(item, dict)
+        }
+        if (
+            str(session.get("schema_digest") or "") != contract.schema_digest
+            or current != contract.tool_schema_digests
+        ):
+            raise HubError(
+                "Catalog 远程工具 Schema 已漂移。",
+                code="hub_schema_drift",
+                status_code=409,
+            )
+        allowed = set(contract.allowed_tools)
+        tool_schemas: dict[str, dict[str, Any]] = {}
+        for item in tools:
+            name = str(item.get("name") or "")
+            if name not in allowed:
+                continue
+            input_schema = item.get("input_schema")
+            schema_digest = str(item.get("schema_digest") or "")
+            if not isinstance(input_schema, dict) or canonical_digest(input_schema) != schema_digest:
+                raise HubError(
+                    "Catalog 工具 Schema 结构无效。",
+                    code="hub_schema_drift",
+                    status_code=409,
+                )
+            tool_schemas[name] = {
+                "input_schema": dict(input_schema),
+                "schema_digest": schema_digest,
+            }
+        if set(tool_schemas) != allowed:
+            raise HubError(
+                "Catalog 契约工具子集已漂移。",
+                code="hub_schema_drift",
+                status_code=409,
+            )
+        auth_context_digest = self._catalog_runtime_auth_context(
+            resolved=resolved,
+            contract=contract,
+        )
+        return tool_schemas, auth_context_digest
 
     @staticmethod
     def _catalog_sidecar_target_id(snapshot: CatalogRemoteSnapshotV1) -> str:
@@ -2894,6 +3446,10 @@ class MCPRemoteReviewService:
         target = RemoteTargetRefV1(
             target_type="catalog_project", target_id=contract.project_id
         )
+        self.store.delete_runtime_binding(
+            self.tenant_id, self.owner_id, target
+        )
+        self._close_catalog_live(target.target_id)
         state = self.store.set_target_state(
             self.tenant_id,
             self.owner_id,
@@ -2912,10 +3468,535 @@ class MCPRemoteReviewService:
         self._refresh_catalog_run(run_id)
         return {
             "contract": contract.model_dump(mode="json"),
-            "activation_eligible": False,
+            "activation_eligible": (
+                contract_runtime_enabled() and catalog_runtime_enabled()
+            ),
             "runtime_tool_count": 0,
             "target_state": state.model_dump(mode="json"),
         }
+
+    @staticmethod
+    def _catalog_runtime_tool_name(project_id: str, upstream_name: str) -> str:
+        project_slug = re.sub(r"[^a-z0-9]+", "_", project_id.lower()).strip("_")
+        project_slug = project_slug[:32] or "project"
+        project_hash = hashlib.sha256(project_id.encode("utf-8")).hexdigest()[:8]
+        tool_slug = re.sub(r"[^a-z0-9]+", "_", upstream_name.lower()).strip("_")
+        tool_slug = tool_slug[:32] or "tool"
+        tool_hash = hashlib.sha256(upstream_name.encode("utf-8")).hexdigest()[:8]
+        return f"catalog__{project_slug}_{project_hash}__{tool_slug}_{tool_hash}"
+
+    async def activate_catalog_runtime(
+        self, project_id: str, expected_contract_fingerprint: str
+    ) -> dict[str, Any]:
+        self._require_enabled()
+        self._require_catalog_runtime()
+        expected = str(expected_contract_fingerprint or "").strip()
+        if not HEX64_RE.fullmatch(expected):
+            raise HubError(
+                "Catalog 契约指纹无效。",
+                code="mcp_remote_runtime_contract_fingerprint_invalid",
+                status_code=422,
+            )
+        target = RemoteTargetRefV1(
+            target_type="catalog_project", target_id=project_id
+        )
+        lock = self._target_locks.setdefault(
+            (target.target_type, target.target_id), asyncio.Lock()
+        )
+        cleanup: dict[str, bool] = {}
+        async with lock:
+            state = self.store.get_target_state(
+                self.tenant_id, self.owner_id, target
+            )
+            if state.state not in {"reviewed", "disconnected", "active"}:
+                raise HubError(
+                    "Catalog 远程目标尚未处于可激活状态。",
+                    code="mcp_remote_runtime_activation_precondition",
+                    status_code=409,
+                )
+            resolved, contract, execution = self._resolve_catalog_runtime_contract(
+                project_id
+            )
+            if (
+                contract.contract_fingerprint != expected
+                or state.contract_fingerprint not in {"", expected}
+            ):
+                raise HubError(
+                    "Catalog 契约指纹已变化。",
+                    code="mcp_remote_runtime_contract_fingerprint_mismatch",
+                    status_code=409,
+                )
+            try:
+                async with self._catalog_session_unlocked(
+                    resolved,
+                    authenticated=True,
+                    cleanup_observer=cleanup,
+                ) as session:
+                    tool_schemas, auth_context_digest = (
+                        self._validate_catalog_runtime_session(
+                            resolved=resolved,
+                            contract=contract,
+                            session=session,
+                        )
+                    )
+            except HubError as exc:
+                self.session_coordinator.invalidate(
+                    target,
+                    state="drifted",
+                    reason_code=exc.code,
+                )
+                raise
+            if not cleanup or not all(cleanup.values()):
+                self.session_coordinator.invalidate(
+                    target,
+                    state="tainted",
+                    reason_code="mcp_remote_runtime_cleanup_failed",
+                )
+                raise HubError(
+                    "Catalog 激活预检临时资源清理失败。",
+                    code="mcp_remote_runtime_cleanup_failed",
+                    status_code=503,
+                )
+            try:
+                binding = self.store.save_runtime_binding(
+                    self.tenant_id,
+                    self.owner_id,
+                    target=target,
+                    contract_id=execution.contract_id,
+                    contract_fingerprint=execution.contract_fingerprint,
+                    source_digest=execution.source_digest,
+                    schema_digest=execution.schema_digest,
+                    auth_context_digest=auth_context_digest,
+                    tool_schemas=tool_schemas,
+                )
+                self.store.set_target_state(
+                    self.tenant_id,
+                    self.owner_id,
+                    target,
+                    "active",
+                    contract_fingerprint=execution.contract_fingerprint,
+                )
+            except Exception as exc:
+                self.session_coordinator.invalidate(
+                    target,
+                    state="disconnected",
+                    reason_code="mcp_remote_runtime_activation_persist_failed",
+                )
+                raise HubError(
+                    "Catalog Runtime 激活状态无法持久化。",
+                    code="mcp_remote_runtime_activation_persist_failed",
+                    status_code=503,
+                ) from exc
+        summary = self.catalog_remote_summary(project_id)
+        summary["runtime_binding_revision"] = binding.revision
+        return summary
+
+    async def disconnect_catalog_runtime(self, project_id: str) -> dict[str, Any]:
+        self._require_enabled()
+        target = RemoteTargetRefV1(
+            target_type="catalog_project", target_id=project_id
+        )
+        lock = self._target_locks.setdefault(
+            (target.target_type, target.target_id), asyncio.Lock()
+        )
+        async with lock:
+            self.adapters["catalog_project"].resolve(project_id)
+            self.session_coordinator.invalidate(
+                target,
+                state="disconnected",
+                reason_code="mcp_remote_runtime_disconnected",
+            )
+            live = self._catalog_live.pop(project_id, None)
+            if live is not None:
+                await asyncio.gather(
+                    self.hub.bridge.close(live[0]),
+                    self.hub.bridge.revoke(live[1]),
+                    return_exceptions=True,
+                )
+        return self.catalog_remote_summary(project_id)
+
+    def catalog_runtime_tools(self) -> list[dict[str, Any]]:
+        if (
+            not review_unification_enabled()
+            or not contract_runtime_enabled()
+            or not catalog_runtime_enabled()
+        ):
+            return []
+        output: list[dict[str, Any]] = []
+        for binding in self.store.list_runtime_bindings(
+            self.tenant_id, self.owner_id
+        ):
+            if binding.target.target_type != "catalog_project":
+                continue
+            project_id = binding.target.target_id
+            try:
+                state = self.store.get_target_state(
+                    self.tenant_id, self.owner_id, binding.target
+                )
+                resolved, contract, execution = (
+                    self._resolve_catalog_runtime_contract(project_id)
+                )
+                auth_context_digest = self._catalog_runtime_auth_context(
+                    resolved=resolved,
+                    contract=contract,
+                )
+                if (
+                    state.state != "active"
+                    or state.contract_fingerprint != execution.contract_fingerprint
+                    or binding.contract_id != execution.contract_id
+                    or binding.contract_fingerprint != execution.contract_fingerprint
+                    or binding.source_digest != execution.source_digest
+                    or binding.schema_digest != execution.schema_digest
+                    or binding.auth_context_digest != auth_context_digest
+                ):
+                    raise HubError(
+                        "Catalog Runtime 激活快照已漂移。",
+                        code="mcp_remote_runtime_binding_stale",
+                        status_code=409,
+                    )
+            except (HubError, ValueError):
+                self._invalidate_catalog_target(
+                    project_id,
+                    reason_code="mcp_remote_runtime_binding_stale",
+                )
+                continue
+            for upstream_name in execution.allowed_tools:
+                frozen = binding.tool_schemas.get(upstream_name)
+                if not isinstance(frozen, dict):
+                    continue
+                output.append(
+                    {
+                        "name": self._catalog_runtime_tool_name(
+                            project_id, upstream_name
+                        ),
+                        "description": (
+                            "受控 Catalog 远程 MCP 工具；调用前必须逐次审批，"
+                            "远程结果可能包含不受信内容。"
+                        ),
+                        "input_schema": dict(frozen["input_schema"]),
+                        "target_type": "catalog_project",
+                        "project_id": project_id,
+                        "upstream_tool_name": upstream_name,
+                        "tool_schema_digest": frozen["schema_digest"],
+                        "schema_digest": execution.schema_digest,
+                        "origin": execution.origin,
+                        "version": execution.version,
+                        "source_digest": execution.source_digest,
+                        "auth_context_digest": auth_context_digest,
+                        "contract_id": execution.contract_id,
+                        "contract_fingerprint": execution.contract_fingerprint,
+                    }
+                )
+        return output
+
+    async def execute_catalog_runtime(
+        self,
+        *,
+        project_id: str,
+        runtime_tool_name: str,
+        upstream_tool_name: str,
+        arguments: dict[str, Any],
+        approval: dict[str, Any],
+    ) -> dict[str, Any]:
+        self._require_enabled()
+        self._require_catalog_runtime()
+        target = RemoteTargetRefV1(
+            target_type="catalog_project", target_id=project_id
+        )
+        args_digest = arguments_digest(arguments)
+        approval_id = str(approval.get("approval_id") or "").strip()
+        metadata = (
+            approval.get("metadata")
+            if isinstance(approval.get("metadata"), dict)
+            else {}
+        )
+        remote_meta = (
+            metadata.get("remote_approval")
+            if isinstance(metadata.get("remote_approval"), dict)
+            else {}
+        )
+        approved_contract_fingerprint = str(
+            remote_meta.get("contract_fingerprint") or ""
+        )
+        if (
+            APPROVAL_ID_RE.fullmatch(approval_id) is None
+            or approval.get("status") != "decided"
+            or approval.get("decision") not in {"approve", "edit"}
+            or approval.get("tool_name") != runtime_tool_name
+            or remote_meta.get("target_type") != "catalog_project"
+            or remote_meta.get("target_id") != project_id
+            or remote_meta.get("upstream_tool_name") != upstream_tool_name
+            or remote_meta.get("tenant_id") != self.tenant_id
+            or remote_meta.get("owner_id") != self.owner_id
+            or remote_meta.get("arguments_digest") != args_digest
+            or HEX64_RE.fullmatch(approved_contract_fingerprint) is None
+        ):
+            raise HubError(
+                "Catalog 远程 Runtime 审批凭据无效。",
+                code="mcp_remote_runtime_approval_invalid",
+                status_code=409,
+            )
+        lock = self._target_locks.setdefault(
+            (target.target_type, target.target_id), asyncio.Lock()
+        )
+        async with lock:
+            existing = self.store.runtime_execution(
+                approval_id,
+                tenant_id=self.tenant_id,
+                owner_id=self.owner_id,
+                target=target,
+                contract_fingerprint=approved_contract_fingerprint,
+                tool_name=runtime_tool_name,
+                args_digest=args_digest,
+            )
+            if existing is not None:
+                state, replay = existing
+                if state == "completed" and replay is not None:
+                    return replay
+                if state == "unknown_outcome":
+                    raise HubError(
+                        "Catalog 远程调用结果未知，禁止重试旧审批。",
+                        code="unknown_outcome",
+                        status_code=409,
+                    )
+                if state == "started":
+                    raise HubError(
+                        "Catalog 远程审批正在执行。",
+                        code="mcp_remote_runtime_execution_in_progress",
+                        status_code=409,
+                    )
+                raise HubError(
+                    "Catalog 远程审批已失效。",
+                    code="mcp_remote_runtime_execution_state_invalid",
+                    status_code=409,
+                )
+            entry = next(
+                (
+                    item
+                    for item in self.catalog_runtime_tools()
+                    if item["project_id"] == project_id
+                    and item["name"] == runtime_tool_name
+                ),
+                None,
+            )
+            if (
+                entry is None
+                or entry["upstream_tool_name"] != upstream_tool_name
+                or remote_meta.get("version") != entry["version"]
+                or remote_meta.get("origin") != entry["origin"]
+                or remote_meta.get("source_digest") != entry["source_digest"]
+                or remote_meta.get("auth_context_digest")
+                != entry["auth_context_digest"]
+                or remote_meta.get("schema_digest") != entry["schema_digest"]
+                or remote_meta.get("tool_schema_digest")
+                != entry["tool_schema_digest"]
+                or remote_meta.get("contract_id") != entry["contract_id"]
+                or approved_contract_fingerprint
+                != entry["contract_fingerprint"]
+            ):
+                raise HubError(
+                    "Catalog 远程 Runtime 审批凭据无效。",
+                    code="mcp_remote_runtime_approval_invalid",
+                    status_code=409,
+                )
+            state = self.store.get_target_state(
+                self.tenant_id, self.owner_id, target
+            )
+            binding = self.store.get_runtime_binding(
+                self.tenant_id, self.owner_id, target
+            )
+            resolved, contract, execution = self._resolve_catalog_runtime_contract(
+                project_id
+            )
+            current_auth_context = self._catalog_runtime_auth_context(
+                resolved=resolved,
+                contract=contract,
+            )
+            if (
+                state.state != "active"
+                or binding is None
+                or state.contract_fingerprint != execution.contract_fingerprint
+                or binding.contract_fingerprint != execution.contract_fingerprint
+                or binding.auth_context_digest != current_auth_context
+            ):
+                self.session_coordinator.invalidate(
+                    target,
+                    state="drifted",
+                    reason_code="mcp_remote_runtime_binding_stale",
+                )
+                raise HubError(
+                    "Catalog Runtime 激活快照已失效。",
+                    code="mcp_remote_runtime_binding_stale",
+                    status_code=409,
+                )
+            cleanup: dict[str, bool] = {}
+            result: dict[str, Any] | None = None
+            started = False
+            try:
+                async with self._catalog_session_unlocked(
+                    resolved,
+                    authenticated=True,
+                    cleanup_observer=cleanup,
+                ) as session:
+                    tool_schemas, auth_context_digest = (
+                        self._validate_catalog_runtime_session(
+                            resolved=resolved,
+                            contract=contract,
+                            session=session,
+                        )
+                    )
+                    if (
+                        auth_context_digest != binding.auth_context_digest
+                        or tool_schemas != binding.tool_schemas
+                    ):
+                        raise HubError(
+                            "Catalog Runtime Schema 或认证上下文已漂移。",
+                            code="mcp_remote_runtime_binding_stale",
+                            status_code=409,
+                        )
+                    self.store.begin_runtime_execution(
+                        approval_id,
+                        tenant_id=self.tenant_id,
+                        owner_id=self.owner_id,
+                        target=target,
+                        contract_fingerprint=execution.contract_fingerprint,
+                        tool_name=runtime_tool_name,
+                        args_digest=args_digest,
+                    )
+                    started = True
+                    call_timeout = min(
+                        max(
+                            int(
+                                execution.limits.get("call_timeout_seconds") or 1
+                            ),
+                            1,
+                        ),
+                        20,
+                    )
+                    response = await asyncio.wait_for(
+                        self.hub.bridge.call(
+                            str(session["session_id"]),
+                            upstream_tool_name,
+                            arguments,
+                        ),
+                        timeout=call_timeout,
+                    )
+                    candidate = response.get("result")
+                    max_output = min(
+                        int(execution.limits.get("max_output_bytes") or 0),
+                        256 * 1024,
+                    )
+                    if (
+                        not isinstance(candidate, dict)
+                        or max_output <= 0
+                        or len(canonical_json_bytes(candidate)) > max_output
+                    ):
+                        raise HubError(
+                            "Catalog 远程结果结构或大小无效。",
+                            code="mcp_remote_runtime_result_denied",
+                            status_code=502,
+                        )
+                    result = candidate
+            except HubError as exc:
+                if not started:
+                    self.session_coordinator.invalidate(
+                        target,
+                        state="drifted",
+                        reason_code=exc.code,
+                    )
+                    raise
+                if exc.code in AUTH_FAILURE_CODES or exc.code in {
+                    "mcp_remote_oauth_refresh_required",
+                    "mcp_remote_oauth_scope_upgrade_required",
+                }:
+                    self.store.finish_runtime_execution(
+                        approval_id,
+                        state="failed",
+                        error_code=exc.code,
+                    )
+                    self.session_coordinator.invalidate(
+                        target,
+                        state="disconnected",
+                        reason_code=exc.code,
+                    )
+                    raise
+                self.store.finish_runtime_execution(
+                    approval_id,
+                    state="unknown_outcome",
+                    error_code="unknown_outcome",
+                )
+                self.session_coordinator.invalidate(
+                    target,
+                    state="tainted",
+                    reason_code="unknown_outcome",
+                )
+                raise HubError(
+                    "Catalog 远程调用结果未知，临时会话已销毁；禁止重试旧审批。",
+                    code="unknown_outcome",
+                    status_code=409,
+                ) from exc
+            except Exception as exc:
+                if started:
+                    self.store.finish_runtime_execution(
+                        approval_id,
+                        state="unknown_outcome",
+                        error_code="unknown_outcome",
+                    )
+                    self.session_coordinator.invalidate(
+                        target,
+                        state="tainted",
+                        reason_code="unknown_outcome",
+                    )
+                    raise HubError(
+                        "Catalog 远程调用结果未知，临时会话已销毁；禁止重试旧审批。",
+                        code="unknown_outcome",
+                        status_code=409,
+                    ) from exc
+                self.session_coordinator.invalidate(
+                    target,
+                    state="drifted",
+                    reason_code="mcp_remote_runtime_preflight_failed",
+                )
+                raise HubError(
+                    "Catalog 远程调用前置校验失败。",
+                    code="mcp_remote_runtime_preflight_failed",
+                    status_code=503,
+                ) from exc
+            if result is None:
+                raise HubError(
+                    "Catalog 远程调用未返回结果。",
+                    code="mcp_remote_runtime_result_denied",
+                    status_code=502,
+                )
+            try:
+                self.store.finish_runtime_execution(
+                    approval_id,
+                    state="completed",
+                    result=result,
+                )
+            except Exception as exc:
+                self.session_coordinator.invalidate(
+                    target,
+                    state="tainted",
+                    reason_code="unknown_outcome",
+                )
+                raise HubError(
+                    "Catalog 远程结果已返回，但执行账本未能持久化；禁止重试旧审批。",
+                    code="unknown_outcome",
+                    status_code=409,
+                ) from exc
+            if not cleanup or not all(cleanup.values()):
+                self.session_coordinator.invalidate(
+                    target,
+                    state="tainted",
+                    reason_code="mcp_remote_runtime_cleanup_failed",
+                )
+                raise HubError(
+                    "Catalog 远程调用已完成，但临时资源清理失败。",
+                    code="mcp_remote_runtime_cleanup_failed",
+                    status_code=503,
+                )
+            return result
 
     def export_contract(self, run_id: str, item_id: str) -> bytes:
         self._require_enabled()
@@ -3014,11 +4095,9 @@ class MCPRemoteReviewService:
         target = RemoteTargetRefV1(
             target_type="catalog_project", target_id=contract.project_id
         )
-        state = self.store.set_target_state(
-            self.tenant_id,
-            self.owner_id,
+        state = self.session_coordinator.invalidate(
             target,
-            "revoked",
+            state="revoked",
             reason_code="mcp_remote_contract_revoked",
         )
         return {
@@ -3064,20 +4143,75 @@ class MCPRemoteReviewService:
         contract, contract_error = self.catalog_contracts.lookup_project(
             project_id, manifest.adapter_version, snapshot.remote_url
         )
-        if state.state == "reviewed" and contract_error:
-            state = self.store.set_target_state(
-                self.tenant_id,
-                self.owner_id,
+        if state.state in {"reviewed", "active"} and contract_error:
+            state = self.session_coordinator.invalidate(
                 RemoteTargetRefV1(
                     target_type="catalog_project", target_id=project_id
                 ),
-                (
+                state=(
                     "revoked"
                     if contract_error == "mcp_remote_contract_revoked"
                     else "drifted"
                 ),
                 reason_code=contract_error,
             )
+        binding = self.store.get_runtime_binding(
+            self.tenant_id,
+            self.owner_id,
+            RemoteTargetRefV1(
+                target_type="catalog_project", target_id=project_id
+            ),
+        )
+        if state.state == "active":
+            try:
+                if contract is None or contract_error or binding is None:
+                    raise HubError(
+                        "Catalog Runtime 激活快照不存在。",
+                        code="mcp_remote_runtime_binding_stale",
+                        status_code=409,
+                    )
+                auth_context_digest = self._catalog_runtime_auth_context(
+                    resolved=resolved,
+                    contract=contract,
+                )
+                if (
+                    binding.contract_fingerprint != contract.contract_fingerprint
+                    or binding.source_digest != contract.source_digest
+                    or binding.schema_digest != contract.schema_digest
+                    or binding.auth_context_digest != auth_context_digest
+                ):
+                    raise HubError(
+                        "Catalog Runtime 激活快照已漂移。",
+                        code="mcp_remote_runtime_binding_stale",
+                        status_code=409,
+                    )
+            except (HubError, ValueError) as exc:
+                self._invalidate_catalog_target(
+                    project_id,
+                    reason_code=(
+                        exc.code
+                        if isinstance(exc, HubError)
+                        else "mcp_remote_runtime_binding_stale"
+                    ),
+                )
+                state = self.store.get_target_state(
+                    self.tenant_id,
+                    self.owner_id,
+                    RemoteTargetRefV1(
+                        target_type="catalog_project", target_id=project_id
+                    ),
+                )
+                binding = None
+        runtime_tool_count = 0
+        if binding is not None and state.state == "active":
+            runtime_tool_count = len(binding.tool_schemas)
+        activation_eligible = bool(
+            contract is not None
+            and not contract_error
+            and state.state in {"reviewed", "disconnected", "active"}
+            and contract_runtime_enabled()
+            and catalog_runtime_enabled()
+        )
         return {
             "project_id": project_id,
             "origin": snapshot.origin,
@@ -3097,8 +4231,10 @@ class MCPRemoteReviewService:
                 else None
             ),
             "contract_error": contract_error,
-            "activation_eligible": False,
-            "runtime_tool_count": 0,
+            "activation_eligible": activation_eligible,
+            "runtime_tool_count": runtime_tool_count,
+            "runtime_enabled": contract_runtime_enabled(),
+            "catalog_runtime_enabled": catalog_runtime_enabled(),
             "credential_binding_ready": (
                 self.catalog._remote_review_credential_ready(manifest)
                 if snapshot.auth_mode in {"static_bearer", "static_header"}
@@ -3250,13 +4386,11 @@ class MCPRemoteReviewService:
                 raise HubError(
                     str(exc), code=exc.code, status_code=exc.status_code
                 ) from None
-            self.store.set_target_state(
-                self.tenant_id,
-                self.owner_id,
+            self.session_coordinator.invalidate(
                 RemoteTargetRefV1(
                     target_type="catalog_project", target_id=project_id
                 ),
-                "drifted",
+                state="drifted",
                 reason_code="mcp_remote_oauth_token_revision_changed",
             )
         return self.catalog_remote_summary(project_id)
@@ -3279,13 +4413,11 @@ class MCPRemoteReviewService:
                 raise HubError(
                     str(exc), code=exc.code, status_code=exc.status_code
                 ) from None
-            state = self.store.set_target_state(
-                self.tenant_id,
-                self.owner_id,
+            state = self.session_coordinator.invalidate(
                 RemoteTargetRefV1(
                     target_type="catalog_project", target_id=project_id
                 ),
-                "revoked",
+                state="revoked",
                 reason_code="mcp_remote_oauth_token_revoked",
             )
         return {
@@ -3333,6 +4465,11 @@ class RemoteDecisionRequest(BaseModel):
 
 
 class RemoteContractPublishRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_contract_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class CatalogRemoteActivateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_contract_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
 
@@ -3612,6 +4749,37 @@ async def revoke_remote_contract(
 async def get_catalog_remote_status(project_id: str) -> dict[str, Any]:
     try:
         return _service().catalog_remote_summary(
+            _clean_id(project_id, PROJECT_ID_RE, "project_id")
+        )
+    except HubError as exc:
+        _raise_http(exc)
+
+
+@router.post("/api/mcp/catalog/{project_id}/remote/activate")
+async def activate_catalog_remote_runtime(
+    project_id: str, payload: CatalogRemoteActivateRequest
+) -> dict[str, Any]:
+    try:
+        return await _service().activate_catalog_runtime(
+            _clean_id(project_id, PROJECT_ID_RE, "project_id"),
+            payload.expected_contract_fingerprint,
+        )
+    except HubError as exc:
+        _raise_http(exc)
+
+
+@router.delete("/api/mcp/catalog/{project_id}/remote/session")
+async def disconnect_catalog_remote_runtime(
+    project_id: str, request: Request
+) -> dict[str, Any]:
+    try:
+        if request.query_params or (await request.body()).strip():
+            raise HubError(
+                "Catalog 远程断开不接受客户端字段。",
+                code="mcp_remote_catalog_client_fields_denied",
+                status_code=422,
+            )
+        return await _service().disconnect_catalog_runtime(
             _clean_id(project_id, PROJECT_ID_RE, "project_id")
         )
     except HubError as exc:

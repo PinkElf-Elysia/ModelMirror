@@ -417,6 +417,102 @@ async def test_hub_hitl_edit_recomputes_bound_arguments_digest(tmp_path) -> None
 
 
 @pytest.mark.asyncio
+async def test_catalog_remote_hitl_is_complete_redacted_and_edit_digest_bound(
+    tmp_path,
+) -> None:
+    approvals = RuntimeApprovalStore(tmp_path)
+    provider = MagicMock()
+    provider.call_tool = AsyncMock(return_value=RuntimeToolResult(output="edited"))
+    capabilities = CapabilityRegistry()
+    capabilities.register("mcp_tools", provider)
+    pipeline = MiddlewarePipeline(
+        [
+            build_human_in_the_loop_middleware(
+                RuntimeMiddlewareSpec(
+                    node_id="hitl-1",
+                    middleware_id="human_in_the_loop",
+                    config={"interrupt_on_tools": "*"},
+                ),
+                approvals,
+            )
+        ]
+    )
+    context = MiddlewareContext(
+        task_id="task-1",
+        trace_id="run-1",
+        metadata={"run_id": "run-1", "node_id": "agent-1"},
+    )
+    metadata = {
+        "iteration": 1,
+        "remote_approval": {
+            "target_type": "catalog_project",
+            "target_id": "catalog-remote-static",
+            "origin": "https://catalog.example.com",
+            "schema_digest": "a" * 64,
+            "tool_schema_digest": "b" * 64,
+            "contract_id": "catalogct_" + "c" * 32,
+            "contract_fingerprint": "d" * 64,
+            "arguments_digest": "old",
+        },
+    }
+    with pytest.raises(RuntimeInterrupt) as interrupted:
+        await run_tool_with_runtime(
+            RuntimeToolCall(
+                tool_name="catalog__project__search",
+                arguments={"query": "x" * 20_001, "token": "private"},
+                metadata=metadata,
+            ),
+            capabilities,
+            pipeline,
+            context,
+        )
+    public = approvals.serialize(approvals.require(interrupted.value.approval_id))
+    assert "catalog-remote-static" in public["description"]
+    assert "https://catalog.example.com" in public["description"]
+    assert public["arguments"]["query"] == "x" * 20_001
+    assert public["arguments"]["token"] == "[REDACTED]"
+
+    edited = {"query": "new"}
+    result = await run_tool_with_runtime(
+        RuntimeToolCall(
+            tool_name="catalog__project__search",
+            arguments={"query": "old"},
+            metadata={
+                **metadata,
+                "resolved_approval": {
+                    "approval_id": "approval-1",
+                    "decision": "edit",
+                    "edited_arguments": edited,
+                    "metadata": {
+                        "remote_approval": dict(metadata["remote_approval"])
+                    },
+                },
+            },
+        ),
+        capabilities,
+        pipeline,
+        context,
+    )
+    assert result.output == "edited"
+    forwarded = provider.call_tool.await_args.args[0]
+    expected = hashlib.sha256(
+        json.dumps(
+            edited,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    assert forwarded.metadata["remote_approval"]["arguments_digest"] == expected
+    assert (
+        forwarded.metadata["resolved_approval"]["metadata"]["remote_approval"][
+            "arguments_digest"
+        ]
+        == expected
+    )
+
+
+@pytest.mark.asyncio
 async def test_hitl_edit_resolution_calls_provider_once(tmp_path) -> None:
     approvals = RuntimeApprovalStore(tmp_path)
     provider = MagicMock()

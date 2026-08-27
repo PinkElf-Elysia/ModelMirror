@@ -18,25 +18,44 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from server.mcp.hub import (
-    HubSocketBridge,
-    MCPHubService,
-    MCPHubStore,
-    arguments_digest,
-)
-from server.mcp.hub_review import MCPHubReviewService, MCPHubReviewStore
-from server.xpert_runtime import (
-    CapabilityRegistry,
-    MiddlewareContext,
-    MiddlewarePipeline,
-    RuntimeApprovalStore,
-    RuntimeInterrupt,
-    RuntimeMiddlewareSpec,
-    RuntimeToolCall,
-    build_human_in_the_loop_middleware,
-    run_tool_with_runtime,
-)
-from server.xpert_runtime.hub_toolset import HubMCPToolsetProvider
+try:
+    from server.mcp.hub import (
+        HubSocketBridge,
+        MCPHubService,
+        MCPHubStore,
+        arguments_digest,
+    )
+    from server.mcp.hub_review import MCPHubReviewService, MCPHubReviewStore
+    from server.xpert_runtime import (
+        CapabilityRegistry,
+        MiddlewareContext,
+        MiddlewarePipeline,
+        RuntimeApprovalStore,
+        RuntimeInterrupt,
+        RuntimeMiddlewareSpec,
+        RuntimeToolCall,
+        build_human_in_the_loop_middleware,
+        run_tool_with_runtime,
+    )
+    from server.xpert_runtime.hub_toolset import HubMCPToolsetProvider
+except ModuleNotFoundError as exc:
+    if exc.name != "server":
+        raise
+    # The production image flattens ``server/`` into ``/app``.
+    from mcp.hub import HubSocketBridge, MCPHubService, MCPHubStore, arguments_digest
+    from mcp.hub_review import MCPHubReviewService, MCPHubReviewStore
+    from xpert_runtime import (
+        CapabilityRegistry,
+        MiddlewareContext,
+        MiddlewarePipeline,
+        RuntimeApprovalStore,
+        RuntimeInterrupt,
+        RuntimeMiddlewareSpec,
+        RuntimeToolCall,
+        build_human_in_the_loop_middleware,
+        run_tool_with_runtime,
+    )
+    from xpert_runtime.hub_toolset import HubMCPToolsetProvider
 
 
 def _hub_approval(
@@ -67,23 +86,37 @@ async def run(
     *,
     arguments: dict[str, Any],
     revoke_contract: bool,
+    use_configured_app: bool = False,
 ) -> dict[str, Any]:
-    store = MCPHubStore(storage_dir)
-    hub = MCPHubService(
-        store,
-        tenant_id=os.getenv("MODELMIRROR_DEFAULT_TENANT_ID", "local"),
-        owner_id=os.getenv("MODELMIRROR_DEFAULT_OWNER_ID", "local"),
-        bridge=HubSocketBridge(),
-    )
-    review_store = MCPHubReviewStore(store)
-    review = MCPHubReviewService(
-        hub,
-        review_store,
-        signing_key=os.getenv("MCP_HUB_CONTRACT_SIGNING_KEY", ""),
-    )
-    hub.contract_registry = review.contracts
-    hub.set_review_service(review)
-    provider = HubMCPToolsetProvider(hub)
+    if use_configured_app:
+        try:
+            import main as app_main
+        except ModuleNotFoundError as exc:
+            if exc.name != "main":
+                raise
+            from server import main as app_main
+
+        hub = app_main.mcp_hub_service
+        store = hub.store
+        review = app_main.mcp_hub_review_service
+        provider = app_main.workflow_hub_mcp_provider
+    else:
+        store = MCPHubStore(storage_dir)
+        hub = MCPHubService(
+            store,
+            tenant_id=os.getenv("MODELMIRROR_DEFAULT_TENANT_ID", "local"),
+            owner_id=os.getenv("MODELMIRROR_DEFAULT_OWNER_ID", "local"),
+            bridge=HubSocketBridge(),
+        )
+        review_store = MCPHubReviewStore(store)
+        review = MCPHubReviewService(
+            hub,
+            review_store,
+            signing_key=os.getenv("MCP_HUB_CONTRACT_SIGNING_KEY", ""),
+        )
+        hub.contract_registry = review.contracts
+        hub.set_review_service(review)
+        provider = HubMCPToolsetProvider(hub)
 
     candidates = [
         item
@@ -230,6 +263,7 @@ def main() -> int:
     parser.add_argument("--upstream-tool", required=True)
     parser.add_argument("--arguments-json", default="{}")
     parser.add_argument("--keep-contract", action="store_true")
+    parser.add_argument("--use-configured-app", action="store_true")
     args = parser.parse_args()
     arguments = json.loads(args.arguments_json)
     if not isinstance(arguments, dict):
@@ -241,6 +275,7 @@ def main() -> int:
             args.upstream_tool,
             arguments=arguments,
             revoke_contract=not args.keep_contract,
+            use_configured_app=args.use_configured_app,
         )
     )
     print("runtime_approval_proof=" + json.dumps(result, sort_keys=True), flush=True)

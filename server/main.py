@@ -1067,6 +1067,7 @@ try:
         CompositeMCPToolsetProvider,
         ContentPolicyError,
         HubMCPToolsetProvider,
+        RemoteMCPToolsetProvider,
         MCPToolsetProvider,
         MemoryToolsetProvider,
         MiddlewareContext,
@@ -1198,6 +1199,7 @@ except ModuleNotFoundError:
         CompositeMCPToolsetProvider,
         ContentPolicyError,
         HubMCPToolsetProvider,
+        RemoteMCPToolsetProvider,
         MCPToolsetProvider,
         MemoryToolsetProvider,
         MiddlewareContext,
@@ -1863,14 +1865,18 @@ mcp_remote_review_service = MCPRemoteReviewService(
 )
 configure_mcp_remote_review(mcp_remote_review_service)
 workflow_catalog_mcp_provider = CatalogMCPToolsetProvider(mcp_catalog_service)
+workflow_remote_mcp_provider = RemoteMCPToolsetProvider(
+    mcp_remote_review_service,
+    workflow_hub_mcp_provider,
+)
 workflow_mcp_provider = CompositeMCPToolsetProvider(
     workflow_curated_mcp_provider,
-    workflow_hub_mcp_provider,
+    workflow_remote_mcp_provider,
 )
 chat_mcp_provider = CompositeMCPToolsetProvider(
     workflow_curated_mcp_provider,
     workflow_catalog_mcp_provider,
-    workflow_hub_mcp_provider,
+    workflow_remote_mcp_provider,
 )
 toolset_service = ToolsetService(
     toolset_store,
@@ -11337,6 +11343,48 @@ async def _run_workflow_response(
                                 "arguments_digest": hub_arguments_digest(arguments),
                             }
                             if matched_tool.provider == "mcp_hub"
+                            else None
+                        ),
+                        "remote_approval": (
+                            {
+                                "target_type": matched_tool.metadata.get(
+                                    "remote_target_type"
+                                ),
+                                "target_id": matched_tool.metadata.get(
+                                    "remote_target_id"
+                                ),
+                                "upstream_tool_name": matched_tool.metadata.get(
+                                    "remote_upstream_tool_name"
+                                ),
+                                "tenant_id": mcp_remote_review_service.tenant_id,
+                                "owner_id": mcp_remote_review_service.owner_id,
+                                "version": matched_tool.metadata.get(
+                                    "remote_version"
+                                ),
+                                "origin": matched_tool.metadata.get(
+                                    "remote_origin"
+                                ),
+                                "source_digest": matched_tool.metadata.get(
+                                    "remote_source_digest"
+                                ),
+                                "auth_context_digest": matched_tool.metadata.get(
+                                    "remote_auth_context_digest"
+                                ),
+                                "schema_digest": matched_tool.metadata.get(
+                                    "remote_schema_digest"
+                                ),
+                                "tool_schema_digest": matched_tool.metadata.get(
+                                    "remote_tool_schema_digest"
+                                ),
+                                "contract_id": matched_tool.metadata.get(
+                                    "remote_contract_id"
+                                ),
+                                "contract_fingerprint": matched_tool.metadata.get(
+                                    "remote_contract_fingerprint"
+                                ),
+                                "arguments_digest": hub_arguments_digest(arguments),
+                            }
+                            if matched_tool.provider == "mcp_remote"
                             else None
                         ),
                     },

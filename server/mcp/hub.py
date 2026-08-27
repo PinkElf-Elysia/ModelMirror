@@ -31,6 +31,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
 from .hub_contracts import (
     HubContractRegistry,
     HubReviewedContractV1,
+    HubReviewedContractV2,
     HubReviewedContractV3,
 )
 from .remote_auth import RemoteAuthError, RemoteAuthPolicyV1
@@ -2507,11 +2508,19 @@ class MCPHubService:
             ),
             None,
         )
+        eligibility = str((remote or {}).get("eligibility") or "")
+        expected_eligibility = (
+            {"oauth_discovery_candidate", "eligible"}
+            if isinstance(contract, HubReviewedContractV3)
+            else {"static_token_candidate"}
+            if isinstance(contract, HubReviewedContractV2)
+            else {"eligible"}
+        )
         if (
             server is None
             or server.get("status") not in {"active", "published"}
             or remote is None
-            or remote.get("eligibility") != "eligible"
+            or eligibility not in expected_eligibility
             or (
                 contract.source_digest
                 and server.get("source_digest") != contract.source_digest
@@ -2522,6 +2531,76 @@ class MCPHubService:
                 code="hub_source_drift",
                 status_code=409,
             )
+        if isinstance(contract, (HubReviewedContractV2, HubReviewedContractV3)):
+            candidate = next(
+                (
+                    item
+                    for item in self.store.list_candidates(self.tenant_id, self.owner_id)
+                    if (
+                        item["server_name"],
+                        item["version"],
+                        item["remote_url"],
+                    )
+                    == contract.identity
+                ),
+                None,
+            )
+            if candidate is None:
+                raise HubError(
+                    "认证型可信契约需要保留原复核候选。",
+                    code="hub_preflight_required",
+                    status_code=409,
+                )
+            if isinstance(contract, HubReviewedContractV2):
+                if self._candidate_auth_policy(candidate) != contract.remote_auth_policy:
+                    raise HubError(
+                        "静态认证策略与可信契约不一致。",
+                        code="hub_reviewed_contract_drift",
+                        status_code=409,
+                    )
+                oauth_contract = None
+            else:
+                if not self._candidate_oauth_source(candidate, remote=remote):
+                    raise HubError(
+                        "OAuth 候选来源与可信契约不一致。",
+                        code="hub_source_drift",
+                        status_code=409,
+                    )
+                oauth_contract = contract
+            candidate_id = str(candidate["candidate_id"])
+            async with self._candidate_locks.setdefault(candidate_id, asyncio.Lock()):
+                await self._disconnect_live(candidate_id)
+                try:
+                    await self._open_candidate(
+                        candidate,
+                        oauth_contract_override=oauth_contract,
+                    )
+                    inspected = self.store.require_candidate(
+                        candidate_id, self.tenant_id, self.owner_id
+                    )
+                    tools = list(inspected.get("tools") or [])
+                    schema_digest = str(inspected.get("schema_digest") or "")
+                finally:
+                    await self._disconnect_live(candidate_id)
+            actual_tools = {
+                str(tool["name"]): str(tool["schema_digest"]) for tool in tools
+            }
+            if (
+                schema_digest != contract.schema_digest
+                or actual_tools != dict(contract.tool_schema_digests)
+            ):
+                raise HubError(
+                    "远程工具 Schema 与可信契约不一致。",
+                    code="hub_schema_drift",
+                    status_code=409,
+                )
+            return {
+                "schema_digest": schema_digest,
+                "tools": tools,
+                "origin": contract.origin,
+                "source_digest": str(server.get("source_digest") or ""),
+                "remote_id": str(remote.get("remote_id") or ""),
+            }
         probe_id = "mcphub_" + uuid.uuid4().hex
         session_id = ""
         capability = await self.bridge.authorize(probe_id, contract.remote_url)
@@ -2580,6 +2659,7 @@ class MCPHubService:
         *,
         allow_oauth_review: bool = False,
         expected_oauth_context: dict[str, str] | None = None,
+        oauth_contract_override: HubReviewedContractV3 | None = None,
     ) -> LiveHubSession:
         capability = await self.bridge.authorize(candidate["candidate_id"], candidate["remote_url"])
         session_id = ""
@@ -2613,13 +2693,16 @@ class MCPHubService:
                 else:
                     allowed = _flag("MCP_REMOTE_OAUTH_RUNTIME_ENABLED")
                     denied_code = "mcp_remote_oauth_runtime_disabled"
-                    runtime_contract, contract_reason = self._reviewed_contract(candidate)
-                    if runtime_contract is None:
-                        raise HubError(
-                            "OAuth Runtime 契约当前不可执行。",
-                            code=contract_reason,
-                            status_code=409,
-                        )
+                    if oauth_contract_override is not None:
+                        runtime_contract = oauth_contract_override.model_dump(mode="json")
+                    else:
+                        runtime_contract, contract_reason = self._reviewed_contract(candidate)
+                        if runtime_contract is None:
+                            raise HubError(
+                                "OAuth Runtime 契约当前不可执行。",
+                                code=contract_reason,
+                                status_code=409,
+                            )
                 if not allowed:
                     raise HubError(
                         "OAuth 运行路径当前未启用。",
