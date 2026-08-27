@@ -91,7 +91,7 @@ function validateFixtureResult(result, expected) {
 
 function validateSourceResult(result, plan) {
   const value = capture(result);
-  if (JSON.stringify(Object.keys(value).sort()) !== JSON.stringify(["clean", "licenseEvidenceSha256", "lifecycleScriptsExecuted", "sourceIdentitySha256", "unknownBinaryCount"].sort()) || value.sourceIdentitySha256 !== plan.source.identitySha256 || value.licenseEvidenceSha256 !== plan.license.evidenceSha256 || value.clean !== true || value.lifecycleScriptsExecuted !== false || !Number.isSafeInteger(value.unknownBinaryCount) || value.unknownBinaryCount !== 0) fail("R18_QUALIFICATION_SOURCE_RESULT_INVALID");
+  if (JSON.stringify(Object.keys(value).sort()) !== JSON.stringify(["clean", "identityStatus", "licenseEvidenceSha256", "lifecycleScriptsExecuted", "sourceIdentitySha256", "unknownBinaryCount"].sort()) || value.sourceIdentitySha256 !== plan.source.identitySha256 || value.licenseEvidenceSha256 !== plan.license.evidenceSha256 || value.clean !== true || !["proven", "archive-only"].includes(value.identityStatus) || value.lifecycleScriptsExecuted !== false || !Number.isSafeInteger(value.unknownBinaryCount) || value.unknownBinaryCount !== 0) fail("R18_QUALIFICATION_SOURCE_RESULT_INVALID");
   return value;
 }
 
@@ -106,11 +106,12 @@ function validateCleanup(result, plan) {
 }
 
 function makeReport(planJson, plan, executionJson, execution) {
-  const diagnostics = new Set(["R18_FILESYSTEM_ISOLATION_NOT_PROVEN"]);
+  const diagnostics = new Set(["R18_FILESYSTEM_ISOLATION_NOT_PROVEN", "R18_PROCESS_TREE_RESIDUALS_NOT_PROVEN"]);
+  if (execution.sourceInspection.identityStatus !== "proven") diagnostics.add("R18_SOURCE_CHECKOUT_IDENTITY_NOT_PROVEN");
   if (execution.cleanup.networkObservation === "not-proven") diagnostics.add("R18_NETWORK_ISOLATION_NOT_PROVEN");
   for (const fixture of execution.fixtures) for (const code of fixture.diagnosticCodes) diagnostics.add(code);
   const anyFailure = execution.fixtures.some((fixture) => fixture.status === "failed");
-  const anyGap = execution.fixtures.some((fixture) => fixture.status === "evidence-gap") || diagnostics.has("R18_NETWORK_ISOLATION_NOT_PROVEN");
+  const anyGap = execution.sourceInspection.identityStatus !== "proven" || execution.fixtures.some((fixture) => fixture.status === "evidence-gap") || diagnostics.has("R18_NETWORK_ISOLATION_NOT_PROVEN");
   const status = anyFailure ? "failed" : anyGap ? "evidence-gap" : "executed";
   return {
     format: "matrix-oasis.v2-isolated-qualification-report",
@@ -125,12 +126,12 @@ function makeReport(planJson, plan, executionJson, execution) {
     executionEvidenceSha256: sha256(Buffer.from(executionJson, "utf8")),
     fixtureCount: execution.fixtures.length,
     hardGates: {
-      sourceIdentity: "pass",
+      sourceIdentity: execution.sourceInspection.identityStatus === "proven" ? "pass" : "not-proven",
       directLicense: "pass",
       credentials: "pass",
       filesystemIsolation: "not-proven",
       networkIsolation: execution.cleanup.networkObservation === "not-proven" ? "not-proven" : "observed-only",
-      residualProcesses: "pass",
+      residualProcesses: "not-proven",
       runtimeFixture: anyFailure ? "fail" : anyGap ? "not-proven" : "pass",
     },
     diagnosticCodes: [...diagnostics].sort(),

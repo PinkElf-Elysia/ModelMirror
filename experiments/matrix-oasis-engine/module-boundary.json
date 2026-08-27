@@ -11,13 +11,13 @@
       "docs/ARCHITECTURE.md", "docs/BOUNDARIES.md", "docs/DEPENDENCIES_AND_LICENSES.md", "docs/KNOWN_LIMITATIONS.md",
       "docs/PRODUCT.md", "docs/V1_CRITICAL_PATH.md", "docs/MVP_STATUS.json", "docs/V2_STATUS.json",
       "docs/R18_V2_LANDSCAPE_THREAT_MODEL.md", "docs/R18_TASK_CARD.md", "docs/R18_PUBLIC_DISCOVERY_APPROVAL.md", "docs/R18_CANDIDATE_EXECUTION_APPROVAL.md",
-      "docs/R18_CANDIDATE_CATALOG.json", "docs/R18_DECISION_LANDSCAPE.json", "docs/R18_ROADMAP.json", "docs/R18_V2_SELECTION_MATRIX.md", "docs/R18_QUALIFICATION_SUMMARY.json",
+      "docs/R18_CANDIDATE_CATALOG.json", "docs/R18_DECISION_LANDSCAPE.json", "docs/R18_ROADMAP.json", "docs/R18_V2_SELECTION_MATRIX.md", "docs/R18_QUALIFICATION_SUMMARY.json", "docs/R18_QUALIFICATION_EVIDENCE.md",
       "docs/adr/0019-r18-v2-landscape-governance.md", "docs/rounds/R18_ACCEPTANCE.md",
       "scripts/check-round-scope.mjs", "scripts/check-mvp-claim.mjs", "scripts/check-v2-claim.mjs",
-      "scripts/plan-r18-discovery.mjs", "scripts/discover-r18.mjs", "scripts/build-r18-source-lock.mjs", "scripts/verify-r18-sources.mjs", "scripts/evaluate-r18-landscape.mjs", "scripts/plan-r18-qualification.mjs", "scripts/qualify-r18.mjs", "scripts/verify-r18-evidence.mjs", "scripts/verify-r18.mjs",
-      "scripts/lib/boundary-core.mjs", "scripts/lib/mvp-claim-core.mjs", "scripts/lib/v2-claim-core.mjs", "scripts/lib/r18-discovery-core.mjs", "scripts/lib/r18-source-build-core.mjs", "scripts/lib/r18-source-core.mjs", "scripts/lib/r18-landscape-core.mjs", "scripts/lib/r18-harness-core.mjs", "scripts/lib/r18-evidence-core.mjs", "scripts/lib/parent-scope-core.mjs", "scripts/lib/scope-policy.mjs",
+      "scripts/plan-r18-discovery.mjs", "scripts/discover-r18.mjs", "scripts/build-r18-source-lock.mjs", "scripts/verify-r18-sources.mjs", "scripts/evaluate-r18-landscape.mjs", "scripts/plan-r18-qualification.mjs", "scripts/qualify-r18.mjs", "scripts/verify-r18-evidence.mjs", "scripts/import-r18-qualification-evidence.mjs", "scripts/verify-r18.mjs",
+      "scripts/lib/boundary-core.mjs", "scripts/lib/mvp-claim-core.mjs", "scripts/lib/v2-claim-core.mjs", "scripts/lib/r18-discovery-core.mjs", "scripts/lib/r18-source-build-core.mjs", "scripts/lib/r18-source-core.mjs", "scripts/lib/r18-landscape-core.mjs", "scripts/lib/r18-harness-core.mjs", "scripts/lib/r18-evidence-core.mjs", "scripts/lib/r18-candidate-qualification-core.mjs", "scripts/lib/r18-evidence-import-core.mjs", "scripts/lib/parent-scope-core.mjs", "scripts/lib/scope-policy.mjs",
       "scripts/run-verify.mjs", "scripts/verify-extraction.mjs", "tests/boundary.test.mjs", "tests/godot-boundary.test.mjs", "tests/extraction-contract.test.mjs",
-      "tests/mvp-claim.test.mjs", "tests/v2-claim.test.mjs", "tests/r18-sources.test.mjs", "tests/r18-landscape.test.mjs", "tests/r18-harness.test.mjs", "tests/r18-evidence.test.mjs", "tests/r18-roadmap.test.mjs", "tests/round-scope.test.mjs"
+      "tests/mvp-claim.test.mjs", "tests/v2-claim.test.mjs", "tests/r18-sources.test.mjs", "tests/r18-landscape.test.mjs", "tests/r18-harness.test.mjs", "tests/r18-evidence.test.mjs", "tests/r18-evidence-import.test.mjs", "tests/r18-roadmap.test.mjs", "tests/round-scope.test.mjs"
     ],
     "allowedModulePrefixes": [
       "packages/v2-landscape-contracts",

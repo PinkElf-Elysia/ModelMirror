@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { createV2QualificationPlan, R18LandscapeHarnessError, verifyV2QualificationEvidenceDirectory } from "@matrix-oasis/v2-landscape-harness";
+import { createV2QualificationPlan, R18LandscapeHarnessError, runV2Qualification, verifyV2QualificationEvidenceDirectory } from "@matrix-oasis/v2-landscape-harness";
+import { createR18CandidateOperations } from "./r18-candidate-qualification-core.mjs";
 
 const CATALOG = "docs/R18_CANDIDATE_CATALOG.json";
 const AUDIT = "third-party/v2-landscape-references/desktop-audit.lock.json";
@@ -36,9 +37,21 @@ export function planAllR18Qualifications({ moduleRoot }) {
   return Object.freeze(ids.map((candidateId) => planR18Qualification({ moduleRoot, candidateId })));
 }
 
-export async function qualifyR18Candidate({ moduleRoot, candidateId }) {
-  planR18Qualification({ moduleRoot, candidateId });
-  fail("R18_QUALIFICATION_ADAPTER_UNAVAILABLE");
+export async function qualifyR18Candidate({ moduleRoot, candidateId, sourceDir, outputDir }, dependencies = {}) {
+  const catalog = readJson(moduleRoot, CATALOG);
+  const candidate = catalog.catalog.candidates.find((item) => item.id === candidateId);
+  const plan = planR18Qualification({ moduleRoot, candidateId });
+  const operations = dependencies.operations ?? createR18CandidateOperations({ moduleRoot, candidate, sourceDir });
+  return await runV2Qualification({
+    planJson: plan.canonicalJson,
+    sourceDir,
+    outputDir,
+    authorization: {
+      candidateExecutionApproved: true,
+      dependencyDownloadApproved: false,
+      containerExecutionApproved: false,
+    },
+  }, operations);
 }
 
 export function verifyR18EvidenceRoot(evidenceRoot) {

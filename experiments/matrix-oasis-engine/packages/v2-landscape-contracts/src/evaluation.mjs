@@ -119,6 +119,7 @@ export function evaluateV2CandidateForTier(candidateInput, evidenceInput, policy
   const productionGatesPassed = requiredGates.length > 0 && requiredGates.every((gate) => gateMap.get(gate) === "pass");
   const desktopGatesPassed = desktopGates.every((gate) => gateMap.get(gate) === "pass");
   const unresolvedFailure = evidence?.executionStatus === "failed" && evidence?.harnessAttribution === "unresolved";
+  const attemptedEvidenceGap = unresolvedFailure || evidence?.executionStatus === "evidence-gap";
   const evidenceGap = unresolvedFailure || evidence?.executionStatus === "evidence-gap" || requiredGates.some((gate) => !gateMap.has(gate) || gateMap.get(gate) === "not-proven");
   const reusable = candidate?.license?.reuseAllowed === true && candidate?.license?.closureStatus === "approved";
   const qualifiable = candidate?.license?.qualificationAllowed === true && ["approved", "direct-approved"].includes(candidate?.license?.closureStatus);
@@ -131,9 +132,9 @@ export function evaluateV2CandidateForTier(candidateInput, evidenceInput, policy
   else if (productionGatesPassed && reusable && score >= integrationMinimum && evidence?.executionStatus === "executed") {
     tier = "integration-recommended";
     conclusion = "recommended";
-  } else if (desktopGatesPassed && qualifiable && score >= shortlistMinimum && ["planned", "executed"].includes(evidence?.executionStatus)) {
+  } else if (desktopGatesPassed && qualifiable && score >= shortlistMinimum && (["planned", "executed", "evidence-gap"].includes(evidence?.executionStatus) || unresolvedFailure)) {
     tier = "executable-shortlist";
-    conclusion = "backup";
+    conclusion = attemptedEvidenceGap ? "deferred" : "backup";
   } else if (score < shortlistMinimum && !evidenceGap) conclusion = "rejected";
   else conclusion = "deferred";
   return deepFreeze({

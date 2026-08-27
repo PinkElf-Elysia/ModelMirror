@@ -62,6 +62,7 @@ function operations(plan, { networkObservation = "not-proven", fixtureStatus = "
       sourceIdentitySha256: plan.value.source.identitySha256,
       licenseEvidenceSha256: plan.value.license.evidenceSha256,
       clean: true,
+      identityStatus: "proven",
       lifecycleScriptsExecuted: false,
       unknownBinaryCount: 0,
     }),
@@ -90,6 +91,23 @@ test("service, embedded Godot and asset plans expose distinct fail-closed profil
   assert.equal(validateV2QualificationPlan(service.canonicalJson).valid, true);
 });
 
+test("an archive-only source is published as an explicit identity evidence gap", async () => {
+  const plan = createV2QualificationPlan({ candidate: candidate(), laneIds: ["memory-relationships"] });
+  const injected = operations(plan, { networkObservation: "none-observed" });
+  injected.inspectSource = () => ({
+    sourceIdentitySha256: plan.value.source.identitySha256,
+    licenseEvidenceSha256: plan.value.license.evidenceSha256,
+    clean: true,
+    identityStatus: "archive-only",
+    lifecycleScriptsExecuted: false,
+    unknownBinaryCount: 0,
+  });
+  const result = await runV2Qualification({ planJson: plan.canonicalJson, sourceDir: tempSource(), outputDir: tempOutput(), authorization }, injected);
+  assert.equal(result.report.status, "evidence-gap");
+  assert.equal(result.report.hardGates.sourceIdentity, "not-proven");
+  assert.ok(result.report.diagnosticCodes.includes("R18_SOURCE_CHECKOUT_IDENTITY_NOT_PROVEN"));
+});
+
 test("commercial candidates and approval-bearing plan bytes are rejected", () => {
   assert.throws(
     () => createV2QualificationPlan({ candidate: candidate({ candidateType: "commercial-benchmark", surface: { runtimeClass: "commercial" } }), laneIds: ["memory-relationships"] }),
@@ -110,6 +128,8 @@ test("an authorized injected fixture publishes atomic evidence without overstati
   assert.equal(result.report.status, "evidence-gap");
   assert.ok(result.report.diagnosticCodes.includes("R18_FILESYSTEM_ISOLATION_NOT_PROVEN"));
   assert.ok(result.report.diagnosticCodes.includes("R18_NETWORK_ISOLATION_NOT_PROVEN"));
+  assert.ok(result.report.diagnosticCodes.includes("R18_PROCESS_TREE_RESIDUALS_NOT_PROVEN"));
+  assert.equal(result.report.hardGates.residualProcesses, "not-proven");
   assert.deepEqual(fs.readdirSync(output).sort(), ["execution-evidence.json", "qualification-plan.json", "qualification-report.json"]);
   assert.deepEqual(verifyV2QualificationEvidenceDirectory(output), {
     candidateId: "fixture-candidate",

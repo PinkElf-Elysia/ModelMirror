@@ -237,7 +237,7 @@ function landscapeSemantics(value) {
     if (requiredGates.length !== gateIds.size || requiredGates.some((gate) => !gateIds.has(gate))) {
       diagnostics.push(diagnostic("semantic", "V2_DECISION_LANDSCAPE_GATE_SET_INVALID", `/decisions/${index}/hardGates`));
     }
-    if (decision.executionStatus === "executed") executedCandidates.add(decision.candidateId);
+    if (["executed", "failed", "evidence-gap"].includes(decision.executionStatus)) executedCandidates.add(decision.candidateId);
     if (decision.shortlistRank !== null) {
       const rankKey = `${decision.laneId}\0${decision.shortlistRank}`;
       if (ranks.has(rankKey)) diagnostics.push(diagnostic("semantic", "V2_DECISION_LANDSCAPE_SHORTLIST_RANK_DUPLICATE", `/decisions/${index}/shortlistRank`));

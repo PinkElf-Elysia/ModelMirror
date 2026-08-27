@@ -240,6 +240,13 @@ test("landscape accepts layered decisions and rejects score, rank, commercial an
   for (const decision of repeatedExecution.decisions.filter((item) => item.candidateId === "candidate-11")) decision.executionStatus = "planned";
   assert.ok(validateV2DecisionLandscapeJson(canonicalizeJsonValue(repeatedExecution)).diagnostics.some((item) => item.code === "V2_DECISION_LANDSCAPE_EXECUTION_QUOTA"));
 
+  const attemptedWithGaps = landscape();
+  for (const decision of attemptedWithGaps.decisions.filter((item) => item.executionStatus === "executed")) {
+    decision.executionStatus = Number(decision.candidateId.slice(-2)) % 2 === 0 ? "evidence-gap" : "failed";
+    if (decision.executionStatus === "failed") decision.harnessAttribution = "unresolved";
+  }
+  assert.equal(validateV2DecisionLandscapeJson(canonicalizeJsonValue(attemptedWithGaps)).diagnostics.some((item) => item.code === "V2_DECISION_LANDSCAPE_EXECUTION_QUOTA"), false);
+
   const rankGap = landscape();
   for (const decision of rankGap.decisions.filter((item) => item.laneId === V2_LANES[0] && item.shortlistRank !== null)) decision.shortlistRank += 1;
   assert.ok(validateV2DecisionLandscapeJson(canonicalizeJsonValue(rankGap)).diagnostics.some((item) => item.code === "V2_DECISION_LANDSCAPE_SHORTLIST_RANK_GAP"));
@@ -262,8 +269,14 @@ test("high scores cannot override gates and unresolved Harness failures stay evi
 
   const unresolved = evidence(item.id, V2_LANES[0], "service", { executionStatus: "failed", harnessAttribution: "unresolved" });
   assert.deepEqual(
-    { conclusion: evaluateV2CandidateForTier(item, unresolved).conclusion, evidenceGap: evaluateV2CandidateForTier(item, unresolved).evidenceGap },
-    { conclusion: "deferred", evidenceGap: true },
+    { tier: evaluateV2CandidateForTier(item, unresolved).tier, conclusion: evaluateV2CandidateForTier(item, unresolved).conclusion, evidenceGap: evaluateV2CandidateForTier(item, unresolved).evidenceGap },
+    { tier: "executable-shortlist", conclusion: "deferred", evidenceGap: true },
+  );
+
+  const attemptedGap = evidence(item.id, V2_LANES[0], "service", { executionStatus: "evidence-gap", harnessAttribution: "harness" });
+  assert.deepEqual(
+    { tier: evaluateV2CandidateForTier(item, attemptedGap).tier, conclusion: evaluateV2CandidateForTier(item, attemptedGap).conclusion },
+    { tier: "executable-shortlist", conclusion: "deferred" },
   );
 
   const candidateFailure = evidence(item.id, V2_LANES[0], "service", { executionStatus: "failed", harnessAttribution: "candidate" });
