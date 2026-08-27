@@ -193,7 +193,7 @@ const R9_SHARP_LIBVIPS_LICENSE_EXCEPTIONS = [
 }));
 
 const REQUIRED_POLICY_VALUES = [
-  [["schemaVersion"], 17],
+  [["schemaVersion"], 18],
   [["moduleId"], "matrix-oasis-engine"],
   [["moduleRoot"], "."],
   [["moduleRootResolution"], "directory-containing-module-boundary"],
@@ -215,22 +215,76 @@ const REQUIRED_POLICY_VALUES = [
   [["networkPolicy", "r17OrdinaryVerificationCalls"], "none"],
   [["networkPolicy", "r17WarehouseQualificationCalls"], "fixed-source-checkout-and-loopback-only"],
   [["networkPolicy", "r17ContainerCalls"], "separate-human-approval-required"],
+  [["networkPolicy", "r18OrdinaryVerificationCalls"], "none"],
+  [["networkPolicy", "r18PublicDiscoveryCalls"], "separate-human-approval-required"],
+  [["networkPolicy", "r18WarehouseQualificationCalls"], "fixed-source-checkout-and-loopback-only"],
+  [["networkPolicy", "r18ContainerCalls"], "per-candidate-human-approval-required"],
+  [["networkPolicy", "r18CommercialProductCalls"], "public-documentation-only"],
   [["mvpClaimPolicy", "status"], "r16-qualified"],
   [["mvpClaimPolicy", "claimAllowed"], true],
   [["mvpClaimPolicy", "blockingRound"], null],
   [["mvpClaimPolicy", "acceptanceRecord"], "docs/rounds/R16_ACCEPTANCE.md"],
   [["mvpClaimPolicy", "machineStatus"], "docs/MVP_STATUS.json"],
   [["mvpClaimPolicy", "completionMarker"], "MATRIX_OASIS_R16_CREATOR_MVP_READY"],
-  [["v2ClaimPolicy", "status"], "r17-selection-qualified"],
+  [["v2ClaimPolicy", "status"], "r18-landscape-qualified"],
   [["v2ClaimPolicy", "claimAllowed"], false],
-  [["v2ClaimPolicy", "blockingRound"], "R24"],
+  [["v2ClaimPolicy", "blockingRound"], "R25"],
   [["v2ClaimPolicy", "machineStatus"], "docs/V2_STATUS.json"],
-  [["v2ClaimPolicy", "qualificationProfile"], "matrix-oasis.v2-qualification/1"],
+  [["v2ClaimPolicy", "qualificationProfile"], "matrix-oasis.v2-landscape/1"],
   [["v2ClaimPolicy", "trackedCandidateSourceAllowed"], false],
   [["v2ClaimPolicy", "trackedQualificationEvidenceAllowed"], false],
   [["v2ClaimPolicy", "providerCallsAllowed"], false],
   [["v2ClaimPolicy", "providerCredentialsAllowed"], false],
   [["v2ClaimPolicy", "containerExecutionRequiresHumanApproval"], true],
+  [["r18LandscapePolicy", "catalogFormat"], "matrix-oasis.v2-candidate-catalog"],
+  [["r18LandscapePolicy", "landscapeFormat"], "matrix-oasis.v2-decision-landscape"],
+  [["r18LandscapePolicy", "roadmapFormat"], "matrix-oasis.v2-roadmap"],
+  [["r18LandscapePolicy", "formatVersion"], "0.1.0"],
+  [["r18LandscapePolicy", "canonicalization"], "matrix-oasis.canonical-json/1"],
+  [["r18LandscapePolicy", "laneCount"], 8],
+  [["r18LandscapePolicy", "minEntriesPerLane"], 6],
+  [["r18LandscapePolicy", "minOpenOrInternalPerLane"], 4],
+  [["r18LandscapePolicy", "minNewSinceR17PerLane"], 2],
+  [["r18LandscapePolicy", "minTotalEntries"], 48],
+  [["r18LandscapePolicy", "minUniqueCandidates"], 32],
+  [["r18LandscapePolicy", "minExecutedCandidates"], 12],
+  [["r18LandscapePolicy", "maxExecutedCandidates"], 16],
+  [["r18LandscapePolicy", "minShortlistPerExecutableLane"], 2],
+  [["r18LandscapePolicy", "maxShortlistPerExecutableLane"], 3],
+  [["r18LandscapePolicy", "minCommercialBenchmarks"], 4],
+  [["r18LandscapePolicy", "shortlistMinimumScore"], 70],
+  [["r18LandscapePolicy", "integrationMinimumScore"], 80],
+  [["r18LandscapePolicy", "nearTieScoreDelta"], 5],
+  [["r18LandscapePolicy", "providerCallsAllowed"], false],
+  [["r18LandscapePolicy", "providerCredentialsAllowed"], false],
+  [["r18LandscapePolicy", "commercialProductCallsAllowed"], false],
+  [["r18LandscapePolicy", "publicDiscoveryRequiresHumanApproval"], true],
+  [["r18LandscapePolicy", "publicDiscoveryHosts"], [
+    "api.github.com",
+    "github.com",
+    "godotengine.org",
+    "docs.inworld.ai",
+    "docs.convai.com",
+    "developer.nvidia.com",
+    "rosebud.ai",
+  ]],
+  [["r18LandscapePolicy", "publicDiscoveryRequestBudget"], {
+    "api.github.com": 48,
+    "github.com": 40,
+    "godotengine.org": 4,
+    "docs.inworld.ai": 2,
+    "docs.convai.com": 2,
+    "developer.nvidia.com": 2,
+    "rosebud.ai": 2,
+  }],
+  [["r18LandscapePolicy", "publicDiscoveryRequestMaximum"], 100],
+  [["r18LandscapePolicy", "publicDiscoveryResponseMaxBytes"], 2 * 1024 * 1024],
+  [["r18LandscapePolicy", "publicDiscoveryTotalResponseMaxBytes"], 128 * 1024 * 1024],
+  [["r18LandscapePolicy", "publicDiscoveryTimeoutMs"], 15000],
+  [["r18LandscapePolicy", "containerExecutionRequiresPerCandidateApproval"], true],
+  [["r18LandscapePolicy", "trackedCandidateSourceAllowed"], false],
+  [["r18LandscapePolicy", "trackedRawEvidenceAllowed"], false],
+  [["r18LandscapePolicy", "productIntegrationAllowed"], false],
   [["r16CreatorQualificationPolicy", "qualificationFormat"], "matrix-oasis.prototype-creator-qualification"],
   [["r16CreatorQualificationPolicy", "formatVersion"], "0.1.0"],
   [["r16CreatorQualificationPolicy", "profile"], "matrix-oasis.creator-solved-evidence/1"],
@@ -1385,6 +1439,40 @@ function checkSmokeNetwork(relative, content, specifiers, violations) {
 }
 
 function checkScriptNetwork(relative, content, specifiers, policy, violations) {
+  if (relative === "scripts/lib/r18-discovery-core.mjs") {
+    const hostBlock = content.match(/const EXPECTED_HOSTS = Object\.freeze\(\[([\s\S]*?)\]\);/u)?.[1] ?? "";
+    const declaredHosts = [...hostBlock.matchAll(/"([a-z0-9.-]+)"/gu)].map((match) => match[1]);
+    const approvedHosts = policy.r18LandscapePolicy.publicDiscoveryHosts;
+    const requiredControls = [
+      /const EXPECTED_HOSTS = Object\.freeze\(\[/u,
+      /url\.protocol !== "https:"/u,
+      /url\.hostname !== host/u,
+      /redirect: "error"/u,
+      /credentials: "omit"/u,
+      /AbortSignal\.timeout\(state\.querySet\.timeoutMs\)/u,
+      /state\.counts\[host\] > maximum/u,
+      /state\.querySet\.responseMaxBytes/u,
+      /state\.querySet\.totalResponseMaxBytes/u,
+    ];
+    const fetchCalls = [...content.matchAll(new RegExp(`\\b${FETCH_GLOBAL_NAME}\\s*\\(`, "gu"))];
+    if (
+      usesNetworkModule(specifiers) ||
+      !isDeepStrictEqual(declaredHosts, approvedHosts) ||
+      fetchCalls.length !== 1 ||
+      requiredControls.some((pattern) => !pattern.test(content)) ||
+      /\bprocess\.env\b/u.test(content) ||
+      /\b(?:eval|Function)\s*\(/u.test(content) ||
+      /\bhttp:\/\//u.test(content)
+    ) {
+      addViolation(
+        violations,
+        "r18-discovery-network-invalid",
+        relative,
+        "R18 discovery may use one native HTTPS request site with exact hosts, no credentials, no redirects, and fixed request, byte, and timeout bounds.",
+      );
+    }
+    return;
+  }
   if (relative === "scripts/lib/spatial-analysis-core.mjs") {
     const nonNamespaceContent = content.replace(/http:\/\/www\.w3\.org\/2000\/svg/gu, "");
     if (

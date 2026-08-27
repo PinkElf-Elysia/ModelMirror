@@ -8,7 +8,7 @@ export const VERIFY_STEPS = Object.freeze([
   ["boundary", ["run", "check:boundary"]],
   ["mvp-claim", ["run", "check:mvp-claim"]],
   ["v2-claim", ["run", "check:v2-claim"]],
-  ["r17", ["run", "verify:r17"]],
+  ["r18", ["run", "verify:r18"]],
   ["godot-foundation", ["run", "verify:godot"]],
   ["pack-examples", ["run", "validate:examples"]],
   ["runtime-pack", ["run", "verify:runtime-pack"]],

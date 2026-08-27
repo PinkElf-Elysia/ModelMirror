@@ -1,0 +1,104 @@
+{
+  "format": "matrix-oasis.v2-discovery-query-set",
+  "formatVersion": "0.1.0",
+  "lanes": [
+    {
+      "id": "npc-orchestration",
+      "githubQuery": "multi-agent stars:>100",
+      "seedRepositories": [
+        "google-deepmind/concordia",
+        "langchain-ai/langgraph",
+        "microsoft/autogen",
+        "camel-ai/camel",
+        "microsoft/TinyTroupe"
+      ]
+    },
+    {
+      "id": "memory-relationships",
+      "githubQuery": "agent memory stars:>100",
+      "seedRepositories": [
+        "mem0ai/mem0",
+        "letta-ai/letta",
+        "getzep/graphiti",
+        "langchain-ai/langmem",
+        "topoteretes/cognee"
+      ]
+    },
+    {
+      "id": "dynamic-events",
+      "githubQuery": "narrative game stars:>20",
+      "seedRepositories": [
+        "YGYOOO/WorldX",
+        "google-deepmind/concordia",
+        "a16z-infra/ai-town",
+        "joonspk-research/generative_agents",
+        "microsoft/TinyTroupe"
+      ]
+    },
+    {
+      "id": "godot-behavior",
+      "githubQuery": "godot behavior tree stars:>20",
+      "seedRepositories": [
+        "bitbrain/beehave",
+        "limbonaut/limboai"
+      ]
+    },
+    {
+      "id": "dialogue-presentation",
+      "githubQuery": "godot dialogue system stars:>20",
+      "seedRepositories": [
+        "nathanhoad/godot_dialogue_manager",
+        "dialogic-godot/dialogic",
+        "rakugoteam/Rakugo"
+      ]
+    },
+    {
+      "id": "character-animation",
+      "githubQuery": "godot animation stars:>10",
+      "seedRepositories": []
+    },
+    {
+      "id": "evaluation-observability",
+      "githubQuery": "agent benchmark stars:>100",
+      "seedRepositories": [
+        "FreedomIntelligence/gamecraft-bench",
+        "sotopia-lab/sotopia",
+        "mazaiying/AgentMemBench",
+        "THUDM/AgentBench",
+        "openai/evals",
+        "UKGovernmentBEIS/inspect_ai"
+      ]
+    },
+    {
+      "id": "creator-commercial-benchmark",
+      "githubQuery": "game generator stars:>20",
+      "seedRepositories": [
+        "YGYOOO/WorldX",
+        "htdt/godogen",
+        "a16z-infra/ai-town"
+      ]
+    }
+  ],
+  "publicDocuments": [
+    { "id": "godot-asset-library", "host": "godotengine.org", "path": "/asset-library/asset" },
+    { "id": "inworld-overview", "host": "docs.inworld.ai", "path": "/introduction" },
+    { "id": "inworld-api-reference", "host": "docs.inworld.ai", "path": "/api-reference/introduction" },
+    { "id": "convai-overview", "host": "docs.convai.com", "path": "/api-docs" },
+    { "id": "convai-core-api", "host": "docs.convai.com", "path": "/api-docs/api-reference/core-api-reference" },
+    { "id": "nvidia-ace-games", "host": "developer.nvidia.com", "path": "/ace-for-games" },
+    { "id": "nvidia-ace-architecture", "host": "developer.nvidia.com", "path": "/blog/expanding-ai-agent-interface-options-with-2d-and-3d-digital-human-avatars/" },
+    { "id": "rosebud-overview", "host": "rosebud.ai", "path": "/" }
+  ],
+  "requestBudget": {
+    "api.github.com": 48,
+    "github.com": 40,
+    "godotengine.org": 4,
+    "docs.inworld.ai": 2,
+    "docs.convai.com": 2,
+    "developer.nvidia.com": 2,
+    "rosebud.ai": 2
+  },
+  "responseMaxBytes": 2097152,
+  "totalResponseMaxBytes": 134217728,
+  "timeoutMs": 15000
+}

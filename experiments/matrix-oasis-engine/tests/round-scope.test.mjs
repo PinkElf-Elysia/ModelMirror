@@ -132,12 +132,12 @@ function expectCode(fn, expected) {
   });
 }
 
-test("machine boundary and code expose the same ordered R17 policy", () => {
+test("machine boundary and code expose the same ordered R18 policy", () => {
   const policy = JSON.parse(
     readFileSync(path.join(committedModuleRoot, "module-boundary.json"), "utf8"),
   );
 
-  assert.equal(policy.schemaVersion, 17);
+  assert.equal(policy.schemaVersion, 18);
   assert.equal(policy.activeRound, ACTIVE_ROUND);
   assert.equal(policy.activeRoundBaselineSha, ACTIVE_ROUND_BASELINE_SHA);
   assert.deepEqual(
@@ -156,24 +156,24 @@ test("machine boundary and code expose the same ordered R17 policy", () => {
     path.join(committedModuleRoot, "scripts", "check-round-scope.mjs"),
     "utf8",
   );
-  assert.match(cli, /policy\.schemaVersion !== 17/);
-  assert.doesNotMatch(cli, /policy\.schemaVersion !== 16/);
+  assert.match(cli, /policy\.schemaVersion !== 18/);
+  assert.doesNotMatch(cli, /policy\.schemaVersion !== 17/);
 });
 
-test("accepts exact R17 files and new qualification prefixes in every Git status source", (t) => {
+test("accepts exact R18 files and new landscape prefixes in every Git status source", (t) => {
   const { fixture, moduleRoot, base } = makeParentFixture(t);
-  write(fixture, `${MODULE_PREFIX}/packages/v2-qualification-contracts/src/index.mjs`, "export {};\n");
+  write(fixture, `${MODULE_PREFIX}/packages/v2-landscape-contracts/src/index.mjs`, "export {};\n");
   git(fixture, ["add", "."]);
   git(fixture, ["commit", "--quiet", "-m", "round change"]);
-  write(fixture, `${MODULE_PREFIX}/packages/v2-qualification-harness/src/index.mjs`, "export {};\n");
-  git(fixture, ["add", `${MODULE_PREFIX}/packages/v2-qualification-harness/src/index.mjs`]);
+  write(fixture, `${MODULE_PREFIX}/packages/v2-landscape-harness/src/index.mjs`, "export {};\n");
+  git(fixture, ["add", `${MODULE_PREFIX}/packages/v2-landscape-harness/src/index.mjs`]);
   write(fixture, `${MODULE_PREFIX}/scripts/run-verify.mjs`, "staged\n");
   git(fixture, ["add", `${MODULE_PREFIX}/scripts/run-verify.mjs`]);
   write(fixture, `${MODULE_PREFIX}/scripts/run-verify.mjs`, "unstaged update\n");
   write(fixture, `${MODULE_PREFIX}/scripts/check-v2-claim.mjs`);
-  write(fixture, `${MODULE_PREFIX}/tests/r17-qualification.test.mjs`);
-  write(fixture, `${MODULE_PREFIX}/docs/rounds/R17_ACCEPTANCE.md`);
-  write(fixture, `${MODULE_PREFIX}/third-party/v2-qualification-references/reference.lock.json`, "{}\n");
+  write(fixture, `${MODULE_PREFIX}/tests/r18-landscape.test.mjs`);
+  write(fixture, `${MODULE_PREFIX}/docs/rounds/R18_ACCEPTANCE.md`);
+  write(fixture, `${MODULE_PREFIX}/third-party/v2-landscape-references/reference.lock.json`, "{}\n");
 
   const result = checkRoundScope({ moduleRoot, base, expectedBase: base });
   assert.equal(result.status, "ok");
@@ -397,21 +397,21 @@ test("rejects a caller-selected base", (t) => {
   );
 });
 
-test("round path classifier exposes stable R17 guard categories", () => {
+test("round path classifier exposes stable R18 guard categories", () => {
   assert.equal(
-    classifyRoundPath(`${MODULE_PREFIX}/packages/v2-qualification-contracts/src/index.mjs`),
+    classifyRoundPath(`${MODULE_PREFIX}/packages/v2-landscape-contracts/src/index.mjs`),
     null,
   );
   assert.equal(
-    classifyRoundPath(`${MODULE_PREFIX}/packages/v2-qualification-harness/src/index.mjs`),
+    classifyRoundPath(`${MODULE_PREFIX}/packages/v2-landscape-harness/src/index.mjs`),
     null,
   );
   assert.equal(
-    classifyRoundPath(`${MODULE_PREFIX}/tests/r17-qualification.test.mjs`),
+    classifyRoundPath(`${MODULE_PREFIX}/tests/r18-landscape.test.mjs`),
     null,
   );
   assert.equal(
-    classifyRoundPath(`${MODULE_PREFIX}/third-party/v2-qualification-references/reference.lock.json`),
+    classifyRoundPath(`${MODULE_PREFIX}/third-party/v2-landscape-references/reference.lock.json`),
     null,
   );
   assert.equal(
@@ -424,15 +424,15 @@ test("round path classifier exposes stable R17 guard categories", () => {
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-spatial-verifier/src/index.mjs`),
-    null,
+    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/scripts/lib/godot-runtime-core.mjs`),
-    null,
+    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/tests/godot-runtime-adapter.test.mjs`),
-    null,
+    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/apps/runtime-godot/spatial_solution_verification/verifier.gd`),
