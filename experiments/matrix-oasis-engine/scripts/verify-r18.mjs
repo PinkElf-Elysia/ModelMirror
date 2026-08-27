@@ -15,6 +15,7 @@ const steps = [
   ["r18-landscape-contracts", ["run", "test:r18-landscape-contracts"]],
   ["r18-source-lock", ["run", "verify:r18-sources"]],
   ["r18-desktop-landscape", ["run", "test:r18-landscape"]],
+  ["r18-qualification-harness", ["run", "test:r18-harness"]],
 ];
 
 for (const [id, args] of steps) {
