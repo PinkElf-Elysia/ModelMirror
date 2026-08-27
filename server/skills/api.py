@@ -198,6 +198,20 @@ class SkillDraftActionRequest(BaseModel):
     )
 
 
+class SkillDraftInstallRequest(SkillDraftActionRequest):
+    target_skill_id: str | None = Field(default=None, min_length=1, max_length=240)
+    expected_current_version_id: str | None = Field(
+        default=None, min_length=1, max_length=240
+    )
+    expected_current_digest: str | None = Field(
+        default=None,
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-fA-F]{64}$",
+    )
+    confirmed: bool = False
+
+
 class SkillDraftPatchRequest(BaseModel):
     expected_revision: int = Field(ge=1)
     expected_digest: str = Field(
@@ -1059,7 +1073,7 @@ async def validate_skill_draft(draft_id: str, payload: SkillDraftActionRequest):
 
 
 @router.post("/drafts/{draft_id}/install")
-async def install_skill_draft(draft_id: str, payload: SkillDraftActionRequest):
+async def install_skill_draft(draft_id: str, payload: SkillDraftInstallRequest):
     try:
         store = get_skill_draft_store()
         manager = get_skill_manager()
@@ -1067,6 +1081,31 @@ async def install_skill_draft(draft_id: str, payload: SkillDraftActionRequest):
         def _install_locked(item):
             if _workspace_draft_install_guard is not None:
                 _workspace_draft_install_guard(item)
+            expected_update = (
+                item.update_target_skill_id,
+                item.update_expected_version_id,
+                item.update_expected_content_digest,
+            )
+            supplied_update = (
+                payload.target_skill_id,
+                payload.expected_current_version_id,
+                (
+                    payload.expected_current_digest.lower()
+                    if payload.expected_current_digest
+                    else None
+                ),
+            )
+            if any(expected_update):
+                if expected_update != supplied_update or not payload.confirmed:
+                    raise SkillValidationError(
+                        "Workspace Skill update target changed or was not confirmed.",
+                        code="skill_experience_promotion_stale",
+                    )
+            elif any(supplied_update):
+                raise SkillValidationError(
+                    "This Workspace Skill draft is not an approved update target.",
+                    code="skill_experience_update_target_invalid",
+                )
             decision = item.quality_decision
             return manager.install_workspace_draft(
                 draft_id=item.draft_id,
@@ -1078,6 +1117,11 @@ async def install_skill_draft(draft_id: str, payload: SkillDraftActionRequest):
                 quality_status=item.quality_status,
                 quality_decision_id=(decision.decision_id if decision else None),
                 quality_run_id=(decision.run_id if decision else None),
+                target_skill_id=item.update_target_skill_id,
+                predecessor_draft_id=item.predecessor_draft_id,
+                expected_current_version_id=item.update_expected_version_id,
+                expected_current_digest=item.update_expected_content_digest,
+                confirmed=payload.confirmed,
             )
 
         updated, installed = await asyncio.to_thread(
@@ -1097,10 +1141,20 @@ async def install_skill_draft(draft_id: str, payload: SkillDraftActionRequest):
     except SkillDraftError as exc:
         _raise_draft_error(exc)
     except SkillValidationError as exc:
-        if not str(exc.code or "").startswith("skill_trigger_"):
+        structured_prefixes = ("skill_trigger_", "skill_experience_", "skill_lifecycle_")
+        if not str(exc.code or "").startswith(structured_prefixes):
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         raise HTTPException(
-            status_code=400,
+            status_code=(
+                409
+                if exc.code
+                in {
+                    "skill_experience_promotion_stale",
+                    "skill_experience_update_target_invalid",
+                    "skill_experience_decision_required",
+                }
+                else 400
+            ),
             detail={
                 "code": str(exc.code or "skill_package_invalid"),
                 "message": str(exc),

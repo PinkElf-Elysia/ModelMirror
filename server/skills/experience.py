@@ -161,7 +161,7 @@ class SkillExperienceAnalysisAttemptV1:
     base_revision: int
     base_digest: str
     status: ExperienceAnalysisStatus
-    executor_mode: Literal["model", "manual"]
+    executor_mode: Literal["model", "manual", "trusted_handoff"]
     error_code: str | None
     started_at: float
     finished_at: float | None = None
@@ -225,6 +225,18 @@ class SkillExperienceDecisionV1:
 
 
 @dataclass(frozen=True, slots=True)
+class SkillExperiencePromotionV1:
+    session_id: str
+    route: str
+    decision: Literal["create", "update"]
+    target_skill_id: str | None
+    target_draft_id: str | None
+    baseline_version_id: str | None
+    baseline_content_digest: str | None
+    promoted_at: float
+
+
+@dataclass(frozen=True, slots=True)
 class SkillExperienceCandidateV1:
     candidate_id: str
     version: str
@@ -247,6 +259,7 @@ class SkillExperienceCandidateV1:
     overlaps: tuple[SkillExperienceOverlapV1, ...] = ()
     overlap_fingerprint: str | None = None
     decision: SkillExperienceDecisionV1 | None = None
+    promotion: SkillExperiencePromotionV1 | None = None
     dismissal_reason: str | None = None
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
@@ -678,6 +691,127 @@ class SkillExperienceCandidateStore:
                     if decision.decision == "dismiss"
                     else None
                 ),
+            )
+
+    def prepare_trusted_handoff(
+        self,
+        candidate_id: str,
+        *,
+        expected_revision: int,
+        expected_digest: str,
+        brief: DistilledSkillBriefV1,
+    ) -> SkillExperienceCandidateV1:
+        """Freeze a no-model Creator middleware brief for explicit handoff.
+
+        The workflow author already chose the Creator middleware, so its trusted
+        taskInput can become a manually sourced brief. This method never accepts
+        client-supplied source or target IDs and does not call a provider.
+        """
+
+        _validate_brief_instance(brief)
+        if not brief.complete:
+            raise SkillExperienceError(
+                "Trusted Creator handoff brief is incomplete.",
+                code="skill_experience_decision_required",
+            )
+        with self._lock:
+            self._ensure_readable_unlocked()
+            current = self._require_unlocked(candidate_id)
+            self._assert_expected(current, expected_revision, expected_digest)
+            if current.state == "promotion_ready":
+                if current.brief == brief and current.decision is not None:
+                    return copy.deepcopy(current)
+                raise SkillExperienceConflictError(
+                    "Skill experience already has another reviewed decision.",
+                    code="skill_experience_candidate_conflict",
+                )
+            if current.state != "captured" or not current.selected_evidence:
+                raise SkillExperienceConflictError(
+                    "Skill experience is not ready for a trusted Creator handoff.",
+                    code="skill_experience_candidate_conflict",
+                )
+            now = time.time()
+            analysis_key = _sha256(
+                {
+                    "candidate_id": current.candidate_id,
+                    "brief_digest": brief.digest,
+                    "mode": "trusted_creator_handoff",
+                }
+            )
+            attempt = SkillExperienceAnalysisAttemptV1(
+                attempt_id=f"skillexperienceanalysis_{uuid.uuid4().hex}",
+                analysis_key=analysis_key,
+                base_revision=current.revision,
+                base_digest=current.digest,
+                status="succeeded",
+                executor_mode="trusted_handoff",
+                error_code=None,
+                started_at=now,
+                finished_at=now,
+            )
+            overlap_fingerprint = _sha256(
+                {
+                    "candidate_id": current.candidate_id,
+                    "brief_digest": brief.digest,
+                    "overlaps": [],
+                }
+            )
+            decision = SkillExperienceDecisionV1(
+                decision="create",
+                target_skill_id=None,
+                target_draft_id=None,
+                override_reason=None,
+                new_boundary=None,
+                actor_kind="local_console",
+                decided_at=now,
+            )
+            return self._replace_unlocked(
+                current,
+                state="promotion_ready",
+                analysis_attempt=attempt,
+                brief=brief,
+                overlaps=(),
+                overlap_fingerprint=overlap_fingerprint,
+                decision=decision,
+            )
+
+    def mark_promoted(
+        self,
+        candidate_id: str,
+        *,
+        expected_revision: int,
+        expected_digest: str,
+        promotion: SkillExperiencePromotionV1,
+    ) -> SkillExperienceCandidateV1:
+        _validate_promotion(promotion)
+        with self._lock:
+            self._ensure_readable_unlocked()
+            current = self._require_unlocked(candidate_id)
+            if current.state == "promoted" and current.promotion is not None:
+                if _promotion_identity(current.promotion) == _promotion_identity(
+                    promotion
+                ):
+                    return copy.deepcopy(current)
+                raise SkillExperienceConflictError(
+                    "Skill experience is already bound to another Creator promotion.",
+                    code="skill_experience_candidate_conflict",
+                )
+            self._assert_expected(current, expected_revision, expected_digest)
+            if (
+                current.state != "promotion_ready"
+                or current.decision is None
+                or current.decision.decision != promotion.decision
+                or current.decision.target_skill_id != promotion.target_skill_id
+                or current.decision.target_draft_id != promotion.target_draft_id
+            ):
+                raise SkillExperienceConflictError(
+                    "Skill experience promotion no longer matches the reviewed decision.",
+                    code="skill_experience_promotion_stale",
+                )
+            return self._replace_unlocked(
+                current,
+                state="promoted",
+                promotion=promotion,
             )
 
     def _replace_unlocked(
@@ -1254,6 +1388,7 @@ def _decode_candidate(raw: Any) -> SkillExperienceCandidateV1:
         "overlaps",
         "overlap_fingerprint",
         "decision",
+        "promotion",
         "dismissal_reason",
         "created_at",
         "updated_at",
@@ -1322,6 +1457,11 @@ def _decode_candidate(raw: Any) -> SkillExperienceCandidateV1:
         if raw.get("decision") is not None
         else None
     )
+    promotion = (
+        _decode_promotion(raw.get("promotion"))
+        if raw.get("promotion") is not None
+        else None
+    )
     candidate = SkillExperienceCandidateV1(
         candidate_id=_identifier(raw.get("candidate_id"), "candidate_id"),
         version=EXPERIENCE_CANDIDATE_VERSION,
@@ -1348,6 +1488,7 @@ def _decode_candidate(raw: Any) -> SkillExperienceCandidateV1:
         overlaps=overlaps,
         overlap_fingerprint=overlap_fingerprint,
         decision=decision,
+        promotion=promotion,
         dismissal_reason=(
             _bounded_text(raw.get("dismissal_reason"), "dismissal_reason", 1_000)
             if raw.get("dismissal_reason") is not None
@@ -1399,6 +1540,7 @@ def _decode_candidate(raw: Any) -> SkillExperienceCandidateV1:
             candidate.overlaps,
             candidate.overlap_fingerprint,
             candidate.decision,
+            candidate.promotion,
         )
     ):
         raise ValueError("captured candidate contains analysis state")
@@ -1416,6 +1558,16 @@ def _decode_candidate(raw: Any) -> SkillExperienceCandidateV1:
         or not candidate.brief.complete
     ):
         raise ValueError("invalid promotion-ready candidate")
+    if candidate.state == "promoted" and (
+        candidate.promotion is None
+        or candidate.decision is None
+        or candidate.promotion.decision != candidate.decision.decision
+        or candidate.promotion.target_skill_id != candidate.decision.target_skill_id
+        or candidate.promotion.target_draft_id != candidate.decision.target_draft_id
+    ):
+        raise ValueError("invalid promoted candidate")
+    if candidate.promotion is not None and candidate.state != "promoted":
+        raise ValueError("candidate promotion is in an invalid state")
     if candidate.decision is not None and candidate.state not in {
         "promotion_ready",
         "promoted",
@@ -1632,7 +1784,11 @@ def _decode_analysis_attempt(raw: Any) -> SkillExperienceAnalysisAttemptV1:
         raise ValueError("invalid analysis attempt")
     status = str(raw.get("status") or "")
     executor_mode = str(raw.get("executor_mode") or "")
-    if status not in _ANALYSIS_STATUSES or executor_mode not in {"model", "manual"}:
+    if status not in _ANALYSIS_STATUSES or executor_mode not in {
+        "model",
+        "manual",
+        "trusted_handoff",
+    }:
         raise ValueError("invalid analysis attempt state")
     started_at = float(raw.get("started_at") or 0)
     finished_at = (
@@ -1647,7 +1803,7 @@ def _decode_analysis_attempt(raw: Any) -> SkillExperienceAnalysisAttemptV1:
     ):
         raise ValueError("invalid analysis attempt timestamps")
     if (
-        (status == "succeeded" and executor_mode != "model")
+        (status == "succeeded" and executor_mode not in {"model", "trusted_handoff"})
         or (status == "manual_required" and executor_mode != "manual")
         or (status == "succeeded" and raw.get("error_code") is not None)
         or (status == "manual_required" and raw.get("error_code") is None)
@@ -1809,6 +1965,87 @@ def _decode_decision(raw: Any) -> SkillExperienceDecisionV1:
     )
     _validate_decision(decision)
     return decision
+
+
+def _decode_promotion(raw: Any) -> SkillExperiencePromotionV1:
+    if not isinstance(raw, dict) or set(raw) != {
+        "session_id",
+        "route",
+        "decision",
+        "target_skill_id",
+        "target_draft_id",
+        "baseline_version_id",
+        "baseline_content_digest",
+        "promoted_at",
+    }:
+        raise ValueError("invalid experience promotion")
+    promoted_at = float(raw.get("promoted_at") or 0)
+    promotion = SkillExperiencePromotionV1(
+        session_id=_identifier(raw.get("session_id"), "session_id"),
+        route=_bounded_text(raw.get("route"), "promotion_route", 500),
+        decision=str(raw.get("decision") or ""),  # type: ignore[arg-type]
+        target_skill_id=_optional_identifier(raw.get("target_skill_id"), "target_skill_id"),
+        target_draft_id=_optional_identifier(raw.get("target_draft_id"), "target_draft_id"),
+        baseline_version_id=_optional_identifier(
+            raw.get("baseline_version_id"), "baseline_version_id"
+        ),
+        baseline_content_digest=_optional_digest(
+            raw.get("baseline_content_digest"), "baseline_content_digest"
+        ),
+        promoted_at=promoted_at,
+    )
+    _validate_promotion(promotion)
+    return promotion
+
+
+def _validate_promotion(promotion: SkillExperiencePromotionV1) -> None:
+    if promotion.decision not in {"create", "update"}:
+        raise SkillExperienceError(
+            "Skill experience promotion is invalid.",
+            code="skill_experience_promotion_stale",
+        )
+    route_base = f"/skills/create/{promotion.session_id}"
+    if promotion.route != route_base and not promotion.route.startswith(
+        f"{route_base}?"
+    ):
+        raise SkillExperienceError(
+            "Skill experience promotion route is invalid.",
+            code="skill_experience_promotion_stale",
+        )
+    if not math.isfinite(promotion.promoted_at) or promotion.promoted_at <= 0:
+        raise SkillExperienceError(
+            "Skill experience promotion timestamp is invalid.",
+            code="skill_experience_promotion_stale",
+        )
+    update_fields = (
+        promotion.target_skill_id,
+        promotion.target_draft_id,
+        promotion.baseline_version_id,
+        promotion.baseline_content_digest,
+    )
+    if promotion.decision == "update":
+        if not all(update_fields):
+            raise SkillExperienceError(
+                "Skill experience update promotion is incomplete.",
+                code="skill_experience_promotion_stale",
+            )
+    elif any(update_fields):
+        raise SkillExperienceError(
+            "Skill experience create promotion cannot target an installed Skill.",
+            code="skill_experience_promotion_stale",
+        )
+
+
+def _promotion_identity(promotion: SkillExperiencePromotionV1) -> tuple[Any, ...]:
+    return (
+        promotion.session_id,
+        promotion.route,
+        promotion.decision,
+        promotion.target_skill_id,
+        promotion.target_draft_id,
+        promotion.baseline_version_id,
+        promotion.baseline_content_digest,
+    )
 
 
 def _validate_brief_instance(brief: DistilledSkillBriefV1) -> None:

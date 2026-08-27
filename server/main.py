@@ -239,6 +239,7 @@ try:
         configure_workspace_draft_install_guard,
         get_builtin_skill_library,
         get_skill_draft_store,
+        get_skill_lifecycle_store,
         get_skill_manager,
         get_skill_semantic_rerank_service,
         router as skills_router,
@@ -246,11 +247,13 @@ try:
     from server.skills.local_import_api import router as skill_local_import_router
     from server.skills.experience import (
         SkillExperienceCandidateStore,
+        SkillExperienceError,
         SkillExperienceService,
     )
     from server.skills.experience_api import (
         configure_skill_experience,
         configure_skill_experience_distillation,
+        configure_skill_experience_promotion,
         router as skill_experience_router,
     )
     from server.skills.experience_distillation import (
@@ -258,6 +261,7 @@ try:
         SkillExperienceDistillationService,
         WorkflowSkillExperienceDistillationExecutor,
     )
+    from server.skills.experience_promotion import SkillExperiencePromotionService
     from server.skills.trust_service import SkillRuntimeEnvironment
     from server.skills.creator_api import (
         configure_skill_creator,
@@ -377,15 +381,21 @@ except ModuleNotFoundError:
         configure_workspace_draft_install_guard,
         get_builtin_skill_library,
         get_skill_draft_store,
+        get_skill_lifecycle_store,
         get_skill_manager,
         get_skill_semantic_rerank_service,
         router as skills_router,
     )
     from skills.local_import_api import router as skill_local_import_router
-    from skills.experience import SkillExperienceCandidateStore, SkillExperienceService
+    from skills.experience import (
+        SkillExperienceCandidateStore,
+        SkillExperienceError,
+        SkillExperienceService,
+    )
     from skills.experience_api import (
         configure_skill_experience,
         configure_skill_experience_distillation,
+        configure_skill_experience_promotion,
         router as skill_experience_router,
     )
     from skills.experience_distillation import (
@@ -393,6 +403,7 @@ except ModuleNotFoundError:
         SkillExperienceDistillationService,
         WorkflowSkillExperienceDistillationExecutor,
     )
+    from skills.experience_promotion import SkillExperiencePromotionService
     from skills.trust_service import SkillRuntimeEnvironment
     from skills.creator_api import (
         configure_skill_creator,
@@ -2190,7 +2201,18 @@ skill_creator_service = SkillCreatorService(
     authoring_service,
     source_provider=skill_creator_source_provider,
 )
-skill_creator_handoff_service = SkillCreatorHandoffService(skill_creator_service)
+skill_experience_promotion_service = SkillExperiencePromotionService(
+    skill_experience_service,
+    skill_experience_candidate_store,
+    skill_creator_service,
+    get_skill_draft_store(),
+    get_skill_manager(),
+    get_skill_lifecycle_store(),
+)
+skill_creator_handoff_service = SkillCreatorHandoffService(
+    skill_creator_service,
+    promotion_service=skill_experience_promotion_service,
+)
 skill_creator_resource_plan_store = SkillResourcePlanStore(
     storage_dir=AGENT_TASK_STORAGE_DIR or None
 )
@@ -2255,6 +2277,7 @@ workflow_skill_creator_provider = AuthoringToolsetProvider(
 configure_runtime_authoring(authoring_service)
 configure_skill_experience(skill_experience_service)
 configure_skill_experience_distillation(skill_experience_distillation_service)
+configure_skill_experience_promotion(skill_experience_promotion_service)
 configure_skill_creator(skill_creator_service)
 configure_skill_creator_resource_planning(skill_creator_resource_planning_service)
 configure_skill_creator_resource_build(skill_creator_resource_build_service)
@@ -2265,14 +2288,17 @@ configure_skill_creator_evaluation_suite(skill_creator_evaluation_suite_service)
 configure_skill_creator_evolution(skill_creator_evolution_service)
 
 
-def require_creator_trigger_proposal_approval(proposal) -> None:
-    if not skill_creator_trigger_optimization_service.enabled:
-        return
+def require_creator_proposal_approval(proposal) -> None:
     if proposal.source_type != "skill_creator" or not proposal.creator_session_id:
         return
     try:
         session = skill_creator_session_store.require(proposal.creator_session_id)
-        if not skill_creator_trigger_optimization_service.requires_trigger(session):
+        _, draft = skill_creator_service.get_session(session.session_id)
+        skill_experience_promotion_service.require_update_draft_current(draft)
+        if (
+            not skill_creator_trigger_optimization_service.enabled
+            or not skill_creator_trigger_optimization_service.requires_trigger(session)
+        ):
             return
         plan = skill_creator_resource_plan_store.current_for_session(session.session_id)
         resource_binding = proposal.payload.get("creator_resource_build")
@@ -2292,10 +2318,14 @@ def require_creator_trigger_proposal_approval(proposal) -> None:
                 "The Creator proposal no longer matches its trigger-gated resource plan.",
                 code="skill_trigger_receipt_stale",
             )
-        _, draft = skill_creator_service.get_session(session.session_id)
         skill_creator_trigger_optimization_service.require_plan_gate(
             session, plan, draft
         )
+    except SkillExperienceError as exc:
+        raise AuthoringProposalValidationError(
+            str(exc),
+            code=str(getattr(exc, "code", "skill_experience_promotion_stale")),
+        ) from exc
     except SkillCreatorError as exc:
         raise AuthoringProposalValidationError(
             str(exc),
@@ -2304,7 +2334,7 @@ def require_creator_trigger_proposal_approval(proposal) -> None:
 
 
 authoring_service.skill_proposal_approval_guard = (
-    require_creator_trigger_proposal_approval
+    require_creator_proposal_approval
 )
 
 

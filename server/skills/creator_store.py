@@ -93,6 +93,13 @@ class SkillCreatorSession:
     source_xpert_id: str | None = None
     source_conversation_id: str | None = None
     source_message_id: str | None = None
+    experience_candidate_id: str | None = None
+    experience_decision: Literal["create", "update"] | None = None
+    update_target_skill_id: str | None = None
+    predecessor_draft_id: str | None = None
+    experience_baseline_version_id: str | None = None
+    experience_baseline_content_digest: str | None = None
+    run_experience_case: dict[str, Any] | None = None
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
 
@@ -100,8 +107,8 @@ class SkillCreatorSession:
 class SkillCreatorSessionStore:
     """Atomic, fail-closed persistence for recoverable Creator sessions."""
 
-    SCHEMA_VERSION = 2
-    READABLE_SCHEMA_VERSIONS = frozenset({1, SCHEMA_VERSION})
+    SCHEMA_VERSION = 3
+    READABLE_SCHEMA_VERSIONS = frozenset({1, 2, SCHEMA_VERSION})
     MAX_SESSIONS = 500
     MAX_TEXT_BYTES = 64 * 1024
 
@@ -289,6 +296,144 @@ class SkillCreatorSessionStore:
             self._insert_unlocked(candidate)
             return self._copy(candidate)
 
+    def create_or_get_experience_promotion(
+        self,
+        *,
+        experience_candidate_id: str,
+        intent: str,
+        positive_examples: list[str],
+        near_miss_examples: list[str],
+        expected_output: str,
+        success_criteria: list[str],
+        selected_evidence: list[dict[str, str]],
+        evidence_preview_fingerprint: str,
+        source_kind: CreatorSourceKind,
+        source_task_id: str,
+        source_run_id: str,
+        source_xpert_id: str | None = None,
+        source_conversation_id: str | None = None,
+        source_message_id: str | None = None,
+        decision: Literal["create", "update"],
+        update_target_skill_id: str | None = None,
+        predecessor_draft_id: str | None = None,
+        baseline_version_id: str | None = None,
+        baseline_content_digest: str | None = None,
+        run_experience_case: dict[str, Any] | None = None,
+    ) -> SkillCreatorSession:
+        """Create or recover the one Creator session promoted from a run.
+
+        An untouched legacy capture or middleware handoff for the same trusted
+        source is hydrated in place. Edited sessions fail closed so a confirmed
+        experience brief never overwrites user work.
+        """
+
+        candidate = self._new_session(
+            mode="run",
+            intent=intent,
+            positive_examples=positive_examples,
+            near_miss_examples=near_miss_examples,
+            expected_output=expected_output,
+            success_criteria=success_criteria,
+            source_kind=source_kind,
+            source_task_id=source_task_id,
+            source_run_id=source_run_id,
+            source_xpert_id=source_xpert_id,
+            source_conversation_id=source_conversation_id,
+            source_message_id=source_message_id,
+            authoring_flow="resource",
+            trigger_required=True,
+        )
+        candidate.experience_candidate_id = self._required_identifier(
+            experience_candidate_id, "experience_candidate_id"
+        )
+        candidate.experience_decision = self._experience_decision(decision)
+        candidate.update_target_skill_id = self._optional_text(
+            update_target_skill_id, 200
+        )
+        candidate.predecessor_draft_id = self._optional_text(
+            predecessor_draft_id, 200
+        )
+        candidate.experience_baseline_version_id = self._optional_text(
+            baseline_version_id, 200
+        )
+        candidate.experience_baseline_content_digest = (
+            self._digest(baseline_content_digest, "baseline_content_digest")
+            if baseline_content_digest is not None
+            else None
+        )
+        candidate.evidence_preview_fingerprint = self._digest(
+            evidence_preview_fingerprint, "evidence_preview_fingerprint"
+        )
+        candidate.selected_evidence = self._evidence(selected_evidence)
+        candidate.evidence_confirmed = True
+        candidate.run_experience_case = self._experience_case(run_experience_case)
+        self._validate_experience_projection(candidate)
+        self._reject_credentials(candidate)
+        candidate.state = self._derive_state(candidate)
+
+        with self._lock:
+            self._ensure_writable_unlocked()
+            promotion_matches = [
+                item
+                for item in self._items.values()
+                if item.experience_candidate_id == candidate.experience_candidate_id
+            ]
+            if len(promotion_matches) > 1:
+                raise SkillCreatorConflictError(
+                    "Multiple Creator sessions match this experience candidate."
+                )
+            if promotion_matches:
+                existing = promotion_matches[0]
+                if self._experience_projection_matches(existing, candidate):
+                    return self._copy(existing)
+                raise SkillCreatorConflictError(
+                    "Creator experience promotion conflicts with an existing session."
+                )
+
+            source_matches = [
+                item
+                for item in self._items.values()
+                if self._stable_source_matches(item, candidate)
+            ]
+            if len(source_matches) > 1:
+                raise SkillCreatorConflictError(
+                    "Multiple Creator sessions match this runtime source."
+                )
+            if source_matches:
+                existing = source_matches[0]
+                if not self._is_hydratable_experience_session(existing):
+                    raise SkillCreatorConflictError(
+                        "Creator runtime source already has an edited session."
+                    )
+                previous = self._copy(existing)
+                for field_name in (
+                    "source_run_id",
+                    "authoring_flow",
+                    "trigger_required",
+                    "intent",
+                    "positive_examples",
+                    "near_miss_examples",
+                    "expected_output",
+                    "success_criteria",
+                    "selected_evidence",
+                    "evidence_preview_fingerprint",
+                    "evidence_confirmed",
+                    "experience_candidate_id",
+                    "experience_decision",
+                    "update_target_skill_id",
+                    "predecessor_draft_id",
+                    "experience_baseline_version_id",
+                    "experience_baseline_content_digest",
+                    "run_experience_case",
+                ):
+                    setattr(existing, field_name, getattr(candidate, field_name))
+                existing.state = self._derive_state(existing)
+                existing.session_revision += 1
+                existing.updated_at = time.time()
+                return self._save_or_restore_unlocked(existing, previous)
+            self._insert_unlocked(candidate)
+            return self._copy(candidate)
+
     def _new_session(
         self,
         *,
@@ -415,6 +560,22 @@ class SkillCreatorSessionStore:
         )
 
     @staticmethod
+    def _stable_source_matches(
+        existing: SkillCreatorSession,
+        candidate: SkillCreatorSession,
+    ) -> bool:
+        """Match one trusted task across a server-recorded run-id recovery."""
+
+        return (
+            existing.mode == "run"
+            and existing.source_kind == candidate.source_kind
+            and existing.source_task_id == candidate.source_task_id
+            and existing.source_xpert_id == candidate.source_xpert_id
+            and existing.source_conversation_id == candidate.source_conversation_id
+            and existing.source_message_id == candidate.source_message_id
+        )
+
+    @staticmethod
     def _is_pristine_run_capture(item: SkillCreatorSession) -> bool:
         return (
             item.mode == "run"
@@ -430,6 +591,48 @@ class SkillCreatorSessionStore:
             and not item.proposal_id
             and not item.draft_id
         )
+
+    @staticmethod
+    def _is_hydratable_experience_session(item: SkillCreatorSession) -> bool:
+        return (
+            item.mode == "run"
+            and item.session_revision == 1
+            and not item.experience_candidate_id
+            and not item.evidence_confirmed
+            and not item.selected_evidence
+            and not item.proposal_id
+            and not item.draft_id
+            and item.cases_revision == 0
+            and not item.active_evaluation_run_id
+            and not item.latest_evaluation_run_id
+            and item.review_state == "none"
+        )
+
+    @staticmethod
+    def _experience_projection_matches(
+        existing: SkillCreatorSession,
+        candidate: SkillCreatorSession,
+    ) -> bool:
+        fields = (
+            "authoring_flow",
+            "trigger_required",
+            "intent",
+            "positive_examples",
+            "near_miss_examples",
+            "expected_output",
+            "success_criteria",
+            "selected_evidence",
+            "evidence_preview_fingerprint",
+            "evidence_confirmed",
+            "experience_candidate_id",
+            "experience_decision",
+            "update_target_skill_id",
+            "predecessor_draft_id",
+            "experience_baseline_version_id",
+            "experience_baseline_content_digest",
+            "run_experience_case",
+        )
+        return all(getattr(existing, name) == getattr(candidate, name) for name in fields)
 
     def activate_resource_authoring(
         self,
@@ -924,6 +1127,83 @@ class SkillCreatorSessionStore:
         return str(value)
 
     @staticmethod
+    def _experience_decision(value: Any) -> Literal["create", "update"]:
+        if value not in {"create", "update"}:
+            raise SkillCreatorValidationError("Invalid experience promotion decision.")
+        return value
+
+    @classmethod
+    def _experience_case(cls, value: Any) -> dict[str, Any] | None:
+        if value is None:
+            return None
+        if not isinstance(value, dict) or set(value) != {
+            "case_id",
+            "role",
+            "source",
+            "name",
+            "prompt",
+            "expected_behavior",
+            "fixtures",
+            "assertions",
+            "requirement_ids",
+            "required_resource_paths",
+            "workflow_step_ids",
+        }:
+            raise SkillCreatorValidationError("Invalid run experience regression case.")
+        if value.get("role") != "regression" or value.get("source") != "run_experience":
+            raise SkillCreatorValidationError("Invalid run experience regression case.")
+        result = {
+            "case_id": cls._required_identifier(value.get("case_id"), "case_id"),
+            "role": "regression",
+            "source": "run_experience",
+            "name": cls._text(value.get("name"), "case_name", maximum=300),
+            "prompt": cls._text(value.get("prompt"), "case_prompt", maximum=4_000),
+            "expected_behavior": cls._text(
+                value.get("expected_behavior"), "expected_behavior", maximum=4_000
+            ),
+            "fixtures": value.get("fixtures"),
+            "assertions": value.get("assertions"),
+            "requirement_ids": value.get("requirement_ids"),
+            "required_resource_paths": value.get("required_resource_paths"),
+            "workflow_step_ids": value.get("workflow_step_ids"),
+        }
+        for name in (
+            "fixtures",
+            "assertions",
+            "requirement_ids",
+            "required_resource_paths",
+            "workflow_step_ids",
+        ):
+            if result[name] != []:
+                raise SkillCreatorValidationError(
+                    "Run experience regression cases must be reviewed before adding coverage."
+                )
+        return result
+
+    @classmethod
+    def _validate_experience_projection(cls, item: SkillCreatorSession) -> None:
+        fields = (
+            item.update_target_skill_id,
+            item.predecessor_draft_id,
+            item.experience_baseline_version_id,
+            item.experience_baseline_content_digest,
+        )
+        if item.experience_candidate_id is None:
+            if item.experience_decision is not None or any(fields) or item.run_experience_case:
+                raise SkillCreatorValidationError("Incomplete experience promotion projection.")
+            return
+        if item.experience_decision == "update":
+            if not all(fields):
+                raise SkillCreatorValidationError("Incomplete Creator update target projection.")
+        elif item.experience_decision == "create":
+            if any(fields):
+                raise SkillCreatorValidationError(
+                    "New Creator sessions cannot bind an update target."
+                )
+        else:
+            raise SkillCreatorValidationError("Invalid experience promotion projection.")
+
+    @staticmethod
     def _validate_source(item: SkillCreatorSession) -> None:
         if item.mode == "blank":
             if item.source_kind != "blank" or any(
@@ -1191,6 +1471,33 @@ class SkillCreatorSessionStore:
         if not isinstance(item.evidence_confirmed, bool):
             raise ValueError("Invalid evidence_confirmed value.")
         item.selected_evidence = self._evidence(item.selected_evidence)
+        item.experience_candidate_id = self._optional_text(
+            item.experience_candidate_id, 200
+        )
+        item.experience_decision = (
+            self._experience_decision(item.experience_decision)
+            if item.experience_decision is not None
+            else None
+        )
+        item.update_target_skill_id = self._optional_text(
+            item.update_target_skill_id, 200
+        )
+        item.predecessor_draft_id = self._optional_text(
+            item.predecessor_draft_id, 200
+        )
+        item.experience_baseline_version_id = self._optional_text(
+            item.experience_baseline_version_id, 200
+        )
+        item.experience_baseline_content_digest = (
+            self._digest(
+                item.experience_baseline_content_digest,
+                "experience_baseline_content_digest",
+            )
+            if item.experience_baseline_content_digest is not None
+            else None
+        )
+        item.run_experience_case = self._experience_case(item.run_experience_case)
+        self._validate_experience_projection(item)
         item.state = self._derive_state(item) if item.state != "archived" else "archived"
         return item
 

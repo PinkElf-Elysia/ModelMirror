@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from .creator_service import SkillCreatorService
 from .creator_store import (
@@ -11,6 +11,9 @@ from .creator_store import (
     SkillCreatorStorageError,
     SkillCreatorValidationError,
 )
+
+if TYPE_CHECKING:
+    from .experience_promotion import SkillExperiencePromotionService
 
 
 SKILL_CREATOR_HANDOFF_VERSION = "skill-creator-middleware-handoff-v1"
@@ -57,8 +60,10 @@ class SkillCreatorHandoffService:
         creator_service: SkillCreatorService,
         *,
         enabled: bool | None = None,
+        promotion_service: "SkillExperiencePromotionService | None" = None,
     ) -> None:
         self.creator_service = creator_service
+        self.promotion_service = promotion_service
         self.enabled = (
             os.getenv("SKILL_CREATOR_MIDDLEWARE_V2_ENABLED", "true")
             .strip()
@@ -84,6 +89,16 @@ class SkillCreatorHandoffService:
         if not clean_task_id or not clean_run_id or not clean_node_id or not clean_intent:
             raise SkillCreatorHandoffError("skill_creator_handoff_failed")
         try:
+            if (
+                self.promotion_service is not None
+                and self.promotion_service.enabled
+            ):
+                promoted = self.promotion_service.promote_trusted_handoff(
+                    task_id=clean_task_id,
+                    run_id=clean_run_id,
+                    intent=clean_intent,
+                )
+                return promoted.session
             return self.creator_service.create_or_get_workflow_handoff(
                 source_task_id=clean_task_id,
                 source_run_id=clean_run_id,
@@ -118,7 +133,20 @@ class SkillCreatorHandoffService:
             )
             raise SkillCreatorHandoffError(code) from exc
         except Exception as exc:
-            raise SkillCreatorHandoffError("skill_creator_handoff_failed") from exc
+            experience_code = str(getattr(exc, "code", ""))
+            if experience_code in {
+                "skill_experience_candidate_conflict",
+                "skill_experience_promotion_stale",
+            }:
+                code = "skill_creator_handoff_conflict"
+            elif experience_code in {
+                "skill_experience_disabled",
+                "skill_experience_store_unavailable",
+            }:
+                code = "skill_creator_handoff_unavailable"
+            else:
+                code = "skill_creator_handoff_failed"
+            raise SkillCreatorHandoffError(code) from exc
 
     @staticmethod
     def ready_event(

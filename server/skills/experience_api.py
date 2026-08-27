@@ -17,11 +17,15 @@ from .experience import (
     SkillExperienceStorageError,
 )
 from .experience_distillation import SkillExperienceDistillationService
+from .experience_promotion import SkillExperiencePromotionService
+from .creator_store import SkillCreatorSessionStore
+from .draft_store import WorkspaceSkillDraftStore
 
 
 router = APIRouter(prefix="/api/skills/experience", tags=["skill-experience"])
 _service: SkillExperienceService | None = None
 _distillation_service: SkillExperienceDistillationService | None = None
+_promotion_service: SkillExperiencePromotionService | None = None
 
 
 class ExperienceSourceRequest(BaseModel):
@@ -101,6 +105,13 @@ def configure_skill_experience_distillation(
     _distillation_service = service
 
 
+def configure_skill_experience_promotion(
+    service: SkillExperiencePromotionService | None,
+) -> None:
+    global _promotion_service
+    _promotion_service = service
+
+
 def get_skill_experience_service() -> SkillExperienceService:
     if _service is None:
         raise SkillExperienceStorageError(
@@ -124,6 +135,16 @@ def _require_distillation() -> SkillExperienceDistillationService:
             code="skill_experience_store_unavailable",
         )
     return _distillation_service
+
+
+def _require_promotion() -> SkillExperiencePromotionService:
+    _require_enabled()
+    if _promotion_service is None:
+        raise SkillExperienceStorageError(
+            "Skill experience promotion is unavailable.",
+            code="skill_experience_store_unavailable",
+        )
+    return _promotion_service
 
 
 def _api_error(exc: SkillExperienceError) -> HTTPException:
@@ -328,5 +349,35 @@ async def decide_skill_experience_candidate(
             new_boundary=payload.new_boundary,
         )
         return {"candidate": _serialize_candidate(candidate)}
+    except SkillExperienceError as exc:
+        raise _api_error(exc) from exc
+
+
+@router.post("/candidates/{candidate_id}/promote")
+async def promote_skill_experience_candidate(
+    candidate_id: str,
+    payload: ExperienceMutationRequest,
+) -> dict[str, Any]:
+    try:
+        service = _require_promotion()
+        result = await asyncio.to_thread(
+            service.promote,
+            candidate_id,
+            expected_revision=payload.expected_revision,
+            expected_digest=payload.expected_digest.lower(),
+        )
+        return {
+            "candidate": _serialize_candidate(result.candidate),
+            "creator_session_id": result.session.session_id,
+            "route": result.route,
+            "session": SkillCreatorSessionStore.serialize(result.session),
+            "draft": (
+                WorkspaceSkillDraftStore.serialize(
+                    result.draft, include_content=False
+                )
+                if result.draft is not None
+                else None
+            ),
+        }
     except SkillExperienceError as exc:
         raise _api_error(exc) from exc
