@@ -480,6 +480,13 @@ export const knowledgePipelineItems: WorkflowPaletteItem[] = [
     tags: ["rag", "knowledge", "retrieval"],
   },
   {
+    kind: "knowledge_write_proposal",
+    icon: "KWP",
+    title: "知识写入提议",
+    description: "把确定性文本提交到 Knowledge Inbox，等待人工审批。",
+    tags: ["rag", "knowledge", "proposal", "inbox", "approval"],
+  },
+  {
     kind: "vision_understanding",
     icon: "VISION",
     title: "视觉理解",

@@ -15,7 +15,7 @@ describe("help center content catalog", () => {
   it("has five complete first-level sections and eight module groups", () => {
     expect(helpSections.map((section) => section.title)).toEqual(["第一次使用", "按目标找指南", "按模块浏览", "解决问题", "安全、费用与数据"]);
     expect(helpSections.every((section) => section.items.length >= 3)).toBe(true);
-    expect(helpSections.find((section) => section.id === "goals")?.items.map((item) => item.id)).toEqual(["one-time", "repeat-role", "repeat-process", "connect-tool", "use-own-docs", "check-runtime"]);
+    expect(helpSections.find((section) => section.id === "goals")?.items.map((item) => item.id)).toEqual(["one-time", "repeat-role", "repeat-process", "connect-tool", "use-own-docs", "propose-knowledge", "check-runtime"]);
     expect(helpModules.map((module) => module.title)).toEqual(["模型", "Agent", "MCP", "Skill", "提示词", "运维", "工作台与设置", "实验功能"]);
     expect(helpModules.find((module) => module.id === "agents")?.topics.some((topic) => topic.id === "expert-team" && topic.title === "专家团")).toBe(true);
     expect(helpModules.find((module) => module.id === "agents")?.topics.find((topic) => topic.id === "agent-studio")?.productRoute).toBe("/agents/studio");
@@ -27,7 +27,15 @@ describe("help center content catalog", () => {
   });
 
   it("keeps the formal article slugs unique and metadata complete", () => {
-    expect(helpArticles.map((article) => article.slug)).toEqual(["start-with-a-model", "choose-model-agent-workflow", "modules-and-terms", "recover-unavailable-feature", "review-remote-mcp-auth", "check-availability-cost-data"]);
+    expect(helpArticles.map((article) => article.slug)).toEqual([
+      "start-with-a-model",
+      "choose-model-agent-workflow",
+      "submit-knowledge-proposal",
+      "modules-and-terms",
+      "recover-unavailable-feature",
+      "review-remote-mcp-auth",
+      "check-availability-cost-data",
+    ]);
     expect(new Set(helpArticles.map((article) => article.slug)).size).toBe(helpArticles.length);
     helpArticles.forEach((article) => {
       requiredMetadata.forEach((field) => expect(article[field], `${article.slug}.${field}`).toBeTruthy());

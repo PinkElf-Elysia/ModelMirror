@@ -56,6 +56,40 @@ describe("WorkflowRun handoff recovery pointer", () => {
     ]);
   });
 
+  it("collapses repeated knowledge proposal redaction deltas into one clear message", () => {
+    const steps = buildRunSteps([
+      {
+        event: "node_delta",
+        node_id: "agent",
+        node_title: "公告草案生成",
+        node_type: "workflow_agent",
+        output: "knowledge proposal source withheld",
+      },
+      {
+        event: "node_delta",
+        node_id: "agent",
+        node_title: "公告草案生成",
+        node_type: "workflow_agent",
+        output: "knowledge proposal source withheld",
+      },
+      {
+        event: "node_end",
+        node_id: "agent",
+        node_title: "公告草案生成",
+        node_type: "workflow_agent",
+        output: "knowledge proposal source withheld",
+      },
+    ]);
+
+    expect(steps).toEqual([
+      expect.objectContaining({
+        id: "agent",
+        output: "提议正文已隐藏，仅可在 Knowledge Inbox 中查看。",
+        status: "done",
+      }),
+    ]);
+  });
+
   it("does not leave a completed Creator handoff as a running workflow step", () => {
     const steps = buildRunSteps([
       {

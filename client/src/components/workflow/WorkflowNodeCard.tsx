@@ -138,6 +138,13 @@ const nodeMeta = {
     bg: "bg-teal-300/10",
     text: "text-teal-100",
   },
+  knowledge_write_proposal: {
+    icon: "KWP",
+    label: "知识提议",
+    border: "border-teal-300/40",
+    bg: "bg-teal-300/10",
+    text: "text-teal-100",
+  },
   knowledge_citation: {
     icon: "🔖",
     label: "引用锚点",

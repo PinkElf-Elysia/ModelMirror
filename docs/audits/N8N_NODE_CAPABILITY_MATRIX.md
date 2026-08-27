@@ -1,6 +1,6 @@
-# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0/R2.1/R2.2/R2.3/R2.4/R2.5）
+# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0/R2.1/R2.2/R2.3/R2.4/R2.5/R2.6）
 
-- 审计日期：2026-08-25
+- 审计日期：2026-08-26
 - 唯一基线：PR #213 合并提交 `911593f505b05b01037769f578e21f22d2a1c9af`
 - R0 基线事实：NodeContract V3、37 个 `NativeNodeKind`、35 个画布目录项、20 个冻结 compatibility 合同
 - R1 结果：新增 4 个完整合同，并将既有 `llm` 提升为完整合同；自研节点总数 41、画布目录项 39、当前 19 个冻结 compatibility 合同；四节点与 `llm` Planner 均关闭
@@ -18,7 +18,8 @@
 - R2.3 结果：不新增节点类型，将 `iteration` 提升为“批量处理”V2 完整合同；本地模式执行严格数组模板映射，工作流模式以最多 32 项顺序调用固定发布版本并复用稳定子执行；当前保持 51 Native、47 个可新增 Palette 项、48 个完整合同、3 个 compatibility 合同、7 个 Planner 节点
 - R2.4 结果：不新增节点类型，将 `document_extractor` 升级为“内容解析”V3；可把安全 HTTP 响应或明确共享文件解析为受限 HTML、Markdown、XML 结构或带不可信边界的文本，不提供网页渲染、选择器抽取或 XML Schema/XPath/XSLT；Registry 数量不变
 - R2.5 结果：新增完整合同 `form_event_entry`，发布同源签名表单、严格类型字段与固定接受页；表单密钥只返回一次，公开提交原文不写入部署 Store，Planner 与全部 Xpert 类型均禁用
-- 当前 Registry 事实：52 Native、48 个可新增 Palette 项、49 个完整合同、3 个 compatibility 合同、7 个 Planner 节点
+- R2.6 结果：新增完整合同 `knowledge_write_proposal`，只向 Knowledge Inbox 创建或复用待审批提议，不批准、构建、激活或推广知识版本；允许确定性的私有工作流与 Xpert 路径，匿名表单、公共 App、Evaluation、Evolution 与 Planner 禁用
+- 当前 Registry 事实：53 Native、49 个可新增 Palette 项、50 个完整合同、3 个 compatibility 合同、7 个 Planner 节点
 - 参考清单：563 条节点名称/类型，其中 `.ee` 2 条仅保留名称审计
 
 ## 结论与许可证边界
@@ -137,4 +138,4 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 - 前端 `WorkflowNodeKind`、后端 `NativeNodeKind`、NodeContract Registry 必须完全一致。
 - Palette 必须是 NodeContract 合法子集；每个启用项必须有默认数据和配置入口。
 - compatibility 合同不得超过 #213 冻结白名单；新节点必须直接提供完整合同。
-- Planner 只接受完整合同、匹配 checksum 且显式启用的节点；R1–R2.5 增量节点均禁止 Planner 自动生成，Planner 可生成类型仍固定为 7 类。
+- Planner 只接受完整合同、匹配 checksum 且显式启用的节点；R1–R2.6 增量节点均禁止 Planner 自动生成，Planner 可生成类型仍固定为 7 类。

@@ -27,6 +27,13 @@ async def client() -> httpx.AsyncClient:
         yield async_client
 
 
+@pytest.fixture(autouse=True)
+def clear_request_windows() -> None:
+    main_module.request_windows.clear()
+    yield
+    main_module.request_windows.clear()
+
+
 def _events(response: httpx.Response) -> list[dict]:
     return [
         json.loads(line.removeprefix("data: "))

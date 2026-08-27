@@ -248,9 +248,46 @@ export interface WorkflowBatchReceipt {
   result: string;
 }
 
+export interface KnowledgeProposalReceipt {
+  status: "pending" | "approved" | "rejected";
+  proposalId: string;
+  knowledgeBaseId: string;
+  revision: number;
+  reused: boolean;
+  contentLength: number;
+}
+
 const WORKFLOW_PROJECT_ID_PATTERN = /^wf_[0-9a-f]{32}$/i;
 const WORKFLOW_EXECUTION_ID_PATTERN = /^wfx_[0-9a-f]{32}$/i;
 const WORKFLOW_TRIGGER_TASK_ID_PATTERN = /^wft_[0-9a-f]{32}$/i;
+const KNOWLEDGE_PROPOSAL_ID_PATTERN = /^kwp_[0-9a-f]{32}$/i;
+const KNOWLEDGE_BASE_ID_PATTERN = /^kb_[0-9a-f]{32}$/i;
+
+export function parseKnowledgeProposalReceipt(
+  value: string,
+): KnowledgeProposalReceipt | null {
+  let candidate: unknown;
+  try {
+    candidate = JSON.parse(value);
+  } catch {
+    return null;
+  }
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return null;
+  const receipt = candidate as Record<string, unknown>;
+  if (
+    !["pending", "approved", "rejected"].includes(String(receipt.status))
+    || typeof receipt.proposalId !== "string"
+    || !KNOWLEDGE_PROPOSAL_ID_PATTERN.test(receipt.proposalId)
+    || typeof receipt.knowledgeBaseId !== "string"
+    || !KNOWLEDGE_BASE_ID_PATTERN.test(receipt.knowledgeBaseId)
+    || !Number.isInteger(receipt.revision)
+    || Number(receipt.revision) < 1
+    || typeof receipt.reused !== "boolean"
+    || !Number.isInteger(receipt.contentLength)
+    || Number(receipt.contentLength) < 1
+  ) return null;
+  return receipt as unknown as KnowledgeProposalReceipt;
+}
 
 export function parseWorkflowBatchReceipts(
   value: string,
@@ -495,6 +532,9 @@ export function localizeWorkflowStepOutput(
 }
 
 const HTTP_BODY_PREVIEW_LIMIT = 2_000;
+const KNOWLEDGE_PROPOSAL_SOURCE_WITHHELD = "knowledge proposal source withheld";
+const KNOWLEDGE_PROPOSAL_SOURCE_WITHHELD_COPY =
+  "提议正文已隐藏，仅可在 Knowledge Inbox 中查看。";
 
 export function workflowStepOutputPreview(
   output: string,
@@ -530,7 +570,15 @@ function appendStepOutput(
   nodeType: WorkflowRunEvent["node_type"],
 ) {
   if (!next) return current;
-  const localizedNext = localizeWorkflowStepOutput(next, nodeType);
+  const localizedNext = next === KNOWLEDGE_PROPOSAL_SOURCE_WITHHELD
+    ? KNOWLEDGE_PROPOSAL_SOURCE_WITHHELD_COPY
+    : localizeWorkflowStepOutput(next, nodeType);
+  if (
+    localizedNext === KNOWLEDGE_PROPOSAL_SOURCE_WITHHELD_COPY
+    && current.includes(KNOWLEDGE_PROPOSAL_SOURCE_WITHHELD_COPY)
+  ) {
+    return current;
+  }
   if (!current) return localizedNext;
   if (nodeType === "llm" || nodeType === "workflow_agent") {
     return `${current}${localizedNext}`;
@@ -2362,6 +2410,9 @@ export default function WorkflowRun({
                 step.type === "http_request"
                   ? null
                   : parseWorkflowBatchReceipts(step.output);
+              const knowledgeProposalReceipt = step.type === "knowledge_write_proposal"
+                ? parseKnowledgeProposalReceipt(step.output)
+                : null;
               return (
               <div className="rounded-lg border border-white/10 bg-white/[0.045]" key={step.id}>
                 <button
@@ -2412,6 +2463,18 @@ export default function WorkflowRun({
                       rel="noreferrer"
                     >
                       前往 Handoff Inbox
+                    </a>
+                  </div>
+                ) : null}
+                {knowledgeProposalReceipt ? (
+                  <div className="px-3 pb-3">
+                    <a
+                      className="inline-flex rounded-md border border-teal-300/25 bg-teal-300/10 px-2.5 py-1.5 text-xs font-semibold text-teal-100 transition hover:border-teal-200/45 hover:bg-teal-300/15"
+                      href={`/rag/${encodeURIComponent(knowledgeProposalReceipt.knowledgeBaseId)}/inbox?proposal_id=${encodeURIComponent(knowledgeProposalReceipt.proposalId)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      打开 Knowledge Inbox 审批
                     </a>
                   </div>
                 ) : null}

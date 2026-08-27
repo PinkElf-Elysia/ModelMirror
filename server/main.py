@@ -114,6 +114,11 @@ try:
         get_strategy_tuner,
         router as rag_router,
     )
+    from server.rag.rag_service import (
+        KnowledgeBaseDeletionError,
+        KnowledgeBaseLockedError,
+        KnowledgeBaseNotFoundError,
+    )
 except ModuleNotFoundError:
     from rag.api import (
         configure_evaluation_executor,
@@ -125,6 +130,11 @@ except ModuleNotFoundError:
         get_rag_service,
         get_strategy_tuner,
         router as rag_router,
+    )
+    from rag.rag_service import (
+        KnowledgeBaseDeletionError,
+        KnowledgeBaseLockedError,
+        KnowledgeBaseNotFoundError,
     )
 
 try:
@@ -640,6 +650,13 @@ try:
         WorkflowSchedulerV2,
         execute_data_merge,
     )
+    from server.workflow_native.knowledge_proposal import (
+        WorkflowKnowledgeProposalError,
+        build_knowledge_proposal_receipt,
+        validate_knowledge_write_proposal_config,
+        validate_rendered_knowledge_proposal,
+        workflow_knowledge_proposals_enabled,
+    )
     from server.workflow_native.r23_iteration import (
         MAX_CHILD_RESULT_CHARS,
         WorkflowIterationError,
@@ -750,6 +767,13 @@ except ModuleNotFoundError:
         WorkflowR21Error,
         WorkflowSchedulerV2,
         execute_data_merge,
+    )
+    from workflow_native.knowledge_proposal import (
+        WorkflowKnowledgeProposalError,
+        build_knowledge_proposal_receipt,
+        validate_knowledge_write_proposal_config,
+        validate_rendered_knowledge_proposal,
+        workflow_knowledge_proposals_enabled,
     )
     from workflow_native.r23_iteration import (
         MAX_CHILD_RESULT_CHARS,
@@ -1937,6 +1961,9 @@ workflow_deployment_store = WorkflowDeploymentStore(
     credential_validator=toolset_credential_store.get_public,
     mcp_tool_validator=validate_registered_workflow_mcp_tool,
     xpert_target_validator=validate_workflow_handoff_target,
+    knowledge_proposal_validator=lambda kb_id: (
+        get_rag_service().validate_knowledge_write_target(kb_id)
+    ),
 )
 
 
@@ -3039,6 +3066,7 @@ class WorkflowPayload(BaseModel):
             "variable_aggregator": ("outputVariable",),
             "parameter_extractor": ("outputVariable",),
             "knowledge_retrieval": ("outputVariable",),
+            "knowledge_write_proposal": ("outputVariable",),
             "knowledge_citation": ("outputVariable",),
             "document_extractor": ("assetIdVariable", "outputVariable"),
             "vision_understanding": ("assetIdVariable", "outputVariable"),
@@ -9779,6 +9807,12 @@ async def _run_workflow_response(
             isinstance(runtime_trigger_event, dict)
             and runtime_trigger_event.get("type") == "form_submission"
         ),
+        "knowledge_proposal_sensitive_variable_names": {
+            str(node.data.get("contentVariable") or "").strip()
+            for node in payload.workflow.nodes
+            if workflow_node_kind(node) == "knowledge_write_proposal"
+            and str(node.data.get("contentVariable") or "").strip()
+        },
         "ephemeral_variable_names": {
             str(node.data.get(field_name) or "").strip()
             for node in payload.workflow.nodes
@@ -9797,9 +9831,30 @@ async def _run_workflow_response(
             for field in node.data.get("fields", [])
             if isinstance(field, dict)
             and str(field.get("outputVariable") or "").strip()
+        }
+        | {
+            str(node.data.get("contentVariable") or "").strip()
+            for node in payload.workflow.nodes
+            if workflow_node_kind(node) == "knowledge_write_proposal"
+            and str(node.data.get("contentVariable") or "").strip()
         },
         "cancel_requested": False,
     }
+    _encode_sse_payload = globals()["sse_payload"]
+
+    def sse_payload(data: dict[str, Any]) -> bytes:
+        """Keep proposal source text out of every streamed node delta."""
+
+        if data.get("event") == "node_delta" and str(
+            data.get("variable") or ""
+        ).strip() in set(
+            task_state.get("knowledge_proposal_sensitive_variable_names")
+            or set()
+        ):
+            data = dict(data)
+            data["output"] = "knowledge proposal source withheld"
+        return _encode_sse_payload(data)
+
     if (
         task_state["resolved_approval"] is None
         and isinstance(task_state["agent_resume_state"], dict)
@@ -9817,7 +9872,13 @@ async def _run_workflow_response(
             run_id=workflow_run.run_id,
             run_type=runtime_run_type,
             workflow=payload.workflow.model_dump(),
-            inputs=dict(payload.inputs),
+            inputs=checkpoint_safe_workflow_variables(
+                dict(payload.inputs),
+                ephemeral_names=set(
+                    task_state.get("knowledge_proposal_sensitive_variable_names")
+                    or set()
+                ),
+            ),
             source_kind=trusted_source_kind,
             runtime_metadata=run_metadata,
         )
@@ -16909,6 +16970,135 @@ async def _run_workflow_response(
                             "Knowledge retrieval failed.",
                         ) from None
 
+                elif kind == "knowledge_write_proposal":
+                    try:
+                        if not workflow_knowledge_proposals_enabled():
+                            raise WorkflowKnowledgeProposalError(
+                                "WORKFLOW_KNOWLEDGE_PROPOSALS_DISABLED",
+                                "Workflow knowledge proposals are disabled.",
+                            )
+                        config = validate_knowledge_write_proposal_config(node.data)
+                        if config.content_variable not in variables:
+                            raise WorkflowKnowledgeProposalError(
+                                "KNOWLEDGE_PROPOSAL_INPUT_INVALID",
+                                "The proposal content variable is unavailable.",
+                            )
+                        rendered_title = render_workflow_template(
+                            config.title_template,
+                            variables,
+                        )
+                        clean_title, clean_content = (
+                            validate_rendered_knowledge_proposal(
+                                title=rendered_title,
+                                content=variables[config.content_variable],
+                            )
+                        )
+                        scope_kind: str | None = None
+                        scope_id: str | None = None
+                        xpert_id = str(run_metadata.get("xpert_id") or "").strip()
+                        workflow_project_id = str(
+                            run_metadata.get("workflow_project_id") or ""
+                        ).strip()
+                        if xpert_id:
+                            scope_kind = "xpert"
+                            scope_id = xpert_id
+                        elif workflow_project_id:
+                            scope_kind = "workflow_project"
+                            scope_id = workflow_project_id
+                        elif str(payload.workflow.id).startswith("wf_"):
+                            scope_kind = "workflow_project"
+                            scope_id = str(payload.workflow.id)
+                        occurrence_owner = str(
+                            run_metadata.get("workflow_deployment_execution_id")
+                            or task_id
+                        ).strip()
+                        proposal = await asyncio.to_thread(
+                            get_rag_service().create_knowledge_write_proposal,
+                            config.knowledge_base_id,
+                            title=clean_title,
+                            content=clean_content,
+                            tags=list(config.tags),
+                            source_xpert_id=xpert_id or None,
+                            source_goal_id=str(run_metadata.get("goal_id") or "").strip()
+                            or None,
+                            source_handoff_id=str(
+                                run_metadata.get("handoff_id") or ""
+                            ).strip()
+                            or None,
+                            source_run_id=workflow_run.run_id,
+                            source_scope_kind=scope_kind,
+                            source_scope_id=scope_id,
+                            source_node_id=node.id,
+                            source_occurrence_key=f"{occurrence_owner}:{node.id}",
+                        )
+                        receipt = build_knowledge_proposal_receipt(
+                            proposal,
+                            content_length=len(clean_content),
+                        )
+                        variables[config.output_variable] = normalize_workflow_value(
+                            receipt,
+                            path=f"$.variables.{config.output_variable}",
+                        )
+                        output = json.dumps(receipt, ensure_ascii=False)
+                        await run_registry.record_checkpoint(
+                            workflow_run.run_id,
+                            event_type="knowledge_write_proposal.submitted",
+                            title="Knowledge write proposal submitted",
+                            summary=(
+                                f"proposal_id={receipt['proposalId']}, "
+                                f"status={receipt['status']}, reused={receipt['reused']}"
+                            ),
+                            metadata={
+                                "node_id": node.id,
+                                "knowledge_base_id": receipt["knowledgeBaseId"],
+                                "proposal_id": receipt["proposalId"],
+                                "status": receipt["status"],
+                                "revision": receipt["revision"],
+                                "reused": receipt["reused"],
+                                "content_length": receipt["contentLength"],
+                            },
+                        )
+                        yield sse_payload(
+                            {
+                                "event": "node_delta",
+                                "node_id": node.id,
+                                "node_title": title,
+                                "node_type": kind,
+                                "output": output,
+                                "variable": config.output_variable,
+                                "proposal_id": receipt["proposalId"],
+                                "knowledge_base_id": receipt["knowledgeBaseId"],
+                            }
+                        )
+                    except WorkflowKnowledgeProposalError as exc:
+                        raise WorkflowTerminationError(
+                            exc.code,
+                            exc.safe_message,
+                            node_id=node.id,
+                        ) from None
+                    except (KnowledgeBaseNotFoundError, KnowledgeBaseDeletionError):
+                        raise WorkflowTerminationError(
+                            "KNOWLEDGE_BASE_NOT_FOUND",
+                            "The selected knowledge base is unavailable.",
+                            node_id=node.id,
+                        ) from None
+                    except KnowledgeBaseLockedError:
+                        raise WorkflowTerminationError(
+                            "KNOWLEDGE_BASE_READ_ONLY",
+                            "The selected knowledge base is read-only.",
+                            node_id=node.id,
+                        ) from None
+                    except Exception as exc:
+                        logger.warning(
+                            "Workflow knowledge proposal creation failed: %s",
+                            type(exc).__name__,
+                        )
+                        raise WorkflowTerminationError(
+                            "KNOWLEDGE_PROPOSAL_CREATE_FAILED",
+                            "Knowledge Inbox could not create the proposal.",
+                            node_id=node.id,
+                        ) from None
+
                 elif kind == "knowledge_citation":
                     output_variable = str(
                         node.data.get("outputVariable") or "citation_anchors_json"
@@ -20673,14 +20863,18 @@ async def _run_workflow_response(
                                 ),
                                 node_id=node.id,
                             ) from exc
-                        yield sse_payload(
-                            {
-                                "event": "error",
-                                "node_id": node.id,
-                                "message": str(exc),
-                            }
-                        )
-                        if bool(task_state.get("private_form_event")):
+                        if (
+                            isinstance(exc, RuntimeToolError)
+                            and not bool(task_state.get("private_form_event"))
+                        ):
+                            yield sse_payload(
+                                {
+                                    "event": "error",
+                                    "node_id": node.id,
+                                    "message": str(exc),
+                                }
+                            )
+                        else:
                             raise
 
                 elif kind == "agent_task" and r20_contract_version(node.data) == 2:
@@ -22361,9 +22555,15 @@ async def _run_workflow_response(
 
                 elif kind == "output":
                     output_variable = str(node.data.get("outputVariable") or "llm_output")
-                    final_output = workflow_value_to_text(
-                        variables.get(output_variable, "")
-                    )
+                    if output_variable in set(
+                        task_state.get("knowledge_proposal_sensitive_variable_names")
+                        or set()
+                    ):
+                        final_output = "knowledge proposal source withheld"
+                    else:
+                        final_output = workflow_value_to_text(
+                            variables.get(output_variable, "")
+                        )
                     task_state["final_output"] = final_output
                     output = final_output
 
@@ -22382,8 +22582,40 @@ async def _run_workflow_response(
                 if node_provider_receipt is not None:
                     node_end_event["provider_route_receipts"] = node_provider_receipt
                 workflow_execution_store.append_event(task_id, node_end_event)
+                sensitive_variable_names = set(
+                    task_state.get("knowledge_proposal_sensitive_variable_names")
+                    or set()
+                )
                 public_node_output = safe_content_policy_value(output)
-                public_node_variables = safe_content_policy_value(variables)
+                public_node_variables = safe_content_policy_value(
+                    {
+                        name: value
+                        for name, value in variables.items()
+                        if name not in sensitive_variable_names
+                    }
+                )
+                produced_variable_names = {
+                    str(node.data.get(field_name) or "").strip()
+                    for field_name in (
+                        "variableName",
+                        "outputVariable",
+                        "codeOutputVariable",
+                        "eventVariable",
+                        "bodyVariable",
+                        "submissionVariable",
+                        "resultVariable",
+                    )
+                    if str(node.data.get(field_name) or "").strip()
+                }
+                if produced_variable_names.intersection(sensitive_variable_names):
+                    public_node_output = "knowledge proposal source withheld"
+                if kind == "knowledge_write_proposal":
+                    output_variable = str(node.data.get("outputVariable") or "")
+                    public_node_variables = (
+                        {output_variable: variables[output_variable]}
+                        if output_variable in variables
+                        else {}
+                    )
                 if bool(task_state.get("private_form_event")):
                     public_node_output = (
                         output
@@ -22725,7 +22957,19 @@ async def _run_workflow_response(
                     "variables": (
                         {}
                         if bool(task_state.get("private_form_event"))
-                        else safe_content_policy_value(variables)
+                        else safe_content_policy_value(
+                            {
+                                name: value
+                                for name, value in variables.items()
+                                if name
+                                not in set(
+                                    task_state.get(
+                                        "knowledge_proposal_sensitive_variable_names"
+                                    )
+                                    or set()
+                                )
+                            }
+                        )
                     ),
                     "suggestions": conversation_suggestions,
                     "conversation_title": generated_conversation_title or None,
@@ -27532,6 +27776,10 @@ async def list_workflow_resource_options(
                     str(active.get("version_id") or "") if active else None
                 ),
                 "document_count": int(item.get("document_count") or 0),
+                "corpus_locked": bool(item.get("corpus_locked", False)),
+                "provisioning_status": str(
+                    item.get("provisioning_status") or "ready"
+                ),
             }
         )
     return {"kind": kind, "items": items}

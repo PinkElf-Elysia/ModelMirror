@@ -195,6 +195,9 @@ export const WORKFLOW_VARIABLE_FIELD_DESCRIPTORS: WorkflowVariableFieldDescripto
   field("parameter_extractor", "outputVariable", "declaration", JSON_TYPES),
   field("knowledge_retrieval", "queryVariable", "binding", TEXT_TYPES, "query"),
   field("knowledge_retrieval", "outputVariable", "declaration", ["text", "json"]),
+  field("knowledge_write_proposal", "titleTemplate", "template", TEMPLATE_TYPES),
+  field("knowledge_write_proposal", "contentVariable", "binding", TEXT_TYPES, "content"),
+  field("knowledge_write_proposal", "outputVariable", "declaration", JSON_TYPES),
   field("knowledge_citation", "queryVariable", "binding", TEXT_TYPES, "query"),
   field("knowledge_citation", "outputVariable", "declaration", TEXT_TYPES),
   field("document_extractor", "inputVariable", "binding", JSON_TYPES, "http response"),
@@ -451,6 +454,9 @@ const DEFAULT_OUTPUT_SPECS: Partial<Record<WorkflowNodeKind, OutputSpec[]>> = {
   ],
   knowledge_retrieval: [
     { field: "outputVariable", fallback: "knowledge_result", valueType: "json" },
+  ],
+  knowledge_write_proposal: [
+    { field: "outputVariable", fallback: "knowledge_proposal", valueType: "json" },
   ],
   knowledge_citation: [
     { field: "outputVariable", fallback: "citation_anchors_json", valueType: "text" },

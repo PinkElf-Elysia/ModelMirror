@@ -343,7 +343,18 @@ export default function NodePalette({
           ) : null}
           <RegistryFallbackNotice message={registryError} />
           {filteredWorkflowSections.length === 0 ? (
-            <EmptyState>没有匹配的工作流节点。</EmptyState>
+            <div className="space-y-2">
+              <EmptyState>没有匹配的工作流节点。</EmptyState>
+              {normalizedSearch && filteredKnowledgeItems.length > 0 ? (
+                <button
+                  className="w-full rounded-lg border border-hire-300/20 bg-hire-300/10 px-3 py-2 text-left text-xs leading-5 text-hire-100 transition hover:border-hire-300/35 hover:bg-hire-300/15"
+                  onClick={() => setActiveTab("knowledge")}
+                  type="button"
+                >
+                  在知识流水线查看 {filteredKnowledgeItems.length} 个匹配结果
+                </button>
+              ) : null}
+            </div>
           ) : (
             filteredWorkflowSections.map((section) => (
               <section className="space-y-2" key={section.id}>

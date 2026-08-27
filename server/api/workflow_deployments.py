@@ -169,6 +169,12 @@ def workflow_forms_enabled() -> bool:
     }
 
 
+def workflow_knowledge_proposals_enabled() -> bool:
+    return os.getenv("WORKFLOW_KNOWLEDGE_PROPOSALS_ENABLED", "false").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+
+
 def workflow_forms_public_base_url() -> str:
     return os.getenv("WORKFLOW_FORMS_PUBLIC_BASE_URL", "").strip()
 
@@ -342,6 +348,7 @@ async def activate_workflow(project_id: str, version: int) -> dict[str, Any]:
             handoff_executor_enabled=handoff_executor_enabled(),
             forms_enabled=workflow_forms_enabled(),
             forms_public_base_url=workflow_forms_public_base_url(),
+            knowledge_proposals_enabled=workflow_knowledge_proposals_enabled(),
         )
         payload = store.serialize_deployment(deployment)
         if plaintext_key:

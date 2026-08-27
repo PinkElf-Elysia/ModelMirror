@@ -827,6 +827,31 @@ def preview_xpert_for_publish(
                         node_id=node.id,
                     )
                 )
+        if kind == "knowledge_write_proposal":
+            if os.getenv(
+                "WORKFLOW_KNOWLEDGE_PROPOSALS_ENABLED", "false"
+            ).strip().lower() not in {"1", "true", "yes", "on"}:
+                feature_issues.append(
+                    ValidationIssue(
+                        code="xpert_knowledge_proposals_disabled",
+                        message="Workflow knowledge proposals are disabled.",
+                        node_id=node.id,
+                    )
+                )
+            try:
+                get_rag_service().validate_knowledge_write_target(
+                    str(data.get("knowledgeBaseId") or "").strip()
+                )
+            except Exception:
+                feature_issues.append(
+                    ValidationIssue(
+                        code="xpert_knowledge_proposal_target_unavailable",
+                        message=(
+                            "The selected knowledge base is unavailable or read-only."
+                        ),
+                        node_id=node.id,
+                    )
+                )
         if kind in {
             "code",
             "human_intervention",

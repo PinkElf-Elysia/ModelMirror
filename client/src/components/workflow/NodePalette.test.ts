@@ -13,10 +13,11 @@ afterEach(() => {
 });
 
 describe("NodePalette disabled workflow nodes", () => {
-  it("only exposes executable knowledge consumption nodes", () => {
+  it("only exposes executable knowledge workflow nodes", () => {
     expect(knowledgePipelineItems.map((item) => item.kind)).toEqual([
       "knowledge_base",
       "knowledge_retrieval",
+      "knowledge_write_proposal",
       "vision_understanding",
     ]);
     expect(knowledgePipelineItems.every((item) => item.enabled !== false)).toBe(true);
@@ -36,6 +37,70 @@ describe("NodePalette disabled workflow nodes", () => {
     expect(placeholder.enabled).toBe(false);
     expect(placeholder.statusLabel).toBe("默认关闭");
     expect(placeholder.description).toContain("Workflow 文件资产变量当前未启用");
+  });
+
+  it("guides a workflow-tab search to matching knowledge nodes", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input) === "/api/runtime/middleware-nodes") {
+          return new Response(JSON.stringify([]), { status: 200 });
+        }
+        return new Response(
+          JSON.stringify({
+            version: "xpert-workflow-node-registry-v4",
+            contract_version: 3,
+            contract_checksum: "a".repeat(64),
+            tabs: [
+              { id: "workflow", label: "工作流" },
+              { id: "knowledge", label: "知识流水线" },
+            ],
+            sections: [],
+            knowledge_pipeline: {
+              items: [
+                {
+                  kind: "knowledge_write_proposal",
+                  icon: "KWP",
+                  title: "知识写入提议",
+                  description: "提交待审批知识。",
+                  enabled: true,
+                  contract: {
+                    kind: "knowledge_write_proposal",
+                    contract_status: "complete",
+                    config_schema: {},
+                    ports: [],
+                    edge: {},
+                    execution: {},
+                    availability: {},
+                    resources: [],
+                    planner: {},
+                    contract_version: 3,
+                    checksum: "b".repeat(64),
+                    compiler_checksum: "c".repeat(64),
+                  },
+                },
+              ],
+              placeholders: [],
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }),
+    );
+
+    render(createElement(NodePalette));
+    fireEvent.change(screen.getByLabelText("搜索节点"), {
+      target: { value: "知识写入提议" },
+    });
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "在知识流水线查看 1 个匹配结果",
+      }),
+    );
+    expect(
+      await screen.findByRole("button", { name: "添加节点：知识写入提议" }),
+    ).toBeInTheDocument();
   });
 
   it("renders a disabled registry node as a non-draggable placeholder", async () => {

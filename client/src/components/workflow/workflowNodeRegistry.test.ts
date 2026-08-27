@@ -27,6 +27,7 @@ describe("workflowNodeRegistry NodeContract V3 guard", () => {
       "knowledge_base",
       "knowledge_retrieval",
       "vision_understanding",
+      "knowledge_write_proposal",
       "scheduled_start",
       "http_event_entry",
       "form_event_entry",

@@ -69,7 +69,36 @@ function registry(): WorkflowNodeRegistryResponse {
         })),
       },
     ],
-    knowledge_pipeline: { items: [], placeholders: [] },
+    knowledge_pipeline: {
+      items: [
+        {
+          kind: "knowledge_write_proposal",
+          icon: "K",
+          title: "知识写入提议",
+          description: "提交待审批知识提议。",
+          enabled: true,
+          metadata: {
+            feature_enabled: false,
+            feature_disabled_reason: "测试环境开关关闭。",
+          },
+          contract: {
+            kind: "knowledge_write_proposal",
+            contract_status: "complete",
+            config_schema: {},
+            ports: [],
+            edge: {},
+            execution: {},
+            availability: { xpert: { state: "allow" } },
+            resources: [],
+            planner: {},
+            contract_version: 3,
+            checksum: "b".repeat(64),
+            compiler_checksum: "c".repeat(64),
+          },
+        },
+      ],
+      placeholders: [],
+    },
   };
 }
 
@@ -184,6 +213,36 @@ function signedFormWorkflow(): WorkflowDefinition {
               options: [],
             },
           ] as never,
+        },
+      },
+    ],
+    edges: [],
+  };
+}
+
+function knowledgeProposalWorkflow(): WorkflowDefinition {
+  return {
+    id: "knowledge-proposal-editor",
+    title: "Knowledge proposal editor",
+    updatedAt: "2026-08-26T00:00:00.000Z",
+    variables: [
+      { id: "content", name: "content", kind: "input", valueType: "text" },
+    ],
+    nodes: [
+      {
+        id: "proposal",
+        type: "workflowNode",
+        position: { x: 10, y: 20 },
+        data: {
+          kind: "knowledge_write_proposal",
+          title: "知识写入提议",
+          description: "提交待审批知识提议。",
+          contractVersion: 1,
+          knowledgeBaseId: "kb_writable",
+          titleTemplate: "公告：{{content}}",
+          contentVariable: "content",
+          tags: ["公告"],
+          outputVariable: "proposal_receipt",
         },
       },
     ],
@@ -349,6 +408,24 @@ describe("WorkflowEditor Xpert entry repair", () => {
         if (url === "/api/workflow/vision-capabilities") {
           return Promise.resolve(jsonResponse({ models: [] }));
         }
+        if (url === "/api/workflow/resource-options?kind=knowledge_base") {
+          return Promise.resolve(jsonResponse({
+            items: [
+              {
+                id: "kb_writable",
+                name: "产品公告",
+                corpus_locked: false,
+                provisioning_status: "ready",
+              },
+              {
+                id: "kb_locked",
+                name: "锁定基线",
+                corpus_locked: true,
+                provisioning_status: "ready",
+              },
+            ],
+          }));
+        }
         return Promise.resolve(jsonResponse([]));
       }),
     );
@@ -467,6 +544,30 @@ describe("WorkflowEditor Xpert entry repair", () => {
     ).toBeVisible();
     expect(screen.getByRole("button", { name: "轮换分享链接" })).toBeVisible();
     expect(screen.getByRole("button", { name: "停用表单" })).toBeVisible();
+  });
+
+  it("makes deterministic knowledge proposals configurable without raw JSON", async () => {
+    render(
+      <MemoryRouter>
+        <WorkflowEditor
+          initialDefinition={knowledgeProposalWorkflow()}
+          workflowId="knowledge-proposal-editor"
+        />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByText("知识写入提议"));
+
+    expect(await screen.findByText(/正文会持久保存到 Knowledge Inbox/)).toBeVisible();
+    expect(screen.getByText(/当前功能开关关闭/)).toHaveTextContent("测试环境开关关闭");
+    expect(screen.getByLabelText("写入目标")).toHaveValue("kb_writable");
+    expect(screen.getByLabelText("正文变量（必须是文本）")).toHaveValue("content");
+    expect(screen.getByLabelText("标签 1")).toHaveValue("公告");
+    expect(screen.getByRole("link", { name: "打开 Knowledge Inbox" })).toHaveAttribute(
+      "href",
+      "/rag/kb_writable/inbox",
+    );
+    expect(screen.getByRole("option", { name: /锁定基线/ })).toBeDisabled();
   });
 
   it("repairs only the Xpert copy, supports undo, and saves explicitly", async () => {

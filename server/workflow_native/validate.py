@@ -61,6 +61,10 @@ from .r20_nodes import (
     variable_aggregator_v2_references,
 )
 from .r21_nodes import WorkflowR21Error, validate_data_merge_config
+from .knowledge_proposal import (
+    WorkflowKnowledgeProposalError,
+    validate_knowledge_write_proposal_config,
+)
 from .r23_iteration import (
     WorkflowIterationError,
     is_iteration_v2,
@@ -113,6 +117,8 @@ NODE_KIND_ALIASES = {
     "parameter-extractor": "parameter_extractor",
     "knowledge_retrieval": "knowledge_retrieval",
     "knowledge-retrieval": "knowledge_retrieval",
+    "knowledge_write_proposal": "knowledge_write_proposal",
+    "knowledge-write-proposal": "knowledge_write_proposal",
     "knowledge_citation": "knowledge_citation",
     "knowledge-citation": "knowledge_citation",
     "document_extractor": "document_extractor",
@@ -593,6 +599,52 @@ def validate_workflow_graph(workflow: NativeWorkflowDefinition) -> ValidateWorkf
 
     for node in workflow.nodes:
         issues.extend(validate_node_configuration(node, kinds_by_id[node.id]))
+
+    if any(kind == "form_event_entry" for kind in kinds_by_id.values()):
+        for node in workflow.nodes:
+            if kinds_by_id.get(node.id) == "knowledge_write_proposal":
+                issues.append(
+                    ValidationIssue(
+                        code="form_knowledge_write_proposal_forbidden",
+                        message=(
+                            "Anonymous form workflows cannot create persistent "
+                            "Knowledge Inbox proposals."
+                        ),
+                        node_id=node.id,
+                    )
+                )
+
+    predecessors: dict[str, set[str]] = defaultdict(set)
+    for edge in workflow.edges:
+        predecessors[edge.target].add(edge.source)
+    for node in workflow.nodes:
+        if kinds_by_id.get(node.id) != "knowledge_write_proposal":
+            continue
+        pending = list(predecessors.get(node.id, set()))
+        visited: set[str] = set()
+        waiting_ancestor: str | None = None
+        while pending:
+            ancestor_id = pending.pop()
+            if ancestor_id in visited:
+                continue
+            visited.add(ancestor_id)
+            ancestor_kind = kinds_by_id.get(ancestor_id, "")
+            ancestor_contract = workflow_node_contract_registry.get(ancestor_kind)
+            if ancestor_contract is not None and ancestor_contract.execution.can_wait:
+                waiting_ancestor = ancestor_id
+                break
+            pending.extend(predecessors.get(ancestor_id, set()))
+        if waiting_ancestor is not None:
+            issues.append(
+                ValidationIssue(
+                    code="knowledge_proposal_after_wait_forbidden",
+                    message=(
+                        "Knowledge proposal content is intentionally excluded from durable "
+                        "continuations, so a persistent waiting node cannot appear upstream."
+                    ),
+                    node_id=node.id,
+                )
+            )
 
     node_variable_producers = collect_node_variable_producers(
         workflow.nodes,
@@ -1982,6 +2034,18 @@ def validate_node_configuration(
                 ValidationIssue(
                     code="invalid_knowledge_retrieval_output_variable",
                     message="Knowledge retrieval outputVariable must be an identifier.",
+                    node_id=node.id,
+                )
+            )
+
+    if kind == "knowledge_write_proposal":
+        try:
+            validate_knowledge_write_proposal_config(data)
+        except WorkflowKnowledgeProposalError as exc:
+            issues.append(
+                ValidationIssue(
+                    code=exc.code.lower(),
+                    message=exc.safe_message,
                     node_id=node.id,
                 )
             )
@@ -4171,6 +4235,7 @@ def collect_declared_variables(
             "variable_aggregator",
             "parameter_extractor",
             "knowledge_retrieval",
+            "knowledge_write_proposal",
             "knowledge_citation",
             "document_extractor",
             "vision_understanding",
@@ -4236,6 +4301,7 @@ def collect_node_variable_producers(
         "variable_aggregator": ("outputVariable",),
         "parameter_extractor": ("outputVariable",),
         "knowledge_retrieval": ("outputVariable",),
+        "knowledge_write_proposal": ("outputVariable",),
         "knowledge_citation": ("outputVariable",),
         "document_extractor": ("assetIdVariable", "outputVariable"),
         "vision_understanding": ("assetIdVariable", "outputVariable"),
@@ -4552,6 +4618,34 @@ def validate_variable_references(
                     node_id=node.id,
                 )
             )
+
+    if kind == "knowledge_write_proposal":
+        content_variable = str(data.get("contentVariable") or "").strip()
+        if content_variable and content_variable not in available_variables:
+            issues.append(
+                ValidationIssue(
+                    code="missing_knowledge_proposal_content_variable_reference",
+                    message=(
+                        "Knowledge write proposal references undefined content variable "
+                        f"'{content_variable}'."
+                    ),
+                    node_id=node.id,
+                )
+            )
+        for variable in sorted(
+            extract_template_variables(str(data.get("titleTemplate") or ""))
+        ):
+            if variable not in available_variables:
+                issues.append(
+                    ValidationIssue(
+                        code="missing_knowledge_proposal_title_variable_reference",
+                        message=(
+                            "Knowledge write proposal title references undefined variable "
+                            f"'{variable}'."
+                        ),
+                        node_id=node.id,
+                    )
+                )
 
     if kind == "knowledge_citation":
         query_variable = str(data.get("queryVariable") or "").strip()
