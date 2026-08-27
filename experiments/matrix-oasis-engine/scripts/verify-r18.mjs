@@ -16,6 +16,7 @@ const steps = [
   ["r18-source-lock", ["run", "verify:r18-sources"]],
   ["r18-desktop-landscape", ["run", "test:r18-landscape"]],
   ["r18-qualification-harness", ["run", "test:r18-harness"]],
+  ["r18-final-landscape", ["run", "test:r18-final"]],
 ];
 
 for (const [id, args] of steps) {

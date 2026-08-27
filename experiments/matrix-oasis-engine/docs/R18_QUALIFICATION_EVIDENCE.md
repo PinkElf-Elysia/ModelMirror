@@ -2,11 +2,11 @@
 
 ## 结论
 
-R18.6在零外部模型、零供应商调用、零容器和零依赖安装的边界内，实际执行了13个唯一候选。证据集合只证明本轮固定fixture下的结果，不代表候选已进入产品，也不建立生产推荐。
+R18.6在零外部模型、零供应商调用、零容器和零依赖安装的边界内，实际启动或审计了13个唯一候选。全13项都仍有未闭合的证据缺口，证据集合不代表候选已进入产品，也不建立生产推荐。
 
 | 状态 | 候选 | 结论边界 |
 |---|---|---|
-| `executed` | Creator Qualification内部基线、原生Control对话基线、Runtime Evidence内部基线 | 固定本地测试通过；文件系统隔离仍只达到观测级证据 |
+| `evidence-gap` | Creator Qualification内部基线、原生Control对话基线、Runtime Evidence内部基线 | 固定本地测试各通过1次，但没有执行20次统一fixture；不得享有内部基线豁免 |
 | `evidence-gap` | Deterministic Runtime内部基线、World Event Ledger内部基线、静态角色资产基线 | 分别缺少规划/行为桥、Ledger合同和动画能力 |
 | `evidence-gap` | Beehave | Godot 4.6.3受控退出通过，但尚未执行2/4/32/64 Agent负载与20次语义trace |
 | `evidence-gap` | Kenney Animated Characters Retro | Godot导入与300帧运行通过，但固定资产缺少独立turn clip |
@@ -18,7 +18,7 @@ R18.6在零外部模型、零供应商调用、零容器和零依赖安装的边
 ## 证据身份
 
 - 最终集合只保存在仓外资格目录；仓库不记录机器绝对路径。
-- 脱敏证据集SHA-256：`b7d78a166fcfc86a2084055434beac58bf362e2afbd01cb3bc780eac87a803a3`。
+- 脱敏证据集SHA-256：`3d448f7760a08d63c0073bf37fa3269300757c658c81c97f37ef8ab9b483cbd0`。
 - 仓库只保存canonical状态、诊断、fixture trace哈希和报告哈希；候选源码、依赖、二进制、资产和原始运行输出均未提交。
 - Concordia与TinyTroupe明确记录为`archive-only`，没有用Git树重建近似值冒充锁定checkout。
 

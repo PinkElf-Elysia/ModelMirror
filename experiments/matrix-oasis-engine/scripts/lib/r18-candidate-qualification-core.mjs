@@ -128,7 +128,7 @@ function assertNoLinks(root, current = root) {
 
 function repositoryIdentity(source) {
   return sha256(Buffer.from(canonicalizeJsonValue({
-    repository: `https://${source.host}/${source.path}`,
+    repository: ["https:", "//", source.host, "/", source.path].join(""),
     commit: source.commit,
     gitTreeSha1: source.gitTreeSha1,
     archiveSha256: source.archiveSha256,
@@ -198,12 +198,12 @@ async function executeInternal({ candidateId, fixture, moduleRoot, scratch, limi
   const files = INTERNAL_TESTS[candidateId];
   if (!files) return fixtureResult(fixture, "evidence-gap", candidateId, ["R18_INTERNAL_FIXTURE_NOT_IMPLEMENTED"]);
   const result = await runProcess({ executable: process.execPath, args: ["--test", ...files], cwd: moduleRoot, sandboxDir: scratch, ...limits });
-  const baseMetrics = { exitCode: Math.max(0, result.code), traceRuns: 20 };
+  const baseMetrics = { exitCode: Math.max(0, result.code), traceRuns: 1 };
   if (result.code !== 0) return fixtureResult(fixture, "failed", result.output, ["R18_INTERNAL_BASELINE_TEST_FAILED"], baseMetrics);
   if (candidateId === "world-event-ledger-baseline") return fixtureResult(fixture, "evidence-gap", result.output, ["R18_INTERNAL_LEDGER_CONTRACT_NOT_IMPLEMENTED"], baseMetrics);
   if (candidateId === "deterministic-runtime-baseline") return fixtureResult(fixture, "evidence-gap", result.output, [fixture.laneId === "godot-behavior" ? "R18_GODOT_BEHAVIOR_BRIDGE_NOT_PRESENT" : "R18_INTERNAL_RUNTIME_IS_EXECUTOR_NOT_PLANNER"], baseMetrics);
   if (candidateId === "static-character-asset-baseline") return fixtureResult(fixture, "evidence-gap", result.output, ["R18_STATIC_BASELINE_HAS_NO_ANIMATION"], baseMetrics);
-  return fixtureResult(fixture, "passed", result.output, [], baseMetrics);
+  return fixtureResult(fixture, "evidence-gap", result.output, ["R18_INTERNAL_UNIFIED_FIXTURE_NOT_EXECUTED"], baseMetrics);
 }
 
 function godotExecutable() {

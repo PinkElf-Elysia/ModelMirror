@@ -17,9 +17,9 @@ function fixture(t) {
   return root;
 }
 
-test("R18 keeps the V2 completion claim closed until R25", () => {
+test("qualified R18 landscape keeps the V2 completion claim closed until R25", () => {
   assert.deepEqual(checkV2Claim({ moduleRoot }), {
-    status: "r18-landscape-in-progress",
+    status: "r18-landscape-qualified",
     claimAllowed: false,
     blockingRound: "R25",
   });

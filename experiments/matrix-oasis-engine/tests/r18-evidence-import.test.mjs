@@ -19,7 +19,7 @@ function sha256(bytes) {
 }
 
 function tamperedModule(mutate) {
-  const root = fs.mkdtempSync("C:\\tmp\\matrix-oasis-r18-lock-test-");
+  const root = fs.mkdtempSync(path.join(path.parse(moduleRoot).root, "tmp", "matrix-oasis-r18-lock-test-"));
   temporary.push(root);
   fs.mkdirSync(path.join(root, "docs"));
   fs.mkdirSync(path.join(root, "third-party", "v2-landscape-references"), { recursive: true });
@@ -36,9 +36,9 @@ test("the tracked R18 qualification lock records all thirteen attempted candidat
   const lock = verifyR18QualificationEvidenceLock({ moduleRoot });
   assert.equal(lock.candidates, 13);
   assert.match(lock.evidenceSetSha256, /^[0-9a-f]{64}$/u);
-  assert.equal(lock.entries.filter((entry) => entry.status === "executed").length, 3);
+  assert.equal(lock.entries.filter((entry) => entry.status === "executed").length, 0);
   assert.equal(lock.entries.filter((entry) => entry.status === "failed").length, 0);
-  assert.equal(lock.entries.filter((entry) => entry.status === "evidence-gap").length, 10);
+  assert.equal(lock.entries.filter((entry) => entry.status === "evidence-gap").length, 13);
   assert.equal(lock.entries.find((entry) => entry.candidateId === "dialogue-manager").harnessAttribution, "unresolved");
   assert.equal(lock.entries.find((entry) => entry.candidateId === "dialogue-manager").status, "evidence-gap");
   assert.equal(lock.entries.find((entry) => entry.candidateId === "concordia").sourceIdentityStatus, "not-proven");

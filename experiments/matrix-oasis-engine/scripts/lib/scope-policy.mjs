@@ -55,6 +55,7 @@ export const ROUND_ALLOWED_MODULE_FILES = Object.freeze([
   "scripts/lib/r18-evidence-core.mjs",
   "scripts/lib/r18-candidate-qualification-core.mjs",
   "scripts/lib/r18-evidence-import-core.mjs",
+  "scripts/lib/r18-finalize-core.mjs",
   "scripts/lib/parent-scope-core.mjs",
   "scripts/lib/scope-policy.mjs",
   "scripts/run-verify.mjs",

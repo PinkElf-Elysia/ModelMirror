@@ -32,7 +32,7 @@ test("R17 selection evidence remains byte frozen while R18 owns the active claim
   const status = JSON.parse(readFileSync(path.join(moduleRoot, "docs", "V2_STATUS.json"), "utf8"));
   assert.deepEqual(status, {
     schemaVersion: 1,
-    status: "r18-landscape-in-progress",
+    status: "r18-landscape-qualified",
     claimAllowed: false,
     blockingRound: "R25",
     qualificationProfile: "matrix-oasis.v2-landscape/1",

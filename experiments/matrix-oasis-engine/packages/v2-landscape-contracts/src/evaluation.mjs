@@ -186,7 +186,7 @@ export function selectV2LaneShortlist(catalogInput, evidenceInput, policyInput =
     const evaluations = evidence
       .filter((item) => item?.laneId === laneId)
       .map((item) => evaluateV2CandidateForTier(candidateById.get(item.candidateId), item, policy))
-      .filter((item) => item.tier !== "architecture-reference" && item.conclusion !== "rejected" && item.conclusion !== "deferred");
+      .filter((item) => item.tier !== "architecture-reference" && item.conclusion !== "rejected");
     evaluations.sort((left, right) => {
       const difference = right.total - left.total;
       if (Math.abs(difference) > nearTie) return difference;

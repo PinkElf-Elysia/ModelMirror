@@ -325,6 +325,12 @@ test("shortlists are stable and near ties prefer the smaller runtime surface", (
   assert.deepEqual(shortlist.candidateIds, [lane.candidateIds[1], lane.candidateIds[2], lane.candidateIds[0]]);
   assert.deepEqual(selectV2LaneShortlist(source, [...items, items[0]]), []);
 
+  const evidenceGaps = lane.candidateIds.slice(0, 3).map((id) => evidence(id, lane.id, "service", {
+    executionStatus: "evidence-gap",
+    harnessAttribution: "unresolved",
+  }));
+  assert.equal(selectV2LaneShortlist(source, evidenceGaps).find((item) => item.laneId === lane.id).candidateIds.length, 3);
+
   const commercialLane = source.catalog.lanes.at(-1);
   const commercialEvidence = commercialLane.candidateIds.slice(0, 3).map((id) => evidence(id, commercialLane.id, "service"));
   assert.deepEqual(selectV2LaneShortlist(source, commercialEvidence).find((item) => item.laneId === commercialLane.id).candidateIds, []);
