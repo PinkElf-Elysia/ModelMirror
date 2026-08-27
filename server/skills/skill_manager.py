@@ -308,6 +308,11 @@ class SkillManager:
         quality_status: str | None = None,
         quality_decision_id: str | None = None,
         quality_run_id: str | None = None,
+        target_skill_id: str | None = None,
+        predecessor_draft_id: str | None = None,
+        expected_current_version_id: str | None = None,
+        expected_current_digest: str | None = None,
+        confirmed: bool = False,
     ) -> InstalledSkill:
         """Install or explicitly upgrade one reviewed Workspace Skill draft.
 
@@ -343,14 +348,46 @@ class SkillManager:
         files = normalized["files"]
         content_digest = compute_package_digest(skill_markdown, files)
         deterministic_skill_id = self._workspace_skill_id(clean_draft_id)
+        update_values = (
+            str(target_skill_id or "").strip(),
+            str(predecessor_draft_id or "").strip(),
+            str(expected_current_version_id or "").strip(),
+            str(expected_current_digest or "").strip().lower(),
+        )
+        is_targeted_update = any(update_values)
+        if is_targeted_update and not all(update_values):
+            raise SkillValidationError(
+                "Workspace Skill update target is incomplete.",
+                code="skill_experience_promotion_stale",
+            )
+        if is_targeted_update and not confirmed:
+            raise SkillValidationError(
+                "Workspace Skill update requires explicit confirmation.",
+                code="skill_experience_decision_required",
+            )
+        if is_targeted_update and not re.fullmatch(r"[a-f0-9]{64}", update_values[3]):
+            raise SkillValidationError(
+                "Workspace Skill update target digest is invalid.",
+                code="skill_experience_promotion_stale",
+            )
+        normalized_target_skill_id = (
+            self._validate_skill_id(update_values[0]) if is_targeted_update else None
+        )
         with self._lock:
             self._ensure_dirs()
             installed = self._read_metadata()
-            skill_id = self._find_workspace_skill_id(installed, clean_draft_id)
-            skill_id = skill_id or deterministic_skill_id
+            skill_id = (
+                normalized_target_skill_id
+                or self._find_workspace_skill_id(installed, clean_draft_id)
+                or deterministic_skill_id
+            )
             self._recover_workspace_install_receipt(skill_id, clean_draft_id)
             installed = self._read_metadata()
-            skill_id = self._find_workspace_skill_id(installed, clean_draft_id) or skill_id
+            skill_id = (
+                normalized_target_skill_id
+                or self._find_workspace_skill_id(installed, clean_draft_id)
+                or skill_id
+            )
             target_dir = self._safe_skill_dir(skill_id)
             previous_record = installed.get(skill_id)
             previous_metadata = (
@@ -378,8 +415,63 @@ class SkillManager:
                     and previous_metadata.content_digest == content_digest
                     and previous_metadata.package_subpath == clean_slug
                     and (target_dir / clean_slug / "SKILL.md").is_file()
+                    and (
+                        not is_targeted_update
+                        or previous_metadata.source_id == clean_draft_id
+                    )
                 ):
                     return previous_metadata
+            if is_targeted_update:
+                if previous_metadata is None or previous_record is None:
+                    raise SkillValidationError(
+                        "Workspace Skill update target is no longer installed.",
+                        code="skill_experience_promotion_stale",
+                    )
+                if previous_metadata.source_kind != "workspace_draft":
+                    raise SkillValidationError(
+                        "Only the selected Workspace Creator Skill may be updated.",
+                        code="skill_experience_update_target_invalid",
+                    )
+                if previous_metadata.source_id != update_values[1]:
+                    raise SkillValidationError(
+                        "Workspace Skill update target changed before installation.",
+                        code="skill_experience_promotion_stale",
+                    )
+                if (
+                    previous_content_digest != update_values[3]
+                    or previous_metadata.content_digest != update_values[3]
+                ):
+                    raise SkillValidationError(
+                        "Installed Workspace Skill changed before update.",
+                        code="skill_experience_promotion_stale",
+                    )
+                if not self._lifecycle_enabled():
+                    raise SkillValidationError(
+                        "Workspace Skill update requires lifecycle management.",
+                        code="skill_lifecycle_disabled",
+                    )
+                try:
+                    lifecycle_state = self.lifecycle_store.require_state(skill_id)
+                    lifecycle_version = self.lifecycle_store.require_version(
+                        update_values[2]
+                    )
+                except Exception as exc:
+                    raise SkillValidationError(
+                        "Workspace Skill lifecycle baseline is unavailable.",
+                        code="skill_experience_promotion_stale",
+                    ) from exc
+                if (
+                    lifecycle_state.status != "active"
+                    or lifecycle_state.current_version_id != update_values[2]
+                    or lifecycle_version.skill_id != skill_id
+                    or lifecycle_version.package_digest != update_values[3]
+                    or lifecycle_version.source_kind != "workspace_draft"
+                    or lifecycle_version.source_id != update_values[1]
+                ):
+                    raise SkillValidationError(
+                        "Workspace Skill lifecycle baseline changed before update.",
+                        code="skill_experience_promotion_stale",
+                    )
 
             transaction_id = uuid.uuid4().hex
             staging_dir = self.installed_dir / (
@@ -1741,6 +1833,28 @@ class SkillManager:
                     f"Skill '{normalized_skill_id}' is not installed"
                 )
             return self._installed_skill_from_record(record)
+
+    def installed_matches_lifecycle_version(
+        self, skill_id: str, version_id: str
+    ) -> bool:
+        """Verify metadata and installed bytes against one immutable version."""
+
+        if not self._lifecycle_enabled():
+            return False
+        normalized_skill_id = self._validate_skill_id(skill_id)
+        clean_version_id = str(version_id or "").strip()
+        if not clean_version_id:
+            return False
+        with self._lock:
+            try:
+                version = self.lifecycle_store.require_version(clean_version_id)
+                if version.skill_id != normalized_skill_id:
+                    return False
+                return self._lifecycle_installed_state_matches_version_unlocked(
+                    normalized_skill_id, clean_version_id
+                )
+            except Exception:
+                return False
 
     def require_activation(
         self,

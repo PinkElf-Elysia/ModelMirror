@@ -104,6 +104,11 @@ class WorkspaceSkillDraft:
     source_proposal_id: str | None = None
     source_apply_key: str | None = None
     creator_session_id: str | None = None
+    experience_candidate_id: str | None = None
+    predecessor_draft_id: str | None = None
+    update_target_skill_id: str | None = None
+    update_expected_version_id: str | None = None
+    update_expected_content_digest: str | None = None
     quality_required: bool = False
     quality_status: SkillQualityStatus = "not_evaluated"
     quality_decision: SkillQualityDecision | None = None
@@ -154,6 +159,11 @@ class WorkspaceSkillDraftStore:
         source_proposal_id: str | None = None,
         source_apply_key: str | None = None,
         creator_session_id: str | None = None,
+        experience_candidate_id: str | None = None,
+        predecessor_draft_id: str | None = None,
+        update_target_skill_id: str | None = None,
+        update_expected_version_id: str | None = None,
+        update_expected_content_digest: str | None = None,
         quality_required: bool = False,
         quality_status: SkillQualityStatus = "not_evaluated",
     ) -> WorkspaceSkillDraft:
@@ -166,12 +176,20 @@ class WorkspaceSkillDraftStore:
             files=files or {},
         )
         digest = self.compute_content_digest(**normalized)
+        update_projection = self._normalize_update_projection(
+            experience_candidate_id=experience_candidate_id,
+            predecessor_draft_id=predecessor_draft_id,
+            update_target_skill_id=update_target_skill_id,
+            update_expected_version_id=update_expected_version_id,
+            update_expected_content_digest=update_expected_content_digest,
+        )
         now = time.time()
         item = WorkspaceSkillDraft(
             draft_id=f"skilldraft_{uuid.uuid4().hex}",
             source_proposal_id=source_proposal_id,
             source_apply_key=source_apply_key,
             creator_session_id=creator_session_id,
+            **update_projection,
             quality_required=bool(quality_required),
             quality_status=quality_status,
             content_digest=digest,
@@ -226,6 +244,11 @@ class WorkspaceSkillDraftStore:
         description: str,
         skill_markdown: str,
         files: dict[str, str] | None = None,
+        experience_candidate_id: str | None = None,
+        predecessor_draft_id: str | None = None,
+        update_target_skill_id: str | None = None,
+        update_expected_version_id: str | None = None,
+        update_expected_content_digest: str | None = None,
     ) -> WorkspaceSkillDraft:
         """Create or replay the one manual draft owned by a Creator session."""
 
@@ -241,10 +264,21 @@ class WorkspaceSkillDraftStore:
                 )
                 expected_digest = self.compute_content_digest(**normalized)
                 first_snapshot = self._revisions.get(existing.draft_id, {}).get(1)
+                expected_projection = self._normalize_update_projection(
+                    experience_candidate_id=experience_candidate_id,
+                    predecessor_draft_id=predecessor_draft_id,
+                    update_target_skill_id=update_target_skill_id,
+                    update_expected_version_id=update_expected_version_id,
+                    update_expected_content_digest=update_expected_content_digest,
+                )
                 if (
                     first_snapshot is None
                     or not self._digests_equal(
                         first_snapshot.content_digest, expected_digest
+                    )
+                    or any(
+                        getattr(existing, field_name) != value
+                        for field_name, value in expected_projection.items()
                     )
                 ):
                     raise SkillDraftConflictError(
@@ -258,6 +292,11 @@ class WorkspaceSkillDraftStore:
                 skill_markdown=skill_markdown,
                 files=files or {},
                 creator_session_id=creator_session_id,
+                experience_candidate_id=experience_candidate_id,
+                predecessor_draft_id=predecessor_draft_id,
+                update_target_skill_id=update_target_skill_id,
+                update_expected_version_id=update_expected_version_id,
+                update_expected_content_digest=update_expected_content_digest,
                 quality_required=True,
                 quality_status="not_evaluated",
             )
@@ -671,26 +710,23 @@ class WorkspaceSkillDraftStore:
             ]
             if not matches:
                 return None
-            if len(matches) != 1:
-                raise SkillDraftStorageError(
-                    "Multiple Workspace drafts reference the same installed Skill ID."
-                )
-            item = matches[0]
-            previous = self._copy(item)
-            item.installed_skill_id = None
-            item.installed_content_revision = None
-            item.installed_content_digest = None
-            item.install_state = "not_installed"
-            if item.status != "archived":
-                item.status = "draft"
-            item.revision += 1
-            item.updated_at = time.time()
+            previous = {item.draft_id: self._copy(item) for item in matches}
+            now = time.time()
+            for item in matches:
+                item.installed_skill_id = None
+                item.installed_content_revision = None
+                item.installed_content_digest = None
+                item.install_state = "not_installed"
+                if item.status != "archived":
+                    item.status = "draft"
+                item.revision += 1
+                item.updated_at = now
             try:
                 self._save_unlocked()
             except BaseException:
-                self._items[item.draft_id] = previous
+                self._items.update(previous)
                 raise
-            return self._copy(item)
+            return self._copy(matches[-1])
 
     def mark_lifecycle_version_installed(
         self,
@@ -718,6 +754,12 @@ class WorkspaceSkillDraftStore:
                 and self._digests_equal(snapshot.content_digest, item.content_digest)
                 else "outdated"
             )
+            affected = [
+                candidate
+                for candidate in self._items.values()
+                if candidate.installed_skill_id == str(skill_id).strip()
+                and candidate.draft_id != item.draft_id
+            ]
             if (
                 item.installed_skill_id == str(skill_id).strip()
                 and item.installed_content_revision == snapshot.revision
@@ -726,20 +768,29 @@ class WorkspaceSkillDraftStore:
                 )
                 and item.install_state == install_state
                 and item.status == "installed"
+                and all(candidate.install_state == "outdated" for candidate in affected)
             ):
                 return self._copy(item)
-            previous = self._copy(item)
+            previous = {
+                candidate.draft_id: self._copy(candidate)
+                for candidate in [item, *affected]
+            }
+            now = time.time()
+            for candidate in affected:
+                candidate.install_state = "outdated"
+                candidate.revision += 1
+                candidate.updated_at = now
             item.installed_skill_id = str(skill_id).strip()
             item.installed_content_revision = snapshot.revision
             item.installed_content_digest = snapshot.content_digest
             item.install_state = install_state
             item.status = "installed"
             item.revision += 1
-            item.updated_at = time.time()
+            item.updated_at = now
             try:
                 self._save_unlocked()
             except BaseException:
-                self._items[draft_id] = previous
+                self._items.update(previous)
                 raise
             return self._copy(item)
 
@@ -789,8 +840,22 @@ class WorkspaceSkillDraftStore:
                     "Installed Workspace Skill digest does not match the reviewed draft."
                 )
 
-            previous = self._copy(item)
+            superseded = [
+                candidate
+                for candidate in self._items.values()
+                if candidate.draft_id != item.draft_id
+                and candidate.installed_skill_id == installed_skill_id
+            ]
+            previous = {
+                candidate.draft_id: self._copy(candidate)
+                for candidate in [item, *superseded]
+            }
             try:
+                now = time.time()
+                for candidate in superseded:
+                    candidate.install_state = "outdated"
+                    candidate.revision += 1
+                    candidate.updated_at = now
                 item.validation = self._bound_validation(item, validation)
                 item.needs_review = False
                 item.status = "installed"
@@ -799,10 +864,10 @@ class WorkspaceSkillDraftStore:
                 item.installed_content_digest = item.content_digest
                 item.install_state = "current"
                 item.revision += 1
-                item.updated_at = time.time()
+                item.updated_at = now
                 self._save_unlocked()
             except BaseException:
-                self._items[draft_id] = previous
+                self._items.update(previous)
                 raise
             return self._copy(item), install_result
 
@@ -1238,6 +1303,56 @@ class WorkspaceSkillDraftStore:
         }:
             raise SkillDraftValidationError(f"Invalid Skill quality status: {value}")
 
+    @classmethod
+    def _normalize_update_projection(
+        cls,
+        *,
+        experience_candidate_id: str | None,
+        predecessor_draft_id: str | None,
+        update_target_skill_id: str | None,
+        update_expected_version_id: str | None,
+        update_expected_content_digest: str | None,
+    ) -> dict[str, str | None]:
+        projection = {
+            "experience_candidate_id": cls._optional_text(experience_candidate_id),
+            "predecessor_draft_id": cls._optional_text(predecessor_draft_id),
+            "update_target_skill_id": cls._optional_text(update_target_skill_id),
+            "update_expected_version_id": cls._optional_text(
+                update_expected_version_id
+            ),
+            "update_expected_content_digest": cls._optional_text(
+                update_expected_content_digest
+            ),
+        }
+        update_fields = tuple(
+            projection[name]
+            for name in (
+                "predecessor_draft_id",
+                "update_target_skill_id",
+                "update_expected_version_id",
+                "update_expected_content_digest",
+            )
+        )
+        if any(update_fields) and not all(update_fields):
+            raise SkillDraftValidationError(
+                "Workspace Skill update target metadata is incomplete."
+            )
+        if any(update_fields) and projection["experience_candidate_id"] is None:
+            raise SkillDraftValidationError(
+                "Workspace Skill update requires an experience candidate binding."
+            )
+        digest = projection["update_expected_content_digest"]
+        if digest is not None:
+            clean_digest = digest.lower()
+            if len(clean_digest) != 64 or any(
+                character not in "0123456789abcdef" for character in clean_digest
+            ):
+                raise SkillDraftValidationError(
+                    "Workspace Skill update target digest is invalid."
+                )
+            projection["update_expected_content_digest"] = clean_digest
+        return projection
+
     @staticmethod
     def _require_quality_gate(item: WorkspaceSkillDraft) -> None:
         WorkspaceSkillDraftStore._require_creator_final_package(item)
@@ -1634,6 +1749,15 @@ class WorkspaceSkillDraftStore:
         quality_decision = self._decode_quality_decision(
             record.get("quality_decision")
         )
+        update_projection = self._normalize_update_projection(
+            experience_candidate_id=record.get("experience_candidate_id"),
+            predecessor_draft_id=record.get("predecessor_draft_id"),
+            update_target_skill_id=record.get("update_target_skill_id"),
+            update_expected_version_id=record.get("update_expected_version_id"),
+            update_expected_content_digest=record.get(
+                "update_expected_content_digest"
+            ),
+        )
         if quality_status in {"accepted", "eval_waived"}:
             decision_matches = bool(
                 quality_decision is not None
@@ -1663,6 +1787,7 @@ class WorkspaceSkillDraftStore:
             source_proposal_id=self._optional_text(record.get("source_proposal_id")),
             source_apply_key=self._optional_text(record.get("source_apply_key")),
             creator_session_id=self._optional_text(record.get("creator_session_id")),
+            **update_projection,
             quality_required=bool(record.get("quality_required", False)),
             quality_status=quality_status,
             quality_decision=quality_decision,
