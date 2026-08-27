@@ -40,6 +40,7 @@ from .rag_service import (
     PipelineJobNotFoundError,
     PipelineJobStateError,
     PipelineVersionNotFoundError,
+    RagRetrievalUnavailableError,
     ManagedEmbeddingRouteError,
     ManagedRagGenerationRouteError,
     ManagedRagRerankRouteError,
@@ -349,9 +350,11 @@ class PipelineDraftResponse(BaseModel):
     version: int
     updated_at: float
     editable: bool
-    index_schema_version: int = 2
+    index_schema_version: int = 3
     embedding_profile: dict[str, Any] = Field(default_factory=dict)
     retrieval_profile: dict[str, Any] = Field(default_factory=dict)
+    index_contract: dict[str, Any] = Field(default_factory=dict)
+    vector_backend_readiness: dict[str, Any] = Field(default_factory=dict)
     stages: list[PipelineDraftStagePayload]
     stage_count: int
 
@@ -613,6 +616,8 @@ class PipelineJobPayload(BaseModel):
     embedding_execution_mode: str = "legacy"
     embedding_space_fingerprint: str = ""
     provider_route_receipts: dict[str, Any] | None = None
+    index_contract: dict[str, Any] = Field(default_factory=dict)
+    vector_backend_readiness: dict[str, Any] = Field(default_factory=dict)
     created_at: float
     updated_at: float
     started_at: float | None = None
@@ -652,6 +657,8 @@ class PipelineVersionPayload(BaseModel):
     retrieval_profile: dict[str, Any] = Field(default_factory=dict)
     vector_index_ready: bool = True
     lexical_index_ready: bool = False
+    index_contract: dict[str, Any] = Field(default_factory=dict)
+    vector_backend_readiness: dict[str, Any] = Field(default_factory=dict)
     vision_profile: dict[str, Any] = Field(default_factory=dict)
     vision_page_count: int = 0
     vision_processed_page_count: int = 0
@@ -1400,9 +1407,13 @@ async def get_pipeline_draft(kb_id: str) -> PipelineDraftResponse:
             version=int(draft["version"]),
             updated_at=float(draft["updated_at"]),
             editable=bool(draft["editable"]),
-            index_schema_version=int(draft.get("index_schema_version", 2)),
+            index_schema_version=int(draft.get("index_schema_version", 3)),
             embedding_profile=dict(draft.get("embedding_profile") or {}),
             retrieval_profile=dict(draft.get("retrieval_profile") or {}),
+            index_contract=dict(draft.get("index_contract") or {}),
+            vector_backend_readiness=dict(
+                draft.get("vector_backend_readiness") or {}
+            ),
             stages=stages,
             stage_count=len(stages),
         )
@@ -1527,6 +1538,11 @@ async def execute_pipeline_graph(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (PipelineJobStateError, PipelineGraphRevisionError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except RagRetrievalUnavailableError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
     except PipelineGraphValidationError as exc:
         raise HTTPException(
             status_code=400,
@@ -1568,9 +1584,13 @@ async def update_pipeline_draft(
             version=int(draft["version"]),
             updated_at=float(draft["updated_at"]),
             editable=bool(draft["editable"]),
-            index_schema_version=int(draft.get("index_schema_version", 2)),
+            index_schema_version=int(draft.get("index_schema_version", 3)),
             embedding_profile=dict(draft.get("embedding_profile") or {}),
             retrieval_profile=dict(draft.get("retrieval_profile") or {}),
+            index_contract=dict(draft.get("index_contract") or {}),
+            vector_backend_readiness=dict(
+                draft.get("vector_backend_readiness") or {}
+            ),
             stages=stages,
             stage_count=len(stages),
         )
@@ -1677,6 +1697,11 @@ async def execute_pipeline_draft(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PipelineJobStateError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except RagRetrievalUnavailableError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
     except PipelineDraftValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -2349,6 +2374,11 @@ async def query_pipeline_version(
         return PipelineVersionQueryResponse.model_validate(result)
     except PipelineVersionNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RagRetrievalUnavailableError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
     except ManagedEmbeddingRouteError as exc:
         raise HTTPException(
             status_code=502,
@@ -2429,7 +2459,10 @@ async def promote_pipeline_version(
             evaluation_run_id=payload.evaluation_run_id,
             require_passed_run=True,
         )
-        version = get_rag_service().activate_pipeline_version(version_id)
+        version = get_rag_service().activate_pipeline_version(
+            version_id,
+            promotion=True,
+        )
         await get_pipeline_executor().record_job_event(
             str(stored["job_id"]),
             event_type="knowledge_pipeline.version_promoted",
@@ -2470,6 +2503,11 @@ async def create_pipeline_citations(payload: CitationAnchorRequest) -> CitationA
         )
     except KnowledgeBaseNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RagRetrievalUnavailableError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
     except ManagedEmbeddingRouteError as exc:
         raise HTTPException(
             status_code=502,
@@ -2508,6 +2546,11 @@ async def query_knowledge_base(payload: RagQueryRequest) -> RagQueryResponse:
         return RagQueryResponse.model_validate(result)
     except KnowledgeBaseNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RagRetrievalUnavailableError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
     except ManagedEmbeddingRouteError as exc:
         raise HTTPException(
             status_code=502,

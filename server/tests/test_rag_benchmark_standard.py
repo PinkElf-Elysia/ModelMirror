@@ -66,9 +66,8 @@ async def test_managed_rag_benchmark_builds_real_indexes_and_immutable_gold(
     assert state["resolved_case_count"] == 40
     assert state["version_evidence"]["version_id"] == state["version_id"]
     assert state["version_evidence"]["version_fingerprint"]
-    assert state["version_evidence"]["embedding"]["effective"]["model"] == (
-        "deterministic-hash-v1"
-    )
+    assert state["version_evidence"]["embedding"]["effective"]["provider"] == "none"
+    assert state["version_evidence"]["embedding"]["effective"]["model"] == ""
 
     kb_id = str(state["kb_id"])
     knowledge_base = next(item for item in service.list_knowledge_bases() if item["id"] == kb_id)
@@ -79,9 +78,10 @@ async def test_managed_rag_benchmark_builds_real_indexes_and_immutable_gold(
     active = service.get_active_pipeline_version(kb_id)
     assert active is not None
     assert active["version_id"] == state["version_id"]
-    assert active["vector_index_ready"] is True
+    assert active["vector_index_ready"] is False
     assert active["lexical_index_ready"] is True
-    assert active["embedding_profile"]["provider"] == "hash"
+    assert active["embedding_profile"]["provider"] == "none"
+    assert active["embedding_profile"]["effective"]["status"] == "not_applicable"
     assert active["retrieval_profile"]["mode"] == "fulltext"
     assert active["processor_profile"]["mode"] == "general"
 

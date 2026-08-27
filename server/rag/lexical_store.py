@@ -198,6 +198,48 @@ class SqliteLexicalStore:
             ).fetchone()
         return int(row[0] if row else 0)
 
+    def list_document_chunks(self, doc_id: str) -> list[LexicalChunk]:
+        """List stored lexical chunks without exposing FTS implementation details."""
+
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM rag_chunks WHERE doc_id = ? ORDER BY chunk_index, chunk_id",
+                (doc_id,),
+            ).fetchall()
+        return [self._row_to_chunk(row) for row in rows]
+
+    def get_chunk(self, namespace: str, chunk_id: str) -> LexicalChunk | None:
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM rag_chunks WHERE namespace = ? AND chunk_id = ?",
+                (namespace, chunk_id),
+            ).fetchone()
+        return self._row_to_chunk(row) if row is not None else None
+
+    @staticmethod
+    def _row_to_chunk(row: sqlite3.Row) -> LexicalChunk:
+        return LexicalChunk(
+            chunk_id=str(row["chunk_id"]),
+            namespace=str(row["namespace"]),
+            doc_id=str(row["doc_id"]),
+            document_name=str(row["document_name"]),
+            text=str(row["text"]),
+            chunk_index=int(row["chunk_index"]),
+            parent_chunk_id=str(row["parent_chunk_id"]) if row["parent_chunk_id"] else None,
+            parent_text=str(row["parent_text"]) if row["parent_text"] else None,
+            chunk_type=str(row["chunk_type"] or "standard"),
+            start_char=int(row["start_char"] or 0),
+            end_char=int(row["end_char"] or 0),
+            page_number=int(row["page_number"]) if row["page_number"] else None,
+            slide=int(row["slide"]) if row["slide"] else None,
+            heading_path=decode_heading_path(row["heading_path_json"]),
+            sheet=str(row["sheet"]) if row["sheet"] else None,
+            row_range=str(row["row_range"]) if row["row_range"] else None,
+            visual_kind=str(row["visual_kind"]) if row["visual_kind"] else None,
+            source_block_id=str(row["source_block_id"]) if row["source_block_id"] else None,
+            source_block_hash=str(row["source_block_hash"]) if row["source_block_hash"] else None,
+        )
+
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=10)
         connection.row_factory = sqlite3.Row

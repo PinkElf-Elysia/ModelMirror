@@ -114,7 +114,7 @@ async def test_rag_pipeline_draft_empty_knowledge_base(client: httpx.AsyncClient
     assert stages["data_source"]["item_count"] == 0
     assert stages["processor"]["item_count"] == 0
     assert stages["chunker"]["item_count"] == 0
-    assert data["index_schema_version"] == 2
+    assert data["index_schema_version"] == 3
     assert data["retrieval_profile"]["mode"] == "hybrid"
     assert data["embedding_profile"]["degraded"] is True
     assert data["embedding_profile"]["requested"] == {
@@ -128,6 +128,7 @@ async def test_rag_pipeline_draft_empty_knowledge_base(client: httpx.AsyncClient
         "degraded": True,
         "ready": True,
         "reason": None,
+        "access_mode": "local_hash",
     }
     assert stages["chunker"]["config"]["strategy"] == "recursive_character"
     assert stages["chunker"]["config"]["chunk_size"] == 500
@@ -344,6 +345,7 @@ def test_rag_pipeline_records_ready_requested_and_effective_embedding(
         "degraded": False,
         "ready": True,
         "reason": None,
+        "access_mode": "legacy",
     }
     assert profile["provider"] == "openai_compatible"
     assert profile["model"] == "baai/bge-m3"
@@ -354,7 +356,7 @@ async def test_rag_retrieval_capabilities_are_safe(client: httpx.AsyncClient) ->
     response = await client.get("/api/rag/retrieval-capabilities")
     assert response.status_code == 200, response.text
     data = response.json()
-    assert data["index_schema_version"] == 2
+    assert data["index_schema_version"] == 3
     assert data["fulltext"]["backend"] == "sqlite_fts5"
     assert data["modes"] == ["vector", "fulltext", "hybrid"]
     serialized = str(data).lower()

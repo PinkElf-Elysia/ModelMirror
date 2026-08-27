@@ -119,6 +119,8 @@ interface PipelineDraftResponse {
   index_schema_version: number;
   embedding_profile: Record<string, unknown>;
   retrieval_profile: Record<string, unknown>;
+  index_contract?: Record<string, unknown>;
+  vector_backend_readiness?: VectorBackendReadiness;
   stages: PipelineDraftStage[];
   stage_count: number;
 }
@@ -208,7 +210,7 @@ interface RetrievalCapabilities {
   version: string;
   index_schema_version: number;
   modes: string[];
-  vector: { available: boolean; backend: string };
+  vector: VectorBackendReadiness & { available: boolean; backend: string };
   fulltext: { available: boolean; backend: string };
   embedding: { provider: string; model: string; dimension: number; degraded: boolean };
   rerank: {
@@ -217,6 +219,14 @@ interface RetrievalCapabilities {
     api_model: string;
     llm_model: string;
   };
+}
+
+interface VectorBackendReadiness {
+  configured_backend: string;
+  effective_backend: string;
+  ready: boolean;
+  reason_code: string | null;
+  distance_contract: string;
 }
 
 interface PipelineJobStage {
@@ -291,6 +301,8 @@ interface PipelineVersion {
   retrieval_profile?: Record<string, unknown>;
   vector_index_ready?: boolean;
   lexical_index_ready?: boolean;
+  index_contract?: Record<string, unknown>;
+  vector_backend_readiness?: VectorBackendReadiness;
   created_at: number;
   activated_at: number | null;
 }
@@ -681,6 +693,12 @@ function formatConfigValue(value: unknown) {
 
 function isUnknownRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function pipelineIndexUsesVector(indexContract?: Record<string, unknown>): boolean | null {
+  const vector = indexContract?.vector;
+  if (!isUnknownRecord(vector) || typeof vector.required !== "boolean") return null;
+  return vector.required;
 }
 
 export async function readError(response: Response) {
@@ -2432,7 +2450,7 @@ export default function RagPage() {
                             <div className="mt-4 border-t border-white/10 pt-4">
                               <div className="flex items-center justify-between gap-3">
                                 <p className="text-xs font-semibold text-white">分块与分段</p>
-                                <span className="text-[10px] uppercase text-slate-500">schema v{pipelineDraft?.index_schema_version ?? 2}</span>
+                                <span className="text-[10px] uppercase text-slate-500">schema v{pipelineDraft?.index_schema_version ?? 3}</span>
                               </div>
                               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                                 <label className="block">
@@ -2478,22 +2496,29 @@ export default function RagPage() {
                                 </label>
                               </div>
                               {pipelineDraft ? (
-                                <p
-                                  className={`mt-2 text-[11px] leading-5 ${
-                                    effectiveEmbeddingProfile.ready === false
-                                      ? "text-amber-200"
-                                      : "text-slate-500"
-                                  }`}
-                                >
-                                  请求：{String(requestedEmbeddingProfile.provider || "未设置")} / {String(requestedEmbeddingProfile.model || "未设置")}
-                                  {" · "}
-                                  生效：{String(effectiveEmbeddingProfile.provider || "未设置")} / {String(effectiveEmbeddingProfile.model || "未设置")}
-                                  {effectiveEmbeddingProfile.ready === false
-                                    ? "（不可用，预检与执行将被阻止）"
-                                    : effectiveEmbeddingProfile.degraded
-                                      ? "（显式降级模式）"
-                                      : ""}
-                                </p>
+                                <div className="mt-2 space-y-1 text-[11px] leading-5">
+                                  <p className={effectiveEmbeddingProfile.ready === false ? "text-amber-200" : "text-slate-500"}>
+                                    请求：{String(requestedEmbeddingProfile.provider || "未设置")} / {String(requestedEmbeddingProfile.model || "未设置")}
+                                    {" · "}
+                                    生效：{String(effectiveEmbeddingProfile.provider || "未设置")} / {String(effectiveEmbeddingProfile.model || "未设置")}
+                                    {effectiveEmbeddingProfile.ready === false
+                                      ? "（不可用，预检与执行将被阻止）"
+                                      : effectiveEmbeddingProfile.degraded
+                                        ? "（显式降级模式）"
+                                        : ""}
+                                  </p>
+                                  {pipelineIndexUsesVector(pipelineDraft.index_contract) === false ? (
+                                    <p className="text-slate-500">向量后端：不适用（fulltext-only）</p>
+                                  ) : pipelineDraft.vector_backend_readiness ? (
+                                    <p className={pipelineDraft.vector_backend_readiness.ready ? "text-slate-500" : "text-amber-200"}>
+                                      向量后端：{pipelineDraft.vector_backend_readiness.configured_backend} → {pipelineDraft.vector_backend_readiness.effective_backend}
+                                      {" · "}{pipelineDraft.vector_backend_readiness.distance_contract}
+                                      {pipelineDraft.vector_backend_readiness.ready
+                                        ? ""
+                                        : `（不可用：${pipelineDraft.vector_backend_readiness.reason_code || "unknown"}）`}
+                                    </p>
+                                  ) : null}
+                                </div>
                               ) : null}
 
                               {pipelineDraftEdits.strategy === "recursive_character" ? (
@@ -2881,8 +2906,13 @@ export default function RagPage() {
                                         processor {String(versionItem.processor_profile?.mode ?? "general")} · {versionItem.block_count ?? 0} blocks · QA {versionItem.qa_count ?? 0} · Summary {versionItem.summary_count ?? 0}
                                       </p>
                                       <p className="mt-1 text-[10px] text-slate-500">
-                                        index schema v{versionItem.index_schema_version ?? 1} · vector {versionItem.vector_index_ready === false ? "incomplete" : "ready"} · fulltext {versionItem.lexical_index_ready ? "ready" : "legacy/off"}
+                                        index schema v{versionItem.index_schema_version ?? 1} · vector {pipelineIndexUsesVector(versionItem.index_contract) === false ? "not applicable" : versionItem.vector_index_ready === false ? "incomplete" : "ready"} · fulltext {versionItem.lexical_index_ready ? "ready" : "legacy/off"}
                                       </p>
+                                      {pipelineIndexUsesVector(versionItem.index_contract) !== false && versionItem.vector_backend_readiness ? (
+                                        <p className="mt-1 text-[10px] text-slate-500">
+                                          backend {versionItem.vector_backend_readiness.configured_backend} → {versionItem.vector_backend_readiness.effective_backend} · {versionItem.vector_backend_readiness.distance_contract}
+                                        </p>
+                                      ) : null}
                                     </div>
                                     <div className="flex gap-1.5">
                                       <button

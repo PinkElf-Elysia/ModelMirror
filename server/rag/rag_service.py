@@ -93,6 +93,8 @@ EMBEDDING_PROVIDER_HASH = "hash"
 EMBEDDING_PROVIDER_OPENAI_COMPATIBLE = "openai_compatible"
 EMBEDDING_PROVIDER_UNAVAILABLE = "unavailable"
 EMBEDDING_SPACE_CONTRACT_VERSION = "modelmirror-provider-embedding-space-v1"
+INDEX_SCHEMA_VERSION = 3
+VECTOR_DISTANCE_CONTRACT = "cosine_v1"
 _WARNING_CONTROL_CHARACTERS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
@@ -179,6 +181,14 @@ class PipelineJobStateError(RagError):
 
 class PipelineGraphRevisionError(RagError):
     """Raised when a graph save uses a stale optimistic revision."""
+
+
+class RagRetrievalUnavailableError(RagError):
+    """Stable, credential-free fail-closed retrieval availability error."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 class ManagedEmbeddingRouteError(EmbeddingError):
@@ -1695,9 +1705,19 @@ class RagService:
             "version": int(draft.get("version", 1)),
             "updated_at": float(draft.get("updated_at", metadata["knowledge_bases"][kb_id]["updated_at"])),
             "editable": True,
-            "index_schema_version": int(draft.get("index_schema_version", 2)),
+            "index_schema_version": int(
+                draft.get("index_schema_version", INDEX_SCHEMA_VERSION)
+            ),
             "embedding_profile": json.loads(json.dumps(draft["embedding_profile"])),
             "retrieval_profile": json.loads(json.dumps(draft["retrieval_profile"])),
+            "index_contract": self._index_contract(
+                index_schema_version=int(
+                    draft.get("index_schema_version", INDEX_SCHEMA_VERSION)
+                ),
+                retrieval_profile=draft["retrieval_profile"],
+                embedding_profile=draft["embedding_profile"],
+            ),
+            "vector_backend_readiness": self._vector_backend_readiness(),
             "stages": [
                 {
                     "id": "stage_data_source",
@@ -1830,8 +1850,11 @@ class RagService:
                 "draft_id": str(draft["draft_id"]),
                 "version": next_draft_version,
                 "updated_at": now,
-                "index_schema_version": 2,
-                "embedding_profile": json.loads(json.dumps(compiled.embedding_profile)),
+                "index_schema_version": INDEX_SCHEMA_VERSION,
+                "embedding_profile": self._embedding_profile_for_retrieval(
+                    compiled.embedding_profile,
+                    compiled.retrieval_profile,
+                ),
                 "retrieval_profile": json.loads(json.dumps(compiled.retrieval_profile)),
                 "stages": json.loads(json.dumps(compiled.stage_updates)),
             }
@@ -2022,6 +2045,10 @@ class RagService:
             draft.get("embedding_profile"),
             embedding_profile,
         )
+        next_embedding = self._embedding_profile_for_retrieval(
+            next_embedding,
+            next_retrieval,
+        )
 
         if not isinstance(stage_updates, dict):
             raise PipelineDraftValidationError("pipeline draft stages must be an object.")
@@ -2050,7 +2077,7 @@ class RagService:
                 "draft_id": current["draft_id"],
                 "version": int(current.get("version", 1)) + 1,
                 "updated_at": now,
-                "index_schema_version": 2,
+                "index_schema_version": INDEX_SCHEMA_VERSION,
                 "embedding_profile": next_embedding,
                 "retrieval_profile": next_retrieval,
                 "stages": configs,
@@ -2094,6 +2121,10 @@ class RagService:
         vision_capabilities = self.vision_processor.capabilities()
         embedding_profile = dict(draft.get("embedding_profile") or {})
         embedding_effective = dict(embedding_profile.get("effective") or {})
+        retrieval_mode = str(
+            (draft.get("retrieval_profile") or {}).get("mode") or "hybrid"
+        )
+        vector_readiness = self._vector_backend_readiness()
         visual_document_count = int(
             vision_stage.get("metadata", {}).get("visual_document_count", 0)
         )
@@ -2110,6 +2141,11 @@ class RagService:
                 "Embedding provider is unavailable for the requested model "
                 f"{str(requested.get('model') or '(unset)')[:200]}; configure "
                 "EMBEDDING_API_KEY before executing this pipeline."
+            )
+        if retrieval_mode in {"vector", "hybrid"} and not vector_readiness["ready"]:
+            warnings.append(
+                "The configured vector backend is unavailable; vector and hybrid "
+                "pipeline execution is blocked."
             )
         if processor_mode in {"qa", "summary"} and not processor_capabilities.get(
             "llm_configured"
@@ -2387,7 +2423,12 @@ class RagService:
                 raise PipelineJobStateError(
                     f"Pipeline draft changed. Expected v{draft_version}, current v{draft['version']}."
                 )
-            self._ensure_embedding_profile_ready(draft["embedding_profile"])
+            retrieval_mode = str(
+                (draft.get("retrieval_profile") or {}).get("mode") or "hybrid"
+            )
+            if retrieval_mode in {"vector", "hybrid"}:
+                self._ensure_embedding_profile_ready(draft["embedding_profile"])
+                self._ensure_vector_backend_ready()
             graph = self._pipeline_graph_record(metadata, kb_id, draft)
             if graph_revision is not None and int(graph_revision) != int(graph["graph_revision"]):
                 raise PipelineGraphRevisionError(
@@ -2423,6 +2464,10 @@ class RagService:
                 if not isinstance(base_version, dict) or base_version.get("kb_id") != kb_id:
                     raise PipelineVersionNotFoundError(
                         "Base knowledge pipeline version was not found for this knowledge base."
+                    )
+                if int(base_version.get("index_schema_version") or 1) < INDEX_SCHEMA_VERSION:
+                    raise PipelineDraftValidationError(
+                        "Legacy V2 indexes are read-only and cannot be rebuilt."
                     )
                 base_job = metadata["pipeline_jobs"].get(str(base_version.get("job_id") or ""))
                 if not isinstance(base_job, dict):
@@ -2594,6 +2639,16 @@ class RagService:
             embedding_metadata = self._embedding_job_metadata(
                 draft["embedding_profile"]
             )
+            index_contract = self._index_contract(
+                index_schema_version=INDEX_SCHEMA_VERSION,
+                retrieval_profile=draft["retrieval_profile"],
+                embedding_profile=draft["embedding_profile"],
+            )
+            candidate_namespace = self._candidate_namespace(
+                kb_id,
+                candidate_version_id,
+                index_contract,
+            )
             job = {
                 "job_id": job_id,
                 "kb_id": kb_id,
@@ -2602,7 +2657,7 @@ class RagService:
                 "graph_id": str(graph["graph_id"]),
                 "graph_revision": int(graph["graph_revision"]),
                 "config_snapshot": {
-                    "index_schema_version": int(draft.get("index_schema_version", 2)),
+                    "index_schema_version": INDEX_SCHEMA_VERSION,
                     "graph_id": str(graph["graph_id"]),
                     "graph_revision": int(graph["graph_revision"]),
                     "stages": json.loads(json.dumps(draft["stages"])),
@@ -2610,6 +2665,7 @@ class RagService:
                     "vision_profile": vision_profile,
                     "embedding_profile": json.loads(json.dumps(draft["embedding_profile"])),
                     "retrieval_profile": json.loads(json.dumps(draft["retrieval_profile"])),
+                    "index_contract": json.loads(json.dumps(index_contract)),
                 },
                 "origin": self._safe_pipeline_origin(origin),
                 "base_version_id": base_version_id,
@@ -2619,7 +2675,9 @@ class RagService:
                 "stages": self._new_pipeline_job_stages(),
                 "candidate_version_id": candidate_version_id,
                 "candidate_version": candidate_version,
-                "candidate_namespace": f"{kb_id}::{candidate_version_id}",
+                "candidate_namespace": candidate_namespace,
+                "index_contract": json.loads(json.dumps(index_contract)),
+                "vector_backend_readiness": self._vector_backend_readiness(),
                 "run_id": None,
                 "attempt": 0,
                 "cancel_requested": False,
@@ -2664,9 +2722,9 @@ class RagService:
                 raise PipelineVersionNotFoundError(
                     "A ready or active base knowledge version is required for tuning."
                 )
-            if int(base_version.get("index_schema_version") or 1) < 2:
+            if int(base_version.get("index_schema_version") or 1) < INDEX_SCHEMA_VERSION:
                 raise PipelineDraftValidationError(
-                    "RAG strategy tuning requires an index schema v2 base version."
+                    "RAG strategy tuning requires an index schema v3 base version."
                 )
             base_job = metadata["pipeline_jobs"].get(str(base_version.get("job_id") or ""))
             if not isinstance(base_job, dict) or not base_job.get("sources"):
@@ -2700,6 +2758,20 @@ class RagService:
                 ).payload()
             except ValueError as exc:
                 raise PipelineDraftValidationError(str(exc)) from exc
+            embedding_profile = self._validated_embedding_profile(
+                config_snapshot.get("embedding_profile")
+                if isinstance(config_snapshot.get("embedding_profile"), dict)
+                else None,
+                None,
+            )
+            config_snapshot["embedding_profile"] = self._embedding_profile_for_retrieval(
+                embedding_profile,
+                config_snapshot["retrieval_profile"],
+            )
+            retrieval_mode = str(config_snapshot["retrieval_profile"].get("mode") or "hybrid")
+            if retrieval_mode in {"vector", "hybrid"}:
+                self._ensure_embedding_profile_ready(config_snapshot["embedding_profile"])
+                self._ensure_vector_backend_ready()
             processor_profile = json.loads(
                 json.dumps(stages.get("stage_processor") or {})
             )
@@ -2793,6 +2865,18 @@ class RagService:
             embedding_metadata = self._embedding_job_metadata(
                 config_snapshot.get("embedding_profile")
             )
+            index_contract = self._index_contract(
+                index_schema_version=INDEX_SCHEMA_VERSION,
+                retrieval_profile=config_snapshot["retrieval_profile"],
+                embedding_profile=config_snapshot["embedding_profile"],
+            )
+            config_snapshot["index_schema_version"] = INDEX_SCHEMA_VERSION
+            config_snapshot["index_contract"] = json.loads(json.dumps(index_contract))
+            candidate_namespace = self._candidate_namespace(
+                kb_id,
+                candidate_version_id,
+                index_contract,
+            )
             job = {
                 "job_id": job_id,
                 "kb_id": kb_id,
@@ -2809,7 +2893,9 @@ class RagService:
                 "stages": self._new_pipeline_job_stages(),
                 "candidate_version_id": candidate_version_id,
                 "candidate_version": candidate_version,
-                "candidate_namespace": f"{kb_id}::{candidate_version_id}",
+                "candidate_namespace": candidate_namespace,
+                "index_contract": json.loads(json.dumps(index_contract)),
+                "vector_backend_readiness": self._vector_backend_readiness(),
                 "run_id": None,
                 "attempt": 0,
                 "cancel_requested": False,
@@ -2924,7 +3010,8 @@ class RagService:
                 if job.get("status") != "running":
                     continue
                 namespace = str(job.get("candidate_namespace") or "")
-                self.vector_store.delete_knowledge_base(namespace)
+                if self._pipeline_job_uses_vector(job):
+                    self.vector_store.delete_knowledge_base(namespace)
                 self.lexical_store.delete_namespace(namespace)
                 if str(job.get("embedding_execution_mode") or "") == "managed":
                     try:
@@ -2980,6 +3067,37 @@ class RagService:
             if recovered:
                 self._write_metadata_unlocked(metadata)
             return recovered
+
+    @staticmethod
+    def _pipeline_job_uses_vector(job: dict[str, Any]) -> bool:
+        snapshot = (
+            job.get("config_snapshot")
+            if isinstance(job.get("config_snapshot"), dict)
+            else {}
+        )
+        index_contract = (
+            snapshot.get("index_contract")
+            if isinstance(snapshot.get("index_contract"), dict)
+            else job.get("index_contract")
+            if isinstance(job.get("index_contract"), dict)
+            else {}
+        )
+        vector_contract = (
+            index_contract.get("vector")
+            if isinstance(index_contract.get("vector"), dict)
+            else {}
+        )
+        if "required" in vector_contract:
+            return bool(vector_contract["required"])
+        retrieval_profile = (
+            snapshot.get("retrieval_profile")
+            if isinstance(snapshot.get("retrieval_profile"), dict)
+            else {}
+        )
+        return str(retrieval_profile.get("mode") or "hybrid") in {
+            "vector",
+            "hybrid",
+        }
 
     def set_pipeline_job_run_id(self, job_id: str, run_id: str) -> None:
         self._update_pipeline_job(job_id, lambda job: job.update({"run_id": run_id}))
@@ -3479,7 +3597,8 @@ class RagService:
         namespace = str(job.get("candidate_namespace") or "")
         try:
             if namespace:
-                self.vector_store.delete_knowledge_base(namespace)
+                if self._pipeline_job_uses_vector(job):
+                    self.vector_store.delete_knowledge_base(namespace)
                 self.lexical_store.delete_namespace(namespace)
             for path in (
                 self.pipeline_sources_dir / job_id,
@@ -3559,6 +3678,25 @@ class RagService:
                 for result in job.get("document_results", [])
                 if isinstance(result, dict)
             ]
+            index_contract = dict(
+                job["config_snapshot"].get("index_contract")
+                or job.get("index_contract")
+                or self._index_contract(
+                    index_schema_version=int(
+                        job["config_snapshot"].get("index_schema_version", 1)
+                    ),
+                    retrieval_profile=dict(
+                        job["config_snapshot"].get("retrieval_profile") or {}
+                    ),
+                    embedding_profile=dict(
+                        job["config_snapshot"].get("embedding_profile") or {}
+                    ),
+                )
+            )
+            vector_required = bool((index_contract.get("vector") or {}).get("required"))
+            lexical_ready = self.lexical_store.count_namespace(
+                str(job["candidate_namespace"])
+            ) > 0
             version = {
                 "version_id": str(job["candidate_version_id"]),
                 "kb_id": str(job["kb_id"]),
@@ -3584,8 +3722,12 @@ class RagService:
                 "retrieval_profile": json.loads(
                     json.dumps(job["config_snapshot"].get("retrieval_profile", {}))
                 ),
-                "vector_index_ready": True,
-                "lexical_index_ready": True,
+                "index_contract": json.loads(json.dumps(index_contract)),
+                "vector_backend_readiness": json.loads(
+                    json.dumps(job.get("vector_backend_readiness") or {})
+                ),
+                "vector_index_ready": vector_required,
+                "lexical_index_ready": lexical_ready,
                 "source_summary": [
                     {
                         key: value
@@ -3763,9 +3905,17 @@ class RagService:
         version_id: str,
     ) -> tuple[dict[str, Any], dict[str, Any], dict[str, dict[str, Any]]]:
         version = self.get_pipeline_version(version_id)
+        retrieval_mode = str(
+            (version.get("retrieval_profile") or {}).get("mode") or "vector"
+        )
+        index_ready = (
+            version.get("lexical_index_ready") is True
+            if retrieval_mode == "fulltext"
+            else version.get("vector_index_ready") is True
+        )
         if (
             version.get("status") not in {"ready", "active"}
-            or version.get("vector_index_ready") is not True
+            or not index_ready
             or not str(version.get("job_id") or "")
         ):
             raise PipelineJobStateError(
@@ -3780,11 +3930,19 @@ class RagService:
                 raise PipelineJobStateError(
                     "Pipeline version corpus provenance is inconsistent."
                 ) from exc
+            owner_mode = str(
+                (index_owner.get("retrieval_profile") or {}).get("mode") or "vector"
+            )
+            owner_ready = (
+                index_owner.get("lexical_index_ready") is True
+                if owner_mode == "fulltext"
+                else index_owner.get("vector_index_ready") is True
+            )
             if (
                 str(version.get("base_version_id") or "") != index_owner_id
                 or index_owner.get("kb_id") != version.get("kb_id")
                 or index_owner.get("status") not in {"ready", "active"}
-                or index_owner.get("vector_index_ready") is not True
+                or not owner_ready
                 or str(index_owner.get("namespace") or "")
                 != str(version.get("namespace") or "")
                 or str(index_owner.get("job_id") or "")
@@ -3878,9 +4036,13 @@ class RagService:
                     "Pipeline version processed source blocks are unavailable."
                 )
             chunks_by_block: dict[str, list[Any]] = {}
-            for chunk in self.vector_store.list_document_chunks(
-                f"{index_owner}_{document_id}"
-            ):
+            chunk_store = (
+                self.lexical_store
+                if str((version.get("retrieval_profile") or {}).get("mode") or "vector")
+                == "fulltext"
+                else self.vector_store
+            )
+            for chunk in chunk_store.list_document_chunks(f"{index_owner}_{document_id}"):
                 source_block_id = str(chunk.source_block_id or "")
                 if source_block_id:
                     chunks_by_block.setdefault(source_block_id, []).append(chunk)
@@ -3977,7 +4139,12 @@ class RagService:
         payload["active"] = str(active_id or "") == str(version.get("version_id"))
         return payload
 
-    def activate_pipeline_version(self, version_id: str) -> dict[str, Any]:
+    def activate_pipeline_version(
+        self,
+        version_id: str,
+        *,
+        promotion: bool = False,
+    ) -> dict[str, Any]:
         with self._metadata_lock:
             metadata = self._read_metadata_unlocked()
             version = metadata["pipeline_versions"].get(version_id)
@@ -3990,6 +4157,13 @@ class RagService:
             kb_id = str(version["kb_id"])
             self._ensure_kb_exists(metadata, kb_id)
             previous_id = metadata["pipeline_active_versions"].get(kb_id)
+            if (
+                int(version.get("index_schema_version") or 1) < INDEX_SCHEMA_VERSION
+                and (promotion or previous_id != version_id)
+            ):
+                raise PipelineJobStateError(
+                    "Legacy V2 indexes remain readable but cannot be newly activated or promoted."
+                )
             if previous_id and previous_id in metadata["pipeline_versions"]:
                 metadata["pipeline_versions"][previous_id]["status"] = "ready"
             version["status"] = "active"
@@ -4005,8 +4179,15 @@ class RagService:
         version = self.get_pipeline_version(version_id)
         chunk_count = max(0, int(version.get("chunk_count") or 0))
         embedding_profile = version.get("embedding_profile") or {}
-        dimension = max(1, int(embedding_profile.get("dimension") or 1))
-        estimated_vector_bytes = chunk_count * dimension * 4
+        vector_required = bool(
+            ((version.get("index_contract") or {}).get("vector") or {}).get("required")
+        )
+        dimension = (
+            max(1, int(embedding_profile.get("dimension") or 1))
+            if vector_required
+            else 0
+        )
+        estimated_vector_bytes = chunk_count * dimension * 4 if vector_required else 0
         estimated_lexical_bytes = chunk_count * 256
         job = self.get_pipeline_job(str(version.get("job_id") or ""))
         started_at = job.get("started_at")
@@ -4320,6 +4501,20 @@ class RagService:
             job["embedding_space_fingerprint"] = str(
                 profile.get("embedding_space_fingerprint") or ""
             )
+            if int(snapshot.get("index_schema_version") or 1) >= INDEX_SCHEMA_VERSION:
+                index_contract = self._index_contract(
+                    index_schema_version=INDEX_SCHEMA_VERSION,
+                    retrieval_profile=dict(snapshot.get("retrieval_profile") or {}),
+                    embedding_profile=profile,
+                )
+                namespace = self._candidate_namespace(
+                    str(job.get("kb_id") or ""),
+                    str(job.get("candidate_version_id") or ""),
+                    index_contract,
+                )
+                snapshot["index_contract"] = json.loads(json.dumps(index_contract))
+                job["index_contract"] = json.loads(json.dumps(index_contract))
+                job["candidate_namespace"] = namespace
 
         self._update_pipeline_job(job_id, update)
 
@@ -4742,6 +4937,10 @@ class RagService:
             )
         namespace = str(version.get("namespace") or kb_id) if isinstance(version, dict) else kb_id
         chunk = self.vector_store.get_chunk(namespace, chunk_id)
+        if chunk is None and isinstance(version, dict) and str(
+            (version.get("retrieval_profile") or {}).get("mode") or "vector"
+        ) in {"fulltext", "hybrid"}:
+            chunk = self.lexical_store.get_chunk(namespace, chunk_id)
         if chunk is None:
             raise DocumentNotFoundError("Knowledge chunk was not found in the active version.")
         if self._indexed_document_is_deleted(
@@ -5309,9 +5508,50 @@ class RagService:
         lexical_results: list[LexicalSearchResult] = []
         provider_route_receipts: dict[str, Any] | None = None
         execution_mode = "local_non_model"
-        resolved_embedding_profile = self._resolved_embedding_profile_for_query(
-            embedding_profile
+        is_v3 = "::v3::" in namespace
+        if config.mode == "fulltext" and is_v3:
+            resolved_embedding_profile = self._embedding_profile_not_applicable(
+                dict(embedding_profile or self._default_embedding_profile())
+            )
+        else:
+            resolved_embedding_profile = self._resolved_embedding_profile_for_query(
+                embedding_profile
+            )
+
+        if config.mode in {"vector", "hybrid"}:
+            self._ensure_vector_backend_ready()
+            if str(
+                (resolved_embedding_profile.get("effective") or {}).get("reason")
+                or ""
+            ) == "provider_embedding_index_rebuild_required":
+                raise ManagedEmbeddingRouteError(
+                    "provider_embedding_index_rebuild_required",
+                    "Managed Embedding requires an explicit index rebuild before use.",
+                )
+            self._ensure_embedding_profile_ready(resolved_embedding_profile)
+            if is_v3:
+                self._ensure_v3_query_embedding_contract(
+                    namespace,
+                    resolved_embedding_profile,
+                )
+                count_namespace = getattr(self.vector_store, "count_namespace", None)
+                if callable(count_namespace) and int(count_namespace(namespace)) <= 0:
+                    raise RagRetrievalUnavailableError(
+                        "rag_vector_index_unavailable",
+                        "The required vector index is unavailable.",
+                    )
+        lexical_count = (
+            self.lexical_store.count_namespace(namespace)
+            if config.mode in {"fulltext", "hybrid"}
+            else 0
         )
+        lexical_available = lexical_count > 0 or (lexical_ready and not is_v3)
+        if config.mode in {"fulltext", "hybrid"} and not lexical_available:
+            if is_v3:
+                raise RagRetrievalUnavailableError(
+                    "rag_fulltext_index_unavailable",
+                    "The required full-text index is unavailable.",
+                )
 
         async def query_vector_candidates() -> list[SearchResult]:
             nonlocal provider_route_receipts, execution_mode
@@ -5320,14 +5560,20 @@ class RagService:
                 resolved_embedding_profile,
                 version_reference=namespace,
             )
-            return self.vector_store.query(namespace, query_embedding, candidate_count)
+            try:
+                return self.vector_store.query(namespace, query_embedding, candidate_count)
+            except RuntimeError as exc:
+                raise RagRetrievalUnavailableError(
+                    "rag_vector_index_unavailable",
+                    "The required vector index is unavailable or incompatible.",
+                ) from exc
 
         if config.mode in {"vector", "hybrid"}:
             vector_results = await query_vector_candidates()
         if config.mode in {"fulltext", "hybrid"}:
             if lexical_ready or self.lexical_store.count_namespace(namespace) > 0:
                 lexical_results = self.lexical_store.query(namespace, clean_question, candidate_count)
-            else:
+            elif not is_v3:
                 warnings.append("Full-text index is unavailable for this legacy version; vector retrieval was used.")
 
         deleted_document_ids = self._deleted_document_ids()
@@ -5350,7 +5596,12 @@ class RagService:
         vector_candidates = [self._candidate_from_vector(item) for item in vector_results]
         lexical_candidates = [self._candidate_from_lexical(item) for item in lexical_results]
         effective_config = config
-        if config.mode == "fulltext" and not lexical_candidates and not lexical_ready:
+        if (
+            not is_v3
+            and config.mode == "fulltext"
+            and not lexical_candidates
+            and not lexical_ready
+        ):
             effective_config = RetrievalConfig.from_mapping(
                 {**config.payload(), "mode": "vector", "rerank_enabled": config.rerank_enabled}
             )
@@ -5902,14 +6153,185 @@ class RagService:
         best = results[0]
         return f"根据知识库资料：{best.context_text}"
 
+    def _vector_backend_readiness(self) -> dict[str, Any]:
+        readiness = getattr(self.vector_store, "readiness", None)
+        if callable(readiness):
+            try:
+                payload = dict(readiness())
+            except Exception:
+                payload = {
+                    "configured_backend": os.getenv("RAG_VECTOR_STORE", "chroma").strip().lower(),
+                    "effective_backend": "unavailable",
+                    "ready": False,
+                    "reason_code": "vector_backend_readiness_failed",
+                    "distance_contract": VECTOR_DISTANCE_CONTRACT,
+                }
+        else:
+            payload = {
+                "configured_backend": "injected",
+                "effective_backend": self.vector_store.__class__.__name__,
+                "ready": True,
+                "reason_code": None,
+                "distance_contract": VECTOR_DISTANCE_CONTRACT,
+            }
+        return {
+            "configured_backend": str(payload.get("configured_backend") or "unknown"),
+            "effective_backend": str(payload.get("effective_backend") or "unavailable"),
+            "ready": bool(payload.get("ready")),
+            "reason_code": str(payload.get("reason_code") or "") or None,
+            "distance_contract": str(
+                payload.get("distance_contract") or VECTOR_DISTANCE_CONTRACT
+            ),
+        }
+
+    @staticmethod
+    def _embedding_profile_not_applicable(profile: dict[str, Any]) -> dict[str, Any]:
+        value = json.loads(json.dumps(profile))
+        requested = dict(value.get("requested") or {})
+        value.update(
+            {
+                "provider": "none",
+                "model": "",
+                "dimension": 0,
+                "degraded": False,
+                "ready": True,
+                "reason": None,
+                "embedding_space_fingerprint": "",
+                "requested": requested,
+                "effective": {
+                    "provider": "none",
+                    "model": "",
+                    "dimension": 0,
+                    "degraded": False,
+                    "ready": True,
+                    "reason": None,
+                    "access_mode": "not_applicable",
+                    "status": "not_applicable",
+                },
+            }
+        )
+        return value
+
+    def _embedding_profile_for_retrieval(
+        self,
+        profile: dict[str, Any],
+        retrieval_profile: dict[str, Any],
+    ) -> dict[str, Any]:
+        if str(retrieval_profile.get("mode") or "hybrid") == "fulltext":
+            return self._embedding_profile_not_applicable(profile)
+        return json.loads(json.dumps(profile))
+
+    @staticmethod
+    def _index_contract(
+        *,
+        index_schema_version: int,
+        retrieval_profile: dict[str, Any],
+        embedding_profile: dict[str, Any],
+    ) -> dict[str, Any]:
+        mode = str(retrieval_profile.get("mode") or "hybrid")
+        vector_required = mode in {"vector", "hybrid"}
+        effective = dict(embedding_profile.get("effective") or {})
+        return {
+            "contract_version": (
+                "rag-index-contract-v3"
+                if int(index_schema_version) >= INDEX_SCHEMA_VERSION
+                else "legacy_v2"
+            ),
+            "index_schema_version": int(index_schema_version),
+            "retrieval_mode": mode,
+            "vector": {
+                "required": vector_required,
+                "embedding_space_fingerprint": (
+                    str(embedding_profile.get("embedding_space_fingerprint") or "")
+                    if vector_required
+                    else ""
+                ),
+                "dimension": int(effective.get("dimension") or 0) if vector_required else 0,
+                "distance_contract": (
+                    VECTOR_DISTANCE_CONTRACT if vector_required else "not_applicable"
+                ),
+            },
+            "lexical": {
+                "required": mode in {"fulltext", "hybrid"},
+                "backend": "sqlite_fts5",
+            },
+        }
+
+    @staticmethod
+    def _candidate_namespace(
+        kb_id: str,
+        version_id: str,
+        index_contract: dict[str, Any],
+    ) -> str:
+        vector = dict(index_contract.get("vector") or {})
+        if not bool(vector.get("required")):
+            return f"{kb_id}::v3::{version_id}::fulltext"
+        fingerprint = str(vector.get("embedding_space_fingerprint") or "")
+        dimension = int(vector.get("dimension") or 0)
+        distance_contract = str(vector.get("distance_contract") or "")
+        if (
+            not re.fullmatch(r"[0-9a-f]{64}", fingerprint)
+            or dimension <= 0
+            or distance_contract != VECTOR_DISTANCE_CONTRACT
+        ):
+            raise PipelineDraftValidationError(
+                "V3 vector index requires a complete embedding space identity."
+            )
+        return (
+            f"{kb_id}::v3::{version_id}::{fingerprint}::"
+            f"dim-{dimension}::{VECTOR_DISTANCE_CONTRACT}"
+        )
+
+    def _ensure_vector_backend_ready(self) -> dict[str, Any]:
+        readiness = self._vector_backend_readiness()
+        if (
+            not readiness["ready"]
+            or readiness["distance_contract"] != VECTOR_DISTANCE_CONTRACT
+        ):
+            raise RagRetrievalUnavailableError(
+                "rag_vector_backend_unavailable",
+                "The configured vector backend is unavailable for this pipeline.",
+            )
+        return readiness
+
+    @staticmethod
+    def _ensure_v3_query_embedding_contract(
+        namespace: str,
+        embedding_profile: dict[str, Any],
+    ) -> None:
+        parts = namespace.split("::")
+        if len(parts) < 6 or parts[-5] != "v3" or parts[-1] != VECTOR_DISTANCE_CONTRACT:
+            raise RagRetrievalUnavailableError(
+                "rag_vector_index_contract_mismatch",
+                "The V3 vector index identity is invalid.",
+            )
+        effective = dict(embedding_profile.get("effective") or {})
+        expected_fingerprint = parts[-3]
+        expected_dimension = parts[-2]
+        if (
+            str(embedding_profile.get("embedding_space_fingerprint") or "")
+            != expected_fingerprint
+        ):
+            raise RagRetrievalUnavailableError(
+                "rag_embedding_fingerprint_mismatch",
+                "The query embedding identity does not match the V3 index.",
+            )
+        if expected_dimension != f"dim-{int(effective.get('dimension') or 0)}":
+            raise RagRetrievalUnavailableError(
+                "rag_embedding_dimension_mismatch",
+                "The query embedding dimension does not match the V3 index.",
+            )
+
     def retrieval_capabilities(self) -> dict[str, Any]:
         rerank = self.reranker.capabilities()
+        vector = self._vector_backend_readiness()
         return {
-            "version": "rag-retrieval-capabilities-v2",
-            "index_schema_version": 2,
+            "version": "rag-retrieval-capabilities-v3",
+            "index_schema_version": INDEX_SCHEMA_VERSION,
             "vector": {
-                "available": True,
-                "backend": self.vector_store.__class__.__name__,
+                "available": vector["ready"],
+                "backend": vector["effective_backend"],
+                **vector,
             },
             "fulltext": {
                 "available": True,
@@ -6044,6 +6466,16 @@ class RagService:
         stored_fingerprint = str(
             stored_profile.get("embedding_space_fingerprint") or ""
         )
+        if (
+            isinstance(stored_effective, dict)
+            and str(stored_effective.get("provider") or "")
+            == EMBEDDING_PROVIDER_HASH
+            and bool(stored_effective.get("ready"))
+            and stored_fingerprint
+        ):
+            # Hash is an explicit, local execution contract. Rebuild it from the
+            # immutable stored profile rather than the mutable process default.
+            return json.loads(json.dumps(stored_profile))
         if (
             managed_mode == "managed_required"
             and (
@@ -6301,6 +6733,7 @@ class RagService:
                 "degraded": True,
                 "ready": True,
                 "reason": None,
+                "access_mode": "local_hash",
             }
         else:
             reason: str | None = None
@@ -6364,6 +6797,7 @@ class RagService:
                     "degraded": False,
                     "ready": True,
                     "reason": None,
+                    "access_mode": "legacy",
                 }
         return {
             "provider": effective["provider"],
@@ -6603,6 +7037,8 @@ class RagService:
             if access_mode == "managed"
             else "local_non_model"
             if access_mode == "local_hash"
+            else "not_applicable"
+            if access_mode == "not_applicable"
             else "legacy"
         )
         return {
@@ -6681,13 +7117,18 @@ class RagService:
         defaults = self._default_pipeline_draft_stages()
         draft = metadata["pipeline_drafts"].get(kb_id)
         if not isinstance(draft, dict):
+            retrieval_profile = RetrievalConfig().payload()
+            embedding_profile = self._default_embedding_profile()
             return {
                 "draft_id": f"draft_{kb_id}",
                 "version": 1,
                 "updated_at": metadata["knowledge_bases"][kb_id]["updated_at"],
-                "index_schema_version": 2,
-                "embedding_profile": self._default_embedding_profile(),
-                "retrieval_profile": RetrievalConfig().payload(),
+                "index_schema_version": INDEX_SCHEMA_VERSION,
+                "embedding_profile": self._embedding_profile_for_retrieval(
+                    embedding_profile,
+                    retrieval_profile,
+                ),
+                "retrieval_profile": retrieval_profile,
                 "stages": defaults,
             }
 
@@ -6710,18 +7151,27 @@ class RagService:
                 except PipelineDraftValidationError:
                     continue
 
+        retrieval_profile = RetrievalConfig.from_mapping(
+            draft.get("retrieval_profile")
+            if isinstance(draft.get("retrieval_profile"), dict)
+            else None
+        ).payload()
+        embedding_profile = self._validated_embedding_profile(
+            draft.get("embedding_profile")
+            if isinstance(draft.get("embedding_profile"), dict)
+            else None,
+            None,
+        )
         return {
             "draft_id": str(draft.get("draft_id") or f"draft_{kb_id}"),
             "version": int(draft.get("version") or 1),
             "updated_at": float(draft.get("updated_at") or metadata["knowledge_bases"][kb_id]["updated_at"]),
-            "index_schema_version": 2,
-            "embedding_profile": self._validated_embedding_profile(
-                draft.get("embedding_profile") if isinstance(draft.get("embedding_profile"), dict) else None,
-                None,
+            "index_schema_version": INDEX_SCHEMA_VERSION,
+            "embedding_profile": self._embedding_profile_for_retrieval(
+                embedding_profile,
+                retrieval_profile,
             ),
-            "retrieval_profile": RetrievalConfig.from_mapping(
-                draft.get("retrieval_profile") if isinstance(draft.get("retrieval_profile"), dict) else None
-            ).payload(),
+            "retrieval_profile": retrieval_profile,
             "stages": stages,
         }
 

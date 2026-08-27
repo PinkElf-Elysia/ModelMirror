@@ -9,6 +9,24 @@
 > Promotion Gate。下方按日期保留的段落是增量记录；较早段落中的“planned”
 > 只代表当时状态。
 
+## 2026-08-26 P0：V3 索引身份与后端就绪合同
+
+新建 Knowledge Pipeline 统一使用 `index_schema_version=3`。Vector/Hybrid 候选的
+namespace 固定绑定 pipeline version、Embedding space fingerprint、实际向量维度和
+`cosine_v1` 距离合同；构建与查询必须使用相同身份。Chroma collection 显式使用 cosine，
+对外统一返回 `clamp(1 - cosine_distance, 0, 1)`；只有显式设置
+`RAG_VECTOR_STORE=local` 才会使用 LocalJSON，且采用相同 cosine score 合同。
+
+Chroma 缺失、初始化失败、collection identity 冲突或维度不符时，能力接口会返回脱敏的
+`configured_backend / effective_backend / ready / reason_code`，Vector/Hybrid 构建和查询
+fail-closed，不再静默创建 LocalJSON 索引。Pipeline Draft 与 Version 同时返回
+`index_contract` 和 `vector_backend_readiness`，不包含 endpoint、路径或凭据。
+
+Full-text-only V3 流水线将 Embedding 标记为 `not_applicable`：构建和查询均不调用
+Embedding，也不创建 vector namespace。所需 FTS5 namespace 缺失时返回 HTTP 409 和
+`rag_fulltext_index_unavailable`，不会切换到 Vector。历史 V2 collection 和活动版本保持
+只读查询兼容，但不能作为新 base 重建，也不能新激活或晋级；本轮不迁移或改写历史索引。
+
 ## 2026-08-26 P0：可信 Gold 与 Formal 评测合同
 
 知识评测新增 `diagnostic | formal` 两种运行模式。默认 `diagnostic` 保持旧记录、子集和
@@ -448,7 +466,7 @@ FastAPI RAG Router
         +--> document_parser.py  解析 TXT / Markdown / PDF
         +--> splitter.py         本地递归字符 / 父子分段与字符偏移
         +--> embedder.py         OpenAI-compatible Embedding API；显式 hash 仅用于本地/CI
-        +--> vector_store.py     ChromaDB 持久化，缺失依赖时 LocalJsonVectorStore fallback
+        +--> vector_store.py     ChromaDB 持久化；LocalJSON 仅在显式配置时启用
         +--> lexical_store.py    SQLite FTS5 与中英文规范化词元
         +--> reranker.py         专用 Rerank API / LLM JSON fail-open
         +--> OpenRouter Chat     生成 RAG 回答，缺失 key 时抽取式 fallback
@@ -458,7 +476,7 @@ FastAPI RAG Router
 
 ```text
 server/rag/uploads/       # 原始上传文件
-server/rag/storage/       # metadata.json、本地 fallback 索引
+server/rag/storage/       # metadata.json；本地向量索引仅在显式 local 配置时使用
 server/rag/storage/chroma_db 或 CHROMA_DB_PATH # ChromaDB 持久化目录
 ```
 

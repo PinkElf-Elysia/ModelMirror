@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -106,9 +107,15 @@ class VectorStore(Protocol):
     def get_chunk(self, kb_id: str, chunk_id: str) -> StoredVectorChunk | None:
         """Read one chunk from an explicit knowledge-base namespace."""
 
+    def readiness(self) -> dict[str, Any]:
+        """Return a credential-free backend readiness receipt."""
+
+    def count_namespace(self, kb_id: str) -> int:
+        """Return the number of vectors in an explicit namespace."""
+
 
 class LocalJsonVectorStore:
-    """Small persistent vector store used as a no-network fallback and in tests."""
+    """Small persistent vector store used only when explicitly configured."""
 
     def __init__(self, storage_path: Path) -> None:
         self.storage_path = storage_path
@@ -118,17 +125,46 @@ class LocalJsonVectorStore:
         records = self._read_records()
         existing_ids = {record["id"] for record in records}
         for chunk in chunks:
+            contract = _v3_namespace_contract(chunk.kb_id)
+            if contract is not None and len(chunk.embedding) != contract["dimension"]:
+                raise RuntimeError(
+                    "V3 vector write does not match the index dimension contract."
+                )
             if chunk.id in existing_ids:
                 continue
             records.append(_chunk_to_record(chunk))
         self._write_records(records)
 
+    def readiness(self) -> dict[str, Any]:
+        return {
+            "configured_backend": "local",
+            "effective_backend": "local_json",
+            "ready": True,
+            "reason_code": None,
+            "distance_contract": "cosine_v1",
+        }
+
+    def count_namespace(self, kb_id: str) -> int:
+        return sum(1 for record in self._read_records() if record.get("kb_id") == kb_id)
+
     def query(self, kb_id: str, embedding: list[float], top_k: int) -> list[SearchResult]:
+        contract = _v3_namespace_contract(kb_id)
+        if contract is not None and len(embedding) != contract["dimension"]:
+            raise RuntimeError(
+                "V3 vector query does not match the index dimension contract."
+            )
         scored: list[SearchResult] = []
         for record in self._read_records():
             if record.get("kb_id") != kb_id:
                 continue
-            score = cosine_similarity(embedding, [float(value) for value in record["embedding"]])
+            stored_embedding = [float(value) for value in record["embedding"]]
+            if contract is not None and len(stored_embedding) != contract["dimension"]:
+                raise RuntimeError(
+                    "V3 stored vector does not match the index dimension contract."
+                )
+            score = cosine_similarity(embedding, stored_embedding)
+            if contract is not None:
+                score = min(1.0, max(0.0, score))
             scored.append(
                 SearchResult(
                     chunk_id=record["id"],
@@ -238,6 +274,7 @@ class ChromaVectorStore:
 
     _LEGACY_COLLECTION = "modelmirror_rag_chunks"
     _NAMESPACE_COLLECTION_PREFIX = "modelmirror_rag_v2_"
+    _V3_NAMESPACE_COLLECTION_PREFIX = "modelmirror_rag_v3_"
 
     def __init__(self, persist_path: Path) -> None:
         try:
@@ -252,6 +289,24 @@ class ChromaVectorStore:
         # because Chroma fixes a collection's dimension on its first insert.
         self._collection = self._client.get_or_create_collection(self._LEGACY_COLLECTION)
 
+    def readiness(self) -> dict[str, Any]:
+        return {
+            "configured_backend": "chroma",
+            "effective_backend": "chroma",
+            "ready": True,
+            "reason_code": None,
+            "distance_contract": "cosine_v1",
+        }
+
+    def count_namespace(self, kb_id: str) -> int:
+        collection = self._namespace_collection(kb_id, create=False)
+        if collection is not None:
+            return int(collection.count())
+        if _is_v3_namespace(kb_id):
+            return 0
+        response = self._collection.get(where={"kb_id": kb_id}, include=[])
+        return len(response.get("ids") or [])
+
     def add_chunks(self, chunks: list[VectorChunk]) -> None:
         if not chunks:
             return
@@ -259,6 +314,14 @@ class ChromaVectorStore:
         for chunk in chunks:
             grouped.setdefault(chunk.kb_id, []).append(chunk)
         for namespace, namespace_chunks in grouped.items():
+            contract = _v3_namespace_contract(namespace)
+            if contract is not None and any(
+                len(chunk.embedding) != contract["dimension"]
+                for chunk in namespace_chunks
+            ):
+                raise RuntimeError(
+                    "V3 vector write does not match the index dimension contract."
+                )
             collection = self._namespace_collection(namespace, create=True)
             if collection is None:  # pragma: no cover - create=True is total.
                 raise RuntimeError("Unable to create the Chroma namespace collection.")
@@ -297,7 +360,15 @@ class ChromaVectorStore:
     def query(self, kb_id: str, embedding: list[float], top_k: int) -> list[SearchResult]:
         collection = self._namespace_collection(kb_id, create=False)
         if collection is not None and collection.count() > 0:
-            return self._query_collection(collection, kb_id, embedding, top_k)
+            return self._query_collection(
+                collection,
+                kb_id,
+                embedding,
+                top_k,
+                v3=_is_v3_namespace(kb_id),
+            )
+        if _is_v3_namespace(kb_id):
+            raise RuntimeError("V3 vector namespace is unavailable.")
         return self._query_collection(
             self._collection,
             kb_id,
@@ -314,7 +385,12 @@ class ChromaVectorStore:
         top_k: int,
         *,
         legacy: bool = False,
+        v3: bool = False,
     ) -> list[SearchResult]:
+        if v3:
+            contract = _v3_namespace_contract(kb_id)
+            if contract is None or len(embedding) != contract["dimension"]:
+                raise RuntimeError("V3 vector query does not match the index dimension contract.")
         query: dict[str, Any] = {
             "query_embeddings": [embedding],
             "n_results": top_k,
@@ -341,7 +417,11 @@ class ChromaVectorStore:
                     doc_id=str(metadata.get("doc_id", "")),
                     document_name=str(metadata.get("document_name", "")),
                     text=str(documents[index] if index < len(documents) else ""),
-                    score=1.0 / (1.0 + max(distance, 0.0)),
+                    score=(
+                        min(1.0, max(0.0, 1.0 - distance))
+                        if v3
+                        else 1.0 / (1.0 + max(distance, 0.0))
+                    ),
                     parent_chunk_id=str(metadata.get("parent_chunk_id") or "") or None,
                     parent_text=str(metadata.get("parent_text") or "") or None,
                     chunk_type=str(metadata.get("chunk_type") or "standard"),
@@ -365,7 +445,7 @@ class ChromaVectorStore:
 
     def delete_knowledge_base(self, kb_id: str) -> None:
         collection_name = self._namespace_collection_name(kb_id)
-        if self._get_collection(collection_name) is not None:
+        if self._namespace_collection(kb_id, create=False) is not None:
             self._client.delete_collection(collection_name)
         self._collection.delete(where={"kb_id": kb_id})
 
@@ -476,7 +556,12 @@ class ChromaVectorStore:
     @classmethod
     def _namespace_collection_name(cls, namespace: str) -> str:
         digest = hashlib.sha256(namespace.encode("utf-8")).hexdigest()[:32]
-        return f"{cls._NAMESPACE_COLLECTION_PREFIX}{digest}"
+        prefix = (
+            cls._V3_NAMESPACE_COLLECTION_PREFIX
+            if _is_v3_namespace(namespace)
+            else cls._NAMESPACE_COLLECTION_PREFIX
+        )
+        return f"{prefix}{digest}"
 
     def _namespace_collection(self, namespace: str, *, create: bool) -> Any | None:
         if not hasattr(self, "_client"):
@@ -485,18 +570,46 @@ class ChromaVectorStore:
             return self._collection if create else None
         name = self._namespace_collection_name(namespace)
         if not create:
-            return self._get_collection(name)
+            collection = self._get_collection(name)
+            if collection is not None:
+                self._validate_namespace_collection(namespace, collection)
+            return collection
+        v3_contract = _v3_namespace_contract(namespace)
+        metadata: dict[str, Any] = {
+            "modelmirror_namespace": namespace,
+            "modelmirror_schema_version": 3 if v3_contract else 2,
+        }
+        if v3_contract:
+            metadata.update(
+                {
+                    "hnsw:space": "cosine",
+                    "modelmirror_dimension": v3_contract["dimension"],
+                    "modelmirror_distance_contract": "cosine_v1",
+                }
+            )
         collection = self._client.get_or_create_collection(
             name,
-            metadata={
-                "modelmirror_namespace": namespace,
-                "modelmirror_schema_version": 2,
-            },
+            metadata=metadata,
         )
-        stored_namespace = str((collection.metadata or {}).get("modelmirror_namespace") or "")
+        self._validate_namespace_collection(namespace, collection)
+        return collection
+
+    @staticmethod
+    def _validate_namespace_collection(namespace: str, collection: Any) -> None:
+        v3_contract = _v3_namespace_contract(namespace)
+        stored_metadata = collection.metadata or {}
+        stored_namespace = str(stored_metadata.get("modelmirror_namespace") or "")
         if stored_namespace and stored_namespace != namespace:
             raise RuntimeError("Chroma namespace collection identity collision.")
-        return collection
+        if v3_contract and (
+            int(stored_metadata.get("modelmirror_schema_version") or 0) != 3
+            or int(stored_metadata.get("modelmirror_dimension") or 0)
+            != v3_contract["dimension"]
+            or str(stored_metadata.get("modelmirror_distance_contract") or "")
+            != "cosine_v1"
+            or str(stored_metadata.get("hnsw:space") or "") != "cosine"
+        ):
+            raise RuntimeError("Chroma namespace collection contract mismatch.")
 
     def _get_collection(self, name: str) -> Any | None:
         try:
@@ -508,8 +621,10 @@ class ChromaVectorStore:
         collections: list[Any] = []
         for item in self._client.list_collections():
             name = item if isinstance(item, str) else str(getattr(item, "name", ""))
-            if name != self._LEGACY_COLLECTION and not name.startswith(
-                self._NAMESPACE_COLLECTION_PREFIX
+            if (
+                name != self._LEGACY_COLLECTION
+                and not name.startswith(self._NAMESPACE_COLLECTION_PREFIX)
+                and not name.startswith(self._V3_NAMESPACE_COLLECTION_PREFIX)
             ):
                 continue
             collection = self._get_collection(name)
@@ -518,17 +633,82 @@ class ChromaVectorStore:
         return collections
 
 
+class UnavailableVectorStore:
+    """Fail-closed vector backend used when the configured backend is unavailable."""
+
+    def __init__(self, configured_backend: str, reason_code: str) -> None:
+        self.configured_backend = configured_backend
+        self.reason_code = reason_code
+
+    def readiness(self) -> dict[str, Any]:
+        return {
+            "configured_backend": self.configured_backend,
+            "effective_backend": "unavailable",
+            "ready": False,
+            "reason_code": self.reason_code,
+            "distance_contract": "cosine_v1",
+        }
+
+    def add_chunks(self, chunks: list[VectorChunk]) -> None:
+        if chunks:
+            self._raise_unavailable()
+
+    def query(self, kb_id: str, embedding: list[float], top_k: int) -> list[SearchResult]:
+        self._raise_unavailable()
+
+    def delete_document(self, doc_id: str) -> None:
+        self._raise_unavailable()
+
+    def delete_knowledge_base(self, kb_id: str) -> None:
+        self._raise_unavailable()
+
+    def list_document_chunks(self, doc_id: str) -> list[StoredVectorChunk]:
+        return []
+
+    def get_chunk(self, kb_id: str, chunk_id: str) -> StoredVectorChunk | None:
+        return None
+
+    def count_namespace(self, kb_id: str) -> int:
+        return 0
+
+    def _raise_unavailable(self) -> None:
+        raise RuntimeError(f"Vector backend unavailable: {self.reason_code}")
+
+
 def create_vector_store(storage_dir: Path) -> VectorStore:
-    """Create the configured vector store, falling back to local JSON if needed."""
+    """Create only the explicitly configured vector backend, failing closed."""
 
     backend = os.getenv("RAG_VECTOR_STORE", "chroma").strip().lower()
     if backend == "local":
         return LocalJsonVectorStore(storage_dir / "vector_index.json")
 
+    if backend != "chroma":
+        return UnavailableVectorStore(backend or "chroma", "vector_backend_unsupported")
+
     try:
         return ChromaVectorStore(Path(os.getenv("CHROMA_DB_PATH", str(storage_dir / "chroma_db"))))
     except Exception:
-        return LocalJsonVectorStore(storage_dir / "vector_index.json")
+        return UnavailableVectorStore("chroma", "vector_backend_initialization_failed")
+
+
+def _is_v3_namespace(namespace: str) -> bool:
+    return _v3_namespace_contract(namespace) is not None
+
+
+def _v3_namespace_contract(namespace: str) -> dict[str, Any] | None:
+    parts = namespace.split("::")
+    if len(parts) < 6 or parts[-5] != "v3" or parts[-1] != "cosine_v1":
+        return None
+    dimension_part = parts[-2]
+    if not dimension_part.startswith("dim-"):
+        return None
+    try:
+        dimension = int(dimension_part[4:])
+    except ValueError:
+        return None
+    if dimension <= 0 or not re.fullmatch(r"[0-9a-f]{64}", parts[-3]):
+        return None
+    return {"dimension": dimension, "embedding_space_fingerprint": parts[-3]}
 
 
 def _chunk_to_record(chunk: VectorChunk) -> dict[str, Any]:
