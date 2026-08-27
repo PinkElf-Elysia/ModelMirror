@@ -75,7 +75,7 @@ export type HelpSearchEntry = {
 };
 
 export const verifiedBaseline = { commit: "cc49136c", date: "2026-08-26" };
-export const remoteMcpReviewBaseline = { commit: "f9e3cfe2", date: "2026-08-26" };
+export const remoteMcpReviewBaseline = { commit: "27ab7de9", date: "2026-08-27" };
 
 export const helpContentTypeLabels: Record<HelpContentType, string> = {
   tutorial: "入门教程",
@@ -162,13 +162,13 @@ export const helpArticles: HelpArticle[] = [
   },
   {
     slug: "review-remote-mcp-auth",
-    title: "连接并复核需要认证的远程 MCP",
-    summary: "核对固定 Origin，保存静态 Token 或完成 OAuth，并通过 Review Factory 发布最小只读契约。",
+    title: "连接、复核并安全使用认证型远程 MCP",
+    summary: "核对固定 Origin，完成受控认证与复核，显式激活后逐次审批调用，并在凭据变化或撤销时确认立即断开。",
     category: "安全、费用与数据",
     contentType: "how-to",
     audience: "在本地单主体部署中配置和审核远程 MCP 的运维者",
-    estimatedMinutes: 8,
-    keywords: ["MCP", "远程 MCP", "Token", "OAuth", "Review Factory", "契约", "Origin", "Scope"],
+    estimatedMinutes: 10,
+    keywords: ["MCP", "远程 MCP", "Token", "OAuth", "Review Factory", "契约", "Runtime", "逐次审批", "撤销", "Origin", "Scope"],
     relatedRoutes: ["/mcps", "/mcps?view=hub"],
     verifiedCommit: remoteMcpReviewBaseline.commit,
     verifiedDate: remoteMcpReviewBaseline.date,

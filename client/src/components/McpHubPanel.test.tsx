@@ -207,7 +207,6 @@ describe("McpHubPanel", () => {
       throw new Error(`unexpected URL: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
-    vi.stubGlobal("confirm", vi.fn().mockReturnValue(true));
     render(<McpHubPanel />);
 
     const card = (await screen.findByText("io.example/token")).closest("article");
@@ -251,6 +250,12 @@ describe("McpHubPanel", () => {
     expect(screen.queryByDisplayValue("second-secret")).not.toBeInTheDocument();
 
     fireEvent.click(within(card!).getByRole("button", { name: "撤销 Token" }));
+    const revokeDialog = await screen.findByRole("alertdialog", { name: "撤销访问 Token" });
+    expect(fetchMock.mock.calls.some(([url, init]) => (
+      String(url).endsWith(`/auth-bindings/${bindingId}`) &&
+      (init as RequestInit | undefined)?.method === "DELETE"
+    ))).toBe(false);
+    fireEvent.click(within(revokeDialog).getByRole("button", { name: "撤销 Token" }));
     expect(await within(card!).findByRole("button", { name: "保存 Token" })).toBeDisabled();
     expect(within(card!).getByRole("button", { name: "安全预检" })).toBeDisabled();
   });
@@ -300,6 +305,7 @@ describe("McpHubPanel", () => {
     let registered = false;
     let authorizationPending = false;
     let tokenActive = false;
+    let tokenRevision = 1;
     let remoteRevocationEnabled = false;
     const candidate = {
       candidate_id: candidateId,
@@ -364,7 +370,7 @@ describe("McpHubPanel", () => {
       } : null,
       token: tokenActive ? {
         token_id: "mcpoauthtoken_" + "4".repeat(32),
-        revision: 1,
+        revision: tokenRevision,
         status: "active",
         scopes: ["mcp:read"],
         scope_digest: "2".repeat(64),
@@ -424,6 +430,10 @@ describe("McpHubPanel", () => {
           authorization_session: oauthPayload().authorization_session,
           authorization_url: "https://auth.example.com/authorize?state=server-owned",
         }, 201);
+      }
+      if (url.endsWith(`/api/mcp/hub/candidates/${candidateId}/oauth/tokens/mcpoauthtoken_${"4".repeat(32)}/refresh`) && init?.method === "POST") {
+        tokenRevision += 1;
+        return json(oauthPayload());
       }
       if (url.endsWith(`/api/mcp/hub/candidates/${candidateId}/oauth/tokens/mcpoauthtoken_${"4".repeat(32)}`) && init?.method === "DELETE") {
         tokenActive = false;
@@ -495,9 +505,18 @@ describe("McpHubPanel", () => {
     remoteRevocationEnabled = true;
     fireEvent.click(within(card!).getByRole("button", { name: "刷新授权状态" }));
     expect(await within(card!).findByText(/revision 1/)).toBeVisible();
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    fireEvent.click(within(card!).getByRole("button", { name: "刷新 Token" }));
+    const refreshDialog = await screen.findByRole("alertdialog", { name: "刷新 OAuth Token" });
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/refresh"))).toBe(false);
+    fireEvent.click(within(refreshDialog).getByRole("button", { name: "刷新 Token" }));
+    expect(await within(card!).findByText(/revision 2/)).toBeVisible();
+    const refreshCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith("/refresh"));
+    expect(JSON.parse(String((refreshCall?.[1] as RequestInit).body))).toEqual({ expected_revision: 1 });
+
     fireEvent.click(within(card!).getByRole("button", { name: "撤销 Token" }));
-    expect(confirm).toHaveBeenCalledWith(expect.stringMatching(/RFC 7009.*不可逆撤销/));
+    const revokeDialog = await screen.findByRole("alertdialog", { name: "撤销 OAuth Token" });
+    expect(within(revokeDialog).getByText(/RFC 7009.*不可逆撤销/)).toBeVisible();
+    fireEvent.click(within(revokeDialog).getByRole("button", { name: "撤销 Token" }));
     expect(await screen.findByRole("status")).toHaveTextContent(
       "io.example/oauth 的本地 Token 已撤销；远程结果未知，不会自动重试",
     );
@@ -759,17 +778,20 @@ describe("McpHubPanel", () => {
       if (url.endsWith("/api/mcp/hub/candidates")) return json({ items: deleted ? [] : [candidate] });
       throw new Error(`unexpected URL: ${url}`);
     });
-    const confirmMock = vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(true);
     vi.stubGlobal("fetch", fetchMock);
-    vi.stubGlobal("confirm", confirmMock);
     render(<McpHubPanel />);
 
     const deleteButton = await screen.findByRole("button", { name: "删除 Hub 候选 io.example/delete-me" });
     fireEvent.click(deleteButton);
-    expect(confirmMock).toHaveBeenCalledWith(expect.stringContaining("io.example/delete-me"));
+    const firstDialog = await screen.findByRole("alertdialog", { name: "删除 Hub 连接" });
+    expect(within(firstDialog).getByText(/io\.example\/delete-me/)).toBeVisible();
     expect(fetchMock.mock.calls.some(([url, init]) => String(url).endsWith(candidate.candidate_id) && (init as RequestInit | undefined)?.method === "DELETE")).toBe(false);
+    fireEvent.click(within(firstDialog).getByRole("button", { name: "取消" }));
+    expect(screen.queryByRole("alertdialog", { name: "删除 Hub 连接" })).not.toBeInTheDocument();
 
     fireEvent.click(deleteButton);
+    const secondDialog = await screen.findByRole("alertdialog", { name: "删除 Hub 连接" });
+    fireEvent.click(within(secondDialog).getByRole("button", { name: "删除连接" }));
     expect(await screen.findByRole("status")).toHaveTextContent("io.example/delete-me 已从“我的 Hub 连接”删除");
     expect(screen.queryByText("io.example/delete-me")).not.toBeInTheDocument();
   });

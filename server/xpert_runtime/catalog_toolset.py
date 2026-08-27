@@ -26,6 +26,13 @@ class CatalogMCPToolsetProvider:
         for adapter in adapters if isinstance(adapters, list) else []:
             if not isinstance(adapter, dict):
                 continue
+            if (
+                adapter.get("connection_kind") == "remote-mcp"
+                or adapter.get("remote_review_capable") is True
+            ):
+                # Authenticated remote MCPs are executable only through a
+                # published reviewed contract and the approval-only provider.
+                continue
             if not adapter.get("connected") or not adapter.get("executable"):
                 continue
             project_id = str(adapter.get("project_id") or "").strip()

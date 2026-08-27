@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -373,6 +374,72 @@ def make_oauth_service(
     return service, oauth, authorization
 
 
+async def publish_static_contract(
+    service: MCPRemoteReviewService,
+) -> CatalogReviewedRemoteContractV1:
+    run = service.create_run(
+        [
+            RemoteTargetRefV1(
+                target_type="catalog_project", target_id="catalog-remote-static"
+            )
+        ]
+    )
+    await service._tasks[run["run_id"]]
+    item = service.get_run(run["run_id"])["items"][0]
+    proposal = item["proposal"]
+    approved = await service.approve_proposal(
+        run["run_id"],
+        item["item_id"],
+        proposal["proposal_id"],
+        proposal["proposal_digest"],
+    )
+    decision = service.decide(
+        run["run_id"],
+        item["item_id"],
+        decision="approve",
+        expected_evidence_digest=approved["evidence_digest"],
+        allowed_tools=["search"],
+        tool_effects={"search": "read"},
+        acknowledge_unknown_oauth_scopes=False,
+    )
+    published = service.publish(
+        run["run_id"],
+        item["item_id"],
+        decision["contract_fingerprint"],
+    )
+    return CatalogReviewedRemoteContractV1.model_validate(published["contract"])
+
+
+def runtime_approval(entry: dict[str, Any], *, tenant_id: str = "tenant-a") -> dict[str, Any]:
+    arguments = {"query": "modelmirror"}
+    from server.mcp.hub import arguments_digest
+
+    return {
+        "approval_id": str(uuid.uuid4()),
+        "status": "decided",
+        "decision": "approve",
+        "tool_name": entry["name"],
+        "metadata": {
+            "remote_approval": {
+                "target_type": "catalog_project",
+                "target_id": entry["project_id"],
+                "upstream_tool_name": entry["upstream_tool_name"],
+                "tenant_id": tenant_id,
+                "owner_id": "owner-a",
+                "version": entry["version"],
+                "origin": entry["origin"],
+                "source_digest": entry["source_digest"],
+                "auth_context_digest": entry["auth_context_digest"],
+                "arguments_digest": arguments_digest(arguments),
+                "schema_digest": entry["schema_digest"],
+                "tool_schema_digest": entry["tool_schema_digest"],
+                "contract_id": entry["contract_id"],
+                "contract_fingerprint": entry["contract_fingerprint"],
+            }
+        },
+    }
+
+
 @pytest.fixture(autouse=True)
 def enable_r4a(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MCP_REMOTE_REVIEW_UNIFICATION_ENABLED", "true")
@@ -731,6 +798,322 @@ async def test_catalog_static_review_publishes_contract_without_runtime_exposure
         drifted["target_state"]["reason_code"]
         == "mcp_remote_contract_unreviewed"
     )
+
+
+@pytest.mark.asyncio
+async def test_catalog_runtime_requires_both_default_off_flags(
+    tmp_path: Path,
+) -> None:
+    service, _bridge, _broker, _catalog = make_service(tmp_path)
+    contract = await publish_static_contract(service)
+
+    with pytest.raises(HubError) as disabled:
+        await service.activate_catalog_runtime(
+            "catalog-remote-static", contract.contract_fingerprint
+        )
+
+    assert disabled.value.code == "mcp_remote_contract_runtime_disabled"
+    assert service.catalog_runtime_tools() == []
+
+
+@pytest.mark.asyncio
+async def test_catalog_runtime_activation_and_single_approved_call(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MCP_REMOTE_CONTRACT_RUNTIME_ENABLED", "true")
+    monkeypatch.setenv("MCP_REMOTE_CATALOG_RUNTIME_ENABLED", "true")
+    service, bridge, _broker, _catalog = make_service(tmp_path)
+    contract = await publish_static_contract(service)
+
+    activated = await service.activate_catalog_runtime(
+        "catalog-remote-static", contract.contract_fingerprint
+    )
+    tools = service.catalog_runtime_tools()
+
+    assert activated["target_state"]["state"] == "active"
+    assert activated["runtime_tool_count"] == 1
+    assert len(tools) == 1
+    entry = tools[0]
+    assert entry["name"].startswith("catalog__catalog_remote_static_")
+    approval = runtime_approval(entry)
+    result = await service.execute_catalog_runtime(
+        project_id="catalog-remote-static",
+        runtime_tool_name=entry["name"],
+        upstream_tool_name="search",
+        arguments={"query": "modelmirror"},
+        approval=approval,
+    )
+
+    assert result["content"][0]["text"] == "modelmirror"
+    assert bridge.call_count == 2  # representative review + one Runtime call
+    replay = await service.execute_catalog_runtime(
+        project_id="catalog-remote-static",
+        runtime_tool_name=entry["name"],
+        upstream_tool_name="search",
+        arguments={"query": "modelmirror"},
+        approval=approval,
+    )
+    assert replay == result
+    assert bridge.call_count == 2
+    assert bridge.closed
+    # The initial unauthenticated 401 has no session to close, but its egress
+    # capability must still be revoked.
+    assert len(bridge.revoked) == len(bridge.closed) + 1
+
+
+@pytest.mark.asyncio
+async def test_catalog_runtime_cross_owner_approval_is_rejected_before_dispatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MCP_REMOTE_CONTRACT_RUNTIME_ENABLED", "true")
+    monkeypatch.setenv("MCP_REMOTE_CATALOG_RUNTIME_ENABLED", "true")
+    service, bridge, _broker, _catalog = make_service(tmp_path)
+    contract = await publish_static_contract(service)
+    await service.activate_catalog_runtime(
+        "catalog-remote-static", contract.contract_fingerprint
+    )
+    entry = service.catalog_runtime_tools()[0]
+
+    with pytest.raises(HubError) as denied:
+        await service.execute_catalog_runtime(
+            project_id="catalog-remote-static",
+            runtime_tool_name=entry["name"],
+            upstream_tool_name="search",
+            arguments={"query": "modelmirror"},
+            approval=runtime_approval(entry, tenant_id="tenant-b"),
+        )
+
+    assert denied.value.code == "mcp_remote_runtime_approval_invalid"
+    assert bridge.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_catalog_runtime_unknown_outcome_taints_and_never_retries(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MCP_REMOTE_CONTRACT_RUNTIME_ENABLED", "true")
+    monkeypatch.setenv("MCP_REMOTE_CATALOG_RUNTIME_ENABLED", "true")
+    service, bridge, _broker, _catalog = make_service(tmp_path)
+    contract = await publish_static_contract(service)
+    await service.activate_catalog_runtime(
+        "catalog-remote-static", contract.contract_fingerprint
+    )
+    entry = service.catalog_runtime_tools()[0]
+    approval = runtime_approval(entry)
+    bridge.fail_call = True
+
+    with pytest.raises(HubError) as unknown:
+        await service.execute_catalog_runtime(
+            project_id="catalog-remote-static",
+            runtime_tool_name=entry["name"],
+            upstream_tool_name="search",
+            arguments={"query": "modelmirror"},
+            approval=approval,
+        )
+
+    assert unknown.value.code == "unknown_outcome"
+    assert bridge.call_count == 2
+    state = service.store.get_target_state(
+        "tenant-a",
+        "owner-a",
+        RemoteTargetRefV1(
+            target_type="catalog_project", target_id="catalog-remote-static"
+        ),
+    )
+    assert state.state == "tainted"
+    assert service.catalog_runtime_tools() == []
+    with pytest.raises(HubError) as replay:
+        await service.execute_catalog_runtime(
+            project_id="catalog-remote-static",
+            runtime_tool_name=entry["name"],
+            upstream_tool_name="search",
+            arguments={"query": "modelmirror"},
+            approval=approval,
+        )
+    assert replay.value.code == "unknown_outcome"
+    assert bridge.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_catalog_runtime_binding_is_removed_on_credential_rotation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MCP_REMOTE_CONTRACT_RUNTIME_ENABLED", "true")
+    monkeypatch.setenv("MCP_REMOTE_CATALOG_RUNTIME_ENABLED", "true")
+    service, _bridge, broker, _catalog = make_service(tmp_path)
+    contract = await publish_static_contract(service)
+    await service.activate_catalog_runtime(
+        "catalog-remote-static", contract.contract_fingerprint
+    )
+    assert len(service.catalog_runtime_tools()) == 1
+
+    broker.notify("catalog-remote-static")
+
+    assert service.catalog_runtime_tools() == []
+    state = service.store.get_target_state(
+        "tenant-a",
+        "owner-a",
+        RemoteTargetRefV1(
+            target_type="catalog_project", target_id="catalog-remote-static"
+        ),
+    )
+    assert state.state == "drifted"
+    assert state.reason_code == "mcp_remote_auth_binding_revision_changed"
+
+
+@pytest.mark.asyncio
+async def test_old_approval_cannot_cross_credential_rotation_and_reactivation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MCP_REMOTE_CONTRACT_RUNTIME_ENABLED", "true")
+    monkeypatch.setenv("MCP_REMOTE_CATALOG_RUNTIME_ENABLED", "true")
+    service, bridge, broker, _catalog = make_service(tmp_path)
+    contract = await publish_static_contract(service)
+    await service.activate_catalog_runtime(
+        "catalog-remote-static", contract.contract_fingerprint
+    )
+    old_entry = service.catalog_runtime_tools()[0]
+    old_approval = runtime_approval(old_entry)
+
+    broker.notify("catalog-remote-static")
+    refreshed_contract = await publish_static_contract(service)
+    await service.activate_catalog_runtime(
+        "catalog-remote-static", refreshed_contract.contract_fingerprint
+    )
+
+    with pytest.raises(HubError) as denied:
+        await service.execute_catalog_runtime(
+            project_id="catalog-remote-static",
+            runtime_tool_name=old_entry["name"],
+            upstream_tool_name="search",
+            arguments={"query": "modelmirror"},
+            approval=old_approval,
+        )
+
+    assert denied.value.code == "mcp_remote_runtime_approval_invalid"
+    assert bridge.call_count == 2  # only the two review representative calls
+
+
+@pytest.mark.asyncio
+async def test_started_runtime_ledger_is_tainted_on_process_recovery(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MCP_REMOTE_CONTRACT_RUNTIME_ENABLED", "true")
+    monkeypatch.setenv("MCP_REMOTE_CATALOG_RUNTIME_ENABLED", "true")
+    service, _bridge, _broker, _catalog = make_service(tmp_path)
+    contract = await publish_static_contract(service)
+    await service.activate_catalog_runtime(
+        "catalog-remote-static", contract.contract_fingerprint
+    )
+    entry = service.catalog_runtime_tools()[0]
+    approval = runtime_approval(entry)
+    service.store.begin_runtime_execution(
+        approval["approval_id"],
+        tenant_id="tenant-a",
+        owner_id="owner-a",
+        target=RemoteTargetRefV1(
+            target_type="catalog_project", target_id="catalog-remote-static"
+        ),
+        contract_fingerprint=entry["contract_fingerprint"],
+        tool_name=entry["name"],
+        args_digest=approval["metadata"]["remote_approval"]["arguments_digest"],
+    )
+
+    await service.start()
+
+    state = service.store.get_target_state(
+        "tenant-a",
+        "owner-a",
+        RemoteTargetRefV1(
+            target_type="catalog_project", target_id="catalog-remote-static"
+        ),
+    )
+    assert state.state == "tainted"
+    assert state.reason_code == "unknown_outcome"
+    assert service.catalog_runtime_tools() == []
+
+
+@pytest.mark.asyncio
+async def test_schema_drift_after_activation_blocks_before_tool_dispatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MCP_REMOTE_CONTRACT_RUNTIME_ENABLED", "true")
+    monkeypatch.setenv("MCP_REMOTE_CATALOG_RUNTIME_ENABLED", "true")
+    service, bridge, _broker, _catalog = make_service(tmp_path)
+    contract = await publish_static_contract(service)
+    await service.activate_catalog_runtime(
+        "catalog-remote-static", contract.contract_fingerprint
+    )
+    entry = service.catalog_runtime_tools()[0]
+    bridge.tools = [
+        {
+            **TOOLS[0],
+            "input_schema": {
+                "type": "object",
+                "properties": {"query": {"type": "integer"}},
+                "required": ["query"],
+                "additionalProperties": False,
+            },
+        }
+    ]
+
+    with pytest.raises(HubError) as drifted:
+        await service.execute_catalog_runtime(
+            project_id="catalog-remote-static",
+            runtime_tool_name=entry["name"],
+            upstream_tool_name="search",
+            arguments={"query": "modelmirror"},
+            approval=runtime_approval(entry),
+        )
+
+    assert drifted.value.code == "hub_schema_drift"
+    assert bridge.call_count == 1
+    state = service.store.get_target_state(
+        "tenant-a",
+        "owner-a",
+        RemoteTargetRefV1(
+            target_type="catalog_project", target_id="catalog-remote-static"
+        ),
+    )
+    assert state.state == "drifted"
+    assert service.catalog_runtime_tools() == []
+
+
+@pytest.mark.asyncio
+async def test_concurrent_replay_of_one_approval_dispatches_only_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MCP_REMOTE_CONTRACT_RUNTIME_ENABLED", "true")
+    monkeypatch.setenv("MCP_REMOTE_CATALOG_RUNTIME_ENABLED", "true")
+    service, bridge, _broker, _catalog = make_service(tmp_path)
+    contract = await publish_static_contract(service)
+    await service.activate_catalog_runtime(
+        "catalog-remote-static", contract.contract_fingerprint
+    )
+    entry = service.catalog_runtime_tools()[0]
+    approval = runtime_approval(entry)
+
+    async def execute() -> dict[str, Any]:
+        return await service.execute_catalog_runtime(
+            project_id="catalog-remote-static",
+            runtime_tool_name=entry["name"],
+            upstream_tool_name="search",
+            arguments={"query": "modelmirror"},
+            approval=approval,
+        )
+
+    first, second = await asyncio.gather(execute(), execute())
+
+    assert first == second
+    assert bridge.call_count == 2  # review representative + exactly one Runtime call
 
 
 @pytest.mark.asyncio

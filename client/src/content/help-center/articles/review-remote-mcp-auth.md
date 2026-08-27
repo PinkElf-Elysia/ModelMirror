@@ -1,6 +1,6 @@
 ## 完成结果
 
-你会在 MCP 工具货架中识别需要静态 Token 或 OAuth 的远程服务，完成受控认证与复核，并知道哪些安全提示意味着必须停止，而不是反复重连或绕过门禁。
+你会在 MCP 工具货架中识别需要静态 Token 或 OAuth 的远程服务，完成受控认证、复核和显式激活，通过 AI Runtime 逐次批准只读调用，并在凭据变化或撤销后确认连接已立即失效。
 
 ## 适用对象
 
@@ -15,11 +15,11 @@
 
 ## 真实范例
 
-GitHub 固定远程项目要求静态 Bearer Token。运维者在“认证与复核”中核对固定 Origin，只保存供应商签发的 HTTPS Token，再让 Review Factory 读取工具列表并提出一次固定的代表调用。GitHub 的精确 manifest 只容忍服务端返回的空 `completions` capability，并把它当作不可调用的惰性声明；这不是全局放宽，其他非工具 capability 仍会阻断。
+GitHub 固定远程项目要求静态 Bearer Token。运维者在“认证与复核”中核对固定 Origin，只保存供应商签发的 HTTPS Token，再让 Review Factory 读取工具列表并提出一次固定的代表调用。发布契约并显式激活后，一次 `search_code` Runtime 调用由用户逐次批准；Token 旋转会让旧契约状态漂移，撤销后旧会话不能继续使用。
 
-Tako Catalog 项目则要求目标绑定的全新 OAuth 授权。Hub 中已有的 Tako Token 不会复用到 Catalog；授权、代表读取和契约发布成功后，页面仍明确显示“R4A 不激活，Runtime 工具数为 0”。
+Tako Catalog 项目则要求目标绑定的全新 OAuth 授权。Hub 中已有的 Tako Token 不会复用到 Catalog；授权、代表读取、契约发布和显式激活完成后，一次 `tako_available_data` Runtime 调用由用户逐次批准。撤销后页面立即显示“已撤销、未激活”，激活按钮失效，但无秘密契约仍可导出审计。
 
-![Tako MCP 已完成目标绑定 OAuth 与统一复核，R4A 仍保持 Runtime 工具数为 0](/help-center/f9e3cfe2/catalog-tako-reviewed.png)
+![Tako MCP 撤销 OAuth 后显示已撤销和未激活，Runtime 激活按钮不可用](/help-center/27ab7de9/catalog-tako-runtime-revoked.png)
 
 ## 操作步骤
 
@@ -28,8 +28,9 @@ Tako Catalog 项目则要求目标绑定的全新 OAuth 授权。Hub 中已有�
 3. 按页面显示的唯一认证方式继续：静态 Token 只填写供应商访问令牌；OAuth 先重新发现元数据，再检查 Issuer、资源和推荐 Scope。页面不会接受自定义 Header 或 Scope。
 4. 保存 Token 或完成 OAuth 回调后刷新状态。你应该只看到掩码、revision 或“Token 已加密保存”，不应再次看到明文。
 5. 创建受控复核批次，等待自动阶段完成。系统会冻结认证后的工具列表和 Schema，并在代表调用前暂停。
-6. 核对精确 Origin、工具、参数和风险提示后，逐次批准一次代表调用。调用不会自动重试；断链或超时时应按“结果未知”处理。
-7. 只选择已实测并人工确认为只读的工具，生成并发布本机不可变契约。契约发布不会自动激活服务，也不会直接把工具加入 Runtime。
+6. 核对精确 Origin、工具、参数和风险提示后，批准一次代表调用；只选择已实测并人工确认为只读的工具，再发布本机不可变契约。
+7. 契约发布后显式点击“激活 Runtime”。在 AI Runtime 每次展示脱敏参数时重新确认；每份批准只能调用一次，工具调用不会自动重试。
+8. Token 旋转或 OAuth 刷新后重新复核并重新激活。撤销凭据或契约后刷新页面，确认状态为“已撤销”或“漂移”、激活按钮不可用且 Runtime 不再暴露该工具。
 
 ## 常见问题
 
@@ -55,7 +56,11 @@ Registry 只提供身份与发现元数据，不等于安全认证。ModelMirror
 
 ### 契约发布后为什么仍不能调用？
 
-发布只让目标具备后续激活资格。Runtime 开关、当前 Token revision、Scope、Schema 和逐次审批仍必须全部满足；R4A 复核阶段不会新增 Runtime 工具。
+发布只让目标具备激活资格，不会自动建立连接。还需要显式激活，并确保 Runtime 开关、当前 Token revision、Scope、Schema 和逐次审批全部匹配。凭据旋转、刷新、重授权、撤销或 Schema 漂移都会立即断开旧上下文。
+
+### 调用超时后可以再次点击同一份批准吗？
+
+不可以。工具请求派发后断链或超时会返回“结果未知”，目标随即被污染并取消激活。旧批准不能重放，先核对远程状态，再重新复核和生成新的批准。
 
 ## 限制
 
@@ -63,8 +68,9 @@ Registry 只提供身份与发现元数据，不等于安全认证。ModelMirror
 - 只支持 manifest 或 Registry 冻结的 HTTPS Streamable HTTP、静态 Token 或标准 OAuth；不支持任意 URL、Header、stdio 或 package 安装。
 - 明确包含写入、管理、删除、发布、交易或设备控制含义的 Scope 保持阻断。
 - 服务声明 prompts、resources、completions 等非工具 capability 时默认停止。唯一例外是精确 manifest 明确允许且服务端返回为空的惰性声明；它不会成为工具，也不能由 Runtime 调用。
-- 本指南验证了认证、代表读取、V3 契约发布与导出；没有验证 Catalog Runtime 激活或写工具。
+- 所有契约型远程工具仍标记为敏感、非只读，并要求逐次审批；本轮只实测人工确认的读取工具，没有验证或开放写工具。
+- 工具调用不自动重试。派发后断链或超时按 `unknown_outcome` 收口，并取消目标激活资格。
 
 ## 下一步
 
-阅读[操作前检查可用性、费用与数据影响](/help/check-availability-cost-data)，再决定是否在后续 Runtime 阶段激活已发布契约。
+阅读[操作前检查可用性、费用与数据影响](/help/check-availability-cost-data)，再决定是否激活契约；调用前始终核对脱敏参数、供应商费用和数据发送范围。

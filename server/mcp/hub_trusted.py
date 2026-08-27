@@ -483,7 +483,14 @@ class MCPHubTrustedChannelService:
                 server
                 and server.get("status") in {"active", "published"}
                 and remote
-                and remote.get("eligibility") == "eligible"
+                and str(remote.get("eligibility") or "")
+                in (
+                    {"oauth_discovery_candidate", "eligible"}
+                    if raw.get("schema_version") == "hub-reviewed-contract-v3"
+                    else {"static_token_candidate"}
+                    if raw.get("schema_version") == "hub-reviewed-contract-v2"
+                    else {"eligible"}
+                )
                 and (
                     not raw.get("source_digest")
                     or server.get("source_digest") == raw.get("source_digest")

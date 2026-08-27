@@ -160,6 +160,7 @@ from .toolset import (
 from .catalog_toolset import CatalogMCPToolsetProvider
 from .tool_runner import run_tool_with_runtime
 from .hub_toolset import HubMCPToolsetProvider
+from .remote_mcp_toolset import RemoteMCPToolsetProvider
 from .sandbox_api import configure_runtime_sandbox, router as runtime_sandbox_router
 from .sandbox_client import (
     LocalSandboxClient,
@@ -325,6 +326,7 @@ __all__ = [
     "CatalogMCPToolsetProvider",
     "CompositeMCPToolsetProvider",
     "HubMCPToolsetProvider",
+    "RemoteMCPToolsetProvider",
     "KnowledgeToolsetProvider",
     "MemoryToolsetProvider",
     "build_xpert_file_memory_middleware",

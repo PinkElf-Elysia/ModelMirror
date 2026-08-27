@@ -114,7 +114,10 @@ class RuntimeApprovalStore:
         clean_timeout = max(30, min(int(timeout_seconds), 86_400))
         now = time.time()
         raw_metadata = dict(metadata or {})
-        is_hub_request = isinstance(raw_metadata.get("hub_approval"), dict)
+        is_remote_request = bool(
+            isinstance(raw_metadata.get("hub_approval"), dict)
+            or isinstance(raw_metadata.get("remote_approval"), dict)
+        )
         with self._lock:
             existing = next(
                 (
@@ -140,7 +143,7 @@ class RuntimeApprovalStore:
                 tool_name=self._optional_text(tool_name, 300),
                 arguments=(
                     self.redact_complete(arguments or {})
-                    if is_hub_request
+                    if is_remote_request
                     else self.redact(arguments or {})
                 ),
                 description=str(description or "").strip()[:4_000],
@@ -329,16 +332,19 @@ class RuntimeApprovalStore:
     @staticmethod
     def serialize(item: RuntimeApprovalRequest) -> dict[str, Any]:
         payload = asdict(item)
-        is_hub_request = isinstance(item.metadata.get("hub_approval"), dict)
+        is_remote_request = bool(
+            isinstance(item.metadata.get("hub_approval"), dict)
+            or isinstance(item.metadata.get("remote_approval"), dict)
+        )
         payload["arguments"] = (
             RuntimeApprovalStore.redact_complete(item.arguments)
-            if is_hub_request
+            if is_remote_request
             else RuntimeApprovalStore.redact(item.arguments)
         )
         if item.edited_arguments is not None:
             payload["edited_arguments"] = (
                 RuntimeApprovalStore.redact_complete(item.edited_arguments)
-                if is_hub_request
+                if is_remote_request
                 else RuntimeApprovalStore.redact(item.edited_arguments)
             )
         return payload

@@ -61,6 +61,7 @@ def build_human_in_the_loop_middleware(
         )
         skill_approval = request.metadata.get("skill_approval")
         hub_approval = request.metadata.get("hub_approval")
+        remote_approval = request.metadata.get("remote_approval")
         if read_only_arguments:
             allowed = ["approve"]
             if allow_reject:
@@ -86,6 +87,24 @@ def build_human_in_the_loop_middleware(
                 f"契约指纹: {hub_approval.get('contract_fingerprint') or '-'}\n"
                 f"工具: {request.tool_name}\n\n"
                 "Registry 收录不代表安全认证；请核对来源、工具和完整脱敏参数。"
+            )
+        elif isinstance(remote_approval, dict):
+            allowed = ["approve"]
+            if allow_edit:
+                allowed.append("edit")
+            if allow_reject:
+                allowed.append("reject")
+            approval_description = (
+                "已复核的 Catalog 远程 MCP 工具仍需要逐次人工审批\n\n"
+                f"项目: {remote_approval.get('target_id') or '-'}\n"
+                f"版本: {remote_approval.get('version') or '-'}\n"
+                f"Origin: {remote_approval.get('origin') or '-'}\n"
+                f"Schema: {remote_approval.get('schema_digest') or '-'}\n"
+                f"工具 Schema: {remote_approval.get('tool_schema_digest') or '-'}\n"
+                f"执行契约: {remote_approval.get('contract_id') or '-'}\n"
+                f"契约指纹: {remote_approval.get('contract_fingerprint') or '-'}\n"
+                f"工具: {request.tool_name}\n\n"
+                "远程内容不受信；请核对来源、工具和完整脱敏参数。"
             )
         elif request.tool_name == "skill_install" and isinstance(skill_approval, dict):
             allowed = ["approve", "reject"]
@@ -148,6 +167,11 @@ def build_human_in_the_loop_middleware(
                     "hub_approval": (
                         dict(hub_approval)
                         if isinstance(hub_approval, dict)
+                        else None
+                    ),
+                    "remote_approval": (
+                        dict(remote_approval)
+                        if isinstance(remote_approval, dict)
                         else None
                     ),
                 },
@@ -254,9 +278,18 @@ async def _apply_resolution(
             )
         metadata = dict(request.metadata)
         hub_approval = metadata.get("hub_approval")
-        if isinstance(hub_approval, dict):
-            updated_hub = dict(hub_approval)
-            updated_hub["arguments_digest"] = hashlib.sha256(
+        remote_approval = metadata.get("remote_approval")
+        approval_key = (
+            "hub_approval"
+            if isinstance(hub_approval, dict)
+            else "remote_approval"
+            if isinstance(remote_approval, dict)
+            else ""
+        )
+        approval_metadata = metadata.get(approval_key) if approval_key else None
+        if isinstance(approval_metadata, dict):
+            updated_remote = dict(approval_metadata)
+            updated_remote["arguments_digest"] = hashlib.sha256(
                 json.dumps(
                     edited,
                     ensure_ascii=False,
@@ -264,7 +297,7 @@ async def _apply_resolution(
                     separators=(",", ":"),
                 ).encode("utf-8")
             ).hexdigest()
-            metadata["hub_approval"] = updated_hub
+            metadata[approval_key] = updated_remote
             resolved_approval = metadata.get("resolved_approval")
             if isinstance(resolved_approval, dict):
                 updated_resolution = dict(resolved_approval)
@@ -273,15 +306,15 @@ async def _apply_resolution(
                     if isinstance(updated_resolution.get("metadata"), dict)
                     else {}
                 )
-                resolution_metadata["hub_approval"] = dict(updated_hub)
+                resolution_metadata[approval_key] = dict(updated_remote)
                 updated_resolution["metadata"] = resolution_metadata
                 metadata["resolved_approval"] = updated_resolution
-            if hub_event_recorder is not None:
+            if approval_key == "hub_approval" and hub_event_recorder is not None:
                 hub_event_recorder(
                     "runtime_approval_approved",
                     {
-                        "contract_id": updated_hub.get("contract_id"),
-                        "candidate_id": updated_hub.get("candidate_id"),
+                        "contract_id": updated_remote.get("contract_id"),
+                        "candidate_id": updated_remote.get("candidate_id"),
                         "tool_name": request.tool_name,
                     },
                 )

@@ -51,8 +51,11 @@ interface RemoteSummary {
     contract_fingerprint: string;
   };
   contract_error: string;
-  activation_eligible: false;
-  runtime_tool_count: 0;
+  activation_eligible: boolean;
+  runtime_tool_count: number;
+  runtime_enabled: boolean;
+  catalog_runtime_enabled: boolean;
+  runtime_binding_revision?: number;
   credential_binding_ready: boolean;
   catalog_oauth_enabled: boolean;
 }
@@ -75,6 +78,10 @@ interface ReviewItem {
     effect_proposals: Record<string, string>;
     schema_digest: string;
     cleanup: Record<string, boolean>;
+  };
+  target?: {
+    target_type: "hub_candidate" | "catalog_project";
+    target_id: string;
   };
 }
 
@@ -137,7 +144,13 @@ function authLabel(mode: RemoteSummary["auth_mode"]): string {
   return "固定 Bearer Token";
 }
 
-export default function McpCatalogRemotePanel({ projectId }: { projectId: string }) {
+export default function McpCatalogRemotePanel({
+  projectId,
+  refreshKey = 0,
+}: {
+  projectId: string;
+  refreshKey?: number;
+}) {
   const [summary, setSummary] = useState<RemoteSummary | null>(null);
   const [run, setRun] = useState<ReviewRun | null>(null);
   const [selectedTools, setSelectedTools] = useState<string[]>([]);
@@ -170,9 +183,21 @@ export default function McpCatalogRemotePanel({ projectId }: { projectId: string
     return next;
   };
 
+  const loadLatestRun = async () => {
+    const payload = await requestJson<{ items: ReviewRun[] }>("/api/mcp/remote/review-runs");
+    const latest = (payload.items ?? []).find((candidate) =>
+      candidate.items.some((candidateItem) =>
+        candidateItem.target?.target_type === "catalog_project" &&
+        candidateItem.target.target_id === projectId,
+      ),
+    ) ?? null;
+    setRun(latest);
+    return latest;
+  };
+
   useEffect(() => {
     let active = true;
-    void loadSummary().catch((reason: unknown) => {
+    void Promise.all([loadSummary(), loadLatestRun()]).catch((reason: unknown) => {
       if (!active) return;
       setError({
         message: reason instanceof Error ? reason.message : "远程复核状态加载失败",
@@ -182,9 +207,9 @@ export default function McpCatalogRemotePanel({ projectId }: { projectId: string
     return () => {
       active = false;
     };
-    // projectId changes define a new panel instance.
+    // A credential/configuration save can invalidate an active Runtime binding.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId]);
+  }, [projectId, refreshKey]);
 
   useEffect(() => {
     if (!run || !["queued", "running"].includes(run.status)) return undefined;
@@ -197,10 +222,17 @@ export default function McpCatalogRemotePanel({ projectId }: { projectId: string
   }, [run?.run_id, run?.status]);
 
   useEffect(() => {
+    if (!run || ["queued", "running"].includes(run.status)) return;
+    void loadSummary().catch(() => undefined);
+    // Refresh target state after the background run reaches an operator or terminal state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [run?.run_id, run?.status]);
+
+  useEffect(() => {
     if (item?.state === "awaiting_decision") {
-      setSelectedTools(readCandidates);
+      setSelectedTools([]);
     }
-  }, [item?.state, readCandidates]);
+  }, [item?.item_id, item?.state]);
 
   useEffect(() => {
     if (summary?.oauth?.token) {
@@ -232,6 +264,15 @@ export default function McpCatalogRemotePanel({ projectId }: { projectId: string
   const oauthToken = oauth?.token;
   const oauthDangerousScopes = oauth?.scope_assessment?.dangerous_scopes ?? [];
   const oauthHighRisk = oauthDangerousScopes.length > 0;
+  const canResumeRun = Boolean(
+    run && ["failed", "interrupted"].includes(run.status) && item?.state !== "unknown_outcome",
+  );
+  const canRestartRun = Boolean(
+    run &&
+      ["completed", "cancelled"].includes(run.status) &&
+      (item?.state !== "published" ||
+        ["drifted", "tainted", "revoked"].includes(summary?.target_state.state ?? "")),
+  );
 
   return (
     <section
@@ -280,12 +321,65 @@ export default function McpCatalogRemotePanel({ projectId }: { projectId: string
           </div>
           <div>
             <dt className="text-slate-500">运行边界</dt>
-            <dd className="mt-1 text-amber-100">R4A 不激活，Runtime 工具数为 0</dd>
+            <dd className="mt-1 text-amber-100">
+              {summary.target_state.state === "active"
+                ? `已激活 · Runtime 工具 ${summary.runtime_tool_count} 个`
+                : summary.activation_eligible
+                  ? "契约已复核，可显式激活"
+                  : "未激活；未复核目标不会进入 Runtime"}
+            </dd>
           </div>
         </dl>
       ) : (
         <div className="mt-3 h-20 animate-pulse rounded-md bg-white/[0.045]" aria-label="正在加载远程复核状态" />
       )}
+
+      {summary?.reviewed_contract ? (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-3">
+          <p className="text-slate-400">
+            契约 <span className="font-mono text-slate-300">{summary.reviewed_contract.contract_fingerprint.slice(0, 12)}…</span>
+          </p>
+          {summary.target_state.state === "active" ? (
+            <button
+              className="min-h-9 rounded-md border border-rose-300/25 px-3 font-semibold text-rose-100 disabled:opacity-40"
+              disabled={Boolean(busy)}
+              onClick={() => void perform(
+                "disconnect-runtime",
+                () => requestJson(`/api/mcp/catalog/${projectId}/remote/session`, { method: "DELETE" }),
+                "Catalog 远程 Runtime 已断开；重新使用前必须显式激活。",
+              )}
+              type="button"
+            >
+              断开 Runtime
+            </button>
+          ) : (
+            <button
+              className="min-h-9 rounded-md bg-emerald-300 px-3 font-semibold text-ink-950 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
+              disabled={!summary.activation_eligible || Boolean(busy)}
+              onClick={() => void perform(
+                "activate-runtime",
+                () => requestJson(`/api/mcp/catalog/${projectId}/remote/activate`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    expected_contract_fingerprint: summary.reviewed_contract?.contract_fingerprint,
+                  }),
+                }),
+                "Catalog 远程 Runtime 已按当前契约激活；每次工具调用仍需单独审批。",
+              )}
+              type="button"
+            >
+              激活 Runtime
+            </button>
+          )}
+        </div>
+      ) : null}
+
+      {summary && (!summary.runtime_enabled || !summary.catalog_runtime_enabled) ? (
+        <p className="mt-3 border-b border-amber-300/20 pb-3 leading-5 text-amber-100">
+          Catalog 远程 Runtime 门禁未开启。契约可继续复核与导出，但不会暴露任何新工具。
+        </p>
+      ) : null}
 
       {summary?.auth_mode === "oauth_authorization_code_pkce" && summary.catalog_oauth_enabled ? (
         <div className="mt-3 space-y-3 border-b border-white/10 pb-3">
@@ -337,7 +431,7 @@ export default function McpCatalogRemotePanel({ projectId }: { projectId: string
               {oauthHighRisk ? (
                 <p className="rounded-md border border-rose-300/25 bg-rose-300/[0.07] p-2.5 text-rose-100" role="alert">
                   固定 Scope 包含高危写入或控制语义（{oauthDangerousScopes.join("、")}）。
-                  R4A 不会登记 client、创建授权会话或发布该候选。
+                  本轮不会登记 client、创建授权会话或发布该候选。
                 </p>
               ) : null}
               {oauthDiscovery.offline_access_available ? (
@@ -443,7 +537,7 @@ export default function McpCatalogRemotePanel({ projectId }: { projectId: string
         </p>
       ) : summary?.credential_binding_ready ? (
         <p className="mt-3 border-b border-white/10 pb-3 leading-5 text-slate-400">
-          固定凭据仅由本卡片的“服务凭据”区域绑定；明文只进入本地加密槽，
+          固定凭据仅由本卡片的“加密凭据”区域绑定；明文只进入本地加密槽，
           Review Factory 不接受 Token、Header 或其他客户端字段。若已保存，可直接开始复核。
         </p>
       ) : summary ? (
@@ -479,7 +573,39 @@ export default function McpCatalogRemotePanel({ projectId }: { projectId: string
               开始复核
             </button>
           ) : (
-            <span className="font-mono text-slate-400">{run.status}</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-mono text-slate-400">{run.status}</span>
+              {canResumeRun ? (
+                <button
+                  className="min-h-9 rounded-md border border-cyan-300/25 px-3 font-semibold text-cyan-100 disabled:opacity-40"
+                  disabled={Boolean(busy)}
+                  onClick={() => void perform(
+                    "resume-review",
+                    () => requestJson(`/api/mcp/remote/review-runs/${run.run_id}/resume`, {
+                      method: "POST",
+                    }),
+                    "复核已从安全阶段恢复。",
+                  )}
+                  type="button"
+                >
+                  恢复复核
+                </button>
+              ) : null}
+              {canRestartRun ? (
+                <button
+                  className="min-h-9 rounded-md border border-cyan-300/25 px-3 font-semibold text-cyan-100"
+                  onClick={() => {
+                    setRun(null);
+                    setSelectedTools([]);
+                    setError(null);
+                    setNotice("上一个批次已收口，可以重新开始复核。");
+                  }}
+                  type="button"
+                >
+                  重新复核
+                </button>
+              ) : null}
+            </div>
           )}
         </div>
 
@@ -497,6 +623,15 @@ export default function McpCatalogRemotePanel({ projectId }: { projectId: string
                   固定代表调用：<span className="font-mono text-cyan-100">{item.proposal.tool_name}</span>
                   （参数由服务端生成）
                 </p>
+                <div className="space-y-1 rounded-md border border-white/10 bg-black/20 p-2">
+                  <p className="text-slate-400">完整参数</p>
+                  <pre className="overflow-x-auto whitespace-pre-wrap break-all font-mono text-slate-200">
+                    {JSON.stringify(item.proposal.arguments, null, 2)}
+                  </pre>
+                  <p className="break-all font-mono text-slate-500">
+                    Proposal {item.proposal.proposal_digest}
+                  </p>
+                </div>
                 <button
                   className="min-h-9 rounded-md border border-amber-300/25 px-3 font-semibold text-amber-100 disabled:opacity-40"
                   disabled={Boolean(busy)}
@@ -602,7 +737,7 @@ export default function McpCatalogRemotePanel({ projectId }: { projectId: string
                       }),
                     },
                   ),
-                  "本机只读契约已发布；R4A 仍不会激活 Runtime。",
+                  "本机只读契约已发布；仍需显式激活后才会进入 Runtime。",
                 )}
                 type="button"
               >

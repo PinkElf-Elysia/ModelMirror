@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
 import json
 import sqlite3
 import time
@@ -20,8 +21,15 @@ from server.mcp.hub import (
 )
 from server.mcp.hub_contracts import (
     HubReviewedContractV1,
+    HubReviewedContractV3,
+    canonical_digest,
     contract_export,
     stable_contract_id,
+)
+from server.mcp.remote_oauth import MCP_PROTOCOL_VERSION, RemoteOAuthPolicyV2
+from server.mcp.remote_oauth_authorization import (
+    RemoteOAuthExecutionEnvelope,
+    RemoteOAuthExecutionMetadataV1,
 )
 from server.mcp.hub_review import MCPHubReviewService, MCPHubReviewStore
 from server.mcp.hub_trusted import (
@@ -77,6 +85,7 @@ class FakeBridge:
         self.revoked: list[str] = []
         self.authorize_error: HubError | None = None
         self.call_count = 0
+        self.auth_modes: list[str] = []
 
     async def authorize(self, candidate_id: str, url: str) -> str:
         if self.authorize_error is not None:
@@ -94,8 +103,15 @@ class FakeBridge:
         url: str,
         capability: str,
         session_owner: str,
+        *,
+        auth: dict[str, Any] | None = None,
+        allowed_inert_capabilities: tuple[str, ...] = (),
     ) -> dict[str, Any]:
         assert session_owner == f"hub:tenant-a:owner-a:{candidate_id}"
+        assert allowed_inert_capabilities == ()
+        if auth is not None:
+            assert auth["header_value"] == "Bearer test-oauth-access-token"
+            self.auth_modes.append(str(auth["auth_mode"]))
         return {"session_id": "hubsession_" + "b" * 32, "tools": self.tools}
 
     async def list_tools(self, session_id: str) -> dict[str, Any]:
@@ -156,6 +172,105 @@ def make_contract(source_digest: str) -> HubReviewedContractV1:
         evidence_digest="e" * 64,
         published_at=1.0,
     )
+
+
+class FakeSubjectResolver:
+    @staticmethod
+    def resolve() -> Any:
+        return type("Subject", (), {"tenant_id": "tenant-a", "owner_id": "owner-a"})()
+
+
+class FakeOAuthAuthorization:
+    def __init__(self, metadata: RemoteOAuthExecutionMetadataV1) -> None:
+        self.subject_resolver = FakeSubjectResolver()
+        self.metadata = metadata
+
+    def execution_metadata(self, **_: Any) -> RemoteOAuthExecutionMetadataV1:
+        return self.metadata
+
+    @contextmanager
+    def resolve_for_execution(self, **_: Any) -> Any:
+        envelope = RemoteOAuthExecutionEnvelope(
+            metadata=self.metadata,
+            authorization_value="Bearer test-oauth-access-token",
+        )
+        try:
+            yield envelope
+        finally:
+            envelope.authorization_value = ""
+
+
+class FakeOAuthService:
+    def __init__(self, authorization: FakeOAuthAuthorization) -> None:
+        self.authorization_service = authorization
+
+
+def make_oauth_contract(source_digest: str) -> tuple[HubReviewedContractV3, RemoteOAuthExecutionMetadataV1]:
+    remote_url = "https://trusted.example.com/mcp"
+    policy_fields = {
+        "schema_version": "remote-oauth-policy-v2",
+        "mode": "oauth_authorization_code_pkce",
+        "protocol_version": MCP_PROTOCOL_VERSION,
+        "resource_uri": remote_url,
+        "origin": "https://trusted.example.com",
+        "remote_url_digest": stable_digest(remote_url),
+        "protected_resource_metadata_url": (
+            "https://trusted.example.com/.well-known/oauth-protected-resource"
+        ),
+        "protected_resource_metadata_digest": "1" * 64,
+        "issuer": "https://trusted.example.com",
+        "authorization_server_metadata_url": (
+            "https://trusted.example.com/.well-known/oauth-authorization-server"
+        ),
+        "authorization_server_metadata_digest": "2" * 64,
+        "authorization_endpoint": "https://trusted.example.com/authorize",
+        "token_endpoint": "https://trusted.example.com/token",
+        "registration_endpoint": "https://trusted.example.com/register",
+        "revocation_endpoint": "https://trusted.example.com/revoke",
+        "client_id_metadata_document_supported": False,
+        "scopes_supported": ("mcp",),
+        "scope_source": "protected_resource_metadata",
+        "recommended_scopes": ("mcp",),
+        "recommended_scope_digest": canonical_digest(["mcp"]),
+        "offline_access_available": False,
+    }
+    policy = RemoteOAuthPolicyV2(
+        **policy_fields,
+        policy_fingerprint=canonical_digest(policy_fields),
+    )
+    tools = normalized_tools(TOOLS)
+    contract = HubReviewedContractV3(
+        contract_id=stable_contract_id("io.example/trusted", "1.0.0", remote_url),
+        server_name="io.example/trusted",
+        version="1.0.0",
+        remote_url=remote_url,
+        origin=policy.origin,
+        source_digest=source_digest,
+        schema_digest=stable_digest(tools),
+        tool_schema_digests={item["name"]: item["schema_digest"] for item in tools},
+        allowed_tools=["search"],
+        tool_effects={"search": "read"},
+        limits={"timeout_seconds": 20, "result_bytes": 262144},
+        evidence_digest="e" * 64,
+        remote_oauth_policy=policy,
+        authorized_scopes=("mcp",),
+        authorized_scope_digest=canonical_digest(["mcp"]),
+    )
+    metadata = RemoteOAuthExecutionMetadataV1(
+        target_type="hub_candidate",
+        target_id="mcphub_" + "0" * 32,
+        origin=policy.origin,
+        resource_uri=policy.resource_uri,
+        resource_digest=stable_digest(policy.resource_uri),
+        policy_fingerprint=policy.policy_fingerprint,
+        discovery_fingerprint="3" * 64,
+        registration_digest="4" * 64,
+        scope_source=policy.scope_source,
+        scopes=("mcp",),
+        scope_digest=canonical_digest(["mcp"]),
+        token_revision_digest="5" * 64,
+    )
+    return contract, metadata
 
 
 def make_stack(
@@ -220,6 +335,68 @@ async def test_trusted_activation_revalidates_without_probe_candidate_and_is_ide
     assert len(hub.store.list_candidates("tenant-a", "owner-a")) == 1
     assert len(bridge.closed) == 2
     assert len(bridge.revoked) == 2
+    assert trusted.get_server(contract.contract_id)["availability_state"] == "ready"
+    assert len(hub.runtime_tools()) == 1
+
+
+@pytest.mark.asyncio
+async def test_oauth_v3_trusted_activation_revalidates_with_frozen_auth_context(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MCP_REMOTE_OAUTH_RUNTIME_ENABLED", "true")
+    raw = registry_entry()
+    raw["server"]["remotes"][0]["headers"] = [
+        {"name": "Authorization", "isSecret": True, "isRequired": False}
+    ]
+    hub_store = MCPHubStore(tmp_path)
+    server = normalize_registry_entry(raw)
+    hub_store.replace_snapshot("hub_sync_oauth", [server], '"oauth"')
+    contract, metadata = make_oauth_contract(server["source_digest"])
+    repository_dir = tmp_path / "oauth-contracts"
+    repository_dir.mkdir()
+    (repository_dir / "trusted-oauth.json").write_bytes(contract_export(contract))
+    bridge = FakeBridge()
+    hub = MCPHubService(
+        hub_store,
+        tenant_id="tenant-a",
+        owner_id="owner-a",
+        bridge=bridge,
+        reviewed_contracts=None,
+    )
+    review = MCPHubReviewService(
+        hub,
+        MCPHubReviewStore(hub_store),
+        signing_key="trusted-test-signing-key-with-32-bytes",
+        repository_dir=repository_dir,
+    )
+    trusted = MCPHubTrustedChannelService(hub, review, MCPHubTrustedStore(hub_store))
+    hub.contract_registry = review.contracts
+    hub.set_review_service(review)
+    hub.set_trusted_service(trusted)
+    candidate = hub.create_candidate(
+        contract.server_name,
+        contract.version,
+        server["remotes"][0]["remote_id"],
+    )
+    metadata = metadata.model_copy(update={"target_id": candidate["candidate_id"]})
+    hub.set_remote_oauth(FakeOAuthService(FakeOAuthAuthorization(metadata)))
+    tools = normalized_tools(TOOLS)
+    hub.store.update_candidate(
+        candidate["candidate_id"],
+        "tenant-a",
+        "owner-a",
+        state="verified",
+        schema_digest=stable_digest(tools),
+        tools=tools,
+    )
+
+    initial = trusted.get_server(contract.contract_id)
+    assert initial["availability_state"] == "stale"
+
+    active = await trusted.activate(contract.contract_id, contract.contract_fingerprint)
+
+    assert active["state"] == "active"
+    assert bridge.auth_modes == ["oauth_authorization_code_pkce"]
     assert trusted.get_server(contract.contract_id)["availability_state"] == "ready"
     assert len(hub.runtime_tools()) == 1
 
