@@ -250,7 +250,13 @@ try:
     )
     from server.skills.experience_api import (
         configure_skill_experience,
+        configure_skill_experience_distillation,
         router as skill_experience_router,
+    )
+    from server.skills.experience_distillation import (
+        SkillExperienceDistillationInvocation,
+        SkillExperienceDistillationService,
+        WorkflowSkillExperienceDistillationExecutor,
     )
     from server.skills.trust_service import SkillRuntimeEnvironment
     from server.skills.creator_api import (
@@ -379,7 +385,13 @@ except ModuleNotFoundError:
     from skills.experience import SkillExperienceCandidateStore, SkillExperienceService
     from skills.experience_api import (
         configure_skill_experience,
+        configure_skill_experience_distillation,
         router as skill_experience_router,
+    )
+    from skills.experience_distillation import (
+        SkillExperienceDistillationInvocation,
+        SkillExperienceDistillationService,
+        WorkflowSkillExperienceDistillationExecutor,
     )
     from skills.trust_service import SkillRuntimeEnvironment
     from skills.creator_api import (
@@ -2165,6 +2177,13 @@ skill_experience_service = SkillExperienceService(
     xpert_context_store,
     skill_application_receipt_store,
 )
+skill_experience_distillation_service = SkillExperienceDistillationService(
+    skill_experience_service,
+    skill_experience_candidate_store,
+    SkillFinder(skill_manager=get_skill_manager()),
+    get_skill_manager(),
+    get_skill_draft_store(),
+)
 skill_creator_service = SkillCreatorService(
     skill_creator_session_store,
     get_skill_draft_store(),
@@ -2235,6 +2254,7 @@ workflow_skill_creator_provider = AuthoringToolsetProvider(
 )
 configure_runtime_authoring(authoring_service)
 configure_skill_experience(skill_experience_service)
+configure_skill_experience_distillation(skill_experience_distillation_service)
 configure_skill_creator(skill_creator_service)
 configure_skill_creator_resource_planning(skill_creator_resource_planning_service)
 configure_skill_creator_resource_build(skill_creator_resource_build_service)
@@ -24166,6 +24186,48 @@ skill_creator_generation_executor = WorkflowCreatorGenerationExecutor(
     runner=run_skill_creator_generation,
 )
 configure_creator_generation_executor(skill_creator_generation_executor)
+
+
+async def run_skill_experience_distillation(
+    invocation: SkillExperienceDistillationInvocation,
+) -> str:
+    payload = WorkflowRunRequest.model_validate(
+        {"workflow": invocation.workflow, "inputs": invocation.inputs}
+    )
+    analysis_key = str(
+        invocation.runtime_metadata.get("experience_analysis_key") or ""
+    ).strip()
+    response = await _run_workflow_response(
+        payload,
+        None,
+        runtime_run_type="workflow",
+        runtime_source_id=analysis_key,
+        runtime_metadata=dict(invocation.runtime_metadata),
+    )
+    final_event = await consume_workflow_stream(response)
+    if final_event.get("event") in {
+        "runtime_approval_pending",
+        "client_tool_waiting",
+    }:
+        raise RuntimeError(
+            "The dedicated Skill experience distiller cannot pause for tools."
+        )
+    output = str(final_event.get("final_output") or "").strip()
+    if not output:
+        raise RuntimeError("The Skill experience distiller returned no output.")
+    return output
+
+
+skill_experience_distillation_executor = (
+    WorkflowSkillExperienceDistillationExecutor(
+        model_id=TEXT_FALLBACK_MODEL,
+        model_available=lambda: bool(get_llm_gateway_config()[0]),
+        runner=run_skill_experience_distillation,
+    )
+)
+skill_experience_distillation_service.executor = (
+    skill_experience_distillation_executor
+)
 
 
 async def run_skill_creator_resource_planning(
