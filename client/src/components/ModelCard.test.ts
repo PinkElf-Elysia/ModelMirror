@@ -117,7 +117,7 @@ describe("ModelCard document input presentation", () => {
 describe("ModelCard decision-first layout", () => {
   it("shows a compact UTC pricing schedule for time-priced models", () => {
     const model = models.find(
-      (candidate) => candidate.id === "deepseek/deepseek-v4-pro-0813",
+      (candidate) => candidate.id === "deepseek/deepseek-v4-flash-vision-exp",
     );
     expect(model).toBeDefined();
 
@@ -137,8 +137,8 @@ describe("ModelCard decision-first layout", () => {
     );
 
     expect(screen.getByText("当前输入薪资")).toBeInTheDocument();
-    expect(screen.getByText("UTC 分时价格 · 4 个时段")).toBeInTheDocument();
-    expect(screen.getByText("10:00–次日 01:00")).toBeInTheDocument();
+    expect(screen.getByText("UTC 分时价格 · 5 个时段")).toBeInTheDocument();
+    expect(screen.getByText("10:00–次日 00:00")).toBeInTheDocument();
   });
 
   it("prioritizes task and input capabilities without obsolete region or fake talent labels", () => {

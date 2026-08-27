@@ -51,7 +51,7 @@ describe("tokenPricingForPrompt", () => {
 
   it("selects the live UTC price with inclusive start and exclusive end", () => {
     const model = models.find(
-      (candidate) => candidate.id === "deepseek/deepseek-v4-pro-0813",
+      (candidate) => candidate.id === "deepseek/deepseek-v4-flash-vision-exp",
     );
     expect(model).toBeDefined();
 
@@ -64,16 +64,16 @@ describe("tokenPricingForPrompt", () => {
       utc_end: 400,
     });
     expect(priceCnyForUtcTime(model!, highPriceAtStart)).toEqual({
-      input: 8.94,
-      output: 26.81,
+      input: 2.98,
+      output: 8.94,
     });
     expect(priceCnyForUtcTime(model!, lowPriceAtEnd)).toEqual({
-      input: 4.47,
-      output: 13.4,
+      input: 1.49,
+      output: 4.47,
     });
     expect(pricingWindowForUtcTime(model!, overnightPrice)).toMatchObject({
       utc_start: 1000,
-      utc_end: 100,
+      utc_end: 0,
     });
   });
 });
