@@ -3027,6 +3027,7 @@ class SQLiteRouterRepository:
             "validating",
             "in_progress",
             "finalizing",
+            "cancelling",
             "completed",
             "failed",
             "cancelled",

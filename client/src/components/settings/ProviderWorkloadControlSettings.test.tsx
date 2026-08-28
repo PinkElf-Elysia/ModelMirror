@@ -473,4 +473,59 @@ describe("ProviderWorkloadControlSettings", () => {
     expect(document.body.textContent).not.toContain("private prompt");
     expect(document.body.textContent).not.toContain("api_key");
   });
+
+  it("shows local Batch status without exposing an upstream Batch id", async () => {
+    const policy = {
+      contract_version: "modelmirror-provider-workload-routing-v1",
+      entry_id: "openrouter_batch",
+      feature_enabled: true,
+      data_plane_integrated: true,
+      configured_status: "managed_required",
+      effective_status: "managed_required",
+      revision: 2,
+      policy_fingerprint: "batch-policy",
+      local_fallback_mode: "none",
+      bindings: [],
+      approval_valid: true,
+      blocking_reason_codes: [],
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/router/workload-control/policies") {
+        return jsonResponse({ policies: [policy] });
+      }
+      if (url === "/api/router/connections") return jsonResponse([connection]);
+      if (url.startsWith("/api/router/workload-control/receipts")) {
+        return jsonResponse({ runs: [{
+          run_id: "workrun-batch",
+          entry_id: "openrouter_batch",
+          status: "passed",
+          result_class: "batch_submitted",
+          reason_codes: [],
+          created_at: "2026-08-26T00:00:00Z",
+          batch_job_id: "mmbatch_0123456789abcdef0123456789abcdef",
+          batch_status: "in_progress",
+          batch_request_count: 3,
+          batch_completed_count: 1,
+          batch_failed_count: 0,
+          billing_authoritative: false,
+          calls: [],
+        }] });
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }));
+
+    render(<ProviderWorkloadControlSettings csrfToken="csrf-value" view="routing" />);
+    await screen.findByText("R6 / R7 入口、精确 Binding 与 Receipt");
+    fireEvent.change(screen.getByLabelText("入口"), {
+      target: { value: "openrouter_batch" },
+    });
+    fireEvent.click(screen.getByText("OpenRouter Batch · passed"));
+
+    expect(screen.getByText(/mmbatch_0123456789abcdef/)).toHaveTextContent(
+      "in_progress · 1 / 3",
+    );
+    expect(screen.getByText(/不构成 ModelMirror 计费依据/)).toBeVisible();
+    expect(document.body.textContent).not.toContain("batch_upstream_secret");
+  });
 });

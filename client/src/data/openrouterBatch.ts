@@ -1,4 +1,5 @@
 export type OpenRouterBatchStatus =
+  | "submitting"
   | "validating"
   | "in_progress"
   | "finalizing"
@@ -6,7 +7,8 @@ export type OpenRouterBatchStatus =
   | "failed"
   | "expired"
   | "cancelling"
-  | "cancelled";
+  | "cancelled"
+  | "uncertain";
 
 export interface OpenRouterBatchResult {
   id: string;
@@ -42,6 +44,7 @@ export interface OpenRouterBatchJob {
   } | null;
   results: OpenRouterBatchResult[] | null;
   error: unknown;
+  billing_authoritative?: false;
 }
 
 export interface OpenRouterBatchSubmitInput {
@@ -60,6 +63,7 @@ export const TERMINAL_BATCH_STATUSES = new Set<OpenRouterBatchStatus>([
   "failed",
   "expired",
   "cancelled",
+  "uncertain",
 ]);
 
 async function responseError(response: Response) {
@@ -77,11 +81,15 @@ async function responseError(response: Response) {
 
 export async function submitOpenRouterBatch(
   input: OpenRouterBatchSubmitInput,
+  idempotencyKey: string,
   signal?: AbortSignal,
 ) {
   const response = await fetch("/api/openrouter/batches", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "Idempotency-Key": idempotencyKey,
+    },
     body: JSON.stringify(input),
     signal,
   });

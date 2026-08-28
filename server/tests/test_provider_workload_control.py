@@ -22,6 +22,7 @@ from server.model_router.provider_operations import (
     ProviderOperationEndpointResolver,
     ProviderOperationTarget,
     ProviderOperationTransport,
+    provider_operation_batch_model_matches,
     provider_operation_model_matches,
 )
 from server.model_router.schemas import (
@@ -993,6 +994,39 @@ def test_operation_model_match_only_allows_openrouter_provider_prefix_omission()
     )
 
 
+@pytest.mark.parametrize(
+    ("actual_model", "expected"),
+    [
+        ("openai/gpt-5.6-luna", True),
+        ("gpt-5.6-luna", True),
+        ("openai/gpt-5.6-luna-20260709", True),
+        ("gpt-5.6-luna-20260709", True),
+        ("openai/gpt-5.6-luna-preview", False),
+        ("openai/gpt-5.6-luna-202607090", False),
+        ("openai/gpt-5.6-luna-20260708-extra", False),
+        ("openai/gpt-5.6-terra-20260709", False),
+    ],
+)
+def test_batch_model_match_allows_only_openrouter_dated_alias_resolution(
+    actual_model: str,
+    expected: bool,
+) -> None:
+    assert (
+        provider_operation_batch_model_matches(
+            provider_kind="openrouter",
+            requested_model="openai/gpt-5.6-luna",
+            actual_model=actual_model,
+        )
+        is expected
+    )
+    if actual_model.endswith("20260709"):
+        assert not provider_operation_batch_model_matches(
+            provider_kind="openai_compatible",
+            requested_model="openai/gpt-5.6-luna",
+            actual_model=actual_model,
+        )
+
+
 @pytest.mark.asyncio
 async def test_rerank_certification_keeps_dedicated_and_llm_json_modes_explicit(
     tmp_path: Path,
@@ -1306,6 +1340,150 @@ async def test_batch_certification_posts_once_then_polls_without_storing_results
     assert b"modelmirror-certification" not in database_bytes
     assert b'"content":"OK"' not in database_bytes
     assert b"batch-cert-secret" not in database_bytes
+
+
+@pytest.mark.asyncio
+async def test_batch_certification_tolerates_initial_poll_visibility_delay(
+    tmp_path: Path,
+) -> None:
+    requests: list[Request] = []
+    batch_poll_attempts = 0
+
+    def handler(request: Request) -> Response:
+        nonlocal batch_poll_attempts
+        requests.append(request)
+        if request.url.path.endswith("/api/v1/models"):
+            return Response(200, json={"data": [{"id": "provider/model"}]})
+        if request.method == "POST":
+            return Response(
+                202, json={"id": "batch_visibility_1", "status": "validating"}
+            )
+        batch_poll_attempts += 1
+        if batch_poll_attempts == 1:
+            return Response(404, json={"error": {"message": "not visible yet"}})
+        return Response(
+            200,
+            json={
+                "id": "batch_visibility_1",
+                "status": "completed",
+                "request_counts": {"total": 1, "completed": 1, "failed": 0},
+                "results": [
+                    {
+                        "custom_id": "modelmirror-certification",
+                        "response": {
+                            "status_code": 200,
+                            "body": {"model": "provider/model"},
+                        },
+                    }
+                ],
+            },
+        )
+
+    transport = MockTransport(handler)
+    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    connection = repository.create_connection(
+        "local",
+        RouterConnectionCreate(
+            name="Eventually visible Batch",
+            kind="openrouter",
+            base_url="https://openrouter.ai/api/v1",
+            api_key="batch-visibility-secret",
+            scopes=["batch"],
+        ),
+    )
+    router_service = ModelRouterService(
+        repository,
+        client_factory=lambda: httpx.AsyncClient(
+            transport=transport, follow_redirects=False, trust_env=False
+        ),
+        egress_policy=ProviderEgressPolicy(
+            resolver=lambda _host, _port: ["8.8.8.8"]
+        ),
+    )
+    result = await ProviderWorkloadCertificationService(
+        router_service,
+        client_factory=lambda: httpx.AsyncClient(
+            transport=transport, follow_redirects=False, trust_env=False
+        ),
+        batch_poll_interval_seconds=0,
+    ).run(
+        connection.id,
+        ProviderWorkloadCertificationRequest(
+            execution_shape="openrouter_batch_chat",
+            model_id="provider/model",
+            acknowledge_billed_call=True,
+        ),
+        idempotency_key="batch-visibility-delay",
+    )
+
+    assert result.status == "passed"
+    assert result.batch_status == "completed"
+    assert sum(request.method == "POST" for request in requests) == 1
+    assert batch_poll_attempts == 2
+
+
+@pytest.mark.asyncio
+async def test_batch_certification_bounds_initial_not_found_polling(
+    tmp_path: Path,
+) -> None:
+    requests: list[Request] = []
+
+    def handler(request: Request) -> Response:
+        requests.append(request)
+        if request.url.path.endswith("/api/v1/models"):
+            return Response(200, json={"data": [{"id": "provider/model"}]})
+        if request.method == "POST":
+            return Response(
+                202, json={"id": "batch_not_visible", "status": "validating"}
+            )
+        return Response(404, json={"error": {"message": "not visible yet"}})
+
+    transport = MockTransport(handler)
+    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    connection = repository.create_connection(
+        "local",
+        RouterConnectionCreate(
+            name="Not-yet-visible Batch",
+            kind="openrouter",
+            base_url="https://openrouter.ai/api/v1",
+            api_key="batch-not-visible-secret",
+            scopes=["batch"],
+        ),
+    )
+    router_service = ModelRouterService(
+        repository,
+        client_factory=lambda: httpx.AsyncClient(
+            transport=transport, follow_redirects=False, trust_env=False
+        ),
+        egress_policy=ProviderEgressPolicy(
+            resolver=lambda _host, _port: ["8.8.8.8"]
+        ),
+    )
+    result = await ProviderWorkloadCertificationService(
+        router_service,
+        client_factory=lambda: httpx.AsyncClient(
+            transport=transport, follow_redirects=False, trust_env=False
+        ),
+        batch_poll_interval_seconds=0,
+    ).run(
+        connection.id,
+        ProviderWorkloadCertificationRequest(
+            execution_shape="openrouter_batch_chat",
+            model_id="provider/model",
+            acknowledge_billed_call=True,
+        ),
+        idempotency_key="batch-not-visible",
+    )
+
+    assert result.status == "uncertain"
+    assert result.error_code == "provider_batch_poll_not_visible"
+    assert sum(request.method == "POST" for request in requests) == 1
+    assert sum(
+        request.method == "GET"
+        and request.url.path.endswith("/api/beta/batches/batch_not_visible")
+        for request in requests
+    ) == 5
+    assert repository.list_provider_batch_jobs("local")[0]["status"] == "validating"
 
 
 @pytest.mark.asyncio
@@ -1924,18 +2102,7 @@ async def test_workload_admin_api_is_session_and_csrf_protected_and_public_redac
         assert r7_policies["rag_processor_generate"]["data_plane_integrated"] is True
         assert r7_policies["rag_rerank"]["data_plane_integrated"] is True
         assert r7_policies["skill_rerank"]["data_plane_integrated"] is True
-        assert all(
-            item["data_plane_integrated"] is False
-            for entry_id, item in r7_policies.items()
-            if entry_id
-            not in {
-                "rag_embedding",
-                "rag_query_generate",
-                "rag_processor_generate",
-                "rag_rerank",
-                "skill_rerank",
-            }
-        )
+        assert r7_policies["openrouter_batch"]["data_plane_integrated"] is True
         assert all(item["feature_enabled"] is False for item in r7_policies.values())
         assert all(item["local_fallback_mode"] == "none" for item in r7_policies.values())
         assert policies.json()["contract_version"] == PROVIDER_WORKLOAD_CONTRACT_VERSION

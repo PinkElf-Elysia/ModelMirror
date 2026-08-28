@@ -70,6 +70,7 @@ from .schemas import (
 )
 from .chat_certification import ProviderChatCertificationService
 from .chat_control import ProviderChatControlService
+from .batch_gateway import ManagedOpenRouterBatchGateway
 from .workload_control import (
     ProviderWorkloadCertificationService,
     ProviderWorkloadControlService,
@@ -120,20 +121,24 @@ def start_provider_batch_recovery() -> None:
 
     async def recover() -> int:
         try:
-            return await ProviderWorkloadCertificationService(
-                get_model_router_service()
+            service = get_model_router_service()
+            certifications = await ProviderWorkloadCertificationService(
+                service
             ).resume_pending_batch_certifications()
+            runtime_jobs = await ManagedOpenRouterBatchGateway.for_router(
+                service
+            ).resume_pending_runtime_jobs()
+            return certifications + runtime_jobs
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             logger.warning(
-                "Provider Batch certification recovery stopped: %s",
-                type(exc).__name__,
+                "Provider Batch recovery stopped: %s", type(exc).__name__
             )
             return 0
 
     _batch_recovery_task = asyncio.create_task(
-        recover(), name="provider-batch-certification-recovery"
+        recover(), name="provider-batch-recovery"
     )
 
 

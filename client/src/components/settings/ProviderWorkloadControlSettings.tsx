@@ -125,6 +125,12 @@ interface ReceiptRun {
   result_class?: string | null;
   reason_codes?: string[];
   created_at: string;
+  batch_job_id?: string | null;
+  batch_status?: string | null;
+  batch_request_count?: number | null;
+  batch_completed_count?: number | null;
+  batch_failed_count?: number | null;
+  billing_authoritative?: false | null;
   calls: ReceiptCall[];
 }
 
@@ -719,6 +725,8 @@ export default function ProviderWorkloadControlSettings({
                 <p className="break-all font-mono text-[10px] text-slate-500">运行 {run.run_id}</p>
                 {run.parent_run_reference ? <p className="break-all text-slate-400">父运行：{run.parent_run_reference}</p> : null}
                 {run.result_class ? <p>结果分类：{run.result_class}</p> : null}
+                {run.batch_job_id ? <p className="break-all text-sky-100">Batch：{run.batch_job_id} · {run.batch_status ?? "unknown"} · {(run.batch_completed_count ?? 0) + (run.batch_failed_count ?? 0)} / {run.batch_request_count ?? 0}</p> : null}
+                {run.batch_job_id ? <p className="text-slate-500">usage/cost 为 Provider 报告元数据，不构成 ModelMirror 计费依据。</p> : null}
                 {run.reason_codes?.length ? <p className="text-amber-100">原因：{run.reason_codes.join("、")}</p> : null}
                 {run.calls.map((call) => (
                   <div className="rounded-md bg-slate-950/35 p-2.5" key={call.call_id}>
