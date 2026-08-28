@@ -77,7 +77,7 @@ export type HelpSearchEntry = {
 };
 
 export const verifiedBaseline = { commit: "cc49136c", date: "2026-08-26" };
-export const remoteMcpReviewBaseline = { commit: "27ab7de9", date: "2026-08-27" };
+export const remoteMcpReviewBaseline = { commit: "821067a7", date: "2026-08-27" };
 export const ragDiversityBaseline = { commit: "f0150fb5", date: "2026-08-27" };
 
 export const helpContentTypeLabels: Record<HelpContentType, string> = {

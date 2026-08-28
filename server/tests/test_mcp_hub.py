@@ -978,6 +978,9 @@ async def test_every_call_rechecks_schema_and_completed_approval_replays_cache(
     assert first["content"][0]["text"] == "result:safe"
     assert bridge.list_count == 1
     assert bridge.call_count == 1
+    assert service.get_candidate(candidate["candidate_id"])["connected"] is False
+    assert len(bridge.closed) == 1
+    assert len(bridge.revoked) == 1
 
     await service.disconnect(candidate["candidate_id"])
     replay = await service.execute(
@@ -1017,6 +1020,7 @@ async def test_expired_sidecar_session_reconnects_only_before_tool_call(
     assert bridge.list_count == 2
     assert bridge.call_count == 1
     assert service.get_candidate(candidate["candidate_id"])["state"] == "active"
+    assert service.get_candidate(candidate["candidate_id"])["connected"] is False
 
 
 @pytest.mark.asyncio
@@ -1060,6 +1064,66 @@ async def test_schema_drift_blocks_call_before_ledger_start(tmp_path: Path) -> N
     assert bridge.open_count == 1
     assert bridge.call_count == 0
     assert service.get_candidate(candidate["candidate_id"])["state"] == "drifted"
+
+
+@pytest.mark.asyncio
+async def test_oauth_review_can_refresh_only_schema_drifted_candidate(
+    tmp_path: Path,
+) -> None:
+    bridge = FakeBridge()
+    service = make_service(tmp_path, bridge=bridge)
+    candidate, runtime = await active_candidate(service)
+    old_schema_digest = candidate["schema_digest"]
+    bridge.tools = [
+        {
+            **TOOLS[0],
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "maxLength": 120},
+                },
+                "required": ["query"],
+                "additionalProperties": False,
+            },
+        }
+    ]
+
+    with pytest.raises(HubError, match="Schema"):
+        await service.execute(
+            candidate_id=candidate["candidate_id"],
+            runtime_tool_name=runtime["name"],
+            upstream_tool_name=runtime["upstream_tool_name"],
+            arguments={"query": "safe"},
+            approval=approval_for(
+                service, candidate, runtime, {"query": "safe"}
+            ),
+        )
+    drifted = service.store.require_candidate(
+        candidate["candidate_id"], service.tenant_id, service.owner_id
+    )
+    assert drifted["state"] == "drifted"
+    assert drifted["taint_reason"] in {
+        "hub_schema_drift",
+        "hub_schema_recheck_failed",
+    }
+    assert bridge.call_count == 0
+
+    with pytest.raises(HubError) as source_drift:
+        await service._open_candidate(
+            {**drifted, "taint_reason": "hub_source_drift"},
+            allow_oauth_review=True,
+        )
+    assert source_drift.value.code == "hub_schema_drift"
+
+    try:
+        await service._open_candidate(drifted, allow_oauth_review=True)
+        refreshed = service.get_candidate(candidate["candidate_id"])
+        assert refreshed["state"] == "verified"
+        assert refreshed["taint_reason"] == ""
+        assert refreshed["schema_digest"] != old_schema_digest
+        assert bridge.call_count == 0
+    finally:
+        await service._disconnect_live(candidate["candidate_id"])
 
 
 @pytest.mark.asyncio

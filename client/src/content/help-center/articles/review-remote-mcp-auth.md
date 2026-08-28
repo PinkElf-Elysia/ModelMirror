@@ -17,16 +17,14 @@
 
 GitHub 固定远程项目要求静态 Bearer Token。运维者在“认证与复核”中核对固定 Origin，只保存供应商签发的 HTTPS Token，再让 Review Factory 读取工具列表并提出一次固定的代表调用。发布契约并显式激活后，一次 `search_code` Runtime 调用由用户逐次批准；Token 旋转会让旧契约状态漂移，撤销后旧会话不能继续使用。
 
-Tako Catalog 项目则要求目标绑定的全新 OAuth 授权。Hub 中已有的 Tako Token 不会复用到 Catalog；授权、代表读取、契约发布和显式激活完成后，一次 `tako_available_data` Runtime 调用由用户逐次批准。撤销后页面立即显示“已撤销、未激活”，激活按钮失效，但无秘密契约仍可导出审计。
-
-![Tako MCP 撤销 OAuth 后显示已撤销和未激活，Runtime 激活按钮不可用](/help-center/27ab7de9/catalog-tako-runtime-revoked.png)
+Notion Hub 候选通过标准 OAuth 授权。完成授权、代表读取、契约发布和显式激活后，ModelMirror 只发布人工确认的 `notion-get-teams` 读取工具，其他工具不会因 Registry 收录而进入 Runtime。
 
 ## 操作步骤
 
 1. 打开 [MCP 工具货架](/mcps)，找到标记为远程连接且需要认证的项目。你应该能看到“认证与复核”入口，而不是任意连接配置框。
 2. 打开“认证与复核”，核对固定 Origin、认证类型和“本地单主体”提示。Origin 与预期不一致时立即停止。
 3. 按页面显示的唯一认证方式继续：静态 Token 只填写供应商访问令牌；OAuth 先重新发现元数据，再检查 Issuer、资源和推荐 Scope。页面不会接受自定义 Header 或 Scope。
-4. 保存 Token 或完成 OAuth 回调后刷新状态。你应该只看到掩码、revision 或“Token 已加密保存”，不应再次看到明文。
+4. 保存 Token 或完成 OAuth 回调后刷新状态。你应该只看到掩码、revision 或“Token 已加密保存”，不应再次看到明文。若页面显示“授权链接已过期”，不要刷新旧回调页；点击“创建新授权链接”完成授权后再刷新状态。
 5. 创建受控复核批次，等待自动阶段完成。系统会冻结认证后的工具列表和 Schema，并在代表调用前暂停。
 6. 核对精确 Origin、工具、参数和风险提示后，批准一次代表调用；只选择已实测并人工确认为只读的工具，再发布本机不可变契约。
 7. 契约发布后显式点击“激活 Runtime”。在 AI Runtime 每次展示脱敏参数时重新确认；每份批准只能调用一次，工具调用不会自动重试。
@@ -49,6 +47,12 @@ Registry 只提供身份与发现元数据，不等于安全认证。ModelMirror
 ### Hub 里已经授权过同一服务，Catalog 还需要再授权吗？
 
 需要。凭据按主体、目标类型、目标 ID、resource、issuer 和策略指纹绑定。Hub candidate 的 Token 不能用于 Catalog project；目标变化必须重新授权，避免跨目标复用 Bearer。
+
+### Hub 显示“授权链接已过期”，该怎么办？
+
+返回 [MCP Hub](/mcps?view=hub) 的“我的 Hub 连接”，核对目标名称和固定 Origin。过期后不应再看到“打开授权页面”；请按操作步骤第 4 步创建新链接。不要刷新旧回调页，也不要重用旧授权链接或授权码。
+
+若授权链接由另一标签页创建，当前页面不会复用旧链接；按页面提示取消待授权会话并重新创建。成功时应显示 Token 已加密保存及当前 revision，但授权成功仍不等于复核通过或已激活。本机过期提示不改变服务端有效期，后台不会自动重新授权、换票或调用工具。
 
 ### 服务未先返回 Bearer challenge，为什么仍可能发现 OAuth？
 

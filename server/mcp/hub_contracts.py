@@ -290,10 +290,12 @@ class HubContractRegistry:
             contracts.append(normalize_contract(raw))
         return contracts
 
-    def _local_contracts(self) -> list[HubReviewedContract]:
+    def _local_contracts(
+        self,
+    ) -> tuple[list[HubReviewedContract], set[tuple[str, str, str]]]:
         if self.local_store is None or not self.signing_key:
-            return []
-        contracts: list[HubReviewedContract] = []
+            return [], set()
+        rows_by_contract: dict[str, list[tuple[HubReviewedContract, str]]] = {}
         for row in self.local_store.list_local_contract_revisions(
             self.tenant_id, self.owner_id
         ):
@@ -305,12 +307,63 @@ class HubContractRegistry:
             expected = contract_signature(contract, self.signing_key)
             if not hmac.compare_digest(expected, str(row.get("signature") or "")):
                 continue
-            contracts.append(contract)
-        return contracts
+            rows_by_contract.setdefault(contract.contract_id, []).append(
+                (contract, str(row.get("supersedes_fingerprint") or ""))
+            )
+        heads: list[HubReviewedContract] = []
+        collisions: set[tuple[str, str, str]] = set()
+        for revisions in rows_by_contract.values():
+            by_fingerprint: dict[str, HubReviewedContract] = {}
+            predecessor_by_fingerprint: dict[str, str] = {}
+            invalid = False
+            for contract, predecessor in revisions:
+                fingerprint = contract.contract_fingerprint
+                current = by_fingerprint.get(fingerprint)
+                if current is not None and current.identity != contract.identity:
+                    invalid = True
+                    break
+                by_fingerprint[fingerprint] = contract
+                if predecessor:
+                    previous = predecessor_by_fingerprint.get(fingerprint)
+                    if previous is not None and previous != predecessor:
+                        invalid = True
+                        break
+                    predecessor_by_fingerprint[fingerprint] = predecessor
+            identities = {contract.identity for contract in by_fingerprint.values()}
+            if len(identities) != 1:
+                invalid = True
+            fingerprints = set(by_fingerprint)
+            if any(
+                predecessor not in fingerprints
+                for predecessor in predecessor_by_fingerprint.values()
+            ):
+                invalid = True
+            head_fingerprints = fingerprints - set(predecessor_by_fingerprint.values())
+            if len(head_fingerprints) != 1:
+                invalid = True
+            if not invalid:
+                head_fingerprint = next(iter(head_fingerprints))
+                visited: set[str] = set()
+                cursor = head_fingerprint
+                while cursor:
+                    if cursor in visited:
+                        invalid = True
+                        break
+                    visited.add(cursor)
+                    cursor = predecessor_by_fingerprint.get(cursor, "")
+                if visited != fingerprints:
+                    invalid = True
+            identity = next(iter(identities), None)
+            if invalid:
+                if identity is not None:
+                    collisions.add(identity)
+                continue
+            heads.append(by_fingerprint[head_fingerprint])
+        return heads, collisions
 
     def all(self) -> tuple[list[HubReviewedContract], set[tuple[str, str, str]]]:
         repository = self._repository_contracts()
-        local = self._local_contracts()
+        local, local_collisions = self._local_contracts()
         by_identity: dict[tuple[str, str, str], HubReviewedContract] = {}
         collisions: set[tuple[str, str, str]] = set()
         for contract in [*repository, *local]:
@@ -319,7 +372,13 @@ class HubContractRegistry:
                 by_identity[contract.identity] = contract
             elif current.contract_fingerprint != contract.contract_fingerprint:
                 collisions.add(contract.identity)
-        return list(by_identity.values()), collisions
+        return list(by_identity.values()), collisions | local_collisions
+
+    def is_repository_contract(self, contract: HubReviewedContract) -> bool:
+        return any(
+            item.contract_fingerprint == contract.contract_fingerprint
+            for item in self._repository_contracts()
+        )
 
     def lookup_identity(
         self, server_name: str, version: str, remote_url: str

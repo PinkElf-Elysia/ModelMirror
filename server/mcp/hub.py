@@ -2843,7 +2843,13 @@ class MCPHubService:
                     self._raise_remote_auth(exc)
             tools, digest = self._validate_tools(response.get("tools"))
             expected = str(candidate.get("schema_digest") or "")
-            if expected and digest != expected:
+            review_schema_refresh = (
+                allow_oauth_review
+                and candidate.get("state") == "drifted"
+                and candidate.get("taint_reason")
+                in {"hub_schema_drift", "hub_schema_recheck_failed"}
+            )
+            if expected and digest != expected and not review_schema_refresh:
                 raise HubError("远程工具 Schema 已漂移。", code="hub_schema_drift", status_code=409)
             session_id = str(response.get("session_id") or "")
             if not session_id:
@@ -3303,6 +3309,8 @@ class MCPHubService:
                 if isinstance(exc, HubUnknownOutcomeError):
                     raise
                 raise HubUnknownOutcomeError() from exc
+            finally:
+                await self._disconnect_live(clean_id)
 
 
 class CandidateCreateRequest(BaseModel):
