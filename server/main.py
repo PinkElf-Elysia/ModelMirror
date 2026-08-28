@@ -80,6 +80,7 @@ try:
         execute_workflow_trigger,
         router as workflow_deployments_router,
         workflow_failure_triggers_enabled,
+        workflow_rss_triggers_enabled,
         workflow_subworkflows_enabled,
     )
     from server.workflow_deployments import (
@@ -94,6 +95,7 @@ except ModuleNotFoundError:
         execute_workflow_trigger,
         router as workflow_deployments_router,
         workflow_failure_triggers_enabled,
+        workflow_rss_triggers_enabled,
         workflow_subworkflows_enabled,
     )
     from workflow_deployments import (
@@ -693,6 +695,12 @@ try:
         validate_rendered_knowledge_proposal,
         workflow_knowledge_proposals_enabled,
     )
+    from server.workflow_rss import (
+        WorkflowRssError,
+        fetch_rss_feed,
+        rss_item_content_length,
+        validate_rss_config,
+    )
     from server.workflow_native.r23_iteration import (
         MAX_CHILD_RESULT_CHARS,
         WorkflowIterationError,
@@ -810,6 +818,12 @@ except ModuleNotFoundError:
         validate_knowledge_write_proposal_config,
         validate_rendered_knowledge_proposal,
         workflow_knowledge_proposals_enabled,
+    )
+    from workflow_rss import (
+        WorkflowRssError,
+        fetch_rss_feed,
+        rss_item_content_length,
+        validate_rss_config,
     )
     from workflow_native.r23_iteration import (
         MAX_CHILD_RESULT_CHARS,
@@ -3140,6 +3154,7 @@ class WorkflowPayload(BaseModel):
             "scheduled_start": ("eventVariable",),
             "http_event_entry": ("eventVariable",),
             "form_event_entry": ("eventVariable", "submissionVariable"),
+            "rss_event_entry": ("eventVariable", "itemVariable"),
             "failure_event_entry": ("eventVariable",),
             "workflow_call_entry": ("eventVariable",),
             "invoke_workflow": ("resultVariable",),
@@ -5778,6 +5793,7 @@ def workflow_node_kind(node: WorkflowNodePayload) -> WorkflowNodeType:
         "scheduled_start",
         "http_event_entry",
         "form_event_entry",
+        "rss_event_entry",
         "failure_event_entry",
         "workflow_call_entry",
         "invoke_workflow",
@@ -9684,7 +9700,7 @@ async def _run_workflow_response(
         node.id
         for node in payload.workflow.nodes
         if workflow_node_kind(node)
-        in {"input", "scheduled_start", "http_event_entry", "form_event_entry", "failure_event_entry", "workflow_call_entry"}
+        in {"input", "scheduled_start", "http_event_entry", "form_event_entry", "rss_event_entry", "failure_event_entry", "workflow_call_entry"}
     ]
     if not start_node_ids and order:
         start_node_ids = [order[0]]
@@ -9891,6 +9907,11 @@ async def _run_workflow_response(
             isinstance(runtime_trigger_event, dict)
             and runtime_trigger_event.get("type") == "form_submission"
         ),
+        "private_rss_event": bool(
+            isinstance(runtime_trigger_event, dict)
+            and runtime_trigger_event.get("type") == "rss_item"
+            and not runtime_trigger_event.get("test_mode")
+        ),
         "knowledge_proposal_sensitive_variable_names": {
             str(node.data.get("contentVariable") or "").strip()
             for node in payload.workflow.nodes
@@ -9900,11 +9921,15 @@ async def _run_workflow_response(
         "ephemeral_variable_names": {
             str(node.data.get(field_name) or "").strip()
             for node in payload.workflow.nodes
-            if workflow_node_kind(node) in {"http_event_entry", "form_event_entry"}
+            if workflow_node_kind(node) in {"http_event_entry", "form_event_entry", "rss_event_entry"}
             for field_name in (
                 ("eventVariable", "bodyVariable")
                 if workflow_node_kind(node) == "http_event_entry"
-                else ("eventVariable", "submissionVariable")
+                else (
+                    ("eventVariable", "submissionVariable")
+                    if workflow_node_kind(node) == "form_event_entry"
+                    else ("eventVariable", "itemVariable")
+                )
             )
             if str(node.data.get(field_name) or "").strip()
         }
@@ -15440,6 +15465,84 @@ async def _run_workflow_response(
                         f"sha256={str(runtime_event.get('body_sha256') or '')[:64]}"
                     )
 
+                elif kind == "rss_event_entry":
+                    try:
+                        rss_config = validate_rss_config(node.data)
+                        runtime_event = dict(
+                            task_state.get("runtime_trigger_event") or {}
+                        )
+                        if not runtime_event:
+                            if not workflow_rss_triggers_enabled():
+                                raise WorkflowRssError(
+                                    "RSS_FEATURE_DISABLED",
+                                    "Workflow RSS triggers are disabled.",
+                                )
+                            fetched = await fetch_rss_feed(
+                                str(rss_config["feedUrl"])
+                            )
+                            if fetched.feed is None or not fetched.feed.items:
+                                raise WorkflowRssError(
+                                    "RSS_TEST_ITEM_UNAVAILABLE",
+                                    "RSS source does not currently contain an item to test.",
+                                )
+                            test_item = fetched.feed.items[0]
+                            runtime_event = {
+                                "type": "rss_item",
+                                "occurrence_key": f"rss:test:{test_item.item_key}",
+                                "item_key": test_item.item_key,
+                                "feed_title": fetched.feed.title,
+                                "published_at": (
+                                    test_item.published_at or test_item.updated_at
+                                ),
+                                "received_at": time.time(),
+                                "item_bytes": rss_item_content_length(test_item),
+                                "test_mode": True,
+                                "item": test_item.public_value(),
+                            }
+                        raw_item = runtime_event.get("item")
+                        if not isinstance(raw_item, dict):
+                            raise WorkflowRssError(
+                                "RSS_DELIVERY_INVALID",
+                                "RSS delivery item is unavailable.",
+                            )
+                        safe_event = {
+                            "type": "rss_item",
+                            "occurrenceKey": str(
+                                runtime_event.get("occurrence_key") or ""
+                            ),
+                            "itemKey": str(runtime_event.get("item_key") or ""),
+                            "feedTitle": (
+                                str(runtime_event.get("feed_title"))
+                                if runtime_event.get("feed_title") is not None
+                                else None
+                            ),
+                            "publishedAt": runtime_event.get("published_at"),
+                            "receivedAt": float(
+                                runtime_event.get("received_at") or time.time()
+                            ),
+                            "trust": "untrusted_external",
+                            "testMode": bool(runtime_event.get("test_mode")),
+                        }
+                        event_variable = str(rss_config["eventVariable"])
+                        item_variable = str(rss_config["itemVariable"])
+                        variables[event_variable] = normalize_workflow_value(
+                            safe_event, path=f"$.variables.{event_variable}"
+                        )
+                        variables[item_variable] = normalize_workflow_value(
+                            dict(raw_item), path=f"$.variables.{item_variable}"
+                        )
+                        output = (
+                            f"rss item_key={safe_event['itemKey']} "
+                            f"bytes={int(runtime_event.get('item_bytes') or 0)} "
+                            f"received_at={safe_event['receivedAt']}"
+                        )
+                    except WorkflowRssError as exc:
+                        raise WorkflowTerminationError(
+                            exc.code,
+                            exc.safe_message,
+                            node_id=node.id,
+                        ) from exc
+
                 elif kind == "invoke_workflow":
                     result_variable = str(
                         node.data.get("resultVariable") or "workflow_result"
@@ -20938,7 +21041,9 @@ async def _run_workflow_response(
                                 exc,
                             )
                         output = ""
-                        if not bool(task_state.get("private_form_event")):
+                        if not bool(task_state.get("private_form_event")) and not bool(
+                            task_state.get("private_rss_event")
+                        ):
                             variables[output_variable] = output
                         if agent_pipeline is not None and agent_context is not None:
                             try:
@@ -20992,6 +21097,7 @@ async def _run_workflow_response(
                         if (
                             isinstance(exc, RuntimeToolError)
                             and not bool(task_state.get("private_form_event"))
+                            and not bool(task_state.get("private_rss_event"))
                         ):
                             yield sse_payload(
                                 {
@@ -22729,6 +22835,7 @@ async def _run_workflow_response(
                         "eventVariable",
                         "bodyVariable",
                         "submissionVariable",
+                        "itemVariable",
                         "resultVariable",
                     )
                     if str(node.data.get(field_name) or "").strip()
@@ -22742,11 +22849,25 @@ async def _run_workflow_response(
                         if output_variable in variables
                         else {}
                     )
+                if kind == "rss_event_entry":
+                    event_variable = str(node.data.get("eventVariable") or "").strip()
+                    public_node_variables = (
+                        {event_variable: variables[event_variable]}
+                        if event_variable in variables
+                        else {}
+                    )
                 if bool(task_state.get("private_form_event")):
                     public_node_output = (
                         output
                         if kind == "form_event_entry"
                         else "form workflow node output withheld"
+                    )
+                    public_node_variables = {}
+                if bool(task_state.get("private_rss_event")):
+                    public_node_output = (
+                        output
+                        if kind == "rss_event_entry"
+                        else "rss workflow node output withheld"
                     )
                     public_node_variables = {}
                 yield sse_payload(
@@ -22993,12 +23114,20 @@ async def _run_workflow_response(
                 return
 
             persisted_final_output = final_output
-            if bool(task_state.get("private_http_event")) or bool(
-                task_state.get("private_form_event")
+            if (
+                bool(task_state.get("private_http_event"))
+                or bool(task_state.get("private_form_event"))
+                or bool(task_state.get("private_rss_event"))
             ):
                 encoded_final_output = final_output.encode("utf-8")
                 source_name = (
-                    "form" if bool(task_state.get("private_form_event")) else "webhook"
+                    "rss"
+                    if bool(task_state.get("private_rss_event"))
+                    else (
+                        "form"
+                        if bool(task_state.get("private_form_event"))
+                        else "webhook"
+                    )
                 )
                 persisted_final_output = (
                     f"{source_name} output_bytes={len(encoded_final_output)} "
@@ -23078,11 +23207,13 @@ async def _run_workflow_response(
                     "final_output": (
                         persisted_final_output
                         if bool(task_state.get("private_form_event"))
+                        or bool(task_state.get("private_rss_event"))
                         else safe_content_policy_value(final_output)
                     ),
                     "variables": (
                         {}
                         if bool(task_state.get("private_form_event"))
+                        or bool(task_state.get("private_rss_event"))
                         else safe_content_policy_value(
                             {
                                 name: value
@@ -23114,9 +23245,13 @@ async def _run_workflow_response(
                 },
             )
         except RuntimeInterrupt as interrupt:
-            if bool(task_state.get("private_form_event")):
+            if bool(task_state.get("private_form_event")) or bool(
+                task_state.get("private_rss_event")
+            ):
                 failure_message = (
-                    "Form workflows cannot persist a continuation."
+                    "RSS workflows cannot persist a continuation."
+                    if bool(task_state.get("private_rss_event"))
+                    else "Form workflows cannot persist a continuation."
                 )
                 workflow_execution_store.fail(task_id, error=failure_message)
                 await run_registry.update_run(

@@ -59,6 +59,7 @@ import {
   type WorkflowDeploymentSummary,
   type WorkflowExecutionSummary,
   type WorkflowFormPublicationSummary,
+  type WorkflowRssSubscriptionSummary,
 } from "../../utils/workflowDeployments";
 import {
   isLegacyStarterWorkflow,
@@ -611,6 +612,19 @@ export function createNodeData(
           options: [],
         },
       ] as unknown as WorkflowNodeData["fields"],
+    };
+  }
+
+  if (kind === "rss_event_entry") {
+    return {
+      kind,
+      title: "RSS/Atom 订阅入口",
+      description: "安全轮询公网 HTTPS 订阅源，并为每个新条目独立启动。",
+      contractVersion: 1,
+      feedUrl: "https://",
+      pollIntervalMinutes: 15,
+      eventVariable: "rss_event",
+      itemVariable: "rss_item",
     };
   }
 
@@ -3680,6 +3694,7 @@ function NodeConfig({
   const variableContract = variableNodeContracts.get(data.kind) ?? null;
   const documentRegistryMetadata = nodeRegistryMetadata.get("document_extractor") ?? {};
   const knowledgeProposalMetadata = nodeRegistryMetadata.get("knowledge_write_proposal") ?? {};
+  const rssRegistryMetadata = nodeRegistryMetadata.get("rss_event_entry") ?? {};
   const documentFileAssetModeEnabled =
     documentRegistryMetadata.file_asset_mode_enabled !== false;
   const documentFileAssetModeReason = String(
@@ -4058,7 +4073,7 @@ function NodeConfig({
         </Field>
       ) : null}
 
-      {(["scheduled_start", "http_event_entry", "form_event_entry", "failure_event_entry", "workflow_call_entry", "invoke_workflow", "suspend_wait", "http_event_reply"].includes(data.kind)
+      {(["scheduled_start", "http_event_entry", "form_event_entry", "rss_event_entry", "failure_event_entry", "workflow_call_entry", "invoke_workflow", "suspend_wait", "http_event_reply"].includes(data.kind)
         || (data.kind === "iteration" && isIterationV2(data))) ? (
         <WorkflowDeploymentNodeConfig
           currentProjectId={workflowId.startsWith("wf_") ? workflowId : undefined}
@@ -4066,6 +4081,8 @@ function NodeConfig({
           data={data}
           declarations={declarations}
           edges={edges}
+          featureDisabledReason={String(rssRegistryMetadata.feature_disabled_reason ?? "")}
+          featureEnabled={data.kind !== "rss_event_entry" || rssRegistryMetadata.feature_enabled === true}
           node={node}
           nodes={nodes}
           onChange={update}
@@ -6348,6 +6365,8 @@ function WorkflowCanvas({
     useState<WorkflowDeploymentSummary | null>(null);
   const [formPublication, setFormPublication] =
     useState<WorkflowFormPublicationSummary | null>(null);
+  const [rssSubscription, setRssSubscription] =
+    useState<WorkflowRssSubscriptionSummary | null>(null);
   const [deploymentExecutions, setDeploymentExecutions] = useState<
     WorkflowExecutionSummary[]
   >([]);
@@ -6393,6 +6412,7 @@ function WorkflowCanvas({
     projectRevision,
   );
   const hasFormEntry = nodes.some((node) => node.data.kind === "form_event_entry");
+  const hasRssEntry = nodes.some((node) => node.data.kind === "rss_event_entry");
   const { screenToFlowPosition, fitView } = useReactFlow();
   const navigate = useNavigate();
 
@@ -6430,6 +6450,7 @@ function WorkflowCanvas({
         setProjectRevision(project.draft_revision);
         setActiveDeployment(project.active_deployment ?? null);
         setFormPublication(project.form_publication ?? null);
+        setRssSubscription(project.rss_subscription ?? null);
       })
       .catch((error) => {
         if (!cancelled) {
@@ -6464,6 +6485,25 @@ function WorkflowCanvas({
       window.clearInterval(intervalId);
     };
   }, [onSave, workflowId, workspaceTab]);
+
+  useEffect(() => {
+    if (onSave || !hasRssEntry || !workflowId.startsWith("wf_")) return;
+    let cancelled = false;
+    const refresh = () => {
+      void fetchWorkflowProject(workflowId)
+        .then((project) => {
+          if (cancelled) return;
+          setActiveDeployment(project.active_deployment ?? null);
+          setRssSubscription(project.rss_subscription ?? null);
+        })
+        .catch(() => undefined);
+    };
+    const intervalId = window.setInterval(refresh, 5_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [hasRssEntry, onSave, workflowId]);
 
   const openRunFileInput = useCallback((variableName: string) => {
     if (!variableName) return;
@@ -7214,12 +7254,14 @@ function WorkflowCanvas({
       setProjectRevision(project.draft_revision);
       setActiveDeployment(project.active_deployment ?? null);
       setFormPublication(project.form_publication ?? null);
+      setRssSubscription(project.rss_subscription ?? null);
       return project.project_id;
     }
     const project = await createWorkflowProject(savedDefinition);
     setProjectRevision(project.draft_revision);
     setActiveDeployment(project.active_deployment ?? null);
     setFormPublication(project.form_publication ?? null);
+    setRssSubscription(project.rss_subscription ?? null);
     navigate(`/workflow/${project.project_id}`, { replace: true });
     return project.project_id;
   }
@@ -7326,6 +7368,43 @@ function WorkflowCanvas({
       setErrorNotice("");
     } catch (error) {
       setErrorNotice(error instanceof Error ? error.message : "表单停用失败。");
+    } finally {
+      setIsPublishing(false);
+    }
+  }
+
+  async function publishAndEnableRss() {
+    if (onSave || isPublishing || !hasRssEntry) return;
+    setIsPublishing(true);
+    try {
+      const projectId = await saveWorkflow();
+      if (!projectId) return;
+      const release = await publishWorkflowProject(projectId);
+      await activateWorkflowVersion(projectId, release.version);
+      const project = await fetchWorkflowProject(projectId);
+      setActiveDeployment(project.active_deployment ?? null);
+      setRssSubscription(project.rss_subscription ?? null);
+      setSaveNotice("RSS 订阅已启用，首次检查只建立当前条目基线");
+      setErrorNotice("");
+    } catch (error) {
+      setErrorNotice(error instanceof Error ? error.message : "RSS 订阅启用失败。");
+    } finally {
+      setIsPublishing(false);
+    }
+  }
+
+  async function deactivateRss() {
+    if (!activeDeployment?.active || activeDeployment.trigger_kind !== "rss") return;
+    setIsPublishing(true);
+    try {
+      await deactivateWorkflowVersion(workflowId, activeDeployment.version);
+      const project = await fetchWorkflowProject(workflowId);
+      setActiveDeployment(project.active_deployment ?? null);
+      setRssSubscription(project.rss_subscription ?? null);
+      setSaveNotice("RSS 订阅已停用，不再接收新条目");
+      setErrorNotice("");
+    } catch (error) {
+      setErrorNotice(error instanceof Error ? error.message : "RSS 订阅停用失败。");
     } finally {
       setIsPublishing(false);
     }
@@ -7798,6 +7877,64 @@ function WorkflowCanvas({
                           停用表单
                         </button>
                       </>
+                    ) : null}
+                  </div>
+                </div>
+              </details>
+            ) : null}
+            {!onSave && hasRssEntry ? (
+              <details className="group relative z-20" data-testid="rss-subscription-menu">
+                <summary
+                  aria-label="RSS 订阅设置"
+                  className={`flex cursor-pointer list-none items-center gap-2 rounded-md border px-3 py-1.5 text-xs font-semibold transition marker:hidden [&::-webkit-details-marker]:hidden ${
+                    rssSubscription?.active
+                      ? "border-orange-300/30 bg-orange-300/10 text-orange-100 hover:bg-orange-300/15"
+                      : "border-white/10 bg-white/[0.05] text-slate-200 hover:border-orange-200/40 hover:text-orange-100"
+                  }`}
+                >
+                  <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${rssSubscription?.active ? "bg-orange-300" : "bg-slate-500"}`} />
+                  <span>{rssSubscription?.active ? `RSS v${rssSubscription.version}` : "RSS 订阅"}</span>
+                  <span className="font-normal text-current/75">
+                    {rssSubscription?.active
+                      ? rssSubscription.baseline_established ? "监听中" : "待建基线"
+                      : rssSubscription ? "已停用" : "未启用"}
+                  </span>
+                  <span aria-hidden="true" className="text-[10px] transition-transform group-open:rotate-180">▾</span>
+                </summary>
+                <div className="absolute right-0 top-[calc(100%+0.5rem)] w-72 rounded-lg border border-white/10 bg-slate-950 p-3 shadow-lg">
+                  <div className="mb-3 border-b border-white/10 pb-3">
+                    <p className="text-xs font-semibold text-white">
+                      {rssSubscription?.active
+                        ? rssSubscription.baseline_established ? "正在监听后续新条目" : "等待首次检查建立基线"
+                        : "RSS 订阅尚未启用"}
+                    </p>
+                    <p className="mt-1 text-[11px] leading-4 text-slate-400">
+                      {rssSubscription?.active
+                        ? `下次检查 ${new Date(rssSubscription.next_poll_at * 1000).toLocaleString()}${rssSubscription.consecutive_failures ? ` · 连续失败 ${rssSubscription.consecutive_failures} 次` : ""}`
+                        : "发布并启用后，当前已有条目不会补跑。"}
+                    </p>
+                    {rssSubscription?.last_success_at ? (
+                      <p className="mt-1 text-[11px] text-slate-500">上次成功 {new Date(rssSubscription.last_success_at * 1000).toLocaleString()}</p>
+                    ) : null}
+                  </div>
+                  <div className="space-y-2">
+                    <button
+                      className="w-full rounded-md bg-orange-300 px-3 py-2 text-left text-xs font-semibold text-slate-950 transition hover:bg-orange-200 disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={isPublishing || isSaving}
+                      onClick={() => void publishAndEnableRss()}
+                      type="button"
+                    >
+                      {rssSubscription?.active ? "发布新版本并切换" : "发布并启用订阅"}
+                    </button>
+                    {rssSubscription?.active ? (
+                      <button
+                        className="w-full rounded-md px-3 py-2 text-left text-xs font-semibold text-rose-200 transition hover:bg-rose-300/10 disabled:opacity-50"
+                        disabled={isPublishing}
+                        onClick={() => void deactivateRss()}
+                        type="button"
+                      >
+                        停用订阅
+                      </button>
                     ) : null}
                   </div>
                 </div>

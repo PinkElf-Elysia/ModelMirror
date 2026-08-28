@@ -31,6 +31,7 @@ describe("workflowNodeRegistry NodeContract V3 guard", () => {
       "scheduled_start",
       "http_event_entry",
       "form_event_entry",
+      "rss_event_entry",
       "failure_event_entry",
       "workflow_call_entry",
       "invoke_workflow",

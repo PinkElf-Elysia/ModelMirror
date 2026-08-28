@@ -1,6 +1,6 @@
-# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0/R2.1/R2.2/R2.3/R2.4/R2.5/R2.6）
+# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0/R2.1/R2.2/R2.3/R2.4/R2.5/R2.6/R2.7）
 
-- 审计日期：2026-08-26
+- 审计日期：2026-08-27
 - 唯一基线：PR #213 合并提交 `911593f505b05b01037769f578e21f22d2a1c9af`
 - R0 基线事实：NodeContract V3、37 个 `NativeNodeKind`、35 个画布目录项、20 个冻结 compatibility 合同
 - R1 结果：新增 4 个完整合同，并将既有 `llm` 提升为完整合同；自研节点总数 41、画布目录项 39、当前 19 个冻结 compatibility 合同；四节点与 `llm` Planner 均关闭
@@ -19,7 +19,8 @@
 - R2.4 结果：不新增节点类型，将 `document_extractor` 升级为“内容解析”V3；可把安全 HTTP 响应或明确共享文件解析为受限 HTML、Markdown、XML 结构或带不可信边界的文本，不提供网页渲染、选择器抽取或 XML Schema/XPath/XSLT；Registry 数量不变
 - R2.5 结果：新增完整合同 `form_event_entry`，发布同源签名表单、严格类型字段与固定接受页；表单密钥只返回一次，公开提交原文不写入部署 Store，Planner 与全部 Xpert 类型均禁用
 - R2.6 结果：新增完整合同 `knowledge_write_proposal`，只向 Knowledge Inbox 创建或复用待审批提议，不批准、构建、激活或推广知识版本；允许确定性的私有工作流与 Xpert 路径，匿名表单、公共 App、Evaluation、Evolution 与 Planner 禁用
-- 当前 Registry 事实：53 Native、49 个可新增 Palette 项、50 个完整合同、3 个 compatibility 合同、7 个 Planner 节点
+- R2.7 结果：新增完整合同 `rss_event_entry`，以仅公网 HTTPS、逐跳安全校验、首次无回放基线和持久条目去重提供 RSS 2.0/Atom 1.0 订阅入口；认证源、附件、WebSub、Xpert 与等待节点禁用
+- 当前 Registry 事实：54 Native、50 个可新增 Palette 项、51 个完整合同、3 个 compatibility 合同、7 个 Planner 节点
 - 参考清单：563 条节点名称/类型，其中 `.ee` 2 条仅保留名称审计
 
 ## 结论与许可证边界
@@ -30,17 +31,17 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 
 ## 状态汇总
 
-- 已实现：35
+- 已实现：36
 - 部分实现：72
 - 通用节点可覆盖：271（不等于已有专用连接器）
 - 目录声明：0
-- 未实现：185
+- 未实现：184
 
 覆盖等级用于表达证据强度：`exact` 只允许完整 NodeContract 且必须绑定运行/测试证据；`limited` 必须写明语义缺口；`composable` 只表示受控通用组合路径，不代表专用连接器；`none` 表示没有运行合同。
 
 | 能力域 | 总数 | 已实现 | 部分实现 | 通用覆盖 | 目录声明 | 未实现 |
 |---|---:|---:|---:|---:|---:|---:|
-| 触发与事件 | 112 | 6 | 2 | 0 | 0 | 104 |
+| 触发与事件 | 112 | 7 | 2 | 0 | 0 | 103 |
 | 流程控制与编排 | 8 | 6 | 1 | 0 | 0 | 1 |
 | 数据变换与计算 | 17 | 11 | 4 | 0 | 0 | 2 |
 | 文件与内容处理 | 20 | 2 | 8 | 6 | 0 | 4 |
@@ -68,6 +69,7 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 | 触发与事件 | 异常事件入口 | failure_event_entry | (Error Trigger) | 已实现 |
 | 触发与事件 | 子流程入口 | workflow_call_entry | (Execute Workflow Trigger) | 已实现 |
 | 触发与事件 | HTTP 事件入口 | http_event_entry | (Webhook) | 已实现 |
+| 触发与事件 | RSS/Atom 订阅入口 | rss_event_entry | (RSS Feed Trigger) | 已实现 |
 | 流程控制与编排 | 多路分派 | multi_route | (Switch) | 已实现 |
 | 流程控制与编排 | 二路条件 | condition | (If) | 已实现 |
 | 流程控制与编排 | 挂起等待 | suspend_wait | (Wait) | 已实现 |
@@ -138,4 +140,4 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 - 前端 `WorkflowNodeKind`、后端 `NativeNodeKind`、NodeContract Registry 必须完全一致。
 - Palette 必须是 NodeContract 合法子集；每个启用项必须有默认数据和配置入口。
 - compatibility 合同不得超过 #213 冻结白名单；新节点必须直接提供完整合同。
-- Planner 只接受完整合同、匹配 checksum 且显式启用的节点；R1–R2.6 增量节点均禁止 Planner 自动生成，Planner 可生成类型仍固定为 7 类。
+- Planner 只接受完整合同、匹配 checksum 且显式启用的节点；R1–R2.7 增量节点均禁止 Planner 自动生成，Planner 可生成类型仍固定为 7 类。

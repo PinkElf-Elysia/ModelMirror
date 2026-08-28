@@ -7,6 +7,7 @@ import json
 import re
 import socket
 from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote, urljoin, urlsplit
 
@@ -69,6 +70,15 @@ class WorkflowHttpRequestError(RuntimeError):
         super().__init__(f"{code}: {safe_message}")
         self.code = code
         self.safe_message = safe_message
+
+
+@dataclass(frozen=True, slots=True)
+class PublicWorkflowResource:
+    status_code: int
+    final_url: str
+    content_type: str
+    headers: dict[str, str]
+    body: bytes
 
 
 def _fail(code: str, message: str) -> None:
@@ -608,6 +618,120 @@ def _origin(url: str) -> tuple[str, str, int]:
     parsed = urlsplit(url)
     scheme = parsed.scheme.lower()
     return scheme, _canonical_hostname(parsed.hostname), parsed.port or (443 if scheme == "https" else 80)
+
+
+async def fetch_public_workflow_resource(
+    url: str,
+    *,
+    headers: Mapping[str, str] | None = None,
+    timeout_seconds: int = 30,
+    redirect_limit: int = 3,
+    response_limit_bytes: int = MAX_RESPONSE_BYTES,
+    require_https: bool = False,
+    transport: httpx.AsyncBaseTransport | None = None,
+    url_validator: Callable[[str, str], Awaitable[tuple[str, ...]]] = (
+        validate_public_workflow_url
+    ),
+) -> PublicWorkflowResource:
+    """Read public bytes through the workflow SSRF and DNS-pinning boundary."""
+
+    clean_url = str(url or "").strip()
+    parsed = urlsplit(clean_url)
+    if require_https and parsed.scheme.lower() != "https":
+        _fail("HTTP_URL_INVALID", "Only HTTPS URLs are allowed.")
+    if not 0 <= int(redirect_limit) <= 3:
+        _fail("HTTP_REDIRECT_LIMIT_INVALID", "HTTP redirect limit must be between 0 and 3.")
+    if not MIN_RESPONSE_BYTES <= int(response_limit_bytes) <= MAX_RESPONSE_BYTES:
+        _fail(
+            "HTTP_RESPONSE_LIMIT_INVALID",
+            "HTTP response limit must be between 1 KiB and 2 MiB.",
+        )
+    clean_headers = {
+        str(key): str(value)
+        for key, value in dict(headers or {}).items()
+        if str(key).lower() in {"accept", "if-none-match", "if-modified-since"}
+    }
+    pinned_backend: _PinnedPublicNetworkBackend | None = None
+    client_transport = transport
+    if client_transport is None:
+        pinned_backend = _PinnedPublicNetworkBackend()
+        client_transport = _PinnedAsyncHTTPTransport(pinned_backend)
+    current_url = clean_url
+    timeout = max(1, min(int(timeout_seconds), 60))
+    try:
+        async with asyncio.timeout(timeout):
+            async with httpx.AsyncClient(
+                transport=client_transport,
+                timeout=httpx.Timeout(timeout),
+                trust_env=False,
+                follow_redirects=False,
+            ) as client:
+                for redirect_index in range(int(redirect_limit) + 1):
+                    approved_addresses = await url_validator(current_url, "public_only")
+                    if pinned_backend is not None:
+                        parsed_current = urlsplit(current_url)
+                        if not approved_addresses:
+                            _fail(
+                                "HTTP_DNS_PIN_MISSING",
+                                "HTTP destination validation did not approve an address.",
+                            )
+                        pinned_backend.approve(
+                            _canonical_hostname(parsed_current.hostname),
+                            parsed_current.port
+                            or (443 if parsed_current.scheme.lower() == "https" else 80),
+                            approved_addresses,
+                        )
+                    async with client.stream("GET", current_url, headers=clean_headers) as response:
+                        if response.status_code in {301, 302, 303, 307, 308}:
+                            location = response.headers.get("location")
+                            if not location or redirect_index >= int(redirect_limit):
+                                _fail(
+                                    "HTTP_REDIRECT_LIMIT_EXCEEDED",
+                                    "HTTP redirect limit was exceeded.",
+                                )
+                            redirected_url = urljoin(str(response.url), location)
+                            if require_https and urlsplit(redirected_url).scheme.lower() != "https":
+                                _fail("HTTP_URL_INVALID", "Only HTTPS URLs are allowed.")
+                            if _origin(redirected_url) != _origin(str(response.url)):
+                                _fail(
+                                    "HTTP_CROSS_ORIGIN_REDIRECT",
+                                    "Cross-origin HTTP redirects are forbidden.",
+                                )
+                            current_url = redirected_url
+                            continue
+                        chunks: list[bytes] = []
+                        received = 0
+                        async for chunk in response.aiter_bytes():
+                            received += len(chunk)
+                            if received > int(response_limit_bytes):
+                                _fail(
+                                    "HTTP_RESPONSE_TOO_LARGE",
+                                    "HTTP response exceeded the configured size limit.",
+                                )
+                            chunks.append(chunk)
+                        return PublicWorkflowResource(
+                            status_code=response.status_code,
+                            final_url=str(response.url),
+                            content_type=str(response.headers.get("content-type") or ""),
+                            headers={
+                                key.lower(): value
+                                for key, value in response.headers.items()
+                                if key.lower() in SAFE_RESPONSE_HEADERS
+                            },
+                            body=b"".join(chunks),
+                        )
+    except WorkflowHttpRequestError:
+        raise
+    except (httpx.TimeoutException, TimeoutError) as exc:
+        raise WorkflowHttpRequestError("HTTP_TIMEOUT", "HTTP request timed out.") from exc
+    except (httpx.HTTPError, OSError) as exc:
+        raise WorkflowHttpRequestError("HTTP_NETWORK_ERROR", "HTTP request failed.") from exc
+    except Exception as exc:
+        raise WorkflowHttpRequestError(
+            "HTTP_SECURITY_CHECK_FAILED",
+            "HTTP request security check failed.",
+        ) from exc
+    _fail("HTTP_REQUEST_INCOMPLETE", "HTTP request did not complete.")
 
 
 async def execute_workflow_http_request(

@@ -1,6 +1,19 @@
 import { type WorkflowDefinition } from "../types/workflow";
 
-export type WorkflowTriggerKind = "manual" | "schedule" | "http" | "form" | "failure" | "call";
+export type WorkflowTriggerKind = "manual" | "schedule" | "http" | "form" | "rss" | "failure" | "call";
+
+export interface WorkflowRssSubscriptionSummary {
+  project_id: string;
+  version: number;
+  deployment_id: string;
+  active: boolean;
+  baseline_established: boolean;
+  next_poll_at: number;
+  last_success_at?: number | null;
+  consecutive_failures: number;
+  last_error_code?: string | null;
+  updated_at: number;
+}
 
 export interface WorkflowFormPublicationSummary {
   form_id: string;
@@ -53,6 +66,7 @@ export interface WorkflowProjectResponse {
   active_version?: number | null;
   active_deployment?: WorkflowDeploymentSummary | null;
   form_publication?: WorkflowFormPublicationSummary | null;
+  rss_subscription?: WorkflowRssSubscriptionSummary | null;
   published_versions: WorkflowVersionSummary[];
   created_at: number;
   updated_at: number;
@@ -220,4 +234,22 @@ export function fetchWorkflowVersionInterface(
   return requestJson<WorkflowVersionInterface>(
     `/api/workflows/${projectId}/versions/${version}/interface`,
   );
+}
+
+export interface WorkflowRssInspectResponse {
+  format: "rss2" | "atom1";
+  feedTitle?: string | null;
+  itemCount: number;
+  items: Array<{
+    title?: string | null;
+    publishedAt?: string | null;
+    link?: string | null;
+  }>;
+}
+
+export function inspectWorkflowRss(feedUrl: string) {
+  return requestJson<WorkflowRssInspectResponse>("/api/workflow/rss/inspect", {
+    method: "POST",
+    body: JSON.stringify({ feedUrl }),
+  });
 }

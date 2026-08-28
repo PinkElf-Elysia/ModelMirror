@@ -84,15 +84,19 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     assert len(rows) == 563
     assert len({row["来源条目标识"] for row in rows}) == 563
     assert Counter(row["覆盖等级"] for row in rows) == {
-        "exact": 35,
+        "exact": 36,
         "limited": 72,
         "composable": 271,
-        "none": 185,
+        "none": 184,
     }
     mapped = {row["n8n内部标识"]: row for row in rows}
     mapped_by_source = {row["来源条目标识"]: row for row in rows}
     assert mapped["scheduleTrigger"]["模镜对应节点"] == "scheduled_start"
     assert mapped["webhook"]["模镜对应节点"] == "http_event_entry"
+    assert mapped["rssFeedReadTrigger"]["模镜对应节点"] == "rss_event_entry"
+    assert mapped["rssFeedReadTrigger"]["覆盖等级"] == "exact"
+    assert "首次启用建立无回放基线" in mapped["rssFeedReadTrigger"]["判断说明"]
+    assert mapped["rssFeedRead"]["覆盖等级"] == "composable"
     assert mapped["wait"]["模镜对应节点"] == "suspend_wait"
     assert mapped["respondToWebhook"]["模镜对应节点"] == "http_event_reply"
     assert mapped["errorTrigger"]["模镜对应节点"] == "failure_event_entry"
@@ -185,6 +189,7 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
         "informationExtractor", "outputParserStructured", "outputParserItemList",
         "outputParserAutofixing", "textClassifier", "guardrails",
         "merge",
+        "rssFeedReadTrigger",
     ))
     assert all("不复制代码" in row["许可证边界"] or "企业条目" in row["许可证边界"] for row in rows)
     expected_level = {
@@ -205,6 +210,7 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
         "xml": "R2.4",
         "form": "R2.5",
         "formTrigger": "R2.5",
+        "rssFeedReadTrigger": "R2.7",
     }
     assert all(
         row["人工复核"]
@@ -271,7 +277,7 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
         for contract in workflow_node_contract_registry.list()
     )
     assert "911593f505b05b01037769f578e21f22d2a1c9af" in markdown
-    assert "R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0/R2.1/R2.2/R2.3/R2.4/R2.5/R2.6" in markdown
+    assert "R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0/R2.1/R2.2/R2.3/R2.4/R2.5/R2.6/R2.7" in markdown
     assert "44、画布目录项 42" in markdown
     assert "R1.6 结果" in markdown
     assert "自研节点总数 47、画布目录项 45、当前 18 个" in markdown
@@ -283,9 +289,9 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     assert current_registry_line in markdown
     assert f"Planner 可生成类型仍固定为 {planner_count} 类" in markdown
     assert "R1.8 结果" in markdown
-    assert native_count == 53
-    assert palette_count == 49
-    assert complete_count == 50
+    assert native_count == 54
+    assert palette_count == 50
+    assert complete_count == 51
     assert compatibility_count == 3
     assert planner_count == 7
     assert "R1.9 结果" in markdown
@@ -341,12 +347,16 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
         "Inbox 创建或复用待审批提议"
     ) in markdown
     assert (
+        "- R2.7 结果：新增完整合同 `rss_event_entry`，以仅公网 HTTPS、逐跳安全校验、"
+        "首次无回放基线和持久条目去重提供 RSS 2.0/Atom 1.0 订阅入口"
+    ) in markdown
+    assert (
         "- R2.2 PR1 结果：将 `variable_aggregator` 提升为“变量打包”V2 完整合同，"
         "修正元智能体新图的报告汇总，并为 563 行参考清单增加 "
         "exact/limited/composable/none 证据门禁；" + r22_pr2_snapshot
     ) not in markdown
     assert "覆盖等级用于表达证据强度" in markdown
     assert current_registry_line == (
-        "当前 Registry 事实：53 Native、49 个可新增 Palette 项、50 个完整合同、"
+        "当前 Registry 事实：54 Native、50 个可新增 Palette 项、51 个完整合同、"
         "3 个 compatibility 合同、7 个 Planner 节点"
     )

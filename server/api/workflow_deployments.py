@@ -16,6 +16,21 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
 try:
+    from server.workflow_rss import (
+        RssFetchResult,
+        WorkflowRssError,
+        fetch_rss_feed,
+        validate_rss_feed_url,
+    )
+except ModuleNotFoundError:
+    from workflow_rss import (
+        RssFetchResult,
+        WorkflowRssError,
+        fetch_rss_feed,
+        validate_rss_feed_url,
+    )
+
+try:
     from server.workflow_forms import (
         FORM_BODY_LIMIT,
         WorkflowFormError,
@@ -74,11 +89,13 @@ TriggerExecutor = Callable[
 ]
 TimerDueSource = Callable[[], list[Any]]
 TimerResumeExecutor = Callable[[str], Awaitable[dict[str, Any]]]
+RssFetcher = Callable[[str, str | None, str | None], Awaitable[RssFetchResult]]
 
 _store: WorkflowDeploymentStore | None = None
 _trigger_executor: TriggerExecutor | None = None
 _timer_due_source: TimerDueSource | None = None
 _timer_resume_executor: TimerResumeExecutor | None = None
+_rss_fetcher: RssFetcher | None = None
 _rate_windows: dict[str, deque[float]] = defaultdict(deque)
 _form_rate_windows: dict[str, deque[float]] = defaultdict(deque)
 
@@ -92,14 +109,19 @@ class UpdateWorkflowDraftRequest(BaseModel):
     workflow: dict[str, Any]
 
 
+class InspectWorkflowRssRequest(BaseModel):
+    feedUrl: str = Field(min_length=1, max_length=2048)
+
+
 def configure_workflow_deployment_runtime(
     store: WorkflowDeploymentStore,
     *,
     trigger_executor: TriggerExecutor | None = None,
     timer_due_source: TimerDueSource | None = None,
     timer_resume_executor: TimerResumeExecutor | None = None,
+    rss_fetcher: RssFetcher | None = None,
 ) -> None:
-    global _store, _trigger_executor, _timer_due_source, _timer_resume_executor
+    global _store, _trigger_executor, _timer_due_source, _timer_resume_executor, _rss_fetcher
     _store = store
     if trigger_executor is not None:
         _trigger_executor = trigger_executor
@@ -107,6 +129,8 @@ def configure_workflow_deployment_runtime(
         _timer_due_source = timer_due_source
     if timer_resume_executor is not None:
         _timer_resume_executor = timer_resume_executor
+    if rss_fetcher is not None:
+        _rss_fetcher = rss_fetcher
 
 
 def _require_store() -> WorkflowDeploymentStore:
@@ -175,6 +199,12 @@ def workflow_knowledge_proposals_enabled() -> bool:
     }
 
 
+def workflow_rss_triggers_enabled() -> bool:
+    return os.getenv("WORKFLOW_RSS_TRIGGERS_ENABLED", "false").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+
+
 def workflow_forms_public_base_url() -> str:
     return os.getenv("WORKFLOW_FORMS_PUBLIC_BASE_URL", "").strip()
 
@@ -196,12 +226,18 @@ def _project_payload(store: WorkflowDeploymentStore, project_id: str) -> dict[st
     project = store.require_project(project_id)
     active = store.active_deployment(project_id)
     form_publication = store.get_form_publication(project_id)
+    rss_subscription = store.get_rss_subscription(project_id)
     return {
         **store.serialize_project(project),
         "active_deployment": store.serialize_deployment(active) if active else None,
         "form_publication": (
             store.serialize_form_publication(form_publication)
             if form_publication is not None
+            else None
+        ),
+        "rss_subscription": (
+            store.serialize_rss_subscription(rss_subscription)
+            if rss_subscription is not None
             else None
         ),
         "published_versions": [
@@ -348,6 +384,7 @@ async def activate_workflow(project_id: str, version: int) -> dict[str, Any]:
             handoff_executor_enabled=handoff_executor_enabled(),
             forms_enabled=workflow_forms_enabled(),
             forms_public_base_url=workflow_forms_public_base_url(),
+            rss_triggers_enabled=workflow_rss_triggers_enabled(),
             knowledge_proposals_enabled=workflow_knowledge_proposals_enabled(),
         )
         payload = store.serialize_deployment(deployment)
@@ -463,6 +500,51 @@ def _check_form_rate_limit(key: str, *, limit: int, now: float) -> None:
 
 def _public_form_not_found() -> HTTPException:
     return HTTPException(status_code=404, detail="Workflow form not found.")
+
+
+async def _fetch_rss(
+    feed_url: str,
+    etag: str | None = None,
+    last_modified: str | None = None,
+) -> RssFetchResult:
+    if _rss_fetcher is not None:
+        return await _rss_fetcher(feed_url, etag, last_modified)
+    return await fetch_rss_feed(
+        feed_url,
+        etag=etag,
+        last_modified=last_modified,
+    )
+
+
+@router.post("/api/workflow/rss/inspect")
+async def inspect_workflow_rss(
+    payload: InspectWorkflowRssRequest,
+) -> dict[str, Any]:
+    if not workflow_rss_triggers_enabled():
+        raise HTTPException(status_code=409, detail="Workflow RSS triggers are disabled.")
+    try:
+        feed_url = validate_rss_feed_url(payload.feedUrl)
+        result = await _fetch_rss(feed_url)
+        if result.feed is None:
+            raise WorkflowRssError(
+                "RSS_INSPECT_NOT_MODIFIED",
+                "RSS source returned no inspectable feed.",
+            )
+        return {
+            "format": result.feed.format,
+            "feedTitle": result.feed.title,
+            "itemCount": len(result.feed.items),
+            "items": [
+                {
+                    "title": item.title,
+                    "publishedAt": item.published_at or item.updated_at,
+                    "link": item.link,
+                }
+                for item in result.feed.items[:3]
+            ],
+        }
+    except WorkflowRssError as exc:
+        raise HTTPException(status_code=422, detail=exc.safe_message) from exc
 
 
 @router.get("/api/workflow-forms/{form_id}/manifest")
@@ -664,6 +746,12 @@ async def _execute_trigger(
     event: dict[str, Any],
 ) -> WorkflowTriggerExecution:
     store = _require_store()
+    if item.trigger_kind == "rss" and not workflow_rss_triggers_enabled():
+        return store.fail_execution(
+            item.execution_id,
+            error="Workflow RSS triggers are disabled.",
+            dispatch_failures=workflow_failure_triggers_enabled(),
+        )
     if _trigger_executor is None:
         return store.fail_execution(
             item.execution_id,
@@ -697,6 +785,15 @@ async def _execute_trigger(
         outcome = await _trigger_executor(claimed, release, event)
         status = str(outcome.get("status") or "failed")
         if status == "waiting":
+            if claimed.trigger_kind == "rss":
+                return store.fail_execution(
+                    claimed.execution_id,
+                    error="RSS workflows cannot persist a continuation.",
+                    task_id=str(outcome.get("task_id") or "") or None,
+                    run_id=str(outcome.get("run_id") or "") or None,
+                    dispatch_failures=workflow_failure_triggers_enabled(),
+                    expected_lease_token=lease_token,
+                )
             return store.mark_execution_waiting(
                 claimed.execution_id,
                 task_id=str(outcome.get("task_id") or ""),
@@ -918,11 +1015,78 @@ class WorkflowTriggerCoordinator:
     async def run_once(self) -> None:
         store = _require_store()
         store.materialize_due_schedules()
+        if workflow_rss_triggers_enabled():
+            claimed_subscriptions = store.claim_due_rss_subscriptions(
+                worker_id=f"workflow-rss-{uuid.uuid4().hex[:12]}",
+                lease_seconds=WORKFLOW_TRIGGER_LEASE_SECONDS,
+                limit=1,
+            )
+            for subscription in claimed_subscriptions:
+                try:
+                    release = store.require_version(
+                        subscription.project_id, subscription.version
+                    )
+                    config = store.rss_entry_data(release)
+                    result = await _fetch_rss(
+                        str(config["feedUrl"]),
+                        subscription.etag,
+                        subscription.last_modified,
+                    )
+                    store.commit_rss_poll(
+                        subscription.deployment_id,
+                        lease_token=str(subscription.lease_token or ""),
+                        result=result,
+                    )
+                except WorkflowRssError as exc:
+                    try:
+                        store.fail_rss_poll(
+                            subscription.deployment_id,
+                            lease_token=str(subscription.lease_token or ""),
+                            error_code=exc.code,
+                        )
+                    except WorkflowDeploymentConflictError:
+                        pass
+                except Exception:
+                    logger.exception(
+                        "Workflow RSS poll failed deployment=%s",
+                        subscription.deployment_id,
+                    )
+                    try:
+                        store.fail_rss_poll(
+                            subscription.deployment_id,
+                            lease_token=str(subscription.lease_token or ""),
+                            error_code="RSS_POLL_FAILED",
+                        )
+                    except WorkflowDeploymentConflictError:
+                        pass
         for item in store.claimable_executions(limit=20):
             if item.trigger_kind == "schedule":
                 event = {"type": "schedule_event", **dict(item.trigger_summary)}
             elif item.trigger_kind == "failure" and workflow_failure_triggers_enabled():
                 event = {"type": "workflow_failure", **dict(item.trigger_summary)}
+            elif item.trigger_kind == "rss" and workflow_rss_triggers_enabled():
+                delivery = store.get_rss_delivery(item.execution_id)
+                if delivery is None:
+                    store.fail_execution(
+                        item.execution_id,
+                        error="RSS delivery is unavailable.",
+                        dispatch_failures=workflow_failure_triggers_enabled(),
+                    )
+                    continue
+                event = {
+                    "type": "rss_item",
+                    "occurrence_key": item.occurrence_key,
+                    "item_key": delivery.item_key,
+                    "feed_title": delivery.feed_title,
+                    "published_at": (
+                        delivery.item.get("publishedAt")
+                        or delivery.item.get("updatedAt")
+                    ),
+                    "received_at": delivery.received_at,
+                    "item_bytes": delivery.item_bytes,
+                    "test_mode": False,
+                    "item": dict(delivery.item),
+                }
             else:
                 continue
             asyncio.create_task(_execute_trigger(item, event))

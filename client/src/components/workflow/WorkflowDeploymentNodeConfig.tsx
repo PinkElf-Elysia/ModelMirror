@@ -11,6 +11,7 @@ import {
   fetchWorkflowProject,
   fetchWorkflowProjects,
   fetchWorkflowVersionInterface,
+  inspectWorkflowRss,
   type WorkflowInterfaceInput,
   type WorkflowProjectSummary,
   type WorkflowVersionInterface,
@@ -1326,6 +1327,146 @@ function FormEventEntryConfig({
   );
 }
 
+function RssEventEntryConfig({
+  node,
+  nodes,
+  edges,
+  contract,
+  declarations,
+  data,
+  featureEnabled,
+  featureDisabledReason,
+  onChange,
+}: {
+  node: WorkflowNode;
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+  contract: WorkflowNodeContractProjection | null;
+  declarations: WorkflowVariableDeclaration[];
+  data: WorkflowNodeData;
+  featureEnabled: boolean;
+  featureDisabledReason: string;
+  onChange: (patch: Partial<WorkflowNodeData>) => void;
+}) {
+  const [checking, setChecking] = useState(false);
+  const [checkError, setCheckError] = useState("");
+  const [checkResult, setCheckResult] = useState<Awaited<ReturnType<typeof inspectWorkflowRss>> | null>(null);
+  const interval = Number(data.pollIntervalMinutes ?? 15);
+  const commonInterval = [5, 15, 30, 60, 360, 1440].includes(interval)
+    ? String(interval)
+    : "custom";
+
+  async function inspect() {
+    setChecking(true);
+    setCheckError("");
+    setCheckResult(null);
+    try {
+      setCheckResult(await inspectWorkflowRss(String(data.feedUrl ?? "")));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      setCheckError(
+        /local, private|reserved RSS targets|metadata RSS targets/i.test(message)
+          ? "此地址指向本机、内网或保留网络，不能访问。请使用无需登录的公网 HTTPS 订阅地址。"
+          : message || "订阅源检查失败。",
+      );
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {!featureEnabled ? (
+        <div className="rounded-lg border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-50" role="status">
+          当前环境尚未开启真实 RSS 检查和订阅。可先完成配置与静态发布；启用前请管理员开启 WORKFLOW_RSS_TRIGGERS_ENABLED。
+          {featureDisabledReason ? <span className="sr-only">{featureDisabledReason}</span> : null}
+        </div>
+      ) : null}
+      <div className="rounded-lg border border-orange-300/25 bg-orange-300/10 px-3 py-2 text-xs leading-5 text-orange-50">
+        首次启用只记录当前条目作为基线，不补跑历史内容；之后每个新条目各启动一次工作流。
+      </div>
+      <Section title="订阅源" description="仅支持无需登录的公网 HTTPS RSS 2.0 或 Atom 1.0 地址。">
+        <Field label="Feed 地址" hint="固定 HTTPS 地址；不能使用变量、密钥参数或内网地址。">
+          <input
+            aria-label="Feed 地址"
+            className={inputClass}
+            maxLength={2048}
+            onChange={(event) => {
+              onChange({ feedUrl: event.target.value });
+              setCheckResult(null);
+              setCheckError("");
+            }}
+            placeholder="https://example.com/feed.xml"
+            type="url"
+            value={String(data.feedUrl ?? "")}
+          />
+        </Field>
+        <div className="grid gap-3 sm:grid-cols-[1fr_8rem]">
+          <Field label="检查频率">
+            <select
+              aria-label="检查频率"
+              className={inputClass}
+              onChange={(event) => {
+                if (event.target.value !== "custom") {
+                  onChange({ pollIntervalMinutes: Number(event.target.value) });
+                } else if ([5, 15, 30, 60, 360, 1440].includes(interval)) {
+                  onChange({ pollIntervalMinutes: 90 });
+                }
+              }}
+              value={commonInterval}
+            >
+              <option value="5">每 5 分钟</option>
+              <option value="15">每 15 分钟</option>
+              <option value="30">每 30 分钟</option>
+              <option value="60">每小时</option>
+              <option value="360">每 6 小时</option>
+              <option value="1440">每天</option>
+              <option value="custom">自定义</option>
+            </select>
+          </Field>
+          {commonInterval === "custom" ? (
+            <Field label="分钟">
+              <input
+                className={inputClass}
+                max={1440}
+                min={5}
+                onChange={(event) => onChange({ pollIntervalMinutes: Number(event.target.value) })}
+                type="number"
+                value={String(data.pollIntervalMinutes ?? 15)}
+              />
+            </Field>
+          ) : null}
+        </div>
+        <button
+          className="rounded-lg border border-cyan-300/30 bg-cyan-300/10 px-3 py-2 text-xs font-semibold text-cyan-100 transition hover:bg-cyan-300/20 disabled:opacity-40"
+          disabled={checking || !String(data.feedUrl ?? "").trim()}
+          onClick={() => void inspect()}
+          type="button"
+        >
+          {checking ? "正在安全检查…" : "检查订阅源"}
+        </button>
+        {checkError ? <p className="text-xs leading-5 text-rose-200">{checkError}</p> : null}
+        {checkResult ? (
+          <div className="rounded-lg border border-emerald-300/20 bg-emerald-300/10 p-3 text-xs text-emerald-50">
+            <p className="font-semibold">{checkResult.feedTitle || "未命名订阅源"} · {checkResult.format === "atom1" ? "Atom 1.0" : "RSS 2.0"} · {checkResult.itemCount} 条</p>
+            {checkResult.items.length ? (
+              <ul className="mt-2 space-y-1 text-emerald-100/80">
+                {checkResult.items.map((item, index) => (
+                  <li key={`${item.link ?? item.title ?? "item"}-${index}`}>• {item.title || "无标题条目"}{item.publishedAt ? ` · ${item.publishedAt}` : ""}</li>
+                ))}
+              </ul>
+            ) : <p className="mt-2 text-emerald-100/75">源格式有效，但当前没有条目。</p>}
+          </div>
+        ) : null}
+      </Section>
+      <Section title="运行变量" description="事件变量只保存安全元数据；条目变量包含标题、链接、摘要和正文，均视为不可信外部输入。">
+        <GlobalVariableField contract={contract} declarations={declarations} edges={edges} fieldName="eventVariable" hint="例如 rss_event" label="事件元数据变量" node={node} nodes={nodes} onChange={(eventVariable) => onChange({ eventVariable })} value={String(data.eventVariable ?? "")} />
+        <GlobalVariableField contract={contract} declarations={declarations} edges={edges} fieldName="itemVariable" hint="例如 rss_item" label="完整条目变量" node={node} nodes={nodes} onChange={(itemVariable) => onChange({ itemVariable })} value={String(data.itemVariable ?? "")} />
+      </Section>
+    </div>
+  );
+}
+
 export default function WorkflowDeploymentNodeConfig({
   currentProjectId,
   node,
@@ -1334,6 +1475,8 @@ export default function WorkflowDeploymentNodeConfig({
   contract,
   declarations = [],
   data,
+  featureEnabled = true,
+  featureDisabledReason = "",
   onChange,
 }: {
   currentProjectId?: string;
@@ -1343,6 +1486,8 @@ export default function WorkflowDeploymentNodeConfig({
   contract: WorkflowNodeContractProjection | null;
   declarations?: WorkflowVariableDeclaration[];
   data: WorkflowNodeData;
+  featureEnabled?: boolean;
+  featureDisabledReason?: string;
   onChange: (patch: Partial<WorkflowNodeData>) => void;
 }) {
   if (data.kind === "form_event_entry") {
@@ -1352,6 +1497,22 @@ export default function WorkflowDeploymentNodeConfig({
         data={data}
         declarations={declarations}
         edges={edges}
+        node={node}
+        nodes={nodes}
+        onChange={onChange}
+      />
+    );
+  }
+
+  if (data.kind === "rss_event_entry") {
+    return (
+      <RssEventEntryConfig
+        contract={contract}
+        data={data}
+        declarations={declarations}
+        edges={edges}
+        featureDisabledReason={featureDisabledReason}
+        featureEnabled={featureEnabled}
         node={node}
         nodes={nodes}
         onChange={onChange}

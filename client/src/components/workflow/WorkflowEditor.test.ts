@@ -324,6 +324,16 @@ describe("WorkflowEditor palette defaults", () => {
     });
   });
 
+  it("provides a safe RSS subscription default", () => {
+    expect(createNodeData("rss_event_entry")).toMatchObject({
+      contractVersion: 1,
+      feedUrl: "https://",
+      pollIntervalMinutes: 15,
+      eventVariable: "rss_event",
+      itemVariable: "rss_item",
+    });
+  });
+
   it("rejects missing or duplicate data merge target handles before connecting", () => {
     expect(dataMergeConnectionError("data_merge", "merge-1", null, [])).toMatch(/左侧数据/);
     expect(dataMergeConnectionError("data_merge", "merge-1", "left", [

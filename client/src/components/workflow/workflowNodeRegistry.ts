@@ -136,6 +136,13 @@ export const workflowPaletteSections: WorkflowPaletteSection[] = [
         tags: ["form", "submission", "deployment"],
       },
       {
+        kind: "rss_event_entry",
+        icon: "RSS",
+        title: "RSS/Atom 订阅入口",
+        description: "安全轮询公网 HTTPS 订阅源，并为每个新条目独立启动。",
+        tags: ["rss", "atom", "feed", "deployment"],
+      },
+      {
         kind: "failure_event_entry",
         icon: "FAIL",
         title: "失败处置入口",

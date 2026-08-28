@@ -159,6 +159,68 @@ describe("WorkflowDeploymentNodeConfig", () => {
     }));
   });
 
+  it("checks a public RSS source and keeps polling controls non-technical", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        format: "atom1",
+        feedTitle: "Release notes",
+        itemCount: 2,
+        items: [{
+          title: "Version 2",
+          publishedAt: "2026-08-27T08:00:00Z",
+          link: "https://example.test/releases/2",
+        }],
+      }),
+    }));
+    const onChange = renderConfig({
+      kind: "rss_event_entry",
+      title: "RSS/Atom 订阅入口",
+      description: "",
+      contractVersion: 1,
+      feedUrl: "https://example.test/feed.xml",
+      pollIntervalMinutes: 15,
+      eventVariable: "rss_event",
+      itemVariable: "rss_item",
+    });
+
+    expect(screen.getByLabelText("Feed 地址")).toHaveValue("https://example.test/feed.xml");
+    expect(screen.getByLabelText("检查频率")).toHaveValue("15");
+    expect(screen.getByText(/首次启用只记录当前条目/)).toBeInTheDocument();
+    expect(screen.getByLabelText("事件元数据变量")).toHaveValue("rss_event");
+    expect(screen.getByLabelText("完整条目变量")).toHaveValue("rss_item");
+    fireEvent.click(screen.getByRole("button", { name: "检查订阅源" }));
+    await waitFor(() => expect(screen.getByText(/Release notes/)).toBeInTheDocument());
+    expect(screen.getByText(/Version 2/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("检查频率"), { target: { value: "60" } });
+    expect(onChange).toHaveBeenCalledWith({ pollIntervalMinutes: 60 });
+    vi.unstubAllGlobals();
+  });
+
+  it("explains a rejected private RSS address without exposing the backend message", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: false,
+      json: async () => ({
+        detail: "Local, private, and reserved RSS targets are forbidden.",
+      }),
+    }));
+    renderConfig({
+      kind: "rss_event_entry",
+      title: "RSS/Atom 订阅入口",
+      description: "",
+      contractVersion: 1,
+      feedUrl: "https://127.0.0.1/private-feed.xml",
+      pollIntervalMinutes: 15,
+      eventVariable: "rss_event",
+      itemVariable: "rss_item",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "检查订阅源" }));
+    await waitFor(() => expect(screen.getByText(/此地址指向本机、内网或保留网络/)).toBeInTheDocument());
+    expect(screen.queryByText(/reserved RSS targets/i)).not.toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
   it("uses readable wait and reply choices", () => {
     const waitChange = renderConfig({
       kind: "suspend_wait",

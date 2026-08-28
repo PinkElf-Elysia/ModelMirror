@@ -33,6 +33,13 @@ const nodeMeta = {
     bg: "bg-emerald-300/10",
     text: "text-emerald-100",
   },
+  rss_event_entry: {
+    icon: "RSS",
+    label: "RSS/Atom 订阅入口",
+    border: "border-orange-300/40",
+    bg: "bg-orange-300/10",
+    text: "text-orange-100",
+  },
   failure_event_entry: {
     icon: "!",
     label: "失败处置入口",
@@ -544,6 +551,7 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
           "scheduled_start",
           "http_event_entry",
           "form_event_entry",
+          "rss_event_entry",
           "failure_event_entry",
           "workflow_call_entry",
           "external_xpert",
