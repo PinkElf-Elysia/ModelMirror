@@ -39,6 +39,38 @@ def provider_operation_model_matches(
     )
 
 
+def provider_operation_batch_model_matches(
+    *,
+    provider_kind: str,
+    requested_model: str,
+    actual_model: str,
+) -> bool:
+    """Allow OpenRouter Batch aliases to resolve to a dated immutable model ID."""
+
+    if provider_operation_model_matches(
+        provider_kind=provider_kind,
+        requested_model=requested_model,
+        actual_model=actual_model,
+    ):
+        return True
+    if str(provider_kind).casefold() != "openrouter":
+        return False
+    provider, separator, provider_local_model = requested_model.partition("/")
+    candidates = [requested_model]
+    if provider and separator and provider_local_model:
+        candidates.append(provider_local_model)
+    for candidate in candidates:
+        prefix = f"{candidate}-"
+        if not actual_model.startswith(prefix):
+            continue
+        suffix = actual_model[len(prefix) :]
+        if len(suffix) == 8 and all(
+            character in "0123456789" for character in suffix
+        ):
+            return True
+    return False
+
+
 @dataclass(frozen=True, slots=True)
 class ProviderOperationEndpoints:
     base_url: str

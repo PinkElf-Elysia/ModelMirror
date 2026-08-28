@@ -960,6 +960,12 @@ class ProviderWorkloadRunSummary(BaseModel):
     reason_codes: list[str] = Field(default_factory=list)
     created_at: str
     completed_at: str | None = None
+    batch_job_id: str | None = None
+    batch_status: str | None = None
+    batch_request_count: int | None = None
+    batch_completed_count: int | None = None
+    batch_failed_count: int | None = None
+    billing_authoritative: bool | None = None
     calls: list[ProviderWorkloadCallSummary] = Field(default_factory=list)
 
 

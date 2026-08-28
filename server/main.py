@@ -1366,7 +1366,9 @@ try:
         ProviderChatStableService,
         ProviderChatTarget,
         ProviderChatTransport,
+        ManagedOpenRouterBatchGateway,
         RouterServiceError,
+        RouterRepositoryError,
         classify_task,
         get_model_router_service,
         get_native_router_engine,
@@ -1384,7 +1386,9 @@ except ModuleNotFoundError:
         ProviderChatStableService,
         ProviderChatTarget,
         ProviderChatTransport,
+        ManagedOpenRouterBatchGateway,
         RouterServiceError,
+        RouterRepositoryError,
         classify_task,
         get_model_router_service,
         get_native_router_engine,
@@ -28788,23 +28792,15 @@ def validate_openrouter_batch_id(batch_id: str) -> str:
     return normalized
 
 
-@app.post("/api/openrouter/batches")
-async def submit_openrouter_batch(
-    payload: OpenRouterBatchSubmitRequest,
-    request: Request,
-):
-    if not OPENROUTER_API_KEY:
-        return JSONResponse(
-            status_code=503,
-            content={
-                "error": (
-                    "OpenRouter Batch 尚未配置，请设置 OPENROUTER_API_KEY。"
-                    "普通 LLM 网关密钥不能代替 Batch API 凭据。"
-                )
-            },
-        )
+def openrouter_batch_legacy_id_compat_enabled() -> bool:
+    return os.getenv(
+        "MODEL_CONTROL_OPENROUTER_BATCH_LEGACY_ID_COMPAT", "false"
+    ).strip().casefold() in {"1", "true", "yes", "on"}
 
-    rate_limit_or_raise(client_ip(request))
+
+def openrouter_batch_request_payload(
+    payload: OpenRouterBatchSubmitRequest,
+) -> dict[str, Any]:
     requests: list[dict[str, Any]] = []
     for item in payload.requests:
         if payload.endpoint == "/v1/embeddings":
@@ -28822,14 +28818,69 @@ async def submit_openrouter_batch(
                 "max_tokens": payload.max_tokens,
             }
         requests.append({"custom_id": item.custom_id, "body": body})
-
     # Field order is intentional. OpenRouter stream-parses the request and
     # requires endpoint/model to appear before the potentially large array.
-    upstream_payload = {
+    return {
         "endpoint": payload.endpoint,
         "model": payload.model_id,
         "requests": requests,
     }
+
+
+def provider_batch_error_response(exc: RouterServiceError) -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"error": exc.hint, "code": exc.code},
+    )
+
+
+def provider_batch_storage_error_response() -> JSONResponse:
+    return JSONResponse(
+        status_code=503,
+        content={
+            "error": "Managed Batch 状态存储暂不可用。",
+            "code": "provider_batch_storage_unavailable",
+        },
+    )
+
+
+@app.post("/api/openrouter/batches")
+async def submit_openrouter_batch(
+    payload: OpenRouterBatchSubmitRequest,
+    request: Request,
+):
+    rate_limit_or_raise(client_ip(request))
+    upstream_payload = openrouter_batch_request_payload(payload)
+    managed_gateway = ManagedOpenRouterBatchGateway.for_router(
+        get_model_router_service()
+    )
+    try:
+        managed_mode = managed_gateway.routing_mode()
+        if managed_mode != "legacy":
+            response_status, response_payload = await managed_gateway.submit(
+                upstream_payload,
+                idempotency_key=request.headers.get("Idempotency-Key"),
+            )
+            return JSONResponse(
+                status_code=response_status,
+                content=response_payload,
+            )
+    except RouterServiceError as exc:
+        return provider_batch_error_response(exc)
+    except RouterRepositoryError:
+        logger.exception("Managed Batch storage failed during submission")
+        return provider_batch_storage_error_response()
+
+    if not OPENROUTER_API_KEY:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": (
+                    "OpenRouter Batch 尚未配置，请设置 OPENROUTER_API_KEY。"
+                    "普通 LLM 网关密钥不能代替 Batch API 凭据。"
+                )
+            },
+        )
     try:
         async with httpx.AsyncClient(**openrouter_batch_client_kwargs()) as client:
             response = await client.post(
@@ -28851,6 +28902,39 @@ async def submit_openrouter_batch(
 
 @app.get("/api/openrouter/batches/{batch_id}")
 async def get_openrouter_batch(batch_id: str):
+    managed_gateway = ManagedOpenRouterBatchGateway.for_router(
+        get_model_router_service()
+    )
+    if managed_gateway.is_local_job_id(batch_id):
+        try:
+            response_status, response_payload = await managed_gateway.poll(batch_id)
+            return JSONResponse(
+                status_code=response_status,
+                content=response_payload,
+            )
+        except RouterServiceError as exc:
+            return provider_batch_error_response(exc)
+        except RouterRepositoryError:
+            logger.exception("Managed Batch storage failed during polling")
+            return provider_batch_storage_error_response()
+    try:
+        managed_mode = managed_gateway.routing_mode()
+    except RouterServiceError as exc:
+        return provider_batch_error_response(exc)
+    except RouterRepositoryError:
+        logger.exception("Managed Batch storage failed during mode resolution")
+        return provider_batch_storage_error_response()
+    if (
+        managed_mode != "legacy"
+        and not openrouter_batch_legacy_id_compat_enabled()
+    ):
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error": "Managed Batch 只接受 ModelMirror 本地任务编号。",
+                "code": "provider_batch_local_id_required",
+            },
+        )
     if not OPENROUTER_API_KEY:
         return JSONResponse(
             status_code=503,

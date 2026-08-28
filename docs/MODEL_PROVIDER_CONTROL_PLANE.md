@@ -268,7 +268,7 @@ python -m server.model_router.migrate_credentials --storage-dir <path>
 - Receipt 清理命令现在同时检查 R5 Chat 与 R6 Workload 记录，仍默认 dry-run；`--apply`
   才删除超过保留期的已完成运行、尝试或调用。
 
-## Retrieval 与 Skill Rerank Managed 控制面（Round 7A—7D）
+## Retrieval、Skill Rerank 与 OpenRouter Batch Managed 控制面（Round 7A—7E）
 
 - Round 7 复用 `modelmirror-provider-workload-routing-v1` 的 Policy、Binding、资格与 Receipt
   外壳，新增 `embedding_vectors`、`rerank_documents` 和 OpenRouter Batch 形态。RAG、
@@ -291,6 +291,21 @@ python -m server.model_router.migrate_credentials --storage-dir <path>
 - Skill 市场与 Runtime Router 共享同一 Managed Transport，但保留各自现有 Shadow/on 行为。
   Managed Provider 成功只证明本次调用；固定金标评测、身份指纹、晋级、回退和权限治理仍由
   Skill Rerank Governance 独立决定，RAG 资格也不能证明 Skill 已晋级。
+- R7E 将既有 `/api/openrouter/batches` 提交与查询路径接入独立 `openrouter_batch` Policy。
+  Chat Batch 与 Embedding Batch 分别要求精确的 `openrouter_batch_chat`、
+  `openrouter_batch_embeddings` 资格和 Binding；仅 OpenRouter 类型、具有 `batch` scope 的
+  Managed Connection 可以被选中。Flag 关闭或 Policy 为 `legacy` 时保留旧静态 Key 路径。
+- Managed 提交必须携带 `Idempotency-Key`。Server 在发送前创建租户化 `mmbatch_` 本地任务
+  映射和一次 Provider Workload Receipt；同一 Key 与同一请求只返回原任务，不会产生第二个
+  POST，同一 Key 与不同请求返回冲突。网络结果不确定、客户端取消或 Server 在确认前重启时，
+  任务标记为 `uncertain`，不得自动重放。
+- 成功提交后只通过本地任务 ID 执行 GET 轮询。Server 重启只恢复已取得上游 ID 的 GET，不会
+  恢复 POST；即使关闭 Feature Flag，已有本地任务仍可只读查询。默认不接受旧上游 ID；仅在
+  一个兼容周期内显式设置 `MODEL_CONTROL_OPENROUTER_BATCH_LEGACY_ID_COMPAT=true`，才允许旧 ID
+  沿静态 OpenRouter Key 做只读查询。
+- Router SQLite 只保存任务映射、连接指纹、请求结构哈希、脱敏状态、计数和 Provider 报告的
+  usage/cost。它不保存 Batch 输入或结果正文；上游结果仅在用户查询时透传。usage/cost 始终
+  标记 `billing_authoritative=false`，不构成 ModelMirror 计费、账本或扣费依据。
 
 ## 回退
 
@@ -298,7 +313,8 @@ python -m server.model_router.migrate_credentials --storage-dir <path>
 备份。将 `MODEL_MIRROR_PROVIDER_CHAT_CANARY_ENABLED=false` 可立即关闭 Round 3 入口；
 将 `MODEL_CONTROL_CHAT_ENABLED=false` 保持 R5 数据面关闭。关闭各入口对应的
 `MODEL_CONTROL_*_ENABLED` 可保持 R6 数据面为 legacy。代码回退保留 v15/v16 表和
-脱敏证据；关闭 R7 对应 Feature Flag 可恢复 RAG/Skill 的 legacy 路径，并保留 v17 表、
-资格与 Receipt。只需将策略 `auto_enabled=false` 即可停止新增 Auto 证据而不改变 Auto 调度。
+脱敏证据；关闭 R7 对应 Feature Flag 可恢复 RAG/Skill/Batch 的 legacy 路径，并保留 v17 表、
+资格、Batch 映射与 Receipt。非终态 Batch 应继续通过本地任务 ID 只读轮询，不得清理或重发。
+只需将策略 `auto_enabled=false` 即可停止新增 Auto 证据而不改变 Auto 调度。
 旧版本可忽略新表继续运行。部署回退通过恢复上一版本
 Compose 与对应显式环境配置完成。

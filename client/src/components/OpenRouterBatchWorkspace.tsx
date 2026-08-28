@@ -23,6 +23,7 @@ interface RequestDraft {
 }
 
 const statusLabels: Record<OpenRouterBatchStatus, string> = {
+  submitting: "正在提交",
   validating: "正在校验",
   in_progress: "后台处理中",
   finalizing: "正在汇总",
@@ -31,10 +32,15 @@ const statusLabels: Record<OpenRouterBatchStatus, string> = {
   expired: "已过期",
   cancelling: "正在取消",
   cancelled: "已取消",
+  uncertain: "提交结果待确认",
 };
 
 function storageKey(modelId: string) {
   return `modelmirror-openrouter-batch:${modelId}`;
+}
+
+function pendingIdempotencyKey(modelId: string) {
+  return `modelmirror-openrouter-batch-pending:${modelId}`;
 }
 
 function initialDrafts(): RequestDraft[] {
@@ -64,6 +70,9 @@ export default function OpenRouterBatchWorkspace({
   const [busy, setBusy] = useState(false);
   const [polling, setPolling] = useState(false);
   const [error, setError] = useState("");
+  const [pendingKey, setPendingKey] = useState(() =>
+    window.localStorage.getItem(pendingIdempotencyKey(model.id)),
+  );
   const isEmbedding = variant.endpoint === "/v1/embeddings";
   const realtimeTarget = model.ui_entrypoint === "rag"
     ? "/rag"
@@ -76,48 +85,76 @@ export default function OpenRouterBatchWorkspace({
   useEffect(() => {
     const storedBatchId = window.localStorage.getItem(storageKey(model.id));
     if (!storedBatchId) return;
-    const controller = new AbortController();
-    setPolling(true);
-    void fetchOpenRouterBatch(storedBatchId, controller.signal)
-      .then((payload) => {
-        if (!controller.signal.aborted) setJob(payload);
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) {
+    let cancelled = false;
+    let controller: AbortController | null = null;
+    let retryTimer: number | undefined;
+
+    const restore = async () => {
+      controller = new AbortController();
+      setPolling(true);
+      try {
+        const payload = await fetchOpenRouterBatch(storedBatchId, controller.signal);
+        if (!cancelled) {
+          setJob(payload);
+          setError("");
+        }
+      } catch {
+        if (!cancelled) {
           setError(
             `暂时无法恢复已保存的批处理任务 ${storedBatchId}，任务编号仍保留在本机。`,
           );
+          retryTimer = window.setTimeout(() => void restore(), 5_000);
         }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setPolling(false);
-      });
-    return () => controller.abort();
+      } finally {
+        if (!cancelled) setPolling(false);
+      }
+    };
+
+    void restore();
+    return () => {
+      cancelled = true;
+      controller?.abort();
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+    };
   }, [model.id]);
 
   useEffect(() => {
     if (!job || TERMINAL_BATCH_STATUSES.has(job.status)) return;
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => {
-      setPolling(true);
-      void fetchOpenRouterBatch(job.id, controller.signal)
-        .then((payload) => {
-          if (!controller.signal.aborted) setJob(payload);
-        })
-        .catch((cause) => {
-          if (!controller.signal.aborted) {
-            setError(cause instanceof Error ? cause.message : "批处理状态刷新失败。");
-          }
-        })
-        .finally(() => {
-          if (!controller.signal.aborted) setPolling(false);
-        });
-    }, 5_000);
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
+    let cancelled = false;
+    let controller: AbortController | null = null;
+    let timer: number | undefined;
+
+    const schedule = () => {
+      timer = window.setTimeout(() => void poll(), 5_000);
     };
-  }, [job]);
+    const poll = async () => {
+      controller = new AbortController();
+      setPolling(true);
+      try {
+        const payload = await fetchOpenRouterBatch(job.id, controller.signal);
+        if (!cancelled) {
+          setJob(payload);
+          setError("");
+        }
+      } catch (cause) {
+        if (!cancelled) {
+          setError(cause instanceof Error ? cause.message : "批处理状态刷新失败。");
+        }
+      } finally {
+        if (!cancelled) {
+          setPolling(false);
+          schedule();
+        }
+      }
+    };
+
+    schedule();
+    return () => {
+      cancelled = true;
+      controller?.abort();
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [job?.id, job?.status]);
 
   function updateDraft(id: number, prompt: string) {
     setDrafts((current) =>
@@ -149,6 +186,14 @@ export default function OpenRouterBatchWorkspace({
     }
     setBusy(true);
     setError("");
+    const idempotencyKey = pendingKey ?? window.crypto.randomUUID();
+    if (!pendingKey) {
+      setPendingKey(idempotencyKey);
+      window.localStorage.setItem(
+        pendingIdempotencyKey(model.id),
+        idempotencyKey,
+      );
+    }
     try {
       const payload = await submitOpenRouterBatch({
         model_id: variant.request_model_id,
@@ -160,9 +205,11 @@ export default function OpenRouterBatchWorkspace({
           input: request.prompt.trim(),
         })),
         ...(isEmbedding ? {} : { temperature, max_tokens: maxTokens }),
-      });
+      }, idempotencyKey);
       setJob(payload);
       window.localStorage.setItem(storageKey(model.id), payload.id);
+      setPendingKey(null);
+      window.localStorage.removeItem(pendingIdempotencyKey(model.id));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "批处理提交失败。");
     } finally {
@@ -175,6 +222,12 @@ export default function OpenRouterBatchWorkspace({
     setDrafts(initialDrafts());
     setError("");
     window.localStorage.removeItem(storageKey(model.id));
+    clearPendingKey();
+  }
+
+  function clearPendingKey() {
+    setPendingKey(null);
+    window.localStorage.removeItem(pendingIdempotencyKey(model.id));
   }
 
   return (
@@ -212,6 +265,25 @@ export default function OpenRouterBatchWorkspace({
               批量处理
             </span>
           </div>
+
+          {error ? (
+            <p className="mt-6 rounded-lg border border-rose-300/25 bg-rose-300/10 px-3 py-2 text-sm text-rose-100" role="alert">
+              {error}
+            </p>
+          ) : null}
+
+          {!job && pendingKey ? (
+            <div className="mt-4 rounded-lg border border-amber-300/25 bg-amber-300/10 px-3 py-3 text-sm text-amber-50">
+              <p>存在一项待确认提交。再次提交会复用原请求标识，便于 Managed 模式识别重复提交。</p>
+              <button
+                className="mt-2 text-xs font-semibold text-amber-100 underline decoration-amber-200/50 underline-offset-4"
+                onClick={clearPendingKey}
+                type="button"
+              >
+                放弃待确认提交并创建新任务
+              </button>
+            </div>
+          ) : null}
 
           {job ? (
             <div className="mt-7" aria-live="polite">
@@ -261,7 +333,9 @@ export default function OpenRouterBatchWorkspace({
                 </div>
               ) : (
                 <p className="mt-6 text-sm leading-6 text-slate-400">
-                  结果只会在任务完成后返回。你可以离开页面，稍后通过本机保存的任务编号继续查看。
+                  {job.status === "uncertain"
+                    ? "提交结果暂时无法确认。ModelMirror 已阻止同一幂等键再次发送，不会自动产生第二个 Batch。"
+                    : "结果只会在任务完成后返回。你可以离开页面，稍后通过本机保存的任务编号继续查看。"}
                 </p>
               )}
 
@@ -345,12 +419,6 @@ export default function OpenRouterBatchWorkspace({
                 </div>
               ) : null}
 
-              {error ? (
-                <p className="rounded-lg border border-rose-300/25 bg-rose-300/10 px-3 py-2 text-sm text-rose-100" role="alert">
-                  {error}
-                </p>
-              ) : null}
-
               <button
                 className="min-h-11 rounded-lg bg-sky-300 px-5 py-2.5 text-sm font-semibold text-ink-950 transition hover:bg-sky-200 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500"
                 disabled={busy || validRequests.length === 0}
@@ -395,7 +463,8 @@ export default function OpenRouterBatchWorkspace({
               <li>当前批处理只接受文本输入，不发送图片、音频、视频或文件。</li>
               <li>任务异步执行，不提供流式输出，也不适合实时工具循环。</li>
               <li>OpenRouter 会保留 Batch 输入与结果 30 天，请勿提交不应离开本地的敏感材料。</li>
-              <li>最终费用以具体模型页面和完成任务返回的 usage.cost 为准。</li>
+              <li>ModelMirror 只保存本地任务映射和脱敏状态，不保存输入或结果正文。</li>
+              <li>返回的 usage/cost 仅为 Provider 报告元数据，不构成 ModelMirror 计费依据。</li>
             </ul>
           </section>
         </aside>

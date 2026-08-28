@@ -183,7 +183,7 @@ export const helpArticles: HelpArticle[] = [
     contentType: "explanation",
     audience: "希望避免误操作、意外费用或不必要数据发送的用户",
     estimatedMinutes: 4,
-    keywords: ["费用", "价格", "数据", "文件", "上传", "发送", "安全", "权限"],
+    keywords: ["费用", "价格", "数据", "文件", "上传", "发送", "安全", "权限", "Batch", "批处理", "幂等"],
     relatedRoutes: ["/models", "/settings"],
     verifiedCommit: verifiedBaseline.commit,
     verifiedDate: verifiedBaseline.date,

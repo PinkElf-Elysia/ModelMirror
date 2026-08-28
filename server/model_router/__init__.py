@@ -72,6 +72,7 @@ from .rerank_gateway import (
     ManagedRerankGateway,
     ManagedRerankResult,
 )
+from .batch_gateway import ManagedOpenRouterBatchGateway
 
 __all__ = [
     "CompressionMode",
@@ -107,6 +108,7 @@ __all__ = [
     "ManagedRerankError",
     "ManagedRerankGateway",
     "ManagedRerankResult",
+    "ManagedOpenRouterBatchGateway",
     "AUTO_SIDECAR_ATTEMPTS_NOT_OBSERVED",
     "RouterConnection",
     "RouterConnectionCreate",

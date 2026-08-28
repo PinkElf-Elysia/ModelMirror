@@ -17,6 +17,7 @@ from .egress import AuthorizedProviderTarget, ProviderEgressError
 from .provider_catalog import ProviderCatalogService
 from .provider_chat import ProviderChatTarget, ProviderChatTransport
 from .provider_operations import (
+    provider_operation_batch_model_matches,
     ProviderOperationTarget,
     ProviderOperationTransport,
     provider_operation_model_matches,
@@ -65,6 +66,7 @@ MAX_WORKLOAD_UNARY_RESPONSE_BYTES = 1024 * 1024
 MAX_WORKLOAD_SSE_EVENT_BYTES = 256 * 1024
 MAX_WORKLOAD_STREAM_BYTES = 4 * 1024 * 1024
 WORKLOAD_RESPONSE_CHUNK_BYTES = 64 * 1024
+MAX_INITIAL_BATCH_NOT_FOUND_POLLS = 5
 ENTRY_FEATURE_FLAGS: dict[ProviderWorkloadEntryId, tuple[str, ...]] = {
     "agent_shadow": ("MODEL_CONTROL_AGENT_SHADOW_ENABLED",),
     "meta_agent": ("MODEL_CONTROL_META_AGENT_ENABLED",),
@@ -163,6 +165,7 @@ DATA_PLANE_INTEGRATED_ENTRIES: frozenset[ProviderWorkloadEntryId] = frozenset(
         "rag_embedding",
         "rag_rerank",
         "skill_rerank",
+        "openrouter_batch",
     }
 )
 
@@ -1225,6 +1228,8 @@ class ProviderWorkloadCertificationService:
         polled_payload = initial_payload
         current_status = "validating"
         poll_count = 0
+        batch_visible = False
+        initial_not_found_polls = 0
         while True:
             if polled_payload is None:
                 if poll_count and self._batch_poll_interval_seconds:
@@ -1245,8 +1250,24 @@ class ProviderWorkloadCertificationService:
                         client, poll_request
                     )
                     try:
+                        if poll_response.status_code == 404 and not batch_visible:
+                            initial_not_found_polls += 1
+                            poll_count += 1
+                            if initial_not_found_polls < MAX_INITIAL_BATCH_NOT_FOUND_POLLS:
+                                polled_payload = None
+                                continue
+                            self._repository_method("update_provider_batch_job")(
+                                self.router_service.tenant_id,
+                                job_id,
+                                status=current_status,
+                                error_code="provider_batch_poll_not_visible",
+                            )
+                            raise _WorkloadCertificationUncertain(
+                                "provider_batch_poll_not_visible"
+                            )
                         self._validate_status(poll_response.status_code)
                         polled_payload = await self._read_json_response(poll_response)
+                        batch_visible = True
                     finally:
                         await poll_response.aclose()
                 except _WorkloadCertificationFailure as exc:
@@ -1363,11 +1384,19 @@ class ProviderWorkloadCertificationService:
                 raise _WorkloadCertificationFailure(
                     "provider_batch_actual_model_missing"
                 )
-            if actual_model != payload.model_id:
+            if not provider_operation_batch_model_matches(
+                provider_kind=target.provider_kind,
+                requested_model=payload.model_id,
+                actual_model=actual_model,
+            ):
                 raise _WorkloadCertificationFailure(
                     "provider_workload_model_mismatch"
                 )
             evidence.actual_model = actual_model
+            if actual_model != payload.model_id:
+                evidence.warning_codes.append(
+                    "actual_model_openrouter_alias_resolved"
+                )
             evidence.checks["actual_model_verified"] = True
             evidence.checks["http_ok"] = True
             evidence.checks["response_complete"] = True
@@ -2055,6 +2084,17 @@ class ProviderWorkloadControlService:
                     ),
                 )
             )
+        batch_jobs_by_run: dict[str, dict[str, object]] = {}
+        if entry_id in {None, "openrouter_batch"}:
+            batch_jobs_by_run = {
+                str(item["workload_run_id"]): item
+                for item in self._repository_method("list_provider_batch_jobs")(
+                    self.router_service.tenant_id,
+                    limit=500,
+                )
+                if str(item.get("purpose")) == "runtime"
+                and item.get("workload_run_id")
+            }
         runs = [
             ProviderWorkloadRunSummary(
                 run_id=str(row["id"]),
@@ -2076,6 +2116,34 @@ class ProviderWorkloadControlService:
                 created_at=str(row["created_at"]),
                 completed_at=(
                     str(row["completed_at"]) if row["completed_at"] else None
+                ),
+                batch_job_id=(
+                    str(batch_jobs_by_run[str(row["id"])]["id"])
+                    if str(row["id"]) in batch_jobs_by_run
+                    else None
+                ),
+                batch_status=(
+                    str(batch_jobs_by_run[str(row["id"])]["status"])
+                    if str(row["id"]) in batch_jobs_by_run
+                    else None
+                ),
+                batch_request_count=(
+                    int(batch_jobs_by_run[str(row["id"])]["request_count"])
+                    if str(row["id"]) in batch_jobs_by_run
+                    else None
+                ),
+                batch_completed_count=(
+                    int(batch_jobs_by_run[str(row["id"])]["completed_count"])
+                    if str(row["id"]) in batch_jobs_by_run
+                    else None
+                ),
+                batch_failed_count=(
+                    int(batch_jobs_by_run[str(row["id"])]["failed_count"])
+                    if str(row["id"]) in batch_jobs_by_run
+                    else None
+                ),
+                billing_authoritative=(
+                    False if str(row["id"]) in batch_jobs_by_run else None
                 ),
                 calls=calls_by_run.get(str(row["id"]), []),
             )
@@ -2315,7 +2383,15 @@ class ProviderWorkloadControlService:
                     actual_model=str(actual_model),
                 )
                 if execution_shape == "embedding_vectors"
-                else str(actual_model) == expected_actual_model
+                else (
+                    provider_operation_batch_model_matches(
+                        provider_kind=connection.kind,
+                        requested_model=expected_actual_model,
+                        actual_model=str(actual_model),
+                    )
+                    if execution_shape.startswith("openrouter_batch_")
+                    else str(actual_model) == expected_actual_model
+                )
             )
             if not matches:
                 return None, "provider_workload_certification_model_mismatch"

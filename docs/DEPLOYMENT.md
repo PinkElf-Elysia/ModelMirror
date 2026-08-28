@@ -275,6 +275,25 @@ Fusion 接管要求 `MODEL_CONTROL_FUSION_ENABLED=true`、`fusion` Policy 已批
 同一清理命令从 v16 起同时报告 R5 Chat 与 R6 Workload 的过期记录；第一条仍是 dry-run，
 只有第二条显式 `--apply` 才删除已完成记录。不得对正在运行的父运行或逻辑调用执行清理。
 
+R7E 的 OpenRouter Batch 控制面默认关闭：
+
+```bash
+MODEL_CONTROL_OPENROUTER_BATCH_ENABLED=false
+MODEL_CONTROL_OPENROUTER_BATCH_LEGACY_ID_COMPAT=false
+```
+
+启用前，管理员必须为 `openrouter_batch` 配置并批准所需精确模型的
+`openrouter_batch_chat` 或 `openrouter_batch_embeddings` Binding。连接必须为 OpenRouter、
+具有 `batch` scope，并已完成对应异步资格认证。Managed 提交要求 `Idempotency-Key`，返回
+`mmbatch_` 本地任务 ID；重复提交同一 Key 不会再次发送 POST。Server 只为已有上游 ID 的任务
+恢复 GET 轮询，不恢复结果不确定的提交。
+
+旧 Workspace 保存的是上游 Batch ID。默认情况下，Managed 模式拒绝这些旧 ID；如需在迁移
+窗口内查看既有任务，可临时设置 `MODEL_CONTROL_OPENROUTER_BATCH_LEGACY_ID_COMPAT=true`，
+但该开关只开放旧静态 Key 的 GET，不允许提交、重试或绑定新任务。完成迁移后应恢复 `false`。
+回滚时先禁止新提交，保留 v17 Router SQLite 与本地任务映射；已有 `mmbatch_` 仍可由 R7E
+代码只读轮询。不得删除 Batch 状态，也不得用新的幂等键猜测性重发。
+
 规则：
 
 - `.env`、API Key、token 和 master key 不得提交。
