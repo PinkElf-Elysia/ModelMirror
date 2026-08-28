@@ -43,6 +43,49 @@ class ProviderChatStableService:
         self.control = ProviderChatControlService(router_service)
         self.transport = ProviderChatTransport(router_service.egress_policy)
 
+    def readiness(
+        self,
+        model_id: str,
+        capability: ProviderChatCapability = "chat_text",
+    ) -> tuple[bool, str | None]:
+        """Inspect the current managed route without creating a run receipt."""
+
+        if not self.control.feature_enabled():
+            return False, "provider_chat_control_feature_disabled"
+        policy = self.control.get_policy()
+        clean_model = str(model_id or "").strip()
+        if (
+            policy.effective_mode == "legacy"
+            or clean_model not in policy.stable_model_ids
+        ):
+            return False, "provider_chat_no_qualified_route"
+        runtime_allowed, runtime_error = self.control.required_runtime_allowed(policy)
+        if not runtime_allowed:
+            return False, runtime_error or "provider_chat_required_gate_degraded"
+        route = next(
+            (item for item in policy.routes if item.capability == capability),
+            None,
+        )
+        route_ids = list(route.connection_ids if route else [])
+        if policy.effective_mode == "newapi_required_default":
+            route_ids = route_ids[:1]
+        qualifications = {
+            item.connection_id: item
+            for item in policy.qualifications
+            if item.capability == capability and item.model_id == clean_model
+        }
+        failures: list[str] = []
+        for connection_id in route_ids:
+            qualification = qualifications.get(connection_id)
+            if qualification is not None and qualification.valid:
+                return True, None
+            failures.append(
+                qualification.reason_code
+                if qualification is not None
+                else "provider_chat_qualification_missing"
+            )
+        return False, failures[-1] if failures else "provider_chat_no_qualified_route"
+
     async def begin(
         self,
         model_id: str,

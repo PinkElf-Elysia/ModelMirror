@@ -1,14 +1,19 @@
 {
   "schemaVersion": 1,
   "moduleId": "modelmirror.ai-research",
-  "moduleVersion": "0.2.0-ar1",
-  "baseCommit": "174baf6a5289520b53578dc29cab82fd4c1d1e9e",
+  "moduleVersion": "0.3.0-v0.1",
+  "baseCommit": "11d35c1d84c0a18a05779a37d60cb59ef7a25867",
   "claimLevel": "harness_only",
   "packStatus": "fixture_only",
-  "parentIntegration": "none",
+  "parentIntegration": "restricted-model-bridge",
   "allowedParentFiles": [
     ".dockerignore",
-    ".github/workflows/ai-research.yml"
+    ".github/workflows/ai-research.yml",
+    "server/main.py",
+    "server/model_router/ai_research_bridge.py",
+    "server/model_router/chat_stable.py",
+    "server/tests/test_ai_research_bridge.py",
+    "server/tests/test_provider_chat_stable_service.py"
   ],
   "forbiddenParentRoots": [
     "client",
@@ -26,19 +31,25 @@
   ],
   "services": [
     "ai-research-control",
+    "ai-research-console-gateway",
     "ai-research-tracking",
     "ai-research-worker",
-    "ai-research-inspect-view"
+    "ai-research-inspect-view",
+    "ai-research-model-relay",
+    "ai-research-ldr-assets",
+    "ai-research-ldr"
   ],
   "publicBindings": [
     "127.0.0.1:8790",
     "127.0.0.1:8791",
+    "127.0.0.1:8792",
     "127.0.0.1:8793"
   ],
   "workerProtocolVersion": 1,
   "apiVersion": "v1",
   "allowedExecutionModes": [
-    "fixture"
+    "fixture",
+    "literature"
   ],
   "allowedFixtures": [
     "success",

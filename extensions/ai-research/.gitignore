@@ -1,6 +1,8 @@
 runtime/
+.venv/
 **/__pycache__/
 *.py[cod]
 .pytest_cache/
+control/ui-dist/
 ui/node_modules/
 ui/dist/

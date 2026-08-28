@@ -51,7 +51,7 @@ COPY --from=ui-build /ui/node_modules/react-router-dom/LICENSE.md /usr/share/doc
 COPY --from=ui-build /ui/node_modules/lucide-react/LICENSE /usr/share/doc/modelmirror-ai-research/licenses/lucide-react-ISC.txt
 COPY --chown=65532:65532 module-boundary.json source-lock.json THIRD_PARTY_NOTICES.md ./
 
-RUN mkdir -p /data/control/evidence /data/tracking/artifacts /run/ai-research /usr/share/doc/modelmirror-ai-research \
+RUN mkdir -p /data/control/evidence /data/projects /data/tracking/artifacts /run/ai-research /usr/share/doc/modelmirror-ai-research \
     && cp THIRD_PARTY_NOTICES.md /usr/share/doc/modelmirror-ai-research/THIRD_PARTY_NOTICES.md \
     && chown -R 65532:65532 /data /run/ai-research /opt/modelmirror-ai-research
 
@@ -67,5 +67,7 @@ COPY requirements-test.lock /tmp/requirements-test.lock
 RUN python -m pip install --no-cache-dir --require-hashes -r /tmp/requirements-test.lock \
     && python -m pip check
 COPY --chown=65532:65532 tests ./tests
+COPY --chown=65532:65532 scripts/acceptance.py scripts/init_ldr_assets.py scripts/literature_acceptance.py scripts/validate_boundary.py ./scripts/
+COPY --chown=65532:65532 compose.yml LDR_LICENSE_DISPOSITION.md ./
 USER 65532:65532
 CMD ["python", "-m", "pytest", "tests/control", "-q"]

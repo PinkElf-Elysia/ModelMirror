@@ -35,7 +35,7 @@ export function FixtureNotice() {
 
 export function ErrorNotice({ message, onRetry }: { message: string; onRetry?: () => void }) {
   return (
-    <div className="mt-4 flex items-start justify-between gap-4 border-l-2 border-[var(--red)] bg-[#291719] px-4 py-3 text-sm text-[#ffc2c2]" role="alert">
+    <div className="mt-4 flex items-start justify-between gap-4 rounded-md border border-[#704044] bg-[#291719] px-4 py-3 text-sm text-[#ffc2c2]" role="alert">
       <span className="flex items-start gap-2">
         <AlertCircle aria-hidden="true" className="mt-0.5 shrink-0" size={16} />
         {message}

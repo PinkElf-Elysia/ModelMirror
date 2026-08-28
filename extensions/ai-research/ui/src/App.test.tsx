@@ -14,6 +14,30 @@ const system = {
     { id: "inspectView", status: "ready", required: false },
   ],
   checkedAt: "2026-08-24T00:00:00Z",
+  literatureCapability: {
+    status: "ready",
+    serviceStatus: "ready",
+    sessionStatus: "locked",
+    profileStatus: "ready",
+    modelBridgeStatus: "ready",
+    username: null,
+    scientificClaim: "none",
+  },
+};
+const moduleInfo = {
+  moduleId: "modelmirror-ai-research",
+  moduleVersion: "0.3.0-v0.1",
+  apiVersion: "v1",
+  workerProtocolVersion: 1,
+  fixtures: ["success", "task_error", "long_running_cancel"],
+  runtimes: { localDeepResearch: "1.10.6" },
+  capabilities: { fixtureExecution: true, literatureResearch: true },
+  capabilityClaims: {
+    fixtureExecution: { enabled: true, claimLevel: "harness_only", packStatus: "fixture_only" },
+    literatureResearch: { enabled: true, scientificClaim: "none", acceptanceState: "pending_live_acceptance", workflowSource: "local_deep_research" },
+  },
+  links: { mlflow: "http://127.0.0.1:8791", inspectView: "http://127.0.0.1:8793", localDeepResearch: "http://127.0.0.1:8792" },
+  limitations: ["literature workflow only; scientificClaim=none"],
 };
 const createBodies: string[] = [];
 
@@ -28,7 +52,9 @@ beforeEach(() => {
         headers: { "Content-Type": "application/json" },
       });
     }
-    const body = path.includes("/system")
+    const body = path.includes("/api/v1/module")
+      ? moduleInfo
+      : path.includes("/system")
       ? system
       : path.includes("/summary")
         ? { total: 0, phases: { queued: 0, running: 0, terminal: 0 }, outcomes: { success: 0, task_error: 0, cancelled: 0, infrastructure_error: 0 }, evidenceStates: { pending: 0, synced: 0, failed: 0 }, updatedAt: null }
@@ -42,11 +68,21 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-test("overview states the fixture-only product boundary", async () => {
+test("overview presents the real literature path without a scientific claim", async () => {
   render(<MemoryRouter initialEntries={["/"]}><App /></MemoryRouter>);
-  expect(screen.getByRole("heading", { name: "科研执行控制台" })).toBeInTheDocument();
-  expect(screen.getByText(/不调用模型，不产生科研结论/)).toBeInTheDocument();
-  await waitFor(() => expect(screen.getByText("创建工程夹具")).toBeInTheDocument());
+  expect(screen.getByRole("heading", { name: "继续你的文献研究" })).toBeInTheDocument();
+  expect(screen.getByText(/scientificClaim=none/)).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "创建研究项目" })).toBeInTheDocument();
+  await waitFor(() => expect(screen.getByText("工程夹具与证据框架")).toBeInTheDocument());
+});
+
+test("system separates fixture claims from pending literature acceptance", async () => {
+  render(<MemoryRouter initialEntries={["/system"]}><App /></MemoryRouter>);
+  expect(await screen.findByText("harness_only")).toBeInTheDocument();
+  expect(screen.getByText("fixture_only")).toBeInTheDocument();
+  expect(screen.getByText("Local Deep Research", { selector: "dd" })).toBeInTheDocument();
+  expect(screen.getByText("功能已实现，真实环境验收待完成")).toBeInTheDocument();
+  expect(screen.getByText("none，结果需人工复核")).toBeInTheDocument();
 });
 
 test("illegal run filter is presented as all", async () => {
@@ -132,8 +168,13 @@ test("mobile navigation closes on Escape and returns focus to its toggle", async
   render(<MemoryRouter initialEntries={["/runs"]}><App /></MemoryRouter>);
   const open = screen.getByRole("button", { name: "打开导航" });
 
-  await user.click(open);
-  const runLink = screen.getByRole("link", { name: "运行" });
+  open.focus();
+  await user.keyboard("{Enter}");
+  expect(screen.getByRole("button", { name: "关闭导航" })).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
+  const runLink = screen.getByRole("link", { name: "工程夹具" });
   runLink.focus();
   await user.keyboard("{Escape}");
 
@@ -144,7 +185,7 @@ test("mobile navigation closes on Escape and returns focus to its toggle", async
 
 test("a failed create retry reuses the same idempotency key", async () => {
   const user = userEvent.setup();
-  render(<MemoryRouter initialEntries={["/"]}><App /></MemoryRouter>);
+  render(<MemoryRouter initialEntries={["/runs"]}><App /></MemoryRouter>);
   const create = screen.getByRole("button", { name: "创建并查看" });
   await waitFor(() => expect(create).toBeEnabled());
   await user.click(create);

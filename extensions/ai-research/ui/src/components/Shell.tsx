@@ -1,10 +1,11 @@
-import { Activity, Beaker, ListTree, Menu, ServerCog, X } from "lucide-react";
+import { Activity, Beaker, FolderKanban, ListTree, Menu, ServerCog, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 
 const links = [
   { to: "/", label: "总览", icon: Activity, end: true },
-  { to: "/runs", label: "运行", icon: ListTree, end: false },
+  { to: "/projects", label: "研究项目", icon: FolderKanban, end: false },
+  { to: "/runs", label: "工程夹具", icon: ListTree, end: false },
   { to: "/system", label: "系统", icon: ServerCog, end: false },
 ];
 
@@ -27,7 +28,7 @@ export function Shell() {
             </span>
             <span className="min-w-0">
               <span className="block truncate text-sm font-semibold text-white">模镜科研</span>
-              <span className="block text-[10px] uppercase tracking-[0.12em] text-[var(--muted)]">
+              <span className="block text-[10px] tracking-[0.04em] text-[var(--muted)]">
                 Research Console
               </span>
             </span>
@@ -67,8 +68,8 @@ export function Shell() {
         </nav>
 
         <div className={`${open ? "block" : "hidden"} mt-auto border-t border-[var(--border)] p-4 text-xs leading-5 text-[var(--muted)] md:block`}>
-          <span className="block font-semibold text-[#bdc7cd]">0.2.0-ar1</span>
-          fixture_only · harness_only
+          <span className="block font-semibold text-[#bdc7cd]">0.3.0-v0.1</span>
+          Literature · scientificClaim none
         </div>
       </aside>
       <main className="main-column" id="main-content">

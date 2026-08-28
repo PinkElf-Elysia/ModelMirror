@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -131,9 +133,35 @@ class FakeService:
 
 def test_frozen_http_contract(monkeypatch) -> None:
     monkeypatch.setattr(app_module, "ResearchService", FakeService)
+    module_root = Path(__file__).resolve().parents[2]
+    monkeypatch.setattr(
+        app_module,
+        "settings",
+        replace(
+            app_module.settings,
+            module_boundary=module_root / "module-boundary.json",
+            source_lock=module_root / "source-lock.json",
+        ),
+    )
     with TestClient(app_module.app) as client:
         assert client.get("/healthz").json() == {"status": "alive"}
         assert client.get("/readyz").status_code == 200
+        module = client.get("/api/v1/module")
+        assert module.status_code == 200
+        claims = module.json()["capabilityClaims"]
+        assert claims["fixtureExecution"] == {
+            "enabled": True,
+            "claimLevel": "harness_only",
+            "packStatus": "fixture_only",
+        }
+        assert claims["literatureResearch"] == {
+            "enabled": True,
+            "scientificClaim": "none",
+            "acceptanceState": "pending_live_acceptance",
+            "workflowSource": "local_deep_research",
+        }
+        assert "claimLevel" not in module.json()
+        assert "packStatus" not in module.json()
         payload = {
             "fixtureId": "inspect-smoke-v1",
             "caseId": "success",

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from urllib.request import Request, urlopen
+from urllib.request import ProxyHandler, Request, build_opener
 
 from .config import Settings
 from .evidence import (
@@ -15,6 +16,10 @@ from .evidence import (
     verify_persisted_receipt,
 )
 from .mlflow_sink import MlflowSink
+from .ldr_client import LdrClient, LdrError, LdrProtocolError, LdrUnavailable
+from .literature_artifacts import LiteratureArtifactStore
+from .literature_runtime import LiteratureRuntime
+from .project_store import ProjectConflict, ProjectStore
 from .store import IdempotencyConflict, RunStore
 from .worker_client import WorkerBusy, WorkerClient, WorkerClientError
 
@@ -30,6 +35,25 @@ class ResearchService:
         self.store = RunStore(settings.control_db)
         self.worker = WorkerClient(settings.worker_socket)
         self.mlflow = MlflowSink(settings.mlflow_uri, settings.mlflow_experiment)
+        self.projects = ProjectStore(
+            settings.resolved_projects_root,
+            source_lock_sha256=hashlib.sha256(
+                settings.source_lock.read_bytes()
+            ).hexdigest(),
+        )
+        self.projects.prepare()
+        self.literature_artifacts = LiteratureArtifactStore(
+            settings.resolved_projects_root
+        )
+        self.ldr = LdrClient(settings.ldr_uri)
+        self.literature = LiteratureRuntime(
+            projects=self.projects,
+            artifacts=self.literature_artifacts,
+            ldr=self.ldr,
+            model_id=settings.literature_model_id,
+            bridge_url=settings.model_bridge_url,
+        )
+        self._literature_poll_due = 0.0
         self._stop = asyncio.Event()
         self._loop_task: asyncio.Task[None] | None = None
 
@@ -82,17 +106,202 @@ class ResearchService:
             status = "degraded"
         else:
             status = "ready"
+        literature = await self.literature_capability()
         return {
             "status": status,
             "checks": checks,
             "checkedAt": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "literatureCapability": literature,
         }
+
+    async def literature_capability(self) -> dict[str, Any]:
+        model_configured = bool(
+            self.settings.literature_model_id
+            and self.settings.model_bridge_url
+            and self.settings.model_bridge_token
+        )
+        bridge_status = "not_ready"
+        if model_configured:
+            try:
+                await asyncio.to_thread(self._probe_model_bridge)
+                bridge_status = "ready"
+            except Exception:
+                bridge_status = "not_ready"
+        try:
+            await asyncio.to_thread(self.ldr.probe)
+            service_status = "ready"
+            session = await asyncio.to_thread(self.ldr.session_status)
+        except (LdrUnavailable, LdrProtocolError):
+            service_status = "not_ready"
+            session = {"status": "locked", "username": None}
+        return {
+            "status": (
+                "ready"
+                if service_status == "ready" and bridge_status == "ready"
+                else "not_ready"
+            ),
+            "serviceStatus": service_status,
+            "sessionStatus": session["status"],
+            "profileStatus": bridge_status,
+            "modelBridgeStatus": bridge_status,
+            "username": session["username"],
+            "scientificClaim": "none",
+        }
+
+    async def literature_session(self) -> dict[str, str | None]:
+        return await asyncio.to_thread(self.ldr.session_status)
+
+    async def unlock_literature(
+        self, *, username: str, password: str
+    ) -> dict[str, str | None]:
+        if not (
+            self.settings.literature_model_id
+            and self.settings.model_bridge_url
+            and self.settings.model_bridge_token
+        ):
+            raise NotReady("fixed literature model bridge is not configured")
+        try:
+            await asyncio.to_thread(self._probe_model_bridge)
+        except Exception as exc:
+            raise NotReady("fixed literature model bridge is not ready") from exc
+        value = await asyncio.to_thread(self.ldr.unlock, username, password)
+        try:
+            await asyncio.to_thread(
+                self.ldr.configure_fixed_profile,
+                model_id=self.settings.literature_model_id,
+                bridge_url=self.settings.model_bridge_url,
+                bridge_token=self.settings.model_bridge_token,
+            )
+        except LdrError:
+            await asyncio.to_thread(self.ldr.clear)
+            raise
+        return value
+
+    async def clear_literature_session(self) -> dict[str, str | None]:
+        await asyncio.to_thread(self.ldr.clear)
+        return {"status": "locked", "username": None}
+
+    async def start_literature(
+        self,
+        project_id: str,
+        *,
+        idempotency_key: str,
+        collection_id: str | None,
+    ) -> tuple[dict[str, Any], bool]:
+        if not self.settings.literature_model_id:
+            raise NotReady("fixed literature model is not configured")
+        return await self.literature.start_run(
+            project_id,
+            idempotency_key=idempotency_key,
+            collection_id=collection_id,
+        )
+
+    async def cancel_literature(self, project_id: str) -> dict[str, Any]:
+        return await self.literature.cancel(project_id)
+
+    async def sync_literature(self, project_id: str) -> dict[str, Any]:
+        return await self.literature.sync(project_id)
+
+    async def literature_sources(self, project_id: str) -> dict[str, Any]:
+        project, attempt, directory = await asyncio.to_thread(
+            self._completed_literature, project_id
+        )
+        sources = await asyncio.to_thread(self.literature_artifacts.sources, directory)
+        return {
+            "projectId": project_id,
+            "literatureRunId": attempt["runId"],
+            "integrityStatus": "verified",
+            "sources": sources,
+        }
+
+    async def literature_review(self, project_id: str) -> dict[str, Any]:
+        _, attempt, directory = await asyncio.to_thread(
+            self._completed_literature, project_id
+        )
+        markdown = await asyncio.to_thread(self.literature_artifacts.review, directory)
+        return {
+            "projectId": project_id,
+            "literatureRunId": attempt["runId"],
+            "integrityStatus": "verified",
+            "markdown": markdown,
+        }
+
+    async def literature_artifact(
+        self, project_id: str, name: str
+    ) -> tuple[bytes, str]:
+        _, _, directory = await asyncio.to_thread(
+            self._completed_literature, project_id
+        )
+        return await asyncio.to_thread(
+            self.literature_artifacts.read_artifact, directory, name
+        )
+
+    async def literature_collections(self) -> dict[str, Any]:
+        items = await asyncio.to_thread(self.ldr.collections)
+        return {"collections": items}
+
+    async def index_literature_collection(
+        self, collection_id: str
+    ) -> dict[str, Any]:
+        events = await asyncio.to_thread(self.ldr.index_collection, collection_id)
+        terminal = events[-1]
+        if terminal.get("type") == "error":
+            raise ProjectConflict("LDR failed to index the selected collection")
+        return {
+            "collectionId": collection_id,
+            "status": "completed",
+            "eventCount": len(events),
+            "terminalType": terminal.get("type"),
+        }
+
+    async def literature_zotero_status(self) -> dict[str, Any]:
+        config = await asyncio.to_thread(self.ldr.zotero_config)
+        status = await asyncio.to_thread(self.ldr.zotero_status)
+        return {"config": config, "status": status}
+
+    async def sync_literature_zotero(self) -> dict[str, Any]:
+        return await asyncio.to_thread(self.ldr.zotero_sync)
+
+    def _completed_literature(
+        self, project_id: str
+    ) -> tuple[dict[str, Any], dict[str, Any], Path]:
+        project = self.projects.get(project_id)
+        run_id = project["literature"].get("completedRunId")
+        if not run_id:
+            raise ProjectConflict("project does not have a completed literature review")
+        _, attempt = self.projects.get_attempt(project_id, run_id)
+        if attempt.get("integrityStatus") != "verified":
+            raise ProjectConflict("literature result package is not verified")
+        directory = self.projects.run_directory(project_id, run_id)
+        return project, attempt, directory
 
     def _probe_inspect_view(self) -> None:
         request = Request(self.settings.inspect_view_uri + "/", method="GET")
-        with urlopen(request, timeout=2.0) as response:
+        with build_opener(ProxyHandler({})).open(request, timeout=2.0) as response:
             if response.status < 200 or response.status >= 400:
                 raise RuntimeError("Inspect View returned an unhealthy status")
+
+    def _probe_model_bridge(self) -> None:
+        request = Request(
+            self.settings.model_bridge_url + "/models",
+            method="GET",
+            headers={
+                "Authorization": f"Bearer {self.settings.model_bridge_token}",
+                "Accept": "application/json",
+            },
+        )
+        with build_opener(ProxyHandler({})).open(request, timeout=5.0) as response:
+            if response.status != 200:
+                raise RuntimeError("AI Research model bridge is unavailable")
+            content = response.read(1024 * 1024 + 1)
+        if len(content) > 1024 * 1024:
+            raise RuntimeError("AI Research model list exceeded size limit")
+        value = json.loads(content)
+        models = value.get("data") if isinstance(value, dict) else None
+        if not isinstance(models, list) or [
+            item.get("id") for item in models if isinstance(item, dict)
+        ] != [self.settings.literature_model_id]:
+            raise RuntimeError("fixed literature model is not eligible")
 
     async def evidence(self, run_id: str) -> dict[str, Any]:
         record = await asyncio.to_thread(self.store.evidence, run_id)
@@ -228,6 +437,10 @@ class ResearchService:
                         )
 
         await self._sync_outbox()
+        now = asyncio.get_running_loop().time()
+        if now >= self._literature_poll_due:
+            self._literature_poll_due = now + 2.0
+            await self.literature.tick()
 
     async def _ensure_receipt(
         self, run: dict[str, Any], worker_result: dict[str, Any]

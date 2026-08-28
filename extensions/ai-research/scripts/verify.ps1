@@ -1,7 +1,10 @@
 param(
     [string]$Base = "origin/main",
     [ValidateSet("Quick", "Full")]
-    [string]$Mode = "Full"
+    [string]$Mode = "Full",
+    [Parameter(Mandatory = $true)]
+    [ValidateSet("ExternalPull", "RedistributableBundle")]
+    [string]$DistributionMode
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,7 +23,13 @@ if (-not $pythonFile) {
         $pythonPrefix = @("-3.12")
     }
 }
-$compose = @("compose", "-f", "compose.yml", "--profile", "ai-research")
+$composeProject = if ($env:AI_RESEARCH_COMPOSE_PROJECT) {
+    $env:AI_RESEARCH_COMPOSE_PROJECT
+} else {
+    "modelmirror-ai-research"
+}
+$compose = @("compose", "-p", $composeProject, "-f", "compose.yml", "--profile", "ai-research")
+$literatureCompose = @("compose", "-p", $composeProject, "-f", "compose.yml", "--profile", "literature")
 $runtime = Join-Path $moduleRoot "runtime"
 $diagnostics = Join-Path $runtime "diagnostics"
 $sbom = Join-Path $runtime "sbom"
@@ -69,6 +78,14 @@ function Extract-ImageFile([string]$Image, [string]$ContainerPath, [string]$Dest
     }
 }
 
+function Get-ComposeServiceId([string[]]$ComposeArguments, [string]$Service) {
+    $containerId = & docker @ComposeArguments ps -q $Service
+    if ($LASTEXITCODE -ne 0 -or -not $containerId) {
+        throw "running Compose service is missing: $Service"
+    }
+    return $containerId.Trim()
+}
+
 function Build-ClientProof([string]$GitRef, [string]$Context, [string]$Image) {
     $archive = Join-Path $Context "client.tar"
     Invoke-Checked "git" @(
@@ -87,24 +104,35 @@ function Build-ClientProof([string]$GitRef, [string]$Context, [string]$Image) {
 
 Push-Location $moduleRoot
 try {
-    Invoke-Python @("scripts/validate_boundary.py", "--base", $Base)
+    $distributionModeValue = if ($DistributionMode -eq "ExternalPull") {
+        "external-pull"
+    } else {
+        "redistributable-bundle"
+    }
+    $boundaryArgs = @(
+        "scripts/validate_boundary.py",
+        "--base", $Base,
+        "--distribution-mode", $distributionModeValue
+    )
+    Invoke-Python $boundaryArgs
     Invoke-Checked "docker" ($compose + @("config", "--quiet"))
+    Invoke-Checked "docker" ($literatureCompose + @("config", "--quiet"))
 
-    Invoke-Checked "docker" @("build", "--target", "test", "-f", "control/Dockerfile", "-t", "modelmirror-ai-research-control-test:ar1", ".")
-    Invoke-Checked "docker" @("run", "--rm", "modelmirror-ai-research-control-test:ar1")
-    Invoke-Checked "docker" @("build", "--target", "test", "-f", "worker/Dockerfile", "-t", "modelmirror-ai-research-worker-test:ar1", ".")
-    Invoke-Checked "docker" @("run", "--rm", "modelmirror-ai-research-worker-test:ar1")
+    Invoke-Checked "docker" @("build", "--target", "test", "-f", "control/Dockerfile", "-t", "modelmirror-ai-research-control-test:v0.1", ".")
+    Invoke-Checked "docker" @("run", "--rm", "modelmirror-ai-research-control-test:v0.1")
+    Invoke-Checked "docker" @("build", "--target", "test", "-f", "worker/Dockerfile", "-t", "modelmirror-ai-research-worker-test:v0.1", ".")
+    Invoke-Checked "docker" @("run", "--rm", "modelmirror-ai-research-worker-test:v0.1")
 
     if ($Mode -eq "Quick") { return }
 
-    Invoke-Checked "docker" @("build", "--sbom=true", "--provenance=true", "--target", "runtime", "-f", "control/Dockerfile", "-t", "modelmirror-ai-research-control:ar1", ".")
-    Invoke-Checked "docker" @("build", "--sbom=true", "--provenance=true", "--target", "runtime", "-f", "worker/Dockerfile", "-t", "modelmirror-ai-research-worker:ar1", ".")
+    Invoke-Checked "docker" @("build", "--sbom=true", "--provenance=true", "--target", "runtime", "-f", "control/Dockerfile", "-t", "modelmirror-ai-research-control:v0.1", ".")
+    Invoke-Checked "docker" @("build", "--sbom=true", "--provenance=true", "--target", "runtime", "-f", "worker/Dockerfile", "-t", "modelmirror-ai-research-worker:v0.1", ".")
     $controlInventoryPath = Join-Path $sbom "control-runtime-inventory.json"
     $workerInventoryPath = Join-Path $sbom "worker-runtime-inventory.json"
     $uiInventoryPath = Join-Path $sbom "ui-build-inventory.json"
-    Extract-ImageFile "modelmirror-ai-research-control:ar1" "/usr/share/doc/modelmirror-ai-research/runtime-inventory.json" $controlInventoryPath
-    Extract-ImageFile "modelmirror-ai-research-control:ar1" "/usr/share/doc/modelmirror-ai-research/ui-build-inventory.json" $uiInventoryPath
-    Extract-ImageFile "modelmirror-ai-research-worker:ar1" "/usr/share/doc/modelmirror-ai-research/runtime-inventory.json" $workerInventoryPath
+    Extract-ImageFile "modelmirror-ai-research-control:v0.1" "/usr/share/doc/modelmirror-ai-research/runtime-inventory.json" $controlInventoryPath
+    Extract-ImageFile "modelmirror-ai-research-control:v0.1" "/usr/share/doc/modelmirror-ai-research/ui-build-inventory.json" $uiInventoryPath
+    Extract-ImageFile "modelmirror-ai-research-worker:v0.1" "/usr/share/doc/modelmirror-ai-research/runtime-inventory.json" $workerInventoryPath
     $sourceLock = Get-Content -Raw -Encoding utf8 source-lock.json | ConvertFrom-Json
     $controlInventoryHash = (Get-FileHash -Algorithm SHA256 $controlInventoryPath).Hash.ToLowerInvariant()
     $workerInventoryHash = (Get-FileHash -Algorithm SHA256 $workerInventoryPath).Hash.ToLowerInvariant()
@@ -119,8 +147,8 @@ try {
         throw "UI build inventory hash disagrees with source-lock"
     }
     $imageEvidence = @(
-        (Measure-Image "modelmirror-ai-research-control:ar1" "control"),
-        (Measure-Image "modelmirror-ai-research-worker:ar1" "worker")
+        (Measure-Image "modelmirror-ai-research-control:v0.1" "control"),
+        (Measure-Image "modelmirror-ai-research-worker:v0.1" "worker")
     )
     Set-Content -LiteralPath (Join-Path $diagnostics "image-identities.txt") -Value $imageEvidence -Encoding utf8
 
@@ -155,6 +183,18 @@ try {
         Invoke-Python @("scripts/acceptance.py", "recovery", "--state", $state)
     }
 
+    if ($env:AI_RESEARCH_LIVE_ACCEPTANCE -eq "1") {
+        Invoke-Checked "docker" ($literatureCompose + @("up", "-d", "ai-research-model-relay", "ai-research-ldr"))
+        $literatureState = Join-Path $runtime "literature-acceptance-state.json"
+        Invoke-Python @("scripts/literature_acceptance.py", "initial", "--state", $literatureState)
+        for ($round = 1; $round -le 2; $round++) {
+            Invoke-Checked "docker" ($literatureCompose + @("restart", "ai-research-control", "ai-research-ldr"))
+            Invoke-Python @("scripts/literature_acceptance.py", "recovery", "--state", $literatureState)
+        }
+    } else {
+        Write-Warning "Live model/OpenAlex/Zotero journey was not run; V0.1 real acceptance remains open"
+    }
+
     $runIds = @((Get-Content -Raw -Encoding utf8 $state | ConvertFrom-Json).runs)
     $runIds += (Get-Content -Raw -Encoding utf8 $outboxState | ConvertFrom-Json).runId
     $runIds += (Get-Content -Raw -Encoding utf8 $workerRestartState | ConvertFrom-Json).runId
@@ -174,6 +214,7 @@ checks = [
     ("dns", lambda: socket.getaddrinfo("example.com", 443)),
     ("tcp", lambda: socket.create_connection(("1.1.1.1", 443), timeout=1)),
     ("http", lambda: urllib.request.urlopen("http://example.com", timeout=1)),
+    ("host", lambda: socket.getaddrinfo("host.docker.internal", 8000)),
 ]
 for name, check in checks:
     try:
@@ -186,12 +227,19 @@ if unexpected:
 '@
     & docker @compose exec -T ai-research-worker python -c $networkAttack
     if ($LASTEXITCODE -ne 0) { throw "worker network isolation attack failed" }
+    & docker @compose exec -T ai-research-control python -c $networkAttack
+    if ($LASTEXITCODE -ne 0) { throw "control network isolation attack failed" }
 
+    $environmentServices = @("ai-research-control", "ai-research-console-gateway", "ai-research-tracking", "ai-research-worker", "ai-research-inspect-view")
+    if ($env:AI_RESEARCH_LIVE_ACCEPTANCE -eq "1") {
+        $environmentServices += @("ai-research-model-relay", "ai-research-ldr")
+    }
     $containerEnv = @(
-        (& docker inspect modelmirror-ai-research-ai-research-control-1 --format "{{json .Config.Env}}"),
-        (& docker inspect modelmirror-ai-research-ai-research-tracking-1 --format "{{json .Config.Env}}"),
-        (& docker inspect modelmirror-ai-research-ai-research-worker-1 --format "{{json .Config.Env}}"),
-        (& docker inspect modelmirror-ai-research-ai-research-inspect-view-1 --format "{{json .Config.Env}}")
+        foreach ($service in $environmentServices) {
+            $containerId = Get-ComposeServiceId $literatureCompose $service
+            & docker inspect $containerId --format "{{json .Config.Env}}"
+            if ($LASTEXITCODE -ne 0) { throw "failed to inspect Compose service: $service" }
+        }
     ) -join "`n"
     if ($containerEnv -match "OPENROUTER_API_KEY|LLM_GATEWAY_KEY|DIFY_API_KEY|PROVIDER.*(KEY|TOKEN|SECRET)|sk-(or-v1-)?[A-Za-z0-9_-]{32,}|gh[pousr]_[A-Za-z0-9]{30,}|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY") {
         throw "provider credential names were exposed to module containers"
@@ -213,17 +261,17 @@ if unexpected:
         Build-ClientProof `
             $sourceLock.modelMirrorBaseCommit `
             $clientBaselineContext `
-            "modelmirror-ai-research-client-proof:ar1-baseline"
+            "modelmirror-ai-research-client-proof:v0.1-baseline"
         Build-ClientProof `
             "HEAD" `
             $clientCurrentContext `
-            "modelmirror-ai-research-client-proof:ar1"
+            "modelmirror-ai-research-client-proof:v0.1"
         Extract-ImageFile `
-            "modelmirror-ai-research-client-proof:ar1-baseline" `
+            "modelmirror-ai-research-client-proof:v0.1-baseline" `
             "/proof/dist/." `
             $clientBaselineProof
         Extract-ImageFile `
-            "modelmirror-ai-research-client-proof:ar1" `
+            "modelmirror-ai-research-client-proof:v0.1" `
             "/proof/dist/." `
             $clientCurrentProof
         Invoke-Python @(
@@ -239,6 +287,6 @@ if unexpected:
         }
     }
 } finally {
-    & docker @compose down
+    & docker @literatureCompose down
     Pop-Location
 }
