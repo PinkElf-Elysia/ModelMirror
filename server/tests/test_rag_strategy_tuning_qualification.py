@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from server.rag.strategy_tuning_qualification import (
     assess_chunk_sensitivity,
+    build_threshold_calibration_readiness,
     build_tuning_readiness,
     ranking_fingerprint,
     realized_index_fingerprint,
+    validate_tuning_dataset_pair,
 )
 
 
@@ -41,7 +43,31 @@ def _case(
         "targeting": {
             "blueprint_id": f"blueprint-{index}",
             "query_type": query_type,
-            "context_evidence_ids": [f"evidence-{index}"] if expected_no_result else [],
+            "context_refs": (
+                [
+                    {
+                        "document_id": "doc-a",
+                        "source_block_id": f"context-block-{index}",
+                        "source_block_hash": f"{index:064x}"[-64:],
+                    }
+                ]
+                if expected_no_result
+                else []
+            ),
+            "full_corpus_verification": (
+                {
+                    "contract_version": "rag-no-result-verification-v1",
+                    "completed": True,
+                    "method": "full_corpus_lexical_scan_v1",
+                    "query_hash": f"{index + 1000:064x}"[-64:],
+                    "corpus_snapshot_checksum": "c" * 64,
+                    "scanned_document_count": 1,
+                    "scanned_source_block_count": 50,
+                    "top_matches": [],
+                }
+                if expected_no_result
+                else None
+            ),
         },
     }
 
@@ -136,6 +162,104 @@ def test_hard_negative_requires_explicit_corpus_near_or_confusable_mark() -> Non
     assert readiness["counts"]["reviewed_no_result"] == 12
     assert readiness["counts"]["reviewed_hard_negative"] == 0
     assert readiness["dimensions"]["threshold"]["eligible"] is False
+
+
+def test_hard_negative_requires_full_corpus_verification_and_stable_context() -> None:
+    cases = _qualified_cases()
+    negatives = [case for case in cases if case["expected_no_result"]]
+    for case in negatives:
+        case["targeting"].pop("full_corpus_verification")
+
+    readiness = build_threshold_calibration_readiness(
+        {
+            "version_id": "evalsetver_calibration",
+            "published_at": 1,
+            "origin": "generated",
+            "benchmark_role": "threshold_calibration",
+            "benchmark_contract_version": "rag-gold-v3",
+            "qualification_manifest": {
+                "status": "qualified",
+                "dataset_role": "threshold_calibration",
+            },
+            "cases": cases,
+            "calibration": {"status": "calibrated"},
+        }
+    )
+
+    assert readiness["eligible"] is False
+    assert readiness["counts"]["reviewed_hard_negative"] == 0
+    assert "hard_negative_verification" in readiness["reason_codes"]
+
+
+def test_tuning_and_calibration_pair_rejects_roles_overlap_and_near_duplicates() -> None:
+    tuning = {
+        "version_id": "evalsetver_tuning",
+        "eval_set_id": "evalset_tuning",
+        "published_at": 1,
+        "benchmark_role": "strategy_tuning",
+        "benchmark_contract_version": "rag-gold-v3",
+        "checksum": "a" * 64,
+        "qualification_manifest": {
+            "status": "qualified",
+            "dataset_role": "strategy_tuning",
+        },
+        "corpus_snapshot": {"checksum": "c" * 64},
+        "cases": _qualified_cases(),
+        "calibration": {"status": "calibrated"},
+    }
+    calibration = {
+        "version_id": "evalsetver_calibration",
+        "eval_set_id": "evalset_calibration",
+        "published_at": 1,
+        "benchmark_role": "threshold_calibration",
+        "benchmark_contract_version": "rag-gold-v3",
+        "checksum": "b" * 64,
+        "qualification_manifest": {
+            "status": "qualified",
+            "dataset_role": "threshold_calibration",
+        },
+        "corpus_snapshot": {"checksum": "c" * 64},
+        "cases": [
+            {**case, "case_id": f"cal-{case['case_id']}", "query": f"calibration {case['query']}"}
+            for case in _qualified_cases()
+        ],
+        "calibration": {"status": "calibrated"},
+    }
+
+    qualified = validate_tuning_dataset_pair(tuning, calibration)
+    assert qualified["qualified"] is True
+    assert qualified["query_overlap_count"] == 0
+
+    held_out = {**tuning, "benchmark_role": "held_out_qualification"}
+    wrong_role = validate_tuning_dataset_pair(held_out, calibration)
+    assert wrong_role["qualified"] is False
+    assert "tuning_role" in wrong_role["reason_codes"]
+
+    near_duplicate_tuning = {
+        **tuning,
+        "cases": [
+            {
+                **tuning["cases"][0],
+                "query": "one two three four five six seven eight nine alpha",
+            },
+            *tuning["cases"][1:],
+        ],
+    }
+    duplicate = {
+        **calibration,
+        "cases": [
+            {
+                **calibration["cases"][0],
+                "query": "one two three four five six seven eight nine beta",
+            },
+            *calibration["cases"][1:],
+        ],
+    }
+    leaked = validate_tuning_dataset_pair(near_duplicate_tuning, duplicate)
+    assert leaked["qualified"] is False
+    assert leaked["query_overlap_count"] == 0
+    assert leaked["near_duplicate_query_count"] >= 1
+    assert "query_leakage" in leaked["reason_codes"]
 
 
 def test_small_targeted_set_is_insufficient_and_does_not_enable_threshold() -> None:

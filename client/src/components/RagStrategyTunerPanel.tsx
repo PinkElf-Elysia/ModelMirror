@@ -26,6 +26,7 @@ interface EvaluationSet {
   eval_set_id: string;
   name: string;
   latest_version?: number | null;
+  benchmark_role?: TuningReadiness["benchmark_role"];
 }
 
 interface EvaluationSetVersion {
@@ -33,6 +34,12 @@ interface EvaluationSetVersion {
   version: number;
   cases: unknown[];
   checksum: string;
+  benchmark_role?: TuningReadiness["benchmark_role"];
+  benchmark_contract_version?: string;
+  qualification_manifest?: {
+    status?: string;
+    dataset_role?: string;
+  };
 }
 
 interface Recommendation {
@@ -112,7 +119,7 @@ interface TuningRun {
 
 interface TuningReadiness {
   status: "ready" | "report_only" | "insufficient_data";
-  benchmark_role: "unclassified" | "regression_guard" | "strategy_tuning" | "promotion_evidence";
+  benchmark_role: "unclassified" | "regression_guard" | "strategy_tuning" | "threshold_calibration" | "held_out_qualification" | "promotion_evidence";
   selection_eligible: boolean;
   evidence_strength: string;
   counts: {
@@ -141,6 +148,7 @@ interface TuningReadiness {
 interface Preflight {
   snapshot_hash: string;
   eval_case_count: number;
+  calibration_case_count?: number;
   chunk_tuning_available: boolean;
   threshold_tuning_available: boolean;
   benchmark_role: TuningReadiness["benchmark_role"];
@@ -150,6 +158,12 @@ interface Preflight {
   embedding_degraded: boolean;
   rerank_available: boolean;
   warnings: string[];
+  dataset_pair_qualification?: {
+    qualified: boolean;
+    reason_codes: string[];
+    query_overlap_count: number;
+    near_duplicate_query_count: number;
+  } | null;
 }
 
 interface Props {
@@ -213,6 +227,8 @@ function benchmarkRoleLabel(role: TuningReadiness["benchmark_role"]) {
     unclassified: "未分类",
     regression_guard: "回归护栏",
     strategy_tuning: "策略调优",
+    threshold_calibration: "阈值校准",
+    held_out_qualification: "锁定晋级集",
     promotion_evidence: "推广证据",
   };
   return labels[role];
@@ -231,11 +247,14 @@ function chunkSensitivityLabel(status: NonNullable<TuningRun["chunk_sensitivity"
 export default function RagStrategyTunerPanel({ kbId, open, onClose, onCompleted }: Props) {
   const [versions, setVersions] = useState<PipelineVersion[]>([]);
   const [sets, setSets] = useState<EvaluationSet[]>([]);
-  const [evaluationVersions, setEvaluationVersions] = useState<EvaluationSetVersion[]>([]);
+  const [tuningVersions, setTuningVersions] = useState<EvaluationSetVersion[]>([]);
+  const [calibrationVersions, setCalibrationVersions] = useState<EvaluationSetVersion[]>([]);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [baseVersionId, setBaseVersionId] = useState("");
-  const [evalSetId, setEvalSetId] = useState("");
-  const [evalVersion, setEvalVersion] = useState("");
+  const [tuningSetId, setTuningSetId] = useState("");
+  const [tuningVersion, setTuningVersion] = useState("");
+  const [calibrationSetId, setCalibrationSetId] = useState("");
+  const [calibrationVersion, setCalibrationVersion] = useState("");
   const [recommendationId, setRecommendationId] = useState("");
   const [objective, setObjective] = useState<Objective>("balanced");
   const [enableRerank, setEnableRerank] = useState(false);
@@ -259,7 +278,8 @@ export default function RagStrategyTunerPanel({ kbId, open, onClose, onCompleted
       setVersions(nextVersions.filter((item) => item.status === "ready" || item.status === "active"));
       setSets(nextSets.filter((item) => Number(item.latest_version || 0) > 0));
       setBaseVersionId((current) => current || nextVersions.find((item) => item.active)?.version_id || nextVersions[0]?.version_id || "");
-      setEvalSetId((current) => current || nextSets.find((item) => Number(item.latest_version || 0) > 0)?.eval_set_id || "");
+      setTuningSetId((current) => current || nextSets.find((item) => item.benchmark_role === "strategy_tuning" && Number(item.latest_version || 0) > 0)?.eval_set_id || "");
+      setCalibrationSetId((current) => current || nextSets.find((item) => item.benchmark_role === "threshold_calibration" && Number(item.latest_version || 0) > 0)?.eval_set_id || "");
       if (recommendationResponse.ok) {
         const nextRecommendations = ((await recommendationResponse.json()) as { recommendations: Recommendation[] }).recommendations || [];
         setRecommendations(nextRecommendations.filter((item) => item.state === "ready" || item.state === "applied"));
@@ -271,24 +291,48 @@ export default function RagStrategyTunerPanel({ kbId, open, onClose, onCompleted
     }
   }, [kbId]);
 
-  const loadSetVersions = useCallback(async () => {
-    if (!evalSetId) {
-      setEvaluationVersions([]);
-      setEvalVersion("");
+  const loadTuningVersions = useCallback(async () => {
+    if (!tuningSetId) {
+      setTuningVersions([]);
+      setTuningVersion("");
       return;
     }
-    const response = await fetch(`/api/rag/evaluation-sets/${encodeURIComponent(evalSetId)}/versions`);
+    const response = await fetch(`/api/rag/evaluation-sets/${encodeURIComponent(tuningSetId)}/versions`);
     if (!response.ok) return;
-    const values = ((await response.json()) as { versions: EvaluationSetVersion[] }).versions || [];
-    setEvaluationVersions(values);
-    setEvalVersion((current) => current || String(values[0]?.version || ""));
-  }, [evalSetId]);
+    const values = (((await response.json()) as { versions: EvaluationSetVersion[] }).versions || []).filter(
+      (item) => item.benchmark_contract_version === "rag-gold-v3"
+        && item.benchmark_role === "strategy_tuning"
+        && item.qualification_manifest?.status === "qualified"
+        && item.qualification_manifest?.dataset_role === "strategy_tuning",
+    );
+    setTuningVersions(values);
+    setTuningVersion((current) => values.some((item) => String(item.version) === current) ? current : String(values[0]?.version || ""));
+  }, [tuningSetId]);
+
+  const loadCalibrationVersions = useCallback(async () => {
+    if (!calibrationSetId) {
+      setCalibrationVersions([]);
+      setCalibrationVersion("");
+      return;
+    }
+    const response = await fetch(`/api/rag/evaluation-sets/${encodeURIComponent(calibrationSetId)}/versions`);
+    if (!response.ok) return;
+    const values = (((await response.json()) as { versions: EvaluationSetVersion[] }).versions || []).filter(
+      (item) => item.benchmark_contract_version === "rag-gold-v3"
+        && item.benchmark_role === "threshold_calibration"
+        && item.qualification_manifest?.status === "qualified"
+        && item.qualification_manifest?.dataset_role === "threshold_calibration",
+    );
+    setCalibrationVersions(values);
+    setCalibrationVersion((current) => values.some((item) => String(item.version) === current) ? current : String(values[0]?.version || ""));
+  }, [calibrationSetId]);
 
   useEffect(() => { if (open) void load(); }, [load, open]);
-  useEffect(() => { if (open) void loadSetVersions(); }, [loadSetVersions, open]);
+  useEffect(() => { if (open) void loadTuningVersions(); }, [loadTuningVersions, open]);
+  useEffect(() => { if (open) void loadCalibrationVersions(); }, [loadCalibrationVersions, open]);
   useEffect(() => {
     setPreflight(null);
-  }, [baseVersionId, evalSetId, evalVersion, recommendationId, objective, enableRerank]);
+  }, [baseVersionId, tuningSetId, tuningVersion, calibrationSetId, calibrationVersion, recommendationId, objective, enableRerank]);
 
   useEffect(() => {
     if (!run || !ACTIVE_STATUSES.has(run.status)) return undefined;
@@ -306,8 +350,10 @@ export default function RagStrategyTunerPanel({ kbId, open, onClose, onCompleted
     return {
       kb_id: kbId,
       base_version_id: baseVersionId,
-      eval_set_id: evalSetId,
-      eval_set_version: Number(evalVersion),
+      tuning_eval_set_id: tuningSetId,
+      tuning_eval_set_version: Number(tuningVersion),
+      calibration_eval_set_id: calibrationSetId,
+      calibration_eval_set_version: Number(calibrationVersion),
       recommendation_id: recommendationId || null,
       objective,
       seed: 42,
@@ -381,7 +427,7 @@ export default function RagStrategyTunerPanel({ kbId, open, onClose, onCompleted
   }
 
   if (!open) return null;
-  const canPreflight = Boolean(baseVersionId && evalSetId && evalVersion);
+  const canPreflight = Boolean(baseVersionId && tuningSetId && tuningVersion && calibrationSetId && calibrationVersion);
   const active = Boolean(run && ACTIVE_STATUSES.has(run.status));
 
   return (
@@ -400,8 +446,10 @@ export default function RagStrategyTunerPanel({ kbId, open, onClose, onCompleted
           <section className="border-b border-white/10 px-5 py-5">
             <div className="grid gap-3 sm:grid-cols-2">
               <Select label="固定知识版本" value={baseVersionId} onChange={setBaseVersionId} options={versions.map((item) => ({ value: item.version_id, label: `v${item.version}${item.active ? " · active" : ""} · ${item.chunk_count} chunks` }))} />
-              <Select label="已发布评测集" value={evalSetId} onChange={(value) => { setEvalSetId(value); setEvalVersion(""); }} options={sets.map((item) => ({ value: item.eval_set_id, label: `${item.name} · v${item.latest_version}` }))} />
-              <Select label="评测版本" value={evalVersion} onChange={setEvalVersion} options={evaluationVersions.map((item) => ({ value: String(item.version), label: `v${item.version} · ${item.cases.length} cases` }))} />
+              <Select label="候选选择集" value={tuningSetId} onChange={(value) => { setTuningSetId(value); setTuningVersion(""); }} options={sets.filter((item) => item.benchmark_role === "strategy_tuning").map((item) => ({ value: item.eval_set_id, label: `${item.name} · v${item.latest_version}` }))} />
+              <Select label="候选选择版本" value={tuningVersion} onChange={setTuningVersion} options={tuningVersions.map((item) => ({ value: String(item.version), label: `v${item.version} · ${item.cases.length} cases` }))} />
+              <Select label="阈值校准集" value={calibrationSetId} onChange={(value) => { setCalibrationSetId(value); setCalibrationVersion(""); }} options={sets.filter((item) => item.benchmark_role === "threshold_calibration").map((item) => ({ value: item.eval_set_id, label: `${item.name} · v${item.latest_version}` }))} />
+              <Select label="阈值校准版本" value={calibrationVersion} onChange={setCalibrationVersion} options={calibrationVersions.map((item) => ({ value: String(item.version), label: `v${item.version} · ${item.cases.length} cases` }))} />
               <Select label="Router 推荐（可选）" value={recommendationId} onChange={setRecommendationId} options={[{ value: "", label: "仅使用当前配置与规则邻域" }, ...recommendations.map((item) => ({ value: item.recommendation_id, label: `${item.state} · ${new Date(item.created_at * 1000).toLocaleString("zh-CN", { hour12: false })}` }))]} />
             </div>
             <div className="mt-4 grid grid-cols-3 gap-2" role="group" aria-label="调优目标">
@@ -412,7 +460,7 @@ export default function RagStrategyTunerPanel({ kbId, open, onClose, onCompleted
               <button className="inline-flex flex-1 items-center justify-center gap-2 rounded-md border border-white/10 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-white/[0.06] disabled:opacity-45" disabled={!canPreflight || Boolean(busy) || active} onClick={() => void runPreflight()} type="button">{busy === "preflight" ? <LoaderCircle className="animate-spin" size={15} /> : <RefreshCw size={15} />}运行预检</button>
               <button className="inline-flex flex-1 items-center justify-center gap-2 rounded-md bg-emerald-300 px-3 py-2 text-sm font-bold text-surface-950 hover:bg-emerald-200 disabled:opacity-45" disabled={!preflight?.selection_eligible || Boolean(busy) || active} onClick={() => void startRun()} type="button"><Play size={15} />开始调优</button>
             </div>
-            <p className="mt-2 text-[10px] leading-4 text-slate-500">均衡预算：最多 4 个分块索引、24 组检索参数和 3 个 finalist。不会修改 Draft 或活动索引。</p>
+            <p className="mt-2 text-[10px] leading-4 text-slate-400">候选选择只读取策略调优集，阈值只读取独立校准集；两者出现相同或近重复查询时预检会阻断。最多 4 个分块索引、24 组检索参数和 3 个 finalist，不修改 Draft 或活动索引。</p>
           </section>
 
           {preflight ? <section className="border-b border-white/10 px-5 py-5">
@@ -423,13 +471,15 @@ export default function RagStrategyTunerPanel({ kbId, open, onClose, onCompleted
             <p className="mt-2 text-xs leading-5 text-slate-400">评测角色：{benchmarkRoleLabel(preflight.benchmark_role)}。标准回归 Pack 只能验证引擎一致性，不能单独选择调优胜者。</p>
             <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
               <Metric label="正样例" value={`${preflight.tuning_readiness.counts.positive}/30`} />
-              <Metric label="困难负例" value={`${preflight.tuning_readiness.counts.reviewed_hard_negative}/12`} />
+              <Metric label="选择集样例" value={`${preflight.eval_case_count}`} />
+              <Metric label="校准集样例" value={`${preflight.calibration_case_count ?? 0}`} />
               <Metric label="分块搜索" value={preflight.chunk_tuning_available ? "探针后可用" : "仅检索"} />
               <Metric label="阈值搜索" value={preflight.threshold_tuning_available ? "可用" : "固定基线"} />
               <Metric label="Embedding" value={preflight.embedding_degraded ? "Hash 降级" : "真实向量"} />
               <Metric label="Rerank" value={preflight.rerank_available ? "可用" : "不可用"} />
             </div>
             {preflight.tuning_readiness.checks.filter((item) => !item.passed).map((item) => <p className={`mt-3 flex gap-2 text-xs leading-5 ${item.severity === "blocker" ? "text-rose-100" : "text-amber-100"}`} key={item.check_id}><AlertTriangle className="mt-0.5 shrink-0" size={14} />{item.message}</p>)}
+            {preflight.dataset_pair_qualification && !preflight.dataset_pair_qualification.qualified ? <p className="mt-3 flex gap-2 text-xs leading-5 text-rose-100"><AlertTriangle className="mt-0.5 shrink-0" size={14} />数据集隔离失败：{preflight.dataset_pair_qualification.reason_codes.join("、")}。精确重合 {preflight.dataset_pair_qualification.query_overlap_count} 条，近重复 {preflight.dataset_pair_qualification.near_duplicate_query_count} 条。</p> : null}
           </section> : null}
 
           {run ? <section className="px-5 py-5"><div className="flex items-center justify-between gap-3"><div><h3 className="text-sm font-semibold text-white">调优运行</h3><p className="mt-1 font-mono text-[10px] text-slate-500">{run.run_id}</p></div><span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${run.status === "completed" ? "bg-emerald-300/10 text-emerald-200" : run.status === "failed" ? "bg-rose-300/10 text-rose-200" : "bg-cyan-300/10 text-cyan-200"}`}>{statusLabel(run.status)}</span></div><div className="mt-4 h-2 overflow-hidden rounded-full bg-white/[0.06]"><div className="h-full bg-emerald-300 transition-[width]" style={{ width: `${Math.max(2, run.progress)}%` }} /></div><p className="mt-2 text-xs text-slate-400">{run.stage} · {run.progress}%</p>

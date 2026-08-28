@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections import Counter
 from typing import Any
 
 
-READINESS_VERSION = "rag-strategy-tuning-readiness-v1"
+READINESS_VERSION = "rag-strategy-tuning-readiness-v2"
 BENCHMARK_ROLES = {
     "unclassified",
     "regression_guard",
     "strategy_tuning",
+    "threshold_calibration",
+    "held_out_qualification",
     "promotion_evidence",
 }
 MIN_TOTAL_CASES = 12
@@ -102,16 +105,28 @@ def build_tuning_readiness(
 
     add_check(
         "selection_role",
-        passed=role in {"strategy_tuning", "promotion_evidence"},
+        passed=role == "strategy_tuning",
         severity="blocker",
         actual=role,
-        required=["strategy_tuning", "promotion_evidence"],
+        required=["strategy_tuning"],
         message=(
             "Regression packs verify engine consistency and cannot select a tuning winner."
             if role == "regression_guard"
             else "The evaluation version must declare a tuning or promotion evidence role."
         ),
     )
+    if str(evaluation_version.get("benchmark_contract_version") or "") == "rag-gold-v3":
+        manifest = evaluation_version.get("qualification_manifest")
+        add_check(
+            "locked_dataset_qualification",
+            passed=isinstance(manifest, dict)
+            and manifest.get("status") == "qualified"
+            and manifest.get("dataset_role") == role,
+            severity="blocker",
+            actual=(manifest or {}).get("status") if isinstance(manifest, dict) else None,
+            required="qualified",
+            message="V3 tuning evidence must pass its immutable role qualification.",
+        )
     add_check(
         "minimum_total_cases",
         passed=len(cases) >= MIN_TOTAL_CASES,
@@ -236,6 +251,177 @@ def build_tuning_readiness(
         )
     ).hexdigest()
     return payload
+
+
+def build_threshold_calibration_readiness(
+    evaluation_version: dict[str, Any],
+    *,
+    target_version_id: str | None = None,
+) -> dict[str, Any]:
+    cases = [
+        item for item in evaluation_version.get("cases") or [] if isinstance(item, dict)
+    ]
+    positives = [item for item in cases if not item.get("expected_no_result")]
+    negatives = [item for item in cases if item.get("expected_no_result")]
+    stable_positive = [item for item in positives if _has_stable_gold(item)]
+    hard_negatives = [
+        item
+        for item in negatives
+        if str(item.get("review_status") or "") == "approved"
+        and _is_hard_negative(item)
+    ]
+    role = benchmark_role_for(evaluation_version)
+    contract = str(evaluation_version.get("benchmark_contract_version") or "")
+    immutable = bool(
+        evaluation_version.get("version_id") and evaluation_version.get("published_at")
+    )
+    provenance = dict(evaluation_version.get("provenance") or {})
+    target_reference = dict(provenance.get("target_reference") or {})
+    declared_target = str(
+        provenance.get("pipeline_version_id")
+        or target_reference.get("pipeline_version_id")
+        or ""
+    )
+    reason_codes: list[str] = []
+    if role != "threshold_calibration":
+        reason_codes.append("calibration_role")
+    if contract != "rag-gold-v3":
+        reason_codes.append("calibration_contract")
+    manifest = evaluation_version.get("qualification_manifest")
+    if not (
+        isinstance(manifest, dict)
+        and manifest.get("status") == "qualified"
+        and manifest.get("dataset_role") == "threshold_calibration"
+    ):
+        reason_codes.append("calibration_qualification")
+    if not immutable:
+        reason_codes.append("calibration_immutable")
+    if not positives or len(stable_positive) != len(positives):
+        reason_codes.append("stable_positive_gold")
+    if len(hard_negatives) < MIN_HARD_NEGATIVES:
+        reason_codes.append("hard_negative_verification")
+    if (
+        target_version_id
+        and str(evaluation_version.get("origin") or "manual") == "generated"
+        and declared_target != target_version_id
+    ):
+        reason_codes.append("target_version_snapshot")
+    payload = {
+        "version": "rag-threshold-calibration-readiness-v1",
+        "eligible": not reason_codes,
+        "benchmark_role": role,
+        "reason_codes": reason_codes,
+        "counts": {
+            "total": len(cases),
+            "positive": len(positives),
+            "stable_positive": len(stable_positive),
+            "no_result": len(negatives),
+            "reviewed_hard_negative": len(hard_negatives),
+        },
+    }
+    payload["checksum"] = hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
+    ).hexdigest()
+    return payload
+
+
+def validate_tuning_dataset_pair(
+    tuning_version: dict[str, Any], calibration_version: dict[str, Any]
+) -> dict[str, Any]:
+    tuning_role = benchmark_role_for(tuning_version)
+    calibration_role = benchmark_role_for(calibration_version)
+    tuning_cases = [
+        item for item in tuning_version.get("cases") or [] if isinstance(item, dict)
+    ]
+    calibration_cases = [
+        item for item in calibration_version.get("cases") or [] if isinstance(item, dict)
+    ]
+    tuning_raw_queries = [str(item.get("query") or "") for item in tuning_cases]
+    calibration_raw_queries = [
+        str(item.get("query") or "") for item in calibration_cases
+    ]
+    tuning_queries = [_normalized_query(query) for query in tuning_raw_queries]
+    calibration_queries = [
+        _normalized_query(query) for query in calibration_raw_queries
+    ]
+    exact_overlap = {
+        query for query in tuning_queries if query and query in set(calibration_queries)
+    }
+    near_duplicate_count = 0
+    for tuning_query in tuning_raw_queries:
+        tuning_tokens = _query_tokens(tuning_query)
+        for calibration_query in calibration_raw_queries:
+            calibration_tokens = _query_tokens(calibration_query)
+            if not tuning_tokens and not calibration_tokens:
+                continue
+            similarity = len(tuning_tokens & calibration_tokens) / max(
+                1, len(tuning_tokens | calibration_tokens)
+            )
+            if similarity >= 0.8:
+                near_duplicate_count += 1
+    tuning_corpus = str(
+        (tuning_version.get("corpus_snapshot") or {}).get("checksum") or ""
+    )
+    calibration_corpus = str(
+        (calibration_version.get("corpus_snapshot") or {}).get("checksum") or ""
+    )
+    reason_codes: list[str] = []
+    if tuning_role != "strategy_tuning":
+        reason_codes.append("tuning_role")
+    if calibration_role != "threshold_calibration":
+        reason_codes.append("calibration_role")
+    if str(tuning_version.get("benchmark_contract_version") or "") != "rag-gold-v3":
+        reason_codes.append("tuning_contract")
+    if str(calibration_version.get("benchmark_contract_version") or "") != "rag-gold-v3":
+        reason_codes.append("calibration_contract")
+    tuning_manifest = tuning_version.get("qualification_manifest")
+    calibration_manifest = calibration_version.get("qualification_manifest")
+    if not (
+        isinstance(tuning_manifest, dict)
+        and tuning_manifest.get("status") == "qualified"
+        and tuning_manifest.get("dataset_role") == "strategy_tuning"
+    ):
+        reason_codes.append("tuning_qualification")
+    if not (
+        isinstance(calibration_manifest, dict)
+        and calibration_manifest.get("status") == "qualified"
+        and calibration_manifest.get("dataset_role") == "threshold_calibration"
+    ):
+        reason_codes.append("calibration_qualification")
+    if not tuning_version.get("version_id") or not tuning_version.get("published_at"):
+        reason_codes.append("tuning_immutable")
+    if not calibration_version.get("version_id") or not calibration_version.get(
+        "published_at"
+    ):
+        reason_codes.append("calibration_immutable")
+    if (
+        str(tuning_version.get("eval_set_id") or "")
+        == str(calibration_version.get("eval_set_id") or "")
+        or str(tuning_version.get("checksum") or "")
+        == str(calibration_version.get("checksum") or "")
+    ):
+        reason_codes.append("dataset_identity_overlap")
+    if (
+        not re.fullmatch(r"[0-9a-f]{64}", tuning_corpus)
+        or tuning_corpus != calibration_corpus
+    ):
+        reason_codes.append("corpus_snapshot_mismatch")
+    if exact_overlap or near_duplicate_count:
+        reason_codes.append("query_leakage")
+    return {
+        "version": "rag-tuning-dataset-pair-v1",
+        "qualified": not reason_codes,
+        "reason_codes": list(dict.fromkeys(reason_codes)),
+        "tuning_role": tuning_role,
+        "calibration_role": calibration_role,
+        "query_overlap_count": len(exact_overlap),
+        "near_duplicate_query_count": near_duplicate_count,
+        "corpus_snapshot_checksum": tuning_corpus or None,
+        "tuning_checksum": str(tuning_version.get("checksum") or ""),
+        "calibration_checksum": str(calibration_version.get("checksum") or ""),
+    }
 
 
 def realized_index_fingerprint(
@@ -371,7 +557,44 @@ def _is_hard_negative(case: dict[str, Any]) -> bool:
     targeting = case.get("targeting") if isinstance(case.get("targeting"), dict) else {}
     tags = {str(item).strip().lower() for item in case.get("tags") or []}
     query_type = str(targeting.get("query_type") or "").strip().lower()
-    return bool(
-        query_type in {"confusable_content", "corpus_near"}
-        or tags.intersection({"corpus_near", "confusable"})
+    contexts = [
+        item
+        for item in targeting.get("context_refs") or []
+        if isinstance(item, dict)
+    ]
+    verification = targeting.get("full_corpus_verification")
+    verified = (
+        isinstance(verification, dict)
+        and verification.get("completed") is True
+        and verification.get("contract_version") == "rag-no-result-verification-v1"
+        and re.fullmatch(
+            r"[0-9a-f]{64}",
+            str(verification.get("corpus_snapshot_checksum") or ""),
+        )
+        is not None
+        and int(verification.get("scanned_document_count") or 0) > 0
+        and int(verification.get("scanned_source_block_count") or 0) > 0
     )
+    stable_context = len(contexts) == 1 and bool(
+        contexts[0].get("document_id")
+        and contexts[0].get("source_block_id")
+        and re.fullmatch(
+            r"[0-9a-f]{64}", str(contexts[0].get("source_block_hash") or "")
+        )
+    )
+    return bool(
+        verified
+        and stable_context
+        and (
+            query_type in {"confusable_content", "corpus_near"}
+            or tags.intersection({"corpus_near", "confusable"})
+        )
+    )
+
+
+def _normalized_query(value: Any) -> str:
+    return re.sub(r"[^\w\u3400-\u9fff]+", "", str(value or "").casefold())
+
+
+def _query_tokens(value: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+|[\u3400-\u9fff]", str(value).casefold()))

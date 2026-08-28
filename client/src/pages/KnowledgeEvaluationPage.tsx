@@ -36,7 +36,13 @@ interface ExpectedReference {
   document_name?: string;
   match_mode?: "document" | "source_block" | "chunk" | null;
   catalog_anchor_key?: string | null;
+  source_block_hash?: string | null;
+  anchor_start?: number | null;
+  anchor_end?: number | null;
+  anchor_hash?: string | null;
 }
+
+type BenchmarkRole = "unclassified" | "regression_guard" | "strategy_tuning" | "threshold_calibration" | "held_out_qualification" | "promotion_evidence";
 
 interface EvaluationCase {
   case_id: string;
@@ -64,6 +70,7 @@ interface EvaluationSet {
   provenance?: Record<string, unknown>;
   coverage?: Record<string, unknown>;
   calibration?: Record<string, unknown>;
+  benchmark_role?: BenchmarkRole;
   latest_version?: number | null;
 }
 
@@ -73,8 +80,21 @@ interface EvaluationSetVersion extends EvaluationSet {
   source_revision: number;
   checksum: string;
   published_at: number;
-  benchmark_contract_version?: "rag-gold-v1" | "rag-gold-v2";
+  benchmark_contract_version?: "rag-gold-v1" | "rag-gold-v2" | "rag-gold-v3";
   qualification_manifest?: Record<string, unknown>;
+}
+
+interface CaseEvidenceBundle {
+  evidence: Array<Record<string, unknown>>;
+  full_corpus_verification?: {
+    completed?: boolean;
+    method?: string;
+    corpus_snapshot_checksum?: string;
+    scanned_document_count?: number;
+    scanned_source_block_count?: number;
+    top_match_count?: number;
+  } | null;
+  verification_evidence: Array<Record<string, unknown>>;
 }
 
 interface GatePolicy {
@@ -223,6 +243,73 @@ export function isEvaluationPromotionReady(
   );
 }
 
+export function isFormalEvaluationVersionEligible(
+  version: Pick<EvaluationSetVersion, "benchmark_contract_version" | "benchmark_role" | "qualification_manifest"> | null,
+) {
+  const manifest = version?.qualification_manifest;
+  const tunerUsage = manifest && Array.isArray(manifest.tuner_usage_lineage)
+    ? manifest.tuner_usage_lineage
+    : null;
+  return Boolean(
+    version?.benchmark_contract_version === "rag-gold-v3"
+      && version.benchmark_role === "held_out_qualification"
+      && manifest?.status === "qualified"
+      && manifest?.dataset_role === "held_out_qualification"
+      && tunerUsage?.length === 0,
+  );
+}
+
+function benchmarkRoleLabel(role?: BenchmarkRole) {
+  return ({
+    unclassified: "未分类诊断",
+    regression_guard: "回归守卫",
+    strategy_tuning: "候选选择",
+    threshold_calibration: "阈值校准",
+    held_out_qualification: "锁定晋级集",
+    promotion_evidence: "旧晋级证据",
+  } as Record<BenchmarkRole, string>)[role || "unclassified"];
+}
+
+export function isCaseReviewEvidenceReady(
+  item: Pick<EvaluationCase, "expected_no_result">,
+  bundle: Pick<CaseEvidenceBundle, "evidence" | "full_corpus_verification"> | undefined,
+) {
+  if (!bundle?.evidence.length) return false;
+  return !item.expected_no_result || bundle.full_corpus_verification?.completed === true;
+}
+
+function CaseEvidenceReview({ item, bundle }: { item: EvaluationCase; bundle: CaseEvidenceBundle }) {
+  const verification = bundle.full_corpus_verification;
+  return (
+    <div className="mt-2 ml-7 space-y-3 border-l border-cyan-300/20 pl-3">
+      {item.expected_no_result ? (
+        <div className="rounded-md border border-amber-300/20 bg-amber-300/[0.06] p-2 text-[11px] leading-5 text-amber-100">
+          <p>近邻语料只用于确认问题易混淆；请同时确认完整语料复核结果中不存在答案。</p>
+          <p className="mt-1 text-amber-100/75">{verification?.completed === true ? `已扫描 ${verification.scanned_document_count ?? 0} 份文档、${verification.scanned_source_block_count ?? 0} 个 canonical source blocks · ${verification.method || "verification"}` : "完整语料复核回执缺失，禁止批准。"}</p>
+        </div>
+      ) : null}
+      {bundle.evidence.map((evidence, evidenceIndex) => (
+        <div className="text-xs" key={`${item.case_id}:gold:${evidenceIndex}`}>
+          <p className="font-semibold text-slate-200">{String(evidence.document_name || evidence.document_id || "Gold evidence")}{evidence.page_number ? ` · p${evidence.page_number}` : ""}</p>
+          {evidence.anchor_hash ? <p className="mt-1 font-mono text-[10px] text-cyan-200/75">anchor {String(evidence.anchor_start)}–{String(evidence.anchor_end)} · {String(evidence.anchor_hash).slice(0, 12)}…</p> : null}
+          <p className="mt-1 whitespace-pre-wrap text-slate-500">{String(evidence.text || "")}</p>
+        </div>
+      ))}
+      {item.expected_no_result && bundle.verification_evidence.length ? (
+        <div className="space-y-2 border-t border-white/10 pt-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">完整语料高召回近邻</p>
+          {bundle.verification_evidence.map((evidence, evidenceIndex) => (
+            <div className="text-xs" key={`${item.case_id}:verification:${evidenceIndex}`}>
+              <p className="font-semibold text-slate-300">{String(evidence.document_name || evidence.document_id || "Verification evidence")} · coverage {String(evidence.lexical_query_coverage ?? "-")}</p>
+              <p className="mt-1 whitespace-pre-wrap text-slate-500">{String(evidence.text || "")}</p>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function KnowledgeEvaluationPage() {
   const { kbId = "" } = useParams();
   const importRef = useRef<HTMLInputElement>(null);
@@ -241,6 +328,7 @@ export default function KnowledgeEvaluationPage() {
   const [runMode, setRunMode] = useState<"diagnostic" | "formal">("diagnostic");
   const [adminCsrfToken, setAdminCsrfToken] = useState("");
   const [newSetName, setNewSetName] = useState("");
+  const [newSetRole, setNewSetRole] = useState<Exclude<BenchmarkRole, "held_out_qualification" | "promotion_evidence">>("unclassified");
   const [query, setQuery] = useState("");
   const [tags, setTags] = useState("");
   const [references, setReferences] = useState<ExpectedReference[]>([]);
@@ -251,7 +339,7 @@ export default function KnowledgeEvaluationPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [acknowledgeCalibrationWarnings, setAcknowledgeCalibrationWarnings] = useState(false);
-  const [caseEvidence, setCaseEvidence] = useState<Record<string, Array<Record<string, unknown>>>>({});
+  const [caseEvidence, setCaseEvidence] = useState<Record<string, CaseEvidenceBundle>>({});
   const [reviewReasons, setReviewReasons] = useState<Record<string, string>>({});
   const [calibrationJob, setCalibrationJob] = useState<{ job_id: string; status: string; error?: string | null } | null>(null);
 
@@ -263,6 +351,11 @@ export default function KnowledgeEvaluationPage() {
     () => selectedSet?.cases.filter((item) => item.review_status !== "approved" || !item.review_evidence).length ?? 0,
     [selectedSet],
   );
+  const selectedPublishedVersion = useMemo(
+    () => evaluationSetVersions.find((item) => String(item.version) === selectedEvaluationVersion) ?? null,
+    [evaluationSetVersions, selectedEvaluationVersion],
+  );
+  const formalVersionReady = isFormalEvaluationVersionEligible(selectedPublishedVersion);
 
   useEffect(() => {
     if (!kbId) return;
@@ -377,13 +470,32 @@ export default function KnowledgeEvaluationPage() {
     const response = await fetch("/api/rag/evaluation-sets", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kb_id: kbId, name: newSetName.trim() }),
+      body: JSON.stringify({ kb_id: kbId, name: newSetName.trim(), benchmark_role: newSetRole }),
     });
     const data = await response.json().catch(() => null);
     setBusy("");
     if (!response.ok) return setError(errorMessage(data, "创建评估集失败。"));
     setNewSetName("");
     await reloadSets(data.eval_set_id);
+  }
+
+  async function updateSetRole(role: BenchmarkRole) {
+    if (!selectedSet || role === "promotion_evidence") return;
+    setBusy("set-role");
+    setError("");
+    const response = await fetch(`/api/rag/evaluation-sets/${encodeURIComponent(selectedSet.eval_set_id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        expected_revision: selectedSet.revision,
+        benchmark_role: role,
+      }),
+    });
+    const data = await response.json().catch(() => null);
+    setBusy("");
+    if (!response.ok) return setError(errorMessage(data, "更新评测集用途失败。"));
+    await reloadSets(selectedSet.eval_set_id);
+    setNotice(`评测集用途已改为“${benchmarkRoleLabel(role)}”；发布前仍需满足该角色的不可变证据门禁。`);
   }
 
   function addDocumentReference(documentId: string, documentName?: string) {
@@ -536,7 +648,14 @@ export default function KnowledgeEvaluationPage() {
     const response = await fetch(`/api/rag/evaluation-sets/${encodeURIComponent(selectedSet.eval_set_id)}/cases/${encodeURIComponent(caseId)}/evidence`);
     const data = await response.json().catch(() => null);
     if (!response.ok) return setError(errorMessage(data, "Gold 证据加载失败。"));
-    setCaseEvidence((current) => ({ ...current, [caseId]: data.evidence ?? [] }));
+    setCaseEvidence((current) => ({
+      ...current,
+      [caseId]: {
+        evidence: data.evidence ?? [],
+        full_corpus_verification: data.full_corpus_verification ?? null,
+        verification_evidence: data.verification_evidence ?? [],
+      },
+    }));
   }
 
   async function reviewCase(item: EvaluationCase, decision: "approved" | "rejected") {
@@ -667,7 +786,7 @@ export default function KnowledgeEvaluationPage() {
           onDatasetReady={async (evalSetId) => {
             await reloadSets(evalSetId);
             setSelectedSetId(evalSetId);
-            setNotice("定向评测集已生成；请逐题审核困难负例，全部批准后再启动一次真实校准。" );
+            setNotice("定向评测集已生成；请逐题核对全部 Gold 与无答案证据，全部批准后再发布锁定版本。" );
           }}
         />
 
@@ -676,13 +795,14 @@ export default function KnowledgeEvaluationPage() {
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3">
               <div>
                 <h2 className="text-sm font-semibold text-white">评估数据集</h2>
-                <p className="mt-1 text-xs text-slate-500">草稿 revision {selectedSet?.revision ?? "-"} · 已发布 v{selectedSet?.latest_version ?? "-"}</p>
+                <p className="mt-1 text-xs text-slate-500">草稿 revision {selectedSet?.revision ?? "-"} · 已发布 v{selectedSet?.latest_version ?? "-"} · {benchmarkRoleLabel(selectedSet?.benchmark_role)}</p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <select className="rounded-lg border border-white/10 bg-surface-950 px-3 py-2 text-sm text-white" onChange={(event) => setSelectedSetId(event.target.value)} value={selectedSetId}>
                   <option value="">选择评估集</option>
                   {evaluationSets.map((item) => <option key={item.eval_set_id} value={item.eval_set_id}>{item.name} ({item.cases.length})</option>)}
                 </select>
+                {selectedSet ? <select aria-label="评测集用途" className="rounded-lg border border-white/10 bg-surface-950 px-3 py-2 text-sm text-white disabled:opacity-40" disabled={busy === "set-role"} onChange={(event) => void updateSetRole(event.target.value as BenchmarkRole)} value={selectedSet.benchmark_role || "unclassified"}><option value="unclassified">诊断</option><option value="regression_guard">回归守卫</option><option value="strategy_tuning">候选选择</option><option value="threshold_calibration">阈值校准</option>{selectedSet.origin === "generated" ? <option value="held_out_qualification">锁定晋级集</option> : null}</select> : null}
                 <button className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 disabled:opacity-40" disabled={!selectedSet} onClick={() => importRef.current?.click()} type="button">导入</button>
                 {selectedSet?.origin === "generated" && selectedSet.calibration?.status === "warning" ? <label className="flex items-center gap-2 text-xs text-amber-100"><input checked={acknowledgeCalibrationWarnings} onChange={(event) => setAcknowledgeCalibrationWarnings(event.target.checked)} type="checkbox" />确认校准警告</label> : null}
                 {selectedSet?.origin === "generated" ? <button className="rounded-lg border border-cyan-300/25 px-3 py-2 text-sm font-semibold text-cyan-100 disabled:opacity-40" disabled={pendingReviewCount > 0 || busy === "calibration" || Boolean(calibrationJob && !["completed", "failed", "cancelled"].includes(calibrationJob.status))} onClick={() => void recalibrateGeneratedSet()} type="button">{selectedSet.calibration?.status === "awaiting_review" ? "开始真实校准" : "重新校准"}</button> : null}
@@ -691,10 +811,17 @@ export default function KnowledgeEvaluationPage() {
               </div>
             </div>
 
-            <div className="mt-3 flex gap-2">
+            <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_180px_auto]">
               <input className="min-w-0 flex-1 rounded-lg border border-white/10 bg-surface-950 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/40" onChange={(event) => setNewSetName(event.target.value)} placeholder="新评估集名称" value={newSetName} />
+              <select aria-label="新评估集用途" className="rounded-lg border border-white/10 bg-surface-950 px-3 py-2 text-sm text-white" onChange={(event) => setNewSetRole(event.target.value as typeof newSetRole)} value={newSetRole}>
+                <option value="unclassified">诊断</option>
+                <option value="regression_guard">回归守卫</option>
+                <option value="strategy_tuning">候选选择</option>
+                <option value="threshold_calibration">阈值校准</option>
+              </select>
               <button className="rounded-lg border border-hire-300/25 bg-hire-300/10 px-3 py-2 text-sm font-semibold text-hire-100 disabled:opacity-40" disabled={!newSetName.trim() || busy === "set"} onClick={() => void createSet()} type="button">创建</button>
             </div>
+            <p className="mt-2 text-[11px] leading-4 text-slate-500">锁定晋级集只能由 Benchmark 生成器建立，并在 42 条逐项审核、anchor 与完整语料无答案复核均合格后发布。</p>
 
             <div className="mt-5 space-y-3 border-t border-white/10 pt-4">
               <textarea className="min-h-24 w-full resize-y rounded-lg border border-white/10 bg-surface-950 px-3 py-2 text-sm leading-6 text-white outline-none focus:border-hire-300/40" onChange={(event) => setQuery(event.target.value)} placeholder="评估问题" value={query} />
@@ -746,10 +873,10 @@ export default function KnowledgeEvaluationPage() {
             <div className="mt-5 max-h-[360px] divide-y divide-white/10 overflow-y-auto border-t border-white/10">
               {selectedSet?.cases.length ? selectedSet.cases.map((item, index) => (
                 <div className="py-3" key={item.case_id}>
-                  <div className="flex gap-3"><span className="text-xs font-semibold text-slate-500">{index + 1}</span><p className="min-w-0 flex-1 text-sm text-slate-100">{item.query}</p>{selectedSet.origin === "generated" ? <button className="text-xs text-cyan-100" onClick={() => void loadCaseEvidence(item.case_id)} type="button">{caseEvidence[item.case_id] ? "收起证据" : item.expected_no_result ? "查看近邻语料" : "查看 Gold"}</button> : null}{selectedSet.origin === "generated" && item.review_status !== "approved" ? <><button className="text-xs text-emerald-100 disabled:cursor-not-allowed disabled:opacity-35" disabled={!caseEvidence[item.case_id]?.length || !adminCsrfToken} onClick={() => void reviewCase(item, "approved")} type="button">批准</button><button className="text-xs text-rose-200 disabled:cursor-not-allowed disabled:opacity-35" disabled={!caseEvidence[item.case_id]?.length || !adminCsrfToken} onClick={() => void reviewCase(item, "rejected")} type="button">拒绝</button></> : null}<button className="text-xs text-rose-200" onClick={() => void deleteCase(item.case_id)} type="button">删除</button></div>
+                  <div className="flex gap-3"><span className="text-xs font-semibold text-slate-500">{index + 1}</span><p className="min-w-0 flex-1 text-sm text-slate-100">{item.query}</p>{selectedSet.origin === "generated" ? <button className="text-xs text-cyan-100" onClick={() => void loadCaseEvidence(item.case_id)} type="button">{caseEvidence[item.case_id] ? "收起证据" : item.expected_no_result ? "查看近邻语料" : "查看 Gold"}</button> : null}{selectedSet.origin === "generated" && item.review_status !== "approved" ? <><button className="text-xs text-emerald-100 disabled:cursor-not-allowed disabled:opacity-35" disabled={!isCaseReviewEvidenceReady(item, caseEvidence[item.case_id]) || !adminCsrfToken} onClick={() => void reviewCase(item, "approved")} type="button">批准</button><button className="text-xs text-rose-200 disabled:cursor-not-allowed disabled:opacity-35" disabled={!isCaseReviewEvidenceReady(item, caseEvidence[item.case_id]) || !adminCsrfToken} onClick={() => void reviewCase(item, "rejected")} type="button">拒绝</button></> : null}<button className="text-xs text-rose-200" onClick={() => void deleteCase(item.case_id)} type="button">删除</button></div>
                   <p className="mt-2 pl-7 text-xs text-slate-500">{item.expected_no_result ? "期望无结果" : `${item.expected_refs.length} 个期望引用 · ${[...new Set(item.expected_refs.map((ref) => ref.match_mode || "legacy"))].join(" / ")}`} · {String(item.targeting?.query_type || "未分类")} · {String(item.targeting?.locale || "未知语言")} · {item.tags.join(" · ") || "未标记"}</p>
                   {leakageWarningThreshold(item) != null ? <div className="mt-2 ml-7 rounded-md border border-amber-300/25 bg-amber-300/10 p-2"><p className="text-[11px] text-amber-100">检测到至少 {leakageWarningThreshold(item)} 个归一化连续字符与证据重合；批准前必须填写独立审核理由。</p><input className="mt-2 w-full rounded border border-amber-300/20 bg-surface-950 px-2 py-1.5 text-xs text-white" onChange={(event) => setReviewReasons((current) => ({ ...current, [item.case_id]: event.target.value }))} placeholder="说明为何该重合不构成答案泄漏" value={reviewReasons[item.case_id] || ""} /></div> : null}
-                  {caseEvidence[item.case_id] ? <div className="mt-2 ml-7 space-y-2 border-l border-cyan-300/20 pl-3">{item.expected_no_result ? <p className="text-[11px] text-amber-100">近邻语料只用于确认问题与语料易混淆；请确认其中确实没有该问题的答案。</p> : null}{caseEvidence[item.case_id].map((evidence, evidenceIndex) => <div className="text-xs" key={`${item.case_id}:${evidenceIndex}`}><p className="font-semibold text-slate-200">{String(evidence.document_name || evidence.document_id || "Gold evidence")}{evidence.page_number ? ` · p${evidence.page_number}` : ""}</p><p className="mt-1 whitespace-pre-wrap text-slate-500">{String(evidence.text || "")}</p></div>)}</div> : null}
+                  {caseEvidence[item.case_id] ? <CaseEvidenceReview bundle={caseEvidence[item.case_id]} item={item} /> : null}
                 </div>
               )) : <p className="py-10 text-center text-sm text-slate-500">尚无评估问题</p>}
             </div>
@@ -763,7 +890,7 @@ export default function KnowledgeEvaluationPage() {
             <label className="mt-3 block text-xs text-slate-400">评测数据版本
               <select className="mt-1 w-full rounded-lg border border-white/10 bg-surface-950 px-3 py-2 text-sm text-white" onChange={(event) => setSelectedEvaluationVersion(event.target.value)} value={selectedEvaluationVersion}>
                 <option value="draft">草稿 revision {selectedSet?.revision ?? "-"}（兼容模式）</option>
-                {evaluationSetVersions.map((item) => <option key={item.version_id} value={String(item.version)}>不可变 v{item.version} · {item.cases.length} cases · {item.benchmark_contract_version ?? "legacy"}</option>)}
+                {evaluationSetVersions.map((item) => <option key={item.version_id} value={String(item.version)}>不可变 v{item.version} · {item.cases.length} cases · {item.benchmark_contract_version ?? "legacy"} · {benchmarkRoleLabel(item.benchmark_role)}</option>)}
               </select>
             </label>
             <label className="mt-3 block text-xs text-slate-400">运行模式
@@ -773,6 +900,7 @@ export default function KnowledgeEvaluationPage() {
               </select>
             </label>
             {runMode === "formal" && !adminCsrfToken ? <p className="mt-2 text-xs text-amber-100">Formal 需要先在设置页完成 Provider 管理员配对，然后刷新本页。</p> : null}
+            {runMode === "formal" && !formalVersionReady ? <p className="mt-2 text-xs leading-5 text-amber-100">Formal 只接受 qualified rag-gold-v3 锁定晋级集，且 Tuner 使用谱系必须为空；当前版本仅可 Diagnostic。</p> : null}
             <div className="mt-3 divide-y divide-white/10 rounded-lg border border-white/10">
               {versions.map((version) => {
                 const checked = selectedVersions.includes(version.version_id);
@@ -785,7 +913,7 @@ export default function KnowledgeEvaluationPage() {
                 );
               })}
             </div>
-            <button className="mt-3 w-full rounded-lg bg-cyan-300 px-4 py-2.5 text-sm font-bold text-surface-950 disabled:opacity-40" disabled={!selectedSet?.cases.length || selectedVersions.length === 0 || busy === "run" || (runMode === "formal" && (selectedEvaluationVersion === "draft" || selectedVersions.length !== 2 || !selectedVersions.includes(baselineVersionId) || !adminCsrfToken))} onClick={() => void createRun()} type="button">{runMode === "formal" ? "运行 Formal 评估" : "运行离线诊断"}</button>
+            <button className="mt-3 w-full rounded-lg bg-cyan-300 px-4 py-2.5 text-sm font-bold text-surface-950 disabled:opacity-40" disabled={!selectedSet?.cases.length || selectedVersions.length === 0 || busy === "run" || (runMode === "formal" && (!formalVersionReady || selectedVersions.length !== 2 || !selectedVersions.includes(baselineVersionId) || !adminCsrfToken))} onClick={() => void createRun()} type="button">{runMode === "formal" ? "运行 Formal 评估" : "运行离线诊断"}</button>
 
             <div className="mt-5 border-t border-white/10 pt-4">
               <div className="flex items-center justify-between"><h3 className="text-sm font-semibold text-white">Promotion Gate</h3><button className="text-xs font-semibold text-hire-100 disabled:opacity-40" disabled={!gate || busy === "gate"} onClick={() => void saveGate()} type="button">保存</button></div>
@@ -815,7 +943,7 @@ export default function KnowledgeEvaluationPage() {
 
         <section className="surface-panel overflow-hidden rounded-lg border border-white/10">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
-            <div><div className="flex flex-wrap items-center gap-2"><h2 className="text-sm font-semibold text-white">评估结果</h2>{selectedRun?.run_mode ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[10px] font-semibold text-slate-300">{selectedRun.run_mode}</span> : null}{selectedRun?.evidence_qualification ? <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${selectedRun.evidence_qualification.qualified ? "border-emerald-300/30 text-emerald-200" : "border-amber-300/30 text-amber-100"}`}>{selectedRun.evidence_qualification.qualified ? "qualified" : "diagnostic_only"}</span> : null}{selectedRun?.reproducibility_status ? <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${selectedRun.reproducibility_status === "current" ? "border-emerald-300/30 text-emerald-200" : selectedRun.reproducibility_status === "orphaned" ? "border-rose-300/30 text-rose-200" : "border-amber-300/30 text-amber-100"}`}>{selectedRun.reproducibility_status === "current" ? "可重放" : selectedRun.reproducibility_status === "orphaned" ? "引用已失效" : "不可重放"}</span> : null}</div><p className="mt-1 text-xs text-slate-500">{selectedRun ? `${selectedRun.status} · ${selectedRun.progress}% · ${selectedRun.run_id}` : "选择或运行一次评估"}</p>{selectedRun?.evidence_qualification && !selectedRun.evidence_qualification.qualified ? <p className="mt-1 text-xs text-amber-100">仅供诊断：正式门禁要求已发布 rag-gold-v2、42 条可信审核证据与同一语料快照。</p> : null}{selectedRun?.reproducibility_status && selectedRun.reproducibility_status !== "current" ? <p className="mt-1 max-w-[75ch] text-xs text-amber-100">不可晋级：评测引用已缺失或执行指纹已漂移，请使用当前 Gold 和索引版本重新运行 Formal。</p> : null}</div>
+            <div><div className="flex flex-wrap items-center gap-2"><h2 className="text-sm font-semibold text-white">评估结果</h2>{selectedRun?.run_mode ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[10px] font-semibold text-slate-300">{selectedRun.run_mode}</span> : null}{selectedRun?.evidence_qualification ? <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${selectedRun.evidence_qualification.qualified ? "border-emerald-300/30 text-emerald-200" : "border-amber-300/30 text-amber-100"}`}>{selectedRun.evidence_qualification.qualified ? "qualified" : "diagnostic_only"}</span> : null}{selectedRun?.reproducibility_status ? <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${selectedRun.reproducibility_status === "current" ? "border-emerald-300/30 text-emerald-200" : selectedRun.reproducibility_status === "orphaned" ? "border-rose-300/30 text-rose-200" : "border-amber-300/30 text-amber-100"}`}>{selectedRun.reproducibility_status === "current" ? "可重放" : selectedRun.reproducibility_status === "orphaned" ? "引用已失效" : "不可重放"}</span> : null}</div><p className="mt-1 text-xs text-slate-500">{selectedRun ? `${selectedRun.status} · ${selectedRun.progress}% · ${selectedRun.run_id}` : "选择或运行一次评估"}</p>{selectedRun?.evidence_qualification && !selectedRun.evidence_qualification.qualified ? <p className="mt-1 text-xs text-amber-100">仅供诊断：正式门禁要求已发布的 held-out rag-gold-v3、完整 anchor/审核/语料复核证据与同一语料快照。</p> : null}{selectedRun?.reproducibility_status && selectedRun.reproducibility_status !== "current" ? <p className="mt-1 max-w-[75ch] text-xs text-amber-100">不可晋级：评测引用已缺失或执行指纹已漂移，请使用当前 Gold 和索引版本重新运行 Formal。</p> : null}</div>
             {selectedRun?.error ? <span className="text-xs text-rose-200">{selectedRun.error}</span> : null}
           </div>
           {selectedRun?.target_results.length ? (

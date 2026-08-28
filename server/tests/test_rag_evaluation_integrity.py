@@ -93,10 +93,11 @@ def _target(version_id: str, *, mode: str = "vector") -> dict[str, Any]:
 
 def _gold() -> dict[str, Any]:
     gold = {
-        "version_id": "evalsetver-v2",
+        "version_id": "evalsetver-v3",
         "kb_id": "kb-a",
         "version": 1,
-        "benchmark_contract_version": "rag-gold-v2",
+        "benchmark_contract_version": "rag-gold-v3",
+        "benchmark_role": "held_out_qualification",
         "cases": [{"case_id": "case-a", "query": "q", "expected_refs": []}],
         "corpus_snapshot": {"checksum": "c" * 64},
     }

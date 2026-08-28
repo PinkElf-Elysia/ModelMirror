@@ -9,6 +9,26 @@
 > Promotion Gate。下方按日期保留的段落是增量记录；较早段落中的“planned”
 > 只代表当时状态。
 
+## 2026-08-28 P0：rag-gold-v3 锁定集合与防泄漏合同
+
+新发布的正式证据使用 `rag-gold-v3`。Gold 从已校验的 canonical source block 构建，
+不再以某个 block 的第一个 child chunk 充当正文。生成器按文档及头/中/尾结构层确定性
+抽样；只有 `exact_lexical` 题型允许强制原文 marker，其他题型复制 marker 会被拒绝。
+正例引用必须携带 source-block 内容 hash、绝对 `anchor_start / anchor_end` 与 `anchor_hash`；
+评测结果只有覆盖相同文档、source block 和 anchor 区间时才计为命中。
+
+评测集角色彼此隔离：`regression_guard` 只验证回归，`strategy_tuning` 只选择候选，
+`threshold_calibration` 只选择阈值，`held_out_qualification` 只用于最终 Formal。Tuner V3
+必须同时绑定不同的已发布 tuning/calibration 版本；两者要求相同 corpus checksum，且集合
+ID、checksum、精确查询及 Token Jaccard 不得重合。held-out 集不得进入 Tuner，manifest 的
+Tuner 使用谱系必须为空，否则 Formal 在执行前失败关闭。
+
+无答案用例除固定且不同的 corpus-near context 外，还必须保存对完整 canonical corpus 的
+确定性高召回扫描回执和审核证据。所有 v3 用例均须逐条人工批准；修改 query、Gold、
+targeting 或标签会清除原审核。发布 checksum 覆盖 cases、审核、coverage、provenance、
+calibration、corpus snapshot、anchor checksum 与 qualification manifest。历史
+`rag-gold-v1/v2` 仍可读取和运行 Diagnostic，但不能授权新的 Formal 或 Promotion。
+
 ## 2026-08-28 P0：Formal 可重放性与执行完整性
 
 Evaluation Run 的读取投影会把当前引用状态标记为 `current`、`orphaned` 或
@@ -16,7 +36,7 @@ Evaluation Run 的读取投影会把当前引用状态标记为 `current`、`orp
 版本配置、构建期/运行期 Backend、执行代码或 checksum 漂移时属于 unreproducible。投影
 只重新解析引用，不重写历史指标和旧回执；旧记录可以查看，但不能继续作为晋级基线。
 
-Formal 在第一个检索槽位前再次校验已发布 `rag-gold-v2`、完整 case/target 账本、一个
+Formal 在第一个检索槽位前再次校验已发布且未进入 Tuner 的 held-out `rag-gold-v3`、完整 case/target 账本、一个
 baseline 与一个 candidate、同一 corpus snapshot、版本实际 Top-K、代码指纹和当前引用。
 任一项漂移都会在 Provider 调用前失败关闭。Diagnostic 仍可显式覆盖 Top-K，但覆盖值会
 记录为实验变量，不能授权晋级。
@@ -82,16 +102,16 @@ Embedding，也不创建 vector namespace。所需 FTS5 namespace 缺失时返�
 
 知识评测新增 `diagnostic | formal` 两种运行模式。默认 `diagnostic` 保持旧记录、子集和
 单目标排障兼容，但不能授权候选晋级。`formal` 必须显式选择一个已发布、资格完整的
-`rag-gold-v2`，且恰好包含一个 baseline 和一个 candidate；两者必须与 Gold 的
+held-out `rag-gold-v3`，且恰好包含一个 baseline 和一个 candidate；两者必须与 Gold 的
 `corpus_snapshot_hash` 相同，并提供版本、Processor、Retrieval、Embedding 与 Rerank 身份。
 Formal 不接受请求级 Retrieval override，避免实际执行参数与不可变目标清单错位。
 
-`rag-gold-v2` 的语料身份由不可变文档 ID/content hash 和 source block ID/内容 hash 组成，
+`rag-gold-v3` 的语料身份由不可变文档 ID/content hash 和 source block ID/内容 hash 组成，
 快照不包含正文，也不绑定 embedding、retrieval 或 chunk 索引参数。30 条正例和 12 条
 语料近邻困难负例必须全部通过认证管理会话和 CSRF 保护的审核接口逐条批准；服务器记录
 revision、审核时间、角色和 case checksum。修改题目、Gold、targeting 或标签会自动清除
 审核。生成器不再强制语义改写/跨语言题复制原文 marker；连续复制 32 个归一化字符直接
-阻断，较短重合触发需要逐条填写理由的泄漏警告。v2 provenance 还绑定生成模型、seed、
+阻断，较短重合触发需要逐条填写理由的泄漏警告。v3 provenance 还绑定生成模型、seed、
 Prompt 合同、证据内容、Blueprint 与单次 initial 调用回执；自动 repair 后的数据只作诊断。
 
 Formal 执行使用固定 seed 将每题的 baseline/candidate 调用相邻交错，每个声明槽位只执行
@@ -102,7 +122,7 @@ Recall、Citation、No-result Accuracy 和延迟均使用预声明固定分母�
 
 真实 Gold 生成、Embedding、Rerank 或 Formal 调用仍需每次单独授权；本地诊断、发布和候选
 构建不会自动激活索引。回滚本轮代码只需撤销对应提交，不需要迁移或重写历史评测记录；
-v1 与旧运行继续只读展示为 legacy/diagnostic。
+v1/v2 与旧运行继续只读展示为 legacy/diagnostic。
 
 ## 2026-08-17 P0：Embedding 请求与生效合同
 
@@ -123,15 +143,16 @@ Pipeline Draft 的 `embedding_profile` 现在同时返回安全的 `requested` �
 ## 2026-08-10 增量：Benchmark 驱动的 RAG Strategy Auto Tuner
 
 Strategy Router 的规则推荐现在可以进入第二阶段的固定证据调优。Tuner 固定一个
-`ready / active` V2 知识版本、一个已发布 Evaluation Set Version、Router rules 和
-完整来源快照，按固定 seed 将 Gold 分成优化集与 Holdout。预检先执行
+`ready / active` 知识版本、一个已发布的 `strategy_tuning` 版本、一个独立的
+`threshold_calibration` 版本、Router rules 和完整来源快照。预检先执行
 `RAG Strategy Tuning Readiness V1`：标准 Catalog Pack 标记为 `regression_guard`，
 只能做引擎回归，不能单独选择调优胜者；正式检索调优至少需要 30 条正样例。
 
-Threshold 调优额外要求至少 12 条已审核的语料近邻困难负例；证据不足时阈值固定为
-基线值。跨分块比较必须有稳定 `source_block` Gold，并覆盖稀疏、单块密集和多块密集
-问题。多个名义分块方案若产生相同真实索引统计和排序指纹，会自动降级为仅检索调优，
-避免把等价分块误判为改进。
+Threshold 调优的 12 条已审核语料近邻困难负例只从 calibration 集读取；候选选择只从
+tuning 集读取。held-out qualification 不会被切分或读取。证据不足、语料 checksum
+不同或出现精确/近重复查询时预检失败关闭。跨分块比较必须有稳定 source-block + anchor
+Gold，并覆盖稀疏、单块密集和多块密集问题。多个名义分块方案若产生相同真实索引统计和
+排序指纹，会自动降级为仅检索调优，避免把等价分块误判为改进。
 
 默认均衡预算最多构建 4 个分块索引、比较 24 组检索参数并保留 3 个 finalist。搜索
 覆盖 Full-text、Vector、Hybrid、Top-K、Hybrid 权重和从优化集分数确定性产生的 threshold；
@@ -153,6 +174,9 @@ nDCG 各自最多回退 0.02 时，才允许用更高阈值换取至少 0.01 的
 Evaluation Gate、Pareto 排名及质量/延迟/索引规模有效改善门槛后，才按胜者精确配置重建
 普通 `ready` 版本。该版本固定 `origin.kind=rag_strategy_tuner` 与
 `promotion_required=true`，并在完整评测集上重新比较基线；活动索引始终不自动切换。
+`quality` 目标的胜者资格只接受 nDCG 或 no-result 质量改善，不能把基线/候选之间的
+P95 抖动冒充质量提升；其他目标继续使用原有多维改善语义。改善合同带独立版本，旧缓存
+在进程恢复时会失效并重新计算，不会沿用旧的胜者判定。
 
 运行由文件型 Store 与后台 Coordinator 持久化；进程恢复复用已完成 trial、Holdout 和
 Rerank 结果，显式 Retry 则清空失效搜索进度后重新开始。RunRegistry 仅记录版本、候选

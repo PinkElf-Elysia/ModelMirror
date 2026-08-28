@@ -226,7 +226,7 @@ Knowledge Evaluation Set 现在支持不可变递增版本。运行可显式固�
 revision 快照运行并保留 stale 规则。
 
 评测运行默认是 `diagnostic`，用于历史数据、子集和单目标排障；它不能形成新的晋级证据。
-`formal` 只接受已发布且通过完整资格校验的 `rag-gold-v2`，并要求恰好一个 baseline 和
+`formal` 只接受已发布、未被 Tuner 使用且通过完整资格校验的 held-out `rag-gold-v3`，并要求恰好一个 baseline 和
 一个 candidate、相同 `corpus_snapshot_hash`、完整目标指纹及固定 `rag-eval-v2` 执行清单。
 执行按固定 seed 将每题的 baseline/candidate 相邻交错；每个声明槽位只调用一次，进程恢复
 时未闭合槽位记为失败而不自动重试。质量指标使用固定分母，失败样例以零分计入对应正/负
@@ -247,22 +247,30 @@ No-result Accuracy 0.80，但不会自动推广候选索引。
 - 生成来源记录固定 `kb_id + pipeline_version_id`，Gold 身份另以语料文档 ID/content hash、
   source block ID/内容 hash 组成的 `corpus_snapshot` 固定；其 checksum 不包含 embedding、
   retrieval 或 chunk 索引参数，因此同一语料上的不同检索实现可以比较。
-- v2 provenance 必须记录生成模型、seed、Prompt 合同 hash、证据内容 hash、Blueprint hash
+- v3 provenance 必须记录生成模型、seed、Prompt 合同 hash、证据内容 hash、Blueprint hash
   和脱敏调用回执。只有单次 initial 调用成功且未使用 repair 的数据可进入 Formal；缺字段、
   历史 v1 或修复后生成的数据仍可留作 diagnostic，但不会被升级为晋级证据。
-- 服务端按文档和块分层抽样，最多向用户选择的生成模型发送 40 个、每个 1,200 字符且总计
-  48,000 字符的证据单元。Job 只保存证据 ID、hash 和引用映射。
+- 服务端从 canonical source block 按文档及头/中/尾结构层确定性抽样，不再以每个 block 的
+  首个 child chunk 作为 Gold 内容。最多向用户选择的生成模型发送 40 个、每个 1,200 字符且
+  总计 48,000 字符的证据单元。Job 只保存证据 ID、hash 和引用映射。
 - Blueprint 固定题型、语言、难度和 Gold evidence。模型只生成问题、精确 anchor quote 和
-  公开理由；语义改写与跨语言题不再要求复制原文 marker。问题与证据出现归一化连续复制
+  公开理由；只有 `exact_lexical` 允许强制 marker，其他题型不得复制原文 marker。问题与证据出现归一化连续复制
   32 字符会直接拒绝，较短重合按题型产生泄漏 warning，并要求人工批准时填写理由。
-- Gold 由服务端映射为 `match_mode=source_block`，生成时 chunk ID 只作诊断。模型不能生成、
-  替换或扩展 document/chunk/source-block ID。
+- Gold 由服务端映射为 `match_mode=source_block`，并绑定 block 内容 hash、绝对 anchor span
+  与 anchor hash；同一大 block 中未覆盖 anchor 的结果不计命中。生成时 chunk ID 只作诊断。
+  模型不能生成、替换或扩展 document/chunk/source-block ID。
 - 自动校准只运行固定索引的真实检索并标记 Rank 1、Rank 2–5、Rank 6–10 和 Top-10 miss；
   它不会按当前 Top-K 改写 Gold。过易、漏召回或无答案误召回达到阈值时产生 warning。
-- 新生成用例均为 `pending`。正式 `rag-gold-v2` 要求 30 条正例与 12 条语料近邻困难负例
+- 新生成用例均为 `pending`。正式 `rag-gold-v3` 要求 30 条正例与 12 条语料近邻困难负例
   全部通过受信 UI 逐条批准；服务器记录审核时间、revision、认证角色及语义 checksum。
   编辑 query、Gold、targeting 或标签会清除审核结论；拒绝、待审、伪困难负例、重复/近重复、
-  覆盖失衡或 source block 过度复用均阻断发布。历史 v1 仍可读取，但只作 legacy/diagnostic。
+  覆盖失衡或 source block 过度复用均阻断发布。无答案题还必须保存稳定 corpus-near context、
+  完整 corpus 的高召回复核回执和可见审核证据。历史 v1/v2 仍可读取，但只作 legacy/diagnostic。
+
+V3 集合角色固定为 `regression_guard`、`strategy_tuning`、`threshold_calibration` 与
+`held_out_qualification`。Tuner 必须分别绑定 tuning/calibration 的不可变版本；两者须同
+corpus、不同 ID/checksum 且无精确或 Token Jaccard ≥ 0.8 的近重复查询。held-out 集不能
+进入 Tuner，Tuner 使用谱系非空的集合也不能运行 Formal。
 
 入口位于 `/rag/:kbId/evaluation`。预检和任务 API 复用 `/api/benchmarks/generations/*` 与
 `/api/benchmarks/calibrations/*`；可信管理侧可按需读取每条 Gold 的最多 2,000 字符受限证据。

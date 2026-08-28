@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -15,7 +17,7 @@ from server.rag.api import (
     set_strategy_tuner_for_tests,
 )
 from server.rag.embedder import EmbeddingClient
-from server.rag.evaluation import KnowledgeEvaluationStore
+from server.rag.evaluation import KnowledgeEvaluationStore, _published_gold_checksum
 from server.rag.evaluation_executor import KnowledgeEvaluationExecutor
 from server.rag.pipeline_executor import KnowledgePipelineExecutor
 from server.rag.rag_service import PipelineJobStateError, RagService
@@ -41,6 +43,189 @@ from server.xpert_runtime.run_registry import RunRegistry
 KNOWN_WINNER_FIXTURE_PATH = (
     Path(__file__).parent / "fixtures" / "rag_strategy_tuner_known_winners.json"
 )
+
+
+def test_v3_preflight_keeps_tuning_and_threshold_calibration_sets_separate(
+    tmp_path: Path,
+) -> None:
+    def positive(index: int, query_type: str, reference_count: int = 1) -> dict:
+        return {
+            "case_id": f"tuning-positive-{index}",
+            "query": f"Tuning query {index}",
+            "expected_no_result": False,
+            "expected_refs": [
+                {
+                    "document_id": "doc-a",
+                    "source_block_id": f"block-{index}-{ref_index}",
+                    "match_mode": "source_block",
+                }
+                for ref_index in range(reference_count)
+            ],
+            "targeting": {"query_type": query_type},
+        }
+
+    tuning_cases = [positive(index, "factual_lookup") for index in range(10)]
+    tuning_cases += [
+        positive(index + 10, "section_context") for index in range(10)
+    ]
+    tuning_cases += [
+        positive(index + 20, "multi_evidence", reference_count=2)
+        for index in range(10)
+    ]
+    calibration_cases = [positive(100, "factual_lookup")]
+    calibration_cases += [
+        {
+            "case_id": f"calibration-negative-{index}",
+            "query": f"Calibration absent query {index}",
+            "expected_no_result": True,
+            "expected_refs": [],
+            "review_status": "approved",
+            "tags": ["hard_negative", "corpus_near"],
+            "targeting": {
+                "query_type": "corpus_near",
+                "context_refs": [
+                    {
+                        "document_id": "doc-a",
+                        "source_block_id": f"context-{index}",
+                        "source_block_hash": f"{index + 1:064x}",
+                    }
+                ],
+                "full_corpus_verification": {
+                    "contract_version": "rag-no-result-verification-v1",
+                    "completed": True,
+                    "corpus_snapshot_checksum": "c" * 64,
+                    "scanned_document_count": 1,
+                    "scanned_source_block_count": 50,
+                },
+            },
+        }
+        for index in range(12)
+    ]
+    versions = {
+        ("tuning", 1): {
+            "eval_set_id": "tuning",
+            "version_id": "tuning-v1",
+            "version": 1,
+            "published_at": 1,
+            "kb_id": "kb-a",
+            "origin": "manual",
+            "benchmark_role": "strategy_tuning",
+            "benchmark_contract_version": "rag-gold-v3",
+            "checksum": "a" * 64,
+            "corpus_snapshot": {"checksum": "c" * 64},
+            "qualification_manifest": {
+                "status": "qualified",
+                "dataset_role": "strategy_tuning",
+            },
+            "calibration": {"status": "calibrated"},
+            "cases": tuning_cases,
+        },
+        ("calibration", 1): {
+            "eval_set_id": "calibration",
+            "version_id": "calibration-v1",
+            "version": 1,
+            "published_at": 1,
+            "kb_id": "kb-a",
+            "origin": "manual",
+            "benchmark_role": "threshold_calibration",
+            "benchmark_contract_version": "rag-gold-v3",
+            "checksum": "b" * 64,
+            "corpus_snapshot": {"checksum": "c" * 64},
+            "qualification_manifest": {
+                "status": "qualified",
+                "dataset_role": "threshold_calibration",
+            },
+            "calibration": {"status": "calibrated"},
+            "cases": calibration_cases,
+        },
+    }
+    for value in versions.values():
+        value["checksum"] = _published_gold_checksum(value)
+
+    class EvaluationStore:
+        def get_set(self, eval_set_id: str) -> dict:
+            return {"eval_set_id": eval_set_id, "kb_id": "kb-a"}
+
+        def get_set_version(self, eval_set_id: str, version: int) -> dict:
+            return json.loads(json.dumps(versions[(eval_set_id, version)]))
+
+    class Service:
+        reranker = SimpleNamespace(
+            capabilities=lambda: {"api_configured": False, "llm_configured": False}
+        )
+
+        @staticmethod
+        def get_pipeline_version(version_id: str) -> dict:
+            assert version_id == "pipeline-a"
+            return {
+                "version_id": version_id,
+                "kb_id": "kb-a",
+                "version": 3,
+                "status": "ready",
+                "index_schema_version": 3,
+                "job_id": "job-a",
+                "embedding_profile": {"provider": "openai_compatible"},
+                "processor_profile": {},
+                "vision_profile": {},
+                "retrieval_profile": {"mode": "fulltext", "top_k": 5},
+            }
+
+        @staticmethod
+        def get_pipeline_job(job_id: str) -> dict:
+            assert job_id == "job-a"
+            return {
+                "sources": [
+                    {
+                        "source_id": "source-a",
+                        "document_id": "doc-a",
+                        "content_hash": "d" * 64,
+                    }
+                ],
+                "config_snapshot": {"stages": {"stage_chunker": {}}},
+            }
+
+    tuner = RagStrategyTuner(
+        Service(),
+        RagStrategyTuningStore(tmp_path / "runs.json"),
+        EvaluationStore(),
+        SimpleNamespace(),
+        SimpleNamespace(),
+    )
+    snapshot = tuner.preflight(
+        {
+            "kb_id": "kb-a",
+            "base_version_id": "pipeline-a",
+            "tuning_eval_set_id": "tuning",
+            "tuning_eval_set_version": 1,
+            "calibration_eval_set_id": "calibration",
+            "calibration_eval_set_version": 1,
+        }
+    )
+
+    assert snapshot["selection_eligible"] is True
+    assert snapshot["threshold_tuning_available"] is True
+    assert snapshot["eval_case_count"] == 30
+    assert snapshot["calibration_case_count"] == 13
+    assert snapshot["dataset_pair_qualification"]["qualified"] is True
+    assert snapshot["eval_checksum"] != snapshot["calibration_eval_checksum"]
+    assert snapshot["published_checksum_qualification"] == {
+        "tuning_valid": True,
+        "calibration_valid": True,
+    }
+
+    versions[("tuning", 1)]["cases"][0]["query"] = "tampered after publication"
+    tampered = tuner.preflight(
+        {
+            "kb_id": "kb-a",
+            "base_version_id": "pipeline-a",
+            "tuning_eval_set_id": "tuning",
+            "tuning_eval_set_version": 1,
+            "calibration_eval_set_id": "calibration",
+            "calibration_eval_set_version": 1,
+        }
+    )
+    assert tampered["selection_eligible"] is False
+    assert tampered["published_checksum_qualification"]["tuning_valid"] is False
 
 
 def _known_winner_fixture(scenario_id: str) -> dict:
@@ -344,7 +529,7 @@ async def _known_winner_evaluation_set(
     kb_id: str,
     version_id: str,
     scenario: dict,
-) -> tuple[str, int]:
+) -> tuple[str, int, str, int]:
     source_block_ids: set[str] = set()
     document_id = ""
     for query in scenario["positive_queries"]:
@@ -368,9 +553,64 @@ async def _known_winner_evaluation_set(
     source_block_id = source_block_ids.pop()
     assert source_block_id
 
-    evaluation_set = store.create_set(
+    corpus = service.pipeline_corpus_snapshot(version_id)
+    corpus_evidence = service.pipeline_corpus_evidence(version_id)
+    source_block = next(
+        block
+        for document in corpus_evidence["documents"]
+        if str(document["document_id"]) == document_id
+        for block in document["source_blocks"]
+        if str(block["source_block_id"]) == source_block_id
+    )
+    anchor_start = int(source_block["start_char"])
+    anchor_end = min(int(source_block["end_char"]), anchor_start + 20)
+    anchor_payload = {
+        "contract_version": "rag-anchor-v1",
+        "document_id": document_id,
+        "source_block_id": source_block_id,
+        "block_hash": str(source_block["block_hash"]),
+        "anchor_start": anchor_start,
+        "anchor_end": anchor_end,
+    }
+    anchor_hash = hashlib.sha256(
+        json.dumps(
+            anchor_payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+
+    def reference() -> dict:
+        return {
+            "document_id": document_id,
+            "source_block_id": source_block_id,
+            "source_block_hash": str(source_block["block_hash"]),
+            "anchor_start": anchor_start,
+            "anchor_end": anchor_end,
+            "anchor_hash": anchor_hash,
+            "match_mode": "source_block",
+            "relevance": 3,
+        }
+
+    def query_hash(query: str) -> str:
+        normalized = "".join(
+            character
+            for character in query.casefold()
+            if character.isalnum() or character == "_"
+        )
+        return hashlib.sha256(
+            json.dumps(
+                normalized,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+
+    tuning_set = store.create_set(
         kb_id,
-        f"Known winner: {scenario['scenario_id']}",
+        f"Known winner tuning: {scenario['scenario_id']}",
         "Project-owned deterministic strategy tuner fixture",
         benchmark_role="strategy_tuning",
     )
@@ -378,45 +618,131 @@ async def _known_winner_evaluation_set(
     negative_queries = list(scenario["hard_negative_queries"])
     positive_count = int(scenario["positive_case_count"])
     negative_count = int(scenario["hard_negative_case_count"])
-    cases = [
+    tuning_cases = [
         {
             "query": str(positive_queries[index % len(positive_queries)]),
-            "expected_refs": [
-                {
-                    "document_id": document_id,
-                    "source_block_id": source_block_id,
-                    "match_mode": "source_block",
-                    "relevance": 3,
-                }
-            ],
+            "expected_refs": [reference()],
             "tags": ["fact" if index % 2 else "paraphrase"],
         }
         for index in range(positive_count)
     ]
-    cases.extend(
+    for index in range(negative_count):
+        query = str(negative_queries[index % len(negative_queries)])
+        tuning_cases.append(
+            {
+                "query": query,
+                "expected_refs": [],
+                "expected_no_result": True,
+                "review_status": "approved",
+                "tags": ["hard_negative", "corpus_near"],
+                "targeting": {
+                    "blueprint_id": f"known-tuning-negative-{index}",
+                    "query_type": "corpus_near",
+                    "context_refs": [
+                        {
+                            "document_id": document_id,
+                            "source_block_id": source_block_id,
+                            "source_block_hash": str(source_block["block_hash"]),
+                        }
+                    ],
+                    "full_corpus_verification": {
+                        "contract_version": "rag-no-result-verification-v1",
+                        "completed": True,
+                        "method": "full_corpus_lexical_scan_v1",
+                        "query_hash": query_hash(query),
+                        "corpus_snapshot_checksum": corpus["checksum"],
+                        "scanned_document_count": len(corpus["documents"]),
+                        "scanned_source_block_count": sum(
+                            len(document["source_blocks"])
+                            for document in corpus["documents"]
+                        ),
+                        "top_matches": [],
+                    },
+                },
+            }
+        )
+    updated = store.add_cases(
+        tuning_set["eval_set_id"],
+        expected_revision=tuning_set["revision"],
+        cases=tuning_cases,
+    )
+    tuning_version = store.publish_set(
+        tuning_set["eval_set_id"],
+        expected_revision=updated["revision"],
+        corpus_snapshot=corpus,
+    )
+
+    calibration_set = store.create_set(
+        kb_id,
+        f"Known winner calibration: {scenario['scenario_id']}",
+        "Project-owned deterministic threshold calibration fixture",
+        benchmark_role="threshold_calibration",
+    )
+    calibration_cases = [
         {
-            "query": str(negative_queries[index % len(negative_queries)]),
+            "query": (
+                f"Calibration sample {index}: "
+                f"{positive_queries[index % len(positive_queries)]}"
+            ),
+            "expected_refs": [reference()],
+            "tags": ["fact" if index % 2 else "paraphrase"],
+        }
+        for index in range(positive_count)
+    ]
+    for index in range(negative_count):
+        query = (
+            f"Calibration sample {index}: "
+            f"{negative_queries[index % len(negative_queries)]}"
+        )
+        calibration_cases.append({
+            "query": query,
             "expected_refs": [],
             "expected_no_result": True,
             "review_status": "approved",
             "tags": ["hard_negative", "corpus_near"],
             "targeting": {
                 "blueprint_id": f"known-negative-{index}",
-                "query_type": "no_result",
-                "context_evidence_ids": [source_block_id],
+                "query_type": "corpus_near",
+                "context_refs": [
+                    {
+                        "document_id": document_id,
+                        "source_block_id": source_block_id,
+                        "source_block_hash": str(source_block["block_hash"]),
+                    }
+                ],
+                "full_corpus_verification": {
+                    "contract_version": "rag-no-result-verification-v1",
+                    "completed": True,
+                    "method": "full_corpus_lexical_scan_v1",
+                    "query_hash": query_hash(query),
+                    "corpus_snapshot_checksum": corpus["checksum"],
+                    "scanned_document_count": len(corpus["documents"]),
+                    "scanned_source_block_count": sum(
+                        len(document["source_blocks"])
+                        for document in corpus["documents"]
+                    ),
+                    "top_matches": [],
+                },
             },
-        }
-        for index in range(negative_count)
-    )
+        })
     updated = store.add_cases(
-        evaluation_set["eval_set_id"],
-        expected_revision=evaluation_set["revision"],
-        cases=cases,
+        calibration_set["eval_set_id"],
+        expected_revision=calibration_set["revision"],
+        cases=calibration_cases,
     )
-    published = store.publish_set(
-        evaluation_set["eval_set_id"], expected_revision=updated["revision"]
+    calibration_version = store.publish_set(
+        calibration_set["eval_set_id"],
+        expected_revision=updated["revision"],
+        corpus_snapshot=corpus,
     )
-    return evaluation_set["eval_set_id"], int(published["version"])
+    assert tuning_version["qualification_manifest"]["status"] == "qualified"
+    assert calibration_version["qualification_manifest"]["status"] == "qualified"
+    return (
+        tuning_set["eval_set_id"],
+        int(tuning_version["version"]),
+        calibration_set["eval_set_id"],
+        int(calibration_version["version"]),
+    )
 
 
 def test_tuning_store_recovers_inflight_and_preserves_terminal_runs(tmp_path: Path) -> None:
@@ -707,6 +1033,20 @@ def test_no_result_accuracy_counts_as_effective_quality_improvement() -> None:
 
     assert improvement["no_result_accuracy_delta"] == 0.8
     assert improvement["effective"] is True
+
+
+def test_quality_objective_does_not_treat_latency_jitter_as_improvement() -> None:
+    improvement = improvement_summary(
+        {"ndcg_at_10": 0.9, "no_result_accuracy": 0.8, "p95_latency_ms": 20},
+        {"ndcg_at_10": 0.9, "no_result_accuracy": 0.8, "p95_latency_ms": 10},
+        {"estimated_index_bytes": 1000, "chunk_count": 10},
+        {"estimated_index_bytes": 1000, "chunk_count": 10},
+        objective="quality",
+    )
+
+    assert improvement["contract_version"] == "rag-strategy-improvement-v2"
+    assert improvement["p95_reduction_ratio"] == 0.5
+    assert improvement["effective"] is False
 
 
 def test_optimization_gate_filters_candidates_before_holdout() -> None:
@@ -1235,7 +1575,8 @@ async def test_tuner_materializes_ready_candidate_without_switching_active_versi
     assert await tuner.run_once() is True
 
     completed = tuner.store.get_run(created["run_id"])
-    assert completed["status"] == "completed", completed
+    assert completed["status"] == "no_improvement", completed
+    assert completed["no_improvement_reason"] == "full_evaluation_gate"
     final_version = service.get_pipeline_version(completed["final_version_id"])
     assert final_version["status"] == "ready"
     assert final_version["promotion_required"] is True
@@ -1248,7 +1589,7 @@ async def test_tuner_materializes_ready_candidate_without_switching_active_versi
         for item in evaluation["target_results"]
         if item["version_id"] == final_version["version_id"]
     )
-    assert candidate_result["promotion_gate"]["passed"] is True
+    assert candidate_result["promotion_gate"]["passed"] is False
 
     registry_run = await tuner.run_registry.get_run(completed["run_registry_id"])
     assert registry_run is not None and registry_run.status == "completed"
@@ -1297,7 +1638,12 @@ async def test_known_winner_threshold_recovery_runs_real_search_and_materializes
     _, negative_ceiling = await _known_winner_score_boundary(
         service, base_version_id, scenario
     )
-    eval_set_id, eval_version = await _known_winner_evaluation_set(
+    (
+        tuning_set_id,
+        tuning_version,
+        calibration_set_id,
+        calibration_version,
+    ) = await _known_winner_evaluation_set(
         service, evaluation_store, kb_id, base_version_id, scenario
     )
 
@@ -1305,8 +1651,10 @@ async def test_known_winner_threshold_recovery_runs_real_search_and_materializes
         {
             "kb_id": kb_id,
             "base_version_id": base_version_id,
-            "eval_set_id": eval_set_id,
-            "eval_set_version": eval_version,
+            "tuning_eval_set_id": tuning_set_id,
+            "tuning_eval_set_version": tuning_version,
+            "calibration_eval_set_id": calibration_set_id,
+            "calibration_eval_set_version": calibration_version,
             "objective": "quality",
             "max_chunk_indexes": 1,
             "max_retrieval_trials": 1,
@@ -1365,7 +1713,12 @@ async def test_known_winner_already_optimal_control_does_not_invent_winner(
         score_threshold=safe_threshold,
     )
     service.activate_pipeline_version(base_version_id)
-    eval_set_id, eval_version = await _known_winner_evaluation_set(
+    (
+        tuning_set_id,
+        tuning_version,
+        calibration_set_id,
+        calibration_version,
+    ) = await _known_winner_evaluation_set(
         service, evaluation_store, kb_id, base_version_id, scenario
     )
 
@@ -1373,8 +1726,10 @@ async def test_known_winner_already_optimal_control_does_not_invent_winner(
         {
             "kb_id": kb_id,
             "base_version_id": base_version_id,
-            "eval_set_id": eval_set_id,
-            "eval_set_version": eval_version,
+            "tuning_eval_set_id": tuning_set_id,
+            "tuning_eval_set_version": tuning_version,
+            "calibration_eval_set_id": calibration_set_id,
+            "calibration_eval_set_version": calibration_version,
             "objective": "quality",
             "max_chunk_indexes": 1,
             "max_retrieval_trials": 1,
@@ -1388,10 +1743,14 @@ async def test_known_winner_already_optimal_control_does_not_invent_winner(
     assert completed["status"] == scenario["expected_outcome"], completed
     assert completed.get("final_version_id") is None
     assert completed.get("winner") is None
-    assert completed["no_improvement_reason"] == "optimization_gate"
+    assert completed["no_improvement_reason"] == "holdout_gate"
     assert len(completed["candidates"]) == 1
-    assert completed["candidates"][0]["automatic_winner_eligible"] is False
-    assert completed["candidates"][0]["ineligible_reason"] == "baseline_equivalent"
+    assert completed["finalists"]
+    assert all(
+        not finalist.get("improvement", {}).get("effective")
+        or not finalist.get("promotion_gate", {}).get("passed")
+        for finalist in completed["finalists"]
+    )
     assert service.get_active_pipeline_version(kb_id)["version_id"] == base_version_id
 
 

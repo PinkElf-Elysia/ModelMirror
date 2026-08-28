@@ -82,6 +82,8 @@ describe("help center content catalog", () => {
     const ragTopic = helpModules.find((module) => module.id === "workspace")?.topics.find((topic) => topic.id === "rag");
     expect(ragTopic?.verifiedCommit).toBe(ragDiversityBaseline.commit);
     expect(ragTopic?.verifiedDate).toBe(ragDiversityBaseline.date);
+    expect(ragTopic?.points).toContain("正式评测只接受逐条审核、带 anchor 的锁定晋级集；候选选择集和阈值校准集不能替代最终验收");
+    expect(ragTopic?.points).toContain("无答案样例必须同时核对近邻语料和完整语料复核回执");
     expect(searchHelpContent("Science").some((entry) => entry.id === "experimental/science")).toBe(true);
     expect(searchHelpContent("专家团").some((entry) => entry.id === "agents/expert-team")).toBe(true);
     expect(searchHelpContent("运行记录").some((entry) => entry.id === "runtime/run-records")).toBe(true);

@@ -223,6 +223,8 @@ def evaluate_retrieval_case(
                 "document_name": str(source.get("document_name") or "")[:240],
                 "source_block_id": source.get("source_block_id"),
                 "page_number": source.get("page_number"),
+                "start_char": _optional_int(source.get("start_char")),
+                "end_char": _optional_int(source.get("end_char")),
                 "visual_kind": source.get("visual_kind"),
                 "score": _float_or_none(source.get("score")),
                 "vector_score": _float_or_none(source.get("vector_score")),
@@ -767,8 +769,195 @@ def qualify_promotion_evidence(snapshot: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def qualify_locked_dataset_evidence(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """Validate the role-neutral immutable rag-gold-v3 evidence contract."""
+
+    cases = [item for item in snapshot.get("cases") or [] if isinstance(item, dict)]
+    corpus = snapshot.get("corpus_snapshot")
+    corpus = corpus if isinstance(corpus, dict) else {}
+    corpus_payload = {key: value for key, value in corpus.items() if key != "checksum"}
+    corpus_checksum_valid = bool(corpus_payload) and hmac.compare_digest(
+        str(corpus.get("checksum") or ""), _checksum(corpus_payload)
+    )
+    block_hashes: dict[tuple[str, str], str] = {}
+    corpus_documents: set[str] = set()
+    corpus_contains_text = False
+    for document in corpus.get("documents") or []:
+        if not isinstance(document, dict):
+            continue
+        document_id = str(document.get("document_id") or "")
+        if not document_id:
+            continue
+        corpus_documents.add(document_id)
+        for block in document.get("source_blocks") or []:
+            if not isinstance(block, dict):
+                continue
+            source_block_id = str(block.get("source_block_id") or "")
+            if source_block_id:
+                corpus_contains_text = corpus_contains_text or "text" in block
+                block_hashes[(document_id, source_block_id)] = str(
+                    block.get("block_hash") or ""
+                )
+    anchors_valid = True
+    negatives_valid = True
+    for case in cases:
+        if case.get("expected_no_result"):
+            targeting = case.get("targeting")
+            targeting = targeting if isinstance(targeting, dict) else {}
+            contexts = [
+                item
+                for item in targeting.get("context_refs") or []
+                if isinstance(item, dict)
+            ]
+            verification = targeting.get("full_corpus_verification")
+            context = contexts[0] if len(contexts) == 1 else {}
+            context_key = (
+                str(context.get("document_id") or ""),
+                str(context.get("source_block_id") or ""),
+            )
+            top_matches = (
+                verification.get("top_matches")
+                if isinstance(verification, dict)
+                else None
+            )
+            if not (
+                str(case.get("review_status") or "") == "approved"
+                and len(contexts) == 1
+                and block_hashes.get(context_key)
+                == str(context.get("source_block_hash") or "")
+                and isinstance(verification, dict)
+                and verification.get("contract_version")
+                == "rag-no-result-verification-v1"
+                and verification.get("completed") is True
+                and hmac.compare_digest(
+                    str(verification.get("query_hash") or ""),
+                    _checksum(_benchmark_normalized_query(case.get("query"))),
+                )
+                and hmac.compare_digest(
+                    str(verification.get("corpus_snapshot_checksum") or ""),
+                    str(corpus.get("checksum") or ""),
+                )
+                and int(verification.get("scanned_document_count") or 0)
+                == len(corpus_documents)
+                and int(verification.get("scanned_source_block_count") or 0)
+                == len(block_hashes)
+                and isinstance(top_matches, list)
+                and all(
+                    isinstance(match, dict)
+                    and block_hashes.get(
+                        (
+                            str(match.get("document_id") or ""),
+                            str(match.get("source_block_id") or ""),
+                        )
+                    )
+                    == str(match.get("source_block_hash") or "")
+                    and "text" not in match
+                    for match in top_matches
+                )
+            ):
+                negatives_valid = False
+            continue
+        references = [
+            item for item in case.get("expected_refs") or [] if isinstance(item, dict)
+        ]
+        if not references:
+            anchors_valid = False
+        for reference in references:
+            key = (
+                str(reference.get("document_id") or ""),
+                str(reference.get("source_block_id") or ""),
+            )
+            anchor_start = _optional_int(reference.get("anchor_start"))
+            anchor_end = _optional_int(reference.get("anchor_end"))
+            block_hash = str(reference.get("source_block_hash") or "")
+            expected_hash = _checksum(
+                {
+                    "contract_version": "rag-anchor-v1",
+                    "document_id": key[0],
+                    "source_block_id": key[1],
+                    "block_hash": block_hash,
+                    "anchor_start": anchor_start,
+                    "anchor_end": anchor_end,
+                }
+            )
+            if not (
+                str(reference.get("match_mode") or "") == "source_block"
+                and block_hashes.get(key) == block_hash
+                and anchor_start is not None
+                and anchor_start >= 0
+                and anchor_end is not None
+                and anchor_end > anchor_start
+                and hmac.compare_digest(
+                    str(reference.get("anchor_hash") or ""), expected_hash
+                )
+            ):
+                anchors_valid = False
+    role = str(snapshot.get("benchmark_role") or "")
+    manifest = snapshot.get("qualification_manifest")
+    manifest = manifest if isinstance(manifest, dict) else {}
+    checks = [
+        {
+            "id": "gold_contract_v3",
+            "passed": snapshot.get("benchmark_contract_version") == "rag-gold-v3",
+        },
+        {
+            "id": "locked_dataset_role",
+            "passed": role
+            in {
+                "strategy_tuning",
+                "threshold_calibration",
+                "held_out_qualification",
+            },
+        },
+        {
+            "id": "immutable_evaluation_version",
+            "passed": bool(snapshot.get("version_id") and snapshot.get("published_at")),
+        },
+        {
+            "id": "published_checksum",
+            "passed": hmac.compare_digest(
+                str(snapshot.get("checksum") or ""), _published_gold_checksum(snapshot)
+            ),
+        },
+        {
+            "id": "corpus_snapshot",
+            "passed": corpus.get("contract_version") == "rag-corpus-snapshot-v1"
+            and corpus_checksum_valid
+            and bool(corpus_documents)
+            and not corpus_contains_text,
+        },
+        {"id": "anchored_source_block_gold", "passed": anchors_valid},
+        {"id": "verified_hard_negative_contexts", "passed": negatives_valid},
+        {
+            "id": "qualification_manifest",
+            "passed": manifest.get("contract_version")
+            == "rag-gold-qualification-v3"
+            and manifest.get("dataset_role") == role
+            and hmac.compare_digest(
+                str(manifest.get("corpus_checksum") or ""),
+                str(corpus.get("checksum") or ""),
+            )
+            and hmac.compare_digest(
+                str(manifest.get("anchor_checksum") or ""),
+                _qualification_anchor_checksum(cases),
+            )
+            and manifest.get("tuner_usage_lineage") == [],
+        },
+    ]
+    return {
+        "version": "rag-locked-dataset-evidence-v1",
+        "qualified": all(bool(check["passed"]) for check in checks),
+        "status": (
+            "qualified"
+            if all(bool(check["passed"]) for check in checks)
+            else "diagnostic_only"
+        ),
+        "checks": checks,
+    }
+
+
 def qualify_formal_evidence(snapshot: dict[str, Any]) -> dict[str, Any]:
-    """Validate immutable rag-gold-v2 evidence without trusting stored labels."""
+    """Validate immutable held-out rag-gold-v3 evidence without trusting labels."""
 
     cases = [item for item in snapshot.get("cases", []) if isinstance(item, dict)]
     positives = [item for item in cases if not bool(item.get("expected_no_result"))]
@@ -793,7 +982,7 @@ def qualify_formal_evidence(snapshot: dict[str, Any]) -> dict[str, Any]:
         str(provenance.get("prompt_contract_hash") or ""),
     )
     generation_provenance_valid = (
-        provenance.get("generator") == "modelmirror-targeted-rag-benchmark-v2"
+        provenance.get("generator") == "modelmirror-targeted-rag-benchmark-v3"
         and bool(str(provenance.get("generation_job_id") or ""))
         and bool(str(provenance.get("generator_model_id") or ""))
         and isinstance(provenance.get("seed"), int)
@@ -806,6 +995,7 @@ def qualify_formal_evidence(snapshot: dict[str, Any]) -> dict[str, Any]:
         and not attempts[0].get("error_code")
     )
     block_refs: set[tuple[str, str]] = set()
+    block_hashes: dict[tuple[str, str], str] = {}
     corpus_documents: set[str] = set()
     corpus_contains_text = False
     for document in corpus.get("documents", []):
@@ -818,7 +1008,9 @@ def qualify_formal_evidence(snapshot: dict[str, Any]) -> dict[str, Any]:
         for block in document.get("source_blocks", []):
             if isinstance(block, dict) and str(block.get("source_block_id") or ""):
                 corpus_contains_text = corpus_contains_text or "text" in block
-                block_refs.add((document_id, str(block["source_block_id"])))
+                key = (document_id, str(block["source_block_id"]))
+                block_refs.add(key)
+                block_hashes[key] = str(block.get("block_hash") or "")
 
     def trusted_review(case: dict[str, Any]) -> bool:
         evidence = case.get("review_evidence")
@@ -860,10 +1052,31 @@ def qualify_formal_evidence(snapshot: dict[str, Any]) -> dict[str, Any]:
                 str(reference.get("source_block_id") or ""),
             )
             stable_positive_refs.append(key)
+            anchor_start = _optional_int(reference.get("anchor_start"))
+            anchor_end = _optional_int(reference.get("anchor_end"))
+            block_hash = str(reference.get("source_block_hash") or "")
+            expected_anchor_hash = _checksum(
+                {
+                    "contract_version": "rag-anchor-v1",
+                    "document_id": key[0],
+                    "source_block_id": key[1],
+                    "block_hash": block_hash,
+                    "anchor_start": anchor_start,
+                    "anchor_end": anchor_end,
+                }
+            )
             if (
                 str(reference.get("match_mode") or "") != "source_block"
                 or not all(key)
                 or key not in block_refs
+                or block_hashes.get(key) != block_hash
+                or anchor_start is None
+                or anchor_start < 0
+                or anchor_end is None
+                or anchor_end <= anchor_start
+                or not hmac.compare_digest(
+                    str(reference.get("anchor_hash") or ""), expected_anchor_hash
+                )
             ):
                 positive_refs_valid = False
 
@@ -881,7 +1094,58 @@ def qualify_formal_evidence(snapshot: dict[str, Any]) -> dict[str, Any]:
             str(context.get("source_block_id") or ""),
         )
         negative_contexts.append(key)
-        if not all(key) or key not in block_refs:
+        verification = (case.get("targeting") or {}).get(
+            "full_corpus_verification"
+        )
+        context_block_hash = str(context.get("source_block_hash") or "")
+        top_matches = (
+            verification.get("top_matches")
+            if isinstance(verification, dict)
+            else None
+        )
+        verification_valid = (
+            isinstance(verification, dict)
+            and verification.get("contract_version")
+            == "rag-no-result-verification-v1"
+            and verification.get("completed") is True
+            and verification.get("method") == "full_corpus_lexical_scan_v1"
+            and hmac.compare_digest(
+                str(verification.get("query_hash") or ""),
+                _checksum(_benchmark_normalized_query(case.get("query"))),
+            )
+            and hmac.compare_digest(
+                str(verification.get("corpus_snapshot_checksum") or ""),
+                str(corpus.get("checksum") or ""),
+            )
+            and int(verification.get("scanned_document_count") or 0)
+            == len(corpus_documents)
+            and int(verification.get("scanned_source_block_count") or 0)
+            == len(block_refs)
+            and isinstance(top_matches, list)
+            and all(
+                isinstance(match, dict)
+                and (
+                    str(match.get("document_id") or ""),
+                    str(match.get("source_block_id") or ""),
+                )
+                in block_refs
+                and block_hashes.get(
+                    (
+                        str(match.get("document_id") or ""),
+                        str(match.get("source_block_id") or ""),
+                    )
+                )
+                == str(match.get("source_block_hash") or "")
+                and "text" not in match
+                for match in top_matches
+            )
+        )
+        if (
+            not all(key)
+            or key not in block_refs
+            or block_hashes.get(key) != context_block_hash
+            or not verification_valid
+        ):
             hard_negatives_valid = False
 
     def locale_counts(items: list[dict[str, Any]]) -> dict[str, int]:
@@ -936,16 +1200,36 @@ def qualify_formal_evidence(snapshot: dict[str, Any]) -> dict[str, Any]:
     source_block_counts: dict[tuple[str, str], int] = {}
     for key in stable_positive_refs:
         source_block_counts[key] = source_block_counts.get(key, 0) + 1
+    qualification_manifest = snapshot.get("qualification_manifest")
+    qualification_manifest = (
+        qualification_manifest if isinstance(qualification_manifest, dict) else {}
+    )
+    manifest_valid = (
+        qualification_manifest.get("contract_version")
+        == "rag-gold-qualification-v3"
+        and qualification_manifest.get("dataset_role")
+        == "held_out_qualification"
+        and hmac.compare_digest(
+            str(qualification_manifest.get("corpus_checksum") or ""),
+            str(corpus.get("checksum") or ""),
+        )
+        and hmac.compare_digest(
+            str(qualification_manifest.get("anchor_checksum") or ""),
+            _qualification_anchor_checksum(cases),
+        )
+        and qualification_manifest.get("tuner_usage_lineage") == []
+    )
 
     checks = [
         {
-            "id": "gold_contract_v2",
-            "passed": snapshot.get("benchmark_contract_version") == "rag-gold-v2",
+            "id": "gold_contract_v3",
+            "passed": snapshot.get("benchmark_contract_version") == "rag-gold-v3",
         },
         {
-            "id": "promotion_evidence_role",
-            "passed": snapshot.get("benchmark_role") == "promotion_evidence",
+            "id": "held_out_qualification_role",
+            "passed": snapshot.get("benchmark_role") == "held_out_qualification",
         },
+        {"id": "qualification_manifest", "passed": manifest_valid},
         {
             "id": "generation_provenance",
             "passed": generation_provenance_valid,
@@ -973,11 +1257,11 @@ def qualify_formal_evidence(snapshot: dict[str, Any]) -> dict[str, Any]:
             "passed": len(cases) == 42 and all(trusted_review(case) for case in cases),
         },
         {
-            "id": "stable_source_block_gold",
+            "id": "anchored_source_block_gold",
             "passed": positive_refs_valid and len(stable_positive_refs) >= len(positives),
         },
         {
-            "id": "hard_negative_contexts",
+            "id": "verified_hard_negative_contexts",
             "passed": hard_negatives_valid
             and len(negative_contexts) == 12
             and len(set(negative_contexts)) == 12,
@@ -1009,7 +1293,7 @@ def qualify_formal_evidence(snapshot: dict[str, Any]) -> dict[str, Any]:
     ]
     qualified = all(bool(check["passed"]) for check in checks)
     return {
-        "version": "rag-formal-evidence-v2",
+        "version": "rag-formal-evidence-v3",
         "status": "qualified" if qualified else "diagnostic_only",
         "qualified": qualified,
         "counts": {
@@ -1031,7 +1315,7 @@ def validate_formal_run_admission(
 ) -> dict[str, Any]:
     qualification = qualify_formal_evidence(evaluation_version)
     if not qualification["qualified"]:
-        raise ValueError("Formal evaluation requires qualified rag-gold-v2 evidence.")
+        raise ValueError("Formal evaluation requires qualified held-out rag-gold-v3 evidence.")
     if len(targets) != 2 or len({str(item.get("version_id") or "") for item in targets}) != 2:
         raise ValueError("Formal evaluation requires exactly one baseline and one candidate.")
     version_ids = {str(item.get("version_id") or "") for item in targets}
@@ -1245,7 +1529,7 @@ def formal_execution_preflight_reasons(run: dict[str, Any]) -> list[str]:
     snapshot = run.get("eval_set_snapshot")
     snapshot = snapshot if isinstance(snapshot, dict) else {}
     if (
-        snapshot.get("benchmark_contract_version") != "rag-gold-v2"
+        snapshot.get("benchmark_contract_version") != "rag-gold-v3"
         or str(snapshot.get("version_id") or "")
         != str(manifest.get("evaluation_version_id") or "")
         or str(snapshot.get("checksum") or "")
@@ -1853,6 +2137,31 @@ class KnowledgeEvaluationStore:
                         "Generated no-result cases require explicit review before publishing."
                     )
             cases = [self._normalize_case(case, preserve_id=True) for case in item["cases"]]
+            benchmark_role = normalize_benchmark_role(
+                item.get("benchmark_role"),
+                origin=str(item.get("origin") or "manual"),
+                catalog_ref=dict(item.get("catalog_ref") or {}),
+            )
+            v3_roles = {
+                "strategy_tuning",
+                "threshold_calibration",
+                "held_out_qualification",
+            }
+            if benchmark_role in v3_roles:
+                if any(
+                    str(case.get("review_status") or "") == "rejected"
+                    for case in cases
+                ):
+                    raise EvaluationStateError(
+                        "Rejected cases cannot be published as locked V3 evidence."
+                    )
+                if benchmark_role == "held_out_qualification" and any(
+                    str(case.get("review_status") or "") != "approved"
+                    for case in cases
+                ):
+                    raise EvaluationStateError(
+                        "Held-out qualification requires explicit review of every case before publishing."
+                    )
             current = [
                 version
                 for version in data["versions"].values()
@@ -1865,7 +2174,15 @@ class KnowledgeEvaluationStore:
             now = time.time()
             version_id = f"evalsetver_{uuid.uuid4().hex}"
             qualification_manifest = {
-                "contract_version": "rag-gold-qualification-v2",
+                "contract_version": (
+                    "rag-gold-qualification-v3"
+                    if benchmark_role in v3_roles
+                    else "rag-gold-qualification-v2"
+                ),
+                "dataset_role": benchmark_role,
+                "corpus_checksum": str((corpus_snapshot or {}).get("checksum") or ""),
+                "anchor_checksum": _qualification_anchor_checksum(cases),
+                "tuner_usage_lineage": [],
                 "case_count": len(cases),
                 "positive_case_count": sum(
                     1 for case in cases if not case.get("expected_no_result")
@@ -1895,35 +2212,55 @@ class KnowledgeEvaluationStore:
                 "provenance": _copy(item.get("provenance") or {}),
                 "coverage": _copy(item.get("coverage") or {}),
                 "calibration": _copy(item.get("calibration") or {}),
-                "benchmark_role": normalize_benchmark_role(
-                    item.get("benchmark_role"),
-                    origin=str(item.get("origin") or "manual"),
-                    catalog_ref=dict(item.get("catalog_ref") or {}),
-                ),
+                "benchmark_role": benchmark_role,
                 "release_notes": str(release_notes or "")[:1000],
-                "benchmark_contract_version": "rag-gold-v2",
+                "benchmark_contract_version": (
+                    "rag-gold-v3" if benchmark_role in v3_roles else "rag-gold-v2"
+                ),
                 "corpus_snapshot": _copy(corpus_snapshot or {}),
                 "qualification_manifest": qualification_manifest,
                 "published_at": now,
             }
             version["checksum"] = _published_gold_checksum(version)
-            formal_qualification = qualify_formal_evidence(version)
-            if not formal_qualification["qualified"]:
-                version["benchmark_contract_version"] = "rag-gold-v1"
-                version["qualification_manifest"] = {
-                    **qualification_manifest,
-                    "status": "diagnostic_only",
-                    "failed_checks": [
+            if benchmark_role in v3_roles:
+                locked_qualification = qualify_locked_dataset_evidence(version)
+                formal_qualification = (
+                    qualify_formal_evidence(version)
+                    if benchmark_role == "held_out_qualification"
+                    else None
+                )
+                qualified = bool(locked_qualification["qualified"]) and (
+                    formal_qualification is None
+                    or bool(formal_qualification["qualified"])
+                )
+                failed_checks = [
+                    check["id"]
+                    for check in locked_qualification["checks"]
+                    if not check["passed"]
+                ]
+                if formal_qualification is not None:
+                    failed_checks.extend(
                         check["id"]
                         for check in formal_qualification["checks"]
                         if not check["passed"]
-                    ],
+                    )
+                if benchmark_role == "held_out_qualification" and not qualified:
+                    raise EvaluationStateError(
+                        "Held-out qualification failed publication checks: "
+                        + ", ".join(list(dict.fromkeys(failed_checks))[:8])
+                    )
+                if not locked_qualification["qualified"]:
+                    version["benchmark_contract_version"] = "rag-gold-v1"
+                version["qualification_manifest"] = {
+                    **qualification_manifest,
+                    "status": "qualified" if qualified else "diagnostic_only",
+                    "failed_checks": list(dict.fromkeys(failed_checks)),
                 }
             else:
                 version["qualification_manifest"] = {
                     **qualification_manifest,
-                    "status": "qualified",
-                    "failed_checks": [],
+                    "status": "legacy_diagnostic",
+                    "failed_checks": ["legacy_benchmark_contract"],
                 }
             version["checksum"] = _published_gold_checksum(version)
             data["versions"][version_id] = version
@@ -2670,7 +3007,11 @@ class KnowledgeEvaluationStore:
                 manifest.get("evaluation_checksum") or ""
             ):
                 reasons.append("evaluation_checksum_mismatch")
-            if isinstance(version, dict) and version.get("benchmark_contract_version") == "rag-gold-v2":
+            if (
+                isinstance(version, dict)
+                and version.get("benchmark_contract_version")
+                in {"rag-gold-v2", "rag-gold-v3"}
+            ):
                 if not hmac.compare_digest(str(version.get("checksum") or ""), _published_gold_checksum(version)):
                     reasons.append("published_gold_checksum_invalid")
         elif str(run.get("run_mode") or "diagnostic") == "formal":
@@ -2799,12 +3140,40 @@ class KnowledgeEvaluationStore:
             relevance = int(reference.get("relevance", 1))
             if relevance < 1 or relevance > 3:
                 raise ValueError("Expected reference relevance must be between 1 and 3.")
+            anchor_start = _optional_int(reference.get("anchor_start"))
+            anchor_end = _optional_int(reference.get("anchor_end"))
+            anchor_hash = _optional_string(reference.get("anchor_hash"), 64)
+            source_block_hash = _optional_string(
+                reference.get("source_block_hash"), 64
+            )
+            has_anchor = any(
+                value is not None
+                for value in (anchor_start, anchor_end, anchor_hash, source_block_hash)
+            )
+            if has_anchor and (
+                str(reference.get("match_mode") or "") != "source_block"
+                or anchor_start is None
+                or anchor_start < 0
+                or anchor_end is None
+                or anchor_end <= anchor_start
+                or not anchor_hash
+                or not re.fullmatch(r"[0-9a-f]{64}", anchor_hash)
+                or not source_block_hash
+                or not re.fullmatch(r"[0-9a-f]{64}", source_block_hash)
+            ):
+                raise ValueError(
+                    "Anchor references require a source block, valid span, block hash, and anchor hash."
+                )
             normalized_refs.append(
                 {
                     "reference_id": str(reference.get("reference_id") or f"ref_{uuid.uuid4().hex}"),
                     "document_id": str(reference["document_id"]).strip()[:200],
                     "chunk_id": _optional_string(reference.get("chunk_id"), 240),
                     "source_block_id": _optional_string(reference.get("source_block_id"), 240),
+                    "source_block_hash": source_block_hash,
+                    "anchor_start": anchor_start,
+                    "anchor_end": anchor_end,
+                    "anchor_hash": anchor_hash,
                     "page_number": _optional_int(reference.get("page_number")),
                     "relevance": relevance,
                     "match_mode": _normalize_match_mode(reference),
@@ -2924,7 +3293,23 @@ def _source_matches_reference(source: dict[str, Any], reference: dict[str, Any])
         return True
     if match_mode == "source_block":
         expected_block = str(reference.get("source_block_id") or "")
-        return bool(expected_block) and str(source.get("source_block_id") or "") == expected_block
+        if not expected_block or str(source.get("source_block_id") or "") != expected_block:
+            return False
+        anchor_hash = str(reference.get("anchor_hash") or "")
+        if not anchor_hash:
+            return True
+        source_start = _optional_int(source.get("start_char"))
+        source_end = _optional_int(source.get("end_char"))
+        anchor_start = _optional_int(reference.get("anchor_start"))
+        anchor_end = _optional_int(reference.get("anchor_end"))
+        return (
+            source_start is not None
+            and source_end is not None
+            and anchor_start is not None
+            and anchor_end is not None
+            and source_start <= anchor_start
+            and source_end >= anchor_end
+        )
     if match_mode == "chunk":
         expected_chunk = str(reference.get("chunk_id") or "")
         return bool(expected_chunk) and str(source.get("chunk_id") or "") == expected_chunk
@@ -2966,6 +3351,9 @@ def _safe_targeting(value: Any) -> dict[str, Any]:
         return {}
     evidence_ids = value.get("evidence_ids")
     context_refs = value.get("context_refs")
+    verification = value.get("full_corpus_verification")
+    verification = verification if isinstance(verification, dict) else {}
+    top_matches = verification.get("top_matches")
     return {
         "blueprint_id": _optional_string(value.get("blueprint_id"), 160),
         "query_type": _optional_string(value.get("query_type"), 80),
@@ -2982,6 +3370,9 @@ def _safe_targeting(value: Any) -> dict[str, Any]:
                 "chunk_id": _optional_string(item.get("chunk_id"), 240),
                 "source_block_id": _optional_string(
                     item.get("source_block_id"), 240
+                ),
+                "source_block_hash": _optional_string(
+                    item.get("source_block_hash"), 64
                 ),
                 "page_number": _optional_int(item.get("page_number")),
             }
@@ -3004,11 +3395,81 @@ def _safe_targeting(value: Any) -> dict[str, Any]:
             if isinstance(value.get("leakage_warning"), dict)
             else None
         ),
+        "full_corpus_verification": (
+            {
+                "contract_version": _optional_string(
+                    verification.get("contract_version"), 80
+                ),
+                "completed": verification.get("completed") is True,
+                "method": _optional_string(verification.get("method"), 80),
+                "query_hash": _optional_string(verification.get("query_hash"), 64),
+                "corpus_snapshot_checksum": _optional_string(
+                    verification.get("corpus_snapshot_checksum"), 64
+                ),
+                "scanned_document_count": max(
+                    0, int(verification.get("scanned_document_count") or 0)
+                ),
+                "scanned_source_block_count": max(
+                    0, int(verification.get("scanned_source_block_count") or 0)
+                ),
+                "top_matches": [
+                    {
+                        "document_id": _optional_string(item.get("document_id"), 200),
+                        "source_block_id": _optional_string(
+                            item.get("source_block_id"), 240
+                        ),
+                        "source_block_hash": _optional_string(
+                            item.get("source_block_hash"), 64
+                        ),
+                        "lexical_query_coverage": max(
+                            0.0,
+                            min(
+                                float(item.get("lexical_query_coverage") or 0.0),
+                                1.0,
+                            ),
+                        ),
+                    }
+                    for item in top_matches
+                    if isinstance(item, dict)
+                    and item.get("document_id")
+                    and item.get("source_block_id")
+                ][:5]
+                if isinstance(top_matches, list)
+                else [],
+            }
+            if verification
+            else None
+        ),
     }
 
 
 def _formal_query_tokens(value: str) -> set[str]:
     return set(re.findall(r"[a-z0-9]+|[\u3400-\u9fff]", value.casefold()))
+
+
+def _benchmark_normalized_query(value: Any) -> str:
+    return re.sub(r"[^\w\u3400-\u9fff]+", "", str(value or "").casefold())
+
+
+def _qualification_anchor_checksum(cases: list[dict[str, Any]]) -> str:
+    anchors = [
+        {
+            "case_id": str(case.get("case_id") or ""),
+            "reference_id": str(reference.get("reference_id") or ""),
+            "document_id": str(reference.get("document_id") or ""),
+            "source_block_id": str(reference.get("source_block_id") or ""),
+            "source_block_hash": str(reference.get("source_block_hash") or ""),
+            "anchor_start": _optional_int(reference.get("anchor_start")),
+            "anchor_end": _optional_int(reference.get("anchor_end")),
+            "anchor_hash": str(reference.get("anchor_hash") or ""),
+        }
+        for case in cases
+        if not case.get("expected_no_result")
+        for reference in case.get("expected_refs") or []
+        if isinstance(reference, dict)
+    ]
+    anchors.sort(key=lambda item: (item["case_id"], item["reference_id"]))
+    return _checksum(anchors)
 
 
 def _ndcg_at_k(
@@ -3233,6 +3694,8 @@ def _ranking_item(source: dict[str, Any], rank: int) -> dict[str, Any]:
         ),
         "document_name": str(source.get("document_name") or "")[:240],
         "source_block_id": source.get("source_block_id"),
+        "start_char": _optional_int(source.get("start_char")),
+        "end_char": _optional_int(source.get("end_char")),
         "page_number": source.get("page_number"),
         "visual_kind": source.get("visual_kind"),
         "score": _float_or_none(source.get("score")),
@@ -3304,6 +3767,12 @@ def _published_gold_checksum(snapshot: dict[str, Any]) -> str:
             "corpus_snapshot": snapshot.get("corpus_snapshot") or {},
             "qualification_manifest": snapshot.get("qualification_manifest") or {},
         }
+    )
+
+
+def published_gold_checksum_valid(snapshot: dict[str, Any]) -> bool:
+    return hmac.compare_digest(
+        str(snapshot.get("checksum") or ""), _published_gold_checksum(snapshot)
     )
 
 

@@ -4240,6 +4240,129 @@ class RagService:
         corpus["checksum"] = self._canonical_sha256(corpus)
         return json.loads(json.dumps(corpus))
 
+    def pipeline_corpus_evidence(self, version_id: str) -> dict[str, Any]:
+        """Return verified canonical source blocks without using child chunks as Gold."""
+
+        corpus = self.pipeline_corpus_snapshot(version_id)
+        version, _, results = self._pipeline_corpus_provenance(version_id)
+        manifest_by_document = {
+            str(item.get("document_id") or ""): dict(item)
+            for item in list(corpus.get("documents") or [])
+            if isinstance(item, dict)
+        }
+        index_owner = str(version.get("index_owner_version_id") or version_id)
+        retrieval_mode = str(
+            (version.get("retrieval_profile") or {}).get("mode") or "vector"
+        )
+        chunk_store = self.lexical_store if retrieval_mode == "fulltext" else self.vector_store
+        documents: list[dict[str, Any]] = []
+        for source in version.get("source_summary", []):
+            document_id = str((source or {}).get("source_id") or "")
+            manifest = manifest_by_document.get(document_id)
+            result = results.get(document_id)
+            if not manifest or not result:
+                raise PipelineJobStateError(
+                    "Pipeline version canonical corpus evidence is inconsistent."
+                )
+            artifact_path = self._pipeline_processed_path(str(result.get("artifact_key") or ""))
+            try:
+                artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise PipelineJobStateError(
+                    "Pipeline version processed source artifact is unavailable."
+                ) from exc
+            processed = artifact.get("processed_document")
+            raw_blocks = processed.get("blocks") if isinstance(processed, dict) else None
+            if not isinstance(raw_blocks, list):
+                raise PipelineJobStateError(
+                    "Pipeline version processed source blocks are unavailable."
+                )
+            chunks_by_block: dict[str, list[Any]] = {}
+            for chunk in chunk_store.list_document_chunks(
+                f"{index_owner}_{document_id}"
+            ):
+                source_block_id = str(chunk.source_block_id or "")
+                if source_block_id:
+                    chunks_by_block.setdefault(source_block_id, []).append(chunk)
+            manifest_blocks = {
+                str(item.get("source_block_id") or ""): str(item.get("block_hash") or "")
+                for item in list(manifest.get("source_blocks") or [])
+                if isinstance(item, dict)
+            }
+            source_blocks: list[dict[str, Any]] = []
+            for block_index, raw_block in enumerate(raw_blocks):
+                if not isinstance(raw_block, dict):
+                    raise PipelineJobStateError(
+                        "Pipeline version processed source block is invalid."
+                    )
+                source_block_id = str(raw_block.get("block_id") or "")
+                text = raw_block.get("text")
+                block_hash = self._canonical_sha256(text) if isinstance(text, str) else ""
+                chunks = chunks_by_block.get(source_block_id) or []
+                if (
+                    not source_block_id
+                    or not isinstance(text, str)
+                    or not text.strip()
+                    or manifest_blocks.get(source_block_id) != block_hash
+                    or not chunks
+                ):
+                    raise PipelineJobStateError(
+                        "Pipeline version canonical corpus evidence is inconsistent."
+                    )
+                representative = self._representative_source_block_chunk(chunks)
+                start_char = int(raw_block.get("start_char") or 0)
+                end_char = int(raw_block.get("end_char") or 0)
+                if end_char <= start_char:
+                    end_char = start_char + len(text)
+                source_blocks.append(
+                    {
+                        "document_id": document_id,
+                        "document_name": str(
+                            result.get("filename")
+                            or (source or {}).get("filename")
+                            or representative.document_name
+                            or ""
+                        )[:240],
+                        "source_block_id": source_block_id,
+                        "block_hash": block_hash,
+                        "block_index": block_index,
+                        "start_char": start_char,
+                        "end_char": end_char,
+                        "page_number": raw_block.get("page_number"),
+                        "heading_path": [
+                            str(item)[:160]
+                            for item in list(raw_block.get("heading_path") or [])[:12]
+                        ],
+                        "block_type": str(
+                            raw_block.get("block_type") or raw_block.get("kind") or "canonical"
+                        )[:80],
+                        "visual_kind": str(raw_block.get("visual_kind") or "")[:80] or None,
+                        "representative_chunk_id": str(representative.chunk_id),
+                        "text": text,
+                    }
+                )
+            if set(manifest_blocks) != {
+                str(item["source_block_id"]) for item in source_blocks
+            }:
+                raise PipelineJobStateError(
+                    "Pipeline version canonical corpus evidence is inconsistent."
+                )
+            documents.append(
+                {
+                    "document_id": document_id,
+                    "document_name": str(
+                        result.get("filename") or (source or {}).get("filename") or ""
+                    )[:240],
+                    "content_hash": str(manifest.get("content_hash") or ""),
+                    "source_blocks": source_blocks,
+                }
+            )
+        return {
+            "contract_version": "rag-corpus-evidence-v1",
+            "corpus_snapshot_checksum": str(corpus.get("checksum") or ""),
+            "documents": documents,
+        }
+
     def pipeline_version_payload(
         self,
         version: dict[str, Any],

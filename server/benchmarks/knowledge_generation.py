@@ -12,6 +12,7 @@ from .service import BenchmarkGenerationError
 
 
 KNOWLEDGE_COVERAGE = (
+    "exact_lexical",
     "factual_lookup",
     "paraphrase",
     "section_context",
@@ -22,7 +23,7 @@ KNOWLEDGE_COVERAGE = (
 MAX_EVIDENCE_UNITS = 40
 MAX_EVIDENCE_CHARS = 48_000
 MAX_EVIDENCE_UNIT_CHARS = 1_200
-KNOWLEDGE_PROMPT_CONTRACT_VERSION = "rag-gold-generation-prompt-v2"
+KNOWLEDGE_PROMPT_CONTRACT_VERSION = "rag-gold-generation-prompt-v3"
 
 
 class KnowledgeBenchmarkGenerationService:
@@ -86,8 +87,18 @@ class KnowledgeBenchmarkGenerationService:
                 "Knowledge version exposes no completed documents in the selected scope."
             )
 
+        corpus_evidence = self.rag_service.pipeline_corpus_evidence(version_id)
+        corpus_checksum = str(corpus_evidence.get("corpus_snapshot_checksum") or "")
+        if not re.fullmatch(r"[0-9a-f]{64}", corpus_checksum):
+            raise BenchmarkGenerationError(
+                "Knowledge version canonical corpus evidence is unavailable."
+            )
+        canonical_documents = {
+            str(item.get("document_id") or ""): dict(item)
+            for item in list(corpus_evidence.get("documents") or [])
+            if isinstance(item, dict) and str(item.get("document_id") or "")
+        }
         evidence: list[dict[str, Any]] = []
-        seen_blocks: set[tuple[str, str]] = set()
         for document in sorted(
             document_results,
             key=lambda item: (
@@ -96,41 +107,63 @@ class KnowledgeBenchmarkGenerationService:
             ),
         ):
             document_id = str(document.get("source_id") or "")
-            chunks = self.rag_service.vector_store.list_document_chunks(
-                f"{version_id}_{document_id}"
-            )
-            ordered = sorted(
-                chunks,
+            canonical = canonical_documents.get(document_id)
+            if not isinstance(canonical, dict):
+                raise BenchmarkGenerationError(
+                    "Knowledge version canonical document evidence is incomplete."
+                )
+            blocks = [
+                dict(item)
+                for item in list(canonical.get("source_blocks") or [])
+                if isinstance(item, dict)
+            ]
+            blocks.sort(
                 key=lambda item: (
-                    0 if str(item.chunk_type) == "child" else 1,
-                    int(item.chunk_index),
-                    str(item.chunk_id),
-                ),
+                    int(item.get("block_index") or 0),
+                    str(item.get("source_block_id") or ""),
+                )
             )
-            for chunk in ordered:
-                source_block_id = str(chunk.source_block_id or "")
-                text = str(chunk.text or "").strip()
-                if not source_block_id or len(text) < 24:
+            for block in blocks:
+                source_block_id = str(block.get("source_block_id") or "")
+                block_hash = str(block.get("block_hash") or "")
+                # Preserve the canonical block byte-for-byte so anchor offsets remain
+                # aligned with the immutable source-block coordinates.
+                text = str(block.get("text") or "")
+                if (
+                    not source_block_id
+                    or not re.fullmatch(r"[0-9a-f]{64}", block_hash)
+                    or len(text.strip()) < 24
+                ):
                     continue
-                block_key = (document_id, source_block_id)
-                if block_key in seen_blocks:
-                    continue
-                seen_blocks.add(block_key)
                 evidence_id = "evidence_" + hashlib.sha256(
-                    f"{version_id}:{chunk.chunk_id}".encode("utf-8")
+                    f"{corpus_checksum}:{document_id}:{source_block_id}:{block_hash}".encode(
+                        "utf-8"
+                    )
                 ).hexdigest()[:20]
                 evidence.append(
                     {
                         "evidence_id": evidence_id,
                         "document_id": document_id,
-                        "document_name": str(chunk.document_name or document.get("filename") or "")[:240],
-                        "chunk_id": str(chunk.chunk_id),
+                        "document_name": str(
+                            block.get("document_name")
+                            or canonical.get("document_name")
+                            or document.get("filename")
+                            or ""
+                        )[:240],
+                        "chunk_id": str(block.get("representative_chunk_id") or ""),
                         "source_block_id": source_block_id,
-                        "chunk_type": str(chunk.chunk_type or "standard")[:80],
-                        "page_number": chunk.page_number,
-                        "heading_path": [str(item)[:160] for item in chunk.heading_path[:12]],
-                        "visual_kind": str(chunk.visual_kind or "")[:80] or None,
-                        "text": text[:MAX_EVIDENCE_UNIT_CHARS],
+                        "block_hash": block_hash,
+                        "block_index": int(block.get("block_index") or 0),
+                        "start_char": int(block.get("start_char") or 0),
+                        "end_char": int(block.get("end_char") or 0),
+                        "chunk_type": str(block.get("block_type") or "canonical")[:80],
+                        "page_number": block.get("page_number"),
+                        "heading_path": [
+                            str(item)[:160]
+                            for item in list(block.get("heading_path") or [])[:12]
+                        ],
+                        "visual_kind": str(block.get("visual_kind") or "")[:80] or None,
+                        "text": text,
                         "text_length": len(text),
                         "truncated": len(text) > MAX_EVIDENCE_UNIT_CHARS,
                     }
@@ -164,8 +197,9 @@ class KnowledgeBenchmarkGenerationService:
                     for key in (
                         "evidence_id",
                         "document_id",
-                        "chunk_id",
                         "source_block_id",
+                        "block_hash",
+                        "block_index",
                         "text_length",
                     )
                 }
@@ -194,6 +228,7 @@ class KnowledgeBenchmarkGenerationService:
             "processor_profile": copy.deepcopy(version.get("processor_profile") or {}),
             "embedding_profile": copy.deepcopy(version.get("embedding_profile") or {}),
             "source_summary_hash": self._checksum(safe_documents),
+            "corpus_snapshot_checksum": corpus_checksum,
             "warnings": warnings,
             "source": {
                 "kind": "knowledge_version",
@@ -256,7 +291,7 @@ class KnowledgeBenchmarkGenerationService:
         self, snapshot: dict[str, Any], *, locales: list[str]
     ) -> list[str]:
         evidence = list(snapshot.get("_evidence") or [])
-        available = ["factual_lookup", "paraphrase"]
+        available = ["exact_lexical", "factual_lookup", "paraphrase"]
         if any(item.get("heading_path") or item.get("chunk_type") == "child" for item in evidence):
             available.append("section_context")
         if len(set(locales)) > 1:
@@ -313,9 +348,9 @@ class KnowledgeBenchmarkGenerationService:
                 "difficulty": self._difficulty(index, positives),
                 "required_evidence_ids": [item["evidence_id"] for item in required],
                 "required_query_marker_groups": (
-                    []
-                    if coverage in {"paraphrase", "cross_language"}
-                    else [self._query_markers(item) for item in required]
+                    [self._query_markers(item) for item in required]
+                    if coverage == "exact_lexical"
+                    else []
                 ),
                 "expected_no_result": False,
             }
@@ -349,7 +384,7 @@ class KnowledgeBenchmarkGenerationService:
                         "evidence_id": item["evidence_id"],
                         "chunk_id": item["chunk_id"],
                         "source_block_id": item["source_block_id"],
-                        "text_hash": self._checksum(str(item.get("text") or "")),
+                        "block_hash": item["block_hash"],
                     }
                     for item in sampled
                 ]
@@ -573,9 +608,13 @@ class KnowledgeBenchmarkGenerationService:
                     if not isinstance(evidence, dict):
                         raise BenchmarkGenerationError("Generated evidence ID is unavailable.")
                     quote = quote_by_id[evidence_id]
+                    evidence_text = str(evidence["text"])
                     normalized_quote = self._normalize_text(quote)
-                    if len(quote) < 8 or len(quote) > 240 or normalized_quote not in self._normalize_text(
-                        str(evidence["text"])
+                    local_anchor_start = evidence_text.find(quote)
+                    if (
+                        len(quote) < 8
+                        or len(quote) > 240
+                        or local_anchor_start < 0
                     ):
                         raise BenchmarkGenerationError(
                             f"Case {index + 1} anchor quote is not present in its fixed evidence."
@@ -584,12 +623,28 @@ class KnowledgeBenchmarkGenerationService:
                         raise BenchmarkGenerationError(
                             f"Case {index + 1} leaks a long evidence quote into the query."
                         )
+                    anchor_start = int(evidence.get("start_char") or 0) + local_anchor_start
+                    anchor_end = anchor_start + len(quote)
+                    anchor_hash = self._checksum(
+                        {
+                            "contract_version": "rag-anchor-v1",
+                            "document_id": evidence["document_id"],
+                            "source_block_id": evidence["source_block_id"],
+                            "block_hash": evidence["block_hash"],
+                            "anchor_start": anchor_start,
+                            "anchor_end": anchor_end,
+                        }
+                    )
                     references.append(
                         {
                             "reference_id": f"ref_{blueprint['blueprint_id']}_{ref_index + 1}",
                             "document_id": evidence["document_id"],
                             "chunk_id": evidence["chunk_id"],
                             "source_block_id": evidence["source_block_id"],
+                            "source_block_hash": evidence["block_hash"],
+                            "anchor_start": anchor_start,
+                            "anchor_end": anchor_end,
+                            "anchor_hash": anchor_hash,
                             "page_number": evidence.get("page_number"),
                             "match_mode": "source_block",
                             "relevance": 3 if ref_index == 0 else 2,
@@ -602,6 +657,7 @@ class KnowledgeBenchmarkGenerationService:
                     "document_id": evidence_by_id[evidence_id]["document_id"],
                     "chunk_id": evidence_by_id[evidence_id]["chunk_id"],
                     "source_block_id": evidence_by_id[evidence_id]["source_block_id"],
+                    "source_block_hash": evidence_by_id[evidence_id]["block_hash"],
                     "page_number": evidence_by_id[evidence_id].get("page_number"),
                 }
                 for evidence_id in blueprint.get("context_evidence_ids") or []
@@ -630,6 +686,11 @@ class KnowledgeBenchmarkGenerationService:
                         "difficulty": blueprint["difficulty"],
                         "evidence_ids": required_ids,
                         "context_refs": context_refs,
+                        "full_corpus_verification": (
+                            self._verify_no_result_query(snapshot, query)
+                            if expected_no_result
+                            else None
+                        ),
                         "leakage_warning": (
                             {
                                 "threshold": warning_threshold,
@@ -680,6 +741,7 @@ class KnowledgeBenchmarkGenerationService:
                 "processor_profile",
                 "embedding_profile",
                 "source_summary_hash",
+                "corpus_snapshot_checksum",
                 "warnings",
                 "source",
             )
@@ -695,28 +757,39 @@ class KnowledgeBenchmarkGenerationService:
         rng = random.Random(seed)
         document_ids = sorted(by_document)
         rng.shuffle(document_ids)
-        for values in by_document.values():
+        selected: list[dict[str, Any]] = []
+        selected_ids: set[str] = set()
+        strata = (("head", 0.0), ("middle", 0.5), ("tail", 1.0))
+        for document_id in document_ids:
+            values = by_document[document_id]
             values.sort(
                 key=lambda item: (
-                    0 if item.get("chunk_type") == "child" else 1,
-                    int(item.get("page_number") or 0),
-                    str(item.get("chunk_id") or ""),
+                    int(item.get("block_index") or 0),
+                    str(item.get("source_block_id") or ""),
                 )
             )
-        selected: list[dict[str, Any]] = []
-        index = 0
-        while len(selected) < MAX_EVIDENCE_UNITS:
-            progressed = False
-            for document_id in document_ids:
-                values = by_document[document_id]
-                if index < len(values):
-                    selected.append(values[index])
-                    progressed = True
-                    if len(selected) >= MAX_EVIDENCE_UNITS:
-                        break
-            if not progressed:
+            for label, position in strata:
+                index = round((len(values) - 1) * position)
+                item = values[index]
+                evidence_id = str(item.get("evidence_id") or "")
+                if evidence_id in selected_ids:
+                    continue
+                selected.append({**item, "sample_stratum": label})
+                selected_ids.add(evidence_id)
+                if len(selected) >= MAX_EVIDENCE_UNITS:
+                    break
+            if len(selected) >= MAX_EVIDENCE_UNITS:
                 break
-            index += 1
+        remaining: list[dict[str, Any]] = []
+        for document_id in document_ids:
+            for item in by_document[document_id]:
+                if str(item.get("evidence_id") or "") not in selected_ids:
+                    remaining.append(item)
+        rng.shuffle(remaining)
+        for item in remaining:
+            selected.append({**item, "sample_stratum": "body"})
+            if len(selected) >= MAX_EVIDENCE_UNITS:
+                break
         bounded: list[dict[str, Any]] = []
         chars = 0
         for item in selected:
@@ -726,6 +799,46 @@ class KnowledgeBenchmarkGenerationService:
             bounded.append({**item, "text": text})
             chars += len(text)
         return bounded
+
+    def _verify_no_result_query(
+        self, snapshot: dict[str, Any], query: str
+    ) -> dict[str, Any]:
+        query_terms = self._verification_terms(query)
+        matches: list[dict[str, Any]] = []
+        evidence = [dict(item) for item in list(snapshot.get("_evidence") or [])]
+        for item in evidence:
+            text_terms = self._verification_terms(str(item.get("text") or ""))
+            overlap = len(query_terms & text_terms)
+            coverage = overlap / max(1, len(query_terms))
+            matches.append(
+                {
+                    "document_id": str(item.get("document_id") or ""),
+                    "source_block_id": str(item.get("source_block_id") or ""),
+                    "source_block_hash": str(item.get("block_hash") or ""),
+                    "lexical_query_coverage": round(coverage, 6),
+                }
+            )
+        matches.sort(
+            key=lambda item: (
+                -float(item["lexical_query_coverage"]),
+                item["document_id"],
+                item["source_block_id"],
+            )
+        )
+        return {
+            "contract_version": "rag-no-result-verification-v1",
+            "completed": True,
+            "method": "full_corpus_lexical_scan_v1",
+            "query_hash": self._checksum(self._normalize_text(query)),
+            "corpus_snapshot_checksum": str(
+                snapshot.get("corpus_snapshot_checksum") or ""
+            ),
+            "scanned_document_count": len(
+                {str(item.get("document_id") or "") for item in evidence}
+            ),
+            "scanned_source_block_count": len(evidence),
+            "top_matches": matches[:5],
+        }
 
     @staticmethod
     def _difficulty(index: int, total: int) -> str:
@@ -776,6 +889,23 @@ class KnowledgeBenchmarkGenerationService:
     @staticmethod
     def _normalize_text(value: str) -> str:
         return re.sub(r"[^\w\u3400-\u9fff]+", "", str(value).casefold())
+
+    @staticmethod
+    def _verification_terms(value: str) -> set[str]:
+        text = str(value or "").casefold()
+        terms = set(re.findall(r"[a-z0-9_]{2,}", text))
+        for run in re.findall(r"[\u3400-\u9fff]+", text):
+            if len(run) == 1:
+                terms.add(run)
+                continue
+            for size in (2, 3):
+                if len(run) < size:
+                    continue
+                terms.update(
+                    run[index : index + size]
+                    for index in range(len(run) - size + 1)
+                )
+        return terms
 
     @staticmethod
     def _has_common_window(left: str, right: str, size: int) -> bool:
