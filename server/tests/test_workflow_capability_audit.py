@@ -7,12 +7,9 @@ from collections import Counter
 from pathlib import Path
 from typing import get_args
 
+from scripts.generate_workflow_capability_audit import current_registry_facts
 from server.workflow_native.node_contracts import workflow_node_contract_registry
 from server.workflow_native.schemas import NativeNodeKind
-from server.xpert_runtime.workflow_node_registry import (
-    WorkflowNodeRegistry,
-    register_builtin_workflow_nodes,
-)
 
 
 def test_capability_audit_generator_is_idempotent(tmp_path: Path) -> None:
@@ -97,6 +94,42 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     assert mapped["rssFeedReadTrigger"]["覆盖等级"] == "exact"
     assert "首次启用建立无回放基线" in mapped["rssFeedReadTrigger"]["判断说明"]
     assert mapped["rssFeedRead"]["覆盖等级"] == "composable"
+    assert {
+        row["n8n内部标识"]
+        for row in rows
+        if row["n8n节点族"] == "触发节点"
+        and row["纳入建议"] == "核心通用能力候选"
+    } == {"emailReadImap", "localFileTrigger", "mcpTrigger", "sseTrigger"}
+    assert all(
+        mapped[key]["纳入建议"] == "按需消息基础设施连接器"
+        for key in (
+            "amqpTrigger",
+            "awsSnsTrigger",
+            "kafkaTrigger",
+            "mqttTrigger",
+            "postgresTrigger",
+            "rabbitmqTrigger",
+            "redisTrigger",
+        )
+    )
+    assert all(
+        mapped[key]["纳入建议"] == "按需厂商/应用连接器"
+        for key in (
+            "airtableTrigger",
+            "githubTrigger",
+            "slackTrigger",
+            "stripeTrigger",
+        )
+    )
+    assert all(
+        mapped[key]["纳入建议"]
+        == "平台级能力例外；不作为独立画布触发候选"
+        for key in ("chat", "chatTrigger")
+    )
+    assert mapped["evaluationTrigger"]["纳入建议"] == "隔离审计，不作实现参考"
+    assert mapped["e2eTestPollingTrigger"]["纳入建议"] == "排除测试/平台内部条目"
+    assert mapped["n8nTrigger"]["纳入建议"] == "排除测试/平台内部条目"
+    assert mapped["cron"]["纳入建议"] == "合并或排除隐藏/遗留条目"
     assert mapped["wait"]["模镜对应节点"] == "suspend_wait"
     assert mapped["respondToWebhook"]["模镜对应节点"] == "http_event_reply"
     assert mapped["errorTrigger"]["模镜对应节点"] == "failure_event_entry"
@@ -253,47 +286,41 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
             assert "运行/测试" in row["模镜证据"]
 
     markdown = markdown_path.read_text(encoding="utf-8")
-    native_count = len(get_args(NativeNodeKind))
-    registry = WorkflowNodeRegistry()
-    register_builtin_workflow_nodes(registry)
-    palette_count = len(
-        {
-            item.kind
-            for section in registry.sections()
-            for item in section.items
-        }
-        | {item.kind for item in registry.knowledge_pipeline().items}
-    )
-    compatibility_count = sum(
-        contract.contract_status == "compatibility"
-        for contract in workflow_node_contract_registry.list()
-    )
-    complete_count = sum(
-        contract.contract_status == "complete"
-        for contract in workflow_node_contract_registry.list()
-    )
-    planner_count = sum(
-        contract.planner.enabled
-        for contract in workflow_node_contract_registry.list()
-    )
+    facts = current_registry_facts()
     assert "911593f505b05b01037769f578e21f22d2a1c9af" in markdown
     assert "R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0/R2.1/R2.2/R2.3/R2.4/R2.5/R2.6/R2.7" in markdown
     assert "44、画布目录项 42" in markdown
     assert "R1.6 结果" in markdown
     assert "自研节点总数 47、画布目录项 45、当前 18 个" in markdown
     current_registry_line = (
-        f"当前 Registry 事实：{native_count} Native、{palette_count} 个可新增 Palette 项、"
-        f"{complete_count} 个完整合同、{compatibility_count} 个 compatibility 合同、"
-        f"{planner_count} 个 Planner 节点"
+        f"当前 Registry 事实：{facts.native} Native、"
+        f"{facts.palette_registered} 个已登记 Palette 项、"
+        f"默认 {facts.palette_draggable} 个可拖拽 Palette 项、"
+        f"{facts.complete} 个完整合同、{facts.compatibility} 个 compatibility 合同、"
+        f"{facts.planner} 个 Planner 节点"
     )
     assert current_registry_line in markdown
-    assert f"Planner 可生成类型仍固定为 {planner_count} 类" in markdown
+    assert f"Planner 可生成类型仍固定为 {facts.planner} 类" in markdown
     assert "R1.8 结果" in markdown
-    assert native_count == 54
-    assert palette_count == 50
-    assert complete_count == 51
-    assert compatibility_count == 3
-    assert planner_count == 7
+    assert facts.native == 54
+    assert facts.palette_registered == 50
+    assert facts.palette_draggable == 49
+    assert facts.complete == 51
+    assert facts.compatibility == 3
+    assert facts.planner == 7
+    assert facts.runtime_feature_gated == (
+        "knowledge_write_proposal",
+        "rss_event_entry",
+    )
+    assert "当前 Registry 事实：54 Native、50 个可新增 Palette 项" not in markdown
+    assert (
+        "默认运行功能门禁：2 个已登记项（`knowledge_write_proposal`、"
+        "`rss_event_entry`）允许编辑但执行面关闭"
+    ) in markdown
+    assert "## 平台级能力例外（不计入画布节点覆盖状态）" in markdown
+    assert "Xpert Chat" in markdown
+    assert "Evaluation / Evolution" in markdown
+    assert "`workflow_agent + toolset_resource`" in markdown
     assert "R1.9 结果" in markdown
     assert (
         "- R2.0 结果：不新增普通节点，将 `human_intervention`、`mcp_tool`、"
@@ -357,6 +384,7 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     ) not in markdown
     assert "覆盖等级用于表达证据强度" in markdown
     assert current_registry_line == (
-        "当前 Registry 事实：54 Native、50 个可新增 Palette 项、51 个完整合同、"
+        "当前 Registry 事实：54 Native、50 个已登记 Palette 项、"
+        "默认 49 个可拖拽 Palette 项、51 个完整合同、"
         "3 个 compatibility 合同、7 个 Planner 节点"
     )
