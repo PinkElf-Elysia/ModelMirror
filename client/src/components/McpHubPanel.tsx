@@ -440,7 +440,8 @@ export default function McpHubPanel() {
   const [candidateOAuth, setCandidateOAuth] = useState<Record<string, CandidateOAuthSummary>>({});
   const [oauthClientIds, setOauthClientIds] = useState<Record<string, string>>({});
   const [oauthRefreshRequests, setOauthRefreshRequests] = useState<Record<string, boolean>>({});
-  const [oauthAuthorizationUrls, setOauthAuthorizationUrls] = useState<Record<string, string>>({});
+  const [oauthAuthorizationUrls, setOauthAuthorizationUrls] = useState<Record<string, { sessionId: string; url: string }>>({});
+  const [oauthClock, setOauthClock] = useState(Date.now);
   const [candidateAuthInputs, setCandidateAuthInputs] = useState<Record<string, CandidateAuthInput>>({});
   const [reviewStatus, setReviewStatus] = useState<HubReviewStatus | null>(null);
   const [reviewSelection, setReviewSelection] = useState<HubReviewSelection[]>([]);
@@ -536,6 +537,14 @@ export default function McpHubPanel() {
         if (entry.oauth !== null) nextCandidateOAuth[entry.candidateId] = entry.oauth;
       }
       setCandidateOAuth(nextCandidateOAuth);
+      setOauthAuthorizationUrls((currentUrls) => Object.fromEntries(
+        Object.entries(currentUrls).filter(([candidateId, link]) => {
+          const oauth = nextCandidateOAuth[candidateId];
+          const session = oauth?.authorization_session;
+          return session?.status === "pending" && session.expires_at * 1000 > Date.now()
+            && session.session_id === link.sessionId && oauth.token?.status !== "active";
+        }),
+      ));
       setCandidateErrors((currentErrors) => {
         const next = { ...currentErrors };
         for (const entry of oauthEntries) {
@@ -579,6 +588,25 @@ export default function McpHubPanel() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    const now = Date.now();
+    const deadlines = Object.values(candidateOAuth)
+      .filter((oauth) => oauth.authorization_session?.status === "pending" && oauth.token?.status !== "active")
+      .map((oauth) => oauth.authorization_session!.expires_at * 1000)
+      .filter((deadline) => deadline > now);
+    const updateClock = () => setOauthClock(Date.now());
+    const timer = deadlines.length ? window.setTimeout(
+      updateClock, Math.min(2_147_483_647, Math.max(1, Math.ceil(Math.min(...deadlines) - now))),
+    ) : undefined;
+    window.addEventListener("focus", updateClock);
+    document.addEventListener("visibilitychange", updateClock);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("focus", updateClock);
+      document.removeEventListener("visibilitychange", updateClock);
+    };
+  }, [candidateOAuth, oauthClock]);
 
   const refreshHubViews = useCallback(async () => {
     await refresh();
@@ -969,10 +997,15 @@ export default function McpHubPanel() {
                 const oauthDiscovery = oauth?.discovery || null;
                 const oauthRegistration = oauth?.registration || null;
                 const oauthAuthorizationSession = oauth?.authorization_session || null;
+                const oauthAuthorizationExpired = oauthAuthorizationSession?.status === "expired" || Boolean(
+                  oauthAuthorizationSession?.status === "pending" && oauthAuthorizationSession.expires_at * 1000 <= Date.now(),
+                );
                 const oauthToken = oauth?.token || null;
                 const oauthClientId = oauthClientIds[candidate.candidate_id] || "";
                 const requestOAuthRefresh = Boolean(oauthRefreshRequests[candidate.candidate_id]);
-                const oauthAuthorizationUrl = oauthAuthorizationUrls[candidate.candidate_id] || "";
+                const oauthAuthorizationLink = oauthAuthorizationUrls[candidate.candidate_id];
+                const oauthAuthorizationUrl = oauthAuthorizationLink?.sessionId === oauthAuthorizationSession?.session_id
+                  ? oauthAuthorizationLink?.url || "" : "";
                 const oauthRuntimeReady = !candidate.oauth_discovery_available || Boolean(
                   oauth?.runtime_eligible && remoteOAuthStatus?.runtime_enabled && candidate.activation_eligible,
                 );
@@ -1397,7 +1430,7 @@ export default function McpHubPanel() {
                                     </button>
                                   </div>
                                 </div>
-                              ) : oauthAuthorizationSession?.status === "pending" ? (
+                              ) : oauthAuthorizationSession?.status === "pending" && !oauthAuthorizationExpired ? (
                                 <div className="space-y-2">
                                   <p className="font-semibold text-violet-100">等待浏览器授权</p>
                                   <p>Scope：{oauthAuthorizationSession.scopes.join("、")}</p>
@@ -1405,6 +1438,12 @@ export default function McpHubPanel() {
                                     <a
                                       className="inline-flex min-h-9 items-center rounded-md border border-violet-300/25 px-3 font-semibold text-violet-100"
                                       href={oauthAuthorizationUrl}
+                                      onClick={(event) => {
+                                        if (oauthAuthorizationSession.expires_at * 1000 <= Date.now()) {
+                                          event.preventDefault();
+                                          setOauthClock(Date.now());
+                                        }
+                                      }}
                                       rel="noreferrer noopener"
                                       target="_blank"
                                     >
@@ -1434,7 +1473,11 @@ export default function McpHubPanel() {
                                         `oauth-cancel:${candidate.candidate_id}`,
                                         () => requestJson(`/api/mcp/hub/candidates/${candidate.candidate_id}/oauth/authorization-sessions/${oauthAuthorizationSession.session_id}`, { method: "DELETE" }),
                                         () => {
-                                          setOauthAuthorizationUrls((current) => ({ ...current, [candidate.candidate_id]: "" }));
+                                          setOauthAuthorizationUrls((current) => {
+                                            const next = { ...current };
+                                            delete next[candidate.candidate_id];
+                                            return next;
+                                          });
                                           setNotice(`${candidate.server_name} 的待授权会话已取消。`);
                                         },
                                         candidate.candidate_id,
@@ -1447,7 +1490,12 @@ export default function McpHubPanel() {
                                 </div>
                               ) : (
                                 <div className="space-y-2">
-                                  <p className="font-semibold text-violet-100">使用冻结 Scope 创建一次性授权</p>
+                                  {oauthAuthorizationExpired ? (
+                                    <div className="rounded-md border border-amber-300/20 bg-amber-300/10 px-3 py-2 text-amber-100" role="status">
+                                      <p className="font-semibold">授权链接已过期</p>
+                                      <p>本次授权未完成，旧链接已失效。请创建新授权链接；旧授权码不会重试。</p>
+                                    </div>
+                                  ) : <p className="font-semibold text-violet-100">使用冻结 Scope 创建一次性授权</p>}
                                   <p>将请求：{oauthDiscovery.recommended_scopes.length ? oauthDiscovery.recommended_scopes.join("、") : "不发送 scope 参数"}</p>
                                   {oauthDiscovery.offline_access_available ? (
                                     <label className="flex items-start gap-2 rounded border border-amber-300/20 bg-amber-300/5 px-2 py-2 text-amber-100">
@@ -1467,7 +1515,7 @@ export default function McpHubPanel() {
                                     disabled={!remoteOAuthAuthorizationOperational || Boolean(busy)}
                                     onClick={() => void run(
                                       `oauth-authorize:${candidate.candidate_id}`,
-                                      () => requestJson<{ authorization_url: string }>(`/api/mcp/hub/candidates/${candidate.candidate_id}/oauth/authorization-sessions`, {
+                                      () => requestJson<{ authorization_url: string; authorization_session: { session_id: string } }>(`/api/mcp/hub/candidates/${candidate.candidate_id}/oauth/authorization-sessions`, {
                                         method: "POST",
                                         headers: { "Content-Type": "application/json" },
                                         body: JSON.stringify({
@@ -1478,14 +1526,16 @@ export default function McpHubPanel() {
                                         }),
                                       }),
                                       (result) => {
-                                        setOauthAuthorizationUrls((current) => ({ ...current, [candidate.candidate_id]: result.authorization_url }));
+                                        setOauthAuthorizationUrls((current) => ({ ...current, [candidate.candidate_id]: {
+                                          sessionId: result.authorization_session.session_id, url: result.authorization_url,
+                                        } }));
                                         setNotice(`${candidate.server_name} 的一次性授权链接已创建。`);
                                       },
                                       candidate.candidate_id,
                                     )}
                                     type="button"
                                   >
-                                    创建授权链接
+                                    {oauthAuthorizationExpired ? "创建新授权链接" : "创建授权链接"}
                                   </button>
                                 </div>
                               )}

@@ -326,6 +326,81 @@ def test_contract_fingerprint_hmac_collision_and_revocation(tmp_path: Path) -> N
     assert valid.lookup_identity(*contract.identity)[1] == "hub_contract_revoked"
 
 
+def test_local_contract_revision_requires_linear_supersession(tmp_path: Path) -> None:
+    store = MCPHubReviewStore(MCPHubStore(tmp_path))
+    key = "contract-signing-key-with-more-than-32-bytes"
+    first = HubReviewedContractV1(
+        contract_id=stable_contract_id(
+            "io.example/contract", "1.0.0", "https://contract.example/mcp"
+        ),
+        server_name="io.example/contract",
+        version="1.0.0",
+        remote_url="https://contract.example/mcp",
+        origin="https://contract.example",
+        source_digest="3" * 64,
+        schema_digest="1" * 64,
+        tool_schema_digests={"search": "2" * 64},
+        allowed_tools=["search"],
+        tool_effects={"search": "read"},
+        limits={"max_result_bytes": 1024},
+        evidence_digest="4" * 64,
+    )
+    second = normalize_contract(
+        {
+            **first.model_dump(mode="json"),
+            "schema_digest": "5" * 64,
+            "evidence_digest": "6" * 64,
+            "contract_fingerprint": "",
+        }
+    )
+    store.add_local_contract_revision(
+        "tenant-a", "owner-a", first, contract_signature(first, key)
+    )
+
+    with pytest.raises(HubError) as stale:
+        store.add_local_contract_revision(
+            "tenant-a", "owner-a", second, contract_signature(second, key)
+        )
+    assert stale.value.code == "hub_contract_supersession_required"
+
+    revision = store.add_local_contract_revision(
+        "tenant-a",
+        "owner-a",
+        second,
+        contract_signature(second, key),
+        supersedes_fingerprint=first.contract_fingerprint,
+    )
+    assert revision["supersedes_fingerprint"] == first.contract_fingerprint
+    registry = HubContractRegistry(
+        local_store=store,
+        tenant_id="tenant-a",
+        owner_id="owner-a",
+        signing_key=key,
+        repository_dir=tmp_path / "empty",
+    )
+    loaded, reason = registry.lookup_identity(*first.identity)
+    assert reason == ""
+    assert loaded == second
+
+    third = normalize_contract(
+        {
+            **second.model_dump(mode="json"),
+            "schema_digest": "7" * 64,
+            "evidence_digest": "8" * 64,
+            "contract_fingerprint": "",
+        }
+    )
+    with pytest.raises(HubError) as wrong_predecessor:
+        store.add_local_contract_revision(
+            "tenant-a",
+            "owner-a",
+            third,
+            contract_signature(third, key),
+            supersedes_fingerprint=first.contract_fingerprint,
+        )
+    assert wrong_predecessor.value.code == "hub_contract_supersession_required"
+
+
 def test_v2_contract_freezes_auth_policy_without_changing_v1_loader() -> None:
     remote_url = "https://token.example/mcp"
     policy = RemoteAuthPolicyV1(

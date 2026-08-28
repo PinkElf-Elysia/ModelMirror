@@ -213,9 +213,9 @@ async def run(
     )
     if result.is_error:
         raise RuntimeError("runtime_representative_call_failed")
-    connected_before_revoke = hub.get_candidate(candidate["candidate_id"])["connected"]
-    if not connected_before_revoke:
-        raise RuntimeError("runtime_session_not_connected")
+    connected_after_call = hub.get_candidate(candidate["candidate_id"])["connected"]
+    if connected_after_call:
+        raise RuntimeError("runtime_session_cleanup_failed")
 
     revoked_contract_id = ""
     disconnected_candidates: list[str] = []
@@ -233,7 +233,7 @@ async def run(
         if connected_after_revoke or remaining_tools:
             raise RuntimeError("contract_revocation_not_immediate")
     else:
-        connected_after_revoke = connected_before_revoke
+        connected_after_revoke = connected_after_call
         remaining_tools = [tool]
 
     output = result.output or ""
@@ -248,7 +248,7 @@ async def run(
         "retry_on_failure": False,
         "result_bytes": len(output.encode("utf-8")),
         "result_sha256": hashlib.sha256(output.encode("utf-8")).hexdigest(),
-        "connected_before_revoke": connected_before_revoke,
+        "connected_after_call": connected_after_call,
         "connected_after_revoke": connected_after_revoke,
         "revoked_contract_id": revoked_contract_id,
         "disconnected_candidates": disconnected_candidates,

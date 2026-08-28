@@ -220,6 +220,7 @@ class MCPHubReviewStore:
                     evidence_digest TEXT NOT NULL DEFAULT '',
                     draft_contract_json TEXT NOT NULL DEFAULT '{}',
                     contract_fingerprint TEXT NOT NULL DEFAULT '',
+                    supersedes_fingerprint TEXT NOT NULL DEFAULT '',
                     error_code TEXT NOT NULL DEFAULT '',
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL,
@@ -280,6 +281,7 @@ class MCPHubReviewStore:
                     contract_fingerprint TEXT NOT NULL,
                     contract_json TEXT NOT NULL,
                     signature TEXT NOT NULL,
+                    supersedes_fingerprint TEXT NOT NULL DEFAULT '',
                     created_at REAL NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_hub_local_contract_identity
@@ -304,6 +306,24 @@ class MCPHubReviewStore:
             if "trigger" not in columns:
                 db.execute(
                     "ALTER TABLE hub_review_runs ADD COLUMN trigger TEXT NOT NULL DEFAULT 'manual'"
+                )
+            item_columns = {
+                str(row[1])
+                for row in db.execute("PRAGMA table_info(hub_review_items)").fetchall()
+            }
+            if "supersedes_fingerprint" not in item_columns:
+                db.execute(
+                    "ALTER TABLE hub_review_items ADD COLUMN supersedes_fingerprint TEXT NOT NULL DEFAULT ''"
+                )
+            revision_columns = {
+                str(row[1])
+                for row in db.execute(
+                    "PRAGMA table_info(hub_local_contract_revisions)"
+                ).fetchall()
+            }
+            if "supersedes_fingerprint" not in revision_columns:
+                db.execute(
+                    "ALTER TABLE hub_local_contract_revisions ADD COLUMN supersedes_fingerprint TEXT NOT NULL DEFAULT ''"
                 )
 
     @staticmethod
@@ -501,6 +521,7 @@ class MCPHubReviewStore:
         evidence_digest: str | None = None,
         draft_contract: dict[str, Any] | None = None,
         contract_fingerprint: str | None = None,
+        supersedes_fingerprint: str | None = None,
         error_code: str | None = None,
     ) -> None:
         updates: list[str] = ["updated_at=?"]
@@ -511,6 +532,7 @@ class MCPHubReviewStore:
             "candidate_id": candidate_id,
             "evidence_digest": evidence_digest,
             "contract_fingerprint": contract_fingerprint,
+            "supersedes_fingerprint": supersedes_fingerprint,
             "error_code": error_code,
         }
         for column, value in mapping.items():
@@ -751,12 +773,51 @@ class MCPHubReviewStore:
         owner_id: str,
         contract: HubReviewedContractV1,
         signature: str,
+        *,
+        supersedes_fingerprint: str = "",
     ) -> dict[str, Any]:
         revision_id = "hubrevision_" + uuid.uuid4().hex
         now = time.time()
         with self._lock, self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            rows = db.execute(
+                "SELECT contract_fingerprint,supersedes_fingerprint FROM hub_local_contract_revisions "
+                "WHERE tenant_id=? AND owner_id=? AND contract_id=? ORDER BY created_at,revision_id",
+                (tenant_id, owner_id, contract.contract_id),
+            ).fetchall()
+            current_heads = {
+                str(row["contract_fingerprint"])
+                for row in rows
+            } - {
+                str(row["supersedes_fingerprint"])
+                for row in rows
+                if str(row["supersedes_fingerprint"])
+            }
+            if len(current_heads) > 1:
+                raise HubError(
+                    "本机契约 revision 已分叉。",
+                    code="hub_contract_collision",
+                    status_code=409,
+                )
+            current_head = next(iter(current_heads), "")
+            if current_head and current_head != contract.contract_fingerprint:
+                if supersedes_fingerprint != current_head:
+                    raise HubError(
+                        "本机契约前驱已变化。",
+                        code="hub_contract_supersession_required",
+                        status_code=409,
+                    )
+            elif supersedes_fingerprint and supersedes_fingerprint != current_head:
+                raise HubError(
+                    "本机契约前驱无效。",
+                    code="hub_contract_supersession_required",
+                    status_code=409,
+                )
             db.execute(
-                "INSERT INTO hub_local_contract_revisions VALUES(?,?,?,?,?,?,?,?)",
+                "INSERT INTO hub_local_contract_revisions("
+                "revision_id,tenant_id,owner_id,contract_id,contract_fingerprint,"
+                "contract_json,signature,supersedes_fingerprint,created_at"
+                ") VALUES(?,?,?,?,?,?,?,?,?)",
                 (
                     revision_id,
                     tenant_id,
@@ -765,6 +826,7 @@ class MCPHubReviewStore:
                     contract.contract_fingerprint,
                     contract_export(contract).decode("utf-8").strip(),
                     signature,
+                    supersedes_fingerprint,
                     now,
                 ),
             )
@@ -772,6 +834,7 @@ class MCPHubReviewStore:
             "revision_id": revision_id,
             "contract_id": contract.contract_id,
             "contract_fingerprint": contract.contract_fingerprint,
+            "supersedes_fingerprint": supersedes_fingerprint,
             "created_at": now,
         }
 
@@ -1875,6 +1938,14 @@ class MCPHubReviewService:
             evidence.snapshot.version,
             evidence.snapshot.remote_url,
         )
+        supersedes_fingerprint = ""
+        reuse_existing = False
+        if reason == "hub_contract_collision":
+            raise HubError(
+                "同一身份的契约 revision 已冲突。",
+                code=reason,
+                status_code=409,
+            )
         if existing is not None and not reason:
             expected_policy = None
             if isinstance(evidence, HubEvidenceBundleV2):
@@ -1890,7 +1961,7 @@ class MCPHubReviewService:
                 if isinstance(evidence, HubEvidenceBundleV3)
                 else None
             )
-            if (
+            execution_changed = (
                 existing.schema_digest != evidence.schema_digest
                 or existing.tool_schema_digests != evidence.tool_schema_digests
                 or set(existing.allowed_tools) != set(unique_tools)
@@ -1904,10 +1975,19 @@ class MCPHubReviewService:
                     if isinstance(evidence, HubEvidenceBundleV3)
                     else ()
                 )
-            ):
-                raise HubError("同一身份的仓库契约不一致。", code="hub_contract_collision", status_code=409)
-            contract = existing
-        else:
+            )
+            if execution_changed:
+                if self.contracts.is_repository_contract(existing):
+                    raise HubError(
+                        "同一身份的仓库契约不一致。",
+                        code="hub_contract_collision",
+                        status_code=409,
+                    )
+                supersedes_fingerprint = existing.contract_fingerprint
+            else:
+                contract = existing
+                reuse_existing = True
+        if not reuse_existing:
             contract_fields: dict[str, Any] = {
                 "contract_id": stable_contract_id(
                     evidence.snapshot.server_name,
@@ -1965,6 +2045,7 @@ class MCPHubReviewService:
             state="approved",
             draft_contract=contract.model_dump(mode="json"),
             contract_fingerprint=contract.contract_fingerprint,
+            supersedes_fingerprint=supersedes_fingerprint,
             error_code="",
         )
         self._event(
@@ -1974,6 +2055,7 @@ class MCPHubReviewService:
             payload={
                 "decision": "approve",
                 "contract_fingerprint": contract.contract_fingerprint,
+                "supersedes_fingerprint": supersedes_fingerprint,
                 "unknown_oauth_scopes_acknowledged": bool(
                     isinstance(evidence, HubEvidenceBundleV3)
                     and evidence.scope_assessment.get("unknown_scopes")
@@ -2040,7 +2122,11 @@ class MCPHubReviewService:
         contract = normalize_contract(item["draft_contract"])
         signature = contract_signature(contract, self.signing_key)
         revision = self.store.add_local_contract_revision(
-            self.tenant_id, self.owner_id, contract, signature
+            self.tenant_id,
+            self.owner_id,
+            contract,
+            signature,
+            supersedes_fingerprint=str(item.get("supersedes_fingerprint") or ""),
         )
         self.store.add_revocation(
             self.tenant_id, self.owner_id, contract.contract_id, "restore", "published revision"

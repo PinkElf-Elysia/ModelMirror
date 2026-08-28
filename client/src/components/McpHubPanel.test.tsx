@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import McpHubPanel from "./McpHubPanel";
 
@@ -12,11 +12,126 @@ function json(payload: unknown, status = 200) {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
+function mockOAuthAuthorization() {
+  const candidateId = "mcphub_" + "a".repeat(32);
+  const session = { session_id: "", status: "pending", expires_at: 0, scopes: ["mcp:read"] };
+  const candidate = {
+    candidate_id: candidateId, server_name: "io.example/expiry", version: "1.0.0",
+    state: "draft", origin: "https://mcp.example.com", source_digest: "b".repeat(64),
+    schema_digest: "", tools: [], connected: false, activation_eligible: false,
+    oauth_discovery_available: true,
+  };
+  const oauth = () => ({
+    discovery: {
+      discovery_id: "discovery", discovery_fingerprint: "c".repeat(64), status: "active",
+      resource_uri: "https://mcp.example.com/mcp", issuer: "https://auth.example.com",
+      pkce_method: "S256", token_endpoint_origin: "https://auth.example.com",
+      recommended_scopes: ["mcp:read"], recommended_scope_digest: "d".repeat(64),
+      offline_access_available: false,
+    },
+    registration: {
+      registration_id: "registration", registration_digest: "e".repeat(64),
+      status: "active", mode: "pre_registered", client_id: "public-client", revision: 1,
+    },
+    authorization_session: session.session_id ? { ...session } : null,
+    token: null,
+  });
+  let created = 0;
+  const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.endsWith("/api/mcp/hub/status")) {
+      return json({ enabled: true, remote_enabled: true, snapshot_count: 0, snapshot_at: 1 });
+    }
+    if (url.endsWith("/api/mcp/remote-auth/oauth/status")) {
+      return json({
+        enabled: true, remote_auth_enabled: true, single_owner_acknowledged: true,
+        external_master_key_available: true, external_master_key_enforced: true, storage_ready: true,
+        authorization_enabled: true, token_storage_enabled: true, supported_registration_modes: ["pre_registered"],
+      });
+    }
+    if (url.includes("/api/mcp/hub/servers?")) return json({ items: [], total: 0, next_cursor: null });
+    if (url.endsWith("/api/mcp/hub/candidates")) return json({ items: [candidate] });
+    if (url.endsWith(`/candidates/${candidateId}/oauth`) && !init?.method) return json(oauth());
+    if (url.endsWith("/oauth/authorization-sessions") && init?.method === "POST") {
+      created += 1;
+      Object.assign(session, { session_id: `session-${created}`, status: "pending", expires_at: Date.now() / 1000 + 600 });
+      return json({ authorization_session: { ...session }, authorization_url: `https://auth.example.com/authorize?state=fresh-${created}` });
+    }
+    return json({ enabled: false });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return { session, fetchMock };
+}
+
 describe("McpHubPanel", () => {
+  it.each(["server status", "elapsed deadline"])("replaces an expired OAuth link using %s without replaying the old session", async (expirySource) => {
+    const { session, fetchMock } = mockOAuthAuthorization();
+    render(<McpHubPanel />);
+    fireEvent.click(await screen.findByRole("button", { name: "创建授权链接" }));
+    expect(await screen.findByRole("link", { name: "打开授权页面" })).toHaveAttribute("href", "https://auth.example.com/authorize?state=fresh-1");
+    if (expirySource === "server status") session.status = "expired";
+    else session.expires_at = Date.now() / 1000 - 1;
+    fireEvent.click(screen.getByRole("button", { name: "刷新授权状态" }));
+    expect(await screen.findByText("授权链接已过期")).toBeVisible();
+    expect(screen.queryByRole("link", { name: "打开授权页面" })).not.toBeInTheDocument();
+    expect(screen.getByText(/旧授权码不会重试/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "创建新授权链接" }));
+    expect(await screen.findByRole("link", { name: "打开授权页面" })).toHaveAttribute("href", "https://auth.example.com/authorize?state=fresh-2");
+    const writes = fetchMock.mock.calls.filter(([, init]) => init?.method);
+    expect(writes).toHaveLength(2);
+    for (const [url, init] of writes) {
+      expect(String(url)).toMatch(/\/oauth\/authorization-sessions$/);
+      expect(init?.method).toBe("POST");
+      expect(JSON.parse(String(init?.body))).toEqual({
+        expected_discovery_fingerprint: "c".repeat(64), expected_registration_digest: "e".repeat(64),
+        expected_scope_digest: "d".repeat(64), request_refresh_token: false,
+      });
+    }
+  });
+
+  it("expires an idle OAuth link without making a background request", async () => {
+    const { fetchMock } = mockOAuthAuthorization();
+    render(<McpHubPanel />);
+    const create = await screen.findByRole("button", { name: "创建授权链接" });
+    vi.useFakeTimers();
+    await act(async () => { fireEvent.click(create); });
+    expect(screen.getByRole("link", { name: "打开授权页面" })).toBeVisible();
+    const calls = fetchMock.mock.calls.length;
+    await act(async () => { vi.advanceTimersByTime(600_001); });
+    expect(screen.getByText("授权链接已过期")).toBeVisible();
+    expect(screen.queryByRole("link", { name: "打开授权页面" })).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(calls);
+  });
+
+  it("blocks a late click before the browser expiry timer runs", async () => {
+    const { session, fetchMock } = mockOAuthAuthorization();
+    render(<McpHubPanel />);
+    fireEvent.click(await screen.findByRole("button", { name: "创建授权链接" }));
+    const link = await screen.findByRole("link", { name: "打开授权页面" });
+    const calls = fetchMock.mock.calls.length;
+    vi.spyOn(Date, "now").mockReturnValue(session.expires_at * 1000 + 1);
+    expect(fireEvent.click(link)).toBe(false);
+    expect(screen.getByText("授权链接已过期")).toBeVisible();
+    expect(screen.queryByRole("link", { name: "打开授权页面" })).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(calls);
+  });
+
+  it("never attaches an old URL to an authorization session created in another tab", async () => {
+    const { session } = mockOAuthAuthorization();
+    render(<McpHubPanel />);
+    fireEvent.click(await screen.findByRole("button", { name: "创建授权链接" }));
+    await screen.findByRole("link", { name: "打开授权页面" });
+    session.session_id = "other-tab-session";
+    fireEvent.click(screen.getByRole("button", { name: "刷新授权状态" }));
+    expect(await screen.findByText(/授权链接只在创建时返回/)).toBeVisible();
+    expect(screen.queryByRole("link", { name: "打开授权页面" })).not.toBeInTheDocument();
+  });
+
   it("shows the disabled-by-default boundary without loading candidates", async () => {
     const fetchMock = vi.fn(() =>
       json({
@@ -505,6 +620,7 @@ describe("McpHubPanel", () => {
     remoteRevocationEnabled = true;
     fireEvent.click(within(card!).getByRole("button", { name: "刷新授权状态" }));
     expect(await within(card!).findByText(/revision 1/)).toBeVisible();
+    expect(within(card!).queryByRole("link", { name: "打开授权页面" })).not.toBeInTheDocument();
     fireEvent.click(within(card!).getByRole("button", { name: "刷新 Token" }));
     const refreshDialog = await screen.findByRole("alertdialog", { name: "刷新 OAuth Token" });
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/refresh"))).toBe(false);
