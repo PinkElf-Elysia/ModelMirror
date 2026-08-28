@@ -3,10 +3,13 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import os
 import sys
 from collections import Counter, defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 from typing import get_args
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -41,6 +44,50 @@ SPECIALIZED_REVIEW_OVERRIDES = {
     "formTrigger": "R2.5",
     "rssFeedReadTrigger": "R2.7",
 }
+
+GENERIC_TRIGGER_CANDIDATE_IDS = {
+    "emailReadImap",
+    "localFileTrigger",
+    "mcpTrigger",
+    "sseTrigger",
+}
+
+MESSAGE_INFRASTRUCTURE_TRIGGER_IDS = {
+    "amqpTrigger",
+    "awsSnsTrigger",
+    "kafkaTrigger",
+    "mqttTrigger",
+    "postgresTrigger",
+    "rabbitmqTrigger",
+    "redisTrigger",
+}
+
+PLATFORM_CAPABILITY_TRIGGER_IDS = {
+    "chat",
+    "chatTrigger",
+}
+
+TEST_OR_INTERNAL_TRIGGER_IDS = {
+    "e2eTestPollingTrigger",
+    "n8nTrigger",
+}
+
+DEFAULT_REGISTRY_ENV = {
+    "FILE_OUTPUT_ASSETS_ENABLED": "false",
+    "WORKFLOW_KNOWLEDGE_PROPOSALS_ENABLED": "false",
+    "WORKFLOW_RSS_TRIGGERS_ENABLED": "false",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class RegistryFacts:
+    native: int
+    palette_registered: int
+    palette_draggable: int
+    complete: int
+    compatibility: int
+    planner: int
+    runtime_feature_gated: tuple[str, ...]
 
 DIRECT_UPDATES = {
     "rssFeedReadTrigger": {
@@ -443,7 +490,7 @@ def status_bucket(value: str) -> str:
     return "未实现"
 
 
-def current_registry_counts() -> tuple[int, int, int, int, int]:
+def current_registry_facts() -> RegistryFacts:
     from server.workflow_native.node_contracts import workflow_node_contract_registry
     from server.workflow_native.schemas import NativeNodeKind
     from server.xpert_runtime.workflow_node_registry import (
@@ -452,20 +499,65 @@ def current_registry_counts() -> tuple[int, int, int, int, int]:
     )
 
     contracts = workflow_node_contract_registry.list()
-    registry = WorkflowNodeRegistry()
-    register_builtin_workflow_nodes(registry)
-    palette_kinds = {
-        item.kind
+    with patch.dict(os.environ, DEFAULT_REGISTRY_ENV):
+        registry = WorkflowNodeRegistry()
+        register_builtin_workflow_nodes(registry)
+    palette_items = [
+        item
         for section in registry.sections()
         for item in section.items
-    } | {item.kind for item in registry.knowledge_pipeline().items}
-    return (
-        len(get_args(NativeNodeKind)),
-        len(palette_kinds),
-        sum(contract.contract_status == "complete" for contract in contracts),
-        sum(contract.contract_status == "compatibility" for contract in contracts),
-        sum(contract.planner.enabled for contract in contracts),
+    ] + list(registry.knowledge_pipeline().items)
+    registered_kinds = {item.kind for item in palette_items}
+    draggable_kinds = {item.kind for item in palette_items if item.enabled}
+    runtime_feature_gated = tuple(
+        sorted(
+            item.kind
+            for item in palette_items
+            if item.metadata.get("feature_enabled") is False
+        )
     )
+    return RegistryFacts(
+        native=len(get_args(NativeNodeKind)),
+        palette_registered=len(registered_kinds),
+        palette_draggable=len(draggable_kinds),
+        complete=sum(
+            contract.contract_status == "complete" for contract in contracts
+        ),
+        compatibility=sum(
+            contract.contract_status == "compatibility" for contract in contracts
+        ),
+        planner=sum(contract.planner.enabled for contract in contracts),
+        runtime_feature_gated=runtime_feature_gated,
+    )
+
+
+def apply_trigger_candidate_policy(row: dict[str, str]) -> None:
+    if row.get("n8n节点族") != "触发节点":
+        return
+    node_id = row.get("n8n内部标识", "")
+    source_ref = row.get("来源条目标识", "")
+    if ".ee" in source_ref:
+        row["纳入建议"] = "隔离审计，不作实现参考"
+        return
+    if row.get("界面标记") == "隐藏":
+        row["纳入建议"] = "合并或排除隐藏/遗留条目"
+        return
+    if node_id in TEST_OR_INTERNAL_TRIGGER_IDS:
+        row["纳入建议"] = "排除测试/平台内部条目"
+        return
+    if node_id in PLATFORM_CAPABILITY_TRIGGER_IDS:
+        row["纳入建议"] = "平台级能力例外；不作为独立画布触发候选"
+        return
+    if row.get("模镜当前状态") in {"已实现", "部分实现"}:
+        row["纳入建议"] = "已纳入自主通用能力"
+        return
+    if node_id in GENERIC_TRIGGER_CANDIDATE_IDS:
+        row["纳入建议"] = "核心通用能力候选"
+        return
+    if node_id in MESSAGE_INFRASTRUCTURE_TRIGGER_IDS:
+        row["纳入建议"] = "按需消息基础设施连接器"
+        return
+    row["纳入建议"] = "按需厂商/应用连接器"
 
 
 def replace_retired_node_mappings(value: str) -> str:
@@ -642,6 +734,7 @@ def main() -> None:
         row["模镜对应节点"] = replace_retired_node_mappings(
             row.get("模镜对应节点", "")
         )
+        apply_trigger_candidate_policy(row)
         row["许可证边界"] = (
             "仅名称/节点类型能力参考；不复制代码、参数 Schema、文案、图标、测试或 UI"
             if ".ee" not in row.get("来源条目标识", "")
@@ -694,11 +787,12 @@ def main() -> None:
         or row.get("n8n内部标识") in UNVERIFIED_VENDOR_NODE_IDS
         or row.get("来源条目标识") in SOURCE_UPDATES
     ]
-    native_count, palette_count, complete_count, compatibility_count, planner_count = (
-        current_registry_counts()
-    )
+    registry_facts = current_registry_facts()
     r22_pr1 = HISTORICAL_REGISTRY_SNAPSHOTS["r22_pr1"]
     r22_pr2 = HISTORICAL_REGISTRY_SNAPSHOTS["r22_pr2"]
+    runtime_feature_gated = "、".join(
+        f"`{kind}`" for kind in registry_facts.runtime_feature_gated
+    )
 
     domain_lines = []
     for domain, counts in domains.items():
@@ -712,9 +806,9 @@ def main() -> None:
         f"{row['n8n原名参考']} | {row['模镜当前状态']} |"
         for row in direct_rows
     ]
-    markdown = f"""# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0/R2.1/R2.2/R2.3/R2.4/R2.5/R2.6/R2.7）
+    markdown = f"""# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0/R2.1/R2.2/R2.3/R2.4/R2.5/R2.6/R2.7 + R2.8 审计口径）
 
-- 审计日期：2026-08-27
+- 审计日期：2026-08-28
 - 唯一基线：PR #213 合并提交 `911593f505b05b01037769f578e21f22d2a1c9af`
 - R0 基线事实：NodeContract V3、37 个 `NativeNodeKind`、35 个画布目录项、20 个冻结 compatibility 合同
 - R1 结果：新增 4 个完整合同，并将既有 `llm` 提升为完整合同；自研节点总数 41、画布目录项 39、当前 19 个冻结 compatibility 合同；四节点与 `llm` Planner 均关闭
@@ -734,7 +828,8 @@ def main() -> None:
 - R2.5 结果：新增完整合同 `form_event_entry`，发布同源签名表单、严格类型字段与固定接受页；表单密钥只返回一次，公开提交原文不写入部署 Store，Planner 与全部 Xpert 类型均禁用
 - R2.6 结果：新增完整合同 `knowledge_write_proposal`，只向 Knowledge Inbox 创建或复用待审批提议，不批准、构建、激活或推广知识版本；允许确定性的私有工作流与 Xpert 路径，匿名表单、公共 App、Evaluation、Evolution 与 Planner 禁用
 - R2.7 结果：新增完整合同 `rss_event_entry`，以仅公网 HTTPS、逐跳安全校验、首次无回放基线和持久条目去重提供 RSS 2.0/Atom 1.0 订阅入口；认证源、附件、WebSub、Xpert 与等待节点禁用
-- 当前 Registry 事实：{native_count} Native、{palette_count} 个可新增 Palette 项、{complete_count} 个完整合同、{compatibility_count} 个 compatibility 合同、{planner_count} 个 Planner 节点
+- 当前 Registry 事实：{registry_facts.native} Native、{registry_facts.palette_registered} 个已登记 Palette 项、默认 {registry_facts.palette_draggable} 个可拖拽 Palette 项、{registry_facts.complete} 个完整合同、{registry_facts.compatibility} 个 compatibility 合同、{registry_facts.planner} 个 Planner 节点
+- 默认运行功能门禁：{len(registry_facts.runtime_feature_gated)} 个已登记项（{runtime_feature_gated}）允许编辑但执行面关闭；该口径与 Palette 是否登记、是否可拖拽相互独立
 - 参考清单：563 条节点名称/类型，其中 `.ee` {ee_count} 条仅保留名称审计
 
 ## 结论与许可证边界
@@ -752,6 +847,14 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 - 未实现：{statuses['未实现']}
 
 覆盖等级用于表达证据强度：`exact` 只允许完整 NodeContract 且必须绑定运行/测试证据；`limited` 必须写明语义缺口；`composable` 只表示受控通用组合路径，不代表专用连接器；`none` 表示没有运行合同。
+
+## 平台级能力例外（不计入画布节点覆盖状态）
+
+| 平台能力 | 当前已有能力 | 画布节点边界 |
+|---|---|---|
+| Xpert Chat | 已有独立对话产品面与 Xpert 运行链路 | 没有独立工作流 Chat Trigger；563 行中的 Chat Trigger 状态仍按画布合同判定 |
+| Evaluation / Evolution | 已有评测与受控进化控制面 | 没有对应画布触发节点；企业条目继续隔离，不据此改写矩阵覆盖状态 |
+| MCP Toolset | `workflow_agent + toolset_resource` 已支持运行时 MCP 工具集 | `mcp_tool` 仅代表固定服务器与固定单工具调用，不冒充完整动态 Toolset 节点 |
 
 | 能力域 | 总数 | 已实现 | 部分实现 | 通用覆盖 | 目录声明 | 未实现 |
 |---|---:|---:|---:|---:|---:|---:|
@@ -771,7 +874,7 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 - 前端 `WorkflowNodeKind`、后端 `NativeNodeKind`、NodeContract Registry 必须完全一致。
 - Palette 必须是 NodeContract 合法子集；每个启用项必须有默认数据和配置入口。
 - compatibility 合同不得超过 #213 冻结白名单；新节点必须直接提供完整合同。
-- Planner 只接受完整合同、匹配 checksum 且显式启用的节点；R1–R2.7 增量节点均禁止 Planner 自动生成，Planner 可生成类型仍固定为 {planner_count} 类。
+- Planner 只接受完整合同、匹配 checksum 且显式启用的节点；R1–R2.7 增量节点均禁止 Planner 自动生成，Planner 可生成类型仍固定为 {registry_facts.planner} 类。
 """
     (args.output_dir / "N8N_NODE_CAPABILITY_MATRIX.md").write_text(
         markdown,
