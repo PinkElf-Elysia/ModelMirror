@@ -2753,16 +2753,10 @@ export default function WorkflowRun({
 
       {!skillCreatorHandoff && skillCaptureSource && skillCaptureEnabled ? (
         <div className="border-t border-white/10 p-4">
-          <div className="flex flex-col gap-3 rounded-lg border border-emerald-300/20 bg-emerald-300/[0.06] p-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-xs font-semibold text-emerald-100">将这次成功运行沉淀为可复用流程</p>
-              <p className="mt-1 text-[11px] leading-5 text-slate-400">只会读取服务端生成的脱敏素材，完整参数和原始输出不会进入草稿。</p>
-            </div>
-            <SkillCreatorCaptureButton
-              enabled={skillCaptureEnabled}
-              source={skillCaptureSource}
-            />
-          </div>
+          <SkillCreatorCaptureButton
+            enabled={skillCaptureEnabled}
+            source={skillCaptureSource}
+          />
         </div>
       ) : null}
 

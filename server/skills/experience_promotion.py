@@ -28,6 +28,7 @@ from .experience import (
     SkillExperienceService,
     SkillExperienceSource,
     build_distilled_skill_brief,
+    distilled_skill_brief_is_promotion_ready,
 )
 from .lifecycle import SkillLifecycleError, SkillLifecycleStore
 from .skill_manager import SkillManager, SkillManagerError
@@ -218,6 +219,7 @@ class SkillExperiencePromotionService:
             current.state != "promotion_ready"
             or current.brief is None
             or not current.brief.complete
+            or not distilled_skill_brief_is_promotion_ready(current.brief)
             or current.decision is None
             or current.decision.decision not in {"create", "update"}
         ):

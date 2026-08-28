@@ -399,6 +399,36 @@ def validate_final_resource_package(build: SkillResourceBuild) -> list[dict[str,
     references = [item for item in build.resources if item.kind == "reference" and item.action != "delete"]
     if (len(references) >= 2 or any(len((item.content or "").splitlines()) > _LONG_REFERENCE_LINES for item in references)) and not re.search(r"(?i)(\brg\b|sandbox_search_files)", build.skill_markdown):
         issues.append(_issue("skill_creator_reference_search_missing", "Multiple or long references require a bounded rg or sandbox_search_files example in SKILL.md.", "SKILL.md"))
+    level_two_headings = [
+        re.sub(r"\s+", " ", match).strip().casefold()
+        for match in re.findall(r"(?m)^##\s+(.+?)\s*#*\s*$", build.skill_markdown)
+    ]
+    duplicate_headings = sorted(
+        heading for heading in set(level_two_headings)
+        if level_two_headings.count(heading) > 1
+    )
+    if duplicate_headings:
+        issues.append(
+            _issue(
+                "skill_creator_skill_markdown_duplicate_section",
+                "SKILL.md 的每个二级章节只能出现一次，请重新生成重复章节。",
+                "SKILL.md",
+            )
+        )
+    known_section_markers = re.finditer(
+        r"(?i)##\s+(?:purpose|scope|inputs?|preconditions?|workflow|output|failure|"
+        r"degradation|quality|resources?|用途|范围|输入|前置条件|流程|步骤|输出|失败|"
+        r"降级|质量|资源)\b",
+        build.skill_markdown,
+    )
+    if any(match.start() > 0 and build.skill_markdown[match.start() - 1] != "\n" for match in known_section_markers):
+        issues.append(
+            _issue(
+                "skill_creator_skill_markdown_heading_boundary_invalid",
+                "SKILL.md 的二级章节必须从新行开始，请重新生成粘连的章节。",
+                "SKILL.md",
+            )
+        )
     active_hooks = [hook for hook in build.hooks if hook.action != "delete"]
     if active_hooks:
         if not build.hook_manifest or not build.hook_manifest_digest:
@@ -841,7 +871,10 @@ def _builder_prompt(target_id: str, target: dict[str, Any]) -> str:
         "or implement a conservative fail-closed behavior. Continue existing_segments without "
         "repeating them. One JSON result only. Each segment is at most 8 KiB. Set complete=false "
         "when more content is necessary. Honor target feedback. If validation_issues are present, "
-        "correct each issue instead of repeating the rejected result."
+        "correct each issue instead of repeating the rejected result. Use Simplified Chinese "
+        "for human-readable guidance by default, even when source evidence is English. Use "
+        "another primary language only when the frozen Skill definition explicitly requests it. "
+        "Preserve code, commands, identifiers, paths, proper nouns, and fixed enum values."
     )
     if target_id == "SKILL.md":
         specifics = (
@@ -850,7 +883,9 @@ def _builder_prompt(target_id: str, target: dict[str, Any]) -> str:
             "frontmatter; never paraphrase, fold, or otherwise rewrite either value. Then write "
             "sections: Purpose and scope, Inputs and preconditions, Workflow with at least four "
             "numbered executable steps, Output contract, Failure and degradation, Quality checks, "
-            "and Resources. Reference every accepted resource by exact path. For multiple or long "
+            "and Resources. Reference every accepted resource by exact path. Quality checks must "
+            "verify the final deliverable against the output contract and confirmed success criteria; "
+            "resource navigation or path checks alone are not sufficient. For multiple or long "
             "references include a bounded rg or sandbox_search_files command. Explain when scripts "
             "run and when assets are copied or rendered. If confirmed_hooks is non-empty, add a "
             "Hook section explaining each exact event boundary, affected tool names, annotation or "
@@ -866,8 +901,9 @@ def _builder_prompt(target_id: str, target: dict[str, Any]) -> str:
             "The final package validator requires an explicit advisory/outside-event sentence; do "
             "not imply that every user question must execute the Hook script. "
             "Distinguish advisory guidance from enforcement performed by the Runtime Hook. "
-            "Describe only checks actually implemented by the accepted script. Do not add "
-            "README/eval/evals/user-meta."
+            "Describe only checks actually implemented by the accepted script. Return one "
+            "complete document from the opening frontmatter through the final line; never append "
+            "a correction or repeat a section heading. Do not add README/eval/evals/user-meta."
         )
     elif kind == "reference":
         specifics = " Write focused factual guidance, not a copy of SKILL.md. If the final file exceeds 100 lines, include a concise table of contents near the top."

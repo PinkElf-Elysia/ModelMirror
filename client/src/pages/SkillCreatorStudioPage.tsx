@@ -76,6 +76,10 @@ type HydrateOptions = {
   preserveActiveStep?: boolean;
 };
 
+type LoadSessionOptions = HydrateOptions & {
+  background?: boolean;
+};
+
 const EVIDENCE_LABELS: Record<SkillCreatorEvidenceCandidate["kind"], string> = {
   intent_summary: "目标摘要",
   successful_steps: "成功步骤",
@@ -275,6 +279,7 @@ export default function SkillCreatorStudioPage() {
   const [errorIssues, setErrorIssues] = useState<SkillPackageIssue[]>([]);
   const [draftDirty, setDraftDirty] = useState(false);
   const restoringHistory = useRef(false);
+  const backgroundRefreshInFlight = useRef(false);
 
   const syncSessionForm = useCallback((value: SkillCreatorSession) => {
     setIntent(value.intent ?? "");
@@ -323,6 +328,13 @@ export default function SkillCreatorStudioPage() {
     if (!hydratedDraft && value.evidence_confirmed) restoredStep = 1;
     if (resourceFlow && (value.resource_build || value.resource_plan?.state === "confirmed")) restoredStep = 2;
     if (hydratedDraft) restoredStep = resourceFlow ? 3 : 2;
+    if (
+      resourceFlow
+      && value.experience_candidate_id
+      && value.experience_decision === "update"
+      && !value.resource_plan
+      && !value.resource_build
+    ) restoredStep = 1;
     if (value.state === "designing_tests") restoredStep = 3;
     if (hydratedRun || value.state === "reviewing_results") restoredStep = 4;
     if (
@@ -341,16 +353,16 @@ export default function SkillCreatorStudioPage() {
     }
   }, [syncSessionForm]);
 
-  const loadSession = useCallback(async (options: HydrateOptions = {}) => {
+  const loadSession = useCallback(async (options: LoadSessionOptions = {}) => {
     if (!sessionId || !status?.enabled) return;
-    setLoading(true);
+    if (!options.background) setLoading(true);
     setError("");
     try {
       await hydrate(await readSkillCreatorSession(sessionId), options);
     } catch (caught) {
       setError(caught instanceof SkillCreatorApiError ? caught.message : "Creator 会话加载失败。");
     } finally {
-      setLoading(false);
+      if (!options.background) setLoading(false);
     }
   }, [hydrate, sessionId, status?.enabled]);
 
@@ -360,7 +372,11 @@ export default function SkillCreatorStudioPage() {
       return;
     }
     const refreshVisibleSession = () => {
-      if (document.visibilityState === "visible") void loadSession();
+      if (document.visibilityState !== "visible" || backgroundRefreshInFlight.current) return;
+      backgroundRefreshInFlight.current = true;
+      void loadSession({ background: true, preserveActiveStep: true }).finally(() => {
+        backgroundRefreshInFlight.current = false;
+      });
     };
     void loadSession();
     window.addEventListener("focus", refreshVisibleSession);
@@ -687,6 +703,7 @@ export default function SkillCreatorStudioPage() {
   }, [draftDirty]);
 
   const resourceFlow = Boolean(status?.resource_authoring_enabled && session?.authoring_flow === "resource");
+  const creatorPackageNeedsRepair = draft?.validation?.creator_quality?.ready === false;
   const steps = resourceFlow ? RESOURCE_STEPS : LEGACY_STEPS;
   const currentStep = steps[activeStep];
   const qualityStatus = session?.quality_status ?? draft?.quality_status ?? "not_evaluated";
@@ -713,7 +730,7 @@ export default function SkillCreatorStudioPage() {
   }
 
   const refreshSessionInPlace = useCallback(
-    () => loadSession({ preserveActiveStep: true }),
+    () => loadSession({ background: true, preserveActiveStep: true }),
     [loadSession],
   );
 
@@ -804,6 +821,34 @@ export default function SkillCreatorStudioPage() {
                 <h2 className="mt-2 text-xl font-semibold text-white sm:text-2xl" id="creator-intent-heading">你希望这个 Skill 帮你做什么？</h2>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">像向同事交代任务一样描述即可。AI 会补全使用场景、边界和验收方式；信息不足时再向你提问。</p>
               </div>
+              {session.experience_candidate_id ? (
+                <section className="mt-5 rounded-lg border border-emerald-300/20 bg-emerald-300/[0.055] p-4" aria-label="运行经验来源">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="flex items-center gap-2 text-sm font-semibold text-emerald-100">
+                        <Check aria-hidden="true" size={15} />
+                        已从可信运行预填
+                      </p>
+                      <p className="mt-1 text-xs leading-5 text-slate-300">
+                        {session.experience_decision === "update" ? "本次结论：更新已有 Creator Skill。" : "本次结论：创建新的 Skill。"}
+                        需求、正反例和验收条件来自你已确认的脱敏素材。
+                      </p>
+                    </div>
+                    <span className="w-fit rounded-full bg-white/[0.06] px-3 py-1 text-[11px] font-semibold text-slate-300">
+                      {session.source_kind === "xpert_chat" ? "Xpert Chat" : "Workflow"}
+                    </span>
+                  </div>
+                  <details className="mt-3 border-t border-white/10 pt-3 text-xs text-slate-400">
+                    <summary className="cursor-pointer font-semibold text-slate-300">查看来源与已确认边界</summary>
+                    <div className="mt-3 space-y-2 break-words leading-5">
+                      <p><span className="text-slate-500">来源运行：</span>{session.source_task_id || "未知任务"} · {session.source_run_id || "未知 run"}</p>
+                      <p><span className="text-slate-500">应使用：</span>{session.positive_examples.slice(0, 3).join("；") || "等待补充"}</p>
+                      <p><span className="text-slate-500">不应使用：</span>{session.near_miss_examples.slice(0, 3).join("；") || "等待补充"}</p>
+                      <p><span className="text-slate-500">预期结果：</span>{session.expected_output || "等待补充"}</p>
+                    </div>
+                  </details>
+                </section>
+              ) : null}
               <div className="mt-5 inline-flex rounded-lg border border-white/10 bg-ink-950/55 p-1" aria-label="需求填写方式" role="group">
                 <button aria-pressed={definitionMode === "simple"} className={`min-h-11 rounded-md px-4 text-sm font-semibold ${definitionMode === "simple" ? "bg-brand-200 text-ink-950" : "text-slate-300"}`} onClick={() => setDefinitionMode("simple")} type="button">一句话开始</button>
                 <button aria-pressed={definitionMode === "advanced"} className={`min-h-11 rounded-md px-4 text-sm font-semibold ${definitionMode === "advanced" ? "bg-brand-200 text-ink-950" : "text-slate-300"}`} onClick={() => setDefinitionMode("advanced")} type="button">我想详细设置</button>
@@ -969,7 +1014,24 @@ export default function SkillCreatorStudioPage() {
 
           {activeStep === 2 && resourceFlow ? (
             <div className="mt-5 space-y-5">
-              {proposal?.status !== "pending" ? (
+              {proposal?.status !== "pending" && creatorPackageNeedsRepair && draft ? (
+                <section className="space-y-4 rounded-lg border border-rose-300/25 bg-rose-300/[0.055] p-5 sm:p-6" aria-labelledby="creator-package-repair-heading">
+                  <div>
+                    <h2 className="text-lg font-semibold text-white" id="creator-package-repair-heading">修复最终说明</h2>
+                    <p className="mt-2 text-sm leading-6 text-rose-50/80">只需修改 SKILL.md 中提示的章节；已确认的 references、scripts 和 assets 会保持不变。保存后服务端会重新执行同一套评测与安装前检查。</p>
+                  </div>
+                  <SkillPackageEditor
+                    conflictMessage={conflictMessage}
+                    draft={draft}
+                    errorIssues={errorIssues.length ? errorIssues : draft.validation?.creator_quality?.issues ?? []}
+                    onCopyAsNew={copyAsNew}
+                    onDirtyChange={setDraftDirty}
+                    onReload={loadSession}
+                    onSave={saveDraft}
+                    saving={busy === "save-draft"}
+                  />
+                </section>
+              ) : proposal?.status !== "pending" ? (
                 <SkillResourceBuildPanel
                   onProposal={async (nextProposal) => {
                     setProposal(nextProposal);
@@ -1039,6 +1101,11 @@ export default function SkillCreatorStudioPage() {
               draft={draft}
               onError={evaluationError}
               onNotice={evaluationNotice}
+              onRepairPackage={() => {
+                setError("");
+                setErrorIssues([]);
+                setActiveStep(2);
+              }}
               onRunStarted={(run) => {
                 setEvaluationRun(run);
                 setActiveStep(4);

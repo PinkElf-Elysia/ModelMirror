@@ -202,6 +202,44 @@ def test_final_package_gate_accepts_chinese_temporal_trigger_description() -> No
     }
 
 
+def test_final_package_gate_accepts_explicit_english_usage_scope() -> None:
+    skill = _rich_payload(with_resource=True)["skill"]
+    description = (
+        "Evaluates release readiness by verifying backward compatibility tests and load "
+        "coverage while reviewing rollback procedures, specifically for pre-deployment "
+        "validation. Not for live production issues or performance tuning."
+    )
+    markdown = skill["skill_markdown"].replace(skill["description"], description)
+
+    report = evaluate_creator_final_package(
+        root_name=skill["name"], skill_markdown=markdown, files=skill["files"]
+    )
+
+    assert "creator_description_trigger_missing" not in {
+        issue.code for issue in report.issues
+    }
+
+
+def test_final_package_gate_accepts_compact_substantive_chinese_quality_checks() -> None:
+    skill = _rich_payload(with_resource=True)["skill"]
+    start = skill["skill_markdown"].index("## Quality checks")
+    end = skill["skill_markdown"].index("## Failure handling")
+    markdown = (
+        skill["skill_markdown"][:start]
+        + "## 质量检查\n\n- 核对事实来源与时间顺序。\n- 验证每项行动都有负责人和完成条件。\n\n"
+        + skill["skill_markdown"][end:]
+    )
+
+    report = evaluate_creator_final_package(
+        root_name=skill["name"], skill_markdown=markdown, files=skill["files"]
+    )
+
+    assert report.ready is True
+    assert "creator_quality_checks_missing" not in {
+        issue.code for issue in report.issues
+    }
+
+
 def test_final_package_gate_rejects_too_short_chinese_trigger_description() -> None:
     skill = _rich_payload(with_resource=True)["skill"]
     description = "在写入前检查文件。"

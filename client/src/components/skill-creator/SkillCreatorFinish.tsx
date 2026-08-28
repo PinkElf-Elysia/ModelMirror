@@ -128,7 +128,7 @@ export default function SkillCreatorFinish({
   }
 
   async function install() {
-    if (!canInstall || !window.confirm("确认把当前 Skill 全局安装到工作区？安装后仍只会按现有权限由 Agent 使用。")) return;
+    if (!canInstall) return;
     setBusy("install");
     try {
       await installSkillCreatorDraft(draft);

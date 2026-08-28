@@ -2471,16 +2471,19 @@ def aggregate_skill_evaluation_report(run: SkillEvaluationRun) -> dict[str, Any]
         actual_models = {
             item.actual_model for item in required_items if item and item.actual_model
         }
+        model_identities_complete = all(
+            item is not None and item.actual_model for item in required_items
+        )
         actual_model_match = bool(
-            all(item is not None and item.actual_model for item in required_items)
-            and len(actual_models) == 1
+            model_identities_complete and len(actual_models) == 1
         )
-        if not actual_model_match:
+        if model_identities_complete and not actual_model_match:
             model_mismatch_count += 1
-        comparable = bool(
-            all(item is not None and item.status == "completed" for item in required_items)
-            and actual_model_match
+        items_completed = all(
+            item is not None and item.status == "completed"
+            for item in required_items
         )
+        comparable = bool(items_completed and actual_model_match)
         baseline_score_delta = None
         previous_score_delta = None
         if comparable and baseline.score is not None and candidate.score is not None:
@@ -2521,12 +2524,11 @@ def aggregate_skill_evaluation_report(run: SkillEvaluationRun) -> dict[str, Any]
                     or not candidate.application_receipt_id
                 )
             )
-            if (
-                not actual_model_match
-                or candidate.status != "completed"
-                or candidate_receipt_missing
-                or new_failed_assertions
-            ):
+            if not items_completed or not model_identities_complete:
+                classification = "inconclusive"
+            elif not actual_model_match:
+                classification = "regressed"
+            elif candidate_receipt_missing or new_failed_assertions:
                 classification = "regressed"
             elif reference.status != "completed" or fixed_assertions:
                 classification = "improved"
@@ -2778,15 +2780,61 @@ class SkillEvaluationExecutor:
                     **evaluated,
                 }
             except Exception as exc:
+                try:
+                    failed_usage = self.store._normalize_usage(
+                        getattr(exc, "usage", {}) or {}
+                    )
+                except SkillEvaluationValidationError:
+                    failed_usage = {}
+                try:
+                    failed_runtime_run_id = self.store._optional_identifier(
+                        getattr(exc, "runtime_run_id", None)
+                    )
+                except SkillEvaluationValidationError:
+                    failed_runtime_run_id = None
+                failed_skill_read = getattr(exc, "skill_read", None)
+                if not isinstance(failed_skill_read, bool):
+                    failed_skill_read = None
+                try:
+                    failed_receipt_id = self.store._optional_identifier(
+                        getattr(exc, "application_receipt_id", None)
+                    )
+                    failed_receipt_revision = (
+                        None
+                        if getattr(exc, "application_receipt_revision", None) is None
+                        else self.store._positive_int(
+                            getattr(exc, "application_receipt_revision"),
+                            "application_receipt_revision",
+                        )
+                    )
+                    failed_application_compliance = self.store._optional_text(
+                        getattr(exc, "application_compliance", None), maximum=40
+                    )
+                except SkillEvaluationValidationError:
+                    failed_receipt_id = None
+                    failed_receipt_revision = None
+                    failed_application_compliance = None
+                if (
+                    not failed_receipt_id
+                    or failed_receipt_revision is None
+                    or failed_application_compliance != "verified"
+                ):
+                    failed_receipt_id = None
+                    failed_receipt_revision = None
+                    failed_application_compliance = None
                 payload = {
                     "status": "failed",
                     "output": "",
                     "actual_model": None,
-                    "skill_read": None,
+                    "skill_read": failed_skill_read,
                     "work_manifest": [],
                     "assertion_results": [],
                     "score": None,
-                    "usage": {},
+                    "usage": failed_usage,
+                    "runtime_run_id": failed_runtime_run_id,
+                    "application_receipt_id": failed_receipt_id,
+                    "application_receipt_revision": failed_receipt_revision,
+                    "application_compliance": failed_application_compliance,
                     "latency_ms": round((time.perf_counter() - started) * 1000, 3),
                     "error_code": str(getattr(exc, "code", "runner_failed"))[:120],
                     "error": str(exc)[:500],

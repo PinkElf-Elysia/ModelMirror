@@ -49,6 +49,7 @@ def _plan(
     *,
     resources: list[dict] | None = None,
     hooks: list[dict] | None = None,
+    description: str = DESCRIPTION,
 ):
     raw = store.save_generated(
         session_id="skillcreator_resource_build",
@@ -59,7 +60,7 @@ def _plan(
         allowed_source_ids={"intent", "positive_example:0", "near_miss:0", "expected_output", "success_criterion:0"},
         payload={
             "skill_name": "incident-review",
-            "skill_description": DESCRIPTION,
+            "skill_description": description,
             "workflow_steps": [
                 {"id": "collect", "instruction": "Collect explicit incident facts and missing fields."},
                 {"id": "normalize", "instruction": "Normalize the timeline deterministically."},
@@ -181,6 +182,256 @@ def test_segment_parser_and_invocation_freeze_target(tmp_path: Path) -> None:
     assert "at most ten" in role_prompt
     assert "stdout_contains" in role_prompt
     assert "copy skill.name and skill.description" in role_prompt
+    assert "Use Simplified Chinese" in role_prompt
+    assert "never append a correction or repeat a section heading" in role_prompt
+
+
+def test_final_package_rejects_duplicate_top_level_sections(tmp_path: Path) -> None:
+    plan = _plan(SkillResourcePlanStore(tmp_path), resources=[])
+    build = SkillResourceBuildStore(tmp_path / "build-duplicate-section").create(plan=plan)
+    markdown = (
+        "---\n"
+        f"name: {plan.skill_name}\n"
+        f"description: {plan.skill_description}\n"
+        "---\n\n"
+        "## Purpose and scope\n\nUse the confirmed workflow.\n\n"
+        "## Resources\n\nNo additional resources.\n\n"
+        "## Resources\n\nNo additional resources.\n"
+    )
+
+    issues = validate_final_resource_package(replace(build, skill_markdown=markdown))
+
+    assert "skill_creator_skill_markdown_duplicate_section" in {
+        issue["code"] for issue in issues
+    }
+
+
+def test_final_package_rejects_a_section_heading_glued_to_prior_text(tmp_path: Path) -> None:
+    plan = _plan(SkillResourcePlanStore(tmp_path), resources=[])
+    build = SkillResourceBuildStore(tmp_path / "build-glued-section").create(plan=plan)
+    markdown = (
+        "---\n"
+        f"name: {plan.skill_name}\n"
+        f"description: {plan.skill_description}\n"
+        "---\n\n"
+        "## Purpose and scope\n\nUse the confirmed workflow."
+        "## Resources\n\nNo additional resources.\n"
+    )
+
+    issues = validate_final_resource_package(replace(build, skill_markdown=markdown))
+
+    assert "skill_creator_skill_markdown_heading_boundary_invalid" in {
+        issue["code"] for issue in issues
+    }
+
+
+def test_finalize_revalidates_a_restored_package_before_proposal(tmp_path: Path) -> None:
+    runtime = tmp_path / "runtime-finalize-revalidation"
+    plan_store = SkillResourcePlanStore(runtime)
+    plan = _plan(plan_store, resources=[])
+    build_store = SkillResourceBuildStore(runtime)
+    build = build_store.create(plan=plan)
+    build = build_store.claim_next(
+        build.build_id,
+        expected_revision=build.revision,
+        expected_digest=build.digest,
+    )
+    markdown = (
+        "---\n"
+        f"name: {plan.skill_name}\n"
+        f"description: {plan.skill_description}\n"
+        "---\n\n"
+        "## Purpose and scope\n\nUse the confirmed workflow.\n\n"
+        "## Resources\n\nNo additional resources."
+        "## Resources\n\nNo additional resources.\n"
+    )
+    build = build_store.append_segment(
+        build.build_id,
+        expected_revision=build.revision,
+        expected_digest=build.digest,
+        target_id="SKILL.md",
+        segment_index=0,
+        content=markdown,
+        complete=True,
+    )
+    build = build_store.record_validation(
+        build.build_id,
+        expected_revision=build.revision,
+        expected_digest=build.digest,
+        target_id="SKILL.md",
+        issues=[],
+    )
+    session = SkillCreatorSession(
+        session_id=plan.session_id,
+        session_revision=1,
+        intent="Create an evidence-bound incident review.",
+        positive_examples=["Review this incident."],
+        near_miss_examples=["Rewrite this paragraph."],
+        expected_output="Return a report.",
+        success_criteria=["Do not invent facts."],
+        evidence_confirmed=True,
+        state="editing_draft",
+    )
+    creator = SimpleNamespace(
+        authoring_service=None,
+        get_session=lambda _id: (session, None),
+        require_enabled=lambda: None,
+    )
+    planning = SimpleNamespace(plan_store=plan_store, require_enabled=lambda: None)
+    service = SkillCreatorResourceBuildService(
+        creator,
+        planning,
+        build_store,
+        builder=None,
+        script_runner=None,
+        enabled=True,
+    )
+
+    projection = service.current_projection(session.session_id)
+    assert projection is not None
+    assert "skill_creator_skill_markdown_heading_boundary_invalid" in {
+        issue["code"] for issue in projection["skill_validation_issues"]
+    }
+
+    with pytest.raises(SkillCreatorValidationError) as error:
+        service.finalize(
+            build.build_id,
+            expected_session_revision=1,
+            expected_revision=build.revision,
+            expected_digest=build.digest,
+            decision="accept",
+        )
+
+    assert error.value.code == "skill_creator_resource_proposal_invalid"
+    assert "skill_creator_skill_markdown_heading_boundary_invalid" in str(error.value)
+    assert "skill_creator_skill_markdown_heading_boundary_invalid" in {
+        issue["code"] for issue in error.value.issues
+    }
+
+
+@pytest.mark.parametrize(
+    ("description", "quality_checks", "expected_issue"),
+    [
+        (
+            "Create detailed incident reviews with timelines and corrective actions.",
+            "Verify chronology, factual preservation, and complete section coverage.",
+            "creator_description_trigger_missing",
+        ),
+        (DESCRIPTION, "Check.", "creator_quality_checks_missing"),
+    ],
+)
+def test_projection_and_finalize_surface_creator_draft_gate_issues(
+    tmp_path: Path,
+    description: str,
+    quality_checks: str,
+    expected_issue: str,
+) -> None:
+    runtime = tmp_path / "runtime-finalize-quality-projection"
+    plan_store = SkillResourcePlanStore(runtime)
+    plan = _plan(plan_store, resources=[], description=description)
+    build_store = SkillResourceBuildStore(runtime)
+    build = build_store.create(plan=plan)
+    build = build_store.claim_next(
+        build.build_id,
+        expected_revision=build.revision,
+        expected_digest=build.digest,
+    )
+    build = build_store.append_segment(
+        build.build_id,
+        expected_revision=build.revision,
+        expected_digest=build.digest,
+        target_id="SKILL.md",
+        segment_index=0,
+        content=f"""---
+name: incident-review
+description: {description}
+---
+
+## 目的与范围
+
+Create evidence-bound incident reviews and refuse to invent missing facts.
+
+## 输入与前提条件
+
+Require an incident description with observable events and label missing facts.
+
+## 工作流程
+
+1. Collect supplied facts.
+2. Normalize the timeline.
+3. Separate known and unknown claims.
+4. Produce and verify the report.
+
+## 输出合同
+
+Return a structured incident report with a timeline and corrective actions.
+
+## 失败与降级
+
+Stop when essential evidence is missing and report what must be confirmed.
+
+## 质量检查
+
+{quality_checks}
+
+## 资源
+
+No additional resources are required.
+""",
+        complete=True,
+    )
+    build = build_store.record_validation(
+        build.build_id,
+        expected_revision=build.revision,
+        expected_digest=build.digest,
+        target_id="SKILL.md",
+        issues=[],
+    )
+    session = SkillCreatorSession(
+        session_id=plan.session_id,
+        session_revision=1,
+        intent="Create an evidence-bound incident review.",
+        positive_examples=["Review this incident."],
+        near_miss_examples=["Rewrite this paragraph."],
+        expected_output="Return a report.",
+        success_criteria=["Do not invent facts."],
+        evidence_confirmed=True,
+        state="editing_draft",
+    )
+    creator = SimpleNamespace(
+        authoring_service=None,
+        get_session=lambda _id: (session, None),
+        require_enabled=lambda: None,
+    )
+    planning = SimpleNamespace(plan_store=plan_store, require_enabled=lambda: None)
+    service = SkillCreatorResourceBuildService(
+        creator,
+        planning,
+        build_store,
+        builder=None,
+        script_runner=None,
+        enabled=True,
+    )
+
+    projection = service.current_projection(session.session_id)
+    assert projection is not None
+    assert {
+        issue["code"] for issue in projection["skill_validation_issues"]
+    } == {expected_issue}
+
+    with pytest.raises(SkillCreatorValidationError) as error:
+        service.finalize(
+            build.build_id,
+            expected_session_revision=1,
+            expected_revision=build.revision,
+            expected_digest=build.digest,
+            decision="accept",
+        )
+
+    assert error.value.code == "skill_creator_resource_proposal_invalid"
+    assert expected_issue in {
+        issue["code"] for issue in error.value.issues
+    }
 
 
 def test_segment_parser_accepts_one_versioned_object_with_narration() -> None:

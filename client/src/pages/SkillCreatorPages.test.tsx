@@ -13,6 +13,7 @@ import type {
 } from "../utils/skillCreatorApi";
 import SkillCreatorIndexPage from "./SkillCreatorIndexPage";
 import SkillCreatorStudioPage from "./SkillCreatorStudioPage";
+import { clearSkillExperienceApiCache } from "../utils/skillExperienceApi";
 
 function jsonResponse(payload: unknown, status = 200) {
   return Promise.resolve(new Response(JSON.stringify(payload), {
@@ -100,6 +101,7 @@ function creatorProposal(
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  clearSkillExperienceApiCache();
 });
 
 describe("Skill Creator pages", () => {
@@ -124,6 +126,107 @@ describe("Skill Creator pages", () => {
 
     await screen.findByRole("heading", { name: "把你的做法变成可复用的 Skill" });
     expect(scrollTo).toHaveBeenCalledWith({ top: 0, left: 0, behavior: "auto" });
+  });
+
+  it("shows the trusted run conclusion and confirmed brief in Creator step one", async () => {
+    const experienceSession: SkillCreatorSession = {
+      ...baseSession,
+      mode: "run",
+      source_kind: "workflow_classic",
+      source_task_id: "task-experience",
+      source_run_id: "run-experience",
+      experience_candidate_id: "experience-1",
+      experience_decision: "create",
+      positive_examples: ["检查发布包中的命名"],
+      near_miss_examples: ["只列出普通文件"],
+      expected_output: "发布检查清单",
+    };
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/skills/creator/status") return jsonResponse(status);
+      if (url === "/api/skills/creator/sessions/creator_1") return jsonResponse({ session: experienceSession });
+      return jsonResponse({ detail: `not found: ${url}` }, 404);
+    }));
+
+    render(
+      <MemoryRouter initialEntries={["/skills/create/creator_1"]}>
+        <Routes><Route element={<SkillCreatorStudioPage />} path="/skills/create/:sessionId" /></Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("已从可信运行预填")).toBeVisible();
+    expect(screen.getByText(/本次结论：创建新的 Skill/)).toBeVisible();
+    await userEvent.click(screen.getByText("查看来源与已确认边界"));
+    expect(screen.getByText(/task-experience/)).toBeVisible();
+    expect(screen.getByText(/发布检查清单/)).toBeVisible();
+  });
+
+  it("opens a promoted update session on resource planning when step two is requested", async () => {
+    const updateSession: SkillCreatorSession = {
+      ...baseSession,
+      authoring_flow: "resource",
+      evidence_confirmed: true,
+      draft_id: draft.draft_id,
+      draft,
+      state: "editing_draft",
+      experience_candidate_id: "experience-update",
+      experience_decision: "update",
+      update_target_skill_id: "workspace-release-review",
+    };
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/skills/creator/status") {
+        return jsonResponse({ ...status, resource_authoring_enabled: true });
+      }
+      if (url === "/api/skills/creator/sessions/creator_1") {
+        return jsonResponse({ session: updateSession, draft });
+      }
+      return jsonResponse({ detail: `not found: ${url}` }, 404);
+    }));
+
+    render(
+      <MemoryRouter initialEntries={["/skills/create/creator_1?step=2"]}>
+        <Routes><Route element={<SkillCreatorStudioPage />} path="/skills/create/:sessionId" /></Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole("heading", { name: "AI 给出的制作方案" })).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "用三个真实任务试一试" })).not.toBeInTheDocument();
+  });
+
+  it("lists unfinished run experiences on the Creator index without creating a session", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/skills/creator/status") return jsonResponse(status);
+      if (url.startsWith("/api/skills/creator/sessions?")) return jsonResponse({ items: [], total: 0 });
+      if (url === "/api/skills/experience/status") {
+        return jsonResponse({ enabled: true, available: true, model_calls_enabled: false });
+      }
+      if (url.startsWith("/api/skills/experience/candidates?")) {
+        return jsonResponse({ candidates: [{
+          candidate_id: "experience-pending",
+          version: "skill-experience-candidate-v1",
+          revision: 1,
+          digest: "a".repeat(64),
+          state: "captured",
+          source_kind: "workflow_classic",
+          source_task_id: "task-pending",
+          source_run_id: "run-pending",
+          selected_evidence: [],
+          overlaps: [],
+          updated_at: 1_700_000_000,
+        }] });
+      }
+      return jsonResponse({ detail: `not found: ${url}` }, 404);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<MemoryRouter><SkillCreatorIndexPage /></MemoryRouter>);
+
+    expect(await screen.findByRole("heading", { name: "待处理运行经验" })).toBeVisible();
+    expect(screen.getByText("Workflow 运行经验")).toBeVisible();
+    expect(screen.getByRole("button", { name: "继续处理" })).toBeVisible();
+    expect(fetchMock.mock.calls.some(([input, init]) => String(input).endsWith("/api/skills/creator/sessions") && (init as RequestInit | undefined)?.method === "POST")).toBe(false);
   });
 
   it("opens trusted workflow evidence after saving the handoff requirement", async () => {
@@ -845,7 +948,7 @@ describe("Skill Creator pages", () => {
     fireEvent.change(screen.getByLabelText("编辑 SKILL.md"), {
       target: { value: `${draft.skill_markdown}\n\n尚未保存。` },
     });
-    await screen.findByText("有未保存修改");
+    await screen.findByText("有未保存修改", {}, { timeout: 2_500 });
     expect(screen.getByRole("button", { name: "生成可评测更新初稿" })).toBeDisabled();
 
     const historyGo = vi.spyOn(window.history, "go").mockImplementation(() => undefined);
@@ -957,16 +1060,15 @@ describe("Skill Creator pages", () => {
       },
     };
     let sessionReads = 0;
+    let resolveRefresh!: (response: Response) => void;
+    const pendingRefresh = new Promise<Response>((resolve) => { resolveRefresh = resolve; });
     vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/skills/creator/status") return jsonResponse(status);
       if (url === "/api/skills/creator/sessions/creator_1" && !init?.method) {
         sessionReads += 1;
-        return jsonResponse({
-          session: sessionReads === 1 ? staleSession : revisedSession,
-          draft,
-          regression_governance: sessionReads === 1 ? null : revisedSession.regression_governance,
-        });
+        if (sessionReads === 1) return jsonResponse({ session: staleSession, draft, regression_governance: null });
+        return pendingRefresh;
       }
       return jsonResponse({ detail: `not found: ${url}` }, 404);
     }));
@@ -979,9 +1081,21 @@ describe("Skill Creator pages", () => {
 
     expect(await screen.findByText(/选择“需要修改”后|选择“还要修改”后/)).toBeVisible();
     window.dispatchEvent(new Event("focus"));
+    window.dispatchEvent(new Event("focus"));
+    window.dispatchEvent(new Event("focus"));
+
+    await waitFor(() => expect(sessionReads).toBe(2));
+    expect(screen.getByText(/选择“需要修改”后|选择“还要修改”后/)).toBeVisible();
+    expect(screen.queryByLabelText("正在加载 Creator 工作台")).not.toBeInTheDocument();
+
+    resolveRefresh(await jsonResponse({
+      session: revisedSession,
+      draft,
+      regression_governance: revisedSession.regression_governance,
+    }));
 
     expect(await screen.findByRole("button", { name: "生成改进方案" })).toBeVisible();
-    expect(sessionReads).toBeGreaterThanOrEqual(2);
+    expect(sessionReads).toBe(2);
   });
 
   it("offers a new evolution plan when the persisted plan is stale", async () => {
@@ -1153,6 +1267,9 @@ describe("Skill Creator pages", () => {
       resource_plan: plan,
       resource_build: staleBuild,
     };
+    let sessionReads = 0;
+    let resolveRefresh!: (response: Response) => void;
+    const pendingRefresh = new Promise<Response>((resolve) => { resolveRefresh = resolve; });
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/skills/creator/status") return jsonResponse({
@@ -1161,6 +1278,11 @@ describe("Skill Creator pages", () => {
         resource_builder_available: true,
       });
       if (url === "/api/skills/creator/sessions/creator_1" && !init?.method) {
+        sessionReads += 1;
+        if (sessionReads === 1) {
+          return jsonResponse({ session: resourceSession, draft, resource_plan: plan, resource_build: resourceSession.resource_build });
+        }
+        if (sessionReads === 2) return pendingRefresh;
         return jsonResponse({ session: resourceSession, draft, resource_plan: plan, resource_build: resourceSession.resource_build });
       }
       if (url.endsWith("/resource-build") && init?.method === "POST") return jsonResponse({ resource_build: startedBuild });
@@ -1182,12 +1304,21 @@ describe("Skill Creator pages", () => {
     expect(await screen.findByRole("heading", { name: "逐项生成内容" })).toBeVisible();
     expect(screen.getByText("当前步骤 3/6")).toBeVisible();
     expect(screen.queryByRole("heading", { name: "按你的反馈继续改进" })).not.toBeInTheDocument();
+    await waitFor(() => expect(sessionReads).toBe(2));
+    expect(screen.queryByLabelText("正在加载 Creator 工作台")).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/skills/creator/resource-builds/build-new/next",
       expect.objectContaining({ method: "POST" }),
     );
 
     resourceSession.resource_build = generatedBuild;
+    resolveRefresh(await jsonResponse({
+      session: resourceSession,
+      draft,
+      resource_plan: plan,
+      resource_build: generatedBuild,
+    }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "逐项生成内容" })).toBeVisible());
     view.unmount();
     render(
       <MemoryRouter initialEntries={["/skills/create/creator_1"]}>

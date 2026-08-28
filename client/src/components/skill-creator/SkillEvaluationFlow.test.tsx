@@ -140,6 +140,45 @@ afterEach(() => {
 });
 
 describe("Skill Creator evaluation flow", () => {
+  it("blocks evaluation and sends an incomplete final package back to repair", async () => {
+    const repair = vi.fn();
+    const invalidDraft: SkillCreatorDraft = {
+      ...draft,
+      validation: {
+        valid: true,
+        validator_version: "skill-package-v2.2",
+        issues: [],
+        creator_quality: {
+          ready: false,
+          issues: [{
+            code: "creator_quality_checks_missing",
+            message: "SKILL.md must contain substantive validation or quality checks.",
+            severity: "error",
+            path: "SKILL.md",
+          }],
+        },
+      },
+    };
+
+    render(
+      <SkillEvaluationDesigner
+        draft={invalidDraft}
+        onError={vi.fn()}
+        onNotice={vi.fn()}
+        onRepairPackage={repair}
+        onRunStarted={vi.fn()}
+        onSessionChange={vi.fn()}
+        session={{ ...session, draft: invalidDraft }}
+      />,
+    );
+
+    expect(screen.getByText("先修好最终说明，再开始试用")).toBeVisible();
+    expect(screen.getByText(/最终说明需要补充可执行的质量检查/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "开始试用对比" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "返回生成内容修复" }));
+    expect(repair).toHaveBeenCalledOnce();
+  });
+
   it("can replace an unconfirmed generated suite instead of stranding it", async () => {
     const draftSuite = { ...evaluationSuite, state: "draft" as const };
     const suiteSession = { ...session, cases_revision: 0, evaluation_suite: draftSuite };
@@ -173,6 +212,105 @@ describe("Skill Creator evaluation flow", () => {
       expected_suite_digest: evaluationSuite.suite_digest,
     });
     expect(onSessionChange).toHaveBeenCalledWith(regenerated);
+  });
+
+  it("prefills and confirms the trusted run experience with one explicit action", async () => {
+    const experienceSession: SkillCreatorSession = {
+      ...session,
+      cases_revision: 0,
+      evaluation_suite: evaluationSuite,
+      selected_evidence: [{
+        candidate_id: "evidence-intent",
+        kind: "intent_summary",
+        title: "目标摘要",
+        summary: "版本 rc3 已完成 1240 笔回归，但尚无生产回滚演练记录。",
+        content_hash: "c".repeat(64),
+      }],
+      run_experience_case: {
+        case_id: "run-experience-1",
+        role: "regression",
+        source: "run_experience",
+        name: "本次成功运行的回归验证",
+        prompt: "评审 rc3 发布计划",
+        expected_behavior: "输出带风险等级的发布评审",
+        fixtures: [],
+        assertions: [],
+        requirement_ids: [],
+        required_resource_paths: [],
+        workflow_step_ids: [],
+      },
+    };
+    const updatedSuite: SkillEvaluationSuite = {
+      ...evaluationSuite,
+      suite_revision: 3,
+      suite_digest: "d".repeat(64),
+      state: "draft",
+      cases: [...evaluationSuite.cases, {
+        ...experienceSession.run_experience_case!,
+        source: "user",
+        prompt: `${experienceSession.run_experience_case!.prompt}\n\n已确认的脱敏运行材料：\n${experienceSession.selected_evidence[0].summary}`,
+      }],
+    };
+    const updatedDraft = { ...draft, revision: 3 };
+    const updatedSession = {
+      ...experienceSession,
+      session_revision: 4,
+      draft_state_revision: 3,
+      draft: updatedDraft,
+      evaluation_suite: updatedSuite,
+    };
+    const confirmedSession = {
+      ...updatedSession,
+      session_revision: 5,
+      evaluation_suite: { ...updatedSuite, state: "confirmed" as const },
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => (
+      String(input).endsWith("/confirm")
+        ? jsonResponse({ session: confirmedSession })
+        : jsonResponse({ session: updatedSession })
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+    const onSessionChange = vi.fn();
+    const onNotice = vi.fn();
+
+    render(
+      <SkillEvaluationDesigner
+        draft={draft}
+        onError={vi.fn()}
+        onNotice={onNotice}
+        onRunStarted={vi.fn()}
+        onSessionChange={onSessionChange}
+        session={experienceSession}
+        suiteEnabled
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "本次成功运行的回归验证" })).toBeVisible();
+    expect(screen.getByDisplayValue(/1240 笔回归/)).toBeVisible();
+    expect(screen.getByText("请确认本次真实运行案例")).toBeVisible();
+    expect(screen.getByText(/系统会保存并冻结测试套件，但不会自动启动评测/)).toBeVisible();
+    expect(screen.queryByText("当前测试已确认，可以开始运行。")).not.toBeInTheDocument();
+    expect(screen.queryByText("已冻结")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "开始试用对比" })).toBeDisabled();
+    expect(screen.queryByText("套件修改原因")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "保存测试任务" })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "确认本次运行案例" }));
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/evaluation-suite");
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toMatchObject({
+      change_reason: "用户确认纳入本次脱敏运行经验回归案例",
+    });
+    expect(String(fetchMock.mock.calls[1][0])).toContain("/evaluation-suite/confirm");
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toMatchObject({
+      expected_draft_state_revision: 3,
+      expected_draft_revision: 2,
+      expected_draft_digest: draft.content_digest,
+    });
+    expect(onSessionChange).toHaveBeenNthCalledWith(1, updatedSession);
+    expect(onSessionChange).toHaveBeenNthCalledWith(2, confirmedSession);
+    expect(onNotice).toHaveBeenCalledWith("本次真实运行案例已加入并确认。现在可以开始试用对比。");
   });
 
   it("keeps objective evaluation at exactly three cases and starts a paired run", async () => {
@@ -459,6 +597,7 @@ describe("Skill Creator evaluation flow", () => {
       items: [...base.items, ...previousItems],
       report: {
         eligible_for_accept: true,
+        comparison_reference: "previous",
         regression_item_ids: [regressionItemId],
         comparison_counts: { regressed: 1, improved: 0, flat: 2, inconclusive: 0 },
         pairs: evaluationCases.map((item, index) => ({
@@ -477,6 +616,8 @@ describe("Skill Creator evaluation flow", () => {
 
     render(<SkillEvaluationReview draft={draft} onError={vi.fn()} onNotice={vi.fn()} onRunChange={vi.fn()} onSessionRefresh={vi.fn()} run={run} session={session} />);
 
+    expect(screen.getByText("逐项确认新增退化").parentElement?.querySelector("p"))
+      .toHaveTextContent("相较于改进前版本的结果出现新增失败");
     const accept = screen.getByRole("button", { name: "效果可以，继续" });
     expect(accept).toBeDisabled();
     await userEvent.type(screen.getByLabelText("你观察到了什么？"), "该退化是已知格式变化，仍保留事实完整性。 ");
@@ -485,6 +626,59 @@ describe("Skill Creator evaluation flow", () => {
     await userEvent.click(accept);
     const body = JSON.parse(String(fetchMock.mock.calls.at(-1)?.[1]?.body));
     expect(body.acknowledged_regression_item_ids).toEqual([regressionItemId]);
+  });
+
+  it("names baseline correctly when reporting a two-side regression", () => {
+    const base = evaluationRun(true);
+    const run: SkillEvaluationRun = {
+      ...base,
+      report: {
+        eligible_for_accept: false,
+        comparison_reference: "baseline",
+        regression_item_ids: ["case-1-candidate"],
+        comparison_counts: { regressed: 1, improved: 0, flat: 0, inconclusive: 0 },
+        pairs: [{
+          pair_id: "case-1",
+          case_id: "case-1",
+          repetition: 1,
+          classification: "regressed",
+          candidate_item_id: "case-1-candidate",
+          baseline_item_id: "case-1-base",
+        }],
+      },
+    };
+
+    render(<SkillEvaluationReview draft={draft} onError={vi.fn()} onNotice={vi.fn()} onRunChange={vi.fn()} onSessionRefresh={vi.fn()} run={run} session={session} />);
+
+    expect(screen.getByText("逐项确认新增退化").parentElement?.querySelector("p"))
+      .toHaveTextContent("相较于未使用 Skill的结果出现新增失败");
+  });
+
+  it("shows legacy non-comparable regression reports as insufficient evidence", () => {
+    const base = evaluationRun(true);
+    const run: SkillEvaluationRun = {
+      ...base,
+      report: {
+        eligible_for_accept: false,
+        comparison_reference: "baseline",
+        regression_item_ids: ["case-1-candidate"],
+        comparison_counts: { regressed: 1, improved: 0, flat: 0, inconclusive: 0 },
+        pairs: [{
+          pair_id: "case-1",
+          case_id: "case-1",
+          repetition: 1,
+          classification: "regressed",
+          comparable: false,
+          candidate_item_id: "case-1-candidate",
+          baseline_item_id: "case-1-base",
+        }],
+      },
+    };
+
+    render(<SkillEvaluationReview draft={draft} onError={vi.fn()} onNotice={vi.fn()} onRunChange={vi.fn()} onSessionRefresh={vi.fn()} run={run} session={session} />);
+
+    expect(screen.getByText("证据不足")).toBeVisible();
+    expect(screen.queryByText("逐项确认新增退化")).not.toBeInTheDocument();
   });
 
   it("freezes saved feedback before submitting a revise decision", async () => {
@@ -534,7 +728,7 @@ describe("Skill Creator evaluation flow", () => {
       installed: { skill_id: "workspace-compare-pdf" },
     }));
     vi.stubGlobal("fetch", fetchMock);
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const confirmSpy = vi.spyOn(window, "confirm");
 
     render(
       <SkillCreatorFinish
@@ -551,6 +745,7 @@ describe("Skill Creator evaluation flow", () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole("button", { name: "确认安装当前版本" }));
+    expect(confirmSpy).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/skills/drafts/draft-1/install",
       expect.objectContaining({ method: "POST" }),

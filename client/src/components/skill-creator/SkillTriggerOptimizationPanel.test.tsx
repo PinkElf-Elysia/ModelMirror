@@ -399,23 +399,55 @@ describe("SkillTriggerOptimizationPanel", () => {
     });
   });
 
-  it("does not offer adoption when every description fails the hard gate", () => {
+  it("offers AI retry and a manual fallback when every description fails the hard gate", async () => {
     const failedAttempt = {
       ...attempt,
-      candidates: attempt.candidates.map((candidate) => ({ ...candidate, passed: false })),
+      candidates: attempt.candidates.map((candidate) => ({
+        ...candidate,
+        passed: false,
+        worst_positive_rank: 25,
+        negative_safety_distance: 2,
+      })),
       recommended_description_digest: null,
     };
-    render(<Harness initial={{
+    const failedSession = {
       ...baseSession,
       trigger_suite: suite,
       trigger_attempt: failedAttempt,
       trigger_receipt: { ...receipt, passed: false },
       trigger_stale_reason: "description_unconfirmed",
-    }} />);
+    };
+    const retriedAttempt = {
+      ...attempt,
+      attempt_id: "triggerattempt_retry",
+    };
+    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) => jsonResponse({
+      session: { ...failedSession, trigger_attempt: retriedAttempt },
+      resource_plan: plan,
+      trigger_required: true,
+      trigger_suite: suite,
+      trigger_attempt: retriedAttempt,
+      trigger_receipt: receipt,
+      trigger_stale_reason: "description_unconfirmed",
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<Harness currentStatus={{ ...status, trigger_optimizer_available: true }} initial={failedSession} />);
 
     expect(screen.queryByRole("button", { name: /采用第 \d+ 条描述/ })).not.toBeInTheDocument();
-    expect(screen.getByText(/没有候选通过/)).toBeVisible();
-    expect(screen.getByRole("button", { name: "手工改写并重试" })).toBeVisible();
+    expect(screen.getByText("1 条候选均未通过")).toBeVisible();
+    expect(screen.getByText("最弱正例 未进入 Top 24 · 最接近反例 第 2 名")).toBeVisible();
+    expect(screen.getByText(/没有同时命中全部正例并避开全部反例/)).toBeVisible();
+    expect(screen.queryByText(/第 25 名/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重新运行 AI 优化" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "手工改写描述" })).toBeVisible();
+
+    await userEvent.click(screen.getByRole("button", { name: "重新运行 AI 优化" }));
+
+    expect(await screen.findByText(retriedAttempt.candidates[0].description)).toBeVisible();
+    expect(screen.getByRole("button", { name: "采用第 1 条描述" })).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toMatch(/\/trigger-descriptions\/optimize$/);
   });
 
   it("translates conflicts into a reload action instead of exposing backend English", async () => {
@@ -478,6 +510,24 @@ describe("SkillTriggerOptimizationPanel", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("触发检查失败，请重试");
     expect(alert).not.toHaveTextContent("Failed to fetch");
+  });
+
+  it("identifies an invalid suite response as a test-boundary failure", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => jsonResponse({
+      detail: {
+        code: "skill_trigger_optimizer_invalid",
+        message: "Creator trigger optimizer did not return valid JSON.",
+      },
+    }, 502)));
+
+    render(<Harness currentStatus={{ ...status, trigger_optimizer_available: true }} initial={baseSession} />);
+    await userEvent.click(screen.getByRole("button", { name: "AI 提出测试边界" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("AI 没有返回可用的测试边界");
+    expect(alert).toHaveTextContent("手工填写正反例");
+    expect(alert).not.toHaveTextContent("触发描述");
+    expect(alert).not.toHaveTextContent("did not return valid JSON");
   });
 
   it("offers a deterministic reload path when the local trigger index is unavailable", async () => {

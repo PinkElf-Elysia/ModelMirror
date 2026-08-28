@@ -8,6 +8,7 @@ import SkillCreatorHandoffCard, {
   skillCreatorHandoffFailureCopy,
   type SkillCreatorHandoffEvent,
 } from "./SkillCreatorHandoffCard";
+import { clearSkillExperienceApiCache } from "../../utils/skillExperienceApi";
 
 function renderCard(event: SkillCreatorHandoffEvent) {
   return render(
@@ -35,6 +36,7 @@ function renderCard(event: SkillCreatorHandoffEvent) {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  clearSkillExperienceApiCache();
 });
 
 describe("Skill Creator workflow handoff card", () => {
@@ -73,14 +75,48 @@ describe("Skill Creator workflow handoff card", () => {
   });
 
   it("shows a stable reason and retries through trusted workflow capture", async () => {
-    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
-      Promise.resolve(new Response(JSON.stringify({
-        session: { session_id: "creator-retried" },
-      }), {
-        status: 201,
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const payload = url.endsWith("/status")
+        ? { enabled: true, available: true, model_calls_enabled: false }
+        : url.includes("candidates?")
+          ? { candidates: [] }
+          : {
+              candidate: {
+                candidate_id: "experience-retried",
+                version: "skill-experience-candidate-v1",
+                revision: 1,
+                digest: "a".repeat(64),
+                state: "captured",
+                source_kind: "workflow_classic",
+                source_task_id: "task-1",
+                source_run_id: "run-1",
+                selected_evidence: [],
+                overlaps: [],
+                updated_at: 1,
+              },
+              evidence_preview: {
+                version: "creator-evidence-v1",
+                source_kind: "workflow_classic",
+                source_task_id: "task-1",
+                source_run_id: "run-1",
+                source_title: "重试运行",
+                preview_fingerprint: "b".repeat(64),
+                candidates: [{
+                  candidate_id: "goal",
+                  kind: "intent_summary",
+                  title: "目标摘要",
+                  summary: "恢复可信运行经验",
+                  content_hash: "c".repeat(64),
+                  default_selected: true,
+                }],
+              },
+            };
+      return Promise.resolve(new Response(JSON.stringify(payload), {
+        status: init?.method === "POST" ? 201 : 200,
         headers: { "Content-Type": "application/json" },
-      })),
-    );
+      }));
+    });
     vi.stubGlobal("fetch", fetchMock);
     renderCard({
       event: "skill_creator_handoff",
@@ -92,12 +128,15 @@ describe("Skill Creator workflow handoff card", () => {
       skillCreatorHandoffFailureCopy("skill_creator_handoff_unavailable"),
     )).toBeVisible();
     await userEvent.click(
-      screen.getByRole("button", { name: "重试创建 Creator 会话" }),
+      await screen.findByRole("button", { name: "重试创建 Creator 会话" }),
     );
 
-    expect(await screen.findByText("Creator destination")).toBeVisible();
-    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
-      mode: "run",
+    expect(await screen.findByText("确认可用于沉淀的素材")).toBeVisible();
+    const createCall = fetchMock.mock.calls.find(([input, init]) =>
+      String(input).endsWith("/api/skills/experience/candidates")
+      && (init as RequestInit | undefined)?.method === "POST",
+    );
+    expect(JSON.parse(String(createCall?.[1]?.body))).toEqual({
       source_kind: "workflow_classic",
       source_task_id: "task-1",
       source_run_id: "run-1",

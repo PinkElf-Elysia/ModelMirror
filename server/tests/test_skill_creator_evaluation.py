@@ -629,6 +629,42 @@ async def test_executor_records_skill_read_actual_model_manifest_and_report(
 
 
 @pytest.mark.asyncio
+async def test_executor_preserves_partial_usage_from_failed_runner(
+    tmp_path: Path,
+) -> None:
+    store = SkillEvaluationStore(tmp_path)
+    run = _run(store)
+
+    class PartialRunnerFailure(RuntimeError):
+        code = "skill_application_required"
+        usage = {"model_calls": 2, "tool_calls": 1, "input_tokens": 40}
+        runtime_run_id = "runtime-partial-evidence"
+        skill_read = True
+        application_receipt_id = "skillappreceipt_partial"
+        application_receipt_revision = 2
+        application_compliance = "verified"
+
+    async def runner(_run, _item, _case, _overlay):
+        raise PartialRunnerFailure("resource stage repair was exhausted")
+
+    executor = SkillEvaluationExecutor(store, runner=runner)
+    assert await executor.execute_next() is True
+
+    completed = store.require_run(run.run_id)
+    assert completed.status == "completed"
+    assert all(item.status == "failed" for item in completed.items)
+    assert all(item.error_code == "skill_application_required" for item in completed.items)
+    assert all(item.usage["model_calls"] == 2 for item in completed.items)
+    assert all(item.usage["tool_calls"] == 1 for item in completed.items)
+    assert all(item.runtime_run_id == "runtime-partial-evidence" for item in completed.items)
+    assert all(item.skill_read is True for item in completed.items)
+    assert all(item.application_receipt_id == "skillappreceipt_partial" for item in completed.items)
+    assert all(item.application_receipt_revision == 2 for item in completed.items)
+    assert all(item.application_compliance == "verified" for item in completed.items)
+    assert completed.report["eligible_for_accept"] is False
+
+
+@pytest.mark.asyncio
 async def test_candidate_without_skill_read_and_model_mismatch_fail_acceptance(
     tmp_path: Path,
 ) -> None:
@@ -915,3 +951,30 @@ def test_report_requires_all_candidate_reads_and_matching_actual_models(
     report = aggregate_skill_evaluation_report(run)
     assert report["eligible_for_accept"] is True
     assert report["pair_count"] == 3
+
+
+def test_report_treats_infrastructure_failures_as_inconclusive(
+    tmp_path: Path,
+) -> None:
+    store = SkillEvaluationStore(tmp_path)
+    run = _run(store)
+    for item in run.items:
+        if item.target == "baseline":
+            item.status = "failed"
+            item.error_code = "runner_failed"
+            item.error = "unexpected EOF"
+            continue
+        item.status = "completed"
+        item.output = "done"
+        item.actual_model = "same-model"
+        item.skill_read = True
+
+    report = aggregate_skill_evaluation_report(run)
+
+    assert report["model_mismatch_count"] == 0
+    assert report["comparison_counts"] == {"inconclusive": 3}
+    assert report["regression_item_ids"] == []
+    assert all(
+        pair["classification"] == "inconclusive" for pair in report["pairs"]
+    )
+    assert report["eligible_for_accept"] is False

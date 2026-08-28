@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -14,11 +15,14 @@ from server.skills.creator_evaluation import (
 )
 from server.skills.creator_evaluation_runtime import (
     SKILL_EVALUATION_ALLOWED_TOOLS,
+    SKILL_EVALUATION_BASELINE_TOOLS,
     build_skill_evaluation_model_identity,
     build_skill_evaluation_workflow_invocation,
     is_recoverable_skill_evaluation_tool_error,
     normalize_skill_evaluation_model_id,
     require_skill_evaluation_actual_model,
+    skill_evaluation_resource_repair_instruction,
+    skill_evaluation_tool_names,
     skill_evaluation_model_temperature,
 )
 from server.skills.package_validation import compute_package_digest
@@ -64,6 +68,228 @@ def test_only_trusted_evaluation_argument_errors_are_recoverable():
         tool_name="sandbox_search_files",
         error_code="invalid_query",
     )
+
+
+def test_evaluation_tool_contract_is_target_specific_and_fail_closed():
+    trusted = {
+        "runtime_run_type": "skill_evaluation",
+        "skill_evaluation_workflow_version": "skill-evaluation-workflow-v1",
+        "skill_evaluation_profile": "skill_evaluation_v1",
+        "skill_evaluation_item_id": "item-one",
+        "skill_evaluation_workspace_id": "workspace-one",
+    }
+
+    assert skill_evaluation_tool_names(
+        {**trusted, "skill_evaluation_target": "baseline"}
+    ) == SKILL_EVALUATION_BASELINE_TOOLS
+    assert skill_evaluation_tool_names(
+        {**trusted, "skill_evaluation_target": "candidate"}
+    ) == SKILL_EVALUATION_ALLOWED_TOOLS
+    assert skill_evaluation_tool_names(
+        {**trusted, "skill_evaluation_target": "previous"}
+    ) == SKILL_EVALUATION_ALLOWED_TOOLS
+    assert skill_evaluation_tool_names(
+        {**trusted, "skill_evaluation_target": "forged"}
+    ) == ()
+    assert skill_evaluation_tool_names(
+        {**trusted, "skill_evaluation_workspace_id": "", "skill_evaluation_target": "baseline"}
+    ) == ()
+
+
+def test_evaluation_unstaged_resource_gets_one_bounded_repair_instruction():
+    metadata = {
+        "runtime_run_type": "skill_evaluation",
+        "skill_evaluation_workflow_version": "skill-evaluation-workflow-v1",
+        "skill_evaluation_profile": "skill_evaluation_v1",
+        "skill_evaluation_item_id": "item-one",
+        "skill_evaluation_workspace_id": "workspace-one",
+        "skill_evaluation_target": "candidate",
+    }
+    path = "skills/evaluation-skill/references/guide.md"
+
+    instruction = skill_evaluation_resource_repair_instruction(
+        metadata,
+        tool_name="sandbox_read_file",
+        arguments={"path": path},
+        staged_paths=(),
+    )
+
+    assert instruction is not None
+    assert "skill_read" in instruction
+    assert "skill_stage" in instruction
+    assert "evaluation-skill" in instruction
+    assert skill_evaluation_resource_repair_instruction(
+        metadata,
+        tool_name="sandbox_read_file",
+        arguments={"path": path},
+        staged_paths=(path,),
+    ) is None
+    assert skill_evaluation_resource_repair_instruction(
+        {**metadata, "skill_evaluation_target": "baseline"},
+        tool_name="sandbox_read_file",
+        arguments={"path": path},
+        staged_paths=(),
+    ) is None
+    wrong_alias_instruction = skill_evaluation_resource_repair_instruction(
+        metadata,
+        tool_name="sandbox_read_file",
+        arguments={"path": "skills/forged/references/guide.md"},
+        staged_paths=(),
+    )
+    assert wrong_alias_instruction is not None
+    assert "skills/forged" not in wrong_alias_instruction
+
+
+def test_evaluation_staged_resource_path_mismatch_gets_exact_path_correction():
+    metadata = {
+        "runtime_run_type": "skill_evaluation",
+        "skill_evaluation_workflow_version": "skill-evaluation-workflow-v1",
+        "skill_evaluation_profile": "skill_evaluation_v1",
+        "skill_evaluation_item_id": "item-one",
+        "skill_evaluation_workspace_id": "workspace-one",
+        "skill_evaluation_target": "candidate",
+    }
+    staged = (
+        "skills/evaluation-skill/SKILL.md",
+        "skills/evaluation-skill/references/compatibility-checklist.md",
+        "skills/evaluation-skill/references/rollback-criteria.md",
+    )
+
+    instruction = skill_evaluation_resource_repair_instruction(
+        metadata,
+        tool_name="sandbox_read_file",
+        arguments={"path": "skills/evaluation-skill/references"},
+        staged_paths=staged,
+    )
+
+    assert instruction is not None
+    assert "already staged" in instruction
+    assert "Do not call skill_read or skill_stage again" in instruction
+    assert "skills/evaluation-skill/references/compatibility-checklist.md" in instruction
+    assert "never pass a directory" in instruction
+    wrong_alias_instruction = skill_evaluation_resource_repair_instruction(
+        metadata,
+        tool_name="sandbox_read_file",
+        arguments={"path": "skills/runtime-skill/references/guide.md"},
+        staged_paths=staged,
+    )
+    assert wrong_alias_instruction is not None
+    assert "skills/runtime-skill" not in wrong_alias_instruction
+    assert "skills/evaluation-skill/references/rollback-criteria.md" in wrong_alias_instruction
+    assert skill_evaluation_resource_repair_instruction(
+        metadata,
+        tool_name="sandbox_search_files",
+        arguments={"path": "skills/evaluation-skill/references"},
+        staged_paths=staged,
+    ) is None
+    assert skill_evaluation_resource_repair_instruction(
+        metadata,
+        tool_name="sandbox_read_file",
+        arguments={"path": "../private/forged.md"},
+        staged_paths=staged,
+    ) is None
+
+
+@pytest.mark.asyncio
+async def test_failed_runtime_item_preserves_observed_usage(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    import server.main as main_module
+
+    run, _baseline, candidate = _run_and_items()
+    run.evaluation_suite_id = "suite-runtime"
+    usage_reads = 0
+    cleanup_calls: list[str] = []
+
+    class Provider:
+        async def provision_skill_evaluation_workspace(self, **_kwargs):
+            return "workspace-partial"
+
+        def consume_skill_evaluation_usage(self, _item_id):
+            nonlocal usage_reads
+            usage_reads += 1
+            return (
+                {"tool_names": ["skill_read"], "skill_read": True}
+                if usage_reads == 1
+                else {}
+            )
+
+        async def cleanup_skill_evaluation_workspace(self, workspace_id):
+            cleanup_calls.append(workspace_id)
+
+    class StreamFailure(RuntimeError):
+        code = "skill_application_required"
+
+    class Registry:
+        async def list_runs(self, **_kwargs):
+            return [
+                SimpleNamespace(
+                    metadata={
+                        "token_usage": {
+                            "model_calls": 2,
+                            "input_tokens": 40,
+                        }
+                    }
+                )
+            ]
+
+    receipt = SimpleNamespace(
+        receipt_id="skillappreceipt_partial",
+        revision=2,
+        compliance_status="verified",
+        source_kind="evaluation_overlay",
+        version_id=_overlay().overlay_id,
+        content_digest=_overlay().content_digest,
+        policy="require_read",
+        required_resource_paths=(),
+    )
+
+    class ReceiptStore:
+        def list_receipts(self, **_kwargs):
+            return [receipt]
+
+        def protect(self, receipt_id, *, reference_id):
+            assert receipt_id == receipt.receipt_id
+            assert reference_id == "evaluation-item:item_candidate"
+            return receipt
+
+    async def fake_run_workflow_response(*_args, **_kwargs):
+        return SimpleNamespace(
+            headers={
+                "X-ModelMirror-Runtime-Task-Id": "task-partial",
+                "X-ModelMirror-Runtime-Run-Id": "run-partial",
+            }
+        )
+
+    async def fail_stream(_response):
+        raise StreamFailure("resource must be staged")
+
+    monkeypatch.setattr(main_module, "workflow_sandbox_provider", Provider())
+    monkeypatch.setattr(main_module, "run_registry", Registry())
+    monkeypatch.setattr(main_module, "skill_application_receipt_store", ReceiptStore())
+    monkeypatch.setattr(main_module, "_run_workflow_response", fake_run_workflow_response)
+    monkeypatch.setattr(main_module, "consume_workflow_stream", fail_stream)
+
+    with pytest.raises(SkillEvaluationValidationError) as captured:
+        await main_module.run_skill_evaluation_item(
+            run,
+            candidate,
+            _case(),
+            _overlay(),
+        )
+
+    assert captured.value.code == "skill_application_required"
+    assert captured.value.usage == {
+        "model_calls": 2,
+        "input_tokens": 40,
+        "tool_calls": 1,
+    }
+    assert captured.value.runtime_run_id == "run-partial"
+    assert captured.value.skill_read is True
+    assert captured.value.application_receipt_id == "skillappreceipt_partial"
+    assert captured.value.application_receipt_revision == 2
+    assert captured.value.application_compliance == "verified"
+    assert cleanup_calls == ["workspace-partial"]
 
 
 def test_actual_model_receipt_distinguishes_selection_and_provider_identity():
@@ -259,7 +485,7 @@ def _run_and_items():
     return run, baseline, candidate
 
 
-def test_fixed_workflow_keeps_case_inputs_identical_and_expectations_hidden():
+def test_fixed_workflow_keeps_task_inputs_fair_and_baseline_skill_free():
     run, baseline, candidate = _run_and_items()
     left = build_skill_evaluation_workflow_invocation(
         run, baseline, _case(), None, workspace_id="ws_left"
@@ -268,18 +494,34 @@ def test_fixed_workflow_keeps_case_inputs_identical_and_expectations_hidden():
         run, candidate, _case(), _overlay(), workspace_id="ws_right"
     )
 
-    assert left.inputs == right.inputs
+    left_request = json.loads(left.inputs["evaluation_request"])
+    right_request = json.loads(right.inputs["evaluation_request"])
+    assert left_request["prompt"] == right_request["prompt"]
+    assert left_request["fixture_paths"] == right_request["fixture_paths"]
+    assert left_request["required_skill_resource_paths"] == []
+    assert left_request["required_skill_workspace_paths"] == []
     assert "Return a short summary" not in left.inputs["evaluation_request"]
-    agent = next(
+    baseline_agent = next(
         node for node in left.workflow["nodes"] if node["id"] == "evaluation-agent"
     )
-    assert set(agent["data"]["toolNames"].split(",")) == set(
+    candidate_agent = next(
+        node for node in right.workflow["nodes"] if node["id"] == "evaluation-agent"
+    )
+    assert "evaluation-skills" not in {node["id"] for node in left.workflow["nodes"]}
+    assert "evaluation-skills" in {node["id"] for node in right.workflow["nodes"]}
+    assert "skill_read" not in baseline_agent["data"]["toolNames"].split(",")
+    assert "evaluation-skill" not in baseline_agent["data"]["rolePrompt"]
+    assert set(candidate_agent["data"]["toolNames"].split(",")) == set(
         SKILL_EVALUATION_ALLOWED_TOOLS
     )
-    assert agent["data"]["toolMode"] == "none"
-    assert "path-like strings in the user prompt as data" in agent["data"]["rolePrompt"]
-    assert "never probe Sandbox existence for an unlisted path" in agent["data"]["rolePrompt"]
+    assert candidate_agent["data"]["toolMode"] == "none"
+    assert "first action must be skill_read" in candidate_agent["data"]["rolePrompt"]
+    assert "required_resources" in candidate_agent["data"]["rolePrompt"]
+    assert "do not call sandbox_read_file" in candidate_agent["data"]["rolePrompt"]
+    assert "path-like strings in the user prompt as data" in baseline_agent["data"]["rolePrompt"]
+    assert "never probe Sandbox existence for an unlisted path" in baseline_agent["data"]["rolePrompt"]
     assert left.runtime_metadata["skill_evaluation_overlay_id"] is None
+    assert left.runtime_metadata["skill_application_policy"] == "advisory"
     assert right.runtime_metadata["skill_evaluation_overlay_id"] == _overlay().overlay_id
 
 
@@ -292,9 +534,15 @@ def test_v2_resource_case_freezes_stage_policy_and_exact_paths():
     request = json.loads(invocation.inputs["evaluation_request"])
 
     assert request["required_skill_resource_paths"] == ["references/guide.md"]
+    assert request["required_skill_workspace_paths"] == [
+        "skills/evaluation-skill/references/guide.md"
+    ]
     assert invocation.runtime_metadata["skill_application_policy"] == "require_stage"
     assert invocation.runtime_metadata[
         "skill_application_required_resource_paths"
+    ] == ["references/guide.md"]
+    assert invocation.runtime_metadata[
+        "skill_evaluation_required_resource_paths"
     ] == ["references/guide.md"]
 
 

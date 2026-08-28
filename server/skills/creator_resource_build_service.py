@@ -5,6 +5,7 @@ import copy
 import hashlib
 import json
 import os
+import re
 import threading
 from dataclasses import asdict
 from typing import Any, Protocol
@@ -12,6 +13,7 @@ from typing import Any, Protocol
 from .creator_quality import (
     CREATOR_CONTRACT_VERSION,
     build_session_requirements,
+    evaluate_creator_final_package,
     evaluate_creator_payload,
 )
 from .creator_resource_build import (
@@ -139,6 +141,21 @@ class SkillCreatorResourceBuildService:
             build = self.build_store.mark_stale(build.build_id)
         result = self.build_store.serialize(build)
         result["stale"] = stale
+        if (
+            not stale
+            and build.phase == "skill_markdown"
+            and build.state in {"awaiting_review", "failed"}
+            and build.skill_markdown
+        ):
+            # Validator rules may tighten after a build was persisted. Re-project
+            # current facts without mutating the immutable build history so the
+            # workbench cannot offer acceptance for a package that finalization
+            # would now reject.
+            result["skill_validation_issues"] = self._proposal_issues(
+                build,
+                session=session,
+                draft=draft,
+            )
         return result
 
     async def start(
@@ -394,7 +411,7 @@ class SkillCreatorResourceBuildService:
                     current.proposal_id
                 )
                 return current, proposal
-            coverage = self._coverage(session)
+            coverage = self._coverage(session, current.skill_markdown)
             proposal = self._proposal(current, session=session, draft=draft, coverage=coverage)
             recorded = self.build_store.record_proposal(
                 build_id,
@@ -417,21 +434,22 @@ class SkillCreatorResourceBuildService:
         if decision != "accept":
             raise SkillCreatorValidationError("Invalid final resource build decision.")
         self._require_proposal_gate(current, session=session, draft=draft)
-        coverage = self._coverage(session)
-        preflight_payload = self._proposal_payload(
-            current, session=session, draft=draft, coverage=coverage
+        package_issues = self._proposal_issues(
+            current,
+            session=session,
+            draft=draft,
         )
-        preflight = evaluate_creator_payload(
-            preflight_payload,
-            requirement_ids=preflight_payload["creator_requirement_ids"],
-            resource_build=True,
-        )
-        if not preflight.ready:
+        if package_issues:
             raise SkillCreatorValidationError(
-                "The finalized Skill package did not pass the Creator draft gate: "
-                + ", ".join(issue.code for issue in preflight.issues[:8]),
+                "最终包尚未通过 Creator 完整度检查："
+                + ", ".join(
+                    str(issue.get("code") or "skill_creator_resource_invalid")
+                    for issue in package_issues[:8]
+                ),
                 code="skill_creator_resource_proposal_invalid",
+                issues=package_issues,
             )
+        coverage = self._coverage(session, current.skill_markdown)
         accepted = self.build_store.review_skill_markdown(
             build_id,
             expected_revision=expected_revision,
@@ -447,6 +465,38 @@ class SkillCreatorResourceBuildService:
             proposal_id=proposal.proposal_id,
         )
         return recorded, proposal
+
+    def _proposal_issues(
+        self,
+        build: SkillResourceBuild,
+        *,
+        session: SkillCreatorSession,
+        draft: WorkspaceSkillDraft | None,
+    ) -> list[dict[str, Any]]:
+        issues = validate_final_resource_package(build)
+        if issues:
+            return issues
+        coverage = self._coverage(session, build.skill_markdown)
+        payload = self._proposal_payload(
+            build,
+            session=session,
+            draft=draft,
+            coverage=coverage,
+        )
+        proposal_report = evaluate_creator_payload(
+            payload,
+            requirement_ids=payload["creator_requirement_ids"],
+            resource_build=True,
+        )
+        if not proposal_report.ready:
+            return [issue.to_dict() for issue in proposal_report.issues]
+        package = payload["skill"]
+        final_report = evaluate_creator_final_package(
+            root_name=package["name"],
+            skill_markdown=package["skill_markdown"],
+            files=package["files"],
+        )
+        return [issue.to_dict() for issue in final_report.issues]
 
     def _require_proposal_gate(
         self,
@@ -763,7 +813,48 @@ class SkillCreatorResourceBuildService:
         }
 
     @staticmethod
-    def _coverage(session: SkillCreatorSession) -> list[dict[str, Any]]:
+    def _coverage(
+        session: SkillCreatorSession,
+        skill_markdown: str | None = None,
+    ) -> list[dict[str, Any]]:
+        headings = [
+            match.group(1).strip()
+            for match in re.finditer(
+                r"^#{1,6}\s+(.+?)\s*#*\s*$",
+                str(skill_markdown or ""),
+                re.MULTILINE,
+            )
+        ]
+
+        def find_heading(aliases: tuple[str, ...], fallback: str) -> str:
+            normalized_aliases = tuple(alias.casefold() for alias in aliases)
+            for heading in headings:
+                normalized = heading.casefold()
+                if any(alias in normalized for alias in normalized_aliases):
+                    return heading
+            return fallback
+
+        scope_section = find_heading(
+            (
+                "purpose and scope",
+                "scope",
+                "purpose",
+                "用途与边界",
+                "目的与范围",
+                "适用范围",
+                "适用场景",
+                "何时使用",
+            ),
+            "Purpose and scope",
+        )
+        output_section = find_heading(
+            ("output contract", "output format", "deliverables", "输出合同", "输出格式", "交付物"),
+            "Output contract",
+        )
+        quality_section = find_heading(
+            ("quality checks", "validation", "verification", "质量检查", "校验", "验证", "验收"),
+            "Quality checks",
+        )
         result = []
         for requirement in build_session_requirements(
             intent=session.intent,
@@ -772,7 +863,13 @@ class SkillCreatorResourceBuildService:
             expected_output=session.expected_output,
             success_criteria=session.success_criteria,
         ):
-            section = "Output contract" if requirement.kind == "expected_output" else "Quality checks" if requirement.kind == "success_criterion" else "Purpose and scope"
+            section = (
+                output_section
+                if requirement.kind == "expected_output"
+                else quality_section
+                if requirement.kind == "success_criterion"
+                else scope_section
+            )
             result.append({"requirement_id": requirement.requirement_id, "locations": [{"path": "SKILL.md", "section": section}]})
         return result
 

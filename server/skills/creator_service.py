@@ -20,6 +20,7 @@ from .creator_store import (
     SkillCreatorValidationError,
 )
 from .draft_store import WorkspaceSkillDraft, WorkspaceSkillDraftStore
+from .creator_quality import evaluate_creator_final_package
 from .package_validation import validate_skill_package
 
 try:
@@ -756,6 +757,12 @@ class SkillCreatorService:
             files=draft.files,
         )
         data["validation"] = result.to_dict()
+        if draft.quality_required:
+            data["validation"]["creator_quality"] = evaluate_creator_final_package(
+                root_name=draft.slug,
+                skill_markdown=draft.skill_markdown,
+                files=draft.files,
+            ).to_dict()
         data["frontmatter"] = (
             {
                 "name": result.package.name,

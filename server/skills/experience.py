@@ -288,7 +288,7 @@ class SkillExperienceCapture:
 
 
 def experience_promotion_enabled() -> bool:
-    return os.getenv("SKILL_EXPERIENCE_PROMOTION_ENABLED", "false").strip().lower() in {
+    return os.getenv("SKILL_EXPERIENCE_PROMOTION_ENABLED", "true").strip().lower() in {
         "1",
         "true",
         "yes",
@@ -1673,7 +1673,7 @@ def build_distilled_skill_brief(
             "Positive and negative examples must not overlap.",
             code="skill_experience_analysis_invalid",
         )
-    complete = bool(
+    promotion_ready = bool(
         intent
         and recommendation_reason
         and expected_output
@@ -1683,7 +1683,11 @@ def build_distilled_skill_brief(
         and success_criteria
         and reusable_steps
         and failure_boundaries
-        and (suggestion != "no_skill" or no_skill_reason in _NO_SKILL_REASONS)
+    )
+    complete = (
+        bool(no_skill_reason in _NO_SKILL_REASONS)
+        if suggestion == "no_skill"
+        else promotion_ready
     )
     if not allow_incomplete and not complete:
         raise SkillExperienceError(
@@ -1731,6 +1735,20 @@ def build_distilled_skill_brief(
         complete=complete,
     )
     return replace(brief, digest=_brief_digest(brief))
+
+
+def distilled_skill_brief_is_promotion_ready(brief: DistilledSkillBriefV1) -> bool:
+    return bool(
+        brief.intent
+        and brief.recommendation_reason
+        and brief.expected_output
+        and brief.overfitting_risk
+        and 2 <= len(brief.positive_examples) <= _MAX_BRIEF_EXAMPLES
+        and 2 <= len(brief.negative_examples) <= _MAX_BRIEF_EXAMPLES
+        and brief.success_criteria
+        and brief.reusable_steps
+        and brief.failure_boundaries
+    )
 
 
 def build_manual_distilled_skill_brief(

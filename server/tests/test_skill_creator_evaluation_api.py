@@ -27,7 +27,10 @@ from server.skills.creator_store import (
     SkillCreatorSessionStore,
     SkillCreatorValidationError,
 )
-from server.skills.draft_store import WorkspaceSkillDraftStore
+from server.skills.draft_store import (
+    SkillDraftValidationError,
+    WorkspaceSkillDraftStore,
+)
 from server.xpert_runtime.authoring_service import AuthoringService
 from server.xpert_runtime.authoring_store import AuthoringProposalStore
 from server.xperts import XpertStore
@@ -311,6 +314,110 @@ def test_session_get_does_not_guess_across_multiple_orphan_case_revisions(
     projected_session, _, case_set, _ = evaluation.get_projection(session.session_id)
     assert projected_session.cases_revision == 0
     assert case_set is None
+
+
+@pytest.mark.asyncio
+async def test_incomplete_package_fails_before_evaluation_facts_are_created(
+    tmp_path: Path,
+) -> None:
+    incomplete_markdown = SKILL_MARKDOWN.replace(
+        "Trace every claim and keep unresolved ambiguity visible.",
+        "Check.",
+    )
+    _, evaluation, _, session, draft = _services(tmp_path)
+    session, draft, _ = evaluation.save_cases(
+        session.session_id,
+        **_write_context(session, draft),
+        quality_mode="objective",
+        cases=[_case(1), _case(2), _case(3)],
+    )
+    draft = evaluation.draft_store.update(
+        draft.draft_id,
+        expected_revision=draft.revision,
+        expected_digest=draft.content_digest,
+        skill_markdown=incomplete_markdown,
+    )
+    session = evaluation.session_store.bind_draft(
+        session.session_id,
+        expected_session_revision=session.session_revision,
+        draft_id=draft.draft_id,
+        draft_state_revision=draft.revision,
+        content_revision=draft.content_revision,
+        content_digest=draft.content_digest,
+    )
+    preflight_called = False
+
+    async def unexpected_preflight(_draft, _purpose):
+        nonlocal preflight_called
+        preflight_called = True
+        return {"model_id": "test/model", "config": {}}
+
+    evaluation.preflight = unexpected_preflight
+    with pytest.raises(
+        SkillDraftValidationError,
+        match="not complete enough for evaluation or installation",
+    ):
+        await evaluation.start_evaluation(
+            session.session_id,
+            **_write_context(session, draft),
+        )
+
+    assert preflight_called is False
+    assert evaluation.evaluation_store.list_runs(
+        session_id=session.session_id
+    ) == []
+    assert evaluation.evaluation_store._overlays == {}
+
+
+def test_projection_hides_unbound_zero_execution_evaluation_run(
+    tmp_path: Path,
+) -> None:
+    _, evaluation, _, session, draft = _services(tmp_path)
+    session, draft, case_set = evaluation.save_cases(
+        session.session_id,
+        **_write_context(session, draft),
+        quality_mode="objective",
+        cases=[_case(1), _case(2), _case(3)],
+    )
+    snapshot = evaluation.draft_store.require_revision_snapshot(
+        draft.draft_id,
+        revision=draft.content_revision,
+        content_digest=draft.content_digest,
+    )
+    overlay = evaluation.evaluation_store.create_overlay(
+        draft_id=draft.draft_id,
+        draft_revision=snapshot.revision,
+        content_digest=snapshot.content_digest,
+        package=snapshot.package,
+    )
+    run = evaluation.evaluation_store.create_run(
+        session_id=session.session_id,
+        draft_id=draft.draft_id,
+        draft_revision=draft.content_revision,
+        frozen_digest=draft.content_digest,
+        candidate_overlay_id=overlay.overlay_id,
+        case_set_revision=case_set["cases_revision"],
+        model_id="test/model",
+    )
+    session = evaluation.session_store.bind_evaluation(
+        session.session_id,
+        expected_session_revision=session.session_revision,
+        run_id=run.run_id,
+    )
+    evaluation.evaluation_store.mark_stale(
+        run.run_id,
+        reason="Creator session or draft changed before evaluation binding completed.",
+    )
+
+    projected_session, projected_draft, _, projected_run = (
+        evaluation.get_projection(session.session_id)
+    )
+
+    assert projected_run is None
+    assert projected_session.active_evaluation_run_id is None
+    assert projected_session.latest_evaluation_run_id is None
+    assert projected_draft.quality_status == "not_evaluated"
+    assert evaluation.evaluation_store.require_run(run.run_id).status == "stale"
 
 
 @pytest.mark.asyncio

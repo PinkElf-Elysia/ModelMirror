@@ -48,7 +48,7 @@ const ERROR_COPY: Record<string, { message: string; action: string }> = {
     action: "改用手工验证",
   },
   skill_trigger_optimizer_invalid: {
-    message: "AI 没有返回可用的触发描述，现有方案未被修改。",
+    message: "AI 返回的描述格式不符合触发优化合同，现有方案未被修改。",
     action: "重试或手工填写描述",
   },
   skill_trigger_description_invalid: {
@@ -73,8 +73,11 @@ const ERROR_COPY: Record<string, { message: string; action: string }> = {
   },
 };
 
-function presentError(value: unknown, fallback: string) {
+function presentError(value: unknown, fallback: string, operation = "") {
   if (value instanceof SkillCreatorApiError) {
+    if (value.code === "skill_trigger_optimizer_invalid" && operation === "suite-generate") {
+      return "AI 没有返回可用的测试边界，现有方案未被修改。请重试或手工填写正反例。";
+    }
     const known = ERROR_COPY[value.code];
     if (known) return `${known.message} ${known.action}。`;
     if (value.status === 409) return "会话或方案已在其他位置更新。请先复制未保存内容，再重新加载继续。";
@@ -89,6 +92,10 @@ function minimumCases(values: string[]) {
 
 function rankLabel(rank: number | null | undefined) {
   return rank == null ? "未进入 Top 24" : `第 ${rank} 名`;
+}
+
+function attemptRankLabel(rank: number) {
+  return rank >= 25 ? "未进入 Top 24" : `第 ${rank} 名`;
 }
 
 export default function SkillTriggerOptimizationPanel({ session, status, onSession }: Props) {
@@ -159,7 +166,7 @@ export default function SkillTriggerOptimizationPanel({ session, status, onSessi
       setNotice(success);
       return updated;
     } catch (caught) {
-      setError(presentError(caught, "触发检查失败，请重试。"));
+      setError(presentError(caught, "触发检查失败，请重试。", label));
       setReloadSuggested(
         caught instanceof SkillCreatorApiError
           && (
@@ -254,6 +261,7 @@ export default function SkillTriggerOptimizationPanel({ session, status, onSessi
   }
 
   const suiteConfirmed = suite?.state === "confirmed";
+  const attemptHasPassingCandidate = attempt?.candidates.some((item) => item.passed) ?? false;
   const canEditSuite = plan.state !== "confirmed" && !suiteConfirmed;
   const suiteStale = [
     "skill_trigger_suite_required",
@@ -406,7 +414,11 @@ export default function SkillTriggerOptimizationPanel({ session, status, onSessi
 
       {attempt && attempt.state !== "confirmed" ? (
         <div className="mt-4 space-y-3">
-          <p className="text-sm font-semibold text-white">选择一条已通过的描述</p>
+          <p className="text-sm font-semibold text-white">
+            {attemptHasPassingCandidate
+              ? "选择一条已通过的描述"
+              : `${attempt.candidates.length} 条候选均未通过`}
+          </p>
           {attempt.candidates.map((candidate, index) => {
             const recommended = candidate.description_digest === attempt.recommended_description_digest;
             return (
@@ -416,14 +428,28 @@ export default function SkillTriggerOptimizationPanel({ session, status, onSessi
                   <span className={`rounded-full px-2.5 py-1 text-[11px] ${candidate.passed ? "bg-emerald-300/10 text-emerald-100" : "bg-red-300/10 text-red-100"}`}>{recommended ? "推荐 · " : ""}{candidate.passed ? "通过" : "未通过"}</span>
                 </div>
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-                  <p className="text-xs text-slate-400">最弱正例名次 {candidate.worst_positive_rank || "—"} · 反例安全距离 {candidate.negative_safety_distance}</p>
+                  <p className="text-xs text-slate-400">最弱正例 {attemptRankLabel(candidate.worst_positive_rank)} · 最接近反例 {attemptRankLabel(candidate.negative_safety_distance)}</p>
                   {candidate.passed ? <button aria-label={`采用第 ${index + 1} 条描述`} className="inline-flex min-h-11 items-center gap-2 rounded-full bg-hire-300 px-4 py-2 text-xs font-semibold text-ink-950 disabled:opacity-40" disabled={Boolean(busy)} onClick={() => void run("confirm-description", () => confirmSkillCreatorTriggerDescription(session, candidate.description_digest), "推荐描述已写入方案，触发检查通过。") } type="button">{busy === "confirm-description" ? <LoaderCircle className="animate-spin motion-reduce:animate-none" aria-hidden="true" size={15} /> : null}{busy === "confirm-description" ? "正在采用…" : "采用这条描述"}{busy !== "confirm-description" ? <ChevronRight aria-hidden="true" size={15} /> : null}</button> : null}
                 </div>
               </article>
             );
           })}
-          {!attempt.candidates.some((item) => item.passed) ? <p className="rounded-md border border-amber-300/20 bg-amber-300/[0.07] px-3 py-2 text-xs leading-5 text-amber-100">没有候选通过。请手工改写描述后重新验证，或重新运行 AI 优化；资源计划尚未被修改。</p> : null}
-          <button className="min-h-11 rounded-full px-3 text-xs font-semibold text-brand-100 hover:bg-white/5" onClick={() => setManualOpen(true)} type="button">手工改写并重试</button>
+          {!attemptHasPassingCandidate ? (
+            <div className="rounded-md border border-amber-300/20 bg-amber-300/[0.07] px-3 py-3">
+              <p className="text-xs leading-5 text-amber-100">这组描述没有同时命中全部正例并避开全部反例，资源计划尚未修改。可以让 AI 重新优化，或手工改写后验证。</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {status.trigger_optimizer_available ? (
+                  <button className="inline-flex min-h-11 items-center gap-2 rounded-full bg-hire-300 px-4 py-2 text-xs font-semibold text-ink-950 disabled:opacity-40" disabled={Boolean(busy)} onClick={() => void run("optimize", () => optimizeSkillCreatorTriggerDescriptions(session), "已重新生成并实测描述候选。") } type="button">
+                    {busy === "optimize" ? <LoaderCircle className="animate-spin motion-reduce:animate-none" aria-hidden="true" size={15} /> : <Sparkles aria-hidden="true" size={15} />}
+                    {busy === "optimize" ? "正在重新优化…" : "重新运行 AI 优化"}
+                  </button>
+                ) : null}
+                <button className="min-h-11 rounded-full border border-amber-200/25 px-4 py-2 text-xs font-semibold text-amber-50 disabled:opacity-40" disabled={Boolean(busy)} onClick={() => setManualOpen(true)} type="button">手工改写描述</button>
+              </div>
+            </div>
+          ) : (
+            <button className="min-h-11 rounded-full px-3 text-xs font-semibold text-brand-100 hover:bg-white/5" disabled={Boolean(busy)} onClick={() => setManualOpen(true)} type="button">手工改写描述</button>
+          )}
         </div>
       ) : null}
 

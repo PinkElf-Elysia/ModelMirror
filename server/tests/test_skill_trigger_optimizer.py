@@ -328,6 +328,23 @@ async def test_suite_optimize_confirm_and_plan_gate_form_one_closed_loop(tmp_pat
         "near_miss_examples": session.near_miss_examples,
     }
     assert all(set(item) == {"name", "category", "description"} for item in executor.description_context["public_competitors"])
+    assert executor.description_context["ranking_contract"] == {
+        "ranker_version": "skill-need-local-v3",
+        "positive_gate": "Every should_trigger case must rank in Top 6 in Finder and Router.",
+        "negative_gate": "Every should_not_trigger case must stay outside Top 6 in Finder and Router.",
+        "diagnostic_window": 24,
+        "matching": "Normalized lexical substring matching without semantic negation or stemming.",
+    }
+    diagnostics = executor.description_context["current_description_diagnostics"]
+    assert len(diagnostics) == len(suite.cases)
+    assert [item["case_index"] for item in diagnostics] == list(range(len(suite.cases)))
+    assert all(set(item) == {
+        "case_index",
+        "kind",
+        "finder_rank_top_24",
+        "router_rank_top_24",
+        "matched_terms",
+    } for item in diagnostics)
     serialized_context = json.dumps(executor.description_context, ensure_ascii=False)
     assert "workspace://" not in serialized_context
     assert "trust" not in serialized_context.casefold()
@@ -894,6 +911,25 @@ def test_fixed_runtime_has_no_tools_and_strict_output_contract() -> None:
     assert invocation.runtime_metadata["trigger_operation"] == "optimize_descriptions"
     assert invocation.runtime_metadata["creator_session_id"] == "skillcreator-one"
     assert "session_id" not in json.loads(invocation.inputs["creator_request"])
+    role_prompt = agent["rolePrompt"]
+    assert (
+        f'{{"version":"{TRIGGER_OPTIMIZER_WORKFLOW_VERSION}","cases":['
+        '{"kind":"should_trigger","text":"positive task 1"},'
+        '{"kind":"should_trigger","text":"positive task 2"},'
+        '{"kind":"should_trigger","text":"positive task 3"},'
+        '{"kind":"should_not_trigger","text":"near-miss task 1"},'
+        '{"kind":"should_not_trigger","text":"near-miss task 2"},'
+        '{"kind":"should_not_trigger","text":"near-miss task 3"}]}'
+    ) in role_prompt
+    assert (
+        f'{{"version":"{TRIGGER_OPTIMIZER_WORKFLOW_VERSION}",'
+        '"descriptions":["..."]}'
+    ) in role_prompt
+    assert "Every description is a complete alternative" in role_prompt
+    assert "never divide case coverage across alternatives" in role_prompt
+    assert "does not understand negation or stemming" in role_prompt
+    assert "Use Simplified Chinese" in role_prompt
+    assert "explicit trigger clause" in role_prompt
     assert parse_trigger_optimization_output(
         json.dumps(
             {

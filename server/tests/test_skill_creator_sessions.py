@@ -509,6 +509,11 @@ def test_manual_draft_recovers_after_session_save_failure_and_is_quality_gated(
     detail = creator.serialize_draft(recovered_draft)
     assert detail["frontmatter"]["name"] == "review-notes"
     assert detail["validation"]["valid"] is True
+    assert detail["validation"]["creator_quality"]["ready"] is False
+    assert "creator_manual_scaffold_incomplete" in {
+        issue["code"]
+        for issue in detail["validation"]["creator_quality"]["issues"]
+    }
     assert detail["quality_required"] is True
     assert detail["quality_status"] == "not_evaluated"
     scaffold = recovered_draft.skill_markdown

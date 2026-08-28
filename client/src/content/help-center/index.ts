@@ -1,6 +1,7 @@
 import checkAvailabilityCostData from "./articles/check-availability-cost-data.md?raw";
 import chooseModelAgentWorkflow from "./articles/choose-model-agent-workflow.md?raw";
 import modulesAndTerms from "./articles/modules-and-terms.md?raw";
+import promoteRunToSkill from "./articles/promote-run-to-skill.md?raw";
 import recoverUnavailableFeature from "./articles/recover-unavailable-feature.md?raw";
 import reviewRemoteMcpAuth from "./articles/review-remote-mcp-auth.md?raw";
 import subscribeRssWorkflow from "./articles/subscribe-rss-workflow.md?raw";
@@ -82,6 +83,7 @@ export const remoteMcpReviewBaseline = { commit: "821067a7", date: "2026-08-27" 
 export const ragDiversityBaseline = { commit: "f0150fb5", date: "2026-08-27" };
 export const rssReviewBaseline = { commit: "821067a7", date: "2026-08-27" };
 export const ragFormalIntegrityBaseline = { commit: "be056e99", date: "2026-08-28" };
+export const skillExperienceBaseline = { commit: "bf486f25", date: "2026-08-27" };
 
 export const helpContentTypeLabels: Record<HelpContentType, string> = {
   tutorial: "入门教程",
@@ -120,6 +122,20 @@ export const helpArticles: HelpArticle[] = [
     verifiedDate: verifiedBaseline.date,
     content: chooseModelAgentWorkflow,
     nextSlug: "modules-and-terms",
+  },
+  {
+    slug: "promote-run-to-skill",
+    title: "把成功运行沉淀为 Skill",
+    summary: "确认脱敏素材、分析可复用经验，并打开已预填的 Skill Creator。",
+    category: "按目标找指南",
+    contentType: "how-to",
+    audience: "刚完成 Workflow 或私有 Xpert Chat，希望复用成功做法的用户",
+    estimatedMinutes: 6,
+    keywords: ["Skill", "Creator", "运行经验", "Workflow", "Xpert Chat", "沉淀"],
+    relatedRoutes: ["/workflow", "/agents/xpert/:xpertId/chat", "/skills/create"],
+    verifiedCommit: skillExperienceBaseline.commit,
+    verifiedDate: skillExperienceBaseline.date,
+    content: promoteRunToSkill,
   },
   {
     slug: "submit-knowledge-proposal",
@@ -278,7 +294,7 @@ export const helpModules: HelpModule[] = [
     topics: [
       { id: "market", title: "Skill 市场", summary: "按分类、安装状态和资源类型查找 Skill。", outcome: "找到可复用的做法，并先查看来源与信任状态。", points: ["Skill 保存可重复使用的做法和约束", "SkillSet 是一组相关 Skill", "信任策略阻断时不要绕过安装"], productRoute: "/skills", keywords: ["市场", "浏览", "SkillSet", "信任策略"] },
       { id: "installed", title: "已安装 Skill", summary: "查看当前版本、历史版本和恢复点。", outcome: "确认哪些 Skill 已安装，并管理之后运行使用的版本。", points: ["替换会保留不可变版本", "卸载会保留恢复点", "切换版本只影响之后启动的运行"], productRoute: "/skills?tab=installed", keywords: ["已安装", "版本", "恢复", "卸载"] },
-      { id: "creator", title: "Skill Creator", summary: "用一句需求生成提案，或从空白 Skill 开始。", outcome: "进入创建入口，并知道生成不等于自动安装。", points: ["没有配置模型时仍可创建和编辑空白 Skill", "AI 先生成提案，需要用真实任务检查", "只有确认后才安装"], productRoute: "/skills/create", keywords: ["Creator", "创建", "提案", "安装"] },
+      { id: "creator", title: "Skill Creator", summary: "用一句需求开始，或从成功运行继续制作 Skill。", outcome: "进入创建入口，并知道分析、生成与安装是三个独立决定。", points: ["成功运行可先确认脱敏素材，再打开已预填 Creator", "没有配置模型时仍可补全手工提纲", "进入 Creator 后仍要完成触发验证、评测和独立安装确认"], productRoute: "/skills/create", keywords: ["Creator", "创建", "运行经验", "沉淀", "安装"] },
       { id: "local-import", title: "本地导入", summary: "选择 ZIP 或文件夹，在安装前完成本地扫描。", outcome: "先检查来源、脚本和敏感信息，再决定是否安装。", points: ["导入过程不会执行脚本", "页面会检查路径、密钥和脚本风险", "只导入你有权使用并信任的内容"], productRoute: "/skills/import", keywords: ["本地", "导入", "ZIP", "文件夹", "扫描"] },
       { id: "drafts", title: "工作区草稿", summary: "查看已批准但尚未安装的 Skill 草稿。", outcome: "把提案批准和实际安装作为两个独立决定处理。", points: ["批准提案只生成草稿", "草稿可以继续检查", "安装始终需要显式操作"], productRoute: "/skills?tab=drafts", keywords: ["工作区草稿", "草稿", "安装"] },
       { id: "proposals", title: "待审提案", summary: "审核 Agent 提交的版本化 Skill 提案。", outcome: "决定是否把提案转为草稿，而不自动安装。", points: ["提案需要人工审核", "批准后不会自动安装 Skill", "同时不会自动发布 Agent 或 Prompt"], productRoute: "/skills?tab=proposals", keywords: ["待审提案", "自编写提案", "审核"] },

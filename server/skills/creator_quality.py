@@ -34,14 +34,16 @@ _FENCE_OPEN_RE = re.compile(r"^[ \t]*(?P<fence>`{3,}|~{3,})")
 _HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 _TRIGGER_RE = re.compile(
     r"(?i)(?:\buse\s+when\b|\bwhen\s+(?:the\s+)?(?:user|task|agent)\b|"
-    r"\btrigger(?:s|ed|ing)?\b|适用于|用于.{0,24}(?:任务|场景|情况)|"
+    r"\btrigger(?:s|ed|ing)?\b|\bspecifically\s+for\b|"
+    r"\b(?:apply|applies)\s+(?:during|to)\b|\b(?:intended|designed)\s+for\b|"
+    r"适用于|用于.{0,24}(?:任务|场景|情况)|"
     r"当.{0,40}时|在[^。；;.!?]{1,40}(?:时|前|后)|触发(?:条件|场景)?)"
 )
 _CJK_CHAR_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
 _SCOPE_RE = re.compile(
     r"(?i)(?:^|\n)#{1,6}\s+(?:scope|purpose|boundaries|overview|when\s+to\s+use|"
     r"capabilit(?:y|ies)|use\s+cases?|用途|目标|概述|适用范围|适用场景|使用场景|"
-    r"能力与边界|何时使用|使用时机|边界)[^\n]*"
+    r"目的(?:与范围)?|能力与边界|何时使用|使用时机|边界)[^\n]*"
 )
 _WORKFLOW_RE = re.compile(
     r"(?i)(?:^|\n)#{1,6}\s+(?:(?:[^\n#]{1,60}\s+)?workflow\b|"
@@ -881,7 +883,11 @@ def _section_has_substantive_content(markdown: str, heading_re: re.Pattern[str])
         plain = re.sub(r"(?m)^\s*(?:[-*+] |\d+[.)]\s+)", "", section)
         plain = re.sub(r"[`*_>#|]", "", plain)
         plain = re.sub(r"\s+", " ", plain).strip()
-        if len(plain) >= 40:
+        # A single character carries materially more information in compact CJK
+        # prose than in space-delimited English. Keep the existing 40-character
+        # floor for other languages, but accept an equivalent CJK content floor
+        # instead of rejecting otherwise actionable Chinese sections.
+        if len(plain) >= 40 or len(_CJK_CHAR_RE.findall(plain)) >= 20:
             return True
     return False
 

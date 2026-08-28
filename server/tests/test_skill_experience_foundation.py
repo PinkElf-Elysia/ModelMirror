@@ -662,6 +662,14 @@ def test_api_status_is_always_readable_and_disabled_routes_are_hidden(
         experience_api.configure_skill_experience(previous)
 
 
+def test_experience_promotion_is_enabled_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("SKILL_EXPERIENCE_PROMOTION_ENABLED", raising=False)
+
+    assert experience.experience_promotion_enabled() is True
+
+
 def test_api_rejects_client_submitted_summary_or_state(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -12,6 +12,9 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import PageContainer from "../components/PageContainer";
+import SkillCreatorCaptureButton, {
+  type SkillCreatorCaptureSource,
+} from "../components/skill-creator/SkillCreatorCaptureButton";
 import { useSkillCreatorStatus } from "../hooks/useSkillCreatorStatus";
 import {
   createSkillCreatorSession,
@@ -20,6 +23,11 @@ import {
   type SkillCreatorSession,
   type SkillCreatorSessionState,
 } from "../utils/skillCreatorApi";
+import {
+  listSkillExperienceCandidates,
+  readSkillExperienceStatus,
+  type SkillExperienceCandidate,
+} from "../utils/skillExperienceApi";
 
 const STATE_LABELS: Record<SkillCreatorSessionState, string> = {
   defining: "定义用途",
@@ -40,6 +48,29 @@ function formatTime(value: number) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value * (value < 10_000_000_000 ? 1000 : 1)));
+}
+
+function candidateSource(candidate: SkillExperienceCandidate): SkillCreatorCaptureSource | null {
+  if (candidate.source_kind === "workflow_classic") {
+    return {
+      sourceKind: "workflow_classic",
+      taskId: candidate.source_task_id,
+      runId: candidate.source_run_id,
+    };
+  }
+  if (
+    !candidate.source_xpert_id
+    || !candidate.source_conversation_id
+    || !candidate.source_message_id
+  ) return null;
+  return {
+    sourceKind: "xpert_chat",
+    taskId: candidate.source_task_id,
+    runId: candidate.source_run_id,
+    xpertId: candidate.source_xpert_id,
+    conversationId: candidate.source_conversation_id,
+    messageId: candidate.source_message_id,
+  };
 }
 
 function StatusSkeleton() {
@@ -83,6 +114,8 @@ export default function SkillCreatorIndexPage() {
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
+  const [pendingExperience, setPendingExperience] = useState<SkillExperienceCandidate[]>([]);
+  const [expandedCandidateId, setExpandedCandidateId] = useState("");
 
   const loadSessions = useCallback(async () => {
     if (!status?.enabled) return;
@@ -105,6 +138,26 @@ export default function SkillCreatorIndexPage() {
   useEffect(() => {
     void loadSessions();
   }, [loadSessions]);
+
+  useEffect(() => {
+    if (!status?.enabled) return;
+    let active = true;
+    void readSkillExperienceStatus()
+      .then(async (experienceStatus) => {
+        if (!experienceStatus.enabled || !experienceStatus.available) return [];
+        return listSkillExperienceCandidates();
+      })
+      .then((items) => {
+        if (!active) return;
+        setPendingExperience(items.filter((item) => ![
+          "promoted", "dismissed", "archived",
+        ].includes(item.state)));
+      })
+      .catch(() => {
+        // Creator remains usable when the optional experience Store is unavailable.
+      });
+    return () => { active = false; };
+  }, [status?.enabled]);
 
   const activeSessions = useMemo(
     () => sessions.filter((item) => item.state !== "archived"),
@@ -276,6 +329,54 @@ export default function SkillCreatorIndexPage() {
               </p>
             </aside>
           </section>
+
+          {pendingExperience.length > 0 ? (
+            <section className="mt-10" aria-labelledby="pending-skill-experience">
+              <div className="border-b border-white/10 pb-4">
+                <h2 className="text-xl font-semibold text-white" id="pending-skill-experience">待处理运行经验</h2>
+                <p className="mt-1 text-sm text-slate-400">这些运行已完成，但还没有进入 Creator。继续时会恢复服务端保存的状态。</p>
+              </div>
+              <ul className="mt-4 divide-y divide-white/10 border-y border-white/10">
+                {pendingExperience.slice(0, 8).map((candidate) => {
+                  const source = candidateSource(candidate);
+                  const expanded = expandedCandidateId === candidate.candidate_id;
+                  return (
+                    <li className="py-4" key={candidate.candidate_id}>
+                      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-white">
+                            {candidate.brief?.intent || (candidate.source_kind === "xpert_chat" ? "Xpert Chat 运行经验" : "Workflow 运行经验")}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-400">
+                            {candidate.state === "analyzing" ? "正在分析" : candidate.state === "awaiting_review" ? "等待你确认" : candidate.state === "promotion_ready" ? "等待进入 Creator" : candidate.state === "stale" ? "来源已变化" : "等待选择素材"}
+                            {" · "}{formatTime(candidate.updated_at)}
+                          </p>
+                        </div>
+                        {source ? (
+                          <button className="min-h-10 rounded-full border border-white/15 px-4 text-xs font-semibold text-slate-200 transition hover:bg-white/[0.06]" onClick={() => setExpandedCandidateId(expanded ? "" : candidate.candidate_id)} type="button">
+                            {expanded ? "收起" : "继续处理"}
+                          </button>
+                        ) : null}
+                      </div>
+                      {expanded && source ? (
+                        <div className="mt-4">
+                          <SkillCreatorCaptureButton
+                            enabled
+                            initialCandidate={candidate}
+                            onCandidateChange={(updated) => setPendingExperience((current) => current.flatMap((item) => {
+                              if (item.candidate_id !== updated.candidate_id) return [item];
+                              return ["promoted", "dismissed", "archived"].includes(updated.state) ? [] : [updated];
+                            }))}
+                            source={source}
+                          />
+                        </div>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ) : null}
 
           <section className="mt-10" aria-labelledby="recent-creator-sessions">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">

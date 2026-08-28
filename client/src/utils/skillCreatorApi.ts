@@ -74,7 +74,7 @@ export type SkillEvaluationSuiteRole = "normal" | "ambiguous" | "boundary" | "re
 
 export interface SkillEvaluationSuiteCase extends SkillEvaluationCase {
   role: SkillEvaluationSuiteRole;
-  source: "generated" | "migrated" | "user";
+  source: "generated" | "migrated" | "user" | "run_experience";
   requirement_ids: string[];
   required_resource_paths: string[];
   workflow_step_ids: string[];
@@ -186,6 +186,7 @@ export interface SkillEvaluationReport {
     baseline_item_id?: string | null;
     previous_item_id?: string | null;
     candidate_item_id?: string | null;
+    comparable?: boolean;
     classification: "regressed" | "improved" | "flat" | "inconclusive";
     new_failure_indices?: number[];
     fixed_failure_indices?: number[];
@@ -832,6 +833,13 @@ export interface SkillCreatorSession {
   trigger_attempt?: SkillTriggerDescriptionAttempt | null;
   trigger_receipt?: SkillTriggerReceipt | null;
   trigger_stale_reason?: string | null;
+  experience_candidate_id?: string | null;
+  experience_decision?: "create" | "update" | null;
+  update_target_skill_id?: string | null;
+  predecessor_draft_id?: string | null;
+  experience_baseline_version_id?: string | null;
+  experience_baseline_content_digest?: string | null;
+  run_experience_case?: SkillEvaluationSuiteCase | null;
   created_at: number;
   updated_at: number;
 }

@@ -25,7 +25,7 @@ from server.skills.creator_evaluation import SkillEvaluationStore, SkillEvaluati
 from server.skills.package_validation import compute_package_digest
 from server.xpert_runtime.sandbox_store import SandboxWorkspace, SandboxWorkspaceStore
 from server.xpert_runtime.sandbox_toolset import SandboxToolsetProvider
-from server.xpert_runtime.toolset import RuntimeToolCall
+from server.xpert_runtime.toolset import RuntimeToolCall, RuntimeToolError
 
 
 def _digest(value: str) -> str:
@@ -790,7 +790,23 @@ async def test_evaluation_overlay_uses_same_application_evidence_contract(tmp_pa
         "runtime_run_type": "skill_evaluation",
         "skill_evaluation_item_id": "item-candidate",
         "skill_evaluation_overlay_id": overlay.overlay_id,
+        "skill_evaluation_required_resource_paths": ["references/guide.md"],
     }
+
+    with pytest.raises(RuntimeToolError) as stage_before_read:
+        await provider._skill_stage(
+            SandboxWorkspace(
+                workspace_id="workspace-evaluation",
+                scope_type="workflow",
+                scope_id="task:node",
+                node_id="evaluation-agent",
+                quota_bytes=1024 * 1024,
+            ),
+            RuntimeToolCall(
+                "skill_stage", {"skill_id": "evaluation-skill"}, metadata
+            ),
+        )
+    assert stage_before_read.value.code == "skill_application_required"
 
     read = provider._skill_read(
         RuntimeToolCall(
@@ -823,6 +839,58 @@ async def test_evaluation_overlay_uses_same_application_evidence_contract(tmp_pa
     assert staged.metadata["application_expected_resource_digests"] == (
         staged.metadata["application_resource_digests"]
     )
+    staged_output = json.loads(staged.output)
+    assert staged_output["required_resources"] == [
+        {
+            "path": "skills/evaluation-skill/references/guide.md",
+            "content": "# Evidence\n",
+        }
+    ]
+    assert staged.metadata["evaluation_required_resource_count"] == 1
+    assert "# Evidence" not in json.dumps(staged.metadata, ensure_ascii=False)
+
+
+@pytest.mark.asyncio
+async def test_evaluation_stage_rejects_unfrozen_required_resource(tmp_path):
+    overlay = SimpleNamespace(
+        overlay_id="skill_eval_overlay_candidate",
+        content_digest=_digest("evaluation-package"),
+        package={
+            "skill_markdown": "# Evaluation Skill\n",
+            "files": {"references/guide.md": "# Evidence\n"},
+        },
+    )
+    provider = SandboxToolsetProvider(
+        SimpleNamespace(workspace_root=tmp_path / "workspaces"),
+        SimpleNamespace(),
+        skill_manager=SimpleNamespace(list_installed_skills=lambda: []),
+    )
+    provider.configure_skill_evaluation(lambda _overlay_id: overlay)
+    metadata = {
+        "runtime_run_type": "skill_evaluation",
+        "skill_evaluation_item_id": "item-candidate",
+        "skill_evaluation_overlay_id": overlay.overlay_id,
+        "skill_evaluation_required_resource_paths": ["references/missing.md"],
+    }
+    provider._skill_read(
+        RuntimeToolCall("skill_read", {"skill_id": "evaluation-skill"}, metadata)
+    )
+
+    with pytest.raises(RuntimeToolError) as captured:
+        await provider._skill_stage(
+            SandboxWorkspace(
+                workspace_id="workspace-evaluation",
+                scope_type="workflow",
+                scope_id="task:node",
+                node_id="evaluation-agent",
+                quota_bytes=1024 * 1024,
+            ),
+            RuntimeToolCall(
+                "skill_stage", {"skill_id": "evaluation-skill"}, metadata
+            ),
+        )
+
+    assert captured.value.code == "skill_application_contract_stale"
 
 
 def test_advisory_contract_verifies_actual_prompt_injection(tmp_path):
