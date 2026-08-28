@@ -9,6 +9,7 @@ import pytest_asyncio
 from server.main import app
 from server.model_router.admin_auth import reset_provider_admin_auth
 from server.rag.api import (
+    _resolve_evaluation_reproducibility,
     set_evaluation_executor_for_tests,
     set_pipeline_executor_for_tests,
     set_rag_service_for_tests,
@@ -50,7 +51,10 @@ async def evaluation_runtime(tmp_path: Path):
         run_registry=registry,
         poll_interval=0.01,
     )
-    evaluation_store = KnowledgeEvaluationStore(service.storage_dir / "evaluations.json")
+    evaluation_store = KnowledgeEvaluationStore(
+        service.storage_dir / "evaluations.json",
+        reproducibility_resolver=_resolve_evaluation_reproducibility,
+    )
     evaluation_executor = KnowledgeEvaluationExecutor(
         service,
         evaluation_store,
@@ -244,6 +248,17 @@ async def test_formal_api_runs_only_published_reviewed_same_corpus_gold(
                     "\n\n".join(paragraphs),
                 )
             )
+        fulltext_draft = await client.patch(
+            f"/api/rag/pipeline/draft/{kb_id}",
+            json={
+                "retrieval_profile": {
+                    "mode": "fulltext",
+                    "no_result_policy": "absolute_relevance_v1",
+                    "min_lexical_confidence": 0.5,
+                }
+            },
+        )
+        assert fulltext_draft.status_code == 200, fulltext_draft.text
         baseline_job = await _execute_draft(
             client, pipeline_executor, kb_id, document_ids
         )
@@ -262,7 +277,7 @@ async def test_formal_api_runs_only_published_reviewed_same_corpus_gold(
         chunk_by_block: dict[tuple[str, str], str] = {}
         for document_id in document_ids:
             indexed_id = f"{baseline_id}_{document_id}"
-            for chunk in service.vector_store.list_document_chunks(indexed_id):
+            for chunk in service.lexical_store.list_document_chunks(indexed_id):
                 key = (document_id, str(chunk.source_block_id or ""))
                 if key[1] and key not in chunk_by_block:
                     chunk_by_block[key] = str(chunk.chunk_id)
@@ -414,6 +429,23 @@ async def test_formal_api_runs_only_published_reviewed_same_corpus_gold(
         assert all(
             target["metrics"]["expected_case_count"] == 42
             for target in completed["target_results"]
+        )
+        public_run = await client.get(
+            f"/api/rag/evaluation-runs/{created.json()['run_id']}"
+        )
+        assert public_run.status_code == 200, public_run.text
+        public_payload = public_run.json()
+        assert public_payload["reproducibility_status"] == "current"
+        assert all(
+            target["execution_integrity"]["qualified"] is True
+            for target in public_payload["target_results"]
+        )
+        assert all(
+            result["execution_mode"] == "local_non_model"
+            and result["provider_route_receipts"] is None
+            and result["retrieval_receipt"]["embedding_provider"] == "none"
+            for target_results in public_payload["case_results"].values()
+            for result in target_results.values()
         )
     finally:
         reset_provider_admin_auth()
@@ -618,6 +650,7 @@ def _formal_gold_snapshot() -> dict:
         ).encode("utf-8")
     ).hexdigest()
     snapshot = {
+        "kb_id": "kb-formal",
         "version_id": "evalsetver-formal",
         "published_at": 3_000.0,
         "benchmark_contract_version": "rag-gold-v2",
@@ -754,9 +787,11 @@ def test_formal_admission_requires_same_corpus_and_complete_target_identity() ->
             "corpus_snapshot_hash": corpus_checksum,
             "version_evidence": {
                 "schema_version": "rag-version-evidence-v1",
+                "kb_id": "kb-formal",
                 "version_id": version_id,
                 "version_fingerprint": fingerprint,
                 "configuration_fingerprint": fingerprint[::-1],
+                "source_manifest_fingerprint": "d" * 64,
                 "processor": {
                     "mode": "general",
                     "vision_enabled": False,
@@ -764,12 +799,51 @@ def test_formal_admission_requires_same_corpus_and_complete_target_identity() ->
                 },
                 "embedding": {
                     "effective": {
-                        "provider": "local",
-                        "model": "hash-embedding",
-                        "dimension": 128,
+                        "provider": "openai_compatible",
+                        "model": "bge-m3",
+                        "dimension": 1024,
+                        "degraded": False,
+                        "ready": True,
+                        "reason": None,
+                        "access_mode": "managed",
+                        "status": "ready",
+                        "embedding_space_fingerprint": "e" * 64,
                     }
                 },
-                "retrieval": {"mode": "hybrid"},
+                "retrieval": {
+                    "mode": "hybrid",
+                    "top_k": 5,
+                    "rerank_enabled": False,
+                    "rerank_provider": "none",
+                    "rerank_model": "",
+                    "rerank_top_n": 0,
+                },
+                "index_contract": {
+                    "contract_version": "rag-index-contract-v3",
+                    "index_schema_version": 3,
+                    "retrieval_mode": "hybrid",
+                    "vector": {
+                        "required": True,
+                        "embedding_space_fingerprint": "e" * 64,
+                        "dimension": 1024,
+                        "distance_contract": "cosine_v1",
+                    },
+                    "lexical": {"required": True, "backend": "sqlite_fts5"},
+                },
+                "vector_backend_readiness": {
+                    "configured_backend": "chroma",
+                    "effective_backend": "chroma",
+                    "ready": True,
+                    "reason_code": None,
+                    "distance_contract": "cosine_v1",
+                },
+                "runtime_vector_backend_readiness": {
+                    "configured_backend": "chroma",
+                    "effective_backend": "chroma",
+                    "ready": True,
+                    "reason_code": None,
+                    "distance_contract": "cosine_v1",
+                },
             },
         }
 

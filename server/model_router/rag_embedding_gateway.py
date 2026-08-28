@@ -85,6 +85,7 @@ class _EmbeddingCallReceipt:
     model_id: str
     dispatched: bool
     status: str
+    provider_kind: str | None = None
     actual_model: str | None = None
     error_code: str | None = None
     e2e_ms: float | None = None
@@ -94,7 +95,9 @@ class _EmbeddingCallReceipt:
     def payload(self) -> dict[str, object | None]:
         return {
             "call_sequence": self.call_sequence,
+            "operation": "embedding_vectors",
             "model_id": self.model_id,
+            "provider_kind": self.provider_kind,
             "dispatched": self.dispatched,
             "status": self.status,
             "actual_model": self.actual_model,
@@ -417,6 +420,7 @@ class ManagedRagEmbeddingRun:
                 _EmbeddingCallReceipt(
                     call_sequence=call_sequence,
                     model_id=model_id,
+                    provider_kind=target.provider_kind,
                     actual_model=actual_model,
                     dispatched=True,
                     status="passed",
@@ -569,6 +573,12 @@ class ManagedRagEmbeddingRun:
             _EmbeddingCallReceipt(
                 call_sequence=call_sequence,
                 model_id=model_id,
+                provider_kind=(
+                    prepared.operation_target.provider_kind
+                    if prepared is not None
+                    and prepared.operation_target is not None
+                    else None
+                ),
                 dispatched=dispatched,
                 status=status,
                 error_code=code,

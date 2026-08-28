@@ -2,12 +2,34 @@
 
 本文件说明模镜本地 RAG 模块的架构、API、扩展方式和测试方法。该模块位于 `server/rag/`，前端入口为 `/rag`，聊天页可选择知识库进行检索增强问答。
 
-最后更新日期：2026-08-27
+最后更新日期：2026-08-28
 
 > **当前状态：** `/rag` 是 ModelMirror 本地主路径。知识流水线已支持候选版本、
 > 人工激活/回滚、Processor、可选视觉理解、向量 + FTS5 双索引、检索评测和
 > Promotion Gate。下方按日期保留的段落是增量记录；较早段落中的“planned”
 > 只代表当时状态。
+
+## 2026-08-28 P0：Formal 可重放性与执行完整性
+
+Evaluation Run 的读取投影会把当前引用状态标记为 `current`、`orphaned` 或
+`unreproducible`。知识库、Gold 或 Pipeline Version 已删除时属于 orphaned；语料快照、
+版本配置、构建期/运行期 Backend、执行代码或 checksum 漂移时属于 unreproducible。投影
+只重新解析引用，不重写历史指标和旧回执；旧记录可以查看，但不能继续作为晋级基线。
+
+Formal 在第一个检索槽位前再次校验已发布 `rag-gold-v2`、完整 case/target 账本、一个
+baseline 与一个 candidate、同一 corpus snapshot、版本实际 Top-K、代码指纹和当前引用。
+任一项漂移都会在 Provider 调用前失败关闭。Diagnostic 仍可显式覆盖 Top-K，但覆盖值会
+记录为实验变量，不能授权晋级。
+
+每个 case 保存脱敏的执行模式、稳定失败原因、Retrieval 回执和 Provider route receipts。
+Managed 调用回执明确区分 `embedding_vectors` 与 `rerank_documents`，记录 Provider kind、
+请求/实际模型、访问协议、耗时和用量，不保存文本、endpoint 或凭据。全文检索不得出现
+Embedding 调用；Vector/Hybrid 必须精确匹配未降级的 Managed Embedding 与 V3 index
+identity；Rerank 未配置却执行、fail-open、回执缺失、非法模型身份或非零错误均阻断晋级。
+
+Promotion 会重新计算运行完整性和可重放性，历史 `promotion_gate.passed=true` 不能绕过
+新检查。本批不迁移历史记录、不修改活动索引、不调用真实 Provider；回滚只需撤销对应
+代码提交。
 
 ## 2026-08-27 P0：V3 绝对相关性与无结果合同
 

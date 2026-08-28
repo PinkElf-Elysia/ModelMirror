@@ -226,6 +226,8 @@ async def test_managed_rerank_uses_one_explicit_access_mode_and_one_post(
     assert [item.index for item in result.items] == [0, 1]
     assert receipt["call_count"] == 1
     assert receipt["calls"][0]["dispatched"] is True
+    assert receipt["calls"][0]["operation"] == "rerank_documents"
+    assert receipt["calls"][0]["provider_kind"] == "openai_compatible"
     stored = repository.database_path.read_bytes()
     assert b"private query marker" not in stored
     assert b"private document one" not in stored

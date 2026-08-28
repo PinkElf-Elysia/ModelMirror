@@ -5,6 +5,7 @@ import {
   helpModules,
   helpSections,
   ragDiversityBaseline,
+  ragFormalIntegrityBaseline,
   remoteMcpReviewBaseline,
   rssReviewBaseline,
   searchHelpContent,
@@ -46,7 +47,9 @@ describe("help center content catalog", () => {
       expect(article.verifiedDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       expect(article.content).not.toMatch(/内容稍后补充|coming soon/i);
     });
-    expect(helpArticles.filter((article) => !["review-remote-mcp-auth", "subscribe-rss-workflow"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
+    expect(helpArticles.filter((article) => !["recover-unavailable-feature", "review-remote-mcp-auth", "subscribe-rss-workflow"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
+    expect(helpArticles.find((article) => article.slug === "recover-unavailable-feature")?.verifiedCommit).toBe(ragFormalIntegrityBaseline.commit);
+    expect(helpArticles.find((article) => article.slug === "recover-unavailable-feature")?.verifiedDate).toBe(ragFormalIntegrityBaseline.date);
     expect(helpArticles.find((article) => article.slug === "review-remote-mcp-auth")?.verifiedCommit).toBe(remoteMcpReviewBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "subscribe-rss-workflow")?.verifiedCommit).toBe(rssReviewBaseline.commit);
   });

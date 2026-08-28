@@ -11,7 +11,10 @@ from .evaluation import (
     aggregate_target_metrics,
     evaluate_promotion_gate,
     evaluate_retrieval_case,
+    formal_execution_preflight_reasons,
     paired_primary_confidence_report,
+    qualify_formal_execution_integrity,
+    safe_provider_route_receipts,
 )
 from .rag_service import RagService
 
@@ -106,6 +109,27 @@ class KnowledgeEvaluationExecutor:
         run_id = str(run["run_id"])
         registry_id = await self._ensure_registry_run(run)
         try:
+            if str(run.get("run_mode") or "diagnostic") == "formal":
+                projected = self.store.get_run(run_id)
+                preflight_reasons = formal_execution_preflight_reasons(projected)
+                if str(projected.get("reproducibility_status") or "") != "current":
+                    preflight_reasons.extend(
+                        str(item)[:160]
+                        for item in projected.get(
+                            "reproducibility_reasons", []
+                        )
+                        if str(item)
+                    )
+                    if not preflight_reasons:
+                        preflight_reasons.append("formal_references_not_current")
+                if preflight_reasons:
+                    raise ValueError(
+                        "Formal evaluation preflight failed: "
+                        f"{preflight_reasons[0]}"
+                    )
+                run = self.store.get_run(
+                    run_id, project_reproducibility=False
+                )
             await self._checkpoint(
                 registry_id,
                 event_type="knowledge_evaluation.started",
@@ -120,16 +144,34 @@ class KnowledgeEvaluationExecutor:
             for target, case in _execution_slots(run):
                 target_id = str(target["target_id"])
                 target_top_k = max_k
-                if bool(target.get("respect_profile_top_k")):
+                retrieval_override = dict(target.get("retrieval") or {})
+                if str(run.get("run_mode") or "diagnostic") == "formal":
+                    declared_target = next(
+                        (
+                            item
+                            for item in (run.get("execution_manifest") or {}).get(
+                                "targets", []
+                            )
+                            if isinstance(item, dict)
+                            and str(item.get("version_id") or "")
+                            == str(target.get("version_id") or "")
+                        ),
+                        {},
+                    )
                     target_top_k = max(
                         1,
-                        min(
-                            int((target.get("retrieval") or {}).get("top_k") or max_k),
-                            max_k,
+                        int(
+                            (declared_target.get("retrieval") or {}).get("top_k")
+                            or 0
                         ),
                     )
+                    retrieval_override = {}
+                elif bool(target.get("respect_profile_top_k")) and "top_k" in retrieval_override:
+                    target_top_k = max(1, int(retrieval_override["top_k"]))
                 case_id = str(case["case_id"])
-                current = self.store.get_run(run_id)
+                current = self.store.get_run(
+                    run_id, project_reproducibility=False
+                )
                 if self.store.cancel_requested(run_id):
                     self.store.complete_cancel(run_id)
                     await self._finish_registry(registry_id, "cancelled", "Cancelled by user.")
@@ -145,10 +187,11 @@ class KnowledgeEvaluationExecutor:
                         str(target["version_id"]),
                         str(case["query"]),
                         top_k=target_top_k,
-                        retrieval={
-                            **dict(target.get("retrieval") or {}),
-                            "top_k": target_top_k,
-                        },
+                        retrieval=(
+                            {**retrieval_override, "top_k": target_top_k}
+                            if retrieval_override
+                            else None
+                        ),
                         generate_answer=False,
                     )
                     case_result = evaluate_retrieval_case(
@@ -160,6 +203,23 @@ class KnowledgeEvaluationExecutor:
                         expected_no_result=bool(case.get("expected_no_result")),
                         retrieval_receipt=dict(retrieval.get("retrieval") or {}),
                     )
+                    case_result.update(
+                        {
+                            "execution_mode": str(
+                                retrieval.get("execution_mode") or "legacy"
+                            ),
+                            "provider_route_receipts": safe_provider_route_receipts(
+                                retrieval.get("provider_route_receipts")
+                            ),
+                            "fallback_reason_codes": [
+                                str(item)[:160]
+                                for item in retrieval.get(
+                                    "fallback_reason_codes", []
+                                )[:20]
+                                if str(item)
+                            ],
+                        }
+                    )
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:
@@ -169,6 +229,12 @@ class KnowledgeEvaluationExecutor:
                         target_id,
                         case_id,
                         exc_info=True,
+                    )
+                    error_code = str(
+                        getattr(exc, "code", "execution_error")
+                    )[:160]
+                    failed_receipt = safe_provider_route_receipts(
+                        getattr(exc, "receipt", None)
                     )
                     case_result = {
                         "status": "failed",
@@ -185,6 +251,11 @@ class KnowledgeEvaluationExecutor:
                         "warnings": [],
                         "ranking": [],
                         "error": self.service._safe_pipeline_error(exc),
+                        "execution_mode": (
+                            "managed" if failed_receipt is not None else "failed"
+                        ),
+                        "provider_route_receipts": failed_receipt,
+                        "fallback_reason_codes": [error_code],
                     }
                 case_result.update(
                     {
@@ -194,7 +265,9 @@ class KnowledgeEvaluationExecutor:
                 )
                 self.store.record_case_result(run_id, target_id, case_id, case_result)
 
-            completed = self.store.get_run(run_id)
+            completed = self.store.get_run(
+                run_id, project_reproducibility=False
+            )
             if str(completed.get("run_mode") or "diagnostic") == "formal":
                 expected_case_ids = {
                     str(case["case_id"])
@@ -295,6 +368,13 @@ class KnowledgeEvaluationExecutor:
                         ),
                     }
                 item["paired_confidence"] = item_paired_confidence
+            execution_integrity: dict[str, Any] | None = None
+            if str(completed.get("run_mode") or "diagnostic") == "formal":
+                execution_integrity = qualify_formal_execution_integrity(
+                    {**completed, "target_results": aggregates}
+                )
+            for item in aggregates:
+                item_paired_confidence = item.get("paired_confidence")
                 item["promotion_gate"] = evaluate_promotion_gate(
                     item["metrics"],
                     baseline=baseline if item["version_id"] != completed.get("baseline_version_id") else item["metrics"],
@@ -304,8 +384,11 @@ class KnowledgeEvaluationExecutor:
                     ),
                     paired_confidence=item_paired_confidence,
                     comparability=dict(completed.get("comparability") or {}),
+                    execution_integrity=execution_integrity,
                     run_mode=str(completed.get("run_mode") or "diagnostic"),
                 )
+                if execution_integrity is not None:
+                    item["execution_integrity"] = dict(execution_integrity)
             final = self.store.complete_run(
                 run_id,
                 aggregates,

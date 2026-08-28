@@ -125,7 +125,21 @@ interface TargetResult {
   promotion_gate: {
     passed: boolean;
     mode: string;
-    checks: Array<{ id: string; passed: boolean; actual: number; threshold: number; message: string }>;
+    checks: Array<{
+      id: string;
+      passed: boolean;
+      actual?: number | boolean | string | null;
+      threshold?: number | boolean | string | null;
+      required?: boolean;
+      status?: string;
+      reason_codes?: string[];
+      message: string;
+    }>;
+  };
+  execution_integrity?: {
+    status?: string;
+    qualified?: boolean;
+    reason_codes?: string[];
   };
 }
 
@@ -140,6 +154,8 @@ interface EvaluationRun {
   metric_contract_version?: string;
   comparability?: { comparable?: boolean; same_corpus?: boolean; reason?: string | null };
   paired_confidence?: Record<string, unknown>;
+  reproducibility_status?: "current" | "orphaned" | "unreproducible";
+  reproducibility_reasons?: string[];
   target_results: TargetResult[];
   evidence_qualification?: {
     status: "qualified" | "diagnostic_only";
@@ -185,6 +201,26 @@ function leakageWarningThreshold(item: EvaluationCase) {
   if (!warning || typeof warning !== "object") return null;
   const threshold = Number((warning as { threshold?: unknown }).threshold);
   return Number.isFinite(threshold) ? threshold : null;
+}
+
+export function isEvaluationPromotionReady(
+  run: {
+    status: string;
+    run_mode?: "diagnostic" | "formal";
+    reproducibility_status?: "current" | "orphaned" | "unreproducible";
+  } | null,
+  target: {
+    promotion_gate: { passed: boolean };
+    execution_integrity?: { qualified?: boolean };
+  },
+) {
+  return Boolean(
+    run?.status === "succeeded"
+      && run.run_mode === "formal"
+      && run.reproducibility_status === "current"
+      && target.execution_integrity?.qualified === true
+      && target.promotion_gate.passed,
+  );
 }
 
 export default function KnowledgeEvaluationPage() {
@@ -779,7 +815,7 @@ export default function KnowledgeEvaluationPage() {
 
         <section className="surface-panel overflow-hidden rounded-lg border border-white/10">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
-            <div><div className="flex items-center gap-2"><h2 className="text-sm font-semibold text-white">评估结果</h2>{selectedRun?.run_mode ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[10px] font-semibold text-slate-300">{selectedRun.run_mode}</span> : null}{selectedRun?.evidence_qualification ? <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${selectedRun.evidence_qualification.qualified ? "border-emerald-300/30 text-emerald-200" : "border-amber-300/30 text-amber-100"}`}>{selectedRun.evidence_qualification.qualified ? "qualified" : "diagnostic_only"}</span> : null}</div><p className="mt-1 text-xs text-slate-500">{selectedRun ? `${selectedRun.status} · ${selectedRun.progress}% · ${selectedRun.run_id}` : "选择或运行一次评估"}</p>{selectedRun?.evidence_qualification && !selectedRun.evidence_qualification.qualified ? <p className="mt-1 text-xs text-amber-100">仅供诊断：正式门禁要求已发布 rag-gold-v2、42 条可信审核证据与同一语料快照。</p> : null}</div>
+            <div><div className="flex flex-wrap items-center gap-2"><h2 className="text-sm font-semibold text-white">评估结果</h2>{selectedRun?.run_mode ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[10px] font-semibold text-slate-300">{selectedRun.run_mode}</span> : null}{selectedRun?.evidence_qualification ? <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${selectedRun.evidence_qualification.qualified ? "border-emerald-300/30 text-emerald-200" : "border-amber-300/30 text-amber-100"}`}>{selectedRun.evidence_qualification.qualified ? "qualified" : "diagnostic_only"}</span> : null}{selectedRun?.reproducibility_status ? <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${selectedRun.reproducibility_status === "current" ? "border-emerald-300/30 text-emerald-200" : selectedRun.reproducibility_status === "orphaned" ? "border-rose-300/30 text-rose-200" : "border-amber-300/30 text-amber-100"}`}>{selectedRun.reproducibility_status === "current" ? "可重放" : selectedRun.reproducibility_status === "orphaned" ? "引用已失效" : "不可重放"}</span> : null}</div><p className="mt-1 text-xs text-slate-500">{selectedRun ? `${selectedRun.status} · ${selectedRun.progress}% · ${selectedRun.run_id}` : "选择或运行一次评估"}</p>{selectedRun?.evidence_qualification && !selectedRun.evidence_qualification.qualified ? <p className="mt-1 text-xs text-amber-100">仅供诊断：正式门禁要求已发布 rag-gold-v2、42 条可信审核证据与同一语料快照。</p> : null}{selectedRun?.reproducibility_status && selectedRun.reproducibility_status !== "current" ? <p className="mt-1 max-w-[75ch] text-xs text-amber-100">不可晋级：评测引用已缺失或执行指纹已漂移，请使用当前 Gold 和索引版本重新运行 Formal。</p> : null}</div>
             {selectedRun?.error ? <span className="text-xs text-rose-200">{selectedRun.error}</span> : null}
           </div>
           {selectedRun?.target_results.length ? (
@@ -787,14 +823,15 @@ export default function KnowledgeEvaluationPage() {
               <table className="w-full min-w-[1060px] text-left text-xs">
                 <thead className="border-b border-white/10 bg-white/[0.025] text-slate-500"><tr><th className="px-4 py-3">版本</th><th>Recall@1</th><th>Recall@5</th><th>MRR@10</th><th>nDCG@10</th><th>Citation P@5</th><th>引用覆盖</th><th>无答案准确</th><th>误召回</th><th>P95</th><th>Gate</th><th className="pr-4">操作</th></tr></thead>
                 <tbody className="divide-y divide-white/10">
-                  {selectedRun.target_results.map((target) => (
-                    <tr key={target.version_id}>
+                  {selectedRun.target_results.map((target) => {
+                    const promotionReady = isEvaluationPromotionReady(selectedRun, target);
+                    return <tr key={target.version_id}>
                       <td className="px-4 py-3 font-semibold text-white">v{target.version}</td>
                       <td>{metric(target.metrics.recall_at_1)}</td><td>{metric(target.metrics.recall_at_5)}</td><td>{metric(target.metrics.mrr_at_10, false)}</td><td>{metric(target.metrics.ndcg_at_10, false)}</td><td>{metric(target.metrics.citation_precision_at_5)}</td><td>{metric(target.metrics.citation_coverage ?? target.metrics.citation_hit_rate)}</td><td>{metric(target.metrics.no_result_accuracy)}</td><td>{metric(target.metrics.false_positive_rate)}</td><td>{target.metrics.p95_latency_ms?.toFixed(0) ?? "-"} ms</td>
-                      <td><span className={target.promotion_gate.passed ? "text-emerald-200" : "text-rose-200"}>{target.promotion_gate.passed ? "通过" : "未通过"}</span></td>
-                      <td className="pr-4"><button className="rounded-md border border-emerald-300/25 px-2.5 py-1.5 font-semibold text-emerald-100 disabled:cursor-not-allowed disabled:opacity-35" disabled={!target.promotion_gate.passed || busy === `promote:${target.version_id}`} onClick={() => void promote(target.version_id)} type="button">推广</button></td>
+                      <td><span className={promotionReady ? "text-emerald-200" : "text-rose-200"}>{promotionReady ? "通过" : target.promotion_gate.passed ? "证据阻断" : "未通过"}</span></td>
+                      <td className="pr-4"><button className="rounded-md border border-emerald-300/25 px-2.5 py-1.5 font-semibold text-emerald-100 disabled:cursor-not-allowed disabled:opacity-35" disabled={!promotionReady || busy === `promote:${target.version_id}`} onClick={() => void promote(target.version_id)} title={promotionReady ? "推广该索引版本" : "仅可推广可重放、执行证据完整且门禁通过的 Formal 结果"} type="button">推广</button></td>
                     </tr>
-                  ))}
+                  })}
                 </tbody>
               </table>
               <div className="grid gap-4 border-t border-white/10 p-4 xl:grid-cols-2">

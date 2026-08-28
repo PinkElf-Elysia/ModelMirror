@@ -81,6 +81,7 @@ export const verifiedBaseline = { commit: "cc49136c", date: "2026-08-26" };
 export const remoteMcpReviewBaseline = { commit: "821067a7", date: "2026-08-27" };
 export const ragDiversityBaseline = { commit: "f0150fb5", date: "2026-08-27" };
 export const rssReviewBaseline = { commit: "821067a7", date: "2026-08-27" };
+export const ragFormalIntegrityBaseline = { commit: "be056e99", date: "2026-08-28" };
 
 export const helpContentTypeLabels: Record<HelpContentType, string> = {
   tutorial: "入门教程",
@@ -175,8 +176,8 @@ export const helpArticles: HelpArticle[] = [
     estimatedMinutes: 4,
     keywords: ["不可用", "未开放", "需要配置", "待适配", "开关未开启", "恢复", "RAG", "Skill", "重排"],
     relatedRoutes: ["/models", "/rag", "/skills/rerank", "/settings"],
-    verifiedCommit: verifiedBaseline.commit,
-    verifiedDate: verifiedBaseline.date,
+    verifiedCommit: ragFormalIntegrityBaseline.commit,
+    verifiedDate: ragFormalIntegrityBaseline.date,
     content: recoverUnavailableFeature,
     nextSlug: "review-remote-mcp-auth",
   },
