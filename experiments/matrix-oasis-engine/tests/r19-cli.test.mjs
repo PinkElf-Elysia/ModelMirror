@@ -137,3 +137,62 @@ test("invalid output scope and mid-publish failure leave no target", async (t) =
   const leftovers = (await fs.readdir(fixture.root)).filter((name) => name.startsWith(".matrix-oasis-r19-"));
   assert.deepEqual(leftovers, []);
 });
+
+test("concurrent publication has exactly one winner and no staging residue", async (t) => {
+  const fixture = await fixtureRoot(t);
+  const output = path.join(fixture.root, "concurrent");
+  const args = ["--runtime-pack", fixture.paths.runtime, "--runtime-receipt", fixture.paths.receipt, "--policy", fixture.paths.policy, "--timeline", "timeline-cli", "--output", output];
+  const results = await Promise.all([
+    executeCreateNpcAuthorityTimelineCli({ args, tempRoot, services, operations }),
+    executeCreateNpcAuthorityTimelineCli({ args, tempRoot, services, operations }),
+  ]);
+  assert.deepEqual(results.map((result) => result.exitCode).sort(), [0, 2]);
+  assert.equal(contracts.validateWorldEventLedgerJson(await fs.readFile(path.join(output, "world-event-ledger.json"), "utf8")).valid, true);
+  assert.deepEqual((await fs.readdir(fixture.root)).filter((name) => name.startsWith(".matrix-oasis-r19-")), []);
+});
+
+test("authority junctions and an input identity change fail closed", async (t) => {
+  const fixture = await fixtureRoot(t);
+  const timeline = path.join(fixture.root, "timeline");
+  const created = await executeCreateNpcAuthorityTimelineCli({
+    args: ["--runtime-pack", fixture.paths.runtime, "--runtime-receipt", fixture.paths.receipt, "--policy", fixture.paths.policy, "--timeline", "timeline-cli", "--output", timeline],
+    tempRoot,
+    services,
+    operations,
+  });
+  assert.equal(created.exitCode, 0);
+  const junction = path.join(fixture.root, "authority-junction");
+  await fs.symlink(timeline, junction, "junction");
+  const junctionResult = await executeReplayWorldEventLedgerCli({ args: ["--authority-dir", junction, "--output", path.join(fixture.root, "junction-output")], tempRoot, services, operations });
+  assert.equal(junctionResult.stderr, "NPC_AUTHORITY_CLI_AUTHORITY_DIR_INVALID\n");
+
+  let handleStatCalls = 0;
+  const changingServices = {
+    ...services,
+    openFile: async (...args) => {
+      const handle = await fs.open(...args);
+      return {
+        readFile: (...readArgs) => handle.readFile(...readArgs),
+        close: () => handle.close(),
+        stat: async (options) => {
+          const value = await handle.stat(options);
+          handleStatCalls += 1;
+          if (handleStatCalls !== 2) return value;
+          return new Proxy(value, {
+            get(target, property) {
+              if (property === "mtimeNs") return target.mtimeNs + 1n;
+              const observed = Reflect.get(target, property, target);
+              return typeof observed === "function" ? observed.bind(target) : observed;
+            },
+          });
+        },
+      };
+    },
+  };
+  const changed = await executeValidateNpcAuthorityCli({
+    args: ["--kind", "policy", "--file", fixture.paths.policy],
+    services: changingServices,
+    validators: { policy: contracts.validateNpcAuthorityPolicyJson },
+  });
+  assert.equal(changed.stderr, "NPC_AUTHORITY_CLI_INPUT_CHANGED\n");
+});
