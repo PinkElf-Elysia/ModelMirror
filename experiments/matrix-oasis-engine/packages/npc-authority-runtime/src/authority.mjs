@@ -2,6 +2,7 @@ import {
   NPC_ADJUDICATION_RESULT_FORMAT,
   NPC_AUTHORITY_CANONICALIZATION,
   NPC_AUTHORITY_FORMAT_VERSION,
+  NPC_AUTHORITY_LIMITS,
   WORLD_EVENT_LEDGER_REPLAY_REPORT_FORMAT,
   validateNpcAdjudicationResultJson,
   validateNpcAuthorityPolicyJson,
@@ -21,7 +22,6 @@ import {
   appendWorldEventLedgerEntryCore,
   createWorldEventLedgerCore,
   hashCanonicalValue,
-  resolveWorldEventLedgerIntent,
 } from "./ledger.mjs";
 
 const preparedData = new WeakMap();
@@ -192,8 +192,9 @@ function replayLedger(data, ledgerJson, ledger) {
   return deepFreeze({ ok: true, runtimeSnapshot: snapshot, inspection, canonicalWorldEventLedgerJson: ledgerJson, canonicalWorldEventLedgerReplayReportJson });
 }
 
-export async function prepareNpcAuthority({ runtimeGamePackJson, runtimeReceiptJson, policyJson }) {
+export async function prepareNpcAuthority(input) {
   try {
+    const { runtimeGamePackJson, runtimeReceiptJson, policyJson } = input ?? {};
     const policyResult = parseValidated(policyJson, validateNpcAuthorityPolicyJson);
     if (!policyResult.ok) return validationFailure(policyResult.report);
     const runtime = await prepareRuntimeGamePackJson(runtimeGamePackJson, runtimeReceiptJson);
@@ -224,8 +225,9 @@ export async function prepareNpcAuthority({ runtimeGamePackJson, runtimeReceiptJ
   }
 }
 
-export function createNpcAuthorityTimeline(prepared, { timelineId, stepLimit } = {}) {
+export function createNpcAuthorityTimeline(prepared, options) {
   try {
+    const { timelineId, stepLimit } = options ?? {};
     const data = dataFor(prepared);
     if (!data) return fail("NPC_AUTHORITY_PREPARED_INVALID");
     const created = createRuntimeGameSession(data.runtimePrepared, stepLimit === undefined ? undefined : { stepLimit });
@@ -244,8 +246,9 @@ export function createNpcAuthorityTimeline(prepared, { timelineId, stepLimit } =
   }
 }
 
-export function replayWorldEventLedger({ prepared, worldEventLedgerJson }) {
+export function replayWorldEventLedger(input) {
   try {
+    const { prepared, worldEventLedgerJson } = input ?? {};
     const data = dataFor(prepared);
     if (!data) return fail("NPC_AUTHORITY_PREPARED_INVALID");
     const ledgerResult = parseValidated(worldEventLedgerJson, validateWorldEventLedgerJson);
@@ -257,36 +260,38 @@ export function replayWorldEventLedger({ prepared, worldEventLedgerJson }) {
   }
 }
 
-export function adjudicateNpcIntent({ prepared, runtimeSnapshot, worldEventLedgerJson, npcIntentJson }) {
+export function adjudicateNpcIntent(input) {
   try {
+    const { prepared, runtimeSnapshot, worldEventLedgerJson, npcIntentJson } = input ?? {};
     const data = dataFor(prepared);
     if (!data) return fail("NPC_AUTHORITY_PREPARED_INVALID");
     const intentResult = parseValidated(npcIntentJson, validateNpcIntentJson);
     if (!intentResult.ok) return validationFailure(intentResult.report);
     const replayedLedger = replayWorldEventLedger({ prepared, worldEventLedgerJson });
     if (!replayedLedger.ok) return replayedLedger;
-    if (!compareCanonical(replayedLedger.runtimeSnapshot, runtimeSnapshot)) return fail("NPC_INTENT_RUNTIME_SNAPSHOT_MISMATCH", "/runtimeSnapshot");
-    const duplicate = resolveWorldEventLedgerIntent({ worldEventLedgerJson, npcIntentJson });
-    if (!duplicate.ok) return duplicate;
-    if (duplicate.kind === "replay") {
+    const ledger = JSON.parse(worldEventLedgerJson);
+    const duplicate = ledger.entries.find((entry) => entry.intent.id === intentResult.value.id);
+    if (duplicate && canonicalizeJsonValue(duplicate.intent) !== npcIntentJson) return fail("NPC_INTENT_ID_COLLISION", "/id");
+    if (duplicate) {
       const document = resultDocument({
         timelineId: intentResult.value.timelineId,
         intentId: intentResult.value.id,
         replayed: true,
-        revision: duplicate.entry.revision,
-        headSha256: duplicate.entry.entrySha256,
-        entry: duplicate.entry,
+        revision: duplicate.revision,
+        headSha256: duplicate.entrySha256,
+        entry: duplicate,
       });
       const captured = captureResultDocument(document);
       if (!captured.ok) return captured;
       return deepFreeze({ ok: true, replayed: true, canonicalAdjudicationResultJson: captured.canonicalNpcAdjudicationResultJson, runtimeSnapshot: replayedLedger.runtimeSnapshot, canonicalWorldEventLedgerJson: worldEventLedgerJson });
     }
-    const ledger = JSON.parse(worldEventLedgerJson);
+    if (!compareCanonical(replayedLedger.runtimeSnapshot, runtimeSnapshot)) return fail("NPC_INTENT_RUNTIME_SNAPSHOT_MISMATCH", "/runtimeSnapshot");
     if (intentResult.value.timelineId !== ledger.timeline.id) return fail("NPC_INTENT_TIMELINE_MISMATCH", "/timelineId");
     if (intentResult.value.observed.revision !== ledger.revision) return fail("NPC_INTENT_STALE_REVISION", "/observed/revision");
     if (intentResult.value.observed.headSha256 !== ledger.headSha256) return fail("NPC_INTENT_STALE_HEAD", "/observed/headSha256");
     const snapshotSha256 = hashCanonicalValue(runtimeSnapshot);
     if (intentResult.value.observed.runtimeSnapshotSha256 !== snapshotSha256) return fail("NPC_INTENT_STALE_SNAPSHOT", "/observed/runtimeSnapshotSha256");
+    if (ledger.revision >= NPC_AUTHORITY_LIMITS.ledgerEntries) return fail("WORLD_EVENT_LEDGER_CAPACITY_EXCEEDED", "/revision");
     const inspected = inspectRuntimeGameSession(data.runtimePrepared, runtimeSnapshot);
     if (!inspected.ok) return deepFreeze({ ok: false, diagnostics: inspected.diagnostics });
     const evaluated = evaluateIntent(data, runtimeSnapshot, inspected.inspection, intentResult.value);

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { canonicalizeJsonValue } from "@matrix-oasis/runtime-pack-contracts";
-import { validateDerivedProjectionManifestJson, validateWorldEventLedgerJson } from "@matrix-oasis/npc-authority-contracts";
+import { NPC_AUTHORITY_LIMITS, validateDerivedProjectionManifestJson, validateWorldEventLedgerJson } from "@matrix-oasis/npc-authority-contracts";
 import {
   appendWorldEventLedgerEntryCore,
   createDerivedProjectionManifest,
@@ -39,6 +39,14 @@ test("creates a canonical empty append-only ledger without mutating policy", () 
   assert.equal(result.canonicalWorldEventLedgerJson, canonicalizeJsonValue(JSON.parse(result.canonicalWorldEventLedgerJson)));
   assert.deepEqual(policy, before);
   assert.equal(Object.isFrozen(result), true);
+});
+
+test("public Ledger operations reject absent arguments without leaking argument exceptions", () => {
+  for (const operation of [createWorldEventLedgerCore, resolveWorldEventLedgerIntent, appendWorldEventLedgerEntryCore, createDerivedProjectionManifest]) {
+    const result = operation();
+    assert.equal(result.ok, false);
+    assert.equal(typeof result.diagnostics[0].code, "string");
+  }
 });
 
 test("appends accepted and rejected entries with a continuous hash and snapshot chain", () => {
@@ -140,6 +148,39 @@ test("projection identity changes on reducer, artifact or ledger drift", () => {
   assert.notEqual(create(secondLedger, sha("6"), "{}"), baseline);
   assert.notEqual(create(firstLedger, sha("7"), "{}"), baseline);
   assert.notEqual(create(firstLedger, sha("6"), "{\"changed\":true}"), baseline);
+});
+
+test("hostile projection byte accessors fail with the static operational error", () => {
+  const hostileArtifact = new Proxy({}, {
+    get(_target, property) {
+      if (property === "bytes") throw new Error("secret-projection-path");
+      return undefined;
+    },
+  });
+  assert.throws(
+    () => createDerivedProjectionManifest({
+      worldEventLedgerJson: emptyLedger().canonicalWorldEventLedgerJson,
+      projectionKind: "memory",
+      reducer: { id: "memory-reducer", version: "1.0.0", sourceSha256: sha("6") },
+      scopeEntityIds: ["actor-one"],
+      artifact: hostileArtifact,
+    }),
+    (error) => error?.code === "NPC_AUTHORITY_INTERNAL_ERROR" && error.message === "NPC_AUTHORITY_INTERNAL_ERROR" && !String(error.stack).includes("secret-projection-path"),
+  );
+});
+
+test("projection artifact bytes are rejected before an oversized copy or hash", () => {
+  const bytes = new Uint8Array(NPC_AUTHORITY_LIMITS.projectionArtifactBytes + 1);
+  const result = createDerivedProjectionManifest({
+    worldEventLedgerJson: emptyLedger().canonicalWorldEventLedgerJson,
+    projectionKind: "memory",
+    reducer: { id: "memory-reducer", version: "1.0.0", sourceSha256: sha("6") },
+    scopeEntityIds: ["actor-one"],
+    artifact: { format: "application.json", bytes },
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.diagnostics[0].code, "DERIVED_PROJECTION_ARTIFACT_SIZE_EXCEEDED");
+  assert.equal("canonicalDerivedProjectionManifestJson" in result, false);
 });
 
 test("ledger and projection operations are byte deterministic for 20 runs", () => {

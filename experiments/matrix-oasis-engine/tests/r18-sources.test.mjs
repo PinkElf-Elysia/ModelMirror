@@ -15,7 +15,7 @@ function sha256(relative) {
     .digest("hex");
 }
 
-test("R17 selection evidence remains byte frozen while R18 owns the active claim state", () => {
+test("R17 and R18 selection evidence remain byte frozen after the R19 authority qualification", () => {
   assert.equal(
     sha256("docs/R17_QUALIFICATION_SUMMARY.json"),
     "d87346eebfbbcb22bf00a386a6511859c42aec91393d193a4c40db0b9de08c8e",
@@ -32,10 +32,10 @@ test("R17 selection evidence remains byte frozen while R18 owns the active claim
   const status = JSON.parse(readFileSync(path.join(moduleRoot, "docs", "V2_STATUS.json"), "utf8"));
   assert.deepEqual(status, {
     schemaVersion: 1,
-    status: "r18-landscape-qualified",
+    status: "r19-authority-qualified",
     claimAllowed: false,
     blockingRound: "R25",
-    qualificationProfile: "matrix-oasis.v2-landscape/1",
+    qualificationProfile: "matrix-oasis.npc-authority/1",
   });
 });
 

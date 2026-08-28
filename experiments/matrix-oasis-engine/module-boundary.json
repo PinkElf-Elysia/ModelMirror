@@ -14,7 +14,7 @@
       "scripts/create-npc-authority-timeline.mjs", "scripts/adjudicate-npc-intent.mjs", "scripts/replay-world-event-ledger.mjs", "scripts/validate-npc-authority.mjs", "scripts/verify-r19-references.mjs", "scripts/verify-r19.mjs",
       "scripts/lib/boundary-core.mjs", "scripts/lib/v2-claim-core.mjs", "scripts/lib/r19-cli-core.mjs", "scripts/lib/scope-policy.mjs",
       "scripts/run-verify.mjs", "tests/boundary.test.mjs", "tests/extraction-contract.test.mjs",
-      "tests/v2-claim.test.mjs", "tests/r19-reference.test.mjs", "tests/r19-cli.test.mjs", "tests/r19-falsification.test.mjs", "tests/round-scope.test.mjs"
+      "tests/v2-claim.test.mjs", "tests/r18-sources.test.mjs", "tests/r19-reference.test.mjs", "tests/r19-cli.test.mjs", "tests/r19-falsification.test.mjs", "tests/round-scope.test.mjs"
     ],
     "allowedModulePrefixes": [
       "packages/npc-authority-contracts",
@@ -61,11 +61,11 @@
     "completionMarker": "MATRIX_OASIS_R16_CREATOR_MVP_READY"
   },
   "v2ClaimPolicy": {
-    "status": "r18-landscape-qualified",
+    "status": "r19-authority-qualified",
     "claimAllowed": false,
     "blockingRound": "R25",
     "machineStatus": "docs/V2_STATUS.json",
-    "qualificationProfile": "matrix-oasis.v2-landscape/1",
+    "qualificationProfile": "matrix-oasis.npc-authority/1",
     "trackedCandidateSourceAllowed": false,
     "trackedQualificationEvidenceAllowed": false,
     "providerCallsAllowed": false,

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "status": "r18-landscape-qualified",
+  "status": "r19-authority-qualified",
   "claimAllowed": false,
   "blockingRound": "R25",
-  "qualificationProfile": "matrix-oasis.v2-landscape/1"
+  "qualificationProfile": "matrix-oasis.npc-authority/1"
 }

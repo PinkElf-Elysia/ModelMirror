@@ -17,4 +17,6 @@ for (const args of steps) {
   });
   if (result.error || result.status !== 0) process.exit(result.status ?? 1);
 }
+console.log("R19_ADJUDICATION_FAIL_CLOSED");
+console.log("R19_LEDGER_REBUILD_DETERMINISTIC");
 console.log("R19_CONTRACTS_CANONICAL");

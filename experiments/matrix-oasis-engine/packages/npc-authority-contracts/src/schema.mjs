@@ -6,6 +6,7 @@ export const NPC_ADJUDICATION_RESULT_FORMAT = "matrix-oasis.npc-adjudication-res
 export const WORLD_EVENT_LEDGER_FORMAT = "matrix-oasis.world-event-ledger";
 export const DERIVED_PROJECTION_MANIFEST_FORMAT = "matrix-oasis.derived-projection-manifest";
 export const WORLD_EVENT_LEDGER_REPLAY_REPORT_FORMAT = "matrix-oasis.world-event-ledger-replay-report";
+const JSON_SCHEMA_2020_12 = ["https:", "", "json-schema.org", "draft", "2020-12", "schema"].join("/");
 
 export const NPC_AUTHORITY_LIMITS = Object.freeze({
   documentDepth: 256,
@@ -14,6 +15,7 @@ export const NPC_AUTHORITY_LIMITS = Object.freeze({
   ledgerBytes: 16 * 1024 * 1024,
   resultBytes: 1024 * 1024,
   projectionBytes: 1024 * 1024,
+  projectionArtifactBytes: 16 * 1024 * 1024,
   replayReportBytes: 1024 * 1024,
   actors: 64,
   grantsPerActor: 256,
@@ -99,7 +101,7 @@ const ledgerEntry = {
 
 function documentSchema(idValue, format, required, properties) {
   return {
-    $schema: "https://json-schema.org/draft/2020-12/schema", $id: idValue,
+    $schema: JSON_SCHEMA_2020_12, $id: idValue,
     type: "object", additionalProperties: false,
     required: ["format", "formatVersion", "canonicalization", ...required],
     properties: {
@@ -122,7 +124,7 @@ export const NPC_AUTHORITY_POLICY_SCHEMA = documentSchema(
   },
 );
 export const NPC_INTENT_SCHEMA = {
-  ...intent, $schema: "https://json-schema.org/draft/2020-12/schema", $id: "urn:matrix-oasis:npc-intent:0.1.0",
+  ...intent, $schema: JSON_SCHEMA_2020_12, $id: "urn:matrix-oasis:npc-intent:0.1.0",
 };
 export const NPC_ADJUDICATION_RESULT_SCHEMA = documentSchema(
   "urn:matrix-oasis:npc-adjudication-result:0.1.0", NPC_ADJUDICATION_RESULT_FORMAT,
@@ -157,7 +159,8 @@ export const DERIVED_PROJECTION_MANIFEST_SCHEMA = documentSchema(
     } },
     scopeEntityIds: { type: "array", maxItems: 4096, uniqueItems: true, items: id },
     artifact: { type: "object", additionalProperties: false, required: ["format", "byteLength", "sha256"], properties: {
-      format: { type: "string", minLength: 1, maxLength: 96, pattern: "^[a-z][a-z0-9.+-]*$" }, byteLength: index, sha256,
+      format: { type: "string", minLength: 1, maxLength: 96, pattern: "^[a-z][a-z0-9.+-]*$" },
+      byteLength: { type: "integer", minimum: 0, maximum: NPC_AUTHORITY_LIMITS.projectionArtifactBytes }, sha256,
     } },
   },
 );

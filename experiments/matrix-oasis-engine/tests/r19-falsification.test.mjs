@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import test from "node:test";
 import { compileAuthoringGamePackJson } from "@matrix-oasis/game-pack-compiler";
-import { validateWorldEventLedgerJson } from "@matrix-oasis/npc-authority-contracts";
+import { NPC_AUTHORITY_LIMITS, validateWorldEventLedgerJson } from "@matrix-oasis/npc-authority-contracts";
 import {
   adjudicateNpcIntent,
   createDerivedProjectionManifest,
@@ -141,6 +141,15 @@ test("hash, ordering and transition attacks fail closed without partial state", 
   assert.equal(replayed.ok, false);
   assert.equal(replayed.diagnostics[0].code, "WORLD_EVENT_LEDGER_REPLAY_TRANSITION_MISMATCH");
   assert.equal("runtimeSnapshot" in replayed, false);
+
+  const forgedRejection = JSON.parse(state.ledgerJson);
+  forgedRejection.entries[1].decision.reason = "NPC_INTENT_ACTION_UNAVAILABLE";
+  const forgedRejectionJson = rechain(forgedRejection);
+  assert.equal(validateWorldEventLedgerJson(forgedRejectionJson).valid, true);
+  const rejectedReplay = replayWorldEventLedger({ prepared, worldEventLedgerJson: forgedRejectionJson });
+  assert.equal(rejectedReplay.ok, false);
+  assert.equal(rejectedReplay.diagnostics[0].code, "WORLD_EVENT_LEDGER_REPLAY_DECISION_MISMATCH");
+  assert.equal("runtimeSnapshot" in rejectedReplay, false);
 });
 
 test("Runtime, Receipt and Policy identity drift cannot reuse an authority history", async () => {
@@ -219,6 +228,30 @@ test("independent timelines cannot exchange observations or ledgers", async () =
   assert.deepEqual(secondState.snapshot, second.runtimeSnapshot);
 });
 
+test("pure adjudication exposes sibling candidates and requires one external authoritative writer", async () => {
+  const prepared = await prepare();
+  const created = createNpcAuthorityTimeline(prepared, { timelineId: "single-writer-required" });
+  const state = { snapshot: created.runtimeSnapshot, ledgerJson: created.canonicalWorldEventLedgerJson };
+  const firstIntent = intent("intent-sibling-first", "actor-alpha", "node-alpha", "action-pass", state);
+  const secondIntent = intent("intent-sibling-second", "actor-alpha", "node-alpha", "action-pass", state);
+  const first = adjudicateNpcIntent({ prepared, runtimeSnapshot: state.snapshot, worldEventLedgerJson: state.ledgerJson, npcIntentJson: firstIntent });
+  const sibling = adjudicateNpcIntent({ prepared, runtimeSnapshot: state.snapshot, worldEventLedgerJson: state.ledgerJson, npcIntentJson: secondIntent });
+  assert.equal(first.ok, true);
+  assert.equal(sibling.ok, true);
+  assert.notEqual(JSON.parse(first.canonicalWorldEventLedgerJson).headSha256, JSON.parse(sibling.canonicalWorldEventLedgerJson).headSha256);
+  assert.equal(JSON.parse(state.ledgerJson).revision, 0);
+
+  const staleSecond = adjudicateNpcIntent({
+    prepared,
+    runtimeSnapshot: first.runtimeSnapshot,
+    worldEventLedgerJson: first.canonicalWorldEventLedgerJson,
+    npcIntentJson: secondIntent,
+  });
+  assert.equal(staleSecond.ok, false);
+  assert.equal(staleSecond.diagnostics[0].code, "NPC_INTENT_STALE_REVISION");
+  assert.equal("canonicalWorldEventLedgerJson" in staleSecond, false);
+});
+
 test("complete result, ledger, projection and replay bytes are deterministic for 20 runs", async () => {
   const outputs = [];
   for (let run = 0; run < 20; run += 1) {
@@ -241,6 +274,103 @@ test("complete result, ledger, projection and replay bytes are deterministic for
     }));
   }
   assert.equal(new Set(outputs).size, 1);
+});
+
+test("the 10,000-entry contract ceiling remains valid and replayable within a bounded duration", async () => {
+  const prepared = await prepare();
+  const created = createNpcAuthorityTimeline(prepared, { timelineId: "capacity-timeline", stepLimit: NPC_AUTHORITY_LIMITS.ledgerEntries });
+  assert.equal(created.ok, true);
+  const ledger = JSON.parse(created.canonicalWorldEventLedgerJson);
+  const snapshotSha256 = hashCanonicalValue(created.runtimeSnapshot);
+  let previous = null;
+  for (let index = 0; index < NPC_AUTHORITY_LIMITS.ledgerEntries; index += 1) {
+    const intentValue = {
+      format: "matrix-oasis.npc-intent",
+      formatVersion: "0.1.0",
+      canonicalization: "matrix-oasis.canonical-json/1",
+      id: `intent-capacity-${String(index).padStart(5, "0")}`,
+      actorEntityId: "missing-actor",
+      timelineId: ledger.timeline.id,
+      nodeId: "node-alpha",
+      actionId: "action-pass",
+      observed: { revision: index, headSha256: previous, runtimeSnapshotSha256: snapshotSha256 },
+    };
+    const body = {
+      revision: index + 1,
+      intent: intentValue,
+      decision: { status: "rejected", reason: "NPC_INTENT_ACTOR_NOT_FOUND" },
+      beforeSnapshotSha256: snapshotSha256,
+      afterSnapshotSha256: snapshotSha256,
+      transition: null,
+      previousEntrySha256: previous,
+    };
+    const entry = { ...body, entrySha256: hashCanonicalValue(body) };
+    ledger.entries.push(entry);
+    previous = entry.entrySha256;
+  }
+  ledger.revision = ledger.entries.length;
+  ledger.headSha256 = previous;
+  const ledgerJson = canonicalizeJsonValue(ledger);
+  assert.equal(new TextEncoder().encode(ledgerJson).byteLength <= NPC_AUTHORITY_LIMITS.ledgerBytes, true);
+
+  const started = performance.now();
+  const report = validateWorldEventLedgerJson(ledgerJson);
+  assert.equal(report.valid, true, JSON.stringify(report.diagnostics));
+  const replayed = replayWorldEventLedger({ prepared, worldEventLedgerJson: ledgerJson });
+  const elapsedMs = performance.now() - started;
+  assert.equal(replayed.ok, true, JSON.stringify(replayed.diagnostics));
+  assert.equal(JSON.parse(replayed.canonicalWorldEventLedgerReplayReportJson).verifiedEntries, NPC_AUTHORITY_LIMITS.ledgerEntries);
+  assert.equal(elapsedMs < 30_000, true, `10,000-entry validation and replay took ${elapsedMs.toFixed(0)} ms`);
+
+  const duplicate = adjudicateNpcIntent({
+    prepared,
+    runtimeSnapshot: {},
+    worldEventLedgerJson: ledgerJson,
+    npcIntentJson: canonicalizeJsonValue(ledger.entries[0].intent),
+  });
+  assert.equal(duplicate.ok, true);
+  assert.equal(duplicate.replayed, true);
+  assert.equal(duplicate.canonicalWorldEventLedgerJson, ledgerJson);
+  assert.deepEqual(duplicate.runtimeSnapshot, replayed.runtimeSnapshot);
+
+  const atCapacity = { snapshot: replayed.runtimeSnapshot, ledgerJson };
+  const staleIntent = JSON.parse(intent("intent-capacity-stale", "missing-actor", "node-alpha", "action-pass", atCapacity));
+  staleIntent.observed.revision -= 1;
+  const stale = adjudicateNpcIntent({
+    prepared,
+    runtimeSnapshot: atCapacity.snapshot,
+    worldEventLedgerJson: atCapacity.ledgerJson,
+    npcIntentJson: canonicalizeJsonValue(staleIntent),
+  });
+  assert.equal(stale.ok, false);
+  assert.equal(stale.diagnostics[0].code, "NPC_INTENT_STALE_REVISION");
+  assert.equal("canonicalWorldEventLedgerJson" in stale, false);
+
+  const overflow = adjudicateNpcIntent({
+    prepared,
+    runtimeSnapshot: atCapacity.snapshot,
+    worldEventLedgerJson: atCapacity.ledgerJson,
+    npcIntentJson: intent("intent-capacity-overflow", "missing-actor", "node-alpha", "action-pass", atCapacity),
+  });
+  assert.equal(overflow.ok, false);
+  assert.equal(overflow.diagnostics[0].code, "WORLD_EVENT_LEDGER_CAPACITY_EXCEEDED");
+  assert.equal("canonicalWorldEventLedgerJson" in overflow, false);
+});
+
+test("a live 128-intent sequence remains bounded while preserving full replay", async () => {
+  const prepared = await prepare();
+  const created = createNpcAuthorityTimeline(prepared, { timelineId: "live-sequence", stepLimit: 128 });
+  assert.equal(created.ok, true);
+  let state = { snapshot: created.runtimeSnapshot, ledgerJson: created.canonicalWorldEventLedgerJson };
+  const started = performance.now();
+  for (let index = 0; index < 128; index += 1) {
+    state = apply(prepared, state, intent(`intent-live-${String(index).padStart(3, "0")}`, "missing-actor", "node-alpha", "action-pass", state));
+  }
+  const elapsedMs = performance.now() - started;
+  const replayed = replayWorldEventLedger({ prepared, worldEventLedgerJson: state.ledgerJson });
+  assert.equal(replayed.ok, true, JSON.stringify(replayed.diagnostics));
+  assert.equal(JSON.parse(replayed.canonicalWorldEventLedgerReplayReportJson).verifiedEntries, 128);
+  assert.equal(elapsedMs < 15_000, true, `128 sequential adjudications took ${elapsedMs.toFixed(0)} ms`);
 });
 
 test("R19 core sources contain no network, credential, process execution or case-specific path", async () => {

@@ -19,7 +19,7 @@ function fixture(t) {
 
 test("R19 authority work keeps the V2 completion claim closed until R25", () => {
   assert.deepEqual(checkV2Claim({ moduleRoot }), {
-    status: "r18-landscape-qualified",
+    status: "r19-authority-qualified",
     claimAllowed: false,
     blockingRound: "R25",
   });

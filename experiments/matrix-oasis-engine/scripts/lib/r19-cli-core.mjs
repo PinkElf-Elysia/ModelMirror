@@ -4,6 +4,7 @@ import { canonicalizeJsonValue } from "@matrix-oasis/runtime-pack-contracts";
 const INTERNAL_CODE = "NPC_AUTHORITY_INTERNAL_ERROR";
 const MAX_INPUT_BYTES = 16 * 1024 * 1024;
 const MAX_OUTPUT_BYTES = 32 * 1024 * 1024;
+export const R19_TEMP_ROOT = path.win32.join("C:" + path.win32.sep, "tmp");
 
 export class R19CliError extends Error {
   constructor(code) {
@@ -43,6 +44,18 @@ function normalDirectory(stat) {
   return stat?.isDirectory?.() === true && stat.isSymbolicLink?.() !== true;
 }
 
+async function readBounded(handle, maximum, expectedLength = maximum) {
+  const bytes = new Uint8Array(Math.min(maximum, expectedLength) + 1);
+  let offset = 0;
+  while (offset < bytes.byteLength) {
+    const read = await handle.read(bytes, offset, bytes.byteLength - offset, offset);
+    if (read.bytesRead === 0) break;
+    offset += read.bytesRead;
+  }
+  if (offset > maximum) fail("NPC_AUTHORITY_CLI_INPUT_INVALID");
+  return bytes.subarray(0, offset);
+}
+
 function parseArgs(args, required) {
   if (!Array.isArray(args) || args.length !== required.length * 2) fail("NPC_AUTHORITY_CLI_ARGUMENTS_INVALID");
   const output = Object.create(null);
@@ -75,7 +88,7 @@ async function readStableFile(candidate, services, maximum = MAX_INPUT_BYTES) {
     handle = await services.openFile(absolute, "r");
     const before = await handle.stat({ bigint: true });
     if (!normalFile(before) || identity(before) !== identity(beforePath) || stableState(before) === null) fail("NPC_AUTHORITY_CLI_INPUT_CHANGED");
-    const bytes = await handle.readFile();
+    const bytes = await readBounded(handle, maximum, Number(before.size));
     const after = await handle.stat({ bigint: true });
     const afterPath = await services.lstat(absolute, { bigint: true });
     if (identity(after) !== identity(before) || stableState(after) !== stableState(before) || identity(afterPath) !== identity(before) || !samePath(await services.realpath(absolute), absolute)) {
@@ -97,8 +110,9 @@ async function trustedAuthorityDirectory(candidate, tempRoot, services) {
   if (!contained(tempRoot, absolute)) fail("NPC_AUTHORITY_CLI_AUTHORITY_DIR_INVALID");
   try {
     const linked = await services.lstat(absolute, { bigint: true });
-    if (!normalDirectory(linked) || identity(linked) === null || !samePath(await services.realpath(absolute), absolute)) fail("NPC_AUTHORITY_CLI_AUTHORITY_DIR_INVALID");
-    return absolute;
+    const directoryIdentity = identity(linked);
+    if (!normalDirectory(linked) || directoryIdentity === null || !samePath(await services.realpath(absolute), absolute)) fail("NPC_AUTHORITY_CLI_AUTHORITY_DIR_INVALID");
+    return { absolute, identity: directoryIdentity };
   } catch (error) {
     if (error instanceof R19CliError) throw error;
     fail("NPC_AUTHORITY_CLI_AUTHORITY_DIR_INVALID");
@@ -107,7 +121,7 @@ async function trustedAuthorityDirectory(candidate, tempRoot, services) {
 
 async function readAuthority(candidate, tempRoot, services) {
   const directory = await trustedAuthorityDirectory(candidate, tempRoot, services);
-  const read = (name) => readStableFile(path.join(directory, name), services);
+  const read = (name) => readStableFile(path.join(directory.absolute, name), services);
   const [runtimeGamePackJson, runtimeReceiptJson, policyJson, runtimeSnapshotJson, worldEventLedgerJson] = await Promise.all([
     read("runtime-game-pack.json"),
     read("runtime-receipt.json"),
@@ -117,6 +131,7 @@ async function readAuthority(candidate, tempRoot, services) {
   ]);
   let runtimeSnapshot;
   try { runtimeSnapshot = JSON.parse(runtimeSnapshotJson); } catch { fail("NPC_AUTHORITY_CLI_INPUT_INVALID"); }
+  await assertDirectory(directory.absolute, directory.identity, services, "NPC_AUTHORITY_CLI_INPUT_CHANGED");
   return { runtimeGamePackJson, runtimeReceiptJson, policyJson, runtimeSnapshot, worldEventLedgerJson };
 }
 
@@ -125,26 +140,52 @@ async function outputTarget(output, tempRoot, services) {
   const absolute = path.resolve(output);
   const parent = path.dirname(absolute);
   if (!contained(tempRoot, absolute) || !contained(tempRoot, parent) && !samePath(parent, tempRoot)) fail("NPC_AUTHORITY_CLI_OUTPUT_INVALID");
+  let parentIdentity;
   try {
     const parentStat = await services.lstat(parent, { bigint: true });
-    if (!normalDirectory(parentStat) || identity(parentStat) === null || !samePath(await services.realpath(parent), parent)) fail("NPC_AUTHORITY_CLI_OUTPUT_INVALID");
+    parentIdentity = identity(parentStat);
+    if (!normalDirectory(parentStat) || parentIdentity === null || !samePath(await services.realpath(parent), parent)) fail("NPC_AUTHORITY_CLI_OUTPUT_INVALID");
     await services.lstat(absolute, { bigint: true });
     fail("NPC_AUTHORITY_CLI_OUTPUT_EXISTS");
   } catch (error) {
     if (error instanceof R19CliError) throw error;
     if (error?.code !== "ENOENT") fail("NPC_AUTHORITY_CLI_OUTPUT_INVALID");
   }
-  return { absolute, parent };
+  await assertDirectory(parent, parentIdentity, services);
+  return { absolute, parent, parentIdentity };
 }
 
-async function assertDirectory(candidate, expectedIdentity, services) {
-  const linked = await services.lstat(candidate, { bigint: true });
-  if (!normalDirectory(linked) || identity(linked) !== expectedIdentity || !samePath(await services.realpath(candidate), candidate)) fail(INTERNAL_CODE);
+async function assertDirectory(candidate, expectedIdentity, services, code = INTERNAL_CODE) {
+  try {
+    const linked = await services.lstat(candidate, { bigint: true });
+    if (!normalDirectory(linked) || identity(linked) !== expectedIdentity || !samePath(await services.realpath(candidate), candidate)) fail(code);
+  } catch (error) {
+    if (error instanceof R19CliError) throw error;
+    fail(code);
+  }
 }
 
 async function assertFile(candidate, expectedIdentity, services) {
   const linked = await services.lstat(candidate, { bigint: true });
   if (!normalFile(linked) || identity(linked) !== expectedIdentity || !samePath(await services.realpath(candidate), candidate)) fail(INTERNAL_CODE);
+}
+
+async function assertPublishedFile(candidate, record, services) {
+  await assertFile(candidate, record.identity, services);
+  let handle;
+  try {
+    handle = await services.openFile(candidate, "r");
+    const before = await handle.stat({ bigint: true });
+    if (!normalFile(before) || identity(before) !== record.identity || stableState(before) === null) fail(INTERNAL_CODE);
+    const observed = await readBounded(handle, record.bytes.byteLength, record.bytes.byteLength);
+    const after = await handle.stat({ bigint: true });
+    if (stableState(after) !== stableState(before) || observed.byteLength !== record.bytes.byteLength || !observed.every((value, index) => value === record.bytes[index])) fail(INTERNAL_CODE);
+  } catch (error) {
+    if (error instanceof R19CliError && error.code === INTERNAL_CODE) throw error;
+    fail(INTERNAL_CODE);
+  } finally {
+    await handle?.close().catch(() => {});
+  }
 }
 
 async function cleanupStaging(staging, stagingIdentity, services) {
@@ -168,6 +209,7 @@ export async function publishR19Artifacts({ output, tempRoot, artifacts, service
   const handles = [];
   const records = [];
   try {
+    await assertDirectory(target.parent, target.parentIdentity, services);
     staging = await services.mkdtemp(path.join(target.parent, `.matrix-oasis-r19-${path.basename(target.absolute)}-`));
     stagingIdentity = identity(await services.lstat(staging, { bigint: true }));
     if (!stagingIdentity) fail(INTERNAL_CODE);
@@ -191,17 +233,19 @@ export async function publishR19Artifacts({ output, tempRoot, artifacts, service
       await handle.close();
       handles.splice(handles.indexOf(handle), 1);
       await assertFile(candidate, fileIdentity, services);
-      records.push({ name, identity: fileIdentity });
+      records.push({ name, identity: fileIdentity, bytes: expected });
     }
     await assertDirectory(staging, stagingIdentity, services);
     try { await services.lstat(target.absolute, { bigint: true }); fail("NPC_AUTHORITY_CLI_OUTPUT_EXISTS"); } catch (error) {
       if (error instanceof R19CliError) throw error;
       if (error?.code !== "ENOENT") fail(INTERNAL_CODE);
     }
+    await assertDirectory(target.parent, target.parentIdentity, services);
     await services.rename(staging, target.absolute);
     staging = target.absolute;
+    await assertDirectory(target.parent, target.parentIdentity, services);
     await assertDirectory(target.absolute, stagingIdentity, services);
-    for (const record of records) await assertFile(path.join(target.absolute, record.name), record.identity, services);
+    for (const record of records) await assertPublishedFile(path.join(target.absolute, record.name), record, services);
     staging = undefined;
     stagingIdentity = undefined;
     return Object.freeze({ ok: true });

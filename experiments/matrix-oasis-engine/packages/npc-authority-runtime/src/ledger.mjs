@@ -3,6 +3,7 @@ import {
   DERIVED_PROJECTION_MANIFEST_FORMAT,
   NPC_AUTHORITY_CANONICALIZATION,
   NPC_AUTHORITY_FORMAT_VERSION,
+  NPC_AUTHORITY_LIMITS,
   WORLD_EVENT_LEDGER_FORMAT,
   validateDerivedProjectionManifestJson,
   validateNpcAuthorityPolicyJson,
@@ -54,8 +55,9 @@ function parseValidated(text, validator) {
   return report.valid ? { ok: true, value: JSON.parse(text) } : { ok: false, report };
 }
 
-export function createWorldEventLedgerCore({ policyJson, timelineId, stepLimit, initialSnapshotSha256 }) {
+export function createWorldEventLedgerCore(input) {
   try {
+    const { policyJson, timelineId, stepLimit, initialSnapshotSha256 } = input ?? {};
     const policy = parseValidated(policyJson, validateNpcAuthorityPolicyJson);
     if (!policy.ok) return validationFailure(policy.report);
     const ledger = {
@@ -86,8 +88,9 @@ export function createWorldEventLedgerCore({ policyJson, timelineId, stepLimit, 
   }
 }
 
-export function resolveWorldEventLedgerIntent({ worldEventLedgerJson, npcIntentJson }) {
+export function resolveWorldEventLedgerIntent(input) {
   try {
+    const { worldEventLedgerJson, npcIntentJson } = input ?? {};
     const ledger = parseValidated(worldEventLedgerJson, validateWorldEventLedgerJson);
     if (!ledger.ok) return validationFailure(ledger.report);
     const intent = parseValidated(npcIntentJson, validateNpcIntentJson);
@@ -102,15 +105,16 @@ export function resolveWorldEventLedgerIntent({ worldEventLedgerJson, npcIntentJ
   }
 }
 
-export function appendWorldEventLedgerEntryCore({
-  worldEventLedgerJson,
-  npcIntentJson,
-  decision,
-  beforeSnapshotSha256,
-  afterSnapshotSha256,
-  transition,
-}) {
+export function appendWorldEventLedgerEntryCore(input) {
   try {
+    const {
+      worldEventLedgerJson,
+      npcIntentJson,
+      decision,
+      beforeSnapshotSha256,
+      afterSnapshotSha256,
+      transition,
+    } = input ?? {};
     const ledger = parseValidated(worldEventLedgerJson, validateWorldEventLedgerJson);
     if (!ledger.ok) return validationFailure(ledger.report);
     const intent = parseValidated(npcIntentJson, validateNpcIntentJson);
@@ -148,15 +152,21 @@ export function appendWorldEventLedgerEntryCore({
   }
 }
 
-export function createDerivedProjectionManifest({ worldEventLedgerJson, projectionKind, reducer, scopeEntityIds, artifact }) {
+export function createDerivedProjectionManifest(input) {
   try {
+    const { worldEventLedgerJson, projectionKind, reducer, scopeEntityIds, artifact } = input ?? {};
     const ledger = parseValidated(worldEventLedgerJson, validateWorldEventLedgerJson);
     if (!ledger.ok) return validationFailure(ledger.report);
     if (!artifact || typeof artifact !== "object" || !(typeof artifact.bytes === "string" || artifact.bytes instanceof Uint8Array)) {
       return failure("DERIVED_PROJECTION_ARTIFACT_BYTES_INVALID", "/artifact");
     }
     if (!Array.isArray(scopeEntityIds)) return failure("DERIVED_PROJECTION_SCOPE_INVALID", "/scopeEntityIds");
+    if ((typeof artifact.bytes === "string" && artifact.bytes.length > NPC_AUTHORITY_LIMITS.projectionArtifactBytes) ||
+        (artifact.bytes instanceof Uint8Array && artifact.bytes.byteLength > NPC_AUTHORITY_LIMITS.projectionArtifactBytes)) {
+      return failure("DERIVED_PROJECTION_ARTIFACT_SIZE_EXCEEDED", "/artifact/bytes");
+    }
     const bytes = typeof artifact.bytes === "string" ? new TextEncoder().encode(artifact.bytes) : new Uint8Array(artifact.bytes);
+    if (bytes.byteLength > NPC_AUTHORITY_LIMITS.projectionArtifactBytes) return failure("DERIVED_PROJECTION_ARTIFACT_SIZE_EXCEEDED", "/artifact/bytes");
     const manifest = {
       format: DERIVED_PROJECTION_MANIFEST_FORMAT,
       formatVersion: NPC_AUTHORITY_FORMAT_VERSION,

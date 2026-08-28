@@ -4,6 +4,7 @@ import {
   DERIVED_PROJECTION_MANIFEST_SCHEMA,
   NPC_ADJUDICATION_RESULT_SCHEMA,
   NPC_AUTHORITY_POLICY_SCHEMA,
+  NPC_AUTHORITY_LIMITS,
   NPC_INTENT_SCHEMA,
   WORLD_EVENT_LEDGER_REPLAY_REPORT_SCHEMA,
   WORLD_EVENT_LEDGER_SCHEMA,
@@ -72,8 +73,17 @@ test("schema failures stop before semantic checks and do not echo unknown input"
 test("parser rejects duplicate keys, malformed JSON, excessive size and non-string input", () => {
   const duplicate = '{"format":"matrix-oasis.npc-intent","format":"matrix-oasis.npc-intent"}';
   assert.deepEqual(validateNpcIntentJson(duplicate).diagnostics.map((value) => value.code), ["NPC_INTENT_JSON_DUPLICATE_KEY"]);
+  const nestedDuplicate = canonical(intentFixture()).replace('"revision":0', '"revision":0,"revision":0');
+  const nestedReport = validateNpcIntentJson(nestedDuplicate);
+  assert.equal(nestedReport.diagnostics[0].code, "NPC_INTENT_JSON_DUPLICATE_KEY");
+  assert.equal(nestedReport.diagnostics[0].path, "/observed");
+  const escapedDuplicate = canonical(intentFixture()).replace('"id":"intent-one"', '"id":"intent-one","\\u0069d":"secret-collision"');
+  const escapedReport = validateNpcIntentJson(escapedDuplicate);
+  assert.equal(escapedReport.diagnostics[0].code, "NPC_INTENT_JSON_DUPLICATE_KEY");
+  assert.equal(JSON.stringify(escapedReport).includes("secret-collision"), false);
   assert.equal(validateNpcIntentJson("{").diagnostics[0].code, "NPC_INTENT_JSON_SYNTAX");
   assert.equal(validateNpcIntentJson(" ".repeat(65 * 1024)).diagnostics[0].code, "NPC_INTENT_JSON_SIZE_EXCEEDED");
+  assert.equal(validateNpcIntentJson(`${"[".repeat(257)}${"]".repeat(257)}`).diagnostics[0].code, "NPC_INTENT_JSON_DEPTH_EXCEEDED");
   assert.equal(validateNpcIntentJson(null).diagnostics[0].code, "NPC_INTENT_JSON_INPUT_TYPE");
 });
 
@@ -168,6 +178,10 @@ test("projection and replay reports bind zero revision to a null head and counts
   const replay = replayFixture();
   replay.acceptedEntries = 0;
   assert(validateWorldEventLedgerReplayReportJson(canonical(replay)).diagnostics.some((value) => value.code === "WORLD_EVENT_LEDGER_REPLAY_COUNT_MISMATCH"));
+
+  const oversizedProjection = projectionFixture();
+  oversizedProjection.artifact.byteLength = NPC_AUTHORITY_LIMITS.projectionArtifactBytes + 1;
+  assert(validateDerivedProjectionManifestJson(canonical(oversizedProjection)).diagnostics.some((value) => value.code === "DERIVED_PROJECTION_MANIFEST_SCHEMA_NUMBER_CONSTRAINT"));
 });
 
 test("adjudication result binds revision zero to a null head", () => {
@@ -181,5 +195,32 @@ test("canonical reports are deterministic for 20 runs", () => {
     const input = canonical(fixture());
     const expected = canonical(validate(input));
     for (let index = 0; index < 20; index += 1) assert.equal(canonical(validate(input)), expected);
+  }
+});
+
+test("deterministic malformed-input mutations never escape as raw parser exceptions", () => {
+  let seed = 0x19c0ffee;
+  const next = () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed;
+  };
+  const alphabet = '{}[]":,0123456789abcdefghijklmnopqrstuvwxyz\\';
+  for (const [name, validate, fixture] of validators) {
+    const golden = canonical(fixture());
+    for (let index = 0; index < 256; index += 1) {
+      const position = next() % golden.length;
+      const operation = next() % 3;
+      const character = alphabet[next() % alphabet.length];
+      const candidate = operation === 0
+        ? `${golden.slice(0, position)}${character}${golden.slice(position + 1)}`
+        : operation === 1
+          ? `${golden.slice(0, position)}${character}${golden.slice(position)}`
+          : `${golden.slice(0, position)}${golden.slice(position + 1)}`;
+      let observed;
+      assert.doesNotThrow(() => { observed = validate(candidate); }, `${name} mutation ${index}`);
+      assert.equal(typeof observed.valid, "boolean");
+      assert.equal(Object.isFrozen(observed), true);
+      assert.equal(Object.isFrozen(observed.diagnostics), true);
+    }
   }
 });

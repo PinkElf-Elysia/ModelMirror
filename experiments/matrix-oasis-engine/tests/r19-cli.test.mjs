@@ -12,10 +12,11 @@ import {
   executeCreateNpcAuthorityTimelineCli,
   executeReplayWorldEventLedgerCli,
   executeValidateNpcAuthorityCli,
+  R19_TEMP_ROOT,
 } from "../scripts/lib/r19-cli-core.mjs";
 
 const services = Object.freeze({ lstat: fs.lstat, realpath: fs.realpath, openFile: fs.open, mkdtemp: fs.mkdtemp, rename: fs.rename, rm: fs.rm });
-const tempRoot = "C:\\tmp";
+const tempRoot = R19_TEMP_ROOT;
 const authoringText = await fs.readFile(new URL("../examples/mechanics-conformance.authoring-game-pack.json", import.meta.url), "utf8");
 const compiled = await compileAuthoringGamePackJson(authoringText);
 assert.equal(compiled.ok, true);
@@ -127,7 +128,8 @@ test("existing output is never overwritten", async (t) => {
 test("invalid output scope and mid-publish failure leave no target", async (t) => {
   const fixture = await fixtureRoot(t);
   const baseArgs = ["--runtime-pack", fixture.paths.runtime, "--runtime-receipt", fixture.paths.receipt, "--policy", fixture.paths.policy, "--timeline", "timeline-cli", "--output"];
-  const escaped = await executeCreateNpcAuthorityTimelineCli({ args: [...baseArgs, "C:\\matrix-oasis-r19-escape"], tempRoot, services, operations });
+  const escapedPath = path.win32.join("C:" + path.win32.sep, "matrix-oasis-r19-escape");
+  const escaped = await executeCreateNpcAuthorityTimelineCli({ args: [...baseArgs, escapedPath], tempRoot, services, operations });
   assert.equal(escaped.stderr, "NPC_AUTHORITY_CLI_OUTPUT_INVALID\n");
   const target = path.join(fixture.root, "publish-failure");
   const failingServices = { ...services, rename: async () => { throw new Error("injected"); } };
@@ -136,6 +138,18 @@ test("invalid output scope and mid-publish failure leave no target", async (t) =
   await assert.rejects(fs.lstat(target), { code: "ENOENT" });
   const leftovers = (await fs.readdir(fixture.root)).filter((name) => name.startsWith(".matrix-oasis-r19-"));
   assert.deepEqual(leftovers, []);
+
+  const tamperedTarget = path.join(fixture.root, "post-rename-tamper");
+  const tamperingServices = {
+    ...services,
+    rename: async (source, destination) => {
+      await fs.rename(source, destination);
+      await fs.writeFile(path.join(destination, "npc-authority-policy.json"), "{}", "utf8");
+    },
+  };
+  const tampered = await executeCreateNpcAuthorityTimelineCli({ args: [...baseArgs, tamperedTarget], tempRoot, services: tamperingServices, operations });
+  assert.equal(tampered.stderr, "NPC_AUTHORITY_INTERNAL_ERROR\n");
+  await assert.rejects(fs.lstat(tamperedTarget), { code: "ENOENT" });
 });
 
 test("concurrent publication has exactly one winner and no staging residue", async (t) => {
@@ -172,7 +186,7 @@ test("authority junctions and an input identity change fail closed", async (t) =
     openFile: async (...args) => {
       const handle = await fs.open(...args);
       return {
-        readFile: (...readArgs) => handle.readFile(...readArgs),
+        read: (...readArgs) => handle.read(...readArgs),
         close: () => handle.close(),
         stat: async (options) => {
           const value = await handle.stat(options);
@@ -195,4 +209,106 @@ test("authority junctions and an input identity change fail closed", async (t) =
     validators: { policy: contracts.validateNpcAuthorityPolicyJson },
   });
   assert.equal(changed.stderr, "NPC_AUTHORITY_CLI_INPUT_CHANGED\n");
+});
+
+test("authority directory identity replacement during a read fails closed", async (t) => {
+  const fixture = await fixtureRoot(t);
+  const timeline = path.join(fixture.root, "timeline");
+  const created = await executeCreateNpcAuthorityTimelineCli({
+    args: ["--runtime-pack", fixture.paths.runtime, "--runtime-receipt", fixture.paths.receipt, "--policy", fixture.paths.policy, "--timeline", "timeline-cli", "--output", timeline],
+    tempRoot,
+    services,
+    operations,
+  });
+  assert.equal(created.exitCode, 0);
+
+  let directoryChecks = 0;
+  const changingServices = {
+    ...services,
+    lstat: async (candidate, options) => {
+      const value = await fs.lstat(candidate, options);
+      if (path.resolve(candidate) !== path.resolve(timeline)) return value;
+      directoryChecks += 1;
+      if (directoryChecks === 1) return value;
+      return new Proxy(value, {
+        get(target, property) {
+          if (property === "ino") return target.ino + 1n;
+          const observed = Reflect.get(target, property, target);
+          return typeof observed === "function" ? observed.bind(target) : observed;
+        },
+      });
+    },
+  };
+  const result = await executeReplayWorldEventLedgerCli({
+    args: ["--authority-dir", timeline, "--output", path.join(fixture.root, "replay")],
+    tempRoot,
+    services: changingServices,
+    operations,
+  });
+  assert.equal(result.stderr, "NPC_AUTHORITY_CLI_INPUT_CHANGED\n");
+  assert.equal(directoryChecks >= 2, true);
+  await assert.rejects(fs.lstat(path.join(fixture.root, "replay")), { code: "ENOENT" });
+});
+
+test("output parent identity replacement before staging fails closed", async (t) => {
+  const fixture = await fixtureRoot(t);
+  const output = path.join(fixture.root, "timeline");
+  let parentChecks = 0;
+  const changingServices = {
+    ...services,
+    lstat: async (candidate, options) => {
+      const value = await fs.lstat(candidate, options);
+      if (path.resolve(candidate) !== path.resolve(fixture.root)) return value;
+      parentChecks += 1;
+      if (parentChecks === 1) return value;
+      return new Proxy(value, {
+        get(target, property) {
+          if (property === "ino") return target.ino + 1n;
+          const observed = Reflect.get(target, property, target);
+          return typeof observed === "function" ? observed.bind(target) : observed;
+        },
+      });
+    },
+  };
+  const result = await executeCreateNpcAuthorityTimelineCli({
+    args: ["--runtime-pack", fixture.paths.runtime, "--runtime-receipt", fixture.paths.receipt, "--policy", fixture.paths.policy, "--timeline", "timeline-cli", "--output", output],
+    tempRoot,
+    services: changingServices,
+    operations,
+  });
+  assert.equal(result.stderr, "NPC_AUTHORITY_INTERNAL_ERROR\n");
+  assert.equal(parentChecks >= 2, true);
+  await assert.rejects(fs.lstat(output), { code: "ENOENT" });
+});
+
+test("output parent identity replacement after staging fails before rename", async (t) => {
+  const fixture = await fixtureRoot(t);
+  const output = path.join(fixture.root, "timeline");
+  let parentChecks = 0;
+  const changingServices = {
+    ...services,
+    lstat: async (candidate, options) => {
+      const value = await fs.lstat(candidate, options);
+      if (path.resolve(candidate) !== path.resolve(fixture.root)) return value;
+      parentChecks += 1;
+      if (parentChecks < 4) return value;
+      return new Proxy(value, {
+        get(target, property) {
+          if (property === "ino") return target.ino + 1n;
+          const observed = Reflect.get(target, property, target);
+          return typeof observed === "function" ? observed.bind(target) : observed;
+        },
+      });
+    },
+  };
+  const result = await executeCreateNpcAuthorityTimelineCli({
+    args: ["--runtime-pack", fixture.paths.runtime, "--runtime-receipt", fixture.paths.receipt, "--policy", fixture.paths.policy, "--timeline", "timeline-cli", "--output", output],
+    tempRoot,
+    services: changingServices,
+    operations,
+  });
+  assert.equal(result.stderr, "NPC_AUTHORITY_INTERNAL_ERROR\n");
+  assert.equal(parentChecks >= 4, true);
+  await assert.rejects(fs.lstat(output), { code: "ENOENT" });
+  assert.deepEqual((await fs.readdir(fixture.root)).filter((name) => name.startsWith(".matrix-oasis-r19-")), []);
 });

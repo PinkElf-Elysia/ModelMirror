@@ -156,11 +156,41 @@ test("exact retry returns the historical verdict and does not append", async () 
   const state = { snapshot: created.runtimeSnapshot, ledgerJson: created.canonicalWorldEventLedgerJson };
   const intent = nextIntent("intent-retry", "actor-unit", "node-start", "action-initialize", state);
   const accepted = apply(prepared, state, intent);
-  const replayed = adjudicateNpcIntent({ prepared, runtimeSnapshot: accepted.snapshot, worldEventLedgerJson: accepted.ledgerJson, npcIntentJson: intent });
+  const replayed = adjudicateNpcIntent({ prepared, runtimeSnapshot: state.snapshot, worldEventLedgerJson: accepted.ledgerJson, npcIntentJson: intent });
   assert.equal(replayed.ok, true);
   assert.equal(replayed.replayed, true);
   assert.equal(replayed.canonicalWorldEventLedgerJson, accepted.ledgerJson);
   assert.equal(JSON.parse(replayed.canonicalAdjudicationResultJson).replayed, true);
+  assert.deepEqual(replayed.runtimeSnapshot, accepted.snapshot);
+});
+
+test("public authority operations reject absent arguments without leaking argument exceptions", async () => {
+  const prepared = await prepareNpcAuthority();
+  assert.equal(prepared.ok, false);
+  assert.equal(prepared.diagnostics[0].code, "NPC_AUTHORITY_POLICY_JSON_INPUT_TYPE");
+  const replayed = replayWorldEventLedger();
+  assert.equal(replayed.ok, false);
+  assert.equal(replayed.diagnostics[0].code, "NPC_AUTHORITY_PREPARED_INVALID");
+  const adjudicated = adjudicateNpcIntent();
+  assert.equal(adjudicated.ok, false);
+  assert.equal(adjudicated.diagnostics[0].code, "NPC_AUTHORITY_PREPARED_INVALID");
+  const timeline = createNpcAuthorityTimeline({}, null);
+  assert.equal(timeline.ok, false);
+  assert.equal(timeline.diagnostics[0].code, "NPC_AUTHORITY_PREPARED_INVALID");
+});
+
+test("hostile accessors collapse to the static operational error without leaking values", async () => {
+  const prepared = await preparedAuthority();
+  const created = createNpcAuthorityTimeline(prepared, { timelineId: "hostile-accessor" });
+  const state = { snapshot: created.runtimeSnapshot, ledgerJson: created.canonicalWorldEventLedgerJson };
+  const npcIntentJson = nextIntent("intent-hostile", "actor-unit", "node-start", "action-initialize", state);
+  const hostileSnapshot = new Proxy({}, {
+    ownKeys() { throw new Error("secret-host-path"); },
+  });
+  assert.throws(
+    () => adjudicateNpcIntent({ prepared, runtimeSnapshot: hostileSnapshot, worldEventLedgerJson: state.ledgerJson, npcIntentJson }),
+    (error) => error?.code === "NPC_AUTHORITY_INTERNAL_ERROR" && error.message === "NPC_AUTHORITY_INTERNAL_ERROR" && !String(error.stack).includes("secret-host-path"),
+  );
 });
 
 test("mixed accepted/rejected history rebuilds the identical final Runtime state", async () => {
