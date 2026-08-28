@@ -678,6 +678,75 @@ async def test_wan_30_maps_frame_reference_audio_seed_and_resolution_price(
 
 
 @pytest.mark.asyncio
+async def test_wan_30_prime_maps_first_frame_audio_seed_and_rejects_references(
+    tmp_path: Path,
+) -> None:
+    router_instance = router_service(tmp_path)
+    adapter = FakeAdapter()
+    catalog = StubCatalog(
+        router_instance,
+        model_id="alibaba/wan-3.0-prime",
+        supports_first_frame=True,
+        supports_last_frame=False,
+        supports_generated_audio=True,
+        supports_seed=True,
+        supports_reference_images=False,
+        pricing_skus={
+            "duration_seconds_480p": "0.068",
+            "duration_seconds_720p": "0.14",
+            "duration_seconds_1080p": "0.28",
+        },
+    )
+    catalog.profile.supported_resolutions = ["480p", "720p", "1080p"]
+    catalog.profile.supported_durations = list(range(2, 31))
+    service = VideoJobService(router_instance, catalog, adapter=adapter)
+
+    job = await service.create(
+        model_id="alibaba/wan-3.0-prime",
+        prompt="让首帧中的帆船快速驶向夕阳，保持镜头稳定",
+        duration=12,
+        resolution="720p",
+        aspect_ratio="16:9",
+        generate_audio=True,
+        seed=20260827,
+        first_frame_filename="first.png",
+        first_frame_content_type="image/png",
+        first_frame_content=PNG,
+        idempotency_key="wan-30-prime-contract-0001",
+    )
+
+    payload = adapter.submit_calls[0]
+    assert payload["model"] == "alibaba/wan-3.0-prime"
+    assert payload["duration"] == 12
+    assert payload["resolution"] == "720p"
+    assert payload["generate_audio"] is True
+    assert payload["seed"] == 20260827
+    assert payload["frame_images"][0]["frame_type"] == "first_frame"
+    assert "input_references" not in payload
+    assert job.usage.cost_kind == "unavailable"
+    assert VideoJobService._estimated_cost_usd(
+        catalog.profile,
+        duration=12,
+        resolution="720p",
+        generate_audio=True,
+        image_input_count=1,
+    ) == pytest.approx(1.68)
+
+    with pytest.raises(MultimodalServiceError) as caught:
+        await service.create(
+            model_id="alibaba/wan-3.0-prime",
+            prompt="This request must stop before the paid endpoint",
+            reference_image_filenames=["reference.png"],
+            reference_image_content_types=["image/png"],
+            reference_image_contents=[PNG],
+            idempotency_key="wan-30-prime-reference-block-0001",
+        )
+
+    assert caught.value.code == "reference_images_unsupported"
+    assert len(adapter.submit_calls) == 1
+
+
+@pytest.mark.asyncio
 async def test_provider_options_require_fresh_audited_capability(
     tmp_path: Path,
 ) -> None:

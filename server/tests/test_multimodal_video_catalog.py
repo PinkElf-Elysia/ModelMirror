@@ -72,6 +72,10 @@ def test_verified_video_registry_contains_august_24_contracts() -> None:
     } <= VERIFIED_VIDEO_GENERATION_MODELS
 
 
+def test_verified_video_registry_contains_august_27_wan_prime_contract() -> None:
+    assert "alibaba/wan-3.0-prime" in VERIFIED_VIDEO_GENERATION_MODELS
+
+
 def openrouter_service(tmp_path: Path) -> ModelRouterService:
     repository = SQLiteRouterRepository(tmp_path)
     connection = repository.create_connection(
@@ -303,6 +307,32 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
                             },
                             "allowed_passthrough_parameters": [],
                         },
+                        {
+                            "id": "alibaba/wan-3.0-prime",
+                            "supported_resolutions": [
+                                "480p",
+                                "720p",
+                                "1080p",
+                            ],
+                            "supported_aspect_ratios": [
+                                "16:9",
+                                "4:3",
+                                "1:1",
+                                "3:4",
+                                "9:16",
+                            ],
+                            "supported_sizes": None,
+                            "supported_durations": list(range(2, 31)),
+                            "supported_frame_images": ["first_frame"],
+                            "generate_audio": True,
+                            "seed": True,
+                            "pricing_skus": {
+                                "duration_seconds_480p": "0.068",
+                                "duration_seconds_720p": "0.14",
+                                "duration_seconds_1080p": "0.28",
+                            },
+                            "allowed_passthrough_parameters": [],
+                        },
                     ]
                 },
             )
@@ -338,7 +368,7 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
 
     assert result.status == "online"
     assert result.stale is False
-    assert len(result.profiles) == 9
+    assert len(result.profiles) == 10
     analysis = next(
         item for item in result.profiles if item.operation == "analyze_video"
     )
@@ -377,6 +407,11 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
         item
         for item in result.profiles
         if item.model_id == "alibaba/wan-3.0"
+    )
+    wan_prime = next(
+        item
+        for item in result.profiles
+        if item.model_id == "alibaba/wan-3.0-prime"
     )
     assert analysis.model_id == "google/gemini-video-test"
     assert analysis.supported_input_sources == ["file", "url"]
@@ -488,6 +523,26 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
         "duration_seconds_480p": "0.05",
         "duration_seconds_720p": "0.1",
         "duration_seconds_1080p": "0.2",
+    }
+    assert wan_prime.interaction_status == "ready"
+    assert wan_prime.supported_resolutions == ["480p", "720p", "1080p"]
+    assert wan_prime.supported_aspect_ratios == [
+        "16:9",
+        "4:3",
+        "1:1",
+        "3:4",
+        "9:16",
+    ]
+    assert wan_prime.supported_durations == list(range(2, 31))
+    assert wan_prime.supported_frame_types == ["first_frame"]
+    assert wan_prime.supports_reference_images is False
+    assert wan_prime.max_reference_images is None
+    assert wan_prime.supports_generated_audio is True
+    assert wan_prime.supports_seed is True
+    assert wan_prime.pricing_skus == {
+        "duration_seconds_480p": "0.068",
+        "duration_seconds_720p": "0.14",
+        "duration_seconds_1080p": "0.28",
     }
     assert all(
         request.headers["authorization"]

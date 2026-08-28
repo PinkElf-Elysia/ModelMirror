@@ -78,7 +78,6 @@ const august26CatalogDriftModelIds = [
   "z-ai/glm-5.2:free",
   "minimax/minimax-m3:free",
   "minimax/minimax-m2.7:free",
-  "mistralai/ministral-8b",
 ];
 
 const august26LatestModelIds = [
@@ -86,14 +85,19 @@ const august26LatestModelIds = [
   "meta/muse-image",
 ];
 
+const august27LatestModelIds = [
+  "alibaba/wan-3.0-prime",
+  "inclusionai/ling-3.0-flash-fin:free",
+];
+
 describe("OpenRouter model refresh", () => {
   it("reconciles the refreshed counted catalog totals", () => {
     const counted = models.filter((model) => model.catalog_counted);
-    expect(counted).toHaveLength(570);
+    expect(counted).toHaveLength(572);
     expect(counted.filter((model) => model.catalog_status === "live")).toHaveLength(499);
-    expect(counted.filter((model) => model.catalog_status === "uncertain")).toHaveLength(65);
+    expect(counted.filter((model) => model.catalog_status === "uncertain")).toHaveLength(67);
     expect(counted.filter((model) => model.catalog_status === "expired")).toHaveLength(6);
-    expect(counted.filter((model) => model.catalog_status !== "expired")).toHaveLength(564);
+    expect(counted.filter((model) => model.catalog_status !== "expired")).toHaveLength(566);
   });
 
   it("restores V4 Flash ahead of V4 Pro and keeps Seedream in row four", () => {
@@ -669,7 +673,7 @@ describe("OpenRouter model refresh", () => {
       interaction_status: "ready",
       ui_entrypoint: "chat",
       context_length: 1_000_000,
-      pricing: { input: 0.16, output: 0.47 },
+      pricing: { input: 0.15, output: 0.47 },
       reasoning_declared: true,
       openrouter_market: {
         series: "Qwen",
@@ -698,6 +702,82 @@ describe("OpenRouter model refresh", () => {
     });
     expect(byId.get("meta/muse-image")?.note).toContain("$0.01/张");
     expect(byId.get("meta/muse-image")?.note).toContain("暂不开放这些控件");
+  });
+
+  it("adds the August 27 models below the first six rows", () => {
+    for (const modelId of august27LatestModelIds) {
+      expect(models.find((model) => model.id === modelId)).toMatchObject({
+        catalog_status: "live",
+        catalog_counted: true,
+        active: true,
+      });
+      expect(models.findIndex((model) => model.id === modelId)).toBeGreaterThanOrEqual(
+        2 + 6 * 3,
+      );
+    }
+  });
+
+  it("preserves Wan 3.0 Prime and Ling 3.0 Flash Fin contracts", () => {
+    const byId = new Map(models.map((model) => [model.id, model]));
+
+    expect(byId.get("alibaba/wan-3.0-prime")).toMatchObject({
+      canonical_slug: "alibaba/wan-3.0-prime-20260827",
+      input_modalities: ["text", "image"],
+      output_modalities: ["video"],
+      operations: ["generate_video"],
+      primary_operation: "generate_video",
+      interaction_status: "ready",
+      ui_entrypoint: "multimodal",
+      pricing_status: "dynamic",
+      pricing_basis: "media",
+      supported_parameters: [
+        "resolution",
+        "aspect_ratio",
+        "duration",
+        "frame_images",
+        "generate_audio",
+        "seed",
+      ],
+      openrouter_market: {
+        series: "Other",
+        author: "alibaba",
+        providers: ["Alibaba"],
+        discounted: false,
+        zero_data_retention: false,
+      },
+    });
+    expect(byId.get("alibaba/wan-3.0-prime")?.note).toContain(
+      "$0.068、$0.14、$0.28/视频秒",
+    );
+    expect(byId.get("alibaba/wan-3.0-prime")?.note).toContain(
+      "不开放参考图控件",
+    );
+
+    expect(byId.get("inclusionai/ling-3.0-flash-fin:free")).toMatchObject({
+      canonical_slug: "inclusionai/ling-3.0-flash-fin-20260827",
+      input_modalities: ["text"],
+      output_modalities: ["text"],
+      context_length: 262_144,
+      pricing: { input: 0, output: 0 },
+      pricing_status: "free",
+      pricing_basis: "free",
+      reasoning_declared: true,
+      operations: ["chat"],
+      supported_parameters: expect.arrayContaining([
+        "reasoning",
+        "include_reasoning",
+        "tools",
+        "tool_choice",
+      ]),
+      openrouter_market: {
+        series: "Other",
+        author: "inclusionai",
+        providers: ["Novita"],
+        discounted: false,
+        zero_data_retention: true,
+        tool_call_success_rate: 100,
+      },
+    });
   });
 
   it("routes the August 14 specialized models by their dedicated contracts", () => {
@@ -813,7 +893,7 @@ describe("OpenRouter model refresh", () => {
     ).toMatchObject({
       series: "DeepSeek",
       author: "deepseek",
-      providers: ["DigitalOcean"],
+      providers: ["StreamLake"],
       categories: expect.arrayContaining(["translation"]),
     });
     expect(
@@ -904,12 +984,12 @@ describe("OpenRouter model refresh", () => {
       output: 3.74,
     });
     expect(byId.get("moonshotai/kimi-k2.7-code")?.pricing).toEqual({
-      input: 0.67,
+      input: 0.66,
       output: 3.4,
     });
     expect(byId.get("deepseek/deepseek-v4-pro-0813")?.pricing).toEqual({
-      input: 1.122,
-      output: 3.366,
+      input: 1.32,
+      output: 3.9600000000000004,
     });
     expect(byId.get("deepseek/deepseek-v4-pro")?.pricing).toEqual({
       input: 0.87,
@@ -917,13 +997,44 @@ describe("OpenRouter model refresh", () => {
     });
     expect(
       byId.get("deepseek/deepseek-v4-pro-0813")?.pricing_time_windows,
-    ).toEqual([]);
+    ).toEqual([
+      {
+        utc_start: 0,
+        utc_end: 100,
+        pricing: { input: 0.66, output: 1.9800000000000002 },
+        price_cny: { input: 4.47, output: 13.4 },
+      },
+      {
+        utc_start: 100,
+        utc_end: 400,
+        pricing: { input: 1.32, output: 3.9600000000000004 },
+        price_cny: { input: 8.94, output: 26.81 },
+      },
+      {
+        utc_start: 400,
+        utc_end: 600,
+        pricing: { input: 0.66, output: 1.9800000000000002 },
+        price_cny: { input: 4.47, output: 13.4 },
+      },
+      {
+        utc_start: 600,
+        utc_end: 1000,
+        pricing: { input: 1.32, output: 3.9600000000000004 },
+        price_cny: { input: 8.94, output: 26.81 },
+      },
+      {
+        utc_start: 1000,
+        utc_end: 0,
+        pricing: { input: 0.66, output: 1.9800000000000002 },
+        price_cny: { input: 4.47, output: 13.4 },
+      },
+    ]);
     expect(
       byId.get("deepseek/deepseek-v4-pro")?.pricing_time_windows,
     ).toEqual([]);
     expect(byId.get("qwen/qwen3.5-35b-a3b")?.pricing).toEqual({
-      input: 0.22499999999999998,
-      output: 1.7999999999999998,
+      input: 0.25,
+      output: 1.25,
     });
     expect(byId.get("qwen/qwen3.5-397b-a17b")?.pricing).toEqual({
       input: 0.39,
@@ -1012,8 +1123,16 @@ describe("OpenRouter model refresh", () => {
       (model) => model.catalog_status === "expired",
     );
 
-    expect(uncertain).toHaveLength(65);
+    expect(uncertain).toHaveLength(67);
     expect(ling?.active).toBe(true);
+    expect(
+      uncertain.find((model) => model.id === "mistralai/ministral-8b")
+        ?.active,
+    ).toBe(true);
+    expect(
+      uncertain.find((model) => model.id === "thedrummer/rocinante-12b")
+        ?.active,
+    ).toBe(true);
     expect(
       uncertain
         .filter((model) => model.id.startsWith("zyphra/zonos-v0.1-"))
@@ -1052,8 +1171,14 @@ describe("OpenRouter model refresh", () => {
     const geminiEmbeddingBatch = geminiEmbedding?.serving_variants.find(
       (variant) => variant.type === "batch",
     );
+    const batchCatalogIds = batchVariants.map((variant) => variant.catalog_id);
 
-    expect(batchVariants).toHaveLength(63);
+    expect(batchVariants).toHaveLength(25);
+    expect(batchCatalogIds).not.toContain("openai/gpt-4o:batch");
+    expect(batchCatalogIds).not.toContain("openai/gpt-5.6-luna:batch");
+    expect(batchCatalogIds).not.toContain(
+      "moonshotai/kimi-k2.7-code:batch",
+    );
     expect(geminiBatch).toMatchObject({
       catalog_id: "google/gemini-2.5-flash:batch",
       request_model_id: "google/gemini-2.5-flash",
