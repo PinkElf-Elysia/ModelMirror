@@ -6,6 +6,7 @@ import {
   helpSections,
   ragDiversityBaseline,
   remoteMcpReviewBaseline,
+  rssReviewBaseline,
   searchHelpContent,
   verifiedBaseline,
 } from ".";
@@ -16,7 +17,7 @@ describe("help center content catalog", () => {
   it("has five complete first-level sections and eight module groups", () => {
     expect(helpSections.map((section) => section.title)).toEqual(["第一次使用", "按目标找指南", "按模块浏览", "解决问题", "安全、费用与数据"]);
     expect(helpSections.every((section) => section.items.length >= 3)).toBe(true);
-    expect(helpSections.find((section) => section.id === "goals")?.items.map((item) => item.id)).toEqual(["one-time", "repeat-role", "repeat-process", "connect-tool", "use-own-docs", "propose-knowledge", "check-runtime"]);
+    expect(helpSections.find((section) => section.id === "goals")?.items.map((item) => item.id)).toEqual(["one-time", "repeat-role", "repeat-process", "connect-tool", "use-own-docs", "subscribe-feed", "propose-knowledge", "check-runtime"]);
     expect(helpModules.map((module) => module.title)).toEqual(["模型", "Agent", "MCP", "Skill", "提示词", "运维", "工作台与设置", "实验功能"]);
     expect(helpModules.find((module) => module.id === "agents")?.topics.some((topic) => topic.id === "expert-team" && topic.title === "专家团")).toBe(true);
     expect(helpModules.find((module) => module.id === "agents")?.topics.find((topic) => topic.id === "agent-studio")?.productRoute).toBe("/agents/studio");
@@ -32,6 +33,7 @@ describe("help center content catalog", () => {
       "start-with-a-model",
       "choose-model-agent-workflow",
       "submit-knowledge-proposal",
+      "subscribe-rss-workflow",
       "modules-and-terms",
       "recover-unavailable-feature",
       "review-remote-mcp-auth",
@@ -44,8 +46,9 @@ describe("help center content catalog", () => {
       expect(article.verifiedDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       expect(article.content).not.toMatch(/内容稍后补充|coming soon/i);
     });
-    expect(helpArticles.filter((article) => article.slug !== "review-remote-mcp-auth").every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
+    expect(helpArticles.filter((article) => !["review-remote-mcp-auth", "subscribe-rss-workflow"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
     expect(helpArticles.find((article) => article.slug === "review-remote-mcp-auth")?.verifiedCommit).toBe(remoteMcpReviewBaseline.commit);
+    expect(helpArticles.find((article) => article.slug === "subscribe-rss-workflow")?.verifiedCommit).toBe(rssReviewBaseline.commit);
   });
 
   it("keeps operational articles within the required structure and step count", () => {
@@ -80,6 +83,7 @@ describe("help center content catalog", () => {
     expect(searchHelpContent("专家团").some((entry) => entry.id === "agents/expert-team")).toBe(true);
     expect(searchHelpContent("运行记录").some((entry) => entry.id === "runtime/run-records")).toBe(true);
     expect(searchHelpContent("Review Factory").some((entry) => entry.id === "review-remote-mcp-auth")).toBe(true);
+    expect(searchHelpContent("RSS").some((entry) => entry.id === "subscribe-rss-workflow")).toBe(true);
     const ids = getHelpSearchEntries().map((entry) => `${entry.kind}:${entry.id}`);
     expect(new Set(ids).size).toBe(ids.length);
   });

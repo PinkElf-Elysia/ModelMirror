@@ -694,6 +694,53 @@ def _complete_contracts() -> dict[str, NodeContract]:
         availability=deployment_only_availability,
         planner=_planner(),
     )
+    contracts["rss_event_entry"] = NodeContract(
+        kind="rss_event_entry",
+        contract_status="complete",
+        config_schema=_object_schema(
+            {
+                "kind": {"type": "string", "const": "rss_event_entry"},
+                "title": {"type": "string"},
+                "description": {"type": "string"},
+                "contractVersion": {"type": "integer", "const": 1},
+                "feedUrl": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048,
+                    "pattern": r"^https://",
+                },
+                "pollIntervalMinutes": {
+                    "type": "integer",
+                    "minimum": 5,
+                    "maximum": 1440,
+                },
+                "eventVariable": {"type": "string"},
+                "itemVariable": {"type": "string"},
+            },
+            required=[
+                "contractVersion",
+                "feedUrl",
+                "pollIntervalMinutes",
+                "eventVariable",
+                "itemVariable",
+            ],
+            additional_properties=False,
+        ),
+        ports=(
+            NodePortContract(name="event", direction="output", value_schema=event_value),
+            NodePortContract(name="item", direction="output", value_schema=object_value),
+        ),
+        execution=NodeExecutionPolicy(
+            side_effect="external_read",
+            deterministic=False,
+            idempotent=True,
+            external_io=True,
+            error_semantics="fail_closed",
+            security_category="public_feed",
+        ),
+        availability=deployment_only_availability,
+        planner=_planner(),
+    )
     contracts["failure_event_entry"] = NodeContract(
         kind="failure_event_entry",
         contract_status="complete",

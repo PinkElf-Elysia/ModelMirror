@@ -3,6 +3,7 @@ import chooseModelAgentWorkflow from "./articles/choose-model-agent-workflow.md?
 import modulesAndTerms from "./articles/modules-and-terms.md?raw";
 import recoverUnavailableFeature from "./articles/recover-unavailable-feature.md?raw";
 import reviewRemoteMcpAuth from "./articles/review-remote-mcp-auth.md?raw";
+import subscribeRssWorkflow from "./articles/subscribe-rss-workflow.md?raw";
 import startWithAModel from "./articles/start-with-a-model.md?raw";
 import submitKnowledgeProposal from "./articles/submit-knowledge-proposal.md?raw";
 
@@ -79,6 +80,7 @@ export type HelpSearchEntry = {
 export const verifiedBaseline = { commit: "cc49136c", date: "2026-08-26" };
 export const remoteMcpReviewBaseline = { commit: "821067a7", date: "2026-08-27" };
 export const ragDiversityBaseline = { commit: "f0150fb5", date: "2026-08-27" };
+export const rssReviewBaseline = { commit: "821067a7", date: "2026-08-27" };
 
 export const helpContentTypeLabels: Record<HelpContentType, string> = {
   tutorial: "入门教程",
@@ -132,6 +134,21 @@ export const helpArticles: HelpArticle[] = [
     verifiedDate: verifiedBaseline.date,
     content: submitKnowledgeProposal,
     nextSlug: "check-availability-cost-data",
+  },
+  {
+    slug: "subscribe-rss-workflow",
+    title: "用 RSS 或 Atom 自动启动工作流",
+    summary: "检查公网订阅源，理解首次无回放基线，再发布只处理后续新条目的工作流。",
+    category: "按目标找指南",
+    contentType: "how-to",
+    audience: "需要持续处理公告、博客或状态更新的工作流用户",
+    estimatedMinutes: 5,
+    keywords: ["工作流", "RSS", "Atom", "订阅", "Feed", "无回放", "定时检查"],
+    relatedRoutes: ["/workflow/classic"],
+    verifiedCommit: rssReviewBaseline.commit,
+    verifiedDate: rssReviewBaseline.date,
+    content: subscribeRssWorkflow,
+    nextSlug: "submit-knowledge-proposal",
   },
   {
     slug: "modules-and-terms",
@@ -344,6 +361,7 @@ export const helpSections: HelpSection[] = [
       { id: "repeat-process", title: "按固定顺序完成多步任务", summary: "需要同一流程重复运行时，查看 Workflow 判断。", to: "/help/choose-model-agent-workflow", keywords: ["多步", "固定顺序", "Workflow"] },
       { id: "connect-tool", title: "让 AI 使用外部工具", summary: "需要访问外部服务时，先查看 MCP 目录与连接状态。", to: "/help/modules/mcps", keywords: ["外部工具", "MCP", "连接"] },
       { id: "use-own-docs", title: "根据自己的资料回答", summary: "需要从指定文档查找内容时，查看 RAG 知识库。", to: "/help/modules/workspace/rag", keywords: ["自己的资料", "文档", "RAG", "知识库"] },
+      { id: "subscribe-feed", title: "订阅公告或博客更新", summary: "用 RSS 或 Atom 在新条目出现时启动工作流。", to: "/help/subscribe-rss-workflow", keywords: ["RSS", "Atom", "订阅", "公告", "博客"] },
       { id: "propose-knowledge", title: "把工作流结果提交给知识管理员", summary: "将确定性文本送入 Knowledge Inbox，审批后再决定是否激活。", to: "/help/submit-knowledge-proposal", keywords: ["工作流", "知识", "Inbox", "审批", "提议"] },
       { id: "check-runtime", title: "查找运行或连接问题", summary: "任务失败或工具未连接时，到 Runtime 运维查看状态。", to: "/help/modules/runtime", keywords: ["运行失败", "连接", "Runtime", "运维"] },
     ],

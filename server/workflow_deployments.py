@@ -45,6 +45,16 @@ try:
         validate_form_config,
         validate_public_base_url,
     )
+    from server.workflow_rss import (
+        RSS_MAX_ITEMS,
+        RSS_SEEN_LIMIT,
+        NormalizedRssItem,
+        RssFetchResult,
+        WorkflowRssError,
+        rss_feed_fingerprint,
+        rss_item_content_length,
+        validate_rss_config,
+    )
     from server.xpert_runtime.automation_store import (
         AutomationStore,
         AutomationTrigger,
@@ -79,6 +89,16 @@ except ModuleNotFoundError:
         validate_form_config,
         validate_public_base_url,
     )
+    from workflow_rss import (
+        RSS_MAX_ITEMS,
+        RSS_SEEN_LIMIT,
+        NormalizedRssItem,
+        RssFetchResult,
+        WorkflowRssError,
+        rss_feed_fingerprint,
+        rss_item_content_length,
+        validate_rss_config,
+    )
     from xpert_runtime.automation_store import (
         AutomationStore,
         AutomationTrigger,
@@ -86,7 +106,7 @@ except ModuleNotFoundError:
     )
 
 
-WorkflowTriggerKind = Literal["manual", "schedule", "http", "form", "failure", "call"]
+WorkflowTriggerKind = Literal["manual", "schedule", "http", "form", "rss", "failure", "call"]
 WorkflowTriggerExecutionStatus = Literal[
     "pending", "running", "waiting", "completed", "failed", "skipped", "cancelled"
 ]
@@ -95,6 +115,7 @@ ENTRY_NODE_KINDS = {
     "scheduled_start",
     "http_event_entry",
     "form_event_entry",
+    "rss_event_entry",
     "failure_event_entry",
     "workflow_call_entry",
 }
@@ -226,6 +247,38 @@ class WorkflowFormPublication:
 
 
 @dataclass(slots=True)
+class WorkflowRssSubscription:
+    deployment_id: str
+    project_id: str
+    version: int
+    feed_fingerprint: str
+    baseline_established: bool = False
+    seen_item_hashes: list[str] = field(default_factory=list)
+    etag: str | None = None
+    last_modified: str | None = None
+    next_poll_at: float = 0.0
+    last_success_at: float | None = None
+    consecutive_failures: int = 0
+    last_error_code: str | None = None
+    active: bool = False
+    lease_owner: str | None = None
+    lease_token: str | None = None
+    lease_expires_at: float = 0.0
+    updated_at: float = field(default_factory=time.time)
+
+
+@dataclass(slots=True)
+class WorkflowRssDelivery:
+    execution_id: str
+    item_key: str
+    feed_title: str | None
+    item: dict[str, Any]
+    received_at: float
+    item_bytes: int
+    feed_index: int
+
+
+@dataclass(slots=True)
 class WorkflowSubworkflowRelation:
     occurrence_key: str
     parent_execution_id: str
@@ -279,6 +332,8 @@ class WorkflowDeploymentStore:
         self._executions: dict[str, WorkflowTriggerExecution] = {}
         self._failure_subscriptions: dict[str, WorkflowFailureSubscription] = {}
         self._form_publications: dict[str, WorkflowFormPublication] = {}
+        self._rss_subscriptions: dict[str, WorkflowRssSubscription] = {}
+        self._rss_deliveries: dict[str, WorkflowRssDelivery] = {}
         self._subworkflow_relations: dict[str, WorkflowSubworkflowRelation] = {}
         self._subworkflow_batches: dict[str, WorkflowSubworkflowBatch] = {}
         self._credential_validator = credential_validator
@@ -442,6 +497,7 @@ class WorkflowDeploymentStore:
         handoff_executor_enabled: bool = False,
         forms_enabled: bool = False,
         forms_public_base_url: str = "",
+        rss_triggers_enabled: bool = False,
         knowledge_proposals_enabled: bool = False,
         now: float | None = None,
     ) -> tuple[WorkflowDeployment, str | None]:
@@ -466,6 +522,8 @@ class WorkflowDeploymentStore:
                     validate_public_base_url(forms_public_base_url)
                 except WorkflowFormError as exc:
                     raise WorkflowDeploymentConflictError(exc.safe_message) from exc
+            if release.trigger_kind == "rss" and not rss_triggers_enabled:
+                raise WorkflowDeploymentConflictError("Workflow RSS triggers are disabled.")
             http_v2_nodes = [
                 node
                 for node in release.workflow.get("nodes", [])
@@ -599,12 +657,29 @@ class WorkflowDeploymentStore:
                         raise WorkflowDeploymentConflictError(
                             "A selected workflow already has an active failure handler."
                         )
+            previous_rss_subscription = next(
+                (
+                    item
+                    for item in self._rss_subscriptions.values()
+                    if item.project_id == project_id and item.active
+                ),
+                None,
+            )
             for deployment in self._deployments.values():
                 if deployment.project_id == project_id and deployment.active:
                     deployment.active = False
                     deployment.deactivated_at = current
                     deployment.next_run_at = None
                     deployment.updated_at = current
+                    rss_subscription = self._rss_subscriptions.get(
+                        deployment.deployment_id
+                    )
+                    if rss_subscription is not None:
+                        rss_subscription.active = False
+                        rss_subscription.lease_owner = None
+                        rss_subscription.lease_token = None
+                        rss_subscription.lease_expires_at = 0.0
+                        rss_subscription.updated_at = current
             deployment_id = f"wfd_{project_id[3:]}_{version}"
             deployment = self._deployments.get(deployment_id)
             if deployment is None:
@@ -647,6 +722,67 @@ class WorkflowDeploymentStore:
                 publication.activated_at = current
                 publication.deactivated_at = None
                 publication.updated_at = current
+            elif release.trigger_kind == "rss":
+                rss_config = self.rss_entry_data(release)
+                fingerprint = rss_feed_fingerprint(rss_config["feedUrl"])
+                subscription = self._rss_subscriptions.get(deployment.deployment_id)
+                if subscription is None:
+                    inherit = (
+                        previous_rss_subscription
+                        if previous_rss_subscription is not None
+                        and previous_rss_subscription.feed_fingerprint == fingerprint
+                        else None
+                    )
+                    subscription = WorkflowRssSubscription(
+                        deployment_id=deployment.deployment_id,
+                        project_id=project_id,
+                        version=version,
+                        feed_fingerprint=fingerprint,
+                        baseline_established=(
+                            inherit.baseline_established if inherit else False
+                        ),
+                        seen_item_hashes=(
+                            list(inherit.seen_item_hashes) if inherit else []
+                        ),
+                        etag=inherit.etag if inherit else None,
+                        last_modified=inherit.last_modified if inherit else None,
+                        last_success_at=inherit.last_success_at if inherit else None,
+                    )
+                    self._rss_subscriptions[deployment.deployment_id] = subscription
+                elif subscription.feed_fingerprint != fingerprint:
+                    subscription.feed_fingerprint = fingerprint
+                    subscription.baseline_established = False
+                    subscription.seen_item_hashes = []
+                    subscription.etag = None
+                    subscription.last_modified = None
+                    subscription.last_success_at = None
+                elif (
+                    previous_rss_subscription is not None
+                    and previous_rss_subscription.deployment_id
+                    != subscription.deployment_id
+                    and previous_rss_subscription.feed_fingerprint == fingerprint
+                ):
+                    subscription.baseline_established = (
+                        previous_rss_subscription.baseline_established
+                    )
+                    subscription.seen_item_hashes = list(
+                        previous_rss_subscription.seen_item_hashes
+                    )
+                    subscription.etag = previous_rss_subscription.etag
+                    subscription.last_modified = previous_rss_subscription.last_modified
+                    subscription.last_success_at = (
+                        previous_rss_subscription.last_success_at
+                    )
+                subscription.project_id = project_id
+                subscription.version = version
+                subscription.active = True
+                subscription.next_poll_at = current
+                subscription.consecutive_failures = 0
+                subscription.last_error_code = None
+                subscription.lease_owner = None
+                subscription.lease_token = None
+                subscription.lease_expires_at = 0.0
+                subscription.updated_at = current
             deployment.active = True
             deployment.activated_at = current
             deployment.deactivated_at = None
@@ -660,6 +796,8 @@ class WorkflowDeploymentStore:
             project.updated_at = current
             if release.trigger_kind != "form":
                 self._deactivate_form_publication_unlocked(project_id, current)
+            if release.trigger_kind != "rss":
+                self._deactivate_rss_subscriptions_unlocked(project_id, current)
             self._remove_failure_subscriptions_for_handler_unlocked(project_id)
             if release.trigger_kind == "failure":
                 for source_project_id in failure_sources:
@@ -709,6 +847,9 @@ class WorkflowDeploymentStore:
             deployment.deactivated_at = time.time()
             deployment.updated_at = deployment.deactivated_at
             self._deactivate_form_publication_unlocked(
+                project_id, deployment.deactivated_at
+            )
+            self._deactivate_rss_subscriptions_unlocked(
                 project_id, deployment.deactivated_at
             )
             self._remove_failure_subscriptions_for_deployment_unlocked(
@@ -863,6 +1004,229 @@ class WorkflowDeploymentStore:
                 "Published form entry is unavailable."
             )
         return validate_form_config(dict(node.get("data") or {}))
+
+    @staticmethod
+    def rss_entry_data(release: WorkflowVersion) -> dict[str, Any]:
+        node = next(
+            (
+                item
+                for item in release.workflow.get("nodes", [])
+                if isinstance(item, dict)
+                and str(item.get("id") or "") == release.entry_node_id
+                and _raw_node_kind(item) == "rss_event_entry"
+            ),
+            None,
+        )
+        if node is None:
+            raise WorkflowDeploymentValidationError(
+                "Published RSS entry is unavailable."
+            )
+        try:
+            return validate_rss_config(dict(node.get("data") or {}))
+        except WorkflowRssError as exc:
+            raise WorkflowDeploymentValidationError(exc.safe_message) from exc
+
+    def get_rss_subscription(
+        self, project_id: str
+    ) -> WorkflowRssSubscription | None:
+        with self._lock:
+            candidates = [
+                item
+                for item in self._rss_subscriptions.values()
+                if item.project_id == project_id
+            ]
+            active = next((item for item in candidates if item.active), None)
+            selected = active or max(candidates, key=lambda item: item.updated_at, default=None)
+            return WorkflowRssSubscription(**asdict(selected)) if selected is not None else None
+
+    def claim_due_rss_subscriptions(
+        self,
+        *,
+        worker_id: str,
+        now: float | None = None,
+        lease_seconds: float = 120.0,
+        limit: int = 10,
+    ) -> list[WorkflowRssSubscription]:
+        current = time.time() if now is None else float(now)
+        claimed: list[WorkflowRssSubscription] = []
+        with self._lock:
+            due = sorted(
+                (
+                    item
+                    for item in self._rss_subscriptions.values()
+                    if item.active
+                    and item.next_poll_at <= current
+                    and item.lease_expires_at <= current
+                ),
+                key=lambda item: (item.next_poll_at, item.deployment_id),
+            )
+            for item in due[: max(1, min(int(limit), 50))]:
+                deployment = self._deployments.get(item.deployment_id)
+                if deployment is None or not deployment.active or deployment.trigger_kind != "rss":
+                    item.active = False
+                    item.updated_at = current
+                    continue
+                item.lease_owner = str(worker_id)
+                item.lease_token = uuid.uuid4().hex
+                item.lease_expires_at = current + max(5.0, float(lease_seconds))
+                item.updated_at = current
+                claimed.append(WorkflowRssSubscription(**asdict(item)))
+            self._persist_unlocked()
+        return claimed
+
+    def commit_rss_poll(
+        self,
+        deployment_id: str,
+        *,
+        lease_token: str,
+        result: RssFetchResult,
+        now: float | None = None,
+    ) -> list[WorkflowTriggerExecution]:
+        current = time.time() if now is None else float(now)
+        created: list[WorkflowTriggerExecution] = []
+        with self._lock:
+            subscription = self._rss_subscriptions.get(str(deployment_id))
+            deployment = self._deployments.get(str(deployment_id))
+            if (
+                subscription is None
+                or deployment is None
+                or not subscription.active
+                or not deployment.active
+                or deployment.trigger_kind != "rss"
+                or not secrets.compare_digest(
+                    str(subscription.lease_token or ""), str(lease_token or "")
+                )
+                or subscription.lease_expires_at <= current
+            ):
+                raise WorkflowDeploymentConflictError(
+                    "RSS subscription lease is no longer owned by this worker."
+                )
+            release = self._require_version_unlocked(
+                subscription.project_id, subscription.version
+            )
+            config = self.rss_entry_data(release)
+            if result.status_code == 304 and not subscription.baseline_established:
+                raise WorkflowDeploymentConflictError(
+                    "RSS baseline cannot be established from a 304 response."
+                )
+            if result.feed is not None:
+                current_keys = [item.item_key for item in result.feed.items]
+                if not subscription.baseline_established:
+                    subscription.baseline_established = True
+                else:
+                    known = set(subscription.seen_item_hashes)
+                    for feed_index, feed_item in enumerate(result.feed.items):
+                        if feed_item.item_key in known:
+                            continue
+                        occurrence_key = (
+                            f"rss:{deployment.deployment_id}:{feed_item.item_key}"
+                        )
+                        if any(
+                            item.occurrence_key == occurrence_key
+                            for item in self._executions.values()
+                        ):
+                            continue
+                        execution = WorkflowTriggerExecution(
+                            execution_id=f"wfx_{uuid.uuid4().hex}",
+                            project_id=deployment.project_id,
+                            version=deployment.version,
+                            deployment_id=deployment.deployment_id,
+                            trigger_kind="rss",
+                            occurrence_key=occurrence_key,
+                            scheduled_at=current,
+                            trigger_summary={
+                                "item_key": feed_item.item_key,
+                                "item_bytes": rss_item_content_length(feed_item),
+                                "received_at": current,
+                            },
+                            created_at=current,
+                            updated_at=current,
+                        )
+                        self._executions[execution.execution_id] = execution
+                        self._rss_deliveries[execution.execution_id] = (
+                            WorkflowRssDelivery(
+                                execution_id=execution.execution_id,
+                                item_key=feed_item.item_key,
+                                feed_title=result.feed.title,
+                                item=feed_item.public_value(),
+                                received_at=current,
+                                item_bytes=rss_item_content_length(feed_item),
+                                feed_index=feed_index,
+                            )
+                        )
+                        created.append(execution)
+                merged_keys = list(subscription.seen_item_hashes)
+                for item_key in current_keys:
+                    if item_key not in merged_keys:
+                        merged_keys.append(item_key)
+                subscription.seen_item_hashes = merged_keys[-RSS_SEEN_LIMIT:]
+            subscription.etag = result.etag
+            subscription.last_modified = result.last_modified
+            subscription.last_success_at = current
+            subscription.next_poll_at = current + int(config["pollIntervalMinutes"]) * 60
+            subscription.consecutive_failures = 0
+            subscription.last_error_code = None
+            subscription.lease_owner = None
+            subscription.lease_token = None
+            subscription.lease_expires_at = 0.0
+            subscription.updated_at = current
+            self._persist_unlocked()
+        return created
+
+    def fail_rss_poll(
+        self,
+        deployment_id: str,
+        *,
+        lease_token: str,
+        error_code: str,
+        now: float | None = None,
+    ) -> WorkflowRssSubscription:
+        current = time.time() if now is None else float(now)
+        code_token = str(error_code).strip().split(":", 1)[0].split(None, 1)[0]
+        clean_code = re.sub(r"[^A-Z0-9_]", "_", code_token.upper())[:80]
+        with self._lock:
+            subscription = self._rss_subscriptions.get(str(deployment_id))
+            deployment = self._deployments.get(str(deployment_id))
+            if (
+                subscription is None
+                or deployment is None
+                or not subscription.active
+                or not deployment.active
+                or deployment.trigger_kind != "rss"
+                or not secrets.compare_digest(
+                    str(subscription.lease_token or ""), str(lease_token or "")
+                )
+                or subscription.lease_expires_at <= current
+            ):
+                raise WorkflowDeploymentConflictError(
+                    "RSS subscription lease is no longer owned by this worker."
+                )
+            release = self._require_version_unlocked(
+                subscription.project_id, subscription.version
+            )
+            config = self.rss_entry_data(release)
+            subscription.consecutive_failures += 1
+            backoff = min(
+                int(config["pollIntervalMinutes"])
+                * 60
+                * (2 ** min(subscription.consecutive_failures, 10)),
+                6 * 60 * 60,
+            )
+            subscription.next_poll_at = current + backoff
+            subscription.last_error_code = clean_code or "RSS_POLL_FAILED"
+            subscription.lease_owner = None
+            subscription.lease_token = None
+            subscription.lease_expires_at = 0.0
+            subscription.updated_at = current
+            self._persist_unlocked()
+            return WorkflowRssSubscription(**asdict(subscription))
+
+    def get_rss_delivery(
+        self, execution_id: str
+    ) -> WorkflowRssDelivery | None:
+        with self._lock:
+            item = self._rss_deliveries.get(str(execution_id))
+            return WorkflowRssDelivery(**asdict(item)) if item is not None else None
 
     def create_form_execution(
         self,
@@ -1064,7 +1428,17 @@ class WorkflowDeploymentStore:
                 if item.status == "pending"
                 or (item.status == "running" and item.lease_expires_at <= current)
             ]
-        items.sort(key=lambda item: (item.scheduled_at or item.created_at, item.execution_id))
+            rss_feed_order = {
+                execution_id: delivery.feed_index
+                for execution_id, delivery in self._rss_deliveries.items()
+            }
+        items.sort(
+            key=lambda item: (
+                item.scheduled_at or item.created_at,
+                rss_feed_order.get(item.execution_id, -1),
+                item.execution_id,
+            )
+        )
         return items[: max(1, min(int(limit), 100))]
 
     def claim_execution(
@@ -1169,6 +1543,7 @@ class WorkflowDeploymentStore:
             item.completed_at = time.time()
             item.updated_at = item.completed_at
             self._clear_lease(item)
+            self._rss_deliveries.pop(item.execution_id, None)
             self._persist_unlocked()
             return item
 
@@ -1201,6 +1576,7 @@ class WorkflowDeploymentStore:
             item.completed_at = time.time()
             item.updated_at = item.completed_at
             self._clear_lease(item)
+            self._rss_deliveries.pop(item.execution_id, None)
             if dispatch_failures:
                 self._materialize_failure_execution_unlocked(
                     item,
@@ -1514,6 +1890,7 @@ class WorkflowDeploymentStore:
             item.completed_at = time.time()
             item.updated_at = item.completed_at
             self._clear_lease(item)
+            self._rss_deliveries.pop(item.execution_id, None)
             self._persist_unlocked()
             return item
 
@@ -1541,6 +1918,23 @@ class WorkflowDeploymentStore:
         payload = asdict(item)
         payload.pop("form_key_hash", None)
         return payload
+
+    @staticmethod
+    def serialize_rss_subscription(
+        item: WorkflowRssSubscription,
+    ) -> dict[str, Any]:
+        return {
+            "project_id": item.project_id,
+            "version": item.version,
+            "deployment_id": item.deployment_id,
+            "active": item.active,
+            "baseline_established": item.baseline_established,
+            "next_poll_at": item.next_poll_at,
+            "last_success_at": item.last_success_at,
+            "consecutive_failures": item.consecutive_failures,
+            "last_error_code": item.last_error_code,
+            "updated_at": item.updated_at,
+        }
 
     @staticmethod
     def serialize_execution(item: WorkflowTriggerExecution) -> dict[str, Any]:
@@ -1656,6 +2050,18 @@ class WorkflowDeploymentStore:
         publication.active = False
         publication.deactivated_at = timestamp
         publication.updated_at = timestamp
+
+    def _deactivate_rss_subscriptions_unlocked(
+        self, project_id: str, timestamp: float
+    ) -> None:
+        for subscription in self._rss_subscriptions.values():
+            if subscription.project_id != project_id or not subscription.active:
+                continue
+            subscription.active = False
+            subscription.lease_owner = None
+            subscription.lease_token = None
+            subscription.lease_expires_at = 0.0
+            subscription.updated_at = timestamp
 
     def _require_project_unlocked(self, project_id: str) -> WorkflowProject:
         item = self._projects.get(project_id)
@@ -2059,7 +2465,7 @@ class WorkflowDeploymentStore:
     def _persist_unlocked(self) -> None:
         self.snapshot_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
-            "version": "workflow-deployments-v3",
+            "version": "workflow-deployments-v4",
             "projects": [asdict(item) for item in self._projects.values()],
             "versions": [asdict(item) for item in self._versions.values()],
             "deployments": [asdict(item) for item in self._deployments.values()],
@@ -2069,6 +2475,12 @@ class WorkflowDeploymentStore:
             ],
             "form_publications": [
                 asdict(item) for item in self._form_publications.values()
+            ],
+            "rss_subscriptions": [
+                asdict(item) for item in self._rss_subscriptions.values()
+            ],
+            "rss_deliveries": [
+                asdict(item) for item in self._rss_deliveries.values()
             ],
             "subworkflow_relations": [
                 asdict(item) for item in self._subworkflow_relations.values()
@@ -2144,6 +2556,16 @@ class WorkflowDeploymentStore:
                     raise ValueError("Duplicate workflow form publication.")
                 seen_form_projects.add(item.project_id)
                 self._form_publications[item.form_id] = item
+            for raw in payload.get("rss_subscriptions", []):
+                item = WorkflowRssSubscription(**raw)
+                if item.deployment_id in self._rss_subscriptions:
+                    raise ValueError("Duplicate workflow RSS subscription.")
+                self._rss_subscriptions[item.deployment_id] = item
+            for raw in payload.get("rss_deliveries", []):
+                item = WorkflowRssDelivery(**raw)
+                if item.execution_id in self._rss_deliveries:
+                    raise ValueError("Duplicate workflow RSS delivery.")
+                self._rss_deliveries[item.execution_id] = item
             for raw in payload.get("subworkflow_batches", []):
                 batch = WorkflowSubworkflowBatch(**raw)
                 if batch.occurrence_key in self._subworkflow_batches:
@@ -2212,6 +2634,7 @@ class WorkflowDeploymentStore:
                 self._subworkflow_relations[relation.occurrence_key] = relation
             self._validate_loaded_failure_subscriptions_unlocked()
             self._validate_loaded_form_publications_unlocked()
+            self._validate_loaded_rss_unlocked()
         except Exception as exc:
             raise WorkflowDeploymentValidationError(
                 "Workflow deployment snapshot is invalid; refusing to start with empty state."
@@ -2261,6 +2684,60 @@ class WorkflowDeploymentStore:
                 raise ValueError("Workflow form publication is invalid.")
             self.form_entry_data(release)
 
+    def _validate_loaded_rss_unlocked(self) -> None:
+        for deployment_id, subscription in self._rss_subscriptions.items():
+            deployment = self._deployments.get(deployment_id)
+            release = self._versions.get((subscription.project_id, subscription.version))
+            if (
+                deployment is None
+                or deployment.project_id != subscription.project_id
+                or deployment.version != subscription.version
+                or deployment.trigger_kind != "rss"
+                or release is None
+                or release.trigger_kind != "rss"
+                or not re.fullmatch(r"[a-f0-9]{64}", subscription.feed_fingerprint)
+                or len(subscription.seen_item_hashes) > RSS_SEEN_LIMIT
+                or len(subscription.seen_item_hashes)
+                != len(set(subscription.seen_item_hashes))
+                or any(
+                    not re.fullmatch(r"sha256:[a-f0-9]{64}", item_key)
+                    for item_key in subscription.seen_item_hashes
+                )
+                or (subscription.active and not deployment.active)
+            ):
+                raise ValueError("Workflow RSS subscription is invalid.")
+            config = self.rss_entry_data(release)
+            if rss_feed_fingerprint(config["feedUrl"]) != subscription.feed_fingerprint:
+                raise ValueError("Workflow RSS feed fingerprint changed.")
+            subscription.lease_owner = None
+            subscription.lease_token = None
+            subscription.lease_expires_at = 0.0
+        for execution_id, delivery in list(self._rss_deliveries.items()):
+            execution = self._executions.get(execution_id)
+            if (
+                execution is None
+                or execution.trigger_kind != "rss"
+                or execution.status in TERMINAL_EXECUTION_STATUSES
+                or delivery.item_key != execution.trigger_summary.get("item_key")
+                or not re.fullmatch(r"sha256:[a-f0-9]{64}", delivery.item_key)
+                or delivery.item_bytes != rss_item_content_length(delivery.item)
+                or delivery.item_bytes > 256 * 1024
+                or type(delivery.feed_index) is not int
+                or not 0 <= delivery.feed_index < RSS_MAX_ITEMS
+            ):
+                raise ValueError("Workflow RSS delivery is invalid.")
+        for execution in self._executions.values():
+            if (
+                execution.trigger_kind == "rss"
+                and execution.status not in TERMINAL_EXECUTION_STATUSES
+                and execution.execution_id not in self._rss_deliveries
+            ):
+                execution.status = "failed"
+                execution.error_summary = "RSS delivery was unavailable after restart."
+                execution.completed_at = time.time()
+                execution.updated_at = execution.completed_at
+                self._clear_lease(execution)
+
 
 def validate_publishable_workflow(
     workflow: dict[str, Any],
@@ -2298,6 +2775,7 @@ def validate_publishable_workflow(
         "schedule" if entry_kind == "scheduled_start"
         else "http" if entry_kind == "http_event_entry"
         else "form" if entry_kind == "form_event_entry"
+        else "rss" if entry_kind == "rss_event_entry"
         else "failure" if entry_kind == "failure_event_entry"
         else "call" if entry_kind == "workflow_call_entry"
         else "manual"
@@ -2391,6 +2869,25 @@ def validate_publishable_workflow(
             ):
                 raise WorkflowDeploymentValidationError(
                     "Form deployments only support the non-waiting content policy middleware."
+                )
+        if trigger_kind == "rss":
+            if kind == "rss_event_entry":
+                try:
+                    validate_rss_config(node.data)
+                except WorkflowRssError as exc:
+                    raise WorkflowDeploymentValidationError(
+                        exc.safe_message
+                    ) from exc
+            if kind in {"suspend_wait", "human_intervention", "mcp_tool"}:
+                raise WorkflowDeploymentValidationError(
+                    "RSS deployments cannot contain persistent waiting nodes."
+                )
+            if (
+                kind in {"agent_handoff", "handoff_router"}
+                and bool(node.data.get("waitForCompletion"))
+            ):
+                raise WorkflowDeploymentValidationError(
+                    "RSS deployments cannot wait for an Agent Handoff result."
                 )
         if (
             kind in {"agent_handoff", "handoff_router"}

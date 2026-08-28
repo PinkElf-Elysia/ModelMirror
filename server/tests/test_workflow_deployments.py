@@ -26,7 +26,9 @@ from server.workflow_native.r20_nodes import (
 def test_server_image_includes_workflow_deployment_module() -> None:
     dockerfile = Path(__file__).resolve().parents[1] / "Dockerfile"
 
-    assert "COPY workflow_deployments.py ." in dockerfile.read_text(encoding="utf-8")
+    dockerfile_text = dockerfile.read_text(encoding="utf-8")
+    assert "COPY workflow_deployments.py ." in dockerfile_text
+    assert "COPY workflow_rss.py ." in dockerfile_text
 
 
 def manual_workflow() -> dict:
@@ -910,7 +912,7 @@ def test_failure_dispatch_is_atomic_idempotent_sanitized_and_persistent(tmp_path
         "failed_node_title": "外部调用 Authorization: [redacted]",
     }
     snapshot = store.snapshot_path.read_text(encoding="utf-8")
-    assert '"version": "workflow-deployments-v3"' in snapshot
+    assert '"version": "workflow-deployments-v4"' in snapshot
     assert "request_body=private" not in snapshot
     assert "secret-token" not in snapshot
     assert "bearer-secret" not in snapshot

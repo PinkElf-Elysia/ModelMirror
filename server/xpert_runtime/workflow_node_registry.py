@@ -264,6 +264,25 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     metadata={"classic_only": True, "planner_enabled": False},
                 ),
                 WorkflowPaletteItem(
+                    kind="rss_event_entry",
+                    icon="RSS",
+                    title="RSS/Atom 订阅入口",
+                    description="安全轮询公网 HTTPS 订阅源，并为每个新条目独立启动。",
+                    category="logic",
+                    tags=["rss", "atom", "feed", "deployment"],
+                    metadata={
+                        "classic_only": True,
+                        "planner_enabled": False,
+                        "feature_enabled": os.getenv(
+                            "WORKFLOW_RSS_TRIGGERS_ENABLED", "false"
+                        ).strip().lower()
+                        in {"1", "true", "yes", "on"},
+                        "feature_disabled_reason": (
+                            "WORKFLOW_RSS_TRIGGERS_ENABLED is disabled."
+                        ),
+                    },
+                ),
+                WorkflowPaletteItem(
                     kind="failure_event_entry",
                     icon="FAIL",
                     title="失败处置入口",
