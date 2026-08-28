@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 const steps = [
   ["scripts/verify-r19-references.mjs"],
   ["--test", "tests/r19-reference.test.mjs"],
+  ["--test", "packages/npc-authority-contracts/tests/contracts.test.mjs"],
 ];
 for (const args of steps) {
   const result = spawnSync(process.execPath, args, {
@@ -12,4 +13,4 @@ for (const args of steps) {
   });
   if (result.error || result.status !== 0) process.exit(result.status ?? 1);
 }
-console.log("R19_GOVERNANCE_CHECKS_OK");
+console.log("R19_CONTRACTS_CANONICAL");

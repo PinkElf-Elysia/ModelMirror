@@ -33,6 +33,7 @@
     "verify:r17": "node scripts/verify-r17.mjs",
     "verify:r18": "node scripts/verify-r18.mjs",
     "verify:r19-references": "node scripts/verify-r19-references.mjs",
+    "verify:r19-contracts": "npm test --workspace @matrix-oasis/npc-authority-contracts",
     "verify:r19": "node scripts/verify-r19.mjs",
     "test:r18-sources": "node --test tests/r18-sources.test.mjs",
     "test:r18-landscape-contracts": "npm test --workspace @matrix-oasis/v2-landscape-contracts",
