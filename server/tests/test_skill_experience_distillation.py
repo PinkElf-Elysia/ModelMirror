@@ -22,11 +22,13 @@ from server.skills.experience import (
     SkillExperienceService,
     SkillExperienceSource,
     build_distilled_skill_brief,
+    distilled_skill_brief_is_promotion_ready,
 )
 from server.skills.experience_distillation import (
     DISTILLATION_WORKFLOW_VERSION,
     SkillExperienceDistillationService,
     WorkflowSkillExperienceDistillationExecutor,
+    build_distillation_invocation,
 )
 from server.skills.finder import SkillFinder
 from server.skills.skill_manager import InstalledSkill
@@ -303,6 +305,123 @@ async def test_unconfigured_or_invalid_model_falls_back_to_nonempty_manual_brief
     assert completed.brief.intent
     assert completed.brief.complete is False
     assert completed.overlaps == ()
+
+
+def test_distillation_prompt_pins_the_exact_real_provider_contract() -> None:
+    invocation = build_distillation_invocation(
+        analysis_key="a" * 64,
+        context={"confirmed_evidence": [], "application_summary": {}},
+        model_id="test-model",
+    )
+
+    prompt = invocation.workflow["nodes"][1]["data"]["rolePrompt"]
+    assert '"version":"skill-experience-distillation-v1"' in prompt
+    assert '"no_skill_reason":null' in prompt
+    assert "the object must contain exactly those fields" in prompt
+    assert "illustrative, not a classification to copy" in prompt
+    assert "Use Simplified Chinese" in prompt
+    assert "even when the confirmed evidence is English" in prompt
+
+
+@pytest.mark.asyncio
+async def test_executor_accepts_no_skill_without_inventing_reusable_steps() -> None:
+    payload = _complete_brief(
+        suggestion="no_skill",
+        no_skill_reason="one_off_task",
+    )
+    for field in (
+        "recommendation_reason",
+        "intent",
+        "positive_examples",
+        "negative_examples",
+        "expected_output",
+        "success_criteria",
+        "reusable_steps",
+        "failure_boundaries",
+        "resource_clues",
+        "overfitting_risk",
+    ):
+        payload[field] = [] if field.endswith("s") or field in {
+            "positive_examples",
+            "negative_examples",
+            "success_criteria",
+            "reusable_steps",
+            "failure_boundaries",
+            "resource_clues",
+        } else ""
+
+    async def runner(_invocation: Any) -> str:
+        return json.dumps(
+            {"version": DISTILLATION_WORKFLOW_VERSION, **payload},
+            ensure_ascii=False,
+        )
+
+    executor = WorkflowSkillExperienceDistillationExecutor(
+        model_id="provider/model",
+        model_available=lambda: True,
+        runner=runner,
+    )
+    brief = await executor.analyze(analysis_key="a" * 64, context={})
+
+    assert brief.suggestion == "no_skill"
+    assert brief.no_skill_reason == "one_off_task"
+    assert brief.recommendation_reason == ""
+    assert brief.reusable_steps == ()
+    assert brief.complete is True
+    assert distilled_skill_brief_is_promotion_ready(brief) is False
+
+
+@pytest.mark.asyncio
+async def test_no_skill_override_still_requires_a_reusable_creator_brief(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SKILL_EXPERIENCE_PROMOTION_ENABLED", "true")
+    experience, distillation, executions, _, _ = _runtime(tmp_path)
+    candidate = _capture_selected(experience, executions)
+    minimal = _complete_brief(
+        suggestion="no_skill",
+        no_skill_reason="one_off_task",
+    )
+    minimal.update({
+        "intent": "",
+        "positive_examples": [],
+        "negative_examples": [],
+        "expected_output": "",
+        "success_criteria": [],
+        "reusable_steps": [],
+        "failure_boundaries": [],
+        "resource_clues": [],
+        "overfitting_risk": "",
+    })
+    brief = build_distilled_skill_brief(minimal, revision=1, source="model")
+    overlaps, fingerprint = distillation._build_overlaps(brief)
+    analyzing, _ = experience.store.begin_analysis(
+        candidate.candidate_id,
+        expected_revision=candidate.revision,
+        expected_digest=candidate.digest,
+        analysis_key="a" * 64,
+    )
+    assert analyzing.analysis_attempt is not None
+    reviewed = experience.store.complete_analysis(
+        candidate.candidate_id,
+        attempt_id=analyzing.analysis_attempt.attempt_id,
+        analysis_key="a" * 64,
+        brief=brief,
+        overlaps=overlaps,
+        overlap_fingerprint=fingerprint,
+        executor_mode="model",
+        error_code=None,
+    )
+
+    with pytest.raises(SkillExperienceError) as exc_info:
+        distillation.decide(
+            reviewed.candidate_id,
+            expected_revision=reviewed.revision,
+            expected_digest=reviewed.digest,
+            decision="create",
+            override_reason="用户确认这个模式需要长期复用。",
+        )
+    assert exc_info.value.code == "skill_experience_decision_required"
 
 
 @pytest.mark.asyncio

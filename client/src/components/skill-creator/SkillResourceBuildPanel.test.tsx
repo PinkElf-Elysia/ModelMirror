@@ -358,6 +358,195 @@ describe("SkillResourceBuildPanel", () => {
     expect(String(fetchMock.mock.calls[1][0])).toContain("/next");
   });
 
+  it("keeps an internal auto-repair finding out of the user error surface", () => {
+    const repairing: SkillResourceBuild = {
+      ...build,
+      phase: "skill_markdown",
+      state: "planned",
+      current_resource_id: null,
+      resources: [{ ...build.resources[0], state: "accepted" }],
+      skill_markdown: null,
+      skill_markdown_digest: null,
+      skill_attempt: 2,
+      skill_repair_count: 1,
+      skill_validation_issues: [{
+        code: "skill_creator_reference_search_missing",
+        message: "Multiple references require a bounded search example.",
+        path: "SKILL.md",
+        severity: "error",
+      }],
+    };
+
+    render(<SkillResourceBuildPanel
+      onProposal={vi.fn()}
+      onSessionRefresh={vi.fn()}
+      session={{ ...baseSession, resource_build: repairing }}
+      status={status}
+    />);
+
+    expect(screen.queryByText(/skill_creator_reference_search_missing/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "生成最终 SKILL.md" })).toBeEnabled();
+  });
+
+  it("shows validation findings after the automatic repair is exhausted", () => {
+    const failed: SkillResourceBuild = {
+      ...build,
+      phase: "skill_markdown",
+      state: "failed",
+      current_resource_id: null,
+      resources: [{ ...build.resources[0], state: "accepted" }],
+      skill_markdown: "# Incomplete\n",
+      skill_markdown_digest: "1".repeat(64),
+      skill_attempt: 2,
+      skill_repair_count: 1,
+      skill_validation_issues: [{
+        code: "skill_creator_reference_search_missing",
+        message: "Multiple references require a bounded search example.",
+        path: "SKILL.md",
+        severity: "error",
+      }],
+    };
+
+    render(<SkillResourceBuildPanel
+      onProposal={vi.fn()}
+      onSessionRefresh={vi.fn()}
+      session={{ ...baseSession, resource_build: failed }}
+      status={status}
+    />);
+
+    expect(screen.getByText(/Multiple references require a bounded search example/)).toBeVisible();
+    expect(screen.getByText(/skill_creator_reference_search_missing/)).not.toBeVisible();
+  });
+
+  it("offers a one-click repair for an invalid final SKILL.md", async () => {
+    const failed: SkillResourceBuild = {
+      ...build,
+      phase: "skill_markdown",
+      state: "failed",
+      current_resource_id: null,
+      resources: [{ ...build.resources[0], state: "accepted" }],
+      skill_markdown: "# Incomplete\n\nText.## Resources\n",
+      skill_markdown_digest: "1".repeat(64),
+      skill_attempt: 2,
+      skill_repair_count: 1,
+      skill_validation_issues: [{
+        code: "skill_creator_skill_markdown_heading_boundary_invalid",
+        message: "SKILL.md 的二级章节必须从新行开始，请重新生成粘连的章节。",
+        path: "SKILL.md",
+        severity: "error",
+      }],
+    };
+    const rejected: SkillResourceBuild = {
+      ...failed,
+      revision: 6,
+      digest: "6".repeat(64),
+      state: "revision_requested",
+      skill_markdown: null,
+      skill_markdown_digest: null,
+    };
+    const regenerated: SkillResourceBuild = {
+      ...rejected,
+      revision: 8,
+      digest: "8".repeat(64),
+      state: "awaiting_review",
+      skill_markdown: "# Corrected\n\n## Resources\n",
+      skill_markdown_digest: "9".repeat(64),
+      skill_validation_issues: [],
+    };
+    const fetchMock = vi.fn<
+      (_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>
+    >((input) => String(input).endsWith("/next")
+      ? jsonResponse({ resource_build: regenerated })
+      : jsonResponse({ resource_build: rejected }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<SkillResourceBuildPanel
+      onProposal={vi.fn()}
+      onSessionRefresh={vi.fn()}
+      session={{ ...baseSession, resource_build: failed }}
+      status={status}
+    />);
+
+    expect(screen.getByText(/将使用一次生成额度.*已确认的参考资料、脚本和模板不会改变/)).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "修复并重新生成 SKILL.md" }));
+
+    expect(await screen.findByText(/已按反馈重新生成并完成校验/)).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const request = fetchMock.mock.calls[0][1];
+    const payload = JSON.parse(String(request?.body));
+    expect(payload.feedback).toContain("每个二级章节都从新行开始");
+    expect(payload.feedback).toContain("只返回一份完整文档");
+  });
+
+  it("surfaces structured Creator draft-gate issues returned by finalization", async () => {
+    const finalBuild: SkillResourceBuild = {
+      ...build,
+      phase: "skill_markdown",
+      state: "awaiting_review",
+      current_resource_id: null,
+      resources: [{ ...build.resources[0], state: "accepted" }],
+      skill_markdown: "# Complete\n",
+      skill_markdown_digest: "1".repeat(64),
+      skill_validation_issues: [],
+    };
+    vi.stubGlobal("fetch", vi.fn(() => jsonResponse({
+      detail: {
+        code: "skill_creator_resource_proposal_invalid",
+        message: "Creator gate failed.",
+        issues: [{
+          code: "creator_description_trigger_missing",
+          message: "Description needs an actionable usage scope.",
+          field: "skill.description",
+          severity: "error",
+        }],
+      },
+    }, 400)));
+
+    render(<SkillResourceBuildPanel
+      onProposal={vi.fn()}
+      onSessionRefresh={vi.fn()}
+      session={{ ...baseSession, resource_build: finalBuild }}
+      status={status}
+    />);
+    await userEvent.click(screen.getByRole("button", { name: "确认最终包并形成提案" }));
+
+    expect(await screen.findByText(/Skill 描述需要明确说明什么时候使用/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "修复并重新生成 SKILL.md" })).toBeEnabled();
+    expect(screen.getByText(/creator_description_trigger_missing/)).not.toBeVisible();
+    expect(screen.queryByRole("button", { name: "重新检查最终包" })).not.toBeInTheDocument();
+  });
+
+  it("offers a deterministic refresh when a legacy server omits issue details", async () => {
+    const finalBuild: SkillResourceBuild = {
+      ...build,
+      phase: "skill_markdown",
+      state: "awaiting_review",
+      current_resource_id: null,
+      resources: [{ ...build.resources[0], state: "accepted" }],
+      skill_markdown: "# Complete\n",
+      skill_markdown_digest: "1".repeat(64),
+      skill_validation_issues: [],
+    };
+    vi.stubGlobal("fetch", vi.fn(() => jsonResponse({
+      detail: {
+        code: "skill_creator_resource_proposal_invalid",
+        message: "Creator gate failed.",
+        issues: [],
+      },
+    }, 400)));
+
+    render(<SkillResourceBuildPanel
+      onProposal={vi.fn()}
+      onSessionRefresh={vi.fn()}
+      session={{ ...baseSession, resource_build: finalBuild }}
+      status={status}
+    />);
+    await userEvent.click(screen.getByRole("button", { name: "确认最终包并形成提案" }));
+
+    expect(await screen.findByText(/服务端没有返回具体原因/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "重新检查最终包" })).toBeEnabled();
+  });
+
   it("does not present passing CLI fixtures as a passing Hook contract", () => {
     const hookFailed: SkillResourceBuild = {
       ...build,

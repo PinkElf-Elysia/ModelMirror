@@ -22,9 +22,11 @@ import {
   readSkillCreatorResourceBuild,
   reviewSkillCreatorResource,
   startSkillCreatorResourceBuild,
+  SkillCreatorApiError,
   type SkillCreatorProposal,
   type SkillCreatorSession,
   type SkillCreatorStatus,
+  type SkillPackageIssue,
   type SkillResourceBuild,
   type SkillResourceBuildItem,
 } from "../../utils/skillCreatorApi";
@@ -54,7 +56,99 @@ function shortDigest(value?: string | null) {
 }
 
 function errorMessage(value: unknown, fallback: string) {
+  if (
+    value instanceof SkillCreatorApiError
+    && value.code === "skill_creator_resource_proposal_invalid"
+  ) {
+    return value.issues.length
+      ? "最终检查发现了具体问题。请使用下方的修复入口重新生成 SKILL.md。"
+      : "最终检查未通过，但服务端没有返回具体原因。请重新检查最终包后再试。";
+  }
   return value instanceof Error && value.message ? value.message : fallback;
+}
+
+const SKILL_ISSUE_MESSAGES: Record<string, string> = {
+  creator_description_trigger_missing:
+    "Skill 描述需要明确说明什么时候使用，以及哪些相似任务不应使用。",
+  creator_description_invalid:
+    "Skill 描述不符合要求，需要重新生成清晰的用途、使用时机和边界。",
+  creator_scope_missing:
+    "SKILL.md 需要明确说明用途、适用范围和不适用边界。",
+  creator_requirement_uncovered:
+    "最终文档没有覆盖已确认的一项需求，需要补充对应步骤或说明。",
+  creator_requirement_location_invalid:
+    "需求覆盖位置与当前文档章节不一致，需要重新整理章节和覆盖关系。",
+};
+
+function issueMessage(issue: SkillPackageIssue) {
+  return SKILL_ISSUE_MESSAGES[issue.code] ?? issue.message;
+}
+
+const SKILL_ISSUE_REPAIR_GUIDANCE: Record<string, string> = {
+  skill_creator_skill_markdown_heading_boundary_invalid:
+    "重新生成完整 SKILL.md：确保每个二级章节都从新行开始，删除重复或粘连的章节，并保留已确认资源的准确路径。请使用简体中文，只返回一份完整文档。",
+  skill_creator_skill_markdown_duplicate_section:
+    "重新生成完整 SKILL.md：合并重复章节，每个二级章节只保留一份，并保留已确认资源的准确路径。请使用简体中文，只返回一份完整文档。",
+  skill_creator_reference_search_missing:
+    "重新生成完整 SKILL.md：为多份或较长的参考资料补充有界的 rg 或 sandbox_search_files 检索示例，并明确检索路径和范围。请使用简体中文，只返回一份完整文档。",
+  creator_description_trigger_missing:
+    "重新生成完整 SKILL.md：在 frontmatter description 中明确写出能力、适用场景和不适用边界，同时保留已通过的触发描述。请使用简体中文，只返回一份完整文档。",
+};
+
+function skillRepairFeedback(issues: SkillPackageIssue[]) {
+  const suggestions = Array.from(new Set(issues
+    .map((issue) => SKILL_ISSUE_REPAIR_GUIDANCE[issue.code])
+    .filter((value): value is string => Boolean(value))));
+  if (suggestions.length) return suggestions.join("\n");
+  return `重新生成完整 SKILL.md，并修复以下检查问题：${issues.map(issueMessage).join("；")}。请保留已确认资源，只返回一份完整文档。`;
+}
+
+function ValidationIssues({
+  issues,
+  action,
+  title = "需要处理",
+}: {
+  issues: SkillPackageIssue[];
+  title?: string;
+  action?: {
+    disabled: boolean;
+    label: string;
+    onClick: () => void;
+  };
+}) {
+  if (!issues.length) return null;
+  return (
+    <div className="rounded-md border border-rose-300/20 bg-rose-300/[0.07] p-4">
+      <p className="text-sm font-semibold text-rose-50">{title}</p>
+      <ul className="mt-2 space-y-3 text-xs leading-5 text-rose-100">
+        {issues.map((issue, index) => (
+          <li key={`${issue.code}-${index}`}>
+            <p>{issueMessage(issue)}</p>
+            <details className="mt-1 text-slate-400">
+              <summary className="cursor-pointer">技术信息</summary>
+              <code className="mt-1 block break-all">{issue.code}{issue.path ? ` · ${issue.path}` : ""}</code>
+            </details>
+          </li>
+        ))}
+      </ul>
+      {action ? (
+        <div className="mt-4 border-t border-rose-200/15 pt-4">
+          <p className="text-xs leading-5 text-rose-100">
+            将使用一次生成额度，只重新生成 SKILL.md；已确认的参考资料、脚本和模板不会改变。
+          </p>
+          <button
+            className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-full bg-rose-100 px-4 py-2 text-sm font-semibold text-ink-950 disabled:cursor-not-allowed disabled:opacity-40"
+            disabled={action.disabled}
+            onClick={action.onClick}
+            type="button"
+          >
+            <RotateCcw aria-hidden="true" size={15} />
+            {action.label}
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 interface Props {
@@ -112,12 +206,18 @@ export default function SkillResourceBuildPanel({
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [finalizeIssues, setFinalizeIssues] = useState<SkillPackageIssue[]>([]);
+  const [validationRefreshNeeded, setValidationRefreshNeeded] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [editing, setEditing] = useState(false);
   const [editedContent, setEditedContent] = useState("");
 
   useEffect(() => {
-    if (session.resource_build) setBuild(session.resource_build);
+    if (session.resource_build) {
+      setBuild(session.resource_build);
+      setFinalizeIssues([]);
+      setValidationRefreshNeeded(false);
+    }
   }, [session.resource_build?.digest]);
 
   useEffect(() => {
@@ -179,9 +279,23 @@ export default function SkillResourceBuildPanel({
     && activeHooks.length
     && build.resources.every((item) => item.state === "accepted")
   );
+  const buildIssuesAreActionable = Boolean(
+    build && ["awaiting_review", "failed"].includes(build.state),
+  );
+  const selectedValidationIssues = buildIssuesAreActionable
+    ? selected?.validation_issues ?? []
+    : [];
+  const skillValidationIssues = buildIssuesAreActionable
+    ? Array.from(new Map([
+      ...(build?.skill_validation_issues ?? []),
+      ...finalizeIssues,
+    ].map((issue) => [`${issue.code}:${issue.path ?? ""}:${issue.field ?? ""}`, issue])).values())
+    : [];
 
   function update(next: SkillResourceBuild, message = "") {
     setBuild(next);
+    setFinalizeIssues([]);
+    setValidationRefreshNeeded(false);
     if (message) setNotice(message);
     setError("");
   }
@@ -276,9 +390,10 @@ export default function SkillResourceBuildPanel({
     setEditing(false);
   }
 
-  async function finalize(decision: "accept" | "revise") {
+  async function finalize(decision: "accept" | "revise", feedbackOverride?: string) {
     if (!build) return;
-    if (decision === "revise" && !feedback.trim()) {
+    const requestedFeedback = feedbackOverride?.trim() || feedback.trim();
+    if (decision === "revise" && !requestedFeedback) {
       setError("请说明最终 SKILL.md 需要修改的内容。");
       return;
     }
@@ -286,7 +401,7 @@ export default function SkillResourceBuildPanel({
     setError("");
     setNotice("");
     try {
-      const result = await finalizeSkillCreatorResourceBuild(session, build, decision, feedback);
+      const result = await finalizeSkillCreatorResourceBuild(session, build, decision, requestedFeedback);
       if (decision === "revise") {
         setBuild(result.build);
         const regenerated = await advanceSkillCreatorResourceBuild(session, result.build);
@@ -298,6 +413,14 @@ export default function SkillResourceBuildPanel({
       await onSessionRefresh();
       setFeedback("");
     } catch (caught) {
+      if (
+        decision === "accept"
+        && caught instanceof SkillCreatorApiError
+        && caught.code === "skill_creator_resource_proposal_invalid"
+      ) {
+        setFinalizeIssues(caught.issues);
+        setValidationRefreshNeeded(caught.issues.length === 0);
+      }
       setError(errorMessage(caught, decision === "revise"
         ? "最终文档重做失败。已保存的反馈可在重新读取后继续处理。"
         : "最终包确认失败。"));
@@ -373,6 +496,21 @@ export default function SkillResourceBuildPanel({
       </div>
 
       {error ? <p className="rounded-md border border-rose-300/25 bg-rose-300/10 px-4 py-3 text-sm text-rose-50" role="alert">{error}</p> : null}
+      {validationRefreshNeeded && build ? (
+        <button
+          className="inline-flex min-h-11 items-center gap-2 rounded-full border border-white/15 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
+          disabled={Boolean(busy)}
+          onClick={() => void run(
+            "refresh-validation",
+            () => readSkillCreatorResourceBuild(build.build_id),
+            "已重新检查最终包。",
+          )}
+          type="button"
+        >
+          <RefreshCw aria-hidden="true" size={15} />
+          {busy === "refresh-validation" ? "正在重新检查…" : "重新检查最终包"}
+        </button>
+      ) : null}
       {notice ? <p className="rounded-md border border-emerald-300/20 bg-emerald-300/10 px-4 py-3 text-sm text-emerald-50" role="status">{notice}</p> : null}
       {build.stale || build.state === "stale" ? (
         <div className="rounded-md border border-amber-300/25 bg-amber-300/10 p-4 text-sm text-amber-50"><CircleAlert className="mr-2 inline" size={16} />用途、计划或草稿已变化。此构建只读保留，请回到上一步重新规划。</div>
@@ -428,12 +566,7 @@ export default function SkillResourceBuildPanel({
                 <span>内部片段：{selected.chunks.length}</span><span>内容：{byteSize(selected.content)} bytes</span><span>摘要：{shortDigest(selected.content_digest)}</span><span>尝试：{selected.attempt}</span>
               </div>
 
-              {selected.validation_issues.length ? (
-                <div className="rounded-md border border-rose-300/20 bg-rose-300/[0.07] p-4">
-                  <p className="text-sm font-semibold text-rose-50">校验问题</p>
-                  <ul className="mt-2 space-y-1 text-xs leading-5 text-rose-100">{selected.validation_issues.map((issue, index) => <li key={`${issue.code}-${index}`}>{issue.code}：{issue.message}</li>)}</ul>
-                </div>
-              ) : null}
+              <ValidationIssues issues={selectedValidationIssues} />
 
               {editing ? (
                 <div>
@@ -458,7 +591,7 @@ export default function SkillResourceBuildPanel({
                   <textarea className="mt-2 min-h-24 w-full rounded-md border border-white/10 bg-ink-950 px-3 py-2 text-sm leading-6 text-white" id="resource-review-feedback" maxLength={4000} onChange={(event) => setFeedback(event.target.value)} placeholder="仅在需要重做时填写具体修改要求。" value={feedback} />
                   <div className="mt-3 flex flex-wrap justify-end gap-2">
                     <button className="inline-flex min-h-11 items-center gap-2 rounded-full border border-white/15 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40" disabled={!feedback.trim() || !canRunBuilder || Boolean(busy)} onClick={() => void reviewResource("revise")} type="button"><RotateCcw aria-hidden="true" size={15} />{busy === "revise" ? "正在按反馈重做…" : "按反馈重做"}</button>
-                    <button className="inline-flex min-h-11 items-center gap-2 rounded-full bg-hire-300 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-40" disabled={selected.validation_issues.length > 0 || (selected.kind === "script" && !selected.script_receipt?.passed) || Boolean(busy)} onClick={() => void reviewResource("accept")} type="button"><CheckCircle2 aria-hidden="true" size={15} />确认完整资源</button>
+                    <button className="inline-flex min-h-11 items-center gap-2 rounded-full bg-hire-300 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-40" disabled={selectedValidationIssues.length > 0 || (selected.kind === "script" && !selected.script_receipt?.passed) || Boolean(busy)} onClick={() => void reviewResource("accept")} type="button"><CheckCircle2 aria-hidden="true" size={15} />确认完整资源</button>
                   </div>
                 </div>
               ) : null}
@@ -493,7 +626,15 @@ export default function SkillResourceBuildPanel({
                   ) : null}
                 </section>
               ) : null}
-              {build.skill_validation_issues.length ? <ul className="rounded-md border border-rose-300/20 bg-rose-300/[0.07] p-4 text-xs leading-5 text-rose-100">{build.skill_validation_issues.map((issue, index) => <li key={`${issue.code}-${index}`}>{issue.code}：{issue.message}</li>)}</ul> : null}
+              <ValidationIssues
+                action={skillValidationIssues.length ? {
+                  disabled: !canRunBuilder || Boolean(busy),
+                  label: busy === "finalize" ? "正在修复并重新生成…" : "修复并重新生成 SKILL.md",
+                  onClick: () => void finalize("revise", skillRepairFeedback(skillValidationIssues)),
+                } : undefined}
+                issues={skillValidationIssues}
+                title="最终文档需要修复"
+              />
               {build.skill_markdown ? <pre className="max-h-[640px] overflow-auto whitespace-pre-wrap break-words rounded-md bg-ink-950 p-4 font-mono text-xs leading-6 text-slate-200">{build.skill_markdown}</pre> : <p className="rounded-md border border-dashed border-white/15 p-6 text-center text-sm text-slate-400">等待生成最终 SKILL.md。</p>}
               {build.skill_markdown ? (
                 <details className="rounded-md border border-white/10 p-4">
@@ -509,7 +650,7 @@ export default function SkillResourceBuildPanel({
                   <textarea className="mt-2 min-h-24 w-full rounded-md border border-white/10 bg-ink-950 px-3 py-2 text-sm leading-6 text-white" id="skill-review-feedback" maxLength={4000} onChange={(event) => setFeedback(event.target.value)} value={feedback} />
                   <div className="mt-3 flex flex-wrap justify-end gap-2">
                     <button className="inline-flex min-h-11 items-center gap-2 rounded-full border border-white/15 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40" disabled={!feedback.trim() || !canRunBuilder || Boolean(busy)} onClick={() => void finalize("revise")} type="button"><RotateCcw aria-hidden="true" size={15} />{busy === "finalize" ? "正在按反馈重做…" : "按反馈重做 SKILL.md"}</button>
-                    <button className="inline-flex min-h-11 items-center gap-2 rounded-full bg-hire-300 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-40" disabled={build.skill_validation_issues.length > 0 || Boolean(busy)} onClick={() => void finalize("accept")} type="button"><CheckCircle2 aria-hidden="true" size={15} />确认最终包并形成提案</button>
+                    <button className="inline-flex min-h-11 items-center gap-2 rounded-full bg-hire-300 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-40" disabled={skillValidationIssues.length > 0 || Boolean(busy)} onClick={() => void finalize("accept")} type="button"><CheckCircle2 aria-hidden="true" size={15} />确认最终包并形成提案</button>
                   </div>
                 </div>
               ) : null}

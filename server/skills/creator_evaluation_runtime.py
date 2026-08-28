@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from pathlib import PurePosixPath
 from typing import Any
 
 from .creator_evaluation import (
@@ -25,6 +26,11 @@ SKILL_EVALUATION_ALLOWED_TOOLS = (
     "sandbox_write_file",
     "sandbox_shell",
 )
+SKILL_EVALUATION_BASELINE_TOOLS = tuple(
+    tool_name
+    for tool_name in SKILL_EVALUATION_ALLOWED_TOOLS
+    if tool_name not in {"skill_read", "skill_stage"}
+)
 SKILL_EVALUATION_RECOVERABLE_TOOL_CODES = frozenset(
     {
         "invalid_query",
@@ -42,6 +48,92 @@ SKILL_EVALUATION_RECOVERABLE_TOOL_CODES = frozenset(
         "skill_evaluation_alias_invalid",
     }
 )
+
+
+def skill_evaluation_tool_names(metadata: Any) -> tuple[str, ...]:
+    """Resolve the fixed tool contract for one server-trusted comparison side."""
+
+    if not is_trusted_skill_evaluation_metadata(metadata):
+        return ()
+    target = str(dict(metadata).get("skill_evaluation_target") or "").strip()
+    if target == "baseline":
+        return SKILL_EVALUATION_BASELINE_TOOLS
+    if target in {"previous", "candidate"}:
+        return SKILL_EVALUATION_ALLOWED_TOOLS
+    return ()
+
+
+def skill_evaluation_resource_repair_instruction(
+    metadata: Any,
+    *,
+    tool_name: str,
+    arguments: Any,
+    staged_paths: Any,
+) -> str | None:
+    """Return one bounded correction for a trusted evaluation resource access."""
+
+    if (
+        skill_evaluation_tool_names(metadata) != SKILL_EVALUATION_ALLOWED_TOOLS
+        or tool_name not in {"sandbox_read_file", "sandbox_search_files"}
+        or not isinstance(arguments, dict)
+    ):
+        return None
+    raw_path = str(arguments.get("path") or "").strip().replace("\\", "/")
+    path = PurePosixPath(raw_path)
+    if (
+        not raw_path
+        or len(raw_path) > 512
+        or any(ord(character) < 32 or ord(character) == 127 for character in raw_path)
+        or path.is_absolute()
+        or any(part in {"", ".", ".."} for part in path.parts)
+        or len(path.parts) < 2
+        or path.parts[0] != "skills"
+    ):
+        return None
+    workspace_path = path.as_posix()
+    available: set[str] = set()
+    for value in staged_paths or ():
+        candidate = str(value).strip().replace("\\", "/")
+        candidate_path = PurePosixPath(candidate)
+        if (
+            not candidate
+            or len(candidate) > 512
+            or any(ord(character) < 32 or ord(character) == 127 for character in candidate)
+            or candidate_path.is_absolute()
+            or any(part in {"", ".", ".."} for part in candidate_path.parts)
+            or len(candidate_path.parts) < 3
+            or candidate_path.parts[0] != "skills"
+            or candidate_path.parts[1] != SKILL_EVALUATION_ALIAS
+        ):
+            continue
+        available.add(candidate_path.as_posix())
+    if not available:
+        return (
+            "No Skill resources are staged for this evaluation item. First call "
+            f"skill_read with skill_id='{SKILL_EVALUATION_ALIAS}', then call "
+            "skill_stage with the same Skill ID. After both calls succeed, retry "
+            "the resource operation using an exact path returned by the tools. "
+            "Do not answer the evaluation task yet."
+        )
+    if tool_name == "sandbox_read_file":
+        missing = workspace_path not in available
+    else:
+        prefix = workspace_path.rstrip("/") + "/"
+        missing = workspace_path not in available and not any(
+            value.startswith(prefix) for value in available
+        )
+    if not missing:
+        return None
+    exact_paths = sorted(available)[:12]
+    return (
+        "The Skill resources are already staged. Do not call skill_read or "
+        "skill_stage again. For sandbox_read_file, choose one exact file path "
+        "listed below and never pass a directory. For sandbox_search_files, use "
+        "a directory prefix derived from these paths and a bounded query. "
+        "Available staged files: "
+        + ", ".join(exact_paths)
+        + ". Retry only the resource operation; do not answer the evaluation task yet."
+    )
 
 
 def is_trusted_skill_evaluation_metadata(metadata: Any) -> bool:
@@ -163,13 +255,21 @@ def build_skill_evaluation_workflow_invocation(
 
     if item.target == "candidate" and overlay is None:
         raise ValueError("Candidate evaluation requires an immutable Skill Overlay.")
+    uses_skill = overlay is not None
     fixture_paths = [f"inputs/{entry['path']}" for entry in case.fixtures]
-    required_resource_paths = list(case.required_resource_paths)
+    required_resource_paths = (
+        list(case.required_resource_paths) if uses_skill else []
+    )
+    required_workspace_paths = [
+        f"skills/{SKILL_EVALUATION_ALIAS}/{path}"
+        for path in required_resource_paths
+    ]
     task_contract = {
         "case_id": case.case_id,
         "prompt": case.prompt,
         "fixture_paths": fixture_paths,
         "required_skill_resource_paths": required_resource_paths,
+        "required_skill_workspace_paths": required_workspace_paths,
         "workspace_contract": {
             "inputs_and_skills_are_read_only": True,
             "write_outputs_under": "work/",
@@ -178,16 +278,25 @@ def build_skill_evaluation_workflow_invocation(
     }
     role_prompt = (
         "You are executing one frozen Skill evaluation case in an offline sandbox. "
-        "Always call skill_read with skill_id='evaluation-skill' before solving the "
-        "case. Use skill_stage before solving when required_skill_resource_paths is "
-        "non-empty; otherwise stage only when package resources are needed. Read fixtures "
-        "only from inputs/. Treat path-like strings in the user prompt as data unless they "
+        "Read fixtures only from inputs/. Treat path-like strings in the user prompt as data unless they "
         "exactly match a listed fixture_path; never probe Sandbox existence for an unlisted "
         "path. Write generated files only under work/. Do not request "
         "network access, external tools, approval, installation, or additional Skills. "
         "Return only the user-facing result for the case; do not discuss evaluation, "
         "the comparison side, hidden expectations, or internal reasoning."
     )
+    if uses_skill:
+        role_prompt += (
+            " Your first action must be skill_read with skill_id='evaluation-skill'; "
+            "do not call skill_stage or any Sandbox tool before that read succeeds. "
+            "When required_skill_workspace_paths is non-empty, call skill_stage next. "
+            "The evaluation-only skill_stage result contains required_resources with the "
+            "server-selected path and UTF-8 content for every required resource; use that "
+            "content directly and do not call sandbox_read_file for those resources. The "
+            "required_skill_resource_paths values are package-relative evidence identifiers "
+            "only and must never be used as Sandbox paths. "
+            "Otherwise stage only when the returned SKILL.md requires package resources."
+        )
     middleware_nodes = [
         {
             "id": "evaluation-sandbox-files",
@@ -218,23 +327,26 @@ def build_skill_evaluation_workflow_invocation(
                 },
             },
         },
-        {
-            "id": "evaluation-skills",
-            "type": "runtime_middleware",
-            "data": {
-                "kind": "runtime_middleware",
-                "runtimeMiddlewareId": "skills_runtime",
-                "runtimeMiddlewareKind": "runtime_middleware.skills_runtime",
-                "middlewarePriority": "22",
-                "runtimeMiddlewareConfig": {
-                    "skill_ids": SKILL_EVALUATION_ALIAS,
-                    "auto_discover": False,
-                    "catalog_search": False,
-                    "catalog_install": False,
-                },
-            },
-        },
     ]
+    if uses_skill:
+        middleware_nodes.append(
+            {
+                "id": "evaluation-skills",
+                "type": "runtime_middleware",
+                "data": {
+                    "kind": "runtime_middleware",
+                    "runtimeMiddlewareId": "skills_runtime",
+                    "runtimeMiddlewareKind": "runtime_middleware.skills_runtime",
+                    "middlewarePriority": "22",
+                    "runtimeMiddlewareConfig": {
+                        "skill_ids": SKILL_EVALUATION_ALIAS,
+                        "auto_discover": False,
+                        "catalog_search": False,
+                        "catalog_install": False,
+                    },
+                },
+            }
+        )
     edges = [
         {
             "id": "evaluation-input-agent",
@@ -281,7 +393,11 @@ def build_skill_evaluation_workflow_invocation(
                     # Sandbox/Skill middleware supplies the tools. Keeping MCP off
                     # prevents requested names from being resolved against MCP.
                     "toolMode": "none",
-                    "toolNames": ",".join(SKILL_EVALUATION_ALLOWED_TOOLS),
+                    "toolNames": ",".join(
+                        SKILL_EVALUATION_ALLOWED_TOOLS
+                        if uses_skill
+                        else SKILL_EVALUATION_BASELINE_TOOLS
+                    ),
                     "maxIterations": "8",
                     "maxToolCalls": "16",
                     "maxToolConcurrency": "1",
@@ -320,8 +436,13 @@ def build_skill_evaluation_workflow_invocation(
             "skill_evaluation_overlay_id": overlay.overlay_id if overlay else None,
             "skill_evaluation_workspace_id": workspace_id,
             "skill_evaluation_frozen_digest": run.frozen_digest,
+            "skill_evaluation_required_resource_paths": required_resource_paths,
             "skill_application_policy": (
-                "require_stage" if required_resource_paths else "require_read"
+                "require_stage"
+                if uses_skill and required_resource_paths
+                else "require_read"
+                if uses_skill
+                else "advisory"
             ),
             "skill_application_required_resource_paths": required_resource_paths,
         },

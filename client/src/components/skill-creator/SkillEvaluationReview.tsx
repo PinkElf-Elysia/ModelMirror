@@ -146,13 +146,14 @@ function CaseComparison({ evaluationCase, items, comparisons, onRetry, retrying,
   const targets: SkillEvaluationItem["target"][] = previous ? ["baseline", "previous", "candidate"] : ["baseline", "candidate"];
   const comparison = comparisons?.find((item) => item.case_id === evaluationCase.case_id && item.repetition === selectedRepetition);
   const comparisonLabels = { regressed: "出现退化", improved: "已改善", flat: "结果持平", inconclusive: "证据不足" } as const;
+  const effectiveClassification = comparison?.comparable === false ? "inconclusive" : comparison?.classification;
   return (
     <section className="border-t border-white/10 py-6 first:border-t-0 first:pt-0" aria-labelledby={`result-${evaluationCase.case_id}`}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h3 className="text-base font-semibold text-white" id={`result-${evaluationCase.case_id}`}>{evaluationCase.name}</h3>
           <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-400">{evaluationCase.expected_behavior}</p>
-          {comparison ? <span className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${comparison.classification === "regressed" ? "bg-rose-300/10 text-rose-100" : comparison.classification === "improved" ? "bg-emerald-300/10 text-emerald-100" : "bg-white/[0.055] text-slate-300"}`}>{comparisonLabels[comparison.classification]}</span> : null}
+          {effectiveClassification ? <span className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${effectiveClassification === "regressed" ? "bg-rose-300/10 text-rose-100" : effectiveClassification === "improved" ? "bg-emerald-300/10 text-emerald-100" : "bg-white/[0.055] text-slate-300"}`}>{comparisonLabels[effectiveClassification]}</span> : null}
           {repetitions.length > 1 ? (
             <div className="mt-2 flex flex-wrap items-center gap-1" aria-label={`${evaluationCase.name} 重复运行`}>
               <span className="mr-1 text-[11px] text-slate-500">重复运行</span>
@@ -229,7 +230,13 @@ export default function SkillEvaluationReview({
   const allItemsComplete = run.items.length === expectedItemCount && run.items.every((item) => item.status === "completed" && !item.error_code);
   const modelIdentityComplete = run.items.length > 0 && run.items.every((item) => Boolean(item.actual_model)) && actualModels.size === 1;
   const comparable = run.status === "completed" && run.cases.length >= 3 && allItemsComplete && candidateRead && modelIdentityComplete && digestMatches && run.report?.eligible_for_accept !== false;
-  const regressionIds = run.report?.regression_item_ids ?? [];
+  const regressionIds = (run.report?.regression_item_ids ?? []).filter((itemId) => {
+    const comparison = run.report?.pairs?.find((pair) => pair.candidate_item_id === itemId);
+    return comparison?.comparable !== false;
+  });
+  const comparisonReferenceLabel = run.report?.comparison_reference === "previous"
+    ? "改进前版本"
+    : "未使用 Skill";
   const regressionsAcknowledged = regressionIds.every((itemId) => acknowledgedRegressionIds.has(itemId));
   const reviewPending = (run.review_state ?? "pending") === "pending" && !["accepted", "revise", "waived"].includes(session.review_state ?? "none");
   const canAccept = reviewPending && comparable && regressionsAcknowledged && (!regressionIds.length || Boolean(feedback.trim())) && (!failedAssertions || failedAcknowledged);
@@ -367,7 +374,7 @@ export default function SkillEvaluationReview({
         {regressionIds.length ? (
           <fieldset className="mt-4 rounded-lg border border-rose-300/20 bg-rose-300/[0.055] p-4">
             <legend className="px-1 text-sm font-semibold text-rose-100">逐项确认新增退化</legend>
-            <p className="mt-1 text-xs leading-5 text-rose-50/75">以下 candidate 相比 previous 新增失败。必须逐项确认并在反馈中说明理由，不能静默忽略。</p>
+            <p className="mt-1 text-xs leading-5 text-rose-50/75">{`以下当前 Skill 结果相较于${comparisonReferenceLabel}的结果出现新增失败。必须逐项确认并在反馈中说明理由，不能静默忽略。`}</p>
             <div className="mt-3 space-y-2">
               {regressionIds.map((itemId) => {
                 const item = run.items.find((candidate) => candidate.item_id === itemId);

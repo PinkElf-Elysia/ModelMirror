@@ -323,7 +323,6 @@ try:
         SkillEvaluationValidationError,
     )
     from server.skills.creator_evaluation_runtime import (
-        SKILL_EVALUATION_ALLOWED_TOOLS,
         SKILL_EVALUATION_PROFILE,
         SKILL_EVALUATION_WORKFLOW_VERSION,
         build_skill_evaluation_model_identity,
@@ -332,6 +331,8 @@ try:
         is_trusted_skill_evaluation_metadata,
         normalize_skill_evaluation_model_id,
         require_skill_evaluation_actual_model,
+        skill_evaluation_resource_repair_instruction,
+        skill_evaluation_tool_names,
         skill_evaluation_model_temperature,
     )
     from server.skills.creator_evaluation_service import (
@@ -461,7 +462,6 @@ except ModuleNotFoundError:
         SkillEvaluationValidationError,
     )
     from skills.creator_evaluation_runtime import (
-        SKILL_EVALUATION_ALLOWED_TOOLS,
         SKILL_EVALUATION_PROFILE,
         SKILL_EVALUATION_WORKFLOW_VERSION,
         build_skill_evaluation_model_identity,
@@ -470,6 +470,8 @@ except ModuleNotFoundError:
         is_trusted_skill_evaluation_metadata,
         normalize_skill_evaluation_model_id,
         require_skill_evaluation_actual_model,
+        skill_evaluation_resource_repair_instruction,
+        skill_evaluation_tool_names,
         skill_evaluation_model_temperature,
     )
     from skills.creator_evaluation_service import SkillCreatorEvaluationService
@@ -11135,10 +11137,14 @@ async def _run_workflow_response(
                         run_context.get("skill_evaluation_workspace_id") or ""
                     ).strip()
                 )
+                evaluation_tool_names = set(
+                    skill_evaluation_tool_names(run_context)
+                )
                 if (
                     not trusted_evaluation
+                    or not evaluation_tool_names
                     or capability_name != "sandbox_tools"
-                    or tool_name not in set(SKILL_EVALUATION_ALLOWED_TOOLS)
+                    or tool_name not in evaluation_tool_names
                     or matched_tool.requires_approval
                     or matched_tool.sensitive
                 ):
@@ -11287,6 +11293,12 @@ async def _run_workflow_response(
                         ),
                         "skill_evaluation_frozen_digest": run_context.get(
                             "skill_evaluation_frozen_digest"
+                        ),
+                        "skill_evaluation_required_resource_paths": list(
+                            run_context.get(
+                                "skill_evaluation_required_resource_paths"
+                            )
+                            or []
                         ),
                         "goal_id": run_context.get("goal_id"),
                         "goal_step_id": run_context.get("goal_step_id"),
@@ -11519,6 +11531,14 @@ async def _run_workflow_response(
             call_result: Any,
             result_text: str,
         ) -> str:
+            if tool_name == "skill_stage" and runtime_run_type == "skill_evaluation":
+                metadata = dict(getattr(call_result, "metadata", {}) or {})
+                return (
+                    "Skill resources staged="
+                    f"{int(metadata.get('file_count') or 0)}, "
+                    "required resources delivered="
+                    f"{int(metadata.get('evaluation_required_resource_count') or 0)}"
+                )
             if tool_name in {"sandbox_read_file", "sandbox_search_files"}:
                 metadata = dict(getattr(call_result, "metadata", {}) or {})
                 accessed_paths = metadata.get("sandbox_accessed_text_paths")
@@ -11779,7 +11799,11 @@ async def _run_workflow_response(
                     raise RuntimeMiddlewareFatalError(
                         "Skill evaluation Runtime metadata is incomplete."
                     )
-                fixed_names = set(SKILL_EVALUATION_ALLOWED_TOOLS)
+                fixed_names = set(skill_evaluation_tool_names(evaluation_metadata))
+                if not fixed_names:
+                    raise RuntimeMiddlewareFatalError(
+                        "Skill evaluation comparison target is invalid."
+                    )
                 tools = [
                     tool
                     for tool in tools
@@ -13133,6 +13157,13 @@ async def _run_workflow_response(
                 pending_state.get("skill_guidance_repair_used", False)
                 or guidance_repair_nodes.get(node.id, False)
             )
+            resource_stage_repair_nodes = dict(
+                task_state.get("skill_resource_stage_repair_used_by_node") or {}
+            )
+            skill_resource_stage_repair_used = bool(
+                pending_state.get("skill_resource_stage_repair_used", False)
+                or resource_stage_repair_nodes.get(node.id, False)
+            )
             skill_guidance_verified_emitted = False
             skill_application_policy = str(
                 runtime_metadata.get("skill_application_policy") or "require_read"
@@ -13602,6 +13633,39 @@ async def _run_workflow_response(
                         "Staged binary Skill resources cannot be parsed as UTF-8 text.",
                         code="skill_runtime_incompatible",
                     )
+
+            def request_evaluation_resource_stage_repair(
+                tool_name: str,
+                arguments: dict[str, Any],
+            ) -> str | None:
+                nonlocal skill_resource_stage_repair_used
+                instruction = skill_evaluation_resource_repair_instruction(
+                    runtime_metadata,
+                    tool_name=tool_name,
+                    arguments=arguments,
+                    staged_paths=tuple(staged_skill_resources),
+                )
+                if instruction is None or skill_resource_stage_repair_used:
+                    return None
+                skill_resource_stage_repair_used = True
+                pending_state["skill_resource_stage_repair_used"] = True
+                resource_stage_repair_nodes[node.id] = True
+                task_state["skill_resource_stage_repair_used_by_node"] = (
+                    resource_stage_repair_nodes
+                )
+                events.append(
+                    {
+                        "event": "skill_runtime_status",
+                        "node_id": node.id,
+                        "node_title": title,
+                        "node_type": kind,
+                        "status": "repair_requested",
+                        "required_skill_ids": ["evaluation-skill"],
+                        "error_code": "skill_application_required",
+                        "run_id": run_id,
+                    }
+                )
+                return instruction
 
             async def record_sandbox_skill_resource_access(
                 tool_name: str,
@@ -14911,6 +14975,26 @@ async def _run_workflow_response(
                                 ]
                             )
                             continue
+                    resource_repair_instruction = (
+                        request_evaluation_resource_stage_repair(
+                            tool_name,
+                            arguments,
+                        )
+                    )
+                    if resource_repair_instruction:
+                        messages.extend(
+                            [
+                                ChatMessage(
+                                    role="assistant",
+                                    content=json.dumps(decision, ensure_ascii=False),
+                                ),
+                                ChatMessage(
+                                    role="user",
+                                    content=resource_repair_instruction,
+                                ),
+                            ]
+                        )
+                        continue
                     ensure_tool_call_budget(1)
                     try:
                         call_result = await call_workflow_runtime_tool_observed(
@@ -14951,6 +15035,9 @@ async def _run_workflow_response(
                             ),
                             "skill_guidance_repair_used": (
                                 skill_guidance_repair_used
+                            ),
+                            "skill_resource_stage_repair_used": (
+                                skill_resource_stage_repair_used
                             ),
                         }
                         raise
@@ -21072,6 +21159,26 @@ async def _run_workflow_response(
                                     workflow_agent_run.run_id,
                                     status="failed",
                                     error=str(exc),
+                                    metadata=(
+                                        {
+                                            "model_identity": build_skill_evaluation_model_identity(
+                                                requested_model_id=requested_model_id,
+                                                selected_model_id=model_id,
+                                                observed_model_ids=actual_model_ids,
+                                                successful_response_count=(
+                                                    actual_model_successful_responses
+                                                ),
+                                                missing_model_count=(
+                                                    actual_model_missing_count
+                                                ),
+                                            ),
+                                            "token_usage": dict(
+                                                observed_token_usage
+                                            ),
+                                        }
+                                        if runtime_run_type == "skill_evaluation"
+                                        else None
+                                    ),
                                 )
                             except Exception:
                                 logger.warning(
@@ -21082,6 +21189,11 @@ async def _run_workflow_response(
                             getattr(exc, "code", "") or ""
                         )
                         if isinstance(exc, SkillRuntimeGuidanceError):
+                            evaluation_resource_path_mismatch = bool(
+                                runtime_run_type == "skill_evaluation"
+                                and guidance_error_code == "skill_application_required"
+                                and "must be staged in the current run" in str(exc)
+                            )
                             raise WorkflowTerminationError(
                                 guidance_error_code,
                                 (
@@ -21089,6 +21201,9 @@ async def _run_workflow_response(
                                     "current runtime."
                                     if guidance_error_code
                                     == "skill_runtime_incompatible"
+                                    else "The Skill was read and staged, but the requested "
+                                    "resource path did not match a staged file."
+                                    if evaluation_resource_path_mismatch
                                     else "Required Skill application could not be "
                                     "verified."
                                 ),
@@ -27340,6 +27455,44 @@ async def run_skill_evaluation_item(
     task_id = ""
     manifest: list[dict[str, Any]] = []
     usage_evidence: dict[str, Any] = {}
+
+    async def resolve_verified_application_receipt() -> Any | None:
+        if (
+            not runtime_run_id
+            or item.overlay_id is None
+            or run.evaluation_suite_id is None
+        ):
+            return None
+        expected_policy = (
+            "require_stage" if case.required_resource_paths else "require_read"
+        )
+        candidates = await asyncio.to_thread(
+            skill_application_receipt_store.list_receipts,
+            run_id=runtime_run_id,
+            skill_id="evaluation-skill",
+        )
+        verified = [
+            receipt
+            for receipt in candidates
+            if receipt.compliance_status == "verified"
+            and receipt.source_kind == "evaluation_overlay"
+            and receipt.version_id == getattr(overlay, "overlay_id", None)
+            and receipt.content_digest == getattr(overlay, "content_digest", None)
+            and receipt.policy == expected_policy
+            and tuple(receipt.required_resource_paths)
+            == tuple(case.required_resource_paths)
+        ]
+        if len(verified) != 1:
+            raise SkillEvaluationValidationError(
+                "Skill evaluation could not prove one verified application receipt.",
+                code="skill_application_receipt_missing",
+            )
+        return await asyncio.to_thread(
+            skill_application_receipt_store.protect,
+            verified[0].receipt_id,
+            reference_id=f"evaluation-item:{item.item_id}",
+        )
+
     try:
         invocation = build_skill_evaluation_workflow_invocation(
             run,
@@ -27385,37 +27538,7 @@ async def run_skill_evaluation_item(
             )
         child = completed[0]
         actual_model = require_skill_evaluation_actual_model(child.metadata)
-        application_receipt = None
-        if item.overlay_id is not None and run.evaluation_suite_id is not None:
-            expected_policy = (
-                "require_stage" if case.required_resource_paths else "require_read"
-            )
-            candidates = await asyncio.to_thread(
-                skill_application_receipt_store.list_receipts,
-                run_id=runtime_run_id,
-                skill_id="evaluation-skill",
-            )
-            verified = [
-                receipt
-                for receipt in candidates
-                if receipt.compliance_status == "verified"
-                and receipt.source_kind == "evaluation_overlay"
-                and receipt.version_id == getattr(overlay, "overlay_id", None)
-                and receipt.content_digest == getattr(overlay, "content_digest", None)
-                and receipt.policy == expected_policy
-                and tuple(receipt.required_resource_paths)
-                == tuple(case.required_resource_paths)
-            ]
-            if len(verified) != 1:
-                raise SkillEvaluationValidationError(
-                    "Skill evaluation could not prove one verified application receipt.",
-                    code="skill_application_receipt_missing",
-                )
-            application_receipt = await asyncio.to_thread(
-                skill_application_receipt_store.protect,
-                verified[0].receipt_id,
-                reference_id=f"evaluation-item:{item.item_id}",
-            )
+        application_receipt = await resolve_verified_application_receipt()
         raw_usage = child.metadata.get("token_usage")
         raw_usage = raw_usage if isinstance(raw_usage, dict) else {}
         usage = {
@@ -27443,6 +27566,56 @@ async def run_skill_evaluation_item(
                 else None
             ),
         )
+    except Exception as exc:
+        usage_evidence = workflow_sandbox_provider.consume_skill_evaluation_usage(
+            item.item_id
+        )
+        partial_usage: dict[str, int] = {}
+        if runtime_run_id:
+            child_runs = await run_registry.list_runs(
+                run_type="workflow_agent",
+                parent_run_id=runtime_run_id,
+                limit=10,
+            )
+            if len(child_runs) == 1:
+                raw_usage = child_runs[0].metadata.get("token_usage")
+                raw_usage = raw_usage if isinstance(raw_usage, dict) else {}
+                partial_usage = {
+                    str(key): max(0, int(value))
+                    for key, value in raw_usage.items()
+                    if isinstance(value, (int, float))
+                    and not isinstance(value, bool)
+                }
+        partial_usage["tool_calls"] = len(
+            usage_evidence.get("tool_names") or []
+        )
+        application_receipt = None
+        try:
+            application_receipt = await resolve_verified_application_receipt()
+        except Exception:
+            # Preserve only an exact verified receipt; never mask the original failure.
+            application_receipt = None
+        wrapped = SkillEvaluationValidationError(
+            str(exc)[:500],
+            code=str(getattr(exc, "code", "runner_failed"))[:120],
+        )
+        wrapped.usage = partial_usage
+        wrapped.runtime_run_id = runtime_run_id or None
+        wrapped.skill_read = (
+            usage_evidence.get("skill_read")
+            if isinstance(usage_evidence.get("skill_read"), bool)
+            else None
+        )
+        wrapped.application_receipt_id = (
+            application_receipt.receipt_id if application_receipt else None
+        )
+        wrapped.application_receipt_revision = (
+            application_receipt.revision if application_receipt else None
+        )
+        wrapped.application_compliance = (
+            application_receipt.compliance_status if application_receipt else None
+        )
+        raise wrapped from exc
     finally:
         # Do not let model-visible traces retain case inputs, tool outputs, or
         # package contents. The dedicated Evaluation Store is authoritative.

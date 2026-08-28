@@ -128,6 +128,7 @@ class WorkflowExecutionStore:
                     "skill_evaluation_overlay_id",
                     "skill_evaluation_workspace_id",
                     "skill_evaluation_frozen_digest",
+                    "skill_evaluation_required_resource_paths",
                 }
                 safe_runtime_metadata = {
                     key: value

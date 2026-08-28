@@ -31,6 +31,9 @@ from .draft_store import WorkspaceSkillDraft, WorkspaceSkillDraftStore
 
 
 EvaluationPurpose = Literal["evaluate", "accept", "waive"]
+_BINDING_FAILURE_REASON = (
+    "Creator session or draft changed before evaluation binding completed."
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -258,6 +261,11 @@ class SkillCreatorEvaluationService:
             expected_revision=expected_revision,
             expected_digest=expected_digest,
         )
+        draft = self.draft_store.require_evaluation_ready(
+            draft.draft_id,
+            expected_revision=draft.revision,
+            expected_digest=draft.content_digest,
+        )
         if (
             self.suite_service is not None
             and self.suite_service.enabled
@@ -356,6 +364,11 @@ class SkillCreatorEvaluationService:
             expected_session_revision=expected_session_revision,
             expected_revision=expected_revision,
             expected_digest=expected_digest,
+        )
+        draft = self.draft_store.require_evaluation_ready(
+            draft.draft_id,
+            expected_revision=draft.revision,
+            expected_digest=draft.content_digest,
         )
         suite = self._current_v2_suite(session, draft)
         if (evaluation_suite_revision is None) != (
@@ -539,7 +552,7 @@ class SkillCreatorEvaluationService:
         except Exception:
             self.evaluation_store.mark_stale(
                 run.run_id,
-                reason="Creator session or draft changed before evaluation binding completed.",
+                reason=_BINDING_FAILURE_REASON,
             )
             raise
         self.executor.wake()
@@ -1109,6 +1122,12 @@ class SkillCreatorEvaluationService:
                     run.run_id,
                     reason="The Creator draft changed after this evaluation was frozen.",
                 )
+        discarded_unbound_orphan = any(
+            self._is_unbound_orphan(run) for run in current_runs
+        )
+        current_runs = [
+            run for run in current_runs if not self._is_unbound_orphan(run)
+        ]
         run = current_runs[0] if current_runs else None
         if run is not None and run.status in {"queued", "running"}:
             draft = self._begin_or_reuse_draft_run(draft, run.run_id)
@@ -1138,8 +1157,22 @@ class SkillCreatorEvaluationService:
             draft = self._mark_outdated_if_needed(draft)
         elif run is None and superseded_v2_acceptance:
             draft = self._mark_outdated_if_needed(draft)
-        session = self._project_session(session, draft, run)
+        session = self._project_session(
+            session,
+            draft,
+            run,
+            clear_latest_run=discarded_unbound_orphan and run is None,
+        )
         return session, draft, run
+
+    @staticmethod
+    def _is_unbound_orphan(run: SkillEvaluationRun) -> bool:
+        return bool(
+            run.status == "stale"
+            and run.started_at is None
+            and run.error == _BINDING_FAILURE_REASON
+            and all(item.status == "pending" for item in run.items)
+        )
 
     @staticmethod
     def _require_failed_assertion_acknowledgement(
@@ -1204,12 +1237,19 @@ class SkillCreatorEvaluationService:
         run: SkillEvaluationRun | None,
         *,
         review_state: str | None = None,
+        clear_latest_run: bool = False,
     ) -> SkillCreatorSession:
         decision = draft.quality_decision
         active_run_id = (
             run.run_id if run is not None and run.status in {"queued", "running"} else None
         )
-        latest_run_id = run.run_id if run is not None else session.latest_evaluation_run_id
+        latest_run_id = (
+            run.run_id
+            if run is not None
+            else None
+            if clear_latest_run
+            else session.latest_evaluation_run_id
+        )
         projected_review = review_state
         if projected_review is None:
             if draft.quality_status == "accepted":

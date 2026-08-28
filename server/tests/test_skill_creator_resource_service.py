@@ -466,7 +466,11 @@ def test_resource_planner_workflow_has_no_tools_and_strict_contract() -> None:
     assert "do not create a script for subjective judgment" in agent["data"][
         "rolePrompt"
     ].lower()
-    assert "same primary natural language as definition.intent" in agent["data"][
+    assert "use simplified chinese" in agent["data"]["rolePrompt"].lower()
+    assert "even when the source evidence or definition.intent is english" in agent[
+        "data"
+    ]["rolePrompt"].lower()
+    assert "only when definition.intent explicitly requests" in agent["data"][
         "rolePrompt"
     ].lower()
     assert "source ids are opaque server tokens" in agent["data"]["rolePrompt"].lower()

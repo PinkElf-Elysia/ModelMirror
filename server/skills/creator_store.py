@@ -48,9 +48,16 @@ class SkillCreatorStorageError(SkillCreatorError):
 
 
 class SkillCreatorValidationError(SkillCreatorError):
-    def __init__(self, message: str, *, code: str = "skill_creator_invalid") -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "skill_creator_invalid",
+        issues: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
+        self.issues = list(issues or [])
 
 
 @dataclass(slots=True)

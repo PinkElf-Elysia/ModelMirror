@@ -509,6 +509,30 @@ class WorkspaceSkillDraftStore:
                 raise
             return self._copy(item)
 
+    def require_evaluation_ready(
+        self,
+        draft_id: str,
+        *,
+        expected_revision: int,
+        expected_digest: str,
+    ) -> WorkspaceSkillDraft:
+        """Check the immutable Creator package before any evaluation facts are created."""
+
+        with self._lock:
+            item = self._require_unlocked(draft_id)
+            self._require_expected_state(
+                item,
+                revision=None,
+                expected_revision=expected_revision,
+                expected_digest=expected_digest,
+            )
+            if not item.quality_required:
+                raise SkillDraftValidationError(
+                    "Only Creator drafts use the evaluation quality gate."
+                )
+            self._require_creator_final_package(item)
+            return self._copy(item)
+
     def accept_evaluation(
         self,
         draft_id: str,

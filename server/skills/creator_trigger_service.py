@@ -1046,6 +1046,25 @@ class SkillCreatorTriggerOptimizationService:
                     "description": str(item.get("description") or "")[:320],
                 }
             )
+        case_diagnostics = []
+        for index, result in enumerate(seed.case_results):
+            matched_terms = sorted(
+                {
+                    term
+                    for domain in (result.finder, result.router)
+                    for reason in domain.reasons
+                    for term in reason.matched_terms
+                }
+            )[:8]
+            case_diagnostics.append(
+                {
+                    "case_index": index,
+                    "kind": result.kind,
+                    "finder_rank_top_24": result.finder.rank_top_24,
+                    "router_rank_top_24": result.router.rank_top_24,
+                    "matched_terms": matched_terms,
+                }
+            )
         return {
             "session_id": session.session_id,
             "skill_name": plan.skill_name,
@@ -1055,6 +1074,14 @@ class SkillCreatorTriggerOptimizationService:
                 {"kind": item.kind, "text": item.text}
                 for item in suite.cases
             ],
+            "ranking_contract": {
+                "ranker_version": seed.ranker_version,
+                "positive_gate": "Every should_trigger case must rank in Top 6 in Finder and Router.",
+                "negative_gate": "Every should_not_trigger case must stay outside Top 6 in Finder and Router.",
+                "diagnostic_window": 24,
+                "matching": "Normalized lexical substring matching without semantic negation or stemming.",
+            },
+            "current_description_diagnostics": case_diagnostics,
             "public_competitors": competitors,
         }
 

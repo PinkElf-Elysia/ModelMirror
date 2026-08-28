@@ -34,6 +34,19 @@ const ASSERTION_LABELS: Record<SkillEvaluationAssertionKind, string> = {
   file_sha256: "文件摘要匹配",
 };
 
+const PACKAGE_QUALITY_MESSAGES: Record<string, string> = {
+  creator_quality_checks_missing:
+    "最终说明需要补充可执行的质量检查，明确怎样核对输出合同和成功标准。",
+  creator_description_trigger_missing:
+    "Skill 描述需要明确说明什么时候使用，以及哪些相似任务不应使用。",
+  creator_workflow_missing:
+    "最终说明需要至少四个清晰、互不重复的执行步骤。",
+  creator_output_contract_missing:
+    "最终说明需要明确交付内容、格式和必要字段。",
+  creator_failure_behavior_missing:
+    "最终说明需要写清材料不足或检查失败时如何停止或降级。",
+};
+
 function emptyCase(index: number, session: SkillCreatorSession): SkillEvaluationSuiteCase {
   return {
     case_id: `draft-case-${index + 1}`,
@@ -51,7 +64,23 @@ function emptyCase(index: number, session: SkillCreatorSession): SkillEvaluation
 }
 
 function initialCases(session: SkillCreatorSession) {
-  if (session.evaluation_suite?.cases.length) return session.evaluation_suite.cases;
+  if (session.evaluation_suite?.cases.length) {
+    const persisted = session.evaluation_suite.cases;
+    const experienceCase = session.run_experience_case;
+    if (!experienceCase || persisted.some((item) => item.case_id === experienceCase.case_id)) {
+      return persisted;
+    }
+    const evidenceSummary = session.selected_evidence.find(
+      (item) => item.kind === "intent_summary",
+    )?.summary?.trim();
+    return [...persisted, {
+      ...experienceCase,
+      source: "user" as const,
+      prompt: evidenceSummary
+        ? `${experienceCase.prompt}\n\n已确认的脱敏运行材料：\n${evidenceSummary}`
+        : experienceCase.prompt,
+    }];
+  }
   if (session.evaluation_cases?.length === 3) {
     return session.evaluation_cases.map((item, index) => ({
       ...item,
@@ -63,6 +92,12 @@ function initialCases(session: SkillCreatorSession) {
     }));
   }
   return [0, 1, 2].map((index) => emptyCase(index, session));
+}
+
+function persistedCases(session: SkillCreatorSession) {
+  if (session.evaluation_suite?.cases.length) return session.evaluation_suite.cases;
+  if (session.evaluation_cases?.length === 3) return session.evaluation_cases;
+  return initialCases({ ...session, run_experience_case: null });
 }
 
 function assertionComplete(assertion: SkillEvaluationAssertion) {
@@ -274,6 +309,7 @@ export default function SkillEvaluationDesigner({
   onRunStarted,
   onError,
   onNotice,
+  onRepairPackage,
   suiteEnabled = false,
 }: {
   session: SkillCreatorSession;
@@ -282,12 +318,13 @@ export default function SkillEvaluationDesigner({
   onRunStarted: (run: SkillEvaluationRun) => void;
   onError: (error: unknown, fallback: string) => void;
   onNotice: (message: string) => void;
+  onRepairPackage?: () => void;
   suiteEnabled?: boolean;
 }) {
   const [mode, setMode] = useState<SkillCreatorQualityMode>(session.quality_mode ?? "objective");
   const [cases, setCases] = useState<SkillEvaluationSuiteCase[]>(() => initialCases(session));
   const [repetitions, setRepetitions] = useState(session.evaluation_repetitions ?? 1);
-  const [savedSignature, setSavedSignature] = useState(() => JSON.stringify(initialCases(session)));
+  const [savedSignature, setSavedSignature] = useState(() => JSON.stringify(persistedCases(session)));
   const [changeReason, setChangeReason] = useState("");
   const [busy, setBusy] = useState("");
   const [waiverReason, setWaiverReason] = useState("");
@@ -295,7 +332,7 @@ export default function SkillEvaluationDesigner({
 
   useEffect(() => {
     if (session.evaluation_suite?.cases.length) {
-      setCases(session.evaluation_suite.cases);
+      setCases(initialCases(session));
       setSavedSignature(JSON.stringify(session.evaluation_suite.cases));
       setChangeReason("");
       return;
@@ -311,8 +348,17 @@ export default function SkillEvaluationDesigner({
   const suiteConfirmed = session.evaluation_suite?.state === "confirmed" && !session.evaluation_suite.stale;
   const complete = useMemo(() => casesComplete(cases, useSuite), [cases, useSuite]);
   const dirty = JSON.stringify(cases) !== savedSignature || mode !== (session.quality_mode ?? "objective");
+  const runExperiencePending = Boolean(
+    session.run_experience_case
+    && cases.some((item) => item.case_id === session.run_experience_case?.case_id)
+    && !session.evaluation_suite?.cases.some((item) => item.case_id === session.run_experience_case?.case_id),
+  );
+  const suiteReady = suiteConfirmed && !dirty;
   const suiteNeedsRebase = Boolean(session.evaluation_suite?.stale) && !dirty;
-  const canEvaluate = complete && !dirty && (useSuite ? suiteConfirmed : Boolean(session.cases_revision));
+  const packageQuality = draft.validation?.creator_quality;
+  const packageReady = packageQuality?.ready !== false;
+  const packageIssues = packageQuality?.issues ?? [];
+  const canEvaluate = packageReady && complete && !dirty && (useSuite ? suiteConfirmed : Boolean(session.cases_revision));
   const maxRepetitions = session.regression_governance?.max_repetitions ?? 3;
   const targetCount = session.regression_governance?.target_count ?? 2;
   const estimatedCalls = cases.length * targetCount * repetitions;
@@ -368,6 +414,35 @@ export default function SkillEvaluationDesigner({
     }
   }
 
+  async function confirmRunExperienceCase() {
+    setBusy("experience-confirm");
+    try {
+      let current = session;
+      if (mode !== (session.quality_mode ?? "objective")) {
+        current = await updateSkillCreatorSession(session.session_id, {
+          expected_session_revision: session.session_revision,
+          quality_mode: mode,
+        });
+      }
+      const updated = await updateSkillCreatorEvaluationSuite(
+        current,
+        draft,
+        cases,
+        "用户确认纳入本次脱敏运行经验回归案例",
+      );
+      await onSessionChange(updated);
+      const confirmed = await confirmSkillCreatorEvaluationSuite(updated, updated.draft ?? draft);
+      await onSessionChange(confirmed);
+      setSavedSignature(JSON.stringify(confirmed.evaluation_suite?.cases ?? cases));
+      setChangeReason("");
+      onNotice("本次真实运行案例已加入并确认。现在可以开始试用对比。");
+    } catch (error) {
+      onError(error, "本次运行案例确认失败。");
+    } finally {
+      setBusy("");
+    }
+  }
+
   function addRegressionCase() {
     const nextIndex = cases.length;
     setCases((current) => [...current, {
@@ -418,6 +493,27 @@ export default function SkillEvaluationDesigner({
 
   return (
     <div className="mt-5 space-y-5">
+      {!packageReady ? (
+        <section className="rounded-lg border border-rose-300/25 bg-rose-300/[0.08] p-5" role="alert">
+          <div className="flex items-start gap-3">
+            <AlertTriangle aria-hidden="true" className="mt-0.5 shrink-0 text-rose-100" size={19} />
+            <div className="min-w-0">
+              <h2 className="text-base font-semibold text-white">先修好最终说明，再开始试用</h2>
+              <p className="mt-1 text-sm leading-6 text-rose-50/85">当前 Skill 包还没有通过与安装相同的完整度检查。测试任务和已确认资源不会丢失。</p>
+              {packageIssues.length ? (
+                <ul className="mt-3 space-y-2 text-sm leading-6 text-rose-50">
+                  {packageIssues.map((issue, index) => (
+                    <li key={`${issue.code}-${index}`}>• {PACKAGE_QUALITY_MESSAGES[issue.code] ?? issue.message}</li>
+                  ))}
+                </ul>
+              ) : null}
+              {onRepairPackage ? (
+                <button className="mt-4 inline-flex min-h-11 items-center rounded-md bg-rose-100 px-4 py-2 text-sm font-semibold text-ink-950" onClick={onRepairPackage} type="button">返回生成内容修复</button>
+              ) : null}
+            </div>
+          </div>
+        </section>
+      ) : null}
       <section className="rounded-lg border border-white/10 bg-surface-900/80 p-5 sm:p-6" aria-labelledby="creator-test-design-heading">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
@@ -438,12 +534,14 @@ export default function SkillEvaluationDesigner({
         <div className="mt-5 rounded-lg border border-brand-300/20 bg-brand-300/[0.055] p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-sm font-semibold text-white">{useSuite ? "三类任务已准备" : "还没有测试任务"}</p>
-              <p className="mt-1 text-xs leading-5 text-slate-400">{suiteConfirmed ? "当前测试已确认，可以开始运行。" : suiteNeedsRebase ? "草稿已更新；测试内容未变，沿用到新版本后再确认即可。" : useSuite ? dirty ? "请检查并保存当前修改。" : "任务已保存，请确认后运行。" : "让 AI 先生成三类任务草案，你可以再修改。"}</p>
+              <p className="text-sm font-semibold text-white">{runExperiencePending ? "请确认本次真实运行案例" : useSuite ? "三类任务已准备" : "还没有测试任务"}</p>
+              <p className="mt-1 text-xs leading-5 text-slate-400">{runExperiencePending ? "系统已根据你确认的脱敏材料补入一个回归案例。检查内容后点击确认；系统会保存并冻结测试套件，但不会自动启动评测。" : dirty ? "请检查并保存当前修改。" : suiteConfirmed ? "当前测试已确认，可以开始运行。" : suiteNeedsRebase ? "草稿已更新；测试内容未变，沿用到新版本后再确认即可。" : useSuite ? "任务已保存，请确认后运行。" : "让 AI 先生成三类任务草案，你可以再修改。"}</p>
             </div>
             {!useSuite ? (
               <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-brand-200 px-4 py-2.5 text-sm font-semibold text-ink-950 disabled:opacity-40" disabled={Boolean(busy)} onClick={() => void generateSuite()} type="button"><Sparkles aria-hidden="true" size={15} />{busy === "suite-generate" ? "正在准备…" : session.cases_revision ? "沿用已有测试" : "让 AI 准备三个任务"}</button>
-            ) : suiteConfirmed ? (
+            ) : runExperiencePending ? (
+              <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-emerald-300 px-4 py-2.5 text-sm font-semibold text-ink-950 disabled:opacity-40" disabled={!complete || Boolean(busy)} onClick={() => void confirmRunExperienceCase()} type="button"><Check aria-hidden="true" size={15} />{busy === "experience-confirm" ? "正在确认…" : "确认本次运行案例"}</button>
+            ) : suiteReady ? (
               <span className="inline-flex items-center gap-2 text-sm font-semibold text-emerald-100"><Check aria-hidden="true" size={15} />已冻结</span>
             ) : (
               <div className="flex flex-wrap gap-2">
@@ -484,7 +582,7 @@ export default function SkillEvaluationDesigner({
         {useSuite ? (
           <div className="space-y-4 border-t border-white/10 pt-5">
             <button className="inline-flex items-center gap-2 rounded-md border border-white/15 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40" disabled={cases.filter((item) => item.role === "regression").length >= 9 || Boolean(busy)} onClick={addRegressionCase} type="button"><Plus aria-hidden="true" size={14} />加入用户确认的回归案例</button>
-            {dirty && session.evaluation_suite ? (
+            {dirty && session.evaluation_suite && !runExperiencePending ? (
               <label className="block">
                 <span className="text-xs font-semibold text-slate-300">套件修改原因</span>
                 <textarea className="mt-2 min-h-20 w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2.5 text-sm text-white" maxLength={4_000} onChange={(event) => setChangeReason(event.target.value)} placeholder="说明新增、删除或改写案例的原因；历史 revision 不会被覆盖。" value={changeReason} />
@@ -503,7 +601,7 @@ export default function SkillEvaluationDesigner({
         <div className="mt-5 flex flex-col gap-3 border-t border-white/10 pt-5 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-xs leading-5 text-slate-500">这次会运行约 {estimatedCalls} 次，用相同设置比较“未使用 Skill”和“使用当前 Skill”的结果。</p>
           <div className="flex flex-wrap gap-2">
-            <button className="inline-flex min-h-11 items-center gap-2 rounded-md border border-white/15 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/[0.055] disabled:cursor-not-allowed disabled:opacity-40" disabled={mustUseSuite || !complete || (useSuite && dirty && !changeReason.trim()) || Boolean(busy)} onClick={() => void saveCases()} type="button"><Save aria-hidden="true" size={15} />{busy === "save" ? "正在保存…" : mustUseSuite ? "先准备三个任务" : suiteNeedsRebase ? "沿用到新版本" : "保存测试任务"}</button>
+            {!runExperiencePending ? <button className="inline-flex min-h-11 items-center gap-2 rounded-md border border-white/15 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/[0.055] disabled:cursor-not-allowed disabled:opacity-40" disabled={mustUseSuite || !complete || (useSuite && dirty && !changeReason.trim()) || Boolean(busy)} onClick={() => void saveCases()} type="button"><Save aria-hidden="true" size={15} />{busy === "save" ? "正在保存…" : mustUseSuite ? "先准备三个任务" : suiteNeedsRebase ? "沿用到新版本" : "保存测试任务"}</button> : null}
             <button className="inline-flex min-h-11 items-center gap-2 rounded-md bg-hire-300 px-4 py-2.5 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500" disabled={!canEvaluate || Boolean(busy)} onClick={() => void startEvaluation()} type="button"><FlaskConical aria-hidden="true" size={15} />{busy === "start" ? "正在启动…" : "开始试用对比"}</button>
           </div>
         </div>

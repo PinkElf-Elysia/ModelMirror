@@ -1414,11 +1414,16 @@ class SandboxToolsetProvider:
         if self._is_skill_evaluation(call):
             self._require_evaluation_alias(call, skill_id)
             item_id = str(call.metadata.get("skill_evaluation_item_id") or "")
-            with self._evaluation_guard:
-                self._evaluation_usage.setdefault(item_id, {}).update(
-                    {"skill_stage": True}
-                )
             overlay = self._evaluation_overlay(call)
+            with self._evaluation_guard:
+                usage = self._evaluation_usage.setdefault(item_id, {})
+                if overlay is not None and not usage.get("skill_read"):
+                    raise RuntimeToolError(
+                        call.tool_name,
+                        "Read evaluation-skill before staging its resources.",
+                        code="skill_application_required",
+                    )
+                usage["skill_stage"] = True
             if overlay is None:
                 return RuntimeToolResult(
                     output=json.dumps(
@@ -1455,6 +1460,50 @@ class SandboxToolsetProvider:
                 path: hashlib.sha256(content.encode("utf-8")).hexdigest()
                 for path, content in sorted(package_resources.items())
             }
+            raw_required_paths = call.metadata.get(
+                "skill_evaluation_required_resource_paths"
+            ) or []
+            if not isinstance(raw_required_paths, list) or len(raw_required_paths) > 20:
+                raise RuntimeToolError(
+                    call.tool_name,
+                    "Evaluation required resource metadata is invalid.",
+                    code="skill_application_contract_stale",
+                )
+            required_resources: list[dict[str, str]] = []
+            required_resource_bytes = 0
+            seen_required_paths: set[str] = set()
+            for raw_path in raw_required_paths:
+                clean_path = str(raw_path or "").strip().replace("\\", "/")
+                parsed_path = PurePosixPath(clean_path)
+                if (
+                    not clean_path
+                    or len(clean_path) > 240
+                    or parsed_path.is_absolute()
+                    or any(part in {"", ".", ".."} for part in parsed_path.parts)
+                    or clean_path in seen_required_paths
+                    or clean_path not in package_resources
+                    or clean_path == "SKILL.md"
+                ):
+                    raise RuntimeToolError(
+                        call.tool_name,
+                        "Evaluation required resource metadata does not match the frozen package.",
+                        code="skill_application_contract_stale",
+                    )
+                content = package_resources[clean_path]
+                required_resource_bytes += len(content.encode("utf-8"))
+                if required_resource_bytes > 160 * 1024:
+                    raise RuntimeToolError(
+                        call.tool_name,
+                        "Evaluation required resources exceed the Creator package budget.",
+                        code="skill_runtime_incompatible",
+                    )
+                seen_required_paths.add(clean_path)
+                required_resources.append(
+                    {
+                        "path": f"skills/evaluation-skill/{clean_path}",
+                        "content": content,
+                    }
+                )
             files = [
                 "skills/evaluation-skill/SKILL.md",
                 *[
@@ -1468,6 +1517,7 @@ class SandboxToolsetProvider:
                         "skill_id": "evaluation-skill",
                         "workspace_id": workspace.workspace_id,
                         "files": files,
+                        "required_resources": required_resources,
                         "available": True,
                     },
                     ensure_ascii=False,
@@ -1476,6 +1526,9 @@ class SandboxToolsetProvider:
                     "content_types": ["text"],
                     "skill_id": "evaluation-skill",
                     "file_count": len(files),
+                    "evaluation_required_resource_count": len(
+                        required_resources
+                    ),
                     "workspace_id": workspace.workspace_id,
                     "application_method": "skill_stage",
                     "application_source_kind": "evaluation_overlay",
