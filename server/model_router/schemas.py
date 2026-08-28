@@ -17,8 +17,11 @@ ConnectionKind = Literal[
 ]
 ConnectionScope = Literal[
     "chat",
+    "document",
+    "image",
     "audio",
     "realtime",
+    "video",
     "embedding",
     "rerank",
     "batch",
@@ -70,6 +73,24 @@ ProviderWorkloadEntryId = Literal[
     "rag_rerank",
     "skill_rerank",
     "openrouter_batch",
+    "chat_image",
+    "chat_document_native",
+    "rag_vision",
+    "workflow_interactive_vision",
+    "workflow_deployment_vision",
+    "xpert_vision",
+    "image_generation",
+    "multimodal_transcription",
+    "multimodal_speech",
+    "xpert_transcription",
+    "xpert_speech",
+    "chat_audio_input",
+    "chat_audio_output",
+    "audio_generation",
+    "multimodal_video_analysis",
+    "chat_video",
+    "video_generation",
+    "realtime_voice",
 ]
 ProviderWorkloadExecutionShape = Literal[
     "chat_text",
@@ -81,7 +102,59 @@ ProviderWorkloadExecutionShape = Literal[
     "rerank_documents",
     "openrouter_batch_chat",
     "openrouter_batch_embeddings",
+    "chat_image_stream",
+    "chat_document_stream",
+    "vision_json_unary",
+    "image_generation",
+    "audio_transcription",
+    "audio_speech",
+    "chat_audio_input",
+    "chat_audio_output",
+    "audio_generation_stream",
+    "video_analysis_unary",
+    "chat_video_stream",
+    "video_generation_async",
+    "realtime_voice_session",
 ]
+ProviderMultimodalAdapterContract = Literal[
+    "openrouter_chat_multimodal_v1",
+    "openai_compatible_chat_multimodal_v1",
+    "openrouter_chat_native_pdf_v1",
+    "openrouter_images_v1",
+    "openai_compatible_images_generations_v1",
+    "openrouter_audio_transcription_json_v1",
+    "openai_compatible_audio_transcription_multipart_v1",
+    "openrouter_audio_speech_v1",
+    "openai_compatible_audio_speech_v1",
+    "openrouter_chat_audio_v1",
+    "openrouter_audio_generation_stream_v1",
+    "openrouter_chat_video_v1",
+    "openrouter_video_jobs_v1",
+    "openai_realtime_sdp_v1",
+]
+ProviderDispatchState = Literal[
+    "not_dispatched",
+    "dispatched",
+    "confirmed",
+    "uncertain",
+]
+MULTIMODAL_WORKLOAD_SHAPES: frozenset[str] = frozenset(
+    {
+        "chat_image_stream",
+        "chat_document_stream",
+        "vision_json_unary",
+        "image_generation",
+        "audio_transcription",
+        "audio_speech",
+        "chat_audio_input",
+        "chat_audio_output",
+        "audio_generation_stream",
+        "video_analysis_unary",
+        "chat_video_stream",
+        "video_generation_async",
+        "realtime_voice_session",
+    }
+)
 ProviderWorkloadLocalFallbackMode = Literal["none", "extractive", "lexical"]
 ProviderWorkloadRerankAccessMode = Literal["dedicated", "llm_json"]
 ProviderWorkloadPolicyStatus = Literal[
@@ -137,8 +210,11 @@ OperationVerificationStatus = Literal[
 OperationInteractionStatus = Literal["ready", "planned", "disabled"]
 CONNECTION_SCOPE_ORDER: tuple[ConnectionScope, ...] = (
     "chat",
+    "document",
+    "image",
     "audio",
     "realtime",
+    "video",
     "embedding",
     "rerank",
     "batch",
@@ -183,7 +259,7 @@ class RouterConnectionCreate(BaseModel):
     kind: ConnectionKind
     base_url: str = Field(min_length=1, max_length=2048)
     api_key: SecretStr
-    scopes: list[ConnectionScope] = Field(default_factory=list, max_length=6)
+    scopes: list[ConnectionScope] = Field(default_factory=list, max_length=9)
     enabled: bool = True
 
     @field_validator("name")
@@ -220,7 +296,7 @@ class RouterConnectionUpdate(BaseModel):
     api_key: SecretStr | None = None
     scopes: list[ConnectionScope] | None = Field(
         default=None,
-        max_length=6,
+        max_length=9,
     )
     enabled: bool | None = None
 
@@ -738,6 +814,7 @@ class ProviderWorkloadCertificationRequest(BaseModel):
     execution_shape: ProviderWorkloadExecutionShape
     model_id: str = Field(min_length=1, max_length=512)
     acknowledge_billed_call: bool
+    adapter_contract: ProviderMultimodalAdapterContract | None = None
     candidate_model_ids: list[str] = Field(default_factory=list, max_length=5)
     judge_model_id: str | None = Field(default=None, max_length=512)
     rerank_access_mode: ProviderWorkloadRerankAccessMode | None = None
@@ -767,6 +844,15 @@ class ProviderWorkloadCertificationRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_fusion_profile(self) -> "ProviderWorkloadCertificationRequest":
+        if self.execution_shape in MULTIMODAL_WORKLOAD_SHAPES:
+            if self.adapter_contract is None:
+                raise ValueError(
+                    "multimodal certification requires adapter_contract"
+                )
+        elif self.adapter_contract is not None:
+            raise ValueError(
+                "adapter_contract is only valid for multimodal execution shapes"
+            )
         if self.execution_shape == "fusion_native":
             if self.model_id != "openrouter/fusion":
                 raise ValueError("fusion_native requires model_id=openrouter/fusion")
@@ -798,6 +884,10 @@ class ProviderWorkloadCertificationChecks(BaseModel):
     embedding_vectors_verified: bool = False
     rerank_results_verified: bool = False
     batch_terminal_verified: bool = False
+    media_format_verified: bool = False
+    terminal_signal_verified: bool = False
+    async_terminal_verified: bool = False
+    manual_media_verified: bool = False
 
 
 class ProviderWorkloadCertificationSummary(BaseModel):
@@ -806,6 +896,8 @@ class ProviderWorkloadCertificationSummary(BaseModel):
     connection_name: str
     provider_kind: ConnectionKind
     execution_shape: ProviderWorkloadExecutionShape
+    adapter_contract: ProviderMultimodalAdapterContract | None = None
+    protocol_version: str | None = None
     status: ProviderWorkloadCertificationStatus = "not_run"
     can_run: bool
     blocked_reason: str | None = None
@@ -823,6 +915,8 @@ class ProviderWorkloadCertificationSummary(BaseModel):
     vector_dimension: int | None = None
     batch_job_id: str | None = None
     batch_status: str | None = None
+    provider_dispatch_state: ProviderDispatchState | None = None
+    retry_allowed: bool | None = None
     ttft_ms: float | None = None
     e2e_ms: float | None = None
     prompt_tokens: int | None = None
@@ -844,6 +938,7 @@ class ProviderWorkloadBindingUpdate(BaseModel):
     execution_shape: ProviderWorkloadExecutionShape
     model_id: str = Field(min_length=1, max_length=512)
     connection_id: str = Field(min_length=1, max_length=128)
+    adapter_contract: ProviderMultimodalAdapterContract | None = None
     rerank_access_mode: ProviderWorkloadRerankAccessMode | None = None
 
     @field_validator("model_id", "connection_id")
@@ -853,6 +948,13 @@ class ProviderWorkloadBindingUpdate(BaseModel):
 
     @model_validator(mode="after")
     def validate_rerank_access_mode(self) -> "ProviderWorkloadBindingUpdate":
+        if self.execution_shape in MULTIMODAL_WORKLOAD_SHAPES:
+            if self.adapter_contract is None:
+                raise ValueError("multimodal binding requires adapter_contract")
+        elif self.adapter_contract is not None:
+            raise ValueError(
+                "adapter_contract is only valid for multimodal execution shapes"
+            )
         if self.execution_shape == "rerank_documents":
             if self.rerank_access_mode is None:
                 raise ValueError("rerank_documents binding requires rerank_access_mode")
@@ -892,6 +994,8 @@ class ProviderWorkloadBindingSummary(BaseModel):
     certification_source: Literal["provider_chat", "provider_workload"]
     connection_fingerprint: str
     qualification_fingerprint: str
+    adapter_contract: ProviderMultimodalAdapterContract | None = None
+    protocol_version: str | None = None
     rerank_access_mode: ProviderWorkloadRerankAccessMode | None = None
     valid: bool
     reason_code: str
@@ -935,6 +1039,9 @@ class ProviderWorkloadCallSummary(BaseModel):
     execution_shape: ProviderWorkloadExecutionShape
     model_id: str
     connection_id: str | None = None
+    adapter_contract: ProviderMultimodalAdapterContract | None = None
+    protocol_version: str | None = None
+    provider_dispatch_state: ProviderDispatchState | None = None
     call_sequence: int
     dispatched: bool
     status: str
@@ -948,6 +1055,41 @@ class ProviderWorkloadCallSummary(BaseModel):
     total_tokens: int | None = None
     created_at: str
     completed_at: str | None = None
+
+
+class ProviderMultimodalCertificationRefreshRequest(BaseModel):
+    acknowledge_poll_only: bool = True
+
+
+class ProviderRealtimeCertificationSessionRequest(BaseModel):
+    model_id: str = Field(min_length=1, max_length=512)
+    adapter_contract: Literal["openai_realtime_sdp_v1"]
+    offer_sdp: str = Field(min_length=1, max_length=128_000)
+    acknowledge_billed_call: bool
+
+    @field_validator("model_id")
+    @classmethod
+    def validate_model_id(cls, value: str) -> str:
+        return _required_text(value, field_name="model_id", limit=512)
+
+    @field_validator("offer_sdp")
+    @classmethod
+    def validate_offer_sdp(cls, value: str) -> str:
+        return _required_text(value, field_name="offer_sdp", limit=128_000)
+
+
+class ProviderRealtimeCertificationCompleteRequest(BaseModel):
+    media_observed: bool
+    hangup_observed: bool
+
+
+class ProviderRealtimeCertificationSessionResponse(BaseModel):
+    certification_id: str
+    status: ProviderWorkloadCertificationStatus
+    answer_sdp: str | None = None
+    expires_at: str | None = None
+    provider_dispatch_state: ProviderDispatchState
+    retry_allowed: bool = False
 
 
 class ProviderWorkloadRunSummary(BaseModel):

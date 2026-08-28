@@ -22,6 +22,10 @@ from .provider_operations import (
     ProviderOperationTransport,
     provider_operation_model_matches,
 )
+from .multimodal_control import (
+    PROVIDER_MULTIMODAL_PROTOCOL_VERSION,
+    validate_multimodal_adapter,
+)
 from .repository import RouterCredentialUnavailable, RouterRepositoryError
 from .schemas import (
     ProviderWorkloadActivationRequest,
@@ -42,6 +46,7 @@ from .schemas import (
     ProviderWorkloadReceiptsResponse,
     ProviderWorkloadRunSummary,
     RouterConnection,
+    MULTIMODAL_WORKLOAD_SHAPES,
 )
 from .service import ModelRouterService, RouterServiceError
 
@@ -93,6 +98,27 @@ ENTRY_FEATURE_FLAGS: dict[ProviderWorkloadEntryId, tuple[str, ...]] = {
     "rag_rerank": ("MODEL_CONTROL_RAG_RERANK_ENABLED",),
     "skill_rerank": ("MODEL_CONTROL_SKILL_RERANK_ENABLED",),
     "openrouter_batch": ("MODEL_CONTROL_OPENROUTER_BATCH_ENABLED",),
+    "chat_image": ("MODEL_CONTROL_CHAT_IMAGE_ENABLED",),
+    "chat_document_native": ("MODEL_CONTROL_CHAT_DOCUMENT_ENABLED",),
+    "rag_vision": ("MODEL_CONTROL_RAG_VISION_ENABLED",),
+    "workflow_interactive_vision": ("MODEL_CONTROL_WORKFLOW_VISION_ENABLED",),
+    "workflow_deployment_vision": (
+        "MODEL_CONTROL_WORKFLOW_VISION_ENABLED",
+        "MODEL_CONTROL_WORKFLOW_VISION_DEPLOYMENT_ENABLED",
+    ),
+    "xpert_vision": ("MODEL_CONTROL_XPERT_VISION_ENABLED",),
+    "image_generation": ("MODEL_CONTROL_IMAGE_GENERATION_ENABLED",),
+    "multimodal_transcription": ("MODEL_CONTROL_TRANSCRIPTION_ENABLED",),
+    "multimodal_speech": ("MODEL_CONTROL_SPEECH_ENABLED",),
+    "xpert_transcription": ("MODEL_CONTROL_XPERT_AUDIO_ENABLED",),
+    "xpert_speech": ("MODEL_CONTROL_XPERT_AUDIO_ENABLED",),
+    "chat_audio_input": ("MODEL_CONTROL_CHAT_AUDIO_ENABLED",),
+    "chat_audio_output": ("MODEL_CONTROL_CHAT_AUDIO_ENABLED",),
+    "audio_generation": ("MODEL_CONTROL_AUDIO_GENERATION_ENABLED",),
+    "multimodal_video_analysis": ("MODEL_CONTROL_VIDEO_ANALYSIS_ENABLED",),
+    "chat_video": ("MODEL_CONTROL_CHAT_VIDEO_ENABLED",),
+    "video_generation": ("MODEL_CONTROL_VIDEO_GENERATION_ENABLED",),
+    "realtime_voice": ("MODEL_CONTROL_REALTIME_VOICE_ENABLED",),
 }
 
 ENTRY_ALLOWED_SHAPES: dict[
@@ -130,6 +156,24 @@ ENTRY_ALLOWED_SHAPES: dict[
     "openrouter_batch": frozenset(
         {"openrouter_batch_chat", "openrouter_batch_embeddings"}
     ),
+    "chat_image": frozenset({"chat_image_stream"}),
+    "chat_document_native": frozenset({"chat_document_stream"}),
+    "rag_vision": frozenset({"vision_json_unary"}),
+    "workflow_interactive_vision": frozenset({"vision_json_unary"}),
+    "workflow_deployment_vision": frozenset({"vision_json_unary"}),
+    "xpert_vision": frozenset({"vision_json_unary"}),
+    "image_generation": frozenset({"image_generation"}),
+    "multimodal_transcription": frozenset({"audio_transcription"}),
+    "multimodal_speech": frozenset({"audio_speech"}),
+    "xpert_transcription": frozenset({"audio_transcription"}),
+    "xpert_speech": frozenset({"audio_speech"}),
+    "chat_audio_input": frozenset({"chat_audio_input"}),
+    "chat_audio_output": frozenset({"chat_audio_output"}),
+    "audio_generation": frozenset({"audio_generation_stream"}),
+    "multimodal_video_analysis": frozenset({"video_analysis_unary"}),
+    "chat_video": frozenset({"chat_video_stream"}),
+    "video_generation": frozenset({"video_generation_async"}),
+    "realtime_voice": frozenset({"realtime_voice_session"}),
 }
 
 ENTRY_ALLOWED_LOCAL_FALLBACKS: dict[ProviderWorkloadEntryId, frozenset[str]] = {
@@ -317,7 +361,17 @@ class ProviderWorkloadCertificationService:
         connection = self.repository.get_connection(
             self.router_service.tenant_id, connection_id
         )
-        self._validate_connection(connection, payload.execution_shape)
+        self._validate_connection(
+            connection,
+            payload.execution_shape,
+            adapter_contract=payload.adapter_contract,
+        )
+        if payload.execution_shape in MULTIMODAL_WORKLOAD_SHAPES:
+            raise RouterServiceError(
+                "provider_multimodal_certification_not_integrated",
+                "该多模态认证将在对应 R8 数据面批次接入；R8A 不会发送付费调用。",
+                status_code=409,
+            )
 
         profile = self._profile(payload)
         profile_fingerprint = _fingerprint(profile)
@@ -410,6 +464,12 @@ class ProviderWorkloadCertificationService:
                 profile=profile,
                 profile_fingerprint=profile_fingerprint,
                 idempotency_key_hash=idempotency_hash,
+                adapter_contract=payload.adapter_contract,
+                protocol_version=(
+                    PROVIDER_MULTIMODAL_PROTOCOL_VERSION
+                    if payload.adapter_contract is not None
+                    else None
+                ),
             )
         except RouterRepositoryError as exc:
             code = str(exc)
@@ -755,6 +815,12 @@ class ProviderWorkloadCertificationService:
         return {
             "execution_shape": payload.execution_shape,
             "model_id": payload.model_id,
+            "adapter_contract": payload.adapter_contract,
+            "protocol_version": (
+                PROVIDER_MULTIMODAL_PROTOCOL_VERSION
+                if payload.adapter_contract is not None
+                else None
+            ),
             "candidate_model_ids": list(payload.candidate_model_ids),
             "judge_model_id": payload.judge_model_id,
             "rerank_access_mode": payload.rerank_access_mode,
@@ -1648,11 +1714,27 @@ class ProviderWorkloadCertificationService:
         self,
         connection: RouterConnection,
         execution_shape: ProviderWorkloadExecutionShape,
+        *,
+        adapter_contract: str | None = None,
     ) -> None:
         if not connection.enabled:
             raise RouterServiceError(
                 "connection_disabled", "该模型服务已停用。", status_code=409
             )
+        if execution_shape in MULTIMODAL_WORKLOAD_SHAPES:
+            if adapter_contract is None:
+                raise RouterServiceError(
+                    "provider_multimodal_adapter_required",
+                    "多模态资格必须选择明确的 Adapter。",
+                    status_code=422,
+                )
+            validate_multimodal_adapter(
+                contract=adapter_contract,  # type: ignore[arg-type]
+                execution_shape=execution_shape,
+                provider_kind=connection.kind,
+                scopes=connection.scopes,
+            )
+            return
         required_scope = self._required_scope(execution_shape)
         if required_scope not in connection.scopes:
             raise RouterServiceError(
@@ -1687,6 +1769,30 @@ class ProviderWorkloadCertificationService:
             "openrouter_batch_embeddings",
         }:
             return "batch"
+        if execution_shape == "chat_document_stream":
+            return "document"
+        if execution_shape in {
+            "chat_image_stream",
+            "vision_json_unary",
+            "image_generation",
+        }:
+            return "image"
+        if execution_shape in {
+            "audio_transcription",
+            "audio_speech",
+            "chat_audio_input",
+            "chat_audio_output",
+            "audio_generation_stream",
+        }:
+            return "audio"
+        if execution_shape in {
+            "video_analysis_unary",
+            "chat_video_stream",
+            "video_generation_async",
+        }:
+            return "video"
+        if execution_shape == "realtime_voice_session":
+            return "realtime"
         return "chat"
 
     def _summary(
@@ -1753,6 +1859,16 @@ class ProviderWorkloadCertificationService:
             connection_name=connection.name,
             provider_kind=connection.kind,
             execution_shape=str(row["execution_shape"]),  # type: ignore[arg-type]
+            adapter_contract=(
+                str(row["adapter_contract"])  # type: ignore[arg-type]
+                if row.get("adapter_contract")
+                else None
+            ),
+            protocol_version=(
+                str(row["protocol_version"])
+                if row.get("protocol_version")
+                else None
+            ),
             status=status,  # type: ignore[arg-type]
             can_run=(
                 status == "passed"
@@ -1874,6 +1990,7 @@ class ProviderWorkloadControlService:
                 model_id=binding.model_id,
                 execution_shape=binding.execution_shape,
                 rerank_access_mode=binding.rerank_access_mode,
+                adapter_contract=binding.adapter_contract,
             )
             if qualification is None:
                 raise RouterServiceError(
@@ -2063,6 +2180,21 @@ class ProviderWorkloadControlService:
                     connection_id=(
                         str(row["connection_id"]) if row["connection_id"] else None
                     ),
+                    adapter_contract=(
+                        str(row["adapter_contract"])  # type: ignore[arg-type]
+                        if row.get("adapter_contract")
+                        else None
+                    ),
+                    protocol_version=(
+                        str(row["protocol_version"])
+                        if row.get("protocol_version")
+                        else None
+                    ),
+                    provider_dispatch_state=(
+                        str(row["provider_dispatch_state"])  # type: ignore[arg-type]
+                        if row.get("provider_dispatch_state")
+                        else None
+                    ),
                     call_sequence=int(row["call_sequence"]),
                     dispatched=bool(row["dispatched"]),
                     status=str(row["status"]),
@@ -2194,6 +2326,16 @@ class ProviderWorkloadControlService:
                     certification_source=str(row["certification_source"]),  # type: ignore[arg-type]
                     connection_fingerprint=str(row["connection_fingerprint"]),
                     qualification_fingerprint=str(row["qualification_fingerprint"]),
+                    adapter_contract=(
+                        str(row["adapter_contract"])  # type: ignore[arg-type]
+                        if row.get("adapter_contract")
+                        else None
+                    ),
+                    protocol_version=(
+                        str(row["protocol_version"])
+                        if row.get("protocol_version")
+                        else None
+                    ),
                     rerank_access_mode=(
                         str(row["rerank_access_mode"])  # type: ignore[arg-type]
                         if row.get("rerank_access_mode")
@@ -2260,12 +2402,18 @@ class ProviderWorkloadControlService:
         model_id: str,
         execution_shape: ProviderWorkloadExecutionShape,
         rerank_access_mode: str | None = None,
+        adapter_contract: str | None = None,
     ) -> tuple[dict[str, object] | None, str]:
         if execution_shape == "rerank_documents":
             if rerank_access_mode not in {"dedicated", "llm_json"}:
                 return None, "provider_workload_rerank_access_mode_required"
         elif rerank_access_mode is not None:
             return None, "provider_workload_rerank_access_mode_not_allowed"
+        if execution_shape in MULTIMODAL_WORKLOAD_SHAPES:
+            if adapter_contract is None:
+                return None, "provider_multimodal_adapter_required"
+        elif adapter_contract is not None:
+            return None, "provider_multimodal_adapter_not_allowed"
         if execution_shape in {"chat_text", "chat_tools"}:
             qualification, reason = ProviderChatControlService(
                 self.router_service
@@ -2293,11 +2441,22 @@ class ProviderWorkloadControlService:
             return None, "provider_workload_connection_missing"
         if not connection.enabled:
             return None, "connection_disabled"
-        required_scope = ProviderWorkloadCertificationService._required_scope(
-            execution_shape
-        )
-        if required_scope not in connection.scopes:
-            return None, f"connection_{required_scope}_scope_required"
+        if execution_shape in MULTIMODAL_WORKLOAD_SHAPES:
+            try:
+                validate_multimodal_adapter(
+                    contract=adapter_contract,  # type: ignore[arg-type]
+                    execution_shape=execution_shape,
+                    provider_kind=connection.kind,
+                    scopes=connection.scopes,
+                )
+            except RouterServiceError as exc:
+                return None, exc.code
+        else:
+            required_scope = ProviderWorkloadCertificationService._required_scope(
+                execution_shape
+            )
+            if required_scope not in connection.scopes:
+                return None, f"connection_{required_scope}_scope_required"
         if connection.health != "online":
             return None, "provider_connection_not_online"
         try:
@@ -2351,6 +2510,7 @@ class ProviderWorkloadControlService:
             model_id,
             execution_shape,
             rerank_access_mode=rerank_access_mode,
+            adapter_contract=adapter_contract,
         )
         if certification is None:
             return None, "provider_workload_certification_required"
@@ -2360,6 +2520,13 @@ class ProviderWorkloadControlService:
             return None, "provider_workload_certification_stale"
         if str(certification["contract_version"]) != PROVIDER_WORKLOAD_CONTRACT_VERSION:
             return None, "provider_workload_contract_stale"
+        if execution_shape in MULTIMODAL_WORKLOAD_SHAPES:
+            if str(certification.get("adapter_contract") or "") != adapter_contract:
+                return None, "provider_multimodal_adapter_certification_mismatch"
+            if str(certification.get("protocol_version") or "") != (
+                PROVIDER_MULTIMODAL_PROTOCOL_VERSION
+            ):
+                return None, "provider_multimodal_protocol_stale"
         time_reason = ProviderChatControlService._certification_time_status(  # noqa: SLF001
             certification
         )
@@ -2405,6 +2572,12 @@ class ProviderWorkloadControlService:
             "contract_version": PROVIDER_WORKLOAD_CONTRACT_VERSION,
             "profile_fingerprint": str(certification["profile_fingerprint"]),
             "rerank_access_mode": rerank_access_mode,
+            "adapter_contract": adapter_contract,
+            "protocol_version": (
+                PROVIDER_MULTIMODAL_PROTOCOL_VERSION
+                if adapter_contract is not None
+                else None
+            ),
         }
         qualification["qualification_fingerprint"] = _fingerprint(qualification)
         return qualification, "qualified"
@@ -2427,6 +2600,11 @@ class ProviderWorkloadControlService:
                 if row.get("rerank_access_mode")
                 else None
             ),
+            adapter_contract=(
+                str(row["adapter_contract"])
+                if row.get("adapter_contract")
+                else None
+            ),
         )
         if current is None:
             return False, reason, connection
@@ -2444,6 +2622,14 @@ class ProviderWorkloadControlService:
             row["qualification_fingerprint"]
         ):
             return False, "provider_workload_qualification_changed", connection
+        if str(current.get("adapter_contract") or "") != str(
+            row.get("adapter_contract") or ""
+        ):
+            return False, "provider_multimodal_adapter_changed", connection
+        if str(current.get("protocol_version") or "") != str(
+            row.get("protocol_version") or ""
+        ):
+            return False, "provider_multimodal_protocol_changed", connection
         return True, "qualified", connection
 
     @staticmethod
@@ -2459,6 +2645,8 @@ class ProviderWorkloadControlService:
                 "model_id": item["model_id"],
                 "connection_id": item["connection_id"],
                 "rerank_access_mode": item.get("rerank_access_mode"),
+                "adapter_contract": item.get("adapter_contract"),
+                "protocol_version": item.get("protocol_version"),
                 "qualification_fingerprint": item["qualification_fingerprint"],
             }
             for item in sorted(
@@ -2519,6 +2707,8 @@ class ProviderWorkloadPreparedCall:
     target: ProviderChatTarget
     operation_target: ProviderOperationTarget | None
     rerank_access_mode: str | None
+    adapter_contract: str | None
+    protocol_version: str | None
     authorized_target: AuthorizedProviderTarget
 
 
@@ -2707,6 +2897,8 @@ class ProviderWorkloadCallService:
                 logical_call_key.encode("utf-8")
             ).hexdigest(),
             call_sequence=call_sequence,
+            adapter_contract=binding.adapter_contract,
+            protocol_version=binding.protocol_version,
         )
         if not created:
             raise RouterServiceError(
@@ -2728,6 +2920,8 @@ class ProviderWorkloadCallService:
             target=target,
             operation_target=operation_target,
             rerank_access_mode=binding.rerank_access_mode,
+            adapter_contract=binding.adapter_contract,
+            protocol_version=binding.protocol_version,
             authorized_target=authorized,
         )
 
@@ -2757,6 +2951,8 @@ class ProviderWorkloadCallService:
                 and item.connection_id == prepared.connection_id
                 and item.certification_id == prepared.certification_id
                 and item.connection_fingerprint == prepared.connection_fingerprint
+                and item.adapter_contract == prepared.adapter_contract
+                and item.protocol_version == prepared.protocol_version
                 and item.valid
             ),
             None,
@@ -2779,6 +2975,8 @@ class ProviderWorkloadCallService:
                 certification_id=prepared.certification_id,
                 connection_fingerprint=prepared.connection_fingerprint,
                 policy_fingerprint=prepared.policy_fingerprint,
+                adapter_contract=prepared.adapter_contract,
+                protocol_version=prepared.protocol_version,
             )
         except RouterRepositoryError as exc:
             if str(exc) == "provider_workload_dispatch_preconditions_changed":

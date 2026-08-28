@@ -6,7 +6,7 @@
     "typecheck": "tsc -b --pretty false",
     "preview": "vite preview --host 0.0.0.0",
     "test": "vitest --configLoader runner",
-    "test:run": "vitest run --configLoader runner --maxWorkers=1 --fileParallelism=false",
+    "test:run": "vitest run --configLoader runner --maxWorkers=1 --fileParallelism=false && node --test server-headers.node.mjs",
     "test:streaming-audio": "node scripts/verify-streaming-audio.mjs"
   },
   "dependencies": {

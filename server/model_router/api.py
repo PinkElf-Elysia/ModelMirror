@@ -52,6 +52,10 @@ from .schemas import (
     ProviderWorkloadCertificationListResponse,
     ProviderWorkloadCertificationRequest,
     ProviderWorkloadCertificationSummary,
+    ProviderMultimodalCertificationRefreshRequest,
+    ProviderRealtimeCertificationCompleteRequest,
+    ProviderRealtimeCertificationSessionRequest,
+    ProviderRealtimeCertificationSessionResponse,
     ProviderWorkloadDeactivationRequest,
     ProviderWorkloadEntryId,
     ProviderWorkloadExecutionShape,
@@ -75,6 +79,7 @@ from .workload_control import (
     ProviderWorkloadCertificationService,
     ProviderWorkloadControlService,
 )
+from .multimodal_control import ProviderMultimodalCertificationSessionService
 from .chat_canary import ProviderChatCanaryService
 from .provider_catalog import ProviderCatalogService
 from .control_plane_catalog import ControlPlaneCatalogService
@@ -595,6 +600,69 @@ async def run_workload_certification(
         RouterRepositoryError,
     ) as exc:
         _raise_public_error(exc)
+
+
+@router.post(
+    "/certifications/workloads/{certification_id}/refresh",
+    response_model=ProviderWorkloadCertificationSummary,
+)
+def refresh_multimodal_workload_certification(
+    certification_id: str,
+    _payload: ProviderMultimodalCertificationRefreshRequest,
+    _principal: ProviderControlPrincipal = Depends(require_provider_admin_csrf),
+) -> ProviderWorkloadCertificationSummary:
+    try:
+        ProviderMultimodalCertificationSessionService(
+            get_model_router_service()
+        ).refresh(certification_id)
+    except (RouterServiceError, RouterRepositoryError) as exc:
+        _raise_public_error(exc)
+    raise AssertionError("multimodal certification refresh returned unexpectedly")
+
+
+@router.post(
+    "/connections/{connection_id}/certifications/realtime/session",
+    response_model=ProviderRealtimeCertificationSessionResponse,
+)
+def create_realtime_certification_session(
+    connection_id: str,
+    _payload: ProviderRealtimeCertificationSessionRequest,
+    idempotency_key: str = Header(default="", alias="Idempotency-Key"),
+    _principal: ProviderControlPrincipal = Depends(require_provider_admin_csrf),
+) -> ProviderRealtimeCertificationSessionResponse:
+    if not idempotency_key.strip():
+        _raise_public_error(
+            RouterServiceError(
+                "provider_realtime_idempotency_key_required",
+                "Realtime 资格会话必须提供 Idempotency-Key。",
+                status_code=422,
+            )
+        )
+    try:
+        ProviderMultimodalCertificationSessionService(
+            get_model_router_service()
+        ).realtime_not_integrated(connection_id)
+    except (RouterServiceError, RouterRepositoryError) as exc:
+        _raise_public_error(exc)
+    raise AssertionError("realtime certification session returned unexpectedly")
+
+
+@router.post(
+    "/certifications/realtime/{certification_id}/complete",
+    response_model=ProviderWorkloadCertificationSummary,
+)
+def complete_realtime_certification_session(
+    certification_id: str,
+    _payload: ProviderRealtimeCertificationCompleteRequest,
+    _principal: ProviderControlPrincipal = Depends(require_provider_admin_csrf),
+) -> ProviderWorkloadCertificationSummary:
+    try:
+        ProviderMultimodalCertificationSessionService(
+            get_model_router_service()
+        ).realtime_complete_not_integrated(certification_id)
+    except (RouterServiceError, RouterRepositoryError) as exc:
+        _raise_public_error(exc)
+    raise AssertionError("realtime certification completion returned unexpectedly")
 
 
 @router.get(

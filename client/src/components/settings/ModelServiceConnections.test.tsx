@@ -94,4 +94,42 @@ describe("ModelServiceConnections editing", () => {
     ).toBeDisabled();
     expect(screen.queryByText("手动会话 Canary")).toBeNull();
   });
+
+  it("persists explicit document, image, and video scopes without changing defaults", async () => {
+    const connection = {
+      id: "connection-multimodal",
+      name: "OpenRouter multimodal",
+      kind: "openrouter",
+      base_url: "https://openrouter.ai/api/v1",
+      masked_key: "****test",
+      scopes: ["chat"],
+      enabled: true,
+      health: "online",
+      model_count: 2,
+    };
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url === "/api/router/connections" && !init?.method) return new Response(JSON.stringify([connection]), { status: 200 });
+      if (url === "/api/router/connections/connection-multimodal" && init?.method === "PATCH") return new Response(JSON.stringify(connection), { status: 200 });
+      if (url === "/api/router/connections/connection-multimodal/test" && init?.method === "POST") return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      if (url.includes("/certifications")) return new Response(JSON.stringify({ enabled: true, certifications: [] }), { status: 200 });
+      return new Response(null, { status: 404 });
+    });
+
+    render(<ModelServiceConnections csrfToken="csrf-test" />);
+    fireEvent.click(await screen.findByRole("button", { name: "编辑" }));
+    fireEvent.click(screen.getByLabelText("原生文档"));
+    fireEvent.click(screen.getByLabelText("图片与 Vision"));
+    fireEvent.click(screen.getByLabelText("视频能力"));
+    fireEvent.click(screen.getByRole("button", { name: "保存修改并测试" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/router/connections/connection-multimodal",
+      expect.objectContaining({ method: "PATCH" }),
+    ));
+    const patchCall = fetchMock.mock.calls.find(([input, init]) => String(input) === "/api/router/connections/connection-multimodal" && init?.method === "PATCH");
+    expect(JSON.parse(String(patchCall?.[1]?.body)).scopes).toEqual([
+      "chat", "document", "image", "video",
+    ]);
+  });
 });
