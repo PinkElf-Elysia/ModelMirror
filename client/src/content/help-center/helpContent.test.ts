@@ -4,6 +4,7 @@ import {
   helpArticles,
   helpModules,
   helpSections,
+  ragDiversityBaseline,
   remoteMcpReviewBaseline,
   searchHelpContent,
   verifiedBaseline,
@@ -72,6 +73,9 @@ describe("help center content catalog", () => {
     expect(searchHelpContent("Kimi").some((entry) => entry.id === "start-with-a-model")).toBe(true);
     expect(searchHelpContent("配置").some((entry) => entry.id === "troubleshooting")).toBe(true);
     expect(searchHelpContent("RAG").some((entry) => entry.id === "workspace/rag")).toBe(true);
+    const ragTopic = helpModules.find((module) => module.id === "workspace")?.topics.find((topic) => topic.id === "rag");
+    expect(ragTopic?.verifiedCommit).toBe(ragDiversityBaseline.commit);
+    expect(ragTopic?.verifiedDate).toBe(ragDiversityBaseline.date);
     expect(searchHelpContent("Science").some((entry) => entry.id === "experimental/science")).toBe(true);
     expect(searchHelpContent("专家团").some((entry) => entry.id === "agents/expert-team")).toBe(true);
     expect(searchHelpContent("运行记录").some((entry) => entry.id === "runtime/run-records")).toBe(true);
