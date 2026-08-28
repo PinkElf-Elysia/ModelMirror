@@ -415,8 +415,14 @@ class RagStrategyApplyRequest(BaseModel):
 class RagStrategyTuningRequest(BaseModel):
     kb_id: str = Field(min_length=1, max_length=160)
     base_version_id: str = Field(min_length=1, max_length=200)
-    eval_set_id: str = Field(min_length=1, max_length=200)
-    eval_set_version: int = Field(ge=1)
+    eval_set_id: str | None = Field(default=None, min_length=1, max_length=200)
+    eval_set_version: int | None = Field(default=None, ge=1)
+    tuning_eval_set_id: str | None = Field(default=None, min_length=1, max_length=200)
+    tuning_eval_set_version: int | None = Field(default=None, ge=1)
+    calibration_eval_set_id: str | None = Field(
+        default=None, min_length=1, max_length=200
+    )
+    calibration_eval_set_version: int | None = Field(default=None, ge=1)
     recommendation_id: str | None = Field(default=None, max_length=200)
     objective: Literal["balanced", "quality", "low_latency"] = "balanced"
     seed: int = Field(default=42, ge=0, le=2_147_483_647)
@@ -426,6 +432,25 @@ class RagStrategyTuningRequest(BaseModel):
     enable_rerank: bool = False
     rerank_provider: Literal["auto", "api", "llm"] = "auto"
     rerank_model: str = Field(default="", max_length=200)
+
+    @model_validator(mode="after")
+    def validate_dataset_contract(self) -> "RagStrategyTuningRequest":
+        v3_values = (
+            self.tuning_eval_set_id,
+            self.tuning_eval_set_version,
+            self.calibration_eval_set_id,
+            self.calibration_eval_set_version,
+        )
+        if any(value is not None for value in v3_values):
+            if not all(value is not None for value in v3_values):
+                raise ValueError(
+                    "V3 tuning requires published tuning and calibration dataset versions."
+                )
+            if self.eval_set_id is not None or self.eval_set_version is not None:
+                raise ValueError("Legacy and V3 evaluation dataset fields cannot be mixed.")
+        elif self.eval_set_id is None or self.eval_set_version is None:
+            raise ValueError("A published evaluation set version is required.")
+        return self
 
 
 class PipelineGraphNodePayload(BaseModel):
@@ -746,6 +771,14 @@ class EvaluationReferenceInput(BaseModel):
     document_id: str = Field(min_length=1, max_length=200)
     chunk_id: str | None = Field(default=None, max_length=240)
     source_block_id: str | None = Field(default=None, max_length=240)
+    source_block_hash: str | None = Field(
+        default=None, min_length=64, max_length=64, pattern="^[0-9a-f]{64}$"
+    )
+    anchor_start: int | None = Field(default=None, ge=0)
+    anchor_end: int | None = Field(default=None, ge=1)
+    anchor_hash: str | None = Field(
+        default=None, min_length=64, max_length=64, pattern="^[0-9a-f]{64}$"
+    )
     page_number: int | None = Field(default=None, ge=1, le=100_000)
     relevance: int = Field(default=1, ge=1, le=3)
     match_mode: str | None = Field(default=None, pattern="^(document|source_block|chunk)$")
@@ -782,7 +815,12 @@ class EvaluationSetCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     description: str = Field(default="", max_length=1000)
     benchmark_role: Literal[
-        "unclassified", "regression_guard", "strategy_tuning", "promotion_evidence"
+        "unclassified",
+        "regression_guard",
+        "strategy_tuning",
+        "threshold_calibration",
+        "held_out_qualification",
+        "promotion_evidence",
     ] = "unclassified"
 
 
@@ -792,7 +830,12 @@ class EvaluationSetUpdateRequest(BaseModel):
     description: str | None = Field(default=None, max_length=1000)
     status: str | None = None
     benchmark_role: Literal[
-        "unclassified", "regression_guard", "strategy_tuning", "promotion_evidence"
+        "unclassified",
+        "regression_guard",
+        "strategy_tuning",
+        "threshold_calibration",
+        "held_out_qualification",
+        "promotion_evidence",
     ] | None = None
 
 
@@ -2136,6 +2179,17 @@ async def get_evaluation_case_evidence(
         version_id = str(provenance.get("pipeline_version_id") or "")
         if not version_id:
             raise ValueError("Generated evaluation set has no fixed knowledge version.")
+        corpus_evidence = get_rag_service().pipeline_corpus_evidence(version_id)
+        canonical_blocks = {
+            (
+                str(document.get("document_id") or ""),
+                str(block.get("source_block_id") or ""),
+            ): dict(block)
+            for document in list(corpus_evidence.get("documents") or [])
+            if isinstance(document, dict)
+            for block in list(document.get("source_blocks") or [])
+            if isinstance(block, dict)
+        }
         evidence: list[dict[str, Any]] = []
         expected_no_result = bool(case.get("expected_no_result"))
         references = list(case.get("expected_refs") or [])
@@ -2150,34 +2204,104 @@ async def get_evaluation_case_evidence(
                     "Generated hard negative has no fixed corpus-near review context."
                 )
         for reference in references:
-            chunk = get_rag_service().get_knowledge_chunk(
-                str(evaluation_set["kb_id"]),
-                str(reference.get("chunk_id") or ""),
-                version_id=version_id,
+            source_block_id = str(reference.get("source_block_id") or "")
+            key = (
+                str(reference.get("document_id") or ""),
+                source_block_id,
             )
-            if str(chunk.get("document_id") or "") != str(
-                reference.get("document_id") or ""
-            ) or str(chunk.get("source_block_id") or "") != str(
-                reference.get("source_block_id") or ""
+            block = canonical_blocks.get(key)
+            if not block and not source_block_id and reference.get("chunk_id"):
+                legacy_chunk = get_rag_service().get_knowledge_chunk(
+                    str(evaluation_set["kb_id"]),
+                    str(reference.get("chunk_id") or ""),
+                    version_id=version_id,
+                )
+                if str(legacy_chunk.get("document_id") or "") != key[0]:
+                    raise ValueError(
+                        "Fixed Gold evidence no longer matches the target version."
+                    )
+                legacy_text = str(legacy_chunk.get("text") or "")
+                evidence.append(
+                    {
+                        "reference_id": reference.get("reference_id"),
+                        "evidence_role": f"legacy_{evidence_role}",
+                        "document_id": legacy_chunk.get("document_id"),
+                        "document_name": legacy_chunk.get("document_name"),
+                        "chunk_id": legacy_chunk.get("chunk_id"),
+                        "source_block_id": legacy_chunk.get("source_block_id"),
+                        "source_block_hash": None,
+                        "page_number": legacy_chunk.get("page_number"),
+                        "heading_path": legacy_chunk.get("heading_path") or [],
+                        "visual_kind": legacy_chunk.get("visual_kind"),
+                        "anchor_start": None,
+                        "anchor_end": None,
+                        "anchor_hash": None,
+                        "text": legacy_text[:2000],
+                        "text_length": len(legacy_text),
+                        "truncated": len(legacy_text) > 2000,
+                    }
+                )
+                continue
+            if not block or (
+                reference.get("source_block_hash")
+                and str(block.get("block_hash") or "")
+                != str(reference.get("source_block_hash") or "")
             ):
                 raise ValueError("Fixed Gold evidence no longer matches the target version.")
-            text = str(chunk.get("text") or "")
+            text = str(block.get("text") or "")
             evidence.append(
                 {
                     "reference_id": reference.get("reference_id"),
                     "evidence_role": evidence_role,
-                    "document_id": chunk.get("document_id"),
-                    "document_name": chunk.get("document_name"),
-                    "chunk_id": chunk.get("chunk_id"),
-                    "source_block_id": chunk.get("source_block_id"),
-                    "page_number": chunk.get("page_number"),
-                    "heading_path": chunk.get("heading_path") or [],
-                    "visual_kind": chunk.get("visual_kind"),
+                    "document_id": block.get("document_id"),
+                    "document_name": block.get("document_name"),
+                    "chunk_id": block.get("representative_chunk_id"),
+                    "source_block_id": block.get("source_block_id"),
+                    "source_block_hash": block.get("block_hash"),
+                    "page_number": block.get("page_number"),
+                    "heading_path": block.get("heading_path") or [],
+                    "visual_kind": block.get("visual_kind"),
+                    "anchor_start": reference.get("anchor_start"),
+                    "anchor_end": reference.get("anchor_end"),
+                    "anchor_hash": reference.get("anchor_hash"),
                     "text": text[:2000],
                     "text_length": len(text),
                     "truncated": len(text) > 2000,
                 }
             )
+        verification = (
+            (case.get("targeting") or {}).get("full_corpus_verification")
+            if expected_no_result
+            else None
+        )
+        verification_evidence: list[dict[str, Any]] = []
+        if isinstance(verification, dict):
+            for match in list(verification.get("top_matches") or []):
+                if not isinstance(match, dict):
+                    continue
+                block = canonical_blocks.get(
+                    (
+                        str(match.get("document_id") or ""),
+                        str(match.get("source_block_id") or ""),
+                    )
+                )
+                if not block:
+                    continue
+                text = str(block.get("text") or "")
+                verification_evidence.append(
+                    {
+                        "document_id": block.get("document_id"),
+                        "document_name": block.get("document_name"),
+                        "source_block_id": block.get("source_block_id"),
+                        "source_block_hash": block.get("block_hash"),
+                        "lexical_query_coverage": match.get(
+                            "lexical_query_coverage"
+                        ),
+                        "text": text[:2000],
+                        "text_length": len(text),
+                        "truncated": len(text) > 2000,
+                    }
+                )
         return {
             "eval_set_id": eval_set_id,
             "case_id": case_id,
@@ -2185,6 +2309,8 @@ async def get_evaluation_case_evidence(
             "evidence_role": evidence_role,
             "evidence": evidence,
             "evidence_count": len(evidence),
+            "full_corpus_verification": verification,
+            "verification_evidence": verification_evidence,
         }
     except EvaluationSetNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

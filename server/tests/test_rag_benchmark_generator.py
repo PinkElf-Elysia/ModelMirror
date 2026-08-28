@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -138,6 +139,53 @@ class _RagService:
             }
         )
 
+    def pipeline_corpus_evidence(self, version_id: str) -> dict:
+        assert version_id == "pipeline_v2"
+        documents = []
+        offset = 0
+        for document in self.version["document_results"]:
+            document_id = str(document["source_id"])
+            blocks = []
+            for chunk in self.vector_store.chunks[f"{version_id}_{document_id}"]:
+                text = f"Canonical source block: {chunk.text}"
+                blocks.append(
+                    {
+                        "document_id": document_id,
+                        "document_name": document["filename"],
+                        "source_block_id": chunk.source_block_id,
+                        "block_hash": hashlib.sha256(
+                            json.dumps(
+                                text,
+                                ensure_ascii=False,
+                                sort_keys=True,
+                                separators=(",", ":"),
+                            ).encode("utf-8")
+                        ).hexdigest(),
+                        "block_index": len(blocks),
+                        "start_char": offset,
+                        "end_char": offset + len(text),
+                        "page_number": chunk.page_number,
+                        "heading_path": list(chunk.heading_path),
+                        "block_type": "paragraph",
+                        "representative_chunk_id": chunk.chunk_id,
+                        "text": text,
+                    }
+                )
+                offset += len(text) + 1
+            documents.append(
+                {
+                    "document_id": document_id,
+                    "document_name": document["filename"],
+                    "content_hash": document["content_hash"],
+                    "source_blocks": blocks,
+                }
+            )
+        return {
+            "contract_version": "rag-corpus-evidence-v1",
+            "corpus_snapshot_checksum": "c" * 64,
+            "documents": documents,
+        }
+
     def get_pipeline_version(self, version_id: str) -> dict:
         if version_id != self.version["version_id"]:
             raise RuntimeError("missing")
@@ -238,9 +286,103 @@ def test_knowledge_snapshot_is_fixed_and_exposes_only_bounded_evidence(tmp_path:
     assert snapshot["document_count"] == 1
     assert snapshot["evidence_count"] == 2
     assert all(item["source_block_id"] for item in snapshot["_evidence"])
+    assert all(
+        item["text"].startswith("Canonical source block:")
+        for item in snapshot["_evidence"]
+    )
+    assert all(len(item["block_hash"]) == 64 for item in snapshot["_evidence"])
     public = service.public_target(snapshot)
     assert "_evidence" not in public
     assert "text" not in json.dumps(public)
+
+
+def test_evidence_sampling_stratifies_document_head_middle_and_tail(tmp_path: Path) -> None:
+    service, _ = _service(tmp_path)
+    evidence = [
+        {
+            "evidence_id": f"evidence_{index}",
+            "document_id": "doc_long",
+            "source_block_id": f"block_{index}",
+            "block_index": index,
+            "text": f"Block {index} has enough stable canonical content for sampling.",
+        }
+        for index in range(9)
+    ]
+
+    sampled = service._sample_evidence({"_evidence": evidence}, seed=23)
+
+    first_three = {item["block_index"] for item in sampled[:3]}
+    assert first_three == {0, 4, 8}
+    assert {item["sample_stratum"] for item in sampled[:3]} == {
+        "head",
+        "middle",
+        "tail",
+    }
+
+
+def test_no_result_full_corpus_verification_uses_cjk_ngrams(tmp_path: Path) -> None:
+    service, _ = _service(tmp_path)
+    snapshot = {
+        "corpus_snapshot_checksum": "c" * 64,
+        "_evidence": [
+            {
+                "document_id": "doc_a_unrelated",
+                "source_block_id": "block_a",
+                "block_hash": "a" * 64,
+                "text": "账户登录失败时请重置密码并联系管理员。",
+            },
+            {
+                "document_id": "doc_z_near",
+                "source_block_id": "block_z",
+                "block_hash": "b" * 64,
+                "text": "系统规定云端资料保留期限是三十天，期满自动删除。",
+            },
+        ],
+    }
+
+    receipt = service._verify_no_result_query(
+        snapshot, "请问云端资料保留期限是多少天"
+    )
+
+    assert receipt["scanned_source_block_count"] == 2
+    assert receipt["top_matches"][0]["document_id"] == "doc_z_near"
+    assert receipt["top_matches"][0]["lexical_query_coverage"] > 0
+
+
+def test_only_exact_lexical_blueprints_require_query_markers(tmp_path: Path) -> None:
+    service, _ = _service(tmp_path)
+    snapshot, _ = service.snapshot_target(
+        {"kind": "knowledge_version", "kb_id": "kb_target", "pipeline_version_id": "pipeline_v2"}
+    )
+
+    semantic = service.prepare_generation(
+        snapshot=snapshot,
+        case_count=5,
+        locales=["zh-CN", "en-US"],
+        requested_coverage=[
+            "factual_lookup",
+            "paraphrase",
+            "cross_language",
+            "multi_evidence",
+            "confusable_content",
+        ],
+        no_result_count=0,
+        seed=17,
+    )
+    lexical = service.prepare_generation(
+        snapshot=snapshot,
+        case_count=1,
+        locales=["en-US"],
+        requested_coverage=["exact_lexical"],
+        no_result_count=0,
+        seed=17,
+    )
+
+    assert all(
+        not blueprint["required_query_marker_groups"]
+        for blueprint in semantic["blueprints"]
+    )
+    assert lexical["blueprints"][0]["required_query_marker_groups"]
 
 
 def test_generation_contract_fixes_source_block_gold_and_reviews_no_result(tmp_path: Path) -> None:
@@ -293,12 +435,20 @@ def test_generation_contract_fixes_source_block_gold_and_reviews_no_result(tmp_p
         reference["match_mode"] == "source_block"
         and reference["chunk_id"]
         and reference["source_block_id"]
+        and reference["anchor_start"] < reference["anchor_end"]
+        and len(reference["anchor_hash"]) == 64
         for item in positive
         for reference in item["expected_refs"]
     )
     assert negative[0]["review_status"] == "pending"
     assert {"corpus_near", "hard_negative"}.issubset(negative[0]["tags"])
     assert negative[0]["targeting"]["context_refs"][0]["source_block_id"]
+    verification = negative[0]["targeting"]["full_corpus_verification"]
+    assert verification["contract_version"] == "rag-no-result-verification-v1"
+    assert verification["completed"] is True
+    assert verification["scanned_source_block_count"] == snapshot["evidence_count"]
+    assert verification["corpus_snapshot_checksum"] == "c" * 64
+    assert all("text" not in item for item in verification["top_matches"])
 
 
 def test_cross_language_generation_does_not_require_source_marker_copy(
@@ -417,8 +567,8 @@ async def test_strategy_tuning_generation_waits_for_hard_negative_review(
     assert completed["calibration"]["pending_review_count"] == 42
     assert completed["evaluation_run_id"] is None
     assert rag_executor.notifications == 0
-    assert dataset["benchmark_role"] == "promotion_evidence"
-    assert dataset["provenance"]["generator"] == "modelmirror-targeted-rag-benchmark-v2"
+    assert dataset["benchmark_role"] == "held_out_qualification"
+    assert dataset["provenance"]["generator"] == "modelmirror-targeted-rag-benchmark-v3"
     assert len(dataset["provenance"]["prompt_contract_hash"]) == 64
     assert dataset["provenance"]["repair_used"] is False
     assert len(dataset["provenance"]["generation_attempts"]) == 1
@@ -454,7 +604,7 @@ def test_generation_rejects_unknown_evidence_and_quote_drift(tmp_path: Path) -> 
         snapshot=snapshot,
         case_count=6,
         locales=["en-US"],
-        requested_coverage=["factual_lookup"],
+        requested_coverage=["exact_lexical"],
         no_result_count=0,
         seed=1,
     )
@@ -499,7 +649,7 @@ def test_generation_rejects_generic_query_and_preflight_respects_locale(tmp_path
         snapshot=snapshot,
         case_count=6,
         locales=["en-US"],
-        requested_coverage=["factual_lookup"],
+        requested_coverage=["exact_lexical"],
         no_result_count=0,
         seed=2,
     )
@@ -689,6 +839,35 @@ async def test_knowledge_preflight_and_evidence_api_are_bounded(
         assert evidence_payload["evidence_count"] == 1
         assert len(evidence_payload["evidence"][0]["text"]) <= 2000
         assert "stored_path" not in json.dumps(evidence_payload)
+
+        legacy = store.create_generated_set(
+            "kb_target",
+            "Legacy chunk-only evidence",
+            "",
+            cases=[
+                {
+                    "query": "Which legacy chunk contains Aurora?",
+                    "expected_refs": [
+                        {
+                            "document_id": "doc_alpha",
+                            "chunk_id": "alpha_1",
+                            "match_mode": "chunk",
+                            "relevance": 3,
+                        }
+                    ],
+                }
+            ],
+            provenance={"pipeline_version_id": "pipeline_v2"},
+            coverage={},
+            calibration={"status": "legacy"},
+        )
+        legacy_evidence = await client.get(
+            f"/api/rag/evaluation-sets/{legacy['eval_set_id']}/cases/"
+            f"{legacy['cases'][0]['case_id']}/evidence"
+        )
+        assert legacy_evidence.status_code == 200, legacy_evidence.text
+        assert legacy_evidence.json()["evidence"][0]["evidence_role"] == "legacy_gold"
+        assert legacy_evidence.json()["evidence"][0]["anchor_hash"] is None
 
         pending = store.create_generated_set(
             "kb_target",

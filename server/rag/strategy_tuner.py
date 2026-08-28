@@ -17,6 +17,7 @@ from .evaluation import (
     aggregate_target_metrics,
     evaluate_promotion_gate,
     evaluate_retrieval_case,
+    published_gold_checksum_valid,
 )
 from .evaluation_executor import KnowledgeEvaluationExecutor
 from .pipeline_executor import KnowledgePipelineExecutor
@@ -25,13 +26,15 @@ from .retrieval import RetrievalConfig
 from .strategy_router import RULES_VERSION, RagStrategyService
 from .strategy_tuning_qualification import (
     assess_chunk_sensitivity,
+    build_threshold_calibration_readiness,
     build_tuning_readiness,
     ranking_fingerprint,
     realized_index_fingerprint,
+    validate_tuning_dataset_pair,
 )
 
 
-TUNER_VERSION = "rag-strategy-tuner-v4"
+TUNER_VERSION = "rag-strategy-tuner-v5"
 VALIDATION_VERSION = "rag-strategy-validation-v1"
 KNOWN_WINNER_FIXTURE_VERSION = "rag-strategy-known-winner-v1"
 VALIDATION_RESAMPLE_COUNT = 3
@@ -39,6 +42,7 @@ VALIDATION_QUERY_REPETITIONS = 3
 VALIDATION_BOOTSTRAP_SAMPLES = 1000
 VALIDATION_CONFIDENCE_LEVEL = 0.90
 VALIDATION_MAX_REGRESSION = 0.02
+IMPROVEMENT_CONTRACT_VERSION = "rag-strategy-improvement-v2"
 RUNNING_STATUSES = {
     "queued",
     "profiling",
@@ -950,6 +954,8 @@ def improvement_summary(
     candidate_metrics: dict[str, Any],
     baseline_cost: dict[str, Any],
     candidate_cost: dict[str, Any],
+    *,
+    objective: str = "balanced",
 ) -> dict[str, Any]:
     quality_delta = float(candidate_metrics.get("ndcg_at_10") or 0) - float(
         baseline_metrics.get("ndcg_at_10") or 0
@@ -968,19 +974,24 @@ def improvement_summary(
     chunk_ratio = (
         (baseline_chunks - candidate_chunks) / baseline_chunks if baseline_chunks else 0.0
     )
+    quality_effective = quality_delta >= 0.01 or no_result_accuracy_delta >= 0.01
+    any_effective = bool(
+        quality_effective
+        or latency_ratio >= 0.1
+        or size_ratio >= 0.1
+        or chunk_ratio >= 0.1
+    )
     return {
+        "contract_version": IMPROVEMENT_CONTRACT_VERSION,
         "quality_delta": round(quality_delta, 6),
         "no_result_accuracy_delta": round(no_result_accuracy_delta, 6),
         "p95_reduction_ratio": round(latency_ratio, 6),
         "index_size_reduction_ratio": round(size_ratio, 6),
         "chunk_reduction_ratio": round(chunk_ratio, 6),
-        "effective": bool(
-            quality_delta >= 0.01
-            or no_result_accuracy_delta >= 0.01
-            or latency_ratio >= 0.1
-            or size_ratio >= 0.1
-            or chunk_ratio >= 0.1
-        ),
+        # Quality runs must not manufacture a winner from timing jitter when
+        # paired retrieval quality is unchanged. Other objectives retain the
+        # historical multi-dimensional improvement contract.
+        "effective": quality_effective if objective == "quality" else any_effective,
     }
 
 
@@ -1018,6 +1029,7 @@ def apply_optimization_gate(
             metrics,
             baseline_cost,
             dict(item.get("cost") or {}),
+            objective=objective,
         )
         evaluated.append(item)
         if not gate.get("passed"):
@@ -1139,6 +1151,39 @@ class RagStrategyTuner:
             evaluation_version,
             target_version_id=base_version_id,
         )
+        dataset_pair: dict[str, Any] | None = None
+        calibration_readiness: dict[str, Any] | None = None
+        calibration_version: dict[str, Any] | None = None
+        tuning_checksum_valid: bool | None = None
+        calibration_checksum_valid: bool | None = None
+        if normalized["request_contract_version"] == "rag-strategy-tuning-request-v3":
+            calibration_set = self.evaluation_store.get_set(
+                normalized["calibration_eval_set_id"]
+            )
+            calibration_version = self.evaluation_store.get_set_version(
+                normalized["calibration_eval_set_id"],
+                normalized["calibration_eval_set_version"],
+            )
+            if (
+                calibration_set.get("kb_id") != kb_id
+                or calibration_version.get("kb_id") != kb_id
+            ):
+                raise RagStrategyTuningValidationError(
+                    "The calibration evaluation set must belong to the selected knowledge base."
+                )
+            dataset_pair = validate_tuning_dataset_pair(
+                evaluation_version, calibration_version
+            )
+            tuning_checksum_valid = published_gold_checksum_valid(
+                evaluation_version
+            )
+            calibration_checksum_valid = published_gold_checksum_valid(
+                calibration_version
+            )
+            calibration_readiness = build_threshold_calibration_readiness(
+                calibration_version,
+                target_version_id=base_version_id,
+            )
         positive = [case for case in cases if not case.get("expected_no_result")]
         stable_blocks = bool(positive) and all(
             all(
@@ -1154,6 +1199,18 @@ class RagStrategyTuner:
         if not stable_blocks:
             warnings.append(
                 "Some positive cases lack stable source-block Gold; tuning is limited to retrieval parameters."
+            )
+        if dataset_pair and not dataset_pair.get("qualified"):
+            warnings.append(
+                "Tuning and calibration datasets failed role, corpus, identity, or query-leakage checks."
+            )
+        if calibration_readiness and not calibration_readiness.get("eligible"):
+            warnings.append(
+                "The threshold-calibration dataset is not eligible for calibration."
+            )
+        if tuning_checksum_valid is False or calibration_checksum_valid is False:
+            warnings.append(
+                "A published tuning dataset checksum is invalid; the run is blocked."
             )
         embedding = dict(base.get("embedding_profile") or {})
         degraded_embedding = bool(embedding.get("degraded")) or str(
@@ -1204,16 +1261,53 @@ class RagStrategyTuner:
             "eval_set_version_id": str(evaluation_version.get("version_id") or ""),
             "eval_case_count": len(cases),
             "eval_checksum": str(evaluation_version.get("checksum") or _checksum(cases)),
+            "request_contract_version": normalized["request_contract_version"],
+            "tuning_eval_set_id": normalized["eval_set_id"],
+            "tuning_eval_set_version": normalized["eval_set_version"],
+            "calibration_eval_set_id": normalized.get("calibration_eval_set_id"),
+            "calibration_eval_set_version": normalized.get(
+                "calibration_eval_set_version"
+            ),
+            "calibration_eval_set_version_id": str(
+                (calibration_version or {}).get("version_id") or ""
+            )
+            or None,
+            "calibration_eval_checksum": str(
+                (calibration_version or {}).get("checksum") or ""
+            )
+            or None,
+            "calibration_case_count": len(
+                list((calibration_version or {}).get("cases") or [])
+            ),
+            "dataset_pair_qualification": dataset_pair,
+            "published_checksum_qualification": {
+                "tuning_valid": tuning_checksum_valid,
+                "calibration_valid": calibration_checksum_valid,
+            },
+            "calibration_readiness": calibration_readiness,
             "benchmark_role": str(readiness.get("benchmark_role") or "unclassified"),
             "tuning_readiness": readiness,
-            "selection_eligible": bool(readiness.get("selection_eligible")),
+            "selection_eligible": bool(readiness.get("selection_eligible"))
+            and (not dataset_pair or bool(dataset_pair.get("qualified")))
+            and (
+                not calibration_readiness
+                or bool(calibration_readiness.get("eligible"))
+            )
+            and tuning_checksum_valid is not False
+            and calibration_checksum_valid is not False,
             "rules_version": RULES_VERSION,
             "router_recommendation": recommendation,
             "chunk_tuning_available": bool(
                 (readiness.get("dimensions") or {}).get("chunking", {}).get("eligible")
             ),
-            "threshold_tuning_available": bool(
-                (readiness.get("dimensions") or {}).get("threshold", {}).get("eligible")
+            "threshold_tuning_available": (
+                bool(calibration_readiness.get("eligible"))
+                if calibration_readiness is not None
+                else bool(
+                    (readiness.get("dimensions") or {})
+                    .get("threshold", {})
+                    .get("eligible")
+                )
             ),
             "retrieval_only": not bool(
                 (readiness.get("dimensions") or {}).get("chunking", {}).get("eligible")
@@ -1300,8 +1394,28 @@ class RagStrategyTuner:
         normalized = {
             "kb_id": str(request.get("kb_id") or ""),
             "base_version_id": str(request.get("base_version_id") or ""),
-            "eval_set_id": str(request.get("eval_set_id") or ""),
-            "eval_set_version": int(request.get("eval_set_version") or 0),
+            "eval_set_id": str(
+                request.get("tuning_eval_set_id") or request.get("eval_set_id") or ""
+            ),
+            "eval_set_version": int(
+                request.get("tuning_eval_set_version")
+                or request.get("eval_set_version")
+                or 0
+            ),
+            "calibration_eval_set_id": str(
+                request.get("calibration_eval_set_id") or ""
+            )
+            or None,
+            "calibration_eval_set_version": int(
+                request.get("calibration_eval_set_version") or 0
+            )
+            or None,
+            "request_contract_version": (
+                "rag-strategy-tuning-request-v3"
+                if request.get("tuning_eval_set_id")
+                or request.get("calibration_eval_set_id")
+                else "rag-strategy-tuning-request-v2"
+            ),
             "recommendation_id": str(request.get("recommendation_id") or "") or None,
             "objective": objective,
             "seed": int(request.get("seed") or 42),
@@ -1317,6 +1431,13 @@ class RagStrategyTuner:
         if not normalized["eval_set_id"] or normalized["eval_set_version"] < 1:
             raise RagStrategyTuningValidationError(
                 "A published evaluation set version is required."
+            )
+        if normalized["request_contract_version"] == "rag-strategy-tuning-request-v3" and (
+            not normalized["calibration_eval_set_id"]
+            or not normalized["calibration_eval_set_version"]
+        ):
+            raise RagStrategyTuningValidationError(
+                "V3 tuning requires a published threshold-calibration dataset version."
             )
         return normalized
 
@@ -1475,6 +1596,13 @@ class RagStrategyTuner:
             snapshot["eval_set_id"], snapshot["eval_set_version"]
         )
         cases = list(evaluation_version.get("cases") or [])
+        calibration_cases: list[dict[str, Any]] = []
+        if snapshot.get("request_contract_version") == "rag-strategy-tuning-request-v3":
+            calibration_version = self.evaluation_store.get_set_version(
+                str(snapshot["calibration_eval_set_id"]),
+                int(snapshot["calibration_eval_set_version"]),
+            )
+            calibration_cases = list(calibration_version.get("cases") or [])
         split = stratified_split(cases, int(request["seed"]))
         validation_plan = repeated_validation_plan(
             cases,
@@ -1617,17 +1745,28 @@ class RagStrategyTuner:
                     version_id, retrieval, optimization_cases
                 )
                 retrieval_input_checksum = retrieval_semantic_checksum(retrieval)
-                calibrated = (
-                    calibrate_threshold(result, retrieval)
-                    if snapshot.get("threshold_tuning_available")
-                    else {
+                if snapshot.get("threshold_tuning_available"):
+                    calibration_result = await self._evaluate_profile(
+                        version_id,
+                        retrieval,
+                        calibration_cases or optimization_cases,
+                    )
+                    calibrated = calibrate_threshold(calibration_result, retrieval)
+                    optimized_result = await self._evaluate_profile(
+                        version_id,
+                        calibrated["retrieval"],
+                        optimization_cases,
+                    )
+                else:
+                    calibration_result = None
+                    calibrated = {
                         "retrieval": _copy(retrieval),
                         "threshold_candidates": [
                             float(retrieval.get("score_threshold") or 0)
                         ],
                         "metrics": _copy(result["metrics"]),
                     }
-                )
+                    optimized_result = result
                 candidate = {
                     "candidate_id": f"ragtc_{uuid.uuid4().hex}",
                     "chunker": _copy(chunker),
@@ -1639,7 +1778,14 @@ class RagStrategyTuner:
                     ),
                     "version_id": version_id,
                     "trial_version": chunk_index > 0,
-                    "optimization_metrics": calibrated["metrics"],
+                    "optimization_metrics": optimized_result["metrics"],
+                    "threshold_calibration_metrics": _copy(
+                        (calibration_result or {}).get("metrics") or {}
+                    ),
+                    "threshold_calibration_eligible": calibrated.get(
+                        "threshold_calibration_eligible",
+                        not snapshot.get("threshold_tuning_available"),
+                    ),
                     "cost": {**cost, "checksum": _checksum(cost)},
                     "checksum": _checksum(
                         {"chunker": chunker, "retrieval": calibrated["retrieval"]}
@@ -1649,7 +1795,7 @@ class RagStrategyTuner:
                     "realized_index_fingerprint": index_fingerprint,
                     "retrieval_input_checksum": retrieval_input_checksum,
                     "ranking_fingerprint": ranking_fingerprint(
-                        list(result.get("case_results") or [])
+                        list(optimized_result.get("case_results") or [])
                     ),
                     "rerank_call_count": 0,
                     "automatic_winner_eligible": not (
@@ -1659,6 +1805,11 @@ class RagStrategyTuner:
                 }
                 if not candidate["automatic_winner_eligible"]:
                     candidate["ineligible_reason"] = "hash_embedding"
+                elif snapshot.get("threshold_tuning_available") and not candidate.get(
+                    "threshold_calibration_eligible"
+                ):
+                    candidate["automatic_winner_eligible"] = False
+                    candidate["ineligible_reason"] = "threshold_calibration_evidence"
                 elif candidate["checksum"] == baseline_candidate_checksum:
                     candidate["automatic_winner_eligible"] = False
                     candidate["ineligible_reason"] = "baseline_equivalent"
@@ -1759,6 +1910,8 @@ class RagStrategyTuner:
                     "validation_version"
                 )
                 != VALIDATION_VERSION
+                or (finalist.get("improvement") or {}).get("contract_version")
+                != IMPROVEMENT_CONTRACT_VERSION
                 or finalist.get("validation_plan_checksum")
                 != validation_plan["checksum"]
             ):
@@ -1780,7 +1933,11 @@ class RagStrategyTuner:
                     result["metrics"], baseline=baseline["metrics"], policy=gate_policy
                 )
                 finalist["improvement"] = improvement_summary(
-                    baseline["metrics"], result["metrics"], baseline_cost, finalist["cost"]
+                    baseline["metrics"],
+                    result["metrics"],
+                    baseline_cost,
+                    finalist["cost"],
+                    objective=request["objective"],
                 )
                 finalist_cache[str(finalist["checksum"])] = finalist
                 stored_finalists = [
@@ -1810,6 +1967,10 @@ class RagStrategyTuner:
                         "validation_version"
                     )
                     != VALIDATION_VERSION
+                    or (reranked_candidate.get("improvement") or {}).get(
+                        "contract_version"
+                    )
+                    != IMPROVEMENT_CONTRACT_VERSION
                     or reranked_candidate.get("validation_plan_checksum")
                     != validation_plan["checksum"]
                 ):
@@ -1840,7 +2001,11 @@ class RagStrategyTuner:
                         result["metrics"], baseline=baseline["metrics"], policy=gate_policy
                     )
                     reranked_candidate["improvement"] = improvement_summary(
-                        baseline["metrics"], result["metrics"], baseline_cost, candidate["cost"]
+                        baseline["metrics"],
+                        result["metrics"],
+                        baseline_cost,
+                        candidate["cost"],
+                        objective=request["objective"],
                     )
                     finalist_cache[rerank_checksum] = reranked_candidate
                     stored_finalists = [

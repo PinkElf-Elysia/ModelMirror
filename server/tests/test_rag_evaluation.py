@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 
 import httpx
@@ -27,6 +29,7 @@ from server.rag.evaluation import (
     qualify_promotion_evidence,
     validate_formal_run_admission,
     _case_review_checksum,
+    _qualification_anchor_checksum,
     _published_gold_checksum,
 )
 from server.rag.evaluation_executor import KnowledgeEvaluationExecutor, _execution_slots
@@ -34,6 +37,53 @@ from server.rag.pipeline_executor import KnowledgePipelineExecutor
 from server.rag.rag_service import RagService
 from server.rag.vector_store import LocalJsonVectorStore
 from server.xpert_runtime.run_registry import RunRegistry
+
+
+def test_anchor_gold_requires_retrieved_chunk_to_cover_fixed_span() -> None:
+    expected_ref = {
+        "reference_id": "ref_anchor",
+        "document_id": "doc_1",
+        "source_block_id": "block_1",
+        "source_block_hash": "a" * 64,
+        "anchor_start": 120,
+        "anchor_end": 148,
+        "anchor_hash": "b" * 64,
+        "match_mode": "source_block",
+        "relevance": 3,
+    }
+    same_block_wrong_span = evaluate_retrieval_case(
+        [
+            {
+                "chunk_id": "chunk_wrong",
+                "source_document_id": "doc_1",
+                "source_block_id": "block_1",
+                "start_char": 0,
+                "end_char": 100,
+            }
+        ],
+        [expected_ref],
+        expected_no_result=False,
+        latency_ms=1,
+        ks=[5],
+    )
+    covering_span = evaluate_retrieval_case(
+        [
+            {
+                "chunk_id": "chunk_covering",
+                "source_document_id": "doc_1",
+                "source_block_id": "block_1",
+                "start_char": 110,
+                "end_char": 160,
+            }
+        ],
+        [expected_ref],
+        expected_no_result=False,
+        latency_ms=1,
+        ks=[5],
+    )
+
+    assert same_block_wrong_span["metrics"]["recall_at_5"] == 0.0
+    assert covering_span["metrics"]["recall_at_5"] == 1.0
 
 
 @pytest_asyncio.fixture
@@ -268,9 +318,10 @@ async def test_formal_api_runs_only_published_reviewed_same_corpus_gold(
         baseline_id = str(baseline_job["candidate_version_id"])
         candidate_id = str(candidate_job["candidate_version_id"])
         corpus = service.pipeline_corpus_snapshot(baseline_id)
+        corpus_evidence = service.pipeline_corpus_evidence(baseline_id)
         blocks_by_document = {
             str(document["document_id"]): list(document["source_blocks"])
-            for document in corpus["documents"]
+            for document in corpus_evidence["documents"]
         }
         assert all(len(blocks) >= 14 for blocks in blocks_by_document.values())
 
@@ -288,7 +339,21 @@ async def test_formal_api_runs_only_published_reviewed_same_corpus_gold(
             blocks = blocks_by_document[document_id]
             for local_index in range(10):
                 global_index = document_offset * 10 + local_index
-                block_id = str(blocks[local_index]["source_block_id"])
+                block = blocks[local_index]
+                block_id = str(block["source_block_id"])
+                anchor_start = int(block["start_char"])
+                anchor_end = min(
+                    int(block["end_char"]),
+                    anchor_start + max(8, min(20, len(str(block["text"])))),
+                )
+                anchor_payload = {
+                    "contract_version": "rag-anchor-v1",
+                    "document_id": document_id,
+                    "source_block_id": block_id,
+                    "block_hash": str(block["block_hash"]),
+                    "anchor_start": anchor_start,
+                    "anchor_end": anchor_end,
+                }
                 cases.append(
                     {
                         "query": f"Stable answer query {global_index}",
@@ -296,6 +361,17 @@ async def test_formal_api_runs_only_published_reviewed_same_corpus_gold(
                             {
                                 "document_id": document_id,
                                 "source_block_id": block_id,
+                                "source_block_hash": str(block["block_hash"]),
+                                "anchor_start": anchor_start,
+                                "anchor_end": anchor_end,
+                                "anchor_hash": hashlib.sha256(
+                                    json.dumps(
+                                        anchor_payload,
+                                        ensure_ascii=False,
+                                        sort_keys=True,
+                                        separators=(",", ":"),
+                                    ).encode("utf-8")
+                                ).hexdigest(),
                                 "match_mode": "source_block",
                             }
                         ],
@@ -316,10 +392,25 @@ async def test_formal_api_runs_only_published_reviewed_same_corpus_gold(
                 )
             for local_index in range(4):
                 global_index = document_offset * 4 + local_index
-                block_id = str(blocks[10 + local_index]["source_block_id"])
+                block = blocks[10 + local_index]
+                block_id = str(block["source_block_id"])
+                query = f"Absent nearby policy {global_index}"
+                normalized_query = "".join(
+                    character
+                    for character in query.casefold()
+                    if character.isalnum() or character == "_"
+                )
+                query_hash = hashlib.sha256(
+                    json.dumps(
+                        normalized_query,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode("utf-8")
+                ).hexdigest()
                 cases.append(
                     {
-                        "query": f"Absent nearby policy {global_index}",
+                        "query": query,
                         "expected_refs": [],
                         "expected_no_result": True,
                         "review_status": "pending",
@@ -330,11 +421,24 @@ async def test_formal_api_runs_only_published_reviewed_same_corpus_gold(
                                 {
                                     "document_id": document_id,
                                     "source_block_id": block_id,
+                                    "source_block_hash": str(block["block_hash"]),
                                     "chunk_id": chunk_by_block[
                                         (document_id, block_id)
                                     ],
                                 }
                             ],
+                            "full_corpus_verification": {
+                                "contract_version": "rag-no-result-verification-v1",
+                                "completed": True,
+                                "method": "full_corpus_lexical_scan_v1",
+                                "query_hash": query_hash,
+                                "corpus_snapshot_checksum": corpus["checksum"],
+                                "scanned_document_count": len(blocks_by_document),
+                                "scanned_source_block_count": sum(
+                                    len(items) for items in blocks_by_document.values()
+                                ),
+                                "top_matches": [],
+                            },
                         },
                     }
                 )
@@ -345,7 +449,7 @@ async def test_formal_api_runs_only_published_reviewed_same_corpus_gold(
             "",
             cases=cases,
             provenance={
-                "generator": "modelmirror-targeted-rag-benchmark-v2",
+                "generator": "modelmirror-targeted-rag-benchmark-v3",
                 "generation_job_id": "local-formal-e2e",
                 "generator_model_id": "local-no-network-fixture",
                 "target_checksum": "d" * 64,
@@ -362,7 +466,7 @@ async def test_formal_api_runs_only_published_reviewed_same_corpus_gold(
             },
             coverage={},
             calibration={"status": "calibrated", "dataset_revision": 1},
-            benchmark_role="promotion_evidence",
+            benchmark_role="held_out_qualification",
         )
         for case in evaluation_set["cases"]:
             evaluation_set = store.review_case(
@@ -379,7 +483,7 @@ async def test_formal_api_runs_only_published_reviewed_same_corpus_gold(
             json={"expected_revision": evaluation_set["revision"]},
         )
         assert published.status_code == 200, published.text
-        assert published.json()["benchmark_contract_version"] == "rag-gold-v2"
+        assert published.json()["benchmark_contract_version"] == "rag-gold-v3"
         assert published.json()["qualification_manifest"]["status"] == "qualified"
         assert "Stable marker" not in published.text
 
@@ -447,6 +551,22 @@ async def test_formal_api_runs_only_published_reviewed_same_corpus_gold(
             for target_results in public_payload["case_results"].values()
             for result in target_results.values()
         )
+
+        persisted = json.loads(store.path.read_text(encoding="utf-8"))
+        persisted["versions"][published.json()["version_id"]]["cases"][0][
+            "query"
+        ] = "tampered after publication"
+        store.path.write_text(
+            json.dumps(persisted, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        tampered_run = await client.get(
+            f"/api/rag/evaluation-runs/{created.json()['run_id']}"
+        )
+        assert tampered_run.status_code == 200, tampered_run.text
+        assert tampered_run.json()["reproducibility_status"] == "unreproducible"
+        assert "published_gold_checksum_invalid" in tampered_run.json()[
+            "reproducibility_reasons"
+        ]
     finally:
         reset_provider_admin_auth()
 
@@ -544,6 +664,19 @@ def test_promotion_gate_rejects_diagnostic_only_evidence() -> None:
 
 
 def _formal_gold_snapshot() -> dict:
+    from hashlib import sha256
+    import json
+
+    def digest(value: object) -> str:
+        return sha256(
+            json.dumps(
+                value,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+
     cases: list[dict] = []
     query_types = [
         "factual_lookup",
@@ -554,13 +687,32 @@ def _formal_gold_snapshot() -> dict:
         "confusable_content",
     ]
     for index in range(30):
+        anchor_start = index * 100
+        anchor_end = anchor_start + 20
+        document_id = f"doc-{index % 3}"
+        source_block_id = f"answer-block-{index}"
+        block_hash = "b" * 64
         case = {
             "case_id": f"positive-{index}",
             "query": f"Answerable question {index}",
             "expected_refs": [
                 {
-                    "document_id": f"doc-{index % 3}",
-                    "source_block_id": f"answer-block-{index}",
+                    "reference_id": f"ref-{index}",
+                    "document_id": document_id,
+                    "source_block_id": source_block_id,
+                    "source_block_hash": block_hash,
+                    "anchor_start": anchor_start,
+                    "anchor_end": anchor_end,
+                    "anchor_hash": digest(
+                        {
+                            "contract_version": "rag-anchor-v1",
+                            "document_id": document_id,
+                            "source_block_id": source_block_id,
+                            "block_hash": block_hash,
+                            "anchor_start": anchor_start,
+                            "anchor_end": anchor_end,
+                        }
+                    ),
                     "match_mode": "source_block",
                     "relevance": 1,
                 }
@@ -597,6 +749,7 @@ def _formal_gold_snapshot() -> dict:
                     {
                         "document_id": f"doc-{index % 3}",
                         "source_block_id": f"context-block-{index}",
+                        "source_block_hash": "c" * 64,
                     }
                 ],
             },
@@ -641,24 +794,39 @@ def _formal_gold_snapshot() -> dict:
             for document_index in range(3)
         ],
     }
-    from hashlib import sha256
-    import json
-
     corpus["checksum"] = sha256(
         json.dumps(
             corpus, ensure_ascii=False, sort_keys=True, separators=(",", ":")
         ).encode("utf-8")
     ).hexdigest()
+    for case in cases[30:]:
+        case["targeting"]["full_corpus_verification"] = {
+            "contract_version": "rag-no-result-verification-v1",
+            "completed": True,
+            "method": "full_corpus_lexical_scan_v1",
+            "query_hash": digest(
+                "".join(
+                    character
+                    for character in case["query"].casefold()
+                    if character.isalnum() or character == "_"
+                )
+            ),
+            "corpus_snapshot_checksum": corpus["checksum"],
+            "scanned_document_count": 3,
+            "scanned_source_block_count": 42,
+            "top_matches": [],
+        }
+        case["review_evidence"]["case_checksum"] = _case_review_checksum(case)
     snapshot = {
         "kb_id": "kb-formal",
         "version_id": "evalsetver-formal",
         "published_at": 3_000.0,
-        "benchmark_contract_version": "rag-gold-v2",
-        "benchmark_role": "promotion_evidence",
+        "benchmark_contract_version": "rag-gold-v3",
+        "benchmark_role": "held_out_qualification",
         "cases": cases,
         "coverage": {},
         "provenance": {
-            "generator": "modelmirror-targeted-rag-benchmark-v2",
+            "generator": "modelmirror-targeted-rag-benchmark-v3",
             "generation_job_id": "benchmark-job-formal",
             "generator_model_id": "test-generator",
             "target_checksum": "d" * 64,
@@ -674,6 +842,13 @@ def _formal_gold_snapshot() -> dict:
         },
         "calibration": {},
         "corpus_snapshot": corpus,
+    }
+    snapshot["qualification_manifest"] = {
+        "contract_version": "rag-gold-qualification-v3",
+        "dataset_role": "held_out_qualification",
+        "corpus_checksum": corpus["checksum"],
+        "anchor_checksum": _qualification_anchor_checksum(cases),
+        "tuner_usage_lineage": [],
     }
     snapshot["checksum"] = _published_gold_checksum(snapshot)
     return snapshot
@@ -697,12 +872,13 @@ def test_formal_evidence_fails_closed_on_tampering_or_legacy_contract() -> None:
     assert qualify_formal_evidence(provenance_tampered)["qualified"] is False
 
     legacy = _formal_gold_snapshot()
-    legacy["benchmark_contract_version"] = "rag-gold-v1"
+    legacy["benchmark_contract_version"] = "rag-gold-v2"
+    legacy["benchmark_role"] = "promotion_evidence"
     legacy["checksum"] = _published_gold_checksum(legacy)
     rejected = qualify_formal_evidence(legacy)
     assert rejected["qualified"] is False
     assert next(
-        check for check in rejected["checks"] if check["id"] == "gold_contract_v2"
+        check for check in rejected["checks"] if check["id"] == "gold_contract_v3"
     )["passed"] is False
 
 
@@ -927,13 +1103,13 @@ def test_promotion_evidence_requires_30_stable_positives_and_12_hard_negatives()
 
     assert diagnostic["status"] == "diagnostic_only"
     assert diagnostic["qualified"] is False
-    assert qualified["status"] == "qualified"
-    assert qualified["qualified"] is True
+    assert qualified["status"] == "diagnostic_only"
+    assert qualified["qualified"] is False
     assert qualified["counts"] == {
         "total": 42,
         "positive": 30,
         "stable_source_block_positive": 30,
-        "reviewed_hard_negative": 12,
+        "reviewed_hard_negative": 0,
     }
 
     mutable_unclassified = qualify_promotion_evidence(

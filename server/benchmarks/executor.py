@@ -795,7 +795,7 @@ class BenchmarkJobExecutor:
             generated["description"],
             cases=generated["cases"],
             provenance={
-                "generator": "modelmirror-targeted-rag-benchmark-v2",
+                "generator": "modelmirror-targeted-rag-benchmark-v3",
                 "generation_purpose": str(
                     request.get("generation_purpose") or "general"
                 ),
@@ -806,6 +806,9 @@ class BenchmarkJobExecutor:
                 "pipeline_version_id": snapshot["pipeline_version_id"],
                 "document_ids": [item["document_id"] for item in snapshot["documents"]],
                 "source_summary_hash": snapshot["source_summary_hash"],
+                "corpus_snapshot_checksum": snapshot.get(
+                    "corpus_snapshot_checksum"
+                ),
                 "evidence_hash": context["evidence_hash"],
                 "blueprint_hash": context["blueprint_hash"],
                 "prompt_contract_hash": context["prompt_contract_hash"],
@@ -829,10 +832,10 @@ class BenchmarkJobExecutor:
                 "target_checksum": snapshot["checksum"],
             },
             benchmark_role=(
-                "promotion_evidence"
+                "held_out_qualification"
                 if str(request.get("generation_purpose") or "general")
                 == "strategy_tuning"
-                else "strategy_tuning"
+                else "unclassified"
             ),
         )
         await asyncio.to_thread(
