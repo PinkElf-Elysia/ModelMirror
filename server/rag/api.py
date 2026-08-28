@@ -917,9 +917,73 @@ def get_evaluation_store() -> KnowledgeEvaluationStore:
     global _evaluation_store
     if _evaluation_store is None:
         _evaluation_store = KnowledgeEvaluationStore(
-            get_rag_service().storage_dir / "evaluations.json"
+            get_rag_service().storage_dir / "evaluations.json",
+            reproducibility_resolver=_resolve_evaluation_reproducibility,
         )
     return _evaluation_store
+
+
+def _resolve_evaluation_reproducibility(
+    run: dict[str, Any],
+) -> dict[str, Any]:
+    """Resolve current credential-free identities without mutating historical runs."""
+
+    service = get_rag_service()
+    kb_id = str(run.get("kb_id") or "")
+    kb_exists = any(
+        str(item.get("id") or "") == kb_id
+        for item in service.list_knowledge_bases(include_provisioning=True)
+    )
+    targets: dict[str, dict[str, Any]] = {}
+    for target in run.get("targets", []):
+        if not isinstance(target, dict):
+            continue
+        version_id = str(target.get("version_id") or "")
+        if not version_id:
+            continue
+        try:
+            evidence = service.pipeline_version_evidence(version_id)
+        except (KnowledgeBaseNotFoundError, PipelineVersionNotFoundError):
+            continue
+        corpus_hash = ""
+        corpus_snapshot_status = "not_required"
+        if str(run.get("run_mode") or "diagnostic") == "formal":
+            try:
+                corpus_hash = str(
+                    service.pipeline_corpus_snapshot(version_id).get("checksum")
+                    or ""
+                )
+                corpus_snapshot_status = "current"
+            except PipelineJobStateError:
+                corpus_snapshot_status = "unreproducible"
+        targets[version_id] = {
+            "kb_id": str(evidence.get("kb_id") or ""),
+            "version_fingerprint": str(evidence.get("version_fingerprint") or ""),
+            "configuration_fingerprint": str(
+                evidence.get("configuration_fingerprint") or ""
+            ),
+            "source_manifest_fingerprint": str(
+                evidence.get("source_manifest_fingerprint") or ""
+            ),
+            "corpus_snapshot_hash": corpus_hash,
+            "corpus_snapshot_status": corpus_snapshot_status,
+            "embedding": dict((evidence.get("embedding") or {}).get("effective") or {}),
+            "retrieval": dict(evidence.get("retrieval") or {}),
+            "index_contract": dict(evidence.get("index_contract") or {}),
+            "vector_backend_readiness": (
+                {"status": "not_applicable"}
+                if str((evidence.get("retrieval") or {}).get("mode") or "")
+                == "fulltext"
+                else dict(evidence.get("vector_backend_readiness") or {})
+            ),
+            "runtime_vector_backend_readiness": (
+                {"status": "not_applicable"}
+                if str((evidence.get("retrieval") or {}).get("mode") or "")
+                == "fulltext"
+                else dict(evidence.get("runtime_vector_backend_readiness") or {})
+            ),
+        }
+    return {"kb_exists": kb_exists, "targets": targets}
 
 
 def configure_evaluation_executor(*, run_registry: Any | None = None) -> KnowledgeEvaluationExecutor:
@@ -2265,6 +2329,11 @@ async def create_evaluation_run(
                     "version": int(version["version"]),
                     "label": target.label or f"v{version['version']}",
                     "retrieval": _retrieval_options_patch(target.retrieval) if target.retrieval else {},
+                    "respect_profile_top_k": bool(
+                        payload.run_mode == "diagnostic"
+                        and target.retrieval is not None
+                        and target.retrieval.top_k is not None
+                    ),
                     "version_evidence": get_rag_service().pipeline_version_evidence(
                         target.version_id
                     ),

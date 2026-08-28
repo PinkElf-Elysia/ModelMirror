@@ -379,6 +379,12 @@ async def test_managed_embedding_build_and_query_use_one_pinned_space(
     assert len(version["embedding_space_fingerprint"]) == 64
     assert version["embedding_execution_mode"] == "managed"
     assert version["provider_route_receipts"]["call_count"] == 1
+    assert version["provider_route_receipts"]["calls"][0]["operation"] == (
+        "embedding_vectors"
+    )
+    assert version["provider_route_receipts"]["calls"][0][
+        "provider_kind"
+    ] == "openai_compatible"
     assert "connection_id" not in json.dumps(
         version["provider_route_receipts"], sort_keys=True
     )
@@ -715,7 +721,9 @@ async def test_unexpected_post_dispatch_embedding_error_is_recorded_uncertain(
     assert receipt["calls"] == [
         {
             "call_sequence": 1,
+            "operation": "embedding_vectors",
             "model_id": "provider/embed-v1",
+            "provider_kind": "openai_compatible",
             "dispatched": True,
             "status": "uncertain",
             "actual_model": None,

@@ -9,8 +9,20 @@ import re
 import threading
 import time
 import uuid
+from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
+
+try:
+    from server.model_router.provider_operations import (
+        provider_operation_model_matches,
+    )
+    from server.model_router.workload_control import (
+        PROVIDER_WORKLOAD_CONTRACT_VERSION,
+    )
+except ModuleNotFoundError:
+    from model_router.provider_operations import provider_operation_model_matches
+    from model_router.workload_control import PROVIDER_WORKLOAD_CONTRACT_VERSION
 
 from .strategy_tuning_qualification import (
     MIN_HARD_NEGATIVES,
@@ -69,6 +81,82 @@ DEFAULT_GATE_POLICY: dict[str, Any] = {
     "require_comparable_corpus": True,
     "require_zero_errors": True,
 }
+RAG_ROUTE_RECEIPT_CONTRACT_VERSION = "modelmirror-provider-rag-route-receipts-v1"
+
+
+@lru_cache(maxsize=1)
+def evaluation_runtime_code_fingerprint() -> str:
+    """Hash the local sources that define a retrieval evaluation execution."""
+
+    import hashlib
+
+    rag_root = Path(__file__).parent
+    model_router_root = rag_root.parent / "model_router"
+    sources = (
+        ("rag/embedder.py", rag_root / "embedder.py"),
+        ("rag/evaluation.py", Path(__file__)),
+        ("rag/evaluation_executor.py", rag_root / "evaluation_executor.py"),
+        ("rag/lexical_store.py", rag_root / "lexical_store.py"),
+        ("rag/rag_service.py", rag_root / "rag_service.py"),
+        ("rag/reranker.py", rag_root / "reranker.py"),
+        ("rag/retrieval.py", rag_root / "retrieval.py"),
+        ("rag/vector_store.py", rag_root / "vector_store.py"),
+        (
+            "model_router/provider_operations.py",
+            model_router_root / "provider_operations.py",
+        ),
+        ("model_router/egress.py", model_router_root / "egress.py"),
+        ("model_router/provider_chat.py", model_router_root / "provider_chat.py"),
+        ("model_router/provider_catalog.py", model_router_root / "provider_catalog.py"),
+        (
+            "model_router/rag_embedding_gateway.py",
+            model_router_root / "rag_embedding_gateway.py",
+        ),
+        ("model_router/repository.py", model_router_root / "repository.py"),
+        (
+            "model_router/rerank_gateway.py",
+            model_router_root / "rerank_gateway.py",
+        ),
+        ("model_router/schemas.py", model_router_root / "schemas.py"),
+        ("model_router/service.py", model_router_root / "service.py"),
+        ("model_router/chat_control.py", model_router_root / "chat_control.py"),
+        (
+            "model_router/multimodal_control.py",
+            model_router_root / "multimodal_control.py",
+        ),
+        (
+            "model_router/workload_control.py",
+            model_router_root / "workload_control.py",
+        ),
+    )
+    digest = hashlib.sha256()
+    for source_id, path in sources:
+        digest.update(source_id.encode("utf-8"))
+        digest.update(b"\0")
+        try:
+            digest.update(path.read_bytes())
+        except OSError:
+            return ""
+    return digest.hexdigest()
+
+
+def seal_execution_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
+    """Return a JSON-safe manifest with a checksum over every declared field."""
+
+    sealed = _copy(manifest)
+    sealed.pop("checksum", None)
+    sealed["checksum"] = _checksum(sealed)
+    return sealed
+
+
+def _execution_manifest_checksum_valid(manifest: dict[str, Any]) -> bool:
+    if not isinstance(manifest, dict):
+        return False
+    unsigned = {key: value for key, value in manifest.items() if key != "checksum"}
+    expected = str(manifest.get("checksum") or "")
+    return bool(unsigned) and bool(expected) and hmac.compare_digest(
+        expected, _checksum(unsigned)
+    )
 
 
 def evaluate_retrieval_case(
@@ -402,6 +490,7 @@ def evaluate_promotion_gate(
     evidence_qualification: dict[str, Any] | None = None,
     paired_confidence: dict[str, Any] | None = None,
     comparability: dict[str, Any] | None = None,
+    execution_integrity: dict[str, Any] | None = None,
     run_mode: str = "diagnostic",
 ) -> dict[str, Any]:
     """Evaluate absolute and regression thresholds for one candidate target."""
@@ -587,6 +676,26 @@ def evaluate_promotion_gate(
                 "message": "Paired primary-score CI must satisfy non-inferiority.",
             }
         )
+        if execution_integrity is not None:
+            integrity = execution_integrity
+            checks.append(
+                {
+                    "id": "formal_execution_integrity",
+                    "passed": bool(integrity.get("qualified")),
+                    "actual": bool(integrity.get("qualified")),
+                    "required": True,
+                    "status": str(integrity.get("status") or "missing"),
+                    "reason_codes": [
+                        str(item)
+                        for item in integrity.get("reason_codes", [])
+                        if str(item)
+                    ],
+                    "message": (
+                        "Formal execution must have complete, consistent Provider and "
+                        "retrieval receipts."
+                    ),
+                }
+            )
 
     return {
         "passed": all(item["passed"] for item in checks),
@@ -932,11 +1041,15 @@ def validate_formal_run_admission(
     expected_corpus = str(
         (evaluation_version.get("corpus_snapshot") or {}).get("checksum") or ""
     )
+    expected_kb_id = str(evaluation_version.get("kb_id") or "")
     corpus_hashes = {str(item.get("corpus_snapshot_hash") or "") for item in targets}
     if not expected_corpus or corpus_hashes != {expected_corpus}:
         raise ValueError(
             "Formal baseline and candidate must use the same immutable corpus as Gold."
         )
+    evaluator_code_fingerprint = evaluation_runtime_code_fingerprint()
+    if re.fullmatch(r"[0-9a-f]{64}", evaluator_code_fingerprint) is None:
+        raise ValueError("Formal evaluation code identity is unavailable.")
 
     manifest_targets: list[dict[str, Any]] = []
     for target in targets:
@@ -951,31 +1064,113 @@ def validate_formal_run_admission(
         processor = processor if isinstance(processor, dict) else {}
         retrieval = evidence.get("retrieval")
         retrieval = retrieval if isinstance(retrieval, dict) else {}
+        index_contract = evidence.get("index_contract")
+        index_contract = index_contract if isinstance(index_contract, dict) else {}
+        vector_contract = index_contract.get("vector")
+        vector_contract = (
+            vector_contract if isinstance(vector_contract, dict) else {}
+        )
+        backend = evidence.get("vector_backend_readiness")
+        backend = backend if isinstance(backend, dict) else {}
+        runtime_backend = evidence.get("runtime_vector_backend_readiness")
+        runtime_backend = (
+            runtime_backend if isinstance(runtime_backend, dict) else {}
+        )
+        mode = str(retrieval.get("mode") or "")
         required_hashes = (
             str(evidence.get("version_fingerprint") or ""),
             str(evidence.get("configuration_fingerprint") or ""),
             str(processor.get("fingerprint") or ""),
+            str(evidence.get("source_manifest_fingerprint") or ""),
         )
         if (
             evidence.get("schema_version") != "rag-version-evidence-v1"
+            or not expected_kb_id
+            or str(evidence.get("kb_id") or "") != expected_kb_id
             or str(evidence.get("version_id") or "")
             != str(target.get("version_id") or "")
             or any(re.fullmatch(r"[0-9a-f]{64}", value) is None for value in required_hashes)
-            or not str(effective.get("provider") or "")
-            or not str(effective.get("model") or "")
-            or int(effective.get("dimension") or 0) <= 0
             or not str(processor.get("mode") or "")
-            or not retrieval
+            or mode not in {"vector", "fulltext", "hybrid"}
+            or int(retrieval.get("top_k") or 0) <= 0
+            or index_contract.get("contract_version") != "rag-index-contract-v3"
+            or int(index_contract.get("index_schema_version") or 0) != 3
+            or str(index_contract.get("retrieval_mode") or "") != mode
         ):
             raise ValueError("Formal evaluation target identity is incomplete.")
+        vector_required = mode in {"vector", "hybrid"}
+        if bool(vector_contract.get("required")) != vector_required:
+            raise ValueError("Formal evaluation target index identity is inconsistent.")
+        if vector_required:
+            embedding_fingerprint = str(
+                effective.get("embedding_space_fingerprint") or ""
+            )
+            if (
+                str(effective.get("provider") or "") in {"", "none", "hash"}
+                or not str(effective.get("model") or "")
+                or int(effective.get("dimension") or 0) <= 0
+                or effective.get("ready") is not True
+                or bool(effective.get("degraded"))
+                or str(effective.get("access_mode") or "") != "managed"
+                or re.fullmatch(r"[0-9a-f]{64}", embedding_fingerprint) is None
+            ):
+                raise ValueError(
+                    "Formal vector evaluation requires a ready production embedding identity."
+                )
+            if (
+                str(vector_contract.get("embedding_space_fingerprint") or "")
+                != embedding_fingerprint
+                or int(vector_contract.get("dimension") or 0)
+                != int(effective.get("dimension") or 0)
+                or str(vector_contract.get("distance_contract") or "")
+                != "cosine_v1"
+                or backend.get("ready") is not True
+                or str(backend.get("effective_backend") or "")
+                in {"", "unavailable"}
+                or str(backend.get("distance_contract") or "") != "cosine_v1"
+                or runtime_backend.get("ready") is not True
+                or str(runtime_backend.get("effective_backend") or "")
+                != str(backend.get("effective_backend") or "")
+                or str(runtime_backend.get("distance_contract") or "")
+                != "cosine_v1"
+            ):
+                raise ValueError(
+                    "Formal evaluation target index identity is inconsistent."
+                )
+        elif (
+            str(effective.get("provider") or "") != "none"
+            or int(effective.get("dimension") or 0) != 0
+            or str(effective.get("access_mode") or "") != "not_applicable"
+            or str(effective.get("status") or "") != "not_applicable"
+            or str(vector_contract.get("distance_contract") or "")
+            != "not_applicable"
+        ):
+            raise ValueError(
+                "Formal fulltext evaluation requires embedding to be not_applicable."
+            )
+        manifest_backend = (
+            _copy(backend) if vector_required else {"status": "not_applicable"}
+        )
+        manifest_runtime_backend = (
+            _copy(runtime_backend)
+            if vector_required
+            else {"status": "not_applicable"}
+        )
         rerank = {
             "enabled": bool(retrieval.get("rerank_enabled")),
             "provider": str(retrieval.get("rerank_provider") or "none"),
             "model": str(retrieval.get("rerank_model") or ""),
             "top_n": int(retrieval.get("rerank_top_n") or 0),
         }
+        if rerank["enabled"] and (
+            rerank["provider"] not in {"api", "llm", "auto"}
+            or not rerank["model"]
+            or rerank["top_n"] <= 0
+        ):
+            raise ValueError("Formal evaluation Rerank identity is incomplete.")
         manifest_targets.append(
             {
+                "kb_id": expected_kb_id,
                 "version_id": str(target["version_id"]),
                 "role": (
                     "baseline"
@@ -984,11 +1179,15 @@ def validate_formal_run_admission(
                 ),
                 "version_fingerprint": required_hashes[0],
                 "configuration_fingerprint": required_hashes[1],
+                "source_manifest_fingerprint": required_hashes[3],
                 "corpus_snapshot_hash": expected_corpus,
                 "processor": _copy(processor),
                 "embedding": _copy(effective),
                 "retrieval": _copy(retrieval),
                 "rerank": rerank,
+                "index_contract": _copy(index_contract),
+                "vector_backend_readiness": manifest_backend,
+                "runtime_vector_backend_readiness": manifest_runtime_backend,
             }
         )
     manifest_targets.sort(key=lambda item: item["role"])
@@ -996,6 +1195,19 @@ def validate_formal_run_admission(
         {
             "evaluation_checksum": evaluation_version.get("checksum"),
             "corpus_snapshot_hash": expected_corpus,
+            "targets": manifest_targets,
+        }
+    )
+    execution_manifest = seal_execution_manifest(
+        {
+            "contract_version": "rag-eval-v2",
+            "metric_contract_version": "rag-metrics-v2",
+            "evaluation_version_id": evaluation_version.get("version_id"),
+            "evaluation_checksum": evaluation_version.get("checksum"),
+            "corpus_snapshot_hash": expected_corpus,
+            "execution_seed": seed,
+            "order_contract": "paired-interleaved-sha256-v1",
+            "evaluator_code_fingerprint": evaluator_code_fingerprint,
             "targets": manifest_targets,
         }
     )
@@ -1008,26 +1220,490 @@ def validate_formal_run_admission(
             "corpus_snapshot_hash": expected_corpus,
             "reason": None,
         },
-        "execution_manifest": {
-            "contract_version": "rag-eval-v2",
-            "metric_contract_version": "rag-metrics-v2",
-            "evaluation_version_id": evaluation_version.get("version_id"),
-            "evaluation_checksum": evaluation_version.get("checksum"),
-            "corpus_snapshot_hash": expected_corpus,
-            "execution_seed": seed,
-            "order_contract": "paired-interleaved-sha256-v1",
-            "targets": manifest_targets,
-        },
+        "execution_manifest": execution_manifest,
+    }
+
+
+def formal_execution_preflight_reasons(run: dict[str, Any]) -> list[str]:
+    """Return structural reasons that must block a Formal run before retrieval."""
+
+    reasons: list[str] = []
+    if (
+        str(run.get("run_mode") or "") != "formal"
+        or str(run.get("metric_contract_version") or "") != "rag-metrics-v2"
+    ):
+        reasons.append("formal_run_contract_invalid")
+    manifest = run.get("execution_manifest")
+    manifest = manifest if isinstance(manifest, dict) else {}
+    if (
+        manifest.get("contract_version") != "rag-eval-v2"
+        or manifest.get("metric_contract_version") != "rag-metrics-v2"
+        or not _execution_manifest_checksum_valid(manifest)
+    ):
+        reasons.append("execution_manifest_invalid")
+
+    snapshot = run.get("eval_set_snapshot")
+    snapshot = snapshot if isinstance(snapshot, dict) else {}
+    if (
+        snapshot.get("benchmark_contract_version") != "rag-gold-v2"
+        or str(snapshot.get("version_id") or "")
+        != str(manifest.get("evaluation_version_id") or "")
+        or str(snapshot.get("checksum") or "")
+        != str(manifest.get("evaluation_checksum") or "")
+        or not str(snapshot.get("checksum") or "")
+        or not hmac.compare_digest(
+            str(snapshot.get("checksum") or ""),
+            _published_gold_checksum(snapshot),
+        )
+    ):
+        reasons.append("evaluation_snapshot_invalid")
+
+    raw_manifest_targets = [
+        item for item in manifest.get("targets", []) if isinstance(item, dict)
+    ]
+    manifest_ids = [str(item.get("version_id") or "") for item in raw_manifest_targets]
+    raw_run_targets = [
+        item for item in run.get("targets", []) if isinstance(item, dict)
+    ]
+    internal_target_ids = [
+        str(item.get("target_id") or "") for item in raw_run_targets
+    ]
+    run_ids = [
+        str(item.get("version_id") or item.get("target_id") or "")
+        for item in raw_run_targets
+    ]
+    roles = [str(item.get("role") or "") for item in raw_manifest_targets]
+    baseline_version_id = str(run.get("baseline_version_id") or "")
+    declared_baseline = next(
+        (
+            str(item.get("version_id") or "")
+            for item in raw_manifest_targets
+            if item.get("role") == "baseline"
+        ),
+        "",
+    )
+    if (
+        len(raw_manifest_targets) != 2
+        or len(set(manifest_ids)) != 2
+        or any(not item for item in manifest_ids)
+        or sorted(roles) != ["baseline", "candidate"]
+        or declared_baseline != baseline_version_id
+        or len(raw_run_targets) != 2
+        or len(set(internal_target_ids)) != 2
+        or any(not item for item in internal_target_ids)
+        or len(set(run_ids)) != 2
+        or set(run_ids) != set(manifest_ids)
+        or internal_target_ids != run_ids
+    ):
+        reasons.append("formal_target_ledger_invalid")
+
+    corpus_hash = str(manifest.get("corpus_snapshot_hash") or "")
+    comparability = run.get("comparability")
+    comparability = comparability if isinstance(comparability, dict) else {}
+    if (
+        not corpus_hash
+        or comparability.get("comparable") is not True
+        or comparability.get("same_corpus") is not True
+        or str(comparability.get("corpus_snapshot_hash") or "") != corpus_hash
+        or {
+            str(item.get("corpus_snapshot_hash") or "")
+            for item in raw_manifest_targets
+        }
+        != {corpus_hash}
+    ):
+        reasons.append("formal_corpus_comparability_invalid")
+
+    case_ids = [
+        str(item.get("case_id") or "")
+        for item in snapshot.get("cases", [])
+        if isinstance(item, dict)
+    ]
+    declared_case_ids = [str(item) for item in run.get("case_ids", [])]
+    if (
+        not case_ids
+        or any(not item for item in case_ids)
+        or len(case_ids) != len(set(case_ids))
+        or declared_case_ids != case_ids
+    ):
+        reasons.append("formal_case_ledger_invalid")
+    return list(dict.fromkeys(reasons))
+
+
+def qualify_formal_execution_integrity(
+    run: dict[str, Any],
+) -> dict[str, Any]:
+    """Validate immutable target identities and sanitized per-case route receipts."""
+
+    reasons = formal_execution_preflight_reasons(run)
+    if str(run.get("status") or "") == "succeeded":
+        expected_integrity_checksum = str(
+            run.get("execution_integrity_checksum") or ""
+        )
+        actual_integrity_checksum = _run_execution_integrity_checksum(run)
+        if (
+            not expected_integrity_checksum
+            or not hmac.compare_digest(
+                expected_integrity_checksum, actual_integrity_checksum
+            )
+        ):
+            reasons.append("execution_integrity_checksum_invalid")
+    manifest = run.get("execution_manifest")
+    manifest = manifest if isinstance(manifest, dict) else {}
+    if (
+        manifest.get("contract_version") != "rag-eval-v2"
+        or manifest.get("metric_contract_version") != "rag-metrics-v2"
+        or not _execution_manifest_checksum_valid(manifest)
+    ):
+        reasons.append("execution_manifest_invalid")
+    raw_manifest_targets = [
+        item for item in manifest.get("targets", []) if isinstance(item, dict)
+    ]
+    manifest_targets = {
+        str(item.get("version_id") or ""): item
+        for item in raw_manifest_targets
+        if str(item.get("version_id") or "")
+    }
+    raw_target_results = [
+        item for item in run.get("target_results", []) if isinstance(item, dict)
+    ]
+    target_results = {
+        str(item.get("version_id") or ""): item
+        for item in raw_target_results
+        if str(item.get("version_id") or "")
+    }
+    raw_run_targets = [
+        item for item in run.get("targets", []) if isinstance(item, dict)
+    ]
+    run_target_ids = {
+        str(item.get("version_id") or item.get("target_id") or "")
+        for item in raw_run_targets
+        if str(item.get("version_id") or item.get("target_id") or "")
+    }
+    expected_case_ids = {
+        str(case.get("case_id") or "")
+        for case in (run.get("eval_set_snapshot") or {}).get("cases", [])
+        if isinstance(case, dict) and str(case.get("case_id") or "")
+    }
+    if (
+        not run_target_ids
+        or not manifest_targets
+        or len(raw_run_targets) != len(manifest_targets)
+        or len(raw_manifest_targets) != len(manifest_targets)
+        or len(raw_target_results) != len(manifest_targets)
+        or run_target_ids != set(manifest_targets)
+        or set(target_results) != set(manifest_targets)
+    ):
+        reasons.append("target_ledger_missing")
+    if not expected_case_ids:
+        reasons.append("evaluation_case_ledger_missing")
+    for target in run.get("targets", []):
+        if not isinstance(target, dict):
+            continue
+        version_id = str(target.get("version_id") or target.get("target_id") or "")
+        target_id = str(target.get("target_id") or version_id)
+        declared = manifest_targets.get(version_id)
+        if not isinstance(declared, dict):
+            reasons.append(f"target_manifest_missing:{version_id}")
+            continue
+        aggregate = target_results.get(version_id)
+        aggregate_metrics = (
+            aggregate.get("metrics") if isinstance(aggregate, dict) else None
+        )
+        if (
+            not isinstance(aggregate_metrics, dict)
+            or "error_count" not in aggregate_metrics
+        ):
+            reasons.append(f"target_result_incomplete:{version_id}")
+        elif int(aggregate_metrics.get("error_count") or 0):
+            reasons.append(f"execution_errors:{version_id}")
+        case_map = (run.get("case_results") or {}).get(target_id)
+        case_map = case_map if isinstance(case_map, dict) else {}
+        if expected_case_ids and set(case_map) != expected_case_ids:
+            reasons.append(f"execution_slots_incomplete:{version_id}")
+        if not case_map:
+            reasons.append(f"case_receipts_missing:{version_id}")
+            continue
+        retrieval = declared.get("retrieval")
+        retrieval = retrieval if isinstance(retrieval, dict) else {}
+        embedding = declared.get("embedding")
+        embedding = embedding if isinstance(embedding, dict) else {}
+        rerank = declared.get("rerank")
+        rerank = rerank if isinstance(rerank, dict) else {}
+        mode = str(retrieval.get("mode") or "")
+        for case_id, case_result in case_map.items():
+            if not isinstance(case_result, dict):
+                reasons.append(f"case_receipt_invalid:{version_id}:{case_id}")
+                continue
+            if str(case_result.get("status") or "") not in {
+                "completed",
+                "succeeded",
+            }:
+                reasons.append(f"case_execution_failed:{version_id}:{case_id}")
+            fallback_codes = case_result.get("fallback_reason_codes")
+            if not isinstance(fallback_codes, list):
+                reasons.append(f"fallback_receipt_missing:{version_id}:{case_id}")
+                fallback_codes = []
+            if fallback_codes:
+                reasons.append(f"provider_fallback_used:{version_id}:{case_id}")
+            raw_receipt = case_result.get("provider_route_receipts")
+            receipt_present = raw_receipt is not None
+            receipt = raw_receipt if isinstance(raw_receipt, dict) else {}
+            receipt_call_count = receipt.get("call_count")
+            receipt_call_count_valid = (
+                isinstance(receipt_call_count, int)
+                and not isinstance(receipt_call_count, bool)
+                and receipt_call_count >= 0
+            )
+            receipt_reason_codes = receipt.get("reason_codes")
+            receipt_reason_codes_valid = (
+                isinstance(receipt_reason_codes, list)
+                and all(isinstance(item, str) for item in receipt_reason_codes)
+            )
+            calls = receipt.get("calls")
+            calls = calls if isinstance(calls, list) else []
+            embedding_calls = [
+                call
+                for call in calls
+                if isinstance(call, dict)
+                and call.get("operation") == "embedding_vectors"
+            ]
+            rerank_calls = [
+                call
+                for call in calls
+                if isinstance(call, dict)
+                and call.get("operation") == "rerank_documents"
+            ]
+            unknown_calls = [
+                call
+                for call in calls
+                if not isinstance(call, dict)
+                or call.get("operation")
+                not in {"embedding_vectors", "rerank_documents"}
+            ]
+            routing_mode = str(receipt.get("routing_mode") or "")
+            expected_receipt_contract = (
+                RAG_ROUTE_RECEIPT_CONTRACT_VERSION
+                if routing_mode == "composed"
+                else PROVIDER_WORKLOAD_CONTRACT_VERSION
+            )
+            if calls and (
+                unknown_calls
+                or str(receipt.get("contract_version") or "")
+                != expected_receipt_contract
+            ):
+                reasons.append(f"provider_receipt_contract_invalid:{version_id}:{case_id}")
+            retrieval_receipt = case_result.get("retrieval_receipt")
+            retrieval_receipt = (
+                retrieval_receipt if isinstance(retrieval_receipt, dict) else {}
+            )
+            if (
+                str(retrieval_receipt.get("mode") or "") != mode
+                or retrieval_receipt.get("top_k") != retrieval.get("top_k")
+            ):
+                reasons.append(f"retrieval_execution_identity_mismatch:{version_id}:{case_id}")
+            # Absolute channel filtering may legitimately leave no work for
+            # Rerank. This is not a failed Provider call or a fail-open path.
+            rerank_skipped_empty = (
+                bool(rerank.get("enabled"))
+                and retrieval_receipt.get("rerank_applied") is False
+                and retrieval_receipt.get("rerank_input_count") == 0
+                and retrieval_receipt.get("rerank_output_count") == 0
+                and case_result.get("source_count") == 0
+                and case_result.get("ranking") == []
+            )
+            rerank_required = bool(rerank.get("enabled")) and not rerank_skipped_empty
+            if not bool(rerank.get("enabled")) and (
+                rerank_calls or retrieval_receipt.get("rerank_applied") is True
+            ):
+                reasons.append(f"unexpected_rerank_execution:{version_id}:{case_id}")
+            if mode == "fulltext":
+                if embedding_calls:
+                    reasons.append("fulltext_embedding_call_detected")
+                if (
+                    not rerank_required
+                    and (
+                        receipt_present
+                        or str(case_result.get("execution_mode") or "")
+                        != "local_non_model"
+                    )
+                ):
+                    reasons.append(f"provider_receipt_invalid:{version_id}:{case_id}")
+                elif rerank_required and (
+                    not receipt
+                    or not str(receipt.get("contract_version") or "")
+                    or str(receipt.get("routing_mode") or "")
+                    not in {"managed_required", "composed"}
+                    or receipt.get("status") != "passed"
+                    or not receipt_call_count_valid
+                    or receipt_call_count != len(calls)
+                    or not calls
+                    or not receipt_reason_codes_valid
+                    or bool(receipt_reason_codes)
+                    or any(
+                        not isinstance(call, dict)
+                        or call.get("status") != "passed"
+                        or call.get("dispatched") is not True
+                        for call in calls
+                    )
+                ):
+                    reasons.append(f"provider_receipt_invalid:{version_id}:{case_id}")
+                if (
+                    str(retrieval_receipt.get("embedding_provider") or "")
+                    != "none"
+                    or int(retrieval_receipt.get("embedding_dimension") or 0) != 0
+                ):
+                    reasons.append(
+                        f"embedding_execution_identity_mismatch:{version_id}:{case_id}"
+                    )
+            else:
+                if (
+                    str(case_result.get("execution_mode") or "") != "managed"
+                    or not receipt
+                    or not str(receipt.get("contract_version") or "")
+                    or str(receipt.get("routing_mode") or "")
+                    not in {"managed_required", "composed"}
+                    or receipt.get("status") != "passed"
+                    or not receipt_call_count_valid
+                    or receipt_call_count != len(calls)
+                    or not calls
+                    or not receipt_reason_codes_valid
+                    or bool(receipt_reason_codes)
+                    or len(embedding_calls) != 1
+                    or any(
+                        not isinstance(call, dict)
+                        or call.get("status") != "passed"
+                        or call.get("dispatched") is not True
+                        for call in calls
+                    )
+                ):
+                    reasons.append(f"provider_receipt_invalid:{version_id}:{case_id}")
+                requested_models = {
+                    str(call.get("model_id") or "")
+                    for call in embedding_calls
+                    if isinstance(call, dict)
+                }
+                if (
+                    requested_models != {str(embedding.get("model") or "")}
+                    or any(
+                        not str(call.get("provider_kind") or "")
+                        or not provider_operation_model_matches(
+                            provider_kind=str(call.get("provider_kind") or ""),
+                            requested_model=str(embedding.get("model") or ""),
+                            actual_model=str(call.get("actual_model") or ""),
+                        )
+                        for call in embedding_calls
+                    )
+                ):
+                    reasons.append(f"embedding_model_mismatch:{version_id}:{case_id}")
+                if (
+                    str(retrieval_receipt.get("embedding_provider") or "")
+                    != str(embedding.get("provider") or "")
+                    or str(retrieval_receipt.get("embedding_model") or "")
+                    != str(embedding.get("model") or "")
+                    or int(retrieval_receipt.get("embedding_dimension") or 0)
+                    != int(embedding.get("dimension") or 0)
+                    or str(
+                        retrieval_receipt.get("embedding_space_fingerprint") or ""
+                    )
+                    != str(embedding.get("embedding_space_fingerprint") or "")
+                ):
+                    reasons.append(
+                        f"embedding_execution_identity_mismatch:{version_id}:{case_id}"
+                    )
+            ineligibility = retrieval_receipt.get(
+                "promotion_ineligibility_reasons"
+            )
+            if not isinstance(ineligibility, list):
+                reasons.append(
+                    f"promotion_eligibility_receipt_missing:{version_id}:{case_id}"
+                )
+                ineligibility = []
+            if ineligibility or retrieval_receipt.get("promotion_eligible") is not True:
+                reasons.append(f"retrieval_ineligible:{version_id}:{case_id}")
+            if rerank_required:
+                configured_rerank_provider = str(rerank.get("provider") or "")
+                actual_rerank_provider = str(
+                    retrieval_receipt.get("rerank_provider_used") or ""
+                )
+                provider_matches = (
+                    actual_rerank_provider in {"api", "llm"}
+                    if configured_rerank_provider == "auto"
+                    else actual_rerank_provider == configured_rerank_provider
+                )
+                if actual_rerank_provider == "managed":
+                    expected_modes = (
+                        {"dedicated", "llm_json"}
+                        if configured_rerank_provider == "auto"
+                        else {"dedicated"} if configured_rerank_provider == "api"
+                        else {"llm_json"}
+                    )
+                    provider_matches = (
+                        len(rerank_calls) == 1
+                        and str(rerank_calls[0].get("access_mode") or "") in expected_modes
+                        and retrieval_receipt.get("rerank_provider_target_used")
+                        == f"managed_rerank_{rerank_calls[0].get('access_mode')}"
+                        and rerank_calls[0].get("model_id") == rerank.get("model")
+                    )
+                if (
+                    retrieval_receipt.get("rerank_applied") is not True
+                    or not provider_matches
+                    or str(retrieval_receipt.get("rerank_model_used") or "")
+                    != str(rerank.get("model") or "")
+                    or len(rerank_calls) != 1
+                ):
+                    reasons.append(f"rerank_fail_open:{version_id}:{case_id}")
+                requested_models = {
+                    str(call.get("model_id") or "")
+                    for call in rerank_calls
+                    if isinstance(call, dict)
+                }
+                if (
+                    requested_models != {str(rerank.get("model") or "")}
+                    or any(
+                        not str(call.get("provider_kind") or "")
+                        or not provider_operation_model_matches(
+                            provider_kind=str(call.get("provider_kind") or ""),
+                            requested_model=str(rerank.get("model") or ""),
+                            actual_model=str(call.get("actual_model") or ""),
+                        )
+                        for call in rerank_calls
+                    )
+                ):
+                    reasons.append(f"rerank_model_mismatch:{version_id}:{case_id}")
+
+    unique_reasons = list(dict.fromkeys(reasons))
+    return {
+        "contract_version": "rag-formal-execution-integrity-v1",
+        "status": "qualified" if not unique_reasons else "ineligible",
+        "qualified": not unique_reasons,
+        "reason_codes": unique_reasons,
+        "target_count": len(manifest_targets),
+        "case_receipt_count": sum(
+            len(items)
+            for items in (run.get("case_results") or {}).values()
+            if isinstance(items, dict)
+        ),
     }
 
 
 class KnowledgeEvaluationStore:
     """File-backed evaluation datasets, runs, and promotion policies."""
 
-    def __init__(self, path: Path) -> None:
+    def __init__(
+        self,
+        path: Path,
+        *,
+        reproducibility_resolver: Callable[[dict[str, Any]], dict[str, Any]]
+        | None = None,
+        code_fingerprint_resolver: Callable[[], str] | None = None,
+    ) -> None:
         self.path = path
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        self._reproducibility_resolver = reproducibility_resolver
+        self._code_fingerprint_resolver = (
+            code_fingerprint_resolver or evaluation_runtime_code_fingerprint
+        )
 
     def create_set(
         self,
@@ -1481,6 +2157,12 @@ class KnowledgeEvaluationStore:
             raise ValueError("Evaluation run_mode is invalid.")
         if run_mode == "formal" and case_ids is not None:
             raise EvaluationStateError("Formal evaluation cannot run a case subset.")
+        if run_mode == "formal" and not _execution_manifest_checksum_valid(
+            execution_manifest or {}
+        ):
+            raise EvaluationStateError(
+                "Formal evaluation requires a checksummed execution manifest."
+            )
         now = time.time()
         snapshot = _copy(evaluation_set_version or evaluation_set)
         if case_ids is not None:
@@ -1498,6 +2180,84 @@ class KnowledgeEvaluationStore:
             snapshot["cases"] = [_copy(by_id[case_id]) for case_id in requested]
             if not snapshot["cases"]:
                 raise EvaluationStateError("Evaluation case subset cannot be empty.")
+        effective_execution_manifest = _copy(execution_manifest or {})
+        if run_mode == "diagnostic" and not effective_execution_manifest:
+            experimental_variables = [
+                {
+                    "target_id": str(target.get("target_id") or ""),
+                    "retrieval_override": _copy(target.get("retrieval") or {}),
+                }
+                for target in targets
+                if isinstance(target, dict) and target.get("retrieval")
+            ]
+            manifest_targets: list[dict[str, Any]] = []
+            for target in targets:
+                evidence = target.get("version_evidence")
+                evidence = evidence if isinstance(evidence, dict) else {}
+                retrieval = evidence.get("retrieval")
+                retrieval = retrieval if isinstance(retrieval, dict) else {}
+                fulltext = str(retrieval.get("mode") or "") == "fulltext"
+                manifest_targets.append(
+                    {
+                        "kb_id": str(
+                            evidence.get("kb_id")
+                            or evaluation_set.get("kb_id")
+                            or ""
+                        ),
+                        "version_id": str(target.get("version_id") or ""),
+                        "version_fingerprint": str(
+                            evidence.get("version_fingerprint") or ""
+                        ),
+                        "configuration_fingerprint": str(
+                            evidence.get("configuration_fingerprint") or ""
+                        ),
+                        "source_manifest_fingerprint": str(
+                            evidence.get("source_manifest_fingerprint") or ""
+                        ),
+                        "corpus_snapshot_hash": str(
+                            target.get("corpus_snapshot_hash") or ""
+                        ),
+                        "processor": _copy(evidence.get("processor") or {}),
+                        "embedding": _copy(
+                            (evidence.get("embedding") or {}).get("effective")
+                            or {}
+                        ),
+                        "retrieval": _copy(retrieval),
+                        "index_contract": _copy(
+                            evidence.get("index_contract") or {}
+                        ),
+                        "vector_backend_readiness": (
+                            {"status": "not_applicable"}
+                            if fulltext
+                            else _copy(
+                                evidence.get("vector_backend_readiness") or {}
+                            )
+                        ),
+                        "runtime_vector_backend_readiness": (
+                            {"status": "not_applicable"}
+                            if fulltext
+                            else _copy(
+                                evidence.get("runtime_vector_backend_readiness")
+                                or {}
+                            )
+                        ),
+                    }
+                )
+            effective_execution_manifest = seal_execution_manifest(
+                {
+                    "contract_version": "rag-eval-diagnostic-v1",
+                    "metric_contract_version": "rag-metrics-v1",
+                    "evaluator_code_fingerprint": self._code_fingerprint_resolver(),
+                    "evaluation_version_id": (
+                        evaluation_set_version or {}
+                    ).get("version_id"),
+                    "evaluation_checksum": (
+                        evaluation_set_version or {}
+                    ).get("checksum"),
+                    "experimental_variables": experimental_variables,
+                    "targets": manifest_targets,
+                }
+            )
         run = {
             "run_id": f"evalrun_{uuid.uuid4().hex}",
             "kb_id": evaluation_set["kb_id"],
@@ -1521,7 +2281,7 @@ class KnowledgeEvaluationStore:
             "evidence_qualification": _copy(
                 evidence_qualification or qualify_promotion_evidence(snapshot)
             ),
-            "execution_manifest": _copy(execution_manifest or {}),
+            "execution_manifest": effective_execution_manifest,
             "comparability": _copy(
                 comparability
                 or {
@@ -1569,13 +2329,24 @@ class KnowledgeEvaluationStore:
         if status:
             runs = [item for item in runs if item.get("status") == status]
         runs.sort(key=lambda item: float(item.get("created_at", 0.0)), reverse=True)
-        return [self.run_payload(item, include_cases=False) for item in runs[: max(1, limit)]]
+        return [
+            self.run_payload(item, include_cases=False, data=data)
+            for item in runs[: max(1, limit)]
+        ]
 
-    def get_run(self, run_id: str) -> dict[str, Any]:
-        run = self._read()["runs"].get(run_id)
+    def get_run(
+        self,
+        run_id: str,
+        *,
+        project_reproducibility: bool = True,
+    ) -> dict[str, Any]:
+        data = self._read()
+        run = data["runs"].get(run_id)
         if not isinstance(run, dict):
             raise EvaluationRunNotFoundError("Knowledge evaluation run not found.")
-        return self.run_payload(run)
+        if not project_reproducibility:
+            return _copy(run)
+        return self.run_payload(run, data=data)
 
     def claim_next_run(self) -> dict[str, Any] | None:
         with self._lock:
@@ -1747,17 +2518,25 @@ class KnowledgeEvaluationStore:
         *,
         paired_confidence: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        return self._update_run(
-            run_id,
-            {
-                "status": "succeeded",
-                "progress": 100,
-                "target_results": _copy(target_results),
-                "paired_confidence": _copy(paired_confidence or {}),
-                "completed_at": time.time(),
-                "error": None,
-            },
-        )
+        with self._lock:
+            data = self._read_unlocked()
+            run = self._run_or_raise(data, run_id)
+            run.update(
+                {
+                    "status": "succeeded",
+                    "progress": 100,
+                    "target_results": _copy(target_results),
+                    "paired_confidence": _copy(paired_confidence or {}),
+                    "completed_at": time.time(),
+                    "error": None,
+                }
+            )
+            run["execution_integrity_checksum"] = _run_execution_integrity_checksum(
+                run
+            )
+            run["updated_at"] = time.time()
+            self._write_unlocked(data)
+            return self.run_payload(run, data=data)
 
     def fail_run(self, run_id: str, error: str) -> dict[str, Any]:
         return self._update_run(
@@ -1814,6 +2593,15 @@ class KnowledgeEvaluationStore:
             raise EvaluationPromotionError(
                 "Candidate promotion requires a comparable Formal rag-eval-v2 run."
             )
+        if str(run.get("reproducibility_status") or "") != "current":
+            raise EvaluationPromotionError(
+                "Candidate promotion requires a current reproducible evaluation run."
+            )
+        execution_integrity = qualify_formal_execution_integrity(run)
+        if not bool(execution_integrity.get("qualified")):
+            raise EvaluationPromotionError(
+                "Candidate promotion requires complete and consistent Formal execution receipts."
+            )
         if run.get("eval_set_version") is None:
             current_set = self.get_set(str(run["eval_set_id"]))
             if int(current_set["revision"]) != int(run["eval_set_revision"]):
@@ -1829,12 +2617,159 @@ class KnowledgeEvaluationStore:
             raise EvaluationPromotionError("Candidate version did not pass the promotion gate.")
         return target
 
-    def run_payload(self, run: dict[str, Any], *, include_cases: bool = True) -> dict[str, Any]:
+    def run_payload(
+        self,
+        run: dict[str, Any],
+        *,
+        include_cases: bool = True,
+        data: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         payload = _copy(run)
+        payload.update(self._reproducibility_projection(run, data=data))
         if not include_cases:
             payload.pop("eval_set_snapshot", None)
             payload.pop("case_results", None)
         return payload
+
+    def _reproducibility_projection(
+        self,
+        run: dict[str, Any],
+        *,
+        data: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        reasons: list[str] = []
+        orphaned = False
+        if str(run.get("run_mode") or "diagnostic") == "formal":
+            reasons.extend(formal_execution_preflight_reasons(run))
+        manifest = run.get("execution_manifest")
+        manifest = manifest if isinstance(manifest, dict) else {}
+        if not _execution_manifest_checksum_valid(manifest):
+            reasons.append("execution_manifest_checksum_invalid")
+        current_code_fingerprint = self._code_fingerprint_resolver()
+        expected_code_fingerprint = str(
+            manifest.get("evaluator_code_fingerprint") or ""
+        )
+        if (
+            not expected_code_fingerprint
+            or expected_code_fingerprint != current_code_fingerprint
+        ):
+            reasons.append("evaluator_code_fingerprint_mismatch")
+
+        current_data = data if isinstance(data, dict) else self._read()
+        eval_set_id = str(run.get("eval_set_id") or "")
+        if not isinstance(current_data.get("sets", {}).get(eval_set_id), dict):
+            orphaned = True
+            reasons.append("evaluation_set_missing")
+        eval_version_id = str(run.get("eval_set_version_id") or "")
+        if eval_version_id:
+            version = current_data.get("versions", {}).get(eval_version_id)
+            if not isinstance(version, dict):
+                orphaned = True
+                reasons.append("evaluation_version_missing")
+            elif str(version.get("checksum") or "") != str(
+                manifest.get("evaluation_checksum") or ""
+            ):
+                reasons.append("evaluation_checksum_mismatch")
+            if isinstance(version, dict) and version.get("benchmark_contract_version") == "rag-gold-v2":
+                if not hmac.compare_digest(str(version.get("checksum") or ""), _published_gold_checksum(version)):
+                    reasons.append("published_gold_checksum_invalid")
+        elif str(run.get("run_mode") or "diagnostic") == "formal":
+            reasons.append("formal_evaluation_version_missing")
+        if str(run.get("status") or "") == "succeeded" and not hmac.compare_digest(
+            str(run.get("execution_integrity_checksum") or ""),
+            _run_execution_integrity_checksum(run),
+        ):
+            reasons.append("execution_integrity_checksum_invalid")
+
+        actual: dict[str, Any] = {
+            "evaluator_code_fingerprint": current_code_fingerprint,
+            "targets": {},
+        }
+        if self._reproducibility_resolver is None:
+            reasons.append("runtime_reference_resolver_unavailable")
+        else:
+            try:
+                resolved = self._reproducibility_resolver(_copy(run))
+            except Exception:
+                resolved = {}
+                orphaned = True
+                reasons.append("runtime_reference_resolution_failed")
+            if resolved.get("kb_exists") is not True:
+                orphaned = True
+                reasons.append("knowledge_base_missing")
+            resolved_targets = resolved.get("targets")
+            resolved_targets = (
+                resolved_targets if isinstance(resolved_targets, dict) else {}
+            )
+            actual["targets"] = _copy(resolved_targets)
+            declared_ids = {
+                str(item.get("version_id") or "")
+                for item in manifest.get("targets", []) if isinstance(item, dict)
+            }
+            for target in run.get("targets", []):
+                if not isinstance(target, dict):
+                    continue
+                version_id = str(target.get("version_id") or target.get("target_id") or "")
+                if version_id not in resolved_targets:
+                    orphaned = True
+                    reasons.append(f"pipeline_version_missing:{version_id}")
+                if version_id not in declared_ids:
+                    reasons.append(f"target_manifest_missing:{version_id}")
+            for declared in manifest.get("targets", []):
+                if not isinstance(declared, dict):
+                    continue
+                version_id = str(declared.get("version_id") or "")
+                if any(
+                    re.fullmatch(r"[0-9a-f]{64}", str(declared.get(field) or ""))
+                    is None
+                    for field in (
+                        "version_fingerprint",
+                        "configuration_fingerprint",
+                        "source_manifest_fingerprint",
+                    )
+                ):
+                    reasons.append(f"target_identity_incomplete:{version_id}")
+                current = resolved_targets.get(version_id)
+                if not isinstance(current, dict):
+                    orphaned = True
+                    reasons.append(f"pipeline_version_missing:{version_id}")
+                    continue
+                if current.get("corpus_snapshot_status") == "unreproducible":
+                    reasons.append(f"corpus_snapshot_unreproducible:{version_id}")
+                for field in (
+                    "kb_id",
+                    "version_fingerprint",
+                    "configuration_fingerprint",
+                    "source_manifest_fingerprint",
+                    "corpus_snapshot_hash",
+                ):
+                    if str(current.get(field) or "") != str(
+                        declared.get(field) or ""
+                    ):
+                        reasons.append(f"{field}_mismatch:{version_id}")
+                for field in (
+                    "embedding",
+                    "retrieval",
+                    "index_contract",
+                    "vector_backend_readiness",
+                    "runtime_vector_backend_readiness",
+                ):
+                    if field in declared and _checksum(current.get(field) or {}) != _checksum(
+                        declared.get(field) or {}
+                    ):
+                        reasons.append(f"{field}_mismatch:{version_id}")
+
+        unique_reasons = list(dict.fromkeys(reasons))
+        status = "current"
+        if orphaned:
+            status = "orphaned"
+        elif unique_reasons:
+            status = "unreproducible"
+        return {
+            "reproducibility_status": status,
+            "reproducibility_reasons": unique_reasons,
+            "reproducibility_evidence": actual,
+        }
 
     def _update_run(self, run_id: str, values: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
@@ -2198,17 +3133,91 @@ def _safe_retrieval_receipt(value: dict[str, Any] | None) -> dict[str, Any]:
         "rerank_attempted_targets",
         "rerank_target_attempt_count",
         "threshold_score_domain",
+        "threshold_contract_status",
         "embedding_provider",
         "embedding_model",
         "embedding_dimension",
+        "embedding_space_fingerprint",
         "vector_candidate_count",
         "fulltext_candidate_count",
+        "promotion_eligible",
     }
     receipt: dict[str, Any] = {}
     for key in allowed:
         item = value.get(key)
         if isinstance(item, (str, int, float, bool, type(None))):
             receipt[key] = item
+    reasons = value.get("promotion_ineligibility_reasons")
+    if isinstance(reasons, list):
+        receipt["promotion_ineligibility_reasons"] = [
+            str(item)[:160] for item in reasons[:20] if str(item)
+        ]
+    attempted_targets = value.get("rerank_attempted_targets")
+    if isinstance(attempted_targets, list):
+        receipt["rerank_attempted_targets"] = [
+            str(item)[:160] for item in attempted_targets[:10] if str(item)
+        ]
+    return receipt
+
+
+def safe_provider_route_receipts(
+    value: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Keep replayable Provider identity/usage fields without payloads or secrets."""
+
+    if not isinstance(value, dict):
+        return None
+    receipt: dict[str, Any] = {}
+    for key in (
+        "contract_version",
+        "entry_id",
+        "routing_mode",
+        "status",
+    ):
+        item = value.get(key)
+        if isinstance(item, (str, int, float, bool, type(None))):
+            receipt[key] = item
+    call_count = value.get("call_count")
+    if (
+        isinstance(call_count, int)
+        and not isinstance(call_count, bool)
+        and call_count >= 0
+    ):
+        receipt["call_count"] = call_count
+    reason_codes = value.get("reason_codes")
+    if isinstance(reason_codes, list) and all(
+        isinstance(item, str) for item in reason_codes
+    ):
+        receipt["reason_codes"] = [
+            item[:160] for item in reason_codes[:20] if item
+        ]
+    safe_calls: list[dict[str, Any]] = []
+    calls = value.get("calls")
+    if isinstance(calls, list):
+        for raw in calls[:20]:
+            if not isinstance(raw, dict):
+                continue
+            call: dict[str, Any] = {}
+            for key in (
+                "call_sequence",
+                "operation",
+                "model_id",
+                "provider_kind",
+                "access_mode",
+                "dispatched",
+                "status",
+                "actual_model",
+                "error_code",
+                "e2e_ms",
+                "prompt_tokens",
+                "completion_tokens",
+                "total_tokens",
+            ):
+                item = raw.get(key)
+                if isinstance(item, (str, int, float, bool, type(None))):
+                    call[key] = item
+            safe_calls.append(call)
+    receipt["calls"] = safe_calls
     return receipt
 
 
@@ -2256,6 +3265,30 @@ def _checksum(value: Any) -> str:
 
     payload = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _run_execution_integrity_checksum(run: dict[str, Any]) -> str:
+    return _checksum(
+        {
+            "run_id": run.get("run_id"),
+            "kb_id": run.get("kb_id"),
+            "eval_set_id": run.get("eval_set_id"),
+            "eval_set_revision": run.get("eval_set_revision"),
+            "eval_set_version_id": run.get("eval_set_version_id"),
+            "run_mode": run.get("run_mode"),
+            "metric_contract_version": run.get("metric_contract_version"),
+            "ks": run.get("ks") or [],
+            "gate_policy": run.get("gate_policy") or {},
+            "targets": run.get("targets") or [],
+            "eval_set_snapshot": run.get("eval_set_snapshot") or {},
+            "baseline_version_id": run.get("baseline_version_id"),
+            "comparability": run.get("comparability") or {},
+            "execution_manifest": run.get("execution_manifest") or {},
+            "case_results": run.get("case_results") or {},
+            "target_results": run.get("target_results") or [],
+            "paired_confidence": run.get("paired_confidence") or {},
+        }
+    )
 
 
 def _published_gold_checksum(snapshot: dict[str, Any]) -> str:

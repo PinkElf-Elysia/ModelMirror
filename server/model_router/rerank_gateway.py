@@ -79,6 +79,7 @@ class _ManagedRerankCallReceipt:
     access_mode: str
     dispatched: bool
     status: str
+    provider_kind: str | None = None
     actual_model: str | None = None
     error_code: str | None = None
     e2e_ms: float | None = None
@@ -89,7 +90,9 @@ class _ManagedRerankCallReceipt:
     def payload(self) -> dict[str, object | None]:
         return {
             "call_sequence": self.call_sequence,
+            "operation": "rerank_documents",
             "model_id": self.model_id,
+            "provider_kind": self.provider_kind,
             "access_mode": self.access_mode,
             "dispatched": self.dispatched,
             "status": self.status,
@@ -372,6 +375,7 @@ class ManagedRerankRun:
                 _ManagedRerankCallReceipt(
                     call_sequence=call_sequence,
                     model_id=model_id,
+                    provider_kind=target.provider_kind,
                     access_mode=access_mode,
                     dispatched=True,
                     status="passed",
@@ -519,6 +523,12 @@ class ManagedRerankRun:
             _ManagedRerankCallReceipt(
                 call_sequence=call_sequence,
                 model_id=model_id,
+                provider_kind=(
+                    prepared.operation_target.provider_kind
+                    if prepared is not None
+                    and prepared.operation_target is not None
+                    else None
+                ),
                 access_mode=access_mode,
                 dispatched=dispatched,
                 status=status,

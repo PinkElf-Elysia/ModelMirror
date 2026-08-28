@@ -197,9 +197,16 @@ class RagRetrievalUnavailableError(RagError):
 class ManagedEmbeddingRouteError(EmbeddingError):
     """Raised with a stable, redacted Managed Embedding failure code."""
 
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        receipt: dict[str, Any] | None = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
+        self.receipt = receipt
 
 
 class ManagedRagGenerationRouteError(RagError):
@@ -3938,6 +3945,7 @@ class RagService:
                 "ready": bool(effective.get("ready")),
                 "reason": str(effective.get("reason") or "") or None,
                 "access_mode": str(effective.get("access_mode") or "legacy"),
+                "status": str(effective.get("status") or "ready"),
                 "embedding_space_fingerprint": str(
                     version.get("embedding_space_fingerprint")
                     or embedding.get("embedding_space_fingerprint")
@@ -3982,6 +3990,7 @@ class RagService:
         )
         return {
             "schema_version": "rag-version-evidence-v1",
+            "kb_id": str(version.get("kb_id") or ""),
             "version_id": version_id,
             "version": int(version.get("version") or 0),
             "index_schema_version": int(version.get("index_schema_version") or 1),
@@ -3994,6 +4003,13 @@ class RagService:
             },
             "embedding": safe_embedding,
             "retrieval": retrieval,
+            "index_contract": json.loads(
+                json.dumps(version.get("index_contract") or {})
+            ),
+            "vector_backend_readiness": json.loads(
+                json.dumps(version.get("vector_backend_readiness") or {})
+            ),
+            "runtime_vector_backend_readiness": self._vector_backend_readiness(),
             "source_manifest_fingerprint": source_manifest_fingerprint,
             "configuration_fingerprint": configuration_fingerprint,
             "version_fingerprint": version_fingerprint,
@@ -6962,6 +6978,7 @@ class RagService:
                 raise ManagedEmbeddingRouteError(
                     code,
                     f"Managed Embedding query failed: {code}",
+                    receipt=run.receipt_summary(),
                 ) from exc
             if len(result.vectors) != 1:
                 raise EmbeddingError(
