@@ -175,7 +175,7 @@ function ModulePage({ module, topic }: { module: HelpModule; topic?: HelpModuleT
   return (
     <>
       <PageHeader eyebrow={module.title} summary={current.summary} title={current.title} />
-      <Metadata audience="适合准备使用这一模块的用户" minutes={3} />
+      <Metadata audience="适合准备使用这一模块的用户" minutes={3} verifiedCommit={current.verifiedCommit} verifiedDate={current.verifiedDate} />
       <div className="mt-9 max-w-[76ch] space-y-10">
         <section><h2 className="text-2xl font-bold text-white">你可以做什么</h2><p className="mt-3 text-base leading-8 text-slate-300">{current.outcome}</p><div className="mt-5 divide-y divide-white/[0.08] border-y border-white/[0.08]">{current.points.map((point) => <div className="flex gap-3 py-4" key={point}><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300" /><p className="text-base leading-7 text-slate-300">{point}</p></div>)}</div></section>
         <section><h2 className="text-2xl font-bold text-white">同一模块的其他功能</h2><div className="mt-4 divide-y divide-white/[0.08] border-y border-white/[0.08]">{module.topics.filter((item) => item.id !== current.id).map((item) => <Link className="group flex min-h-[72px] items-center gap-4 py-4" key={item.id} to={`/help/modules/${module.id}/${item.id}`}><span className="min-w-0 flex-1"><span className="block font-semibold text-slate-100 group-hover:text-cyan-100">{item.title}</span><span className="mt-1 block text-sm leading-6 text-slate-400">{item.summary}</span></span><ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0 text-slate-600 group-hover:text-cyan-200" /></Link>)}</div></section>

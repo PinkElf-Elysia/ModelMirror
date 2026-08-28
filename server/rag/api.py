@@ -247,6 +247,7 @@ class RagSourcePayload(_HeadingPathPayload):
     row_range: str | None = Field(default=None, max_length=80)
     visual_kind: str | None = None
     source_block_id: str | None = None
+    merged_chunk_ids: list[str] = Field(default_factory=list)
 
 
 class RetrievalOptionsPayload(BaseModel):
@@ -259,6 +260,7 @@ class RetrievalOptionsPayload(BaseModel):
     min_lexical_confidence: float | None = None
     min_rerank_score: float | None = None
     no_result_policy: Literal["absolute_relevance_v1"] | None = None
+    max_chunks_per_document: int | None = Field(default=None, ge=1, le=50)
     candidate_multiplier: int | None = None
     rerank_enabled: bool | None = None
     rerank_provider: str | None = None

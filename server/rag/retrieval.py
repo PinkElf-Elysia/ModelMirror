@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import math
-from dataclasses import asdict, dataclass
+import unicodedata
+from dataclasses import asdict, dataclass, replace
 from typing import Any
 
 
@@ -26,6 +27,7 @@ class RetrievalConfig:
     min_lexical_confidence: float | None = None
     min_rerank_score: float | None = None
     no_result_policy: str = LEGACY_NO_RESULT_POLICY
+    max_chunks_per_document: int | None = None
     candidate_multiplier: int = 4
     rerank_enabled: bool = False
     rerank_provider: str = "auto"
@@ -86,6 +88,21 @@ class RetrievalConfig:
                 "retrieval.no_result_policy must be absolute_relevance_v1 or the legacy compatibility policy."
             )
 
+        raw_document_limit = current.get("max_chunks_per_document")
+        if no_result_policy != ABSOLUTE_NO_RESULT_POLICY:
+            max_chunks_per_document = None
+        elif raw_document_limit is None:
+            max_chunks_per_document = 2
+        else:
+            max_chunks_per_document = _coerce_int(
+                raw_document_limit,
+                "max_chunks_per_document",
+            )
+            if not 1 <= max_chunks_per_document <= 50:
+                raise ValueError(
+                    "retrieval.max_chunks_per_document must be between 1 and 50."
+                )
+
         multiplier = _coerce_int(current.get("candidate_multiplier"), "candidate_multiplier")
         if not 1 <= multiplier <= 10:
             raise ValueError("retrieval.candidate_multiplier must be between 1 and 10.")
@@ -114,6 +131,7 @@ class RetrievalConfig:
             min_lexical_confidence=min_lexical_confidence,
             min_rerank_score=min_rerank_score,
             no_result_policy=no_result_policy,
+            max_chunks_per_document=max_chunks_per_document,
             candidate_multiplier=multiplier,
             rerank_enabled=rerank_enabled,
             rerank_provider=provider,
@@ -168,6 +186,8 @@ class RetrievalConfig:
 
     def payload(self) -> dict[str, Any]:
         value = asdict(self)
+        if self.max_chunks_per_document is None:
+            value.pop("max_chunks_per_document", None)
         if self.uses_absolute_relevance:
             value.pop("score_threshold", None)
         else:
@@ -315,6 +335,7 @@ class RetrievalCandidate:
     fulltext_score: float | None = None
     fused_score: float = 0.0
     rerank_score: float | None = None
+    merged_chunk_ids: tuple[str, ...] = ()
 
     @property
     def score(self) -> float:
@@ -419,6 +440,176 @@ def select_candidates(
         if len(selected) >= top_k:
             break
     return selected
+
+
+@dataclass(slots=True)
+class DiversitySelectionOutcome:
+    items: list[RetrievalCandidate]
+    candidate_counts: dict[str, int]
+    overlap_merged_chunk_count: int = 0
+
+
+def select_v3_candidates(
+    items: list[RetrievalCandidate],
+    *,
+    top_k: int,
+    max_chunks_per_document: int,
+) -> DiversitySelectionOutcome:
+    """Apply the deterministic V3 diversity contract after absolute gating."""
+
+    if not 1 <= top_k <= 50:
+        raise ValueError("retrieval.top_k must be between 1 and 50.")
+    if not 1 <= max_chunks_per_document <= 50:
+        raise ValueError(
+            "retrieval.max_chunks_per_document must be between 1 and 50."
+        )
+
+    text_group_indexes: dict[str, int] = {}
+    text_groups: list[list[RetrievalCandidate]] = []
+    for item in items:
+        normalized_text = _normalized_candidate_text(item)
+        if not normalized_text:
+            text_groups.append([item])
+            continue
+        group_index = text_group_indexes.get(normalized_text)
+        if group_index is None:
+            text_group_indexes[normalized_text] = len(text_groups)
+            text_groups.append([item])
+        else:
+            text_groups[group_index].append(item)
+
+    text_deduplicated: list[RetrievalCandidate] = []
+    for group in text_groups:
+        text_deduplicated.append(_highest_score_candidate(group))
+
+    source_group_indexes: dict[tuple[str, str], int] = {}
+    source_groups: list[list[RetrievalCandidate]] = []
+    for item in text_deduplicated:
+        source_block_id = str(item.source_block_id or "").strip()
+        if not source_block_id:
+            source_groups.append([item])
+            continue
+        key = (item.doc_id, source_block_id)
+        group_index = source_group_indexes.get(key)
+        if group_index is None:
+            source_group_indexes[key] = len(source_groups)
+            source_groups.append([item])
+        else:
+            source_groups[group_index].append(item)
+
+    merged_items: list[RetrievalCandidate] = []
+    merged_chunk_count = 0
+    for group in source_groups:
+        primary = _highest_score_candidate(group)
+        merged = primary
+        pending = sorted(
+            (
+                sibling
+                for sibling in group
+                if sibling.chunk_id != primary.chunk_id
+            ),
+            key=lambda item: (item.start_char, item.end_char, item.chunk_id),
+        )
+        while pending:
+            remaining: list[RetrievalCandidate] = []
+            merged_in_pass = False
+            for sibling in pending:
+                combined = _merge_proven_overlap(merged, sibling)
+                if combined is None:
+                    remaining.append(sibling)
+                    continue
+                merged = combined
+                merged_chunk_count += 1
+                merged_in_pass = True
+            if not merged_in_pass:
+                break
+            pending = remaining
+        merged_items.append(merged)
+
+    document_counts: dict[str, int] = {}
+    document_limited: list[RetrievalCandidate] = []
+    for item in merged_items:
+        count = document_counts.get(item.doc_id, 0)
+        if count >= max_chunks_per_document:
+            continue
+        document_counts[item.doc_id] = count + 1
+        document_limited.append(item)
+
+    selected = document_limited[:top_k]
+    return DiversitySelectionOutcome(
+        items=selected,
+        candidate_counts={
+            "threshold": len(items),
+            "text_dedup": len(text_deduplicated),
+            "source_block_dedup": len(source_groups),
+            "overlap_merge": len(merged_items),
+            "document_limit": len(document_limited),
+            "final": len(selected),
+        },
+        overlap_merged_chunk_count=merged_chunk_count,
+    )
+
+
+def _normalized_candidate_text(item: RetrievalCandidate) -> str:
+    text = item.context_text or item.matched_text
+    return " ".join(unicodedata.normalize("NFKC", text).casefold().split())
+
+
+def _highest_score_candidate(
+    items: list[RetrievalCandidate],
+) -> RetrievalCandidate:
+    return min(items, key=lambda item: (-float(item.score), item.chunk_id))
+
+
+def _merge_proven_overlap(
+    primary: RetrievalCandidate,
+    sibling: RetrievalCandidate,
+) -> RetrievalCandidate | None:
+    if (
+        primary.doc_id != sibling.doc_id
+        or not primary.source_block_id
+        or primary.source_block_id != sibling.source_block_id
+        or primary.page_number != sibling.page_number
+        or primary.slide != sibling.slide
+        or primary.sheet != sibling.sheet
+        or primary.row_range != sibling.row_range
+        or primary.context_text != primary.matched_text
+        or sibling.context_text != sibling.matched_text
+    ):
+        return None
+    if (
+        primary.end_char <= primary.start_char
+        or sibling.end_char <= sibling.start_char
+        or len(primary.matched_text) != primary.end_char - primary.start_char
+        or len(sibling.matched_text) != sibling.end_char - sibling.start_char
+    ):
+        return None
+
+    if primary.start_char <= sibling.start_char:
+        earlier, later = primary, sibling
+    else:
+        earlier, later = sibling, primary
+    overlap = earlier.end_char - later.start_char
+    if overlap <= 0:
+        return None
+    if overlap > len(earlier.matched_text) or overlap > len(later.matched_text):
+        return None
+    if earlier.matched_text[-overlap:] != later.matched_text[:overlap]:
+        return None
+
+    combined_text = earlier.matched_text + later.matched_text[overlap:]
+    merged_ids = list(primary.merged_chunk_ids)
+    if sibling.chunk_id != primary.chunk_id:
+        merged_ids.append(sibling.chunk_id)
+    merged_ids.extend(sibling.merged_chunk_ids)
+    return replace(
+        primary,
+        matched_text=combined_text,
+        context_text=combined_text,
+        start_char=min(primary.start_char, sibling.start_char),
+        end_char=max(primary.end_char, sibling.end_char),
+        merged_chunk_ids=tuple(dict.fromkeys(merged_ids)),
+    )
 
 
 def _coerce_int(value: Any, name: str) -> int:

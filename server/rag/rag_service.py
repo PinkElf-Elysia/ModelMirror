@@ -49,6 +49,7 @@ from .retrieval import (
     RetrievalConfig,
     fuse_rankings,
     select_candidates,
+    select_v3_candidates,
 )
 from .source_metadata import normalize_heading_path
 from .processor_generator import (
@@ -5807,6 +5808,12 @@ class RagService:
                     )
                 ]
                 vector_candidates = [self._candidate_from_vector(item) for item in vector_results]
+        raw_candidate_count = len(
+            {
+                item.chunk_id
+                for item in vector_candidates + lexical_candidates
+            }
+        )
         (
             vector_candidates,
             lexical_candidates,
@@ -5953,19 +5960,37 @@ class RagService:
                     promotion_ineligibility_reasons.append("rerank_fail_open")
 
         deleted_document_ids = self._deleted_document_ids()
-        results = select_candidates(
-            [
-                item
-                for item in fused
-                if not self._indexed_document_is_deleted(
-                    str(item.doc_id), deleted_document_ids
-                )
-            ],
-            score_threshold=(
-                0.0 if config.uses_absolute_relevance else config.score_threshold
-            ),
-            top_k=config.top_k,
-        )
+        selection_input = [
+            item
+            for item in fused
+            if not self._indexed_document_is_deleted(
+                str(item.doc_id), deleted_document_ids
+            )
+        ]
+        candidate_stage_counts: dict[str, int] | None = None
+        overlap_merged_chunk_count = 0
+        if is_v3:
+            diversity_outcome = select_v3_candidates(
+                selection_input,
+                top_k=config.top_k,
+                max_chunks_per_document=int(
+                    config.max_chunks_per_document or 2
+                ),
+            )
+            results = diversity_outcome.items
+            candidate_stage_counts = {
+                "raw": raw_candidate_count,
+                **diversity_outcome.candidate_counts,
+            }
+            overlap_merged_chunk_count = (
+                diversity_outcome.overlap_merged_chunk_count
+            )
+        else:
+            results = select_candidates(
+                selection_input,
+                score_threshold=config.score_threshold,
+                top_k=config.top_k,
+            )
         if not results:
             return {
                 "answer": "没有在该知识库中找到相关内容，请尝试换一种问法或上传更多资料。",
@@ -5987,6 +6012,8 @@ class RagService:
                     embedding_profile=resolved_embedding_profile,
                     rejection_diagnostics=rejection_diagnostics,
                     promotion_ineligibility_reasons=promotion_ineligibility_reasons,
+                    candidate_stage_counts=candidate_stage_counts,
+                    overlap_merged_chunk_count=overlap_merged_chunk_count,
                 ),
             }
 
@@ -6037,6 +6064,7 @@ class RagService:
                     "row_range": result.row_range,
                     "visual_kind": result.visual_kind,
                     "source_block_id": result.source_block_id,
+                    "merged_chunk_ids": list(result.merged_chunk_ids),
                 }
                 for result in results
             ],
@@ -6057,6 +6085,8 @@ class RagService:
                 embedding_profile=resolved_embedding_profile,
                 rejection_diagnostics=rejection_diagnostics,
                 promotion_ineligibility_reasons=promotion_ineligibility_reasons,
+                candidate_stage_counts=candidate_stage_counts,
+                overlap_merged_chunk_count=overlap_merged_chunk_count,
             ),
         }
 
@@ -6638,7 +6668,12 @@ class RagService:
             merged["top_k"] = top_k
         if schema_version >= INDEX_SCHEMA_VERSION:
             return self._v3_retrieval_config_from_patch(merged, base=base)
-        return RetrievalConfig.from_mapping(merged, base=base)
+        legacy_config = RetrievalConfig.from_mapping(merged, base=base)
+        # V2 keeps its historical selector even when a diagnostic override
+        # requests the newer no-result policy. Do not advertise the V3-only
+        # document cap in a legacy execution receipt when it cannot run.
+        legacy_config.max_chunks_per_document = None
+        return legacy_config
 
     @staticmethod
     def _new_v3_retrieval_config() -> RetrievalConfig:
@@ -6748,6 +6783,8 @@ class RagService:
         embedding_profile: dict[str, Any],
         rejection_diagnostics: list[dict[str, Any]],
         promotion_ineligibility_reasons: list[str],
+        candidate_stage_counts: dict[str, int] | None,
+        overlap_merged_chunk_count: int,
     ) -> dict[str, Any]:
         effective = dict(embedding_profile.get("effective") or {})
         threshold_score_domain = "fused_score"
@@ -6764,7 +6801,7 @@ class RagService:
         ineligibility_reasons = list(
             dict.fromkeys(str(item) for item in promotion_ineligibility_reasons if item)
         )
-        return {
+        diagnostics = {
             **config.payload(),
             "vector_candidate_count": vector_count,
             "fulltext_candidate_count": fulltext_count,
@@ -6789,6 +6826,15 @@ class RagService:
                 embedding_profile.get("embedding_space_fingerprint") or ""
             ),
         }
+        if candidate_stage_counts is not None:
+            diagnostics["candidate_stage_counts"] = {
+                str(stage): max(0, int(count))
+                for stage, count in candidate_stage_counts.items()
+            }
+            diagnostics["overlap_merged_chunk_count"] = max(
+                0, int(overlap_merged_chunk_count)
+            )
+        return diagnostics
 
     def _resolved_embedding_profile_for_query(
         self,
