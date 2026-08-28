@@ -41,6 +41,14 @@ describe("ProviderWorkloadControlSettings", () => {
       "openrouter_batch_embeddings",
     ]);
   });
+
+  it("keeps each R8 multimodal entry bound to one explicit protocol shape", () => {
+    expect(ENTRY_SHAPES.chat_image).toEqual(["chat_image_stream"]);
+    expect(ENTRY_SHAPES.chat_document_native).toEqual(["chat_document_stream"]);
+    expect(ENTRY_SHAPES.multimodal_transcription).toEqual(["audio_transcription"]);
+    expect(ENTRY_SHAPES.video_generation).toEqual(["video_generation_async"]);
+    expect(ENTRY_SHAPES.realtime_voice).toEqual(["realtime_voice_session"]);
+  });
   afterEach(() => vi.unstubAllGlobals());
 
   it("requires an explicit confirmation before one billed workload certification", async () => {
@@ -69,7 +77,7 @@ describe("ProviderWorkloadControlSettings", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(<ProviderWorkloadControlSettings csrfToken="csrf-value" view="certifications" />);
-    await screen.findByText("R6 / R7 精确 Operation 合同");
+    await screen.findByText("R6 / R7 资格与 R8 Adapter 基础");
     fireEvent.change(screen.getByLabelText("执行形态"), {
       target: { value: "chat_json_object" },
     });
@@ -134,7 +142,7 @@ describe("ProviderWorkloadControlSettings", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(<ProviderWorkloadControlSettings csrfToken="csrf-value" view="routing" />);
-    await screen.findByText("R6 / R7 入口、精确 Binding 与 Receipt");
+    await screen.findByText("R6 / R7 入口与 R8 多模态控制面基础");
     expect(screen.getByRole("button", { name: /激活 Managed/ })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "添加 Binding" }));
     fireEvent.change(screen.getByLabelText("Binding 1 模型 ID"), {
@@ -198,7 +206,7 @@ describe("ProviderWorkloadControlSettings", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(<ProviderWorkloadControlSettings csrfToken="csrf-value" view="routing" />);
-    await screen.findByText("R6 / R7 入口、精确 Binding 与 Receipt");
+    await screen.findByText("R6 / R7 入口与 R8 多模态控制面基础");
     fireEvent.change(screen.getByLabelText("入口"), {
       target: { value: "rag_rerank" },
     });
@@ -274,7 +282,7 @@ describe("ProviderWorkloadControlSettings", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(<ProviderWorkloadControlSettings csrfToken="csrf-value" view="routing" />);
-    await screen.findByText("R6 / R7 入口、精确 Binding 与 Receipt");
+    await screen.findByText("R6 / R7 入口与 R8 多模态控制面基础");
     fireEvent.change(screen.getByLabelText("入口"), {
       target: { value: "openrouter_batch" },
     });
@@ -284,6 +292,68 @@ describe("ProviderWorkloadControlSettings", () => {
       openRouterBatchConnection.id,
     );
     expect(screen.queryByRole("option", { name: newApiBatchConnection.name })).not.toBeInTheDocument();
+  });
+
+  it("persists an explicit R8 Adapter while keeping the data-plane activation blocked", async () => {
+    const imageConnection = {
+      ...connection,
+      id: "connection-image",
+      name: "OpenRouter image",
+      scopes: ["chat", "image"],
+    };
+    const policy = {
+      contract_version: "modelmirror-provider-workload-routing-v1",
+      entry_id: "chat_image",
+      feature_enabled: false,
+      data_plane_integrated: false,
+      configured_status: "legacy",
+      effective_status: "legacy",
+      revision: 0,
+      policy_fingerprint: "r8a-image-policy",
+      local_fallback_mode: "none",
+      bindings: [],
+      approval_valid: false,
+      blocking_reason_codes: ["provider_workload_data_plane_not_integrated"],
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/router/workload-control/policies" && !init) return jsonResponse({ policies: [policy] });
+      if (url === "/api/router/connections") return jsonResponse([imageConnection]);
+      if (url.startsWith("/api/router/workload-control/receipts")) return jsonResponse({ runs: [] });
+      if (url === "/api/router/workload-control/policies/chat_image" && init?.method === "PUT") return jsonResponse({ ...policy, revision: 1 });
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<ProviderWorkloadControlSettings csrfToken="csrf-value" view="routing" />);
+    await screen.findByText("R6 / R7 入口与 R8 多模态控制面基础");
+    fireEvent.change(screen.getByLabelText("入口"), { target: { value: "chat_image" } });
+    fireEvent.click(screen.getByRole("button", { name: "添加 Binding" }));
+    expect(screen.getByLabelText("Binding 1 Adapter")).toHaveValue(
+      "openrouter_chat_multimodal_v1",
+    );
+    expect(screen.getByLabelText("Binding 1 连接")).toHaveValue(imageConnection.id);
+    fireEvent.change(screen.getByLabelText("Binding 1 模型 ID"), {
+      target: { value: "provider/vision" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存 Binding" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/router/workload-control/policies/chat_image",
+      expect.objectContaining({ method: "PUT" }),
+    ));
+    const call = fetchMock.mock.calls.find(([url, options]) =>
+      url === "/api/router/workload-control/policies/chat_image" && options?.method === "PUT"
+    );
+    expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({
+      bindings: [{
+        execution_shape: "chat_image_stream",
+        model_id: "provider/vision",
+        connection_id: imageConnection.id,
+        adapter_contract: "openrouter_chat_multimodal_v1",
+      }],
+    });
+    expect(screen.getByRole("button", { name: /激活 Managed/ })).toBeDisabled();
   });
 
   it("requires both operator acknowledgements before activating an integrated entry", async () => {
@@ -339,7 +409,7 @@ describe("ProviderWorkloadControlSettings", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(<ProviderWorkloadControlSettings csrfToken="csrf-value" view="routing" />);
-    await screen.findByText("R6 / R7 入口、精确 Binding 与 Receipt");
+    await screen.findByText("R6 / R7 入口与 R8 多模态控制面基础");
     const activateButton = screen.getByRole("button", { name: "激活 Managed 必经" });
     expect(activateButton).toBeEnabled();
     fireEvent.click(activateButton);
@@ -405,7 +475,7 @@ describe("ProviderWorkloadControlSettings", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(<ProviderWorkloadControlSettings csrfToken="csrf-value" view="routing" />);
-    await screen.findByText("R6 / R7 入口、精确 Binding 与 Receipt");
+    await screen.findByText("R6 / R7 入口与 R8 多模态控制面基础");
     fireEvent.change(screen.getByLabelText("入口"), {
       target: { value: "expert_team_planner" },
     });
@@ -463,7 +533,7 @@ describe("ProviderWorkloadControlSettings", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(<ProviderWorkloadControlSettings csrfToken="csrf-value" view="routing" />);
-    await screen.findByText("R6 / R7 入口、精确 Binding 与 Receipt");
+    await screen.findByText("R6 / R7 入口与 R8 多模态控制面基础");
     fireEvent.click(screen.getByText("Workflow 交互 LLM · passed"));
 
     expect(screen.getByText("请求模型：openai/gpt-test")).toBeInTheDocument();
@@ -516,7 +586,7 @@ describe("ProviderWorkloadControlSettings", () => {
     }));
 
     render(<ProviderWorkloadControlSettings csrfToken="csrf-value" view="routing" />);
-    await screen.findByText("R6 / R7 入口、精确 Binding 与 Receipt");
+    await screen.findByText("R6 / R7 入口与 R8 多模态控制面基础");
     fireEvent.change(screen.getByLabelText("入口"), {
       target: { value: "openrouter_batch" },
     });

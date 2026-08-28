@@ -3,6 +3,8 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
+import { collectProxyResponseHeaders } from "./server-headers.mjs";
+
 const port = Number(process.env.PORT || 80);
 const apiTarget = process.env.API_TARGET || "http://server:8000";
 const distDir = path.resolve("dist");
@@ -76,14 +78,7 @@ async function proxyApi(req, res) {
     duplex: "half",
   });
 
-  const headers = {};
-  response.headers.forEach((value, key) => {
-    if (!["content-encoding", "transfer-encoding", "connection"].includes(key)) {
-      headers[key] = value;
-    }
-  });
-
-  res.writeHead(response.status, headers);
+  res.writeHead(response.status, collectProxyResponseHeaders(response.headers));
 
   if (!response.body) {
     res.end();

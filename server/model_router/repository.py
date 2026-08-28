@@ -33,7 +33,7 @@ from .schemas import (
 )
 
 
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 18
 DEFAULT_TENANT_ID = "local"
 CANONICAL_MASTER_KEY_ENV = "MODEL_MIRROR_CREDENTIAL_MASTER_KEY"
 LEGACY_MASTER_KEY_ENV = "MODEL_ROUTER_CREDENTIAL_MASTER_KEY"
@@ -238,6 +238,15 @@ class SQLiteRouterRepository:
             cost_kind TEXT NOT NULL DEFAULT 'unavailable',
             error_code TEXT,
             output_count INTEGER NOT NULL DEFAULT 0,
+            workload_run_id TEXT,
+            workload_call_id TEXT,
+            policy_fingerprint TEXT,
+            connection_fingerprint TEXT,
+            adapter_contract TEXT,
+            protocol_version TEXT,
+            provider_dispatch_state TEXT NOT NULL DEFAULT 'not_dispatched',
+            post_dispatched INTEGER NOT NULL DEFAULT 0,
+            provider_terminal_status TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             PRIMARY KEY (tenant_id, id),
@@ -260,6 +269,15 @@ class SQLiteRouterRepository:
             cost_kind TEXT NOT NULL DEFAULT 'unavailable',
             error_code TEXT,
             expires_at TEXT,
+            workload_run_id TEXT,
+            workload_call_id TEXT,
+            policy_fingerprint TEXT,
+            connection_fingerprint TEXT,
+            adapter_contract TEXT,
+            protocol_version TEXT,
+            provider_dispatch_state TEXT NOT NULL DEFAULT 'not_dispatched',
+            post_dispatched INTEGER NOT NULL DEFAULT 0,
+            provider_terminal_status TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             PRIMARY KEY (tenant_id, id),
@@ -286,6 +304,15 @@ class SQLiteRouterRepository:
             cost_usd REAL,
             cost_kind TEXT NOT NULL DEFAULT 'unavailable',
             error_code TEXT,
+            workload_run_id TEXT,
+            workload_call_id TEXT,
+            policy_fingerprint TEXT,
+            connection_fingerprint TEXT,
+            adapter_contract TEXT,
+            protocol_version TEXT,
+            provider_dispatch_state TEXT NOT NULL DEFAULT 'not_dispatched',
+            post_dispatched INTEGER NOT NULL DEFAULT 0,
+            provider_terminal_status TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             PRIMARY KEY (tenant_id, id)
@@ -544,6 +571,8 @@ class SQLiteRouterRepository:
             connection_id TEXT NOT NULL,
             connection_fingerprint TEXT NOT NULL,
             contract_version TEXT NOT NULL,
+            adapter_contract TEXT,
+            protocol_version TEXT,
             execution_shape TEXT NOT NULL,
             requested_model TEXT NOT NULL,
             actual_model TEXT,
@@ -587,6 +616,8 @@ class SQLiteRouterRepository:
             certification_source TEXT NOT NULL,
             connection_fingerprint TEXT NOT NULL,
             qualification_fingerprint TEXT NOT NULL,
+            adapter_contract TEXT,
+            protocol_version TEXT,
             rerank_access_mode TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
@@ -617,6 +648,9 @@ class SQLiteRouterRepository:
             connection_id TEXT,
             certification_id TEXT,
             connection_fingerprint TEXT,
+            adapter_contract TEXT,
+            protocol_version TEXT,
+            provider_dispatch_state TEXT NOT NULL DEFAULT 'not_dispatched',
             logical_call_key_hash TEXT NOT NULL,
             call_sequence INTEGER NOT NULL,
             dispatched INTEGER NOT NULL DEFAULT 0,
@@ -634,6 +668,30 @@ class SQLiteRouterRepository:
             PRIMARY KEY (tenant_id, id),
             UNIQUE (tenant_id, run_id, logical_call_key_hash),
             UNIQUE (tenant_id, run_id, call_sequence)
+        );
+        CREATE TABLE IF NOT EXISTS provider_multimodal_certification_sessions (
+            id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            certification_id TEXT NOT NULL,
+            connection_id TEXT NOT NULL,
+            requested_model TEXT NOT NULL,
+            execution_shape TEXT NOT NULL,
+            adapter_contract TEXT NOT NULL,
+            protocol_version TEXT NOT NULL,
+            idempotency_key_hash TEXT NOT NULL,
+            upstream_operation_id TEXT,
+            provider_dispatch_state TEXT NOT NULL DEFAULT 'not_dispatched',
+            post_dispatched INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL,
+            poll_count INTEGER NOT NULL DEFAULT 0,
+            error_code TEXT,
+            expires_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            completed_at TEXT,
+            PRIMARY KEY (tenant_id, id),
+            UNIQUE (tenant_id, certification_id),
+            UNIQUE (tenant_id, idempotency_key_hash)
         );
         CREATE TABLE IF NOT EXISTS provider_workload_approvals (
             tenant_id TEXT NOT NULL,
@@ -762,6 +820,11 @@ class SQLiteRouterRepository:
             ON provider_workload_runs (tenant_id, created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_provider_workload_calls_run
             ON provider_workload_calls (tenant_id, run_id, call_sequence);
+        CREATE INDEX IF NOT EXISTS idx_provider_multimodal_sessions_lookup
+            ON provider_multimodal_certification_sessions (
+                tenant_id, connection_id, execution_shape, requested_model,
+                created_at DESC
+            );
         CREATE INDEX IF NOT EXISTS idx_provider_batch_jobs_status
             ON provider_batch_jobs (tenant_id, status, updated_at DESC);
         """
@@ -804,6 +867,18 @@ class SQLiteRouterRepository:
                     "ALTER TABLE provider_workload_bindings "
                     "ADD COLUMN rerank_access_mode TEXT"
                 )
+            for column, statement in {
+                "adapter_contract": (
+                    "ALTER TABLE provider_workload_bindings "
+                    "ADD COLUMN adapter_contract TEXT"
+                ),
+                "protocol_version": (
+                    "ALTER TABLE provider_workload_bindings "
+                    "ADD COLUMN protocol_version TEXT"
+                ),
+            }.items():
+                if column not in workload_binding_columns:
+                    connection.execute(statement)
             workload_certification_columns = {
                 row["name"]
                 for row in connection.execute(
@@ -815,6 +890,40 @@ class SQLiteRouterRepository:
                     "ALTER TABLE provider_workload_certifications "
                     "ADD COLUMN vector_dimension INTEGER"
                 )
+            for column, statement in {
+                "adapter_contract": (
+                    "ALTER TABLE provider_workload_certifications "
+                    "ADD COLUMN adapter_contract TEXT"
+                ),
+                "protocol_version": (
+                    "ALTER TABLE provider_workload_certifications "
+                    "ADD COLUMN protocol_version TEXT"
+                ),
+            }.items():
+                if column not in workload_certification_columns:
+                    connection.execute(statement)
+            workload_call_columns = {
+                row["name"]
+                for row in connection.execute(
+                    "PRAGMA table_info(provider_workload_calls)"
+                ).fetchall()
+            }
+            for column, statement in {
+                "adapter_contract": (
+                    "ALTER TABLE provider_workload_calls "
+                    "ADD COLUMN adapter_contract TEXT"
+                ),
+                "protocol_version": (
+                    "ALTER TABLE provider_workload_calls "
+                    "ADD COLUMN protocol_version TEXT"
+                ),
+                "provider_dispatch_state": (
+                    "ALTER TABLE provider_workload_calls "
+                    "ADD COLUMN provider_dispatch_state TEXT"
+                ),
+            }.items():
+                if column not in workload_call_columns:
+                    connection.execute(statement)
             if previous_schema_version < 8:
                 connection.execute(
                     "UPDATE router_connections "
@@ -992,10 +1101,50 @@ class SQLiteRouterRepository:
                     "ADD COLUMN provider_option_keys "
                     "TEXT NOT NULL DEFAULT '[]'"
                 ),
+                "workload_run_id": "ALTER TABLE video_jobs ADD COLUMN workload_run_id TEXT",
+                "workload_call_id": "ALTER TABLE video_jobs ADD COLUMN workload_call_id TEXT",
+                "policy_fingerprint": "ALTER TABLE video_jobs ADD COLUMN policy_fingerprint TEXT",
+                "connection_fingerprint": "ALTER TABLE video_jobs ADD COLUMN connection_fingerprint TEXT",
+                "adapter_contract": "ALTER TABLE video_jobs ADD COLUMN adapter_contract TEXT",
+                "protocol_version": "ALTER TABLE video_jobs ADD COLUMN protocol_version TEXT",
+                "provider_dispatch_state": (
+                    "ALTER TABLE video_jobs ADD COLUMN provider_dispatch_state "
+                    "TEXT"
+                ),
+                "post_dispatched": (
+                    "ALTER TABLE video_jobs ADD COLUMN post_dispatched "
+                    "INTEGER NOT NULL DEFAULT 0"
+                ),
+                "provider_terminal_status": (
+                    "ALTER TABLE video_jobs ADD COLUMN provider_terminal_status TEXT"
+                ),
             }
             for column, statement in video_job_migrations.items():
                 if column not in video_job_columns:
                     connection.execute(statement)
+            for table_name in ("audio_jobs", "realtime_calls"):
+                table_columns = {
+                    row["name"]
+                    for row in connection.execute(
+                        f"PRAGMA table_info({table_name})"
+                    ).fetchall()
+                }
+                for column, definition in {
+                    "workload_run_id": "TEXT",
+                    "workload_call_id": "TEXT",
+                    "policy_fingerprint": "TEXT",
+                    "connection_fingerprint": "TEXT",
+                    "adapter_contract": "TEXT",
+                    "protocol_version": "TEXT",
+                    "provider_dispatch_state": "TEXT",
+                    "post_dispatched": "INTEGER NOT NULL DEFAULT 0",
+                    "provider_terminal_status": "TEXT",
+                }.items():
+                    if column not in table_columns:
+                        connection.execute(
+                            f"ALTER TABLE {table_name} "
+                            f"ADD COLUMN {column} {definition}"
+                        )
             now = utc_now()
             connection.execute(
                 """
@@ -1056,8 +1205,28 @@ class SQLiteRouterRepository:
                 """
                 UPDATE provider_workload_calls
                 SET status = 'uncertain', result_class = 'uncertain',
-                    error_code = 'server_restarted', updated_at = ?, completed_at = ?
+                    error_code = 'server_restarted',
+                    provider_dispatch_state = CASE
+                        WHEN dispatched = 1 THEN 'uncertain'
+                        ELSE provider_dispatch_state
+                    END,
+                    updated_at = ?, completed_at = ?
                 WHERE status = 'running'
+                """,
+                (now, now),
+            )
+            connection.execute(
+                """
+                UPDATE provider_multimodal_certification_sessions
+                SET status = 'uncertain',
+                    provider_dispatch_state = CASE
+                        WHEN post_dispatched = 1
+                            THEN 'uncertain'
+                        ELSE provider_dispatch_state
+                    END,
+                    error_code = 'server_restarted',
+                    updated_at = ?, completed_at = ?
+                WHERE status = 'running' AND upstream_operation_id IS NULL
                 """,
                 (now, now),
             )
@@ -3136,6 +3305,8 @@ class SQLiteRouterRepository:
         profile: dict[str, object],
         profile_fingerprint: str,
         idempotency_key_hash: str,
+        adapter_contract: str | None = None,
+        protocol_version: str | None = None,
     ) -> tuple[dict[str, object], bool]:
         clean_tenant = self._tenant_id(tenant_id)
         self.get_connection(clean_tenant, connection_id)
@@ -3155,6 +3326,10 @@ class SQLiteRouterRepository:
                     str(existing["execution_shape"]) != execution_shape
                     or str(existing["requested_model"]) != requested_model
                     or str(existing["profile_fingerprint"]) != profile_fingerprint
+                    or str(existing["adapter_contract"] or "")
+                    != str(adapter_contract or "")
+                    or str(existing["protocol_version"] or "")
+                    != str(protocol_version or "")
                 ):
                     raise RouterRepositoryError(
                         "provider_workload_certification_idempotency_conflict"
@@ -3165,10 +3340,11 @@ class SQLiteRouterRepository:
                     """
                     INSERT INTO provider_workload_certifications (
                         id, tenant_id, connection_id, connection_fingerprint,
-                        contract_version, execution_shape, requested_model,
+                        contract_version, adapter_contract, protocol_version,
+                        execution_shape, requested_model,
                         profile_json, profile_fingerprint, idempotency_key_hash,
                         status, checks_json, warnings_json, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', '{}', '[]', ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', '{}', '[]', ?, ?)
                     """,
                     (
                         certification_id,
@@ -3176,6 +3352,8 @@ class SQLiteRouterRepository:
                         connection_id,
                         connection_fingerprint,
                         contract_version,
+                        adapter_contract,
+                        protocol_version,
                         execution_shape,
                         requested_model,
                         profile_json,
@@ -3370,9 +3548,11 @@ class SQLiteRouterRepository:
         *,
         profile_fingerprint: str | None = None,
         rerank_access_mode: str | None = None,
+        adapter_contract: str | None = None,
     ) -> dict[str, object] | None:
         clean_tenant = self._tenant_id(tenant_id)
         profile_clause = ""
+        adapter_clause = " AND adapter_contract IS NULL"
         values: list[object] = [
             clean_tenant,
             connection_id,
@@ -3382,13 +3562,16 @@ class SQLiteRouterRepository:
         if profile_fingerprint is not None:
             profile_clause = " AND profile_fingerprint = ?"
             values.append(profile_fingerprint)
+        if adapter_contract is not None:
+            adapter_clause = " AND adapter_contract = ?"
+            values.append(adapter_contract)
         with self._lock, self._connect() as connection:
             rows = connection.execute(
                 f"""
                 SELECT * FROM provider_workload_certifications
                 WHERE tenant_id = ? AND connection_id = ?
                     AND requested_model = ? AND execution_shape = ?
-                    {profile_clause}
+                    {profile_clause}{adapter_clause}
                 ORDER BY created_at DESC, id DESC
                 """,
                 tuple(values),
@@ -3405,6 +3588,248 @@ class SQLiteRouterRepository:
                     continue
             return dict(row)
         return None
+
+    def claim_multimodal_certification_session(
+        self,
+        tenant_id: str,
+        *,
+        session_id: str,
+        certification_id: str,
+        connection_id: str,
+        requested_model: str,
+        execution_shape: str,
+        adapter_contract: str,
+        protocol_version: str,
+        idempotency_key_hash: str,
+        expires_at: str | None = None,
+    ) -> tuple[dict[str, object], bool]:
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            existing = connection.execute(
+                """
+                SELECT * FROM provider_multimodal_certification_sessions
+                WHERE tenant_id = ? AND idempotency_key_hash = ?
+                """,
+                (clean_tenant, idempotency_key_hash),
+            ).fetchone()
+            if existing is not None:
+                if (
+                    str(existing["certification_id"]) != certification_id
+                    or str(existing["connection_id"]) != connection_id
+                    or str(existing["requested_model"]) != requested_model
+                    or str(existing["execution_shape"]) != execution_shape
+                    or str(existing["adapter_contract"]) != adapter_contract
+                    or str(existing["protocol_version"]) != protocol_version
+                ):
+                    raise RouterRepositoryError(
+                        "provider_multimodal_session_idempotency_conflict"
+                    )
+                return dict(existing), False
+            connection.execute(
+                """
+                INSERT INTO provider_multimodal_certification_sessions (
+                    id, tenant_id, certification_id, connection_id,
+                    requested_model, execution_shape, adapter_contract,
+                    protocol_version, idempotency_key_hash,
+                    provider_dispatch_state, post_dispatched, status,
+                    expires_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    'not_dispatched', 0, 'running', ?, ?, ?)
+                """,
+                (
+                    session_id,
+                    clean_tenant,
+                    certification_id,
+                    connection_id,
+                    requested_model,
+                    execution_shape,
+                    adapter_contract,
+                    protocol_version,
+                    idempotency_key_hash,
+                    expires_at,
+                    now,
+                    now,
+                ),
+            )
+            row = connection.execute(
+                """
+                SELECT * FROM provider_multimodal_certification_sessions
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, session_id),
+            ).fetchone()
+        return dict(row), True
+
+    def get_multimodal_certification_session(
+        self,
+        tenant_id: str,
+        *,
+        session_id: str | None = None,
+        certification_id: str | None = None,
+    ) -> dict[str, object] | None:
+        clean_tenant = self._tenant_id(tenant_id)
+        if bool(session_id) == bool(certification_id):
+            raise RouterRepositoryError(
+                "provider_multimodal_session_lookup_requires_one_identifier"
+            )
+        column = "id" if session_id else "certification_id"
+        value = session_id or certification_id
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                f"SELECT * FROM provider_multimodal_certification_sessions "
+                f"WHERE tenant_id = ? AND {column} = ?",
+                (clean_tenant, value),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def list_multimodal_certification_sessions(
+        self, tenant_id: str, *, limit: int = 500
+    ) -> list[dict[str, object]]:
+        clean_tenant = self._tenant_id(tenant_id)
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM provider_multimodal_certification_sessions
+                WHERE tenant_id = ?
+                ORDER BY created_at DESC, id DESC LIMIT ?
+                """,
+                (clean_tenant, max(1, min(int(limit), 500))),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def update_multimodal_certification_session(
+        self,
+        tenant_id: str,
+        session_id: str,
+        *,
+        status: str,
+        provider_dispatch_state: str,
+        post_dispatched: bool,
+        upstream_operation_id: str | None = None,
+        error_code: str | None = None,
+        increment_poll_count: bool = False,
+        completed: bool = False,
+    ) -> dict[str, object]:
+        if status not in {"running", "passed", "failed", "uncertain"}:
+            raise RouterRepositoryError(
+                "invalid_provider_multimodal_session_status"
+            )
+        if provider_dispatch_state not in {
+            "not_dispatched",
+            "dispatched",
+            "confirmed",
+            "uncertain",
+        }:
+            raise RouterRepositoryError(
+                "invalid_provider_multimodal_dispatch_state"
+            )
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            existing = connection.execute(
+                """
+                SELECT * FROM provider_multimodal_certification_sessions
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, session_id),
+            ).fetchone()
+            if existing is None:
+                raise RouterRepositoryError(
+                    "provider_multimodal_session_not_found"
+                )
+            if str(existing["status"]) in {"passed", "failed", "uncertain"}:
+                raise RouterRepositoryError(
+                    "provider_multimodal_session_not_running"
+                )
+            if bool(existing["post_dispatched"]) and not post_dispatched:
+                raise RouterRepositoryError(
+                    "provider_multimodal_dispatch_cannot_regress"
+                )
+            if (
+                status == "passed"
+                and (
+                    not post_dispatched
+                    or provider_dispatch_state != "confirmed"
+                )
+            ):
+                raise RouterRepositoryError(
+                    "provider_multimodal_success_requires_confirmed_dispatch"
+                )
+            dispatch_rank = {
+                "not_dispatched": 0,
+                "dispatched": 1,
+                "confirmed": 2,
+                "uncertain": 2,
+            }
+            if dispatch_rank[provider_dispatch_state] < dispatch_rank[
+                str(existing["provider_dispatch_state"])
+            ]:
+                raise RouterRepositoryError(
+                    "provider_multimodal_dispatch_cannot_regress"
+                )
+            existing_operation_id = existing["upstream_operation_id"]
+            if (
+                existing_operation_id is not None
+                and upstream_operation_id is not None
+                and str(existing_operation_id) != upstream_operation_id
+            ):
+                raise RouterRepositoryError(
+                    "provider_multimodal_upstream_operation_cannot_change"
+                )
+            claims_dispatch = (
+                not bool(existing["post_dispatched"]) and post_dispatched
+            )
+            cursor = connection.execute(
+                """
+                UPDATE provider_multimodal_certification_sessions
+                SET status = ?, provider_dispatch_state = ?,
+                    post_dispatched = ?,
+                    upstream_operation_id = COALESCE(?, upstream_operation_id),
+                    error_code = ?,
+                    poll_count = poll_count + ?,
+                    updated_at = ?,
+                    completed_at = CASE WHEN ? = 1 THEN ? ELSE completed_at END
+                WHERE tenant_id = ? AND id = ? AND status = 'running'
+                    AND (
+                        ? = 0
+                        OR (
+                            post_dispatched = 0
+                            AND provider_dispatch_state = 'not_dispatched'
+                        )
+                    )
+                """,
+                (
+                    status,
+                    provider_dispatch_state,
+                    int(post_dispatched),
+                    upstream_operation_id,
+                    error_code,
+                    int(increment_poll_count),
+                    now,
+                    int(completed),
+                    now,
+                    clean_tenant,
+                    session_id,
+                    int(claims_dispatch),
+                ),
+            )
+            if cursor.rowcount != 1:
+                if claims_dispatch:
+                    raise RouterRepositoryError(
+                        "provider_multimodal_dispatch_already_claimed"
+                    )
+                raise RouterRepositoryError(
+                    "provider_multimodal_session_not_running"
+                )
+            row = connection.execute(
+                """
+                SELECT * FROM provider_multimodal_certification_sessions
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, session_id),
+            ).fetchone()
+        return dict(row)
 
     def get_workload_policy_bundle(
         self, tenant_id: str, *, entry_id: str | None = None
@@ -3519,8 +3944,9 @@ class SQLiteRouterRepository:
                         tenant_id, entry_id, execution_shape, model_id,
                         connection_id, certification_id, certification_source,
                         connection_fingerprint, qualification_fingerprint,
-                        rerank_access_mode, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        adapter_contract, protocol_version, rerank_access_mode,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         clean_tenant,
@@ -3532,6 +3958,8 @@ class SQLiteRouterRepository:
                         binding["certification_source"],
                         binding["connection_fingerprint"],
                         binding["qualification_fingerprint"],
+                        binding.get("adapter_contract"),
+                        binding.get("protocol_version"),
                         binding.get("rerank_access_mode"),
                         now,
                         now,
@@ -3728,6 +4156,8 @@ class SQLiteRouterRepository:
         connection_fingerprint: str,
         logical_call_key_hash: str,
         call_sequence: int,
+        adapter_contract: str | None = None,
+        protocol_version: str | None = None,
     ) -> tuple[dict[str, object], bool]:
         clean_tenant = self._tenant_id(tenant_id)
         now = utc_now()
@@ -3757,9 +4187,12 @@ class SQLiteRouterRepository:
                     INSERT INTO provider_workload_calls (
                         id, tenant_id, run_id, entry_id, execution_shape,
                         requested_model, connection_id, certification_id,
-                        connection_fingerprint, logical_call_key_hash,
-                        call_sequence, status, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?)
+                        connection_fingerprint, adapter_contract, protocol_version,
+                        provider_dispatch_state, logical_call_key_hash,
+                        call_sequence, status,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                        'not_dispatched', ?, ?, 'running', ?, ?)
                     """,
                     (
                         call_id,
@@ -3771,6 +4204,8 @@ class SQLiteRouterRepository:
                         connection_id,
                         certification_id,
                         connection_fingerprint,
+                        adapter_contract,
+                        protocol_version,
                         logical_call_key_hash,
                         int(call_sequence),
                         now,
@@ -3813,6 +4248,8 @@ class SQLiteRouterRepository:
         certification_id: str,
         connection_fingerprint: str,
         policy_fingerprint: str,
+        adapter_contract: str | None = None,
+        protocol_version: str | None = None,
     ) -> None:
         clean_tenant = self._tenant_id(tenant_id)
         with self._lock, self._connect() as connection:
@@ -3834,13 +4271,16 @@ class SQLiteRouterRepository:
             cursor = connection.execute(
                 """
                 UPDATE provider_workload_calls
-                SET dispatched = 1, updated_at = ?
+                SET dispatched = 1, provider_dispatch_state = 'dispatched',
+                    updated_at = ?
                 WHERE tenant_id = ? AND id = ?
                     AND status = 'running' AND dispatched = 0
                     AND run_id = ? AND entry_id = ?
                     AND execution_shape = ? AND requested_model = ?
                     AND connection_id = ? AND certification_id = ?
                     AND connection_fingerprint = ?
+                    AND COALESCE(adapter_contract, '') = ?
+                    AND COALESCE(protocol_version, '') = ?
                     AND EXISTS (
                         SELECT 1 FROM provider_workload_runs AS run
                         JOIN provider_workload_policies AS policy
@@ -3875,6 +4315,8 @@ class SQLiteRouterRepository:
                     connection_id,
                     certification_id,
                     connection_fingerprint,
+                    adapter_contract or "",
+                    protocol_version or "",
                     policy_fingerprint,
                     policy_fingerprint,
                 ),
@@ -3923,6 +4365,11 @@ class SQLiteRouterRepository:
                 SET status = ?, result_class = ?, error_code = ?, actual_model = ?,
                     ttft_ms = ?, e2e_ms = ?, prompt_tokens = ?,
                     completion_tokens = ?, total_tokens = ?,
+                    provider_dispatch_state = CASE
+                        WHEN ? = 'uncertain' AND dispatched = 1 THEN 'uncertain'
+                        WHEN dispatched = 1 THEN 'confirmed'
+                        ELSE provider_dispatch_state
+                    END,
                     updated_at = ?, completed_at = ?
                 WHERE tenant_id = ? AND id = ? AND status = 'running'
                 """,
@@ -3936,6 +4383,7 @@ class SQLiteRouterRepository:
                     prompt_tokens,
                     completion_tokens,
                     total_tokens,
+                    status,
                     now,
                     now,
                     clean_tenant,
@@ -4504,6 +4952,7 @@ class SQLiteRouterRepository:
             "video_jobs",
             "audio_jobs",
             "realtime_calls",
+            "provider_multimodal_certification_sessions",
         )
         with self._lock, self._connect() as connection:
             return {
@@ -5853,8 +6302,11 @@ class SQLiteRouterRepository:
                 for scope in decoded_scopes
                 if scope in {
                     "chat",
+                    "document",
+                    "image",
                     "audio",
                     "realtime",
+                    "video",
                     "embedding",
                     "rerank",
                     "batch",

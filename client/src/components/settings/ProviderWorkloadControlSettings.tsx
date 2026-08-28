@@ -27,7 +27,25 @@ type EntryId =
   | "rag_embedding"
   | "rag_rerank"
   | "skill_rerank"
-  | "openrouter_batch";
+  | "openrouter_batch"
+  | "chat_image"
+  | "chat_document_native"
+  | "rag_vision"
+  | "workflow_interactive_vision"
+  | "workflow_deployment_vision"
+  | "xpert_vision"
+  | "image_generation"
+  | "multimodal_transcription"
+  | "multimodal_speech"
+  | "xpert_transcription"
+  | "xpert_speech"
+  | "chat_audio_input"
+  | "chat_audio_output"
+  | "audio_generation"
+  | "multimodal_video_analysis"
+  | "chat_video"
+  | "video_generation"
+  | "realtime_voice";
 type ExecutionShape =
   | "chat_text"
   | "chat_tools"
@@ -37,7 +55,35 @@ type ExecutionShape =
   | "embedding_vectors"
   | "rerank_documents"
   | "openrouter_batch_chat"
-  | "openrouter_batch_embeddings";
+  | "openrouter_batch_embeddings"
+  | "chat_image_stream"
+  | "chat_document_stream"
+  | "vision_json_unary"
+  | "image_generation"
+  | "audio_transcription"
+  | "audio_speech"
+  | "chat_audio_input"
+  | "chat_audio_output"
+  | "audio_generation_stream"
+  | "video_analysis_unary"
+  | "chat_video_stream"
+  | "video_generation_async"
+  | "realtime_voice_session";
+type AdapterContract =
+  | "openrouter_chat_multimodal_v1"
+  | "openai_compatible_chat_multimodal_v1"
+  | "openrouter_chat_native_pdf_v1"
+  | "openrouter_images_v1"
+  | "openai_compatible_images_generations_v1"
+  | "openrouter_audio_transcription_json_v1"
+  | "openai_compatible_audio_transcription_multipart_v1"
+  | "openrouter_audio_speech_v1"
+  | "openai_compatible_audio_speech_v1"
+  | "openrouter_chat_audio_v1"
+  | "openrouter_audio_generation_stream_v1"
+  | "openrouter_chat_video_v1"
+  | "openrouter_video_jobs_v1"
+  | "openai_realtime_sdp_v1";
 type PolicyStatus = "legacy" | "managed_required" | "degraded_required";
 type LocalFallbackMode = "none" | "extractive" | "lexical";
 type RerankAccessMode = "dedicated" | "llm_json";
@@ -71,6 +117,8 @@ interface CertificationSummary {
   vector_dimension?: number | null;
   batch_job_id?: string | null;
   batch_status?: string | null;
+  adapter_contract?: AdapterContract | null;
+  protocol_version?: string | null;
 }
 
 interface BindingSummary {
@@ -81,6 +129,8 @@ interface BindingSummary {
   provider_kind: string;
   certification_id: string;
   rerank_access_mode?: RerankAccessMode | null;
+  adapter_contract?: AdapterContract | null;
+  protocol_version?: string | null;
   valid: boolean;
   reason_code: string;
 }
@@ -115,6 +165,9 @@ interface ReceiptCall {
   prompt_tokens?: number | null;
   completion_tokens?: number | null;
   total_tokens?: number | null;
+  adapter_contract?: AdapterContract | null;
+  protocol_version?: string | null;
+  provider_dispatch_state?: string | null;
 }
 
 interface ReceiptRun {
@@ -139,6 +192,7 @@ interface EditableBinding {
   model_id: string;
   connection_id: string;
   rerank_access_mode?: RerankAccessMode | null;
+  adapter_contract?: AdapterContract | null;
 }
 
 const ENTRY_LABELS: Record<EntryId, string> = {
@@ -161,6 +215,24 @@ const ENTRY_LABELS: Record<EntryId, string> = {
   rag_rerank: "RAG Rerank",
   skill_rerank: "Skill Rerank",
   openrouter_batch: "OpenRouter Batch",
+  chat_image: "Chat 图片理解",
+  chat_document_native: "Chat 原生 PDF",
+  rag_vision: "RAG Vision",
+  workflow_interactive_vision: "Workflow 交互 Vision",
+  workflow_deployment_vision: "Workflow 部署 Vision",
+  xpert_vision: "Xpert Vision",
+  image_generation: "图片生成",
+  multimodal_transcription: "独立 STT",
+  multimodal_speech: "独立 TTS",
+  xpert_transcription: "Xpert STT",
+  xpert_speech: "Xpert TTS",
+  chat_audio_input: "Chat Audio Input",
+  chat_audio_output: "Chat Audio Output",
+  audio_generation: "音频生成",
+  multimodal_video_analysis: "独立视频分析",
+  chat_video: "Chat 视频",
+  video_generation: "视频生成",
+  realtime_voice: "Realtime Voice",
 };
 
 const SHAPE_LABELS: Record<ExecutionShape, string> = {
@@ -173,6 +245,67 @@ const SHAPE_LABELS: Record<ExecutionShape, string> = {
   rerank_documents: "Rerank 文档",
   openrouter_batch_chat: "OpenRouter Chat Batch",
   openrouter_batch_embeddings: "OpenRouter Embedding Batch",
+  chat_image_stream: "图片 Chat 流",
+  chat_document_stream: "原生 PDF Chat 流",
+  vision_json_unary: "Vision 严格 JSON",
+  image_generation: "图片生成",
+  audio_transcription: "音频转录",
+  audio_speech: "语音合成",
+  chat_audio_input: "Chat 音频输入",
+  chat_audio_output: "Chat 音频输出",
+  audio_generation_stream: "音频生成流",
+  video_analysis_unary: "视频分析",
+  chat_video_stream: "视频 Chat 流",
+  video_generation_async: "异步视频生成",
+  realtime_voice_session: "Realtime SDP 会话",
+};
+
+const MULTIMODAL_SHAPES = new Set<ExecutionShape>([
+  "chat_image_stream", "chat_document_stream", "vision_json_unary",
+  "image_generation", "audio_transcription", "audio_speech",
+  "chat_audio_input", "chat_audio_output", "audio_generation_stream",
+  "video_analysis_unary", "chat_video_stream", "video_generation_async",
+  "realtime_voice_session",
+]);
+
+const ADAPTER_OPTIONS: Record<AdapterContract, {
+  label: string;
+  shapes: ExecutionShape[];
+  kinds: string[];
+  scopes: string[];
+}> = {
+  openrouter_chat_multimodal_v1: { label: "OpenRouter Chat Multimodal", shapes: ["chat_image_stream", "vision_json_unary"], kinds: ["openrouter"], scopes: ["chat", "image"] },
+  openai_compatible_chat_multimodal_v1: { label: "OpenAI-compatible Chat Multimodal", shapes: ["chat_image_stream", "vision_json_unary"], kinds: ["newapi", "openai_compatible", "openai"], scopes: ["chat", "image"] },
+  openrouter_chat_native_pdf_v1: { label: "OpenRouter Native PDF", shapes: ["chat_document_stream"], kinds: ["openrouter"], scopes: ["chat", "document"] },
+  openrouter_images_v1: { label: "OpenRouter Images", shapes: ["image_generation"], kinds: ["openrouter"], scopes: ["image"] },
+  openai_compatible_images_generations_v1: { label: "OpenAI-compatible Images", shapes: ["image_generation"], kinds: ["newapi", "openai_compatible", "openai"], scopes: ["image"] },
+  openrouter_audio_transcription_json_v1: { label: "OpenRouter STT JSON", shapes: ["audio_transcription"], kinds: ["openrouter"], scopes: ["audio"] },
+  openai_compatible_audio_transcription_multipart_v1: { label: "OpenAI-compatible STT Multipart", shapes: ["audio_transcription"], kinds: ["newapi", "openai_compatible", "openai"], scopes: ["audio"] },
+  openrouter_audio_speech_v1: { label: "OpenRouter TTS", shapes: ["audio_speech"], kinds: ["openrouter"], scopes: ["audio"] },
+  openai_compatible_audio_speech_v1: { label: "OpenAI-compatible TTS", shapes: ["audio_speech"], kinds: ["newapi", "openai_compatible", "openai"], scopes: ["audio"] },
+  openrouter_chat_audio_v1: { label: "OpenRouter Chat Audio", shapes: ["chat_audio_input", "chat_audio_output"], kinds: ["openrouter"], scopes: ["chat", "audio"] },
+  openrouter_audio_generation_stream_v1: { label: "OpenRouter Audio Generation", shapes: ["audio_generation_stream"], kinds: ["openrouter"], scopes: ["audio"] },
+  openrouter_chat_video_v1: { label: "OpenRouter Chat Video", shapes: ["video_analysis_unary", "chat_video_stream"], kinds: ["openrouter"], scopes: ["chat", "video"] },
+  openrouter_video_jobs_v1: { label: "OpenRouter Video Jobs", shapes: ["video_generation_async"], kinds: ["openrouter"], scopes: ["video"] },
+  openai_realtime_sdp_v1: { label: "OpenAI Realtime SDP", shapes: ["realtime_voice_session"], kinds: ["openai"], scopes: ["realtime"] },
+};
+
+const adaptersForShape = (shape: ExecutionShape) =>
+  (Object.entries(ADAPTER_OPTIONS) as [AdapterContract, (typeof ADAPTER_OPTIONS)[AdapterContract]][])
+    .filter(([, spec]) => spec.shapes.includes(shape));
+
+const connectionSupports = (
+  connection: ConnectionSummary,
+  shape: ExecutionShape,
+  adapter?: AdapterContract | null,
+) => {
+  if (shape.startsWith("openrouter_batch_")) return connection.kind === "openrouter" && (connection.scopes ?? []).includes("batch");
+  if (!MULTIMODAL_SHAPES.has(shape)) return (connection.scopes ?? []).includes(requiredScope(shape));
+  if (!adapter) return false;
+  const spec = ADAPTER_OPTIONS[adapter];
+  return spec.shapes.includes(shape)
+    && spec.kinds.includes(connection.kind)
+    && spec.scopes.every((scope) => (connection.scopes ?? []).includes(scope));
 };
 
 const NEW_CERTIFICATION_SHAPES: ExecutionShape[] = [
@@ -183,6 +316,19 @@ const NEW_CERTIFICATION_SHAPES: ExecutionShape[] = [
   "rerank_documents",
   "openrouter_batch_chat",
   "openrouter_batch_embeddings",
+  "chat_image_stream",
+  "chat_document_stream",
+  "vision_json_unary",
+  "image_generation",
+  "audio_transcription",
+  "audio_speech",
+  "chat_audio_input",
+  "chat_audio_output",
+  "audio_generation_stream",
+  "video_analysis_unary",
+  "chat_video_stream",
+  "video_generation_async",
+  "realtime_voice_session",
 ];
 
 export const ENTRY_SHAPES: Record<EntryId, ExecutionShape[]> = {
@@ -205,6 +351,24 @@ export const ENTRY_SHAPES: Record<EntryId, ExecutionShape[]> = {
   rag_rerank: ["rerank_documents"],
   skill_rerank: ["rerank_documents"],
   openrouter_batch: ["openrouter_batch_chat", "openrouter_batch_embeddings"],
+  chat_image: ["chat_image_stream"],
+  chat_document_native: ["chat_document_stream"],
+  rag_vision: ["vision_json_unary"],
+  workflow_interactive_vision: ["vision_json_unary"],
+  workflow_deployment_vision: ["vision_json_unary"],
+  xpert_vision: ["vision_json_unary"],
+  image_generation: ["image_generation"],
+  multimodal_transcription: ["audio_transcription"],
+  multimodal_speech: ["audio_speech"],
+  xpert_transcription: ["audio_transcription"],
+  xpert_speech: ["audio_speech"],
+  chat_audio_input: ["chat_audio_input"],
+  chat_audio_output: ["chat_audio_output"],
+  audio_generation: ["audio_generation_stream"],
+  multimodal_video_analysis: ["video_analysis_unary"],
+  chat_video: ["chat_video_stream"],
+  video_generation: ["video_generation_async"],
+  realtime_voice: ["realtime_voice_session"],
 };
 
 const FALLBACK_OPTIONS: Record<EntryId, LocalFallbackMode[]> = Object.fromEntries(
@@ -224,6 +388,11 @@ function requiredScope(shape: ExecutionShape) {
   if (shape === "embedding_vectors") return "embedding";
   if (shape === "rerank_documents") return "rerank";
   if (shape.startsWith("openrouter_batch_")) return "batch";
+  if (shape === "chat_document_stream") return "document";
+  if (["chat_image_stream", "vision_json_unary", "image_generation"].includes(shape)) return "image";
+  if (["audio_transcription", "audio_speech", "chat_audio_input", "chat_audio_output", "audio_generation_stream"].includes(shape)) return "audio";
+  if (["video_analysis_unary", "chat_video_stream", "video_generation_async"].includes(shape)) return "video";
+  if (shape === "realtime_voice_session") return "realtime";
   return "chat";
 }
 
@@ -240,6 +409,10 @@ const REASON_LABELS: Record<string, string> = {
   provider_workload_credential_unavailable: "Provider 凭据当前无法解密",
   provider_workload_certification_expired: "执行形态资格已过期，需要重新认证",
   provider_connection_not_online: "Managed 连接当前不在线",
+  provider_multimodal_adapter_required: "多模态 Binding 必须显式选择 Adapter",
+  provider_multimodal_adapter_shape_mismatch: "Adapter 与执行形态不匹配",
+  provider_multimodal_adapter_provider_mismatch: "Provider 类型不支持该 Adapter",
+  provider_multimodal_protocol_stale: "多模态协议版本已变化，需要重新认证",
   qualified: "资格有效",
 };
 
@@ -292,6 +465,8 @@ export default function ProviderWorkloadControlSettings({
   const [rerankAccessMode, setRerankAccessMode] = useState<RerankAccessMode>(
     "dedicated",
   );
+  const [certificationAdapter, setCertificationAdapter] =
+    useState<AdapterContract | null>(null);
   const [confirmCertification, setConfirmCertification] = useState(false);
 
   const [entryId, setEntryId] = useState<EntryId>("agent_shadow");
@@ -372,6 +547,7 @@ export default function ProviderWorkloadControlSettings({
         model_id: binding.model_id,
         connection_id: binding.connection_id,
         rerank_access_mode: binding.rerank_access_mode ?? null,
+        adapter_contract: binding.adapter_contract ?? null,
       })),
     );
   }, [selectedPolicy]);
@@ -382,11 +558,20 @@ export default function ProviderWorkloadControlSettings({
   );
   const certificationEligibleConnections = useMemo(
     () => eligibleConnections.filter((connection) =>
-      (connection.scopes ?? []).includes(requiredScope(certificationShape))
-      && (!certificationShape.startsWith("openrouter_batch_") || connection.kind === "openrouter"),
+      connectionSupports(connection, certificationShape, certificationAdapter),
     ),
-    [certificationShape, eligibleConnections],
+    [certificationAdapter, certificationShape, eligibleConnections],
   );
+
+  useEffect(() => {
+    const options = adaptersForShape(certificationShape);
+    if (!MULTIMODAL_SHAPES.has(certificationShape)) {
+      setCertificationAdapter(null);
+      return;
+    }
+    if (options.some(([contract]) => contract === certificationAdapter)) return;
+    setCertificationAdapter(options[0]?.[0] ?? null);
+  }, [certificationAdapter, certificationShape]);
 
   useEffect(() => {
     if (certificationEligibleConnections.some((item) => item.id === connectionId)) {
@@ -422,6 +607,7 @@ export default function ProviderWorkloadControlSettings({
               certificationShape === "fusion_native" ? judgeModel.trim() : null,
             rerank_access_mode:
               certificationShape === "rerank_documents" ? rerankAccessMode : null,
+            adapter_contract: certificationAdapter,
           }),
         },
       );
@@ -443,6 +629,7 @@ export default function ProviderWorkloadControlSettings({
     candidateModels,
     certificationModel,
     certificationShape,
+    certificationAdapter,
     connectionId,
     csrfToken,
     judgeModel,
@@ -452,9 +639,9 @@ export default function ProviderWorkloadControlSettings({
 
   const addBinding = () => {
     const shape = ENTRY_SHAPES[entryId][0];
+    const adapter = adaptersForShape(shape)[0]?.[0] ?? null;
     const firstConnection = eligibleConnections.find((connection) =>
-      (connection.scopes ?? []).includes(requiredScope(shape))
-      && (!shape.startsWith("openrouter_batch_") || connection.kind === "openrouter"),
+      connectionSupports(connection, shape, adapter),
     )?.id ?? "";
     if (!firstConnection || !shape) return;
     setEditableBindings((current) => [
@@ -464,6 +651,7 @@ export default function ProviderWorkloadControlSettings({
         model_id: "",
         connection_id: firstConnection,
         rerank_access_mode: shape === "rerank_documents" ? "dedicated" : null,
+        adapter_contract: adapter,
       },
     ]);
   };
@@ -491,6 +679,9 @@ export default function ProviderWorkloadControlSettings({
               connection_id: binding.connection_id,
               ...(binding.execution_shape === "rerank_documents"
                 ? { rerank_access_mode: binding.rerank_access_mode ?? "dedicated" }
+                : {}),
+              ...(binding.adapter_contract
+                ? { adapter_contract: binding.adapter_contract }
                 : {}),
             })),
           }),
@@ -587,17 +778,19 @@ export default function ProviderWorkloadControlSettings({
 
   if (view === "certifications") {
     const fusionSelected = certificationShape === "fusion_native";
+    const multimodalFoundationOnly = MULTIMODAL_SHAPES.has(certificationShape);
     const canConfirm = Boolean(
       connectionId &&
       certificationModel.trim() &&
-      (!fusionSelected || (candidateModels.trim() && judgeModel.trim())),
+      (!fusionSelected || (candidateModels.trim() && judgeModel.trim())) &&
+      !multimodalFoundationOnly,
     );
     return (
       <section className="mb-6 overflow-hidden rounded-lg border border-violet-300/15 bg-ink-950/82 shadow-prism">
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-white/10 bg-violet-300/[0.04] px-5 py-5">
           <div>
             <p className="text-sm font-semibold text-violet-100">Managed Workload 资格</p>
-            <h2 className="mt-2 text-xl font-semibold text-white">R6 / R7 精确 Operation 合同</h2>
+            <h2 className="mt-2 text-xl font-semibold text-white">R6 / R7 资格与 R8 Adapter 基础</h2>
             <p className="mt-2 max-w-[78ch] text-sm leading-6 text-slate-300">
               仅发送固定合成输入，自动刷新完整目录，并对精确连接、模型和执行形态留存脱敏资格。Embedding、Rerank 与 Batch 不会因此自动接管数据面。
             </p>
@@ -625,6 +818,12 @@ export default function ProviderWorkloadControlSettings({
               精确模型 ID
               <input className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 text-white" onChange={(event) => setCertificationModel(event.target.value)} placeholder={fusionSelected ? "openrouter/fusion" : "provider/model"} value={certificationModel} />
             </label>
+            {multimodalFoundationOnly ? <label className="block text-sm text-slate-300">
+              Adapter Contract
+              <select className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 text-white" onChange={(event) => setCertificationAdapter(event.target.value as AdapterContract)} value={certificationAdapter ?? ""}>
+                {adaptersForShape(certificationShape).map(([contract, spec]) => <option key={contract} value={contract}>{spec.label}</option>)}
+              </select>
+            </label> : null}
             {fusionSelected ? <>
               <label className="block text-sm text-slate-300">有序候选模型（每行一个）<textarea className="mt-2 min-h-24 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 font-mono text-xs text-white" onChange={(event) => setCandidateModels(event.target.value)} value={candidateModels} /></label>
               <label className="block text-sm text-slate-300">裁判模型 ID<input className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 text-white" onChange={(event) => setJudgeModel(event.target.value)} value={judgeModel} /></label>
@@ -636,6 +835,7 @@ export default function ProviderWorkloadControlSettings({
                 <option value="llm_json">LLM JSON Adapter</option>
               </select>
             </label> : null}
+            {multimodalFoundationOnly ? <p className="rounded-lg border border-amber-300/20 bg-amber-300/[0.06] p-3 text-xs leading-5 text-amber-100">R8A 仅建立 Adapter、Binding 和状态基础，不会发送付费认证。对应数据面批次接入后才开放此按钮。</p> : null}
             <button className="inline-flex items-center gap-2 rounded-full bg-violet-200 px-4 py-2 text-sm font-semibold text-ink-950 disabled:cursor-not-allowed disabled:opacity-40" disabled={!canConfirm || busy} onClick={() => setConfirmCertification(true)} type="button">
               <ShieldCheck className="h-4 w-4" />运行资格认证
             </button>
@@ -650,6 +850,7 @@ export default function ProviderWorkloadControlSettings({
                 {item.rerank_access_mode ? <p className="mt-1 text-xs text-slate-500">访问方式：{item.rerank_access_mode}</p> : null}
                 {item.vector_dimension != null ? <p className="mt-1 text-xs text-slate-500">向量维度：{item.vector_dimension}</p> : null}
                 {item.batch_status ? <p className="mt-1 text-xs text-slate-500">Batch：{item.batch_status} · {item.batch_job_id}</p> : null}
+                {item.adapter_contract ? <p className="mt-1 break-all text-xs text-slate-500">Adapter：{item.adapter_contract} · {item.protocol_version ?? "协议待确认"}</p> : null}
               </div>) : <p className="rounded-lg border border-dashed border-white/10 p-4 text-sm text-slate-400">尚无 Workload 资格记录。</p>}
             </div>
           </div>
@@ -670,7 +871,7 @@ export default function ProviderWorkloadControlSettings({
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-white/10 bg-sky-300/[0.04] px-5 py-5">
         <div>
           <p className="text-sm font-semibold text-sky-100">Managed Workload 控制策略</p>
-          <h2 className="mt-2 text-xl font-semibold text-white">R6 / R7 入口、精确 Binding 与 Receipt</h2>
+          <h2 className="mt-2 text-xl font-semibold text-white">R6 / R7 入口与 R8 多模态控制面基础</h2>
           <p className="mt-2 max-w-[80ch] text-sm leading-6 text-slate-300">仅已完成对应数据面子轮次、资格有效且通过人工 fail-closed 确认的入口可以激活；其他入口继续保持 Legacy。</p>
         </div>
         <button className="inline-flex items-center gap-2 rounded-full border border-white/15 px-3 py-2 text-xs font-semibold text-slate-200" onClick={() => void load()} type="button"><RefreshCw className="h-3.5 w-3.5" />刷新</button>
@@ -688,27 +889,33 @@ export default function ProviderWorkloadControlSettings({
         </div>
         <div>
           <div className="flex items-center justify-between"><h3 className="flex items-center gap-2 text-sm font-semibold text-white"><Route className="h-4 w-4" />精确模型 Binding</h3><button className="rounded-full border border-white/15 px-3 py-1.5 text-xs text-slate-200 disabled:opacity-40" disabled={!eligibleConnections.length} onClick={addBinding} type="button">添加 Binding</button></div>
-          <div className="mt-3 space-y-3">{editableBindings.map((binding, index) => <div className="grid gap-2 rounded-lg border border-white/10 bg-white/[0.025] p-3 md:grid-cols-[0.8fr_0.85fr_1.2fr_1fr_auto]" key={`${index}-${binding.execution_shape}`}>
+          <div className="mt-3 space-y-3">{editableBindings.map((binding, index) => <div className="grid gap-2 rounded-lg border border-white/10 bg-white/[0.025] p-3 md:grid-cols-[0.8fr_1fr_1.2fr_1fr_auto]" key={`${index}-${binding.execution_shape}`}>
             <select aria-label={`Binding ${index + 1} 执行形态`} className="rounded-lg border border-white/10 bg-ink-950 px-2 py-2 text-sm text-white" value={binding.execution_shape} onChange={(event) => setEditableBindings((current) => current.map((item, position) => {
               if (position !== index) return item;
               const executionShape = event.target.value as ExecutionShape;
+              const adapterContract = adaptersForShape(executionShape)[0]?.[0] ?? null;
               const nextConnection = eligibleConnections.find((connection) =>
-                (connection.scopes ?? []).includes(requiredScope(executionShape))
-                && (!executionShape.startsWith("openrouter_batch_") || connection.kind === "openrouter")
+                connectionSupports(connection, executionShape, adapterContract)
               )?.id ?? "";
               return {
                 ...item,
                 execution_shape: executionShape,
                 connection_id: nextConnection,
                 rerank_access_mode: executionShape === "rerank_documents" ? "dedicated" : null,
+                adapter_contract: adapterContract,
               };
             }))}>{ENTRY_SHAPES[entryId].map((shape) => <option key={shape} value={shape}>{SHAPE_LABELS[shape]}</option>)}</select>
-            {binding.execution_shape === "rerank_documents" ? <select aria-label={`Binding ${index + 1} Rerank 访问方式`} className="rounded-lg border border-white/10 bg-ink-950 px-2 py-2 text-sm text-white" onChange={(event) => setEditableBindings((current) => current.map((item, position) => position === index ? { ...item, rerank_access_mode: event.target.value as RerankAccessMode } : item))} value={binding.rerank_access_mode ?? "dedicated"}><option value="dedicated">Dedicated API</option><option value="llm_json">LLM JSON Adapter</option></select> : <span className="flex items-center rounded-lg border border-white/5 px-2 text-xs text-slate-500">固定契约</span>}
+            {binding.execution_shape === "rerank_documents" ? <select aria-label={`Binding ${index + 1} Rerank 访问方式`} className="rounded-lg border border-white/10 bg-ink-950 px-2 py-2 text-sm text-white" onChange={(event) => setEditableBindings((current) => current.map((item, position) => position === index ? { ...item, rerank_access_mode: event.target.value as RerankAccessMode } : item))} value={binding.rerank_access_mode ?? "dedicated"}><option value="dedicated">Dedicated API</option><option value="llm_json">LLM JSON Adapter</option></select> : MULTIMODAL_SHAPES.has(binding.execution_shape) ? <select aria-label={`Binding ${index + 1} Adapter`} className="rounded-lg border border-white/10 bg-ink-950 px-2 py-2 text-xs text-white" onChange={(event) => setEditableBindings((current) => current.map((item, position) => {
+              if (position !== index) return item;
+              const adapterContract = event.target.value as AdapterContract;
+              const nextConnection = eligibleConnections.find((connection) => connectionSupports(connection, item.execution_shape, adapterContract))?.id ?? "";
+              return { ...item, adapter_contract: adapterContract, connection_id: nextConnection };
+            }))} value={binding.adapter_contract ?? ""}>{adaptersForShape(binding.execution_shape).map(([contract, spec]) => <option key={contract} value={contract}>{spec.label}</option>)}</select> : <span className="flex items-center rounded-lg border border-white/5 px-2 text-xs text-slate-500">固定契约</span>}
             <input aria-label={`Binding ${index + 1} 模型 ID`} className="rounded-lg border border-white/10 bg-ink-950 px-2 py-2 font-mono text-xs text-white" onChange={(event) => setEditableBindings((current) => current.map((item, position) => position === index ? { ...item, model_id: event.target.value } : item))} placeholder="精确模型 ID" value={binding.model_id} />
-            <select aria-label={`Binding ${index + 1} 连接`} className="rounded-lg border border-white/10 bg-ink-950 px-2 py-2 text-sm text-white" value={binding.connection_id} onChange={(event) => setEditableBindings((current) => current.map((item, position) => position === index ? { ...item, connection_id: event.target.value } : item))}>{eligibleConnections.filter((connection) => (connection.scopes ?? []).includes(requiredScope(binding.execution_shape)) && (!binding.execution_shape.startsWith("openrouter_batch_") || connection.kind === "openrouter")).map((connection) => <option key={connection.id} value={connection.id}>{connection.name}</option>)}</select>
+            <select aria-label={`Binding ${index + 1} 连接`} className="rounded-lg border border-white/10 bg-ink-950 px-2 py-2 text-sm text-white" value={binding.connection_id} onChange={(event) => setEditableBindings((current) => current.map((item, position) => position === index ? { ...item, connection_id: event.target.value } : item))}>{eligibleConnections.filter((connection) => connectionSupports(connection, binding.execution_shape, binding.adapter_contract)).map((connection) => <option key={connection.id} value={connection.id}>{connection.name}</option>)}</select>
             <button className="rounded-full border border-rose-300/20 px-3 py-2 text-xs text-rose-100" onClick={() => setEditableBindings((current) => current.filter((_, position) => position !== index))} type="button">移除</button>
           </div>)}{!editableBindings.length ? <p className="rounded-lg border border-dashed border-white/10 p-4 text-sm text-slate-400">尚未配置；没有 Binding 时不能激活。</p> : null}</div>
-          <div className="mt-4 flex flex-wrap gap-2"><button className="rounded-full bg-sky-200 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-40" disabled={busy || !selectedPolicy || editableBindings.some((item) => !item.model_id.trim() || !item.connection_id)} onClick={() => void savePolicy()} type="button">保存 Binding</button>{selectedPolicy?.configured_status !== "legacy" ? <button className="rounded-full border border-white/15 px-4 py-2 text-sm text-slate-200" disabled={busy} onClick={() => void deactivate()} type="button">显式恢复 Legacy</button> : null}{selectedPolicy && (selectedPolicy.configured_status === "legacy" || !selectedPolicy.approval_valid) ? <button className="rounded-full border border-amber-300/30 px-4 py-2 text-sm text-amber-100 disabled:cursor-not-allowed disabled:opacity-40" disabled={busy || !selectedPolicy.data_plane_integrated || !selectedPolicy.feature_enabled || selectedPolicy.blocking_reason_codes.length > 0} onClick={() => setConfirmActivation(true)} type="button">{selectedPolicy.configured_status === "legacy" ? "激活 Managed 必经" : "重新批准 Managed 必经"}</button> : null}</div>
+          <div className="mt-4 flex flex-wrap gap-2"><button className="rounded-full bg-sky-200 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-40" disabled={busy || !selectedPolicy || editableBindings.some((item) => !item.model_id.trim() || !item.connection_id || (MULTIMODAL_SHAPES.has(item.execution_shape) && !item.adapter_contract))} onClick={() => void savePolicy()} type="button">保存 Binding</button>{selectedPolicy?.configured_status !== "legacy" ? <button className="rounded-full border border-white/15 px-4 py-2 text-sm text-slate-200" disabled={busy} onClick={() => void deactivate()} type="button">显式恢复 Legacy</button> : null}{selectedPolicy && (selectedPolicy.configured_status === "legacy" || !selectedPolicy.approval_valid) ? <button className="rounded-full border border-amber-300/30 px-4 py-2 text-sm text-amber-100 disabled:cursor-not-allowed disabled:opacity-40" disabled={busy || !selectedPolicy.data_plane_integrated || !selectedPolicy.feature_enabled || selectedPolicy.blocking_reason_codes.length > 0} onClick={() => setConfirmActivation(true)} type="button">{selectedPolicy.configured_status === "legacy" ? "激活 Managed 必经" : "重新批准 Managed 必经"}</button> : null}</div>
         </div>
       </div>
       <div className="border-t border-white/10 p-5">
@@ -739,6 +946,7 @@ export default function ProviderWorkloadControlSettings({
                     <p className="mt-1 break-all font-mono text-[10px] text-slate-400">请求模型：{call.model_id}</p>
                     {call.actual_model ? <p className="mt-1 break-all font-mono text-[10px] text-slate-400">实际模型：{call.actual_model}</p> : null}
                     {call.connection_id ? <p className="mt-1 break-all font-mono text-[10px] text-slate-500">连接引用：{call.connection_id}</p> : null}
+                    {call.adapter_contract ? <p className="mt-1 break-all font-mono text-[10px] text-slate-500">Adapter：{call.adapter_contract} · {call.protocol_version ?? "unknown"} · {call.provider_dispatch_state ?? "unknown"}</p> : null}
                     <div className="mt-1 flex flex-wrap gap-x-3 text-slate-500">
                       {call.ttft_ms != null ? <span>TTFT {Math.round(call.ttft_ms)} ms</span> : null}
                       {call.e2e_ms != null ? <span>E2E {Math.round(call.e2e_ms)} ms</span> : null}

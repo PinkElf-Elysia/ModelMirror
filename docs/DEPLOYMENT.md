@@ -294,6 +294,32 @@ MODEL_CONTROL_OPENROUTER_BATCH_LEGACY_ID_COMPAT=false
 回滚时先禁止新提交，保留 v17 Router SQLite 与本地任务映射；已有 `mmbatch_` 仍可由 R7E
 代码只读轮询。不得删除 Batch 状态，也不得用新的幂等键猜测性重发。
 
+R8A 多模态控制面基础默认全部关闭：
+
+```bash
+MODEL_CONTROL_CHAT_IMAGE_ENABLED=false
+MODEL_CONTROL_CHAT_DOCUMENT_ENABLED=false
+MODEL_CONTROL_RAG_VISION_ENABLED=false
+MODEL_CONTROL_WORKFLOW_VISION_ENABLED=false
+MODEL_CONTROL_WORKFLOW_VISION_DEPLOYMENT_ENABLED=false
+MODEL_CONTROL_XPERT_VISION_ENABLED=false
+MODEL_CONTROL_IMAGE_GENERATION_ENABLED=false
+MODEL_CONTROL_TRANSCRIPTION_ENABLED=false
+MODEL_CONTROL_SPEECH_ENABLED=false
+MODEL_CONTROL_XPERT_AUDIO_ENABLED=false
+MODEL_CONTROL_CHAT_AUDIO_ENABLED=false
+MODEL_CONTROL_AUDIO_GENERATION_ENABLED=false
+MODEL_CONTROL_VIDEO_ANALYSIS_ENABLED=false
+MODEL_CONTROL_CHAT_VIDEO_ENABLED=false
+MODEL_CONTROL_VIDEO_GENERATION_ENABLED=false
+MODEL_CONTROL_REALTIME_VOICE_ENABLED=false
+```
+
+R8A 只迁移 Router SQLite 至 v18，并展示 scope、Adapter、Binding 与资格框架；不得把打开环境变量
+解释为数据面已接入。R8B—R8F 合并并完成对应真实验收前，Settings 会阻止多模态资格付费调用和
+Policy 激活。部署前使用 SQLite Backup API 备份 Router 数据库；回滚代码时保留 v18 表和新增的
+可空任务证据列，旧代码会忽略它们。不得删除现有媒体任务、Provider 凭据或 newAPI 数据。
+
 规则：
 
 - `.env`、API Key、token 和 master key 不得提交。

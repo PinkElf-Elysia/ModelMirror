@@ -157,6 +157,12 @@ Chat certification、显式 newAPI Canary 和多模态专用目录的已有证�
 `invocable`，也不展示仅由 Provider 发现的模型；运行时 Readiness 只在设置控制面审计。
 普通 `/api/chat` 在 R4 仍使用既有环境配置路径，受管 Provider 的数据面迁移属于 Round 5。
 
+Round 8A 在不接管任何多模态数据面的前提下增加 SQLite v18 与
+`modelmirror-provider-multimodal-v1` 协议证据。图片、原生 PDF、Vision JSON、图片生成、
+STT/TTS、Chat Audio、音频生成、视频分析/生成和 Realtime SDP 保持各自协议；控制面只建立
+精确 `entry + shape + model + connection + adapter` Binding、资格状态和脱敏 Receipt。
+所有 R8 开关默认关闭，R8A 不发起真实资格调用，现有 Chat SSE 与专用多模态路径不变。
+
 Round 5A 在控制面增加 `modelmirror-provider-chat-routing-v1`：`chat_text`、
 `chat_tools` 与 `chat_file_output` 各自具有独立认证、稳定模型资格和有序 Managed
 Provider 路由。SQLite v15 保存租户隔离的策略、资格、Gate 纪元以及不含用户正文的

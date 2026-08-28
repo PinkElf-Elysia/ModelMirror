@@ -18,6 +18,9 @@ type ConnectionScope =
   | "chat"
   | "audio"
   | "realtime"
+  | "document"
+  | "image"
+  | "video"
   | "embedding"
   | "rerank"
   | "batch";
@@ -98,6 +101,9 @@ const SCOPE_LABELS: Record<ConnectionScope, string> = {
   chat: "普通模型调用",
   audio: "音频能力",
   realtime: "实时语音",
+  document: "原生文档",
+  image: "图片与 Vision",
+  video: "视频能力",
   embedding: "Embedding",
   rerank: "Rerank",
   batch: "异步 Batch",

@@ -25,6 +25,10 @@ from server.model_router.provider_operations import (
     provider_operation_batch_model_matches,
     provider_operation_model_matches,
 )
+from server.model_router.multimodal_control import (
+    PROVIDER_MULTIMODAL_PROTOCOL_VERSION,
+    validate_multimodal_adapter,
+)
 from server.model_router.schemas import (
     ProviderWorkloadActivationRequest,
     ProviderWorkloadCertificationRequest,
@@ -48,7 +52,7 @@ from server.model_router.cleanup_chat_receipts import cleanup_receipts
 
 
 PAIRING_SECRET = "provider-admin-test-secret-at-least-32-chars"
-V17_TABLES = {
+V18_TABLES = {
     "provider_workload_certifications",
     "provider_workload_policies",
     "provider_workload_bindings",
@@ -56,6 +60,25 @@ V17_TABLES = {
     "provider_workload_calls",
     "provider_workload_approvals",
     "provider_batch_jobs",
+    "provider_multimodal_certification_sessions",
+}
+R8_FEATURE_FLAGS = {
+    "MODEL_CONTROL_CHAT_IMAGE_ENABLED",
+    "MODEL_CONTROL_CHAT_DOCUMENT_ENABLED",
+    "MODEL_CONTROL_RAG_VISION_ENABLED",
+    "MODEL_CONTROL_WORKFLOW_VISION_ENABLED",
+    "MODEL_CONTROL_WORKFLOW_VISION_DEPLOYMENT_ENABLED",
+    "MODEL_CONTROL_XPERT_VISION_ENABLED",
+    "MODEL_CONTROL_IMAGE_GENERATION_ENABLED",
+    "MODEL_CONTROL_TRANSCRIPTION_ENABLED",
+    "MODEL_CONTROL_SPEECH_ENABLED",
+    "MODEL_CONTROL_XPERT_AUDIO_ENABLED",
+    "MODEL_CONTROL_CHAT_AUDIO_ENABLED",
+    "MODEL_CONTROL_AUDIO_GENERATION_ENABLED",
+    "MODEL_CONTROL_VIDEO_ANALYSIS_ENABLED",
+    "MODEL_CONTROL_CHAT_VIDEO_ENABLED",
+    "MODEL_CONTROL_VIDEO_GENERATION_ENABLED",
+    "MODEL_CONTROL_REALTIME_VOICE_ENABLED",
 }
 
 
@@ -66,7 +89,7 @@ def _reset_admin_auth() -> None:
     reset_provider_admin_auth()
 
 
-def test_v16_to_v17_is_additive_and_tenant_scoped(tmp_path: Path) -> None:
+def test_v17_to_v18_is_additive_and_tenant_scoped(tmp_path: Path) -> None:
     database_path = tmp_path / "router.sqlite3"
     with sqlite3.connect(database_path) as connection:
         connection.execute("CREATE TABLE preserved_v15_data (value TEXT NOT NULL)")
@@ -121,19 +144,66 @@ def test_v16_to_v17_is_additive_and_tenant_scoped(tmp_path: Path) -> None:
             )
             """
         )
-        connection.execute("PRAGMA user_version = 16")
+        connection.execute(
+            """
+            CREATE TABLE provider_workload_calls (
+                id TEXT NOT NULL,
+                tenant_id TEXT NOT NULL,
+                run_id TEXT NOT NULL,
+                entry_id TEXT NOT NULL,
+                execution_shape TEXT NOT NULL,
+                requested_model TEXT NOT NULL,
+                connection_id TEXT,
+                certification_id TEXT,
+                connection_fingerprint TEXT,
+                logical_call_key_hash TEXT NOT NULL,
+                call_sequence INTEGER NOT NULL,
+                dispatched INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL,
+                result_class TEXT,
+                error_code TEXT,
+                actual_model TEXT,
+                ttft_ms REAL,
+                e2e_ms REAL,
+                prompt_tokens INTEGER,
+                completion_tokens INTEGER,
+                total_tokens INTEGER,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                completed_at TEXT,
+                PRIMARY KEY (tenant_id, id),
+                UNIQUE (tenant_id, run_id, logical_call_key_hash),
+                UNIQUE (tenant_id, run_id, call_sequence)
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO provider_workload_calls (
+                id, tenant_id, run_id, entry_id, execution_shape,
+                requested_model, logical_call_key_hash, call_sequence,
+                dispatched, status, created_at, updated_at, completed_at
+            ) VALUES (
+                'legacy-call', 'local', 'legacy-run', 'meta_agent',
+                'chat_json_object', 'provider/model', 'legacy-key', 1,
+                1, 'completed', '2026-08-25T00:00:00Z',
+                '2026-08-25T00:00:00Z', '2026-08-25T00:00:00Z'
+            )
+            """
+        )
+        connection.execute("PRAGMA user_version = 17")
 
     repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
 
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 17
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 18
         tables = {
             row[0]
             for row in connection.execute(
                 "SELECT name FROM sqlite_master WHERE type = 'table'"
             )
         }
-        assert V17_TABLES <= tables
+        assert V18_TABLES <= tables
         assert connection.execute("SELECT value FROM preserved_v15_data").fetchone()[0] == (
             "keep-me"
         )
@@ -147,15 +217,228 @@ def test_v16_to_v17_is_additive_and_tenant_scoped(tmp_path: Path) -> None:
             "FROM provider_workload_bindings WHERE tenant_id = 'local'"
         ).fetchone()
         assert binding == ("cert-old", None)
-        assert "vector_dimension" in {
+        certification_columns = {
             row[1]
             for row in connection.execute(
                 "PRAGMA table_info(provider_workload_certifications)"
             )
         }
-    assert SCHEMA_VERSION == 17
+        assert {"vector_dimension", "adapter_contract", "protocol_version"} <= certification_columns
+        binding_columns = {
+            row[1]
+            for row in connection.execute(
+                "PRAGMA table_info(provider_workload_bindings)"
+            )
+        }
+        assert {"adapter_contract", "protocol_version"} <= binding_columns
+        call_column_rows = connection.execute(
+            "PRAGMA table_info(provider_workload_calls)"
+        ).fetchall()
+        call_columns = {row[1] for row in call_column_rows}
+        assert {"adapter_contract", "protocol_version", "provider_dispatch_state"} <= call_columns
+        dispatch_column = next(
+            row for row in call_column_rows if row[1] == "provider_dispatch_state"
+        )
+        assert dispatch_column[3] == 0
+        assert connection.execute(
+            "SELECT provider_dispatch_state FROM provider_workload_calls "
+            "WHERE tenant_id = 'local' AND id = 'legacy-call'"
+        ).fetchone()[0] is None
+        for table_name in ("audio_jobs", "video_jobs", "realtime_calls"):
+            job_columns = {
+                row[1]
+                for row in connection.execute(f"PRAGMA table_info({table_name})")
+            }
+            assert {"workload_run_id", "workload_call_id", "adapter_contract", "provider_dispatch_state", "post_dispatched"} <= job_columns
+    assert SCHEMA_VERSION == 18
     assert len(repository.get_workload_policy_bundle("local")["policies"]) == 1
     assert repository.get_workload_policy_bundle("other")["policies"] == []
+
+
+def test_r8_feature_flags_default_off_in_deployment_surfaces() -> None:
+    root = Path(__file__).resolve().parents[2]
+    for relative_path in (".env.example", "server/.env.example", "docker-compose.yml"):
+        source = (root / relative_path).read_text(encoding="utf-8")
+        for flag in R8_FEATURE_FLAGS:
+            assert f"{flag}=" in source or f"{flag}:" in source
+            assert f"{flag}=false" in source or f"${{{flag}:-false}}" in source
+
+
+def test_multimodal_session_is_tenant_scoped_idempotent_and_restart_safe(
+    tmp_path: Path,
+) -> None:
+    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    row, created = repository.claim_multimodal_certification_session(
+        "local",
+        session_id="mmcert-session-1",
+        certification_id="mmcert-1",
+        connection_id="conn-1",
+        requested_model="provider/vision",
+        execution_shape="video_generation_async",
+        adapter_contract="openrouter_video_jobs_v1",
+        protocol_version=PROVIDER_MULTIMODAL_PROTOCOL_VERSION,
+        idempotency_key_hash="idem-hash",
+    )
+    assert created is True
+    assert row["provider_dispatch_state"] == "not_dispatched"
+    same, created_again = repository.claim_multimodal_certification_session(
+        "local",
+        session_id="ignored-session-id",
+        certification_id="mmcert-1",
+        connection_id="conn-1",
+        requested_model="provider/vision",
+        execution_shape="video_generation_async",
+        adapter_contract="openrouter_video_jobs_v1",
+        protocol_version=PROVIDER_MULTIMODAL_PROTOCOL_VERSION,
+        idempotency_key_hash="idem-hash",
+    )
+    assert created_again is False
+    assert same["id"] == "mmcert-session-1"
+    with pytest.raises(RouterRepositoryError) as protocol_conflict:
+        repository.claim_multimodal_certification_session(
+            "local",
+            session_id="mmcert-session-2",
+            certification_id="mmcert-1",
+            connection_id="conn-1",
+            requested_model="provider/vision",
+            execution_shape="video_generation_async",
+            adapter_contract="openrouter_video_jobs_v1",
+            protocol_version="modelmirror-provider-multimodal-v2",
+            idempotency_key_hash="idem-hash",
+        )
+    assert str(protocol_conflict.value) == (
+        "provider_multimodal_session_idempotency_conflict"
+    )
+    with pytest.raises(RouterRepositoryError) as connection_conflict:
+        repository.claim_multimodal_certification_session(
+            "local",
+            session_id="mmcert-session-3",
+            certification_id="mmcert-1",
+            connection_id="conn-2",
+            requested_model="provider/vision",
+            execution_shape="video_generation_async",
+            adapter_contract="openrouter_video_jobs_v1",
+            protocol_version=PROVIDER_MULTIMODAL_PROTOCOL_VERSION,
+            idempotency_key_hash="idem-hash",
+        )
+    assert str(connection_conflict.value) == (
+        "provider_multimodal_session_idempotency_conflict"
+    )
+    assert repository.list_multimodal_certification_sessions("other") == []
+    repository.update_multimodal_certification_session(
+        "local",
+        "mmcert-session-1",
+        status="running",
+        provider_dispatch_state="dispatched",
+        post_dispatched=True,
+    )
+    with pytest.raises(RouterRepositoryError) as dispatch_regression:
+        repository.update_multimodal_certification_session(
+            "local",
+            "mmcert-session-1",
+            status="running",
+            provider_dispatch_state="not_dispatched",
+            post_dispatched=False,
+        )
+    assert str(dispatch_regression.value) == (
+        "provider_multimodal_dispatch_cannot_regress"
+    )
+
+    restarted = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    recovered = restarted.get_multimodal_certification_session(
+        "local", certification_id="mmcert-1"
+    )
+    assert recovered is not None
+    assert recovered["status"] == "uncertain"
+    assert recovered["provider_dispatch_state"] == "uncertain"
+    assert recovered["error_code"] == "server_restarted"
+    with pytest.raises(RouterRepositoryError) as terminal_reopen:
+        restarted.update_multimodal_certification_session(
+            "local",
+            "mmcert-session-1",
+            status="running",
+            provider_dispatch_state="dispatched",
+            post_dispatched=True,
+        )
+    assert str(terminal_reopen.value) == "provider_multimodal_session_not_running"
+
+
+def test_multimodal_adapter_is_exact_and_scope_is_not_inherited() -> None:
+    spec = validate_multimodal_adapter(
+        contract="openrouter_chat_multimodal_v1",
+        execution_shape="chat_image_stream",
+        provider_kind="openrouter",
+        scopes=["chat", "image"],
+    )
+    assert spec.required_scopes == ("chat", "image")
+
+    with pytest.raises(RouterServiceError) as provider_mismatch:
+        validate_multimodal_adapter(
+            contract="openrouter_video_jobs_v1",
+            execution_shape="video_generation_async",
+            provider_kind="newapi",
+            scopes=["video"],
+        )
+    assert provider_mismatch.value.code == "provider_multimodal_adapter_provider_mismatch"
+
+    with pytest.raises(RouterServiceError) as missing_document_scope:
+        validate_multimodal_adapter(
+            contract="openrouter_chat_native_pdf_v1",
+            execution_shape="chat_document_stream",
+            provider_kind="openrouter",
+            scopes=["chat", "image"],
+        )
+    assert missing_document_scope.value.code == "connection_document_scope_required"
+
+    with pytest.raises(RouterServiceError) as shape_mismatch:
+        validate_multimodal_adapter(
+            contract="openai_realtime_sdp_v1",
+            execution_shape="chat_audio_input",
+            provider_kind="openai",
+            scopes=["realtime", "audio"],
+        )
+    assert shape_mismatch.value.code == "provider_multimodal_adapter_shape_mismatch"
+
+
+@pytest.mark.asyncio
+async def test_r8a_multimodal_certification_fails_before_catalog_or_paid_post(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    connection = repository.create_connection(
+        "local",
+        RouterConnectionCreate(
+            name="OpenRouter image",
+            kind="openrouter",
+            base_url="https://openrouter.ai/api/v1",
+            api_key="test-secret",
+            scopes=["chat", "image"],
+        ),
+    )
+
+    async def forbidden_catalog_refresh(*_args, **_kwargs):
+        raise AssertionError("R8A must stop before catalog or network work")
+
+    monkeypatch.setattr(
+        "server.model_router.workload_control.ProviderCatalogService.refresh_connection",
+        forbidden_catalog_refresh,
+    )
+    with pytest.raises(RouterServiceError) as blocked:
+        await ProviderWorkloadCertificationService(
+            ModelRouterService(repository)
+        ).run(
+            connection.id,
+            ProviderWorkloadCertificationRequest(
+                model_id="provider/vision",
+                execution_shape="chat_image_stream",
+                adapter_contract="openrouter_chat_multimodal_v1",
+                acknowledge_billed_call=True,
+            ),
+            idempotency_key="r8a-no-paid-call",
+        )
+    assert blocked.value.code == "provider_multimodal_certification_not_integrated"
+    assert repository.list_workload_certifications("local") == []
 
 
 @pytest.mark.asyncio
@@ -2090,11 +2373,17 @@ async def test_workload_admin_api_is_session_and_csrf_protected_and_public_redac
         csrf = paired.json()["csrf_token"]
         policies = await client.get("/api/router/workload-control/policies")
         assert policies.status_code == 200
-        assert len(policies.json()["policies"]) == 19
+        assert len(policies.json()["policies"]) == 37
         r7_policies = {
             item["entry_id"]: item for item in policies.json()["policies"]
-            if item["entry_id"].startswith("rag_")
-            or item["entry_id"] in {"skill_rerank", "openrouter_batch"}
+            if item["entry_id"] in {
+                "rag_query_generate",
+                "rag_processor_generate",
+                "rag_embedding",
+                "rag_rerank",
+                "skill_rerank",
+                "openrouter_batch",
+            }
         }
         assert len(r7_policies) == 6
         assert r7_policies["rag_embedding"]["data_plane_integrated"] is True
@@ -2105,7 +2394,68 @@ async def test_workload_admin_api_is_session_and_csrf_protected_and_public_redac
         assert r7_policies["openrouter_batch"]["data_plane_integrated"] is True
         assert all(item["feature_enabled"] is False for item in r7_policies.values())
         assert all(item["local_fallback_mode"] == "none" for item in r7_policies.values())
+        r8_policies = {
+            item["entry_id"]: item
+            for item in policies.json()["policies"]
+            if item["entry_id"] in {
+                "chat_image",
+                "chat_document_native",
+                "rag_vision",
+                "workflow_interactive_vision",
+                "workflow_deployment_vision",
+                "xpert_vision",
+                "image_generation",
+                "multimodal_transcription",
+                "multimodal_speech",
+                "xpert_transcription",
+                "xpert_speech",
+                "chat_audio_input",
+                "chat_audio_output",
+                "audio_generation",
+                "multimodal_video_analysis",
+                "chat_video",
+                "video_generation",
+                "realtime_voice",
+            }
+        }
+        assert len(r8_policies) == 18
+        assert all(item["feature_enabled"] is False for item in r8_policies.values())
+        assert all(item["data_plane_integrated"] is False for item in r8_policies.values())
+        assert all(
+            "provider_workload_data_plane_not_integrated"
+            in item["blocking_reason_codes"]
+            for item in r8_policies.values()
+        )
         assert policies.json()["contract_version"] == PROVIDER_WORKLOAD_CONTRACT_VERSION
+
+        refresh_without_csrf = await client.post(
+            "/api/router/certifications/workloads/missing/refresh",
+            json={"acknowledge_poll_only": True},
+        )
+        assert refresh_without_csrf.status_code == 403
+        refresh_missing = await client.post(
+            "/api/router/certifications/workloads/missing/refresh",
+            headers={"X-ModelMirror-CSRF": csrf},
+            json={"acknowledge_poll_only": True},
+        )
+        assert refresh_missing.status_code == 404
+        assert refresh_missing.json()["detail"]["code"] == (
+            "provider_multimodal_certification_session_not_found"
+        )
+        realtime_missing_idempotency = await client.post(
+            "/api/router/connections/missing/certifications/realtime/session",
+            headers={"X-ModelMirror-CSRF": csrf},
+            json={
+                "model_id": "gpt-realtime",
+                "adapter_contract": "openai_realtime_sdp_v1",
+                "offer_sdp": "v=0",
+                "acknowledge_billed_call": True,
+            },
+        )
+        assert realtime_missing_idempotency.status_code == 422
+        assert realtime_missing_idempotency.json()["detail"]["code"] == (
+            "provider_realtime_idempotency_key_required"
+        )
 
         update = {
             "expected_revision": 0,

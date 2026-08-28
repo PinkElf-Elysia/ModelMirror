@@ -307,6 +307,22 @@ python -m server.model_router.migrate_credentials --storage-dir <path>
   usage/cost。它不保存 Batch 输入或结果正文；上游结果仅在用户查询时透传。usage/cost 始终
   标记 `billing_authoritative=false`，不构成 ModelMirror 计费、账本或扣费依据。
 
+## 多模态 Adapter 与资格基础（Round 8A）
+
+- SQLite v18 以纯加法方式为 Workload Binding、资格与 Call 增加 `adapter_contract`、协议版本和
+  Provider 派发状态，并新增租户隔离的多模态资格会话表。图片、PDF、音频、视频、SDP、Prompt、
+  转录与模型正文均不进入控制面存储。
+- 多模态入口继续复用 `modelmirror-provider-workload-routing-v1` 的 Policy、Binding、批准与
+  Receipt 外壳，但每个 Binding 必须显式绑定精确模型、连接、执行形态和 Adapter。图片、原生
+  PDF、STT、TTS、Chat Audio、视频与 Realtime 资格不得互相继承。
+- R8A 只开放 scope、Adapter、Policy、Binding、Receipt 与同步/异步/浏览器辅助认证的状态框架。
+  所有 R8 Feature Flag 默认关闭，全部 R8 入口仍标记 `data_plane_integrated=false`；认证按钮不会
+  发出付费请求，激活也会失败关闭。R8B—R8F 将按协议分别接入真实资格与数据面。
+- newAPI 只可选择与真实 OpenAI-compatible 路径匹配的 Adapter。OpenRouter 视频任务与官方
+  OpenAI SDP Realtime 不会因 URL 相似或 Catalog 声明自动授予 newAPI 资格。
+- v18 对现有音频、视频与 Realtime 任务只增加可空的 Workload/Adapter/派发证据字段；旧记录
+  视为 legacy，不重写、不联网回填。已派发但结果不确定的会话重启后保持 `uncertain`，不得重放。
+
 ## 回退
 
 关闭管理面或回退路由不得删除 Provider SQLite、newAPI 数据目录、旧主密钥或迁移
@@ -314,7 +330,9 @@ python -m server.model_router.migrate_credentials --storage-dir <path>
 将 `MODEL_CONTROL_CHAT_ENABLED=false` 保持 R5 数据面关闭。关闭各入口对应的
 `MODEL_CONTROL_*_ENABLED` 可保持 R6 数据面为 legacy。代码回退保留 v15/v16 表和
 脱敏证据；关闭 R7 对应 Feature Flag 可恢复 RAG/Skill/Batch 的 legacy 路径，并保留 v17 表、
-资格、Batch 映射与 Receipt。非终态 Batch 应继续通过本地任务 ID 只读轮询，不得清理或重发。
+资格、Batch 映射与 Receipt。关闭全部 R8 Flag 可保持多模态数据面为 legacy；回退 R8A 时保留
+v18 表、Adapter、资格会话与新增任务证据列。非终态 Batch 应继续通过本地任务 ID只读轮询，
+不得清理或重发。
 只需将策略 `auto_enabled=false` 即可停止新增 Auto 证据而不改变 Auto 调度。
 旧版本可忽略新表继续运行。部署回退通过恢复上一版本
 Compose 与对应显式环境配置完成。
