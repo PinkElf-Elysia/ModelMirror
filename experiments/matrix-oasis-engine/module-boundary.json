@@ -1,29 +1,26 @@
 {
-  "schemaVersion": 18,
+  "schemaVersion": 19,
   "moduleId": "matrix-oasis-engine",
   "moduleRoot": ".",
   "moduleRootResolution": "directory-containing-module-boundary",
-  "activeRound": "R18",
-  "activeRoundBaselineSha": "4bfef53c4b32f3fa8044122553c7a8f42bd08908",
+  "activeRound": "R19",
+  "activeRoundBaselineSha": "821067a7db4811a3f3f1fd649e4fdfade9eafb22",
   "activeRoundChangePolicy": {
     "allowedModuleFiles": [
-      "AGENTS.md", "README.md", ".gitattributes", ".gitignore", "module-boundary.json", "package-lock.json", "package.json",
-      "docs/ARCHITECTURE.md", "docs/BOUNDARIES.md", "docs/DEPENDENCIES_AND_LICENSES.md", "docs/KNOWN_LIMITATIONS.md",
-      "docs/PRODUCT.md", "docs/V1_CRITICAL_PATH.md", "docs/MVP_STATUS.json", "docs/V2_STATUS.json",
-      "docs/R18_V2_LANDSCAPE_THREAT_MODEL.md", "docs/R18_TASK_CARD.md", "docs/R18_PUBLIC_DISCOVERY_APPROVAL.md", "docs/R18_CANDIDATE_EXECUTION_APPROVAL.md",
-      "docs/R18_CANDIDATE_CATALOG.json", "docs/R18_DECISION_LANDSCAPE.json", "docs/R18_ROADMAP.json", "docs/R18_V2_SELECTION_MATRIX.md", "docs/R18_QUALIFICATION_SUMMARY.json", "docs/R18_QUALIFICATION_EVIDENCE.md",
-      "docs/adr/0019-r18-v2-landscape-governance.md", "docs/rounds/R18_ACCEPTANCE.md",
-      "scripts/check-round-scope.mjs", "scripts/check-mvp-claim.mjs", "scripts/check-v2-claim.mjs",
-      "scripts/plan-r18-discovery.mjs", "scripts/discover-r18.mjs", "scripts/build-r18-source-lock.mjs", "scripts/verify-r18-sources.mjs", "scripts/evaluate-r18-landscape.mjs", "scripts/plan-r18-qualification.mjs", "scripts/qualify-r18.mjs", "scripts/verify-r18-evidence.mjs", "scripts/import-r18-qualification-evidence.mjs", "scripts/verify-r18.mjs",
-      "scripts/lib/boundary-core.mjs", "scripts/lib/mvp-claim-core.mjs", "scripts/lib/v2-claim-core.mjs", "scripts/lib/r18-discovery-core.mjs", "scripts/lib/r18-source-build-core.mjs", "scripts/lib/r18-source-core.mjs", "scripts/lib/r18-landscape-core.mjs", "scripts/lib/r18-harness-core.mjs", "scripts/lib/r18-evidence-core.mjs", "scripts/lib/r18-candidate-qualification-core.mjs", "scripts/lib/r18-evidence-import-core.mjs", "scripts/lib/r18-finalize-core.mjs", "scripts/lib/parent-scope-core.mjs", "scripts/lib/scope-policy.mjs",
-      "scripts/run-verify.mjs", "scripts/verify-extraction.mjs", "tests/boundary.test.mjs", "tests/godot-boundary.test.mjs", "tests/extraction-contract.test.mjs",
-      "tests/mvp-claim.test.mjs", "tests/v2-claim.test.mjs", "tests/r18-sources.test.mjs", "tests/r18-landscape.test.mjs", "tests/r18-harness.test.mjs", "tests/r18-evidence.test.mjs", "tests/r18-evidence-import.test.mjs", "tests/r18-roadmap.test.mjs", "tests/round-scope.test.mjs"
+      "AGENTS.md", "module-boundary.json", "package-lock.json", "package.json", "docs/V2_STATUS.json",
+      "docs/R19_NPC_AUTHORITY.md", "docs/R19_NPC_AUTHORITY_THREAT_MODEL.md", "docs/R19_REFERENCE_AUDIT.md", "docs/R19_TASK_CARD.md",
+      "docs/adr/0020-r19-npc-authority-governance.md", "docs/rounds/R19_ACCEPTANCE.md",
+      "scripts/check-round-scope.mjs",
+      "scripts/create-npc-authority-timeline.mjs", "scripts/adjudicate-npc-intent.mjs", "scripts/replay-world-event-ledger.mjs", "scripts/validate-npc-authority.mjs", "scripts/verify-r19-references.mjs", "scripts/verify-r19.mjs",
+      "scripts/lib/boundary-core.mjs", "scripts/lib/v2-claim-core.mjs", "scripts/lib/r19-cli-core.mjs", "scripts/lib/scope-policy.mjs",
+      "scripts/run-verify.mjs", "tests/boundary.test.mjs", "tests/extraction-contract.test.mjs",
+      "tests/v2-claim.test.mjs", "tests/r19-reference.test.mjs", "tests/r19-cli.test.mjs", "tests/r19-falsification.test.mjs", "tests/round-scope.test.mjs"
     ],
     "allowedModulePrefixes": [
-      "packages/v2-landscape-contracts",
-      "packages/v2-landscape-harness",
-      "third-party/v2-landscape-references",
-      "tests/fixtures/r18"
+      "packages/npc-authority-contracts",
+      "packages/npc-authority-runtime",
+      "third-party/npc-authority-references",
+      "tests/fixtures/r19"
     ],
     "frozenModulePaths": [
       "apps", "docs", "examples", "packages", "scripts", "tests", "third-party"
@@ -50,7 +47,10 @@
     "r18PublicDiscoveryCalls": "separate-human-approval-required",
     "r18WarehouseQualificationCalls": "fixed-source-checkout-and-loopback-only",
     "r18ContainerCalls": "per-candidate-human-approval-required",
-    "r18CommercialProductCalls": "public-documentation-only"
+    "r18CommercialProductCalls": "public-documentation-only",
+    "r19OrdinaryVerificationCalls": "none",
+    "r19ReferenceAuditCalls": "fixed-public-source-read-only",
+    "r19ProviderCalls": "none"
   },
   "mvpClaimPolicy": {
     "status": "r16-qualified",
@@ -106,6 +106,36 @@
     "trackedCandidateSourceAllowed": false,
     "trackedRawEvidenceAllowed": false,
     "productIntegrationAllowed": false
+  },
+  "r19NpcAuthorityPolicy": {
+    "policyFormat": "matrix-oasis.npc-authority-policy",
+    "intentFormat": "matrix-oasis.npc-intent",
+    "resultFormat": "matrix-oasis.npc-adjudication-result",
+    "ledgerFormat": "matrix-oasis.world-event-ledger",
+    "projectionManifestFormat": "matrix-oasis.derived-projection-manifest",
+    "replayReportFormat": "matrix-oasis.world-event-ledger-replay-report",
+    "formatVersion": "0.1.0",
+    "canonicalization": "matrix-oasis.canonical-json/1",
+    "maxActors": 64,
+    "maxGrantsPerActor": 256,
+    "maxLedgerEntries": 10000,
+    "policyMaxBytes": 1048576,
+    "intentMaxBytes": 65536,
+    "ledgerMaxBytes": 16777216,
+    "resultMaxBytes": 1048576,
+    "projectionMaxBytes": 1048576,
+    "replayReportMaxBytes": 1048576,
+    "runtimeRemainsAuthoritative": true,
+    "rejectedIntentRecorded": true,
+    "operationalFailureAppendAllowed": false,
+    "modelCallsAllowed": false,
+    "providerCredentialsAllowed": false,
+    "networkAllowed": false,
+    "godotIntegrationAllowed": false,
+    "creatorIntegrationAllowed": false,
+    "memoryContentAllowed": false,
+    "relationshipStateAllowed": false,
+    "dynamicEventsAllowed": false
   },
   "prototypeGenerationPolicy": {
     "inputModes": ["text"],

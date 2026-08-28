@@ -1,6 +1,6 @@
 {
   "name": "@matrix-oasis/engine",
-  "version": "0.18.0-r18",
+  "version": "0.19.0-r19",
   "private": true,
   "license": "UNLICENSED",
   "type": "module",
@@ -32,6 +32,8 @@
     "verify:r17-summary": "node --test tests/r17-evidence.test.mjs",
     "verify:r17": "node scripts/verify-r17.mjs",
     "verify:r18": "node scripts/verify-r18.mjs",
+    "verify:r19-references": "node scripts/verify-r19-references.mjs",
+    "verify:r19": "node scripts/verify-r19.mjs",
     "test:r18-sources": "node --test tests/r18-sources.test.mjs",
     "test:r18-landscape-contracts": "npm test --workspace @matrix-oasis/v2-landscape-contracts",
     "test:r18-landscape": "node --test tests/r18-landscape.test.mjs",

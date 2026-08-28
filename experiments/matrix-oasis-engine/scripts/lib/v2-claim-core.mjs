@@ -20,7 +20,8 @@ export function checkV2Claim({ moduleRoot }) {
   }
   const policy = boundary.v2ClaimPolicy;
   if (
-    boundary.activeRound !== "R18" ||
+    boundary.activeRound !== "R19" ||
+    policy?.status !== "r18-landscape-qualified" ||
     policy?.machineStatus !== "docs/V2_STATUS.json" ||
     policy?.qualificationProfile !== "matrix-oasis.v2-landscape/1" ||
     policy?.blockingRound !== "R25" ||

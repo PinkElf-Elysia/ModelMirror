@@ -193,7 +193,7 @@ const R9_SHARP_LIBVIPS_LICENSE_EXCEPTIONS = [
 }));
 
 const REQUIRED_POLICY_VALUES = [
-  [["schemaVersion"], 18],
+  [["schemaVersion"], 19],
   [["moduleId"], "matrix-oasis-engine"],
   [["moduleRoot"], "."],
   [["moduleRootResolution"], "directory-containing-module-boundary"],
@@ -220,6 +220,9 @@ const REQUIRED_POLICY_VALUES = [
   [["networkPolicy", "r18WarehouseQualificationCalls"], "fixed-source-checkout-and-loopback-only"],
   [["networkPolicy", "r18ContainerCalls"], "per-candidate-human-approval-required"],
   [["networkPolicy", "r18CommercialProductCalls"], "public-documentation-only"],
+  [["networkPolicy", "r19OrdinaryVerificationCalls"], "none"],
+  [["networkPolicy", "r19ReferenceAuditCalls"], "fixed-public-source-read-only"],
+  [["networkPolicy", "r19ProviderCalls"], "none"],
   [["mvpClaimPolicy", "status"], "r16-qualified"],
   [["mvpClaimPolicy", "claimAllowed"], true],
   [["mvpClaimPolicy", "blockingRound"], null],
