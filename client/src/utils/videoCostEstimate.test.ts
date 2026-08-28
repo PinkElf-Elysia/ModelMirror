@@ -135,6 +135,36 @@ describe("estimateVideoCost", () => {
     ).toBe(6);
   });
 
+  it("uses Wan 3.0 Prime's faster tiered per-second pricing", () => {
+    const wanPrimeProfile = {
+      supported_resolutions: ["480p", "720p", "1080p"],
+      supported_aspect_ratios: ["16:9", "4:3", "1:1", "3:4", "9:16"],
+      supported_sizes: [],
+      pricing_skus: {
+        duration_seconds_480p: "0.068",
+        duration_seconds_720p: "0.14",
+        duration_seconds_1080p: "0.28",
+      },
+    };
+
+    expect(
+      videoGenerationUnitRate(wanPrimeProfile, {
+        resolution: "720p",
+        generateAudio: true,
+        imageInputCount: 1,
+      }),
+    ).toBe(0.14);
+    expect(
+      estimateVideoCost(wanPrimeProfile, {
+        duration: 12,
+        resolution: "720p",
+        aspectRatio: "16:9",
+        generateAudio: true,
+        imageInputCount: 1,
+      }),
+    ).toBeCloseTo(1.68);
+  });
+
   it("shows Avatar IV's unit price when script length determines duration", () => {
     const avatarProfile = {
       supported_resolutions: ["720p", "1080p"],

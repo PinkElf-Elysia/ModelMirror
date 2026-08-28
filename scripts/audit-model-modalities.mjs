@@ -18,6 +18,7 @@ const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
   "deepgram/flux-tts:free",
   "heygen/avatar-iv",
   "alibaba/wan-3.0",
+  "alibaba/wan-3.0-prime",
   "black-forest-labs/flux-video-upscale",
   "meta/muse-image",
   "recraft/recraft-v4-styles",

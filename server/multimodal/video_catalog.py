@@ -68,6 +68,10 @@ VERIFIED_VIDEO_GENERATION_MODELS = frozenset(
         # Wan 3.0 支持 2–30 秒、首帧/参考图、生成音频与 seed。
         "heygen/avatar-iv",
         "alibaba/wan-3.0",
+        # 2026-08-27：Wan 3.0 Prime 专用目录确认 2–30 秒、
+        # 480p/720p/1080p、首帧、生成音频、seed 与分辨率价格；
+        # 未声明额外参考图，本轮只完成契约适配，未执行付费生成。
+        "alibaba/wan-3.0-prime",
         "openai/sora-2-pro",
     }
 )
