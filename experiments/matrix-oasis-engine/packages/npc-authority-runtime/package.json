@@ -6,13 +6,20 @@
   "type": "module",
   "sideEffects": false,
   "exports": {
-    ".": "./src/index.mjs"
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.mjs"
+    }
   },
   "scripts": {
     "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
     "@matrix-oasis/npc-authority-contracts": "0.1.0-r19",
-    "@matrix-oasis/runtime-pack-contracts": "0.1.0-r3"
+    "@matrix-oasis/runtime-pack-contracts": "0.1.0-r3",
+    "@matrix-oasis/runtime-pack-simulator": "0.1.0-r3"
+  },
+  "devDependencies": {
+    "@matrix-oasis/game-pack-compiler": "0.1.0-r3"
   }
 }

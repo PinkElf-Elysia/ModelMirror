@@ -5,6 +5,8 @@ const steps = [
   ["--test", "tests/r19-reference.test.mjs"],
   ["--test", "packages/npc-authority-contracts/tests/contracts.test.mjs"],
   ["--test", "packages/npc-authority-runtime/tests/ledger.test.mjs"],
+  ["--test", "packages/npc-authority-runtime/tests/authority.test.mjs"],
+  ["--test", "tests/r19-cli.test.mjs"],
 ];
 for (const args of steps) {
   const result = spawnSync(process.execPath, args, {
