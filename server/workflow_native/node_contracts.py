@@ -186,7 +186,7 @@ class NodePlannerContract(BaseModel):
     enabled: bool = False
     support: NodePlannerSupport = "unsupported"
     compilation_mode: NodePlannerCompilationMode = "none"
-    ir_version: int = 2
+    ir_version: int = 3
     adapter_version: str = ""
     default_data: dict[str, Any] = Field(default_factory=dict)
     config_constraints: dict[str, Any] = Field(default_factory=dict)
@@ -2796,7 +2796,11 @@ def _complete_contracts() -> dict[str, NodeContract]:
         ),
         ports=(
             NodePortContract(
-                name="task", direction="input", value_schema=string_value, required=True
+                name="task",
+                direction="input",
+                value_schema=string_value,
+                required=True,
+                cardinality="many",
             ),
             NodePortContract(
                 name="result", direction="output", value_schema=string_value

@@ -8,6 +8,7 @@ from .planner import (
     parse_meta_agent_plan,
 )
 from .schemas import (
+    GraphIntentV3,
     MetaAgentGenerateRequest,
     MetaAgentGenerateResponse,
     MetaAgentPlan,
@@ -15,6 +16,7 @@ from .schemas import (
     MetaPlannerGenerateResponse,
     MetaPlannerPreviewResponse,
     MetaPlannerScope,
+    ResolvedGraphIRV3,
     ProviderRouteCallReceipt,
     ProviderRouteReceiptSummary,
 )
@@ -30,10 +32,12 @@ __all__ = [
     "MetaAgentGenerateRequest",
     "MetaAgentGenerateResponse",
     "MetaAgentPlan",
+    "GraphIntentV3",
     "MetaPlannerGenerateRequest",
     "MetaPlannerGenerateResponse",
     "MetaPlannerPreviewResponse",
     "MetaPlannerScope",
+    "ResolvedGraphIRV3",
     "MetaPlannerV2Service",
     "ManagedMetaAgentGateway",
     "ManagedMetaAgentRoutingError",

@@ -338,6 +338,8 @@ class AuthoringProposalStore:
                     report = next_payload.get("meta_planner_report")
                     if isinstance(report, dict):
                         report["human_modified"] = True
+                        if report.get("graph_ir") is not None:
+                            report["graph_ir_status"] = "stale"
                 item.payload = next_payload
                 item.payload_digest = self._payload_digest(next_payload)
                 item.content_digest = self._skill_content_digest(
