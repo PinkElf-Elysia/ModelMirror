@@ -1,6 +1,6 @@
 # 元智能体集成说明
 
-最后更新日期：2026-07-25
+最后更新日期：2026-08-28
 维护人：模镜团队
 
 ## 定位
@@ -8,6 +8,12 @@
 元智能体工作台用于把自然语言目标拆解为可编辑的经典工作流/Xpert 草稿。Meta Planner V2
 已经可以从实时 Registry 编译 `workflow_agent`、资源绑定、中间件和发布预检所需配置；
 旧生成器仍保留用于兼容经典工作流导入与既有 AgentTask/Handoff 操作。
+
+当前实现仍是 **Capability Snapshot V3 + Typed IR V2**。后续升级已经锁定为
+“V3 十轮 + V4 轮次待定”，唯一方向文档是
+[META_PLANNER_V3_V4_ROADMAP.md](./META_PLANNER_V3_V4_ROADMAP.md)。V3 先补齐
+Graph IR、无头编排、节点 Adapter、效果语义和评测，再逐类开放真实节点；V4 只有在
+V3 收口审计后才能确定轮次。路线文档描述目标，不表示对应能力已经实现。
 
 早期实现参考 EvoAgentX 的 `goal -> sub_tasks -> inferred edges` 规划形态，归因保留在 `server/meta_agent/NOTICE.md`。Xpert 已在 `main@93e5cc38becc7fe4f89efa113310698e6eda1971` 冻结，EvoAgentX 官方 `v0.1.4@aad19b912f640161ea07e8904d9237cd34fde5f1` 的源码审计也已完成。Meta Planner V2 是冻结后的第一项功能增量：生成当前完整节点、资源绑定与中间件，而不是继续输出过时的 `agent` 长链。
 
@@ -96,16 +102,21 @@ curl http://localhost:8000/api/health
 curl http://localhost:5173/agents/meta-agent
 ```
 
-## 后续路线
+## 路线状态
 
-1. `EVOAGENTX-ALIGNMENT-AUDIT-01`：已完成，见
-   [EVOAGENTX_AUDIT_V014.md](./EVOAGENTX_AUDIT_V014.md)。
-2. `EVOAGENTX-META-PLANNER-01`：已完成，按上述固定契约生成当前
-   WorkflowNodeKind、资源绑定边、Agent middleware 与发布配置。
-3. `EVOAGENTX-EVALUATOR-02`：已完成版本化数据集、只读候选执行、固定预算和基线对比。
-4. `EVOAGENTX-EVOLUTION-03`：先做 Prompt 优化，再做工作流结构优化；输出候选草稿与评估报告，必须人工批准后才能发布。
+EvoAgentX 审计、Meta Planner V2、Evaluator、Prompt Evolution 和受限 Structure
+Evolution 已作为历史基线交付。下一阶段不再按“多开放几个节点”的方式零散扩张，
+而是执行 [Meta Planner V3/V4 锁定路线](./META_PLANNER_V3_V4_ROADMAP.md)：
 
-完整路线见 [EVOAGENTX_ALIGNMENT.md](./EVOAGENTX_ALIGNMENT.md)。
+- V3 固定十轮，先升级 IR 与 Authoring 协议，再按纯节点、控制流、只读资源、视觉、
+  受控写入和长运行的顺序开放节点，最后做规划质量增强和收口审计。
+- V4 轮次待定，只在 V3 收口报告、真实 Benchmark、稳定 Adapter/Policy/Evaluator
+  均具备后规划。
+- 单轮实施细节可以依据证据调整；改变依赖顺序、安全边界、Runtime 权威或 V3/V4
+  分界必须重新审计并由用户确认。
+
+EvoAgentX 的来源与已交付历史见
+[EVOAGENTX_ALIGNMENT.md](./EVOAGENTX_ALIGNMENT.md)。
 
 ## Meta Planner V2 已实现契约
 

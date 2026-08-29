@@ -357,6 +357,16 @@ npm.cmd run build
 - 发布、Evaluator、App 和 Evolution 的静态节点策略必须查询 `NodePolicyService`；资源、Toolset、循环和中间件领域检查不得被删除。
 - 修改节点契约至少运行 `test_workflow_node_contracts.py`、Workflow Registry/Validator、Meta Planner、Xpert Publish、Evaluator、App、Evolution 和前端构建。
 
+### 8.1.2 Meta Planner V3/V4 路线护栏
+
+- Meta Planner 的唯一目标路线是 `docs/META_PLANNER_V3_V4_ROADMAP.md`：V3 固定十轮依赖方向，V4 轮次必须在 V3 收口审计后确定。
+- 单轮执行计划可以依据代码和测试证据调整内部批次、文件组织和小范围边界，但不得未经审计改变 Graph IR/Headless Authoring 前置关系、读写顺序、安全门禁或 V3/V4 分界。
+- V3 Round 1–2 完成前不得开放新 Planner 节点；纯节点和控制流未稳定前不得开放动态资源；只读资源未稳定前不得开放写节点；效果、幂等和评测未稳定前不得开放等待、循环、Handoff 或 Automation。
+- ModelMirror 的 NodeContract、classic runner、Authoring Proposal、资源 Store 和发布审批边界保持权威；不得以引入 EvoAgentX 或其他 Workflow Runtime 绕过现有契约。
+- 鼓励复用、适配或重写宽松许可证开源实现，但必须逐文件锁定官方 commit、相对路径、许可证、第三方依赖、SHA-256、`reuse/adapt/rewrite/reject`、NOTICE 和测试映射。
+- AGPL、source-available、混合许可证或来源不明实现默认仅作行为参考并独立重写；任何例外必须先完成新的许可证与架构审计。
+- Planner、Optimizer 和 Migration 能力始终只能生成候选、差异和报告，不得自动批准、静默覆盖人工草稿或发布线上版本。
+
 ### 8.2 EvoAgentX Evaluator 护栏
 
 - Dataset 草稿必须使用 revision，Evaluation Run 只能引用不可变 DatasetVersion。

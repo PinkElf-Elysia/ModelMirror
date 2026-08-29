@@ -1,6 +1,6 @@
 # EvoAgentX 对齐总纲
 
-最后更新日期：2026-07-25
+最后更新日期：2026-08-28
 
 ## 当前定位
 
@@ -19,6 +19,23 @@ EvoAgentX 的唯一复用基线是：
 本地主线副本只用于验证官方快照的文件差异。任何后续复用都必须从上述官方
 提交逐文件取材，并记录来源、许可证、内容摘要、适配方式和本地测试责任。
 
+## V3/V4 当前路线
+
+Meta Planner 后续方向已经锁定为 **V3 十轮 + V4 轮次待定**，唯一规范见
+[META_PLANNER_V3_V4_ROADMAP.md](./META_PLANNER_V3_V4_ROADMAP.md)。当前实现仍是
+Capability Snapshot V3 与 Typed IR V2，不能把完整 NodeContract、画布可见节点或
+Runner 已支持节点误报为 Planner 已支持。
+
+V3 先建立 Graph IR V3 和 Headless Authoring，再依次开放纯节点、控制流、只读资源、
+视觉、受控写入和经审计的长运行能力；节点语义稳定后才增强 EvoAgentX 规划质量，
+最后完成兼容与收益审计。V4 的多智能体规划、案例检索、评测反馈、自适应修复和
+跨平台编译只是候选研究域，必须在 V3 收口后重新审计并决定轮次。
+
+该路线允许参考 EvoAgentX 以外的开源项目，但每次实现必须锁定官方 commit 和文件，
+核验许可证及第三方依赖，并记录 `reuse/adapt/rewrite/reject`、NOTICE 和测试映射。
+MIT/Apache-2.0 等宽松许可证不等于可以省略归因；AGPL、source-available、混合或
+不明确来源默认仅作行为参考并独立重写。
+
 ## 为什么需要重建 MetaAgent
 
 当前 `server/meta_agent/` 仍主要实现早期的
@@ -33,8 +50,9 @@ EvoAgentX 的唯一复用基线是：
 与此同时，classic workflow 已支持可发布 Xpert、Goal、Handoff、资源绑定、
 Agent middleware、Toolset、Knowledge、Memory、Data X、Sandbox、Browser、
 Client Tools、Automation、Plugin 和 Prompt。Meta Planner V2 已补齐候选生成与当前
-执行面的主要契约；Evaluator 已补齐版本化评测、固定预算和基线比较。当前尚未
-实现的是 Prompt 与结构候选的受控进化。
+执行面的主要契约；Evaluator 已补齐版本化评测、固定预算和基线比较；Prompt 与
+受限结构候选的受控进化也已交付。当前主要缺口已转为 Graph IR、节点 Adapter、
+动态资源、效果语义和复杂路径评测，按 V3/V4 锁定路线继续收口。
 
 ## 复用规则
 
@@ -66,7 +84,7 @@ Client Tools、Automation、Plugin 和 Prompt。Meta Planner V2 已补齐候选�
 | Workflow optimizer | 无受控结构进化 | `adapt/rewrite` | 结构候选 Xpert 草稿 |
 | Memory / RAG / Tool Runtime | 已有更完整 ModelMirror 实现 | `reject` | 继续复用现有 Runtime |
 
-## 交付顺序
+## 已完成的 V2 历史交付顺序
 
 ### 1. `EVOAGENTX-META-PLANNER-01`
 
