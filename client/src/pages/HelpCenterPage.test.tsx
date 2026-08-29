@@ -164,11 +164,6 @@ describe("unified help reading shell", () => {
     expect(screen.getByRole("link", { name: "打开帮助首页" })).toHaveAttribute("href", "/help");
   });
 
-  it("shows a pending-review notice on draft articles", () => {
-    renderHelp(`/help/${helpArticles.find((a) => a.verifiedCommit === "PENDING")?.slug}`);
-    expect(screen.getByText(/仍在完善中/)).toBeInTheDocument();
-  });
-
   it("shows a verified-date notice on published articles", () => {
     renderHelp("/help/start-with-a-model");
     expect(screen.getByText(`本文基于 ${verifiedBaseline.date} 的界面验证，产品更新后部分按钮名称、入口或价格可能变化。`)).toBeInTheDocument();

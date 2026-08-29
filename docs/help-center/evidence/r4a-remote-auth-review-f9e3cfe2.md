@@ -37,7 +37,7 @@
 
 预览器从 `/mcps` 搜索 Tako，打开“认证与复核”，核对固定 Origin、OAuth 2.1 + PKCE、`2025-11-25`、已复核状态和 Runtime 0。授权成功后旧的一次性授权链接会立即清空，不再留在 UI/DOM；页面只展示无秘密的 Token revision 和 Scope。
 
-- 截图：`client/public/help-center/f9e3cfe2/catalog-tako-reviewed.png`
+- 截图：`client/public/help-center/f9e3cfe2/catalog-tako-reviewed.png`（资产已清理，保留哈希供审计）
 - SHA256：`A20E4275B0E8C891B7F0D12815EB04C64B2A3922123264F6856DB14BE61AB319`
 - 截图不含地址栏、OAuth callback、授权码、Token、client ID、用户信息或本机密钥。
 

@@ -36,8 +36,6 @@ describe("help center content catalog", () => {
     expect(helpArticles.map((article) => article.slug)).toEqual([
       "start-with-a-model",
       "choose-model-agent-workflow",
-      "create-repeatable-agent",
-      "build-first-workflow",
       "promote-run-to-skill",
       "submit-knowledge-proposal",
       "subscribe-rss-workflow",
@@ -50,12 +48,12 @@ describe("help center content catalog", () => {
     expect(new Set(helpArticles.map((article) => article.slug)).size).toBe(helpArticles.length);
     helpArticles.forEach((article) => {
       requiredMetadata.forEach((field) => expect(article[field], `${article.slug}.${field}`).toBeTruthy());
-      // 待预览验证的草稿使用 PENDING 占位；正式合入前必须替换为真实基线。
-      expect(article.verifiedCommit).toMatch(/^([0-9a-f]{8}|PENDING)$/);
+      // 所有公开文章必须绑定真实验证基线，不允许 PENDING 占位进入公开链路。
+      expect(article.verifiedCommit).toMatch(/^[0-9a-f]{8}$/);
       expect(article.verifiedDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       expect(article.content).not.toMatch(/内容稍后补充|coming soon/i);
     });
-    expect(helpArticles.filter((article) => !["recover-unavailable-feature", "review-remote-mcp-auth", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "create-repeatable-agent", "build-first-workflow"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
+    expect(helpArticles.filter((article) => !["recover-unavailable-feature", "review-remote-mcp-auth", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
     expect(helpArticles.find((article) => article.slug === "recover-unavailable-feature")?.verifiedCommit).toBe(ragFormalIntegrityBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "recover-unavailable-feature")?.verifiedDate).toBe(ragFormalIntegrityBaseline.date);
     expect(helpArticles.find((article) => article.slug === "review-remote-mcp-auth")?.verifiedCommit).toBe(remoteMcpReviewBaseline.commit);
@@ -107,14 +105,14 @@ describe("help center content catalog", () => {
   it("recalls content via Chinese synonyms and full-text body", () => {
     // 近义词：日常说法 → 帮助术语
     expect(searchHelpContent("看图").some((entry) => entry.id === "start-with-a-model")).toBe(true);
-    expect(searchHelpContent("多步").some((entry) => entry.id === "build-first-workflow")).toBe(true);
+    expect(searchHelpContent("多步").some((entry) => entry.id === "workspace/workflow")).toBe(true);
     expect(searchHelpContent("收费").some((entry) => entry.id === "check-availability-cost-data")).toBe(true);
     expect(searchHelpContent("运维").some((entry) => entry.id === "runtime")).toBe(true);
     // 全文检索：只出现在正文、不在标题/摘要/关键词的词
-    const bodyOnly = searchHelpContent("开场问题").some((entry) => entry.id === "create-repeatable-agent");
+    const bodyOnly = searchHelpContent("类型化转换节点").some((entry) => entry.id === "submit-knowledge-proposal");
     expect(bodyOnly).toBe(true);
     // 反向近义词：帮助术语 → 查询
-    expect(searchHelpContent("Agent").some((entry) => entry.id === "create-repeatable-agent")).toBe(true);
+    expect(searchHelpContent("Agent").some((entry) => entry.id === "agents/agent-studio")).toBe(true);
   });
 
   it("ranks title and article hits above module and body-only hits", () => {

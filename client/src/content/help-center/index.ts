@@ -1,7 +1,5 @@
-import buildFirstWorkflow from "./articles/build-first-workflow.md?raw";
 import checkAvailabilityCostData from "./articles/check-availability-cost-data.md?raw";
 import chooseModelAgentWorkflow from "./articles/choose-model-agent-workflow.md?raw";
-import createRepeatableAgent from "./articles/create-repeatable-agent.md?raw";
 import modulesAndTerms from "./articles/modules-and-terms.md?raw";
 import promoteRunToSkill from "./articles/promote-run-to-skill.md?raw";
 import recoverUnavailableFeature from "./articles/recover-unavailable-feature.md?raw";
@@ -84,7 +82,6 @@ export type HelpSearchEntry = {
 };
 
 export const verifiedBaseline = { commit: "cc49136c", date: "2026-08-26" };
-export const pendingPreviewBaseline = { commit: "PENDING", date: "2026-08-29" };
 export const remoteMcpReviewBaseline = { commit: "821067a7", date: "2026-08-27" };
 export const ragDiversityBaseline = { commit: "f0150fb5", date: "2026-08-27" };
 export const rssReviewBaseline = { commit: "821067a7", date: "2026-08-27" };
@@ -128,36 +125,6 @@ export const helpArticles: HelpArticle[] = [
     verifiedCommit: verifiedBaseline.commit,
     verifiedDate: verifiedBaseline.date,
     content: chooseModelAgentWorkflow,
-    nextSlug: "create-repeatable-agent",
-  },
-  {
-    slug: "create-repeatable-agent",
-    title: "创建一个能反复使用的 Agent",
-    summary: "创建、保存并发布带固定角色和工具配置的智能体，以后直接复用。",
-    category: "按目标找指南",
-    contentType: "how-to",
-    audience: "反复执行同类任务、希望保留角色设定与工具配置的用户",
-    estimatedMinutes: 6,
-    keywords: ["Agent", "智能体", "创建", "Agent Studio", "发布", "角色", "重复使用"],
-    relatedRoutes: ["/agents/studio", "/agents/studio/new"],
-    verifiedCommit: pendingPreviewBaseline.commit,
-    verifiedDate: pendingPreviewBaseline.date,
-    content: createRepeatableAgent,
-    nextSlug: "build-first-workflow",
-  },
-  {
-    slug: "build-first-workflow",
-    title: "搭建第一个固定步骤工作流",
-    summary: "从默认模板开始，编排固定顺序的多步骤任务并在本地试运行。",
-    category: "按目标找指南",
-    contentType: "how-to",
-    audience: "反复执行固定顺序多步骤任务、希望把流程固化的用户",
-    estimatedMinutes: 6,
-    keywords: ["工作流", "Workflow", "经典画布", "节点", "试运行", "流水线", "固定步骤"],
-    relatedRoutes: ["/workflow"],
-    verifiedCommit: pendingPreviewBaseline.commit,
-    verifiedDate: pendingPreviewBaseline.date,
-    content: buildFirstWorkflow,
     nextSlug: "modules-and-terms",
   },
   {
