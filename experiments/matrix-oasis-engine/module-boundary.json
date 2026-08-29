@@ -15,7 +15,7 @@
       "scripts/lib/boundary-core.mjs", "scripts/lib/v2-claim-core.mjs", "scripts/lib/r20-cli-core.mjs", "scripts/lib/r20-host-core.mjs", "scripts/lib/scope-policy.mjs",
       "scripts/run-verify.mjs", "tests/boundary.test.mjs", "tests/extraction-contract.test.mjs",
       "tests/v2-claim.test.mjs", "tests/r20-reference.test.mjs", "tests/r20-session.test.mjs", "tests/r20-scheduler.test.mjs", "tests/r20-godot-bridge.test.mjs", "tests/r20-falsification.test.mjs", "tests/round-scope.test.mjs",
-      "packages/npc-authority-runtime/src/authority.mjs", "packages/npc-authority-runtime/src/index.d.ts", "packages/npc-authority-runtime/src/index.mjs", "packages/npc-authority-runtime/tests/authority.test.mjs"
+      "packages/npc-authority-runtime/src/authority.mjs", "packages/npc-authority-runtime/src/index.d.ts", "packages/npc-authority-runtime/src/index.mjs", "packages/npc-authority-runtime/src/ledger.mjs", "packages/npc-authority-runtime/tests/authority.test.mjs", "packages/npc-authority-runtime/tests/ledger.test.mjs"
     ],
     "allowedModulePrefixes": [
       "packages/npc-behavior-contracts",

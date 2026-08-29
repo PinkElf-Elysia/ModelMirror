@@ -41,7 +41,9 @@ export const ROUND_ALLOWED_MODULE_FILES = Object.freeze([
   "packages/npc-authority-runtime/src/authority.mjs",
   "packages/npc-authority-runtime/src/index.d.ts",
   "packages/npc-authority-runtime/src/index.mjs",
+  "packages/npc-authority-runtime/src/ledger.mjs",
   "packages/npc-authority-runtime/tests/authority.test.mjs",
+  "packages/npc-authority-runtime/tests/ledger.test.mjs",
 ]);
 
 export const ROUND_ALLOWED_MODULE_PREFIXES = Object.freeze([

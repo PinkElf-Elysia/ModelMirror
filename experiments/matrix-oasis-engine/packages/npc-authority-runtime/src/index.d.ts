@@ -14,6 +14,9 @@ export interface PreparedNpcAuthority {
   readonly [preparedNpcAuthorityBrand]: true;
 }
 
+declare const incrementalNpcAuthorityBrand: unique symbol;
+export interface IncrementalNpcAuthorityState {readonly [incrementalNpcAuthorityBrand]: true}
+
 export interface NpcAuthorityFailure {
   readonly ok: false;
   readonly diagnostics: readonly (NpcAuthorityDiagnostic | {
@@ -84,6 +87,11 @@ export declare function replayWorldEventLedger(input: {
   readonly prepared: PreparedNpcAuthority;
   readonly worldEventLedgerJson: string;
 }): WorldEventLedgerReplaySuccess | NpcAuthorityFailure;
+
+export declare function createNpcAuthorityIncrementalState(input:{readonly prepared:PreparedNpcAuthority;readonly worldEventLedgerJson:string}):({readonly ok:true;readonly state:IncrementalNpcAuthorityState;readonly runtimeSnapshot:RuntimeGameSessionSnapshot;readonly inspection:RuntimeGameSessionInspection;readonly canonicalWorldEventLedgerJson:string}|NpcAuthorityFailure);
+export declare function submitNpcAuthorityIncrementalIntent(input:{readonly state:IncrementalNpcAuthorityState;readonly npcIntentJson:string}):((NpcAdjudicationSuccess&{readonly inspection:RuntimeGameSessionInspection;readonly fullReplayPerformed:boolean})|NpcAuthorityFailure);
+export declare function exportNpcAuthorityIncrementalState(state:IncrementalNpcAuthorityState):({readonly ok:true;readonly runtimeSnapshot:RuntimeGameSessionSnapshot;readonly inspection:RuntimeGameSessionInspection;readonly canonicalWorldEventLedgerJson:string;readonly fullReplayCount:number}|NpcAuthorityFailure);
+export declare function verifyNpcAuthorityIncrementalState(state:IncrementalNpcAuthorityState):((WorldEventLedgerReplaySuccess&{readonly fullReplayCount:number})|NpcAuthorityFailure);
 
 export declare function createDerivedProjectionManifest(input: {
   readonly worldEventLedgerJson: string;

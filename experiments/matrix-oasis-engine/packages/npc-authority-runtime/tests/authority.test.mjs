@@ -5,10 +5,13 @@ import { compileAuthoringGamePackJson } from "@matrix-oasis/game-pack-compiler";
 import { canonicalizeJsonValue } from "@matrix-oasis/runtime-pack-contracts";
 import {
   adjudicateNpcIntent,
+  createNpcAuthorityIncrementalState,
   createNpcAuthorityTimeline,
   hashCanonicalValue,
   prepareNpcAuthority,
   replayWorldEventLedger,
+  submitNpcAuthorityIncrementalIntent,
+  verifyNpcAuthorityIncrementalState,
 } from "../src/index.mjs";
 
 const authoringText = await readFile(new URL("../../../examples/mechanics-conformance.authoring-game-pack.json", import.meta.url), "utf8");
@@ -230,4 +233,31 @@ test("step-limit and ended intents are deterministic rejection entries", async (
   }
   const ended = apply(prepared, state, nextIntent("intent-after-ending", "actor-unit", "node-complete", "action-complete", state));
   assert.equal(JSON.parse(ended.result.canonicalAdjudicationResultJson).decision.reason, "NPC_INTENT_SESSION_ENDED");
+});
+
+test("R20 incremental path remains byte-equivalent to the R19 adjudication path", async () => {
+  const prepared = await preparedAuthority();
+  const created = createNpcAuthorityTimeline(prepared, { timelineId: "timeline-incremental", stepLimit: 16 });
+  const incremental = createNpcAuthorityIncrementalState({ prepared, worldEventLedgerJson: created.canonicalWorldEventLedgerJson });
+  assert.equal(incremental.ok, true);
+  let oldState = { snapshot: created.runtimeSnapshot, ledgerJson: created.canonicalWorldEventLedgerJson };
+  const route = [
+    ["unauthorized", "control-unit", "node-start", "action-initialize"],
+    ["initialize", "actor-unit", "node-start", "action-initialize"],
+    ["check", "actor-unit", "node-check", "action-check"],
+    ["adjust", "actor-unit", "node-adjust", "action-adjust"],
+  ];
+  for (const [id, actor, node, action] of route) {
+    const intent = nextIntent(`intent-diff-${id}`, actor, node, action, oldState);
+    const legacy = adjudicateNpcIntent({ prepared, runtimeSnapshot: oldState.snapshot, worldEventLedgerJson: oldState.ledgerJson, npcIntentJson: intent });
+    const next = submitNpcAuthorityIncrementalIntent({ state: incremental.state, npcIntentJson: intent });
+    assert.equal(next.ok, true, JSON.stringify(next.diagnostics));
+    assert.equal(next.canonicalAdjudicationResultJson, legacy.canonicalAdjudicationResultJson);
+    assert.equal(next.canonicalWorldEventLedgerJson, legacy.canonicalWorldEventLedgerJson);
+    assert.deepEqual(next.runtimeSnapshot, legacy.runtimeSnapshot);
+    oldState = { snapshot: legacy.runtimeSnapshot, ledgerJson: legacy.canonicalWorldEventLedgerJson };
+  }
+  const verified = verifyNpcAuthorityIncrementalState(incremental.state);
+  assert.equal(verified.ok, true, JSON.stringify(verified.diagnostics));
+  assert.deepEqual(verified.runtimeSnapshot, oldState.snapshot);
 });
