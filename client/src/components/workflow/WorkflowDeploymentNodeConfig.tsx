@@ -12,6 +12,7 @@ import {
   fetchWorkflowProjects,
   fetchWorkflowVersionInterface,
   inspectWorkflowRss,
+  inspectWorkflowEmail,
   type WorkflowInterfaceInput,
   type WorkflowProjectSummary,
   type WorkflowVersionInterface,
@@ -22,6 +23,13 @@ import type { WorkflowVariableValueType } from "./workflowVariables";
 
 type DurationUnit = "seconds" | "minutes" | "hours" | "days";
 type CronPattern = "minutes" | "hourly" | "daily" | "weekly" | "monthly" | "custom";
+type EmailCredentialSummary = {
+  credential_id: string;
+  name: string;
+  kind: string;
+  status: string;
+  masked_value: string;
+};
 
 const DURATION_FACTORS: Record<DurationUnit, number> = {
   seconds: 1,
@@ -1467,6 +1475,158 @@ function RssEventEntryConfig({
   );
 }
 
+function EmailEventEntryConfig({
+  node,
+  nodes,
+  edges,
+  contract,
+  declarations,
+  data,
+  featureEnabled,
+  featureDisabledReason,
+  onChange,
+}: {
+  node: WorkflowNode;
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+  contract: WorkflowNodeContractProjection | null;
+  declarations: WorkflowVariableDeclaration[];
+  data: WorkflowNodeData;
+  featureEnabled: boolean;
+  featureDisabledReason: string;
+  onChange: (patch: Partial<WorkflowNodeData>) => void;
+}) {
+  const [credentials, setCredentials] = useState<EmailCredentialSummary[]>([]);
+  const [loadingCredentials, setLoadingCredentials] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [credentialName, setCredentialName] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [checking, setChecking] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [checkResult, setCheckResult] = useState<Awaited<ReturnType<typeof inspectWorkflowEmail>> | null>(null);
+  const interval = Number(data.pollIntervalMinutes ?? 15);
+  const commonInterval = [5, 15, 30, 60, 360, 1440].includes(interval) ? String(interval) : "custom";
+
+  function emailInspectFailureMessage(error: unknown) {
+    const detail = error instanceof Error ? error.message.toLowerCase() : "";
+    if (detail.includes("disabled")) {
+      return "当前环境尚未开启真实邮箱检查，请联系管理员开启后重试。";
+    }
+    if (detail.includes("credential") || detail.includes("authentication")) {
+      return "邮箱凭据无效或已失效，请检查用户名、应用密码，或重新选择凭据。";
+    }
+    if (detail.includes("tls") || detail.includes("certificate")) {
+      return "无法建立可信的 IMAPS 连接，请确认服务器支持 993 端口并使用有效 TLS 证书。";
+    }
+    if (
+      detail.includes("local")
+      || detail.includes("private")
+      || detail.includes("reserved")
+      || detail.includes("metadata")
+      || detail.includes("ip address")
+      || detail.includes("hostname is invalid")
+      || detail.includes("fixed public hostname")
+      || detail.includes("ascii hostname")
+      || detail.includes("rebinding")
+    ) {
+      return "此服务器不是可安全访问的公网 IMAP 域名，请检查域名后重试。";
+    }
+    if (
+      detail.includes("dns")
+      || detail.includes("connection")
+      || detail.includes("connect")
+      || detail.includes("timeout")
+      || detail.includes("timed out")
+    ) {
+      return "暂时无法连接此邮件服务器，请检查域名和网络后重试。";
+    }
+    return "邮箱检查失败，请核对服务器和凭据后重试。";
+  }
+
+  async function loadCredentials() {
+    setLoadingCredentials(true);
+    try {
+      const response = await fetch("/api/runtime/credentials");
+      if (!response.ok) throw new Error("凭据列表加载失败。");
+      const payload = await response.json() as { credentials?: EmailCredentialSummary[] };
+      setCredentials((payload.credentials ?? []).filter((item) => item.kind === "generic" && item.status === "active"));
+      setNotice("");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "凭据列表加载失败。");
+    } finally {
+      setLoadingCredentials(false);
+    }
+  }
+
+  useEffect(() => { void loadCredentials(); }, []);
+
+  async function createCredential() {
+    if (!credentialName.trim() || !username.trim() || !password) {
+      setNotice("请填写凭据名称、邮箱用户名和应用密码。");
+      return;
+    }
+    setLoadingCredentials(true);
+    try {
+      const response = await fetch("/api/runtime/credentials", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: credentialName.trim(),
+          kind: "generic",
+          value: JSON.stringify({ username: username.trim(), password }),
+        }),
+      });
+      if (!response.ok) throw new Error("邮箱凭据保存失败。");
+      const created = await response.json() as EmailCredentialSummary;
+      onChange({ credentialId: created.credential_id });
+      setCredentialName(""); setUsername(""); setPassword(""); setCreating(false);
+      await loadCredentials();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "邮箱凭据保存失败。");
+    } finally {
+      setLoadingCredentials(false);
+    }
+  }
+
+  async function inspect() {
+    setChecking(true); setNotice(""); setCheckResult(null);
+    try {
+      setCheckResult(await inspectWorkflowEmail(String(data.host ?? ""), String(data.credentialId ?? "")));
+    } catch (error) {
+      setNotice(emailInspectFailureMessage(error));
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {!featureEnabled ? <div className="rounded-lg border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-50" role="status">当前环境尚未开启真实邮箱检查和订阅。可先完成配置与静态发布；启用前请管理员开启 WORKFLOW_IMAP_TRIGGERS_ENABLED。{featureDisabledReason ? <span className="sr-only">{featureDisabledReason}</span> : null}</div> : null}
+      <div className="rounded-lg border border-sky-300/25 bg-sky-300/10 px-3 py-2 text-xs leading-5 text-sky-50">首次启用只记录 INBOX 当前最高邮件作为基线，不补跑历史邮件；检查始终只读，不会标记已读、移动或删除邮件。</div>
+      <div className="rounded-lg border border-violet-300/20 bg-violet-300/[0.08] px-3 py-2 text-xs leading-5 text-violet-50">手动测试会读取当前最新一封邮件并真实执行下游节点，但不会创建订阅或改变 UID 基线。</div>
+      <Section title="邮箱连接" description="首版仅支持公网 IMAPS 993、INBOX、用户名与应用密码。">
+        <Field label="IMAP 服务器" hint="填写固定公网域名，不含 imaps://、端口或变量。"><input aria-label="IMAP 服务器" className={inputClass} maxLength={253} onChange={(event) => { onChange({ host: event.target.value }); setCheckResult(null); }} placeholder="imap.example.com" value={String(data.host ?? "")} /></Field>
+        <div className="space-y-2">
+          <div className="flex gap-2"><select aria-label="邮箱凭据" className={inputClass} disabled={loadingCredentials} onChange={(event) => { onChange({ credentialId: event.target.value }); setCheckResult(null); }} value={String(data.credentialId ?? "")}><option value="">选择已加密凭据</option>{credentials.map((item) => <option key={item.credential_id} value={item.credential_id}>{item.name} · 已加密</option>)}</select><button className="rounded-lg border border-white/15 px-3 text-xs text-slate-200" disabled={loadingCredentials} onClick={() => void loadCredentials()} type="button">刷新</button></div>
+          <div className="flex flex-wrap gap-3 text-[11px]"><button className="font-medium text-cyan-200 underline underline-offset-4" onClick={() => setCreating((value) => !value)} type="button">{creating ? "取消创建" : "创建邮箱凭据"}</button><a className="text-slate-300 underline underline-offset-4" href="/toolsets">打开凭据中心</a></div>
+          {creating ? <div className="space-y-2 rounded-lg border border-white/10 bg-black/10 p-3"><input className={inputClass} onChange={(event) => setCredentialName(event.target.value)} placeholder="凭据名称，如 公告收件箱" value={credentialName} /><input autoComplete="username" className={inputClass} onChange={(event) => setUsername(event.target.value)} placeholder="邮箱用户名" value={username} /><input autoComplete="new-password" className={inputClass} onChange={(event) => setPassword(event.target.value)} placeholder="应用密码" type="password" value={password} /><button className="rounded-md bg-cyan-300 px-3 py-2 text-xs font-semibold text-slate-950 disabled:opacity-50" disabled={loadingCredentials} onClick={() => void createCredential()} type="button">加密保存并选用</button></div> : null}
+        </div>
+        <div className="grid gap-3 sm:grid-cols-[1fr_8rem]"><Field label="检查频率"><select aria-label="邮箱检查频率" className={inputClass} onChange={(event) => event.target.value === "custom" ? onChange({ pollIntervalMinutes: 90 }) : onChange({ pollIntervalMinutes: Number(event.target.value) })} value={commonInterval}><option value="5">每 5 分钟</option><option value="15">每 15 分钟</option><option value="30">每 30 分钟</option><option value="60">每小时</option><option value="360">每 6 小时</option><option value="1440">每天</option><option value="custom">自定义</option></select></Field>{commonInterval === "custom" ? <Field label="分钟"><input className={inputClass} max={1440} min={5} onChange={(event) => onChange({ pollIntervalMinutes: Number(event.target.value) })} type="number" value={interval} /></Field> : null}</div>
+        <button className="rounded-lg border border-cyan-300/30 bg-cyan-300/10 px-3 py-2 text-xs font-semibold text-cyan-100 disabled:opacity-40" disabled={checking || !String(data.host ?? "").trim() || !String(data.credentialId ?? "")} onClick={() => void inspect()} type="button">{checking ? "正在只读检查…" : "检查邮箱"}</button>
+        {notice ? <p className="text-xs leading-5 text-rose-200" role="alert">{notice}</p> : null}
+        {checkResult ? <div className="rounded-lg border border-emerald-300/20 bg-emerald-300/10 p-3 text-xs text-emerald-50"><p className="font-semibold">INBOX 可访问 · UIDVALIDITY {checkResult.uidValidity} · 当前 {checkResult.messageCount} 封邮件</p>{checkResult.items.length ? <ul className="mt-2 space-y-1 text-emerald-100/80">{checkResult.items.map((item, index) => <li key={`${item.subject}-${index}`}>• {item.subject || "无主题邮件"}{item.from[0]?.address ? ` · ${item.from[0].address}` : ""}{item.sentAt ? ` · ${item.sentAt}` : ""}</li>)}</ul> : <p className="mt-2">当前 INBOX 没有邮件。</p>}</div> : null}
+      </Section>
+      <Section title="运行变量" description="事件只含 message key 等安全元数据；邮件元数据和带固定不可信边界的纯文本只存在于本次执行内存。">
+        <GlobalVariableField contract={contract} declarations={declarations} edges={edges} fieldName="eventVariable" hint="例如 email_event" label="事件元数据变量" node={node} nodes={nodes} onChange={(eventVariable) => onChange({ eventVariable })} value={String(data.eventVariable ?? "")} />
+        <GlobalVariableField contract={contract} declarations={declarations} edges={edges} fieldName="messageVariable" hint="例如 email_message" label="邮件元数据变量" node={node} nodes={nodes} onChange={(messageVariable) => onChange({ messageVariable })} value={String(data.messageVariable ?? "")} />
+        <GlobalVariableField contract={contract} declarations={declarations} edges={edges} fieldName="contentVariable" hint="例如 email_content" label="安全纯文本变量" node={node} nodes={nodes} onChange={(contentVariable) => onChange({ contentVariable })} value={String(data.contentVariable ?? "")} />
+      </Section>
+      <div className="rounded-lg border border-rose-300/20 bg-rose-300/[0.07] px-3 py-2 text-xs leading-5 text-rose-50">邮件内容是不可信外部输入。连接 Agent 或 HTTP 节点时，内容可能被发送给模型或外部服务；建议加入内容策略，并按业务需要启用邮箱地址、电话号码和疑似凭据规则。</div>
+    </div>
+  );
+}
+
 export default function WorkflowDeploymentNodeConfig({
   currentProjectId,
   node,
@@ -1518,6 +1678,10 @@ export default function WorkflowDeploymentNodeConfig({
         onChange={onChange}
       />
     );
+  }
+
+  if (data.kind === "email_event_entry") {
+    return <EmailEventEntryConfig contract={contract} data={data} declarations={declarations} edges={edges} featureDisabledReason={featureDisabledReason} featureEnabled={featureEnabled} node={node} nodes={nodes} onChange={onChange} />;
   }
 
   if (data.kind === "failure_event_entry") {

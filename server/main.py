@@ -80,6 +80,7 @@ try:
         execute_workflow_trigger,
         router as workflow_deployments_router,
         workflow_failure_triggers_enabled,
+        workflow_imap_triggers_enabled,
         workflow_rss_triggers_enabled,
         workflow_subworkflows_enabled,
     )
@@ -95,6 +96,7 @@ except ModuleNotFoundError:
         execute_workflow_trigger,
         router as workflow_deployments_router,
         workflow_failure_triggers_enabled,
+        workflow_imap_triggers_enabled,
         workflow_rss_triggers_enabled,
         workflow_subworkflows_enabled,
     )
@@ -703,6 +705,12 @@ try:
         rss_item_content_length,
         validate_rss_config,
     )
+    from server.workflow_email import (
+        SecureImapClient,
+        WorkflowEmailError,
+        email_message_key,
+        validate_email_config,
+    )
     from server.workflow_native.r23_iteration import (
         MAX_CHILD_RESULT_CHARS,
         WorkflowIterationError,
@@ -826,6 +834,12 @@ except ModuleNotFoundError:
         fetch_rss_feed,
         rss_item_content_length,
         validate_rss_config,
+    )
+    from workflow_email import (
+        SecureImapClient,
+        WorkflowEmailError,
+        email_message_key,
+        validate_email_config,
     )
     from workflow_native.r23_iteration import (
         MAX_CHILD_RESULT_CHARS,
@@ -2027,6 +2041,7 @@ skill_application_observer = SkillApplicationObserver(
 workflow_deployment_store = WorkflowDeploymentStore(
     storage_dir=AGENT_TASK_STORAGE_DIR or None,
     credential_validator=toolset_credential_store.get_public,
+    credential_resolver=toolset_credential_store.resolve,
     mcp_tool_validator=validate_registered_workflow_mcp_tool,
     xpert_target_validator=validate_workflow_handoff_target,
     knowledge_proposal_validator=lambda kb_id: (
@@ -3162,6 +3177,11 @@ class WorkflowPayload(BaseModel):
             "http_event_entry": ("eventVariable",),
             "form_event_entry": ("eventVariable", "submissionVariable"),
             "rss_event_entry": ("eventVariable", "itemVariable"),
+            "email_event_entry": (
+                "eventVariable",
+                "messageVariable",
+                "contentVariable",
+            ),
             "failure_event_entry": ("eventVariable",),
             "workflow_call_entry": ("eventVariable",),
             "invoke_workflow": ("resultVariable",),
@@ -5801,6 +5821,7 @@ def workflow_node_kind(node: WorkflowNodePayload) -> WorkflowNodeType:
         "http_event_entry",
         "form_event_entry",
         "rss_event_entry",
+        "email_event_entry",
         "failure_event_entry",
         "workflow_call_entry",
         "invoke_workflow",
@@ -9707,7 +9728,7 @@ async def _run_workflow_response(
         node.id
         for node in payload.workflow.nodes
         if workflow_node_kind(node)
-        in {"input", "scheduled_start", "http_event_entry", "form_event_entry", "rss_event_entry", "failure_event_entry", "workflow_call_entry"}
+        in {"input", "scheduled_start", "http_event_entry", "form_event_entry", "rss_event_entry", "email_event_entry", "failure_event_entry", "workflow_call_entry"}
     ]
     if not start_node_ids and order:
         start_node_ids = [order[0]]
@@ -9919,6 +9940,11 @@ async def _run_workflow_response(
             and runtime_trigger_event.get("type") == "rss_item"
             and not runtime_trigger_event.get("test_mode")
         ),
+        "private_email_event": bool(
+            isinstance(runtime_trigger_event, dict)
+            and runtime_trigger_event.get("type") == "email_received"
+            and not runtime_trigger_event.get("test_mode")
+        ),
         "knowledge_proposal_sensitive_variable_names": {
             str(node.data.get("contentVariable") or "").strip()
             for node in payload.workflow.nodes
@@ -9928,14 +9954,18 @@ async def _run_workflow_response(
         "ephemeral_variable_names": {
             str(node.data.get(field_name) or "").strip()
             for node in payload.workflow.nodes
-            if workflow_node_kind(node) in {"http_event_entry", "form_event_entry", "rss_event_entry"}
+            if workflow_node_kind(node) in {"http_event_entry", "form_event_entry", "rss_event_entry", "email_event_entry"}
             for field_name in (
                 ("eventVariable", "bodyVariable")
                 if workflow_node_kind(node) == "http_event_entry"
                 else (
                     ("eventVariable", "submissionVariable")
                     if workflow_node_kind(node) == "form_event_entry"
-                    else ("eventVariable", "itemVariable")
+                    else (
+                        ("eventVariable", "itemVariable")
+                        if workflow_node_kind(node) == "rss_event_entry"
+                        else ("eventVariable", "messageVariable", "contentVariable")
+                    )
                 )
             )
             if str(node.data.get(field_name) or "").strip()
@@ -15635,6 +15665,98 @@ async def _run_workflow_response(
                             node_id=node.id,
                         ) from exc
 
+                elif kind == "email_event_entry":
+                    try:
+                        email_config = validate_email_config(node.data)
+                        runtime_event = dict(
+                            task_state.get("runtime_trigger_event") or {}
+                        )
+                        if not runtime_event:
+                            if not workflow_imap_triggers_enabled():
+                                raise WorkflowEmailError(
+                                    "EMAIL_FEATURE_DISABLED",
+                                    "Workflow IMAP triggers are disabled.",
+                                )
+                            credential = toolset_credential_store.get_public(
+                                str(email_config["credentialId"])
+                            )
+                            if credential.kind != "generic" or credential.status != "active":
+                                raise WorkflowEmailError(
+                                    "EMAIL_CREDENTIAL_INVALID",
+                                    "Email credential must be an active generic credential.",
+                                )
+                            client = SecureImapClient(
+                                str(email_config["host"]),
+                                toolset_credential_store.resolve(
+                                    str(email_config["credentialId"])
+                                ),
+                            )
+                            snapshot = await asyncio.to_thread(client.snapshot)
+                            if not snapshot.uids:
+                                raise WorkflowEmailError(
+                                    "EMAIL_TEST_MESSAGE_UNAVAILABLE",
+                                    "INBOX does not currently contain a message to test.",
+                                )
+                            uid = snapshot.uids[-1]
+                            message = await asyncio.to_thread(client.fetch, uid)
+                            message_key = email_message_key(snapshot.uidvalidity, uid)
+                            runtime_event = {
+                                "type": "email_received",
+                                "occurrence_key": f"email:test:{message_key}",
+                                "message_key": message_key,
+                                "mailbox": "INBOX",
+                                "received_at": time.time(),
+                                "message_bytes": message.raw_bytes,
+                                "test_mode": True,
+                                "message": dict(message.message),
+                                "content": message.content,
+                            }
+                        raw_message = runtime_event.get("message")
+                        raw_content = runtime_event.get("content")
+                        if not isinstance(raw_message, dict) or not isinstance(raw_content, str):
+                            raise WorkflowEmailError(
+                                "EMAIL_DELIVERY_INVALID",
+                                "Email delivery content is unavailable.",
+                            )
+                        safe_event = {
+                            "type": "email_received",
+                            "occurrenceKey": str(runtime_event.get("occurrence_key") or ""),
+                            "messageKey": str(runtime_event.get("message_key") or ""),
+                            "mailbox": "INBOX",
+                            "receivedAt": float(runtime_event.get("received_at") or time.time()),
+                            "trust": "untrusted_external",
+                            "testMode": bool(runtime_event.get("test_mode")),
+                        }
+                        event_variable = str(email_config["eventVariable"])
+                        message_variable = str(email_config["messageVariable"])
+                        content_variable = str(email_config["contentVariable"])
+                        variables[event_variable] = normalize_workflow_value(
+                            safe_event, path=f"$.variables.{event_variable}"
+                        )
+                        variables[message_variable] = normalize_workflow_value(
+                            dict(raw_message), path=f"$.variables.{message_variable}"
+                        )
+                        variables[content_variable] = normalize_workflow_value(
+                            raw_content, path=f"$.variables.{content_variable}"
+                        )
+                        output = (
+                            f"email message_key={safe_event['messageKey']} "
+                            f"bytes={int(runtime_event.get('message_bytes') or 0)} "
+                            f"received_at={safe_event['receivedAt']}"
+                        )
+                    except WorkflowEmailError as exc:
+                        raise WorkflowTerminationError(
+                            exc.code,
+                            exc.safe_message,
+                            node_id=node.id,
+                        ) from exc
+                    except Exception as exc:
+                        raise WorkflowTerminationError(
+                            "EMAIL_CREDENTIAL_UNAVAILABLE",
+                            "Email credential is unavailable.",
+                            node_id=node.id,
+                        ) from exc
+
                 elif kind == "invoke_workflow":
                     result_variable = str(
                         node.data.get("resultVariable") or "workflow_result"
@@ -21135,7 +21257,7 @@ async def _run_workflow_response(
                         output = ""
                         if not bool(task_state.get("private_form_event")) and not bool(
                             task_state.get("private_rss_event")
-                        ):
+                        ) and not bool(task_state.get("private_email_event")):
                             variables[output_variable] = output
                         if agent_pipeline is not None and agent_context is not None:
                             try:
@@ -21218,6 +21340,7 @@ async def _run_workflow_response(
                             isinstance(exc, RuntimeToolError)
                             and not bool(task_state.get("private_form_event"))
                             and not bool(task_state.get("private_rss_event"))
+                            and not bool(task_state.get("private_email_event"))
                         ):
                             yield sse_payload(
                                 {
@@ -22956,6 +23079,8 @@ async def _run_workflow_response(
                         "bodyVariable",
                         "submissionVariable",
                         "itemVariable",
+                        "messageVariable",
+                        "contentVariable",
                         "resultVariable",
                     )
                     if str(node.data.get(field_name) or "").strip()
@@ -22976,6 +23101,13 @@ async def _run_workflow_response(
                         if event_variable in variables
                         else {}
                     )
+                if kind == "email_event_entry":
+                    event_variable = str(node.data.get("eventVariable") or "").strip()
+                    public_node_variables = (
+                        {event_variable: variables[event_variable]}
+                        if event_variable in variables
+                        else {}
+                    )
                 if bool(task_state.get("private_form_event")):
                     public_node_output = (
                         output
@@ -22988,6 +23120,13 @@ async def _run_workflow_response(
                         output
                         if kind == "rss_event_entry"
                         else "rss workflow node output withheld"
+                    )
+                    public_node_variables = {}
+                if bool(task_state.get("private_email_event")):
+                    public_node_output = (
+                        output
+                        if kind == "email_event_entry"
+                        else "email workflow node output withheld"
                     )
                     public_node_variables = {}
                 yield sse_payload(
@@ -23238,15 +23377,20 @@ async def _run_workflow_response(
                 bool(task_state.get("private_http_event"))
                 or bool(task_state.get("private_form_event"))
                 or bool(task_state.get("private_rss_event"))
+                or bool(task_state.get("private_email_event"))
             ):
                 encoded_final_output = final_output.encode("utf-8")
                 source_name = (
-                    "rss"
-                    if bool(task_state.get("private_rss_event"))
+                    "email"
+                    if bool(task_state.get("private_email_event"))
                     else (
-                        "form"
-                        if bool(task_state.get("private_form_event"))
-                        else "webhook"
+                        "rss"
+                        if bool(task_state.get("private_rss_event"))
+                        else (
+                            "form"
+                            if bool(task_state.get("private_form_event"))
+                            else "webhook"
+                        )
                     )
                 )
                 persisted_final_output = (
@@ -23328,12 +23472,14 @@ async def _run_workflow_response(
                         persisted_final_output
                         if bool(task_state.get("private_form_event"))
                         or bool(task_state.get("private_rss_event"))
+                        or bool(task_state.get("private_email_event"))
                         else safe_content_policy_value(final_output)
                     ),
                     "variables": (
                         {}
                         if bool(task_state.get("private_form_event"))
                         or bool(task_state.get("private_rss_event"))
+                        or bool(task_state.get("private_email_event"))
                         else safe_content_policy_value(
                             {
                                 name: value
@@ -23365,13 +23511,19 @@ async def _run_workflow_response(
                 },
             )
         except RuntimeInterrupt as interrupt:
-            if bool(task_state.get("private_form_event")) or bool(
-                task_state.get("private_rss_event")
+            if (
+                bool(task_state.get("private_form_event"))
+                or bool(task_state.get("private_rss_event"))
+                or bool(task_state.get("private_email_event"))
             ):
                 failure_message = (
-                    "RSS workflows cannot persist a continuation."
-                    if bool(task_state.get("private_rss_event"))
-                    else "Form workflows cannot persist a continuation."
+                    "Email workflows cannot persist a continuation."
+                    if bool(task_state.get("private_email_event"))
+                    else (
+                        "RSS workflows cannot persist a continuation."
+                        if bool(task_state.get("private_rss_event"))
+                        else "Form workflows cannot persist a continuation."
+                    )
                 )
                 workflow_execution_store.fail(task_id, error=failure_message)
                 await run_registry.update_run(
@@ -24484,6 +24636,8 @@ configure_workflow_deployment_runtime(
     trigger_executor=run_deployed_workflow_trigger,
     timer_due_source=lambda: workflow_execution_store.list_due_timers(limit=20),
     timer_resume_executor=resume_runtime_timer_execution,
+    credential_resolver=toolset_credential_store.resolve,
+    credential_lookup=toolset_credential_store.get_public,
 )
 
 

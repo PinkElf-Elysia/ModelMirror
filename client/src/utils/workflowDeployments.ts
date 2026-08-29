@@ -1,8 +1,21 @@
 import { type WorkflowDefinition } from "../types/workflow";
 
-export type WorkflowTriggerKind = "manual" | "schedule" | "http" | "form" | "rss" | "failure" | "call";
+export type WorkflowTriggerKind = "manual" | "schedule" | "http" | "form" | "rss" | "email" | "failure" | "call";
 
 export interface WorkflowRssSubscriptionSummary {
+  project_id: string;
+  version: number;
+  deployment_id: string;
+  active: boolean;
+  baseline_established: boolean;
+  next_poll_at: number;
+  last_success_at?: number | null;
+  consecutive_failures: number;
+  last_error_code?: string | null;
+  updated_at: number;
+}
+
+export interface WorkflowEmailSubscriptionSummary {
   project_id: string;
   version: number;
   deployment_id: string;
@@ -67,6 +80,7 @@ export interface WorkflowProjectResponse {
   active_deployment?: WorkflowDeploymentSummary | null;
   form_publication?: WorkflowFormPublicationSummary | null;
   rss_subscription?: WorkflowRssSubscriptionSummary | null;
+  email_subscription?: WorkflowEmailSubscriptionSummary | null;
   published_versions: WorkflowVersionSummary[];
   created_at: number;
   updated_at: number;
@@ -251,5 +265,23 @@ export function inspectWorkflowRss(feedUrl: string) {
   return requestJson<WorkflowRssInspectResponse>("/api/workflow/rss/inspect", {
     method: "POST",
     body: JSON.stringify({ feedUrl }),
+  });
+}
+
+export interface WorkflowEmailInspectResponse {
+  mailbox: "INBOX";
+  messageCount: number;
+  uidValidity: number;
+  items: Array<{
+    subject: string;
+    from: Array<{ name: string; address: string }>;
+    sentAt?: string | null;
+  }>;
+}
+
+export function inspectWorkflowEmail(host: string, credentialId: string) {
+  return requestJson<WorkflowEmailInspectResponse>("/api/workflow/email/inspect", {
+    method: "POST",
+    body: JSON.stringify({ host, credentialId }),
   });
 }

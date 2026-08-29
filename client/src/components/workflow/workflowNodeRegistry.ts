@@ -143,6 +143,13 @@ export const workflowPaletteSections: WorkflowPaletteSection[] = [
         tags: ["rss", "atom", "feed", "deployment"],
       },
       {
+        kind: "email_event_entry",
+        icon: "MAIL",
+        title: "邮件到达入口",
+        description: "只读检查公网 IMAPS INBOX，并为每封新邮件独立启动。",
+        tags: ["email", "imap", "inbox", "deployment"],
+      },
+      {
         kind: "failure_event_entry",
         icon: "FAIL",
         title: "失败处置入口",

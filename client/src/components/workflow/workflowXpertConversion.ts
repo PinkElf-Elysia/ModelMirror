@@ -18,6 +18,7 @@ export const INDEPENDENT_DEPLOYMENT_NODE_KINDS = new Set<WorkflowNodeKind>([
   "http_event_entry",
   "form_event_entry",
   "rss_event_entry",
+  "email_event_entry",
   "failure_event_entry",
   "workflow_call_entry",
   "invoke_workflow",
