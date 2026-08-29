@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
@@ -58,6 +59,12 @@ except ModuleNotFoundError:
 
 CREDENTIAL_ID = "cred_" + "a" * 32
 EMAIL_CREDENTIAL_VALUE = '{"username":"user@example.test","password":"app-pass"}'
+
+
+def test_server_image_packages_workflow_email_module() -> None:
+    dockerfile = Path(__file__).resolve().parents[1] / "Dockerfile"
+
+    assert "COPY workflow_email.py ." in dockerfile.read_text(encoding="utf-8")
 
 
 def email_entry_data() -> dict:
