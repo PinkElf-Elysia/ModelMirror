@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "references": [
+    {"id":"ai-town-authority-boundary","repository":"a16z-infra/ai-town","commit":"7b242334bfbfef02f7718bded120d431e8f307df","gitTreeSha1":"0f80a3adf652dfe7d4eb043b153ab3f093afe219","archiveSha256":"606aeacac9ad3f8f07e7f709dfb147590926433469b18031e9a9d3969d82cb5e","license":"MIT","path":"ARCHITECTURE.md","fileSha256":"9c0b509fc6b0d5e8560fd2e14ea1274350770cf522d98efd4e9ae021eabbd641","reuse":"architecture-reference-only"},
+    {"id":"cloudevents-core-metadata","repository":"cloudevents/spec","commit":"fc1f6f31f5f011a72183f1bcea20c987cb683ade","gitTreeSha1":null,"archiveSha256":null,"license":"Apache-2.0","path":"cloudevents/spec.md","fileSha256":"e327435c858d19fd171e4ab9781a01fc22dfa949d23c4220976529ebd16a1aa3","reuse":"metadata-reference-only"},
+    {"id":"concordia-action-resolution","repository":"google-deepmind/concordia","commit":"44904ecb3ff69a2874aab2b6a1b147db13f745b2","gitTreeSha1":"3323f49851fb2cc3110a4729c2c3a5b9aebb3e3c","archiveSha256":"8417253236a4d01c1a05ba14a64e3fb47569bd1d2a27f815f13da8b5d9a69776","license":"Apache-2.0","path":"concordia/environment/engine.py","fileSha256":"b0e8c7a249c409d49dd2db56515daf79959bbc8a77f83200d97566233d9eac84","reuse":"architecture-reference-only"},
+    {"id":"langgraph-checkpoint-replay","repository":"langchain-ai/langgraph","commit":"a7a27dd43a4229c2ca09ac065a6a39e4ce083063","gitTreeSha1":null,"archiveSha256":null,"license":"NOASSERTION","path":"README.md","fileSha256":"2083a18b8c2fa4394e37518102ab5370a627009cbe1b5c784047ce34a1c98600","reuse":"behavior-warning-only"},
+    {"id":"sotopia-evaluation-separation","repository":"sotopia-lab/sotopia","commit":"a0aaafb440e570e5e61b7c44a44e5e417c545383","gitTreeSha1":"9a3830df65379362eb81e0e568d751e950d90afb","archiveSha256":"54b4e55b6b6c9d122f715fffb905988874245904ae749d8ea353c591924cc144","license":"MIT","path":"sotopia/envs/parallel.py","fileSha256":"43f2daf6f82a35d1c6f14dadf896123686bf8d14db15595f2813859b08b4967a","reuse":"evaluation-reference-only"}
+  ]
+}

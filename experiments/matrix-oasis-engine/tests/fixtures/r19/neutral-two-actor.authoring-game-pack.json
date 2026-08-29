@@ -1,0 +1,68 @@
+{
+  "format": "matrix-oasis.authoring-game-pack",
+  "formatVersion": "0.1.0",
+  "id": "neutral-two-actor",
+  "contentVersion": "1",
+  "language": "en",
+  "title": "Neutral Two Actor Fixture",
+  "summary": "A topic-neutral loop and ending fixture for authority tests.",
+  "entryNodeId": "node-alpha",
+  "entities": [
+    { "id": "actor-alpha", "label": "Actor Alpha" },
+    { "id": "actor-beta", "label": "Actor Beta" },
+    { "id": "target-unit", "label": "Target Unit" }
+  ],
+  "variables": [
+    { "id": "cycle-count", "type": "integer", "initial": 0 }
+  ],
+  "cues": [
+    { "id": "cue-complete", "channel": "ui", "intent": "Mark deterministic completion." }
+  ],
+  "nodes": [
+    {
+      "id": "node-alpha",
+      "title": "Alpha",
+      "entityIds": ["actor-alpha", "target-unit"],
+      "entryCueIds": [],
+      "actions": [
+        {
+          "id": "action-pass",
+          "label": "Pass",
+          "entityIds": ["target-unit"],
+          "effects": [
+            { "op": "add", "variableId": "cycle-count", "value": 1 }
+          ],
+          "target": { "kind": "node", "id": "node-beta" }
+        }
+      ]
+    },
+    {
+      "id": "node-beta",
+      "title": "Beta",
+      "entityIds": ["actor-beta", "target-unit"],
+      "entryCueIds": [],
+      "actions": [
+        {
+          "id": "action-loop",
+          "label": "Loop",
+          "entityIds": ["target-unit"],
+          "effects": [],
+          "target": { "kind": "node", "id": "node-alpha" }
+        },
+        {
+          "id": "action-finish",
+          "label": "Finish",
+          "entityIds": ["target-unit"],
+          "when": { "op": "gte", "variableId": "cycle-count", "value": 1 },
+          "effects": [
+            { "op": "emitCue", "cueId": "cue-complete" }
+          ],
+          "target": { "kind": "ending", "id": "ending-complete" }
+        }
+      ]
+    }
+  ],
+  "endings": [
+    { "id": "ending-complete", "title": "Complete", "cueIds": ["cue-complete"] }
+  ]
+}
