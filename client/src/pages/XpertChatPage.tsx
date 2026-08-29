@@ -98,12 +98,76 @@ interface XpertRunEvent {
 export function latestXpertProviderReceipt(
   events: XpertRunEvent[],
 ): ProviderRouteReceipt | null {
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    if (events[index]?.provider_route_receipts) {
-      return events[index].provider_route_receipts ?? null;
-    }
+  const receiptsByRun = new Map<string, ProviderRouteReceipt>();
+  events.forEach((event) => {
+    const receipt = event.provider_route_receipts;
+    if (!receipt) return;
+    receiptsByRun.set(`${receipt.entry_id}:${receipt.run_reference}`, receipt);
+  });
+  const receipts = [...receiptsByRun.values()];
+  if (!receipts.length) return null;
+  if (receipts.length === 1) return receipts[0] ?? null;
+
+  const statuses = new Set(receipts.map((receipt) => receipt.status));
+  const status: ProviderRouteReceipt["status"] = statuses.has("uncertain")
+    ? "uncertain"
+    : statuses.has("failed")
+      ? "failed"
+      : statuses.has("cancelled")
+        ? "cancelled"
+        : statuses.has("running")
+          ? "running"
+          : "passed";
+  const calls = receipts.flatMap((receipt) => receipt.calls).map((call, index) => ({
+    ...call,
+    call_sequence: index + 1,
+  }));
+  return {
+    contract_version: "modelmirror-provider-workload-routing-v1",
+    entry_id: "xpert",
+    routing_mode: "managed_required",
+    run_reference: `xpert-composed-${receipts.length}`,
+    status,
+    call_count: receipts.reduce((total, receipt) => total + receipt.call_count, 0),
+    reason_codes: [...new Set(receipts.flatMap((receipt) => receipt.reason_codes))],
+    calls,
+  };
+}
+
+function xpertProviderReceiptEvents(
+  events: XpertRunEvent[],
+): XpertRunEvent[] {
+  return events.filter((event) => event.provider_route_receipts);
+}
+
+function appendXpertProviderReceiptEvent(
+  events: XpertRunEvent[],
+  event: XpertRunEvent,
+): XpertRunEvent[] {
+  if (!event.provider_route_receipts) return events;
+  return [...events, event];
+}
+
+function resetXpertProviderReceipts(
+  receiptEventsRef: { current: XpertRunEvent[] },
+  setProviderReceipt: (receipt: ProviderRouteReceipt | null) => void,
+) {
+  receiptEventsRef.current = [];
+  setProviderReceipt(null);
+}
+
+function recordXpertProviderReceipt(
+  receiptEventsRef: { current: XpertRunEvent[] },
+  event: XpertRunEvent,
+  setProviderReceipt: (receipt: ProviderRouteReceipt | null) => void,
+) {
+  receiptEventsRef.current = appendXpertProviderReceiptEvent(
+    receiptEventsRef.current,
+    event,
+  );
+  if (event.provider_route_receipts) {
+    setProviderReceipt(latestXpertProviderReceipt(receiptEventsRef.current));
   }
-  return null;
 }
 
 export function selectedXpertFilesAfterConversationRestore(
@@ -353,6 +417,7 @@ export default function XpertChatPage() {
   const [input, setInput] = useState("");
   const [events, setEvents] = useState<XpertRunEvent[]>([]);
   const [providerReceipt, setProviderReceipt] = useState<ProviderRouteReceipt | null>(null);
+  const providerReceiptEventsRef = useRef<XpertRunEvent[]>([]);
   const [runId, setRunId] = useState("");
   const [taskId, setTaskId] = useState("");
   const [trace, setTrace] = useState<TraceBundle | null>(null);
@@ -554,7 +619,7 @@ export default function XpertChatPage() {
     setFileOutputs([]);
     setSelectedFileIds([]);
     setEvents([]);
-    setProviderReceipt(null);
+    resetXpertProviderReceipts(providerReceiptEventsRef, setProviderReceipt);
     setContextLoading(true);
     setError("");
     try {
@@ -605,6 +670,7 @@ export default function XpertChatPage() {
               conversationIdRef.current,
             )) {
               setEvents(restored);
+              providerReceiptEventsRef.current = xpertProviderReceiptEvents(restoredEvents);
               setProviderReceipt(latestXpertProviderReceipt(restoredEvents));
             }
           }
@@ -1060,7 +1126,7 @@ export default function XpertChatPage() {
     setInput("");
     setSelectedFileIds(nextSelectedFileIds);
     setEvents([]);
-    setProviderReceipt(null);
+    resetXpertProviderReceipts(providerReceiptEventsRef, setProviderReceipt);
     setTrace(null);
     setRunId("");
     setTaskId("");
@@ -1100,9 +1166,7 @@ export default function XpertChatPage() {
           if (!raw) continue;
           const event = JSON.parse(raw) as XpertRunEvent;
           setEvents((current) => [...current.slice(-79), event]);
-          if (event.provider_route_receipts) {
-            setProviderReceipt(event.provider_route_receipts);
-          }
+          recordXpertProviderReceipt(providerReceiptEventsRef, event, setProviderReceipt);
           if (event.run_id) {
             nextRunId = event.run_id;
             setRunId(event.run_id);
@@ -1185,7 +1249,7 @@ export default function XpertChatPage() {
       let finalSuggestions: string[] = [];
       let finalConversationTitle = "";
       setEvents([]);
-      setProviderReceipt(null);
+      resetXpertProviderReceipts(providerReceiptEventsRef, setProviderReceipt);
 
       const processBlock = (block: string) => {
         for (const line of block.split(/\r?\n/)) {
@@ -1194,9 +1258,7 @@ export default function XpertChatPage() {
           if (!raw) continue;
           const event = JSON.parse(raw) as XpertRunEvent;
           setEvents((current) => [...current.slice(-79), event]);
-          if (event.provider_route_receipts) {
-            setProviderReceipt(event.provider_route_receipts);
-          }
+          recordXpertProviderReceipt(providerReceiptEventsRef, event, setProviderReceipt);
           if (event.run_id) {
             nextRunId = event.run_id;
             setRunId(event.run_id);

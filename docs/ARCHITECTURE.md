@@ -163,6 +163,11 @@ STT/TTS、Chat Audio、音频生成、视频分析/生成和 Realtime SDP 保持
 精确 `entry + shape + model + connection + adapter` Binding、资格状态和脱敏 Receipt。
 所有 R8 开关默认关闭，R8A 不发起真实资格调用，现有 Chat SSE 与专用多模态路径不变。
 
+Round 8B 在该外壳内接入图片 Chat、原生 PDF Chat、RAG/Workflow/Xpert Vision 和图片生成。
+每个入口只调用一个精确 Managed Connection；图片、PDF、严格 JSON 和 Images 仍保留独立执行
+协议。图片与原生 PDF等未认证混合形态会在派发前阻断，派发后错误不触发第二 Provider或 legacy。
+STT/TTS、Chat Audio、音频生成、视频与 Realtime 继续等待 R8C—R8F，全部 Feature Flag 仍默认关闭。
+
 Round 5A 在控制面增加 `modelmirror-provider-chat-routing-v1`：`chat_text`、
 `chat_tools` 与 `chat_file_output` 各自具有独立认证、稳定模型资格和有序 Managed
 Provider 路由。SQLite v15 保存租户隔离的策略、资格、Gate 纪元以及不含用户正文的

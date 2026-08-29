@@ -315,10 +315,18 @@ MODEL_CONTROL_VIDEO_GENERATION_ENABLED=false
 MODEL_CONTROL_REALTIME_VOICE_ENABLED=false
 ```
 
-R8A 只迁移 Router SQLite 至 v18，并展示 scope、Adapter、Binding 与资格框架；不得把打开环境变量
-解释为数据面已接入。R8B—R8F 合并并完成对应真实验收前，Settings 会阻止多模态资格付费调用和
-Policy 激活。部署前使用 SQLite Backup API 备份 Router 数据库；回滚代码时保留 v18 表和新增的
-可空任务证据列，旧代码会忽略它们。不得删除现有媒体任务、Provider 凭据或 newAPI 数据。
+R8A 迁移 Router SQLite 至 v18，并展示 scope、Adapter、Binding 与资格框架。R8B 已接入图片 Chat、
+原生 PDF Chat、RAG/Workflow/Xpert Vision 与图片生成的数据面；只有对应连接完成精确 shape/Adapter
+资格后才能激活。STT/TTS、Chat Audio、音频生成、视频与 Realtime 在 R8C—R8F 合并并完成真实
+验收前仍会阻止付费认证和 Policy 激活。不得把打开环境变量解释为资格已通过或生产切换已批准。
+
+Managed 图片生成请求必须携带 1—200 字符的 `Idempotency-Key`。OpenAI-compatible Images
+连接使用 `/v1/images/generations`、标准 `size` 和 `response_format=b64_json`；若所选高级参数不在
+该 Adapter 合同内，请改用已认证 Adapter或移除参数，不要靠失败后切换 Provider 探测。
+
+部署前使用 SQLite Backup API 备份 Router 数据库；回滚时关闭受影响 R8B Flag 并显式停用 Policy，
+保留 v18 表、资格、Receipt 和新增的可空任务证据列。不得删除现有媒体任务、Provider 凭据或
+newAPI 数据。
 
 规则：
 

@@ -38,6 +38,51 @@ describe("latestXpertProviderReceipt", () => {
     expect(latestXpertProviderReceipt([])).toBeNull();
     expect(latestXpertProviderReceipt([{ event: "workflow_end" }])).toBeNull();
   });
+
+  it("deduplicates progressive receipts and combines vision with the Xpert call", () => {
+    const visionReceipt = {
+      contract_version: "modelmirror-provider-multimodal-routing-v1" as const,
+      entry_id: "xpert_vision" as const,
+      routing_mode: "managed_required" as const,
+      run_reference: "vision-run-1",
+      status: "passed" as const,
+      call_count: 1,
+      reason_codes: [],
+      calls: [{
+        call_sequence: 1,
+        model_id: "provider/vision-model",
+        status: "passed" as const,
+        total_tokens: 20,
+      }],
+    };
+    const xpertReceipt = {
+      contract_version: "modelmirror-provider-workload-routing-v1" as const,
+      entry_id: "xpert" as const,
+      routing_mode: "managed_required" as const,
+      run_reference: "xpert-run-1",
+      status: "passed" as const,
+      call_count: 1,
+      reason_codes: [],
+      calls: [{
+        call_sequence: 1,
+        model_id: "provider/text-model",
+        status: "passed" as const,
+        total_tokens: 10,
+      }],
+    };
+
+    const combined = latestXpertProviderReceipt([
+      { event: "node_end", provider_route_receipts: visionReceipt },
+      { event: "node_end", provider_route_receipts: visionReceipt },
+      { event: "workflow_end", provider_route_receipts: xpertReceipt },
+    ]);
+
+    expect(combined).toMatchObject({ status: "passed", call_count: 2 });
+    expect(combined?.calls).toEqual([
+      expect.objectContaining({ call_sequence: 1, model_id: "provider/vision-model" }),
+      expect.objectContaining({ call_sequence: 2, model_id: "provider/text-model" }),
+    ]);
+  });
 });
 
 afterEach(() => {

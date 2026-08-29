@@ -42,7 +42,9 @@
 
 ### 为什么设置里能选择多模态 Adapter，却不能运行认证或激活？
 
-R8A 只建立图片、文档、语音、视频和 Realtime 的控制面基础。管理员可以为连接添加明确的 `document`、`image` 或 `video` scope，并查看各入口要求的 Adapter；这不代表数据面已经接入。对应的 R8B—R8F 尚未完成时，认证按钮和 Managed 激活会保持阻断，也不会产生付费调用。不要通过修改请求或打开 Feature Flag 绕过该门禁。
+R8A 建立了图片、文档、语音、视频和 Realtime 的控制面基础；R8B 已接入图片 Chat、原生 PDF Chat、RAG/Workflow/Xpert Vision 和图片生成。管理员仍需为连接添加明确的 `chat`、`document` 或 `image` scope，刷新目录，完成精确模型、执行形态和 Adapter 的真实认证，再到“路由与实验”激活对应入口。认证通过不等于已生产启用，Feature Flag 默认关闭。
+
+STT/TTS、Chat Audio、音频生成、视频和 Realtime 仍等待 R8C—R8F；这些入口的认证按钮和 Managed 激活会继续阻断且不会产生付费调用。图片与原生 PDF、工具或其他未按同一形态认证的组合请求也会在发送前阻断。不要通过修改请求或打开 Feature Flag 绕过门禁。
 
 ### RAG Formal 显示“引用已失效”或“不可重放”怎么办？
 

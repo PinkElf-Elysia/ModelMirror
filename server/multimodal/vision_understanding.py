@@ -8,10 +8,11 @@ import json
 import os
 import re
 import threading
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
@@ -21,6 +22,13 @@ try:
 except ModuleNotFoundError:
     from file_assets.contracts import FileInputKind, FilePurpose
     from file_assets.registry import get_file_format_registry
+
+if TYPE_CHECKING:
+    from server.model_router.multimodal_gateway import (
+        ManagedMultimodalGateway,
+        ManagedMultimodalRun,
+        R8BEntryId,
+    )
 
 
 SUPPORTED_IMAGE_EXTENSIONS = set(
@@ -109,6 +117,9 @@ class VisionSourceResult:
     blocks: list[VisionBlock]
     page_results: list[VisionPageResult]
     warnings: list[str] = field(default_factory=list)
+    provider_route_receipts: list[dict[str, Any]] = field(default_factory=list)
+    execution_mode: str = "legacy"
+    fallback_reason_codes: list[str] = field(default_factory=list)
 
     def payload(self, *, max_text: int | None = None) -> dict[str, Any]:
         return {
@@ -121,6 +132,9 @@ class VisionSourceResult:
             "block_count": len(self.blocks),
             "block_counts": _block_counts(self.blocks),
             "warnings": list(self.warnings),
+            "provider_route_receipts": list(self.provider_route_receipts),
+            "execution_mode": self.execution_mode,
+            "fallback_reason_codes": list(self.fallback_reason_codes),
             "blocks": [block.payload(max_text=max_text) for block in self.blocks],
             "pages": [item.payload(max_text=max_text) for item in self.page_results],
         }
@@ -135,10 +149,12 @@ class VisionUnderstandingService:
         request_override: Callable[[str, str, dict[str, Any]], Any] | None = None,
         max_concurrency: int = 2,
         before_request: Callable[[], Any] | None = None,
+        managed_gateway: ManagedMultimodalGateway | None = None,
     ) -> None:
         self._request_override = request_override
         self._semaphore = asyncio.Semaphore(max(1, min(max_concurrency, 8)))
         self._before_request = before_request
+        self._managed_gateway = managed_gateway
 
     def capabilities(self) -> dict[str, Any]:
         targets = self._targets()
@@ -169,6 +185,60 @@ class VisionUnderstandingService:
                 "attempts": 2,
             },
         }
+
+    def managed_model_available(
+        self,
+        entry_id: R8BEntryId,
+        model_id: str,
+        execution_shape: str = "vision_json_unary",
+    ) -> bool:
+        """Project exact managed readiness without borrowing legacy targets."""
+
+        try:
+            from server.model_router import get_model_router_service
+            from server.model_router.multimodal_gateway import (
+                ManagedMultimodalGateway,
+            )
+        except ModuleNotFoundError:
+            from model_router import get_model_router_service
+            from model_router.multimodal_gateway import (
+                ManagedMultimodalGateway,
+            )
+        try:
+            gateway = self._managed_gateway or ManagedMultimodalGateway.for_router(
+                get_model_router_service()
+            )
+            if gateway.routing_mode(entry_id) != "managed_required":
+                return False
+            gateway.exact_model_id(
+                entry_id,
+                execution_shape,
+                requested_model=model_id,
+            )
+            return True
+        except Exception:
+            return False
+
+    def managed_routing_mode(self, entry_id: R8BEntryId) -> str:
+        """Expose the effective managed state for safe preflight projection."""
+
+        try:
+            from server.model_router import get_model_router_service
+            from server.model_router.multimodal_gateway import (
+                ManagedMultimodalGateway,
+            )
+        except ModuleNotFoundError:
+            from model_router import get_model_router_service
+            from model_router.multimodal_gateway import (
+                ManagedMultimodalGateway,
+            )
+        try:
+            gateway = self._managed_gateway or ManagedMultimodalGateway.for_router(
+                get_model_router_service()
+            )
+            return gateway.routing_mode(entry_id)
+        except Exception:
+            return "degraded_required"
 
     def validate_image_bytes(self, content: bytes, filename: str) -> dict[str, Any]:
         extension = Path(filename).suffix.lower()
@@ -237,6 +307,8 @@ class VisionUnderstandingService:
         cache_get: Callable[[int], dict[str, Any] | None] | None = None,
         cache_set: Callable[[int, dict[str, Any]], None] | None = None,
         cancel_check: Callable[[], bool] | None = None,
+        managed_entry_id: R8BEntryId | None = None,
+        parent_run_reference: str | None = None,
     ) -> VisionSourceResult:
         return await self.analyze_bytes(
             path.read_bytes(),
@@ -246,6 +318,8 @@ class VisionUnderstandingService:
             cache_get=cache_get,
             cache_set=cache_set,
             cancel_check=cancel_check,
+            managed_entry_id=managed_entry_id,
+            parent_run_reference=parent_run_reference,
         )
 
     async def analyze_bytes(
@@ -258,6 +332,8 @@ class VisionUnderstandingService:
         cache_get: Callable[[int], dict[str, Any] | None] | None = None,
         cache_set: Callable[[int, dict[str, Any]], None] | None = None,
         cancel_check: Callable[[], bool] | None = None,
+        managed_entry_id: R8BEntryId | None = None,
+        parent_run_reference: str | None = None,
     ) -> VisionSourceResult:
         normalized = _normalize_config(config)
         model_id = normalized["vision_model_id"]
@@ -284,7 +360,54 @@ class VisionUnderstandingService:
                 f"Visual processing was limited to the first {max_pages} selected pages."
             )
 
-        async def process(plan: VisionPagePlan) -> VisionPageResult:
+        managed_run: ManagedMultimodalRun | None = None
+        execution_mode = "legacy"
+        if managed_entry_id is not None:
+            try:
+                from server.model_router import get_model_router_service
+                from server.model_router.multimodal_gateway import (
+                    ManagedMultimodalError,
+                    ManagedMultimodalGateway,
+                )
+            except ModuleNotFoundError:
+                from model_router import get_model_router_service
+                from model_router.multimodal_gateway import (
+                    ManagedMultimodalError,
+                    ManagedMultimodalGateway,
+                )
+            gateway = self._managed_gateway or ManagedMultimodalGateway.for_router(
+                get_model_router_service()
+            )
+            mode = gateway.routing_mode(managed_entry_id)
+            if mode == "degraded_required":
+                raise VisionProcessingError(
+                    "Managed Vision policy is degraded and failed closed."
+                )
+            if mode == "managed_required":
+                try:
+                    model_id = gateway.exact_model_id(
+                        managed_entry_id,
+                        "vision_json_unary",
+                        requested_model=model_id,
+                    )
+                    managed_run = gateway.start_run(
+                        managed_entry_id,
+                        parent_run_reference=(
+                            parent_run_reference
+                            or f"vision:{source_id}:{uuid.uuid4().hex}"
+                        ),
+                        stable=bool(parent_run_reference),
+                    )
+                    execution_mode = "managed"
+                except ManagedMultimodalError as exc:
+                    error = VisionProcessingError(str(exc))
+                    error.code = exc.code  # type: ignore[attr-defined]
+                    error.receipt = exc.receipt  # type: ignore[attr-defined]
+                    raise error from exc
+
+        async def process(
+            plan: VisionPagePlan, call_sequence: int
+        ) -> VisionPageResult:
             if cancel_check and cancel_check():
                 raise asyncio.CancelledError
             cached = cache_get(plan.page_number) if cache_get else None
@@ -306,6 +429,9 @@ class VisionUnderstandingService:
                         model_id=model_id,
                         image_bytes=rendered["content"],
                         mime_type=rendered["mime_type"],
+                        managed_run=managed_run,
+                        logical_call_key=f"page:{plan.page_number}",
+                        call_sequence=call_sequence,
                     )
                 blocks, warning = self._blocks_from_analysis(
                     data,
@@ -334,11 +460,22 @@ class VisionUnderstandingService:
                 cache_set(plan.page_number, result.payload(max_text=None))
             return result
 
-        page_results = list(await asyncio.gather(*(process(item) for item in selected)))
+        page_results = list(
+            await asyncio.gather(
+                *(process(item, index) for index, item in enumerate(selected, start=1))
+            )
+        )
         blocks = [block for result in page_results for block in result.blocks]
         failed = sum(1 for item in page_results if item.status == "failed")
         processed = sum(1 for item in page_results if item.status == "completed")
         warnings.extend(item.warning for item in page_results if item.warning)
+        receipts: list[dict[str, Any]] = []
+        if managed_run is not None:
+            receipts.append(
+                managed_run.finish_failure("provider_multimodal_page_failed")
+                if failed
+                else managed_run.finish_success()
+            )
         return VisionSourceResult(
             source_id=source_id,
             filename=filename,
@@ -349,6 +486,8 @@ class VisionUnderstandingService:
             blocks=blocks,
             page_results=page_results,
             warnings=[str(item) for item in warnings if item],
+            provider_route_receipts=receipts,
+            execution_mode=execution_mode,
         )
 
     async def _call_before_request(self) -> None:
@@ -470,6 +609,9 @@ class VisionUnderstandingService:
         model_id: str,
         image_bytes: bytes,
         mime_type: str,
+        managed_run: ManagedMultimodalRun | None = None,
+        logical_call_key: str = "vision",
+        call_sequence: int = 1,
     ) -> dict[str, Any]:
         encoded = base64.b64encode(image_bytes).decode("ascii")
         payload = {
@@ -504,6 +646,14 @@ class VisionUnderstandingService:
             "max_tokens": 4000,
             "stream": False,
         }
+        if managed_run is not None:
+            return await managed_run.complete_vision_json(
+                logical_call_key=logical_call_key,
+                call_sequence=call_sequence,
+                model_id=model_id,
+                messages=payload["messages"],
+                max_tokens=int(payload["max_tokens"]),
+            )
         errors: list[str] = []
         for attempt in range(2):
             for target_name, url, key in self._targets():

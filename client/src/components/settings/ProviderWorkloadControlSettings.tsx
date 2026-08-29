@@ -268,6 +268,13 @@ const MULTIMODAL_SHAPES = new Set<ExecutionShape>([
   "realtime_voice_session",
 ]);
 
+const R8B_CERTIFICATION_SHAPES = new Set<ExecutionShape>([
+  "chat_image_stream",
+  "chat_document_stream",
+  "vision_json_unary",
+  "image_generation",
+]);
+
 const ADAPTER_OPTIONS: Record<AdapterContract, {
   label: string;
   shapes: ExecutionShape[];
@@ -778,11 +785,14 @@ export default function ProviderWorkloadControlSettings({
 
   if (view === "certifications") {
     const fusionSelected = certificationShape === "fusion_native";
-    const multimodalFoundationOnly = MULTIMODAL_SHAPES.has(certificationShape);
+    const multimodalSelected = MULTIMODAL_SHAPES.has(certificationShape);
+    const multimodalFoundationOnly = multimodalSelected
+      && !R8B_CERTIFICATION_SHAPES.has(certificationShape);
     const canConfirm = Boolean(
       connectionId &&
       certificationModel.trim() &&
       (!fusionSelected || (candidateModels.trim() && judgeModel.trim())) &&
+      (!multimodalSelected || certificationAdapter) &&
       !multimodalFoundationOnly,
     );
     return (
@@ -790,7 +800,7 @@ export default function ProviderWorkloadControlSettings({
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-white/10 bg-violet-300/[0.04] px-5 py-5">
           <div>
             <p className="text-sm font-semibold text-violet-100">Managed Workload 资格</p>
-            <h2 className="mt-2 text-xl font-semibold text-white">R6 / R7 资格与 R8 Adapter 基础</h2>
+            <h2 className="mt-2 text-xl font-semibold text-white">R6 / R7 资格与 R8 多模态认证</h2>
             <p className="mt-2 max-w-[78ch] text-sm leading-6 text-slate-300">
               仅发送固定合成输入，自动刷新完整目录，并对精确连接、模型和执行形态留存脱敏资格。Embedding、Rerank 与 Batch 不会因此自动接管数据面。
             </p>
@@ -818,7 +828,7 @@ export default function ProviderWorkloadControlSettings({
               精确模型 ID
               <input className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 text-white" onChange={(event) => setCertificationModel(event.target.value)} placeholder={fusionSelected ? "openrouter/fusion" : "provider/model"} value={certificationModel} />
             </label>
-            {multimodalFoundationOnly ? <label className="block text-sm text-slate-300">
+            {multimodalSelected ? <label className="block text-sm text-slate-300">
               Adapter Contract
               <select className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 text-white" onChange={(event) => setCertificationAdapter(event.target.value as AdapterContract)} value={certificationAdapter ?? ""}>
                 {adaptersForShape(certificationShape).map(([contract, spec]) => <option key={contract} value={contract}>{spec.label}</option>)}
@@ -835,7 +845,7 @@ export default function ProviderWorkloadControlSettings({
                 <option value="llm_json">LLM JSON Adapter</option>
               </select>
             </label> : null}
-            {multimodalFoundationOnly ? <p className="rounded-lg border border-amber-300/20 bg-amber-300/[0.06] p-3 text-xs leading-5 text-amber-100">R8A 仅建立 Adapter、Binding 和状态基础，不会发送付费认证。对应数据面批次接入后才开放此按钮。</p> : null}
+            {multimodalFoundationOnly ? <p className="rounded-lg border border-amber-300/20 bg-amber-300/[0.06] p-3 text-xs leading-5 text-amber-100">该多模态形态目前仅建立 Adapter、Binding 和状态基础，不会发送付费认证；对应数据面批次接入后才开放此按钮。</p> : null}
             <button className="inline-flex items-center gap-2 rounded-full bg-violet-200 px-4 py-2 text-sm font-semibold text-ink-950 disabled:cursor-not-allowed disabled:opacity-40" disabled={!canConfirm || busy} onClick={() => setConfirmCertification(true)} type="button">
               <ShieldCheck className="h-4 w-4" />运行资格认证
             </button>

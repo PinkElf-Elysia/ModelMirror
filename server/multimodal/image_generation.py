@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
 from collections.abc import Callable
 from io import BytesIO
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 from PIL import Image, UnidentifiedImageError
@@ -15,6 +16,9 @@ try:
     from server.model_router.egress import request_provider_url
 except ModuleNotFoundError:
     from model_router.egress import request_provider_url
+
+if TYPE_CHECKING:
+    from server.model_router.multimodal_gateway import ManagedMultimodalGateway
 
 from .image_catalog import ImageCatalogService, ImageModelProfile
 from .stt import MultimodalServiceError, OpenRouterTarget
@@ -67,6 +71,9 @@ class ImageGenerationResult(BaseModel):
     request_id: str
     images: list[ImageGenerationItem] = Field(default_factory=list)
     usage: ImageGenerationUsage
+    provider_route_receipts: list[dict[str, Any]] = Field(default_factory=list)
+    execution_mode: str = "legacy"
+    fallback_reason_codes: list[str] = Field(default_factory=list)
 
 
 class ImageGenerationService:
@@ -75,6 +82,7 @@ class ImageGenerationService:
         catalog_service: ImageCatalogService,
         *,
         client_factory: Callable[[], httpx.AsyncClient] | None = None,
+        managed_gateway: ManagedMultimodalGateway | None = None,
     ) -> None:
         self.catalog_service = catalog_service
         self.client_factory = client_factory or (
@@ -84,6 +92,7 @@ class ImageGenerationService:
                 trust_env=False,
             )
         )
+        self.managed_gateway = managed_gateway
 
     async def generate(
         self,
@@ -100,6 +109,7 @@ class ImageGenerationService:
         reference_filenames: list[str],
         reference_content_types: list[str | None],
         reference_contents: list[bytes],
+        idempotency_key: str | None = None,
     ) -> ImageGenerationResult:
         clean_model = model_id.strip()
         clean_prompt = prompt.strip()
@@ -153,6 +163,81 @@ class ImageGenerationService:
                 }
                 for data_url in references
             ]
+
+        try:
+            from server.model_router import get_model_router_service
+            from server.model_router.multimodal_gateway import (
+                ManagedMultimodalError,
+                ManagedMultimodalGateway,
+            )
+        except ModuleNotFoundError:
+            from model_router import get_model_router_service
+            from model_router.multimodal_gateway import (
+                ManagedMultimodalError,
+                ManagedMultimodalGateway,
+            )
+        gateway = self.managed_gateway or ManagedMultimodalGateway.for_router(
+            get_model_router_service()
+        )
+        mode = gateway.routing_mode("image_generation")
+        if mode == "degraded_required":
+            reason_code = "provider_workload_policy_not_active"
+            raise MultimodalServiceError(
+                reason_code,
+                "图片生成 Managed Provider 策略已降级，调用已在发送前阻断。",
+                status_code=409,
+                route_receipt=gateway.blocked_receipt(
+                    "image_generation", reason_code
+                ),
+            )
+        if mode == "managed_required":
+            clean_key = str(idempotency_key or "").strip()
+            if not clean_key or len(clean_key) > 200:
+                reason_code = "invalid_idempotency_key"
+                raise MultimodalServiceError(
+                    reason_code,
+                    "Managed 图片生成要求 1 至 200 个字符的 Idempotency-Key。",
+                    status_code=422,
+                    route_receipt=gateway.blocked_receipt(
+                        "image_generation", reason_code
+                    ),
+                )
+            try:
+                clean_model = gateway.exact_model_id(
+                    "image_generation",
+                    "image_generation",
+                    requested_model=clean_model,
+                )
+                run = gateway.start_run(
+                    "image_generation",
+                    parent_run_reference=(
+                        "image-generation:"
+                        + hashlib.sha256(clean_key.encode("utf-8")).hexdigest()
+                    ),
+                    stable=True,
+                )
+                result, receipt = await run.complete_image_generation(
+                    logical_call_key="generate",
+                    model_id=clean_model,
+                    payload=payload,
+                    parse_response=lambda response: self._result(
+                        clean_model, response
+                    ),
+                )
+                return result.model_copy(
+                    update={
+                        "provider": "managed",
+                        "provider_route_receipts": [receipt],
+                        "execution_mode": "managed",
+                    }
+                )
+            except ManagedMultimodalError as exc:
+                raise MultimodalServiceError(
+                    exc.code,
+                    "图片生成 Managed Provider 调用失败，系统未重试或切换目标。",
+                    status_code=exc.status_code,
+                    route_receipt=exc.receipt,
+                ) from exc
 
         target = self.catalog_service.resolve_target()
         response = await self._request(target, payload)

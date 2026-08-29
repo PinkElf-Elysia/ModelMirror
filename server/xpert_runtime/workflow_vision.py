@@ -30,10 +30,17 @@ _PRIVATE_XPERT_RUN_TYPES = {"xpert"}
 class WorkflowVisionError(RuntimeError):
     """Safe workflow-facing visual execution error."""
 
-    def __init__(self, error_code: str, message: str) -> None:
+    def __init__(
+        self,
+        error_code: str,
+        message: str,
+        *,
+        provider_route_receipts: list[dict[str, Any]] | None = None,
+    ) -> None:
         super().__init__(message)
         self.error_code = error_code
         self.message = message
+        self.provider_route_receipts = list(provider_route_receipts or [])
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,6 +151,8 @@ async def execute_workflow_vision(
     max_image_edge: int,
     failure_policy: Literal["continue_on_error", "strict"],
     service: VisionUnderstandingService,
+    managed_entry_id: str | None = None,
+    parent_run_reference: str | None = None,
 ) -> tuple[dict[str, Any], VisionSourceResult]:
     try:
         result = await service.analyze_bytes(
@@ -158,24 +167,101 @@ async def execute_workflow_vision(
                 "max_image_edge": max_image_edge,
                 "failure_policy": failure_policy,
             },
+            managed_entry_id=managed_entry_id,  # type: ignore[arg-type]
+            parent_run_reference=parent_run_reference,
         )
     except VisionProcessingError as exc:
         raise WorkflowVisionError(
             "workflow_vision_processing_failed",
             "视觉理解未能处理所选附件。",
+            provider_route_receipts=(
+                [exc.receipt]
+                if isinstance(getattr(exc, "receipt", None), dict)
+                else []
+            ),
         ) from exc
 
     if result.failed_page_count and failure_policy == "strict":
         raise WorkflowVisionError(
             "workflow_vision_strict_failure",
             "至少一个选中页面未能完成视觉理解。",
+            provider_route_receipts=result.provider_route_receipts,
         )
     if result.selected_page_count > 0 and result.processed_page_count == 0:
         raise WorkflowVisionError(
             "workflow_vision_all_pages_failed",
             "所有选中页面均未能完成视觉理解。",
+            provider_route_receipts=result.provider_route_receipts,
         )
     return _workflow_payload(asset, model_id, result), result
+
+
+def compose_workflow_vision_receipt(
+    receipts: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Compose page-level evidence for the workflow node without content data."""
+
+    safe_receipts = [dict(item) for item in receipts if isinstance(item, dict)]
+    if not safe_receipts:
+        return None
+    if len(safe_receipts) == 1:
+        return safe_receipts[0]
+
+    calls = [
+        dict(call)
+        for receipt in safe_receipts
+        for call in receipt.get("calls", [])
+        if isinstance(call, dict)
+    ]
+    for sequence, call in enumerate(calls, start=1):
+        call["call_sequence"] = sequence
+    reason_codes = list(
+        dict.fromkeys(
+            str(code)
+            for receipt in safe_receipts
+            for code in receipt.get("reason_codes", [])
+            if str(code)
+        )
+    )
+    statuses = {str(receipt.get("status") or "") for receipt in safe_receipts}
+    status = (
+        "uncertain"
+        if "uncertain" in statuses
+        else "failed"
+        if "failed" in statuses
+        else "cancelled"
+        if "cancelled" in statuses
+        else "running"
+        if "running" in statuses
+        else "passed"
+    )
+    entry_ids = list(
+        dict.fromkeys(
+            str(receipt.get("entry_id") or "")
+            for receipt in safe_receipts
+            if str(receipt.get("entry_id") or "")
+        )
+    )
+    run_references = list(
+        dict.fromkeys(
+            str(receipt.get("run_reference") or "")
+            for receipt in safe_receipts
+            if str(receipt.get("run_reference") or "")
+        )
+    )
+    return {
+        "contract_version": "modelmirror-provider-multimodal-routing-v1",
+        "entry_id": entry_ids[0] if len(entry_ids) == 1 else "multimodal",
+        "routing_mode": "managed_required",
+        "run_reference": run_references[0] if len(run_references) == 1 else "composed",
+        "status": status,
+        "call_count": sum(
+            max(0, int(receipt.get("call_count") or 0))
+            for receipt in safe_receipts
+        ),
+        "reason_codes": reason_codes,
+        "calls": calls,
+    }
 
 
 def _workflow_payload(
@@ -237,12 +323,16 @@ def _workflow_payload(
         "charts": [item for item in blocks if item["kind"] == "visual_chart"],
         "warnings": list(dict.fromkeys(value for value in warning_values if value)),
         "truncated": truncated,
+        "provider_route_receipts": list(result.provider_route_receipts),
+        "execution_mode": result.execution_mode,
+        "fallback_reason_codes": list(result.fallback_reason_codes),
     }
 
 
 __all__ = [
     "WorkflowVisionAsset",
     "WorkflowVisionError",
+    "compose_workflow_vision_receipt",
     "execute_workflow_vision",
     "resolve_workflow_vision_asset",
 ]
