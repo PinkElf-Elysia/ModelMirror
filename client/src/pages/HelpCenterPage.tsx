@@ -28,6 +28,7 @@ import PageContainer from "../components/PageContainer";
 import {
   findHelpArticle,
   findHelpSection,
+  getHelpSearchSuggestions,
   helpContentTypeLabels,
   helpModules,
   searchHelpContent,
@@ -102,6 +103,7 @@ export default function HelpCenterPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const query = searchParams.get("q") ?? "";
   const results = useMemo(() => searchHelpContent(query).slice(0, 16), [query]);
+  const suggestions = useMemo(() => (results.length ? [] : getHelpSearchSuggestions(query)), [results.length, query]);
   const [activeSlide, setActiveSlide] = useState(0);
   const [paused, setPaused] = useState(false);
   const [interacting, setInteracting] = useState(false);
@@ -195,7 +197,14 @@ export default function HelpCenterPage() {
             ) : (
               <div className="mt-5 rounded-xl border border-white/10 bg-[#071a2b]/76 p-6">
                 <h3 className="text-lg font-semibold text-white">没有找到相关帮助</h3>
-                <p className="mt-2 text-sm leading-6 text-slate-400">换用任务词，例如“图片”“费用”或“不可用”，也可以清除搜索浏览全部入口。</p>
+                <p className="mt-2 text-sm leading-6 text-slate-400">换用任务词，或从下面的建议词里选一个试试。也可以清除搜索浏览全部入口。</p>
+                {suggestions.length ? (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {suggestions.map((word) => (
+                      <button className="rounded-full border border-cyan-300/25 bg-cyan-300/[0.07] px-3 py-1.5 text-sm text-cyan-100 hover:bg-cyan-300/15" key={word} onClick={() => updateQuery(word)} type="button">{word}</button>
+                    ))}
+                  </div>
+                ) : null}
                 <button className="mt-4 inline-flex min-h-11 items-center rounded-lg border border-cyan-300/30 bg-cyan-300/10 px-4 text-sm font-semibold text-cyan-100" onClick={() => updateQuery("")} type="button">清除搜索并浏览全部</button>
               </div>
             )}

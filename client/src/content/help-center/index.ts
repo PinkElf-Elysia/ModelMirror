@@ -1,5 +1,7 @@
+import buildFirstWorkflow from "./articles/build-first-workflow.md?raw";
 import checkAvailabilityCostData from "./articles/check-availability-cost-data.md?raw";
 import chooseModelAgentWorkflow from "./articles/choose-model-agent-workflow.md?raw";
+import createRepeatableAgent from "./articles/create-repeatable-agent.md?raw";
 import modulesAndTerms from "./articles/modules-and-terms.md?raw";
 import promoteRunToSkill from "./articles/promote-run-to-skill.md?raw";
 import recoverUnavailableFeature from "./articles/recover-unavailable-feature.md?raw";
@@ -76,9 +78,12 @@ export type HelpSearchEntry = {
   keywords: string[];
   to: string;
   category: HelpCategory;
+  /** 仅用于全文检索的正文索引，不参与展示。 */
+  body?: string;
 };
 
 export const verifiedBaseline = { commit: "cc49136c", date: "2026-08-26" };
+export const pendingPreviewBaseline = { commit: "PENDING", date: "2026-08-29" };
 export const remoteMcpReviewBaseline = { commit: "821067a7", date: "2026-08-27" };
 export const ragDiversityBaseline = { commit: "f0150fb5", date: "2026-08-27" };
 export const rssReviewBaseline = { commit: "821067a7", date: "2026-08-27" };
@@ -121,6 +126,36 @@ export const helpArticles: HelpArticle[] = [
     verifiedCommit: verifiedBaseline.commit,
     verifiedDate: verifiedBaseline.date,
     content: chooseModelAgentWorkflow,
+    nextSlug: "create-repeatable-agent",
+  },
+  {
+    slug: "create-repeatable-agent",
+    title: "创建一个能反复使用的 Agent",
+    summary: "创建、保存并发布带固定角色和工具配置的智能体，以后直接复用。",
+    category: "按目标找指南",
+    contentType: "how-to",
+    audience: "反复执行同类任务、希望保留角色设定与工具配置的用户",
+    estimatedMinutes: 6,
+    keywords: ["Agent", "智能体", "创建", "Agent Studio", "发布", "角色", "重复使用"],
+    relatedRoutes: ["/agents/studio", "/agents/studio/new"],
+    verifiedCommit: pendingPreviewBaseline.commit,
+    verifiedDate: pendingPreviewBaseline.date,
+    content: createRepeatableAgent,
+    nextSlug: "build-first-workflow",
+  },
+  {
+    slug: "build-first-workflow",
+    title: "搭建第一个固定步骤工作流",
+    summary: "从默认模板开始，编排固定顺序的多步骤任务并在本地试运行。",
+    category: "按目标找指南",
+    contentType: "how-to",
+    audience: "反复执行固定顺序多步骤任务、希望把流程固化的用户",
+    estimatedMinutes: 6,
+    keywords: ["工作流", "Workflow", "经典画布", "节点", "试运行", "流水线", "固定步骤"],
+    relatedRoutes: ["/workflow"],
+    verifiedCommit: pendingPreviewBaseline.commit,
+    verifiedDate: pendingPreviewBaseline.date,
+    content: buildFirstWorkflow,
     nextSlug: "modules-and-terms",
   },
   {
@@ -421,19 +456,131 @@ export function findHelpSection(id: string | undefined) { return helpSections.fi
 export function findHelpModule(id: string | undefined) { return helpModules.find((module) => module.id === id); }
 export function findHelpModuleTopic(moduleId: string | undefined, topicId: string | undefined) { return findHelpModule(moduleId)?.topics.find((topic) => topic.id === topicId); }
 
+/** 中文近义词/别名映射：让用户用日常说法也能找到内容。 */
+const HELP_SYNONYMS: Record<string, string[]> = {
+  看图: ["图片识别", "图片理解", "视觉"],
+  图片: ["图片识别", "图片理解", "图片生成", "视觉"],
+  问答: ["聊天", "对话", "提问"],
+  聊天: ["对话", "问答", "提问"],
+  收费: ["费用", "价格", "计费", "账单"],
+  费用: ["价格", "收费", "计费", "账单"],
+  多步: ["工作流", "流程", "流水线"],
+  流程: ["工作流", "流水线"],
+  智能体: ["Agent"],
+  模型: ["聊天", "图片识别"],
+  资料: ["RAG", "知识库", "文档"],
+  知识库: ["RAG", "资料", "文档"],
+  智能: ["智能体", "Agent"],
+  运维: ["Runtime", "运行", "诊断"],
+  运行: ["Runtime", "运维", "运行记录"],
+  工具: ["MCP", "Toolset", "插件"],
+  技能: ["Skill"],
+  设置: ["配置", "Provider", "连接"],
+  配置: ["设置", "Provider", "连接"],
+  订阅: ["RSS", "Atom", "定时"],
+  定时: ["RSS", "Atom", "自动化"],
+  审批: ["Inbox", "知识", "提案"],
+  发布: ["部署", "版本", "草稿"],
+  部署: ["发布", "版本"],
+  草稿: ["发布", "版本", "保存"],
+  试用: ["立即面试", "聊天", "开始对话"],
+};
+
+/** 把查询词展开成"原文 + 近义词"，用于提升召回。 */
+function expandQuery(normalized: string): string[] {
+  const terms = new Set<string>([normalized]);
+  for (const [key, aliases] of Object.entries(HELP_SYNONYMS)) {
+    if (normalized.includes(key)) {
+      aliases.forEach((alias) => terms.add(alias));
+    }
+  }
+  // 反向：如果查询词本身是某个近义词，也补回原词
+  for (const [key, aliases] of Object.entries(HELP_SYNONYMS)) {
+    if (aliases.some((alias) => normalized.includes(alias))) {
+      terms.add(key);
+    }
+  }
+  return [...terms];
+}
+
+/** 加权匹配：title > keywords > summary > body。分数来自实际命中，未命中为 0。 */
+function scoreEntry(entry: HelpSearchEntry, expanded: string[]): number {
+  const titleLower = entry.title.toLocaleLowerCase();
+  const summaryLower = entry.summary.toLocaleLowerCase();
+  const keywordsLower = entry.keywords.join(" ").toLocaleLowerCase();
+  const bodyLower = (entry.body ?? "").toLocaleLowerCase();
+  let score = 0;
+  for (const term of expanded) {
+    if (titleLower.includes(term)) score += 4;
+    if (keywordsLower.includes(term)) score += 3;
+    if (summaryLower.includes(term)) score += 2;
+    if (bodyLower.includes(term)) score += 1;
+  }
+  return score;
+}
+
+/** 内容类型优先权重：文章 > 模块主题 > 一级索引 > 模块。仅用于同分排序，不参与命中判定。 */
+const KIND_ORDER: Record<HelpSearchEntry["kind"], number> = { article: 4, topic: 3, section: 2, module: 1 };
+
 export function getHelpSearchEntries(): HelpSearchEntry[] {
-  const articleEntries: HelpSearchEntry[] = helpArticles.map((article) => ({ id: article.slug, kind: "article", title: article.title, summary: article.summary, keywords: article.keywords, to: `/help/${article.slug}`, category: article.category }));
-  const sectionEntries: HelpSearchEntry[] = helpSections.map((section) => ({ id: section.id, kind: "section", title: section.title, summary: section.summary, keywords: section.items.flatMap((item) => item.keywords), to: section.path, category: section.title }));
+  const articleEntries: HelpSearchEntry[] = helpArticles.map((article) => ({
+    id: article.slug,
+    kind: "article",
+    title: article.title,
+    summary: article.summary,
+    keywords: article.keywords,
+    to: `/help/${article.slug}`,
+    category: article.category,
+    body: article.content,
+  }));
+  const sectionEntries: HelpSearchEntry[] = helpSections.map((section) => ({
+    id: section.id,
+    kind: "section",
+    title: section.title,
+    summary: section.summary,
+    keywords: section.items.flatMap((item) => item.keywords),
+    to: section.path,
+    category: section.title,
+  }));
   const moduleEntries: HelpSearchEntry[] = helpModules.flatMap((module) => [
     { id: module.id, kind: "module" as const, title: module.title, summary: module.summary, keywords: module.keywords, to: `/help/modules/${module.id}`, category: "按模块浏览" as const },
-    ...module.topics.map((topic) => ({ id: `${module.id}/${topic.id}`, kind: "topic" as const, title: `${module.title}：${topic.title}`, summary: topic.summary, keywords: topic.keywords, to: `/help/modules/${module.id}/${topic.id}`, category: "按模块浏览" as const })),
+    ...module.topics.map((topic) => ({
+      id: `${module.id}/${topic.id}`,
+      kind: "topic" as const,
+      title: `${module.title}：${topic.title}`,
+      summary: topic.summary,
+      keywords: topic.keywords,
+      to: `/help/modules/${module.id}/${topic.id}`,
+      category: "按模块浏览" as const,
+      body: topic.points?.join(" "),
+    })),
   ]);
   return [...articleEntries, ...sectionEntries, ...moduleEntries];
+}
+
+/** 空态时的推荐词：基于近义词映射给出可尝试的搜索词。 */
+export function getHelpSearchSuggestions(query: string): string[] {
+  const expanded = expandQuery(query.trim().toLocaleLowerCase());
+  const candidates = new Set<string>();
+  for (const term of expanded) {
+    if (term === query.trim().toLocaleLowerCase()) continue;
+    // 优先给短、更像"任务词"的候选
+    if (term.length <= 6) candidates.add(term);
+  }
+  // 兜底：返回固定示例任务词
+  const fallback = ["图片", "费用", "不可用", "Agent", "工作流"];
+  fallback.forEach((word) => candidates.add(word));
+  return [...candidates].slice(0, 5);
 }
 
 export function searchHelpContent(query: string) {
   const normalized = query.trim().toLocaleLowerCase();
   const entries = getHelpSearchEntries();
   if (!normalized) return entries;
-  return entries.filter((entry) => [entry.title, entry.summary, ...entry.keywords].join(" ").toLocaleLowerCase().includes(normalized));
+  const expanded = expandQuery(normalized);
+  return entries
+    .map((entry) => ({ entry, score: scoreEntry(entry, expanded) }))
+    .filter(({ score }) => score > 0)
+    .sort((a, b) => b.score - a.score || KIND_ORDER[b.entry.kind] - KIND_ORDER[a.entry.kind])
+    .map(({ entry }) => entry);
 }

@@ -8,6 +8,7 @@ import {
   helpModules,
   helpSections,
   remoteMcpReviewBaseline,
+  verifiedBaseline,
 } from "../content/help-center";
 import HelpArticlePage from "./HelpArticlePage";
 import HelpCenterPage from "./HelpCenterPage";
@@ -161,6 +162,21 @@ describe("unified help reading shell", () => {
     renderHelp("/help/not-a-real-article");
     expect(screen.getByRole("heading", { name: "这篇帮助不存在", level: 1 })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "打开帮助首页" })).toHaveAttribute("href", "/help");
+  });
+
+  it("shows a pending-review notice on draft articles", () => {
+    renderHelp(`/help/${helpArticles.find((a) => a.verifiedCommit === "PENDING")?.slug}`);
+    expect(screen.getByText(/仍在完善中/)).toBeInTheDocument();
+  });
+
+  it("shows a verified-date notice on published articles", () => {
+    renderHelp("/help/start-with-a-model");
+    expect(screen.getByText(`本文基于 ${verifiedBaseline.date} 的界面验证，产品更新后部分按钮名称、入口或价格可能变化。`)).toBeInTheDocument();
+  });
+
+  it("asks for feedback on an article", () => {
+    renderHelp("/help/start-with-a-model");
+    expect(screen.getByText("这篇对你有帮助吗？")).toBeInTheDocument();
   });
 });
 

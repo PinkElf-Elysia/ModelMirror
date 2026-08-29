@@ -18,6 +18,7 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import remarkGfm from "remark-gfm";
 import PageContainer from "../components/PageContainer";
+import { ArticleFeedback } from "../components/help/ArticleFeedback";
 import {
   findHelpArticle,
   findHelpModule,
@@ -213,6 +214,7 @@ function SectionPage({ section }: { section: HelpSection }) {
 function ArticlePage({ article }: { article: HelpArticle }) {
   const toc = getTableOfContents(article.content);
   const nextArticle = findHelpArticle(article.nextSlug);
+  const isPending = article.verifiedCommit === "PENDING";
   return (
     <>
       <PageHeader eyebrow={`${article.category} · ${helpContentTypeLabels[article.contentType]}`} summary={article.summary} title={article.title} />
@@ -222,8 +224,18 @@ function ArticlePage({ article }: { article: HelpArticle }) {
         verifiedCommit={article.verifiedCommit}
         verifiedDate={article.verifiedDate}
       />
+      {isPending ? (
+        <p className="mt-6 max-w-[72ch] rounded-xl border border-amber-300/25 bg-amber-300/[0.07] p-4 text-sm leading-6 text-amber-100">
+          这篇帮助仍在完善中，操作步骤以当前界面为准；界面名称、入口和价格可能随版本变化。
+        </p>
+      ) : (
+        <p className="mt-6 max-w-[72ch] text-sm leading-6 text-slate-500">
+          本文基于 {article.verifiedDate} 的界面验证，产品更新后部分按钮名称、入口或价格可能变化。
+        </p>
+      )}
       <details className="mt-6 max-w-[72ch] rounded-xl border border-white/10 bg-[#071a2b]/68 p-4"><summary className="min-h-11 cursor-pointer py-2 text-sm font-bold text-slate-100">本文目录</summary><ol className="mt-3 grid gap-2 border-t border-white/10 pt-4 sm:grid-cols-2">{toc.map((item) => <li key={item.id}><a className="block py-1 text-sm leading-5 text-slate-400 hover:text-cyan-100" href={`#${item.id}`}>{item.title}</a></li>)}</ol></details>
       <article className="help-article mt-9 max-w-[72ch] space-y-6"><ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm]}>{article.content}</ReactMarkdown></article>
+      <ArticleFeedback slug={article.slug} />
       {nextArticle ? <aside aria-label="下一篇建议" className="mt-10 max-w-[72ch] border-t border-white/10 pt-7"><p className="text-sm font-semibold text-slate-500">下一篇建议</p><Link className="group mt-3 flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-[#071a2b]/68 p-4 hover:border-cyan-300/30" to={`/help/${nextArticle.slug}`}><span><span className="block font-semibold text-white group-hover:text-cyan-100">{nextArticle.title}</span><span className="mt-1 block text-sm leading-6 text-slate-400">{nextArticle.summary}</span></span><ArrowRight aria-hidden="true" className="h-5 w-5 shrink-0 text-slate-500 group-hover:text-cyan-100" /></Link></aside> : null}
     </>
   );
