@@ -221,6 +221,126 @@ describe("WorkflowDeploymentNodeConfig", () => {
     vi.unstubAllGlobals();
   });
 
+  it("configures a read-only IMAP inbox with encrypted credentials and safe outputs", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/runtime/credentials") {
+        return {
+          ok: true,
+          json: async () => ({
+            credentials: [{
+              credential_id: "cred_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              name: "公告收件箱",
+              kind: "generic",
+              status: "active",
+              masked_value: "••••pass",
+            }],
+          }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          mailbox: "INBOX",
+          messageCount: 4,
+          uidValidity: 19,
+          items: [{
+            subject: "Product update",
+            from: [{ name: "Sender", address: "sender@example.test" }],
+            sentAt: "2026-08-28T08:00:00Z",
+          }],
+        }),
+      } as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const onChange = renderConfig({
+      kind: "email_event_entry",
+      title: "邮件到达入口",
+      description: "",
+      contractVersion: 1,
+      host: "imap.example.test",
+      credentialId: "cred_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      pollIntervalMinutes: 15,
+      eventVariable: "email_event",
+      messageVariable: "email_message",
+      contentVariable: "email_content",
+    });
+
+    expect(screen.getByLabelText("IMAP 服务器")).toHaveValue("imap.example.test");
+    expect(screen.getByLabelText("邮箱检查频率")).toHaveValue("15");
+    expect(screen.getByText(/首次启用只记录 INBOX 当前最高邮件/)).toBeInTheDocument();
+    expect(screen.getByText(/不会标记已读/)).toBeInTheDocument();
+    expect(screen.getByText(/启用邮箱地址、电话号码和疑似凭据规则/)).toBeInTheDocument();
+    expect(screen.getByLabelText("事件元数据变量")).toHaveValue("email_event");
+    expect(screen.getByLabelText("邮件元数据变量")).toHaveValue("email_message");
+    expect(screen.getByLabelText("安全纯文本变量")).toHaveValue("email_content");
+    await waitFor(() => expect(screen.getByLabelText("邮箱凭据")).toHaveValue(
+      "cred_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    ));
+    expect(screen.getByRole("option", { name: "公告收件箱 · 已加密" })).toBeInTheDocument();
+    expect(screen.queryByText(/••••pass/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "检查邮箱" }));
+    await waitFor(() => expect(screen.getByText(/当前 4 封邮件/)).toBeInTheDocument());
+    expect(screen.getByText(/Product update/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("邮箱检查频率"), {
+      target: { value: "60" },
+    });
+    expect(onChange).toHaveBeenCalledWith({ pollIntervalMinutes: 60 });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/workflow/email/inspect",
+      expect.objectContaining({ method: "POST" }),
+    );
+    vi.unstubAllGlobals();
+  });
+
+  it("maps email inspection security failures to a safe user-facing message", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === "/api/runtime/credentials") {
+        return {
+          ok: true,
+          json: async () => ({
+            credentials: [{
+              credential_id: "cred_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              name: "隔离测试邮箱",
+              kind: "generic",
+              status: "active",
+            }],
+          }),
+        } as Response;
+      }
+      return {
+        ok: false,
+        json: async () => ({
+          detail: "Email server resolved to a local, private, or reserved address.",
+        }),
+      } as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderConfig({
+      kind: "email_event_entry",
+      title: "邮件到达入口",
+      description: "",
+      contractVersion: 1,
+      host: "imap.example.test",
+      credentialId: "cred_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      pollIntervalMinutes: 15,
+      eventVariable: "email_event",
+      messageVariable: "email_message",
+      contentVariable: "email_content",
+    });
+
+    await waitFor(() => expect(screen.getByLabelText("邮箱凭据")).toHaveValue(
+      "cred_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    ));
+    fireEvent.click(screen.getByRole("button", { name: "检查邮箱" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(
+      "此服务器不是可安全访问的公网 IMAP 域名，请检查域名后重试。",
+    ));
+    expect(screen.queryByText(/local, private, or reserved/i)).not.toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
+
   it("uses readable wait and reply choices", () => {
     const waitChange = renderConfig({
       kind: "suspend_wait",

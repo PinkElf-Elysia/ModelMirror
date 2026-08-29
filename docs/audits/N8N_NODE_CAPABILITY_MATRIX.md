@@ -20,8 +20,9 @@
 - R2.5 结果：新增完整合同 `form_event_entry`，发布同源签名表单、严格类型字段与固定接受页；表单密钥只返回一次，公开提交原文不写入部署 Store，Planner 与全部 Xpert 类型均禁用
 - R2.6 结果：新增完整合同 `knowledge_write_proposal`，只向 Knowledge Inbox 创建或复用待审批提议，不批准、构建、激活或推广知识版本；允许确定性的私有工作流与 Xpert 路径，匿名表单、公共 App、Evaluation、Evolution 与 Planner 禁用
 - R2.7 结果：新增完整合同 `rss_event_entry`，以仅公网 HTTPS、逐跳安全校验、首次无回放基线和持久条目去重提供 RSS 2.0/Atom 1.0 订阅入口；认证源、附件、WebSub、Xpert 与等待节点禁用
-- 当前 Registry 事实：54 Native、50 个已登记 Palette 项、默认 49 个可拖拽 Palette 项、51 个完整合同、3 个 compatibility 合同、7 个 Planner 节点
-- 默认运行功能门禁：2 个已登记项（`knowledge_write_proposal`、`rss_event_entry`）允许编辑但执行面关闭；该口径与 Palette 是否登记、是否可拖拽相互独立
+- R2.8 结果：新增完整合同 `email_event_entry`，以只读 IMAPS 993、首次无回放 UID 基线和持久 UID 重读恢复提供固定 INBOX 邮件入口；OAuth2、IDLE、多文件夹、附件内容、原始 HTML、Xpert 与等待节点禁用
+- 当前 Registry 事实：55 Native、51 个已登记 Palette 项、默认 50 个可拖拽 Palette 项、52 个完整合同、3 个 compatibility 合同、7 个 Planner 节点
+- 默认运行功能门禁：3 个已登记项（`email_event_entry`、`knowledge_write_proposal`、`rss_event_entry`）允许编辑但执行面关闭；该口径与 Palette 是否登记、是否可拖拽相互独立
 - 参考清单：563 条节点名称/类型，其中 `.ee` 2 条仅保留名称审计
 
 ## 结论与许可证边界
@@ -33,10 +34,10 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 ## 状态汇总
 
 - 已实现：36
-- 部分实现：72
+- 部分实现：73
 - 通用节点可覆盖：271（不等于已有专用连接器）
 - 目录声明：0
-- 未实现：184
+- 未实现：183
 
 覆盖等级用于表达证据强度：`exact` 只允许完整 NodeContract 且必须绑定运行/测试证据；`limited` 必须写明语义缺口；`composable` 只表示受控通用组合路径，不代表专用连接器；`none` 表示没有运行合同。
 
@@ -50,7 +51,7 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 
 | 能力域 | 总数 | 已实现 | 部分实现 | 通用覆盖 | 目录声明 | 未实现 |
 |---|---:|---:|---:|---:|---:|---:|
-| 触发与事件 | 112 | 7 | 2 | 0 | 0 | 103 |
+| 触发与事件 | 112 | 7 | 3 | 0 | 0 | 102 |
 | 流程控制与编排 | 8 | 6 | 1 | 0 | 0 | 1 |
 | 数据变换与计算 | 17 | 11 | 4 | 0 | 0 | 2 |
 | 文件与内容处理 | 20 | 2 | 8 | 6 | 0 | 4 |
@@ -76,6 +77,7 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 | 触发与事件 | 表单提交入口 | form_event_entry | (n8n Form Trigger) | 部分实现 |
 | 触发与事件 | 定时启动 | scheduled_start | (Schedule Trigger) | 已实现 |
 | 触发与事件 | 异常事件入口 | failure_event_entry | (Error Trigger) | 已实现 |
+| 触发与事件 | 邮件到达入口 | email_event_entry | (Email Trigger (IMAP)) | 部分实现 |
 | 触发与事件 | 子流程入口 | workflow_call_entry | (Execute Workflow Trigger) | 已实现 |
 | 触发与事件 | HTTP 事件入口 | http_event_entry | (Webhook) | 已实现 |
 | 触发与事件 | RSS/Atom 订阅入口 | rss_event_entry | (RSS Feed Trigger) | 已实现 |
@@ -149,4 +151,4 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 - 前端 `WorkflowNodeKind`、后端 `NativeNodeKind`、NodeContract Registry 必须完全一致。
 - Palette 必须是 NodeContract 合法子集；每个启用项必须有默认数据和配置入口。
 - compatibility 合同不得超过 #213 冻结白名单；新节点必须直接提供完整合同。
-- Planner 只接受完整合同、匹配 checksum 且显式启用的节点；R1–R2.7 增量节点均禁止 Planner 自动生成，Planner 可生成类型仍固定为 7 类。
+- Planner 只接受完整合同、匹配 checksum 且显式启用的节点；R1–R2.8 增量节点均禁止 Planner 自动生成，Planner 可生成类型仍固定为 7 类。

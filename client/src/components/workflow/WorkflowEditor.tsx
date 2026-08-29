@@ -60,6 +60,7 @@ import {
   type WorkflowExecutionSummary,
   type WorkflowFormPublicationSummary,
   type WorkflowRssSubscriptionSummary,
+  type WorkflowEmailSubscriptionSummary,
 } from "../../utils/workflowDeployments";
 import {
   isLegacyStarterWorkflow,
@@ -625,6 +626,21 @@ export function createNodeData(
       pollIntervalMinutes: 15,
       eventVariable: "rss_event",
       itemVariable: "rss_item",
+    };
+  }
+
+  if (kind === "email_event_entry") {
+    return {
+      kind,
+      title: "邮件到达入口",
+      description: "只读检查公网 IMAPS INBOX，并为每封新邮件独立启动。",
+      contractVersion: 1,
+      host: "",
+      credentialId: "",
+      pollIntervalMinutes: 15,
+      eventVariable: "email_event",
+      messageVariable: "email_message",
+      contentVariable: "email_content",
     };
   }
 
@@ -3695,6 +3711,7 @@ function NodeConfig({
   const documentRegistryMetadata = nodeRegistryMetadata.get("document_extractor") ?? {};
   const knowledgeProposalMetadata = nodeRegistryMetadata.get("knowledge_write_proposal") ?? {};
   const rssRegistryMetadata = nodeRegistryMetadata.get("rss_event_entry") ?? {};
+  const emailRegistryMetadata = nodeRegistryMetadata.get("email_event_entry") ?? {};
   const documentFileAssetModeEnabled =
     documentRegistryMetadata.file_asset_mode_enabled !== false;
   const documentFileAssetModeReason = String(
@@ -4073,7 +4090,7 @@ function NodeConfig({
         </Field>
       ) : null}
 
-      {(["scheduled_start", "http_event_entry", "form_event_entry", "rss_event_entry", "failure_event_entry", "workflow_call_entry", "invoke_workflow", "suspend_wait", "http_event_reply"].includes(data.kind)
+      {(["scheduled_start", "http_event_entry", "form_event_entry", "rss_event_entry", "email_event_entry", "failure_event_entry", "workflow_call_entry", "invoke_workflow", "suspend_wait", "http_event_reply"].includes(data.kind)
         || (data.kind === "iteration" && isIterationV2(data))) ? (
         <WorkflowDeploymentNodeConfig
           currentProjectId={workflowId.startsWith("wf_") ? workflowId : undefined}
@@ -4081,8 +4098,8 @@ function NodeConfig({
           data={data}
           declarations={declarations}
           edges={edges}
-          featureDisabledReason={String(rssRegistryMetadata.feature_disabled_reason ?? "")}
-          featureEnabled={data.kind !== "rss_event_entry" || rssRegistryMetadata.feature_enabled === true}
+          featureDisabledReason={String((data.kind === "email_event_entry" ? emailRegistryMetadata : rssRegistryMetadata).feature_disabled_reason ?? "")}
+          featureEnabled={data.kind === "rss_event_entry" ? rssRegistryMetadata.feature_enabled === true : data.kind === "email_event_entry" ? emailRegistryMetadata.feature_enabled === true : true}
           node={node}
           nodes={nodes}
           onChange={update}
@@ -6367,6 +6384,8 @@ function WorkflowCanvas({
     useState<WorkflowFormPublicationSummary | null>(null);
   const [rssSubscription, setRssSubscription] =
     useState<WorkflowRssSubscriptionSummary | null>(null);
+  const [emailSubscription, setEmailSubscription] =
+    useState<WorkflowEmailSubscriptionSummary | null>(null);
   const [deploymentExecutions, setDeploymentExecutions] = useState<
     WorkflowExecutionSummary[]
   >([]);
@@ -6413,6 +6432,7 @@ function WorkflowCanvas({
   );
   const hasFormEntry = nodes.some((node) => node.data.kind === "form_event_entry");
   const hasRssEntry = nodes.some((node) => node.data.kind === "rss_event_entry");
+  const hasEmailEntry = nodes.some((node) => node.data.kind === "email_event_entry");
   const { screenToFlowPosition, fitView } = useReactFlow();
   const navigate = useNavigate();
 
@@ -6451,6 +6471,7 @@ function WorkflowCanvas({
         setActiveDeployment(project.active_deployment ?? null);
         setFormPublication(project.form_publication ?? null);
         setRssSubscription(project.rss_subscription ?? null);
+        setEmailSubscription(project.email_subscription ?? null);
       })
       .catch((error) => {
         if (!cancelled) {
@@ -6487,7 +6508,7 @@ function WorkflowCanvas({
   }, [onSave, workflowId, workspaceTab]);
 
   useEffect(() => {
-    if (onSave || !hasRssEntry || !workflowId.startsWith("wf_")) return;
+    if (onSave || (!hasRssEntry && !hasEmailEntry) || !workflowId.startsWith("wf_")) return;
     let cancelled = false;
     const refresh = () => {
       void fetchWorkflowProject(workflowId)
@@ -6495,6 +6516,7 @@ function WorkflowCanvas({
           if (cancelled) return;
           setActiveDeployment(project.active_deployment ?? null);
           setRssSubscription(project.rss_subscription ?? null);
+          setEmailSubscription(project.email_subscription ?? null);
         })
         .catch(() => undefined);
     };
@@ -6503,7 +6525,7 @@ function WorkflowCanvas({
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [hasRssEntry, onSave, workflowId]);
+  }, [hasEmailEntry, hasRssEntry, onSave, workflowId]);
 
   const openRunFileInput = useCallback((variableName: string) => {
     if (!variableName) return;
@@ -7255,6 +7277,7 @@ function WorkflowCanvas({
       setActiveDeployment(project.active_deployment ?? null);
       setFormPublication(project.form_publication ?? null);
       setRssSubscription(project.rss_subscription ?? null);
+      setEmailSubscription(project.email_subscription ?? null);
       return project.project_id;
     }
     const project = await createWorkflowProject(savedDefinition);
@@ -7262,6 +7285,7 @@ function WorkflowCanvas({
     setActiveDeployment(project.active_deployment ?? null);
     setFormPublication(project.form_publication ?? null);
     setRssSubscription(project.rss_subscription ?? null);
+    setEmailSubscription(project.email_subscription ?? null);
     navigate(`/workflow/${project.project_id}`, { replace: true });
     return project.project_id;
   }
@@ -7405,6 +7429,43 @@ function WorkflowCanvas({
       setErrorNotice("");
     } catch (error) {
       setErrorNotice(error instanceof Error ? error.message : "RSS 订阅停用失败。");
+    } finally {
+      setIsPublishing(false);
+    }
+  }
+
+  async function publishAndEnableEmail() {
+    if (onSave || isPublishing || !hasEmailEntry) return;
+    setIsPublishing(true);
+    try {
+      const projectId = await saveWorkflow();
+      if (!projectId) return;
+      const release = await publishWorkflowProject(projectId);
+      await activateWorkflowVersion(projectId, release.version);
+      const project = await fetchWorkflowProject(projectId);
+      setActiveDeployment(project.active_deployment ?? null);
+      setEmailSubscription(project.email_subscription ?? null);
+      setSaveNotice("邮件订阅已启用，首次检查只建立 INBOX 当前基线");
+      setErrorNotice("");
+    } catch (error) {
+      setErrorNotice(error instanceof Error ? error.message : "邮件订阅启用失败。");
+    } finally {
+      setIsPublishing(false);
+    }
+  }
+
+  async function deactivateEmail() {
+    if (!activeDeployment?.active || activeDeployment.trigger_kind !== "email") return;
+    setIsPublishing(true);
+    try {
+      await deactivateWorkflowVersion(workflowId, activeDeployment.version);
+      const project = await fetchWorkflowProject(workflowId);
+      setActiveDeployment(project.active_deployment ?? null);
+      setEmailSubscription(project.email_subscription ?? null);
+      setSaveNotice("邮件订阅已停用，不再接收新邮件");
+      setErrorNotice("");
+    } catch (error) {
+      setErrorNotice(error instanceof Error ? error.message : "邮件订阅停用失败。");
     } finally {
       setIsPublishing(false);
     }
@@ -7931,6 +7992,67 @@ function WorkflowCanvas({
                         className="w-full rounded-md px-3 py-2 text-left text-xs font-semibold text-rose-200 transition hover:bg-rose-300/10 disabled:opacity-50"
                         disabled={isPublishing}
                         onClick={() => void deactivateRss()}
+                        type="button"
+                      >
+                        停用订阅
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              </details>
+            ) : null}
+            {!onSave && hasEmailEntry ? (
+              <details className="group relative z-20" data-testid="email-subscription-menu">
+                <summary
+                  aria-label="邮件订阅设置"
+                  className={`flex cursor-pointer list-none items-center gap-2 rounded-md border px-3 py-1.5 text-xs font-semibold transition marker:hidden [&::-webkit-details-marker]:hidden ${
+                    emailSubscription?.active
+                      ? "border-sky-300/30 bg-sky-300/10 text-sky-100 hover:bg-sky-300/15"
+                      : "border-white/10 bg-white/[0.05] text-slate-200 hover:border-sky-200/40 hover:text-sky-100"
+                  }`}
+                >
+                  <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${emailSubscription?.active ? "bg-sky-300" : "bg-slate-500"}`} />
+                  <span>{emailSubscription?.active ? `邮件 v${emailSubscription.version}` : "邮件订阅"}</span>
+                  <span className="font-normal text-current/75">
+                    {emailSubscription?.active
+                      ? emailSubscription.baseline_established ? "监听中" : "待建基线"
+                      : emailSubscription ? "已停用" : "未启用"}
+                  </span>
+                  <span aria-hidden="true" className="text-[10px] transition-transform group-open:rotate-180">▾</span>
+                </summary>
+                <div className="absolute right-0 top-[calc(100%+0.5rem)] w-72 rounded-lg border border-white/10 bg-slate-950 p-3 shadow-lg">
+                  <div className="mb-3 border-b border-white/10 pb-3">
+                    <p className="text-xs font-semibold text-white">
+                      {emailSubscription?.active
+                        ? emailSubscription.baseline_established ? "只读监听 INBOX 新邮件" : "等待首次检查建立基线"
+                        : "邮件订阅尚未启用"}
+                    </p>
+                    <p className="mt-1 text-[11px] leading-4 text-slate-400">
+                      {emailSubscription?.active
+                        ? `下次检查 ${new Date(emailSubscription.next_poll_at * 1000).toLocaleString()}${emailSubscription.consecutive_failures ? ` · 连续失败 ${emailSubscription.consecutive_failures} 次` : ""}`
+                        : "发布并启用后，当前已有邮件不会补跑，也不会被标记为已读。"}
+                    </p>
+                    {emailSubscription?.last_success_at ? (
+                      <p className="mt-1 text-[11px] text-slate-500">上次成功 {new Date(emailSubscription.last_success_at * 1000).toLocaleString()}</p>
+                    ) : null}
+                    {emailSubscription?.last_error_code ? (
+                      <p className="mt-1 break-all text-[11px] text-amber-200">最近错误 {emailSubscription.last_error_code}</p>
+                    ) : null}
+                  </div>
+                  <div className="space-y-2">
+                    <button
+                      className="w-full rounded-md bg-sky-300 px-3 py-2 text-left text-xs font-semibold text-slate-950 transition hover:bg-sky-200 disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={isPublishing || isSaving}
+                      onClick={() => void publishAndEnableEmail()}
+                      type="button"
+                    >
+                      {emailSubscription?.active ? "发布新版本并切换" : "发布并启用订阅"}
+                    </button>
+                    {emailSubscription?.active ? (
+                      <button
+                        className="w-full rounded-md px-3 py-2 text-left text-xs font-semibold text-rose-200 transition hover:bg-rose-300/10 disabled:opacity-50"
+                        disabled={isPublishing}
+                        onClick={() => void deactivateEmail()}
                         type="button"
                       >
                         停用订阅

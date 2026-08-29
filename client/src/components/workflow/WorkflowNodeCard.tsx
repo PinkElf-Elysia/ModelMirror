@@ -40,6 +40,13 @@ const nodeMeta = {
     bg: "bg-orange-300/10",
     text: "text-orange-100",
   },
+  email_event_entry: {
+    icon: "MAIL",
+    label: "邮件到达入口",
+    border: "border-sky-300/40",
+    bg: "bg-sky-300/10",
+    text: "text-sky-100",
+  },
   failure_event_entry: {
     icon: "!",
     label: "失败处置入口",

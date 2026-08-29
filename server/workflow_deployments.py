@@ -17,6 +17,14 @@ from zoneinfo import ZoneInfo
 from jsonschema import Draft202012Validator
 
 try:
+    from server.workflow_email import (
+        EMAIL_MAX_UIDS_PER_POLL,
+        WorkflowEmailError,
+        email_message_key,
+        email_source_fingerprint,
+        parse_email_credential,
+        validate_email_config,
+    )
     from server.workflow_native.node_contracts import (
         canonical_checksum,
         workflow_node_contract_registry,
@@ -61,6 +69,14 @@ try:
         AutomationValidationError,
     )
 except ModuleNotFoundError:
+    from workflow_email import (
+        EMAIL_MAX_UIDS_PER_POLL,
+        WorkflowEmailError,
+        email_message_key,
+        email_source_fingerprint,
+        parse_email_credential,
+        validate_email_config,
+    )
     from workflow_native.node_contracts import (
         canonical_checksum,
         workflow_node_contract_registry,
@@ -106,7 +122,7 @@ except ModuleNotFoundError:
     )
 
 
-WorkflowTriggerKind = Literal["manual", "schedule", "http", "form", "rss", "failure", "call"]
+WorkflowTriggerKind = Literal["manual", "schedule", "http", "form", "rss", "email", "failure", "call"]
 WorkflowTriggerExecutionStatus = Literal[
     "pending", "running", "waiting", "completed", "failed", "skipped", "cancelled"
 ]
@@ -116,6 +132,7 @@ ENTRY_NODE_KINDS = {
     "http_event_entry",
     "form_event_entry",
     "rss_event_entry",
+    "email_event_entry",
     "failure_event_entry",
     "workflow_call_entry",
 }
@@ -146,6 +163,29 @@ class WorkflowDeploymentValidationError(WorkflowDeploymentError):
     def __init__(self, message: str, *, issues: list[dict[str, Any]] | None = None) -> None:
         super().__init__(message)
         self.issues = list(issues or [])
+
+
+def _validate_email_credential(
+    config: dict[str, Any],
+    *,
+    credential_validator: Callable[[str], Any] | None,
+    credential_resolver: Callable[[str], str] | None,
+) -> None:
+    if credential_validator is None or credential_resolver is None:
+        raise WorkflowEmailError(
+            "EMAIL_CREDENTIAL_UNAVAILABLE",
+            "Email credential validation is unavailable.",
+        )
+    credential_id = str(config["credentialId"])
+    credential = credential_validator(credential_id)
+    if str(getattr(credential, "kind", "")) != "generic" or str(
+        getattr(credential, "status", "")
+    ) != "active":
+        raise WorkflowEmailError(
+            "EMAIL_CREDENTIAL_INVALID",
+            "Email credential must be an active generic credential.",
+        )
+    parse_email_credential(credential_resolver(credential_id))
 
 
 @dataclass(slots=True)
@@ -279,6 +319,36 @@ class WorkflowRssDelivery:
 
 
 @dataclass(slots=True)
+class WorkflowImapSubscription:
+    deployment_id: str
+    project_id: str
+    version: int
+    source_fingerprint: str
+    uidvalidity: int | None = None
+    last_uid: int = 0
+    baseline_established: bool = False
+    next_poll_at: float = 0.0
+    last_success_at: float | None = None
+    consecutive_failures: int = 0
+    last_error_code: str | None = None
+    active: bool = False
+    lease_owner: str | None = None
+    lease_token: str | None = None
+    lease_expires_at: float = 0.0
+    updated_at: float = field(default_factory=time.time)
+
+
+@dataclass(slots=True)
+class WorkflowImapDelivery:
+    execution_id: str
+    uidvalidity: int
+    uid: int
+    message_key: str
+    reread_attempts: int = 0
+    next_reread_at: float = 0.0
+
+
+@dataclass(slots=True)
 class WorkflowSubworkflowRelation:
     occurrence_key: str
     parent_execution_id: str
@@ -314,6 +384,7 @@ class WorkflowDeploymentStore:
         storage_dir: str | Path | None = None,
         *,
         credential_validator: Callable[[str], Any] | None = None,
+        credential_resolver: Callable[[str], str] | None = None,
         mcp_tool_validator: Callable[[dict[str, Any]], Any] | None = None,
         xpert_target_validator: Callable[[str, int], Any] | None = None,
         knowledge_proposal_validator: Callable[[str], Any] | None = None,
@@ -334,9 +405,12 @@ class WorkflowDeploymentStore:
         self._form_publications: dict[str, WorkflowFormPublication] = {}
         self._rss_subscriptions: dict[str, WorkflowRssSubscription] = {}
         self._rss_deliveries: dict[str, WorkflowRssDelivery] = {}
+        self._imap_subscriptions: dict[str, WorkflowImapSubscription] = {}
+        self._imap_deliveries: dict[str, WorkflowImapDelivery] = {}
         self._subworkflow_relations: dict[str, WorkflowSubworkflowRelation] = {}
         self._subworkflow_batches: dict[str, WorkflowSubworkflowBatch] = {}
         self._credential_validator = credential_validator
+        self._credential_resolver = credential_resolver
         self._mcp_tool_validator = mcp_tool_validator
         self._xpert_target_validator = xpert_target_validator
         self._knowledge_proposal_validator = knowledge_proposal_validator
@@ -439,6 +513,7 @@ class WorkflowDeploymentStore:
             trigger_kind, entry_node_id = validate_publishable_workflow(
                 project.draft,
                 credential_validator=self._credential_validator,
+                credential_resolver=self._credential_resolver,
                 mcp_tool_validator=self._mcp_tool_validator,
                 xpert_target_validator=self._xpert_target_validator,
             )
@@ -498,6 +573,7 @@ class WorkflowDeploymentStore:
         forms_enabled: bool = False,
         forms_public_base_url: str = "",
         rss_triggers_enabled: bool = False,
+        imap_triggers_enabled: bool = False,
         knowledge_proposals_enabled: bool = False,
         now: float | None = None,
     ) -> tuple[WorkflowDeployment, str | None]:
@@ -524,6 +600,22 @@ class WorkflowDeploymentStore:
                     raise WorkflowDeploymentConflictError(exc.safe_message) from exc
             if release.trigger_kind == "rss" and not rss_triggers_enabled:
                 raise WorkflowDeploymentConflictError("Workflow RSS triggers are disabled.")
+            if release.trigger_kind == "email" and not imap_triggers_enabled:
+                raise WorkflowDeploymentConflictError("Workflow IMAP triggers are disabled.")
+            if release.trigger_kind == "email":
+                try:
+                    email_config = self.email_entry_data(release)
+                    _validate_email_credential(
+                        email_config,
+                        credential_validator=self._credential_validator,
+                        credential_resolver=self._credential_resolver,
+                    )
+                except WorkflowEmailError as exc:
+                    raise WorkflowDeploymentConflictError(exc.safe_message) from exc
+                except Exception as exc:
+                    raise WorkflowDeploymentConflictError(
+                        "Email credential is unavailable."
+                    ) from exc
             http_v2_nodes = [
                 node
                 for node in release.workflow.get("nodes", [])
@@ -665,6 +757,14 @@ class WorkflowDeploymentStore:
                 ),
                 None,
             )
+            previous_imap_subscription = next(
+                (
+                    item
+                    for item in self._imap_subscriptions.values()
+                    if item.project_id == project_id and item.active
+                ),
+                None,
+            )
             for deployment in self._deployments.values():
                 if deployment.project_id == project_id and deployment.active:
                     deployment.active = False
@@ -680,6 +780,15 @@ class WorkflowDeploymentStore:
                         rss_subscription.lease_token = None
                         rss_subscription.lease_expires_at = 0.0
                         rss_subscription.updated_at = current
+                    imap_subscription = self._imap_subscriptions.get(
+                        deployment.deployment_id
+                    )
+                    if imap_subscription is not None:
+                        imap_subscription.active = False
+                        imap_subscription.lease_owner = None
+                        imap_subscription.lease_token = None
+                        imap_subscription.lease_expires_at = 0.0
+                        imap_subscription.updated_at = current
             deployment_id = f"wfd_{project_id[3:]}_{version}"
             deployment = self._deployments.get(deployment_id)
             if deployment is None:
@@ -783,6 +892,53 @@ class WorkflowDeploymentStore:
                 subscription.lease_token = None
                 subscription.lease_expires_at = 0.0
                 subscription.updated_at = current
+            elif release.trigger_kind == "email":
+                email_config = self.email_entry_data(release)
+                fingerprint = email_source_fingerprint(
+                    email_config["host"], email_config["credentialId"]
+                )
+                subscription = self._imap_subscriptions.get(deployment.deployment_id)
+                inherit = (
+                    previous_imap_subscription
+                    if previous_imap_subscription is not None
+                    and previous_imap_subscription.source_fingerprint == fingerprint
+                    else None
+                )
+                if subscription is None:
+                    subscription = WorkflowImapSubscription(
+                        deployment_id=deployment.deployment_id,
+                        project_id=project_id,
+                        version=version,
+                        source_fingerprint=fingerprint,
+                        uidvalidity=inherit.uidvalidity if inherit else None,
+                        last_uid=inherit.last_uid if inherit else 0,
+                        baseline_established=(
+                            inherit.baseline_established if inherit else False
+                        ),
+                        last_success_at=inherit.last_success_at if inherit else None,
+                    )
+                    self._imap_subscriptions[deployment.deployment_id] = subscription
+                elif subscription.source_fingerprint != fingerprint:
+                    subscription.source_fingerprint = fingerprint
+                    subscription.uidvalidity = None
+                    subscription.last_uid = 0
+                    subscription.baseline_established = False
+                    subscription.last_success_at = None
+                elif inherit is not None and inherit.deployment_id != subscription.deployment_id:
+                    subscription.uidvalidity = inherit.uidvalidity
+                    subscription.last_uid = inherit.last_uid
+                    subscription.baseline_established = inherit.baseline_established
+                    subscription.last_success_at = inherit.last_success_at
+                subscription.project_id = project_id
+                subscription.version = version
+                subscription.active = True
+                subscription.next_poll_at = current
+                subscription.consecutive_failures = 0
+                subscription.last_error_code = None
+                subscription.lease_owner = None
+                subscription.lease_token = None
+                subscription.lease_expires_at = 0.0
+                subscription.updated_at = current
             deployment.active = True
             deployment.activated_at = current
             deployment.deactivated_at = None
@@ -798,6 +954,8 @@ class WorkflowDeploymentStore:
                 self._deactivate_form_publication_unlocked(project_id, current)
             if release.trigger_kind != "rss":
                 self._deactivate_rss_subscriptions_unlocked(project_id, current)
+            if release.trigger_kind != "email":
+                self._deactivate_imap_subscriptions_unlocked(project_id, current)
             self._remove_failure_subscriptions_for_handler_unlocked(project_id)
             if release.trigger_kind == "failure":
                 for source_project_id in failure_sources:
@@ -850,6 +1008,9 @@ class WorkflowDeploymentStore:
                 project_id, deployment.deactivated_at
             )
             self._deactivate_rss_subscriptions_unlocked(
+                project_id, deployment.deactivated_at
+            )
+            self._deactivate_imap_subscriptions_unlocked(
                 project_id, deployment.deactivated_at
             )
             self._remove_failure_subscriptions_for_deployment_unlocked(
@@ -1228,6 +1389,232 @@ class WorkflowDeploymentStore:
             item = self._rss_deliveries.get(str(execution_id))
             return WorkflowRssDelivery(**asdict(item)) if item is not None else None
 
+    @staticmethod
+    def email_entry_data(release: WorkflowVersion) -> dict[str, Any]:
+        node = next(
+            (
+                item
+                for item in release.workflow.get("nodes", [])
+                if isinstance(item, dict)
+                and str(item.get("id") or "") == release.entry_node_id
+                and _raw_node_kind(item) == "email_event_entry"
+            ),
+            None,
+        )
+        if node is None:
+            raise WorkflowDeploymentValidationError(
+                "Published email entry is unavailable."
+            )
+        try:
+            return validate_email_config(dict(node.get("data") or {}))
+        except WorkflowEmailError as exc:
+            raise WorkflowDeploymentValidationError(exc.safe_message) from exc
+
+    def get_imap_subscription(
+        self, project_id: str
+    ) -> WorkflowImapSubscription | None:
+        with self._lock:
+            candidates = [
+                item
+                for item in self._imap_subscriptions.values()
+                if item.project_id == project_id
+            ]
+            active = next((item for item in candidates if item.active), None)
+            selected = active or max(candidates, key=lambda item: item.updated_at, default=None)
+            return WorkflowImapSubscription(**asdict(selected)) if selected is not None else None
+
+    def claim_due_imap_subscriptions(
+        self,
+        *,
+        worker_id: str,
+        now: float | None = None,
+        lease_seconds: float = 120.0,
+        limit: int = 10,
+    ) -> list[WorkflowImapSubscription]:
+        current = time.time() if now is None else float(now)
+        claimed: list[WorkflowImapSubscription] = []
+        with self._lock:
+            due = sorted(
+                (
+                    item
+                    for item in self._imap_subscriptions.values()
+                    if item.active
+                    and item.next_poll_at <= current
+                    and item.lease_expires_at <= current
+                ),
+                key=lambda item: (item.next_poll_at, item.deployment_id),
+            )
+            for item in due[: max(1, min(int(limit), 50))]:
+                deployment = self._deployments.get(item.deployment_id)
+                if deployment is None or not deployment.active or deployment.trigger_kind != "email":
+                    item.active = False
+                    item.updated_at = current
+                    continue
+                item.lease_owner = str(worker_id)
+                item.lease_token = uuid.uuid4().hex
+                item.lease_expires_at = current + max(5.0, float(lease_seconds))
+                item.updated_at = current
+                claimed.append(WorkflowImapSubscription(**asdict(item)))
+            self._persist_unlocked()
+        return claimed
+
+    def commit_imap_poll(
+        self,
+        deployment_id: str,
+        *,
+        lease_token: str,
+        uidvalidity: int,
+        highest_uid: int,
+        uids: list[int] | tuple[int, ...],
+        now: float | None = None,
+    ) -> list[WorkflowTriggerExecution]:
+        current = time.time() if now is None else float(now)
+        clean_uidvalidity = int(uidvalidity)
+        clean_highest = max(0, int(highest_uid))
+        clean_uids = tuple(int(item) for item in uids)
+        if (
+            clean_uidvalidity <= 0
+            or tuple(sorted(set(clean_uids))) != clean_uids
+            or len(clean_uids) > EMAIL_MAX_UIDS_PER_POLL
+            or any(item <= 0 or item > clean_highest for item in clean_uids)
+        ):
+            raise WorkflowDeploymentValidationError("IMAP poll cursor is invalid.")
+        created: list[WorkflowTriggerExecution] = []
+        with self._lock:
+            subscription = self._imap_subscriptions.get(str(deployment_id))
+            deployment = self._deployments.get(str(deployment_id))
+            if (
+                subscription is None
+                or deployment is None
+                or not subscription.active
+                or not deployment.active
+                or deployment.trigger_kind != "email"
+                or not secrets.compare_digest(
+                    str(subscription.lease_token or ""), str(lease_token or "")
+                )
+                or subscription.lease_expires_at <= current
+            ):
+                raise WorkflowDeploymentConflictError(
+                    "IMAP subscription lease is no longer owned by this worker."
+                )
+            release = self._require_version_unlocked(
+                subscription.project_id, subscription.version
+            )
+            config = self.email_entry_data(release)
+            reset_baseline = (
+                not subscription.baseline_established
+                or subscription.uidvalidity != clean_uidvalidity
+            )
+            if reset_baseline:
+                subscription.uidvalidity = clean_uidvalidity
+                subscription.last_uid = clean_highest
+                subscription.baseline_established = True
+            else:
+                eligible = tuple(item for item in clean_uids if item > subscription.last_uid)
+                for uid in eligible:
+                    occurrence = f"email:{deployment.deployment_id}:{clean_uidvalidity}:{uid}"
+                    if any(item.occurrence_key == occurrence for item in self._executions.values()):
+                        continue
+                    key = email_message_key(clean_uidvalidity, uid)
+                    execution = WorkflowTriggerExecution(
+                        execution_id=f"wfx_{uuid.uuid4().hex}",
+                        project_id=subscription.project_id,
+                        version=subscription.version,
+                        deployment_id=deployment.deployment_id,
+                        trigger_kind="email",
+                        occurrence_key=occurrence,
+                        scheduled_at=current,
+                        trigger_summary={
+                            "message_key": key,
+                            "received_at": current,
+                        },
+                        created_at=current,
+                        updated_at=current,
+                    )
+                    self._executions[execution.execution_id] = execution
+                    self._imap_deliveries[execution.execution_id] = WorkflowImapDelivery(
+                        execution_id=execution.execution_id,
+                        uidvalidity=clean_uidvalidity,
+                        uid=uid,
+                        message_key=key,
+                    )
+                    created.append(execution)
+                if eligible:
+                    subscription.last_uid = max(subscription.last_uid, eligible[-1])
+                elif clean_highest <= subscription.last_uid:
+                    subscription.last_uid = max(subscription.last_uid, clean_highest)
+            subscription.next_poll_at = current + int(config["pollIntervalMinutes"]) * 60
+            subscription.last_success_at = current
+            subscription.consecutive_failures = 0
+            subscription.last_error_code = None
+            subscription.lease_owner = None
+            subscription.lease_token = None
+            subscription.lease_expires_at = 0.0
+            subscription.updated_at = current
+            self._persist_unlocked()
+        return created
+
+    def fail_imap_poll(
+        self,
+        deployment_id: str,
+        *,
+        lease_token: str,
+        error_code: str,
+        now: float | None = None,
+    ) -> WorkflowImapSubscription:
+        current = time.time() if now is None else float(now)
+        clean_code = re.sub(r"[^A-Z0-9_]", "_", str(error_code).upper())[:80]
+        with self._lock:
+            subscription = self._imap_subscriptions.get(str(deployment_id))
+            if (
+                subscription is None
+                or not subscription.active
+                or not secrets.compare_digest(str(subscription.lease_token or ""), str(lease_token or ""))
+                or subscription.lease_expires_at <= current
+            ):
+                raise WorkflowDeploymentConflictError(
+                    "IMAP subscription lease is no longer owned by this worker."
+                )
+            release = self._require_version_unlocked(subscription.project_id, subscription.version)
+            config = self.email_entry_data(release)
+            subscription.consecutive_failures += 1
+            subscription.next_poll_at = current + min(
+                int(config["pollIntervalMinutes"])
+                * 60
+                * (2 ** min(subscription.consecutive_failures, 10)),
+                6 * 60 * 60,
+            )
+            subscription.last_error_code = clean_code or "EMAIL_POLL_FAILED"
+            subscription.lease_owner = None
+            subscription.lease_token = None
+            subscription.lease_expires_at = 0.0
+            subscription.updated_at = current
+            self._persist_unlocked()
+            return WorkflowImapSubscription(**asdict(subscription))
+
+    def get_imap_delivery(self, execution_id: str) -> WorkflowImapDelivery | None:
+        with self._lock:
+            item = self._imap_deliveries.get(str(execution_id))
+            return WorkflowImapDelivery(**asdict(item)) if item is not None else None
+
+    def defer_imap_delivery(
+        self, execution_id: str, *, now: float | None = None
+    ) -> WorkflowImapDelivery:
+        current = time.time() if now is None else float(now)
+        delays = (10, 60, 300)
+        with self._lock:
+            item = self._imap_deliveries.get(str(execution_id))
+            if item is None:
+                raise WorkflowDeploymentNotFoundError("IMAP delivery not found.")
+            if item.reread_attempts >= len(delays):
+                raise WorkflowDeploymentConflictError("IMAP delivery retry limit reached.")
+            item.next_reread_at = current + delays[item.reread_attempts]
+            item.reread_attempts += 1
+            execution = self._require_execution_unlocked(execution_id)
+            execution.updated_at = current
+            self._persist_unlocked()
+            return WorkflowImapDelivery(**asdict(item))
+
     def create_form_execution(
         self,
         deployment: WorkflowDeployment,
@@ -1428,6 +1815,14 @@ class WorkflowDeploymentStore:
                 if item.status == "pending"
                 or (item.status == "running" and item.lease_expires_at <= current)
             ]
+            items = [
+                item
+                for item in items
+                if (
+                    (delivery := self._imap_deliveries.get(item.execution_id)) is None
+                    or delivery.next_reread_at <= current
+                )
+            ]
             rss_feed_order = {
                 execution_id: delivery.feed_index
                 for execution_id, delivery in self._rss_deliveries.items()
@@ -1544,6 +1939,7 @@ class WorkflowDeploymentStore:
             item.updated_at = item.completed_at
             self._clear_lease(item)
             self._rss_deliveries.pop(item.execution_id, None)
+            self._imap_deliveries.pop(item.execution_id, None)
             self._persist_unlocked()
             return item
 
@@ -1577,6 +1973,7 @@ class WorkflowDeploymentStore:
             item.updated_at = item.completed_at
             self._clear_lease(item)
             self._rss_deliveries.pop(item.execution_id, None)
+            self._imap_deliveries.pop(item.execution_id, None)
             if dispatch_failures:
                 self._materialize_failure_execution_unlocked(
                     item,
@@ -1891,6 +2288,7 @@ class WorkflowDeploymentStore:
             item.updated_at = item.completed_at
             self._clear_lease(item)
             self._rss_deliveries.pop(item.execution_id, None)
+            self._imap_deliveries.pop(item.execution_id, None)
             self._persist_unlocked()
             return item
 
@@ -1922,6 +2320,23 @@ class WorkflowDeploymentStore:
     @staticmethod
     def serialize_rss_subscription(
         item: WorkflowRssSubscription,
+    ) -> dict[str, Any]:
+        return {
+            "project_id": item.project_id,
+            "version": item.version,
+            "deployment_id": item.deployment_id,
+            "active": item.active,
+            "baseline_established": item.baseline_established,
+            "next_poll_at": item.next_poll_at,
+            "last_success_at": item.last_success_at,
+            "consecutive_failures": item.consecutive_failures,
+            "last_error_code": item.last_error_code,
+            "updated_at": item.updated_at,
+        }
+
+    @staticmethod
+    def serialize_imap_subscription(
+        item: WorkflowImapSubscription,
     ) -> dict[str, Any]:
         return {
             "project_id": item.project_id,
@@ -2055,6 +2470,18 @@ class WorkflowDeploymentStore:
         self, project_id: str, timestamp: float
     ) -> None:
         for subscription in self._rss_subscriptions.values():
+            if subscription.project_id != project_id or not subscription.active:
+                continue
+            subscription.active = False
+            subscription.lease_owner = None
+            subscription.lease_token = None
+            subscription.lease_expires_at = 0.0
+            subscription.updated_at = timestamp
+
+    def _deactivate_imap_subscriptions_unlocked(
+        self, project_id: str, timestamp: float
+    ) -> None:
+        for subscription in self._imap_subscriptions.values():
             if subscription.project_id != project_id or not subscription.active:
                 continue
             subscription.active = False
@@ -2465,7 +2892,7 @@ class WorkflowDeploymentStore:
     def _persist_unlocked(self) -> None:
         self.snapshot_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
-            "version": "workflow-deployments-v4",
+            "version": "workflow-deployments-v5",
             "projects": [asdict(item) for item in self._projects.values()],
             "versions": [asdict(item) for item in self._versions.values()],
             "deployments": [asdict(item) for item in self._deployments.values()],
@@ -2481,6 +2908,12 @@ class WorkflowDeploymentStore:
             ],
             "rss_deliveries": [
                 asdict(item) for item in self._rss_deliveries.values()
+            ],
+            "imap_subscriptions": [
+                asdict(item) for item in self._imap_subscriptions.values()
+            ],
+            "imap_deliveries": [
+                asdict(item) for item in self._imap_deliveries.values()
             ],
             "subworkflow_relations": [
                 asdict(item) for item in self._subworkflow_relations.values()
@@ -2566,6 +2999,16 @@ class WorkflowDeploymentStore:
                 if item.execution_id in self._rss_deliveries:
                     raise ValueError("Duplicate workflow RSS delivery.")
                 self._rss_deliveries[item.execution_id] = item
+            for raw in payload.get("imap_subscriptions", []):
+                item = WorkflowImapSubscription(**raw)
+                if item.deployment_id in self._imap_subscriptions:
+                    raise ValueError("Duplicate workflow IMAP subscription.")
+                self._imap_subscriptions[item.deployment_id] = item
+            for raw in payload.get("imap_deliveries", []):
+                item = WorkflowImapDelivery(**raw)
+                if item.execution_id in self._imap_deliveries:
+                    raise ValueError("Duplicate workflow IMAP delivery.")
+                self._imap_deliveries[item.execution_id] = item
             for raw in payload.get("subworkflow_batches", []):
                 batch = WorkflowSubworkflowBatch(**raw)
                 if batch.occurrence_key in self._subworkflow_batches:
@@ -2635,6 +3078,7 @@ class WorkflowDeploymentStore:
             self._validate_loaded_failure_subscriptions_unlocked()
             self._validate_loaded_form_publications_unlocked()
             self._validate_loaded_rss_unlocked()
+            self._validate_loaded_imap_unlocked()
         except Exception as exc:
             raise WorkflowDeploymentValidationError(
                 "Workflow deployment snapshot is invalid; refusing to start with empty state."
@@ -2738,11 +3182,64 @@ class WorkflowDeploymentStore:
                 execution.updated_at = execution.completed_at
                 self._clear_lease(execution)
 
+    def _validate_loaded_imap_unlocked(self) -> None:
+        for deployment_id, subscription in self._imap_subscriptions.items():
+            deployment = self._deployments.get(deployment_id)
+            release = self._versions.get((subscription.project_id, subscription.version))
+            if (
+                deployment is None
+                or deployment.project_id != subscription.project_id
+                or deployment.version != subscription.version
+                or deployment.trigger_kind != "email"
+                or release is None
+                or release.trigger_kind != "email"
+                or re.fullmatch(r"[a-f0-9]{64}", subscription.source_fingerprint) is None
+                or subscription.last_uid < 0
+                or (subscription.uidvalidity is not None and subscription.uidvalidity <= 0)
+                or (subscription.active and not deployment.active)
+            ):
+                raise ValueError("Workflow IMAP subscription is invalid.")
+            config = self.email_entry_data(release)
+            if email_source_fingerprint(
+                config["host"], config["credentialId"]
+            ) != subscription.source_fingerprint:
+                raise ValueError("Workflow IMAP source fingerprint changed.")
+            subscription.lease_owner = None
+            subscription.lease_token = None
+            subscription.lease_expires_at = 0.0
+        for execution_id, delivery in list(self._imap_deliveries.items()):
+            execution = self._executions.get(execution_id)
+            if (
+                execution is None
+                or execution.trigger_kind != "email"
+                or execution.status in TERMINAL_EXECUTION_STATUSES
+                or delivery.uidvalidity <= 0
+                or delivery.uid <= 0
+                or delivery.message_key != email_message_key(
+                    delivery.uidvalidity, delivery.uid
+                )
+                or delivery.message_key != execution.trigger_summary.get("message_key")
+                or not 0 <= delivery.reread_attempts <= 3
+            ):
+                raise ValueError("Workflow IMAP delivery is invalid.")
+        for execution in self._executions.values():
+            if (
+                execution.trigger_kind == "email"
+                and execution.status not in TERMINAL_EXECUTION_STATUSES
+                and execution.execution_id not in self._imap_deliveries
+            ):
+                execution.status = "failed"
+                execution.error_summary = "Email delivery was unavailable after restart."
+                execution.completed_at = time.time()
+                execution.updated_at = execution.completed_at
+                self._clear_lease(execution)
+
 
 def validate_publishable_workflow(
     workflow: dict[str, Any],
     *,
     credential_validator: Callable[[str], Any] | None = None,
+    credential_resolver: Callable[[str], str] | None = None,
     mcp_tool_validator: Callable[[dict[str, Any]], Any] | None = None,
     xpert_target_validator: Callable[[str, int], Any] | None = None,
 ) -> tuple[WorkflowTriggerKind, str]:
@@ -2776,6 +3273,7 @@ def validate_publishable_workflow(
         else "http" if entry_kind == "http_event_entry"
         else "form" if entry_kind == "form_event_entry"
         else "rss" if entry_kind == "rss_event_entry"
+        else "email" if entry_kind == "email_event_entry"
         else "failure" if entry_kind == "failure_event_entry"
         else "call" if entry_kind == "workflow_call_entry"
         else "manual"
@@ -2888,6 +3386,32 @@ def validate_publishable_workflow(
             ):
                 raise WorkflowDeploymentValidationError(
                     "RSS deployments cannot wait for an Agent Handoff result."
+                )
+        if trigger_kind == "email":
+            if kind == "email_event_entry":
+                try:
+                    config = validate_email_config(node.data)
+                    _validate_email_credential(
+                        config,
+                        credential_validator=credential_validator,
+                        credential_resolver=credential_resolver,
+                    )
+                except WorkflowEmailError as exc:
+                    raise WorkflowDeploymentValidationError(exc.safe_message) from exc
+                except Exception as exc:
+                    raise WorkflowDeploymentValidationError(
+                        "Email credential is unavailable."
+                    ) from exc
+            if kind in {"scheduled_start", "suspend_wait", "human_intervention", "mcp_tool"}:
+                raise WorkflowDeploymentValidationError(
+                    "Email deployments cannot contain timer or persistent waiting nodes."
+                )
+            if (
+                kind in {"agent_handoff", "handoff_router"}
+                and bool(node.data.get("waitForCompletion"))
+            ):
+                raise WorkflowDeploymentValidationError(
+                    "Email deployments cannot wait for an Agent Handoff result."
                 )
         if (
             kind in {"agent_handoff", "handoff_router"}

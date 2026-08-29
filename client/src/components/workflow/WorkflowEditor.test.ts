@@ -334,6 +334,18 @@ describe("WorkflowEditor palette defaults", () => {
     });
   });
 
+  it("provides a safe read-only email subscription default", () => {
+    expect(createNodeData("email_event_entry")).toMatchObject({
+      contractVersion: 1,
+      host: "",
+      credentialId: "",
+      pollIntervalMinutes: 15,
+      eventVariable: "email_event",
+      messageVariable: "email_message",
+      contentVariable: "email_content",
+    });
+  });
+
   it("rejects missing or duplicate data merge target handles before connecting", () => {
     expect(dataMergeConnectionError("data_merge", "merge-1", null, [])).toMatch(/左侧数据/);
     expect(dataMergeConnectionError("data_merge", "merge-1", "left", [

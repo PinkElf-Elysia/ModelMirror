@@ -741,6 +741,61 @@ def _complete_contracts() -> dict[str, NodeContract]:
         availability=deployment_only_availability,
         planner=_planner(),
     )
+    contracts["email_event_entry"] = NodeContract(
+        kind="email_event_entry",
+        contract_status="complete",
+        config_schema=_object_schema(
+            {
+                "kind": {"type": "string", "const": "email_event_entry"},
+                "title": {"type": "string"},
+                "description": {"type": "string"},
+                "contractVersion": {"type": "integer", "const": 1},
+                "host": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 253,
+                    "pattern": r"^[A-Za-z0-9.-]+$",
+                },
+                "credentialId": {
+                    "type": "string",
+                    "pattern": r"^cred_[0-9a-f]{32}$",
+                },
+                "pollIntervalMinutes": {
+                    "type": "integer",
+                    "minimum": 5,
+                    "maximum": 1440,
+                },
+                "eventVariable": {"type": "string"},
+                "messageVariable": {"type": "string"},
+                "contentVariable": {"type": "string"},
+            },
+            required=[
+                "contractVersion",
+                "host",
+                "credentialId",
+                "pollIntervalMinutes",
+                "eventVariable",
+                "messageVariable",
+                "contentVariable",
+            ],
+            additional_properties=False,
+        ),
+        ports=(
+            NodePortContract(name="event", direction="output", value_schema=event_value),
+            NodePortContract(name="message", direction="output", value_schema=object_value),
+            NodePortContract(name="content", direction="output", value_schema=string_value),
+        ),
+        execution=NodeExecutionPolicy(
+            side_effect="external_read",
+            deterministic=False,
+            idempotent=True,
+            external_io=True,
+            error_semantics="fail_closed",
+            security_category="private_email",
+        ),
+        availability=deployment_only_availability,
+        planner=_planner(),
+    )
     contracts["failure_event_entry"] = NodeContract(
         kind="failure_event_entry",
         contract_status="complete",

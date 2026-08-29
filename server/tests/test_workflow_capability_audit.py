@@ -82,9 +82,9 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     assert len({row["来源条目标识"] for row in rows}) == 563
     assert Counter(row["覆盖等级"] for row in rows) == {
         "exact": 36,
-        "limited": 72,
+        "limited": 73,
         "composable": 271,
-        "none": 184,
+        "none": 183,
     }
     mapped = {row["n8n内部标识"]: row for row in rows}
     mapped_by_source = {row["来源条目标识"]: row for row in rows}
@@ -94,12 +94,15 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     assert mapped["rssFeedReadTrigger"]["覆盖等级"] == "exact"
     assert "首次启用建立无回放基线" in mapped["rssFeedReadTrigger"]["判断说明"]
     assert mapped["rssFeedRead"]["覆盖等级"] == "composable"
+    assert mapped["emailReadImap"]["模镜对应节点"] == "email_event_entry"
+    assert mapped["emailReadImap"]["覆盖等级"] == "limited"
+    assert "不支持 OAuth2" in mapped["emailReadImap"]["判断说明"]
     assert {
         row["n8n内部标识"]
         for row in rows
         if row["n8n节点族"] == "触发节点"
         and row["纳入建议"] == "核心通用能力候选"
-    } == {"emailReadImap", "localFileTrigger", "mcpTrigger", "sseTrigger"}
+    } == {"localFileTrigger", "mcpTrigger", "sseTrigger"}
     assert all(
         mapped[key]["纳入建议"] == "按需消息基础设施连接器"
         for key in (
@@ -302,20 +305,21 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     assert current_registry_line in markdown
     assert f"Planner 可生成类型仍固定为 {facts.planner} 类" in markdown
     assert "R1.8 结果" in markdown
-    assert facts.native == 54
-    assert facts.palette_registered == 50
-    assert facts.palette_draggable == 49
-    assert facts.complete == 51
+    assert facts.native == 55
+    assert facts.palette_registered == 51
+    assert facts.palette_draggable == 50
+    assert facts.complete == 52
     assert facts.compatibility == 3
     assert facts.planner == 7
     assert facts.runtime_feature_gated == (
+        "email_event_entry",
         "knowledge_write_proposal",
         "rss_event_entry",
     )
     assert "当前 Registry 事实：54 Native、50 个可新增 Palette 项" not in markdown
     assert (
-        "默认运行功能门禁：2 个已登记项（`knowledge_write_proposal`、"
-        "`rss_event_entry`）允许编辑但执行面关闭"
+        "默认运行功能门禁：3 个已登记项（`email_event_entry`、"
+        "`knowledge_write_proposal`、`rss_event_entry`）允许编辑但执行面关闭"
     ) in markdown
     assert "## 平台级能力例外（不计入画布节点覆盖状态）" in markdown
     assert "Xpert Chat" in markdown
@@ -378,13 +382,17 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
         "首次无回放基线和持久条目去重提供 RSS 2.0/Atom 1.0 订阅入口"
     ) in markdown
     assert (
+        "- R2.8 结果：新增完整合同 `email_event_entry`，以只读 IMAPS 993、"
+        "首次无回放 UID 基线和持久 UID 重读恢复提供固定 INBOX 邮件入口"
+    ) in markdown
+    assert (
         "- R2.2 PR1 结果：将 `variable_aggregator` 提升为“变量打包”V2 完整合同，"
         "修正元智能体新图的报告汇总，并为 563 行参考清单增加 "
         "exact/limited/composable/none 证据门禁；" + r22_pr2_snapshot
     ) not in markdown
     assert "覆盖等级用于表达证据强度" in markdown
     assert current_registry_line == (
-        "当前 Registry 事实：54 Native、50 个已登记 Palette 项、"
-        "默认 49 个可拖拽 Palette 项、51 个完整合同、"
+        "当前 Registry 事实：55 Native、51 个已登记 Palette 项、"
+        "默认 50 个可拖拽 Palette 项、52 个完整合同、"
         "3 个 compatibility 合同、7 个 Planner 节点"
     )

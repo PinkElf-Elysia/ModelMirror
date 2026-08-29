@@ -7,6 +7,7 @@ export type WorkflowNodeKind =
   | "http_event_entry"
   | "form_event_entry"
   | "rss_event_entry"
+  | "email_event_entry"
   | "failure_event_entry"
   | "workflow_call_entry"
   | "invoke_workflow"
@@ -264,6 +265,8 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   eventVariable?: string;
   submissionVariable?: string;
   feedUrl?: string;
+  host?: string;
+  messageVariable?: string;
   pollIntervalMinutes?: number | string;
   formTitle?: string;
   formDescription?: string;
