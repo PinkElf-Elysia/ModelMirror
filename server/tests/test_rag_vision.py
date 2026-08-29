@@ -236,6 +236,8 @@ async def test_scanned_pdf_job_honors_visual_failure_policy(
     failure_policy: str,
     expected_status: str,
 ) -> None:
+    monkeypatch.delenv("LLM_GATEWAY_URL", raising=False)
+    monkeypatch.delenv("LLM_GATEWAY_KEY", raising=False)
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     calls = 0
 
