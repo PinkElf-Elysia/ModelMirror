@@ -1576,6 +1576,37 @@ function checkScriptNetwork(relative, content, specifiers, policy, violations) {
     }
     return;
   }
+  if (relative === "scripts/lib/r20-host-core.mjs") {
+    const allowedModules = new Set(["http", "node:http"]);
+    if (
+      specifiers.some((specifier) => NETWORK_MODULES.has(specifier) && !allowedModules.has(specifier)) ||
+      NETWORK_GLOBAL_NAMES.some((name) => new RegExp(`\\b${name}\\b`).test(content)) ||
+      !/export const R20_NPC_HOST="127\.0\.0\.1";/u.test(content) ||
+      !/export const R20_NPC_HOST_PORT=43120;/u.test(content) ||
+      !/port!==R20_NPC_HOST_PORT/u.test(content) ||
+      !/server\.listen\(R20_NPC_HOST_PORT,R20_NPC_HOST,/u.test(content) ||
+      /\b(?:connect|createConnection|Socket)\s*\(/u.test(content)
+    ) {
+      addViolation(
+        violations,
+        "r20-host-network-invalid",
+        relative,
+        "R20 NPC host may only listen on fixed 127.0.0.1:43120 and may not create outbound clients.",
+      );
+    }
+    for (const match of content.matchAll(/\b(?:https?|wss?):\/\/([A-Za-z0-9.:[\]-]+)/gu)) {
+      const host = match[1].replace(/^\[/u, "").replace(/\]$/u, "").split(":", 1)[0];
+      if (!LOOPBACK_HOSTS.has(host)) {
+        addViolation(
+          violations,
+          "r20-host-network-invalid",
+          relative,
+          "R20 NPC host literals must remain loopback-only.",
+        );
+      }
+    }
+    return;
+  }
   if (
     NETWORK_GLOBAL_NAMES.some((name) =>
       new RegExp(`\\b${name}\\b`).test(content),

@@ -913,6 +913,44 @@ const negativeCases = [
     },
   },
   {
+    name: "R20 NPC host wildcard binding",
+    expectedRule: "r20-host-network-invalid",
+    setup: async ({ root }) => {
+      const target = path.join(root, "scripts", "lib", "r20-host-core.mjs");
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.writeFile(target, [
+        'import { createServer } from "node:http";',
+        'export const R20_NPC_HOST="0.0.0.0";',
+        "export const R20_NPC_HOST_PORT=43120;",
+        "export function start(port=R20_NPC_HOST_PORT){",
+        '  if(port!==R20_NPC_HOST_PORT) throw new Error("invalid");',
+        "  const server=createServer();",
+        "  server.listen(R20_NPC_HOST_PORT,R20_NPC_HOST,()=>{});",
+        "}",
+      ].join("\n"), "utf8");
+    },
+  },
+  {
+    name: "R20 NPC host imports outbound client",
+    expectedRule: "r20-host-network-invalid",
+    setup: async ({ root }) => {
+      const target = path.join(root, "scripts", "lib", "r20-host-core.mjs");
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.writeFile(target, [
+        'import { createServer } from "node:http";',
+        'import { request } from "node:https";',
+        'export const R20_NPC_HOST="127.0.0.1";',
+        "export const R20_NPC_HOST_PORT=43120;",
+        "export function start(port=R20_NPC_HOST_PORT){",
+        '  if(port!==R20_NPC_HOST_PORT) throw new Error("invalid");',
+        "  const server=createServer();",
+        "  server.listen(R20_NPC_HOST_PORT,R20_NPC_HOST,()=>{});",
+        "  return request;",
+        "}",
+      ].join("\n"), "utf8");
+    },
+  },
+  {
     name: "smoke script non-loopback host",
     expectedRule: "smoke-host-not-fixed-loopback",
     setup: async ({ root }) => {
