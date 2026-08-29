@@ -22,7 +22,11 @@ type FeedbackValue = "helpful" | "not-helpful";
 
 /**
  * 文章底部"这篇对你有帮助吗？"反馈。
- * 选择一次后本地记住，不再重复询问；无后端上报。
+ *
+ * 范围边界（勿扩展为"闭环"）：
+ * - 选择仅写入用户本机 localStorage，不建立后端上报，不收集反馈数据，维护者收不到任何反馈。
+ * - 作用仅是"本机记住选择，避免重复询问"，对产品改进无数据价值。
+ * - 如需真实反馈通道（维护者可接收），需新增后端上报接口并更新 docs/help-center/evidence/feedback-staleness-20260829.md。
  */
 export function ArticleFeedback({ slug }: { slug: string }) {
   const [stored, setStored] = useState<string | null>(() => readFeedback(slug));
