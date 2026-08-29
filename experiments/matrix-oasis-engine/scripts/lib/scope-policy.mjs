@@ -15,6 +15,7 @@ export const ROUND_ALLOWED_MODULE_FILES = Object.freeze([
   "docs/R20_TASK_CARD.md",
   "docs/adr/0021-r20-deterministic-npc-bridge-governance.md",
   "docs/rounds/R20_ACCEPTANCE.md",
+  "scripts/check-godot-boundary.mjs",
   "scripts/check-round-scope.mjs",
   "scripts/synthesize-npc-behavior.mjs",
   "scripts/create-npc-authority-session.mjs",

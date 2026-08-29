@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { canonicalizeJsonValue } from "@matrix-oasis/runtime-pack-contracts";
-import { exportNpcAuthoritySession, submitNpcAuthorityIntent, verifyNpcAuthoritySession } from "@matrix-oasis/npc-authority-session";
+import { exportNpcAuthoritySession, resetNpcAuthoritySession, submitNpcAuthorityIntent, verifyNpcAuthoritySession } from "@matrix-oasis/npc-authority-session";
 import { selectNextNpcBehaviorCommand } from "@matrix-oasis/npc-behavior-runtime";
 import { hashCanonicalValue } from "@matrix-oasis/npc-authority-runtime";
 
@@ -14,7 +14,7 @@ function sameToken(actual,expected){if(typeof actual!=="string"||!actual.startsW
 function parseBody(request){if(request.method==="GET")return null;if(request.headers?.["content-type"]!=="application/json")throw new Error("content-type");if(typeof request.body!=="string"||Buffer.byteLength(request.body)>MAX_BODY)throw new Error("body");return JSON.parse(request.body)}
 function exactObject(value,keys){return value&&typeof value==="object"&&!Array.isArray(value)&&Object.keys(value).sort().join("\0")===[...keys].sort().join("\0")}
 
-export function createR20Coordinator({authoritySession,preparedBehavior,initialBehaviorState,sessionToken}){if(!authoritySession||!preparedBehavior||!initialBehaviorState||typeof sessionToken!=="string"||sessionToken.length<32)return null;const handle=Object.freeze(Object.create(null));states.set(handle,{authoritySession,preparedBehavior,behaviorState:structuredClone(initialBehaviorState),sessionToken,inFlight:null,frozen:false});return handle}
+export function createR20Coordinator({authoritySession,preparedBehavior,initialBehaviorState,sessionToken}){if(!authoritySession||!preparedBehavior||!initialBehaviorState||typeof sessionToken!=="string"||sessionToken.length<32)return null;const handle=Object.freeze(Object.create(null));states.set(handle,{authoritySession,preparedBehavior,initialBehaviorState:structuredClone(initialBehaviorState),behaviorState:structuredClone(initialBehaviorState),sessionToken,inFlight:null,frozen:false,resetCount:0});return handle}
 export function handleR20CoordinatorRequest(coordinator,request){
   try{
     const state=states.get(coordinator);if(!state)return response(500,{code:"R20_COORDINATOR_INVALID"});if(request?.remoteAddress!=="127.0.0.1")return response(403,{code:"R20_LOOPBACK_REQUIRED"});if(!sameToken(request.headers?.authorization,state.sessionToken))return response(401,{code:"R20_SESSION_TOKEN_INVALID"});const body=parseBody(request);
@@ -26,6 +26,9 @@ export function handleR20CoordinatorRequest(coordinator,request){
     }
     if(request.method==="POST"&&request.url==="/v1/mirror"){
       if(!exactObject(body,["sequence","beforeSnapshotSha256","afterSnapshotSha256"]))return response(400,{code:"R20_MIRROR_BODY_INVALID"});const flight=state.inFlight;if(!flight||flight.command.sequence!==body.sequence||flight.phase!=="mirroring")return response(409,{code:"R20_COMMAND_SEQUENCE_INVALID"});if(body.beforeSnapshotSha256!==flight.beforeSnapshotSha256||body.afterSnapshotSha256!==flight.afterSnapshotSha256){state.frozen=true;return response(409,{code:"R20_RUNTIME_MIRROR_MISMATCH"})}state.behaviorState=flight.nextBehaviorState;state.inFlight=null;return response(200,{status:"committed",disposition:"returning"});
+    }
+    if(request.method==="POST"&&request.url==="/v1/reset"){
+      if(!exactObject(body,[]))return response(400,{code:"R20_RESET_BODY_INVALID"});if(state.inFlight)return response(409,{code:"R20_RESET_IN_FLIGHT"});const verified=verifyNpcAuthoritySession(state.authoritySession);if(!verified.ok){state.frozen=true;return response(409,{code:"R20_AUTHORITY_VERIFY_FAILED"})}const exported=exportNpcAuthoritySession(state.authoritySession);if(!exported.ok){state.frozen=true;return response(409,{code:"R20_AUTHORITY_EXPORT_FAILED"})}const previous=JSON.parse(exported.canonicalWorldEventLedgerJson);state.resetCount+=1;const timelineId=`timeline-${hashCanonicalValue({previousTimelineId:previous.timeline.id,resetCount:state.resetCount}).slice(7,31)}`;const reset=resetNpcAuthoritySession(state.authoritySession,timelineId);if(!reset.ok){state.frozen=true;return response(409,{code:"R20_AUTHORITY_RESET_FAILED"})}state.authoritySession=reset.session;state.behaviorState=structuredClone(state.initialBehaviorState);return response(200,{status:"reset",timelineId});
     }
     if(request.method==="POST"&&request.url==="/v1/verify"){
       if(!exactObject(body,[]))return response(400,{code:"R20_VERIFY_BODY_INVALID"});const verified=verifyNpcAuthoritySession(state.authoritySession);if(!verified.ok){state.frozen=true;return response(409,{code:"R20_AUTHORITY_VERIFY_FAILED"})}const report=JSON.parse(verified.canonicalWorldEventLedgerReplayReportJson);return response(200,{status:"verified",revision:report.verifiedEntries,headSha256:report.throughHeadSha256});

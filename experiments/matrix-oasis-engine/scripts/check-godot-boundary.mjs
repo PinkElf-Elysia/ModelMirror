@@ -145,6 +145,23 @@ function hasUnsafeImageSave(source, relativePath) {
   return false;
 }
 
+function isApprovedR20BridgeCapability(code, source, relativePath) {
+  if (relativePath !== "npc_authority_prototype/npc_authority_lab.gd" ||
+      !["GODOT_FIRST_PARTY_NETWORK", "GODOT_FIRST_PARTY_ENVIRONMENT"].includes(code)) {
+    return false;
+  }
+  const environmentCalls = [...source.matchAll(/\bOS\s*\.\s*get_environment\s*\(\s*([^\n)]*)\)/gu)]
+    .map((match) => match[1].trim());
+  return /const LOOPBACK_BASE := "http:\/\/127\.0\.0\.1:43120\/v1\/"/u.test(source) &&
+    /@onready var _request: HTTPRequest = \$AuthorityRequest/u.test(source) &&
+    !/\b(?:WebSocket|StreamPeerTCP|PacketPeerUDP|ENetMultiplayerPeer|TCPServer)\b/u.test(source) &&
+    !/\b(?:HTTPClient\.new|connect_to_host|request_raw)\b/u.test(source) &&
+    [...source.matchAll(/\b_request\.request\s*\(/gu)].length === 1 &&
+    !/\bhttps?:\/\/(?!127\.0\.0\.1:43120\/v1\/)/u.test(source) &&
+    environmentCalls.length === 1 && environmentCalls[0] === "SESSION_TOKEN_ENV" &&
+    /const SESSION_TOKEN_ENV := "MATRIX_OASIS_R20_SESSION_TOKEN"/u.test(source);
+}
+
 export function auditGodotBoundary({ root = godotRoot } = {}) {
   const resolvedRoot = fs.realpathSync(root);
   const violations = [];
@@ -152,7 +169,7 @@ export function auditGodotBoundary({ root = godotRoot } = {}) {
     const relativePath = path.relative(resolvedRoot, absolute).replaceAll("\\", "/");
     const source = fs.readFileSync(absolute, "utf8");
     for (const [code, pattern] of FORBIDDEN_CAPABILITIES) {
-      if (pattern.test(source)) {
+      if (pattern.test(source) && !isApprovedR20BridgeCapability(code, source, relativePath)) {
         violations.push({ code, path: relativePath });
       }
     }

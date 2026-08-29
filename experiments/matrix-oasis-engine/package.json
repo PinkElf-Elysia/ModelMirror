@@ -43,7 +43,7 @@
     "verify:r20-references": "node --test tests/r20-reference.test.mjs && node scripts/verify-r20-references.mjs",
     "verify:npc-behavior-contracts": "npm test --workspace @matrix-oasis/npc-behavior-contracts",
     "verify:npc-authority-session": "npm test --workspace @matrix-oasis/npc-authority-session && node --test tests/r20-session.test.mjs",
-    "verify:npc-godot-bridge": "node --test tests/r20-godot-bridge.test.mjs",
+    "verify:npc-godot-bridge": "node --test tests/r20-godot-bridge.test.mjs && npm run verify:godot:import",
     "synthesize:npc-behavior": "node scripts/synthesize-npc-behavior.mjs",
     "create:npc-authority-session": "node scripts/create-npc-authority-session.mjs",
     "qualify:r20-npc-bridge": "node scripts/qualify-r20-npc-bridge.mjs",

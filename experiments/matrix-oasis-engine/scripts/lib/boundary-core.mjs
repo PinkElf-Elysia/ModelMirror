@@ -1607,6 +1607,24 @@ function checkScriptNetwork(relative, content, specifiers, policy, violations) {
     }
     return;
   }
+  if (relative === "scripts/check-godot-boundary.mjs") {
+    const expectedModules = new Set(["node:fs", "node:path", "node:url"]);
+    if (
+      specifiers.some((specifier) => !expectedModules.has(specifier)) ||
+      new RegExp(`\\b(?:${FETCH_GLOBAL_NAME}|connect|createConnection|createServer|request)\\s*\\(`, "u").test(content) ||
+      !/function isApprovedR20BridgeCapability\(code, source, relativePath\)/u.test(content) ||
+      !/npc_authority_prototype\/npc_authority_lab\.gd/u.test(content) ||
+      !/127\\\.0\\\.0\\\.1:43120/u.test(content)
+    ) {
+      addViolation(
+        violations,
+        "godot-boundary-network-guard-invalid",
+        relative,
+        "The Godot boundary may contain inert R20 loopback patterns but no executable network capability.",
+      );
+    }
+    return;
+  }
   if (
     NETWORK_GLOBAL_NAMES.some((name) =>
       new RegExp(`\\b${name}\\b`).test(content),

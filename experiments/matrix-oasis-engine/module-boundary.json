@@ -10,7 +10,7 @@
       "AGENTS.md", "module-boundary.json", "package-lock.json", "package.json", "docs/V2_STATUS.json",
       "docs/R20_NPC_BRIDGE.md", "docs/R20_NPC_BRIDGE_THREAT_MODEL.md", "docs/R20_REFERENCE_AUDIT.md", "docs/R20_TASK_CARD.md",
       "docs/adr/0021-r20-deterministic-npc-bridge-governance.md", "docs/rounds/R20_ACCEPTANCE.md",
-      "scripts/check-round-scope.mjs",
+      "scripts/check-godot-boundary.mjs", "scripts/check-round-scope.mjs",
       "scripts/synthesize-npc-behavior.mjs", "scripts/create-npc-authority-session.mjs", "scripts/qualify-r20-npc-bridge.mjs", "scripts/preview-r20.mjs", "scripts/capture-r20.mjs", "scripts/verify-r20-references.mjs", "scripts/verify-r20.mjs",
       "scripts/lib/boundary-core.mjs", "scripts/lib/v2-claim-core.mjs", "scripts/lib/r20-cli-core.mjs", "scripts/lib/r20-host-core.mjs", "scripts/lib/scope-policy.mjs",
       "scripts/run-verify.mjs", "tests/boundary.test.mjs", "tests/extraction-contract.test.mjs",

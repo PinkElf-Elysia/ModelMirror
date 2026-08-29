@@ -15,6 +15,10 @@ export async function restoreNpcAuthoritySession(input){
   const values=strings(input,["runtimeGamePackJson","runtimeReceiptJson","policyJson","worldEventLedgerJson"]);if(!values)return fail("NPC_AUTHORITY_SESSION_INPUT_INVALID");
   const authority=await prepared(values);if(!authority.ok)return authority;const incremental=createNpcAuthorityIncrementalState({prepared:authority.prepared,worldEventLedgerJson:values.worldEventLedgerJson});if(!incremental.ok)return incremental;const handle=Object.freeze(Object.create(null));sessions.set(handle,{prepared:authority.prepared,state:incremental.state});return expose(handle,incremental);
 }
+export function resetNpcAuthoritySession(session,timelineId){
+  const value=sessions.get(session);if(!value||typeof timelineId!=="string"||timelineId.length<1)return fail("NPC_AUTHORITY_SESSION_INVALID");
+  const timeline=createNpcAuthorityTimeline(value.prepared,{timelineId});if(!timeline.ok)return timeline;const incremental=createNpcAuthorityIncrementalState({prepared:value.prepared,worldEventLedgerJson:timeline.canonicalWorldEventLedgerJson});if(!incremental.ok)return incremental;const handle=Object.freeze(Object.create(null));sessions.set(handle,{prepared:value.prepared,state:incremental.state});return expose(handle,incremental);
+}
 export function submitNpcAuthorityIntent(session,npcIntentJson){const value=sessions.get(session);if(!value||typeof npcIntentJson!=="string")return fail("NPC_AUTHORITY_SESSION_INVALID");return submitNpcAuthorityIncrementalIntent({state:value.state,npcIntentJson})}
 export function exportNpcAuthoritySession(session){const value=sessions.get(session);return value?exportNpcAuthorityIncrementalState(value.state):fail("NPC_AUTHORITY_SESSION_INVALID")}
 export function verifyNpcAuthoritySession(session){const value=sessions.get(session);return value?verifyNpcAuthorityIncrementalState(value.state):fail("NPC_AUTHORITY_SESSION_INVALID")}
