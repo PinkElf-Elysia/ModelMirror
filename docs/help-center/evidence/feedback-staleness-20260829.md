@@ -1,71 +1,64 @@
-# 帮助中心文章反馈：设计边界与后续方向记录
+# 帮助中心文章反馈：真闭环实现记录
 
 - 记录日期：`2026-08-29`
 - 仓库：`E:\ModelMirror\ModelMirror-new`（当前 `feature/help-center-round2`）
 - 范围：帮助中心文章"这篇对你有帮助吗？"反馈功能
 
-## 重要：本轮反馈"仅保存在本机"，不是闭环
+## 现状：真闭环（已上报后端数据库）
 
-**本轮反馈功能不做后端上报，维护者收不到用户反馈。** 这是有意的范围边界，不是遗漏。请勿把它表述为"反馈闭环"。
-
-按审查意见（P2-2）与本决定，反馈功能明确为：
-
-> **仅保存在用户本机浏览器（localStorage），不会发送给团队。** 用户点击后仅在本机记住选择，避免重复询问。不建立上报通道，不收集任何用户反馈数据。
-
-如果后续需要"真闭环"（维护者能收到反馈），方向见文末「后续升级方向」。
+**反馈功能已建立真实上报通道：用户评价写入后端 JSON 文件，维护者可查询统计，前端展示实时评价标签。** 同时具备防重复（anonymous_id + slug 唯一）与防刷（IP 限流）。
 
 ## 功能实现
 
-### 1. 文章反馈（`client/src/components/help/ArticleFeedback.tsx`）
+### 1. 后端（`server/help_feedback_store.py` + `server/main.py`）
 
-每篇文章底部新增"这篇对你有帮助吗？"，提供「有帮助 / 没帮助」两个按钮：
+- **存储**：文件型 JSON Store，`server/storage/help_feedback/feedback.json`（可用 `HELP_FEEDBACK_STORAGE_DIR` 覆盖）。
+- **POST `/api/help/feedback`**：接收 `{ slug, article_version, value, anonymous_id }`。
+  - `201`：首次评价成功。
+  - `409`：同一 anonymous_id + slug 已评价过（防重复）。
+  - `429`：同一 IP 60 秒内超过 5 条（防刷）。
+  - `422`：参数非法（value/slug/anonymous_id 缺失或非法）。
+- **GET `/api/help/feedback/stats?slug=xxx`**：返回 `{ slug, total, helpful }`，供前端标签与维护者统计。
+- **防重复**：`HelpFeedbackStore.add_feedback` 检查 `(anonymous_id, slug)` 唯一，重复抛 `DuplicateFeedbackError`。
+- **防刷**：`help_feedback_rate_limit_or_raise` 滑动窗口，同 IP 60 秒 >5 条返回 429。
 
-- 选择一次后，结果写入 `localStorage`（key `help-feedback:<slug>`），本地记住，不再重复询问。
-- 已反馈的后续访问显示确认态"你的选择仅保存在本机浏览器，不会发送给团队"，并附相近内容引导。
-- **无后端上报**（本轮明确范围）。
-- localStorage 不可用（隐私模式等）时静默失败，不阻塞阅读。
-- 按 slug 隔离，文章之间不串扰；路由切换时通过 `key={article.slug}` 重置状态。
+### 2. 前端（`client/src/components/help/ArticleFeedback.tsx`）
 
-### 2. 内容验证提示（`client/src/pages/HelpArticlePage.tsx` 的 `ArticlePage`）
+- 点选后写 localStorage（本机记住，避免重复询问）+ POST 上报。
+- 上报成功显示"你的意见已发送给团队"；409 静默；网络失败降级"本次提交未送达（仅保存在本机浏览器）"。
+- **统计标签**：挂载时 GET stats，显示"已收到 N 人评价，M 人认为有帮助"。
+- `client/src/utils/anonymousId.ts`：生成/复用浏览器匿名标识（随机 UUID，存 localStorage）。
 
-每篇文章正文前显示验证状态提示条：
+### 3. 数据模型
 
-- 已发布文章：灰字提示"本文基于 {verifiedDate} 的界面验证，产品更新后部分按钮名称、入口或价格可能变化"。
+每条记录：`{ id, slug, article_version, value, anonymous_id, created_at }`。
 
-> 说明：此前曾有"PENDING 草稿"琥珀色提示，已在审查修复中随草稿移除（公开文章不再允许 PENDING），当前代码仅保留已验证日期提示。
+**不记录**：IP、真实身份、任何正文内容。`anonymous_id` 是随机 UUID，无法反查到用户。
 
-## 关键设计决策
+## 防护层级
 
-- **反馈存 localStorage 而非后端**：本轮不建立真实反馈通道，明确"仅本机"边界，避免维护者误以为有数据上报。
-- **文案明确"仅本机"**：用户可见文案与按钮旁小字都写明"不会发送给团队"，避免用户误以为反馈已发送。
+| 层级 | 机制 | 状态码 | 防什么 |
+| --- | --- | --- | --- |
+| 前端 localStorage | 记住选择，隐藏按钮 | — | 正常用户误触重复 |
+| 限流 | 同 IP 60 秒 >5 条 | 429 | 脚本批量刷评价 |
+| 防重复 | (anonymous_id + slug) 唯一 | 409 | 同浏览器同文章重复评价 |
+| 参数校验 | value/slug/anonymous_id 校验 | 422 | 非法输入 |
 
-## 团队协作指引
+## 已知局限（匿名方案固有）
 
-### 当前能做什么 / 不能做什么
-- **能**：用户在浏览器本地记住对某篇文章的选择，下次访问不再重复询问。
-- **不能**：维护者无法看到任何用户反馈；无法统计"哪篇文章被反馈没用"。
-
-### 数据存在哪里
-- 每个用户各自的浏览器 `localStorage`，key 为 `help-feedback:<slug>`，值 `helpful` / `not-helpful`。
-- **没有服务端存储、没有日志、没有上报接口。**
-
-### 后续升级方向（如需真闭环）
-1. 后端加 `POST /api/help/feedback` 接口，接收 `{ slug, article_version, value }`。
-2. 前端 `ArticleFeedback` 点选后调用该接口（同时保留本机记忆）。
-3. 后端存储到 SQLite 或日志，供维护者查询统计。
-4. 建议记录文章版本（verifiedCommit）维度，区分"反馈针对哪个版本"。
-5. 完成后需同步更新本文档与 PR 的 Help Center Impact。
+- 清空浏览器数据 / 换浏览器 → 新 anonymous_id，可再次评价。
+- 多人共用一台电脑 → 共享一个 anonymous_id。
+- 匿名标识是前端生成的，后端无法验证真伪；限流（429）是主要防刷手段。
 
 ## 验证
 
-- `ArticleFeedback.test.tsx`：6 项测试（首次询问、有帮助记住、没帮助记住、已答不再问、按文章隔离、跨文章切换重置）。
-- `HelpCenterPage.test.tsx`：已验证日期提示、文章页反馈出现。
-- 帮助中心专项：`40/40` 通过。
-- 全量前端测试：`814/814` 通过。
-- 类型检查通过；图片校验脚本全绿。
+- 后端：`server/tests/test_help_feedback.py` 4 项（写入+统计、防重复、同用户多文章、空统计）。
+- 前端：`ArticleFeedback.test.tsx` 8 项（首次询问、上报成功、统计标签、409、离线降级、按文章隔离、跨文章重置）。
+- 帮助中心专项测试通过；类型检查通过。
+- 全量前端测试待跑。
 
 ## 未验证 / 未覆盖
 
-- 真实浏览器中反馈按钮的交互观感。
-- localStorage 在其他浏览器隐私模式下的表现（已做降级处理）。
-- **反馈上报通道：本轮明确不建立，属未覆盖边界。**
+- 真实浏览器端到端（前端 → 后端 → 文件写入 → 统计刷新）交互观感。
+- 多进程/多实例并发写入（当前为单实例文件 Store，依赖 RLock 串行化）。
+- 大量数据下的存储性能（JSON 全量读写；反馈量极大时需考虑 SQLite 或分片）。

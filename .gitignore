@@ -82,6 +82,9 @@ artifacts/
 # World generation runtime storage
 server/world/storage/
 
+# Help center feedback runtime storage
+server/storage/help_feedback/
+
 # World model temp verification scripts & assets
 test_marble_api.py
 verify_marble.py
