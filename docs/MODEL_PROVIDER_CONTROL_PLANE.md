@@ -323,6 +323,20 @@ python -m server.model_router.migrate_credentials --storage-dir <path>
 - v18 对现有音频、视频与 Realtime 任务只增加可空的 Workload/Adapter/派发证据字段；旧记录
   视为 legacy，不重写、不联网回填。已派发但结果不确定的会话重启后保持 `uncertain`，不得重放。
 
+## 图片、Vision 与原生 PDF 数据面（Round 8B）
+
+- R8B 将 `chat_image`、`chat_document_native`、`rag_vision`、Workflow 交互/部署 Vision、
+  `xpert_vision` 和 `image_generation` 接入 R8A 的精确 Binding 与 Receipt；其余多模态入口仍未接管。
+- Chat 图片和原生 PDF 继续使用原 `/api/chat` SSE；Vision 继续返回严格 JSON；图片生成继续使用
+  `/api/multimodal/image/generations` 完整响应。统一控制面不合并这些协议。
+- 同一调用只使用一个已批准 IP和一个 Provider POST。请求派发后，HTTP 错误、超时、断流或
+  uncertain 均不切换连接、模型、Adapter 或 legacy；混合图片与原生 PDF等未认证组合在 POST 前阻断。
+- `openrouter_images_v1` 使用 OpenRouter `/images`；`openai_compatible_images_generations_v1`
+  使用 `/images/generations`，并将 UI 的 `resolution` 映射为标准 `size`，强制请求 Base64 输出。
+- 图片生成在 Managed 模式要求 `Idempotency-Key`；稳定运行引用只保存 Key 哈希。图片、PDF、
+  Prompt、Vision 结果、生成正文和完整错误体不进入 Router SQLite 或 Receipt。
+- 所有 R8B Feature Flag 仍默认关闭。PR 合并不等于生产启用、真实认证或 Provider 默认切换。
+
 ## 回退
 
 关闭管理面或回退路由不得删除 Provider SQLite、newAPI 数据目录、旧主密钥或迁移
@@ -330,8 +344,9 @@ python -m server.model_router.migrate_credentials --storage-dir <path>
 将 `MODEL_CONTROL_CHAT_ENABLED=false` 保持 R5 数据面关闭。关闭各入口对应的
 `MODEL_CONTROL_*_ENABLED` 可保持 R6 数据面为 legacy。代码回退保留 v15/v16 表和
 脱敏证据；关闭 R7 对应 Feature Flag 可恢复 RAG/Skill/Batch 的 legacy 路径，并保留 v17 表、
-资格、Batch 映射与 Receipt。关闭全部 R8 Flag 可保持多模态数据面为 legacy；回退 R8A 时保留
-v18 表、Adapter、资格会话与新增任务证据列。非终态 Batch 应继续通过本地任务 ID只读轮询，
+资格、Batch 映射与 Receipt。关闭对应 R8B Flag 可恢复图片、PDF 和 Vision 的 legacy 路径；
+关闭全部 R8 Flag 可保持其余多模态数据面为 legacy。回退 R8A/R8B 时保留 v18 表、Adapter、
+资格会话与新增任务证据列。非终态 Batch 应继续通过本地任务 ID只读轮询，
 不得清理或重发。
 只需将策略 `auto_enabled=false` 即可停止新增 Auto 证据而不改变 Auto 调度。
 旧版本可忽略新表继续运行。部署回退通过恢复上一版本

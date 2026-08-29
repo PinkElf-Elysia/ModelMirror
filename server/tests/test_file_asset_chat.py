@@ -304,6 +304,72 @@ async def test_capabilities_only_expose_native_pdf_for_live_openrouter_model(
 
 
 @pytest.mark.asyncio
+async def test_capabilities_expose_native_pdf_from_managed_control_plane(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CHAT_FILE_INPUT_ENABLED", "true")
+    monkeypatch.setenv("FILE_ASSET_STORE_MODE", "shadow")
+    monkeypatch.setenv("MODEL_CONTROL_CHAT_DOCUMENT_ENABLED", "true")
+    monkeypatch.delenv("LLM_GATEWAY_URL", raising=False)
+    monkeypatch.delenv("LLM_GATEWAY_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    class ManagedControl:
+        @staticmethod
+        def feature_enabled(entry_id: str) -> bool:
+            assert entry_id == "chat_document_native"
+            return True
+
+        def __init__(self, _router_service) -> None:
+            pass
+
+        def public_status(
+            self,
+            entry_id: str,
+            model_id: str,
+            execution_shape: str,
+        ):
+            assert (
+                entry_id,
+                model_id,
+                execution_shape,
+            ) == (
+                "chat_document_native",
+                "openai/gpt-file",
+                "chat_document_stream",
+            )
+            return SimpleNamespace(
+                status="managed_required",
+                available=True,
+            )
+
+    monkeypatch.setattr(
+        file_api,
+        "ProviderWorkloadControlService",
+        ManagedControl,
+    )
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://testserver"
+    ) as client:
+        response = await client.get(
+            "/api/files/capabilities",
+            params={"purpose": "chat", "model_id": "openai/gpt-file"},
+        )
+
+    assert response.status_code == 200
+    document = next(
+        item
+        for item in response.json()["capabilities"]
+        if item["input_kind"] == "document"
+    )
+    assert [item["handling"] for item in document["handling_options"]] == [
+        "extract",
+        "native",
+    ]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("gateway_url", "stale", "availability"),
     [

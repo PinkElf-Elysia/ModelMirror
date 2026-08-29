@@ -12,6 +12,7 @@ from fastapi import (
     BackgroundTasks,
     File,
     Form,
+    Header,
     HTTPException,
     Response,
     UploadFile,
@@ -386,6 +387,7 @@ async def generate_image(
     background: str | None = Form(default=None),
     seed: int | None = Form(default=None),
     reference_images: list[UploadFile] | None = File(default=None),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> ImageGenerationResult:
     references = reference_images or []
     try:
@@ -416,6 +418,7 @@ async def generate_image(
                 image.content_type for image in references
             ],
             reference_contents=contents,
+            idempotency_key=idempotency_key,
         )
     except MultimodalServiceError as exc:
         raise _http_error(exc) from exc
@@ -941,7 +944,10 @@ def _provider_options(raw: str | None) -> dict[str, object] | None:
 
 
 def _http_error(exc: MultimodalServiceError) -> HTTPException:
+    detail = {"code": exc.code, "message": exc.message}
+    if exc.route_receipt is not None:
+        detail["route_receipt"] = exc.route_receipt
     return HTTPException(
         status_code=exc.status_code,
-        detail={"code": exc.code, "message": exc.message},
+        detail=detail,
     )

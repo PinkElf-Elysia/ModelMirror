@@ -634,6 +634,10 @@ class PipelineDocumentResultPayload(BaseModel):
     vision_block_count: int = 0
     vision_warnings: list[str] = Field(default_factory=list)
     vision_error: str | None = None
+    vision_execution_mode: Literal["managed", "legacy"] = "legacy"
+    vision_provider_route_receipts: list[dict[str, Any]] = Field(
+        default_factory=list
+    )
     execution_mode: Literal["managed", "legacy"] = "legacy"
     provider_route_receipts: dict[str, Any] | None = None
 

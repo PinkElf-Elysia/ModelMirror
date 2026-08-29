@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import json
 import math
@@ -24,6 +25,9 @@ from .provider_operations import (
 )
 from .multimodal_control import (
     PROVIDER_MULTIMODAL_PROTOCOL_VERSION,
+    R8B_EXECUTION_SHAPES,
+    ProviderMultimodalTarget,
+    ProviderMultimodalTransport,
     validate_multimodal_adapter,
 )
 from .repository import RouterCredentialUnavailable, RouterRepositoryError
@@ -67,6 +71,52 @@ SYNTHETIC_RERANK_DOCUMENTS = (
     "This document is unrelated to provider routing.",
     "Managed bindings select one exact provider model.",
 )
+SYNTHETIC_VISION_PNG_DATA_URL = (
+    "data:image/png;base64,"
+    "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEklEQVR4nGNkSPvPwMDAxAAGAA/nAWnOxjxZAAAAAElFTkSuQmCC"
+)
+
+
+def _build_synthetic_single_page_pdf() -> bytes:
+    content = b"BT /F1 12 Tf 20 100 Td (ModelMirror PDF certification) Tj ET"
+    objects = (
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+        (
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] "
+            b"/Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>"
+        ),
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        b"<< /Length "
+        + str(len(content)).encode("ascii")
+        + b" >>\nstream\n"
+        + content
+        + b"\nendstream",
+    )
+    document = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+    offsets = [0]
+    for index, body in enumerate(objects, start=1):
+        offsets.append(len(document))
+        document.extend(f"{index} 0 obj\n".encode("ascii"))
+        document.extend(body)
+        document.extend(b"\nendobj\n")
+    xref_offset = len(document)
+    document.extend(f"xref\n0 {len(objects) + 1}\n".encode("ascii"))
+    document.extend(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        document.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
+    document.extend(
+        (
+            f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\n"
+            f"startxref\n{xref_offset}\n%%EOF\n"
+        ).encode("ascii")
+    )
+    return bytes(document)
+
+
+SYNTHETIC_NATIVE_PDF_DATA_URL = "data:application/pdf;base64," + base64.b64encode(
+    _build_synthetic_single_page_pdf()
+).decode("ascii")
 MAX_WORKLOAD_UNARY_RESPONSE_BYTES = 1024 * 1024
 MAX_WORKLOAD_SSE_EVENT_BYTES = 256 * 1024
 MAX_WORKLOAD_STREAM_BYTES = 4 * 1024 * 1024
@@ -210,6 +260,13 @@ DATA_PLANE_INTEGRATED_ENTRIES: frozenset[ProviderWorkloadEntryId] = frozenset(
         "rag_rerank",
         "skill_rerank",
         "openrouter_batch",
+        "chat_image",
+        "chat_document_native",
+        "rag_vision",
+        "workflow_interactive_vision",
+        "workflow_deployment_vision",
+        "xpert_vision",
+        "image_generation",
     }
 )
 
@@ -290,6 +347,9 @@ class ProviderWorkloadCertificationService:
         self.operation_transport = ProviderOperationTransport(
             router_service.egress_policy
         )
+        self.multimodal_transport = ProviderMultimodalTransport(
+            router_service.egress_policy
+        )
         self._client_factory = client_factory or (
             lambda: httpx.AsyncClient(
                 **ProviderChatTransport.client_kwargs(certification=True)
@@ -366,7 +426,10 @@ class ProviderWorkloadCertificationService:
             payload.execution_shape,
             adapter_contract=payload.adapter_contract,
         )
-        if payload.execution_shape in MULTIMODAL_WORKLOAD_SHAPES:
+        if (
+            payload.execution_shape in MULTIMODAL_WORKLOAD_SHAPES
+            and payload.execution_shape not in R8B_EXECUTION_SHAPES
+        ):
             raise RouterServiceError(
                 "provider_multimodal_certification_not_integrated",
                 "该多模态认证将在对应 R8 数据面批次接入；R8A 不会发送付费调用。",
@@ -499,7 +562,16 @@ class ProviderWorkloadCertificationService:
             )
             async with asyncio.timeout(60):
                 async with self._client_factory() as client:
-                    if payload.execution_shape in {
+                    if payload.execution_shape in R8B_EXECUTION_SHAPES:
+                        await self._run_r8b_certification(
+                            client,
+                            connection,
+                            api_key,
+                            payload,
+                            evidence,
+                            started,
+                        )
+                    elif payload.execution_shape in {
                         "embedding_vectors",
                         "rerank_documents",
                         "openrouter_batch_chat",
@@ -865,6 +937,186 @@ class ProviderWorkloadCertificationService:
                 }
             )
         return request
+
+    async def _run_r8b_certification(
+        self,
+        client: httpx.AsyncClient,
+        connection: RouterConnection,
+        api_key: str,
+        payload: ProviderWorkloadCertificationRequest,
+        evidence: _CertificationEvidence,
+        started: float,
+    ) -> None:
+        if payload.adapter_contract is None:
+            raise _WorkloadCertificationFailure(
+                "provider_multimodal_adapter_required"
+            )
+        target = ProviderMultimodalTarget.create(
+            provider_kind=connection.kind,
+            connection_id=connection.id,
+            base_url=connection.base_url,
+            api_key=api_key,
+            adapter_contract=payload.adapter_contract,
+            execution_shape=payload.execution_shape,
+        )
+        request_payload = self._r8b_request_payload(payload)
+        authorized = await self.multimodal_transport.authorize(target)
+        request = self.multimodal_transport.build_authorized_json_request(
+            client,
+            target,
+            authorized,
+            request_payload,
+        )
+        response = await self.multimodal_transport.send_authorized(client, request)
+        try:
+            self._validate_status(response.status_code)
+            evidence.checks["http_ok"] = True
+            if payload.execution_shape in {
+                "chat_image_stream",
+                "chat_document_stream",
+            }:
+                await self._consume_fusion_stream(
+                    response,
+                    evidence,
+                    started,
+                    expected_model=payload.model_id,
+                )
+            elif payload.execution_shape == "vision_json_unary":
+                await self._consume_unary_response(
+                    response,
+                    evidence,
+                    started,
+                    requested_model=payload.model_id,
+                    execution_shape="chat_json_object",
+                )
+            else:
+                response_payload = await self._read_json_response(response)
+                self._validate_image_generation_response(
+                    response_payload,
+                    evidence,
+                    requested_model=payload.model_id,
+                )
+                evidence.ttft_ms = (time.perf_counter() - started) * 1000
+        finally:
+            await response.aclose()
+        evidence.checks["multimodal_adapter_verified"] = True
+
+    @staticmethod
+    def _r8b_request_payload(
+        payload: ProviderWorkloadCertificationRequest,
+    ) -> dict[str, object]:
+        if payload.execution_shape == "image_generation":
+            if payload.adapter_contract == "openrouter_images_v1":
+                return {
+                    "model": payload.model_id,
+                    "prompt": "A single blue square on a white background.",
+                    "n": 1,
+                    "quality": "low",
+                    "aspect_ratio": "1:1",
+                }
+            return {
+                "model": payload.model_id,
+                "prompt": "A single blue square on a white background.",
+                "n": 1,
+                "size": "256x256",
+                "response_format": "b64_json",
+            }
+        if payload.execution_shape == "chat_document_stream":
+            return {
+                "model": payload.model_id,
+                "stream": True,
+                "temperature": 0,
+                "max_tokens": 32,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "Reply with OK."},
+                            {
+                                "type": "file",
+                                "file": {
+                                    "filename": "modelmirror-certification.pdf",
+                                    "file_data": SYNTHETIC_NATIVE_PDF_DATA_URL,
+                                },
+                            },
+                        ],
+                    }
+                ],
+                "plugins": [{"id": "file-parser", "pdf": {"engine": "native"}}],
+            }
+        request: dict[str, object] = {
+            "model": payload.model_id,
+            "stream": payload.execution_shape == "chat_image_stream",
+            "temperature": 0,
+            "max_tokens": 64,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": (
+                                "Reply with OK."
+                                if payload.execution_shape == "chat_image_stream"
+                                else 'Return exactly one JSON object: {"ok":true}'
+                            ),
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": SYNTHETIC_VISION_PNG_DATA_URL},
+                        },
+                    ],
+                }
+            ],
+        }
+        if payload.execution_shape == "vision_json_unary":
+            request["response_format"] = {"type": "json_object"}
+        return request
+
+    @staticmethod
+    def _validate_image_generation_response(
+        payload: Mapping[str, object],
+        evidence: _CertificationEvidence,
+        *,
+        requested_model: str,
+    ) -> None:
+        actual_model = payload.get("model")
+        if isinstance(actual_model, str) and actual_model:
+            evidence.actual_model = actual_model
+            if actual_model != requested_model:
+                raise _WorkloadCertificationFailure(
+                    "provider_workload_model_mismatch"
+                )
+            evidence.checks["actual_model_verified"] = True
+        else:
+            evidence.warning_codes.append("actual_model_missing")
+        data = payload.get("data")
+        if not isinstance(data, list) or len(data) != 1 or not isinstance(data[0], dict):
+            raise _WorkloadCertificationFailure(
+                "provider_multimodal_image_output_invalid"
+            )
+        encoded = data[0].get("b64_json")
+        if not isinstance(encoded, str) or not encoded:
+            raise _WorkloadCertificationFailure(
+                "provider_multimodal_image_output_invalid"
+            )
+        try:
+            image = base64.b64decode(encoded, validate=True)
+        except (ValueError, TypeError) as exc:
+            raise _WorkloadCertificationFailure(
+                "provider_multimodal_image_output_invalid"
+            ) from exc
+        if not (
+            image.startswith(b"\x89PNG\r\n\x1a\n")
+            or image.startswith(b"\xff\xd8\xff")
+            or (len(image) >= 12 and image[8:12] == b"WEBP")
+        ):
+            raise _WorkloadCertificationFailure(
+                "provider_multimodal_image_output_invalid"
+            )
+        evidence.checks["content_observed"] = True
+        evidence.checks["response_complete"] = True
+        ProviderWorkloadCertificationService._read_usage(payload, evidence)
 
     async def _run_operation_certification(
         self,
@@ -2706,6 +2958,7 @@ class ProviderWorkloadPreparedCall:
     policy_fingerprint: str
     target: ProviderChatTarget
     operation_target: ProviderOperationTarget | None
+    multimodal_target: ProviderMultimodalTarget | None
     rerank_access_mode: str | None
     adapter_contract: str | None
     protocol_version: str | None
@@ -2721,6 +2974,9 @@ class ProviderWorkloadCallService:
         self.control = ProviderWorkloadControlService(router_service)
         self.transport = ProviderChatTransport(router_service.egress_policy)
         self.operation_transport = ProviderOperationTransport(
+            router_service.egress_policy
+        )
+        self.multimodal_transport = ProviderMultimodalTransport(
             router_service.egress_policy
         )
 
@@ -2863,7 +3119,26 @@ class ProviderWorkloadCallService:
             connection_id=connection.id,
         )
         operation_target: ProviderOperationTarget | None = None
-        if execution_shape in {
+        multimodal_target: ProviderMultimodalTarget | None = None
+        if execution_shape in MULTIMODAL_WORKLOAD_SHAPES:
+            if binding.adapter_contract is None:
+                raise RouterServiceError(
+                    "provider_multimodal_adapter_required",
+                    "多模态调用缺少明确的 Adapter。",
+                    status_code=409,
+                )
+            multimodal_target = ProviderMultimodalTarget.create(
+                provider_kind=connection.kind,
+                connection_id=connection.id,
+                base_url=connection.base_url,
+                api_key=api_key,
+                adapter_contract=binding.adapter_contract,
+                execution_shape=execution_shape,
+            )
+            authorized = await self.multimodal_transport.authorize(
+                multimodal_target
+            )
+        elif execution_shape in {
             "embedding_vectors",
             "rerank_documents",
             "openrouter_batch_chat",
@@ -2919,6 +3194,7 @@ class ProviderWorkloadCallService:
             policy_fingerprint=policy.policy_fingerprint,
             target=target,
             operation_target=operation_target,
+            multimodal_target=multimodal_target,
             rerank_access_mode=binding.rerank_access_mode,
             adapter_contract=binding.adapter_contract,
             protocol_version=binding.protocol_version,
