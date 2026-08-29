@@ -14,6 +14,7 @@ from server.rag.lexical_store import LexicalChunk, SqliteLexicalStore, tokenize_
 from server.rag.pipeline_executor import KnowledgePipelineExecutor
 from server.rag.rag_service import RagService
 from server.rag.rag_service import PipelineDraftValidationError
+from server.rag.rag_service import RagRetrievalUnavailableError
 from server.rag.reranker import RerankDocument, RerankItem, RerankOutcome, RerankService
 from server.rag.retrieval import RetrievalCandidate, RetrievalConfig, fuse_rankings
 from server.rag.splitter import ParentChildTextSplitter, TextSplitter
@@ -340,6 +341,28 @@ async def test_real_embedding_version_records_actual_dimension_and_fails_closed(
     assert version["embedding_profile"]["effective"]["dimension"] == 3
     assert version["embedding_profile"]["dimension"] == 3
     evidence_before = service.pipeline_version_evidence(version["version_id"])
+
+    result = await service.query_pipeline_version(
+        version["version_id"],
+        "REAL-VECTOR-IDENTITY",
+        retrieval={"mode": "vector"},
+        generate_answer=False,
+    )
+    assert result["sources"]
+    assert result["retrieval"]["embedding_dimension"] == 3
+
+    embedder.api_base = "https://different-embedding.test/v1"
+    with pytest.raises(
+        RagRetrievalUnavailableError,
+        match="embedding identity does not match",
+    ):
+        await service.query_pipeline_version(
+            version["version_id"],
+            "REAL-VECTOR-IDENTITY",
+            retrieval={"mode": "vector"},
+            generate_answer=False,
+        )
+    embedder.api_base = "https://embedding.test/v1"
 
     embedder.api_key = ""
     evidence_after = service.pipeline_version_evidence(version["version_id"])

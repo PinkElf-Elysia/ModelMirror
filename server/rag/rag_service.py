@@ -7090,6 +7090,21 @@ class RagService:
             resolved_effective["dimension"] = stored_dimension
             resolved["dimension"] = stored_dimension
             resolved["effective"] = resolved_effective
+            if (
+                stored_access_mode == "legacy"
+                and str(resolved_effective.get("provider") or "")
+                == EMBEDDING_PROVIDER_OPENAI_COMPATIBLE
+            ):
+                base = self.embedder.api_base or "https://api.openai.com/v1"
+                identity = self._embedding_space_identity(
+                    provider_kind=EMBEDDING_PROVIDER_OPENAI_COMPATIBLE,
+                    endpoint=f"{base.rstrip('/')}/embeddings",
+                    model_id=str(resolved_effective.get("model") or ""),
+                    vector_dimension=stored_dimension,
+                )
+                resolved["embedding_space_fingerprint"] = str(
+                    identity["fingerprint"]
+                )
         return resolved
 
     async def _embed_query(
