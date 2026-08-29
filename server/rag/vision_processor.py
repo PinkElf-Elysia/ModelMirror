@@ -72,6 +72,9 @@ class VisionSourceResult:
     blocks: list[DocumentBlock]
     page_results: list[VisionPageResult]
     warnings: list[str] = field(default_factory=list)
+    provider_route_receipts: list[dict[str, Any]] = field(default_factory=list)
+    execution_mode: str = "legacy"
+    fallback_reason_codes: list[str] = field(default_factory=list)
 
     def payload(self, *, max_text: int | None = None) -> dict[str, Any]:
         return {
@@ -84,6 +87,9 @@ class VisionSourceResult:
             "block_count": len(self.blocks),
             "block_counts": _block_counts(self.blocks),
             "warnings": list(self.warnings),
+            "provider_route_receipts": list(self.provider_route_receipts),
+            "execution_mode": self.execution_mode,
+            "fallback_reason_codes": list(self.fallback_reason_codes),
             "blocks": [block.payload(max_text=max_text) for block in self.blocks],
             "pages": [item.payload(max_text=max_text) for item in self.page_results],
         }
@@ -126,6 +132,11 @@ class VisionUnderstandingService(GenericVisionUnderstandingService):
             cache_get=cache_get,
             cache_set=cache_set,
             cancel_check=cancel_check,
+            managed_entry_id="rag_vision",
+            parent_run_reference=(
+                str(config.get("provider_parent_run_reference") or "").strip()
+                or None
+            ),
         )
         return self._adapt_source_result(result)
 
@@ -190,6 +201,9 @@ class VisionUnderstandingService(GenericVisionUnderstandingService):
             blocks=[_to_document_block(block) for block in result.blocks],
             page_results=page_results,
             warnings=list(result.warnings),
+            provider_route_receipts=list(result.provider_route_receipts),
+            execution_mode=result.execution_mode,
+            fallback_reason_codes=list(result.fallback_reason_codes),
         )
 
 

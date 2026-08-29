@@ -77,7 +77,7 @@ describe("ProviderWorkloadControlSettings", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(<ProviderWorkloadControlSettings csrfToken="csrf-value" view="certifications" />);
-    await screen.findByText("R6 / R7 资格与 R8 Adapter 基础");
+    await screen.findByText("R6 / R7 资格与 R8 多模态认证");
     fireEvent.change(screen.getByLabelText("执行形态"), {
       target: { value: "chat_json_object" },
     });
@@ -109,6 +109,53 @@ describe("ProviderWorkloadControlSettings", () => {
       model_id: "openai/gpt-test",
       acknowledge_billed_call: true,
     });
+  });
+
+  it("opens R8B image certification while later multimodal shapes remain blocked", async () => {
+    const multimodalConnection = {
+      ...connection,
+      scopes: ["chat", "image", "audio"],
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/router/connections") return jsonResponse([multimodalConnection]);
+      if (url === "/api/router/certifications/workloads" && !init) {
+        return jsonResponse({ certifications: [] });
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<ProviderWorkloadControlSettings csrfToken="csrf-value" view="certifications" />);
+    await screen.findByText("R6 / R7 资格与 R8 多模态认证");
+    fireEvent.change(screen.getByLabelText("执行形态"), {
+      target: { value: "chat_image_stream" },
+    });
+    fireEvent.change(screen.getByLabelText("精确模型 ID"), {
+      target: { value: "openai/gpt-4o-mini" },
+    });
+
+    await waitFor(() => expect(screen.getByRole("button", {
+      name: "运行资格认证",
+    })).toBeEnabled());
+    expect(screen.getByLabelText("Adapter Contract")).toHaveValue(
+      "openrouter_chat_multimodal_v1",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "运行资格认证" }));
+    expect(screen.getByRole("dialog")).toHaveTextContent("最多一个 Provider POST");
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining("/certifications/workloads"),
+      expect.objectContaining({ method: "POST" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+
+    fireEvent.change(screen.getByLabelText("执行形态"), {
+      target: { value: "audio_transcription" },
+    });
+    await waitFor(() => expect(screen.getByRole("button", {
+      name: "运行资格认证",
+    })).toBeDisabled());
+    expect(screen.getByText(/该多模态形态目前仅建立 Adapter/)).toBeVisible();
   });
 
   it("saves exact bindings with optimistic revision while an unintegrated entry stays blocked", async () => {

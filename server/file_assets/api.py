@@ -67,9 +67,11 @@ try:
         get_model_router_service,
     )
     from server.model_router.chat_control import ProviderChatControlService
+    from server.model_router.workload_control import ProviderWorkloadControlService
 except ModuleNotFoundError:
     from model_router.api import get_catalog_coordinator, get_model_router_service
     from model_router.chat_control import ProviderChatControlService
+    from model_router.workload_control import ProviderWorkloadControlService
 
 
 MIB = 1024 * 1024
@@ -392,6 +394,21 @@ def delete_file_output(
 
 
 async def _verified_native_pdf(model_id: str) -> bool:
+    if ProviderWorkloadControlService.feature_enabled("chat_document_native"):
+        try:
+            managed_status = ProviderWorkloadControlService(
+                get_model_router_service()
+            ).public_status(
+                "chat_document_native",
+                model_id,
+                "chat_document_stream",
+            )
+        except Exception:
+            # Once the managed data plane is enabled, its projection is the
+            # authority and must fail closed instead of borrowing legacy state.
+            return False
+        if managed_status.status != "legacy":
+            return managed_status.available
     if not _active_chat_url_is_openrouter():
         return False
     try:

@@ -104,7 +104,7 @@ def validate_requested_base(requested_base: str, locked_base: str) -> None:
     if requested[0] != locked_base:
         print(
             f"AI Research base notice: {requested_base} advanced to {requested[0]}; "
-            f"scope remains pinned to {locked_base}",
+            f"provenance remains pinned to {locked_base}",
             file=sys.stderr,
         )
 
@@ -428,7 +428,7 @@ def main() -> int:
     source_lock = json.loads((MODULE_ROOT / "source-lock.json").read_text(encoding="utf-8"))
     locked_base = source_lock["modelMirrorBaseCommit"]
     validate_requested_base(args.base, locked_base)
-    validate_paths(locked_base, boundary)
+    validate_paths(args.base, boundary)
     validate_locked_files(source_lock)
     validate_runtime_references(boundary)
     validate_metric_names()

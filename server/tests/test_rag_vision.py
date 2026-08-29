@@ -236,6 +236,8 @@ async def test_scanned_pdf_job_honors_visual_failure_policy(
     failure_policy: str,
     expected_status: str,
 ) -> None:
+    monkeypatch.delenv("LLM_GATEWAY_URL", raising=False)
+    monkeypatch.delenv("LLM_GATEWAY_KEY", raising=False)
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     calls = 0
 
@@ -356,8 +358,81 @@ async def test_image_upload_requires_pipeline_and_mime_matches_extension(vision_
 
 
 @pytest.mark.asyncio
-async def test_visual_pipeline_builds_dual_index_and_returns_page_citation(vision_api) -> None:
+async def test_managed_rag_vision_does_not_require_legacy_gateway(
+    vision_api,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, service, _executor = vision_api
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_GATEWAY_URL", raising=False)
+    monkeypatch.delenv("LLM_GATEWAY_KEY", raising=False)
+    monkeypatch.setattr(
+        service.vision_processor,
+        "managed_model_available",
+        lambda entry_id, model_id, execution_shape="vision_json_unary": (
+            entry_id == "rag_vision"
+            and model_id == "openai/gpt-4o-mini"
+            and execution_shape == "vision_json_unary"
+        ),
+    )
+    kb_id = (
+        await client.post(
+            "/api/rag/knowledge_bases",
+            json={"name": "managed visual"},
+        )
+    ).json()["id"]
+    document = await client.post(
+        f"/api/rag/knowledge_bases/{kb_id}/documents",
+        files={"file": ("managed.png", _png_bytes(), "image/png")},
+    )
+    assert document.status_code == 200
+    draft = service.update_pipeline_draft(
+        kb_id,
+        {
+            "stage_image_understanding": {
+                "config": {
+                    "enabled": True,
+                    "vision_model_id": "openai/gpt-4o-mini",
+                }
+            }
+        },
+    )
+
+    job = service.create_pipeline_job(
+        kb_id,
+        draft_version=draft["version"],
+        source_document_ids=[document.json()["id"]],
+    )
+
+    assert job["status"] == "queued"
+
+
+@pytest.mark.asyncio
+async def test_visual_pipeline_builds_dual_index_and_returns_page_citation(
+    vision_api,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     client, service, executor = vision_api
+    original_analyze = service.vision_processor.analyze_source
+
+    async def managed_analyze(*args, **kwargs):
+        result = await original_analyze(*args, **kwargs)
+        result.execution_mode = "managed"
+        result.provider_route_receipts = [
+            {
+                "entry_id": "rag_vision",
+                "status": "passed",
+                "call_count": 1,
+                "calls": [],
+            }
+        ]
+        return result
+
+    monkeypatch.setattr(
+        service.vision_processor,
+        "analyze_source",
+        managed_analyze,
+    )
     kb_id = (await client.post("/api/rag/knowledge_bases", json={"name": "charts"})).json()["id"]
     document = await client.post(
         f"/api/rag/knowledge_bases/{kb_id}/documents",
@@ -395,6 +470,10 @@ async def test_visual_pipeline_builds_dual_index_and_returns_page_citation(visio
     assert result["vision_processed_page_count"] == 1
     assert result["vision_failed_page_count"] == 0
     assert result["vision_block_count"] == 4
+    assert result["vision_execution_mode"] == "managed"
+    assert result["vision_provider_route_receipts"][0]["entry_id"] == "rag_vision"
+    assert result["execution_mode"] == "managed"
+    assert result["provider_route_receipts"]["entry_id"] == "rag_vision"
 
     version = service.get_pipeline_version(completed["candidate_version_id"])
     assert version["vision_profile"]["vision_model_id"] == "openai/gpt-4.1-mini"

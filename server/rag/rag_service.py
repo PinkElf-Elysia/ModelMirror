@@ -2215,6 +2215,17 @@ class RagService:
         vision_stage = stages["stage_image_understanding"]
         vision_config = dict(vision_stage.get("config") or {})
         vision_capabilities = self.vision_processor.capabilities()
+        managed_vision_available = self.vision_processor.managed_model_available(
+            "rag_vision",
+            str(vision_config.get("vision_model_id") or "").strip(),
+        )
+        vision_configured = bool(
+            vision_capabilities.get("image_decoder_ready")
+            and (
+                vision_capabilities.get("targets")
+                or managed_vision_available
+            )
+        )
         embedding_profile = dict(draft.get("embedding_profile") or {})
         embedding_effective = dict(embedding_profile.get("effective") or {})
         retrieval_mode = str(
@@ -2254,7 +2265,7 @@ class RagService:
         if bool(vision_config.get("enabled")):
             if not str(vision_config.get("vision_model_id") or "").strip():
                 warnings.append("Image understanding requires an explicit vision model.")
-            if not bool(vision_capabilities.get("configured")):
+            if not vision_configured:
                 warnings.append(
                     "Image understanding requires PDF/image rendering and a configured model gateway."
                 )
@@ -2288,9 +2299,7 @@ class RagService:
                     severity = "warning"
                     status = "blocked"
                     summary = "Visual sources are waiting for an enabled image understanding stage."
-                elif bool(vision_config.get("enabled")) and not bool(
-                    vision_capabilities.get("configured")
-                ):
+                elif bool(vision_config.get("enabled")) and not vision_configured:
                     severity = "warning"
                     status = "blocked"
                     summary = "The renderer or model gateway required by image understanding is unavailable."
@@ -2719,6 +2728,8 @@ class RagService:
                     "vision_block_count": 0,
                     "vision_warnings": [],
                     "vision_error": None,
+                    "vision_execution_mode": "legacy",
+                    "vision_provider_route_receipts": [],
                     "vision_artifact_key": (
                         self.pipeline_vision_dir
                         / job_id
@@ -2945,6 +2956,8 @@ class RagService:
                     "vision_block_count": 0,
                     "vision_warnings": [],
                     "vision_error": None,
+                    "vision_execution_mode": "legacy",
+                    "vision_provider_route_receipts": [],
                     "vision_artifact_key": (
                         self.pipeline_vision_dir / job_id / f"source_{index}.json"
                     ).relative_to(self.storage_dir).as_posix(),
@@ -3375,10 +3388,28 @@ class RagService:
                         "vision_failed_page_count": failed_pages,
                         "vision_block_count": len(payload.get("blocks") or []),
                         "vision_warnings": list(payload.get("warnings") or []),
+                        "vision_execution_mode": str(
+                            payload.get("execution_mode") or "legacy"
+                        ),
+                        "vision_provider_route_receipts": list(
+                            payload.get("provider_route_receipts") or []
+                        ),
                         "vision_error": (
                             f"{failed_pages} visual page(s) failed."
                             if failed_pages
                             else None
+                        ),
+                        **(
+                            {
+                                "execution_mode": "managed",
+                                "provider_route_receipts": list(
+                                    payload.get("provider_route_receipts") or []
+                                )[0],
+                            }
+                            if str(payload.get("execution_mode") or "")
+                            == "managed"
+                            and payload.get("provider_route_receipts")
+                            else {}
                         ),
                     },
                 )
@@ -3530,11 +3561,17 @@ class RagService:
                     "warnings": list(document.warnings),
                     "error": None,
                     "duration_ms": duration_ms,
-                    "execution_mode": generation.execution_mode,
-                    "provider_route_receipts": (
-                        generation.provider_route_receipts
-                    ),
                 }
+                if (
+                    generation.execution_mode == "managed"
+                    or generation.provider_route_receipts is not None
+                ):
+                    result_values.update(
+                        execution_mode=generation.execution_mode,
+                        provider_route_receipts=(
+                            generation.provider_route_receipts
+                        ),
+                    )
                 self._update_pipeline_document_result(
                     job_id,
                     source_id,
@@ -7053,6 +7090,21 @@ class RagService:
             resolved_effective["dimension"] = stored_dimension
             resolved["dimension"] = stored_dimension
             resolved["effective"] = resolved_effective
+            if (
+                stored_access_mode == "legacy"
+                and str(resolved_effective.get("provider") or "")
+                == EMBEDDING_PROVIDER_OPENAI_COMPATIBLE
+            ):
+                base = self.embedder.api_base or "https://api.openai.com/v1"
+                identity = self._embedding_space_identity(
+                    provider_kind=EMBEDDING_PROVIDER_OPENAI_COMPATIBLE,
+                    endpoint=f"{base.rstrip('/')}/embeddings",
+                    model_id=str(resolved_effective.get("model") or ""),
+                    vector_dimension=stored_dimension,
+                )
+                resolved["embedding_space_fingerprint"] = str(
+                    identity["fingerprint"]
+                )
         return resolved
 
     async def _embed_query(
@@ -7785,7 +7837,13 @@ class RagService:
                             node_id=vision_node,
                         )
                     ], None
-                if not bool(capabilities.get("targets")):
+                managed_vision_available = (
+                    self.vision_processor.managed_model_available(
+                        "rag_vision",
+                        str(vision.get("vision_model_id") or "").strip(),
+                    )
+                )
+                if not bool(capabilities.get("targets")) and not managed_vision_available:
                     return [
                         GraphValidationIssue(
                             "vision_model_unavailable",
@@ -8238,6 +8296,8 @@ class RagService:
                 result.setdefault("vision_block_count", 0)
                 result.setdefault("vision_warnings", [])
                 result.setdefault("vision_error", None)
+                result.setdefault("vision_execution_mode", "legacy")
+                result.setdefault("vision_provider_route_receipts", [])
         return metadata
 
     def _write_metadata(self, metadata: dict[str, Any]) -> None:

@@ -884,6 +884,33 @@ class ManagedWorkflowNodeRun:
             cancel_event=cancel_event,
         )
 
+    async def complete_json_object_for_shape(
+        self,
+        *,
+        logical_call_key: str,
+        call_sequence: int,
+        execution_shape: str,
+        model_id: str,
+        messages: list[dict[str, Any]],
+        temperature: float,
+        max_tokens: int,
+        cancel_event: asyncio.Event | None = None,
+    ) -> str:
+        """Run a qualified JSON unary shape without weakening its exact Binding."""
+
+        return await self._complete_unary(
+            logical_call_key=logical_call_key,
+            call_sequence=call_sequence,
+            execution_shape=execution_shape,  # type: ignore[arg-type]
+            model_id=model_id,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            response_format={"type": "json_object"},
+            require_json_object=True,
+            cancel_event=cancel_event,
+        )
+
     async def _complete_unary(
         self,
         *,

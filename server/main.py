@@ -1460,6 +1460,11 @@ try:
         ManagedWorkflowNodeRun,
         ManagedWorkflowRoutingError,
     )
+    from server.model_router.multimodal_gateway import (
+        ManagedMultimodalChatDispatch,
+        ManagedMultimodalError,
+        ManagedMultimodalGateway,
+    )
 except ModuleNotFoundError:
     from model_router.expert_team_gateway import (
         ManagedExpertTeamGateway,
@@ -1475,6 +1480,11 @@ except ModuleNotFoundError:
         ManagedWorkflowAgentRun,
         ManagedWorkflowNodeRun,
         ManagedWorkflowRoutingError,
+    )
+    from model_router.multimodal_gateway import (
+        ManagedMultimodalChatDispatch,
+        ManagedMultimodalError,
+        ManagedMultimodalGateway,
     )
 
 try:
@@ -1512,12 +1522,14 @@ except ModuleNotFoundError:
 try:
     from server.xpert_runtime.workflow_vision import (
         WorkflowVisionError,
+        compose_workflow_vision_receipt,
         execute_workflow_vision,
         resolve_workflow_vision_asset,
     )
 except ModuleNotFoundError:
     from xpert_runtime.workflow_vision import (
         WorkflowVisionError,
+        compose_workflow_vision_receipt,
         execute_workflow_vision,
         resolve_workflow_vision_asset,
     )
@@ -3492,6 +3504,17 @@ async def model_supports_image_input(model_id: str) -> bool:
         and profile.interaction_status == "ready"
         for profile in catalog.profiles
     )
+
+
+async def workflow_vision_model_available(entry_id: str, model_id: str) -> bool:
+    """Project the selected control-plane mode without crossing fallback boundaries."""
+
+    routing_mode = workflow_vision_service.managed_routing_mode(entry_id)
+    if routing_mode == "managed_required":
+        return workflow_vision_service.managed_model_available(entry_id, model_id)
+    if routing_mode == "degraded_required":
+        return False
+    return await model_supports_image_input(model_id)
 
 
 async def validate_multimodal_content(
@@ -6609,11 +6632,19 @@ class WorkflowKnowledgeFatalError(RuntimeError):
 class WorkflowVisionFatalError(RuntimeError):
     """Stable, content-free fatal error for vision_understanding nodes."""
 
-    def __init__(self, node_id: str, error_code: str, safe_message: str) -> None:
+    def __init__(
+        self,
+        node_id: str,
+        error_code: str,
+        safe_message: str,
+        *,
+        provider_route_receipts: list[dict[str, Any]] | None = None,
+    ) -> None:
         super().__init__(safe_message)
         self.node_id = node_id
         self.error_code = error_code
         self.safe_message = safe_message
+        self.provider_route_receipts = list(provider_route_receipts or [])
 
 
 def _legacy_path_identity(path: Path) -> tuple[int, int, int, int]:
@@ -17698,6 +17729,13 @@ async def _run_workflow_response(
 
                 elif kind == "vision_understanding":
                     try:
+                        managed_vision_entry_id = (
+                            "workflow_deployment_vision"
+                            if trusted_source_kind == "workflow_deployment"
+                            else "xpert_vision"
+                            if trusted_source_kind in {"xpert_chat", "xpert_app"}
+                            else "workflow_interactive_vision"
+                        )
                         output_variable = str(
                             node.data.get("outputVariable") or "vision_result"
                         ).strip()
@@ -17729,7 +17767,10 @@ async def _run_workflow_response(
                                 "workflow_vision_model_required",
                                 "Select an image-input model before running this node.",
                             )
-                        if not await model_supports_image_input(model_id):
+                        if not await workflow_vision_model_available(
+                            managed_vision_entry_id,
+                            model_id,
+                        ):
                             raise WorkflowVisionFatalError(
                                 node.id,
                                 "workflow_vision_model_unavailable",
@@ -17764,8 +17805,15 @@ async def _run_workflow_response(
                                 or "continue_on_error"
                             ),
                             service=workflow_vision_service,
+                            managed_entry_id=managed_vision_entry_id,
+                            parent_run_reference=(
+                                f"{workflow_run.run_id}:{node.id}:vision"
+                            ),
                         )
                         variables[output_variable] = result_payload
+                        node_provider_receipt = compose_workflow_vision_receipt(
+                            result.provider_route_receipts
+                        )
                         await run_registry.record_checkpoint(
                             workflow_run.run_id,
                             event_type="workflow.vision.completed",
@@ -17806,6 +17854,9 @@ async def _run_workflow_response(
                             node.id,
                             exc.error_code,
                             exc.message,
+                            provider_route_receipts=(
+                                exc.provider_route_receipts
+                            ),
                         ) from None
                     except Exception as exc:
                         logger.warning(
@@ -23950,6 +24001,19 @@ async def _run_workflow_response(
             )
         except WorkflowVisionFatalError as exc:
             failure_error = f"{exc.error_code}: {exc.safe_message}"
+            failure_receipt = compose_workflow_vision_receipt(
+                exc.provider_route_receipts
+            )
+            failure_event = {
+                "event": "error",
+                "task_id": task_id,
+                "run_id": workflow_run.run_id,
+                "node_id": exc.node_id,
+                "code": exc.error_code,
+                "message": exc.safe_message,
+            }
+            if failure_receipt is not None:
+                failure_event["provider_route_receipts"] = failure_receipt
             logger.warning(
                 "Workflow vision node failed workflow=%s node=%s code=%s",
                 payload.workflow.id,
@@ -23982,30 +24046,14 @@ async def _run_workflow_response(
                 workflow_execution_store.fail(task_id, error=failure_error)
                 workflow_execution_store.append_event(
                     task_id,
-                    {
-                        "event": "error",
-                        "task_id": task_id,
-                        "run_id": workflow_run.run_id,
-                        "node_id": exc.node_id,
-                        "code": exc.error_code,
-                        "message": exc.safe_message,
-                    },
+                    failure_event,
                 )
             except Exception:
                 logger.warning(
                     "Failed to persist workflow vision failure",
                     exc_info=True,
                 )
-            yield sse_payload(
-                {
-                    "event": "error",
-                    "task_id": task_id,
-                    "run_id": workflow_run.run_id,
-                    "node_id": exc.node_id,
-                    "code": exc.error_code,
-                    "message": exc.safe_message,
-                }
-            )
+            yield sse_payload(failure_event)
         except WorkflowDocumentFatalError as exc:
             failure_error = f"{exc.error_code}: {exc.safe_message}"
             logger.warning(
@@ -29450,6 +29498,15 @@ async def chat(payload: ChatRequest, request: Request):
     direct_file_requested = any(
         message_has_file(message.content) for message in payload.messages
     )
+    direct_image_requested = any(
+        message_has_image(message.content) for message in payload.messages
+    )
+    native_document_requested = any(
+        isinstance(part, InputFileContentPart) and part.handling == "native"
+        for message in payload.messages
+        if isinstance(message.content, list)
+        for part in message.content
+    )
     resolved_chat_files: tuple[ResolvedChatFile, ...] = ()
     resolved_output_images: dict[str, str] = {}
     resolved_output_attachments: dict[str, tuple[str, bytes]] = {}
@@ -29509,6 +29566,102 @@ async def chat(payload: ChatRequest, request: Request):
             )
             for message in payload.messages
         )
+    )
+    managed_multimodal_gateway = ManagedMultimodalGateway.for_router(
+        get_model_router_service()
+    )
+    image_control_mode = (
+        managed_multimodal_gateway.routing_mode("chat_image")
+        if direct_image_requested and payload.gateway == "default"
+        else "legacy"
+    )
+    document_control_mode = (
+        managed_multimodal_gateway.routing_mode("chat_document_native")
+        if native_document_requested and payload.gateway == "default"
+        else "legacy"
+    )
+    managed_multimodal_entry = (
+        "chat_document_native"
+        if native_document_requested
+        else "chat_image"
+        if direct_image_requested
+        else None
+    )
+    managed_multimodal_shape = (
+        "chat_document_stream"
+        if native_document_requested
+        else "chat_image_stream"
+        if direct_image_requested
+        else None
+    )
+    managed_multimodal_mode = (
+        document_control_mode
+        if native_document_requested
+        else image_control_mode
+        if direct_image_requested
+        else "legacy"
+    )
+    managed_multimodal_request_supported = bool(
+        managed_multimodal_entry is not None
+        and payload.tool_mode == "none"
+        and payload.output_mode == "none"
+        and payload.response_audio is None
+        and payload.skill_application is None
+        and payload.routing is None
+        and not direct_audio_requested
+        and not direct_video_requested
+    )
+    if (
+        direct_image_requested
+        and native_document_requested
+        and (image_control_mode != "legacy" or document_control_mode != "legacy")
+    ):
+        reason_code = "provider_multimodal_mixed_shape_unsupported"
+        blocked_entry = (
+            "chat_image"
+            if image_control_mode != "legacy"
+            else "chat_document_native"
+        )
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": "图片与原生 PDF 不能在同一次 Managed 多模态调用中混合发送。",
+                "code": reason_code,
+                "route_receipt": managed_multimodal_gateway.blocked_receipt(
+                    blocked_entry, reason_code
+                ),
+            },
+        )
+    if managed_multimodal_mode == "degraded_required":
+        reason_code = "provider_workload_policy_not_active"
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error": "多模态 Managed Provider 策略已降级，调用已在发送前阻断。",
+                "code": reason_code,
+                "route_receipt": managed_multimodal_gateway.blocked_receipt(
+                    managed_multimodal_entry, reason_code  # type: ignore[arg-type]
+                ),
+            },
+        )
+    if (
+        managed_multimodal_mode == "managed_required"
+        and not managed_multimodal_request_supported
+    ):
+        reason_code = "provider_multimodal_request_shape_unsupported"
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": "该组合请求未通过当前多模态 Adapter 认证，调用已在发送前阻断。",
+                "code": reason_code,
+                "route_receipt": managed_multimodal_gateway.blocked_receipt(
+                    managed_multimodal_entry, reason_code  # type: ignore[arg-type]
+                ),
+            },
+        )
+    use_managed_multimodal_chat = bool(
+        managed_multimodal_mode == "managed_required"
+        and managed_multimodal_request_supported
     )
     chat_canary_session_id = (
         payload.routing.session_id
@@ -29631,6 +29784,7 @@ async def chat(payload: ChatRequest, request: Request):
         and not native_audio_requested
         and not direct_video_requested
         and not stable_chat_shape_requested
+        and not use_managed_multimodal_chat
     ):
         return JSONResponse(
             status_code=500,
@@ -29870,7 +30024,11 @@ async def chat(payload: ChatRequest, request: Request):
         await validate_multimodal_content(
             payload.model_id,
             payload.messages,
-            trust_gateway_catalog=use_omniroute or use_native_router,
+            trust_gateway_catalog=(
+                use_omniroute
+                or use_native_router
+                or use_managed_multimodal_chat
+            ),
         )
         validate_content(payload.messages)
         if payload.skill_application is not None:
@@ -29900,7 +30058,9 @@ async def chat(payload: ChatRequest, request: Request):
             )
             native_pdf_verified = False
             if native_requested:
-                if not is_openrouter_contract_url(url):
+                if use_managed_multimodal_chat:
+                    native_pdf_verified = True
+                elif not is_openrouter_contract_url(url):
                     raise HTTPException(
                         status_code=422,
                         detail=(
@@ -29908,9 +30068,10 @@ async def chat(payload: ChatRequest, request: Request):
                             "请改选“提取内容后发送”，或切换到 OpenRouter 连接。"
                         ),
                     )
-                native_pdf_verified = await model_supports_native_pdf_input(
-                    payload.model_id
-                )
+                if not use_managed_multimodal_chat:
+                    native_pdf_verified = await model_supports_native_pdf_input(
+                        payload.model_id
+                    )
                 if not native_pdf_verified:
                     raise HTTPException(
                         status_code=422,
@@ -29956,6 +30117,27 @@ async def chat(payload: ChatRequest, request: Request):
             status_code=500,
             content={"error": "后端校验请求时出错，请查看服务日志。"},
         )
+
+    managed_multimodal_dispatch: ManagedMultimodalChatDispatch | None = None
+    if use_managed_multimodal_chat:
+        try:
+            managed_multimodal_dispatch = (
+                await managed_multimodal_gateway.prepare_chat_dispatch(
+                    managed_multimodal_entry,  # type: ignore[arg-type]
+                    execution_shape=managed_multimodal_shape,  # type: ignore[arg-type]
+                    requested_model=payload.model_id,
+                    parent_run_reference=f"chat:{runtime_task_id}",
+                )
+            )
+        except ManagedMultimodalError as exc:
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={
+                    "error": str(exc),
+                    "code": exc.code,
+                    "route_receipt": exc.receipt,
+                },
+            )
 
     stable_chat_preflight = None
     stable_chat_dispatch = None
@@ -30015,6 +30197,7 @@ async def chat(payload: ChatRequest, request: Request):
         and not use_native_router
         and not native_audio_requested
         and not direct_video_requested
+        and not use_managed_multimodal_chat
     ):
         return JSONResponse(
             status_code=500,
@@ -31355,6 +31538,14 @@ async def chat(payload: ChatRequest, request: Request):
                 for target in native_plan.targets
             )
         )
+        if use_managed_multimodal_chat:
+            if managed_multimodal_dispatch is None:
+                raise RuntimeError("provider_multimodal_chat_dispatch_missing")
+            return await managed_multimodal_dispatch.send(
+                client,
+                request_payload,
+                headers=llm_gateway_headers(""),
+            )
         if use_stable_chat:
             if stable_chat_dispatch is None:
                 raise RuntimeError("provider_chat_stable_dispatch_missing")
@@ -31838,6 +32029,30 @@ async def chat(payload: ChatRequest, request: Request):
             e2e_ms=e2e_ms,
         )
 
+    def finalize_managed_multimodal_chat(
+        *,
+        status: str,
+        result_class: str,
+        error_code: str | None = None,
+        actual_model: str | None = None,
+        ttft_ms: float | None = None,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        total_tokens: int | None = None,
+    ) -> dict[str, Any] | None:
+        if not use_managed_multimodal_chat or managed_multimodal_dispatch is None:
+            return None
+        return managed_multimodal_dispatch.complete(
+            status=status,  # type: ignore[arg-type]
+            result_class=result_class,
+            error_code=error_code,
+            actual_model=actual_model or actual_model_id,
+            ttft_ms=ttft_ms,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+        )
+
     try:
         response = await send_initial_response()
     except RouterServiceError as exc:
@@ -31854,6 +32069,13 @@ async def chat(payload: ChatRequest, request: Request):
                 requested_model=payload.model_id,
                 reason_codes=[exc.code],
             )
+        managed_multimodal_receipt = finalize_managed_multimodal_chat(
+            status="failed",
+            result_class="control_plane_error",
+            error_code=exc.code,
+        )
+        if managed_multimodal_receipt is not None:
+            error_content["route_receipt"] = managed_multimodal_receipt
         return JSONResponse(status_code=exc.status_code, content=error_content)
     except httpx.TimeoutException:
         finalize_auto_failure("transient_failure", "provider_chat_timeout")
@@ -31862,6 +32084,11 @@ async def chat(payload: ChatRequest, request: Request):
         )
         stable_receipt = finalize_stable_chat_failure(
             "transient_failure", "provider_chat_timeout"
+        )
+        managed_multimodal_receipt = finalize_managed_multimodal_chat(
+            status="uncertain",
+            result_class="transport_error",
+            error_code="provider_workload_timeout",
         )
         if use_chat_canary:
             logger.warning(
@@ -31890,6 +32117,11 @@ async def chat(payload: ChatRequest, request: Request):
             timeout_content.update(
                 code="provider_chat_timeout", route_receipt=stable_receipt
             )
+        if managed_multimodal_receipt is not None:
+            timeout_content.update(
+                code="provider_workload_timeout",
+                route_receipt=managed_multimodal_receipt,
+            )
         return JSONResponse(status_code=504, content=timeout_content)
     except httpx.HTTPError as exc:
         finalize_auto_failure(
@@ -31900,6 +32132,11 @@ async def chat(payload: ChatRequest, request: Request):
         )
         stable_receipt = finalize_stable_chat_failure(
             "transient_failure", "provider_chat_transport_error"
+        )
+        managed_multimodal_receipt = finalize_managed_multimodal_chat(
+            status="uncertain",
+            result_class="transport_error",
+            error_code="provider_workload_transport_error",
         )
         if use_chat_canary:
             logger.warning(
@@ -31941,6 +32178,11 @@ async def chat(payload: ChatRequest, request: Request):
                 code="provider_chat_transport_error",
                 route_receipt=stable_receipt,
             )
+        if managed_multimodal_receipt is not None:
+            transport_content.update(
+                code="provider_workload_transport_error",
+                route_receipt=managed_multimodal_receipt,
+            )
         return JSONResponse(status_code=502, content=transport_content)
     except Exception:
         finalize_auto_failure(
@@ -31953,6 +32195,11 @@ async def chat(payload: ChatRequest, request: Request):
             "uncertain",
             "provider_chat_unexpected_error",
             status="uncertain",
+        )
+        managed_multimodal_receipt = finalize_managed_multimodal_chat(
+            status="uncertain",
+            result_class="unexpected_error",
+            error_code="provider_workload_dispatch_uncertain",
         )
         if use_stable_chat:
             logger.warning(
@@ -31980,6 +32227,11 @@ async def chat(payload: ChatRequest, request: Request):
                 code="provider_chat_unexpected_error",
                 route_receipt=stable_receipt,
             )
+        if managed_multimodal_receipt is not None:
+            unexpected_content.update(
+                code="provider_workload_dispatch_uncertain",
+                route_receipt=managed_multimodal_receipt,
+            )
         return JSONResponse(status_code=500, content=unexpected_content)
 
     if response.status_code >= 400:
@@ -32006,6 +32258,8 @@ async def chat(payload: ChatRequest, request: Request):
             )
         stable_http_receipt = None
         stable_http_error_code = None
+        managed_multimodal_http_receipt = None
+        managed_multimodal_http_error_code = None
         if use_chat_canary:
             result_class, canary_error_code = (
                 chat_canary_service.classify_http_failure(response.status_code)
@@ -32042,6 +32296,31 @@ async def chat(payload: ChatRequest, request: Request):
                 actual_model_id,
                 stable_http_error_code,
             )
+        elif use_managed_multimodal_chat:
+            managed_multimodal_http_error_code = {
+                401: "provider_workload_http_401",
+                403: "provider_workload_http_403",
+                404: "provider_workload_http_404",
+                429: "provider_workload_http_429",
+            }.get(
+                response.status_code,
+                "provider_workload_http_5xx"
+                if response.status_code >= 500
+                else "provider_workload_http_error",
+            )
+            managed_multimodal_http_receipt = finalize_managed_multimodal_chat(
+                status="failed",
+                result_class="provider_error",
+                error_code=managed_multimodal_http_error_code,
+            )
+            message = "多模态 Managed Provider 请求失败；本次请求未重放到其他目标。"
+            data = None
+            logger.warning(
+                "Managed multimodal Chat failed status=%s model=%s code=%s",
+                response.status_code,
+                actual_model_id,
+                managed_multimodal_http_error_code,
+            )
         elif direct_file_requested:
             message, file_error_code = chat_file_upstream_error(
                 response.status_code
@@ -32065,7 +32344,12 @@ async def chat(payload: ChatRequest, request: Request):
                 response.status_code,
                 actual_model_id,
             )
-        elif not direct_file_requested and not use_chat_canary and not use_stable_chat:
+        elif (
+            not direct_file_requested
+            and not use_chat_canary
+            and not use_stable_chat
+            and not use_managed_multimodal_chat
+        ):
             logger.warning(
                 "OpenRouter error status=%s model=%s message=%s body=%s",
                 response.status_code,
@@ -32079,6 +32363,7 @@ async def chat(payload: ChatRequest, request: Request):
             and not use_native_router
             and not use_chat_canary
             and not use_stable_chat
+            and not use_managed_multimodal_chat
             and not native_audio_requested
             and should_fallback_gateway_to_openrouter(
             response.status_code,
@@ -32175,6 +32460,7 @@ async def chat(payload: ChatRequest, request: Request):
             and not use_native_router
             and not use_chat_canary
             and not use_stable_chat
+            and not use_managed_multimodal_chat
             and not native_audio_requested
             and response.status_code >= 400
             and should_fallback_model(
@@ -32303,6 +32589,11 @@ async def chat(payload: ChatRequest, request: Request):
                     code=stable_http_error_code,
                     route_receipt=stable_http_receipt,
                 )
+            if managed_multimodal_http_receipt is not None:
+                error_content.update(
+                    code=managed_multimodal_http_error_code,
+                    route_receipt=managed_multimodal_http_receipt,
+                )
             return JSONResponse(
                 status_code=response.status_code,
                 content=error_content,
@@ -32327,6 +32618,11 @@ async def chat(payload: ChatRequest, request: Request):
             started_at=stable_chat_started_at or chat_request_started_at
         )
         if use_stable_chat
+        else None
+    )
+    managed_multimodal_stream_evidence = (
+        ProviderChatCanaryStreamEvidence(started_at=chat_request_started_at)
+        if use_managed_multimodal_chat
         else None
     )
     capture_chat_media = bool(
@@ -32862,11 +33158,14 @@ async def chat(payload: ChatRequest, request: Request):
         file_terminal_receipt: dict[str, Any] | None = None
         stable_file_summary: dict[str, object] | None = None
         stable_terminal_receipt: dict[str, object] | None = None
+        managed_multimodal_terminal_receipt: dict[str, Any] | None = None
         sidecar_ttft_ms: float | None = None
         chat_canary_transport_error: str | None = None
         chat_canary_client_cancelled = False
         stable_chat_transport_error: str | None = None
         stable_chat_client_cancelled = False
+        managed_multimodal_transport_error: str | None = None
+        managed_multimodal_client_cancelled = False
         try:
             if fallback_notice:
                 payload_json = json.dumps(
@@ -32894,6 +33193,8 @@ async def chat(payload: ChatRequest, request: Request):
                         chat_canary_stream_evidence.feed(line)
                     if stable_chat_stream_evidence is not None:
                         stable_chat_stream_evidence.feed(line)
+                    if managed_multimodal_stream_evidence is not None:
+                        managed_multimodal_stream_evidence.feed(line)
                     if use_omniroute:
                         update_stream_state(line, omniroute_stream_state)
                         if (
@@ -32913,13 +33214,13 @@ async def chat(payload: ChatRequest, request: Request):
                     if line.lstrip().startswith(":"):
                         continue
                     if (
-                        (use_omniroute or native_audio_requested or direct_file_requested or capture_chat_media or chat_canary_requested or use_stable_chat)
+                        (use_omniroute or native_audio_requested or direct_file_requested or capture_chat_media or chat_canary_requested or use_stable_chat or use_managed_multimodal_chat)
                         and line.strip() == "data: [DONE]"
                     ):
                         deferred_done = True
                         continue
                     if (
-                        (use_omniroute or native_audio_requested or direct_file_requested or capture_chat_media or chat_canary_requested or use_stable_chat)
+                        (use_omniroute or native_audio_requested or direct_file_requested or capture_chat_media or chat_canary_requested or use_stable_chat or use_managed_multimodal_chat)
                         and deferred_done
                         and not line.strip()
                     ):
@@ -32938,7 +33239,11 @@ async def chat(payload: ChatRequest, request: Request):
                     status="cancelled",
                     client_cancelled=True,
                 )
-            if not use_chat_canary and not use_stable_chat:
+            if (
+                not use_chat_canary
+                and not use_stable_chat
+                and not use_managed_multimodal_chat
+            ):
                 raise
             runtime_status = "error"
             runtime_error = "client cancelled"
@@ -32947,6 +33252,11 @@ async def chat(payload: ChatRequest, request: Request):
             if use_stable_chat:
                 stable_chat_transport_error = "provider_chat_client_cancelled"
                 stable_chat_client_cancelled = True
+            if use_managed_multimodal_chat:
+                managed_multimodal_transport_error = (
+                    "provider_chat_client_cancelled"
+                )
+                managed_multimodal_client_cancelled = True
         except httpx.HTTPError:
             runtime_status = "error"
             runtime_error = "stream interrupted"
@@ -32954,6 +33264,10 @@ async def chat(payload: ChatRequest, request: Request):
                 chat_canary_transport_error = "provider_chat_stream_interrupted"
             if use_stable_chat:
                 stable_chat_transport_error = "provider_chat_stream_interrupted"
+            if use_managed_multimodal_chat:
+                managed_multimodal_transport_error = (
+                    "provider_chat_stream_interrupted"
+                )
             if direct_file_requested:
                 logger.warning(
                     "File chat stream failed model=%s code=stream_interrupted",
@@ -32979,6 +33293,10 @@ async def chat(payload: ChatRequest, request: Request):
                 chat_canary_transport_error = "provider_chat_stream_interrupted"
             if use_stable_chat:
                 stable_chat_transport_error = "provider_chat_stream_interrupted"
+            if use_managed_multimodal_chat:
+                managed_multimodal_transport_error = (
+                    "provider_chat_stream_interrupted"
+                )
             if direct_file_requested:
                 logger.warning(
                     "File chat stream failed model=%s code=stream_proxy_failed",
@@ -33074,6 +33392,8 @@ async def chat(payload: ChatRequest, request: Request):
                     chat_canary_stream_evidence.feed(buffer)
                 if stable_chat_stream_evidence is not None:
                     stable_chat_stream_evidence.feed(buffer)
+                if managed_multimodal_stream_evidence is not None:
+                    managed_multimodal_stream_evidence.feed(buffer)
                 if use_omniroute:
                     update_stream_state(buffer, omniroute_stream_state)
                     if (
@@ -33093,7 +33413,7 @@ async def chat(payload: ChatRequest, request: Request):
                 if buffer.lstrip().startswith(":"):
                     pass
                 elif (
-                    (use_omniroute or native_audio_requested or direct_file_requested or capture_chat_media or chat_canary_requested or use_stable_chat)
+                    (use_omniroute or native_audio_requested or direct_file_requested or capture_chat_media or chat_canary_requested or use_stable_chat or use_managed_multimodal_chat)
                     and buffer.strip() == "data: [DONE]"
                 ):
                     deferred_done = True
@@ -33717,6 +34037,84 @@ async def chat(payload: ChatRequest, request: Request):
                 if not direct_file_requested:
                     yield route_receipt_sse(stable_terminal_receipt)
 
+            if (
+                use_managed_multimodal_chat
+                and managed_multimodal_stream_evidence is not None
+            ):
+                (
+                    managed_status,
+                    managed_result_class,
+                    managed_error_code,
+                    _managed_checks,
+                    _managed_warnings,
+                ) = managed_multimodal_stream_evidence.finish(
+                    transport_completed=stream_completed,
+                    transport_error_code=managed_multimodal_transport_error,
+                )
+                observed_model = (
+                    managed_multimodal_stream_evidence.actual_model
+                    or actual_model_id
+                )
+                if (
+                    managed_status == "succeeded"
+                    and managed_multimodal_stream_evidence.actual_model is not None
+                    and observed_model != payload.model_id
+                ):
+                    managed_status = "failed"
+                    managed_result_class = "hard_failure"
+                    managed_error_code = "provider_workload_model_mismatch"
+                storage_status = (
+                    "passed"
+                    if managed_status == "succeeded"
+                    else "cancelled"
+                    if managed_status == "cancelled"
+                    else "failed"
+                )
+                managed_multimodal_terminal_receipt = (
+                    finalize_managed_multimodal_chat(
+                        status=storage_status,
+                        result_class=managed_result_class,
+                        error_code=managed_error_code,
+                        actual_model=observed_model,
+                        ttft_ms=managed_multimodal_stream_evidence.ttft_ms,
+                        prompt_tokens=(
+                            managed_multimodal_stream_evidence.prompt_tokens
+                        ),
+                        completion_tokens=(
+                            managed_multimodal_stream_evidence.completion_tokens
+                        ),
+                        total_tokens=(
+                            managed_multimodal_stream_evidence.total_tokens
+                        ),
+                    )
+                )
+                if managed_status != "succeeded":
+                    runtime_status = "error"
+                    runtime_error = (
+                        managed_error_code
+                        or "provider_multimodal_stream_failed"
+                    )
+                    if managed_status != "cancelled":
+                        error_payload = {
+                            "error": {
+                                "message": (
+                                    "多模态 Managed Provider 响应未通过完整性检查；"
+                                    "本次请求未重放到其他目标。"
+                                ),
+                                "code": runtime_error,
+                            }
+                        }
+                        yield (
+                            f"data: {json.dumps(error_payload, ensure_ascii=False)}\n\n"
+                        ).encode("utf-8")
+                if (
+                    managed_multimodal_terminal_receipt is not None
+                    and not direct_file_requested
+                ):
+                    yield route_receipt_sse(
+                        managed_multimodal_terminal_receipt
+                    )
+
             if use_chat_canary and chat_canary_stream_evidence is not None:
                 (
                     canary_status,
@@ -33843,6 +34241,19 @@ async def chat(payload: ChatRequest, request: Request):
                         and stable_terminal_receipt is not None
                     ):
                         yield route_receipt_sse(stable_terminal_receipt)
+                elif use_managed_multimodal_chat:
+                    file_terminal_receipt = (
+                        managed_multimodal_terminal_receipt
+                        if runtime_status in {"completed", "output_limit"}
+                        else None
+                    )
+                    if (
+                        file_terminal_receipt is None
+                        and managed_multimodal_terminal_receipt is not None
+                    ):
+                        yield route_receipt_sse(
+                            managed_multimodal_terminal_receipt
+                        )
                 for event in chat_file_terminal_events(
                     file_terminal_receipt,
                     failure_error_emitted=runtime_status == "error",
@@ -33856,6 +34267,7 @@ async def chat(payload: ChatRequest, request: Request):
                 or captured_outputs
                 or chat_canary_requested
                 or use_stable_chat
+                or use_managed_multimodal_chat
             ):
                 yield b"data: [DONE]\n\n"
             if runtime_status in {"completed", "output_limit"}:

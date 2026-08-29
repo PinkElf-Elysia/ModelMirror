@@ -401,7 +401,7 @@ def test_multimodal_adapter_is_exact_and_scope_is_not_inherited() -> None:
 
 
 @pytest.mark.asyncio
-async def test_r8a_multimodal_certification_fails_before_catalog_or_paid_post(
+async def test_future_multimodal_certification_fails_before_catalog_or_paid_post(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -409,16 +409,16 @@ async def test_r8a_multimodal_certification_fails_before_catalog_or_paid_post(
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
-            name="OpenRouter image",
+            name="OpenRouter audio",
             kind="openrouter",
             base_url="https://openrouter.ai/api/v1",
             api_key="test-secret",
-            scopes=["chat", "image"],
+            scopes=["audio"],
         ),
     )
 
     async def forbidden_catalog_refresh(*_args, **_kwargs):
-        raise AssertionError("R8A must stop before catalog or network work")
+        raise AssertionError("Future R8 batches must stop before catalog or network work")
 
     monkeypatch.setattr(
         "server.model_router.workload_control.ProviderCatalogService.refresh_connection",
@@ -430,12 +430,12 @@ async def test_r8a_multimodal_certification_fails_before_catalog_or_paid_post(
         ).run(
             connection.id,
             ProviderWorkloadCertificationRequest(
-                model_id="provider/vision",
-                execution_shape="chat_image_stream",
-                adapter_contract="openrouter_chat_multimodal_v1",
+                model_id="provider/audio",
+                execution_shape="audio_transcription",
+                adapter_contract="openrouter_audio_transcription_json_v1",
                 acknowledge_billed_call=True,
             ),
-            idempotency_key="r8a-no-paid-call",
+            idempotency_key="future-r8-no-paid-call",
         )
     assert blocked.value.code == "provider_multimodal_certification_not_integrated"
     assert repository.list_workload_certifications("local") == []
@@ -2420,11 +2420,26 @@ async def test_workload_admin_api_is_session_and_csrf_protected_and_public_redac
         }
         assert len(r8_policies) == 18
         assert all(item["feature_enabled"] is False for item in r8_policies.values())
-        assert all(item["data_plane_integrated"] is False for item in r8_policies.values())
+        r8b_entries = {
+            "chat_image",
+            "chat_document_native",
+            "rag_vision",
+            "workflow_interactive_vision",
+            "workflow_deployment_vision",
+            "xpert_vision",
+            "image_generation",
+        }
         assert all(
-            "provider_workload_data_plane_not_integrated"
-            in item["blocking_reason_codes"]
-            for item in r8_policies.values()
+            item["data_plane_integrated"] is (entry_id in r8b_entries)
+            for entry_id, item in r8_policies.items()
+        )
+        assert all(
+            (
+                "provider_workload_data_plane_not_integrated"
+                in item["blocking_reason_codes"]
+            )
+            is (entry_id not in r8b_entries)
+            for entry_id, item in r8_policies.items()
         )
         assert policies.json()["contract_version"] == PROVIDER_WORKLOAD_CONTRACT_VERSION
 

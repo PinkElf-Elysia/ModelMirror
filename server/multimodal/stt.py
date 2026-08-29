@@ -97,11 +97,19 @@ def manual_verification_enabled(model_id: str) -> bool:
 
 
 class MultimodalServiceError(Exception):
-    def __init__(self, code: str, message: str, *, status_code: int) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        status_code: int,
+        route_receipt: dict[str, Any] | None = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
         self.message = message
         self.status_code = status_code
+        self.route_receipt = route_receipt
 
 
 @dataclass(frozen=True)

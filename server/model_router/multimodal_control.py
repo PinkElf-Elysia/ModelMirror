@@ -1,8 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Literal
+from dataclasses import dataclass, field
+from typing import Literal, Mapping
 
+import httpx
+
+from .egress import AuthorizedProviderTarget, ProviderEgressPolicy
+from .provider_chat import ProviderChatEndpointResolver
 from .repository import RouterRepositoryError
 from .schemas import (
     MULTIMODAL_WORKLOAD_SHAPES,
@@ -14,6 +18,14 @@ from .service import ModelRouterService, RouterServiceError
 
 
 PROVIDER_MULTIMODAL_PROTOCOL_VERSION = "modelmirror-provider-multimodal-v1"
+R8B_EXECUTION_SHAPES: frozenset[ProviderWorkloadExecutionShape] = frozenset(
+    {
+        "chat_image_stream",
+        "chat_document_stream",
+        "vision_json_unary",
+        "image_generation",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,6 +35,87 @@ class MultimodalAdapterSpec:
     provider_kinds: frozenset[ConnectionKind]
     required_scopes: tuple[str, ...]
     certification_mode: Literal["sync", "async", "browser_assisted"]
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderMultimodalTarget:
+    provider_kind: ConnectionKind
+    connection_id: str
+    adapter_contract: ProviderMultimodalAdapterContract
+    execution_shape: ProviderWorkloadExecutionShape
+    endpoint_url: str
+    _api_key: str = field(repr=False, compare=False)
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        provider_kind: ConnectionKind,
+        connection_id: str,
+        base_url: str,
+        api_key: str,
+        adapter_contract: ProviderMultimodalAdapterContract,
+        execution_shape: ProviderWorkloadExecutionShape,
+    ) -> "ProviderMultimodalTarget":
+        multimodal_adapter_spec(adapter_contract, execution_shape)
+        api_base = ProviderChatEndpointResolver.resolve(base_url).base_url
+        if adapter_contract == "openrouter_images_v1":
+            endpoint_url = f"{api_base}/images"
+        elif adapter_contract == "openai_compatible_images_generations_v1":
+            endpoint_url = f"{api_base}/images/generations"
+        else:
+            endpoint_url = f"{api_base}/chat/completions"
+        return cls(
+            provider_kind=provider_kind,
+            connection_id=connection_id,
+            adapter_contract=adapter_contract,
+            execution_shape=execution_shape,
+            endpoint_url=endpoint_url,
+            _api_key=str(api_key or ""),
+        )
+
+    def authorization_headers(
+        self, extra: Mapping[str, str] | None = None
+    ) -> dict[str, str]:
+        headers = dict(extra or {})
+        if self._api_key:
+            headers["Authorization"] = f"Bearer {self._api_key}"
+        return headers
+
+
+class ProviderMultimodalTransport:
+    """One-address transport for a qualified multimodal Adapter endpoint."""
+
+    def __init__(self, egress_policy: ProviderEgressPolicy) -> None:
+        self.egress_policy = egress_policy
+
+    async def authorize(
+        self, target: ProviderMultimodalTarget
+    ) -> AuthorizedProviderTarget:
+        return await self.egress_policy.authorize(target.endpoint_url)
+
+    @staticmethod
+    def build_authorized_json_request(
+        client: httpx.AsyncClient,
+        target: ProviderMultimodalTarget,
+        authorized: AuthorizedProviderTarget,
+        payload: Mapping[str, object],
+        *,
+        headers: Mapping[str, str] | None = None,
+    ) -> httpx.Request:
+        return client.build_request(
+            "POST",
+            authorized.pinned_urls[0],
+            headers=authorized.request_headers(target.authorization_headers(headers)),
+            extensions=authorized.extensions,
+            json=dict(payload),
+        )
+
+    @staticmethod
+    async def send_authorized(
+        client: httpx.AsyncClient, request: httpx.Request
+    ) -> httpx.Response:
+        return await client.send(request, stream=True, follow_redirects=False)
 
 
 _OPENAI_COMPATIBLE_KINDS: frozenset[ConnectionKind] = frozenset(
