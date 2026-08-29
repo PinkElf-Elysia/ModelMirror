@@ -1419,12 +1419,16 @@ try:
         start_provider_batch_recovery,
         stop_provider_batch_recovery,
     )
+    from server.model_router.ai_research_bridge import (
+        router as ai_research_bridge_router,
+    )
 except ModuleNotFoundError:
     from model_router.api import (
         get_catalog_coordinator,
         start_provider_batch_recovery,
         stop_provider_batch_recovery,
     )
+    from model_router.ai_research_bridge import router as ai_research_bridge_router
 
 try:
     from server.model_router.expert_team_gateway import (
@@ -1736,6 +1740,7 @@ app.include_router(benchmarks_router)
 app.include_router(xpert_evolutions_router)
 app.include_router(model_router_router)
 app.include_router(model_catalog_router)
+app.include_router(ai_research_bridge_router)
 app.include_router(omniroute_router)
 app.include_router(multimodal_router)
 app.include_router(coding_router)

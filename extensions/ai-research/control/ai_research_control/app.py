@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Query, Request, status
+from fastapi import FastAPI, HTTPException, Path as ApiPath, Query, Request, status
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -19,6 +19,7 @@ from .models import (
     EventView,
     EvidenceState,
     EvidenceView,
+    ModuleInfoView,
     Outcome,
     Phase,
     ReadyView,
@@ -29,6 +30,26 @@ from .models import (
     SystemView,
 )
 from .evidence import EvidenceError
+from .project_models import (
+    LiteratureOutcome,
+    LiteraturePhase,
+    ProjectCreateRequest,
+    ProjectListResponse,
+    ProjectUpdateRequest,
+    ProjectView,
+    LiteratureSessionView,
+    LiteratureRunCreateRequest,
+    LiteratureUnlockRequest,
+)
+from .ldr_client import (
+    LdrAuthenticationError,
+    LdrConflict,
+    LdrProtocolError,
+    LdrSessionExpired,
+    LdrUnavailable,
+)
+from .literature_artifacts import LiteratureArtifactError
+from .project_store import ProjectConflict, ProjectIntegrityError
 from .service import NotReady, ResearchService
 from .store import IdempotencyConflict
 
@@ -50,7 +71,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="ModelMirror AI Research",
-    version="0.2.0-ar1",
+    version="0.3.0-v0.1",
     docs_url="/docs" if settings.docs_enabled else None,
     redoc_url=None,
     openapi_url="/openapi.json" if settings.docs_enabled else None,
@@ -119,6 +140,31 @@ def to_view(run: dict[str, Any]) -> RunView:
     )
 
 
+def to_project_view(project: dict[str, Any]) -> ProjectView:
+    literature = project["literature"]
+    return ProjectView.model_validate(
+        {
+            "schemaVersion": project["schemaVersion"],
+            "projectId": project["projectId"],
+            "title": project["title"],
+            "researchQuestion": project["researchQuestion"],
+            "domain": project["domain"],
+            "currentStage": project["currentStage"],
+            "stages": project["stages"],
+            "literaturePhase": literature["phase"],
+            "literatureOutcome": literature["outcome"],
+            "activeRunId": literature["activeRunId"],
+            "completedRunId": literature["completedRunId"],
+            "collectionId": literature["collectionId"],
+            "profileId": literature["profileId"],
+            "modelId": literature["modelId"],
+            "attempts": literature["attempts"],
+            "createdAt": project["createdAt"],
+            "updatedAt": project["updatedAt"],
+        }
+    )
+
+
 @app.get("/healthz")
 async def healthz() -> dict[str, str]:
     return {"status": "alive"}
@@ -136,17 +182,15 @@ async def readyz(request: Request) -> ReadyView:
     return ReadyView(status="ready", checks=checks)
 
 
-@app.get("/api/v1/module")
-async def module_metadata() -> dict[str, Any]:
+@app.get("/api/v1/module", response_model=ModuleInfoView, response_model_by_alias=True)
+async def module_metadata() -> ModuleInfoView:
     boundary = json.loads(settings.module_boundary.read_text(encoding="utf-8"))
     source_lock = json.loads(settings.source_lock.read_text(encoding="utf-8"))
-    return {
+    return ModuleInfoView.model_validate({
         "moduleId": boundary["moduleId"],
         "moduleVersion": boundary["moduleVersion"],
         "apiVersion": boundary["apiVersion"],
         "workerProtocolVersion": boundary["workerProtocolVersion"],
-        "claimLevel": "harness_only",
-        "packStatus": "fixture_only",
         "fixtures": boundary["allowedFixtures"],
         "runtimes": source_lock["runtimes"],
         "capabilities": {
@@ -155,24 +199,382 @@ async def module_metadata() -> dict[str, Any]:
             "evidenceVerification": True,
             "inspectView": True,
             "mlflow": True,
+            "literatureResearch": True,
+            "openAlex": True,
+            "zoteroLibrary": True,
+            "literatureArtifactExport": True,
             "modelEvaluation": False,
             "multiTenant": False,
+        },
+        "capabilityClaims": {
+            "fixtureExecution": {
+                "enabled": True,
+                "claimLevel": "harness_only",
+                "packStatus": "fixture_only",
+            },
+            "literatureResearch": {
+                "enabled": True,
+                "scientificClaim": "none",
+                "acceptanceState": "pending_live_acceptance",
+                "workflowSource": "local_deep_research",
+            },
         },
         "links": {
             "mlflow": settings.mlflow_public_url,
             "inspectView": settings.inspect_view_public_url,
+            "localDeepResearch": settings.ldr_public_url,
         },
         "limitations": [
-            "no model or provider connection",
+            "one administrator-fixed text model through the restricted S2S bridge",
+            "literature workflow only; scientificClaim=none",
             "no scientific EvalPack or score",
             "local single-tenant compatibility mode only",
         ],
-    }
+    })
 
 
 @app.get("/api/v1/system", response_model=SystemView, response_model_by_alias=True)
 async def system_status(request: Request) -> SystemView:
     return SystemView.model_validate(await service(request).system_status())
+
+
+def literature_session_response(
+    value: dict[str, str | None], *, status_code: int = 200
+) -> JSONResponse:
+    view = LiteratureSessionView.model_validate(value)
+    return JSONResponse(
+        status_code=status_code,
+        content=view.model_dump(),
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get(
+    "/api/v1/literature/session",
+    response_model=LiteratureSessionView,
+)
+async def get_literature_session(request: Request) -> Response:
+    try:
+        value = await service(request).literature_session()
+    except LdrUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return literature_session_response(value)
+
+
+@app.post(
+    "/api/v1/literature/session/unlock",
+    response_model=LiteratureSessionView,
+)
+async def unlock_literature_session(
+    payload: LiteratureUnlockRequest, request: Request
+) -> Response:
+    try:
+        value = await service(request).unlock_literature(
+            username=payload.username,
+            password=payload.password,
+        )
+    except (LdrAuthenticationError, LdrSessionExpired) as exc:
+        raise HTTPException(status_code=423, detail=str(exc)) from exc
+    except LdrConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (LdrUnavailable, LdrProtocolError, NotReady) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return literature_session_response(value)
+
+
+@app.delete(
+    "/api/v1/literature/session",
+    response_model=LiteratureSessionView,
+)
+async def clear_literature_session(request: Request) -> Response:
+    value = await service(request).clear_literature_session()
+    return literature_session_response(value)
+
+
+@app.post(
+    "/api/v1/projects",
+    response_model=ProjectView,
+    response_model_by_alias=True,
+)
+async def create_project(payload: ProjectCreateRequest, request: Request) -> Response:
+    try:
+        project, created = await asyncio.to_thread(
+            service(request).projects.create,
+            title=payload.title,
+            research_question=payload.research_question,
+            idempotency_key=payload.idempotency_key,
+        )
+    except ProjectConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    view = to_project_view(project)
+    return JSONResponse(
+        status_code=201 if created else 200,
+        content=view.model_dump(by_alias=True),
+    )
+
+
+@app.get(
+    "/api/v1/projects",
+    response_model=ProjectListResponse,
+    response_model_by_alias=True,
+)
+async def list_projects(
+    request: Request,
+    cursor: str | None = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    q: Annotated[str | None, Query(max_length=100)] = None,
+    literature_phase: Annotated[
+        LiteraturePhase | None, Query(alias="literaturePhase")
+    ] = None,
+    literature_outcome: Annotated[
+        LiteratureOutcome | None, Query(alias="literatureOutcome")
+    ] = None,
+) -> ProjectListResponse:
+    try:
+        projects = await asyncio.to_thread(
+            service(request).projects.list,
+            after_project_id=cursor,
+            limit=limit + 1,
+            query=q,
+            phase=literature_phase,
+            outcome=literature_outcome,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=422, detail="invalid cursor") from exc
+    except ProjectIntegrityError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    has_more = len(projects) > limit
+    visible = projects[:limit]
+    return ProjectListResponse(
+        items=[to_project_view(project) for project in visible],
+        nextCursor=visible[-1]["projectId"] if has_more and visible else None,
+    )
+
+
+@app.get(
+    "/api/v1/projects/{project_id}",
+    response_model=ProjectView,
+    response_model_by_alias=True,
+)
+async def get_project(project_id: str, request: Request) -> ProjectView:
+    try:
+        project = await asyncio.to_thread(service(request).projects.get, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="project not found") from exc
+    except ProjectIntegrityError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return to_project_view(project)
+
+
+@app.patch(
+    "/api/v1/projects/{project_id}",
+    response_model=ProjectView,
+    response_model_by_alias=True,
+)
+async def update_project(
+    project_id: str, payload: ProjectUpdateRequest, request: Request
+) -> ProjectView:
+    try:
+        project = await asyncio.to_thread(
+            service(request).projects.update,
+            project_id,
+            title=payload.title,
+            research_question=payload.research_question,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="project not found") from exc
+    except (ProjectConflict, ProjectIntegrityError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return to_project_view(project)
+
+
+@app.post(
+    "/api/v1/projects/{project_id}/literature/runs",
+    response_model=ProjectView,
+    response_model_by_alias=True,
+)
+async def start_project_literature(
+    project_id: str, payload: LiteratureRunCreateRequest, request: Request
+) -> Response:
+    try:
+        project, created = await service(request).start_literature(
+            project_id,
+            idempotency_key=payload.idempotency_key,
+            collection_id=payload.collection_id,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="project not found") from exc
+    except (LdrSessionExpired, LdrAuthenticationError) as exc:
+        raise HTTPException(status_code=423, detail=str(exc)) from exc
+    except (ProjectConflict, LdrConflict) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (LdrUnavailable, LdrProtocolError, NotReady) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    view = to_project_view(project)
+    return JSONResponse(
+        status_code=201 if created else 200,
+        content=view.model_dump(by_alias=True),
+    )
+
+
+@app.get(
+    "/api/v1/projects/{project_id}/literature",
+    response_model=ProjectView,
+    response_model_by_alias=True,
+)
+async def get_project_literature(project_id: str, request: Request) -> ProjectView:
+    return await get_project(project_id, request)
+
+
+@app.post(
+    "/api/v1/projects/{project_id}/literature/cancel",
+    response_model=ProjectView,
+    response_model_by_alias=True,
+)
+async def cancel_project_literature(project_id: str, request: Request) -> ProjectView:
+    try:
+        project = await service(request).cancel_literature(project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="project not found") from exc
+    except (LdrSessionExpired, LdrAuthenticationError) as exc:
+        raise HTTPException(status_code=423, detail=str(exc)) from exc
+    except LdrConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (LdrUnavailable, LdrProtocolError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return to_project_view(project)
+
+
+@app.post(
+    "/api/v1/projects/{project_id}/literature/sync",
+    response_model=ProjectView,
+    response_model_by_alias=True,
+)
+async def sync_project_literature(project_id: str, request: Request) -> ProjectView:
+    try:
+        project = await service(request).sync_literature(project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="project not found") from exc
+    except (LdrSessionExpired, LdrAuthenticationError) as exc:
+        raise HTTPException(status_code=423, detail=str(exc)) from exc
+    except ProjectConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (LdrUnavailable, LdrProtocolError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return to_project_view(project)
+
+
+@app.get("/api/v1/projects/{project_id}/sources")
+async def get_project_sources(project_id: str, request: Request) -> dict[str, Any]:
+    try:
+        return await service(request).literature_sources(project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="project or result not found") from exc
+    except ProjectConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (ProjectIntegrityError, LiteratureArtifactError) as exc:
+        raise HTTPException(status_code=409, detail="result integrity check failed") from exc
+
+
+@app.get("/api/v1/projects/{project_id}/review")
+async def get_project_review(project_id: str, request: Request) -> dict[str, Any]:
+    try:
+        return await service(request).literature_review(project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="project or result not found") from exc
+    except ProjectConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (ProjectIntegrityError, LiteratureArtifactError) as exc:
+        raise HTTPException(status_code=409, detail="result integrity check failed") from exc
+
+
+LITERATURE_ARTIFACT_MEDIA_TYPES = {
+    "literature-review.md": "text/markdown; charset=utf-8",
+    "upstream-quarto.zip": "application/zip",
+    "literature-review.qmd": "text/markdown; charset=utf-8",
+    "references.bib": "application/x-bibtex; charset=utf-8",
+    "references.ris": "application/x-research-info-systems; charset=utf-8",
+    "sources.json": "application/json",
+    "literature-receipt.json": "application/json",
+    "artifact-manifest.json": "application/json",
+}
+
+
+@app.get("/api/v1/projects/{project_id}/artifacts/{artifact_name}")
+async def download_literature_artifact(
+    project_id: str, artifact_name: str, request: Request
+) -> Response:
+    try:
+        content, digest = await service(request).literature_artifact(
+            project_id, artifact_name
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="artifact not found") from exc
+    except ProjectConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (ProjectIntegrityError, LiteratureArtifactError) as exc:
+        raise HTTPException(status_code=409, detail="artifact integrity check failed") from exc
+    return Response(
+        content=content,
+        media_type=LITERATURE_ARTIFACT_MEDIA_TYPES.get(
+            artifact_name, "application/octet-stream"
+        ),
+        headers={
+            "Content-Disposition": f'attachment; filename="{artifact_name}"',
+            "Cache-Control": "no-store",
+            "X-Content-SHA256": digest,
+        },
+    )
+
+
+@app.get("/api/v1/literature/library/collections")
+async def get_literature_collections(request: Request) -> dict[str, Any]:
+    try:
+        return await service(request).literature_collections()
+    except (LdrSessionExpired, LdrAuthenticationError) as exc:
+        raise HTTPException(status_code=423, detail=str(exc)) from exc
+    except (LdrUnavailable, LdrProtocolError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/literature/library/collections/{collection_id}/index")
+async def index_literature_collection(
+    collection_id: Annotated[
+        str,
+        ApiPath(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$"),
+    ],
+    request: Request,
+) -> dict[str, Any]:
+    try:
+        return await service(request).index_literature_collection(collection_id)
+    except (LdrSessionExpired, LdrAuthenticationError) as exc:
+        raise HTTPException(status_code=423, detail=str(exc)) from exc
+    except (ProjectConflict, LdrConflict) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (LdrUnavailable, LdrProtocolError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/literature/zotero/status")
+async def get_literature_zotero_status(request: Request) -> dict[str, Any]:
+    try:
+        return await service(request).literature_zotero_status()
+    except (LdrSessionExpired, LdrAuthenticationError) as exc:
+        raise HTTPException(status_code=423, detail=str(exc)) from exc
+    except (LdrUnavailable, LdrProtocolError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/literature/zotero/sync")
+async def sync_literature_zotero(request: Request) -> dict[str, Any]:
+    try:
+        return await service(request).sync_literature_zotero()
+    except (LdrSessionExpired, LdrAuthenticationError) as exc:
+        raise HTTPException(status_code=423, detail=str(exc)) from exc
+    except LdrConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (LdrUnavailable, LdrProtocolError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.post("/api/v1/runs", response_model=RunView, response_model_by_alias=True)

@@ -78,9 +78,28 @@ def main() -> int:
     if volumes != baseline["defaultVolumes"]:
         failures.append(f"default Compose volumes changed: {volumes}")
 
-    forbidden_diff = command(
-        "git", "diff", "--name-only", locked_base, "--", "client", "server", "docker-compose.yml"
-    ).strip()
+    allowed_server = {
+        "server/main.py",
+        "server/model_router/ai_research_bridge.py",
+        "server/model_router/chat_stable.py",
+        "server/tests/test_ai_research_bridge.py",
+        "server/tests/test_provider_chat_stable_service.py",
+    }
+    core_diff = {
+        item.strip().replace("\\", "/")
+        for item in command(
+            "git",
+            "diff",
+            "--name-only",
+            locked_base,
+            "--",
+            "client",
+            "server",
+            "docker-compose.yml",
+        ).splitlines()
+        if item.strip()
+    }
+    forbidden_diff = sorted(core_diff - allowed_server)
     if forbidden_diff:
         failures.append(f"forbidden core diff exists: {forbidden_diff}")
     if failures:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import json
+import os
 import time
 import urllib.error
 import urllib.parse
@@ -12,9 +13,33 @@ from pathlib import Path
 from typing import Any
 
 
-CONTROL = "http://127.0.0.1:8790"
-TRACKING = "http://127.0.0.1:8791"
-INSPECT_VIEW = "http://127.0.0.1:8793"
+def loopback_url(environment_name: str, port_environment_name: str, default_port: int) -> str:
+    default = f"http://127.0.0.1:{os.getenv(port_environment_name, str(default_port))}"
+    value = os.getenv(environment_name, default).rstrip("/")
+    parsed = urllib.parse.urlsplit(value)
+    if (
+        parsed.scheme != "http"
+        or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or parsed.path not in {"", "/"}
+    ):
+        raise RuntimeError(f"{environment_name} must be an HTTP loopback origin")
+    try:
+        if parsed.port is None:
+            raise RuntimeError(f"{environment_name} must include an explicit port")
+    except ValueError as exc:
+        raise RuntimeError(f"{environment_name} has an invalid port") from exc
+    return value
+
+
+CONTROL = loopback_url("AI_RESEARCH_ACCEPTANCE_CONTROL_URL", "AI_RESEARCH_CONTROL_PORT", 8790)
+TRACKING = loopback_url("AI_RESEARCH_ACCEPTANCE_TRACKING_URL", "AI_RESEARCH_MLFLOW_PORT", 8791)
+INSPECT_VIEW = loopback_url(
+    "AI_RESEARCH_ACCEPTANCE_INSPECT_VIEW_URL", "AI_RESEARCH_INSPECT_VIEW_PORT", 8793
+)
 
 
 class AcceptanceFailure(RuntimeError):
@@ -185,11 +210,19 @@ def write_state(path: Path, value: dict[str, Any]) -> None:
 def initial(state_path: Path) -> None:
     wait_ready()
     status, module = request("GET", f"{CONTROL}/api/v1/module")
+    capability_claims = module.get("capabilityClaims", {})
+    fixture_claim = capability_claims.get("fixtureExecution", {})
+    literature_claim = capability_claims.get("literatureResearch", {})
     if (
         status != 200
-        or module.get("moduleVersion") != "0.2.0-ar1"
-        or module.get("claimLevel") != "harness_only"
-        or module.get("packStatus") != "fixture_only"
+        or module.get("moduleVersion") != "0.3.0-v0.1"
+        or "claimLevel" in module
+        or "packStatus" in module
+        or fixture_claim.get("claimLevel") != "harness_only"
+        or fixture_claim.get("packStatus") != "fixture_only"
+        or literature_claim.get("scientificClaim") != "none"
+        or literature_claim.get("acceptanceState") != "pending_live_acceptance"
+        or literature_claim.get("workflowSource") != "local_deep_research"
         or module.get("capabilities", {}).get("modelEvaluation") is not False
     ):
         raise AcceptanceFailure(f"module claims are invalid: {status} {module}")

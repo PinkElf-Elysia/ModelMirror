@@ -1,4 +1,4 @@
-name: AI Research AR1
+name: AI Research V0.1
 
 on:
   pull_request:
@@ -6,12 +6,22 @@ on:
       - "extensions/ai-research/**"
       - ".dockerignore"
       - ".github/workflows/ai-research.yml"
+      - "server/main.py"
+      - "server/model_router/ai_research_bridge.py"
+      - "server/model_router/chat_stable.py"
+      - "server/tests/test_ai_research_bridge.py"
+      - "server/tests/test_provider_chat_stable_service.py"
   push:
     branches: [main]
     paths:
       - "extensions/ai-research/**"
       - ".dockerignore"
       - ".github/workflows/ai-research.yml"
+      - "server/main.py"
+      - "server/model_router/ai_research_bridge.py"
+      - "server/model_router/chat_stable.py"
+      - "server/tests/test_ai_research_bridge.py"
+      - "server/tests/test_provider_chat_stable_service.py"
 
 permissions:
   contents: read
@@ -22,7 +32,7 @@ concurrency:
 
 jobs:
   verify:
-    name: Boundary, contracts, images, and fixture smoke
+    name: Boundary, literature contracts, images, and fixture smoke
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -45,18 +55,22 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.12.13"
-      - name: Verify AR1
+      - name: Install core server test dependencies
+        run: python -m pip install -r server/requirements.txt
+      - name: Verify restricted model bridge
+        run: python -m pytest server/tests/test_ai_research_bridge.py server/tests/test_provider_chat_stable_service.py -q
+      - name: Verify V0.1 development candidate
         working-directory: extensions/ai-research
-        run: bash scripts/verify.sh origin/main full
+        run: bash scripts/verify.sh origin/main full external-pull
       - name: Preserve module logs on failure
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: ai-research-ar1-diagnostics
+          name: ai-research-v0-1-diagnostics
           path: extensions/ai-research/runtime/diagnostics
           if-no-files-found: ignore
           retention-days: 7
       - name: Stop optional module without deleting evidence volumes
         if: always()
         working-directory: extensions/ai-research
-        run: docker compose -f compose.yml --profile ai-research down
+        run: docker compose -f compose.yml --profile literature down

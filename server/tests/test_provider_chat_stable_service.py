@@ -201,6 +201,30 @@ def _activate_required_for_test(repository: SQLiteRouterRepository) -> None:
             )
 
 
+def test_readiness_checks_current_qualification_without_creating_receipt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, repository, newapi_id, backup_id = _service(tmp_path, monkeypatch)
+    receipt_count = len(repository.list_chat_control_receipts("local"))
+
+    assert service.readiness(MODEL_ID, "chat_text") == (True, None)
+    assert len(repository.list_chat_control_receipts("local")) == receipt_count
+
+    for connection_id in (newapi_id, backup_id):
+        repository.save_test_result(
+            "local",
+            connection_id,
+            health="offline",
+            model_count=1,
+            checked_at="2026-08-21T01:00:00+00:00",
+        )
+    ready, reason = service.readiness(MODEL_ID, "chat_text")
+
+    assert ready is False
+    assert reason == "provider_connection_not_online"
+    assert len(repository.list_chat_control_receipts("local")) == receipt_count
+
+
 @pytest.mark.asyncio
 async def test_preferred_selects_backup_only_after_primary_preflight_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

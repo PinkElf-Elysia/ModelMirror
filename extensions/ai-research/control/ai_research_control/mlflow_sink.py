@@ -4,15 +4,17 @@ import hashlib
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import requests
-from mlflow import MlflowClient
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
 from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
 from opentelemetry.proto.trace.v1.trace_pb2 import Span, Status
 
 from .evidence import finalize_mlflow, verify_receipt
+
+if TYPE_CHECKING:
+    from mlflow import MlflowClient
 
 
 class MlflowSinkError(RuntimeError):
@@ -21,6 +23,8 @@ class MlflowSinkError(RuntimeError):
 
 class MlflowSink:
     def __init__(self, tracking_uri: str, experiment_name: str) -> None:
+        from mlflow import MlflowClient
+
         if not tracking_uri.startswith("http://ai-research-tracking:"):
             raise MlflowSinkError("tracking URI must target the private module service")
         self.tracking_uri = tracking_uri.rstrip("/")

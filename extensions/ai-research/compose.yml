@@ -2,12 +2,12 @@ name: modelmirror-ai-research
 
 services:
   ai-research-control:
-    profiles: [ai-research]
+    profiles: [ai-research, literature]
     build:
       context: .
       dockerfile: control/Dockerfile
       target: runtime
-    image: modelmirror-ai-research-control:ar1
+    image: modelmirror-ai-research-control:v0.1
     command: ["python", "-m", "ai_research_control.app"]
     depends_on:
       ai-research-tracking:
@@ -17,6 +17,7 @@ services:
     networks:
       - tracking_internal
       - inspect_view_internal
+      - literature_control_internal
     user: "65532:65532"
     read_only: true
     cap_drop: [ALL]
@@ -25,8 +26,6 @@ services:
     pids_limit: 128
     mem_limit: 1g
     cpus: 1.0
-    ports:
-      - "127.0.0.1:${AI_RESEARCH_CONTROL_PORT:-8790}:8080"
     environment:
       AI_RESEARCH_CONTROL_DB: /data/control/control.db
       AI_RESEARCH_EVIDENCE_ROOT: /data/control/evidence
@@ -35,6 +34,12 @@ services:
       AI_RESEARCH_MLFLOW_URI: http://ai-research-tracking:5000
       AI_RESEARCH_MLFLOW_EXPERIMENT: modelmirror-ai-research-ar1
       AI_RESEARCH_INSPECT_VIEW_URI: http://ai-research-inspect-view:7575
+      AI_RESEARCH_PROJECTS_ROOT: /data/projects
+      AI_RESEARCH_LDR_URI: http://ai-research-ldr:5000
+      AI_RESEARCH_LDR_PUBLIC_URL: http://127.0.0.1:${AI_RESEARCH_LDR_PORT:-8792}
+      AI_RESEARCH_LITERATURE_MODEL_ID: ${AI_RESEARCH_LITERATURE_MODEL_ID:-}
+      AI_RESEARCH_MODEL_BRIDGE_URL: ${AI_RESEARCH_MODEL_BRIDGE_URL:-http://ai-research-model-relay:8090/api/ai-research/v1}
+      AI_RESEARCH_S2S_TOKEN: ${AI_RESEARCH_S2S_TOKEN:-}
       AI_RESEARCH_MLFLOW_PUBLIC_URL: http://127.0.0.1:${AI_RESEARCH_MLFLOW_PORT:-8791}
       AI_RESEARCH_INSPECT_VIEW_PUBLIC_URL: http://127.0.0.1:${AI_RESEARCH_INSPECT_VIEW_PORT:-8793}
       AI_RESEARCH_ENABLE_DOCS: "0"
@@ -42,6 +47,7 @@ services:
       PYTHONUTF8: "1"
     volumes:
       - control_data:/data/control
+      - projects_data:/data/projects
       - inspect_logs:/data/inspect-logs:ro
       - worker_socket:/run/ai-research
     tmpfs:
@@ -55,13 +61,108 @@ services:
     restart: unless-stopped
     stop_grace_period: 20s
 
-  ai-research-tracking:
-    profiles: [ai-research]
+  ai-research-console-gateway:
+    profiles: [ai-research, literature]
     build:
       context: .
       dockerfile: control/Dockerfile
       target: runtime
-    image: modelmirror-ai-research-control:ar1
+    image: modelmirror-ai-research-control:v0.1
+    command: ["python", "-m", "ai_research_control.console_gateway"]
+    depends_on:
+      ai-research-control:
+        condition: service_healthy
+      ai-research-tracking:
+        condition: service_healthy
+      ai-research-inspect-view:
+        condition: service_healthy
+    networks:
+      - tracking_internal
+      - inspect_view_internal
+      - literature_control_internal
+      - local_gateway_ingress
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 0.5
+    ports:
+      - "127.0.0.1:${AI_RESEARCH_CONTROL_PORT:-8790}:8080"
+      - "127.0.0.1:${AI_RESEARCH_MLFLOW_PORT:-8791}:8091"
+      - "127.0.0.1:${AI_RESEARCH_INSPECT_VIEW_PORT:-8793}:8093"
+    environment:
+      AI_RESEARCH_CONSOLE_GATEWAY_CONTROL_URL: http://ai-research-control:8080
+      AI_RESEARCH_CONSOLE_GATEWAY_TRACKING_URL: http://ai-research-tracking:5000
+      AI_RESEARCH_CONSOLE_GATEWAY_INSPECT_URL: http://ai-research-inspect-view:7575
+      AI_RESEARCH_CONSOLE_GATEWAY_INSPECT_PUBLIC_PORT: ${AI_RESEARCH_INSPECT_VIEW_PORT:-8793}
+      AI_RESEARCH_CONSOLE_GATEWAY_TIMEOUT_SECONDS: ${AI_RESEARCH_CONSOLE_GATEWAY_TIMEOUT_SECONDS:-180}
+      PYTHONUTF8: "1"
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=64m,uid=65532,gid=65532,mode=0700
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; assert urllib.request.urlopen('http://127.0.0.1:8080/gateway-healthz', timeout=3).status == 200"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+    stop_grace_period: 20s
+
+  ai-research-model-relay:
+    profiles: [literature]
+    build:
+      context: .
+      dockerfile: control/Dockerfile
+      target: runtime
+    image: modelmirror-ai-research-control:v0.1
+    command:
+      - python
+      - -m
+      - uvicorn
+      - ai_research_control.model_relay:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8090"
+      - --no-access-log
+    networks:
+      - literature_control_internal
+      - model_bridge_egress
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 0.5
+    environment:
+      AI_RESEARCH_MODEL_RELAY_TARGET_URL: ${AI_RESEARCH_MODEL_RELAY_TARGET_URL:-http://host.docker.internal:8000/api/ai-research/v1}
+      AI_RESEARCH_MODEL_RELAY_TIMEOUT_SECONDS: ${AI_RESEARCH_MODEL_RELAY_TIMEOUT_SECONDS:-180}
+      PYTHONUTF8: "1"
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=64m,uid=65532,gid=65532,mode=0700
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; assert urllib.request.urlopen('http://127.0.0.1:8090/healthz', timeout=3).status == 200"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+    stop_grace_period: 20s
+
+  ai-research-tracking:
+    profiles: [ai-research, literature]
+    build:
+      context: .
+      dockerfile: control/Dockerfile
+      target: runtime
+    image: modelmirror-ai-research-control:v0.1
     command:
       - mlflow
       - server
@@ -88,8 +189,6 @@ services:
     pids_limit: 192
     mem_limit: 1g
     cpus: 1.0
-    ports:
-      - "127.0.0.1:${AI_RESEARCH_MLFLOW_PORT:-8791}:5000"
     environment:
       PYTHONUTF8: "1"
       MLFLOW_DISABLE_TELEMETRY: "true"
@@ -111,12 +210,12 @@ services:
     stop_grace_period: 30s
 
   ai-research-worker:
-    profiles: [ai-research]
+    profiles: [ai-research, literature]
     build:
       context: .
       dockerfile: worker/Dockerfile
       target: runtime
-    image: modelmirror-ai-research-worker:ar1
+    image: modelmirror-ai-research-worker:v0.1
     network_mode: none
     user: "65532:65532"
     read_only: true
@@ -155,12 +254,12 @@ services:
     stop_grace_period: 20s
 
   ai-research-inspect-view:
-    profiles: [ai-research]
+    profiles: [ai-research, literature]
     build:
       context: .
       dockerfile: worker/Dockerfile
       target: runtime
-    image: modelmirror-ai-research-worker:ar1
+    image: modelmirror-ai-research-worker:v0.1
     command:
       - inspect
       - view
@@ -178,6 +277,10 @@ services:
       - ai-research-inspect-view:7575
       - --trusted-host
       - 127.0.0.1:7575
+      - --trusted-host
+      - 127.0.0.1:${AI_RESEARCH_INSPECT_VIEW_PORT:-8793}
+      - --trusted-host
+      - localhost:${AI_RESEARCH_INSPECT_VIEW_PORT:-8793}
       - --unsafe-allow-unauthenticated
       - --log-dir
       - /data/inspect-logs
@@ -191,8 +294,6 @@ services:
     pids_limit: 128
     mem_limit: 512m
     cpus: 0.5
-    ports:
-      - "127.0.0.1:${AI_RESEARCH_INSPECT_VIEW_PORT:-8793}:7575"
     volumes:
       - inspect_logs:/data/inspect-logs:ro
     tmpfs:
@@ -206,18 +307,113 @@ services:
     restart: unless-stopped
     stop_grace_period: 20s
 
+  ai-research-ldr-assets:
+    profiles: [literature]
+    image: localdeepresearch/local-deep-research:1.10.6@sha256:b2c634291de8fb8d0662ab81a0b82ec17ab807109d20d57386042c5bdcd472e5
+    entrypoint: ["python", "/opt/modelmirror/init_ldr_assets.py"]
+    user: "0:0"
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [DAC_OVERRIDE]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 2g
+    cpus: 1.0
+    environment:
+      AI_RESEARCH_LDR_MODEL_ROOT: /model-assets/sentence-transformers/all-MiniLM-L6-v2
+      AI_RESEARCH_LDR_MODEL_LINK: /data/models
+      HF_HOME: /tmp/huggingface
+      PYTHONUTF8: "1"
+    networks:
+      - literature_egress
+    volumes:
+      - ./scripts/init_ldr_assets.py:/opt/modelmirror/init_ldr_assets.py:ro
+      - ldr_models:/model-assets
+      - ldr_data:/data
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=512m,mode=0700
+    restart: "no"
+
+  ai-research-ldr:
+    profiles: [literature]
+    image: localdeepresearch/local-deep-research:1.10.6@sha256:b2c634291de8fb8d0662ab81a0b82ec17ab807109d20d57386042c5bdcd472e5
+    depends_on:
+      ai-research-ldr-assets:
+        condition: service_completed_successfully
+    networks:
+      - literature_control_internal
+      - literature_egress
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, DAC_OVERRIDE, SETUID, SETGID]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    mem_limit: 4g
+    cpus: 2.0
+    ports:
+      - "127.0.0.1:${AI_RESEARCH_LDR_PORT:-8792}:5000"
+    environment:
+      LDR_WEB_HOST: 0.0.0.0
+      LDR_WEB_PORT: "5000"
+      LDR_DATA_DIR: /data
+      LDR_APP_ALLOW_REGISTRATIONS: "true"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      SENTENCE_TRANSFORMERS_HOME: /data/models/sentence-transformers
+      PYTHONUTF8: "1"
+    volumes:
+      - ldr_data:/data
+      - ldr_models:/model-assets:ro
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=512m,mode=1777
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; assert urllib.request.urlopen('http://127.0.0.1:5000/api/v1/health', timeout=8).status == 200"]
+      interval: 10s
+      timeout: 10s
+      retries: 18
+      start_period: 60s
+    restart: unless-stopped
+    stop_grace_period: 30s
+
 networks:
   tracking_internal:
+    internal: true
     ipam:
       config:
-        - subnet: 10.254.76.0/28
+        - subnet: ${AI_RESEARCH_TRACKING_SUBNET:-10.254.76.0/28}
   inspect_view_internal:
+    internal: true
     ipam:
       config:
-        - subnet: 10.254.76.16/28
+        - subnet: ${AI_RESEARCH_INSPECT_VIEW_SUBNET:-10.254.76.16/28}
+  literature_control_internal:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${AI_RESEARCH_LITERATURE_CONTROL_SUBNET:-10.254.76.32/28}
+  literature_egress:
+    ipam:
+      config:
+        - subnet: ${AI_RESEARCH_LITERATURE_EGRESS_SUBNET:-10.254.76.48/28}
+  model_bridge_egress:
+    ipam:
+      config:
+        - subnet: ${AI_RESEARCH_MODEL_BRIDGE_EGRESS_SUBNET:-10.254.76.64/28}
+  local_gateway_ingress:
+    ipam:
+      config:
+        - subnet: ${AI_RESEARCH_LOCAL_GATEWAY_SUBNET:-10.254.76.80/28}
 
 volumes:
   control_data:
   tracking_data:
   inspect_logs:
   worker_socket:
+  projects_data:
+  ldr_data:
+  ldr_models:

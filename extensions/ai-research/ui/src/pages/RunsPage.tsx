@@ -1,10 +1,11 @@
-import { RotateCcw, Search } from "lucide-react";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { Play, RotateCcw, Search } from "lucide-react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { api } from "../api";
-import { ErrorNotice, LoadingRows, PageHeader } from "../components/Page";
+import { ErrorNotice, FixtureNotice, LoadingRows, PageHeader } from "../components/Page";
 import { RunTable } from "../components/RunTable";
+import { Status } from "../components/Status";
 import { usePolling } from "../hooks/usePolling";
 import type { CaseId, EvidenceState, Outcome, Phase } from "../types";
 
@@ -13,6 +14,11 @@ const cases = new Set<CaseId>(["success", "task_error", "long_running_cancel"]);
 const phases = new Set<Phase>(["queued", "running", "terminal"]);
 const outcomes = new Set<Outcome>(["success", "task_error", "cancelled", "infrastructure_error"]);
 const evidence = new Set<EvidenceState>(["pending", "synced", "failed"]);
+const fixtureCases: { id: CaseId; label: string }[] = [
+  { id: "success", label: "成功执行" },
+  { id: "task_error", label: "任务错误" },
+  { id: "long_running_cancel", label: "长运行取消" },
+];
 
 function legal<T extends string>(value: string | null, values: Set<T>): T | "" {
   return value && values.has(value as T) ? (value as T) : "";
@@ -21,6 +27,11 @@ function legal<T extends string>(value: string | null, values: Set<T>): T | "" {
 export function RunsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
+  const [createCase, setCreateCase] = useState<CaseId>("success");
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const createKey = useRef<string | null>(null);
+  const system = usePolling(useCallback((signal: AbortSignal) => api.system(signal), []), 10_000);
   const q = (searchParams.get("q") ?? "").slice(0, 100);
   const [draft, setDraft] = useState(q);
   useEffect(() => setDraft(q), [q]);
@@ -63,9 +74,35 @@ export function RunsPage() {
     setSearchParams(next);
   };
 
+  const createFixture = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (creating || system.data?.status === "not_ready") return;
+    setCreating(true);
+    setCreateError(null);
+    createKey.current ??= `console:${crypto.randomUUID()}`;
+    try {
+      const created = await api.createRun(createCase, createKey.current);
+      createKey.current = null;
+      navigate(`/runs/${created.runId}`);
+    } catch (caught) {
+      setCreateError(caught instanceof Error ? caught.message : "创建请求未完成，请使用当前场景重试。");
+    } finally {
+      setCreating(false);
+    }
+  };
+
   return (
     <div className="page">
       <PageHeader eyebrow="Runs" title="运行记录" description="按夹具、生命周期、结果和证据状态组合筛选；所有筛选轴按 AND 生效。" />
+      <FixtureNotice />
+      <section className="section" aria-labelledby="create-fixture-title">
+        <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="section-title" id="create-fixture-title">创建工程夹具</h2><p className="mt-2 text-sm text-[var(--muted)]">仅验证 Inspect 执行、取消与证据链，不调用模型。</p></div>{system.data ? <Status value={system.data.status} /> : null}</div>
+        <form className="mt-4 flex flex-wrap items-end gap-3" onSubmit={createFixture}>
+          <label className="field-label min-w-[240px] flex-1">夹具场景<select className="field" value={createCase} onChange={(event) => { setCreateCase(event.target.value as CaseId); createKey.current = null; }}>{fixtureCases.map((item) => <option key={item.id} value={item.id}>{item.label} · {item.id}</option>)}</select></label>
+          <button className="button button-primary" type="submit" disabled={creating || !system.data || system.data.status === "not_ready"}><Play size={15} />{creating ? "正在创建" : "创建并查看"}</button>
+        </form>
+        {createError ? <ErrorNotice message={createError} /> : null}
+      </section>
       <section className="section" aria-label="运行筛选">
         <form className="grid gap-3 lg:grid-cols-[minmax(180px,1.5fr)_repeat(4,minmax(130px,1fr))_auto] lg:items-end" onSubmit={submitSearch}>
           <label className="field-label">搜索

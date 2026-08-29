@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-08-24",
-  "modelMirrorBaseCommit": "174baf6a5289520b53578dc29cab82fd4c1d1e9e",
+  "generatedAt": "2026-08-28",
+  "modelMirrorBaseCommit": "11d35c1d84c0a18a05779a37d60cb59ef7a25867",
   "claimLevel": "harness_only",
   "packStatus": "fixture_only",
   "runtimes": {
@@ -13,7 +13,11 @@
     "node": "22.23.2",
     "npm": "10.9.8",
     "react": "19.2.7",
-    "vite": "7.3.5"
+    "vite": "7.3.5",
+    "reactMarkdown": "10.1.0",
+    "remarkGfm": "4.0.1",
+    "localDeepResearch": "1.10.6",
+    "sentenceTransformersModelRevision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
   },
   "baseImage": {
     "reference": "python@sha256:401f6e1a67dad31a1bd78e9ad22d0ee0a3b52154e6bd30e90be696bb6a3d7461",
@@ -26,18 +30,18 @@
   "coreBaseline": {
     "clientDistGate": {
       "mode": "same_runner_base_vs_head",
-      "baseCommit": "174baf6a5289520b53578dc29cab82fd4c1d1e9e"
+      "baseCommit": "11d35c1d84c0a18a05779a37d60cb59ef7a25867"
     },
     "clientDistReference": {
-      "fileCount": 26,
-      "totalBytes": 17611866,
-      "aggregateSha256": "f7eec2e2477f00b62d7ea80050ed75298c8623b5b941c901696104fa8549670e"
+      "fileCount": 38,
+      "totalBytes": 18880491,
+      "aggregateSha256": "f2ffc492aa1a06299c173293eda9338383e17535029f14959a2b8a46793a13ce"
     },
     "trackedFiles": {
-      "docker-compose.yml": "c41af89b65dde80b6925d63c7b44f435fdf9984f8460d7b3d1351ab2a62019d1",
+      "docker-compose.yml": "6e4eeda28a07d8a1432d0230e65ac9fff65069229bf11ef20f5cfe4d6ea1a599",
       "server/requirements.txt": "2bdcee334343bfbeed372d9173ae684d0df839c209d293b780987cfc687a92a4",
-      "server/Dockerfile": "d192d823e21cd51c3a67bc35285130ab77ed22a64a0a8a0cd0083c2875927e63",
-      "client/package.json": "21ea8333343d09df2bb081e9caa05fe9e080d9c8509e71bea7fd12ae33c23ced",
+      "server/Dockerfile": "a84a7dca3063646dee999e4c2685518eda3bdb640d7026c8dd6c878a69db4560",
+      "client/package.json": "e1a089a9661e71140315bd931993c3fa047dd73d5eb4cef58bd1fc87ad292b7e",
       "client/package-lock.json": "0769346386c572ab84f1be52a4882315d98896d76f7e77d21223c359c7dde476"
     },
     "defaultServices": [
@@ -97,6 +101,22 @@
       "tag": "v3.15.1",
       "commit": "9a1c0d9a9827acd23c7a215f0999e4b0f97e9870",
       "license": "Apache-2.0"
+    },
+    {
+      "name": "Local Deep Research",
+      "repository": "https://github.com/LearningCircuit/local-deep-research",
+      "tag": "v1.10.6",
+      "commit": "641308272b2143df89c7a946051d2f05ca29b3c1",
+      "projectLicense": "MIT",
+      "image": "localdeepresearch/local-deep-research:1.10.6@sha256:b2c634291de8fb8d0662ab81a0b82ec17ab807109d20d57386042c5bdcd472e5",
+      "integration": "pull-upstream-image-by-digest"
+    },
+    {
+      "name": "sentence-transformers/all-MiniLM-L6-v2",
+      "repository": "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2",
+      "revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+      "license": "Apache-2.0",
+      "integration": "one-shot-pinned-asset-initializer"
     }
   ],
   "lockedFiles": {
@@ -117,8 +137,8 @@
       "sha256": "c6095d8c3647eafc5287ed73cf976540c5d0de9b1da8810f12198bd779ed47ae"
     },
     "control/Dockerfile": {
-      "sizeBytes": 3181,
-      "sha256": "06f307490ad2c24e0621ef943e4df756eb414da2e5fe3f2100bc348911c7b866"
+      "sizeBytes": 3410,
+      "sha256": "5f2cd526aee9e769d7bfd7b475806cc68562554daf0afcaeed0a28e2b22f6223"
     },
     "worker/Dockerfile": {
       "sizeBytes": 1736,
@@ -129,17 +149,25 @@
       "sha256": "ca8ad9be55ddc67a3ef2a563e38abf354fc40b930c28d08824ee6868c6f4c34d"
     },
     "ui/package.json": {
-      "sizeBytes": 848,
-      "sha256": "96c426a30006a7bb3bfe1fe933a847277ff701373de86fbc2d36f216139a5424"
+      "sizeBytes": 908,
+      "sha256": "fd08a3d44333566d00fa27f8297ae6b2e5d64689d7b865ce21cf6c37900c8980"
     },
     "ui/package-lock.json": {
-      "sizeBytes": 136849,
-      "sha256": "32ef64bd8937c5aa8b975aabb94853596b1afe33599c09f1fb61002ff31c01f5"
+      "sizeBytes": 193529,
+      "sha256": "2af2a6fce0ebb773ef28cbbda579b4ababf14165bb82998ce60c9c93aba79a66"
+    },
+    "scripts/init_ldr_assets.py": {
+      "sizeBytes": 5854,
+      "sha256": "da33fbc665c144afd24c7eec7eed77edda3167906a9fa5be8144bd4595902416"
+    },
+    "compose.yml": {
+      "sizeBytes": 13165,
+      "sha256": "6c2c4a5f71b347e528755fb1326a559288bc2ae68867ce4d73f457e420bea6d9"
     }
   },
   "licenseAudit": {
-    "status": "passed",
-    "policy": "no unknown or denied runtime licenses",
+    "status": "passed_for_external_pull",
+    "policy": "module-owned runtimes must have no unknown or denied licenses; the unmodified upstream LDR image may only be pulled by exact public digest and must not be mirrored, bundled, modified, or represented as MIT-only",
     "policySha256": "b5842c43da0a044133de3eaadde94de73e8363c57c9e51f98f8a67d444df48d8",
     "inventory": "runtime/sbom",
     "control": {
@@ -151,8 +179,45 @@
       "inventorySha256": "7272d758ce92230ed35bf9a4030a9458a8e84cee061ce5507dae5e3fe452b08e"
     },
     "ui": {
-      "packageCount": 275,
-      "inventorySha256": "4eb07c393d3ae648abe6ca1175b11995cbf357b84a4f2c30b2b3bdd49dfe69fb"
+      "packageCount": 371,
+      "inventorySha256": "922b3e84ceb0ed19cc225d787b0e28891bf2362e213c0203c999ac93218582d0"
+    },
+    "localDeepResearchImage": {
+      "sbomUrl": "https://github.com/LearningCircuit/local-deep-research/releases/download/v1.10.6/sbom-container-amd64.spdx.json",
+      "sbomSha256": "6f9c0e6f762763d2b34207a7638b65bedd37d818bd86e538483b21cb091c6315",
+      "sbomSizeBytes": 5245009,
+      "packageCount": 438,
+      "packageEcosystems": {
+        "pypi": 282,
+        "deb": 134,
+        "npm": 5,
+        "generic": 2,
+        "oci": 1,
+        "unclassified": 14
+      },
+      "declaredGplOrLgplCount": 100,
+      "declaredUnknownCount": 60,
+      "declaredKnownConcludedNoAssertionCount": 378,
+      "declaredUnknownConcludedKnownCount": 22,
+      "effectiveUnknownCount": 38,
+      "concludedNoAssertionCount": 416,
+      "declaredAgplCount": 0,
+      "declaredCopyleftByEcosystem": {
+        "deb": 98,
+        "pypi": 2
+      },
+      "integrationMode": "external_pull_only",
+      "distributionPolicy": {
+        "externalPull": "allowed",
+        "internallyHostedUse": "allowed_with_notice",
+        "mirror": "blocked",
+        "offlineBundle": "blocked",
+        "modifiedImage": "blocked",
+        "representAsMitOnly": "forbidden"
+      },
+      "allowedImage": "localdeepresearch/local-deep-research:1.10.6@sha256:b2c634291de8fb8d0662ab81a0b82ec17ab807109d20d57386042c5bdcd472e5",
+      "redistributionCandidate": false,
+      "redistributionGate": "Complete package-level obligations and effective-unknown disposition before enabling any mirror, offline bundle, modified image, or ModelMirror-hosted image distribution."
     }
   }
 }

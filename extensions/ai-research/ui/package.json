@@ -1,6 +1,6 @@
 {
   "name": "@modelmirror/ai-research-console",
-  "version": "0.2.0-ar1",
+  "version": "0.3.0-v0.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,7 +12,9 @@
     "lucide-react": "1.27.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",
-    "react-router-dom": "6.30.4"
+    "react-markdown": "10.1.0",
+    "react-router-dom": "6.30.4",
+    "remark-gfm": "4.0.1"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "7.0.0",

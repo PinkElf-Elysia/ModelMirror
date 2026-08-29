@@ -103,6 +103,56 @@ class SystemView(BaseModel):
     status: Literal["ready", "degraded", "not_ready"]
     checks: list[SystemCheckView]
     checked_at: str = Field(alias="checkedAt")
+    literature_capability: dict[str, object] = Field(
+        default_factory=dict, alias="literatureCapability"
+    )
+
+
+class FixtureCapabilityClaimView(BaseModel):
+    enabled: Literal[True] = True
+    claim_level: Literal["harness_only"] = Field(
+        default="harness_only", alias="claimLevel"
+    )
+    pack_status: Literal["fixture_only"] = Field(
+        default="fixture_only", alias="packStatus"
+    )
+
+
+class LiteratureCapabilityClaimView(BaseModel):
+    enabled: Literal[True] = True
+    scientific_claim: Literal["none"] = Field(
+        default="none", alias="scientificClaim"
+    )
+    acceptance_state: Literal["pending_live_acceptance"] = Field(
+        default="pending_live_acceptance", alias="acceptanceState"
+    )
+    workflow_source: Literal["local_deep_research"] = Field(
+        default="local_deep_research", alias="workflowSource"
+    )
+
+
+class CapabilityClaimsView(BaseModel):
+    fixture_execution: FixtureCapabilityClaimView = Field(
+        default_factory=FixtureCapabilityClaimView, alias="fixtureExecution"
+    )
+    literature_research: LiteratureCapabilityClaimView = Field(
+        default_factory=LiteratureCapabilityClaimView, alias="literatureResearch"
+    )
+
+
+class ModuleInfoView(BaseModel):
+    module_id: str = Field(alias="moduleId")
+    module_version: str = Field(alias="moduleVersion")
+    api_version: str = Field(alias="apiVersion")
+    worker_protocol_version: int = Field(alias="workerProtocolVersion")
+    fixtures: list[CaseId]
+    runtimes: dict[str, str]
+    capabilities: dict[str, bool]
+    capability_claims: CapabilityClaimsView = Field(
+        default_factory=CapabilityClaimsView, alias="capabilityClaims"
+    )
+    links: dict[str, str]
+    limitations: list[str]
 
 
 class ArtifactView(BaseModel):
