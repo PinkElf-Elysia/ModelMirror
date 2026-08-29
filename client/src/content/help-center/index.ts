@@ -85,7 +85,7 @@ export const ragDiversityBaseline = { commit: "f0150fb5", date: "2026-08-27" };
 export const rssReviewBaseline = { commit: "821067a7", date: "2026-08-27" };
 export const ragFormalIntegrityBaseline = { commit: "be056e99", date: "2026-08-28" };
 export const skillExperienceBaseline = { commit: "bf486f25", date: "2026-08-27" };
-export const emailReviewBaseline = { commit: "859675fc", date: "2026-08-28" };
+export const emailReviewBaseline = { commit: "afda87ff", date: "2026-08-28" };
 
 export const helpContentTypeLabels: Record<HelpContentType, string> = {
   tutorial: "入门教程",
