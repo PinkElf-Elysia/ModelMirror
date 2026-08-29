@@ -169,6 +169,9 @@ export const WORKFLOW_VARIABLE_FIELD_DESCRIPTORS: WorkflowVariableFieldDescripto
   field("form_event_entry", "submissionVariable", "declaration", JSON_TYPES),
   field("rss_event_entry", "eventVariable", "declaration", JSON_TYPES),
   field("rss_event_entry", "itemVariable", "declaration", JSON_TYPES),
+  field("email_event_entry", "eventVariable", "declaration", JSON_TYPES),
+  field("email_event_entry", "messageVariable", "declaration", JSON_TYPES),
+  field("email_event_entry", "contentVariable", "declaration", TEXT_TYPES),
   field("failure_event_entry", "eventVariable", "declaration", JSON_TYPES),
   field("workflow_call_entry", "eventVariable", "declaration", JSON_TYPES),
   field("invoke_workflow", "resultVariable", "declaration", JSON_TYPES),
@@ -356,7 +359,7 @@ const RESOURCE_TARGET_HANDLES = new Set([
 ]);
 
 interface OutputSpec {
-  field: "outputVariable" | "codeOutputVariable" | "variableName" | "eventVariable" | "bodyVariable" | "submissionVariable" | "itemVariable" | "resultVariable";
+  field: "outputVariable" | "codeOutputVariable" | "variableName" | "eventVariable" | "bodyVariable" | "submissionVariable" | "itemVariable" | "messageVariable" | "contentVariable" | "resultVariable";
   fallback: string;
   valueType:
     | WorkflowVariableValueType
@@ -399,6 +402,11 @@ const DEFAULT_OUTPUT_SPECS: Partial<Record<WorkflowNodeKind, OutputSpec[]>> = {
   rss_event_entry: [
     { field: "eventVariable", fallback: "rss_event", valueType: "json" },
     { field: "itemVariable", fallback: "rss_item", valueType: "json" },
+  ],
+  email_event_entry: [
+    { field: "eventVariable", fallback: "email_event", valueType: "json" },
+    { field: "messageVariable", fallback: "email_message", valueType: "json" },
+    { field: "contentVariable", fallback: "email_content", valueType: "text" },
   ],
   failure_event_entry: [
     { field: "eventVariable", fallback: "failure_event", valueType: "json" },

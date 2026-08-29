@@ -6,6 +6,7 @@ import modulesAndTerms from "./articles/modules-and-terms.md?raw";
 import promoteRunToSkill from "./articles/promote-run-to-skill.md?raw";
 import recoverUnavailableFeature from "./articles/recover-unavailable-feature.md?raw";
 import reviewRemoteMcpAuth from "./articles/review-remote-mcp-auth.md?raw";
+import subscribeEmailWorkflow from "./articles/subscribe-email-workflow.md?raw";
 import subscribeRssWorkflow from "./articles/subscribe-rss-workflow.md?raw";
 import startWithAModel from "./articles/start-with-a-model.md?raw";
 import submitKnowledgeProposal from "./articles/submit-knowledge-proposal.md?raw";
@@ -89,6 +90,7 @@ export const ragDiversityBaseline = { commit: "f0150fb5", date: "2026-08-27" };
 export const rssReviewBaseline = { commit: "821067a7", date: "2026-08-27" };
 export const ragFormalIntegrityBaseline = { commit: "be056e99", date: "2026-08-28" };
 export const skillExperienceBaseline = { commit: "bf486f25", date: "2026-08-27" };
+export const emailReviewBaseline = { commit: "afda87ff", date: "2026-08-28" };
 
 export const helpContentTypeLabels: Record<HelpContentType, string> = {
   tutorial: "入门教程",
@@ -201,6 +203,21 @@ export const helpArticles: HelpArticle[] = [
     verifiedDate: rssReviewBaseline.date,
     content: subscribeRssWorkflow,
     nextSlug: "submit-knowledge-proposal",
+  },
+  {
+    slug: "subscribe-email-workflow",
+    title: "用只读邮件入口自动启动工作流",
+    summary: "配置加密邮箱凭据，理解首次无回放基线，并只处理 INBOX 后续新邮件。",
+    category: "按目标找指南",
+    contentType: "how-to",
+    audience: "需要持续处理公告、通知或需求来信的工作流用户",
+    estimatedMinutes: 6,
+    keywords: ["工作流", "邮件", "IMAP", "IMAPS", "INBOX", "应用密码", "无回放"],
+    relatedRoutes: ["/workflow"],
+    verifiedCommit: emailReviewBaseline.commit,
+    verifiedDate: emailReviewBaseline.date,
+    content: subscribeEmailWorkflow,
+    nextSlug: "subscribe-rss-workflow",
   },
   {
     slug: "modules-and-terms",
@@ -414,6 +431,7 @@ export const helpSections: HelpSection[] = [
       { id: "connect-tool", title: "让 AI 使用外部工具", summary: "需要访问外部服务时，先查看 MCP 目录与连接状态。", to: "/help/modules/mcps", keywords: ["外部工具", "MCP", "连接"] },
       { id: "use-own-docs", title: "根据自己的资料回答", summary: "需要从指定文档查找内容时，查看 RAG 知识库。", to: "/help/modules/workspace/rag", keywords: ["自己的资料", "文档", "RAG", "知识库"] },
       { id: "subscribe-feed", title: "订阅公告或博客更新", summary: "用 RSS 或 Atom 在新条目出现时启动工作流。", to: "/help/subscribe-rss-workflow", keywords: ["RSS", "Atom", "订阅", "公告", "博客"] },
+      { id: "subscribe-email", title: "收到新邮件时启动工作流", summary: "用只读 IMAPS 入口处理 INBOX 后续新邮件。", to: "/help/subscribe-email-workflow", keywords: ["邮件", "IMAP", "INBOX", "应用密码"] },
       { id: "propose-knowledge", title: "把工作流结果提交给知识管理员", summary: "将确定性文本送入 Knowledge Inbox，审批后再决定是否激活。", to: "/help/submit-knowledge-proposal", keywords: ["工作流", "知识", "Inbox", "审批", "提议"] },
       { id: "check-runtime", title: "查找运行或连接问题", summary: "任务失败或工具未连接时，到 Runtime 运维查看状态。", to: "/help/modules/runtime", keywords: ["运行失败", "连接", "Runtime", "运维"] },
     ],

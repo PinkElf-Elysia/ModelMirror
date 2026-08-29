@@ -81,9 +81,11 @@ from .schemas import (
 )
 
 try:
+    from server.workflow_email import WorkflowEmailError, validate_email_config
     from server.workflow_forms import WorkflowFormError, validate_form_config
     from server.workflow_rss import WorkflowRssError, validate_rss_config
 except ModuleNotFoundError:
+    from workflow_email import WorkflowEmailError, validate_email_config
     from workflow_forms import WorkflowFormError, validate_form_config
     from workflow_rss import WorkflowRssError, validate_rss_config
 
@@ -100,6 +102,8 @@ NODE_KIND_ALIASES = {
     "form-event-entry": "form_event_entry",
     "rss_event_entry": "rss_event_entry",
     "rss-event-entry": "rss_event_entry",
+    "email_event_entry": "email_event_entry",
+    "email-event-entry": "email_event_entry",
     "failure_event_entry": "failure_event_entry",
     "failure-event-entry": "failure_event_entry",
     "workflow_call_entry": "workflow_call_entry",
@@ -580,7 +584,7 @@ def validate_workflow_graph(workflow: NativeWorkflowDefinition) -> ValidateWorkf
             )
 
     if not any(
-        kind in {"input", "scheduled_start", "http_event_entry", "form_event_entry", "rss_event_entry", "failure_event_entry", "workflow_call_entry"}
+        kind in {"input", "scheduled_start", "http_event_entry", "form_event_entry", "rss_event_entry", "email_event_entry", "failure_event_entry", "workflow_call_entry"}
         for kind in kinds_by_id.values()
     ):
         issues.append(
@@ -629,6 +633,21 @@ def validate_workflow_graph(workflow: NativeWorkflowDefinition) -> ValidateWorkf
                     ValidationIssue(
                         code="rss_persistent_wait_forbidden",
                         message="RSS workflows cannot contain persistent waiting nodes.",
+                        node_id=node.id,
+                    )
+                )
+
+    if any(kind == "email_event_entry" for kind in kinds_by_id.values()):
+        for node in workflow.nodes:
+            kind = kinds_by_id.get(node.id)
+            if kind in {"scheduled_start", "suspend_wait", "human_intervention", "mcp_tool"} or (
+                kind in {"agent_handoff", "handoff_router"}
+                and config_truthy(node.data.get("waitForCompletion"))
+            ):
+                issues.append(
+                    ValidationIssue(
+                        code="email_persistent_wait_forbidden",
+                        message="Email workflows cannot contain timer or persistent waiting nodes.",
                         node_id=node.id,
                     )
                 )
@@ -1164,7 +1183,7 @@ def validate_node_configuration(
                 )
             )
 
-    if kind in {"scheduled_start", "http_event_entry", "rss_event_entry", "failure_event_entry", "workflow_call_entry"}:
+    if kind in {"scheduled_start", "http_event_entry", "rss_event_entry", "email_event_entry", "failure_event_entry", "workflow_call_entry"}:
         event_variable = str(data.get("eventVariable") or "").strip()
         if not is_variable_name(event_variable):
             issues.append(
@@ -1376,6 +1395,18 @@ def validate_node_configuration(
             issues.append(
                 ValidationIssue(
                     code=f"invalid_rss_entry_{exc.code.lower()}",
+                    message=exc.safe_message,
+                    node_id=node.id,
+                )
+            )
+
+    if kind == "email_event_entry":
+        try:
+            validate_email_config(data)
+        except WorkflowEmailError as exc:
+            issues.append(
+                ValidationIssue(
+                    code=f"invalid_email_entry_{exc.code.lower()}",
                     message=exc.safe_message,
                     node_id=node.id,
                 )
@@ -4216,7 +4247,7 @@ def collect_declared_variables(
     for node in nodes:
         data = node.data
         kind = kinds_by_id[node.id]
-        if kind in {"input", "scheduled_start", "http_event_entry", "form_event_entry", "rss_event_entry", "failure_event_entry", "workflow_call_entry"}:
+        if kind in {"input", "scheduled_start", "http_event_entry", "form_event_entry", "rss_event_entry", "email_event_entry", "failure_event_entry", "workflow_call_entry"}:
             field_name = "variableName" if kind == "input" else "eventVariable"
             variable = str(data.get(field_name) or "").strip()
             if is_variable_name(variable):
@@ -4239,6 +4270,11 @@ def collect_declared_variables(
             item_variable = str(data.get("itemVariable") or "").strip()
             if is_variable_name(item_variable):
                 variables.add(item_variable)
+        if kind == "email_event_entry":
+            for field_name in ("messageVariable", "contentVariable"):
+                variable = str(data.get(field_name) or "").strip()
+                if is_variable_name(variable):
+                    variables.add(variable)
         if kind == "llm":
             variable = str(data.get("outputVariable") or "").strip()
             if is_variable_name(variable):
@@ -4327,6 +4363,7 @@ def collect_node_variable_producers(
         "http_event_entry": ("eventVariable", "bodyVariable"),
         "form_event_entry": ("eventVariable", "submissionVariable"),
         "rss_event_entry": ("eventVariable", "itemVariable"),
+        "email_event_entry": ("eventVariable", "messageVariable", "contentVariable"),
         "failure_event_entry": ("eventVariable",),
         "workflow_call_entry": ("eventVariable",),
         "invoke_workflow": ("resultVariable",),

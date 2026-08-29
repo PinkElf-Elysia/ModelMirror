@@ -16,6 +16,23 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
 try:
+    from server.workflow_email import (
+        NormalizedEmailMessage,
+        SecureImapClient,
+        WorkflowEmailError,
+        validate_email_config,
+        validate_email_host,
+    )
+except ModuleNotFoundError:
+    from workflow_email import (
+        NormalizedEmailMessage,
+        SecureImapClient,
+        WorkflowEmailError,
+        validate_email_config,
+        validate_email_host,
+    )
+
+try:
     from server.workflow_rss import (
         RssFetchResult,
         WorkflowRssError,
@@ -90,12 +107,18 @@ TriggerExecutor = Callable[
 TimerDueSource = Callable[[], list[Any]]
 TimerResumeExecutor = Callable[[str], Awaitable[dict[str, Any]]]
 RssFetcher = Callable[[str, str | None, str | None], Awaitable[RssFetchResult]]
+CredentialResolver = Callable[[str], str]
+CredentialLookup = Callable[[str], Any]
+EmailClientFactory = Callable[[str, str], SecureImapClient]
 
 _store: WorkflowDeploymentStore | None = None
 _trigger_executor: TriggerExecutor | None = None
 _timer_due_source: TimerDueSource | None = None
 _timer_resume_executor: TimerResumeExecutor | None = None
 _rss_fetcher: RssFetcher | None = None
+_credential_resolver: CredentialResolver | None = None
+_credential_lookup: CredentialLookup | None = None
+_email_client_factory: EmailClientFactory | None = None
 _rate_windows: dict[str, deque[float]] = defaultdict(deque)
 _form_rate_windows: dict[str, deque[float]] = defaultdict(deque)
 
@@ -113,6 +136,11 @@ class InspectWorkflowRssRequest(BaseModel):
     feedUrl: str = Field(min_length=1, max_length=2048)
 
 
+class InspectWorkflowEmailRequest(BaseModel):
+    host: str = Field(min_length=1, max_length=253)
+    credentialId: str = Field(pattern=r"^cred_[0-9a-f]{32}$")
+
+
 def configure_workflow_deployment_runtime(
     store: WorkflowDeploymentStore,
     *,
@@ -120,8 +148,12 @@ def configure_workflow_deployment_runtime(
     timer_due_source: TimerDueSource | None = None,
     timer_resume_executor: TimerResumeExecutor | None = None,
     rss_fetcher: RssFetcher | None = None,
+    credential_resolver: CredentialResolver | None = None,
+    credential_lookup: CredentialLookup | None = None,
+    email_client_factory: EmailClientFactory | None = None,
 ) -> None:
     global _store, _trigger_executor, _timer_due_source, _timer_resume_executor, _rss_fetcher
+    global _credential_resolver, _credential_lookup, _email_client_factory
     _store = store
     if trigger_executor is not None:
         _trigger_executor = trigger_executor
@@ -131,6 +163,12 @@ def configure_workflow_deployment_runtime(
         _timer_resume_executor = timer_resume_executor
     if rss_fetcher is not None:
         _rss_fetcher = rss_fetcher
+    if credential_resolver is not None:
+        _credential_resolver = credential_resolver
+    if credential_lookup is not None:
+        _credential_lookup = credential_lookup
+    if email_client_factory is not None:
+        _email_client_factory = email_client_factory
 
 
 def _require_store() -> WorkflowDeploymentStore:
@@ -205,6 +243,12 @@ def workflow_rss_triggers_enabled() -> bool:
     }
 
 
+def workflow_imap_triggers_enabled() -> bool:
+    return os.getenv("WORKFLOW_IMAP_TRIGGERS_ENABLED", "false").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+
+
 def workflow_forms_public_base_url() -> str:
     return os.getenv("WORKFLOW_FORMS_PUBLIC_BASE_URL", "").strip()
 
@@ -227,6 +271,7 @@ def _project_payload(store: WorkflowDeploymentStore, project_id: str) -> dict[st
     active = store.active_deployment(project_id)
     form_publication = store.get_form_publication(project_id)
     rss_subscription = store.get_rss_subscription(project_id)
+    email_subscription = store.get_imap_subscription(project_id)
     return {
         **store.serialize_project(project),
         "active_deployment": store.serialize_deployment(active) if active else None,
@@ -238,6 +283,11 @@ def _project_payload(store: WorkflowDeploymentStore, project_id: str) -> dict[st
         "rss_subscription": (
             store.serialize_rss_subscription(rss_subscription)
             if rss_subscription is not None
+            else None
+        ),
+        "email_subscription": (
+            store.serialize_imap_subscription(email_subscription)
+            if email_subscription is not None
             else None
         ),
         "published_versions": [
@@ -385,6 +435,7 @@ async def activate_workflow(project_id: str, version: int) -> dict[str, Any]:
             forms_enabled=workflow_forms_enabled(),
             forms_public_base_url=workflow_forms_public_base_url(),
             rss_triggers_enabled=workflow_rss_triggers_enabled(),
+            imap_triggers_enabled=workflow_imap_triggers_enabled(),
             knowledge_proposals_enabled=workflow_knowledge_proposals_enabled(),
         )
         payload = store.serialize_deployment(deployment)
@@ -516,6 +567,35 @@ async def _fetch_rss(
     )
 
 
+def _email_client(host: str, credential_id: str) -> SecureImapClient:
+    clean_host = validate_email_host(host)
+    if _credential_lookup is None or _credential_resolver is None:
+        raise WorkflowEmailError(
+            "EMAIL_CREDENTIAL_UNAVAILABLE",
+            "Email credential service is unavailable.",
+        )
+    try:
+        record = _credential_lookup(credential_id)
+        if str(getattr(record, "kind", "")) != "generic" or str(
+            getattr(record, "status", "")
+        ) != "active":
+            raise WorkflowEmailError(
+                "EMAIL_CREDENTIAL_INVALID",
+                "Email credential must be an active generic credential.",
+            )
+        value = _credential_resolver(credential_id)
+    except WorkflowEmailError:
+        raise
+    except Exception as exc:
+        raise WorkflowEmailError(
+            "EMAIL_CREDENTIAL_UNAVAILABLE",
+            "Email credential is unavailable.",
+        ) from exc
+    if _email_client_factory is not None:
+        return _email_client_factory(clean_host, value)
+    return SecureImapClient(clean_host, value)
+
+
 @router.post("/api/workflow/rss/inspect")
 async def inspect_workflow_rss(
     payload: InspectWorkflowRssRequest,
@@ -545,6 +625,46 @@ async def inspect_workflow_rss(
         }
     except WorkflowRssError as exc:
         raise HTTPException(status_code=422, detail=exc.safe_message) from exc
+
+
+@router.post("/api/workflow/email/inspect")
+async def inspect_workflow_email(
+    payload: InspectWorkflowEmailRequest,
+    response: Response,
+) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "no-store"
+    if not workflow_imap_triggers_enabled():
+        raise HTTPException(
+            status_code=409,
+            detail="Workflow IMAP triggers are disabled.",
+            headers={"Cache-Control": "no-store"},
+        )
+    try:
+        client = _email_client(payload.host, payload.credentialId)
+        snapshot = await asyncio.to_thread(client.snapshot)
+        items: list[dict[str, Any]] = []
+        for uid in snapshot.uids[-3:]:
+            message = await asyncio.to_thread(client.fetch, uid)
+            senders = list(message.message.get("from") or [])
+            items.append(
+                {
+                    "subject": str(message.message.get("subject") or "")[:300],
+                    "from": senders[:3],
+                    "sentAt": message.message.get("sentAt"),
+                }
+            )
+        return {
+            "mailbox": "INBOX",
+            "messageCount": snapshot.message_count,
+            "uidValidity": snapshot.uidvalidity,
+            "items": items,
+        }
+    except WorkflowEmailError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=exc.safe_message,
+            headers={"Cache-Control": "no-store"},
+        ) from exc
 
 
 @router.get("/api/workflow-forms/{form_id}/manifest")
@@ -752,6 +872,12 @@ async def _execute_trigger(
             error="Workflow RSS triggers are disabled.",
             dispatch_failures=workflow_failure_triggers_enabled(),
         )
+    if item.trigger_kind == "email" and not workflow_imap_triggers_enabled():
+        return store.fail_execution(
+            item.execution_id,
+            error="Workflow IMAP triggers are disabled.",
+            dispatch_failures=workflow_failure_triggers_enabled(),
+        )
     if _trigger_executor is None:
         return store.fail_execution(
             item.execution_id,
@@ -785,10 +911,14 @@ async def _execute_trigger(
         outcome = await _trigger_executor(claimed, release, event)
         status = str(outcome.get("status") or "failed")
         if status == "waiting":
-            if claimed.trigger_kind == "rss":
+            if claimed.trigger_kind in {"rss", "email"}:
                 return store.fail_execution(
                     claimed.execution_id,
-                    error="RSS workflows cannot persist a continuation.",
+                    error=(
+                        "RSS workflows cannot persist a continuation."
+                        if claimed.trigger_kind == "rss"
+                        else "Email workflows cannot persist a continuation."
+                    ),
                     task_id=str(outcome.get("task_id") or "") or None,
                     run_id=str(outcome.get("run_id") or "") or None,
                     dispatch_failures=workflow_failure_triggers_enabled(),
@@ -999,6 +1129,7 @@ class WorkflowTriggerCoordinator:
         self.poll_seconds = max(0.1, float(poll_seconds))
         self._task: asyncio.Task[None] | None = None
         self._stopping = asyncio.Event()
+        self._email_delivery_cache: dict[str, NormalizedEmailMessage] = {}
 
     async def start(self) -> None:
         if self._task is not None and not self._task.done():
@@ -1059,6 +1190,73 @@ class WorkflowTriggerCoordinator:
                         )
                     except WorkflowDeploymentConflictError:
                         pass
+        if workflow_imap_triggers_enabled():
+            claimed_subscriptions = store.claim_due_imap_subscriptions(
+                worker_id=f"workflow-imap-{uuid.uuid4().hex[:12]}",
+                lease_seconds=WORKFLOW_TRIGGER_LEASE_SECONDS,
+                limit=1,
+            )
+            for subscription in claimed_subscriptions:
+                try:
+                    release = store.require_version(
+                        subscription.project_id, subscription.version
+                    )
+                    config = store.email_entry_data(release)
+                    client = _email_client(
+                        str(config["host"]), str(config["credentialId"])
+                    )
+                    snapshot = await asyncio.to_thread(
+                        client.snapshot,
+                        after_uid=(
+                            subscription.last_uid
+                            if subscription.baseline_established
+                            else None
+                        ),
+                    )
+                    created = store.commit_imap_poll(
+                        subscription.deployment_id,
+                        lease_token=str(subscription.lease_token or ""),
+                        uidvalidity=snapshot.uidvalidity,
+                        highest_uid=snapshot.highest_uid,
+                        uids=snapshot.uids,
+                    )
+                    for execution in created:
+                        delivery = store.get_imap_delivery(execution.execution_id)
+                        if delivery is None:
+                            continue
+                        try:
+                            self._email_delivery_cache[execution.execution_id] = (
+                                await asyncio.to_thread(client.fetch, delivery.uid)
+                            )
+                        except WorkflowEmailError:
+                            # The persisted delivery remains authoritative. The
+                            # execution path below will re-read or safely fail it.
+                            pass
+                except WorkflowEmailError as exc:
+                    try:
+                        store.fail_imap_poll(
+                            subscription.deployment_id,
+                            lease_token=str(subscription.lease_token or ""),
+                            error_code=exc.code,
+                        )
+                    except WorkflowDeploymentConflictError:
+                        pass
+                except Exception:
+                    logger.warning(
+                        "Workflow IMAP poll failed deployment=%s code=EMAIL_POLL_FAILED",
+                        subscription.deployment_id,
+                    )
+                    try:
+                        store.fail_imap_poll(
+                            subscription.deployment_id,
+                            lease_token=str(subscription.lease_token or ""),
+                            error_code="EMAIL_POLL_FAILED",
+                        )
+                    except WorkflowDeploymentConflictError:
+                        pass
+        for execution_id in tuple(self._email_delivery_cache):
+            if store.get_imap_delivery(execution_id) is None:
+                self._email_delivery_cache.pop(execution_id, None)
         for item in store.claimable_executions(limit=20):
             if item.trigger_kind == "schedule":
                 event = {"type": "schedule_event", **dict(item.trigger_summary)}
@@ -1087,6 +1285,69 @@ class WorkflowTriggerCoordinator:
                     "test_mode": False,
                     "item": dict(delivery.item),
                 }
+            elif item.trigger_kind == "email":
+                if not workflow_imap_triggers_enabled():
+                    store.fail_execution(
+                        item.execution_id,
+                        error="Workflow IMAP triggers are disabled.",
+                        dispatch_failures=workflow_failure_triggers_enabled(),
+                    )
+                    self._email_delivery_cache.pop(item.execution_id, None)
+                    continue
+                delivery = store.get_imap_delivery(item.execution_id)
+                if delivery is None:
+                    store.fail_execution(
+                        item.execution_id,
+                        error="Email delivery is unavailable.",
+                        dispatch_failures=workflow_failure_triggers_enabled(),
+                    )
+                    continue
+                if delivery.next_reread_at > time.time():
+                    continue
+                try:
+                    message = self._email_delivery_cache.pop(
+                        item.execution_id, None
+                    )
+                    if message is None:
+                        release = store.require_version(item.project_id, item.version)
+                        config = store.email_entry_data(release)
+                        client = _email_client(
+                            str(config["host"]), str(config["credentialId"])
+                        )
+                        snapshot = await asyncio.to_thread(client.snapshot)
+                        if snapshot.uidvalidity != delivery.uidvalidity:
+                            raise WorkflowEmailError(
+                                "EMAIL_UIDVALIDITY_CHANGED",
+                                "Email mailbox identity changed before the message was read.",
+                            )
+                        message = await asyncio.to_thread(client.fetch, delivery.uid)
+                    event = {
+                        "type": "email_received",
+                        "occurrence_key": item.occurrence_key,
+                        "message_key": delivery.message_key,
+                        "mailbox": "INBOX",
+                        "received_at": float(
+                            item.trigger_summary.get("received_at") or time.time()
+                        ),
+                        "message_bytes": message.raw_bytes,
+                        "test_mode": False,
+                        "message": dict(message.message),
+                        "content": message.content,
+                    }
+                except WorkflowEmailError as exc:
+                    retryable = exc.code in {
+                        "EMAIL_DNS_FAILED",
+                        "EMAIL_CONNECTION_FAILED",
+                    }
+                    if retryable and delivery.reread_attempts < 3:
+                        store.defer_imap_delivery(item.execution_id)
+                    else:
+                        store.fail_execution(
+                            item.execution_id,
+                            error=exc.code,
+                            dispatch_failures=workflow_failure_triggers_enabled(),
+                        )
+                    continue
             else:
                 continue
             asyncio.create_task(_execute_trigger(item, event))

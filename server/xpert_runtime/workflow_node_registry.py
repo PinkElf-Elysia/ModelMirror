@@ -283,6 +283,25 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     },
                 ),
                 WorkflowPaletteItem(
+                    kind="email_event_entry",
+                    icon="MAIL",
+                    title="邮件到达入口",
+                    description="只读检查公网 IMAPS INBOX，并为每封新邮件独立启动。",
+                    category="logic",
+                    tags=["email", "imap", "inbox", "deployment"],
+                    metadata={
+                        "classic_only": True,
+                        "planner_enabled": False,
+                        "feature_enabled": os.getenv(
+                            "WORKFLOW_IMAP_TRIGGERS_ENABLED", "false"
+                        ).strip().lower()
+                        in {"1", "true", "yes", "on"},
+                        "feature_disabled_reason": (
+                            "WORKFLOW_IMAP_TRIGGERS_ENABLED is disabled."
+                        ),
+                    },
+                ),
+                WorkflowPaletteItem(
                     kind="failure_event_entry",
                     icon="FAIL",
                     title="失败处置入口",

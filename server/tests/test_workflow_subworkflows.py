@@ -389,7 +389,7 @@ def test_subworkflow_relation_is_stable_bounded_and_additive(tmp_path) -> None:
     assert relation is not None
     assert relation.task_id == first.task_id
     snapshot = json.loads(reloaded.snapshot_path.read_text(encoding="utf-8"))
-    assert snapshot["version"] == "workflow-deployments-v4"
+    assert snapshot["version"] == "workflow-deployments-v5"
     assert len(snapshot["subworkflow_relations"]) == 33
 
 
