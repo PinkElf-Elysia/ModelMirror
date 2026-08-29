@@ -132,12 +132,12 @@ function expectCode(fn, expected) {
   });
 }
 
-test("machine boundary and code expose the same ordered R19 policy", () => {
+test("machine boundary and code expose the same ordered R20 policy", () => {
   const policy = JSON.parse(
     readFileSync(path.join(committedModuleRoot, "module-boundary.json"), "utf8"),
   );
 
-  assert.equal(policy.schemaVersion, 19);
+  assert.equal(policy.schemaVersion, 20);
   assert.equal(policy.activeRound, ACTIVE_ROUND);
   assert.equal(policy.activeRoundBaselineSha, ACTIVE_ROUND_BASELINE_SHA);
   assert.deepEqual(
@@ -156,24 +156,24 @@ test("machine boundary and code expose the same ordered R19 policy", () => {
     path.join(committedModuleRoot, "scripts", "check-round-scope.mjs"),
     "utf8",
   );
-  assert.match(cli, /policy\.schemaVersion !== 19/);
-  assert.doesNotMatch(cli, /policy\.schemaVersion !== 18/);
+  assert.match(cli, /policy\.schemaVersion !== 20/);
+  assert.doesNotMatch(cli, /policy\.schemaVersion !== 19/);
 });
 
-test("accepts exact R19 files and new authority prefixes in every Git status source", (t) => {
+test("accepts exact R20 files and new behavior prefixes in every Git status source", (t) => {
   const { fixture, moduleRoot, base } = makeParentFixture(t);
-  write(fixture, `${MODULE_PREFIX}/packages/npc-authority-contracts/src/index.mjs`, "export {};\n");
+  write(fixture, `${MODULE_PREFIX}/packages/npc-behavior-contracts/src/index.mjs`, "export {};\n");
   git(fixture, ["add", "."]);
   git(fixture, ["commit", "--quiet", "-m", "round change"]);
-  write(fixture, `${MODULE_PREFIX}/packages/npc-authority-runtime/src/index.mjs`, "export {};\n");
-  git(fixture, ["add", `${MODULE_PREFIX}/packages/npc-authority-runtime/src/index.mjs`]);
+  write(fixture, `${MODULE_PREFIX}/packages/npc-behavior-runtime/src/index.mjs`, "export {};\n");
+  git(fixture, ["add", `${MODULE_PREFIX}/packages/npc-behavior-runtime/src/index.mjs`]);
   write(fixture, `${MODULE_PREFIX}/scripts/run-verify.mjs`, "staged\n");
   git(fixture, ["add", `${MODULE_PREFIX}/scripts/run-verify.mjs`]);
   write(fixture, `${MODULE_PREFIX}/scripts/run-verify.mjs`, "unstaged update\n");
   write(fixture, `${MODULE_PREFIX}/docs/V2_STATUS.json`);
-  write(fixture, `${MODULE_PREFIX}/tests/r19-falsification.test.mjs`);
-  write(fixture, `${MODULE_PREFIX}/docs/rounds/R19_ACCEPTANCE.md`);
-  write(fixture, `${MODULE_PREFIX}/third-party/npc-authority-references/reference.lock.json`, "{}\n");
+  write(fixture, `${MODULE_PREFIX}/tests/r20-falsification.test.mjs`);
+  write(fixture, `${MODULE_PREFIX}/docs/rounds/R20_ACCEPTANCE.md`);
+  write(fixture, `${MODULE_PREFIX}/third-party/npc-behavior-references/reference.lock.json`, "{}\n");
 
   const result = checkRoundScope({ moduleRoot, base, expectedBase: base });
   assert.equal(result.status, "ok");
@@ -244,6 +244,7 @@ for (const acceptance of [
   "R16_ACCEPTANCE.md",
   "R17_ACCEPTANCE.md",
   "R18_ACCEPTANCE.md",
+  "R19_ACCEPTANCE.md",
 ]) {
   test(`rejects byte changes to historical ${acceptance}`, (t) => {
     const { fixture, moduleRoot, base } = makeParentFixture(t);
@@ -400,21 +401,21 @@ test("rejects a caller-selected base", (t) => {
   );
 });
 
-test("round path classifier exposes stable R19 guard categories", () => {
+test("round path classifier exposes stable R20 guard categories", () => {
   assert.equal(
-    classifyRoundPath(`${MODULE_PREFIX}/packages/npc-authority-contracts/src/index.mjs`),
+    classifyRoundPath(`${MODULE_PREFIX}/packages/npc-behavior-contracts/src/index.mjs`),
     null,
   );
   assert.equal(
-    classifyRoundPath(`${MODULE_PREFIX}/packages/npc-authority-runtime/src/index.mjs`),
+    classifyRoundPath(`${MODULE_PREFIX}/packages/npc-behavior-runtime/src/index.mjs`),
     null,
   );
   assert.equal(
-    classifyRoundPath(`${MODULE_PREFIX}/tests/r19-falsification.test.mjs`),
+    classifyRoundPath(`${MODULE_PREFIX}/tests/r20-falsification.test.mjs`),
     null,
   );
   assert.equal(
-    classifyRoundPath(`${MODULE_PREFIX}/third-party/npc-authority-references/reference.lock.json`),
+    classifyRoundPath(`${MODULE_PREFIX}/third-party/npc-behavior-references/reference.lock.json`),
     null,
   );
   assert.equal(

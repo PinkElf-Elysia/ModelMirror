@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "references": [
+    {"id":"beehave-compatibility","repository":"bitbrain/beehave","tag":"v2.9.3","commit":"773a5f6dd9b3433cdb8735ab35e9043d4cd60674","gitTreeSha1":"50bc821d8b0bd8581b0876307ec976f892f06327","archiveSha256":"4293fa89eb2bf958a7874a9267d8f7266cf59e9e424e39e78f2dd0e99043431c","license":"MIT","reuse":"backup-reference-only","conclusion":"Godot 4.5 and later require Beehave 2.10 or later, while v2.9.3 is the last locked evidence and is not a Godot 4.6.3 production dependency."},
+    {"id":"godot-4.6-characterbody","source":"https://docs.godotengine.org/en/4.6/classes/class_characterbody3d.html","version":"4.6","license":"CC-BY-3.0","reuse":"official-behavior-reference-only","conclusion":"CharacterBody3D velocity and move_and_slide are updated in physics processing."},
+    {"id":"godot-4.6-navigation-agent","source":"https://docs.godotengine.org/en/4.6/tutorials/navigation/navigation_using_navigationagents.html","version":"4.6","license":"CC-BY-3.0","reuse":"official-behavior-reference-only","conclusion":"Wait for NavigationServer synchronization, set target_position, and query get_next_path_position every physics frame."},
+    {"id":"limboai-godot-4.6.3","repository":"limbonaut/limboai","tag":"v1.7.1","commit":"e2be164b736ccc00c945612a7269280ed5378a9b","releaseAssetByteLength":32217368,"releaseAssetSha256":"ceb1757103744454d87ef12884e9d30978ff6edda6b4f09ff8da4d88e11a814e","license":"MIT","reuse":"backup-reference-only","conclusion":"The Godot 4.6.3 GDExtension build is a valid backup but its native binary surface is disproportionate to R20 fixed-policy needs."}
+  ]
+}

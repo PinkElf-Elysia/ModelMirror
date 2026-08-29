@@ -88,7 +88,7 @@ test("extraction is explicit and never recursive through verify", async () => {
 
   assert.equal(manifest.scripts["verify:extraction"], "node scripts/verify-extraction.mjs");
   assert.equal(manifest.scripts.verify.includes("verify:extraction"), false);
-  assert.equal(VERIFY_STEPS.length, 28);
+  assert.equal(VERIFY_STEPS.length, 29);
   assert.equal(new Set(VERIFY_STEPS.map(([id]) => id)).size, VERIFY_STEPS.length);
   assert.equal(
     VERIFY_STEPS.some(([, args]) => args.includes("verify:extraction")),

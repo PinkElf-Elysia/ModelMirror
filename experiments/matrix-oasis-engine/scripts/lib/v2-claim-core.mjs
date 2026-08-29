@@ -20,10 +20,10 @@ export function checkV2Claim({ moduleRoot }) {
   }
   const policy = boundary.v2ClaimPolicy;
   if (
-    boundary.activeRound !== "R19" ||
-    policy?.status !== "r19-authority-qualified" ||
+    boundary.activeRound !== "R20" ||
+    policy?.status !== "r20-implementation-in-progress" ||
     policy?.machineStatus !== "docs/V2_STATUS.json" ||
-    policy?.qualificationProfile !== "matrix-oasis.npc-authority/1" ||
+    policy?.qualificationProfile !== "matrix-oasis.deterministic-npc-bridge/1" ||
     policy?.blockingRound !== "R25" ||
     policy?.claimAllowed !== false
   ) {
