@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 from collections import defaultdict, deque
+from copy import deepcopy
 from typing import Any
 
 try:
@@ -50,6 +51,19 @@ from .schemas import (
 GRAPH_IR_VERSION = 3
 SUPPORTED_GRAPH_IR_VERSIONS = (2, 3)
 
+_TEMPLATE_PATTERN = re.compile(r"\{\{\s*(.*?)\s*\}\}", re.DOTALL)
+_SENSITIVE_CONFIG_KEY = re.compile(
+    r"(?:^|[_-])(?:authorization|cookie|credential|password|passwd|secret|"
+    r"api[_-]?key|access[_-]?token|refresh[_-]?token|private[_-]?key)"
+    r"(?:$|[_-])",
+    re.IGNORECASE,
+)
+_SENSITIVE_CONFIG_VALUE = re.compile(
+    r"(?:Bearer\s+\S+|sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9_]{12,}|"
+    r"-----BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY-----)",
+    re.IGNORECASE,
+)
+
 
 def _safe_identifier(value: str, fallback: str) -> str:
     normalized = re.sub(r"[^A-Za-z0-9_]", "_", str(value or "").strip())
@@ -65,13 +79,110 @@ def _stable_ref(prefix: str, *parts: str) -> str:
     return f"{prefix}_{digest}"
 
 
+def _template_variables(template: str) -> set[str]:
+    moustache: set[str] = set()
+    for match in _TEMPLATE_PATTERN.finditer(template):
+        expression = match.group(1).strip()
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", expression):
+            raise ValueError("Template contains an unsupported template expression.")
+        moustache.add(expression)
+    return moustache
+
+
+def _contains_sensitive_config(value: Any) -> bool:
+    if isinstance(value, dict):
+        return any(
+            _SENSITIVE_CONFIG_KEY.search(str(key))
+            or _contains_sensitive_config(item)
+            for key, item in value.items()
+        )
+    if isinstance(value, list):
+        return any(_contains_sensitive_config(item) for item in value)
+    return isinstance(value, str) and bool(_SENSITIVE_CONFIG_VALUE.search(value))
+
+
+def resolve_middleware_config(
+    middleware: dict[str, Any], supplied: dict[str, Any]
+) -> dict[str, Any]:
+    fields = {
+        str(field.get("name") or ""): field
+        for field in middleware.get("fields") or []
+        if isinstance(field, dict) and field.get("name")
+    }
+    unknown = sorted(set(supplied) - set(fields))
+    if unknown:
+        raise ValueError(
+            "Middleware config fields are not declared: " + ", ".join(unknown)
+        )
+    if _contains_sensitive_config(supplied):
+        raise ValueError("Middleware config contains credential material.")
+    resolved = dict(middleware.get("default_config") or {})
+    resolved.update(supplied)
+    for name, field in fields.items():
+        if field.get("required") and name not in resolved:
+            raise ValueError(f"Middleware config field {name} is required.")
+        if name not in resolved:
+            continue
+        value = resolved[name]
+        field_type = str(field.get("type") or "")
+        valid = (
+            (
+                field_type in {"text", "textarea", "select"}
+                and isinstance(value, str)
+            )
+            or (field_type == "boolean" and isinstance(value, bool))
+            or (
+                field_type == "number"
+                and isinstance(value, (int, float))
+                and not isinstance(value, bool)
+            )
+            or field_type == "json"
+        )
+        if not valid:
+            raise ValueError(
+                f"Middleware config field {name} does not match type {field_type}."
+            )
+        options = field.get("options")
+        if options and value not in options:
+            raise ValueError(
+                f"Middleware config field {name} has an invalid option."
+            )
+        if field_type == "number":
+            minimum = field.get("min_value")
+            maximum = field.get("max_value")
+            if minimum is not None and value < minimum:
+                raise ValueError(
+                    f"Middleware config field {name} is below its minimum."
+                )
+            if maximum is not None and value > maximum:
+                raise ValueError(
+                    f"Middleware config field {name} exceeds its maximum."
+                )
+    return resolved
+
+
 def graph_ir_checksum(graph_ir: ResolvedGraphIRV3 | dict[str, Any]) -> str:
     payload = (
         graph_ir.model_dump(mode="json")
         if isinstance(graph_ir, ResolvedGraphIRV3)
-        else dict(graph_ir)
+        else deepcopy(graph_ir)
     )
     payload.pop("graph_checksum", None)
+    payload["tags"] = sorted(set(payload.get("tags") or []))
+    payload["starters"] = sorted(set(payload.get("starters") or []))
+    payload["nodes"] = sorted(
+        payload.get("nodes") or [], key=lambda item: str(item.get("ref") or "")
+    )
+    payload["edges"] = sorted(
+        payload.get("edges") or [], key=lambda item: str(item.get("ref") or "")
+    )
+    payload["prompt_profiles"] = sorted(
+        payload.get("prompt_profiles") or [],
+        key=lambda item: (
+            str(item.get("profile_id") or ""),
+            int(item.get("pinned_version") or 0),
+        ),
+    )
     return canonical_checksum(payload)
 
 
@@ -108,7 +219,13 @@ def workflow_semantic_checksum(candidate: dict[str, Any]) -> str:
             ],
             key=lambda item: str(item["id"]),
         ),
-        "prompt_profiles": candidate.get("draft", {}).get("prompt_profiles") or [],
+        "prompt_profiles": sorted(
+            candidate.get("draft", {}).get("prompt_profiles") or [],
+            key=lambda item: (
+                str(item.get("profile_id") or ""),
+                int(item.get("pinned_version") or 0),
+            ),
+        ),
     }
     return canonical_checksum(payload)
 
@@ -190,6 +307,14 @@ def v2_to_graph_intent(
         "conversation_history": ("input", "conversation_history", "array"),
     }
     warnings: list[str] = []
+    reserved_collisions = sorted(set(producers) & set(external))
+    if reserved_collisions:
+        warnings.append(
+            "lossy_conversion: node outputs collide with reserved external "
+            "variables: "
+            + ", ".join(reserved_collisions)
+            + "."
+        )
     converted_nodes: list[GraphIntentNodeV3] = []
     for node in blueprint.nodes:
         converted_inputs: list[GraphIntentInputBindingV3] = []
@@ -321,11 +446,52 @@ def graph_intent_to_v2(intent: GraphIntentV3) -> MetaPlannerTypedBlueprintV2:
 def _schemas_compatible(
     source: WorkflowValueSchema, target: WorkflowValueSchema
 ) -> bool:
-    if source.type == "any" or target.type == "any":
+    def variants(schema: WorkflowValueSchema) -> list[WorkflowValueSchema]:
+        resolved = (
+            list(schema.any_of)
+            if schema.any_of
+            else [schema.model_copy(update={"nullable": False, "any_of": ()})]
+        )
+        if schema.nullable:
+            resolved.append(WorkflowValueSchema(type="null"))
+        return resolved
+
+    if source.any_of or source.nullable or target.any_of or target.nullable:
+        return all(
+            any(_schemas_compatible(item, accepted) for accepted in variants(target))
+            for item in variants(source)
+        )
+
+    if target.type == "any":
         return True
-    if source.type == target.type:
+    if source.type == "any":
+        return False
+    if source.type == "null" or target.type == "null":
+        return source.type == target.type
+    if source.type == "integer" and target.type == "number":
         return True
-    return source.type == "integer" and target.type == "number"
+    if source.type != target.type:
+        return False
+    if source.type == "array":
+        if target.items is None:
+            return True
+        if source.items is None:
+            return False
+        return _schemas_compatible(source.items, target.items)
+    if source.type == "object":
+        source_required = set(source.required)
+        target_required = set(target.required)
+        if not target_required.issubset(source_required):
+            return False
+        for name, target_property in target.properties.items():
+            source_property = source.properties.get(name)
+            if source_property is None:
+                if name in target_required:
+                    return False
+                continue
+            if not _schemas_compatible(source_property, target_property):
+                return False
+    return True
 
 
 def _resolved_node(
@@ -367,6 +533,56 @@ def resolve_graph_intent(
     refs = [node.ref for node in intent.nodes]
     if len(refs) != len(set(refs)):
         raise ValueError("Graph IR node refs must be unique.")
+    compiled_ids = [f"node_{_safe_identifier(ref, 'node')}" for ref in refs]
+    if len(compiled_ids) != len(set(compiled_ids)):
+        raise ValueError(
+            "Graph IR node refs collide after identifier normalization."
+        )
+    snapshot_nodes = {
+        str(item.get("kind") or ""): item for item in snapshot.nodes
+    }
+    available_models = {
+        str(item.get("id") or "")
+        for item in snapshot.models
+        if item.get("safe") is True and item.get("id")
+    }
+    if default_agent_model_id:
+        available_models.add(default_agent_model_id)
+    try:
+        from .node_adapters import (
+            get_planner_node_adapter,
+            planner_capability_metadata,
+        )
+    except ImportError:  # pragma: no cover - package fallback
+        from meta_agent.node_adapters import (  # type: ignore
+            get_planner_node_adapter,
+            planner_capability_metadata,
+        )
+    for node in intent.nodes:
+        projection = snapshot_nodes.get(node.kind)
+        current = planner_capability_metadata(node.kind)
+        planner = dict((projection or {}).get("planner") or {})
+        if (
+            projection is None
+            or current is None
+            or current.get("support") != "full"
+            or not planner.get("compilable")
+            or any(
+                planner.get(field) != current.get(field)
+                for field in (
+                    "ir_version",
+                    "contract_version",
+                    "contract_checksum",
+                    "compiler_checksum",
+                    "adapter_checksum",
+                )
+            )
+        ):
+            raise ValueError(
+                f"Node kind {node.kind} is not an authoritative Planner capability."
+            )
+        if get_planner_node_adapter(node.kind) is None:
+            raise ValueError(f"Node kind {node.kind} has no Planner adapter.")
     known_refs = set(refs)
     edge_keys: set[tuple[str, str]] = set()
     for edge in intent.control_edges:
@@ -421,6 +637,28 @@ def resolve_graph_intent(
             and default_agent_model_id
         ):
             resolved_config["model_id"] = default_agent_model_id
+        adapter = get_planner_node_adapter(node.kind)
+        assert adapter is not None
+        resolved_config = adapter.config_model.model_validate(
+            resolved_config
+        ).model_dump(mode="json")
+        model_id = str(resolved_config.get("model_id") or "")
+        if model_id and model_id not in available_models:
+            raise ValueError(
+                f"Agent model {model_id} is unavailable in the Capability Snapshot."
+            )
+        declared_inputs = {binding.variable for binding in node.inputs}
+        referenced: set[str] = set()
+        for field in ("role_prompt", "task_input"):
+            referenced.update(
+                _template_variables(str(resolved_config.get(field) or ""))
+            )
+        missing_bindings = sorted(referenced - declared_inputs)
+        if missing_bindings:
+            raise ValueError(
+                f"Node {node.ref} template variables need explicit data bindings: "
+                + ", ".join(missing_bindings)
+            )
         resolved = _resolved_node(
             ref=node.ref,
             node_id=f"node_{_safe_identifier(node.ref, 'node')}",
@@ -573,9 +811,20 @@ def resolve_graph_intent(
         "toolset_resource": {item["id"]: item for item in snapshot.toolsets},
         "plugin_resource": {item["id"]: item for item in snapshot.plugins},
     }
+    seen_resources: set[tuple[str, str, str]] = set()
+    seen_external_tools: set[tuple[str, str]] = set()
     for binding in intent.resources:
-        if binding.target_ref not in resolved_by_ref:
+        target = resolved_by_ref.get(binding.target_ref)
+        if target is None:
             raise ValueError(f"Resource {binding.resource_id} targets an unknown node.")
+        if target.kind != "workflow_agent" or target.role != "executable":
+            raise ValueError(
+                f"Resource {binding.resource_id} must target a workflow_agent."
+            )
+        resource_key = (binding.kind, binding.resource_id, binding.target_ref)
+        if resource_key in seen_resources:
+            raise ValueError("Graph IR cannot bind a duplicate resource.")
+        seen_resources.add(resource_key)
         resource = resources[binding.kind].get(binding.resource_id)
         if resource is None:
             raise ValueError(f"Resource {binding.resource_id} is unavailable.")
@@ -595,7 +844,28 @@ def resolve_graph_intent(
             version = resource.get("published_version")
             if not version:
                 raise ValueError(f"Resource {binding.resource_id} has no published version.")
-            config["pinned_version"] = int(version)
+            expected_version = intent._pinned_resource_versions.get(
+                (binding.kind, binding.resource_id)
+            )
+            if expected_version is not None and int(version) != expected_version:
+                raise ValueError(
+                    f"Resource {binding.resource_id} drifted from pinned version "
+                    f"{expected_version} to {version}."
+                )
+            config["pinned_version"] = expected_version or int(version)
+        if binding.kind == "external_xpert":
+            tool_name = _safe_identifier(
+                binding.tool_name or f"xpert_{binding.resource_id[:12]}",
+                "external_xpert",
+            )
+            tool_key = (binding.target_ref, tool_name)
+            if tool_key in seen_external_tools:
+                raise ValueError(
+                    f"External Xpert tool name {tool_name} is duplicated for "
+                    f"node {binding.target_ref}."
+                )
+            seen_external_tools.add(tool_key)
+            config["tool_name"] = tool_name
         config["resource_checksum"] = canonical_checksum(resource)
         resolved_resource = _resolved_node(
             ref=ref,
@@ -636,10 +906,14 @@ def resolve_graph_intent(
             raise ValueError("Graph IR cannot bind duplicate middleware.")
         seen_middleware.add(key)
         middleware = middleware_lookup.get(binding.middleware_id)
-        if middleware is None or binding.target_ref not in resolved_by_ref:
+        target = resolved_by_ref.get(binding.target_ref)
+        if middleware is None or target is None:
             raise ValueError(f"Middleware {binding.middleware_id} is unavailable.")
-        defaults = dict(middleware.get("default_config") or {})
-        defaults.update(binding.config)
+        if target.kind != "workflow_agent" or target.role != "executable":
+            raise ValueError(
+                f"Middleware {binding.middleware_id} must target a workflow_agent."
+            )
+        defaults = resolve_middleware_config(middleware, binding.config)
         ref = _stable_ref("middleware", binding.middleware_id, binding.target_ref)
         resolved_middleware = _resolved_node(
             ref=ref,
@@ -732,14 +1006,23 @@ def resolve_graph_intent(
 
     prompt_lookup = {item["id"]: item for item in snapshot.prompt_profiles}
     prompt_profiles: list[ResolvedPromptProfileV3] = []
+    if len(intent.prompt_profile_ids) != len(set(intent.prompt_profile_ids)):
+        raise ValueError("Graph IR cannot bind duplicate Prompt Profiles.")
     for profile_id in dict.fromkeys(intent.prompt_profile_ids):
         resource = prompt_lookup.get(profile_id)
         if resource is None or not resource.get("published_version"):
             raise ValueError(f"Prompt Profile {profile_id} is unavailable.")
+        version = int(resource["published_version"])
+        expected_version = intent._pinned_prompt_profile_versions.get(profile_id)
+        if expected_version is not None and version != expected_version:
+            raise ValueError(
+                f"Prompt Profile {profile_id} drifted from pinned version "
+                f"{expected_version} to {version}."
+            )
         prompt_profiles.append(
             ResolvedPromptProfileV3(
                 profile_id=profile_id,
-                pinned_version=int(resource["published_version"]),
+                pinned_version=expected_version or version,
                 checksum=canonical_checksum(resource),
             )
         )
@@ -817,6 +1100,7 @@ def decompile_candidate_to_graph_intent(
 
     control_edges: list[GraphIntentControlEdgeV3] = []
     resources: list[MetaPlannerIRResourceBinding] = []
+    pinned_resource_versions: dict[tuple[str, str], int] = {}
     middleware: list[MetaPlannerIRMiddlewareBinding] = []
     for raw_edge in workflow.get("edges") or []:
         source_id = str(raw_edge.get("source") or "")
@@ -861,11 +1145,26 @@ def decompile_candidate_to_graph_intent(
             "toolset_resource": "toolsetId",
             "plugin_resource": "pluginId",
         }
+        resource_id = str(source_data.get(id_fields[source_kind]) or "")
+        if source_kind != "knowledge_base":
+            try:
+                pinned_version = int(source_data.get("pinnedVersion"))
+            except (TypeError, ValueError):
+                raise ValueError(
+                    f"Compiled {source_kind} resource has no pinned version."
+                ) from None
+            pin_key = (source_kind, resource_id)
+            previous_pin = pinned_resource_versions.get(pin_key)
+            if previous_pin is not None and previous_pin != pinned_version:
+                raise ValueError(
+                    "Compiled resource carries conflicting pinned versions."
+                )
+            pinned_resource_versions[pin_key] = pinned_version
         resources.append(
             MetaPlannerIRResourceBinding(
                 target_ref=target_ref,
                 kind=source_kind,
-                resource_id=str(source_data.get(id_fields[source_kind]) or ""),
+                resource_id=resource_id,
                 tool_name=str(source_data.get("toolName") or ""),
                 description=str(source_data.get("description") or ""),
                 top_k=int(source_data.get("topK") or 5),
@@ -899,12 +1198,25 @@ def decompile_candidate_to_graph_intent(
     terminal_ref = ref_by_id.get(str((terminal_edge or {}).get("source") or ""))
     if not terminal_ref or not output_variable:
         raise ValueError("Compiled candidate final output metadata is incomplete.")
-    prompt_ids = [
-        str(item.get("profile_id") or "")
+    prompt_items = [
+        item
         for item in draft.get("prompt_profiles") or []
         if item.get("enabled", True) and item.get("profile_id")
     ]
-    return GraphIntentV3(
+    prompt_ids = [
+        str(item.get("profile_id") or "")
+        for item in prompt_items
+    ]
+    pinned_prompt_versions: dict[str, int] = {}
+    for item in prompt_items:
+        profile_id = str(item.get("profile_id") or "")
+        try:
+            pinned_prompt_versions[profile_id] = int(item.get("pinned_version"))
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"Compiled Prompt Profile {profile_id} has no pinned version."
+            ) from None
+    intent = GraphIntentV3(
         name=str(candidate.get("name") or workflow.get("title") or "Xpert"),
         description=str(candidate.get("description") or ""),
         tags=list(candidate.get("tags") or []),
@@ -921,6 +1233,9 @@ def decompile_candidate_to_graph_intent(
             variable=output_variable,
         ),
     )
+    intent._pinned_resource_versions = pinned_resource_versions
+    intent._pinned_prompt_profile_versions = pinned_prompt_versions
+    return intent
 
 
 def resolved_behavior_projection(graph_ir: ResolvedGraphIRV3) -> dict[str, Any]:

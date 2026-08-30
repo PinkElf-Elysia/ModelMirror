@@ -128,6 +128,7 @@ def test_blueprint_and_repair_prompts_expose_typed_ir_agent_constraints():
 
     for prompt in (blueprint_prompt, repair_prompt):
         constraints = prompt["typed_ir_constraints"]
+        graph_contract = prompt["graph_intent_contract"]
         assert constraints["max_workflow_agent_nodes"] == request.max_agents
         assert constraints["required_task_ids"] == [
             task.task_id for task in plan.tasks
@@ -155,7 +156,44 @@ def test_blueprint_and_repair_prompts_expose_typed_ir_agent_constraints():
             "group compatible task_ids" in rule
             for rule in constraints["rules"]
         )
+        assert graph_contract["required_ir_version"] == 3
+        assert graph_contract["node_roles"] == {
+            "executable_node_kinds": ["workflow_agent"],
+            "compiler_managed_node_kinds": ["input", "output"],
+            "resource_binding_kinds": [
+                "external_xpert",
+                "knowledge_base",
+                "plugin_resource",
+                "toolset_resource",
+            ],
+        }
+        assert graph_contract["workflow_agent"]["config_field_names"] == list(
+            MetaPlannerWorkflowAgentConfig.model_fields
+        )
+        assert graph_contract["workflow_agent"]["input_port"] == {
+            "name": "task",
+            "cardinality": "many",
+            "root_source_ref": "input",
+            "root_source_port": "user_input",
+            "root_variable": "user_input",
+        }
+        assert any(
+            "never emit outputVariable" in rule
+            for rule in graph_contract["rules"]
+        )
+        assert (
+            prompt["capability_snapshot"]["graph_intent_contract"]
+            == graph_contract
+        )
         assert prompt["default_agent_model_id"] == request.default_agent_model_id
+        example = GraphIntentV3.model_validate(prompt["canonical_minimal_example"])
+        assert example.ir_version == 3
+        assert [node.kind for node in example.nodes] == ["workflow_agent"]
+        assert example.nodes[0].task_ids == [task.task_id for task in plan.tasks]
+        assert example.nodes[0].inputs[0].port == "task"
+        assert example.nodes[0].inputs[0].source_ref == "input"
+        assert example.nodes[0].inputs[0].value_schema.type == "string"
+        assert example.nodes[0].config["model_id"] == request.default_agent_model_id
 
     assert repair_prompt["validation_issues"] == [
         "Typed IR exceeds max_agents=3."
@@ -712,7 +750,7 @@ async def test_generation_persists_proposal_and_uses_at_most_one_repair(
     assert graph_intent is not None
     outputs = [
         _plan().model_dump_json(),
-        json.dumps({"name": "invalid"}, ensure_ascii=False),
+        _typed_blueprint().model_dump_json(),
         graph_intent.model_dump_json(),
     ]
     calls = []
@@ -858,7 +896,9 @@ async def test_update_revision_drift_uses_final_proposal_validation(
         return original_validate(proposal_id, revision=revision)
 
     authoring.validate = validate_after_revision_drift  # type: ignore[method-assign]
-    outputs = [_plan().model_dump_json(), _typed_blueprint().model_dump_json()]
+    graph_intent, _ = v2_to_graph_intent(_typed_blueprint())
+    assert graph_intent is not None
+    outputs = [_plan().model_dump_json(), graph_intent.model_dump_json()]
 
     async def complete(model_id, system_prompt, user_prompt, temperature, max_tokens):
         return outputs.pop(0)
@@ -875,8 +915,8 @@ async def test_update_revision_drift_uses_final_proposal_validation(
     response = await service.generate(request, _snapshot(), target=target)
 
     proposal = proposal_store.require(response.proposal_id)
-    assert response.compatibility.source_version == 2
-    assert response.compatibility.upgraded is True
+    assert response.compatibility.source_version == 3
+    assert response.compatibility.upgraded is False
     assert proposal.validation["valid"] is False
     assert response.validation["valid"] is False
     authoring_stage = next(

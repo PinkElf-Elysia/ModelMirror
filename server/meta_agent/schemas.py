@@ -3,7 +3,14 @@ from __future__ import annotations
 import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    field_validator,
+    model_validator,
+)
 
 try:
     from server.workflow_native.node_contracts import (
@@ -354,6 +361,15 @@ class GraphIntentFinalOutputV3(BaseModel):
 
 class GraphIntentV3(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+    # Trusted decompilation constraints are deliberately absent from the JSON
+    # schema, so model output cannot forge immutable resource versions.
+    _pinned_resource_versions: dict[tuple[str, str], int] = PrivateAttr(
+        default_factory=dict
+    )
+    _pinned_prompt_profile_versions: dict[str, int] = PrivateAttr(
+        default_factory=dict
+    )
 
     ir_version: Literal[3] = 3
     name: str = Field(min_length=1, max_length=120)
