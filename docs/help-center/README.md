@@ -13,7 +13,7 @@
 
 首页只呈现帮助用户决定下一步所需的入口，不完整展开目录。一级索引、模块和二级功能均应可点击；进入任一页面后，使用统一的左侧分级目录和右侧正文阅读界面。
 
-一级模块页是该模块的总目录，不再增加“模块概览”一类伪二级索引。二级索引只收录独立用户任务、稳定页面、页面一级页签或必须单独说明的实验/受限边界；节点、模型、工具、配置项和流程内部步骤属于三级内容，按后续轮次补充。首轮事实清单见 [`evidence/secondary-index-audit-d4bd6b8d.md`](./evidence/secondary-index-audit-d4bd6b8d.md)，合入前最新主线重放见 [`evidence/pre-pr-revalidation-cc49136c.md`](./evidence/pre-pr-revalidation-cc49136c.md)。
+一级模块页是该模块的总目录，不再增加“模块概览”一类伪二级索引。二级索引只收录独立用户任务、稳定页面、页面一级页签或必须单独说明的实验/受限边界；节点、模型、工具、配置项和流程内部步骤属于三级内容，按后续轮次补充。首轮事实清单见 [`evidence/secondary-index-audit-d4bd6b8d.md`](./evidence/secondary-index-audit-d4bd6b8d.md)，当前收尾重放见 [`evidence/pr337-closeout-b5e0e85e.md`](./evidence/pr337-closeout-b5e0e85e.md)，Agent 与 Workflow 教程重放见 [`evidence/agent-workflow-tutorials-b5e0e85e.md`](./evidence/agent-workflow-tutorials-b5e0e85e.md)。
 
 每篇文章元数据必须包含：slug、标题、摘要、分类、内容类型、对象、预计时间、关键词、相关产品路由、验证 commit、验证日期。
 

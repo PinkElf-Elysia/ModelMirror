@@ -18,7 +18,6 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import remarkGfm from "remark-gfm";
 import PageContainer from "../components/PageContainer";
-import { ArticleFeedback } from "../components/help/ArticleFeedback";
 import {
   findHelpArticle,
   findHelpModule,
@@ -49,7 +48,14 @@ function getTableOfContents(markdown: string) {
 const markdownComponents: Components = {
   h2: ({ children }) => <h2 className="scroll-mt-28 border-t border-white/10 pt-8 text-2xl font-bold text-white first:border-t-0 first:pt-0" id={headingId(childrenText(children))}>{children}</h2>,
   h3: ({ children }) => <h3 className="text-lg font-bold text-slate-100">{children}</h3>,
-  p: ({ children }) => <p className="text-base leading-8 tracking-[0.005em] text-slate-300">{children}</p>,
+  p: ({ children, node }) => {
+    const isStandaloneImage = node?.children.length === 1
+      && node.children[0].type === "element"
+      && node.children[0].tagName === "img";
+    return isStandaloneImage
+      ? <>{children}</>
+      : <p className="text-base leading-8 tracking-[0.005em] text-slate-300">{children}</p>;
+  },
   ul: ({ children }) => <ul className="list-disc space-y-2 pl-6 text-base leading-8 text-slate-300 marker:text-cyan-300">{children}</ul>,
   ol: ({ children, start }) => <ol className="list-decimal space-y-4 pl-6 text-base leading-8 text-slate-300 marker:font-bold marker:text-cyan-200" start={start}>{children}</ol>,
   li: ({ children }) => <li className="pl-1">{children}</li>,
@@ -228,7 +234,6 @@ function ArticlePage({ article }: { article: HelpArticle }) {
       </p>
       <details className="mt-6 max-w-[72ch] rounded-xl border border-white/10 bg-[#071a2b]/68 p-4"><summary className="min-h-11 cursor-pointer py-2 text-sm font-bold text-slate-100">本文目录</summary><ol className="mt-3 grid gap-2 border-t border-white/10 pt-4 sm:grid-cols-2">{toc.map((item) => <li key={item.id}><a className="block py-1 text-sm leading-5 text-slate-400 hover:text-cyan-100" href={`#${item.id}`}>{item.title}</a></li>)}</ol></details>
       <article className="help-article mt-9 max-w-[72ch] space-y-6"><ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm]}>{article.content}</ReactMarkdown></article>
-      <ArticleFeedback key={article.slug} slug={article.slug} />
       {nextArticle ? <aside aria-label="下一篇建议" className="mt-10 max-w-[72ch] border-t border-white/10 pt-7"><p className="text-sm font-semibold text-slate-500">下一篇建议</p><Link className="group mt-3 flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-[#071a2b]/68 p-4 hover:border-cyan-300/30" to={`/help/${nextArticle.slug}`}><span><span className="block font-semibold text-white group-hover:text-cyan-100">{nextArticle.title}</span><span className="mt-1 block text-sm leading-6 text-slate-400">{nextArticle.summary}</span></span><ArrowRight aria-hidden="true" className="h-5 w-5 shrink-0 text-slate-500 group-hover:text-cyan-100" /></Link></aside> : null}
     </>
   );

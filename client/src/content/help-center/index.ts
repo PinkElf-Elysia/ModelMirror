@@ -1,9 +1,5 @@
 import buildFirstWorkflow from "./articles/build-first-workflow.md?raw";
 import checkAvailabilityCostData from "./articles/check-availability-cost-data.md?raw";
-import editAndRecoverAgentWorkflow from "./articles/edit-and-recover-agent-workflow.md?raw";
-import fileBoundariesAndDataSafety from "./articles/file-boundaries-and-data-safety.md?raw";
-import firstRagKnowledgeBase from "./articles/first-rag-knowledge-base.md?raw";
-import installOrImportSkill from "./articles/install-or-import-skill.md?raw";
 import chooseModelAgentWorkflow from "./articles/choose-model-agent-workflow.md?raw";
 import createRepeatableAgent from "./articles/create-repeatable-agent.md?raw";
 import handleWorkflowNodeFailure from "./articles/handle-workflow-node-failure.md?raw";
@@ -11,8 +7,6 @@ import modulesAndTerms from "./articles/modules-and-terms.md?raw";
 import promoteRunToSkill from "./articles/promote-run-to-skill.md?raw";
 import recoverUnavailableFeature from "./articles/recover-unavailable-feature.md?raw";
 import reviewRemoteMcpAuth from "./articles/review-remote-mcp-auth.md?raw";
-import runtimeStatusOverview from "./articles/runtime-status-overview.md?raw";
-import settingsAndProviderLayers from "./articles/settings-and-provider-layers.md?raw";
 import subscribeEmailWorkflow from "./articles/subscribe-email-workflow.md?raw";
 import subscribeRssWorkflow from "./articles/subscribe-rss-workflow.md?raw";
 import startWithAModel from "./articles/start-with-a-model.md?raw";
@@ -91,13 +85,14 @@ export type HelpSearchEntry = {
 };
 
 export const verifiedBaseline = { commit: "cc49136c", date: "2026-08-26" };
+export const helpCenterCloseoutBaseline = { commit: "b5e0e85e", date: "2026-08-29" };
+export const agentWorkflowTutorialBaseline = { commit: "b5e0e85e", date: "2026-08-30" };
 export const remoteMcpReviewBaseline = { commit: "821067a7", date: "2026-08-27" };
 export const ragDiversityBaseline = { commit: "f0150fb5", date: "2026-08-27" };
 export const rssReviewBaseline = { commit: "821067a7", date: "2026-08-27" };
 export const ragFormalIntegrityBaseline = { commit: "be056e99", date: "2026-08-28" };
 export const skillExperienceBaseline = { commit: "bf486f25", date: "2026-08-27" };
 export const emailReviewBaseline = { commit: "afda87ff", date: "2026-08-28" };
-export const agentPreviewBaseline = { commit: "c2e75371", date: "2026-08-30" };
 export const workflowErrorRoutingBaseline = { commit: "b5e0e85e", date: "2026-08-29" };
 
 export const helpContentTypeLabels: Record<HelpContentType, string> = {
@@ -116,147 +111,57 @@ export const helpArticles: HelpArticle[] = [
     contentType: "tutorial",
     audience: "第一次使用模镜、希望让 AI 理解图片的用户",
     estimatedMinutes: 4,
-    keywords: ["第一次使用", "图片", "图片识别", "模型", "聊天", "立即面试", "Kimi"],
-    relatedRoutes: ["/models", "/chat/moonshotai%2Fkimi-k3"],
-    verifiedCommit: verifiedBaseline.commit,
-    verifiedDate: verifiedBaseline.date,
+    keywords: ["第一次使用", "图片", "图片识别", "模型", "聊天", "立即面试", "Qwen", "Qwen3.8 Max"],
+    relatedRoutes: ["/models", "/chat/qwen%2Fqwen3.8-max"],
+    verifiedCommit: helpCenterCloseoutBaseline.commit,
+    verifiedDate: helpCenterCloseoutBaseline.date,
     content: startWithAModel,
     nextSlug: "check-availability-cost-data",
   },
   {
     slug: "choose-model-agent-workflow",
     title: "该用模型、Agent，还是 Workflow？",
-    summary: "按一次性任务、重复角色和固定多步骤流程，快速判断从哪里开始。",
+    summary: "判断是直接使用模型、保存为 Agent，还是用 Workflow 固定多个步骤。",
     category: "按目标找指南",
     contentType: "explanation",
     audience: "知道要完成什么，但不确定该进入哪个模块的用户",
     estimatedMinutes: 3,
     keywords: ["模型", "Agent", "智能体", "Workflow", "工作流", "选择"],
     relatedRoutes: ["/models", "/agents", "/workflow"],
-    verifiedCommit: verifiedBaseline.commit,
-    verifiedDate: verifiedBaseline.date,
+    verifiedCommit: helpCenterCloseoutBaseline.commit,
+    verifiedDate: helpCenterCloseoutBaseline.date,
     content: chooseModelAgentWorkflow,
     nextSlug: "create-repeatable-agent",
   },
   {
     slug: "create-repeatable-agent",
-    title: "创建一个能反复使用的 Agent",
-    summary: "创建、保存并发布带固定角色和工具配置的智能体，以后直接复用。",
+    title: "创建一个可重复使用的 Agent 草稿",
+    summary: "创建 Agent，设置模型和角色提示词，保存草稿并完成发布预检。",
     category: "按目标找指南",
-    contentType: "how-to",
-    audience: "反复执行同类任务、希望保留角色设定与工具配置的用户",
+    contentType: "tutorial",
+    audience: "需要反复使用同一角色、回答要求或工具组合的用户",
     estimatedMinutes: 6,
-    keywords: ["Agent", "智能体", "创建", "Agent Studio", "发布", "角色", "重复使用"],
-    relatedRoutes: ["/agents/studio", "/agents/studio/new"],
-    verifiedCommit: agentPreviewBaseline.commit,
-    verifiedDate: agentPreviewBaseline.date,
+    keywords: ["Agent", "智能体", "Agent Studio", "重复角色", "角色提示词", "草稿", "发布预检"],
+    relatedRoutes: ["/agents/studio", "/agents/studio/:xpertId"],
+    verifiedCommit: agentWorkflowTutorialBaseline.commit,
+    verifiedDate: agentWorkflowTutorialBaseline.date,
     content: createRepeatableAgent,
     nextSlug: "build-first-workflow",
   },
   {
     slug: "build-first-workflow",
-    title: "搭建第一个固定步骤工作流",
-    summary: "从默认模板开始，编排固定顺序的多步骤任务并保存草稿确认结构。",
+    title: "搭建并保存第一个固定步骤工作流",
+    summary: "使用经典工作流的三节点模板，配置中间步骤并保存草稿。",
     category: "按目标找指南",
-    contentType: "how-to",
-    audience: "反复执行固定顺序多步骤任务、希望把流程固化的用户",
+    contentType: "tutorial",
+    audience: "需要按固定顺序重复处理输入并交付结果的用户",
     estimatedMinutes: 6,
-    keywords: ["工作流", "Workflow", "经典画布", "节点", "试运行", "流水线", "固定步骤"],
-    relatedRoutes: ["/workflow"],
-    verifiedCommit: agentPreviewBaseline.commit,
-    verifiedDate: agentPreviewBaseline.date,
+    keywords: ["Workflow", "工作流", "经典工作流", "固定步骤", "草稿", "角色提示词", "保存草稿"],
+    relatedRoutes: ["/workflow", "/workflow/:workflowId"],
+    verifiedCommit: agentWorkflowTutorialBaseline.commit,
+    verifiedDate: agentWorkflowTutorialBaseline.date,
     content: buildFirstWorkflow,
-    nextSlug: "edit-and-recover-agent-workflow",
-  },
-  {
-    slug: "edit-and-recover-agent-workflow",
-    title: "修改已发布 Agent 或工作流，并处理运行失败",
-    summary: "在不动旧版本的前提下修改 Agent 或工作流，并在失败时到运维页查看原因。",
-    category: "按目标找指南",
-    contentType: "how-to",
-    audience: "已经创建过 Agent 或工作流，需要调整或排查失败的用户",
-    estimatedMinutes: 6,
-    keywords: ["编辑", "修改", "发布", "新版本", "恢复", "失败", "运维", "Runtime"],
-    relatedRoutes: ["/agents/studio", "/workflow", "/runtime"],
-    verifiedCommit: agentPreviewBaseline.commit,
-    verifiedDate: agentPreviewBaseline.date,
-    content: editAndRecoverAgentWorkflow,
-    nextSlug: "first-rag-knowledge-base",
-  },
-  {
-    slug: "first-rag-knowledge-base",
-    title: "第一次使用 RAG 知识库",
-    summary: "创建知识库、上传文档，并让模型基于你自己的资料回答。",
-    category: "按目标找指南",
-    contentType: "how-to",
-    audience: "希望 AI 基于自有资料回答，而不是凭通用知识发挥的用户",
-    estimatedMinutes: 5,
-    keywords: ["RAG", "知识库", "资料", "文档", "上传", "引用", "检索"],
-    relatedRoutes: ["/rag"],
-    verifiedCommit: agentPreviewBaseline.commit,
-    verifiedDate: agentPreviewBaseline.date,
-    content: firstRagKnowledgeBase,
-    nextSlug: "file-boundaries-and-data-safety",
-  },
-  {
-    slug: "file-boundaries-and-data-safety",
-    title: "文件能力边界与数据安全",
-    summary: "了解上传文件的格式、大小限制，以及资料如何处理和是否外发。",
-    category: "按目标找指南",
-    contentType: "explanation",
-    audience: "准备上传文件、想确认能否上传和资料是否安全的用户",
-    estimatedMinutes: 4,
-    keywords: ["文件", "格式", "大小", "上传", "数据", "安全", "边界", "发送"],
-    relatedRoutes: ["/rag", "/chat"],
-    verifiedCommit: agentPreviewBaseline.commit,
-    verifiedDate: agentPreviewBaseline.date,
-    content: fileBoundariesAndDataSafety,
-    nextSlug: "runtime-status-overview",
-  },
-  {
-    slug: "runtime-status-overview",
-    title: "查看运行状态与连接",
-    summary: "在运维页集中查看运行记录、客户端宿主配对和运行资源状态。",
-    category: "按目标找指南",
-    contentType: "how-to",
-    audience: "任务运行异常、工具未连接或想确认环境状态的用户",
-    estimatedMinutes: 5,
-    keywords: ["运维", "Runtime", "运行记录", "客户端宿主", "MCP", "连接", "状态", "诊断"],
-    relatedRoutes: ["/runtime"],
-    verifiedCommit: agentPreviewBaseline.commit,
-    verifiedDate: agentPreviewBaseline.date,
-    content: runtimeStatusOverview,
-    nextSlug: "install-or-import-skill",
-  },
-  {
-    slug: "install-or-import-skill",
-    title: "安装或导入一个 Skill",
-    summary: "从技能市场安装，或从本地导入 ZIP/文件夹，让 Skill 可被使用。",
-    category: "按目标找指南",
-    contentType: "how-to",
-    audience: "想给 AI 增加可重复使用技能包、但不确定从哪开始的用户",
-    estimatedMinutes: 5,
-    keywords: ["Skill", "技能", "安装", "导入", "市场", "本地", "ZIP", "信任"],
-    relatedRoutes: ["/skills", "/skills/import"],
-    verifiedCommit: agentPreviewBaseline.commit,
-    verifiedDate: agentPreviewBaseline.date,
-    content: installOrImportSkill,
-    nextSlug: "settings-and-provider-layers",
-  },
-  {
-    slug: "settings-and-provider-layers",
-    title: "设置与 Provider 分层说明",
-    summary: "理解普通用户和管理员的设置边界，以及 Provider 和路由控制在哪儿管理。",
-    category: "安全、费用与数据",
-    contentType: "reference",
-    audience: "想修改连接或路由配置、但不清楚权限边界的用户",
-    estimatedMinutes: 4,
-    keywords: ["设置", "Provider", "管理员", "配对", "路由", "Catalog", "权限", "配置"],
-    relatedRoutes: ["/settings"],
-    verifiedCommit: agentPreviewBaseline.commit,
-    verifiedDate: agentPreviewBaseline.date,
-    content: settingsAndProviderLayers,
-    nextSlug: "modules-and-terms",
+    nextSlug: "check-availability-cost-data",
   },
   {
     slug: "promote-run-to-skill",
@@ -334,16 +239,16 @@ export const helpArticles: HelpArticle[] = [
   },
   {
     slug: "modules-and-terms",
-    title: "先认识模镜：资源、工作台与运行状态",
-    summary: "了解模镜怎样组织 AI 能力、任务入口和运行状态，再决定从哪里开始。",
+    title: "先认识模镜：各入口怎样配合",
+    summary: "分清直接完成任务、保存角色、固定流程、连接资料和排查问题分别从哪里开始。",
     category: "按模块浏览",
     contentType: "reference",
     audience: "第一次浏览模镜，或不确定各入口如何配合的用户",
     estimatedMinutes: 5,
     keywords: ["模镜", "整体结构", "模块", "术语", "入口", "状态", "资源", "工作台", "运维"],
-    relatedRoutes: ["/models", "/agents", "/mcps", "/skills", "/runtime", "/prompts"],
-    verifiedCommit: verifiedBaseline.commit,
-    verifiedDate: verifiedBaseline.date,
+    relatedRoutes: ["/models", "/agents", "/workflow", "/rag", "/mcps", "/skills", "/runtime", "/settings"],
+    verifiedCommit: helpCenterCloseoutBaseline.commit,
+    verifiedDate: helpCenterCloseoutBaseline.date,
     content: modulesAndTerms,
     nextSlug: "recover-unavailable-feature",
   },
@@ -539,8 +444,8 @@ export const helpSections: HelpSection[] = [
     path: "/help/sections/goals",
     items: [
       { id: "one-time", title: "只完成眼前这一次", summary: "问答、写作、看图或临时分析，先直接用模型。", to: "/help/modules/models", keywords: ["一次", "问答", "写作", "看图"] },
-      { id: "repeat-role", title: "以后反复使用同一角色", summary: "需要保留角色设定和工具时，查看 Agent。", to: "/help/modules/agents", keywords: ["重复", "角色", "Agent"] },
-      { id: "repeat-process", title: "按固定顺序完成多步任务", summary: "需要同一流程重复运行时，查看 Workflow 判断。", to: "/help/choose-model-agent-workflow", keywords: ["多步", "固定顺序", "Workflow"] },
+      { id: "repeat-role", title: "以后反复使用同一角色", summary: "创建 Agent 草稿，保存模型和角色要求，并完成发布预检。", to: "/help/create-repeatable-agent", keywords: ["重复", "角色", "Agent", "Agent Studio"] },
+      { id: "repeat-process", title: "按固定顺序完成多步任务", summary: "使用默认三节点模板，配置处理步骤并保存经典工作流草稿。", to: "/help/build-first-workflow", keywords: ["多步", "固定顺序", "Workflow", "经典工作流"] },
       { id: "connect-tool", title: "让 AI 使用外部工具", summary: "需要访问外部服务时，先查看 MCP 目录与连接状态。", to: "/help/modules/mcps", keywords: ["外部工具", "MCP", "连接"] },
       { id: "use-own-docs", title: "根据自己的资料回答", summary: "需要从指定文档查找内容时，查看 RAG 知识库。", to: "/help/modules/workspace/rag", keywords: ["自己的资料", "文档", "RAG", "知识库"] },
       { id: "subscribe-feed", title: "订阅公告或博客更新", summary: "用 RSS 或 Atom 在新条目出现时启动工作流。", to: "/help/subscribe-rss-workflow", keywords: ["RSS", "Atom", "订阅", "公告", "博客"] },
@@ -591,26 +496,27 @@ export function findHelpModuleTopic(moduleId: string | undefined, topicId: strin
 /** 中文近义词/别名映射：让用户用日常说法也能找到内容。 */
 const HELP_SYNONYMS: Record<string, string[]> = {
   看图: ["图片识别", "图片理解", "视觉"],
-  图片: ["图片识别", "图片理解", "图片生成", "视觉"],
   问答: ["聊天", "对话", "提问"],
   聊天: ["对话", "问答", "提问"],
-  收费: ["费用", "价格", "计费", "账单"],
-  费用: ["价格", "收费", "计费", "账单"],
+  收费: ["费用", "价格", "计费"],
+  花钱: ["费用", "价格", "收费", "计费"],
+  多少钱: ["费用", "价格", "收费", "计费"],
   多步: ["工作流", "流程", "流水线"],
   流程: ["工作流", "流水线"],
-  智能体: ["Agent"],
-  模型: ["聊天", "图片识别"],
+  智能体: ["agent"],
   资料: ["RAG", "知识库", "文档"],
   知识库: ["RAG", "资料", "文档"],
-  智能: ["智能体", "Agent"],
   运维: ["Runtime", "运行", "诊断"],
   运行: ["Runtime", "运维", "运行记录"],
   工具: ["MCP", "Toolset", "插件"],
   技能: ["Skill"],
   设置: ["配置", "Provider", "连接"],
   配置: ["设置", "Provider", "连接"],
-  订阅: ["RSS", "Atom", "定时"],
-  定时: ["RSS", "Atom", "自动化"],
+  订阅: ["RSS", "Atom", "订阅源"],
+  定时任务: ["自动化", "Cron"],
+  打不开: ["不可用", "未开放", "连接"],
+  不能用: ["不可用", "未开放", "待适配"],
+  没反应: ["不可用", "加载", "按钮"],
   审批: ["Inbox", "知识", "提案"],
   发布: ["部署", "版本", "草稿"],
   部署: ["发布", "版本"],
@@ -622,32 +528,31 @@ const HELP_SYNONYMS: Record<string, string[]> = {
 function expandQuery(normalized: string): string[] {
   const terms = new Set<string>([normalized]);
   for (const [key, aliases] of Object.entries(HELP_SYNONYMS)) {
-    if (normalized.includes(key)) {
-      aliases.forEach((alias) => terms.add(alias));
+    const normalizedKey = key.toLocaleLowerCase();
+    const normalizedAliases = aliases.map((alias) => alias.toLocaleLowerCase());
+    if (normalized.includes(normalizedKey)) {
+      normalizedAliases.forEach((alias) => terms.add(alias));
     }
-  }
-  // 反向：如果查询词本身是某个近义词，也补回原词
-  for (const [key, aliases] of Object.entries(HELP_SYNONYMS)) {
-    if (aliases.some((alias) => normalized.includes(alias))) {
-      terms.add(key);
+    if (normalizedAliases.some((alias) => normalized.includes(alias))) {
+      terms.add(normalizedKey);
     }
   }
   return [...terms];
 }
 
 /** 加权匹配：title > keywords > summary > body。分数来自实际命中，未命中为 0。 */
-function scoreEntry(entry: HelpSearchEntry, expanded: string[]): number {
+function scoreEntry(entry: HelpSearchEntry, normalized: string, expanded: string[]): number {
   const titleLower = entry.title.toLocaleLowerCase();
   const summaryLower = entry.summary.toLocaleLowerCase();
   const keywordsLower = entry.keywords.join(" ").toLocaleLowerCase();
   const bodyLower = (entry.body ?? "").toLocaleLowerCase();
   let score = 0;
-  for (const term of expanded) {
-    if (titleLower.includes(term)) score += 4;
-    if (keywordsLower.includes(term)) score += 3;
-    if (summaryLower.includes(term)) score += 2;
-    if (bodyLower.includes(term)) score += 1;
-  }
+  // 每个字段只计一次，避免同组近义词重复加分压过更直接的任务指南。
+  if (expanded.some((term) => titleLower.includes(term))) score += 4;
+  if (expanded.some((term) => keywordsLower.includes(term))) score += 3;
+  if (expanded.some((term) => summaryLower.includes(term))) score += 2;
+  // 正文只匹配用户实际输入；近义词只扩展标题、摘要和关键词，避免结果被泛化词铺满。
+  if (bodyLower.includes(normalized)) score += 1;
   return score;
 }
 
@@ -696,7 +601,7 @@ export function getHelpSearchSuggestions(query: string): string[] {
   const candidates = new Set<string>();
   for (const term of expanded) {
     if (term === query.trim().toLocaleLowerCase()) continue;
-    // 优先给短、更像"任务词"的候选
+    // 优先给短、便于继续搜索的候选
     if (term.length <= 6) candidates.add(term);
   }
   // 兜底：返回固定示例任务词
@@ -711,7 +616,7 @@ export function searchHelpContent(query: string) {
   if (!normalized) return entries;
   const expanded = expandQuery(normalized);
   return entries
-    .map((entry) => ({ entry, score: scoreEntry(entry, expanded) }))
+    .map((entry) => ({ entry, score: scoreEntry(entry, normalized, expanded) }))
     .filter(({ score }) => score > 0)
     .sort((a, b) => b.score - a.score || KIND_ORDER[b.entry.kind] - KIND_ORDER[a.entry.kind])
     .map(({ entry }) => entry);

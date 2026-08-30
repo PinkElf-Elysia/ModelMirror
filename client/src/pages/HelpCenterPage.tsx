@@ -50,7 +50,7 @@ const carouselSlides = [
     eyebrow: "推荐顺序 1 / 3",
     title: "找到能看图片的模型",
     summary: "筛选支持图片输入和图片识别的模型，进入聊天后找到图片选择入口。",
-    meta: "约 4 分钟 · 不发送 · 不计费",
+    meta: "约 4 分钟 · 不上传 · 不发送",
     to: "/help/start-with-a-model",
     action: "开始入门教程",
     icon: ImageIcon,
@@ -58,7 +58,7 @@ const carouselSlides = [
   {
     eyebrow: "推荐顺序 2 / 3",
     title: "模型、Agent 还是 Workflow？",
-    summary: "按一次任务、重复角色和固定多步骤，选对开始位置。",
+    summary: "按任务是否只做一次、是否重复角色或步骤，选对入口。",
     meta: "约 3 分钟 · 先判断再操作",
     to: "/help/choose-model-agent-workflow",
     action: "比较三种入口",
@@ -141,7 +141,7 @@ export default function HelpCenterPage() {
           <div className="max-w-4xl">
             <p className="text-sm font-semibold tracking-wide text-cyan-200">帮助中心</p>
             <h1 className="mt-3 text-4xl font-bold tracking-tight text-white sm:text-5xl">你想完成什么？</h1>
-            <p className="mt-3 max-w-3xl text-base leading-7 text-slate-300">模镜把模型、Agent、工具、Skill 和工作台放在同一处。搜索你要做的事，或从下方入口开始。</p>
+            <p className="mt-3 max-w-3xl text-base leading-7 text-slate-300">在这里查找操作步骤、功能说明和故障处理。不确定从哪里开始时，可以先按要完成的任务选择指南。</p>
             <form className="relative mt-6" role="search" onSubmit={(event) => event.preventDefault()}>
               <label className="sr-only" htmlFor="help-search">搜索帮助</label>
               <Search aria-hidden="true" className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-500" />
@@ -161,9 +161,9 @@ export default function HelpCenterPage() {
               ) : null}
             </form>
             <p className="mt-4 max-w-3xl text-sm leading-6 text-slate-400">
-              模镜先帮你找到能力，再在聊天或工作台中完成任务，最后用 Runtime 查看运行和连接状态。
+              第一次使用时，先了解各入口怎样配合，再选择当前任务需要的部分。
               <Link className="ml-2 inline-flex items-center gap-1 font-semibold text-cyan-200 hover:text-cyan-100" to="/help/modules-and-terms">
-                先认识模镜的整体结构
+                了解模镜的整体结构
                 <ArrowRight aria-hidden="true" className="h-3.5 w-3.5" />
               </Link>
             </p>
@@ -197,7 +197,7 @@ export default function HelpCenterPage() {
             ) : (
               <div className="mt-5 rounded-xl border border-white/10 bg-[#071a2b]/76 p-6">
                 <h3 className="text-lg font-semibold text-white">没有找到相关帮助</h3>
-                <p className="mt-2 text-sm leading-6 text-slate-400">换用任务词，或从下面的建议词里选一个试试。也可以清除搜索浏览全部入口。</p>
+                <p className="mt-2 text-sm leading-6 text-slate-400">试试更短、更具体的说法，例如“看图”或“费用”；也可以清除搜索，浏览全部帮助。</p>
                 {suggestions.length ? (
                   <div className="mt-4 flex flex-wrap gap-2">
                     {suggestions.map((word) => (
@@ -285,7 +285,7 @@ export default function HelpCenterPage() {
 
             <section aria-labelledby="help-modules-heading">
               <div className="flex items-end justify-between gap-4">
-                <div><h2 id="help-modules-heading"><Link className="text-2xl font-bold text-white hover:text-cyan-100" to="/help/sections/modules">按模块浏览</Link></h2><p className="mt-1 text-sm leading-6 text-slate-400">首页只展示常用二级入口；点击模块进入完整分级目录。</p></div>
+                <div><h2 id="help-modules-heading"><Link className="text-2xl font-bold text-white hover:text-cyan-100" to="/help/sections/modules">按模块浏览</Link></h2><p className="mt-1 text-sm leading-6 text-slate-400">选择一个模块，查看它包含的功能和使用说明。</p></div>
               </div>
               <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
                 {helpModules.map((module) => {

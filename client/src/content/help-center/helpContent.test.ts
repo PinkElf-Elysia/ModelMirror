@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  agentWorkflowTutorialBaseline,
   getHelpSearchEntries,
   getHelpSearchSuggestions,
+  helpCenterCloseoutBaseline,
   helpArticles,
   helpModules,
   helpSections,
@@ -39,12 +41,6 @@ describe("help center content catalog", () => {
       "choose-model-agent-workflow",
       "create-repeatable-agent",
       "build-first-workflow",
-      "edit-and-recover-agent-workflow",
-      "first-rag-knowledge-base",
-      "file-boundaries-and-data-safety",
-      "runtime-status-overview",
-      "install-or-import-skill",
-      "settings-and-provider-layers",
       "promote-run-to-skill",
       "submit-knowledge-proposal",
       "subscribe-rss-workflow",
@@ -63,7 +59,14 @@ describe("help center content catalog", () => {
       expect(article.verifiedDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       expect(article.content).not.toMatch(/内容稍后补充|coming soon/i);
     });
-    expect(helpArticles.filter((article) => !["recover-unavailable-feature", "review-remote-mcp-auth", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "create-repeatable-agent", "build-first-workflow", "edit-and-recover-agent-workflow", "first-rag-knowledge-base", "file-boundaries-and-data-safety", "runtime-status-overview", "install-or-import-skill", "settings-and-provider-layers", "handle-workflow-node-failure"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
+    expect(helpArticles.filter((article) => !["start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "handle-workflow-node-failure", "modules-and-terms"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
+    expect(helpArticles.find((article) => article.slug === "start-with-a-model")?.verifiedCommit).toBe(helpCenterCloseoutBaseline.commit);
+    expect(helpArticles.find((article) => article.slug === "choose-model-agent-workflow")?.verifiedCommit).toBe(helpCenterCloseoutBaseline.commit);
+    expect(helpArticles.find((article) => article.slug === "create-repeatable-agent")?.verifiedCommit).toBe(agentWorkflowTutorialBaseline.commit);
+    expect(helpArticles.find((article) => article.slug === "create-repeatable-agent")?.verifiedDate).toBe(agentWorkflowTutorialBaseline.date);
+    expect(helpArticles.find((article) => article.slug === "build-first-workflow")?.verifiedCommit).toBe(agentWorkflowTutorialBaseline.commit);
+    expect(helpArticles.find((article) => article.slug === "build-first-workflow")?.verifiedDate).toBe(agentWorkflowTutorialBaseline.date);
+    expect(helpArticles.find((article) => article.slug === "modules-and-terms")?.verifiedCommit).toBe(helpCenterCloseoutBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "recover-unavailable-feature")?.verifiedCommit).toBe(ragFormalIntegrityBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "recover-unavailable-feature")?.verifiedDate).toBe(ragFormalIntegrityBaseline.date);
     expect(helpArticles.find((article) => article.slug === "review-remote-mcp-auth")?.verifiedCommit).toBe(remoteMcpReviewBaseline.commit);
@@ -90,12 +93,16 @@ describe("help center content catalog", () => {
         expect(image[2]).toMatch(new RegExp(`^/help-center/${article.verifiedCommit}/`));
       });
     });
-    expect(helpArticles.find((article) => article.slug === "start-with-a-model")?.content).toContain("/help-center/cc49136c/kimi-k3-add-image-menu.png");
-    expect(helpArticles.find((article) => article.slug === "start-with-a-model")?.content).not.toContain("kimi-k3-ready-to-send.png");
+    expect(helpArticles.find((article) => article.slug === "start-with-a-model")?.content).toContain("/help-center/b5e0e85e/qwen38-add-image-menu.png");
+    expect(helpArticles.find((article) => article.slug === "start-with-a-model")?.content).toContain("/help-center/b5e0e85e/model-market-qwen38-image-understanding.png");
+    expect(helpArticles.find((article) => article.slug === "create-repeatable-agent")?.content).toContain("/help-center/b5e0e85e/agent-create-form.png");
+    expect(helpArticles.find((article) => article.slug === "create-repeatable-agent")?.content).toContain("/help-center/b5e0e85e/agent-preflight-ready.png");
+    expect(helpArticles.find((article) => article.slug === "build-first-workflow")?.content).toContain("/help-center/b5e0e85e/workflow-default-template.png");
+    expect(helpArticles.find((article) => article.slug === "build-first-workflow")?.content).toContain("/help-center/b5e0e85e/workflow-draft-saved.png");
   });
 
   it("searches formal articles, indexes, modules, and second-level topics", () => {
-    expect(searchHelpContent("Kimi").some((entry) => entry.id === "start-with-a-model")).toBe(true);
+    expect(searchHelpContent("Qwen3.8 Max").some((entry) => entry.id === "start-with-a-model")).toBe(true);
     expect(searchHelpContent("配置").some((entry) => entry.id === "troubleshooting")).toBe(true);
     expect(searchHelpContent("RAG").some((entry) => entry.id === "workspace/rag")).toBe(true);
     const ragTopic = helpModules.find((module) => module.id === "workspace")?.topics.find((topic) => topic.id === "rag");
@@ -110,6 +117,8 @@ describe("help center content catalog", () => {
     expect(searchHelpContent("RSS").some((entry) => entry.id === "subscribe-rss-workflow")).toBe(true);
     expect(searchHelpContent("IMAP").some((entry) => entry.id === "subscribe-email-workflow")).toBe(true);
     expect(searchHelpContent("已处理失败").some((entry) => entry.id === "handle-workflow-node-failure")).toBe(true);
+    expect(searchHelpContent("发布预检").some((entry) => entry.id === "create-repeatable-agent")).toBe(true);
+    expect(searchHelpContent("保存草稿").some((entry) => entry.id === "build-first-workflow")).toBe(true);
     const ids = getHelpSearchEntries().map((entry) => `${entry.kind}:${entry.id}`);
     expect(new Set(ids).size).toBe(ids.length);
   });
@@ -119,6 +128,9 @@ describe("help center content catalog", () => {
     expect(searchHelpContent("看图").some((entry) => entry.id === "start-with-a-model")).toBe(true);
     expect(searchHelpContent("多步").some((entry) => entry.id === "workspace/workflow")).toBe(true);
     expect(searchHelpContent("收费").some((entry) => entry.id === "check-availability-cost-data")).toBe(true);
+    const everydayCostHits = searchHelpContent("花钱");
+    expect(everydayCostHits[0]?.id).toBe("check-availability-cost-data");
+    expect(everydayCostHits.length).toBeLessThanOrEqual(8);
     expect(searchHelpContent("运维").some((entry) => entry.id === "runtime")).toBe(true);
     // 全文检索：只出现在正文、不在标题/摘要/关键词的词
     const bodyOnly = searchHelpContent("类型化转换节点").some((entry) => entry.id === "submit-knowledge-proposal");
@@ -128,16 +140,19 @@ describe("help center content catalog", () => {
   });
 
   it("ranks title and article hits above module and body-only hits", () => {
-    // "Kimi" 只在入门教程标题命中，应为第一名 article
-    const titleHit = searchHelpContent("Kimi")[0];
+    // 精确的模型名应优先召回对应教程
+    const titleHit = searchHelpContent("Qwen3.8 Max")[0];
     expect(titleHit?.kind).toBe("article");
     expect(titleHit?.id).toBe("start-with-a-model");
-    // "Agent" 命中大量标题；title 命中的文章/主题应排在 module 之前
+    // "Agent" 命中多类内容；任务指南在前，具体主题也应排在模块总页之前
     const agentHits = searchHelpContent("Agent");
-    expect(agentHits[0]?.kind).toBe("topic");
-    expect(agentHits[0]?.id).toBe("agents/agent-studio");
+    expect(agentHits[0]?.kind).toBe("article");
+    expect(agentHits[0]?.id).toBe("choose-model-agent-workflow");
+    const studioIdx = agentHits.findIndex((entry) => entry.kind === "topic" && entry.id === "agents/agent-studio");
     const moduleIdx = agentHits.findIndex((e) => e.kind === "module" && e.id === "agents");
-    expect(moduleIdx).toBeGreaterThan(0);
+    expect(studioIdx).toBeGreaterThan(0);
+    expect(moduleIdx).toBeGreaterThan(studioIdx);
+    expect(searchHelpContent("智能路由")[0]?.id).toBe("models/smart-router");
   });
 
   it("suggests alternative task words when nothing matches", () => {

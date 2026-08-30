@@ -22,10 +22,10 @@
 5. 点击加号后，菜单显示“文件”“视觉 / OCR”“图片”“音频”“视频”等选项；“图片”可用，“视觉 / OCR”和“视频”显示当前环境不可用的原因。
 6. 点击“图片”触发系统文件选择器，`multiple=true`。没有选择文件、上传内容、输入消息或发送模型请求。
 
-最新用户截图来自同一次预览，均为宽 1000px 的真实 PNG，单张小于 250KB：
+当时的用户截图来自同一次预览，均为宽 1000px 的真实 PNG，单张小于 250KB。它们已在 `2026-08-29` 被最新教程截图替换，并从用户可见目录清理；保留哈希供历史核对：
 
-- `client/public/help-center/cc49136c/model-market-image-understanding.png`
-- `client/public/help-center/cc49136c/kimi-k3-add-image-menu.png`
+- `model-market-image-understanding.png`：SHA256 `821554CACD830EC565F860EA02B24233A87DB8E07BB2D491FEAF44E43EFC4259`
+- `kimi-k3-add-image-menu.png`：SHA256 `64D7A3C909168A7A3E08458380C7EAC31FA0009296E9ACB4A2D30D410EF104F8`
 
 ## 主线交叉页面复核
 

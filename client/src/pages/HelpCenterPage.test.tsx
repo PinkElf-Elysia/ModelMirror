@@ -5,10 +5,10 @@ import { describe, expect, it } from "vitest";
 import ResourceNav from "../components/ResourceNav";
 import {
   helpArticles,
+  helpCenterCloseoutBaseline,
   helpModules,
   helpSections,
   remoteMcpReviewBaseline,
-  verifiedBaseline,
 } from "../content/help-center";
 import HelpArticlePage from "./HelpArticlePage";
 import HelpCenterPage from "./HelpCenterPage";
@@ -72,16 +72,18 @@ describe("HelpCenterPage", () => {
     ["只完成眼前这一次", "以后反复使用同一角色", "按固定顺序完成多步任务"].forEach((label) => expect(screen.getByRole("link", { name: new RegExp(label) })).toBeInTheDocument());
     expect(screen.queryByRole("link", { name: /让 AI 使用外部工具/ })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "查看全部目标" })).toHaveAttribute("href", "/help/sections/goals");
-    expect(screen.getByRole("link", { name: /先认识模镜的整体结构/ })).toHaveAttribute("href", "/help/modules-and-terms");
+    expect(screen.getByRole("link", { name: /了解模镜的整体结构/ })).toHaveAttribute("href", "/help/modules-and-terms");
+    expect(screen.getByRole("link", { name: /以后反复使用同一角色/ })).toHaveAttribute("href", "/help/create-repeatable-agent");
+    expect(screen.getByRole("link", { name: /按固定顺序完成多步任务/ })).toHaveAttribute("href", "/help/build-first-workflow");
   });
 
   it("searches articles and second-level topics while writing q to the URL", async () => {
     const user = userEvent.setup();
     renderHelp();
     const search = screen.getByRole("searchbox", { name: "搜索帮助" });
-    await user.type(search, "Kimi");
+    await user.type(search, "Qwen3.8 Max");
     expect(screen.getByRole("link", { name: /第一次使用：找到能看图片的模型/ })).toBeInTheDocument();
-    expect(screen.getByLabelText("current location")).toHaveTextContent("/help?q=Kimi");
+    expect(screen.getByLabelText("current location")).toHaveTextContent("/help?q=Qwen3.8+Max");
     await user.clear(search);
     await user.type(search, "RAG");
     expect(screen.getByRole("link", { name: /工作台与设置：RAG 知识库/ })).toBeInTheDocument();
@@ -156,6 +158,9 @@ describe("unified help reading shell", () => {
     renderHelp("/help/start-with-a-model");
     const article = document.querySelector("article.help-article")!;
     within(article as HTMLElement).getAllByRole("img").forEach((image) => expect(image).toHaveAccessibleName());
+    expect(article.querySelectorAll("figure")).toHaveLength(2);
+    expect(article.querySelectorAll("p figure")).toHaveLength(0);
+    expect(article.querySelectorAll("figure figcaption")).toHaveLength(2);
   });
 
   it("keeps an unknown path inside the help center", () => {
@@ -166,13 +171,14 @@ describe("unified help reading shell", () => {
 
   it("shows a verified-date notice on published articles", () => {
     renderHelp("/help/start-with-a-model");
-    expect(screen.getByText(`本文基于 ${verifiedBaseline.date} 的界面验证，产品更新后部分按钮名称、入口或价格可能变化。`)).toBeInTheDocument();
+    expect(screen.getByText(`本文基于 ${helpCenterCloseoutBaseline.date} 的界面验证，产品更新后部分按钮名称、入口或价格可能变化。`)).toBeInTheDocument();
   });
 
-  it("asks for feedback on an article", () => {
+  it("does not expose the removed article feedback control", () => {
     renderHelp("/help/start-with-a-model");
-    expect(screen.getByText("这篇对你有帮助吗？")).toBeInTheDocument();
+    expect(screen.queryByText("这篇对你有帮助吗？")).not.toBeInTheDocument();
   });
+
 });
 
 describe("ResourceNav help entry", () => {

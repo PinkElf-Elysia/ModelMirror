@@ -6,7 +6,7 @@
 //
 // 规则来源：docs/help-center/README.md「截图规则」与 AGENTS.md §2.6。
 // 只校验 index.ts 已注册的正式文章；未注册的草稿文章不进入公开链路，不在此检查。
-// 任何 PENDING 占位、缺图、非 PNG、超限或孤儿资产都会导致失败退出（供 CI 使用）。
+// 任何 PENDING 占位、缺图、非 PNG、超限或公开目录残留资产都会导致失败退出（供 CI 使用）。
 
 import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
@@ -59,9 +59,11 @@ function fail(msg) {
 
 const registeredSlugs = readRegisteredSlugs();
 const articles = readRegisteredArticles(registeredSlugs);
+const markdownFiles = readdirSync(articlesDir).filter((file) => file.endsWith(".md"));
+const skippedDrafts = markdownFiles.filter((file) => !registeredSlugs.has(file.replace(/\.md$/, ""))).length;
 
 console.log("验证帮助中心截图资产（仅已注册文章）…");
-console.log(`已注册文章 ${articles.length} 篇；跳过未注册草稿 ${registeredSlugs.size > 0 ? "" : "（无注册文章）"}\n`);
+console.log(`已注册文章 ${articles.length} 篇；跳过未注册草稿 ${skippedDrafts} 篇\n`);
 
 // 1. 每个引用路径指向真实存在、真实 PNG 的截图文件；PENDING/缺图失败
 console.log("1) 引用路径 → 真实 PNG 文件");
@@ -110,8 +112,8 @@ for (const article of articles) {
   }
 }
 
-// 3. 孤儿截图：存在于资产目录但未被任何已注册文章引用
-console.log("\n3) 未被引用的孤儿截图");
+// 3. 公开截图目录只保存当前文章实际引用的资产；历史证据应归档到 docs/help-center/evidence/
+console.log("\n3) 公开目录残留资产");
 const referenced = new Set(
   articles.flatMap((a) =>
     a.images.filter((i) => i.src.startsWith("/help-center/")).map((i) => i.src.replace(/^\/help-center\//, "")),
@@ -123,7 +125,7 @@ for (const baseline of readdirSync(screenshotsRoot)) {
   for (const file of readdirSync(dir)) {
     const rel = `${baseline}/${file}`;
     if (!referenced.has(rel)) {
-      fail(`孤儿截图（未被任何已注册文章引用）: ${rel}`);
+      fail(`公开目录残留资产（未被任何已注册文章引用）: ${rel}`);
     }
   }
 }
