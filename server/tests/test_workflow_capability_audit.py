@@ -247,6 +247,8 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
         "form": "R2.5",
         "formTrigger": "R2.5",
         "rssFeedReadTrigger": "R2.7",
+        "httpRequest": "R2.9",
+        "dataTable": "R2.9",
     }
     assert all(
         row["人工复核"]
@@ -384,6 +386,10 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     assert (
         "- R2.8 结果：新增完整合同 `email_event_entry`，以只读 IMAPS 993、"
         "首次无回放 UID 基线和持久 UID 重读恢复提供固定 INBOX 邮件入口"
+    ) in markdown
+    assert (
+        "- R2.9 PR2 结果：不新增节点类型；为 `http_request` V2、"
+        "`data_table_query` 与 `knowledge_retrieval` V2 增加结构化失败出口"
     ) in markdown
     assert (
         "- R2.2 PR1 结果：将 `variable_aggregator` 提升为“变量打包”V2 完整合同，"

@@ -67,7 +67,13 @@ from .pipeline_graph import (
     validate_pipeline_graph,
 )
 from .splitter import DEFAULT_SEPARATORS, ParentChildTextSplitter, TextSplitter
-from .vector_store import SearchResult, VectorChunk, VectorStore, create_vector_store
+from .vector_store import (
+    SearchResult,
+    VectorChunk,
+    VectorStore,
+    VectorStoreUnavailableError,
+    create_vector_store,
+)
 from .vision_processor import (
     SUPPORTED_IMAGE_EXTENSIONS,
     VisionProcessingError,
@@ -188,6 +194,14 @@ class PipelineGraphRevisionError(RagError):
 
 class RagRetrievalUnavailableError(RagError):
     """Stable, credential-free fail-closed retrieval availability error."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+class RagRetrievalContractError(RagError):
+    """A persisted retrieval/index contract does not match this request."""
 
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
@@ -5925,10 +5939,10 @@ class RagService:
             )
             try:
                 return self.vector_store.query(namespace, query_embedding, candidate_count)
-            except RuntimeError as exc:
+            except VectorStoreUnavailableError as exc:
                 raise RagRetrievalUnavailableError(
                     "rag_vector_index_unavailable",
-                    "The required vector index is unavailable or incompatible.",
+                    "The required vector index is unavailable.",
                 ) from exc
 
         if config.mode in {"vector", "hybrid"}:
@@ -6762,13 +6776,15 @@ class RagService:
 
     def _ensure_vector_backend_ready(self) -> dict[str, Any]:
         readiness = self._vector_backend_readiness()
-        if (
-            not readiness["ready"]
-            or readiness["distance_contract"] != VECTOR_DISTANCE_CONTRACT
-        ):
+        if not readiness["ready"]:
             raise RagRetrievalUnavailableError(
                 "rag_vector_backend_unavailable",
                 "The configured vector backend is unavailable for this pipeline.",
+            )
+        if readiness["distance_contract"] != VECTOR_DISTANCE_CONTRACT:
+            raise RagRetrievalContractError(
+                "rag_vector_distance_contract_mismatch",
+                "The configured vector backend does not match the index distance contract.",
             )
         return readiness
 
@@ -6779,7 +6795,7 @@ class RagService:
     ) -> None:
         parts = namespace.split("::")
         if len(parts) < 6 or parts[-5] != "v3" or parts[-1] != VECTOR_DISTANCE_CONTRACT:
-            raise RagRetrievalUnavailableError(
+            raise RagRetrievalContractError(
                 "rag_vector_index_contract_mismatch",
                 "The V3 vector index identity is invalid.",
             )
@@ -6790,12 +6806,12 @@ class RagService:
             str(embedding_profile.get("embedding_space_fingerprint") or "")
             != expected_fingerprint
         ):
-            raise RagRetrievalUnavailableError(
+            raise RagRetrievalContractError(
                 "rag_embedding_fingerprint_mismatch",
                 "The query embedding identity does not match the V3 index.",
             )
         if expected_dimension != f"dim-{int(effective.get('dimension') or 0)}":
-            raise RagRetrievalUnavailableError(
+            raise RagRetrievalContractError(
                 "rag_embedding_dimension_mismatch",
                 "The query embedding dimension does not match the V3 index.",
             )

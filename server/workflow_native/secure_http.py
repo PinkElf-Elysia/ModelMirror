@@ -6,6 +6,7 @@ import ipaddress
 import json
 import re
 import socket
+import ssl
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -66,10 +67,17 @@ _SENSITIVE_PARAMETER_NAME = re.compile(
 
 
 class WorkflowHttpRequestError(RuntimeError):
-    def __init__(self, code: str, safe_message: str) -> None:
+    def __init__(
+        self,
+        code: str,
+        safe_message: str,
+        *,
+        status_code: int | None = None,
+    ) -> None:
         super().__init__(f"{code}: {safe_message}")
         self.code = code
         self.safe_message = safe_message
+        self.status_code = status_code
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +91,17 @@ class PublicWorkflowResource:
 
 def _fail(code: str, message: str) -> None:
     raise WorkflowHttpRequestError(code, message)
+
+
+def _has_tls_cause(error: BaseException) -> bool:
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, (ssl.SSLError, ssl.CertificateError)):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
 
 
 def is_http_request_v2(data: Mapping[str, Any]) -> bool:
@@ -180,6 +199,11 @@ async def _resolve_fixed_public_dns(
                     FIXED_DOH_URL,
                     params={"name": hostname, "type": record_name},
                 ) as response:
+                    if response.status_code in {408, 429, 500, 502, 503, 504}:
+                        _fail(
+                            "HTTP_DNS_UNAVAILABLE",
+                            "Secure public DNS is temporarily unavailable.",
+                        )
                     if response.status_code != 200 or response.headers.get(
                         "content-encoding"
                     ):
@@ -209,8 +233,8 @@ async def _resolve_fixed_public_dns(
         raise
     except (httpx.HTTPError, OSError) as exc:
         raise WorkflowHttpRequestError(
-            "HTTP_DNS_RESOLUTION_FAILED",
-            "Secure public DNS resolution failed.",
+            "HTTP_DNS_UNAVAILABLE",
+            "Secure public DNS is temporarily unavailable.",
         ) from exc
     return _validated_public_addresses(tuple(resolved))
 
@@ -245,6 +269,16 @@ async def validate_public_workflow_url(
             port,
             type=socket.SOCK_STREAM,
         )
+    except socket.gaierror as exc:
+        if exc.errno == getattr(socket, "EAI_AGAIN", None):
+            raise WorkflowHttpRequestError(
+                "HTTP_DNS_UNAVAILABLE",
+                "HTTP hostname resolution is temporarily unavailable.",
+            ) from exc
+        raise WorkflowHttpRequestError(
+            "HTTP_DNS_RESOLUTION_FAILED",
+            "HTTP hostname could not be resolved.",
+        ) from exc
     except (OSError, ValueError) as exc:
         raise WorkflowHttpRequestError(
             "HTTP_DNS_RESOLUTION_FAILED",
@@ -902,6 +936,20 @@ async def execute_workflow_http_request(
                                 current_form = None
                                 headers.pop("Content-Type", None)
                             continue
+                        if (
+                            str(data.get("statusPolicy") or "success_only")
+                            == "success_only"
+                            and not 200 <= response.status_code < 300
+                        ):
+                            # Status policy is authoritative before consuming an
+                            # untrusted error body. In particular, permission
+                            # failures must not be reclassified as routable body
+                            # parsing or size errors.
+                            raise WorkflowHttpRequestError(
+                                "HTTP_STATUS_NOT_SUCCESSFUL",
+                                "HTTP request returned an unsuccessful status.",
+                                status_code=response.status_code,
+                            )
                         chunks: list[bytes] = []
                         received = 0
                         async for chunk in response.aiter_bytes():
@@ -938,15 +986,6 @@ async def execute_workflow_http_request(
                                 ) from exc
                         else:
                             body = body_text
-                        if (
-                            str(data.get("statusPolicy") or "success_only")
-                            == "success_only"
-                            and not 200 <= response.status_code < 300
-                        ):
-                            _fail(
-                                "HTTP_STATUS_NOT_SUCCESSFUL",
-                                f"HTTP request returned status {response.status_code}.",
-                            )
                         safe_output = _redact_http_response_value({
                             "statusCode": response.status_code,
                             "ok": 200 <= response.status_code < 300,
@@ -968,6 +1007,11 @@ async def execute_workflow_http_request(
     except TimeoutError as exc:
         raise WorkflowHttpRequestError("HTTP_TIMEOUT", "HTTP request timed out.") from exc
     except (httpx.HTTPError, OSError) as exc:
+        if _has_tls_cause(exc):
+            raise WorkflowHttpRequestError(
+                "HTTP_TLS_ERROR",
+                "HTTP TLS verification failed.",
+            ) from exc
         raise WorkflowHttpRequestError("HTTP_NETWORK_ERROR", "HTTP request failed.") from exc
     except Exception as exc:
         # URL validators and credential adapters may use their own exception classes.

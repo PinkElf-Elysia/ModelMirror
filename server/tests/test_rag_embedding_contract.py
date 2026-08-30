@@ -16,6 +16,7 @@ from server.rag.pipeline_executor import KnowledgePipelineExecutor
 from server.rag.rag_service import (
     PipelineDraftValidationError,
     PipelineJobStateError,
+    RagRetrievalContractError,
     RagRetrievalUnavailableError,
     RagService,
 )
@@ -24,6 +25,8 @@ from server.rag.vector_store import (
     LocalJsonVectorStore,
     UnavailableVectorStore,
     VectorChunk,
+    VectorStoreContractError,
+    VectorStoreUnavailableError,
     create_vector_store,
 )
 
@@ -324,14 +327,29 @@ def test_v3_local_store_rejects_query_and_persisted_dimension_mismatch(
         ]
     )
 
-    with pytest.raises(RuntimeError, match="query.*dimension contract"):
+    with pytest.raises(VectorStoreContractError, match="query.*dimension contract"):
         local.query(namespace, [1.0, 0.0, 0.0], 1)
 
     records = local._read_records()
     records[0]["embedding"] = [1.0, 0.0, 0.0]
     local._write_records(records)
-    with pytest.raises(RuntimeError, match="stored vector.*dimension contract"):
+    with pytest.raises(VectorStoreContractError, match="stored vector.*dimension contract"):
         local.query(namespace, [1.0, 0.0], 1)
+
+
+def test_vector_unavailable_and_contract_errors_remain_distinct() -> None:
+    unavailable = UnavailableVectorStore("chroma", "backend_down")
+    with pytest.raises(VectorStoreUnavailableError, match="backend_down"):
+        unavailable.query("kb", [1.0], 1)
+
+    service = object.__new__(RagService)
+    service._vector_backend_readiness = lambda: {
+        "ready": True,
+        "distance_contract": "dot_product_v1",
+    }
+    with pytest.raises(RagRetrievalContractError) as mismatch:
+        service._ensure_vector_backend_ready()
+    assert mismatch.value.code == "rag_vector_distance_contract_mismatch"
 
 
 def test_real_chroma_v3_collection_persists_cosine_contract(tmp_path: Path) -> None:

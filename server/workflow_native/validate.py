@@ -38,6 +38,12 @@ from .file_data import (
     validate_object_transform_config,
     validate_time_v2_config,
 )
+from .error_routing import (
+    ROUTABLE_NODE_KINDS,
+    WorkflowErrorRoutingConfigError,
+    failure_action,
+    validate_error_routing_config,
+)
 from .secure_http import (
     WorkflowHttpRequestError,
     http_request_variable_references,
@@ -688,6 +694,12 @@ def validate_workflow_graph(workflow: NativeWorkflowDefinition) -> ValidateWorkf
         workflow.nodes,
         kinds_by_id,
     )
+    error_output_variables = {
+        str(node.data.get("errorVariable") or "").strip()
+        for node in workflow.nodes
+        if kinds_by_id.get(node.id) in ROUTABLE_NODE_KINDS
+        and failure_action(node.data) == "error_output"
+    }
     declaration_ids = [item.id for item in workflow.variables]
     declaration_names = [item.name for item in workflow.variables]
     if len(declaration_ids) != len(set(declaration_ids)):
@@ -721,7 +733,7 @@ def validate_workflow_graph(workflow: NativeWorkflowDefinition) -> ValidateWorkf
                     f"Variable '{name}' has multiple node producers: "
                     + ", ".join(producer_ids)
                 ),
-                severity="warning",
+                severity=("error" if name in error_output_variables else "warning"),
             )
         )
 
@@ -737,6 +749,12 @@ def validate_workflow_graph(workflow: NativeWorkflowDefinition) -> ValidateWorkf
         node_ids,
         issues,
         nodes_by_id={node.id: node for node in workflow.nodes},
+        kinds_by_id=kinds_by_id,
+    )
+    validate_error_output_structure(
+        workflow.nodes,
+        valid_edges,
+        issues,
         kinds_by_id=kinds_by_id,
     )
     validate_invoke_workflow_upstream_bindings(
@@ -1073,6 +1091,48 @@ def validate_control_data_structure(
                         node_id=node.id,
                     )
                 )
+
+
+def validate_error_output_structure(
+    nodes: list[NativeWorkflowNode],
+    edges: list[NativeWorkflowEdge],
+    issues: list[ValidationIssue],
+    *,
+    kinds_by_id: dict[str, str],
+) -> None:
+    outgoing: dict[str, list[NativeWorkflowEdge]] = defaultdict(list)
+    for edge in edges:
+        outgoing[edge.source].append(edge)
+    for node in nodes:
+        kind = kinds_by_id.get(node.id, "")
+        if kind not in ROUTABLE_NODE_KINDS:
+            continue
+        error_edges = [
+            edge
+            for edge in outgoing.get(node.id, [])
+            if str(edge.sourceHandle or "").strip() == "error"
+        ]
+        enabled = failure_action(node.data) == "error_output"
+        if enabled and len(error_edges) != 1:
+            issues.append(
+                ValidationIssue(
+                    code=(
+                        "missing_node_error_edge"
+                        if not error_edges
+                        else "duplicate_node_error_edge"
+                    ),
+                    message="Enabled error output needs exactly one error edge.",
+                    node_id=node.id,
+                )
+            )
+        if not enabled and error_edges:
+            issues.append(
+                ValidationIssue(
+                    code="disabled_node_error_edge",
+                    message="Remove the error edge before disabling the error output.",
+                    node_id=node.id,
+                )
+            )
 
 
 def validate_data_merge_structure(
@@ -4235,6 +4295,44 @@ def validate_node_configuration(
                     )
                 )
 
+    if kind in ROUTABLE_NODE_KINDS:
+        raw_contract_version = data.get("contractVersion")
+        try:
+            contract_version = int(raw_contract_version or 1)
+        except (TypeError, ValueError):
+            contract_version = 0
+        supports_error_output = not (
+            kind == "http_request" and not is_http_request_v2(data)
+        ) and not (
+            kind == "knowledge_retrieval" and contract_version != 2
+        )
+        has_error_config = data.get("failureAction") not in {None, "", "stop"} or data.get(
+            "errorVariable"
+        ) not in {None, ""}
+        if not supports_error_output and has_error_config:
+            issues.append(
+                ValidationIssue(
+                    code="node_error_routing_requires_v2",
+                    message="Structured error output requires the current node contract.",
+                    node_id=node.id,
+                )
+            )
+        elif supports_error_output:
+            try:
+                validate_error_routing_config(
+                    data,
+                    node_kind=kind,
+                    output_variable=str(data.get("outputVariable") or "").strip(),
+                )
+            except WorkflowErrorRoutingConfigError as exc:
+                issues.append(
+                    ValidationIssue(
+                        code=exc.code.lower(),
+                        message=exc.safe_message,
+                        node_id=node.id,
+                    )
+                )
+
     return issues
 
 
@@ -4348,6 +4446,10 @@ def collect_declared_variables(
             result_variable = str(data.get("resultVariable") or "").strip()
             if is_variable_name(result_variable):
                 variables.add(result_variable)
+        if kind in ROUTABLE_NODE_KINDS and failure_action(data) == "error_output":
+            error_variable = str(data.get("errorVariable") or "").strip()
+            if is_variable_name(error_variable):
+                variables.add(error_variable)
 
     return variables
 
@@ -4417,6 +4519,10 @@ def collect_node_variable_producers(
             if not is_variable_name(name):
                 continue
             producers.setdefault(name, []).append(node.id)
+        if kind in ROUTABLE_NODE_KINDS and failure_action(node.data) == "error_output":
+            name = str(node.data.get("errorVariable") or "").strip()
+            if is_variable_name(name):
+                producers.setdefault(name, []).append(node.id)
         if kind == "form_event_entry":
             for field in node.data.get("fields", []):
                 if not isinstance(field, dict):

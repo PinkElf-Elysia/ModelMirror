@@ -85,6 +85,7 @@ import {
   type WorkflowNodeRegistryResponse,
 } from "./workflowNodeRegistry";
 import WorkflowTypedDataNodeConfig from "./WorkflowTypedDataNodeConfig";
+import WorkflowFailureRoutingConfig from "./WorkflowFailureRoutingConfig";
 import WorkflowControlDataNodeConfig from "./WorkflowControlDataNodeConfig";
 import WorkflowHttpRequestNodeConfig from "./WorkflowHttpRequestNodeConfig";
 import WorkflowFileDataNodeConfig from "./WorkflowFileDataNodeConfig";
@@ -245,6 +246,45 @@ export function dataMergeConnectionError(
     return "左右数据入口只属于数据合流节点。";
   }
   return null;
+}
+
+export function errorOutputConnectionError(
+  sourceData: WorkflowNodeData | undefined,
+  sourceNodeId: string | null,
+  sourceHandle: string | null,
+  edges: WorkflowEdge[],
+): string | null {
+  if (sourceHandle !== "error") return null;
+  const supportsErrorOutput = sourceData?.failureAction === "error_output" && (
+    sourceData.kind === "data_table_query"
+    || (
+      ["http_request", "knowledge_retrieval"].includes(sourceData.kind)
+      && Number(sourceData.contractVersion) === 2
+    )
+  );
+  if (!supportsErrorOutput) {
+    return "该节点当前配置没有可用的错误出口。";
+  }
+  if (sourceNodeId && edges.some((edge) =>
+    edge.source === sourceNodeId && edge.sourceHandle === "error"
+  )) {
+    return "错误出口只能连接一次。";
+  }
+  return null;
+}
+
+export function errorOutputConnectionErrorForNodes(
+  nodes: WorkflowNode[],
+  edges: WorkflowEdge[],
+  sourceNodeId: string | null,
+  sourceHandle: string | null,
+) {
+  return errorOutputConnectionError(
+    nodes.find((node) => node.id === sourceNodeId)?.data,
+    sourceNodeId,
+    sourceHandle,
+    edges,
+  );
 }
 
 export function updateSkillRuntimeIds(
@@ -859,6 +899,7 @@ export function createNodeData(
       top_k: "5",
       returnMode: "result",
       outputVariable: "knowledge_result",
+      failureAction: "stop",
     };
   }
 
@@ -1183,6 +1224,7 @@ export function createNodeData(
       responseMode: "auto",
       statusPolicy: "success_only",
       outputVariable: "http_response",
+      failureAction: "stop",
     };
   }
 
@@ -1488,6 +1530,81 @@ function loadDefinition(
     return upgradedDefinition;
   }
   return cloneDefinition(storedDefinition);
+}
+
+function LocalDraftRecoveryDialog({
+  draft,
+  onRestore,
+  onStartBlank,
+}: {
+  draft: WorkflowDefinition;
+  onRestore: () => void;
+  onStartBlank: () => void;
+}) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (typeof dialog.showModal === "function") {
+      dialog.showModal();
+    } else {
+      dialog.setAttribute("open", "");
+    }
+    return () => {
+      if (typeof dialog.close === "function" && dialog.open) {
+        dialog.close();
+      } else {
+        dialog.removeAttribute("open");
+      }
+    };
+  }, []);
+
+  return (
+    <dialog
+      aria-describedby="local-draft-recovery-description"
+      aria-labelledby="local-draft-recovery-title"
+      className="m-auto w-[calc(100%-2rem)] max-w-xl rounded-xl border border-cyan-300/25 bg-[#0d1728] p-0 text-left text-slate-100 shadow-lg backdrop:bg-slate-950/90 backdrop:backdrop-blur-sm"
+      onCancel={(event) => event.preventDefault()}
+      ref={dialogRef}
+    >
+      <section className="p-5 sm:p-6">
+        <p className="text-xs font-semibold text-cyan-200">本地草稿恢复</p>
+        <h2
+          className="mt-2 text-lg font-semibold text-white"
+          id="local-draft-recovery-title"
+        >
+          发现一个未发布的本地草稿
+        </h2>
+        <p
+          className="mt-2 text-sm leading-6 text-slate-300"
+          id="local-draft-recovery-description"
+        >
+          “{draft.title || "未命名工作流"}”包含 {draft.nodes.length} 个节点和 {draft.edges.length} 条连线。请选择如何进入画布，避免把旧流程当成空白工作流运行。
+        </p>
+        <p className="mt-3 text-xs leading-5 text-slate-400">
+          使用默认工作流不会立即删除旧草稿；保存或转换此工作流后，本地副本才会被替换。
+        </p>
+        <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <button
+            className="min-h-11 rounded-lg border border-white/15 px-4 py-2.5 text-sm font-semibold text-slate-200 transition hover:border-cyan-200/35 hover:bg-cyan-300/10 hover:text-cyan-100"
+            onClick={onRestore}
+            type="button"
+          >
+            恢复本地草稿
+          </button>
+          <button
+            autoFocus
+            className="min-h-11 rounded-lg bg-cyan-300 px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200 active:scale-[0.98]"
+            onClick={onStartBlank}
+            type="button"
+          >
+            使用默认工作流新建
+          </button>
+        </div>
+      </section>
+    </dialog>
+  );
 }
 
 function Field({
@@ -3120,18 +3237,22 @@ function KnowledgeRetrievalNodeConfig({
   node,
   nodes,
   edges,
+  declarations,
   variableContract,
   data,
   update,
+  onOpenVariableCenter,
 }: {
   node: WorkflowNode;
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
+  declarations: WorkflowVariableDeclaration[];
   variableContract: WorkflowNodeContractProjection | null;
   data: WorkflowNodeData;
   update: (patch: Partial<WorkflowNodeData>) => void;
+  onOpenVariableCenter: () => void;
 }) {
-  const isLegacy = !data.contractVersion;
+  const isLegacy = Number(data.contractVersion ?? 1) !== 2;
   return (
     <>
       <div className="rounded-lg border border-cyan-300/25 bg-cyan-300/10 px-3 py-2 text-xs leading-5 text-cyan-50">
@@ -3195,6 +3316,18 @@ function KnowledgeRetrievalNodeConfig({
           value={data.outputVariable ?? ""}
         />
       </Field>
+      {!isLegacy ? (
+        <WorkflowFailureRoutingConfig
+          contract={variableContract}
+          data={data}
+          declarations={declarations}
+          edges={edges}
+          node={node}
+          nodes={nodes}
+          onChange={update}
+          onOpenVariableCenter={onOpenVariableCenter}
+        />
+      ) : null}
     </>
   );
 }
@@ -4069,10 +4202,12 @@ function NodeConfig({
         <WorkflowTypedDataNodeConfig
           contract={variableContract}
           data={data}
+          declarations={declarations}
           edges={edges}
           node={node}
           nodes={nodes}
           onChange={update}
+          onOpenVariableCenter={onOpenVariableCenter}
         />
       ) : null}
 
@@ -4754,11 +4889,13 @@ function NodeConfig({
       {data.kind === "knowledge_retrieval" ? (
         <KnowledgeRetrievalNodeConfig
           data={data}
+          declarations={declarations}
           edges={edges}
           node={node}
           nodes={nodes}
           update={update}
           variableContract={variableContract}
+          onOpenVariableCenter={onOpenVariableCenter}
         />
       ) : null}
 
@@ -6351,6 +6488,14 @@ function WorkflowCanvas({
   onSave,
   saveLabel = "保存草稿",
 }: WorkflowCanvasProps) {
+  const localDraftCandidate = useMemo(() => {
+    if (controlledDefinition || onSave || workflowId !== "draft") return null;
+    const storedDefinition = readStoredWorkflow(workflowId);
+    if (!storedDefinition || isLegacyStarterWorkflow(storedDefinition)) {
+      return null;
+    }
+    return cloneDefinition(storedDefinition);
+  }, [controlledDefinition, onSave, workflowId]);
   const loadedDefinition = useMemo(
     () => loadDefinition(workflowId, controlledDefinition),
     [controlledDefinition, workflowId],
@@ -6420,6 +6565,8 @@ function WorkflowCanvas({
   const historyFutureRef = useRef<WorkflowHistorySnapshot[]>([]);
   const [workspaceTab, setWorkspaceTab] =
     useState<WorkflowWorkspaceTab>("config");
+  const [pendingLocalDraft, setPendingLocalDraft] =
+    useState<WorkflowDefinition | null>(localDraftCandidate);
   const [fileInputFocusRequest, setFileInputFocusRequest] =
     useState<WorkflowFileInputFocusRequest | null>(null);
   const [runtimeMiddlewareRegistry, setRuntimeMiddlewareRegistry] = useState<
@@ -6585,6 +6732,23 @@ function WorkflowCanvas({
     }),
     [edges, nodes, title, variables, workflowId],
   );
+
+  const startBlankWorkflow = useCallback(() => {
+    const blankDefinition = initialDefinition(workflowId);
+    setTitle(blankDefinition.title);
+    setNodes(blankDefinition.nodes);
+    setEdges(blankDefinition.edges);
+    setVariables(blankDefinition.variables ?? []);
+    setSelectedNodeId(null);
+    setSelectedEdgeId(null);
+    setWorkspaceTab("config");
+    historyPastRef.current = [];
+    historyFutureRef.current = [];
+    setPendingLocalDraft(null);
+    setErrorNotice("");
+    setSaveNotice("已打开默认工作流；原本地草稿仍保留至保存或转换");
+    window.setTimeout(() => setSaveNotice(""), 3200);
+  }, [setEdges, setNodes, workflowId]);
   const xpertEntryRepair = useMemo(() => {
     if (
       !onSave ||
@@ -6700,6 +6864,16 @@ function WorkflowCanvas({
           setErrorNotice("问题分类器的每个出口只能连接一次。");
           return;
         }
+      }
+      const errorConnectionError = errorOutputConnectionErrorForNodes(
+        nodes,
+        edges,
+        connection.source,
+        connection.sourceHandle,
+      );
+      if (errorConnectionError) {
+        setErrorNotice(errorConnectionError);
+        return;
       }
       const mergeConnectionError = dataMergeConnectionError(
         targetNode?.data.kind,
@@ -7204,6 +7378,17 @@ function WorkflowCanvas({
         setQuickAddMenu(null);
         return;
       }
+      const errorConnectionError = errorOutputConnectionErrorForNodes(
+        nodes,
+        edges,
+        quickAddMenu.sourceNodeId,
+        quickAddMenu.sourceHandle ?? null,
+      );
+      if (errorConnectionError) {
+        setErrorNotice(errorConnectionError);
+        setQuickAddMenu(null);
+        return;
+      }
       const position = screenToFlowPosition({
         x: quickAddMenu.x,
         y: quickAddMenu.y,
@@ -7225,7 +7410,7 @@ function WorkflowCanvas({
       setSelectedNodeId(node.id);
       setQuickAddMenu(null);
     },
-    [commitHistory, onSave, quickAddMenu, screenToFlowPosition, setEdges, setNodes],
+    [commitHistory, edges, nodes, onSave, quickAddMenu, screenToFlowPosition, setEdges, setNodes],
   );
 
   const handleConnectEnd: OnConnectEnd = useCallback((event, connectionState) => {
@@ -7696,6 +7881,7 @@ function WorkflowCanvas({
 
   useEffect(() => {
     function handleEditorKeyDown(event: KeyboardEvent) {
+      if (pendingLocalDraft) return;
       const target = event.target as HTMLElement | null;
       const isEditable =
         target?.isContentEditable ||
@@ -7756,6 +7942,7 @@ function WorkflowCanvas({
     deleteSelectedNode,
     fitView,
     pasteAtViewportCenter,
+    pendingLocalDraft,
     redo,
     selectedEdgeId,
     selectedNodeId,
@@ -7770,6 +7957,13 @@ function WorkflowCanvas({
           : "xl:grid-cols-[minmax(0,1fr)_380px]"
       }`}
     >
+      {pendingLocalDraft ? (
+        <LocalDraftRecoveryDialog
+          draft={pendingLocalDraft}
+          onRestore={() => setPendingLocalDraft(null)}
+          onStartBlank={startBlankWorkflow}
+        />
+      ) : null}
       {isNodePaletteOpen ? (
         <aside className="surface-panel max-h-[50vh] overflow-y-auto rounded-lg p-4 xl:max-h-[calc(100vh-8rem)] xl:sticky xl:top-4">
           <div className="flex items-start justify-between gap-2">

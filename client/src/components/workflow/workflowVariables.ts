@@ -41,6 +41,8 @@ export interface WorkflowVariableSource {
   sourceKind: WorkflowVariableSourceKind;
   valueType: WorkflowVariableValueType;
   conditional: boolean;
+  /** null 表示非 error 的成功出口；undefined 表示不绑定具体出口。 */
+  sourceHandle?: string | null;
   declarationId?: string;
 }
 
@@ -200,6 +202,7 @@ export const WORKFLOW_VARIABLE_FIELD_DESCRIPTORS: WorkflowVariableFieldDescripto
   field("parameter_extractor", "outputVariable", "declaration", JSON_TYPES),
   field("knowledge_retrieval", "queryVariable", "binding", TEXT_TYPES, "query"),
   field("knowledge_retrieval", "outputVariable", "declaration", ["text", "json"]),
+  field("knowledge_retrieval", "errorVariable", "declaration", JSON_TYPES, "error"),
   field("knowledge_write_proposal", "titleTemplate", "template", TEMPLATE_TYPES),
   field("knowledge_write_proposal", "contentVariable", "binding", TEXT_TYPES, "content"),
   field("knowledge_write_proposal", "outputVariable", "declaration", JSON_TYPES),
@@ -245,6 +248,7 @@ export const WORKFLOW_VARIABLE_FIELD_DESCRIPTORS: WorkflowVariableFieldDescripto
   field("http_request", "headersJson", "template", TEMPLATE_TYPES),
   field("http_request", "bodyVariable", "binding", ANY_RENDERABLE_TYPES, "body"),
   field("http_request", "outputVariable", "declaration", ["text", "json"]),
+  field("http_request", "errorVariable", "declaration", JSON_TYPES, "error"),
   field("multi_route", "inputVariable", "binding", ANY_RENDERABLE_TYPES, "value"),
   field("list_operation", "inputVariable", "binding", ["json", "unknown"], "list"),
   field("list_operation", "outputVariable", "declaration", ["json", "unknown"]),
@@ -282,6 +286,7 @@ export const WORKFLOW_VARIABLE_FIELD_DESCRIPTORS: WorkflowVariableFieldDescripto
   field("json_deserialize", "inputVariable", "binding", TEXT_TYPES, "json"),
   field("json_deserialize", "outputVariable", "declaration", JSON_TYPES),
   field("data_table_query", "outputVariable", "declaration", JSON_TYPES),
+  field("data_table_query", "errorVariable", "declaration", JSON_TYPES, "error"),
   field("data_table_insert", "outputVariable", "declaration", JSON_TYPES),
   field("data_table_update", "outputVariable", "declaration", JSON_TYPES),
   field("data_table_delete", "outputVariable", "declaration", JSON_TYPES),
@@ -359,13 +364,15 @@ const RESOURCE_TARGET_HANDLES = new Set([
 ]);
 
 interface OutputSpec {
-  field: "outputVariable" | "codeOutputVariable" | "variableName" | "eventVariable" | "bodyVariable" | "submissionVariable" | "itemVariable" | "messageVariable" | "contentVariable" | "resultVariable";
+  field: "outputVariable" | "codeOutputVariable" | "variableName" | "eventVariable" | "bodyVariable" | "submissionVariable" | "itemVariable" | "messageVariable" | "contentVariable" | "resultVariable" | "errorVariable";
   fallback: string;
   valueType:
     | WorkflowVariableValueType
     | ((node: WorkflowNode) => WorkflowVariableValueType);
   conditional?: (node: WorkflowNode) => boolean;
   enabled?: (node: WorkflowNode) => boolean;
+  /** null 表示非 error 的成功出口；undefined 表示所有控制流出口。 */
+  sourceHandle?: string | null;
 }
 
 function variableAssignV2OutputType(node: WorkflowNode): WorkflowVariableValueType {
@@ -467,7 +474,19 @@ const DEFAULT_OUTPUT_SPECS: Partial<Record<WorkflowNodeKind, OutputSpec[]>> = {
     },
   ],
   knowledge_retrieval: [
-    { field: "outputVariable", fallback: "knowledge_result", valueType: "json" },
+    {
+      field: "outputVariable",
+      fallback: "knowledge_result",
+      valueType: "json",
+      sourceHandle: null,
+    },
+    {
+      field: "errorVariable",
+      fallback: "node_error",
+      valueType: "json",
+      enabled: (node) => Number(node.data.contractVersion ?? 1) === 2 && node.data.failureAction === "error_output",
+      sourceHandle: "error",
+    },
   ],
   knowledge_write_proposal: [
     { field: "outputVariable", fallback: "knowledge_proposal", valueType: "json" },
@@ -526,12 +545,21 @@ const DEFAULT_OUTPUT_SPECS: Partial<Record<WorkflowNodeKind, OutputSpec[]>> = {
       fallback: "http_output",
       valueType: "text",
       enabled: (node) => String(node.data.contractVersion ?? "1") !== "2",
+      sourceHandle: null,
     },
     {
       field: "outputVariable",
       fallback: "http_response",
       valueType: "json",
       enabled: (node) => String(node.data.contractVersion ?? "1") === "2",
+      sourceHandle: null,
+    },
+    {
+      field: "errorVariable",
+      fallback: "node_error",
+      valueType: "json",
+      enabled: (node) => String(node.data.contractVersion ?? "1") === "2" && node.data.failureAction === "error_output",
+      sourceHandle: "error",
     },
   ],
   list_operation: [
@@ -566,7 +594,19 @@ const DEFAULT_OUTPUT_SPECS: Partial<Record<WorkflowNodeKind, OutputSpec[]>> = {
     { field: "outputVariable", fallback: "json_value", valueType: "json" },
   ],
   data_table_query: [
-    { field: "outputVariable", fallback: "table_result", valueType: "json" },
+    {
+      field: "outputVariable",
+      fallback: "table_result",
+      valueType: "json",
+      sourceHandle: null,
+    },
+    {
+      field: "errorVariable",
+      fallback: "node_error",
+      valueType: "json",
+      enabled: (node) => node.data.failureAction === "error_output",
+      sourceHandle: "error",
+    },
   ],
   data_table_insert: [
     { field: "outputVariable", fallback: "table_result", valueType: "json" },
@@ -613,6 +653,7 @@ function collectSources(
     sourceKind: WorkflowVariableSourceKind,
     valueType: WorkflowVariableValueType,
     conditional = false,
+    sourceHandle?: string | null,
   ) => {
     if (!name) return;
     sources.push({
@@ -625,6 +666,7 @@ function collectSources(
         sourceKind,
         valueType,
         conditional,
+        sourceHandle,
       },
     });
   };
@@ -684,6 +726,7 @@ function collectSources(
         "node_output",
         typeof spec.valueType === "function" ? spec.valueType(node) : spec.valueType,
         spec.conditional?.(node) ?? false,
+        spec.sourceHandle,
       );
     });
     if (node.data.kind === "form_event_entry") {
@@ -796,6 +839,7 @@ const AMBIGUOUS_SCAN_IGNORED_FIELDS = new Set([
   "variableName",
   "eventVariable",
   "resultVariable",
+  "errorVariable",
   "assetIdVariable",
   "iterationVariable",
   "itemVariable",
@@ -960,6 +1004,7 @@ function controlFlowGraph(nodes: WorkflowNode[], edges: WorkflowEdge[]) {
   const nodeIds = new Set(nodes.map((node) => node.id));
   const predecessors = new Map<string, Set<string>>();
   const successors = new Map<string, Set<string>>();
+  const controlEdges: WorkflowEdge[] = [];
   nodes.forEach((node) => {
     predecessors.set(node.id, new Set());
     successors.set(node.id, new Set());
@@ -970,10 +1015,11 @@ function controlFlowGraph(nodes: WorkflowNode[], edges: WorkflowEdge[]) {
       !nodeIds.has(edge.source) ||
       !nodeIds.has(edge.target)
     ) return;
+    controlEdges.push(edge);
     predecessors.get(edge.target)?.add(edge.source);
     successors.get(edge.source)?.add(edge.target);
   });
-  return { nodeIds, predecessors, successors };
+  return { controlEdges, nodeIds, predecessors, successors };
 }
 
 function reachable(
@@ -993,6 +1039,37 @@ function reachable(
     pending.push(...(successors.get(current) ?? []));
   }
   return false;
+}
+
+function reachesSelectedFromSourceBranch(
+  sourceNodeId: string,
+  selectedNodeId: string,
+  graph: ReturnType<typeof controlFlowGraph>,
+  matchesBranch: (edge: WorkflowEdge) => boolean,
+) {
+  const visited = new Set<string>([sourceNodeId]);
+  const pending = graph.controlEdges
+    .filter((edge) => edge.source === sourceNodeId && matchesBranch(edge))
+    .map((edge) => edge.target);
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (!current) continue;
+    if (current === selectedNodeId) return true;
+    if (visited.has(current)) continue;
+    visited.add(current);
+    pending.push(...(graph.successors.get(current) ?? []));
+  }
+  return false;
+}
+
+function edgeMatchesSourceBranch(
+  edge: WorkflowEdge,
+  sourceHandle: string | null,
+) {
+  const edgeHandle = String(edge.sourceHandle ?? "").trim();
+  return sourceHandle === null
+    ? edgeHandle !== "error"
+    : edgeHandle === sourceHandle;
 }
 
 function dominators(
@@ -1077,11 +1154,22 @@ function availabilityFor(
       availabilityReason: "当前节点尚未产生自己的输出。",
     };
   }
-  const sourceReachesSelected = reachable(
-    source.nodeId,
-    selectedNodeId,
-    graph.successors,
-  );
+  const hasSourceBranch = source.sourceHandle !== undefined;
+  const sourceReachesSelected = hasSourceBranch
+    ? reachesSelectedFromSourceBranch(
+        source.nodeId,
+        selectedNodeId,
+        graph,
+        (edge) => edgeMatchesSourceBranch(edge, source.sourceHandle ?? null),
+      )
+    : reachable(source.nodeId, selectedNodeId, graph.successors);
+  const alternateBranchReachesSelected = hasSourceBranch &&
+    reachesSelectedFromSourceBranch(
+      source.nodeId,
+      selectedNodeId,
+      graph,
+      (edge) => !edgeMatchesSourceBranch(edge, source.sourceHandle ?? null),
+    );
   const selectedReachesSource = reachable(
     selectedNodeId,
     source.nodeId,
@@ -1100,6 +1188,12 @@ function availabilityFor(
         availabilityReason: "变量仅在节点的特定运行配置下产生。",
       };
     }
+    if (alternateBranchReachesSelected) {
+      return {
+        availability: "conditional",
+        availabilityReason: `变量仅在${source.sourceHandle === "error" ? "错误" : "成功"}分支产生，分支汇合后可能不存在。`,
+      };
+    }
     if (nodeDominators.get(selectedNodeId)?.has(source.nodeId)) {
       return {
         availability: "available",
@@ -1109,6 +1203,12 @@ function availabilityFor(
     return {
       availability: "conditional",
       availabilityReason: "变量来自非必经分支，运行时可能不存在。",
+    };
+  }
+  if (alternateBranchReachesSelected) {
+    return {
+      availability: "unavailable",
+      availabilityReason: `变量仅在${source.sourceHandle === "error" ? "错误" : "成功"}出口产生，当前节点位于互斥分支。`,
     };
   }
   if (selectedReachesSource) {

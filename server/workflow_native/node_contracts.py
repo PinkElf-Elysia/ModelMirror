@@ -1926,6 +1926,8 @@ def _complete_contracts() -> dict[str, NodeContract]:
             "responseMode": {"type": "string", "enum": ["auto", "json", "text"]},
             "statusPolicy": {"type": "string", "enum": ["success_only", "capture_all"]},
             "outputVariable": {"type": "string"},
+            "failureAction": {"type": "string", "enum": ["stop", "error_output"]},
+            "errorVariable": {"type": "string"},
         },
         required=[
             "contractVersion",
@@ -1953,7 +1955,14 @@ def _complete_contracts() -> dict[str, NodeContract]:
         },
         ports=(
             NodePortContract(name="response", direction="output", value_schema=object_value),
+            NodePortContract(
+                name="error",
+                direction="output",
+                value_schema=object_value,
+                required=False,
+            ),
         ),
+        edge=NodeEdgeContract(allowed_source_handles=("error",)),
         execution=NodeExecutionPolicy(
             side_effect="external_read",
             external_io=True,
@@ -3038,6 +3047,8 @@ def _complete_contracts() -> dict[str, NodeContract]:
                 "top_k": {"type": ["string", "integer"]},
                 "returnMode": {"enum": ["context", "result"]},
                 "outputVariable": {"type": "string"},
+                "failureAction": {"type": "string", "enum": ["stop", "error_output"]},
+                "errorVariable": {"type": "string"},
             },
             required=["knowledgeBaseId", "queryVariable", "outputVariable"],
         ),
@@ -3050,7 +3061,14 @@ def _complete_contracts() -> dict[str, NodeContract]:
                     any_of=(string_value, object_value)
                 ),
             ),
+            NodePortContract(
+                name="error",
+                direction="output",
+                value_schema=object_value,
+                required=False,
+            ),
         ),
+        edge=NodeEdgeContract(allowed_source_handles=("error",)),
         execution=NodeExecutionPolicy(
             side_effect="read",
             idempotent=True,
@@ -3266,6 +3284,17 @@ def _complete_contracts() -> dict[str, NodeContract]:
                         "maxProperties": 50,
                     },
                     "outputVariable": {"type": "string"},
+                    **(
+                        {
+                            "failureAction": {
+                                "type": "string",
+                                "enum": ["stop", "error_output"],
+                            },
+                            "errorVariable": {"type": "string"},
+                        }
+                        if kind == "data_table_query"
+                        else {}
+                    ),
                 },
                 required=["tableId", "outputVariable"],
             ),
@@ -3273,6 +3302,23 @@ def _complete_contracts() -> dict[str, NodeContract]:
                 NodePortContract(
                     name="result", direction="output", value_schema=output_schema
                 ),
+                *(
+                    (
+                        NodePortContract(
+                            name="error",
+                            direction="output",
+                            value_schema=object_value,
+                            required=False,
+                        ),
+                    )
+                    if kind == "data_table_query"
+                    else ()
+                ),
+            ),
+            edge=(
+                NodeEdgeContract(allowed_source_handles=("error",))
+                if kind == "data_table_query"
+                else NodeEdgeContract()
             ),
             execution=NodeExecutionPolicy(
                 side_effect=side_effect,
