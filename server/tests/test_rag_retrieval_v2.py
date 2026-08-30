@@ -14,7 +14,7 @@ from server.rag.lexical_store import LexicalChunk, SqliteLexicalStore, tokenize_
 from server.rag.pipeline_executor import KnowledgePipelineExecutor
 from server.rag.rag_service import RagService
 from server.rag.rag_service import PipelineDraftValidationError
-from server.rag.rag_service import RagRetrievalUnavailableError
+from server.rag.rag_service import RagRetrievalContractError
 from server.rag.reranker import RerankDocument, RerankItem, RerankOutcome, RerankService
 from server.rag.retrieval import RetrievalCandidate, RetrievalConfig, fuse_rankings
 from server.rag.splitter import ParentChildTextSplitter, TextSplitter
@@ -353,7 +353,7 @@ async def test_real_embedding_version_records_actual_dimension_and_fails_closed(
 
     embedder.api_base = "https://different-embedding.test/v1"
     with pytest.raises(
-        RagRetrievalUnavailableError,
+        RagRetrievalContractError,
         match="embedding identity does not match",
     ):
         await service.query_pipeline_version(

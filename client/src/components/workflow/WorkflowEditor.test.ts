@@ -4,6 +4,7 @@ import { type WorkflowNode } from "../../types/workflow";
 import {
   createNodeData,
   dataMergeConnectionError,
+  errorOutputConnectionError,
   findAvailablePalettePosition,
   migrateDocumentExtractorFileToV3,
   normalizeWorkflowNodePositions,
@@ -360,6 +361,34 @@ describe("WorkflowEditor palette defaults", () => {
     expect(dataMergeConnectionError("output", "output-1", "left", [])).toBe(
       "左右数据入口只属于数据合流节点。",
     );
+  });
+
+  it("rejects stale and duplicate structured error output connections", () => {
+    const currentData: WorkflowNode["data"] = {
+      kind: "http_request",
+      title: "安全 HTTP 请求",
+      description: "test",
+      contractVersion: 2,
+      failureAction: "error_output",
+    };
+    expect(errorOutputConnectionError(
+      currentData,
+      "http-1",
+      "error",
+      [],
+    )).toBeNull();
+    expect(errorOutputConnectionError(
+      currentData,
+      "http-1",
+      "error",
+      [{ id: "existing", source: "http-1", sourceHandle: "error", target: "handler" }],
+    )).toBe("错误出口只能连接一次。");
+    expect(errorOutputConnectionError(
+      { ...currentData, contractVersion: 1 },
+      "http-1",
+      "error",
+      [],
+    )).toBe("该节点当前配置没有可用的错误出口。");
   });
 
   it("provides safe structured defaults for R1.7 HTTP, condition, and dataset nodes", () => {

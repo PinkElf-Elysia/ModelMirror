@@ -253,7 +253,7 @@ export interface WorkflowClassifierCategory {
 }
 
 /** 画布节点运行态视觉状态（不持久化，运行时由 WorkflowRun 写回）。 */
-export type NodeRunStatus = "running" | "done" | "skipped" | "error";
+export type NodeRunStatus = "running" | "done" | "handled_error" | "skipped" | "error";
 
 export interface WorkflowNodeData extends Record<string, unknown> {
   kind: WorkflowNodeKind;
@@ -436,6 +436,8 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   responseLimitBytes?: number | string;
   responseMode?: "auto" | "json" | "text";
   statusPolicy?: "success_only" | "capture_all";
+  failureAction?: "stop" | "error_output";
+  errorVariable?: string;
   errorCode?: string;
   message?: string;
   sourceProjectIds?: string[];
@@ -542,6 +544,7 @@ export interface WorkflowRunEvent {
     | "workflow_meta"
     | "node_start"
     | "node_delta"
+    | "node_error_routed"
     | "human_intervention_pending"
     | "runtime_approval_pending"
     | "runtime_approval_resolved"
@@ -588,6 +591,9 @@ export interface WorkflowRunEvent {
   host_id?: string;
   session_id?: string;
   error_code?: string;
+  classification?: "transient" | "permanent";
+  attempt?: number;
+  max_attempts?: number;
   request_type?: "tool_call" | "final_output" | "manual_input" | "execution_gate";
   revision?: number;
   interaction_mode?: "input" | "approval";

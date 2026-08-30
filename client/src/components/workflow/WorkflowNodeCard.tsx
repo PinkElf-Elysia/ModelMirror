@@ -408,6 +408,13 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
       : [];
   const hasDynamicOutputs = data.kind === "multi_route" || classifierCategories.length > 0;
   const hasDualInputs = data.kind === "data_merge";
+  const hasErrorOutput = data.failureAction === "error_output" && (
+    data.kind === "data_table_query"
+    || (
+      ["http_request", "knowledge_retrieval"].includes(data.kind)
+      && Number(data.contractVersion) === 2
+    )
+  );
   const legacySkillCreator = isLegacySkillCreatorMiddleware(data);
   const legacyCode =
     data.kind === "code" && !isSafeTextV2(data);
@@ -425,6 +432,8 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
       ? "border-cyan-300/80 ring-2 ring-cyan-400/40"
       : runStatus === "error"
         ? "border-rose-400/80 ring-2 ring-rose-400/30"
+        : runStatus === "handled_error"
+          ? "border-amber-300/80 ring-2 ring-amber-300/30"
         : runStatus === "skipped"
           ? "border-slate-400/45 ring-1 ring-slate-400/20"
         : selected
@@ -433,7 +442,7 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
 
   return (
     <div
-      className={`relative rounded-lg border-2 bg-[#141c2e] p-2 text-slate-100 shadow-md transition duration-150 hover:bg-[#182238] active:scale-95 ${hasDynamicOutputs || hasDualInputs ? "min-w-36" : "min-w-24"} ${statusClassName}`}
+      className={`relative rounded-lg border-2 bg-[#141c2e] p-2 text-slate-100 shadow-md transition duration-150 hover:bg-[#182238] active:scale-95 ${hasDynamicOutputs || hasDualInputs || hasErrorOutput ? "min-w-36" : "min-w-24"} ${statusClassName}`}
       style={hasDynamicOutputs ? { minHeight: `${Math.max(132, ((data.kind === "multi_route" ? multiRoutes.length : classifierCategories.length) + 1) * 34)}px` } : undefined}
       onDoubleClick={() => setShowInfo((current) => !current)}
     >
@@ -451,6 +460,15 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
           title="已完成"
         >
           ✓
+        </span>
+      ) : null}
+      {runStatus === "handled_error" ? (
+        <span
+          aria-label="失败已处理"
+          className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-amber-300 text-[9px] font-bold text-ink-950 shadow"
+          title="失败已进入错误分支"
+        >
+          ↪
         </span>
       ) : null}
       {runStatus === "skipped" ? (
@@ -690,6 +708,38 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
           <div className="pointer-events-none absolute left-full ml-2 max-w-24 truncate text-[10px] font-semibold text-slate-200" style={{ top: `calc(${((classifierCategories.length + 1) / (classifierCategories.length + 2)) * 100}% - 7px)` }}>
             {data.defaultLabel ?? "默认"}
           </div>
+        </>
+      ) : hasErrorOutput ? (
+        <>
+          <Handle
+            aria-label="连接成功出口"
+            className="!h-3 !w-3 !border-2 !border-surface-900 !bg-emerald-300 after:absolute after:-inset-3 after:content-['']"
+            position={Position.Right}
+            style={{ top: "36%" }}
+            title="成功出口"
+            type="source"
+          />
+          <span
+            className="pointer-events-none absolute left-full ml-2 whitespace-nowrap text-[10px] font-semibold text-emerald-100"
+            style={{ top: "calc(36% - 7px)" }}
+          >
+            成功
+          </span>
+          <Handle
+            aria-label="连接错误出口"
+            className="!h-3 !w-3 !border-2 !border-surface-900 !bg-rose-400 after:absolute after:-inset-3 after:content-['']"
+            id="error"
+            position={Position.Right}
+            style={{ top: "72%" }}
+            title="错误出口"
+            type="source"
+          />
+          <span
+            className="pointer-events-none absolute left-full ml-2 whitespace-nowrap text-[10px] font-semibold text-rose-100"
+            style={{ top: "calc(72% - 7px)" }}
+          >
+            错误
+          </span>
         </>
       ) : data.kind === "condition" ? (
         <>

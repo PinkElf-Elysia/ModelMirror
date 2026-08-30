@@ -37,9 +37,19 @@ export function variableFieldWarning(
   declarations: WorkflowVariableDeclaration[] = [],
 ) {
   const trimmed = value.trim();
-  if (!trimmed) return "";
+  if (!trimmed) {
+    return descriptor.mode === "declaration" && descriptor.field === "errorVariable"
+      ? "错误结果变量不能为空。"
+      : "";
+  }
   if (descriptor.mode === "declaration") {
-    if (!/^[A-Za-z_][\w.-]*$/.test(trimmed)) {
+    const validName = descriptor.field === "errorVariable"
+      ? /^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(trimmed)
+      : /^[A-Za-z_][\w.-]*$/.test(trimmed);
+    if (!validName) {
+      if (descriptor.field === "errorVariable") {
+        return "错误结果变量需以字母或下划线开头，只能包含字母、数字和下划线，且不超过 64 个字符。";
+      }
       return "变量名格式异常；旧值会保留，但建议使用字母或下划线开头。";
     }
     const declared = analyzeWorkflowVariables(

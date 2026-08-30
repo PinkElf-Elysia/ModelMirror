@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 import time
@@ -37,7 +36,18 @@ except ModuleNotFoundError:
     from xperts.models import XpertDefinition, XpertDraft
 
 from .capabilities import assert_scope_is_authorized
+from .graph_ir_v3 import (
+    GRAPH_IR_VERSION,
+    annotate_candidate_with_graph_ir,
+    graph_intent_to_v2,
+    resolve_middleware_config,
+    resolve_graph_intent,
+    v2_to_graph_intent,
+    workflow_semantic_checksum,
+)
 from .node_adapters import (
+    META_PLANNER_BINDING_KINDS,
+    META_PLANNER_COMPILER_MANAGED_KINDS,
     META_PLANNER_COMPILABLE_NODE_KINDS,
     META_PLANNER_IR_VERSION,
     PlannerNodeCompileContext,
@@ -50,6 +60,7 @@ from .schemas import (
     MetaPlannerCapabilitySnapshot,
     MetaPlannerGenerateRequest,
     MetaPlannerGenerateResponse,
+    GraphIntentV3,
     MetaPlannerIRControlEdge,
     MetaPlannerIRFinalOutput,
     MetaPlannerIRInputBinding,
@@ -58,6 +69,8 @@ from .schemas import (
     MetaPlannerIROutputBinding,
     MetaPlannerIRResourceBinding,
     MetaPlannerPreviewResponse,
+    MetaPlannerIRCompatibility,
+    ResolvedGraphIRV3,
     MetaPlannerTaskPlan,
     MetaPlannerTypedBlueprintV2,
     MetaPlannerWorkflowAgentConfig,
@@ -69,7 +82,7 @@ PreflightCallback = Callable[[XpertDefinition], Any]
 
 
 TASK_PLAN_SYSTEM_PROMPT = """\
-You are the task-planning stage of ModelMirror Meta Planner V2.
+You are the task-planning stage of ModelMirror Meta Planner Graph IR V3.
 Return one strict JSON object only. Do not include markdown or hidden reasoning.
 Create a bounded task DAG. Every task must have a stable lowercase task_id,
 explicit dependencies, an input contract, and one output contract.
@@ -77,19 +90,25 @@ explicit dependencies, an input contract, and one output contract.
 
 
 BLUEPRINT_SYSTEM_PROMPT = """\
-You are the capability-compilation stage of ModelMirror Meta Planner V2.
+You are the capability-compilation stage of ModelMirror Meta Planner Graph IR V3.
 Return one strict JSON object only. Do not include markdown or hidden reasoning.
+Return GraphIntentV3 with ir_version=3. The nodes array contains executable nodes
+only; compiler-managed input/output and resource-binding nodes are never emitted.
 Use only IDs and middleware listed in the authorized capability snapshot.
 Compile the task DAG into explicit typed IR nodes, control edges, resource bindings,
 middleware bindings, and one explicit final output. A node may cover multiple tasks
 and a task may require multiple nodes. Bindings must target a workflow_agent node ref.
+Every node input must identify its source node and source port. Use the workflow_agent
+task port for each task input; that port accepts multiple typed variables.
 Respect the supplied typed_ir_constraints, including its workflow-agent node limit.
 Never invent credentials, tools, resource IDs, node kinds, versions, or private content.
 """
 
 
 REPAIR_SYSTEM_PROMPT = """\
-You repair a ModelMirror Meta Planner blueprint. Return one strict JSON object only.
+You repair a ModelMirror Meta Planner GraphIntentV3. Return one strict JSON object
+only with ir_version=3. Never return legacy V2 IR. The nodes array contains only
+executable nodes; input/output and resource nodes are compiler-managed.
 Make the smallest changes required by the structured validation issues. Do not add
 capabilities outside the supplied authorized snapshot. This is the only repair pass.
 Return the complete blueprint and obey every supplied typed_ir_constraint.
@@ -181,6 +200,167 @@ def _typed_ir_prompt_constraints(
             "workflow_agent config accepts only workflow_agent_config_allowed_fields; agent_id belongs to the task plan and must not appear in node.config.",
             "Return a complete typed blueprint, not a patch or partial fragment.",
         ],
+    }
+
+
+def _graph_intent_prompt_contract(
+    request: MetaPlannerGenerateRequest,
+    snapshot: MetaPlannerCapabilitySnapshot,
+) -> dict[str, Any]:
+    allowed_kinds = set(request.scope.allowed_node_kinds)
+    executable_kinds = sorted(
+        kind
+        for kind in allowed_kinds
+        if get_planner_node_adapter(kind) is not None
+    )
+    compiler_managed_kinds = sorted(
+        allowed_kinds & set(META_PLANNER_COMPILER_MANAGED_KINDS)
+    )
+    binding_kinds = sorted(allowed_kinds & set(META_PLANNER_BINDING_KINDS))
+    snapshot_kinds = {
+        str(item.get("kind") or "")
+        for item in snapshot.nodes
+        if isinstance(item, dict)
+    }
+
+    return {
+        "required_ir_version": GRAPH_IR_VERSION,
+        "node_roles": {
+            "executable_node_kinds": executable_kinds,
+            "compiler_managed_node_kinds": compiler_managed_kinds,
+            "resource_binding_kinds": binding_kinds,
+        },
+        "workflow_agent": {
+            "config_schema": MetaPlannerWorkflowAgentConfig.model_json_schema(),
+            "config_field_names": list(MetaPlannerWorkflowAgentConfig.model_fields),
+            "input_port": {
+                "name": "task",
+                "cardinality": "many",
+                "root_source_ref": "input",
+                "root_source_port": "user_input",
+                "root_variable": "user_input",
+            },
+            "output_port": {
+                "name": "result",
+                "type": "string",
+                "cardinality": "one",
+            },
+        },
+        "authorized": {
+            "middleware_ids": list(request.scope.middleware_ids),
+            "prompt_profile_ids": list(request.scope.prompt_profile_ids),
+            "external_xpert_ids": list(request.scope.external_xpert_ids),
+            "knowledge_base_ids": list(request.scope.knowledge_base_ids),
+            "toolset_ids": list(request.scope.toolset_ids),
+            "plugin_ids": list(request.scope.plugin_ids),
+        },
+        "rules": [
+            "Set ir_version to 3; never return a V2 blueprint.",
+            "nodes may contain only executable_node_kinds.",
+            "Never put compiler_managed_node_kinds or resource_binding_kinds in nodes.",
+            "Represent resources only in resources and target a workflow_agent ref.",
+            "Use snake_case workflow_agent config fields exactly as config_field_names; never emit outputVariable, taskInput, rolePrompt, or agent_id in config.",
+            "Every workflow_agent declares exactly one string output on port result with a unique variable.",
+            "Every root workflow_agent binds user_input from source_ref input and source_port user_input to input port task.",
+            "Every dependency input binds the exact ancestor result variable from source_port result to input port task.",
+            "Every {{variable}} used in role_prompt or task_input has a matching explicit input binding.",
+            "Control edges represent every cross-node task dependency and form one acyclic graph with one terminal node.",
+            "final_output references the terminal workflow_agent result port and its exact output variable.",
+            "middleware may contain only authorized middleware_ids; when that list is empty, middleware must be empty.",
+        ],
+        "snapshot_node_kinds": sorted(snapshot_kinds & allowed_kinds),
+    }
+
+
+def _planner_prompt_snapshot(
+    request: MetaPlannerGenerateRequest,
+    snapshot: MetaPlannerCapabilitySnapshot,
+) -> dict[str, Any]:
+    def authorized(items: list[dict[str, Any]], ids: list[str]) -> list[dict[str, Any]]:
+        allowed = set(ids)
+        return [item for item in items if str(item.get("id") or "") in allowed]
+
+    return {
+        "version": snapshot.version,
+        "snapshot_hash": snapshot.snapshot_hash,
+        "graph_intent_contract": _graph_intent_prompt_contract(request, snapshot),
+        "resources": {
+            "external_xperts": authorized(
+                snapshot.external_xperts, request.scope.external_xpert_ids
+            ),
+            "knowledge_bases": authorized(
+                snapshot.knowledge_bases, request.scope.knowledge_base_ids
+            ),
+            "toolsets": authorized(snapshot.toolsets, request.scope.toolset_ids),
+            "plugins": authorized(snapshot.plugins, request.scope.plugin_ids),
+            "prompt_profiles": authorized(
+                snapshot.prompt_profiles, request.scope.prompt_profile_ids
+            ),
+        },
+        "middleware": authorized(snapshot.middleware, request.scope.middleware_ids),
+        "models": [
+            item
+            for item in snapshot.models
+            if item.get("safe") is True and item.get("id")
+        ],
+        "agents": authorized(snapshot.agents, request.scope.agent_ids),
+    }
+
+
+def _canonical_graph_intent_example(
+    request: MetaPlannerGenerateRequest,
+    plan: MetaPlannerTaskPlan,
+) -> dict[str, Any]:
+    """Give the model one compact, structurally valid V3 shape to adapt."""
+
+    task_ids = [task.task_id for task in plan.tasks]
+    return {
+        "ir_version": GRAPH_IR_VERSION,
+        "name": "Replace with the candidate Xpert name",
+        "description": "Replace with a concise candidate description",
+        "tags": [],
+        "starters": [],
+        "nodes": [
+            {
+                "ref": "xpert_agent",
+                "kind": "workflow_agent",
+                "title": "Replace with the workflow agent title",
+                "description": "Replace with the workflow agent responsibility",
+                "task_ids": task_ids,
+                "inputs": [
+                    {
+                        "port": "task",
+                        "variable": "user_input",
+                        "source_ref": "input",
+                        "source_port": "user_input",
+                        "value_schema": {"type": "string"},
+                    }
+                ],
+                "outputs": [
+                    {
+                        "port": "result",
+                        "variable": "final_result",
+                        "value_schema": {"type": "string"},
+                    }
+                ],
+                "config": {
+                    "role_prompt": "Replace with instructions covering task_ids.",
+                    "task_input": "{{user_input}}",
+                    "model_id": request.default_agent_model_id,
+                    "source_agent_id": None,
+                    "method_skill_ids": [],
+                },
+            }
+        ],
+        "control_edges": [],
+        "resources": [],
+        "middleware": [],
+        "prompt_profile_ids": [],
+        "final_output": {
+            "node_ref": "xpert_agent",
+            "port": "result",
+            "variable": "final_result",
+        },
     }
 
 
@@ -305,6 +485,12 @@ def legacy_blueprint_to_typed_ir(
     if len(task_order) != len(plan.tasks):
         raise ValueError("Legacy blueprint task plan contains a dependency cycle.")
 
+    task_ancestors: dict[str, set[str]] = {task_id: set() for task_id in task_order}
+    for task_id in task_order:
+        for dependency in task_by_id[task_id].depends_on:
+            task_ancestors[task_id].add(dependency)
+            task_ancestors[task_id].update(task_ancestors[dependency])
+
     outputs: dict[str, str] = {}
     node_refs: dict[str, str] = {}
     nodes: list[MetaPlannerIRNode] = []
@@ -317,7 +503,11 @@ def legacy_blueprint_to_typed_ir(
         outputs[task.task_id] = output_variable
         task_input = agent.task_input.strip()
         input_bindings: list[MetaPlannerIRInputBinding] = []
-        if not task.depends_on:
+        references_user_input = any(
+            re.search(r"\{\{\s*user_input\s*\}\}", template)
+            for template in (agent.role_prompt, task_input)
+        )
+        if not task.depends_on or references_user_input:
             input_bindings.append(
                 MetaPlannerIRInputBinding(
                     port="request", variable="user_input", value_type="string"
@@ -343,6 +533,44 @@ def legacy_blueprint_to_typed_ir(
                     f"\n\nDependency {dependency}:\n"
                     f"{{{{{dependency_variable}}}}}"
                 )
+        referenced_variables = {
+            match.group(1)
+            for template in (agent.role_prompt, task_input)
+            for match in re.finditer(
+                r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}",
+                template,
+            )
+        }
+        bound_variables = {binding.variable for binding in input_bindings}
+        if (
+            "conversation_history" in referenced_variables
+            and "conversation_history" not in bound_variables
+        ):
+            input_bindings.append(
+                MetaPlannerIRInputBinding(
+                    port="history",
+                    variable="conversation_history",
+                    value_type="array",
+                )
+            )
+            bound_variables.add("conversation_history")
+        ancestor_outputs = {
+            outputs[ancestor]: ancestor
+            for ancestor in task_ancestors[task.task_id]
+            if ancestor in outputs
+        }
+        for variable in sorted(referenced_variables - bound_variables):
+            producer_task = ancestor_outputs.get(variable)
+            if producer_task is None:
+                continue
+            input_bindings.append(
+                MetaPlannerIRInputBinding(
+                    port=f"context_{producer_task}",
+                    variable=variable,
+                    value_type="string",
+                )
+            )
+            bound_variables.add(variable)
         nodes.append(
             MetaPlannerIRNode(
                 ref=node_ref,
@@ -411,11 +639,26 @@ def legacy_blueprint_to_typed_ir(
 
 def _typed_blueprint(
     plan: MetaPlannerTaskPlan,
-    blueprint: MetaPlannerBlueprint | MetaPlannerTypedBlueprintV2,
+    blueprint: MetaPlannerBlueprint | MetaPlannerTypedBlueprintV2 | GraphIntentV3,
 ) -> MetaPlannerTypedBlueprintV2:
+    if isinstance(blueprint, GraphIntentV3):
+        return graph_intent_to_v2(blueprint)
     if isinstance(blueprint, MetaPlannerTypedBlueprintV2):
         return blueprint
     return legacy_blueprint_to_typed_ir(plan, blueprint)
+
+
+def _graph_intent(
+    plan: MetaPlannerTaskPlan,
+    blueprint: MetaPlannerBlueprint | MetaPlannerTypedBlueprintV2 | GraphIntentV3,
+) -> tuple[GraphIntentV3, MetaPlannerIRCompatibility]:
+    if isinstance(blueprint, GraphIntentV3):
+        return blueprint, MetaPlannerIRCompatibility(source_version=3)
+    typed = _typed_blueprint(plan, blueprint)
+    intent, compatibility = v2_to_graph_intent(typed)
+    if intent is None:
+        raise ValueError("; ".join(compatibility.warnings))
+    return intent, compatibility
 
 
 def _typed_graph(
@@ -447,7 +690,7 @@ def _typed_graph(
 def validate_blueprint_authorization(
     request: MetaPlannerGenerateRequest,
     plan: MetaPlannerTaskPlan,
-    blueprint: MetaPlannerBlueprint | MetaPlannerTypedBlueprintV2,
+    blueprint: MetaPlannerBlueprint | MetaPlannerTypedBlueprintV2 | GraphIntentV3,
     snapshot: MetaPlannerCapabilitySnapshot,
 ) -> list[str]:
     issues = validate_task_plan(
@@ -477,6 +720,12 @@ def validate_blueprint_authorization(
     task_nodes: dict[str, list[MetaPlannerIRNode]] = defaultdict(list)
     known_agents = {item["id"] for item in snapshot.agents}
     authorized_agents = set(request.scope.agent_ids)
+    available_models = {
+        str(item.get("id") or "")
+        for item in snapshot.models
+        if item.get("safe") is True and item.get("id")
+    }
+    available_models.add(request.default_agent_model_id)
     parsed_configs: dict[str, MetaPlannerWorkflowAgentConfig] = {}
     for node in typed.nodes:
         if node.kind not in request.scope.allowed_node_kinds:
@@ -498,6 +747,24 @@ def validate_blueprint_authorization(
                 f"Node {node.ref} config is invalid: {_safe_exception_message(exc)}"
             )
             continue
+        if isinstance(blueprint, GraphIntentV3):
+            graph_node = next(
+                item for item in blueprint.nodes if item.ref == node.ref
+            )
+            declared_inputs = {item.variable for item in graph_node.inputs}
+            referenced = {
+                match.group(1)
+                for template in (config.role_prompt, config.task_input)
+                for match in re.finditer(
+                    r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}",
+                    template,
+                )
+            }
+            for variable in sorted(referenced - declared_inputs):
+                issues.append(
+                    f"Node {node.ref} template variable {variable} needs an "
+                    "explicit data binding."
+                )
         if len(node.outputs) != 1 or node.outputs[0].port != "result":
             issues.append(
                 f"Node {node.ref} must expose exactly one result output port."
@@ -532,6 +799,10 @@ def validate_blueprint_authorization(
                     f"Node {node.ref} must keep method Skills for task {task_id}."
                 )
         source_agent_id = config.source_agent_id
+        if config.model_id and config.model_id not in available_models:
+            issues.append(
+                f"Agent model {config.model_id} is no longer available."
+            )
         if source_agent_id and source_agent_id not in authorized_agents:
             issues.append(f"Expert {source_agent_id} is not authorized.")
         if source_agent_id and source_agent_id not in known_agents:
@@ -693,6 +964,15 @@ def validate_blueprint_authorization(
             issues.append(
                 f"Middleware {binding.middleware_id} is no longer available."
             )
+        else:
+            try:
+                resolve_middleware_config(
+                    middleware_lookup[binding.middleware_id], binding.config
+                )
+            except ValueError as exc:
+                issues.append(
+                    f"Middleware {binding.middleware_id} config is invalid: {exc}"
+                )
         key = (binding.target_ref, binding.middleware_id)
         if key in seen_middleware:
             issues.append(
@@ -1067,11 +1347,17 @@ def compile_xpert_candidate(
     *,
     request: MetaPlannerGenerateRequest,
     plan: MetaPlannerTaskPlan,
-    blueprint: MetaPlannerBlueprint | MetaPlannerTypedBlueprintV2,
+    blueprint: MetaPlannerBlueprint | MetaPlannerTypedBlueprintV2 | GraphIntentV3,
     snapshot: MetaPlannerCapabilitySnapshot,
     target: XpertDefinition | None,
 ) -> dict[str, Any]:
-    typed = _typed_blueprint(plan, blueprint)
+    intent, _ = _graph_intent(plan, blueprint)
+    resolved_graph = resolve_graph_intent(
+        intent,
+        snapshot,
+        default_agent_model_id=request.default_agent_model_id,
+    )
+    typed = graph_intent_to_v2(intent)
     task_by_id = {task.task_id: task for task in plan.tasks}
     node_by_ref = {node.ref: node for node in typed.nodes}
     resource_lookup = _resource_lookup(snapshot)
@@ -1106,6 +1392,28 @@ def compile_xpert_candidate(
     }
     resources_by_ref: dict[str, list[MetaPlannerIRResourceBinding]] = defaultdict(list)
     middleware_by_ref: dict[str, list[MetaPlannerIRMiddlewareBinding]] = defaultdict(list)
+    resolved_nodes_by_ref = {node.ref: node for node in resolved_graph.nodes}
+    resolved_resource_ids: dict[tuple[str, str, str], str] = {}
+    resolved_middleware_ids: dict[tuple[str, str], str] = {}
+    for graph_edge in resolved_graph.edges:
+        source_node = resolved_nodes_by_ref.get(graph_edge.source.node_ref)
+        if source_node is None:
+            continue
+        if graph_edge.mode == "binding":
+            resolved_resource_ids[
+                (
+                    source_node.kind,
+                    str(source_node.config.get("resource_id") or ""),
+                    graph_edge.target.node_ref,
+                )
+            ] = source_node.node_id
+        elif graph_edge.mode == "metadata":
+            resolved_middleware_ids[
+                (
+                    str(source_node.config.get("middleware_id") or ""),
+                    graph_edge.target.node_ref,
+                )
+            ] = source_node.node_id
     for binding in typed.resources:
         resources_by_ref[binding.target_ref].append(binding)
     for binding in typed.middleware:
@@ -1176,7 +1484,9 @@ def compile_xpert_candidate(
     for index, binding in enumerate(typed.resources):
         target_node_id = compiled_node_ids[binding.target_ref]
         resource = resource_lookup[binding.kind][binding.resource_id]
-        node_id = f"resource_{index + 1}_{binding.kind}"
+        node_id = resolved_resource_ids[
+            (binding.kind, binding.resource_id, binding.target_ref)
+        ]
         published_version = resource.get("published_version")
         if binding.kind == "external_xpert":
             data = {
@@ -1263,10 +1573,9 @@ def compile_xpert_candidate(
         middleware = middleware_lookup[binding.middleware_id]
         defaults = dict(middleware.get("default_config") or {})
         defaults.update(binding.config)
-        node_id = (
-            f"middleware_{index + 1}_"
-            f"{_safe_identifier(binding.middleware_id, 'mw')}"
-        )
+        node_id = resolved_middleware_ids[
+            (binding.middleware_id, binding.target_ref)
+        ]
         target_position = next(
             node.position for node in nodes if node.id == target_node_id
         )
@@ -1326,16 +1635,10 @@ def compile_xpert_candidate(
         )
     )
 
-    canonical_ir = json.dumps(
-        typed.model_dump(mode="json"),
-        ensure_ascii=True,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
     workflow = NativeWorkflowDefinition(
-        id=f"meta_{hashlib.sha256(canonical_ir.encode('utf-8')).hexdigest()[:12]}",
+        id=f"meta_{resolved_graph.graph_checksum[:12]}",
         title=typed.name,
-        version="evoagentx-meta-planner-v2",
+        version="evoagentx-meta-planner-graph-ir-v3",
         source="workflow-native",
         nodes=nodes,
         edges=edges,
@@ -1361,13 +1664,15 @@ def compile_xpert_candidate(
         draft_payload["agent_config"] = base_draft.agent_config
         draft_payload["features"] = base_draft.features
     draft = XpertDraft(**draft_payload)
-    return {
+    candidate = {
         "name": typed.name,
         "description": typed.description,
         "tags": list(dict.fromkeys(typed.tags)),
         "starters": list(dict.fromkeys(typed.starters)),
         "draft": draft.model_dump(mode="json"),
     }
+    annotate_candidate_with_graph_ir(candidate, intent, resolved_graph)
+    return candidate
 
 
 def _candidate_xpert(
@@ -1552,7 +1857,14 @@ class MetaPlannerV2Service:
         )
         repair_used = False
         warnings: list[str] = []
-        blueprint, candidate, validation, issues = self._compile_and_validate(
+        (
+            blueprint,
+            candidate,
+            validation,
+            issues,
+            graph_ir,
+            compatibility,
+        ) = self._compile_and_validate(
             request=request,
             plan=plan,
             raw_blueprint=raw_blueprint,
@@ -1574,7 +1886,14 @@ class MetaPlannerV2Service:
                 0,
                 8_192,
             )
-            blueprint, candidate, validation, issues = self._compile_and_validate(
+            (
+                blueprint,
+                candidate,
+                validation,
+                issues,
+                graph_ir,
+                compatibility,
+            ) = self._compile_and_validate(
                 request=request,
                 plan=plan,
                 raw_blueprint=repaired_raw,
@@ -1586,7 +1905,7 @@ class MetaPlannerV2Service:
                     "The single repair pass did not produce an approvable candidate."
                 )
                 if not candidate:
-                    candidate = self._fallback_candidate(
+                    candidate, graph_ir, compatibility = self._fallback_candidate(
                         request=request,
                         plan=plan,
                         snapshot=snapshot,
@@ -1621,8 +1940,18 @@ class MetaPlannerV2Service:
                 ]
 
         report = {
-            "planner_version": "evoagentx-meta-planner-v2",
-            "typed_ir_version": META_PLANNER_IR_VERSION,
+            "planner_version": "evoagentx-meta-planner-graph-ir-v3",
+            "typed_ir_version": GRAPH_IR_VERSION,
+            "ir_version": GRAPH_IR_VERSION,
+            "graph_ir": (
+                graph_ir.model_dump(mode="json") if graph_ir is not None else None
+            ),
+            "graph_ir_checksum": (
+                graph_ir.graph_checksum if graph_ir is not None else ""
+            ),
+            "graph_ir_status": "current" if graph_ir is not None else "unavailable",
+            "compiled_workflow_checksum": workflow_semantic_checksum(candidate),
+            "compatibility": compatibility.model_dump(mode="json"),
             "goal": request.goal,
             "mode": request.mode,
             "plan": plan.model_dump(mode="json"),
@@ -1678,6 +2007,8 @@ class MetaPlannerV2Service:
             warnings=warnings,
             repair_used=repair_used,
             snapshot=snapshot,
+            graph_ir=graph_ir,
+            compatibility=compatibility,
         )
 
     def preview(
@@ -1686,7 +2017,7 @@ class MetaPlannerV2Service:
         snapshot: MetaPlannerCapabilitySnapshot,
         *,
         plan: MetaPlannerTaskPlan,
-        blueprint: MetaPlannerBlueprint | MetaPlannerTypedBlueprintV2,
+        blueprint: MetaPlannerBlueprint | MetaPlannerTypedBlueprintV2 | GraphIntentV3,
         target: XpertDefinition | None = None,
         warnings: list[str] | None = None,
         repair_used: bool = False,
@@ -1717,6 +2048,12 @@ class MetaPlannerV2Service:
         issues = list(dict.fromkeys([*plan_issues, *blueprint_issues]))
         if issues:
             raise ValueError("; ".join(issues))
+        intent, compatibility = _graph_intent(plan, blueprint)
+        graph_ir = resolve_graph_intent(
+            intent,
+            snapshot,
+            default_agent_model_id=request.default_agent_model_id,
+        )
         candidate = compile_xpert_candidate(
             request=request,
             plan=plan,
@@ -1737,6 +2074,10 @@ class MetaPlannerV2Service:
             repair_used=repair_used,
             capability_snapshot_version=snapshot.version,
             capability_snapshot_hash=snapshot.snapshot_hash,
+            ir_version=GRAPH_IR_VERSION,
+            graph_ir=graph_ir.model_dump(mode="json"),
+            graph_ir_checksum=graph_ir.graph_checksum,
+            compatibility=compatibility,
         )
 
     @staticmethod
@@ -1746,7 +2087,7 @@ class MetaPlannerV2Service:
         plan: MetaPlannerTaskPlan,
         snapshot: MetaPlannerCapabilitySnapshot,
         target: XpertDefinition | None,
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], ResolvedGraphIRV3, MetaPlannerIRCompatibility]:
         blueprint = MetaPlannerBlueprint(
             name=(target.name if target is not None else "Unresolved Xpert candidate"),
             description="Meta Planner repair failed. Review validation issues.",
@@ -1765,6 +2106,12 @@ class MetaPlannerV2Service:
                 for task in plan.tasks
             ],
         )
+        intent, compatibility = _graph_intent(plan, blueprint)
+        graph_ir = resolve_graph_intent(
+            intent,
+            snapshot,
+            default_agent_model_id=request.default_agent_model_id,
+        )
         candidate = compile_xpert_candidate(
             request=request,
             plan=plan,
@@ -1777,7 +2124,7 @@ class MetaPlannerV2Service:
             if node.get("type") == "workflow_agent":
                 node["data"]["modelId"] = ""
                 break
-        return candidate
+        return candidate, graph_ir, compatibility
 
     def _compile_and_validate(
         self,
@@ -1788,20 +2135,52 @@ class MetaPlannerV2Service:
         snapshot: MetaPlannerCapabilitySnapshot,
         target: XpertDefinition | None,
     ) -> tuple[
-        MetaPlannerTypedBlueprintV2 | None,
+        GraphIntentV3 | None,
         dict[str, Any],
         dict[str, Any],
         list[str],
+        ResolvedGraphIRV3 | None,
+        MetaPlannerIRCompatibility,
     ]:
+        compatibility = MetaPlannerIRCompatibility(source_version=3)
         try:
-            blueprint = MetaPlannerTypedBlueprintV2.model_validate(
-                _json_payload(raw_blueprint)
-            )
+            payload = _json_payload(raw_blueprint)
+            if payload.get("ir_version") == 2:
+                issue = (
+                    "Legacy V2 IR is read-only compatibility input and is not "
+                    "valid for a new V3 generation. Return GraphIntentV3 with "
+                    "ir_version=3."
+                )
+                return (
+                    None,
+                    {},
+                    {"valid": False, "issues": [issue]},
+                    [issue],
+                    None,
+                    MetaPlannerIRCompatibility(
+                        source_version=2,
+                        warnings=[issue],
+                    ),
+                )
+            else:
+                blueprint = GraphIntentV3.model_validate(payload)
             issues = validate_blueprint_authorization(
                 request, plan, blueprint, snapshot
             )
             if issues:
-                return blueprint, {}, {"valid": False, "issues": issues}, issues
+                return (
+                    blueprint,
+                    {},
+                    {"valid": False, "issues": issues},
+                    issues,
+                    None,
+                    compatibility,
+                )
+            graph_ir = resolve_graph_intent(
+                blueprint,
+                snapshot,
+                default_agent_model_id=request.default_agent_model_id,
+            )
             candidate = compile_xpert_candidate(
                 request=request,
                 plan=plan,
@@ -1818,10 +2197,24 @@ class MetaPlannerV2Service:
                 str(issue.get("message") or issue)
                 for issue in validation.get("issues", [])
             ]
-            return blueprint, candidate, validation, errors
+            return (
+                blueprint,
+                candidate,
+                validation,
+                errors,
+                graph_ir,
+                compatibility,
+            )
         except Exception as exc:
             message = _safe_exception_message(exc)
-            return None, {}, {"valid": False, "issues": [message]}, [message]
+            return (
+                None,
+                {},
+                {"valid": False, "issues": [message]},
+                [message],
+                None,
+                compatibility,
+            )
 
     @staticmethod
     def _plan_prompt(request: MetaPlannerGenerateRequest) -> str:
@@ -1868,6 +2261,7 @@ class MetaPlannerV2Service:
         snapshot: MetaPlannerCapabilitySnapshot,
         target: XpertDefinition | None,
     ) -> str:
+        prompt_snapshot = _planner_prompt_snapshot(request, snapshot)
         target_summary = None
         if target is not None:
             target_summary = {
@@ -1883,19 +2277,28 @@ class MetaPlannerV2Service:
                 "task_plan": plan.model_dump(mode="json"),
                 "default_agent_model_id": request.default_agent_model_id,
                 "authorized_scope": request.scope.model_dump(mode="json"),
-                "capability_snapshot": snapshot.model_dump(mode="json"),
+                "capability_snapshot": prompt_snapshot,
+                "graph_intent_contract": prompt_snapshot[
+                    "graph_intent_contract"
+                ],
                 "target_xpert": target_summary,
-                "required_schema": MetaPlannerTypedBlueprintV2.model_json_schema(),
+                "required_schema": GraphIntentV3.model_json_schema(),
+                "canonical_minimal_example": _canonical_graph_intent_example(
+                    request, plan
+                ),
                 "typed_ir_constraints": _typed_ir_prompt_constraints(request, plan),
                 "rules": [
                     "Use only executable node kinds marked compilable in the snapshot.",
                     "A workflow_agent may cover multiple task_ids and a task may use multiple nodes.",
                     "Declare every control edge, typed input/output binding, and the final output explicitly.",
+                    "Every input binding must identify source_ref and source_port.",
+                    "Use target port task for every workflow_agent input; the port accepts many variables.",
                     "Do not emit input, output, or resource nodes inside nodes; the compiler creates them from bindings.",
                     "Use resource and middleware IDs only from authorized_scope.",
                     "Resource and middleware bindings target workflow_agent node refs.",
                     "Reference dependency outputs in task_input using {{variable}}.",
                     "Do not include credentials, hidden reasoning, or raw private data.",
+                    "When uncertain, preserve the exact shape of canonical_minimal_example and adapt its content; never change it to V2.",
                 ],
             },
             ensure_ascii=False,
@@ -1909,6 +2312,8 @@ class MetaPlannerV2Service:
         raw_blueprint: str,
         issues: list[str],
     ) -> str:
+        prompt_snapshot = _planner_prompt_snapshot(request, snapshot)
+        resources = prompt_snapshot["resources"]
         return json.dumps(
             {
                 "goal": request.goal,
@@ -1916,17 +2321,20 @@ class MetaPlannerV2Service:
                 "default_agent_model_id": request.default_agent_model_id,
                 "authorized_scope": request.scope.model_dump(mode="json"),
                 "capability_snapshot_hash": snapshot.snapshot_hash,
+                "capability_snapshot": prompt_snapshot,
+                "graph_intent_contract": prompt_snapshot[
+                    "graph_intent_contract"
+                ],
                 "available_resources": {
-                    "external_xperts": snapshot.external_xperts,
-                    "knowledge_bases": snapshot.knowledge_bases,
-                    "toolsets": snapshot.toolsets,
-                    "plugins": snapshot.plugins,
-                    "prompt_profiles": snapshot.prompt_profiles,
-                    "middleware": snapshot.middleware,
+                    **resources,
+                    "middleware": prompt_snapshot["middleware"],
                 },
                 "invalid_blueprint": raw_blueprint[:30_000],
                 "validation_issues": issues[:30],
-                "required_schema": MetaPlannerTypedBlueprintV2.model_json_schema(),
+                "required_schema": GraphIntentV3.model_json_schema(),
+                "canonical_minimal_example": _canonical_graph_intent_example(
+                    request, plan
+                ),
                 "typed_ir_constraints": _typed_ir_prompt_constraints(request, plan),
             },
             ensure_ascii=False,
@@ -1943,6 +2351,8 @@ class MetaPlannerV2Service:
         warnings: list[str],
         repair_used: bool,
         snapshot: MetaPlannerCapabilitySnapshot,
+        graph_ir: ResolvedGraphIRV3 | None,
+        compatibility: MetaPlannerIRCompatibility,
     ) -> MetaPlannerGenerateResponse:
         return MetaPlannerGenerateResponse(
             proposal_id=proposal.proposal_id,
@@ -1957,4 +2367,12 @@ class MetaPlannerV2Service:
             repair_used=repair_used,
             capability_snapshot_version=snapshot.version,
             capability_snapshot_hash=snapshot.snapshot_hash,
+            ir_version=GRAPH_IR_VERSION,
+            graph_ir=(
+                graph_ir.model_dump(mode="json") if graph_ir is not None else None
+            ),
+            graph_ir_checksum=(
+                graph_ir.graph_checksum if graph_ir is not None else ""
+            ),
+            compatibility=compatibility,
         )

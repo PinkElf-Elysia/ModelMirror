@@ -6,6 +6,7 @@ import firstRagKnowledgeBase from "./articles/first-rag-knowledge-base.md?raw";
 import installOrImportSkill from "./articles/install-or-import-skill.md?raw";
 import chooseModelAgentWorkflow from "./articles/choose-model-agent-workflow.md?raw";
 import createRepeatableAgent from "./articles/create-repeatable-agent.md?raw";
+import handleWorkflowNodeFailure from "./articles/handle-workflow-node-failure.md?raw";
 import modulesAndTerms from "./articles/modules-and-terms.md?raw";
 import promoteRunToSkill from "./articles/promote-run-to-skill.md?raw";
 import recoverUnavailableFeature from "./articles/recover-unavailable-feature.md?raw";
@@ -97,6 +98,7 @@ export const ragFormalIntegrityBaseline = { commit: "be056e99", date: "2026-08-2
 export const skillExperienceBaseline = { commit: "bf486f25", date: "2026-08-27" };
 export const emailReviewBaseline = { commit: "afda87ff", date: "2026-08-28" };
 export const agentPreviewBaseline = { commit: "c2e75371", date: "2026-08-30" };
+export const workflowErrorRoutingBaseline = { commit: "b5e0e85e", date: "2026-08-29" };
 
 export const helpContentTypeLabels: Record<HelpContentType, string> = {
   tutorial: "入门教程",
@@ -314,6 +316,21 @@ export const helpArticles: HelpArticle[] = [
     verifiedDate: emailReviewBaseline.date,
     content: subscribeEmailWorkflow,
     nextSlug: "subscribe-rss-workflow",
+  },
+  {
+    slug: "handle-workflow-node-failure",
+    title: "用错误分支处理只读节点失败",
+    summary: "把可预期的只读运行故障送入安全错误分支，同时保留配置、权限和安全门禁的失败关闭。",
+    category: "解决问题",
+    contentType: "how-to",
+    audience: "需要为只读 HTTP、数据表查询或知识检索配置降级路径的工作流用户",
+    estimatedMinutes: 6,
+    keywords: ["工作流", "错误分支", "已处理失败", "HTTP", "数据表查询", "知识检索", "安全回执", "本地草稿"],
+    relatedRoutes: ["/workflow", "/runtime"],
+    verifiedCommit: workflowErrorRoutingBaseline.commit,
+    verifiedDate: workflowErrorRoutingBaseline.date,
+    content: handleWorkflowNodeFailure,
+    nextSlug: "recover-unavailable-feature",
   },
   {
     slug: "modules-and-terms",
@@ -546,6 +563,7 @@ export const helpSections: HelpSection[] = [
     path: "/help/sections/troubleshooting",
     items: [
       { id: "unavailable", title: "功能不可用或尚未开放", summary: "看懂待适配、开关未开启、需要配置和当前入口未开放。", to: "/help/recover-unavailable-feature", keywords: ["不可用", "未开放", "待适配", "开关"] },
+      { id: "workflow-error-output", title: "让只读节点失败后走安全分支", summary: "为 HTTP、数据表查询或知识检索配置明确的错误出口。", to: "/help/handle-workflow-node-failure", keywords: ["工作流", "错误分支", "HTTP", "数据表", "知识检索"] },
       { id: "no-response", title: "页面、按钮或运行没有反应", summary: "先检查加载、按钮状态和可见错误，再决定是否重试。", to: "/help/sections/troubleshooting#no-response", keywords: ["没反应", "按钮", "加载"] },
       { id: "configuration", title: "配置、权限与连接问题", summary: "判断是否需要有管理权限的人处理。", to: "/help/sections/troubleshooting#configuration", keywords: ["配置", "权限", "连接"] },
     ],

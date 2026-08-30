@@ -109,6 +109,7 @@ def build_capability_snapshot(
                         "contract_version": compiler["contract_version"],
                         "contract_checksum": compiler["contract_checksum"],
                         "compiler_checksum": compiler["compiler_checksum"],
+                        "adapter_checksum": compiler["adapter_checksum"],
                         "default_data": dict(planner.get("default_data") or {}),
                         "config_constraints": dict(
                             planner.get("config_constraints") or {}
@@ -147,6 +148,7 @@ def build_capability_snapshot(
                         "contract_version": compiler["contract_version"],
                         "contract_checksum": compiler["contract_checksum"],
                         "compiler_checksum": compiler["compiler_checksum"],
+                        "adapter_checksum": compiler["adapter_checksum"],
                         "default_data": dict(planner.get("default_data") or {}),
                         "config_constraints": dict(
                             planner.get("config_constraints") or {}
@@ -313,8 +315,9 @@ def build_capability_snapshot(
         agent_ids=[item["id"] for item in expert_summaries],
     )
     payload = {
-        "version": "evoagentx-meta-planner-capabilities-v3",
-        "ir_version": 2,
+        "version": "evoagentx-meta-planner-capabilities-v4",
+        "ir_version": 3,
+        "supported_ir_versions": [2, 3],
         "contract_version": int(node_payload.get("contract_version") or 0),
         "contract_checksum": str(node_payload.get("contract_checksum") or ""),
         "node_registry_version": workflow_registry.version,

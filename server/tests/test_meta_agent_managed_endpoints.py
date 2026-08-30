@@ -8,6 +8,7 @@ import pytest_asyncio
 
 from server import main as main_module
 from server.main import app
+from server.meta_agent.graph_ir_v3 import v2_to_graph_intent
 from server.meta_agent.schemas import (
     MetaPlannerIRFinalOutput,
     MetaPlannerIRInputBinding,
@@ -126,7 +127,7 @@ def _planner_outputs() -> list[str]:
             )
         ],
     )
-    blueprint = MetaPlannerTypedBlueprintV2(
+    legacy_blueprint = MetaPlannerTypedBlueprintV2(
         name="Managed Meta Agent",
         description="A bounded managed candidate.",
         nodes=[
@@ -153,6 +154,9 @@ def _planner_outputs() -> list[str]:
         ],
         final_output=MetaPlannerIRFinalOutput(node_ref="writer", variable="answer"),
     )
+    blueprint, compatibility = v2_to_graph_intent(legacy_blueprint)
+    assert blueprint is not None
+    assert compatibility.lossy is False
     return [
         plan.model_dump_json(),
         json.dumps({"name": "invalid"}),

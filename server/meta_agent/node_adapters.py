@@ -6,6 +6,7 @@ from typing import Any, Callable
 from pydantic import BaseModel
 
 from .schemas import (
+    GraphIntentNodeV3,
     MetaPlannerIRNode,
     MetaPlannerWorkflowAgentConfig,
 )
@@ -26,7 +27,7 @@ except ModuleNotFoundError:
     from workflow_native.schemas import NativeWorkflowNode, WorkflowPosition
 
 
-META_PLANNER_IR_VERSION = 2
+META_PLANNER_IR_VERSION = 3
 META_PLANNER_ADAPTER_VERSION = "node-contract-v3"
 META_PLANNER_COMPILER_MANAGED_KINDS = frozenset({"input", "output"})
 META_PLANNER_BINDING_KINDS = frozenset(
@@ -59,6 +60,7 @@ class PlannerNodeAdapter:
         NativeWorkflowNode,
     ]
     decompile_node: Callable[[NativeWorkflowNode], MetaPlannerIRNode]
+    decompile_node_v3: Callable[[NativeWorkflowNode], GraphIntentNodeV3]
     contract_version: int = NODE_CONTRACT_VERSION
 
     def validate_config(self, node: MetaPlannerIRNode) -> BaseModel:
@@ -67,6 +69,19 @@ class PlannerNodeAdapter:
     @property
     def config_schema_checksum(self) -> str:
         return canonical_checksum(self.config_model.model_json_schema())
+
+    @property
+    def adapter_checksum(self) -> str:
+        contract = workflow_node_contract_registry.require(self.kind)
+        return canonical_checksum(
+            {
+                "kind": self.kind,
+                "ir_version": META_PLANNER_IR_VERSION,
+                "adapter_version": META_PLANNER_ADAPTER_VERSION,
+                "config_schema_checksum": self.config_schema_checksum,
+                "compiler_checksum": contract.compiler_checksum,
+            }
+        )
 
 
 def _compile_workflow_agent(
@@ -163,12 +178,36 @@ def _decompile_workflow_agent(node: NativeWorkflowNode) -> MetaPlannerIRNode:
     )
 
 
+def _decompile_workflow_agent_v3(node: NativeWorkflowNode) -> GraphIntentNodeV3:
+    legacy = _decompile_workflow_agent(node)
+    data = node.data if isinstance(node.data, dict) else {}
+    if int(data.get("plannerIRVersion") or 0) != META_PLANNER_IR_VERSION:
+        raise ValueError("Workflow Agent does not carry Graph IR V3 metadata.")
+    inputs = data.get("plannerInputsV3")
+    outputs = data.get("plannerOutputsV3")
+    if not isinstance(inputs, list) or not isinstance(outputs, list):
+        raise ValueError("Workflow Agent is missing Graph IR V3 port metadata.")
+    return GraphIntentNodeV3.model_validate(
+        {
+            "ref": legacy.ref,
+            "kind": legacy.kind,
+            "title": legacy.title,
+            "description": legacy.description,
+            "task_ids": legacy.task_ids,
+            "inputs": inputs,
+            "outputs": outputs,
+            "config": legacy.config,
+        }
+    )
+
+
 PLANNER_NODE_ADAPTERS: dict[str, PlannerNodeAdapter] = {
     "workflow_agent": PlannerNodeAdapter(
         kind="workflow_agent",
         config_model=MetaPlannerWorkflowAgentConfig,
         compile_node=_compile_workflow_agent,
         decompile_node=_decompile_workflow_agent,
+        decompile_node_v3=_decompile_workflow_agent_v3,
     )
 }
 
@@ -190,6 +229,14 @@ def decompile_planner_node(node: NativeWorkflowNode) -> MetaPlannerIRNode:
     if adapter is None:
         raise ValueError(f"Node kind {kind} has no compiler adapter.")
     return adapter.decompile_node(node)
+
+
+def decompile_planner_node_v3(node: NativeWorkflowNode) -> GraphIntentNodeV3:
+    kind = str((node.data or {}).get("kind") or node.type or "")
+    adapter = get_planner_node_adapter(kind)
+    if adapter is None:
+        raise ValueError(f"Node kind {kind} has no compiler adapter.")
+    return adapter.decompile_node_v3(node)
 
 
 def planner_capability_metadata(kind: str) -> dict[str, Any] | None:
@@ -215,6 +262,21 @@ def planner_capability_metadata(kind: str) -> dict[str, Any] | None:
         if adapter.config_schema_checksum != contract_schema_checksum:
             return None
         support = "full"
+    adapter = get_planner_node_adapter(kind)
+    adapter_checksum = (
+        adapter.adapter_checksum
+        if adapter is not None
+        else canonical_checksum(
+            {
+                "kind": kind,
+                "ir_version": META_PLANNER_IR_VERSION,
+                "adapter_version": META_PLANNER_ADAPTER_VERSION,
+                "support": support,
+                "compiler_checksum": contract.compiler_checksum,
+                "config_schema_checksum": "compiler-managed",
+            }
+        )
+    )
     return {
         "compilable": True,
         "support": support,
@@ -223,4 +285,5 @@ def planner_capability_metadata(kind: str) -> dict[str, Any] | None:
         "contract_version": NODE_CONTRACT_VERSION,
         "contract_checksum": contract.checksum,
         "compiler_checksum": contract.compiler_checksum,
+        "adapter_checksum": adapter_checksum,
     }

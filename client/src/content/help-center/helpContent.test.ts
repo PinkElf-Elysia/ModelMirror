@@ -13,6 +13,7 @@ import {
   searchHelpContent,
   skillExperienceBaseline,
   verifiedBaseline,
+  workflowErrorRoutingBaseline,
 } from ".";
 
 const requiredMetadata = ["slug", "title", "summary", "category", "contentType", "audience", "estimatedMinutes", "keywords", "relatedRoutes", "verifiedCommit", "verifiedDate", "content"] as const;
@@ -48,6 +49,7 @@ describe("help center content catalog", () => {
       "submit-knowledge-proposal",
       "subscribe-rss-workflow",
       "subscribe-email-workflow",
+      "handle-workflow-node-failure",
       "modules-and-terms",
       "recover-unavailable-feature",
       "review-remote-mcp-auth",
@@ -61,13 +63,14 @@ describe("help center content catalog", () => {
       expect(article.verifiedDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       expect(article.content).not.toMatch(/内容稍后补充|coming soon/i);
     });
-    expect(helpArticles.filter((article) => !["recover-unavailable-feature", "review-remote-mcp-auth", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "create-repeatable-agent", "build-first-workflow", "edit-and-recover-agent-workflow", "first-rag-knowledge-base", "file-boundaries-and-data-safety", "runtime-status-overview", "install-or-import-skill", "settings-and-provider-layers"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
+    expect(helpArticles.filter((article) => !["recover-unavailable-feature", "review-remote-mcp-auth", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "create-repeatable-agent", "build-first-workflow", "edit-and-recover-agent-workflow", "first-rag-knowledge-base", "file-boundaries-and-data-safety", "runtime-status-overview", "install-or-import-skill", "settings-and-provider-layers", "handle-workflow-node-failure"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
     expect(helpArticles.find((article) => article.slug === "recover-unavailable-feature")?.verifiedCommit).toBe(ragFormalIntegrityBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "recover-unavailable-feature")?.verifiedDate).toBe(ragFormalIntegrityBaseline.date);
     expect(helpArticles.find((article) => article.slug === "review-remote-mcp-auth")?.verifiedCommit).toBe(remoteMcpReviewBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "subscribe-rss-workflow")?.verifiedCommit).toBe(rssReviewBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "subscribe-email-workflow")?.verifiedCommit).toBe(emailReviewBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "promote-run-to-skill")?.verifiedCommit).toBe(skillExperienceBaseline.commit);
+    expect(helpArticles.find((article) => article.slug === "handle-workflow-node-failure")?.verifiedCommit).toBe(workflowErrorRoutingBaseline.commit);
   });
 
   it("keeps operational articles within the required structure and step count", () => {
@@ -106,6 +109,7 @@ describe("help center content catalog", () => {
     expect(searchHelpContent("Review Factory").some((entry) => entry.id === "review-remote-mcp-auth")).toBe(true);
     expect(searchHelpContent("RSS").some((entry) => entry.id === "subscribe-rss-workflow")).toBe(true);
     expect(searchHelpContent("IMAP").some((entry) => entry.id === "subscribe-email-workflow")).toBe(true);
+    expect(searchHelpContent("已处理失败").some((entry) => entry.id === "handle-workflow-node-failure")).toBe(true);
     const ids = getHelpSearchEntries().map((entry) => `${entry.kind}:${entry.id}`);
     expect(new Set(ids).size).toBe(ids.length);
   });

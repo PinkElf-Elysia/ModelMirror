@@ -13,6 +13,38 @@ afterEach(() => {
 });
 
 describe("WorkflowRun handoff recovery pointer", () => {
+  it("distinguishes a handled node failure from a failed workflow", () => {
+    const steps = buildRunSteps([
+      {
+        event: "node_error_routed",
+        node_id: "http-1",
+        node_title: "安全 HTTP 请求",
+        node_type: "http_request",
+        error_code: "HTTP_TIMEOUT",
+        classification: "transient",
+        attempt: 1,
+        max_attempts: 1,
+      },
+      {
+        event: "node_end",
+        node_id: "http-1",
+        node_title: "安全 HTTP 请求",
+        node_type: "http_request",
+        status: "handled_error",
+      },
+      { event: "workflow_end", final_output: "fallback" },
+    ]);
+
+    expect(steps).toEqual([
+      expect.objectContaining({
+        id: "http-1",
+        status: "handled_error",
+        output: expect.stringContaining("HTTP_TIMEOUT"),
+      }),
+    ]);
+    expect(steps[0]?.output).toContain("瞬时");
+  });
+
   it("records a node-level stream failure when no terminal event was emitted", () => {
     expect(shouldRecordNodeStreamFailure(1, false)).toBe(true);
     expect(shouldRecordNodeStreamFailure(0, false)).toBe(false);

@@ -135,6 +135,85 @@ describe("analyzeWorkflowVariables", () => {
     ]);
   });
 
+  it("registers structured error outputs only when their branch is enabled", () => {
+    const disabled = node("http", "http_request", {
+      contractVersion: 2,
+      outputVariable: "http_response",
+      failureAction: "stop",
+    });
+    expect(descriptor([disabled], [], null, "node_error")).toBeUndefined();
+
+    const enabled = node("http", "http_request", {
+      contractVersion: 2,
+      outputVariable: "http_response",
+      failureAction: "error_output",
+      errorVariable: "node_error",
+    });
+    expect(descriptor([enabled], [], null, "node_error")).toEqual(
+      expect.objectContaining({ valueType: "json" }),
+    );
+    expect(
+      getWorkflowVariableFieldDescriptor("http_request", "errorVariable")?.mode,
+    ).toBe("declaration");
+
+    const legacyKnowledge = node("knowledge-v1", "knowledge_retrieval", {
+      contractVersion: 1,
+      outputVariable: "knowledge",
+      failureAction: "error_output",
+      errorVariable: "legacy_error",
+    });
+    expect(descriptor([legacyKnowledge], [], null, "legacy_error")).toBeUndefined();
+
+    const currentKnowledge = node("knowledge-v2", "knowledge_retrieval", {
+      contractVersion: 2,
+      outputVariable: "knowledge",
+      failureAction: "error_output",
+      errorVariable: "knowledge_error",
+    });
+    expect(descriptor([currentKnowledge], [], null, "knowledge_error")).toEqual(
+      expect.objectContaining({ valueType: "json" }),
+    );
+  });
+
+  it("keeps success and error outputs on their matching source-handle branches", () => {
+    const nodes = [
+      node("http", "http_request", {
+        contractVersion: 2,
+        outputVariable: "http_response",
+        failureAction: "error_output",
+        errorVariable: "node_error",
+      }),
+      node("success", "template_transform"),
+      node("failure", "template_transform"),
+      node("merge", "template_transform"),
+    ];
+    const edges = [
+      edge("http", "success"),
+      edge("http", "failure", { sourceHandle: "error" }),
+      edge("success", "merge"),
+      edge("failure", "merge"),
+    ];
+
+    expect(descriptor(nodes, edges, "success", "http_response")?.availability).toBe(
+      "available",
+    );
+    expect(descriptor(nodes, edges, "success", "node_error")?.availability).toBe(
+      "unavailable",
+    );
+    expect(descriptor(nodes, edges, "failure", "node_error")?.availability).toBe(
+      "available",
+    );
+    expect(descriptor(nodes, edges, "failure", "http_response")?.availability).toBe(
+      "unavailable",
+    );
+    expect(descriptor(nodes, edges, "merge", "http_response")?.availability).toBe(
+      "conditional",
+    );
+    expect(descriptor(nodes, edges, "merge", "node_error")?.availability).toBe(
+      "conditional",
+    );
+  });
+
   it("distinguishes guaranteed, conditional, downstream, and unrelated outputs", () => {
     const nodes = [
       node("input", "input"),

@@ -43,6 +43,8 @@ interface MetaPlannerScope extends Record<ScopeKey, string[]> {
 
 interface CapabilitySnapshot {
   version: string;
+  ir_version: 2 | 3;
+  supported_ir_versions: Array<2 | 3>;
   snapshot_hash: string;
   generated_at: number;
   nodes: CapabilityItem[];
@@ -106,6 +108,15 @@ interface MetaPlannerResponse {
   repair_used: boolean;
   capability_snapshot_version: string;
   capability_snapshot_hash: string;
+  ir_version: 2 | 3;
+  graph_ir: Record<string, unknown> | null;
+  graph_ir_checksum: string;
+  compatibility: {
+    source_version: 2 | 3;
+    upgraded: boolean;
+    lossy: boolean;
+    warnings: string[];
+  };
   run_id?: string | null;
   provider_route_receipts?: ProviderRouteReceipt | null;
 }
