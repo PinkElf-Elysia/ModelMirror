@@ -1,9 +1,17 @@
+import buildFirstWorkflow from "./articles/build-first-workflow.md?raw";
 import checkAvailabilityCostData from "./articles/check-availability-cost-data.md?raw";
+import editAndRecoverAgentWorkflow from "./articles/edit-and-recover-agent-workflow.md?raw";
+import fileBoundariesAndDataSafety from "./articles/file-boundaries-and-data-safety.md?raw";
+import firstRagKnowledgeBase from "./articles/first-rag-knowledge-base.md?raw";
+import installOrImportSkill from "./articles/install-or-import-skill.md?raw";
 import chooseModelAgentWorkflow from "./articles/choose-model-agent-workflow.md?raw";
+import createRepeatableAgent from "./articles/create-repeatable-agent.md?raw";
 import modulesAndTerms from "./articles/modules-and-terms.md?raw";
 import promoteRunToSkill from "./articles/promote-run-to-skill.md?raw";
 import recoverUnavailableFeature from "./articles/recover-unavailable-feature.md?raw";
 import reviewRemoteMcpAuth from "./articles/review-remote-mcp-auth.md?raw";
+import runtimeStatusOverview from "./articles/runtime-status-overview.md?raw";
+import settingsAndProviderLayers from "./articles/settings-and-provider-layers.md?raw";
 import subscribeEmailWorkflow from "./articles/subscribe-email-workflow.md?raw";
 import subscribeRssWorkflow from "./articles/subscribe-rss-workflow.md?raw";
 import startWithAModel from "./articles/start-with-a-model.md?raw";
@@ -88,6 +96,7 @@ export const rssReviewBaseline = { commit: "821067a7", date: "2026-08-27" };
 export const ragFormalIntegrityBaseline = { commit: "be056e99", date: "2026-08-28" };
 export const skillExperienceBaseline = { commit: "bf486f25", date: "2026-08-27" };
 export const emailReviewBaseline = { commit: "afda87ff", date: "2026-08-28" };
+export const agentPreviewBaseline = { commit: "c2e75371", date: "2026-08-30" };
 
 export const helpContentTypeLabels: Record<HelpContentType, string> = {
   tutorial: "入门教程",
@@ -125,6 +134,126 @@ export const helpArticles: HelpArticle[] = [
     verifiedCommit: verifiedBaseline.commit,
     verifiedDate: verifiedBaseline.date,
     content: chooseModelAgentWorkflow,
+    nextSlug: "create-repeatable-agent",
+  },
+  {
+    slug: "create-repeatable-agent",
+    title: "创建一个能反复使用的 Agent",
+    summary: "创建、保存并发布带固定角色和工具配置的智能体，以后直接复用。",
+    category: "按目标找指南",
+    contentType: "how-to",
+    audience: "反复执行同类任务、希望保留角色设定与工具配置的用户",
+    estimatedMinutes: 6,
+    keywords: ["Agent", "智能体", "创建", "Agent Studio", "发布", "角色", "重复使用"],
+    relatedRoutes: ["/agents/studio", "/agents/studio/new"],
+    verifiedCommit: agentPreviewBaseline.commit,
+    verifiedDate: agentPreviewBaseline.date,
+    content: createRepeatableAgent,
+    nextSlug: "build-first-workflow",
+  },
+  {
+    slug: "build-first-workflow",
+    title: "搭建第一个固定步骤工作流",
+    summary: "从默认模板开始，编排固定顺序的多步骤任务并保存草稿确认结构。",
+    category: "按目标找指南",
+    contentType: "how-to",
+    audience: "反复执行固定顺序多步骤任务、希望把流程固化的用户",
+    estimatedMinutes: 6,
+    keywords: ["工作流", "Workflow", "经典画布", "节点", "试运行", "流水线", "固定步骤"],
+    relatedRoutes: ["/workflow"],
+    verifiedCommit: agentPreviewBaseline.commit,
+    verifiedDate: agentPreviewBaseline.date,
+    content: buildFirstWorkflow,
+    nextSlug: "edit-and-recover-agent-workflow",
+  },
+  {
+    slug: "edit-and-recover-agent-workflow",
+    title: "修改已发布 Agent 或工作流，并处理运行失败",
+    summary: "在不动旧版本的前提下修改 Agent 或工作流，并在失败时到运维页查看原因。",
+    category: "按目标找指南",
+    contentType: "how-to",
+    audience: "已经创建过 Agent 或工作流，需要调整或排查失败的用户",
+    estimatedMinutes: 6,
+    keywords: ["编辑", "修改", "发布", "新版本", "恢复", "失败", "运维", "Runtime"],
+    relatedRoutes: ["/agents/studio", "/workflow", "/runtime"],
+    verifiedCommit: agentPreviewBaseline.commit,
+    verifiedDate: agentPreviewBaseline.date,
+    content: editAndRecoverAgentWorkflow,
+    nextSlug: "first-rag-knowledge-base",
+  },
+  {
+    slug: "first-rag-knowledge-base",
+    title: "第一次使用 RAG 知识库",
+    summary: "创建知识库、上传文档，并让模型基于你自己的资料回答。",
+    category: "按目标找指南",
+    contentType: "how-to",
+    audience: "希望 AI 基于自有资料回答，而不是凭通用知识发挥的用户",
+    estimatedMinutes: 5,
+    keywords: ["RAG", "知识库", "资料", "文档", "上传", "引用", "检索"],
+    relatedRoutes: ["/rag"],
+    verifiedCommit: agentPreviewBaseline.commit,
+    verifiedDate: agentPreviewBaseline.date,
+    content: firstRagKnowledgeBase,
+    nextSlug: "file-boundaries-and-data-safety",
+  },
+  {
+    slug: "file-boundaries-and-data-safety",
+    title: "文件能力边界与数据安全",
+    summary: "了解上传文件的格式、大小限制，以及资料如何处理和是否外发。",
+    category: "按目标找指南",
+    contentType: "explanation",
+    audience: "准备上传文件、想确认能否上传和资料是否安全的用户",
+    estimatedMinutes: 4,
+    keywords: ["文件", "格式", "大小", "上传", "数据", "安全", "边界", "发送"],
+    relatedRoutes: ["/rag", "/chat"],
+    verifiedCommit: agentPreviewBaseline.commit,
+    verifiedDate: agentPreviewBaseline.date,
+    content: fileBoundariesAndDataSafety,
+    nextSlug: "runtime-status-overview",
+  },
+  {
+    slug: "runtime-status-overview",
+    title: "查看运行状态与连接",
+    summary: "在运维页集中查看运行记录、客户端宿主配对和运行资源状态。",
+    category: "按目标找指南",
+    contentType: "how-to",
+    audience: "任务运行异常、工具未连接或想确认环境状态的用户",
+    estimatedMinutes: 5,
+    keywords: ["运维", "Runtime", "运行记录", "客户端宿主", "MCP", "连接", "状态", "诊断"],
+    relatedRoutes: ["/runtime"],
+    verifiedCommit: agentPreviewBaseline.commit,
+    verifiedDate: agentPreviewBaseline.date,
+    content: runtimeStatusOverview,
+    nextSlug: "install-or-import-skill",
+  },
+  {
+    slug: "install-or-import-skill",
+    title: "安装或导入一个 Skill",
+    summary: "从技能市场安装，或从本地导入 ZIP/文件夹，让 Skill 可被使用。",
+    category: "按目标找指南",
+    contentType: "how-to",
+    audience: "想给 AI 增加可重复使用技能包、但不确定从哪开始的用户",
+    estimatedMinutes: 5,
+    keywords: ["Skill", "技能", "安装", "导入", "市场", "本地", "ZIP", "信任"],
+    relatedRoutes: ["/skills", "/skills/import"],
+    verifiedCommit: agentPreviewBaseline.commit,
+    verifiedDate: agentPreviewBaseline.date,
+    content: installOrImportSkill,
+    nextSlug: "settings-and-provider-layers",
+  },
+  {
+    slug: "settings-and-provider-layers",
+    title: "设置与 Provider 分层说明",
+    summary: "理解普通用户和管理员的设置边界，以及 Provider 和路由控制在哪儿管理。",
+    category: "安全、费用与数据",
+    contentType: "reference",
+    audience: "想修改连接或路由配置、但不清楚权限边界的用户",
+    estimatedMinutes: 4,
+    keywords: ["设置", "Provider", "管理员", "配对", "路由", "Catalog", "权限", "配置"],
+    relatedRoutes: ["/settings"],
+    verifiedCommit: agentPreviewBaseline.commit,
+    verifiedDate: agentPreviewBaseline.date,
+    content: settingsAndProviderLayers,
     nextSlug: "modules-and-terms",
   },
   {
