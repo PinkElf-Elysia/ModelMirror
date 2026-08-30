@@ -3,12 +3,25 @@ from __future__ import annotations
 import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    field_validator,
+    model_validator,
+)
 
 try:
-    from server.workflow_native.node_contracts import WorkflowAgentPlannerConfig
+    from server.workflow_native.node_contracts import (
+        WorkflowAgentPlannerConfig,
+        WorkflowValueSchema,
+    )
 except ModuleNotFoundError:
-    from workflow_native.node_contracts import WorkflowAgentPlannerConfig
+    from workflow_native.node_contracts import (
+        WorkflowAgentPlannerConfig,
+        WorkflowValueSchema,
+    )
 
 
 class MetaAgentGenerateRequest(BaseModel):
@@ -164,7 +177,7 @@ class MetaPlannerResourceBinding(BaseModel):
     tool_name: str = Field(default="", max_length=120)
     description: str = Field(default="", max_length=1_000)
     top_k: int = Field(default=5, ge=1, le=50)
-    score_threshold: float = Field(default=0, ge=0, le=1)
+    score_threshold: float = Field(default=0.0, ge=0, le=1)
 
 
 class MetaPlannerMiddlewareBinding(BaseModel):
@@ -241,6 +254,8 @@ class MetaPlannerIRControlEdge(BaseModel):
 
 
 class MetaPlannerIRResourceBinding(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     target_ref: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
     kind: Literal[
         "external_xpert",
@@ -252,10 +267,12 @@ class MetaPlannerIRResourceBinding(BaseModel):
     tool_name: str = Field(default="", max_length=120)
     description: str = Field(default="", max_length=1_000)
     top_k: int = Field(default=5, ge=1, le=50)
-    score_threshold: float = Field(default=0, ge=0, le=1)
+    score_threshold: float = Field(default=0.0, ge=0, le=1)
 
 
 class MetaPlannerIRMiddlewareBinding(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     target_ref: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
     middleware_id: str = Field(min_length=1, max_length=160)
     priority: int = Field(default=100, ge=0, le=10_000)
@@ -290,9 +307,172 @@ class MetaPlannerTypedBlueprintV2(BaseModel):
     final_output: MetaPlannerIRFinalOutput
 
 
+class GraphIntentInputBindingV3(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    port: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_-]{0,63}$")
+    variable: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
+    source_ref: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
+    source_port: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_-]{0,63}$")
+    value_schema: WorkflowValueSchema = Field(default_factory=WorkflowValueSchema)
+
+
+class GraphIntentOutputBindingV3(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    port: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_-]{0,63}$")
+    variable: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
+    value_schema: WorkflowValueSchema = Field(default_factory=WorkflowValueSchema)
+
+
+class GraphIntentNodeV3(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ref: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
+    kind: str = Field(min_length=1, max_length=80)
+    title: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=2_000)
+    task_ids: list[str] = Field(min_length=1, max_length=8)
+    inputs: list[GraphIntentInputBindingV3] = Field(
+        default_factory=list, max_length=16
+    )
+    outputs: list[GraphIntentOutputBindingV3] = Field(
+        default_factory=list, max_length=16
+    )
+    config: dict[str, Any] = Field(default_factory=dict)
+
+
+class GraphIntentControlEdgeV3(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_ref: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
+    target_ref: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
+    outcome: Literal["success"] = "success"
+    join: Literal["all"] = "all"
+
+
+class GraphIntentFinalOutputV3(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    node_ref: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
+    port: str = Field(default="result", pattern=r"^[A-Za-z_][A-Za-z0-9_-]{0,63}$")
+    variable: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
+
+
+class GraphIntentV3(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Trusted decompilation constraints are deliberately absent from the JSON
+    # schema, so model output cannot forge immutable resource versions.
+    _pinned_resource_versions: dict[tuple[str, str], int] = PrivateAttr(
+        default_factory=dict
+    )
+    _pinned_prompt_profile_versions: dict[str, int] = PrivateAttr(
+        default_factory=dict
+    )
+
+    ir_version: Literal[3] = 3
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=2_000)
+    tags: list[str] = Field(default_factory=list, max_length=20)
+    starters: list[str] = Field(default_factory=list, max_length=8)
+    nodes: list[GraphIntentNodeV3] = Field(min_length=1, max_length=24)
+    control_edges: list[GraphIntentControlEdgeV3] = Field(
+        default_factory=list, max_length=40
+    )
+    resources: list[MetaPlannerIRResourceBinding] = Field(
+        default_factory=list, max_length=40
+    )
+    middleware: list[MetaPlannerIRMiddlewareBinding] = Field(
+        default_factory=list, max_length=40
+    )
+    prompt_profile_ids: list[str] = Field(default_factory=list, max_length=20)
+    final_output: GraphIntentFinalOutputV3
+
+
+class ResolvedGraphPortV3(BaseModel):
+    name: str
+    direction: Literal["input", "output"]
+    value_schema: WorkflowValueSchema
+    required: bool = False
+    cardinality: Literal["one", "many"] = "one"
+    binding: Literal["variable", "literal", "resource", "none"] = "variable"
+
+
+class ResolvedGraphNodeV3(BaseModel):
+    ref: str
+    node_id: str
+    kind: str
+    role: Literal["input", "output", "executable", "resource", "metadata"]
+    title: str
+    description: str = ""
+    task_ids: list[str] = Field(default_factory=list)
+    config: dict[str, Any] = Field(default_factory=dict)
+    ports: list[ResolvedGraphPortV3] = Field(default_factory=list)
+    contract_version: int
+    contract_checksum: str
+    compiler_checksum: str
+    execution: dict[str, Any] = Field(default_factory=dict)
+    resource_contracts: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class ResolvedGraphEndpointV3(BaseModel):
+    node_ref: str
+    node_id: str
+    port: str | None = None
+    handle: str | None = None
+
+
+class ResolvedGraphEdgeV3(BaseModel):
+    ref: str
+    mode: Literal["control", "data", "binding", "metadata"]
+    source: ResolvedGraphEndpointV3
+    target: ResolvedGraphEndpointV3
+    variable: str | None = None
+    value_schema: WorkflowValueSchema | None = None
+    outcome: Literal["success"] | None = None
+    join: Literal["all"] | None = None
+
+
+class ResolvedPromptProfileV3(BaseModel):
+    profile_id: str
+    pinned_version: int
+    checksum: str = ""
+
+
+class ResolvedGraphIRV3(BaseModel):
+    ir_version: Literal[3] = 3
+    name: str
+    description: str = ""
+    tags: list[str] = Field(default_factory=list)
+    starters: list[str] = Field(default_factory=list)
+    nodes: list[ResolvedGraphNodeV3]
+    edges: list[ResolvedGraphEdgeV3]
+    prompt_profiles: list[ResolvedPromptProfileV3] = Field(default_factory=list)
+    final_output: GraphIntentFinalOutputV3
+    default_outcome: Literal["success"] = "success"
+    join_policy: Literal["all"] = "all"
+    terminal_count: Literal[1] = 1
+    compensation: dict[str, Any] = Field(
+        default_factory=lambda: {"enabled": False}
+    )
+    contract_version: int
+    capability_snapshot_version: str
+    capability_snapshot_hash: str
+    graph_checksum: str = ""
+
+
+class MetaPlannerIRCompatibility(BaseModel):
+    source_version: Literal[2, 3]
+    upgraded: bool = False
+    lossy: bool = False
+    warnings: list[str] = Field(default_factory=list)
+
+
 class MetaPlannerCapabilitySnapshot(BaseModel):
     version: str
-    ir_version: Literal[2] = 2
+    ir_version: Literal[2, 3] = 2
+    supported_ir_versions: list[Literal[2, 3]] = Field(default_factory=lambda: [2])
     # Persisted V2 proposals did not carry NodeContract metadata. Keep them
     # readable; newly built snapshots always set the V3 values explicitly.
     contract_version: int = 2
@@ -320,6 +500,12 @@ class MetaPlannerPreviewResponse(BaseModel):
     repair_used: bool = False
     capability_snapshot_version: str
     capability_snapshot_hash: str
+    ir_version: Literal[2, 3] = 3
+    graph_ir: dict[str, Any] | None = None
+    graph_ir_checksum: str = ""
+    compatibility: MetaPlannerIRCompatibility = Field(
+        default_factory=lambda: MetaPlannerIRCompatibility(source_version=3)
+    )
 
 
 class MetaPlannerGenerateResponse(BaseModel):
@@ -335,5 +521,11 @@ class MetaPlannerGenerateResponse(BaseModel):
     repair_used: bool = False
     capability_snapshot_version: str
     capability_snapshot_hash: str
+    ir_version: Literal[2, 3] = 3
+    graph_ir: dict[str, Any] | None = None
+    graph_ir_checksum: str = ""
+    compatibility: MetaPlannerIRCompatibility = Field(
+        default_factory=lambda: MetaPlannerIRCompatibility(source_version=3)
+    )
     run_id: str | None = None
     provider_route_receipts: ProviderRouteReceiptSummary | None = None

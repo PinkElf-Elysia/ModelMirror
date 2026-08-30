@@ -6,9 +6,16 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from server.main import app
 from server.meta_agent.capabilities import build_capability_snapshot
+from server.meta_agent.graph_ir_v3 import (
+    decompile_candidate_to_graph_intent,
+    resolve_graph_intent,
+    v2_to_graph_intent,
+    workflow_semantic_checksum,
+)
 from server.meta_agent.meta_planner_v2 import (
     MetaPlannerV2Service,
     compile_xpert_candidate,
@@ -16,6 +23,7 @@ from server.meta_agent.meta_planner_v2 import (
     validate_task_plan,
 )
 from server.meta_agent.schemas import (
+    GraphIntentV3,
     MetaPlannerAgentBlueprint,
     MetaPlannerBlueprint,
     MetaPlannerGenerateRequest,
@@ -120,6 +128,7 @@ def test_blueprint_and_repair_prompts_expose_typed_ir_agent_constraints():
 
     for prompt in (blueprint_prompt, repair_prompt):
         constraints = prompt["typed_ir_constraints"]
+        graph_contract = prompt["graph_intent_contract"]
         assert constraints["max_workflow_agent_nodes"] == request.max_agents
         assert constraints["required_task_ids"] == [
             task.task_id for task in plan.tasks
@@ -147,7 +156,44 @@ def test_blueprint_and_repair_prompts_expose_typed_ir_agent_constraints():
             "group compatible task_ids" in rule
             for rule in constraints["rules"]
         )
+        assert graph_contract["required_ir_version"] == 3
+        assert graph_contract["node_roles"] == {
+            "executable_node_kinds": ["workflow_agent"],
+            "compiler_managed_node_kinds": ["input", "output"],
+            "resource_binding_kinds": [
+                "external_xpert",
+                "knowledge_base",
+                "plugin_resource",
+                "toolset_resource",
+            ],
+        }
+        assert graph_contract["workflow_agent"]["config_field_names"] == list(
+            MetaPlannerWorkflowAgentConfig.model_fields
+        )
+        assert graph_contract["workflow_agent"]["input_port"] == {
+            "name": "task",
+            "cardinality": "many",
+            "root_source_ref": "input",
+            "root_source_port": "user_input",
+            "root_variable": "user_input",
+        }
+        assert any(
+            "never emit outputVariable" in rule
+            for rule in graph_contract["rules"]
+        )
+        assert (
+            prompt["capability_snapshot"]["graph_intent_contract"]
+            == graph_contract
+        )
         assert prompt["default_agent_model_id"] == request.default_agent_model_id
+        example = GraphIntentV3.model_validate(prompt["canonical_minimal_example"])
+        assert example.ir_version == 3
+        assert [node.kind for node in example.nodes] == ["workflow_agent"]
+        assert example.nodes[0].task_ids == [task.task_id for task in plan.tasks]
+        assert example.nodes[0].inputs[0].port == "task"
+        assert example.nodes[0].inputs[0].source_ref == "input"
+        assert example.nodes[0].inputs[0].value_schema.type == "string"
+        assert example.nodes[0].config["model_id"] == request.default_agent_model_id
 
     assert repair_prompt["validation_issues"] == [
         "Typed IR exceeds max_agents=3."
@@ -432,8 +478,9 @@ def test_capability_api_returns_stable_safe_contract():
     response = client.get("/api/meta-agent/capabilities")
     assert response.status_code == 200
     payload = response.json()
-    assert payload["version"] == "evoagentx-meta-planner-capabilities-v3"
-    assert payload["ir_version"] == 2
+    assert payload["version"] == "evoagentx-meta-planner-capabilities-v4"
+    assert payload["ir_version"] == 3
+    assert payload["supported_ir_versions"] == [2, 3]
     assert payload["contract_version"] == 3
     assert len(payload["contract_checksum"]) == 64
     assert payload["snapshot_hash"]
@@ -456,7 +503,8 @@ def test_capability_snapshot_only_exposes_compilable_node_kinds():
         "plugin_resource",
     }
     assert all(item["planner"]["compilable"] for item in snapshot.nodes)
-    assert all(item["planner"]["ir_version"] == 2 for item in snapshot.nodes)
+    assert all(item["planner"]["ir_version"] == 3 for item in snapshot.nodes)
+    assert all(len(item["planner"]["adapter_checksum"]) == 64 for item in snapshot.nodes)
     assert all(item["contract"]["contract_status"] == "complete" for item in snapshot.nodes)
     assert all(
         item["planner"]["contract_checksum"] == item["contract"]["checksum"]
@@ -499,6 +547,96 @@ def test_compiler_creates_control_and_five_binding_edge_shapes():
             "enabled": True,
         }
     ]
+
+
+def test_v3_graph_ir_keeps_data_edges_out_of_native_topology_and_round_trips():
+    snapshot = _snapshot()
+    request = _request()
+    plan = _plan()
+    intent, compatibility = v2_to_graph_intent(_typed_blueprint())
+
+    assert intent is not None
+    assert compatibility.upgraded is True
+    assert compatibility.lossy is False
+    graph = resolve_graph_intent(
+        intent, snapshot, default_agent_model_id=request.default_agent_model_id
+    )
+    assert {edge.mode for edge in graph.edges} == {
+        "control",
+        "data",
+        "binding",
+        "metadata",
+    }
+    assert graph.graph_checksum
+    assert next(
+        node for node in graph.nodes if node.kind == "toolset_resource"
+    ).config["pinned_version"] == 2
+    assert next(
+        node for node in graph.nodes if node.kind == "knowledge_base"
+    ).config["observed_active_version_id"] == "version-3"
+
+    candidate = compile_xpert_candidate(
+        request=request,
+        plan=plan,
+        blueprint=intent,
+        snapshot=snapshot,
+        target=None,
+    )
+    native_edges = candidate["draft"]["workflow"]["edges"]
+    assert all("variable" not in edge for edge in native_edges)
+    assert len(native_edges) == len(
+        [edge for edge in graph.edges if edge.mode in {"control", "binding", "metadata"}]
+    )
+
+    restored_intent = decompile_candidate_to_graph_intent(candidate)
+    restored_graph = resolve_graph_intent(
+        restored_intent,
+        snapshot,
+        default_agent_model_id=request.default_agent_model_id,
+    )
+    restored_candidate = compile_xpert_candidate(
+        request=request,
+        plan=plan,
+        blueprint=restored_intent,
+        snapshot=snapshot,
+        target=None,
+    )
+    assert restored_graph.graph_checksum == graph.graph_checksum
+    assert workflow_semantic_checksum(restored_candidate) == workflow_semantic_checksum(
+        candidate
+    )
+
+
+def test_v2_upgrade_rejects_ambiguous_variable_provenance():
+    blueprint = _typed_blueprint().model_copy(deep=True)
+    duplicate = blueprint.nodes[0].model_copy(deep=True)
+    duplicate.ref = "duplicate_researcher"
+    blueprint.nodes.append(duplicate)
+
+    intent, compatibility = v2_to_graph_intent(blueprint)
+
+    assert intent is None
+    assert compatibility.lossy is True
+    assert any("lossy_conversion" in warning for warning in compatibility.warnings)
+
+
+def test_v3_intent_rejects_forged_versions_and_unknown_ports():
+    intent, _ = v2_to_graph_intent(_typed_blueprint())
+    assert intent is not None
+    forged = intent.model_dump(mode="json")
+    forged["resources"][0]["pinned_version"] = 99
+
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        GraphIntentV3.model_validate(forged)
+
+    invalid_port = intent.model_copy(deep=True)
+    invalid_port.nodes[1].inputs[0].port = "invented_port"
+    with pytest.raises(ValueError, match="unknown input port"):
+        resolve_graph_intent(
+            invalid_port,
+            _snapshot(),
+            default_agent_model_id=_request().default_agent_model_id,
+        )
 
 
 def test_typed_ir_allows_one_agent_to_cover_multiple_tasks():
@@ -608,10 +746,12 @@ async def test_generation_persists_proposal_and_uses_at_most_one_repair(
         skill_store,
         xpert_preflight=preflight,
     )
+    graph_intent, _ = v2_to_graph_intent(_typed_blueprint())
+    assert graph_intent is not None
     outputs = [
         _plan().model_dump_json(),
-        json.dumps({"name": "invalid"}, ensure_ascii=False),
         _typed_blueprint().model_dump_json(),
+        graph_intent.model_dump_json(),
     ]
     calls = []
 
@@ -639,6 +779,14 @@ async def test_generation_persists_proposal_and_uses_at_most_one_repair(
     assert proposal.source_type == "meta_planner"
     assert proposal.status == "pending"
     assert proposal.validation["valid"] is True
+    report = proposal.payload["meta_planner_report"]
+    assert response.ir_version == 3
+    assert response.graph_ir_checksum == report["graph_ir_checksum"]
+    assert report["graph_ir_status"] == "current"
+    assert report["graph_ir"]["ir_version"] == 3
+    assert report["compatibility"]["source_version"] == 3
+    assert report["compatibility"]["upgraded"] is False
+    assert len(report["compiled_workflow_checksum"]) == 64
     assert xpert_store.list_xperts() == []
 
     approved = authoring.approve(
@@ -709,6 +857,8 @@ async def test_failed_repair_persists_unapprovable_candidate_until_human_edit(
         revision=proposal.revision,
         payload=edited_payload,
     )
+    assert edited.payload["meta_planner_report"]["graph_ir_status"] == "stale"
+    assert edited.payload["meta_planner_report"]["human_modified"] is True
     validated = authoring.validate(
         edited.proposal_id,
         revision=edited.revision,
@@ -746,7 +896,9 @@ async def test_update_revision_drift_uses_final_proposal_validation(
         return original_validate(proposal_id, revision=revision)
 
     authoring.validate = validate_after_revision_drift  # type: ignore[method-assign]
-    outputs = [_plan().model_dump_json(), _typed_blueprint().model_dump_json()]
+    graph_intent, _ = v2_to_graph_intent(_typed_blueprint())
+    assert graph_intent is not None
+    outputs = [_plan().model_dump_json(), graph_intent.model_dump_json()]
 
     async def complete(model_id, system_prompt, user_prompt, temperature, max_tokens):
         return outputs.pop(0)
@@ -763,6 +915,8 @@ async def test_update_revision_drift_uses_final_proposal_validation(
     response = await service.generate(request, _snapshot(), target=target)
 
     proposal = proposal_store.require(response.proposal_id)
+    assert response.compatibility.source_version == 3
+    assert response.compatibility.upgraded is False
     assert proposal.validation["valid"] is False
     assert response.validation["valid"] is False
     authoring_stage = next(

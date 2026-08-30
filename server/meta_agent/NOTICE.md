@@ -10,7 +10,7 @@ Audited upstream source:
 - Commit: `aad19b912f640161ea07e8904d9237cd34fde5f1`
 - License: MIT, Copyright (c) 2025 EvoAgentX
 
-Meta Planner V2 adapts the layered concepts found in these audited upstream
+Meta Planner Graph IR V3 continues to adapt the layered concepts found in these audited upstream
 files:
 
 - `evoagentx/workflow/task_planning.py`
@@ -53,10 +53,11 @@ implementation uses its own Pydantic contracts, Workflow Node Registry,
 Runtime Middleware Registry, AuthoringProposalStore, XpertStore, workflow
 validator, and publish preflight.
 
-NodeContract V3 independently applies the audited parameter-schema and layered
-validation concepts to ModelMirror's own node, entrypoint-policy, and compiler
-adapter contracts. No EvoAgentX schema or runtime object is copied. Typed IR
-remains a ModelMirror contract and EvoAgentX is not used to execute workflows.
+NodeContract V3 and Graph IR V3 independently apply the audited parameter-schema and layered
+validation concepts to ModelMirror's own node, entrypoint-policy, compiler
+adapter, intent, and resolved-graph contracts. No EvoAgentX schema or runtime
+object is copied. Graph IR remains a ModelMirror contract and EvoAgentX is not
+used to execute workflows.
 
 No EvoAgentX source file is copied into this package and EvoAgentX is not a
 runtime dependency. Provider, RAG, storage, HITL, memory, tool, workflow, and

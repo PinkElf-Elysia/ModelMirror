@@ -348,6 +348,11 @@ Compatibility contracts preserve classic runner behavior and default Planner
 to disabled. See `docs/NODE_CONTRACT_V3.md` for the checksum and migration
 contract.
 
+Meta Planner 候选使用 Graph IR V3：模型只输出 Graph Intent，服务端依据本契约和资源
+Store 解析执行效果、端口、Handle 与固定版本。语义 data 边不会进入 classic runner
+调度；新 Proposal 保存安全 IR、Graph checksum 和编译产物 checksum，人工编辑后将
+IR 标记为 stale。Typed IR V2 仅作为无损双读兼容输入。
+
 ## Versioned MCP And API Toolset Runtime
 
 `ToolsetStore` persists editable MCP, OpenAPI, OData, and builtin Provider Toolset definitions plus immutable published versions. A version fixes the transport, API, or Provider profile, credential references, enabled tools, aliases, default arguments, JSON Schema hashes, tool semantics, prefix, and release metadata. Xpert publication resolves `latest` to a concrete Toolset version; later discovery, import, or draft edits cannot expand an already published Xpert.

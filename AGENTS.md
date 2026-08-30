@@ -315,7 +315,7 @@ workflow-native 是实验线。经典工作流是 `/workflow` 默认入口。任
 python -m pytest server/tests/test_meta_agent.py -q
 ```
 
-### 8.1 EvoAgentX Meta Planner V2 护栏
+### 8.1 EvoAgentX Meta Planner Graph IR V3 护栏
 
 Meta Planner V2 只生成候选 Xpert，并使用 Authoring Proposal 作为唯一持久化来源：
 
@@ -323,8 +323,11 @@ Meta Planner V2 只生成候选 Xpert，并使用 Authoring Proposal 作为唯�
   和当前资源 Store；禁止在 Planner 内维护第二份可生成节点或资源 ID 清单。
 - Snapshot 只能暴露 `server/meta_agent/node_adapters.py` 中存在版本化编译适配器的
   节点；Registry 的展示开关不等于 Planner 可编译能力。
-- Planner 编译输出必须使用 Typed IR V2，显式声明 typed ports、控制边、绑定目标和
-  唯一最终输出。任务与 `workflow_agent` 不得强制一一对应，编译器不得猜测 sink。
+- Planner 新生成结果必须单写 Graph IR V3，显式声明 typed ports、变量来源、控制边、
+  绑定目标和唯一最终输出。Typed IR V2 只允许无损双读；来源歧义必须 fail-closed。
+- 模型只可输出 Graph Intent；资源版本、Handle、执行效果、安全属性和 compiler
+  checksum 必须由服务端依据 NodeContract、Capability Snapshot 和资源 Store解析。
+- Graph IR data 边不得写入 Native Workflow 拓扑或改变 classic runner 调度。
 - Snapshot 只包含安全元数据和规范化 hash，不得包含凭据、完整 Tool Schema、知识正文、
   Plugin/Skill 文件、工具输出或本地物理路径。
 - Sandbox、Browser、Client Tools、Automation、Authoring 等高风险能力默认不授权；
@@ -351,7 +354,8 @@ npm.cmd run build
 - 所有 `NativeNodeKind` 必须在 `NodeContractRegistry` 中唯一登记；未知或缺失契约必须 fail-closed。
 - `contract_status=complete` 不等于 Planner、Evaluator、Evolution 或 App 可用。入口许可必须由契约显式声明。
 - Capability Snapshot 只允许完整契约、真实 Adapter、Adapter 版本和 compiler checksum 一致的节点；当前范围仍严格为既有七类。
-- NodeContract 版本与 Typed IR 版本独立。V3 Snapshot 必须继续声明 `ir_version=2`，直到独立 IR 升级轮次完成。
+- NodeContract 版本与 Planner IR 版本独立。Capability Snapshot V4 声明
+  `ir_version=3` 与 `supported_ir_versions=[2,3]`，但仍只开放既有七类能力。
 - `checksum` 覆盖完整契约，`compiler_checksum` 仅覆盖编译关键事实；标题、图标和分类不得使 Adapter 失效。
 - 前端 fallback 只能保存展示信息，不得伪造 Planner 状态、端口、安全策略或 checksum。
 - 发布、Evaluator、App 和 Evolution 的静态节点策略必须查询 `NodePolicyService`；资源、Toolset、循环和中间件领域检查不得被删除。

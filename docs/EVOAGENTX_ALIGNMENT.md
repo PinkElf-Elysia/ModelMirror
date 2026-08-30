@@ -22,9 +22,9 @@ EvoAgentX 的唯一复用基线是：
 ## V3/V4 当前路线
 
 Meta Planner 后续方向已经锁定为 **V3 十轮 + V4 轮次待定**，唯一规范见
-[META_PLANNER_V3_V4_ROADMAP.md](./META_PLANNER_V3_V4_ROADMAP.md)。当前实现仍是
-Capability Snapshot V3 与 Typed IR V2，不能把完整 NodeContract、画布可见节点或
-Runner 已支持节点误报为 Planner 已支持。
+[META_PLANNER_V3_V4_ROADMAP.md](./META_PLANNER_V3_V4_ROADMAP.md)。首轮 Graph IR V3
+已经交付为单写格式，Capability Snapshot 升级为 V4，旧 Typed IR V2 继续双读兼容。
+当前仍不能把完整 NodeContract、画布可见节点或 Runner 已支持节点误报为 Planner 已支持。
 
 V3 先建立 Graph IR V3 和 Headless Authoring，再依次开放纯节点、控制流、只读资源、
 视觉、受控写入和经审计的长运行能力；节点语义稳定后才增强 EvoAgentX 规划质量，
@@ -75,7 +75,7 @@ Client Tools、Automation、Plugin 和 Prompt。Meta Planner V2 已补齐候选�
 
 | 能力域 | ModelMirror 当前状态 | 审计判定 | 目标产物 |
 | --- | --- | --- | --- |
-| Workflow generation | V2 已生成当前 Agent DAG 与五类绑定边 | `adapt` | Meta Planner V2 已交付 |
+| Workflow generation | Graph IR V3 已表达 Agent DAG、类型化 data 边与五类绑定 | `adapt` | V3 首轮已交付，节点开放继续分轮 |
 | Agent generation | V2 已覆盖当前 Agent 配置、资源与 middleware | `adapt` | 候选 Xpert 草稿已交付 |
 | Task planning | V2 已生成 1–8 个带依赖与契约的任务 | `adapt` | 结构化规划已交付 |
 | Evaluator | 已支持只读安全的固定版本/Proposal 快照评测 | `adapt` | Evaluator 已交付 |

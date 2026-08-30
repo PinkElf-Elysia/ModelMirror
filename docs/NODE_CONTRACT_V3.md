@@ -55,8 +55,8 @@ The first complete-contract group is:
 
 | Group | Node kinds | Planner state |
 | --- | --- | --- |
-| Compiler managed | `input`, `output` | enabled in IR V2 |
-| Adapter | `workflow_agent` | enabled in IR V2 |
+| Compiler managed | `input`, `output` | enabled in Graph IR V3 |
+| Adapter | `workflow_agent` | enabled in Graph IR V3 |
 | Resource bindings | `external_xpert`, `knowledge_base`, `toolset_resource`, `plugin_resource` | binding only |
 | Pure-data targets | `json_serialize`, `json_deserialize` | unsupported |
 | Read targets | `knowledge_retrieval`, `data_table_query`, `vision_understanding` | unsupported |
@@ -65,7 +65,8 @@ The first complete-contract group is:
 
 All other nodes have compatibility contracts and remain executable through the
 existing classic validator and runner. Capability Snapshot still exposes only
-the existing seven node kinds. Typed IR remains version 2.
+the existing seven node kinds. Graph IR V3 is the write format; Typed IR V2 is
+read-only compatibility input.
 
 JSON nodes retain their current inline-error behavior until the separate pure
 node round. Agent Table Query remains disabled in Evaluator. Vision remains
@@ -103,8 +104,8 @@ Planner claims. If the server response is absent, incomplete, or has a checksum
 shape other than V3, contract-dependent operations stay disabled while the
 classic palette may continue to render.
 
-Meta Planner Capability Snapshot version is V3 while `ir_version` remains 2.
-Persisted V2 snapshots without contract metadata remain readable. Contract
+Meta Planner Capability Snapshot version is V4 with `ir_version=3` and
+`supported_ir_versions=[2,3]`. Persisted V2 snapshots without contract metadata remain readable. Contract
 drift is a warning for an existing proposal; missing or invalid resources still
 block approval.
 
