@@ -6,7 +6,6 @@ on:
       - "extensions/ai-research/**"
       - ".dockerignore"
       - ".github/workflows/ai-research.yml"
-      - "server/main.py"
       - "server/model_router/ai_research_bridge.py"
       - "server/model_router/chat_stable.py"
       - "server/tests/test_ai_research_bridge.py"
@@ -17,7 +16,6 @@ on:
       - "extensions/ai-research/**"
       - ".dockerignore"
       - ".github/workflows/ai-research.yml"
-      - "server/main.py"
       - "server/model_router/ai_research_bridge.py"
       - "server/model_router/chat_stable.py"
       - "server/tests/test_ai_research_bridge.py"
@@ -27,8 +25,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   verify:
@@ -41,6 +39,148 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Resolve comparison base and enforce trusted scope
+        id: comparison-base
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PULL_REQUEST_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          case "$EVENT_NAME" in
+            pull_request) comparison_base="$PULL_REQUEST_BASE_SHA" ;;
+            push) comparison_base="$PUSH_BEFORE_SHA" ;;
+            *)
+              echo "unsupported workflow event: $EVENT_NAME" >&2
+              exit 1
+              ;;
+          esac
+          if [[ -z "$comparison_base" || "$comparison_base" =~ ^0+$ ]]; then
+            echo "comparison base is missing or all-zero" >&2
+            exit 1
+          fi
+          comparison_base=$(git rev-parse --verify "${comparison_base}^{commit}")
+          if ! git merge-base --is-ancestor "$comparison_base" HEAD; then
+            echo "comparison base is not an ancestor of HEAD: $comparison_base" >&2
+            exit 1
+          fi
+          python3 -I -S - "$comparison_base" <<'PY'
+          import json
+          import re
+          import subprocess
+          import sys
+
+          base = sys.argv[1]
+          module_prefix = "extensions/ai-research/"
+          trust_files = {
+              "extensions/ai-research/source-lock.json",
+              "extensions/ai-research/module-boundary.json",
+          }
+
+          def git(*args: str) -> bytes:
+              return subprocess.run(
+                  ["git", *args], check=True, capture_output=True
+              ).stdout
+
+          try:
+              source_lock = json.loads(
+                  git("show", f"{base}:extensions/ai-research/source-lock.json")
+              )
+              boundary = json.loads(
+                  git("show", f"{base}:extensions/ai-research/module-boundary.json")
+              )
+          except (subprocess.CalledProcessError, json.JSONDecodeError) as exc:
+              raise SystemExit("trusted AI Research configuration cannot be loaded from Base") from exc
+
+          if not isinstance(source_lock, dict) or not isinstance(boundary, dict):
+              raise SystemExit("trusted AI Research configuration must contain JSON objects")
+          locked = source_lock.get("modelMirrorBaseCommit")
+          if not isinstance(locked, str) or not re.fullmatch(r"[0-9a-f]{40}", locked):
+              raise SystemExit("trusted source-lock commit is invalid")
+          if boundary.get("baseCommit") != locked:
+              raise SystemExit("trusted module boundary and source lock disagree")
+          if subprocess.run(
+              ["git", "merge-base", "--is-ancestor", locked, base]
+          ).returncode != 0:
+              raise SystemExit("comparison Base diverged from the locked AI Research source")
+
+          allowed_value = boundary.get("allowedParentFiles")
+          if not isinstance(allowed_value, list) or not all(
+              isinstance(path, str) and path for path in allowed_value
+          ):
+              raise SystemExit("trusted allowedParentFiles is invalid")
+
+          def normalized_relative_paths(values: object, label: str) -> set[str]:
+              if not isinstance(values, (list, tuple, set)) or not all(
+                  isinstance(path, str) and path for path in values
+              ):
+                  raise SystemExit(f"trusted {label} is invalid")
+              normalized: set[str] = set()
+              for path in values:
+                  if "\\" in path:
+                      raise SystemExit(f"trusted {label} contains an unsafe path")
+                  candidate = path
+                  parts = candidate.split("/")
+                  if (
+                      candidate.startswith("/")
+                      or re.match(r"^[A-Za-z]:/", candidate)
+                      or any(part in {"", ".", ".."} for part in parts)
+                  ):
+                      raise SystemExit(f"trusted {label} contains an unsafe path")
+                  normalized.add(candidate)
+              return normalized
+
+          allowed_parent = normalized_relative_paths(
+              allowed_value, "allowedParentFiles"
+          )
+
+          core_baseline = source_lock.get("coreBaseline")
+          if not isinstance(core_baseline, dict):
+              raise SystemExit("trusted coreBaseline is invalid")
+          tracked = core_baseline.get("trackedFiles")
+          if not isinstance(tracked, dict) or not tracked or not all(
+              isinstance(path, str) and path for path in tracked
+          ):
+              raise SystemExit("trusted protected-file list is invalid")
+          protected = normalized_relative_paths(
+              list(tracked), "protected-file list"
+          )
+
+          changed_raw = git(
+              "diff",
+              "--name-only",
+              "-z",
+              "--no-renames",
+              "--diff-filter=ACDMRTUXB",
+              base,
+              "HEAD",
+              "--",
+          )
+          try:
+              changed = {
+                  path.decode("utf-8")
+                  for path in changed_raw.split(b"\0")
+                  if path
+              }
+          except UnicodeDecodeError as exc:
+              raise SystemExit("current-batch paths are not valid UTF-8") from exc
+          if any("\\" in path for path in changed):
+              raise SystemExit("current-batch paths contain an unsafe backslash")
+
+          changed_trust = sorted(changed & trust_files)
+          if changed_trust:
+              raise SystemExit(f"AI Research trust configuration changed: {changed_trust}")
+          forbidden = sorted(
+              path
+              for path in changed
+              if not path.startswith(module_prefix) and path not in allowed_parent
+          )
+          if forbidden:
+              raise SystemExit(f"forbidden current-batch paths changed: {forbidden}")
+          changed_protected = sorted(changed & protected)
+          if changed_protected:
+              raise SystemExit(f"protected core files changed: {changed_protected}")
+          PY
+          echo "comparison_base=$comparison_base" >> "$GITHUB_OUTPUT"
       - name: Set up Docker 29.7.2 with containerd image store
         uses: docker/setup-docker-action@77e84dbf09b47d1e29270283c22f16145aa85ca1 # v5
         with:
@@ -61,7 +201,7 @@ jobs:
         run: python -m pytest server/tests/test_ai_research_bridge.py server/tests/test_provider_chat_stable_service.py -q
       - name: Verify V0.1 development candidate
         working-directory: extensions/ai-research
-        run: bash scripts/verify.sh origin/main full external-pull
+        run: bash scripts/verify.sh "${{ steps.comparison-base.outputs.comparison_base }}" full external-pull
       - name: Preserve module logs on failure
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

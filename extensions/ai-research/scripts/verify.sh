@@ -1,11 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE="${1:-origin/main}"
+usage() {
+  echo "usage: verify.sh <base> [quick|full] <external-pull|redistributable-bundle>" >&2
+}
+
+BASE_INPUT="${1:-}"
 MODE="${2:-full}"
-DISTRIBUTION_MODE="${3:?usage: verify.sh [base] [quick|full] [external-pull|redistributable-bundle]}"
+DISTRIBUTION_MODE="${3:-}"
+if [[ -z "$BASE_INPUT" || "$BASE_INPUT" =~ ^0+$ ]]; then
+  echo "comparison base is required and must not be all-zero" >&2
+  usage
+  exit 2
+fi
+if [[ "$MODE" != "quick" && "$MODE" != "full" ]]; then
+  echo "invalid verification mode: $MODE" >&2
+  usage
+  exit 2
+fi
 if [[ "$DISTRIBUTION_MODE" != "external-pull" && "$DISTRIBUTION_MODE" != "redistributable-bundle" ]]; then
   echo "invalid distribution mode: $DISTRIBUTION_MODE" >&2
+  usage
   exit 2
 fi
 MODULE_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -15,10 +30,40 @@ COMPOSE=(docker compose -p "$COMPOSE_PROJECT" -f compose.yml --profile ai-resear
 LITERATURE_COMPOSE=(docker compose -p "$COMPOSE_PROJECT" -f compose.yml --profile literature)
 CLIENT_BASELINE_PROOF_DIR=""
 CLIENT_CURRENT_PROOF_DIR=""
+CLIENT_SOURCE_PROOF_DIR=""
 CLIENT_PROOF_CONTAINER=""
 CLIENT_BASELINE_CONTEXT=""
 CLIENT_CURRENT_CONTEXT=""
+CLIENT_SOURCE_CONTEXT=""
+PYTEST_BASETEMP=""
 
+BASE=$(git -C "$REPO_ROOT" rev-parse --verify "${BASE_INPUT}^{commit}") || {
+  echo "comparison base cannot be resolved: $BASE_INPUT" >&2
+  exit 2
+}
+if ! git -C "$REPO_ROOT" merge-base --is-ancestor "$BASE" HEAD; then
+  echo "comparison base is not an ancestor of HEAD: $BASE" >&2
+  exit 2
+fi
+TRUST_FILES=(
+  extensions/ai-research/source-lock.json
+  extensions/ai-research/module-boundary.json
+)
+if ! git -C "$REPO_ROOT" diff --quiet --no-ext-diff "$BASE" HEAD -- "${TRUST_FILES[@]}"; then
+  echo "AI Research trust configuration changed in the candidate" >&2
+  git -C "$REPO_ROOT" diff --name-only --no-ext-diff "$BASE" HEAD -- "${TRUST_FILES[@]}" >&2 || true
+  exit 2
+fi
+if ! git -C "$REPO_ROOT" diff --quiet --no-ext-diff --cached HEAD -- "${TRUST_FILES[@]}"; then
+  echo "AI Research trust configuration changed in the workspace index" >&2
+  git -C "$REPO_ROOT" diff --name-only --no-ext-diff --cached HEAD -- "${TRUST_FILES[@]}" >&2 || true
+  exit 2
+fi
+if ! git -C "$REPO_ROOT" diff --quiet --no-ext-diff -- "${TRUST_FILES[@]}"; then
+  echo "AI Research trust configuration changed in the workspace" >&2
+  git -C "$REPO_ROOT" diff --name-only --no-ext-diff -- "${TRUST_FILES[@]}" >&2 || true
+  exit 2
+fi
 cd "$MODULE_ROOT"
 mkdir -p runtime/diagnostics runtime/sbom
 cleanup() {
@@ -31,11 +76,20 @@ cleanup() {
   if [[ "$CLIENT_CURRENT_PROOF_DIR" == "$MODULE_ROOT"/runtime/client-current-proof.* ]]; then
     rm -rf -- "$CLIENT_CURRENT_PROOF_DIR"
   fi
+  if [[ "$CLIENT_SOURCE_PROOF_DIR" == "$MODULE_ROOT"/runtime/client-source-proof.* ]]; then
+    rm -rf -- "$CLIENT_SOURCE_PROOF_DIR"
+  fi
   if [[ "$CLIENT_BASELINE_CONTEXT" == "$MODULE_ROOT"/runtime/client-baseline-context.* ]]; then
     rm -rf -- "$CLIENT_BASELINE_CONTEXT"
   fi
   if [[ "$CLIENT_CURRENT_CONTEXT" == "$MODULE_ROOT"/runtime/client-current-context.* ]]; then
     rm -rf -- "$CLIENT_CURRENT_CONTEXT"
+  fi
+  if [[ "$CLIENT_SOURCE_CONTEXT" == "$MODULE_ROOT"/runtime/client-source-context.* ]]; then
+    rm -rf -- "$CLIENT_SOURCE_CONTEXT"
+  fi
+  if [[ "$PYTEST_BASETEMP" == "$MODULE_ROOT"/runtime/pytest.* ]]; then
+    rm -rf -- "$PYTEST_BASETEMP"
   fi
   "${LITERATURE_COMPOSE[@]}" down >/dev/null 2>&1 || true
 }
@@ -43,6 +97,11 @@ trap cleanup EXIT
 
 BOUNDARY_ARGS=(scripts/validate_boundary.py --base "$BASE" --distribution-mode "$DISTRIBUTION_MODE")
 python "${BOUNDARY_ARGS[@]}"
+PYTEST_BASETEMP=$(mktemp -d "$MODULE_ROOT/runtime/pytest.XXXXXX")
+python -m pytest \
+  tests/control/test_boundary_base.py \
+  tests/control/test_zero_footprint_base.py \
+  -q -p no:cacheprovider --basetemp "$PYTEST_BASETEMP"
 "${COMPOSE[@]}" config --quiet
 "${LITERATURE_COMPOSE[@]}" config --quiet
 docker build --target test -f control/Dockerfile -t modelmirror-ai-research-control-test:v0.1 .
@@ -222,8 +281,10 @@ extract_client_proof() {
 }
 
 LOCKED_BASE=$(python -c "import json; print(json.load(open('source-lock.json'))['modelMirrorBaseCommit'])")
+CLIENT_SOURCE_PROOF_DIR=$(mktemp -d "$MODULE_ROOT/runtime/client-source-proof.XXXXXX")
 CLIENT_BASELINE_PROOF_DIR=$(mktemp -d "$MODULE_ROOT/runtime/client-baseline-proof.XXXXXX")
 CLIENT_CURRENT_PROOF_DIR=$(mktemp -d "$MODULE_ROOT/runtime/client-current-proof.XXXXXX")
+CLIENT_SOURCE_CONTEXT=$(mktemp -d "$MODULE_ROOT/runtime/client-source-context.XXXXXX")
 CLIENT_BASELINE_CONTEXT=$(mktemp -d "$MODULE_ROOT/runtime/client-baseline-context.XXXXXX")
 CLIENT_CURRENT_CONTEXT=$(mktemp -d "$MODULE_ROOT/runtime/client-current-context.XXXXXX")
 CLIENT_PROOF_SOURCE="/proof/dist/."
@@ -232,6 +293,10 @@ case "$(uname -s)" in
 esac
 build_client_proof \
   "$LOCKED_BASE" \
+  "$CLIENT_SOURCE_CONTEXT" \
+  modelmirror-ai-research-client-proof:v0.1-source
+build_client_proof \
+  "$BASE" \
   "$CLIENT_BASELINE_CONTEXT" \
   modelmirror-ai-research-client-proof:v0.1-baseline
 build_client_proof \
@@ -239,20 +304,29 @@ build_client_proof \
   "$CLIENT_CURRENT_CONTEXT" \
   modelmirror-ai-research-client-proof:v0.1
 extract_client_proof \
+  modelmirror-ai-research-client-proof:v0.1-source \
+  "$CLIENT_SOURCE_PROOF_DIR"
+extract_client_proof \
   modelmirror-ai-research-client-proof:v0.1-baseline \
   "$CLIENT_BASELINE_PROOF_DIR"
 extract_client_proof \
   modelmirror-ai-research-client-proof:v0.1 \
   "$CLIENT_CURRENT_PROOF_DIR"
 python scripts/zero_footprint.py \
+  --base "$BASE" \
+  --source-client-dist "$CLIENT_SOURCE_PROOF_DIR" \
   --baseline-client-dist "$CLIENT_BASELINE_PROOF_DIR" \
   --client-dist "$CLIENT_CURRENT_PROOF_DIR"
 rm -rf -- \
+  "$CLIENT_SOURCE_PROOF_DIR" \
   "$CLIENT_BASELINE_PROOF_DIR" \
   "$CLIENT_CURRENT_PROOF_DIR" \
+  "$CLIENT_SOURCE_CONTEXT" \
   "$CLIENT_BASELINE_CONTEXT" \
   "$CLIENT_CURRENT_CONTEXT"
+CLIENT_SOURCE_PROOF_DIR=""
 CLIENT_BASELINE_PROOF_DIR=""
 CLIENT_CURRENT_PROOF_DIR=""
+CLIENT_SOURCE_CONTEXT=""
 CLIENT_BASELINE_CONTEXT=""
 CLIENT_CURRENT_CONTEXT=""

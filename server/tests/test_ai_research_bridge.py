@@ -9,7 +9,12 @@ import httpx
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from server.model_router.ai_research_bridge import router, stable_service
+from server.model_router.ai_research_bridge import (
+    chat_completions,
+    models,
+    router,
+    stable_service,
+)
 
 
 MODEL_ID = "provider/fixed-research-model"
@@ -103,6 +108,43 @@ def enable(monkeypatch) -> None:
 
 def headers() -> dict[str, str]:
     return {"Authorization": f"Bearer {TOKEN}"}
+
+
+def test_main_app_registers_restricted_ai_research_routes(monkeypatch) -> None:
+    from server.main import app as main_app
+
+    registered = [
+        (route.path, tuple(sorted(route.methods or set())), route.endpoint)
+        for route in main_app.routes
+        if route.path.startswith("/api/ai-research/v1")
+    ]
+    assert len(registered) == 2
+    assert registered == [
+        ("/api/ai-research/v1/models", ("GET",), models),
+        ("/api/ai-research/v1/chat/completions", ("POST",), chat_completions),
+    ]
+
+    client = TestClient(main_app)
+    monkeypatch.delenv("AI_RESEARCH_S2S_ENABLED", raising=False)
+    monkeypatch.delenv("AI_RESEARCH_S2S_TOKEN", raising=False)
+    monkeypatch.delenv("AI_RESEARCH_LITERATURE_MODEL_ID", raising=False)
+    assert client.get("/api/ai-research/v1/models").status_code == 503
+    assert client.post(
+        "/api/ai-research/v1/chat/completions", json=valid_payload()
+    ).status_code == 503
+
+    enable(monkeypatch)
+    models_response = client.get(
+        "/api/ai-research/v1/models",
+        headers={"Authorization": "Bearer wrong-service-token"},
+    )
+    assert models_response.status_code == 401
+    chat_response = client.post(
+        "/api/ai-research/v1/chat/completions",
+        json=valid_payload(),
+        headers={"Authorization": "Bearer wrong-service-token"},
+    )
+    assert chat_response.status_code == 401
 
 
 def valid_payload(*, stream: bool = False) -> dict[str, Any]:

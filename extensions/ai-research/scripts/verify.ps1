@@ -1,5 +1,7 @@
 param(
-    [string]$Base = "origin/main",
+    [Parameter(Mandatory = $true)]
+    [ValidateNotNullOrEmpty()]
+    [string]$Base,
     [ValidateSet("Quick", "Full")]
     [string]$Mode = "Full",
     [Parameter(Mandatory = $true)]
@@ -10,19 +12,6 @@ param(
 $ErrorActionPreference = "Stop"
 $moduleRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $repoRoot = (Resolve-Path (Join-Path $moduleRoot "..\..")).Path
-$pythonFile = $env:AI_RESEARCH_PYTHON
-$pythonPrefix = @()
-if (-not $pythonFile) {
-    $pythonCommand = Get-Command python -ErrorAction SilentlyContinue
-    if ($pythonCommand) {
-        $pythonFile = $pythonCommand.Source
-    } else {
-        $launcher = Get-Command py -ErrorAction SilentlyContinue
-        if (-not $launcher) { throw "Set AI_RESEARCH_PYTHON to a Python 3.12.13 executable" }
-        $pythonFile = $launcher.Source
-        $pythonPrefix = @("-3.12")
-    }
-}
 $composeProject = if ($env:AI_RESEARCH_COMPOSE_PROJECT) {
     $env:AI_RESEARCH_COMPOSE_PROJECT
 } else {
@@ -33,7 +22,6 @@ $literatureCompose = @("compose", "-p", $composeProject, "-f", "compose.yml", "-
 $runtime = Join-Path $moduleRoot "runtime"
 $diagnostics = Join-Path $runtime "diagnostics"
 $sbom = Join-Path $runtime "sbom"
-New-Item -ItemType Directory -Force -Path $diagnostics, $sbom | Out-Null
 
 function Invoke-Checked([string]$File, [string[]]$Arguments) {
     & $File @Arguments
@@ -102,6 +90,55 @@ function Build-ClientProof([string]$GitRef, [string]$Context, [string]$Image) {
     )
 }
 
+function Resolve-ComparisonBase([string]$RequestedBase) {
+    if ([string]::IsNullOrWhiteSpace($RequestedBase) -or $RequestedBase -match "^0+$") {
+        throw "comparison base is required and must not be all-zero"
+    }
+    $resolved = & git -C $repoRoot rev-parse --verify "${RequestedBase}^{commit}"
+    if ($LASTEXITCODE -ne 0 -or -not $resolved) {
+        throw "comparison base cannot be resolved: $RequestedBase"
+    }
+    $resolved = $resolved.Trim()
+    & git -C $repoRoot merge-base --is-ancestor $resolved HEAD
+    if ($LASTEXITCODE -ne 0) {
+        throw "comparison base is not an ancestor of HEAD: $resolved"
+    }
+    return $resolved
+}
+
+$comparisonBase = Resolve-ComparisonBase $Base
+$trustFiles = @(
+    "extensions/ai-research/source-lock.json",
+    "extensions/ai-research/module-boundary.json"
+)
+& git -C $repoRoot diff --quiet --no-ext-diff $comparisonBase HEAD -- @trustFiles
+if ($LASTEXITCODE -ne 0) {
+    throw "AI Research trust configuration changed in the candidate"
+}
+& git -C $repoRoot diff --quiet --no-ext-diff --cached HEAD -- @trustFiles
+if ($LASTEXITCODE -ne 0) {
+    throw "AI Research trust configuration changed in the workspace index"
+}
+& git -C $repoRoot diff --quiet --no-ext-diff -- @trustFiles
+if ($LASTEXITCODE -ne 0) {
+    throw "AI Research trust configuration changed in the workspace"
+}
+$pythonFile = $env:AI_RESEARCH_PYTHON
+$pythonPrefix = @()
+if (-not $pythonFile) {
+    $pythonCommand = Get-Command python -ErrorAction SilentlyContinue
+    if ($pythonCommand) {
+        $pythonFile = $pythonCommand.Source
+    } else {
+        $launcher = Get-Command py -ErrorAction SilentlyContinue
+        if (-not $launcher) { throw "Set AI_RESEARCH_PYTHON to a Python 3.12.13 executable" }
+        $pythonFile = $launcher.Source
+        $pythonPrefix = @("-3.12")
+    }
+}
+New-Item -ItemType Directory -Force -Path $diagnostics, $sbom | Out-Null
+$pytestBaseTemp = Join-Path $runtime ("pytest-" + [Guid]::NewGuid().ToString("N"))
+New-Item -ItemType Directory -Path $pytestBaseTemp | Out-Null
 Push-Location $moduleRoot
 try {
     $distributionModeValue = if ($DistributionMode -eq "ExternalPull") {
@@ -111,10 +148,16 @@ try {
     }
     $boundaryArgs = @(
         "scripts/validate_boundary.py",
-        "--base", $Base,
+        "--base", $comparisonBase,
         "--distribution-mode", $distributionModeValue
     )
     Invoke-Python $boundaryArgs
+    Invoke-Python @(
+        "-m", "pytest",
+        "tests/control/test_boundary_base.py",
+        "tests/control/test_zero_footprint_base.py",
+        "-q", "-p", "no:cacheprovider", "--basetemp", $pytestBaseTemp
+    )
     Invoke-Checked "docker" ($compose + @("config", "--quiet"))
     Invoke-Checked "docker" ($literatureCompose + @("config", "--quiet"))
 
@@ -246,13 +289,17 @@ if unexpected:
     }
 
     $sourceLock = Get-Content -Raw -LiteralPath (Join-Path $moduleRoot "source-lock.json") | ConvertFrom-Json
+    $clientSourceProof = Join-Path $runtime ("client-source-proof-" + [Guid]::NewGuid().ToString("N"))
     $clientBaselineProof = Join-Path $runtime ("client-baseline-proof-" + [Guid]::NewGuid().ToString("N"))
     $clientCurrentProof = Join-Path $runtime ("client-current-proof-" + [Guid]::NewGuid().ToString("N"))
+    $clientSourceContext = Join-Path $runtime ("client-source-context-" + [Guid]::NewGuid().ToString("N"))
     $clientBaselineContext = Join-Path $runtime ("client-baseline-context-" + [Guid]::NewGuid().ToString("N"))
     $clientCurrentContext = Join-Path $runtime ("client-current-context-" + [Guid]::NewGuid().ToString("N"))
     $clientPaths = @(
+        $clientSourceProof,
         $clientBaselineProof,
         $clientCurrentProof,
+        $clientSourceContext,
         $clientBaselineContext,
         $clientCurrentContext
     )
@@ -260,12 +307,20 @@ if unexpected:
     try {
         Build-ClientProof `
             $sourceLock.modelMirrorBaseCommit `
+            $clientSourceContext `
+            "modelmirror-ai-research-client-proof:v0.1-source"
+        Build-ClientProof `
+            $comparisonBase `
             $clientBaselineContext `
             "modelmirror-ai-research-client-proof:v0.1-baseline"
         Build-ClientProof `
             "HEAD" `
             $clientCurrentContext `
             "modelmirror-ai-research-client-proof:v0.1"
+        Extract-ImageFile `
+            "modelmirror-ai-research-client-proof:v0.1-source" `
+            "/proof/dist/." `
+            $clientSourceProof
         Extract-ImageFile `
             "modelmirror-ai-research-client-proof:v0.1-baseline" `
             "/proof/dist/." `
@@ -276,6 +331,8 @@ if unexpected:
             $clientCurrentProof
         Invoke-Python @(
             "scripts/zero_footprint.py",
+            "--base", $comparisonBase,
+            "--source-client-dist", $clientSourceProof,
             "--baseline-client-dist", $clientBaselineProof,
             "--client-dist", $clientCurrentProof
         )
@@ -289,4 +346,7 @@ if unexpected:
 } finally {
     & docker @literatureCompose down
     Pop-Location
+    if (Test-Path -LiteralPath $pytestBaseTemp) {
+        Remove-Item -LiteralPath $pytestBaseTemp -Recurse -Force
+    }
 }
