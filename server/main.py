@@ -28,11 +28,6 @@ _SERVER_ROOT = str(Path(__file__).resolve().parent)
 if _SERVER_ROOT not in sys.path:
     sys.path.insert(0, _SERVER_ROOT)
 
-try:
-    from server.help_feedback_store import DuplicateFeedbackError, HelpFeedbackStore
-except ModuleNotFoundError:
-    from help_feedback_store import DuplicateFeedbackError, HelpFeedbackStore
-
 import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -2235,30 +2230,6 @@ authoring_service = AuthoringService(
     get_prompt_profile_store(),
     xpert_preflight=preview_xpert_for_publish,
 )
-help_feedback_store = HelpFeedbackStore()
-help_feedback_windows: dict[str, deque[float]] = defaultdict(deque)
-
-
-def help_feedback_rate_limit_or_raise(ip: str) -> None:
-    """防刷：同一 IP 在 60 秒内最多提交 5 条反馈，超限返回 429。
-
-    与全局 rate_limit_or_raise 保持同模式，但额外在窗口过期后删除
-    空 IP 条目，避免恶意换 IP 填满 help_feedback_windows 导致内存增长。
-    """
-    now = time.monotonic()
-    window = help_feedback_windows[ip]
-    while window and now - window[0] > 60:
-        window.popleft()
-    if not window:
-        # 窗口已完全过期，删除该 IP 的空条目，防止字典无界增长；
-        # 下次该 IP 请求时会重建空 deque。
-        help_feedback_windows.pop(ip, None)
-        window = help_feedback_windows[ip]
-    if len(window) >= 5:
-        raise HTTPException(status_code=429, detail="反馈提交过于频繁，请稍后再试。")
-    window.append(now)
-
-
 skill_creator_session_store = SkillCreatorSessionStore(
     storage_dir=AGENT_TASK_STORAGE_DIR or None
 )
@@ -7248,59 +7219,6 @@ async def _stream_workflow_llm_messages(
 @app.get("/api/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
-
-
-class HelpFeedbackWriteRequest(BaseModel):
-    slug: str
-    article_version: str
-    value: str
-    anonymous_id: str
-
-
-@app.post("/api/help/feedback", status_code=201)
-async def submit_help_feedback(
-    payload: HelpFeedbackWriteRequest,
-    request: Request,
-):
-    if payload.value not in {"helpful", "not-helpful"}:
-        return JSONResponse(
-            status_code=422,
-            content={"error": "invalid value", "code": "invalid_feedback_value"},
-        )
-    slug = payload.slug.strip()
-    if not slug:
-        return JSONResponse(
-            status_code=422,
-            content={"error": "slug required", "code": "invalid_slug"},
-        )
-    anonymous_id = payload.anonymous_id.strip()
-    if not anonymous_id:
-        return JSONResponse(
-            status_code=422,
-            content={"error": "anonymous_id required", "code": "invalid_anonymous_id"},
-        )
-    try:
-        help_feedback_rate_limit_or_raise(client_ip(request))
-    except HTTPException as exc:
-        return JSONResponse(status_code=exc.status_code, content={"error": str(exc.detail)})
-    try:
-        record = help_feedback_store.add_feedback(
-            slug=slug,
-            article_version=payload.article_version.strip() or "unknown",
-            value=payload.value,
-            anonymous_id=anonymous_id,
-        )
-    except DuplicateFeedbackError:
-        return JSONResponse(
-            status_code=409,
-            content={"error": "already rated", "code": "duplicate_feedback"},
-        )
-    return record
-
-
-@app.get("/api/help/feedback/stats")
-async def help_feedback_stats(slug: str | None = None):
-    return help_feedback_store.stats(slug=slug or None)
 
 
 def build_meta_planner_capability_snapshot(
