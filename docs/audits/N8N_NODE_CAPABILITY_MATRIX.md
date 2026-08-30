@@ -1,6 +1,6 @@
-# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0/R2.1/R2.2/R2.3/R2.4/R2.5/R2.6/R2.7 + R2.8 审计口径）
+# 工作流能力域与节点类型对照审计（#213 + R0/R1/R1.5/R1.6/R1.7/R1.8/R1.9/R2.0/R2.1/R2.2/R2.3/R2.4/R2.5/R2.6/R2.7/R2.8 + R2.9 PR2）
 
-- 审计日期：2026-08-28
+- 审计日期：2026-08-29
 - 唯一基线：PR #213 合并提交 `911593f505b05b01037769f578e21f22d2a1c9af`
 - R0 基线事实：NodeContract V3、37 个 `NativeNodeKind`、35 个画布目录项、20 个冻结 compatibility 合同
 - R1 结果：新增 4 个完整合同，并将既有 `llm` 提升为完整合同；自研节点总数 41、画布目录项 39、当前 19 个冻结 compatibility 合同；四节点与 `llm` Planner 均关闭
@@ -21,6 +21,7 @@
 - R2.6 结果：新增完整合同 `knowledge_write_proposal`，只向 Knowledge Inbox 创建或复用待审批提议，不批准、构建、激活或推广知识版本；允许确定性的私有工作流与 Xpert 路径，匿名表单、公共 App、Evaluation、Evolution 与 Planner 禁用
 - R2.7 结果：新增完整合同 `rss_event_entry`，以仅公网 HTTPS、逐跳安全校验、首次无回放基线和持久条目去重提供 RSS 2.0/Atom 1.0 订阅入口；认证源、附件、WebSub、Xpert 与等待节点禁用
 - R2.8 结果：新增完整合同 `email_event_entry`，以只读 IMAPS 993、首次无回放 UID 基线和持久 UID 重读恢复提供固定 INBOX 邮件入口；OAuth2、IDLE、多文件夹、附件内容、原始 HTML、Xpert 与等待节点禁用
+- R2.9 PR2 结果：不新增节点类型；为 `http_request` V2、`data_table_query` 与 `knowledge_retrieval` V2 增加结构化失败出口。仅明确归一化的读取运行故障可被处理，成功与错误出口互斥；凭据、权限、安全、配置、资源漂移、取消和未知异常仍失败关闭，且本批次不提供自动重试
 - 当前 Registry 事实：55 Native、51 个已登记 Palette 项、默认 50 个可拖拽 Palette 项、52 个完整合同、3 个 compatibility 合同、7 个 Planner 节点
 - 默认运行功能门禁：3 个已登记项（`email_event_entry`、`knowledge_write_proposal`、`rss_event_entry`）允许编辑但执行面关闭；该口径与 Palette 是否登记、是否可拖拽相互独立
 - 参考清单：563 条节点名称/类型，其中 `.ee` 2 条仅保留名称审计
@@ -151,4 +152,4 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 - 前端 `WorkflowNodeKind`、后端 `NativeNodeKind`、NodeContract Registry 必须完全一致。
 - Palette 必须是 NodeContract 合法子集；每个启用项必须有默认数据和配置入口。
 - compatibility 合同不得超过 #213 冻结白名单；新节点必须直接提供完整合同。
-- Planner 只接受完整合同、匹配 checksum 且显式启用的节点；R1–R2.8 增量节点均禁止 Planner 自动生成，Planner 可生成类型仍固定为 7 类。
+- Planner 只接受完整合同、匹配 checksum 且显式启用的节点；R1–R2.9 增量节点均禁止 Planner 自动生成，Planner 可生成类型仍固定为 7 类。

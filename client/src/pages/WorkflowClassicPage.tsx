@@ -23,8 +23,7 @@ export default function WorkflowClassicPage() {
       maxWidthClassName="max-w-[1920px]"
       showSystemCapabilityBar={false}
     >
-      <WorkflowEditor workflowId={workflowId} />
+      <WorkflowEditor key={workflowId} workflowId={workflowId} />
     </PageContainer>
   );
 }
-

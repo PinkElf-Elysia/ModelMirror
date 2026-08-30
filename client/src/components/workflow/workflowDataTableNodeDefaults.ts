@@ -69,6 +69,7 @@ export function createDataTableNodeData(
       limit: 20,
       returnMode: "list",
       outputVariable: "table_records",
+      failureAction: "stop",
     },
     data_table_insert: {
       ...shared,

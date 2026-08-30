@@ -122,6 +122,7 @@ try:
         KnowledgeBaseDeletionError,
         KnowledgeBaseLockedError,
         KnowledgeBaseNotFoundError,
+        RagRetrievalUnavailableError,
     )
 except ModuleNotFoundError:
     from rag.api import (
@@ -139,6 +140,7 @@ except ModuleNotFoundError:
         KnowledgeBaseDeletionError,
         KnowledgeBaseLockedError,
         KnowledgeBaseNotFoundError,
+        RagRetrievalUnavailableError,
     )
 
 try:
@@ -655,9 +657,21 @@ try:
         validate_file_output_config,
     )
     from server.workflow_native.secure_http import (
+        WorkflowHttpRequestError,
         execute_workflow_http_request,
         is_http_request_v2,
         workflow_http_requests_enabled,
+    )
+    from server.workflow_native.error_routing import (
+        ROUTABLE_NODE_KINDS,
+        WorkflowErrorRoutingConfigError,
+        build_error_receipt,
+        failure_action,
+        route_data_table_error,
+        route_http_error,
+        route_knowledge_error,
+        safe_http_fatal_message,
+        validate_error_routing_config,
     )
     from server.workflow_native.typed_ai import (
         ClassifierSelection,
@@ -785,9 +799,21 @@ except ModuleNotFoundError:
         validate_file_output_config,
     )
     from workflow_native.secure_http import (
+        WorkflowHttpRequestError,
         execute_workflow_http_request,
         is_http_request_v2,
         workflow_http_requests_enabled,
+    )
+    from workflow_native.error_routing import (
+        ROUTABLE_NODE_KINDS,
+        WorkflowErrorRoutingConfigError,
+        build_error_receipt,
+        failure_action,
+        route_data_table_error,
+        route_http_error,
+        route_knowledge_error,
+        safe_http_fatal_message,
+        validate_error_routing_config,
     )
     from workflow_native.typed_ai import (
         ClassifierSelection,
@@ -9724,23 +9750,70 @@ async def _run_workflow_response(
             for node in payload.workflow.nodes
             if workflow_node_kind(node) == "data_merge"
         }
-        if data_merge_node_ids:
+        error_edge_source_ids = {
+            edge.source
+            for edge in payload.workflow.edges
+            if str(edge.sourceHandle or "").strip() == "error"
+        }
+        error_routing_node_ids = {
+            node.id
+            for node in payload.workflow.nodes
+            if workflow_node_kind(node) in ROUTABLE_NODE_KINDS
+            and (
+                node.id in error_edge_source_ids
+                or node.data.get("failureAction") not in {None, "", "stop"}
+                or node.data.get("errorVariable") not in {None, ""}
+            )
+        }
+        error_output_variables = {
+            str(node.data.get("errorVariable") or "").strip()
+            for node in payload.workflow.nodes
+            if node.id in error_routing_node_ids
+            and str(node.data.get("errorVariable") or "").strip()
+        }
+        if data_merge_node_ids or error_routing_node_ids or error_edge_source_ids:
             native_workflow = NativeWorkflowDefinition.model_validate(
                 payload.workflow.model_dump()
             )
-            merge_validation = validate_workflow_graph(native_workflow)
-            merge_issues = [
+            workflow_validation = validate_workflow_graph(native_workflow)
+            error_routing_issue_codes = {
+                "node_error_routing_requires_v2",
+                "node_error_routing_unsupported",
+                "node_failure_action_invalid",
+                "node_error_variable_unused",
+                "node_error_variable_invalid",
+                "node_error_variable_conflict",
+                "missing_node_error_edge",
+                "duplicate_node_error_edge",
+                "disabled_node_error_edge",
+            }
+            validation_issues = [
                 issue
-                for issue in merge_validation.issues
+                for issue in workflow_validation.issues
                 if issue.node_id in data_merge_node_ids
                 or issue.code == "duplicate_edge_id"
+                or (
+                    issue.node_id in error_routing_node_ids
+                    and issue.code in error_routing_issue_codes
+                )
+                or (
+                    issue.code
+                    in {
+                        "workflow_variable_producer_conflict",
+                        "duplicate_variable_producer",
+                    }
+                    and any(
+                        f"'{variable_name}'" in issue.message
+                        for variable_name in error_output_variables
+                    )
+                )
             ]
-            if merge_issues:
+            if validation_issues:
                 return JSONResponse(
                     status_code=400,
                     content={
-                        "error": merge_issues[0].message,
-                        "issues": [issue.model_dump() for issue in merge_issues],
+                        "error": validation_issues[0].message,
+                        "issues": [issue.model_dump() for issue in validation_issues],
                     },
                 )
         order = workflow_topological_order(payload.workflow.nodes, payload.workflow.edges)
@@ -9754,6 +9827,34 @@ async def _run_workflow_response(
     outgoing: dict[str, list[WorkflowEdgePayload]] = defaultdict(list)
     for edge in control_flow_edges(payload.workflow.edges):
         outgoing[edge.source].append(edge)
+
+    def runtime_error_variable(node: WorkflowNodePayload) -> str:
+        kind = workflow_node_kind(node)
+        output_variable = str(node.data.get("outputVariable") or "").strip()
+        try:
+            validate_error_routing_config(
+                node.data,
+                node_kind=kind,
+                output_variable=output_variable,
+            )
+        except WorkflowErrorRoutingConfigError as exc:
+            raise WorkflowTerminationError(
+                exc.code,
+                exc.safe_message,
+                node_id=node.id,
+            ) from None
+        error_edges = [
+            edge
+            for edge in outgoing.get(node.id, [])
+            if str(edge.sourceHandle or "").strip() == "error"
+        ]
+        if len(error_edges) != 1:
+            raise WorkflowTerminationError(
+                "NODE_ERROR_EDGE_INVALID",
+                "Enabled error output needs exactly one error edge.",
+                node_id=node.id,
+            )
+        return str(node.data.get("errorVariable") or "").strip()
 
     start_node_ids = [
         node.id
@@ -15477,6 +15578,8 @@ async def _run_workflow_response(
 
                 chosen_handle: str | None = None
                 output = ""
+                node_end_status = "completed"
+                routed_failure_receipt: dict[str, Any] | None = None
                 node_provider_run: (
                     ManagedWorkflowNodeRun | ManagedWorkflowAgentRun | None
                 ) = None
@@ -16039,32 +16142,62 @@ async def _run_workflow_response(
                 elif kind == "http_request":
                     if is_http_request_v2(node.data):
                         if not workflow_http_requests_enabled():
-                            raise ValueError(
-                                "HTTP_REQUESTS_DISABLED: Secure HTTP requests are disabled."
+                            raise WorkflowTerminationError(
+                                "HTTP_REQUESTS_DISABLED",
+                                "Secure HTTP requests are disabled.",
+                                node_id=node.id,
                             )
                         output_variable = str(
                             node.data.get("outputVariable") or "http_response"
                         )
-                        stored_output = await execute_workflow_http_request(
-                            node.data,
-                            variables,
-                            toolset_credential_store,
-                        )
-                        variables[output_variable] = normalize_workflow_value(
-                            stored_output,
-                            path=f"$.variables.{output_variable}",
-                        )
-                        output = workflow_value_to_text(stored_output)
-                        yield sse_payload(
-                            {
-                                "event": "node_delta",
-                                "node_id": node.id,
-                                "node_title": title,
-                                "node_type": kind,
-                                "output": output,
-                                "variable": output_variable,
-                            }
-                        )
+                        try:
+                            stored_output = await execute_workflow_http_request(
+                                node.data,
+                                variables,
+                                toolset_credential_store,
+                            )
+                        except WorkflowHttpRequestError as exc:
+                            routed_failure = route_http_error(exc)
+                            if routed_failure is None:
+                                raise WorkflowTerminationError(
+                                    exc.code,
+                                    safe_http_fatal_message(exc),
+                                    node_id=node.id,
+                                ) from None
+                            if failure_action(node.data) != "error_output":
+                                raise WorkflowTerminationError(
+                                    routed_failure.code,
+                                    routed_failure.safe_message,
+                                    node_id=node.id,
+                                ) from None
+                            error_variable = runtime_error_variable(node)
+                            routed_failure_receipt = build_error_receipt(
+                                routed_failure,
+                                node_id=node.id,
+                                node_kind=kind,
+                            )
+                            variables[error_variable] = normalize_workflow_value(
+                                routed_failure_receipt,
+                                path=f"$.variables.{error_variable}",
+                            )
+                            output = routed_failure.safe_message
+                            node_end_status = "handled_error"
+                        else:
+                            variables[output_variable] = normalize_workflow_value(
+                                stored_output,
+                                path=f"$.variables.{output_variable}",
+                            )
+                            output = workflow_value_to_text(stored_output)
+                            yield sse_payload(
+                                {
+                                    "event": "node_delta",
+                                    "node_id": node.id,
+                                    "node_title": title,
+                                    "node_type": kind,
+                                    "output": output,
+                                    "variable": output_variable,
+                                }
+                            )
                     else:
                         try:
                             method = str(node.data.get("method") or "GET").upper()
@@ -16825,21 +16958,36 @@ async def _run_workflow_response(
                         int(pinned_value) if pinned_value not in {None, ""} else None
                     )
                     is_write = kind != "data_table_query"
-                    schema = agent_table_store.resolve_schema_version(
-                        table_id,
-                        version_policy=version_policy,
-                        pinned_version=pinned_version,
-                        write=is_write,
-                    )
+                    if kind == "data_table_query":
+                        schema = None
+                    else:
+                        schema = agent_table_store.resolve_schema_version(
+                            table_id,
+                            version_policy=version_policy,
+                            pinned_version=pinned_version,
+                            write=is_write,
+                        )
                     output_variable = str(
                         node.data.get("outputVariable") or "table_result"
                     )
                     operation_id = "workflow_" + hashlib.sha256(
                         f"{task_id}:{node.id}".encode("utf-8")
                     ).hexdigest()
-                    filter_tree = resolve_data_table_filter(
-                        node.data.get("filter"), variables
-                    )
+                    if kind == "data_table_query":
+                        try:
+                            filter_tree = resolve_data_table_filter(
+                                node.data.get("filter"), variables
+                            )
+                        except Exception:
+                            raise WorkflowTerminationError(
+                                "DATA_TABLE_QUERY_CONFIG_INVALID",
+                                "Data table query configuration is invalid.",
+                                node_id=node.id,
+                            ) from None
+                    else:
+                        filter_tree = resolve_data_table_filter(
+                            node.data.get("filter"), variables
+                        )
                     result_count = 0
                     affected_count = 0
                     if kind == "data_table_query":
@@ -16850,20 +16998,64 @@ async def _run_workflow_response(
                             else None
                         )
                         sort = node.data.get("sort")
-                        records = agent_table_store.query_records(
-                            table_id,
-                            schema_version=schema.version,
-                            fields=selected_fields,
-                            filter_tree=filter_tree,
-                            sort=sort if isinstance(sort, list) else None,
-                            limit=int(node.data.get("limit") or 20),
-                        )
-                        result_count = len(records)
-                        if str(node.data.get("returnMode") or "list") == "first":
-                            stored_output: WorkflowValue = records[0] if records else None
+                        try:
+                            if schema is None:
+                                schema = agent_table_store.resolve_schema_version(
+                                    table_id,
+                                    version_policy=version_policy,
+                                    pinned_version=pinned_version,
+                                    write=is_write,
+                                )
+                            records = agent_table_store.query_records(
+                                table_id,
+                                schema_version=schema.version,
+                                fields=selected_fields,
+                                filter_tree=filter_tree,
+                                sort=sort if isinstance(sort, list) else None,
+                                limit=int(node.data.get("limit") or 20),
+                            )
+                        except Exception as exc:
+                            routed_failure = route_data_table_error(exc)
+                            if routed_failure is None:
+                                raise WorkflowTerminationError(
+                                    (
+                                        "DATA_TABLE_UNAVAILABLE"
+                                        if schema is None
+                                        else "WORKFLOW_NODE_FAILED"
+                                    ),
+                                    (
+                                        "The configured data table or schema is unavailable."
+                                        if schema is None
+                                        else "Data table query failed."
+                                    ),
+                                    node_id=node.id,
+                                ) from None
+                            if failure_action(node.data) != "error_output":
+                                raise WorkflowTerminationError(
+                                    routed_failure.code,
+                                    routed_failure.safe_message,
+                                    node_id=node.id,
+                                ) from None
+                            error_variable = runtime_error_variable(node)
+                            routed_failure_receipt = build_error_receipt(
+                                routed_failure,
+                                node_id=node.id,
+                                node_kind=kind,
+                            )
+                            variables[error_variable] = normalize_workflow_value(
+                                routed_failure_receipt,
+                                path=f"$.variables.{error_variable}",
+                            )
+                            output = routed_failure.safe_message
+                            node_end_status = "handled_error"
+                            stored_output = None
                         else:
-                            stored_output = records
-                        output = f"Agent Table query returned {result_count} record(s)."
+                            result_count = len(records)
+                            if str(node.data.get("returnMode") or "list") == "first":
+                                stored_output = records[0] if records else None
+                            else:
+                                stored_output = records
+                            output = f"Agent Table query returned {result_count} record(s)."
                         operation = "query"
                     elif kind == "data_table_insert":
                         values = resolve_data_table_values(
@@ -16919,41 +17111,43 @@ async def _run_workflow_response(
                             f"{result_count} and affected {affected_count} record(s)."
                         )
                         operation = "delete"
-                    variables[output_variable] = normalize_workflow_value(
-                        stored_output,
-                        path=f"$.{output_variable}",
-                    )
+                    if node_end_status != "handled_error":
+                        variables[output_variable] = normalize_workflow_value(
+                            stored_output,
+                            path=f"$.{output_variable}",
+                        )
                     duration_ms = round(
                         (time.perf_counter() - started_at) * 1000,
                         2,
                     )
-                    await run_registry.record_checkpoint(
-                        workflow_run.run_id,
-                        event_type=f"workflow.data_table.{operation}",
-                        title=f"Agent Table {operation}",
-                        summary=(
-                            f"schema={schema.version}, matched={result_count}, "
-                            f"affected={affected_count}"
-                        ),
-                        metadata={
-                            "table_id": table_id,
-                            "schema_version": schema.version,
-                            "operation": operation,
-                            "matched_count": result_count,
-                            "affected_count": affected_count,
-                            "duration_ms": duration_ms,
-                        },
-                    )
-                    yield sse_payload(
-                        {
-                            "event": "node_delta",
-                            "node_id": node.id,
-                            "node_title": title,
-                            "node_type": kind,
-                            "output": output,
-                            "variable": output_variable,
-                        }
-                    )
+                    if node_end_status != "handled_error":
+                        await run_registry.record_checkpoint(
+                            workflow_run.run_id,
+                            event_type=f"workflow.data_table.{operation}",
+                            title=f"Agent Table {operation}",
+                            summary=(
+                                f"schema={schema.version}, matched={result_count}, "
+                                f"affected={affected_count}"
+                            ),
+                            metadata={
+                                "table_id": table_id,
+                                "schema_version": schema.version,
+                                "operation": operation,
+                                "matched_count": result_count,
+                                "affected_count": affected_count,
+                                "duration_ms": duration_ms,
+                            },
+                        )
+                        yield sse_payload(
+                            {
+                                "event": "node_delta",
+                                "node_id": node.id,
+                                "node_title": title,
+                                "node_type": kind,
+                                "output": output,
+                                "variable": output_variable,
+                            }
+                        )
 
                 elif kind == "json_serialize":
                     try:
@@ -17413,6 +17607,57 @@ async def _run_workflow_response(
                             exc.error_code,
                             exc.safe_message,
                         ) from None
+                    except RagRetrievalUnavailableError as exc:
+                        routed_failure = route_knowledge_error(exc)
+                        if retrieval_run is not None:
+                            await run_registry.record_checkpoint(
+                                retrieval_run.run_id,
+                                event_type="knowledge_retrieval.failed",
+                                title="Knowledge retrieval failed",
+                                summary=(
+                                    routed_failure.code
+                                    if routed_failure is not None
+                                    else "workflow_knowledge_retrieval_failed"
+                                ),
+                                severity="error",
+                                metadata={
+                                    "node_id": node.id,
+                                    "error_code": (
+                                        routed_failure.code
+                                        if routed_failure is not None
+                                        else "workflow_knowledge_retrieval_failed"
+                                    ),
+                                },
+                            )
+                            await run_registry.update_run(
+                                retrieval_run.run_id,
+                                status="failed",
+                                error="Knowledge retrieval failed.",
+                            )
+                        if routed_failure is None:
+                            raise WorkflowKnowledgeFatalError(
+                                node.id,
+                                "workflow_knowledge_retrieval_failed",
+                                "Knowledge retrieval failed.",
+                            ) from None
+                        if failure_action(node.data) != "error_output":
+                            raise WorkflowKnowledgeFatalError(
+                                node.id,
+                                routed_failure.code,
+                                routed_failure.safe_message,
+                            ) from None
+                        error_variable = runtime_error_variable(node)
+                        routed_failure_receipt = build_error_receipt(
+                            routed_failure,
+                            node_id=node.id,
+                            node_kind=kind,
+                        )
+                        variables[error_variable] = normalize_workflow_value(
+                            routed_failure_receipt,
+                            path=f"$.variables.{error_variable}",
+                        )
+                        output = routed_failure.safe_message
+                        node_end_status = "handled_error"
                     except Exception as exc:
                         logger.warning(
                             "Workflow knowledge_retrieval node failed: %s",
@@ -23097,13 +23342,29 @@ async def _run_workflow_response(
                     yield sse_payload(cancellation_event())
                     return
 
+                if routed_failure_receipt is not None:
+                    routed_event = {
+                        "event": "node_error_routed",
+                        "node_id": node.id,
+                        "node_title": title,
+                        "node_type": kind,
+                        "attempt": int(routed_failure_receipt["attempts"]),
+                        "max_attempts": int(routed_failure_receipt["attempts"]),
+                        "error_code": str(routed_failure_receipt["code"]),
+                        "classification": str(
+                            routed_failure_receipt["classification"]
+                        ),
+                    }
+                    workflow_execution_store.append_event(task_id, routed_event)
+                    yield sse_payload(routed_event)
+
                 executed.add(node_id)
                 node_end_event = {
                     "event": "node_end",
                     "node_id": node.id,
                     "node_title": title,
                     "node_type": kind,
-                    "status": "completed",
+                    "status": node_end_status,
                 }
                 if node_provider_receipt is not None:
                     node_end_event["provider_route_receipts"] = node_provider_receipt
@@ -23133,6 +23394,7 @@ async def _run_workflow_response(
                         "messageVariable",
                         "contentVariable",
                         "resultVariable",
+                        "errorVariable",
                     )
                     if str(node.data.get(field_name) or "").strip()
                 }
@@ -23143,6 +23405,14 @@ async def _run_workflow_response(
                     public_node_variables = (
                         {output_variable: variables[output_variable]}
                         if output_variable in variables
+                        else {}
+                    )
+                if routed_failure_receipt is not None:
+                    error_variable = str(node.data.get("errorVariable") or "").strip()
+                    public_node_output = str(routed_failure_receipt["message"])
+                    public_node_variables = (
+                        {error_variable: variables[error_variable]}
+                        if error_variable in variables
                         else {}
                     )
                 if kind == "rss_event_entry":
@@ -23189,6 +23459,19 @@ async def _run_workflow_response(
                 )
 
                 next_edges = outgoing[node_id]
+                if kind in {
+                    "http_request",
+                    "data_table_query",
+                    "knowledge_retrieval",
+                } and failure_action(node.data) == "error_output":
+                    next_edges = [
+                        edge
+                        for edge in next_edges
+                        if (
+                            str(edge.sourceHandle or "").strip() == "error"
+                        )
+                        == (node_end_status == "handled_error")
+                    ]
                 if kind in {"condition", "multi_route"} or (
                     kind == "question_classifier" and is_typed_ai_v2(node.data)
                 ):

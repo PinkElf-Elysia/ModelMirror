@@ -1,10 +1,11 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { type WorkflowDefinition, type WorkflowNodeKind } from "../../types/workflow";
 import { type RuntimeMiddlewareNode } from "../../types/runtimeMiddleware";
 import WorkflowEditor from "./WorkflowEditor";
+import WorkflowClassicPage from "../../pages/WorkflowClassicPage";
 import { type WorkflowNodeRegistryResponse } from "./workflowNodeRegistry";
 import {
   type WorkflowDeploymentSummary,
@@ -174,6 +175,20 @@ function ordinaryWorkflow(): WorkflowDefinition {
     },
   };
   return definition;
+}
+
+function WorkflowRouteHarness() {
+  const navigate = useNavigate();
+  return (
+    <>
+      <button onClick={() => navigate("/workflow/new")} type="button">
+        打开新建工作流
+      </button>
+      <Routes>
+        <Route path="/workflow/:id" element={<WorkflowClassicPage />} />
+      </Routes>
+    </>
+  );
 }
 
 function signedFormWorkflow(): WorkflowDefinition {
@@ -352,6 +367,7 @@ function workflowWithSkillRuntime(): WorkflowDefinition {
 
 describe("WorkflowEditor Xpert entry repair", () => {
   beforeEach(() => {
+    window.localStorage.clear();
     registryAvailable = true;
     serverWorkflow = null;
     serverActiveDeployment = null;
@@ -433,6 +449,88 @@ describe("WorkflowEditor Xpert entry repair", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("requires an explicit choice before opening a recovered local draft", async () => {
+    const storedDraft = ordinaryWorkflow();
+    storedDraft.id = "draft";
+    storedDraft.title = "上次的客户分流";
+    window.localStorage.setItem(
+      "modelmirror-workflow:draft",
+      JSON.stringify(storedDraft),
+    );
+
+    render(
+      <MemoryRouter>
+        <WorkflowEditor workflowId="draft" />
+      </MemoryRouter>,
+    );
+
+    const recoveryDialog = await screen.findByRole("dialog", {
+      name: "发现一个未发布的本地草稿",
+    });
+    expect(recoveryDialog).toHaveTextContent("上次的客户分流");
+    expect(recoveryDialog).toHaveTextContent("3 个节点和 2 条连线");
+    expect(recoveryDialog.contains(document.activeElement)).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "恢复本地草稿" }));
+
+    await waitFor(() => expect(recoveryDialog).not.toBeInTheDocument());
+    expect(screen.getByDisplayValue("上次的客户分流")).toBeInTheDocument();
+  });
+
+  it("starts from the default workflow without deleting the recovered draft", async () => {
+    const storedDraft = ordinaryWorkflow();
+    storedDraft.id = "draft";
+    storedDraft.title = "需要保留的本地草稿";
+    const serializedDraft = JSON.stringify(storedDraft);
+    window.localStorage.setItem("modelmirror-workflow:draft", serializedDraft);
+
+    render(
+      <MemoryRouter>
+        <WorkflowEditor workflowId="draft" />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "使用默认工作流新建" }),
+    );
+
+    expect(
+      screen.queryByRole("dialog", { name: "发现一个未发布的本地草稿" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByDisplayValue("新建 AI 流水线")).toBeInTheDocument();
+    expect(window.localStorage.getItem("modelmirror-workflow:draft")).toBe(
+      serializedDraft,
+    );
+  });
+
+  it("remounts when SPA navigation changes a saved workflow into a new draft", async () => {
+    serverWorkflow = ordinaryWorkflow();
+    serverWorkflow.id = "wf_existing";
+    serverWorkflow.title = "已保存的工作流";
+    const storedDraft = ordinaryWorkflow();
+    storedDraft.id = "draft";
+    storedDraft.title = "等待恢复的本地草稿";
+    window.localStorage.setItem(
+      "modelmirror-workflow:draft",
+      JSON.stringify(storedDraft),
+    );
+
+    render(
+      <MemoryRouter initialEntries={["/workflow/wf_existing"]}>
+        <WorkflowRouteHarness />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByDisplayValue("已保存的工作流")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "打开新建工作流" }));
+
+    const recoveryDialog = await screen.findByRole("dialog", {
+      name: "发现一个未发布的本地草稿",
+    });
+    expect(recoveryDialog).toHaveTextContent("等待恢复的本地草稿");
+    expect(screen.queryByDisplayValue("已保存的工作流")).not.toBeInTheDocument();
   });
 
   it("recognizes global variables in the legacy aggregator migration UI", async () => {

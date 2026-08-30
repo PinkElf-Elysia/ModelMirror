@@ -225,7 +225,7 @@ interface PendingHumanIntervention {
   outputVariable: string;
 }
 
-type RunStepStatus = "running" | "done" | "waiting" | "skipped" | "error";
+type RunStepStatus = "running" | "done" | "handled_error" | "waiting" | "skipped" | "error";
 
 interface WorkflowRunStep {
   id: string;
@@ -588,6 +588,7 @@ function appendStepOutput(
 
 function statusCopy(status: RunStepStatus) {
   if (status === "done") return "完成";
+  if (status === "handled_error") return "失败已处理";
   if (status === "waiting") return "等待输入";
   if (status === "skipped") return "已跳过";
   if (status === "error") return "异常";
@@ -600,6 +601,9 @@ function statusClass(status: RunStepStatus) {
   }
   if (status === "waiting") {
     return "border-sky-300/25 bg-sky-300/10 text-sky-100";
+  }
+  if (status === "handled_error") {
+    return "border-amber-300/30 bg-amber-300/10 text-amber-100";
   }
   if (status === "skipped") {
     return "border-slate-300/20 bg-slate-300/10 text-slate-300";
@@ -806,12 +810,26 @@ export function buildRunSteps(events: WorkflowRunEvent[]) {
       step.output = event.message ?? "未命中当前分支，已跳过。";
       return;
     }
+    if (event.event === "node_error_routed") {
+      step.status = "handled_error";
+      const classification = event.classification === "transient" ? "瞬时" : "永久";
+      const attempt = Math.max(1, Number(event.attempt) || 1);
+      const maxAttempts = Math.max(attempt, Number(event.max_attempts) || attempt);
+      step.output = appendStepOutput(
+        step.output,
+        `失败已进入错误分支：${event.error_code ?? "WORKFLOW_NODE_FAILED"}（${classification}）· 尝试 ${attempt}/${maxAttempts}`,
+        step.type,
+      );
+      return;
+    }
     if (event.event === "node_end") {
       const completedHandoff = (
         step.status === "waiting"
         && (step.type === "agent_handoff" || step.type === "handoff_router")
       );
-      if (step.status !== "error") step.status = "done";
+      if (step.status !== "error") {
+        step.status = event.status === "handled_error" ? "handled_error" : "done";
+      }
       step.variable = event.variable ?? step.variable;
       step.providerRouteReceipt = event.provider_route_receipts ?? step.providerRouteReceipt;
       if (completedHandoff) {
@@ -1710,8 +1728,15 @@ export default function WorkflowRun({
       runningNodesRef.current.delete(event.node_id);
       // 节点已失败（收到过带 node_id 的 error）时不被 node_end(completed) 覆盖。
       if (!failedNodesRef.current.has(event.node_id)) {
-        onNodeStatusChange?.(event.node_id, "done");
+        onNodeStatusChange?.(
+          event.node_id,
+          event.status === "handled_error" ? "handled_error" : "done",
+        );
       }
+    }
+    if (event.event === "node_error_routed" && event.node_id) {
+      runningNodesRef.current.delete(event.node_id);
+      onNodeStatusChange?.(event.node_id, "handled_error");
     }
     if (event.event === "node_skipped" && event.node_id) {
       runningNodesRef.current.delete(event.node_id);

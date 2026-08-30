@@ -193,4 +193,80 @@ describe("WorkflowVariableField", () => {
       "true",
     );
   });
+
+  it("enforces the strict structured-error variable contract before saving", () => {
+    const request = node("request", "http_request", {
+      contractVersion: 2,
+      outputVariable: "http_response",
+      failureAction: "error_output",
+      errorVariable: "",
+    });
+    const descriptor = getWorkflowVariableFieldDescriptor(
+      "http_request",
+      "errorVariable",
+    )!;
+    const { rerender } = render(
+      <WorkflowVariableField
+        descriptor={descriptor}
+        edges={[]}
+        fieldName="errorVariable"
+        node={request}
+        nodes={[request]}
+        onChange={vi.fn()}
+        value=""
+      />,
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent("错误结果变量不能为空");
+
+    rerender(
+      <WorkflowVariableField
+        descriptor={descriptor}
+        edges={[]}
+        fieldName="errorVariable"
+        node={{ ...request, data: { ...request.data, errorVariable: "bad-name" } }}
+        nodes={[request]}
+        onChange={vi.fn()}
+        value="bad-name"
+      />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("只能包含字母、数字和下划线");
+
+    const oversized = `a${"x".repeat(64)}`;
+    rerender(
+      <WorkflowVariableField
+        descriptor={descriptor}
+        edges={[]}
+        fieldName="errorVariable"
+        node={{ ...request, data: { ...request.data, errorVariable: oversized } }}
+        nodes={[request]}
+        onChange={vi.fn()}
+        value={oversized}
+      />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("不超过 64 个字符");
+
+    const conflictingRequest = {
+      ...request,
+      data: { ...request.data, errorVariable: "fixed_input" },
+    };
+    rerender(
+      <WorkflowVariableField
+        declarations={[{
+          id: "fixed-input",
+          name: "fixed_input",
+          kind: "input",
+          valueType: "text",
+        }]}
+        descriptor={descriptor}
+        edges={[]}
+        fieldName="errorVariable"
+        node={conflictingRequest}
+        nodes={[conflictingRequest]}
+        onChange={vi.fn()}
+        value="fixed_input"
+      />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("多个变量生产者");
+  });
 });

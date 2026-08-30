@@ -13,8 +13,10 @@ import {
   type WorkflowEdge,
   type WorkflowNode,
   type WorkflowNodeData,
+  type WorkflowVariableDeclaration,
 } from "../../types/workflow";
 import WorkflowVariableField from "./WorkflowVariableField";
+import WorkflowFailureRoutingConfig from "./WorkflowFailureRoutingConfig";
 import type { WorkflowNodeContractProjection } from "./workflowNodeRegistry";
 import type {
   WorkflowVariableFieldDescriptor,
@@ -574,15 +576,19 @@ export default function WorkflowTypedDataNodeConfig({
   node,
   nodes,
   edges,
+  declarations = [],
   contract,
   onChange,
+  onOpenVariableCenter,
 }: {
   data: WorkflowNodeData;
   node: WorkflowNode;
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
+  declarations?: WorkflowVariableDeclaration[];
   contract?: WorkflowNodeContractProjection | null;
   onChange: (patch: Partial<WorkflowNodeData>) => void;
+  onOpenVariableCenter?: () => void;
 }) {
   const isDataTable = dataTableKinds.has(data.kind);
   const [tables, setTables] = useState<AgentTableDefinition[]>([]);
@@ -903,6 +909,18 @@ export default function WorkflowTypedDataNodeConfig({
               : "输出 matched 与 affected 计数。"}
         </p>
       </Section>
+      {data.kind === "data_table_query" ? (
+        <WorkflowFailureRoutingConfig
+          contract={contract}
+          data={data}
+          declarations={declarations}
+          edges={edges}
+          node={node}
+          nodes={nodes}
+          onChange={onChange}
+          onOpenVariableCenter={onOpenVariableCenter}
+        />
+      ) : null}
     </div>
   );
 }

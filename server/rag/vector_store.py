@@ -17,6 +17,14 @@ from .source_metadata import (
 )
 
 
+class VectorStoreUnavailableError(RuntimeError):
+    """The configured vector backend cannot currently serve a request."""
+
+
+class VectorStoreContractError(RuntimeError):
+    """Stored vector/index metadata violates the immutable retrieval contract."""
+
+
 @dataclass(slots=True)
 class VectorChunk:
     id: str
@@ -127,7 +135,7 @@ class LocalJsonVectorStore:
         for chunk in chunks:
             contract = _v3_namespace_contract(chunk.kb_id)
             if contract is not None and len(chunk.embedding) != contract["dimension"]:
-                raise RuntimeError(
+                raise VectorStoreContractError(
                     "V3 vector write does not match the index dimension contract."
                 )
             if chunk.id in existing_ids:
@@ -150,7 +158,7 @@ class LocalJsonVectorStore:
     def query(self, kb_id: str, embedding: list[float], top_k: int) -> list[SearchResult]:
         contract = _v3_namespace_contract(kb_id)
         if contract is not None and len(embedding) != contract["dimension"]:
-            raise RuntimeError(
+            raise VectorStoreContractError(
                 "V3 vector query does not match the index dimension contract."
             )
         scored: list[SearchResult] = []
@@ -159,7 +167,7 @@ class LocalJsonVectorStore:
                 continue
             stored_embedding = [float(value) for value in record["embedding"]]
             if contract is not None and len(stored_embedding) != contract["dimension"]:
-                raise RuntimeError(
+                raise VectorStoreContractError(
                     "V3 stored vector does not match the index dimension contract."
                 )
             score = cosine_similarity(embedding, stored_embedding)
@@ -280,7 +288,7 @@ class ChromaVectorStore:
         try:
             import chromadb  # type: ignore[import-not-found]
         except ImportError as exc:
-            raise RuntimeError("chromadb is not installed") from exc
+            raise VectorStoreUnavailableError("chromadb is not installed") from exc
 
         persist_path.mkdir(parents=True, exist_ok=True)
         self._client = chromadb.PersistentClient(path=str(persist_path))
@@ -319,12 +327,14 @@ class ChromaVectorStore:
                 len(chunk.embedding) != contract["dimension"]
                 for chunk in namespace_chunks
             ):
-                raise RuntimeError(
+                raise VectorStoreContractError(
                     "V3 vector write does not match the index dimension contract."
                 )
             collection = self._namespace_collection(namespace, create=True)
             if collection is None:  # pragma: no cover - create=True is total.
-                raise RuntimeError("Unable to create the Chroma namespace collection.")
+                raise VectorStoreUnavailableError(
+                    "Unable to create the Chroma namespace collection."
+                )
             self._upsert(collection, namespace_chunks)
 
     def _upsert(self, collection: Any, chunks: list[VectorChunk]) -> None:
@@ -368,7 +378,7 @@ class ChromaVectorStore:
                 v3=_is_v3_namespace(kb_id),
             )
         if _is_v3_namespace(kb_id):
-            raise RuntimeError("V3 vector namespace is unavailable.")
+            raise VectorStoreUnavailableError("V3 vector namespace is unavailable.")
         return self._query_collection(
             self._collection,
             kb_id,
@@ -390,7 +400,9 @@ class ChromaVectorStore:
         if v3:
             contract = _v3_namespace_contract(kb_id)
             if contract is None or len(embedding) != contract["dimension"]:
-                raise RuntimeError("V3 vector query does not match the index dimension contract.")
+                raise VectorStoreContractError(
+                    "V3 vector query does not match the index dimension contract."
+                )
         query: dict[str, Any] = {
             "query_embeddings": [embedding],
             "n_results": top_k,
@@ -600,7 +612,9 @@ class ChromaVectorStore:
         stored_metadata = collection.metadata or {}
         stored_namespace = str(stored_metadata.get("modelmirror_namespace") or "")
         if stored_namespace and stored_namespace != namespace:
-            raise RuntimeError("Chroma namespace collection identity collision.")
+            raise VectorStoreContractError(
+                "Chroma namespace collection identity collision."
+            )
         if v3_contract and (
             int(stored_metadata.get("modelmirror_schema_version") or 0) != 3
             or int(stored_metadata.get("modelmirror_dimension") or 0)
@@ -609,7 +623,9 @@ class ChromaVectorStore:
             != "cosine_v1"
             or str(stored_metadata.get("hnsw:space") or "") != "cosine"
         ):
-            raise RuntimeError("Chroma namespace collection contract mismatch.")
+            raise VectorStoreContractError(
+                "Chroma namespace collection contract mismatch."
+            )
 
     def _get_collection(self, name: str) -> Any | None:
         try:
@@ -672,7 +688,9 @@ class UnavailableVectorStore:
         return 0
 
     def _raise_unavailable(self) -> None:
-        raise RuntimeError(f"Vector backend unavailable: {self.reason_code}")
+        raise VectorStoreUnavailableError(
+            f"Vector backend unavailable: {self.reason_code}"
+        )
 
 
 def create_vector_store(storage_dir: Path) -> VectorStore:

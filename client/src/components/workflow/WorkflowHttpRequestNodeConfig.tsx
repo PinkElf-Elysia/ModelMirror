@@ -14,6 +14,7 @@ import type {
 } from "../../types/workflow";
 import type { WorkflowNodeContractProjection } from "./workflowNodeRegistry";
 import WorkflowVariableField from "./WorkflowVariableField";
+import WorkflowFailureRoutingConfig from "./WorkflowFailureRoutingConfig";
 import type { WorkflowVariableFieldDescriptor } from "./workflowVariables";
 
 
@@ -515,6 +516,16 @@ export default function WorkflowHttpRequestNodeConfig({
       <Field label="结构化响应变量" hint="包含 statusCode、ok、contentType、headers、receivedBytes 和 body。">
         <WorkflowVariableField contract={contract} declarations={declarations} edges={edges} fieldName="outputVariable" node={node} nodes={nodes} onChange={(value) => onChange({ outputVariable: value })} value={data.outputVariable ?? ""} />
       </Field>
+      <WorkflowFailureRoutingConfig
+        contract={contract}
+        data={data}
+        declarations={declarations}
+        edges={edges}
+        node={node}
+        nodes={nodes}
+        onChange={onChange}
+        onOpenVariableCenter={onOpenVariableCenter}
+      />
       <div className="flex justify-end"><button className="text-[11px] font-medium text-cyan-200 underline decoration-cyan-300/30 underline-offset-4 hover:text-cyan-100" onClick={onOpenVariableCenter} type="button">管理全局变量</button></div>
     </div>
   );
