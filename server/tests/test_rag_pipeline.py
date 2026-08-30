@@ -10,6 +10,7 @@ from server.main import app
 from server.rag.api import get_rag_service, set_rag_service_for_tests
 from server.rag.document_parser import DocumentParseError
 from server.rag.embedder import EmbeddingClient
+from server.rag.pipeline_executor import KnowledgePipelineExecutor
 from server.rag.rag_service import RagService
 from server.rag.vector_store import LocalJsonVectorStore
 
@@ -54,6 +55,25 @@ async def upload_pipeline_document(client: httpx.AsyncClient, kb_id: str) -> dic
     return response.json()
 
 
+def _mark_pipeline_version_as_previously_active(
+    service: RagService,
+    version_id: str,
+) -> None:
+    """Model a historical active index without authorizing a new activation."""
+
+    with service._metadata_lock:  # noqa: SLF001 - historical compatibility fixture.
+        metadata = service._read_metadata_unlocked()  # noqa: SLF001
+        version = metadata["pipeline_versions"][version_id]
+        kb_id = str(version["kb_id"])
+        previous_id = metadata["pipeline_active_versions"].get(kb_id)
+        if previous_id and previous_id in metadata["pipeline_versions"]:
+            metadata["pipeline_versions"][previous_id]["status"] = "ready"
+        version["status"] = "active"
+        version["activated_at"] = 1.0
+        metadata["pipeline_active_versions"][kb_id] = version_id
+        service._write_metadata_unlocked(metadata)  # noqa: SLF001
+
+
 @pytest.mark.asyncio
 async def test_rag_pipeline_assets_artifacts_and_chunks(client: httpx.AsyncClient) -> None:
     kb_id = await create_kb(client, "pipeline metadata")
@@ -78,6 +98,8 @@ async def test_rag_pipeline_assets_artifacts_and_chunks(client: httpx.AsyncClien
     assert artifact["artifact_id"] == f"artifact_{document['id']}"
     assert artifact["file_asset_id"] == asset["file_asset_id"]
     assert artifact["chunk_count"] == document["chunk_count"]
+    assert document["ingestion_status"] == "pipeline_required"
+    assert document["chunk_count"] == 0
 
     chunks_response = await client.get(
         f"/api/rag/pipeline/artifacts/{artifact['artifact_id']}/chunks"
@@ -85,9 +107,7 @@ async def test_rag_pipeline_assets_artifacts_and_chunks(client: httpx.AsyncClien
     assert chunks_response.status_code == 200, chunks_response.text
     chunks_data = chunks_response.json()
     assert chunks_data["chunk_count"] == document["chunk_count"]
-    assert chunks_data["chunks"][0]["artifact_id"] == artifact["artifact_id"]
-    assert chunks_data["chunks"][0]["text_length"] > 0
-    assert "Knowledge Pipeline" in chunks_data["chunks"][0]["text_preview"]
+    assert chunks_data["chunks"] == []
 
 
 @pytest.mark.asyncio
@@ -130,12 +150,50 @@ async def test_rag_pipeline_draft_empty_knowledge_base(client: httpx.AsyncClient
         "reason": None,
         "access_mode": "local_hash",
     }
-    assert stages["chunker"]["config"]["strategy"] == "recursive_character"
+    assert stages["chunker"]["config"]["strategy"] == "recursive_estimated_token"
     assert stages["chunker"]["config"]["chunk_size"] == 500
     assert stages["chunker"]["config"]["chunk_overlap"] == 50
+    assert stages["chunker"]["config"]["size_unit"] == "estimated_tokens"
+    assert stages["chunker"]["config"]["token_estimator"] == "mixed_cjk_latin_v1"
     assert stages["image_understanding"]["status"] == "disabled"
     assert stages["image_understanding"]["metadata"]["enabled"] is False
     assert stages["image_understanding"]["config"]["enabled"] is False
+
+
+@pytest.mark.asyncio
+async def test_legacy_chunker_execute_returns_structured_409_without_job(
+    client: httpx.AsyncClient,
+) -> None:
+    kb_id = await create_kb(client, "legacy chunker api")
+    service = get_rag_service()
+    with service._metadata_lock:  # noqa: SLF001 - compatibility fixture.
+        metadata = service._read_metadata_unlocked()  # noqa: SLF001
+        draft = service._pipeline_draft_record(metadata, kb_id)  # noqa: SLF001
+        chunker = draft["stages"]["stage_chunker"]
+        chunker["strategy"] = "recursive_character"
+        chunker.pop("chunk_contract_version", None)
+        chunker.pop("size_unit", None)
+        chunker.pop("token_estimator", None)
+        metadata["pipeline_drafts"][kb_id] = draft
+        service._write_metadata_unlocked(metadata)  # noqa: SLF001
+
+    draft_response = await client.get(f"/api/rag/pipeline/draft?kb_id={kb_id}")
+    assert draft_response.status_code == 200
+    draft_payload = draft_response.json()
+    assert draft_payload["content_index_contract"]["components"]["chunker"] == (
+        "legacy_read_only"
+    )
+
+    response = await client.post(
+        f"/api/rag/pipeline/draft/{kb_id}/execute",
+        json={"draft_version": draft_payload["version"], "source_document_ids": []},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == (
+        "rag_content_contract_legacy_read_only"
+    )
+    assert service.list_pipeline_jobs(kb_id=kb_id) == []
 
 
 @pytest.mark.asyncio
@@ -551,11 +609,28 @@ async def test_rag_pipeline_draft_preflight_empty_and_with_document(
     response = await client.post(f"/api/rag/pipeline/draft/{kb_id}/preflight")
     assert response.status_code == 200, response.text
     populated = response.json()
-    assert populated["ready"] is True
+    assert populated["ready"] is False
     assert populated["document_count"] == 1
     assert populated["artifact_count"] == 1
-    assert populated["chunk_count"] >= 1
-    assert populated["warnings"] == []
+    assert populated["chunk_count"] == 0
+    assert any("lexical-v1" in warning for warning in populated["warnings"])
+
+    draft = (await client.get(f"/api/rag/pipeline/draft?kb_id={kb_id}")).json()
+    configured = await client.patch(
+        f"/api/rag/pipeline/draft/{kb_id}",
+        json={"retrieval_profile": {"mode": "vector"}},
+    )
+    assert configured.status_code == 200, configured.text
+    assert configured.json()["version"] > draft["version"]
+    response = await client.post(f"/api/rag/pipeline/draft/{kb_id}/preflight")
+    assert response.status_code == 200, response.text
+    vector_ready = response.json()
+    assert vector_ready["ready"] is True
+    pending = {
+        item["kind"]: item["status"] for item in vector_ready["stage_checks"]
+    }
+    assert pending["processor"] == "pending_execution"
+    assert pending["chunker"] == "pending_execution"
 
     serialized = str(populated).lower()
     assert "stored_path" not in serialized
@@ -579,11 +654,46 @@ async def test_rag_pipeline_citations(client: httpx.AsyncClient) -> None:
     assert response.status_code == 200, response.text
     data = response.json()
     assert data["kb_id"] == kb_id
+    assert data["citation_count"] == 0
+    assert data["citations"] == []
+
+    configured = await client.patch(
+        f"/api/rag/pipeline/draft/{kb_id}",
+        json={"retrieval_profile": {"mode": "vector"}},
+    )
+    assert configured.status_code == 200, configured.text
+    queued = await client.post(
+        f"/api/rag/pipeline/draft/{kb_id}/execute",
+        json={
+            "draft_version": configured.json()["version"],
+            "source_document_ids": [document["id"]],
+        },
+    )
+    assert queued.status_code == 200, queued.text
+    service = get_rag_service()
+    assert await KnowledgePipelineExecutor(service).run_once() is True
+    completed = service.get_pipeline_job(queued.json()["job_id"])
+    assert completed["status"] == "succeeded"
+    _mark_pipeline_version_as_previously_active(
+        service,
+        str(completed["candidate_version_id"]),
+    )
+
+    response = await client.post(
+        "/api/rag/pipeline/citations",
+        json={
+            "kb_id": kb_id,
+            "question": "What does the Knowledge Pipeline map?",
+            "top_k": 2,
+        },
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()
     assert data["citation_count"] >= 1
     citation = data["citations"][0]
     assert citation["document_id"] == document["id"]
     assert citation["document_name"] == "pipeline.txt"
-    assert citation["chunk_id"].startswith(document["id"])
+    assert document["id"] in citation["chunk_id"]
     assert "artifacts" in citation["snippet"]
     assert isinstance(citation["score"], float)
 

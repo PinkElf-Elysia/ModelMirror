@@ -61,6 +61,28 @@ async def upload_document(client: httpx.AsyncClient, kb_id: str) -> dict:
     return response.json()
 
 
+def test_historical_graph_without_strategy_remains_legacy_read_only() -> None:
+    draft = {
+        "stages": {
+            "stage_data_source": {},
+            "stage_processor": {},
+            "stage_chunker": {"strategy": "recursive_estimated_token"},
+            "stage_image_understanding": {"enabled": False},
+        },
+        "embedding_profile": {},
+        "retrieval_profile": {},
+    }
+    graph = default_pipeline_graph("kb-legacy-graph", draft)
+    chunker = next(node for node in graph["nodes"] if node["id"] == "chunker")
+    chunker["config"].pop("strategy", None)
+
+    compiled = compile_pipeline_graph(graph)
+
+    assert compiled.stage_updates["stage_chunker"]["strategy"] == (
+        "recursive_character"
+    )
+
+
 @pytest.mark.asyncio
 async def test_default_draft_generates_valid_compilable_graph(client) -> None:
     http_client, _ = client
@@ -82,8 +104,39 @@ async def test_default_draft_generates_valid_compilable_graph(client) -> None:
         "retrieval",
     ]
     compiled = compile_pipeline_graph(payload["graph"])
-    assert compiled.stage_updates["stage_chunker"]["strategy"] == "recursive_character"
+    assert compiled.stage_updates["stage_chunker"]["strategy"] == "recursive_estimated_token"
     assert compiled.retrieval_profile["mode"] == draft["retrieval_profile"]["mode"]
+
+
+@pytest.mark.asyncio
+async def test_legacy_graph_save_returns_stable_conflict_without_mutation(client) -> None:
+    http_client, _ = client
+    kb_id = await create_kb(http_client, "legacy graph save")
+    current = (await http_client.get(f"/api/rag/pipeline/graph?kb_id={kb_id}")).json()
+    draft_before = (await http_client.get(f"/api/rag/pipeline/draft?kb_id={kb_id}")).json()
+    graph = current["graph"]
+    chunker = next(node for node in graph["nodes"] if node["id"] == "chunker")
+    chunker["config"]["strategy"] = "recursive_character"
+    chunker["config"].pop("size_unit", None)
+    chunker["config"].pop("token_estimator", None)
+    chunker["config"].pop("chunk_contract_version", None)
+
+    response = await http_client.put(
+        f"/api/rag/pipeline/graph/{kb_id}",
+        json={
+            "expected_revision": current["graph_revision"],
+            "graph": graph,
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == (
+        "rag_content_contract_legacy_read_only"
+    )
+    graph_after = (await http_client.get(f"/api/rag/pipeline/graph?kb_id={kb_id}")).json()
+    draft_after = (await http_client.get(f"/api/rag/pipeline/draft?kb_id={kb_id}")).json()
+    assert graph_after["graph_revision"] == current["graph_revision"]
+    assert draft_after["version"] == draft_before["version"]
 
 
 def test_graph_validation_rejects_cycles_bad_ports_missing_stages_and_orphans() -> None:
@@ -230,9 +283,11 @@ async def test_draft_form_syncs_graph_config_and_preserves_positions(client) -> 
             "stages": {
                 "stage_chunker": {
                     "config": {
-                        "strategy": "parent_child",
-                        "parent_chunk_size": 1200,
-                        "child_chunk_size": 300,
+                            "strategy": "parent_child_estimated_token",
+                            "parent_chunk_size": 1200,
+                            "parent_chunk_overlap": 120,
+                            "child_chunk_size": 300,
+                            "child_chunk_overlap": 30,
                     }
                 }
             }
@@ -261,6 +316,12 @@ async def test_node_preview_is_truncated_safe_and_does_not_create_job(client) ->
     payload = response.json()
     assert payload["preview_type"] == "chunks"
     assert len(payload["items"]) <= 20
+    assert payload["chunking_receipt"]["contract_version"] == (
+        "rag-chunker-estimated-token-v1"
+    )
+    assert payload["chunking_receipt"]["final_chunk_count"] == payload["item_count"]
+    assert all(item["estimated_index_tokens"] <= 500 for item in payload["items"])
+    assert all(item["estimated_context_tokens"] <= 500 for item in payload["items"])
     assert "stored_path" not in str(payload).lower()
     jobs = await http_client.get(f"/api/rag/pipeline/jobs?kb_id={kb_id}")
     assert jobs.json()["job_count"] == 0
@@ -271,6 +332,11 @@ async def test_graph_execute_reuses_existing_pipeline_job_and_pins_revision(clie
     http_client, _ = client
     kb_id = await create_kb(http_client, "execute")
     await upload_document(http_client, kb_id)
+    vector_draft = await http_client.patch(
+        f"/api/rag/pipeline/draft/{kb_id}",
+        json={"retrieval_profile": {"mode": "vector"}},
+    )
+    assert vector_draft.status_code == 200, vector_draft.text
     graph = (await http_client.get(f"/api/rag/pipeline/graph?kb_id={kb_id}")).json()
 
     response = await http_client.post(

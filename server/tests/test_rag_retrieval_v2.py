@@ -8,6 +8,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from server.rag.chunking_receipt import candidate_namespace_fingerprint
 from server.rag import retrieval as retrieval_module
 from server.rag.embedder import EmbeddingClient
 from server.rag.lexical_store import LexicalChunk, SqliteLexicalStore, tokenize_for_search
@@ -184,7 +185,7 @@ def test_sqlite_fts5_migrates_old_source_schema_with_optional_defaults(
 
 
 @pytest.mark.asyncio
-async def test_v2_candidate_builds_dual_index_and_lifts_parent_context(tmp_path: Path) -> None:
+async def test_v3_vector_candidate_lifts_parent_context(tmp_path: Path) -> None:
     service = build_service(tmp_path)
     kb = service.create_knowledge_base("advanced retrieval")
     text = (
@@ -198,7 +199,7 @@ async def test_v2_candidate_builds_dual_index_and_lifts_parent_context(tmp_path:
         {
             "stage_chunker": {
                 "config": {
-                    "strategy": "parent_child",
+                    "strategy": "parent_child_estimated_token",
                     "parent_chunk_size": 500,
                     "parent_chunk_overlap": 50,
                     "child_chunk_size": 160,
@@ -208,7 +209,7 @@ async def test_v2_candidate_builds_dual_index_and_lifts_parent_context(tmp_path:
                 }
             }
         },
-        retrieval_profile={"mode": "hybrid", "top_k": 3},
+        retrieval_profile={"mode": "vector", "top_k": 3},
     )
     job = service.create_pipeline_job(
         kb["id"],
@@ -221,13 +222,13 @@ async def test_v2_candidate_builds_dual_index_and_lifts_parent_context(tmp_path:
     version = service.get_pipeline_version(completed["candidate_version_id"])
     assert version["index_schema_version"] == 3
     assert version["vector_index_ready"] is True
-    assert version["lexical_index_ready"] is True
-    assert service.lexical_store.count_namespace(version["namespace"]) == version["chunk_count"]
+    assert version["lexical_index_ready"] is False
+    assert service.lexical_store.count_namespace(version["namespace"]) == 0
 
     result = await service.query_pipeline_version(
         version["version_id"],
         "CELESTIAL-ORCA 发布口令",
-        retrieval={"mode": "hybrid", "top_k": 3},
+        retrieval={"mode": "vector", "top_k": 3},
     )
     assert result["sources"]
     source = result["sources"][0]
@@ -239,7 +240,7 @@ async def test_v2_candidate_builds_dual_index_and_lifts_parent_context(tmp_path:
     assert exact.chunk_id == source["chunk_id"]
     assert service.vector_store.get_chunk("other-namespace", source["chunk_id"]) is None
     assert result["retrieval"]["vector_candidate_count"] > 0
-    assert result["retrieval"]["fulltext_candidate_count"] > 0
+    assert result["retrieval"]["fulltext_candidate_count"] == 0
 
 
 @pytest.mark.asyncio
@@ -340,6 +341,9 @@ async def test_real_embedding_version_records_actual_dimension_and_fails_closed(
     version = service.get_pipeline_version(job["candidate_version_id"])
     assert version["embedding_profile"]["effective"]["dimension"] == 3
     assert version["embedding_profile"]["dimension"] == 3
+    assert version["chunking_receipt"]["candidate_namespace_fingerprint"] == (
+        candidate_namespace_fingerprint(version["namespace"])
+    )
     evidence_before = service.pipeline_version_evidence(version["version_id"])
 
     result = await service.query_pipeline_version(
@@ -562,7 +566,7 @@ async def test_successful_rerank_top_n_does_not_restore_unranked_tail(
     draft = service.update_pipeline_draft(
         kb["id"],
         {},
-        retrieval_profile={"mode": "fulltext", "top_k": 8},
+        retrieval_profile={"mode": "vector", "top_k": 8},
     )
     job = service.create_pipeline_job(
         kb["id"],
@@ -577,7 +581,7 @@ async def test_successful_rerank_top_n_does_not_restore_unranked_tail(
         version_id,
         "ORBIT-RERANK",
         retrieval={
-            "mode": "fulltext",
+            "mode": "vector",
             "top_k": 8,
             "candidate_multiplier": 1,
             "rerank_enabled": True,
@@ -619,7 +623,7 @@ async def test_successful_rerank_top_n_does_not_restore_unranked_tail(
         version_id,
         "ORBIT-RERANK",
         retrieval={
-            "mode": "fulltext",
+            "mode": "vector",
             "top_k": 8,
             "candidate_multiplier": 1,
             "rerank_enabled": True,

@@ -106,9 +106,11 @@ def default_pipeline_graph(kb_id: str, draft: dict[str, Any]) -> dict[str, Any]:
     processor_config = dict(stages.get("stage_processor") or {})
     vision_config = dict(stages.get("stage_image_understanding") or {})
     chunker_config = dict(stages.get("stage_chunker") or {})
-    strategy = str(chunker_config.get("strategy") or "recursive_character")
+    strategy = str(chunker_config.get("strategy") or "recursive_estimated_token")
     chunker_kind = (
-        "parent_child_chunker" if strategy == "parent_child" else "recursive_chunker"
+        "parent_child_chunker"
+        if strategy in {"parent_child", "parent_child_estimated_token"}
+        else "recursive_chunker"
     )
     vision_enabled = bool(vision_config.get("enabled", False))
     positions = {
@@ -369,11 +371,19 @@ def compile_pipeline_graph(graph: dict[str, Any]) -> KnowledgePipelineCompileRes
             [GraphValidationIssue("dual_index_required", "Both vector and full-text indexes must stay enabled.", node_id=str(index["id"]))]
         )
     chunker_config = dict(chunker.get("config") or {})
-    chunker_config["strategy"] = (
-        "parent_child"
-        if str(chunker["kind"]) == "parent_child_chunker"
-        else "recursive_character"
-    )
+    configured_strategy = str(chunker_config.get("strategy") or "")
+    if str(chunker["kind"]) == "parent_child_chunker":
+        chunker_config["strategy"] = (
+            configured_strategy
+            if configured_strategy in {"parent_child", "parent_child_estimated_token"}
+            else "parent_child"
+        )
+    else:
+        chunker_config["strategy"] = (
+            configured_strategy
+            if configured_strategy in {"recursive_character", "recursive_estimated_token"}
+            else "recursive_character"
+        )
     normalized = {
         "version": GRAPH_VERSION,
         "kb_id": str(graph.get("kb_id") or ""),

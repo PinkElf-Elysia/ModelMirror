@@ -47,6 +47,8 @@ class VectorChunk:
     visual_kind: str | None = None
     source_block_id: str | None = None
     source_block_hash: str | None = None
+    source_block_ids: tuple[str, ...] = ()
+    generated_item: bool = False
 
 
 @dataclass(slots=True)
@@ -70,6 +72,8 @@ class SearchResult:
     visual_kind: str | None = None
     source_block_id: str | None = None
     source_block_hash: str | None = None
+    source_block_ids: tuple[str, ...] = ()
+    generated_item: bool = False
 
 
 @dataclass(slots=True)
@@ -81,6 +85,7 @@ class StoredVectorChunk:
     text: str
     chunk_index: int
     parent_chunk_id: str | None = None
+    parent_text: str | None = None
     chunk_type: str = "standard"
     start_char: int = 0
     end_char: int = 0
@@ -92,6 +97,8 @@ class StoredVectorChunk:
     visual_kind: str | None = None
     source_block_id: str | None = None
     source_block_hash: str | None = None
+    source_block_ids: tuple[str, ...] = ()
+    generated_item: bool = False
 
 
 class VectorStore(Protocol):
@@ -109,8 +116,13 @@ class VectorStore(Protocol):
     def delete_knowledge_base(self, kb_id: str) -> None:
         """Delete all chunks for a knowledge base."""
 
-    def list_document_chunks(self, doc_id: str) -> list[StoredVectorChunk]:
-        """List stored chunks for one document without exposing embeddings."""
+    def list_document_chunks(
+        self,
+        doc_id: str,
+        *,
+        kb_id: str | None = None,
+    ) -> list[StoredVectorChunk]:
+        """List chunks for one document, optionally from one authoritative namespace."""
 
     def get_chunk(self, kb_id: str, chunk_id: str) -> StoredVectorChunk | None:
         """Read one chunk from an explicit knowledge-base namespace."""
@@ -194,6 +206,10 @@ class LocalJsonVectorStore:
                     visual_kind=str(record.get("visual_kind") or "") or None,
                     source_block_id=str(record.get("source_block_id") or "") or None,
                     source_block_hash=str(record.get("source_block_hash") or "") or None,
+                    source_block_ids=_decode_source_block_ids(
+                        record.get("source_block_ids")
+                    ),
+                    generated_item=_decode_bool(record.get("generated_item")),
                 )
             )
         return sorted(scored, key=lambda item: item.score, reverse=True)[:top_k]
@@ -208,7 +224,12 @@ class LocalJsonVectorStore:
             [record for record in self._read_records() if record.get("kb_id") != kb_id]
         )
 
-    def list_document_chunks(self, doc_id: str) -> list[StoredVectorChunk]:
+    def list_document_chunks(
+        self,
+        doc_id: str,
+        *,
+        kb_id: str | None = None,
+    ) -> list[StoredVectorChunk]:
         chunks = [
             StoredVectorChunk(
                 chunk_id=str(record["id"]),
@@ -218,6 +239,7 @@ class LocalJsonVectorStore:
                 text=str(record["text"]),
                 chunk_index=int(record.get("chunk_index", 0)),
                 parent_chunk_id=record.get("parent_chunk_id"),
+                parent_text=str(record.get("parent_text") or "") or None,
                 chunk_type=str(record.get("chunk_type", "standard")),
                 start_char=int(record.get("start_char", 0)),
                 end_char=int(record.get("end_char", 0)),
@@ -229,9 +251,12 @@ class LocalJsonVectorStore:
                 visual_kind=str(record.get("visual_kind") or "") or None,
                 source_block_id=str(record.get("source_block_id") or "") or None,
                 source_block_hash=str(record.get("source_block_hash") or "") or None,
+                source_block_ids=_decode_source_block_ids(record.get("source_block_ids")),
+                generated_item=_decode_bool(record.get("generated_item")),
             )
             for record in self._read_records()
             if record.get("doc_id") == doc_id
+            and (kb_id is None or record.get("kb_id") == kb_id)
         ]
         return sorted(chunks, key=lambda item: item.chunk_index)
 
@@ -247,6 +272,7 @@ class LocalJsonVectorStore:
                 text=str(record["text"]),
                 chunk_index=int(record.get("chunk_index", 0)),
                 parent_chunk_id=record.get("parent_chunk_id"),
+                parent_text=str(record.get("parent_text") or "") or None,
                 chunk_type=str(record.get("chunk_type", "standard")),
                 start_char=int(record.get("start_char", 0)),
                 end_char=int(record.get("end_char", 0)),
@@ -258,6 +284,8 @@ class LocalJsonVectorStore:
                 visual_kind=str(record.get("visual_kind") or "") or None,
                 source_block_id=str(record.get("source_block_id") or "") or None,
                 source_block_hash=str(record.get("source_block_hash") or "") or None,
+                source_block_ids=_decode_source_block_ids(record.get("source_block_ids")),
+                generated_item=_decode_bool(record.get("generated_item")),
             )
         return None
 
@@ -361,6 +389,10 @@ class ChromaVectorStore:
                     "visual_kind": chunk.visual_kind or "",
                     "source_block_id": chunk.source_block_id or "",
                     "source_block_hash": chunk.source_block_hash or "",
+                    "source_block_ids_json": _encode_source_block_ids(
+                        chunk.source_block_ids
+                    ),
+                    "generated_item": bool(chunk.generated_item),
                     "updated_at": time.time(),
                 }
                 for chunk in chunks
@@ -447,6 +479,10 @@ class ChromaVectorStore:
                     visual_kind=str(metadata.get("visual_kind") or "") or None,
                     source_block_id=str(metadata.get("source_block_id") or "") or None,
                     source_block_hash=str(metadata.get("source_block_hash") or "") or None,
+                    source_block_ids=_decode_source_block_ids(
+                        metadata.get("source_block_ids_json")
+                    ),
+                    generated_item=_decode_bool(metadata.get("generated_item")),
                 )
             )
         return results
@@ -461,7 +497,27 @@ class ChromaVectorStore:
             self._client.delete_collection(collection_name)
         self._collection.delete(where={"kb_id": kb_id})
 
-    def list_document_chunks(self, doc_id: str) -> list[StoredVectorChunk]:
+    def list_document_chunks(
+        self,
+        doc_id: str,
+        *,
+        kb_id: str | None = None,
+    ) -> list[StoredVectorChunk]:
+        if kb_id is not None and _is_v3_namespace(kb_id):
+            collection = self._namespace_collection(kb_id, create=False)
+            if collection is None:
+                return []
+            response = collection.get(
+                where={"doc_id": doc_id},
+                include=["documents", "metadatas"],
+            )
+            chunks = self._stored_chunks(response, fallback_doc_id=doc_id)
+            if any(chunk.kb_id != kb_id for chunk in chunks):
+                raise VectorStoreContractError(
+                    "V3 collection contains a conflicting namespace identity."
+                )
+            return sorted(chunks, key=lambda item: item.chunk_index)
+
         chunks: dict[tuple[str, str], StoredVectorChunk] = {}
         for collection in self._managed_collections():
             response = collection.get(
@@ -469,7 +525,14 @@ class ChromaVectorStore:
                 include=["documents", "metadatas"],
             )
             for chunk in self._stored_chunks(response, fallback_doc_id=doc_id):
-                chunks[(chunk.kb_id, chunk.chunk_id)] = chunk
+                if kb_id is not None and chunk.kb_id != kb_id:
+                    continue
+                key = (chunk.kb_id, chunk.chunk_id)
+                if key in chunks:
+                    raise VectorStoreContractError(
+                        "Vector collections contain a duplicate chunk identity."
+                    )
+                chunks[key] = chunk
         return sorted(chunks.values(), key=lambda item: item.chunk_index)
 
     def _stored_chunks(
@@ -495,6 +558,7 @@ class ChromaVectorStore:
                     text=str(documents[index] if index < len(documents) else ""),
                     chunk_index=int(metadata.get("chunk_index", index)),
                     parent_chunk_id=str(metadata.get("parent_chunk_id") or "") or None,
+                    parent_text=str(metadata.get("parent_text") or "") or None,
                     chunk_type=str(metadata.get("chunk_type") or "standard"),
                     start_char=int(metadata.get("start_char", 0)),
                     end_char=int(metadata.get("end_char", 0)),
@@ -506,6 +570,10 @@ class ChromaVectorStore:
                     visual_kind=str(metadata.get("visual_kind") or "") or None,
                     source_block_id=str(metadata.get("source_block_id") or "") or None,
                     source_block_hash=str(metadata.get("source_block_hash") or "") or None,
+                    source_block_ids=_decode_source_block_ids(
+                        metadata.get("source_block_ids_json")
+                    ),
+                    generated_item=_decode_bool(metadata.get("generated_item")),
                 )
             )
         return chunks
@@ -552,6 +620,7 @@ class ChromaVectorStore:
             text=str(documents[0] if documents else ""),
             chunk_index=int(metadata.get("chunk_index", 0)),
             parent_chunk_id=str(metadata.get("parent_chunk_id") or "") or None,
+            parent_text=str(metadata.get("parent_text") or "") or None,
             chunk_type=str(metadata.get("chunk_type") or "standard"),
             start_char=int(metadata.get("start_char", 0)),
             end_char=int(metadata.get("end_char", 0)),
@@ -563,6 +632,10 @@ class ChromaVectorStore:
             visual_kind=str(metadata.get("visual_kind") or "") or None,
             source_block_id=str(metadata.get("source_block_id") or "") or None,
             source_block_hash=str(metadata.get("source_block_hash") or "") or None,
+            source_block_ids=_decode_source_block_ids(
+                metadata.get("source_block_ids_json")
+            ),
+            generated_item=_decode_bool(metadata.get("generated_item")),
         )
 
     @classmethod
@@ -678,7 +751,12 @@ class UnavailableVectorStore:
     def delete_knowledge_base(self, kb_id: str) -> None:
         self._raise_unavailable()
 
-    def list_document_chunks(self, doc_id: str) -> list[StoredVectorChunk]:
+    def list_document_chunks(
+        self,
+        doc_id: str,
+        *,
+        kb_id: str | None = None,
+    ) -> list[StoredVectorChunk]:
         return []
 
     def get_chunk(self, kb_id: str, chunk_id: str) -> StoredVectorChunk | None:
@@ -751,6 +829,8 @@ def _chunk_to_record(chunk: VectorChunk) -> dict[str, Any]:
         "visual_kind": chunk.visual_kind,
         "source_block_id": chunk.source_block_id,
         "source_block_hash": chunk.source_block_hash,
+        "source_block_ids": list(chunk.source_block_ids),
+        "generated_item": bool(chunk.generated_item),
     }
 
 
@@ -760,3 +840,30 @@ def _optional_int(value: Any) -> int | None:
     except (TypeError, ValueError):
         return None
     return parsed if parsed > 0 else None
+
+
+def _encode_source_block_ids(source_block_ids: tuple[str, ...]) -> str:
+    return json.dumps(list(source_block_ids), ensure_ascii=False, separators=(",", ":"))
+
+
+def _decode_source_block_ids(value: Any) -> tuple[str, ...]:
+    if isinstance(value, str):
+        if not value.strip():
+            return ()
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return ()
+    if not isinstance(value, (list, tuple)):
+        return ()
+    return tuple(str(item) for item in value if str(item))
+
+
+def _decode_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value == 1
+    if isinstance(value, str):
+        return value.strip().lower() == "true"
+    return False

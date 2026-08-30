@@ -281,6 +281,7 @@ async def test_scanned_pdf_job_honors_visual_failure_policy(
                 }
             }
         },
+        retrieval_profile={"mode": "vector"},
     )
     job = service.create_pipeline_job(
         kb_id,
@@ -396,6 +397,7 @@ async def test_managed_rag_vision_does_not_require_legacy_gateway(
                 }
             }
         },
+        retrieval_profile={"mode": "vector"},
     )
 
     job = service.create_pipeline_job(
@@ -408,7 +410,7 @@ async def test_managed_rag_vision_does_not_require_legacy_gateway(
 
 
 @pytest.mark.asyncio
-async def test_visual_pipeline_builds_dual_index_and_returns_page_citation(
+async def test_visual_pipeline_builds_vector_index_and_returns_page_citation(
     vision_api,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -456,6 +458,7 @@ async def test_visual_pipeline_builds_dual_index_and_returns_page_citation(
                 }
             }
         },
+        retrieval_profile={"mode": "vector"},
     )
     job = service.create_pipeline_job(
         kb_id,
@@ -478,11 +481,12 @@ async def test_visual_pipeline_builds_dual_index_and_returns_page_citation(
     version = service.get_pipeline_version(completed["candidate_version_id"])
     assert version["vision_profile"]["vision_model_id"] == "openai/gpt-4.1-mini"
     assert version["vector_index_ready"] is True
-    assert version["lexical_index_ready"] is True
+    assert version["lexical_index_ready"] is False
     preview = await service.query_pipeline_version(
         version["version_id"],
         "quarterly revenue chart",
         top_k=5,
+        retrieval={"mode": "vector"},
     )
     assert preview["sources"]
     source = preview["sources"][0]

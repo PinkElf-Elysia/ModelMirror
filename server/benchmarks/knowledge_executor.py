@@ -24,6 +24,7 @@ class KnowledgeBenchmarkProvisioner:
     """Build one managed, restart-safe RAG benchmark workspace."""
 
     TERMINAL_PIPELINE_STATUSES = {"succeeded", "failed", "cancelled"}
+    CONTENT_CONTRACT_BLOCKING_REASON = "rag_benchmark_content_contract_incomplete"
 
     def __init__(
         self,
@@ -58,6 +59,7 @@ class KnowledgeBenchmarkProvisioner:
 
         try:
             await self._check_cancel(job_id)
+            await self._require_current_content_contract(job_id, state)
             kb_id = await self._ensure_knowledge_base(job_id, request, pack, state)
             await self._ensure_documents(job_id, kb_id, pack, state)
             await self._ensure_pipeline_draft(job_id, kb_id, state)
@@ -121,6 +123,51 @@ class KnowledgeBenchmarkProvisioner:
         except Exception:
             await self._cleanup(state)
             raise
+
+    async def _require_current_content_contract(
+        self,
+        job_id: str,
+        state: dict[str, Any],
+    ) -> None:
+        """Reject standard Benchmark creation before it can leave partial state.
+
+        Round 4A intentionally exposes only a current chunker component. The
+        aggregate contract becomes admissible only after the retrieval
+        capabilities endpoint owns and reports current chunker, lexical and
+        parser components. Missing capability evidence is fail-closed.
+        """
+
+        capabilities = await asyncio.to_thread(self.rag_service.retrieval_capabilities)
+        raw_contract = capabilities.get("content_index_contract")
+        contract = dict(raw_contract) if isinstance(raw_contract, dict) else {}
+        raw_components = contract.get("components")
+        components = dict(raw_components) if isinstance(raw_components, dict) else {}
+        required_components = {"chunker", "lexical", "parser"}
+        admitted = (
+            str(contract.get("status") or "") == "current"
+            and all(
+                str(components.get(component) or "") == "current"
+                for component in required_components
+            )
+        )
+        if admitted:
+            return
+
+        state["phase"] = "blocked"
+        state["blocking_reason_code"] = self.CONTENT_CONTRACT_BLOCKING_REASON
+        state["content_index_contract"] = {
+            "contract_version": str(contract.get("contract_version") or ""),
+            "status": str(contract.get("status") or "unavailable"),
+            "components": {
+                component: str(components.get(component) or "unavailable")
+                for component in sorted(required_components)
+            },
+        }
+        await self._save(job_id, state)
+        raise KnowledgeBenchmarkInstantiationError(
+            f"{self.CONTENT_CONTRACT_BLOCKING_REASON}: managed RAG Benchmark "
+            "instantiation requires a current chunker, lexical and parser contract."
+        )
 
     async def _ensure_knowledge_base(
         self,

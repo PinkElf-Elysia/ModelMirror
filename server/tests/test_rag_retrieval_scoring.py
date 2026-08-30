@@ -6,6 +6,11 @@ from pathlib import Path
 
 import pytest
 
+from server.rag.chunking_receipt import (
+    CHUNKING_RECEIPT_VERSION,
+    candidate_namespace_fingerprint,
+    chunker_profile_fingerprint,
+)
 from server.rag.embedder import EmbeddingClient
 from server.rag.lexical_store import LexicalChunk, SqliteLexicalStore
 from server.rag.rag_service import PipelineDraftValidationError, PipelineJobStateError, RagService
@@ -464,21 +469,87 @@ def test_v3_promotion_requires_configured_thresholds_and_independent_calibration
     service = build_service(tmp_path)
     kb = service.create_knowledge_base("promotion threshold evidence")
     version_id = "kpv_absolute_contract"
+    namespace = f"{kb['id']}::v3::{version_id}::fulltext"
+    chunker_profile = {
+        "strategy": "recursive_estimated_token",
+        "chunk_size": 500,
+        "chunk_overlap": 50,
+        "size_unit": "estimated_tokens",
+        "token_estimator": "mixed_cjk_latin_v1",
+        "chunk_contract_version": "rag-chunker-estimated-token-v1",
+    }
+    chunking_receipt = {
+        "receipt_version": CHUNKING_RECEIPT_VERSION,
+        "contract_version": "rag-chunker-estimated-token-v1",
+        "strategy": "recursive_estimated_token",
+        "size_unit": "estimated_tokens",
+        "token_estimator": "mixed_cjk_latin_v1",
+        "chunker_profile_fingerprint": chunker_profile_fingerprint(
+            chunker_profile
+        ),
+        "candidate_version_id": version_id,
+        "candidate_namespace_fingerprint": candidate_namespace_fingerprint(
+            namespace
+        ),
+        "raw_candidate_count": 1,
+        "heading_block_count": 0,
+        "heading_prefix_truncated_count": 0,
+        "generated_item_count": 0,
+        "generated_item_chunk_count": 0,
+        "generated_item_rejected_count": 0,
+        "generated_item_rejection_reasons": {},
+        "deduplicated_chunk_count": 0,
+        "final_chunk_count": 1,
+        "chunk_sequence_hash": "e" * 64,
+    }
     base_version = {
         "version_id": version_id,
         "kb_id": kb["id"],
         "version": 1,
         "status": "ready",
-        "namespace": f"{kb['id']}::v3::{version_id}::fulltext",
+        "namespace": namespace,
         "draft_id": f"draft_{kb['id']}",
         "draft_version": 1,
         "index_schema_version": 3,
+        "config_snapshot": {
+            "stages": {
+                "stage_chunker": {
+                    **chunker_profile,
+                },
+                "stage_processor": {
+                    "parser_contract_version": "canonical-structured-parser-v2",
+                },
+            },
+            "index_contract": {
+                "vector": {
+                    "required": False,
+                },
+                "lexical": {
+                    "contract_version": "sqlite-fts5-lexical-v2",
+                }
+            },
+            "retrieval_profile": {"mode": "fulltext"},
+        },
+        "content_index_contract": {
+            "contract_version": "rag-content-index-contract-v1",
+            "chunker_contract_version": "rag-chunker-estimated-token-v1",
+            "lexical_contract_version": "sqlite-fts5-lexical-v2",
+            "parser_contract_version": "canonical-structured-parser-v2",
+            "status": "current",
+            "components": {
+                "chunker": "current",
+                "lexical": "current",
+                "parser": "current",
+            },
+        },
         "retrieval_profile": {
             "mode": "fulltext",
             "min_lexical_confidence": None,
             "no_result_policy": "absolute_relevance_v1",
         },
         "job_id": "job",
+        "chunk_count": 1,
+        "chunking_receipt": chunking_receipt,
         "source_summary": [
             {
                 "source_id": "source-calibration",
@@ -491,10 +562,25 @@ def test_v3_promotion_requires_configured_thresholds_and_independent_calibration
     with service._metadata_lock:
         metadata = service._read_metadata_unlocked()
         metadata["pipeline_versions"][version_id] = base_version
+        metadata["pipeline_jobs"]["job"] = {
+            "job_id": "job",
+            "status": "succeeded",
+            "candidate_version_id": version_id,
+            "candidate_namespace": namespace,
+            "config_snapshot": json.loads(
+                json.dumps(base_version["config_snapshot"])
+            ),
+            "chunking_receipt": json.loads(json.dumps(chunking_receipt)),
+        }
         service._write_metadata_unlocked(metadata)
 
+    def assert_threshold_promotion_ready() -> None:
+        service._assert_v3_threshold_promotion_ready(  # noqa: SLF001
+            service.get_pipeline_version(version_id)
+        )
+
     with pytest.raises(PipelineJobStateError, match="thresholds"):
-        service.activate_pipeline_version(version_id, promotion=True)
+        assert_threshold_promotion_ready()
 
     with service._metadata_lock:
         metadata = service._read_metadata_unlocked()
@@ -504,7 +590,7 @@ def test_v3_promotion_requires_configured_thresholds_and_independent_calibration
         service._write_metadata_unlocked(metadata)
 
     with pytest.raises(PipelineJobStateError, match="calibration"):
-        service.activate_pipeline_version(version_id, promotion=True)
+        assert_threshold_promotion_ready()
 
     with service._metadata_lock:
         metadata = service._read_metadata_unlocked()
@@ -519,7 +605,7 @@ def test_v3_promotion_requires_configured_thresholds_and_independent_calibration
         service._write_metadata_unlocked(metadata)
 
     with pytest.raises(PipelineJobStateError, match="calibration"):
-        service.activate_pipeline_version(version_id, promotion=True)
+        assert_threshold_promotion_ready()
 
     version = service.get_pipeline_version(version_id)
     expected_profile_checksum = service._mapping_sha256(
@@ -533,7 +619,7 @@ def test_v3_promotion_requires_configured_thresholds_and_independent_calibration
         service._write_metadata_unlocked(metadata)
 
     with pytest.raises(PipelineJobStateError, match="calibration"):
-        service.activate_pipeline_version(version_id, promotion=True)
+        assert_threshold_promotion_ready()
 
     expected_configuration_fingerprint = service.pipeline_version_evidence(version_id)[
         "configuration_fingerprint"
@@ -546,7 +632,7 @@ def test_v3_promotion_requires_configured_thresholds_and_independent_calibration
         service._write_metadata_unlocked(metadata)
 
     with pytest.raises(PipelineJobStateError, match="calibration"):
-        service.activate_pipeline_version(version_id, promotion=True)
+        assert_threshold_promotion_ready()
 
     expected_source_manifest_fingerprint = service.pipeline_version_evidence(version_id)[
         "source_manifest_fingerprint"
@@ -562,7 +648,7 @@ def test_v3_promotion_requires_configured_thresholds_and_independent_calibration
         service._write_metadata_unlocked(metadata)
 
     with pytest.raises(PipelineJobStateError, match="calibration"):
-        service.activate_pipeline_version(version_id, promotion=True)
+        assert_threshold_promotion_ready()
 
     with service._metadata_lock:
         metadata = service._read_metadata_unlocked()
@@ -575,7 +661,7 @@ def test_v3_promotion_requires_configured_thresholds_and_independent_calibration
         service._write_metadata_unlocked(metadata)
 
     with pytest.raises(PipelineJobStateError, match="calibration"):
-        service.activate_pipeline_version(version_id, promotion=True)
+        assert_threshold_promotion_ready()
 
     with service._metadata_lock:
         metadata = service._read_metadata_unlocked()
@@ -584,8 +670,9 @@ def test_v3_promotion_requires_configured_thresholds_and_independent_calibration
         ] = "c" * 64
         service._write_metadata_unlocked(metadata)
 
-    promoted = service.activate_pipeline_version(version_id, promotion=True)
-    assert promoted["active"] is True
+    assert_threshold_promotion_ready()
+    with pytest.raises(PipelineJobStateError, match="Legacy content-index contracts"):
+        service.activate_pipeline_version(version_id, promotion=True)
 
 
 def test_legacy_v2_score_threshold_remains_readable() -> None:

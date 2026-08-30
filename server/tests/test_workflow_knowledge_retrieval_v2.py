@@ -11,6 +11,7 @@ import pytest_asyncio
 from server.main import app
 from server.rag.api import set_rag_service_for_tests
 from server.rag.embedder import EmbeddingClient
+from server.rag.pipeline_executor import KnowledgePipelineExecutor
 from server.rag.rag_service import RagService
 from server.rag.vector_store import LocalJsonVectorStore
 from server.xpert_runtime.workflow_knowledge import (
@@ -139,17 +140,24 @@ async def client(tmp_path: Path):
         vector_store=LocalJsonVectorStore(tmp_path / "storage" / "vectors.json"),
         llm_enabled=False,
     )
+    executor = KnowledgePipelineExecutor(service)
     set_rag_service_for_tests(service)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(
         transport=transport,
         base_url="http://testserver",
     ) as async_client:
-        yield async_client
+        yield async_client, service, executor
     set_rag_service_for_tests(None)
 
 
-async def _create_kb(client: httpx.AsyncClient, name: str, text: bytes) -> str:
+async def _create_kb(
+    client: httpx.AsyncClient,
+    service: RagService,
+    executor: KnowledgePipelineExecutor,
+    name: str,
+    text: bytes,
+) -> str:
     kb_response = await client.post(
         "/api/rag/knowledge_bases",
         json={"name": name},
@@ -161,6 +169,26 @@ async def _create_kb(client: httpx.AsyncClient, name: str, text: bytes) -> str:
         files={"file": (f"{name}.txt", text, "text/plain")},
     )
     assert upload_response.status_code == 200, upload_response.text
+    document_id = str(upload_response.json()["id"])
+    draft = service.update_pipeline_draft(
+        kb_id,
+        {},
+        retrieval_profile={"mode": "vector", "top_k": 3},
+    )
+    job = service.create_pipeline_job(
+        kb_id,
+        draft_version=draft["version"],
+        source_document_ids=[document_id],
+    )
+    assert await executor.run_once() is True
+    version_id = str(job["candidate_version_id"])
+    with service._metadata_lock:  # noqa: SLF001 - historical active fixture.
+        metadata = service._read_metadata_unlocked()  # noqa: SLF001
+        version = metadata["pipeline_versions"][version_id]
+        version["status"] = "active"
+        version["activated_at"] = 1.0
+        metadata["pipeline_active_versions"][kb_id] = version_id
+        service._write_metadata_unlocked(metadata)  # noqa: SLF001
     return kb_id
 
 
@@ -213,15 +241,18 @@ def _parse_sse_events(sse_text: str) -> list[dict[str, Any]]:
 
 @pytest.mark.asyncio
 async def test_workflow_retrieval_v2_preserves_typed_variable(
-    client: httpx.AsyncClient,
+    client,
 ) -> None:
+    http_client, service, executor = client
     kb_id = await _create_kb(
-        client,
+        http_client,
+        service,
+        executor,
         "retrieval-v2",
         b"The blue protocol requires a signed approval record before deployment.",
     )
 
-    response = await client.post(
+    response = await http_client.post(
         "/api/workflow/run",
         json={
             "workflow": _workflow(kb_id),
@@ -245,13 +276,18 @@ async def test_workflow_retrieval_v2_preserves_typed_variable(
 
 @pytest.mark.asyncio
 async def test_legacy_retrieval_without_kb_fails_when_multiple_exist(
-    client: httpx.AsyncClient,
+    client,
 ) -> None:
-    await _create_kb(client, "first", b"First knowledge base content.")
-    await _create_kb(client, "second", b"Second knowledge base content.")
+    http_client, service, executor = client
+    await _create_kb(
+        http_client, service, executor, "first", b"First knowledge base content."
+    )
+    await _create_kb(
+        http_client, service, executor, "second", b"Second knowledge base content."
+    )
     workflow = _workflow("", contract_version=None)
 
-    response = await client.post(
+    response = await http_client.post(
         "/api/workflow/run",
         json={"workflow": workflow, "inputs": {"user_input": "content"}},
     )

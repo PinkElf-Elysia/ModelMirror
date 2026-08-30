@@ -331,6 +331,8 @@ class RetrievalCandidate:
     row_range: str | None = None
     visual_kind: str | None = None
     source_block_id: str | None = None
+    source_block_ids: tuple[str, ...] = ()
+    generated_item: bool = False
     vector_score: float | None = None
     fulltext_score: float | None = None
     fused_score: float = 0.0
@@ -486,10 +488,18 @@ def select_v3_candidates(
     source_groups: list[list[RetrievalCandidate]] = []
     for item in text_deduplicated:
         source_block_id = str(item.source_block_id or "").strip()
-        if not source_block_id:
+        parent_chunk_id = str(item.parent_chunk_id or "").strip()
+        if source_block_id:
+            source_identity = f"source_block:{source_block_id}"
+        elif item.generated_item and parent_chunk_id:
+            # Generated multi-source children intentionally have no singular
+            # source_block_id. Their content-addressed parent is the stable
+            # retrieval group and must not be allowed to occupy Top-K twice.
+            source_identity = f"parent:{parent_chunk_id}"
+        else:
             source_groups.append([item])
             continue
-        key = (item.doc_id, source_block_id)
+        key = (item.doc_id, source_identity)
         group_index = source_group_indexes.get(key)
         if group_index is None:
             source_group_indexes[key] = len(source_groups)

@@ -3,15 +3,123 @@ import { createElement } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import RagPage, {
+  chunkerEditsForStrategy,
+  draftEditsFromResponse,
+  draftExecutionDisposition,
   formatPipelineSourceLocation,
   formatRagSourceLocation,
   formatRagSheetLocation,
   getRagOfficeWarningSummary,
   isRagFileSelectionDisabled,
+  isPipelineVersionFirstActivationBlocked,
   ragUploadStatusLabel,
   readError,
   retrievalProfileFromEdits,
 } from "./RagPage";
+
+describe("RAG content-index activation guard", () => {
+  it("blocks a new legacy aggregate candidate but permits an actual rollback", () => {
+    const legacy = {
+      activated_at: null,
+      index_schema_version: 3,
+      content_index_contract: {
+        contract_version: "rag-content-index-contract-v1",
+        chunker_contract_version: "rag-chunker-estimated-token-v1",
+        lexical_contract_version: "sqlite-fts5-lexical-v1",
+        parser_contract_version: "structured-local-parser-v1",
+        status: "legacy_read_only" as const,
+        components: {
+          chunker: "current" as const,
+          lexical: "legacy_read_only" as const,
+          parser: "legacy_read_only" as const,
+        },
+      },
+    };
+
+    expect(isPipelineVersionFirstActivationBlocked(legacy)).toBe(true);
+    expect(
+      isPipelineVersionFirstActivationBlocked({
+        ...legacy,
+        activated_at: 1,
+      }),
+    ).toBe(false);
+    expect(
+      isPipelineVersionFirstActivationBlocked({
+        activated_at: null,
+        index_schema_version: 2,
+        content_index_contract: {
+          ...legacy.content_index_contract,
+          status: "current" as const,
+          components: {
+            chunker: "current" as const,
+            lexical: "current" as const,
+            parser: "current" as const,
+          },
+        },
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("RAG draft execution disposition", () => {
+  const contract = {
+    contract_version: "rag-content-index-contract-v1",
+    chunker_contract_version: "rag-chunker-estimated-token-v1",
+    lexical_contract_version: "sqlite-fts5-lexical-v1",
+    parser_contract_version: "structured-local-parser-v1",
+    status: "legacy_read_only" as const,
+    components: {
+      chunker: "current" as const,
+      lexical: "legacy_read_only" as const,
+      parser: "legacy_read_only" as const,
+    },
+  };
+
+  it("allows only vector Diagnostic builds while lexical v2 is absent", () => {
+    expect(draftExecutionDisposition(contract, "vector", 3)).toMatchObject({
+      status: "diagnostic_only",
+      canExecute: true,
+    });
+    expect(draftExecutionDisposition(contract, "hybrid", 3)).toMatchObject({
+      status: "blocked",
+      canExecute: false,
+    });
+    expect(draftExecutionDisposition(contract, "fulltext", 3)).toMatchObject({
+      status: "blocked",
+      canExecute: false,
+    });
+  });
+
+  it("blocks a legacy chunker and permits only a fully current normal build", () => {
+    expect(
+      draftExecutionDisposition(
+        {
+          ...contract,
+          components: { ...contract.components, chunker: "legacy_read_only" },
+        },
+        "vector",
+        3,
+      ),
+    ).toMatchObject({ status: "blocked", canExecute: false });
+    expect(
+      draftExecutionDisposition(
+        {
+          ...contract,
+          lexical_contract_version: "sqlite-fts5-lexical-v2",
+          parser_contract_version: "canonical-structured-parser-v2",
+          status: "current",
+          components: {
+            chunker: "current",
+            lexical: "current",
+            parser: "current",
+          },
+        },
+        "hybrid",
+        3,
+      ),
+    ).toMatchObject({ status: "normal", canExecute: true });
+  });
+});
 
 function jsonResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
@@ -103,6 +211,7 @@ function renderRagPageWithOfficeUploadError(
   options: {
     knowledgeBaseResponses?: Array<typeof knowledgeBases>;
     deleteResponses?: Array<{ status: number; payload: unknown }>;
+    uploadPayload?: unknown;
   } = {},
 ) {
   let knowledgeBaseRequest = 0;
@@ -161,6 +270,9 @@ function renderRagPageWithOfficeUploadError(
         url === "/api/rag/knowledge_bases/kb_office/documents" &&
         init?.method === "POST"
       ) {
+        if (options.uploadPayload !== undefined) {
+          return jsonResponse(options.uploadPayload);
+        }
         return jsonResponse({ detail: { code, message } }, status);
       }
       if (
@@ -241,6 +353,35 @@ describe("RAG V3 retrieval threshold serialization", () => {
     rerankTopN: "5",
   };
 
+  it("resets character budgets when the user explicitly selects a token strategy", () => {
+    expect(
+      chunkerEditsForStrategy(
+        {
+          ...baseEdits,
+          absoluteThresholdContract: true,
+          minVectorSimilarity: "",
+          minLexicalConfidence: "",
+          minRerankScore: "",
+          chunkSize: "1777",
+          chunkOverlap: "177",
+          parentChunkSize: "2888",
+          parentChunkOverlap: "288",
+          childChunkSize: "777",
+          childChunkOverlap: "77",
+        },
+        "recursive_estimated_token",
+      ),
+    ).toMatchObject({
+      strategy: "recursive_estimated_token",
+      chunkSize: "500",
+      chunkOverlap: "50",
+      parentChunkSize: "1500",
+      parentChunkOverlap: "100",
+      childChunkSize: "400",
+      childChunkOverlap: "50",
+    });
+  });
+
   it("sends only absolute score domains for a V3 draft", () => {
     const payload = retrievalProfileFromEdits({
       ...baseEdits,
@@ -271,6 +412,26 @@ describe("RAG V3 retrieval threshold serialization", () => {
     expect(payload).toMatchObject({ score_threshold: 0.42 });
     expect(payload).not.toHaveProperty("no_result_policy");
     expect(payload).not.toHaveProperty("min_vector_similarity");
+  });
+});
+
+describe("RAG persisted chunker projection", () => {
+  it("projects a missing or unknown historical strategy as character read-only", () => {
+    const draft = {
+      stages: [{ kind: "chunker", config: { chunk_size: 800, chunk_overlap: 80 } }],
+      retrieval_profile: {},
+      embedding_profile: {},
+    } as unknown as Parameters<typeof draftEditsFromResponse>[0];
+
+    expect(draftEditsFromResponse(draft).strategy).toBe("recursive_character");
+    expect(
+      draftEditsFromResponse(
+        {
+          ...draft,
+          stages: [{ kind: "chunker", config: { strategy: "future_chunker" } }],
+        } as unknown as Parameters<typeof draftEditsFromResponse>[0],
+      ).strategy,
+    ).toBe("recursive_character");
   });
 });
 
@@ -476,15 +637,90 @@ describe("RAG knowledge-base cascade deletion", () => {
 });
 
 describe("RAG structured source labels", () => {
+  it("states the 4A managed Benchmark admission boundary for locked corpora", async () => {
+    const lockedKnowledgeBases = {
+      knowledge_bases: [
+        {
+          ...knowledgeBases.knowledge_bases[0],
+          id: "kb_locked",
+          name: "标准 Benchmark",
+          corpus_locked: true,
+        },
+      ],
+    } as unknown as typeof knowledgeBases;
+    renderRagPageWithOfficeUploadError(422, "unused", "unused", [], {
+      knowledgeBaseResponses: [lockedKnowledgeBases],
+    });
+
+    expect(
+      await screen.findByText(/4A 期间不能新建标准 Benchmark 实例/),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/新的标准 content-contract 候选、固定评测和首次激活须等到 4C/),
+    ).toBeVisible();
+    expect(screen.getByText(/曾激活版本仍可回滚/)).toBeVisible();
+    expect(
+      screen.queryByText(/仍可调整流水线、构建候选版本、评测、激活和回滚/),
+    ).toBeNull();
+  });
+
   it("uses stable per-file upload queue labels", () => {
     expect(ragUploadStatusLabel("queued")).toBe("等待上传");
-    expect(ragUploadStatusLabel("uploading")).toBe("正在入库");
+    expect(ragUploadStatusLabel("uploading")).toBe("正在上传");
     expect(ragUploadStatusLabel("succeeded")).toBe("已完成");
+    expect(ragUploadStatusLabel("succeeded", "pipeline_required")).toBe(
+      "已上传，待流水线",
+    );
     expect(ragUploadStatusLabel("failed")).toBe("失败");
     expect(ragUploadStatusLabel("cancel_requested")).toBe(
       "已请求取消，请刷新确认",
     );
     expect(ragUploadStatusLabel("cancelled")).toBe("已取消");
+  });
+
+  it("renders a source-only upload as waiting for Pipeline instead of indexed", async () => {
+    const { container } = renderRagPageWithOfficeUploadError(
+      422,
+      "unused",
+      "unused",
+      [],
+      {
+        uploadPayload: {
+          id: "doc_source_only",
+          kb_id: "kb_office",
+          filename: "待处理.docx",
+          size: 12,
+          chunk_count: 0,
+          content_type:
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          ingestion_status: "pipeline_required",
+          visual_candidate: false,
+          warnings: [],
+          created_at: 1,
+        },
+      },
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /Office 验收库/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "上传文档" })).toBeEnabled();
+    });
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(input).not.toBeNull();
+    fireEvent.change(input!, {
+      target: {
+        files: [
+          new File(["source"], "待处理.docx", {
+            type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          }),
+        ],
+      },
+    });
+
+    expect(await screen.findByText(/已上传，待流水线/)).toBeVisible();
+    expect(screen.queryByText(/0 个片段/)).toBeNull();
+    expect(
+      await screen.findByText(/源文件已保存并等待流水线/),
+    ).toBeVisible();
   });
 
   it("restores KB-scoped pending deletion retries after switching libraries", async () => {

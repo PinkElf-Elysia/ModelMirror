@@ -11,12 +11,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .retrieval import RetrievalConfig
-
 if TYPE_CHECKING:
     from .rag_service import RagService
 
 
-RULES_VERSION = "rag-strategy-rules-v1"
+RULES_VERSION = "rag-strategy-rules-v2"
 SUPPORTED_OBJECTIVES = {"balanced", "quality", "low_latency"}
 REQUIREMENT_KEYS = (
     "exact_terms",
@@ -70,7 +69,10 @@ class RagStrategyService:
                 "max_characters": MAX_PROFILE_CHARACTERS,
                 "max_alternatives": 2,
             },
-            "chunking_strategies": ["recursive_character", "parent_child"],
+            "chunking_strategies": [
+                "recursive_estimated_token",
+                "parent_child_estimated_token",
+            ],
             "retrieval_modes": ["fulltext", "vector", "hybrid"],
             "score_threshold_fixed": 0.0,
             "embedding": {
@@ -213,6 +215,10 @@ class RagStrategyService:
                 raise RagStrategyConflictError(
                     "Recommendation was created for an older pipeline draft."
                 )
+            self.rag_service._assert_current_chunker_build_contract(  # noqa: SLF001
+                draft.get("stages"),
+                draft.get("content_index_contract"),
+            )
 
             selected = next(
                 (
@@ -225,6 +231,17 @@ class RagStrategyService:
             )
             if not isinstance(selected, dict):
                 raise RagStrategyValidationError("Recommendation profile not found.")
+            selected_retrieval = dict(selected.get("retrieval") or {})
+            self.rag_service._assert_buildable_content_contract(  # noqa: SLF001
+                draft.get("stages"),
+                draft.get("content_index_contract"),
+                index_contract=(
+                    draft.get("index_contract")
+                    if isinstance(draft.get("index_contract"), dict)
+                    else None
+                ),
+                retrieval_mode=str(selected_retrieval.get("mode") or "hybrid"),
+            )
             if (
                 str(selected.get("confidence") or "low") == "low"
                 and not confirm_low_confidence
@@ -240,7 +257,7 @@ class RagStrategyService:
                         "config": dict(selected.get("chunker") or {})
                     }
                 },
-                retrieval_profile=dict(selected.get("retrieval") or {}),
+                retrieval_profile=selected_retrieval,
             )
             latest = self.rag_service._read_metadata_unlocked()
             stored = latest["rag_strategy_recommendations"].get(recommendation_id)
@@ -274,6 +291,9 @@ class RagStrategyService:
             "chunker": json.loads(json.dumps(draft["stages"]["stage_chunker"])),
             "retrieval": json.loads(json.dumps(draft["retrieval_profile"])),
             "embedding": json.loads(json.dumps(draft["embedding_profile"])),
+            "content_index_contract": json.loads(
+                json.dumps(draft.get("content_index_contract") or {})
+            ),
         }
         snapshot_payload = {
             "rules_version": RULES_VERSION,
@@ -406,9 +426,18 @@ class RagStrategyService:
         objective = snapshot["objective"]
         current = snapshot["current_profile"]
         embedding = current["embedding"]
-        embedding_degraded = bool(embedding.get("degraded")) or str(
-            embedding.get("provider") or "hash"
-        ) == "hash"
+        effective_embedding = (
+            dict(embedding.get("effective") or {})
+            if isinstance(embedding, dict)
+            else {}
+        )
+        if not effective_embedding and isinstance(embedding, dict):
+            effective_embedding = dict(embedding)
+        embedding_degraded = (
+            bool(effective_embedding.get("degraded"))
+            or not bool(effective_embedding.get("ready", True))
+            or str(effective_embedding.get("provider") or "hash") == "hash"
+        )
         rerank_capabilities = self.rag_service.reranker.capabilities()
         rerank_ready = bool(
             rerank_capabilities.get("api_configured")
@@ -417,6 +446,14 @@ class RagStrategyService:
 
         warnings = list(profile.get("warnings") or [])
         insufficient_reasons: list[str] = []
+        chunker_contract = self.rag_service._content_index_contract(  # noqa: SLF001
+            {"stage_chunker": current.get("chunker") or {}}
+        )
+        if (chunker_contract.get("components") or {}).get("chunker") != "current":
+            insufficient_reasons.append(
+                "Legacy character chunking must be explicitly upgraded before "
+                "Strategy Router can recommend estimated-token parameters."
+            )
         if int(profile.get("analyzed_document_count") or 0) == 0:
             insufficient_reasons.append("No text document could be analyzed.")
         if int(profile.get("sampled_character_count") or 0) < 500:
@@ -432,6 +469,26 @@ class RagStrategyService:
         if profile.get("visual_document_count"):
             warnings.append(
                 "Visual candidates are represented only by text that the current processor can parse; Router V1 does not change vision settings."
+            )
+
+        retrieval, retrieval_rules, retrieval_reasons, retrieval_confidence = (
+            self._select_retrieval(
+                profile,
+                objective,
+                requirements,
+                embedding_degraded=embedding_degraded,
+            )
+        )
+        content_components = dict(
+            (current.get("content_index_contract") or {}).get("components") or {}
+        )
+        if (
+            str(retrieval.get("mode") or "hybrid") in {"fulltext", "hybrid"}
+            and content_components.get("lexical") != "current"
+        ):
+            insufficient_reasons.append(
+                "The proposed fulltext/hybrid profile requires lexical-v2; "
+                "legacy lexical-v1 remains query-only until Round 4B."
             )
 
         if insufficient_reasons:
@@ -452,14 +509,6 @@ class RagStrategyService:
 
         chunker, chunk_rules, chunk_reasons, confidence = self._select_chunker(
             profile, objective, requirements, current["chunker"]
-        )
-        retrieval, retrieval_rules, retrieval_reasons, retrieval_confidence = (
-            self._select_retrieval(
-                profile,
-                objective,
-                requirements,
-                embedding_degraded=embedding_degraded,
-            )
         )
         confidence = _lower_confidence(confidence, retrieval_confidence)
         if requirements["confusable_content"] and objective == "quality":
@@ -567,59 +616,13 @@ class RagStrategyService:
         requirements: dict[str, bool],
         current: dict[str, Any],
     ) -> tuple[dict[str, Any], list[str], list[str], str]:
-        long_ratio = float(corpus.get("long_block_ratio") or 0)
-        short_ratio = float(corpus.get("short_block_ratio") or 0)
-        table_code_ratio = float(corpus.get("table_code_ratio") or 0)
-        p95 = int(corpus.get("p95_block_characters") or 0)
-
-        if (
-            long_ratio >= 0.2
-            and requirements["long_context"]
-            and objective == "quality"
-        ):
-            return (
-                _parent_child_config(1800, 450),
-                ["R2", "R6"],
-                [
-                    "Long processed blocks and a quality/long-context objective make parent expansion worth evaluating.",
-                    "The current implementation builds parents within each processed block, not across whole chapters.",
-                ],
-                "low",
-            )
-        if table_code_ratio >= 0.08:
-            return (
-                _recursive_config(1000, 100),
-                ["R6", "R7"],
-                [
-                    "Table/code structure is already preserved by the processor; a moderate recursive window limits destructive splitting."
-                ],
-                "medium",
-            )
-        if requirements["confusable_content"] or objective == "low_latency":
-            return (
-                _recursive_config(1000, 100),
-                ["R6", "R9"],
-                [
-                    "A larger recursive window reduces chunk count while retaining a 10% boundary overlap."
-                ],
-                "low",
-            )
-        if short_ratio >= 0.8 and p95 <= 700:
-            keep = dict(current)
-            keep["strategy"] = str(keep.get("strategy") or "recursive_character")
-            return (
-                keep,
-                ["R1"],
-                [
-                    "Most processed blocks are already short; changing chunk sizes may be a no-op, so the current chunker is preserved."
-                ],
-                "low",
-            )
+        del corpus, objective, requirements
         return (
-            _recursive_config(700, 70),
-            ["R1", "R6"],
+            dict(current),
+            ["R1"],
             [
-                "The corpus has no strong hierarchical or structure-specific signal; Recursive 700/70 is a neutral benchmark starting point."
+                "Round 4A preserves the current estimated-token chunker exactly; "
+                "character-derived heuristics cannot select token budgets."
             ],
             "low",
         )
@@ -711,10 +714,7 @@ class RagStrategyService:
         primary: dict[str, Any],
         corpus: dict[str, Any],
     ) -> dict[str, Any] | None:
-        if str(primary.get("strategy")) == "parent_child":
-            return _recursive_config(1000, 100)
-        if float(corpus.get("long_block_ratio") or 0) >= 0.2:
-            return _parent_child_config(1800, 450)
+        del primary, corpus
         return None
 
     def _profile_payload(
@@ -755,6 +755,8 @@ class RagStrategyService:
         record: dict[str, Any],
         metadata: dict[str, Any],
     ) -> str:
+        if str(record.get("rules_version") or "") != RULES_VERSION:
+            return "stale"
         kb_id = str(record.get("kb_id") or "")
         if kb_id not in metadata["knowledge_bases"]:
             return "stale"
@@ -828,36 +830,6 @@ class RagStrategyService:
         payload = json.loads(json.dumps(record))
         payload["state"] = state
         return payload
-
-
-def _recursive_config(size: int, overlap: int) -> dict[str, Any]:
-    return {
-        "strategy": "recursive_character",
-        "chunk_size": size,
-        "chunk_overlap": overlap,
-        "separators": ["\n\n", "\n", "。", "！", "？", ". ", " ", ""],
-        "parent_chunk_size": 1500,
-        "parent_chunk_overlap": 100,
-        "child_chunk_size": 400,
-        "child_chunk_overlap": 50,
-        "parent_separators": ["\n\n", "\n", "。", "！", "？", ". ", " ", ""],
-        "child_separators": ["\n\n", "\n", "。", "！", "？", ". ", " ", ""],
-    }
-
-
-def _parent_child_config(parent_size: int, child_size: int) -> dict[str, Any]:
-    return {
-        "strategy": "parent_child",
-        "chunk_size": 700,
-        "chunk_overlap": 70,
-        "separators": ["\n\n", "\n", "。", "！", "？", ". ", " ", ""],
-        "parent_chunk_size": parent_size,
-        "parent_chunk_overlap": max(1, round(parent_size * 0.1)),
-        "child_chunk_size": child_size,
-        "child_chunk_overlap": max(1, round(child_size * 0.1)),
-        "parent_separators": ["\n\n", "\n", "。", "！", "？", ". ", " ", ""],
-        "child_separators": ["\n\n", "\n", "。", "！", "？", ". ", " ", ""],
-    }
 
 
 def _profile_diff(

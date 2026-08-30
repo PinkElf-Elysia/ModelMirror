@@ -5,14 +5,18 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from fastapi import FastAPI
 
 from server.file_assets.analysis import FileAnalysisArtifact, FileAnalysisMode, FileAnalysisSection
-from server.main import app
 from server.rag import rag_service as rag_service_module
-from server.rag.api import set_rag_service_for_tests
+from server.rag.api import router as rag_router, set_rag_service_for_tests
 from server.rag.embedder import EmbeddingClient
-from server.rag.rag_service import RagService
+from server.rag.rag_service import KnowledgeBaseDeletionError, RagService
 from server.rag.vector_store import LocalJsonVectorStore
+
+
+app = FastAPI()
+app.include_router(rag_router)
 
 
 class _AnalysisAssetService:
@@ -101,6 +105,8 @@ async def test_file_analysis_import_is_structured_idempotent_and_original_free(
             assert first.status_code == second.status_code == 200
             assert first.json()["id"] == second.json()["id"]
             assert first.json()["analysis_artifact_id"] == "artifact_analysis"
+            assert first.json()["ingestion_status"] == "pipeline_required"
+            assert first.json()["chunk_count"] == 0
             assert first.json()["analysis_source"] == {
                 "source_filename": "公开合成扫描样本.pdf",
                 "source_sha256": "a" * 64,
@@ -116,9 +122,8 @@ async def test_file_analysis_import_is_structured_idempotent_and_original_free(
             assert b"%PDF" not in assets.uploaded[0]
             assert "第一页图表摘要" in assets.uploaded[0].decode("utf-8")
 
-            stored = service.vector_store.list_document_chunks(first.json()["id"])
-            assert {item.page_number for item in stored} == {1, 3}
-            assert {item.source_block_id for item in stored} == {"artifact_analysis"}
+            assert service.vector_store.list_document_chunks(first.json()["id"]) == []
+            assert service.lexical_store.list_document_chunks(first.json()["id"]) == []
     finally:
         set_rag_service_for_tests(None)
 
@@ -142,7 +147,7 @@ async def test_file_analysis_import_rejects_deleting_knowledge_base_before_copy(
         metadata = service._read_metadata_unlocked()  # noqa: SLF001
         metadata["knowledge_bases"][kb["id"]]["deletion_status"] = "cleanup_pending"
         service._write_metadata_unlocked(metadata)  # noqa: SLF001
-    with pytest.raises(Exception, match="isolated"):
+    with pytest.raises(KnowledgeBaseDeletionError, match="isolated"):
         await service.import_file_analysis(
             kb["id"],
             asset_id="asset_chat",

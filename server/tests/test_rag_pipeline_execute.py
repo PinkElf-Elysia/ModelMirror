@@ -18,9 +18,11 @@ from server.rag.api import (
 )
 from server.rag.embedder import EmbeddingClient
 from server.rag.pipeline_executor import KnowledgePipelineExecutor, _source_block_hash
+from server.rag.processor_generator import GeneratedIndexItem, GeneratedSourceRange
 from server.rag.rag_service import (
     KnowledgeWriteProposalConflictError,
     PipelineJobStateError,
+    PipelineVersionNotFoundError,
     RagService,
 )
 from server.rag.vector_store import LocalJsonVectorStore
@@ -87,6 +89,13 @@ async def execute_current_draft(
     xpert_file_refs: list[dict[str, str]] | None = None,
 ) -> dict:
     draft = (await client.get(f"/api/rag/pipeline/draft?kb_id={kb_id}")).json()
+    if str((draft.get("retrieval_profile") or {}).get("mode") or "") != "vector":
+        configured = await client.patch(
+            f"/api/rag/pipeline/draft/{kb_id}",
+            json={"retrieval_profile": {"mode": "vector"}},
+        )
+        assert configured.status_code == 200, configured.text
+        draft = configured.json()
     response = await client.post(
         f"/api/rag/pipeline/draft/{kb_id}/execute",
         json={
@@ -104,6 +113,28 @@ async def execute_current_draft(
     return completed
 
 
+def _mark_pipeline_version_as_previously_active(
+    service: RagService,
+    version_id: str,
+    *,
+    promotion_required: bool = False,
+) -> None:
+    """Model a historical active index without authorizing a new legacy activation."""
+
+    with service._metadata_lock:  # noqa: SLF001 - historical compatibility fixture.
+        metadata = service._read_metadata_unlocked()  # noqa: SLF001
+        version = metadata["pipeline_versions"][version_id]
+        kb_id = str(version["kb_id"])
+        previous_id = metadata["pipeline_active_versions"].get(kb_id)
+        if previous_id and previous_id in metadata["pipeline_versions"]:
+            metadata["pipeline_versions"][previous_id]["status"] = "ready"
+        version["status"] = "active"
+        version["activated_at"] = 1.0
+        version["promotion_required"] = promotion_required
+        metadata["pipeline_active_versions"][kb_id] = version_id
+        service._write_metadata_unlocked(metadata)  # noqa: SLF001
+
+
 def test_source_block_hash_preserves_exact_corpus_text() -> None:
     text = "  stable evidence block\n"
     canonical = json.dumps(
@@ -117,6 +148,198 @@ def test_source_block_hash_preserves_exact_corpus_text() -> None:
     assert _source_block_hash(text) == hashlib.sha256(canonical).hexdigest()
     assert _source_block_hash(text) != hashlib.sha256(text.encode("utf-8")).hexdigest()
     assert _source_block_hash(" \n\t") is None
+
+
+@pytest.mark.asyncio
+async def test_pipeline_job_and_version_preserve_replayable_chunking_receipt(
+    pipeline_runtime,
+) -> None:
+    client, service, executor, _, _ = pipeline_runtime
+    kb_id = await create_kb(client, "chunk receipt")
+    document_id = await upload_text(
+        client,
+        kb_id,
+        "receipt.txt",
+        "Deterministic chunk receipt evidence. " * 90,
+    )
+
+    first = await execute_current_draft(
+        client,
+        executor,
+        kb_id,
+        source_document_ids=[document_id],
+    )
+    second = await execute_current_draft(
+        client,
+        executor,
+        kb_id,
+        source_document_ids=[document_id],
+    )
+
+    for completed in (first, second):
+        contract = completed["content_index_contract"]
+        receipt = completed["chunking_receipt"]
+        assert contract["contract_version"] == "rag-content-index-contract-v1"
+        assert contract["components"]["chunker"] == "current"
+        assert receipt["contract_version"] == "rag-chunker-estimated-token-v1"
+        assert receipt["size_unit"] == "estimated_tokens"
+        assert receipt["token_estimator"] == "mixed_cjk_latin_v1"
+        assert receipt["raw_candidate_count"] >= receipt["final_chunk_count"] > 0
+        assert len(receipt["chunk_sequence_hash"]) == 64
+
+        evidence = service.pipeline_version_evidence(
+            str(completed["candidate_version_id"])
+        )
+        assert evidence["content_index_contract"] == contract
+        assert evidence["chunking_receipt"] == receipt
+        assert evidence["chunking_receipt_status"] == "current"
+        assert evidence["chunker"]["fingerprint"] == receipt[
+            "chunker_profile_fingerprint"
+        ]
+        assert evidence["index_owner_version_id"] == receipt[
+            "candidate_version_id"
+        ]
+        assert evidence["candidate_namespace_fingerprint"] == receipt[
+            "candidate_namespace_fingerprint"
+        ]
+        assert evidence["chunking_receipt_fingerprint"] == hashlib.sha256(
+            json.dumps(
+                receipt,
+                allow_nan=False,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
+
+    assert (
+        first["chunking_receipt"]["chunk_sequence_hash"]
+        == second["chunking_receipt"]["chunk_sequence_hash"]
+    )
+
+    version_id = str(first["candidate_version_id"])
+    before = service.pipeline_version_evidence(version_id)
+    with service._metadata_lock:  # noqa: SLF001 - one-sided receipt tamper fixture.
+        metadata = service._read_metadata_unlocked()  # noqa: SLF001
+        metadata["pipeline_versions"][version_id]["chunking_receipt"][
+            "chunk_sequence_hash"
+        ] = "9" * 64
+        service._write_metadata_unlocked(metadata)  # noqa: SLF001
+    receipt_tampered = service.pipeline_version_evidence(version_id)
+
+    assert receipt_tampered["configuration_fingerprint"] == before[
+        "configuration_fingerprint"
+    ]
+    assert receipt_tampered["chunking_receipt_status"] == "mismatch"
+    assert receipt_tampered["chunking_receipt_fingerprint"] != before[
+        "chunking_receipt_fingerprint"
+    ]
+    assert receipt_tampered["version_fingerprint"] != before["version_fingerprint"]
+    with pytest.raises(PipelineJobStateError, match="chunking receipt"):
+        service.pipeline_corpus_snapshot(version_id)
+
+    with service._metadata_lock:  # noqa: SLF001 - restore before independent tamper.
+        metadata = service._read_metadata_unlocked()  # noqa: SLF001
+        job_id = str(metadata["pipeline_versions"][version_id]["job_id"])
+        metadata["pipeline_versions"][version_id]["chunking_receipt"] = json.loads(
+            json.dumps(metadata["pipeline_jobs"][job_id]["chunking_receipt"])
+        )
+        service._write_metadata_unlocked(metadata)  # noqa: SLF001
+    before = service.pipeline_version_evidence(version_id)
+    with service._metadata_lock:  # noqa: SLF001 - persisted identity tamper fixture.
+        metadata = service._read_metadata_unlocked()  # noqa: SLF001
+        metadata["pipeline_versions"][version_id]["config_snapshot"]["stages"][
+            "stage_chunker"
+        ]["chunk_size"] += 1
+        service._write_metadata_unlocked(metadata)  # noqa: SLF001
+    after = service.pipeline_version_evidence(version_id)
+
+    assert after["chunker"]["fingerprint"] != before["chunker"]["fingerprint"]
+    assert after["configuration_fingerprint"] != before["configuration_fingerprint"]
+    assert after["version_fingerprint"] != before["version_fingerprint"]
+
+
+@pytest.mark.asyncio
+async def test_queued_legacy_chunker_job_fails_before_executor_dispatch(
+    pipeline_runtime,
+) -> None:
+    client, service, executor, _, _ = pipeline_runtime
+    kb_id = await create_kb(client, "queued legacy chunker")
+    document_id = await upload_text(
+        client,
+        kb_id,
+        "legacy.txt",
+        "Queued legacy content must never be reinterpreted by the token executor.",
+    )
+    configured = await client.patch(
+        f"/api/rag/pipeline/draft/{kb_id}",
+        json={"retrieval_profile": {"mode": "vector"}},
+    )
+    assert configured.status_code == 200, configured.text
+    draft = (await client.get(f"/api/rag/pipeline/draft?kb_id={kb_id}")).json()
+    response = await client.post(
+        f"/api/rag/pipeline/draft/{kb_id}/execute",
+        json={
+            "draft_version": draft["version"],
+            "source_document_ids": [document_id],
+            "xpert_file_refs": [],
+        },
+    )
+    assert response.status_code == 200, response.text
+    job_id = str(response.json()["job_id"])
+
+    with service._metadata_lock:  # noqa: SLF001 - pre-4A queued job fixture.
+        metadata = service._read_metadata_unlocked()  # noqa: SLF001
+        job = metadata["pipeline_jobs"][job_id]
+        chunker = job["config_snapshot"]["stages"]["stage_chunker"]
+        chunker["strategy"] = "recursive_character"
+        chunker["size_unit"] = "characters"
+        chunker["token_estimator"] = None
+        chunker["chunk_contract_version"] = "rag-chunker-character-v1"
+        service._write_metadata_unlocked(metadata)  # noqa: SLF001
+
+    assert await executor.run_once() is False
+    failed = service.get_pipeline_job(job_id)
+    assert failed["status"] == "failed"
+    assert failed["error_code"] == "rag_content_contract_legacy_read_only"
+    assert failed["attempt"] == 0
+    assert failed["chunking_receipt"] == {}
+    assert all(result["status"] == "pending" for result in failed["document_results"])
+    with pytest.raises(PipelineVersionNotFoundError):
+        service.get_pipeline_version(str(failed["candidate_version_id"]))
+
+
+@pytest.mark.asyncio
+async def test_aggregate_legacy_candidate_activation_api_fails_closed(
+    pipeline_runtime,
+) -> None:
+    client, service, executor, _, _ = pipeline_runtime
+    kb_id = await create_kb(client, "4a diagnostic candidate")
+    document_id = await upload_text(
+        client,
+        kb_id,
+        "diagnostic.txt",
+        "The 4A candidate remains diagnostic until all content contracts are current.",
+    )
+    job = await execute_current_draft(
+        client,
+        executor,
+        kb_id,
+        source_document_ids=[document_id],
+    )
+    version_id = str(job["candidate_version_id"])
+
+    response = await client.post(
+        f"/api/rag/pipeline/versions/{version_id}/activate"
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == (
+        "rag_content_contract_legacy_read_only"
+    )
+    stored = service.get_pipeline_version(version_id)
+    assert stored["status"] == "ready"
+    assert stored.get("activated_at") is None
 
 
 @pytest.mark.asyncio
@@ -155,6 +378,132 @@ async def test_pipeline_corpus_snapshot_binds_artifact_and_index(
     artifact_path.write_text(json.dumps(artifact), encoding="utf-8")
 
     with pytest.raises(PipelineJobStateError, match="source-block index is inconsistent"):
+        service.pipeline_corpus_snapshot(version_id)
+
+
+@pytest.mark.asyncio
+async def test_multi_block_generated_parent_replays_corpus_lineage_fail_closed(
+    pipeline_runtime,
+) -> None:
+    client, service, executor, _, _ = pipeline_runtime
+
+    class MultiBlockGenerator:
+        @staticmethod
+        def capabilities() -> dict:
+            return {
+                "llm_configured": True,
+                "model": "strict-fake-generator",
+                "targets": ["strict_fake"],
+            }
+
+        @staticmethod
+        def default_model() -> str:
+            return "strict-fake-generator"
+
+        @staticmethod
+        async def generate(document, **_kwargs):
+            blocks = [
+                block for block in document.blocks if block.kind != "heading"
+            ]
+            assert len(blocks) >= 2
+            separator = "\n\n"
+            first_context_end = len(blocks[0].text)
+            second_context_start = first_context_end + len(separator)
+            return [
+                GeneratedIndexItem(
+                    item_id="summary_0",
+                    item_type="summary",
+                    index_text="Combined release evidence",
+                    context_text=(
+                        f"{blocks[0].text}{separator}{blocks[1].text}"
+                    ),
+                    source_block_ids=[blocks[0].block_id, blocks[1].block_id],
+                    context_source_ranges=[
+                        GeneratedSourceRange(
+                            source_block_id=blocks[0].block_id,
+                            context_start=0,
+                            context_end=first_context_end,
+                            source_start=blocks[0].start_char,
+                            source_end=blocks[0].end_char,
+                        ),
+                        GeneratedSourceRange(
+                            source_block_id=blocks[1].block_id,
+                            context_start=second_context_start,
+                            context_end=second_context_start + len(blocks[1].text),
+                            source_start=blocks[1].start_char,
+                            source_end=blocks[1].end_char,
+                        ),
+                    ],
+                )
+            ]
+
+    service.processor_generator = MultiBlockGenerator()  # type: ignore[assignment]
+    kb_id = await create_kb(client, "generated corpus identity")
+    document_id = await upload_text(
+        client,
+        kb_id,
+        "generated.md",
+        "# First\nAlpha canonical evidence.\n\n# Second\nBeta canonical evidence.",
+    )
+    draft = service.get_pipeline_draft(kb_id)
+    updated = service.update_pipeline_draft(
+        kb_id,
+        {
+            "stage_processor": {
+                "config": {
+                    "mode": "summary",
+                    "model_id": "strict-fake-generator",
+                }
+            }
+        },
+    )
+    assert updated["version"] > draft["version"]
+
+    job = await execute_current_draft(
+        client,
+        executor,
+        kb_id,
+        source_document_ids=[document_id],
+    )
+    version_id = str(job["candidate_version_id"])
+    snapshot = service.pipeline_corpus_snapshot(version_id)
+    evidence = service.pipeline_corpus_evidence(version_id)
+
+    assert len(snapshot["documents"][0]["source_blocks"]) == 4
+    assert len(evidence["documents"][0]["source_blocks"]) == 2
+    stored_chunks = service.vector_store.list_document_chunks(
+        f"{version_id}_{document_id}"
+    )
+    generated_chunks = [chunk for chunk in stored_chunks if chunk.generated_item]
+    assert generated_chunks
+    assert all(len(chunk.source_block_ids) == 2 for chunk in generated_chunks)
+    online = await service.query_pipeline_version(
+        version_id,
+        generated_chunks[0].text,
+        top_k=10,
+        retrieval={"mode": "vector", "top_k": 10},
+        generate_answer=False,
+    )
+    online_generated = next(
+        source
+        for source in online["sources"]
+        if source["chunk_id"] == generated_chunks[0].chunk_id
+    )
+    assert online_generated["source_block_ids"] == list(
+        generated_chunks[0].source_block_ids
+    )
+    assert online_generated["generated_item"] is True
+    assert online_generated["source_block_id"] is None
+    assert online_generated["source_block_match_status"] == "ambiguous_multi_source"
+    stored_job = service.get_pipeline_job(str(job["job_id"]))
+    artifact_path = service._pipeline_processed_path(  # noqa: SLF001
+        stored_job["document_results"][0]["artifact_key"]
+    )
+    artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+    artifact["generated_items"][0]["source_block_ids"].reverse()
+    artifact_path.write_text(json.dumps(artifact), encoding="utf-8")
+
+    with pytest.raises(PipelineJobStateError):
         service.pipeline_corpus_snapshot(version_id)
 
 
@@ -367,7 +716,7 @@ def test_workflow_knowledge_proposal_concurrent_pending_deduplication(
 
 
 @pytest.mark.asyncio
-async def test_candidate_version_requires_manual_activation_and_supports_rollback(
+async def test_legacy_candidate_stays_diagnostic_and_historical_versions_support_rollback(
     pipeline_runtime,
 ) -> None:
     client, service, executor, registry, _ = pipeline_runtime
@@ -394,8 +743,41 @@ async def test_candidate_version_requires_manual_activation_and_supports_rollbac
     activate = await client.post(
         f"/api/rag/pipeline/versions/{first_version['version_id']}/activate"
     )
-    assert activate.status_code == 200, activate.text
-    assert activate.json()["active"] is True
+    assert activate.status_code == 409, activate.text
+    assert activate.json()["detail"]["code"] == (
+        "rag_content_contract_legacy_read_only"
+    )
+    for label, invalid_timestamp in (
+        ("missing", None),
+        ("none", None),
+        ("zero", 0),
+        ("false", False),
+        ("empty", ""),
+        ("nan", float("nan")),
+        ("negative", -1.0),
+    ):
+        with service._metadata_lock:  # noqa: SLF001 - corrupted legacy metadata fixture.
+            metadata = service._read_metadata_unlocked()  # noqa: SLF001
+            stored = metadata["pipeline_versions"][first_version["version_id"]]
+            stored["status"] = "ready"
+            if label == "missing":
+                stored.pop("activated_at", None)
+            else:
+                stored["activated_at"] = invalid_timestamp
+            metadata["pipeline_active_versions"].pop(kb_id, None)
+            service._write_metadata_unlocked(metadata)  # noqa: SLF001
+        malformed = await client.post(
+            f"/api/rag/pipeline/versions/{first_version['version_id']}/activate"
+        )
+        assert malformed.status_code == 409, (label, malformed.text)
+    _mark_pipeline_version_as_previously_active(
+        service,
+        str(first_version["version_id"]),
+        promotion_required=True,
+    )
+    assert service.get_active_pipeline_version(kb_id)["version_id"] == (
+        first_version["version_id"]
+    )
 
     beta_id = await upload_text(
         client,
@@ -424,9 +806,19 @@ async def test_candidate_version_requires_manual_activation_and_supports_rollbac
     assert active_still_first is not None
     assert active_still_first["version_id"] == first_version["version_id"]
 
-    await client.post(f"/api/rag/pipeline/versions/{second_version_id}/activate")
+    blocked_second = await client.post(
+        f"/api/rag/pipeline/versions/{second_version_id}/activate"
+    )
+    assert blocked_second.status_code == 409, blocked_second.text
     active_after = await service.query(kb_id, "Beta architecture", top_k=5)
-    assert "beta.txt" in {item["document_name"] for item in active_after["sources"]}
+    assert {item["document_name"] for item in active_after["sources"]} == {
+        "alpha.txt"
+    }
+
+    _mark_pipeline_version_as_previously_active(service, second_version_id)
+    assert service.get_active_pipeline_version(kb_id)["version_id"] == (
+        second_version_id
+    )
 
     rollback = await client.post(
         f"/api/rag/pipeline/versions/{first_version['version_id']}/activate"
@@ -446,7 +838,7 @@ async def test_candidate_version_requires_manual_activation_and_supports_rollbac
 
 
 @pytest.mark.asyncio
-async def test_xlsx_pipeline_keeps_sources_in_vector_and_fulltext_indexes(
+async def test_xlsx_pipeline_keeps_sources_in_vector_index(
     pipeline_runtime,
 ) -> None:
     client, service, executor, _, _ = pipeline_runtime
@@ -472,31 +864,12 @@ async def test_xlsx_pipeline_keeps_sources_in_vector_and_fulltext_indexes(
     version_id = str(completed["candidate_version_id"])
     version = service.get_pipeline_version(version_id)
 
-    lexical = service.lexical_store.query(version["namespace"], "上海", 10)
-    indexed = next(item for item in lexical if "上海" in item.text)
-    assert indexed.sheet == "销售数据"
-    assert indexed.row_range == "A1:B2"
-    vector = service.vector_store.get_chunk(version["namespace"], indexed.chunk_id)
-    assert vector is not None
-    assert vector.sheet == "销售数据"
-    assert vector.row_range == "A1:B2"
-
-    query = await client.post(
-        f"/api/rag/pipeline/versions/{version_id}/query",
-        json={
-            "question": "上海的数量是多少？",
-            "top_k": 10,
-            "retrieval": {"mode": "fulltext"},
-        },
-    )
-    assert query.status_code == 200, query.text
-    source = next(
-        item
-        for item in query.json()["sources"]
-        if "上海" in item["matched_text"]
-    )
-    assert source["sheet"] == "销售数据"
-    assert source["row_range"] == "A1:B2"
+    indexed = service.vector_store.list_document_chunks(f"{version_id}_{document_id}")
+    table_chunk = next(item for item in indexed if "上海" in item.text)
+    assert table_chunk.kb_id == version["namespace"]
+    assert table_chunk.sheet == "销售数据"
+    assert table_chunk.row_range == "A1:B2"
+    assert service.lexical_store.count_namespace(version["namespace"]) == 0
 
 
 @pytest.mark.asyncio
@@ -521,7 +894,11 @@ async def test_knowledge_write_approval_inherits_active_snapshot_and_requires_pr
     activated = await client.post(
         f"/api/rag/pipeline/versions/{baseline_version_id}/activate"
     )
-    assert activated.status_code == 200, activated.text
+    assert activated.status_code == 409, activated.text
+    assert activated.json()["detail"]["code"] == (
+        "rag_content_contract_legacy_read_only"
+    )
+    _mark_pipeline_version_as_previously_active(service, baseline_version_id)
 
     proposal = service.create_knowledge_write_proposal(
         kb_id,
@@ -721,7 +1098,9 @@ async def test_cancelled_and_failed_jobs_do_not_change_active_version(
         source_document_ids=[document_id],
     )
     version_id = str(completed["candidate_version_id"])
-    await client.post(f"/api/rag/pipeline/versions/{version_id}/activate")
+    blocked = await client.post(f"/api/rag/pipeline/versions/{version_id}/activate")
+    assert blocked.status_code == 409, blocked.text
+    _mark_pipeline_version_as_previously_active(service, version_id)
 
     draft = (await client.get(f"/api/rag/pipeline/draft?kb_id={kb_id}")).json()
     queued = await client.post(
@@ -754,11 +1133,10 @@ async def test_cancelled_and_failed_jobs_do_not_change_active_version(
 
 
 @pytest.mark.asyncio
-async def test_lexical_index_failure_discards_both_candidate_indexes(
+async def test_legacy_lexical_contract_blocks_candidate_before_index_writes(
     pipeline_runtime,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    client, service, executor, _, _ = pipeline_runtime
+    client, service, _, _, _ = pipeline_runtime
     kb_id = await create_kb(client, "dual index atomicity")
     document_id = await upload_text(
         client,
@@ -771,26 +1149,12 @@ async def test_lexical_index_failure_discards_both_candidate_indexes(
         f"/api/rag/pipeline/draft/{kb_id}/execute",
         json={"draft_version": draft["version"], "source_document_ids": [document_id]},
     )
-    assert queued.status_code == 200, queued.text
-    created = queued.json()
-    job = service.get_pipeline_job(created["job_id"])
-    namespace = str(job["candidate_namespace"])
-
-    def fail_lexical_write(_chunks) -> None:
-        raise RuntimeError("synthetic lexical index failure")
-
-    monkeypatch.setattr(service.lexical_store, "add_chunks", fail_lexical_write)
-    assert await executor.run_once() is True
-
-    failed = service.get_pipeline_job(created["job_id"])
-    assert failed["status"] == "failed"
-    assert "synthetic lexical index failure" in failed["error"]
+    assert queued.status_code == 409, queued.text
+    assert queued.json()["detail"]["code"] == "rag_content_contract_legacy_read_only"
     assert service.get_active_pipeline_version(kb_id) is None
-    assert service.lexical_store.count_namespace(namespace) == 0
-    assert all(
-        record.get("kb_id") != namespace
-        for record in service.vector_store._read_records()
-    )
+    assert service.lexical_store.count_namespace(kb_id) == 0
+    assert service.vector_store.count_namespace(kb_id) == 0
+    assert service.list_pipeline_jobs(kb_id=kb_id) == []
     versions = service.list_pipeline_versions(kb_id)
     assert versions == []
 
@@ -817,9 +1181,14 @@ def test_pipeline_metadata_is_atomic_and_recovers_running_jobs(tmp_path: Path) -
         "created_at": 1.0,
     }
     service._write_metadata(metadata)
+    configured = service.update_pipeline_draft(
+        kb["id"],
+        {},
+        retrieval_profile={"mode": "vector"},
+    )
     job = service.create_pipeline_job(
         kb["id"],
-        draft_version=1,
+        draft_version=int(configured["version"]),
         source_document_ids=["doc-recovery"],
     )
     claimed = service.claim_next_pipeline_job()

@@ -177,7 +177,7 @@ def test_shared_html_and_source_sections_keep_heading_and_line_metadata(
 
     source_path = tmp_path / "app.py"
     source_text = "  def greet():\n      return 'hello'\n"
-    source_path.write_text(source_text, encoding="utf-8")
+    source_path.write_bytes(source_text.encode("utf-8"))
     source_result = StructuredDocumentProcessor().process(
         source_path,
         filename="app.py",
@@ -269,6 +269,47 @@ async def test_generation_service_retries_invalid_json_and_builds_qa_context(
 
 
 @pytest.mark.asyncio
+async def test_summary_generation_preserves_provider_payload_and_derives_lineage_locally(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "summary.md"
+    source.write_text("# Stable heading\n\nGrounded body evidence.", encoding="utf-8")
+    document = StructuredDocumentProcessor().process(
+        source,
+        filename="summary.md",
+        source_id="doc-summary",
+    )
+    generator = ProcessorGenerationService()
+    observed_blocks: list[dict[str, Any]] = []
+
+    async def fake_generate_batch(**kwargs: Any) -> dict[str, Any]:
+        observed_blocks.extend(kwargs["blocks"])
+        return {"document_summary": "Stable summary", "sections": []}
+
+    monkeypatch.setattr(generator, "_generate_batch", fake_generate_batch)
+    items = await generator.generate(
+        document,
+        mode="summary",
+        model_id="test/model",
+        max_items=2,
+    )
+
+    assert any(block["kind"] == "heading" for block in observed_blocks)
+    assert all("start_char" not in block for block in observed_blocks)
+    assert all("end_char" not in block for block in observed_blocks)
+    assert items[0].source_block_ids
+    assert all(
+        block_id
+        not in {
+            block.block_id for block in document.blocks if block.kind == "heading"
+        }
+        for block_id in items[0].source_block_ids
+    )
+    assert items[0].context_source_ranges
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("mode", ["qa", "summary"])
 async def test_generated_processor_modes_index_prompt_and_return_source_context(
     tmp_path: Path,
@@ -289,6 +330,7 @@ async def test_generated_processor_modes_index_prompt_and_return_source_context(
                 "model_id": "test/processor-model",
             }
         },
+        retrieval_profile={"mode": "vector"},
     )
     job = service.create_pipeline_job(
         kb["id"],
@@ -311,7 +353,7 @@ async def test_generated_processor_modes_index_prompt_and_return_source_context(
         version["version_id"],
         query,
         top_k=3,
-        retrieval={"mode": "fulltext"},
+        retrieval={"mode": "vector"},
     )
 
     assert result["sources"]
@@ -332,6 +374,7 @@ async def test_strict_retry_reuses_completed_documents_and_reruns_failures(
     draft = service.update_pipeline_draft(
         kb["id"],
         {"stage_processor": {"failure_policy": "strict"}},
+        retrieval_profile={"mode": "vector"},
     )
     job = service.create_pipeline_job(
         kb["id"],
@@ -369,9 +412,14 @@ async def test_continue_on_error_builds_candidate_from_successful_documents(
     kb = service.create_knowledge_base("partial success")
     good = await service.upload_document(kb["id"], "good.txt", b"Good source text.")
     bad = await service.upload_document(kb["id"], "bad.txt", b"Bad source text.")
+    draft = service.update_pipeline_draft(
+        kb["id"],
+        {},
+        retrieval_profile={"mode": "vector"},
+    )
     job = service.create_pipeline_job(
         kb["id"],
-        draft_version=1,
+        draft_version=draft["version"],
         source_document_ids=[good["id"], bad["id"]],
     )
 

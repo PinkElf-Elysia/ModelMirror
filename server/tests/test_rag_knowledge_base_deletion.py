@@ -158,25 +158,40 @@ async def test_upload_late_write_is_tombstoned_and_removed_on_retry(
         "server.rag.rag_service.get_file_asset_service", lambda: asset_service
     )
     kb = service.create_knowledge_base("upload race")
-    entered = asyncio.Event()
-    release = asyncio.Event()
-    original_embed = service.embedder.embed_texts
+    entered = threading.Event()
+    release = threading.Event()
+    original_write_bytes = Path.write_bytes
 
-    async def slow_embed(texts: list[str]) -> list[list[float]]:
-        entered.set()
-        await release.wait()
-        return await original_embed(texts)
+    def delayed_source_write(path: Path, data: bytes) -> int:
+        written = original_write_bytes(path, data)
+        if path.name.endswith("_late.txt"):
+            entered.set()
+            assert release.wait(timeout=5)
+        return written
 
-    monkeypatch.setattr(service.embedder, "embed_texts", slow_embed)
-    upload = asyncio.create_task(
-        service.upload_document(kb["id"], "late.txt", b"LATE-WRITE-CANARY")
-    )
-    await entered.wait()
+    monkeypatch.setattr(Path, "write_bytes", delayed_source_write)
+    errors: list[BaseException] = []
+
+    def upload_source() -> None:
+        try:
+            asyncio.run(
+                service.upload_document(
+                    kb["id"], "late.txt", b"LATE-WRITE-CANARY"
+                )
+            )
+        except BaseException as exc:  # pragma: no cover - asserted below
+            errors.append(exc)
+
+    writer = threading.Thread(target=upload_source)
+    writer.start()
+    assert entered.wait(timeout=5)
     with pytest.raises(KnowledgeBaseDeletionError):
-        await asyncio.to_thread(service.delete_knowledge_base, kb["id"])
-    with pytest.raises(KnowledgeBaseDeletionError, match="isolated"):
-        release.set()
-        await upload
+        service.delete_knowledge_base(kb["id"])
+    release.set()
+    writer.join(timeout=5)
+    assert not writer.is_alive()
+    assert len(errors) == 1 and isinstance(errors[0], KnowledgeBaseDeletionError)
+    assert "isolated" in str(errors[0])
 
     pending = service._read_metadata()
     late_ids = [
@@ -202,7 +217,11 @@ async def test_running_pipeline_late_candidate_is_purged_before_final_delete(
     )
     kb = service.create_knowledge_base("pipeline race")
     document = await service.upload_document(kb["id"], "source.txt", b"pipeline")
-    draft = service.get_pipeline_draft(kb["id"])
+    draft = service.update_pipeline_draft(
+        kb["id"],
+        {},
+        retrieval_profile={"mode": "vector"},
+    )
     created = service.create_pipeline_job(
         kb["id"],
         draft_version=draft["version"],

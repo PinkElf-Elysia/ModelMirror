@@ -10,6 +10,7 @@ import pytest_asyncio
 from server.main import app
 from server.rag.api import set_rag_service_for_tests
 from server.rag.embedder import EmbeddingClient
+from server.rag.pipeline_executor import KnowledgePipelineExecutor
 from server.rag.rag_service import RagService
 from server.rag.vector_store import LocalJsonVectorStore
 
@@ -23,17 +24,22 @@ async def client(tmp_path: Path):
         vector_store=LocalJsonVectorStore(tmp_path / "storage" / "vectors.json"),
         llm_enabled=False,
     )
+    executor = KnowledgePipelineExecutor(service)
     set_rag_service_for_tests(service)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(
         transport=transport,
         base_url="http://testserver",
     ) as async_client:
-        yield async_client
+        yield async_client, service, executor
     set_rag_service_for_tests(None)
 
 
-async def _create_kb_with_document(client: httpx.AsyncClient) -> str:
+async def _create_kb_with_document(
+    client: httpx.AsyncClient,
+    service: RagService,
+    executor: KnowledgePipelineExecutor,
+) -> str:
     kb_response = await client.post(
         "/api/rag/knowledge_bases",
         json={"name": "workflow citation test"},
@@ -55,14 +61,35 @@ async def _create_kb_with_document(client: httpx.AsyncClient) -> str:
         },
     )
     assert upload_response.status_code == 200, upload_response.text
+    document_id = str(upload_response.json()["id"])
+    draft = service.update_pipeline_draft(
+        kb_id,
+        {},
+        retrieval_profile={"mode": "vector", "top_k": 2},
+    )
+    job = service.create_pipeline_job(
+        kb_id,
+        draft_version=draft["version"],
+        source_document_ids=[document_id],
+    )
+    assert await executor.run_once() is True
+    version_id = str(job["candidate_version_id"])
+    with service._metadata_lock:  # noqa: SLF001 - historical active fixture.
+        metadata = service._read_metadata_unlocked()  # noqa: SLF001
+        version = metadata["pipeline_versions"][version_id]
+        version["status"] = "active"
+        version["activated_at"] = 1.0
+        metadata["pipeline_active_versions"][kb_id] = version_id
+        service._write_metadata_unlocked(metadata)  # noqa: SLF001
     return kb_id
 
 
 @pytest.mark.asyncio
 async def test_workflow_knowledge_citation_outputs_json_and_run_trace(
-    client: httpx.AsyncClient,
+    client,
 ) -> None:
-    kb_id = await _create_kb_with_document(client)
+    http_client, service, executor = client
+    kb_id = await _create_kb_with_document(http_client, service, executor)
     workflow = {
         "id": "knowledge-citation-workflow",
         "title": "knowledge citation workflow",
@@ -96,7 +123,7 @@ async def test_workflow_knowledge_citation_outputs_json_and_run_trace(
         ],
     }
 
-    response = await client.post(
+    response = await http_client.post(
         "/api/workflow/run",
         json={
             "workflow": workflow,
@@ -133,7 +160,7 @@ async def test_workflow_knowledge_citation_outputs_json_and_run_trace(
     assert "CitationAnchor" in citation["snippet"]
     assert "stored_path" not in citation
 
-    child_runs_response = await client.get(
+    child_runs_response = await http_client.get(
         f"/api/runtime/runs?run_type=knowledge_citation&parent_run_id={workflow_run_id}&limit=20"
     )
     assert child_runs_response.status_code == 200, child_runs_response.text
@@ -145,7 +172,7 @@ async def test_workflow_knowledge_citation_outputs_json_and_run_trace(
     assert citation_run["metadata"]["kb_id"] == kb_id
     assert citation_run["metadata"]["citation_count"] >= 1
 
-    checkpoints_response = await client.get(
+    checkpoints_response = await http_client.get(
         f"/api/runtime/runs/{citation_run['run_id']}/checkpoints"
     )
     assert checkpoints_response.status_code == 200, checkpoints_response.text

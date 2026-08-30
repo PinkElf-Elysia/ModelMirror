@@ -605,12 +605,20 @@ def retrieval_semantic_checksum(value: dict[str, Any]) -> str:
 
 def chunker_candidates(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
     base = _copy(snapshot["base_chunker"])
+    strategy = str(base.get("strategy") or "recursive_character")
+    if strategy in {
+        "recursive_estimated_token",
+        "parent_child_estimated_token",
+    }:
+        # Round 4A establishes a stable budget unit; it does not authorize
+        # character-derived ratio search in that new unit. Retrieval tuning
+        # may continue, while the chunker remains byte-for-byte unchanged.
+        return [base]
     values = [base]
     recommendation = snapshot.get("router_recommendation") or {}
     for profile in recommendation.get("profiles") or []:
         if isinstance(profile, dict) and isinstance(profile.get("chunker"), dict):
             values.append(_copy(profile["chunker"]))
-    strategy = str(base.get("strategy") or "recursive_character")
     if strategy == "parent_child":
         parent = int(base.get("parent_chunk_size") or 1800)
         child = int(base.get("child_chunk_size") or 450)
@@ -1105,19 +1113,21 @@ class RagStrategyTuner:
                 "max_quality_regression": VALIDATION_MAX_REGRESSION,
                 "latency_aggregation": "median_per_case_then_p95",
                 "known_winner_fixture_version": KNOWN_WINNER_FIXTURE_VERSION,
+                "known_winner_validation_status": "blocked_until_lexical_v2",
                 "known_winner_scenarios": [
                     "threshold_recovery",
                     "already_optimal_control",
                 ],
             },
             "tunable": [
-                "chunker",
                 "retrieval_mode",
                 "top_k",
                 "hybrid_weight",
                 "score_threshold",
                 "rerank_finalists",
             ],
+            "deferred": ["chunker"],
+            "chunker_search_status": "frozen_until_calibrated_token_budget",
             "fixed": ["processor", "vision", "embedding"],
             "rerank_available": bool(
                 rerank.get("api_configured") or rerank.get("llm_configured")

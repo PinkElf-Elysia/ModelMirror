@@ -25,6 +25,7 @@ from server.model_router.workload_control import (
 )
 from server.rag.embedder import EmbeddingClient
 from server.rag.lexical_store import SqliteLexicalStore
+from server.rag.pipeline_executor import KnowledgePipelineExecutor
 from server.rag.processor_generator import ProcessorGenerationError
 from server.rag.rag_service import (
     ManagedRagGenerationRouteError,
@@ -37,6 +38,24 @@ from server.rag.vector_store import LocalJsonVectorStore
 
 MODEL_ID = "provider/rag-model"
 PROVIDER_SECRET = "managed-rag-provider-secret"
+
+
+@pytest.fixture(autouse=True)
+def _managed_generation_tests_never_use_ambient_provider_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Keep retrieval local and every generation dispatch on MockTransport."""
+
+    for name in (
+        "EMBEDDING_API_KEY",
+        "OPENAI_API_KEY",
+        "OPENROUTER_API_KEY",
+        "LLM_GATEWAY_KEY",
+        "RAG_LLM_API_KEY",
+        "RAG_RERANK_API_KEY",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("RAG_EMBEDDING_MODE", "hash")
 
 
 def _profile(execution_shape: str) -> tuple[dict[str, object], str]:
@@ -232,14 +251,27 @@ async def _indexed_service(
     service: RagService,
     *,
     text: str = "PRIVATE-RAG-QUESTION-CONTEXT belongs only in the RAG index.",
-) -> tuple[str, str]:
+) -> tuple[str, str, str]:
     kb = service.create_knowledge_base("managed query")
     document = await service.upload_document(
         kb["id"],
         "managed.txt",
         text.encode("utf-8"),
+        pipeline_only=True,
     )
-    return kb["id"], document["id"]
+    draft = service.update_pipeline_draft(
+        kb["id"],
+        {},
+        retrieval_profile={"mode": "vector", "top_k": 1},
+    )
+    job = service.create_pipeline_job(
+        kb["id"],
+        draft_version=draft["version"],
+        source_document_ids=[document["id"]],
+    )
+    assert await KnowledgePipelineExecutor(service).run_once() is True
+    assert service.get_pipeline_job(job["job_id"])["status"] == "succeeded"
+    return kb["id"], document["id"], job["candidate_version_id"]
 
 
 @pytest.mark.asyncio
@@ -265,12 +297,12 @@ async def test_managed_rag_query_uses_one_pinned_post_and_redacted_receipt(
         )
 
     service, repository = _managed_stack(tmp_path, monkeypatch, handler)
-    kb_id, _ = await _indexed_service(service)
-    result = await service.query(
-        kb_id,
+    _kb_id, _, version_id = await _indexed_service(service)
+    result = await service.query_pipeline_version(
+        version_id,
         "PRIVATE-RAG-QUESTION",
         top_k=1,
-        retrieval={"mode": "fulltext"},
+        retrieval={"mode": "vector"},
     )
 
     assert result["answer"] == "MANAGED-RAG-ANSWER"
@@ -300,14 +332,14 @@ async def test_managed_rag_query_fails_closed_after_one_post_without_fallback(
         return httpx.Response(503, json={"error": "private upstream body"})
 
     service, _ = _managed_stack(tmp_path, monkeypatch, handler)
-    kb_id, _ = await _indexed_service(service)
+    _kb_id, _, version_id = await _indexed_service(service)
 
     with pytest.raises(ManagedRagGenerationRouteError) as caught:
-        await service.query(
-            kb_id,
+        await service.query_pipeline_version(
+            version_id,
             "PRIVATE-RAG-QUESTION",
             top_k=1,
-            retrieval={"mode": "fulltext"},
+            retrieval={"mode": "vector"},
         )
 
     assert len(requests) == 1
@@ -332,12 +364,12 @@ async def test_managed_rag_query_explicit_extractive_fallback_is_not_model_succe
         handler,
         query_fallback="extractive",
     )
-    kb_id, _ = await _indexed_service(service)
-    result = await service.query(
-        kb_id,
+    _kb_id, _, version_id = await _indexed_service(service)
+    result = await service.query_pipeline_version(
+        version_id,
         "PRIVATE-RAG-QUESTION",
         top_k=1,
-        retrieval={"mode": "fulltext"},
+        retrieval={"mode": "vector"},
     )
 
     assert len(requests) == 1
@@ -359,14 +391,14 @@ async def test_managed_rag_query_cancellation_closes_the_parent_run(
         raise asyncio.CancelledError
 
     service, repository = _managed_stack(tmp_path, monkeypatch, handler)
-    kb_id, _ = await _indexed_service(service)
+    _kb_id, _, version_id = await _indexed_service(service)
 
     with pytest.raises(asyncio.CancelledError):
-        await service.query(
-            kb_id,
+        await service.query_pipeline_version(
+            version_id,
             "PRIVATE-RAG-QUESTION",
             top_k=1,
-            retrieval={"mode": "fulltext"},
+            retrieval={"mode": "vector"},
         )
 
     evidence = repository.list_workload_receipts(
@@ -419,8 +451,12 @@ async def test_managed_processor_continue_on_error_never_replays_failed_document
 
     service, repository = _managed_stack(tmp_path, monkeypatch, handler)
     kb = service.create_knowledge_base("managed processor")
-    bad = await service.upload_document(kb["id"], "bad.txt", b"BAD-PRIVATE-DOC")
-    good = await service.upload_document(kb["id"], "good.txt", b"GOOD-PRIVATE-DOC")
+    bad = await service.upload_document(
+        kb["id"], "bad.txt", b"BAD-PRIVATE-DOC", pipeline_only=True
+    )
+    good = await service.upload_document(
+        kb["id"], "good.txt", b"GOOD-PRIVATE-DOC", pipeline_only=True
+    )
     draft = service.update_pipeline_draft(
         kb["id"],
         {
@@ -430,6 +466,7 @@ async def test_managed_processor_continue_on_error_never_replays_failed_document
                 "failure_policy": "continue_on_error",
             }
         },
+        retrieval_profile={"mode": "vector"},
     )
     job = service.create_pipeline_job(
         kb["id"],
@@ -471,7 +508,7 @@ async def test_managed_processor_exact_draft_model_mismatch_blocks_before_post(
             or httpx.Response(200, json={})
         ),
     )
-    kb_id, document_id = await _indexed_service(service)
+    kb_id, document_id, _version_id = await _indexed_service(service)
 
     with pytest.raises(ProcessorGenerationError) as caught:
         await service.preview_pipeline_processor(
@@ -501,7 +538,7 @@ async def test_managed_processor_empty_draft_model_is_rejected_before_control_pl
             or httpx.Response(200, json={})
         ),
     )
-    kb_id, document_id = await _indexed_service(service)
+    kb_id, document_id, _version_id = await _indexed_service(service)
 
     with pytest.raises(PipelineDraftValidationError, match="model_id is invalid"):
         await service.preview_pipeline_processor(

@@ -119,6 +119,7 @@ interface PipelineDraftResponse {
   index_schema_version: number;
   embedding_profile: Record<string, unknown>;
   retrieval_profile: Record<string, unknown>;
+  content_index_contract?: ContentIndexContract;
   index_contract?: Record<string, unknown>;
   vector_backend_readiness?: VectorBackendReadiness;
   stages: PipelineDraftStage[];
@@ -155,7 +156,11 @@ interface PipelineDraftEdits {
   preserveCodeBlocks: boolean;
   removeRepeatedHeadersFooters: boolean;
   maxGeneratedItems: string;
-  strategy: "recursive_character" | "parent_child";
+  strategy:
+    | "recursive_estimated_token"
+    | "parent_child_estimated_token"
+    | "recursive_character"
+    | "parent_child";
   chunkSize: string;
   chunkOverlap: string;
   separators: string;
@@ -233,6 +238,15 @@ interface VectorBackendReadiness {
   distance_contract: string;
 }
 
+interface ContentIndexContract {
+  contract_version?: string;
+  chunker_contract_version?: string;
+  lexical_contract_version?: string;
+  parser_contract_version?: string;
+  status?: "current" | "legacy_read_only";
+  components?: Record<string, "current" | "legacy_read_only">;
+}
+
 interface PipelineJobStage {
   id: string;
   title: string;
@@ -254,6 +268,8 @@ interface PipelineJob {
   attempt: number;
   error: string | null;
   warnings: string[];
+  content_index_contract?: ContentIndexContract;
+  chunking_receipt?: Record<string, unknown>;
   document_results: Array<{
     source_id: string;
     filename: string;
@@ -306,6 +322,8 @@ interface PipelineVersion {
   vector_index_ready?: boolean;
   lexical_index_ready?: boolean;
   index_contract?: Record<string, unknown>;
+  content_index_contract?: ContentIndexContract;
+  chunking_receipt?: Record<string, unknown>;
   vector_backend_readiness?: VectorBackendReadiness;
   created_at: number;
   activated_at: number | null;
@@ -315,6 +333,18 @@ interface PipelineVersionListResponse {
   versions: PipelineVersion[];
   version_count: number;
   active_version_id: string | null;
+}
+
+export function isPipelineVersionFirstActivationBlocked(
+  version: Pick<
+    PipelineVersion,
+    "activated_at" | "content_index_contract" | "index_schema_version"
+  >,
+) {
+  return version.activated_at == null && (
+    version.content_index_contract?.status !== "current"
+    || (version.index_schema_version ?? 1) < 3
+  );
 }
 
 interface PipelineVersionQueryResponse {
@@ -437,15 +467,103 @@ interface RagUploadQueueItem {
   status: RagUploadStatus;
   error: string;
   chunkCount: number | null;
+  ingestionStatus: string | null;
 }
 
-export function ragUploadStatusLabel(status: RagUploadStatus) {
+export function ragUploadStatusLabel(
+  status: RagUploadStatus,
+  ingestionStatus?: string | null,
+) {
   if (status === "queued") return "等待上传";
-  if (status === "uploading") return "正在入库";
+  if (status === "uploading") return "正在上传";
+  if (status === "succeeded" && ingestionStatus === "pipeline_required") {
+    return "已上传，待流水线";
+  }
   if (status === "succeeded") return "已完成";
   if (status === "failed") return "失败";
   if (status === "cancel_requested") return "已请求取消，请刷新确认";
   return "已取消";
+}
+
+type PipelineDraftExecutionDisposition = {
+  status: "blocked" | "diagnostic_only" | "normal";
+  canExecute: boolean;
+  message: string;
+};
+
+export function draftExecutionDisposition(
+  contract: ContentIndexContract | undefined,
+  retrievalMode: unknown,
+  indexSchemaVersion: unknown,
+): PipelineDraftExecutionDisposition {
+  if (Number(indexSchemaVersion) !== 3) {
+    return {
+      status: "blocked",
+      canExecute: false,
+      message: "历史索引 schema 只读，不能新建候选。",
+    };
+  }
+  const components = contract?.components ?? {};
+  if (components.chunker !== "current") {
+    return {
+      status: "blocked",
+      canExecute: false,
+      message: "历史字符分块合同只读；请先保存估算 Token 分块预算。",
+    };
+  }
+  const mode = String(retrievalMode || "hybrid");
+  if (
+    (mode === "fulltext" || mode === "hybrid") &&
+    components.lexical !== "current"
+  ) {
+    return {
+      status: "blocked",
+      canExecute: false,
+      message: "4A 尚未提供 lexical v2；fulltext/hybrid 候选将在 4B 开放。",
+    };
+  }
+  if (
+    contract?.status === "current" &&
+    components.chunker === "current" &&
+    components.lexical === "current" &&
+    components.parser === "current"
+  ) {
+    return {
+      status: "normal",
+      canExecute: true,
+      message: "内容索引合同完整，可构建候选。",
+    };
+  }
+  return {
+    status: "diagnostic_only",
+    canExecute: true,
+    message: "当前仅允许 vector-only Diagnostic 候选；不能首次激活或晋级。",
+  };
+}
+
+export function chunkerEditsForStrategy(
+  current: PipelineDraftEdits,
+  strategy: PipelineDraftEdits["strategy"],
+): PipelineDraftEdits {
+  const leavesLegacy =
+    (current.strategy === "recursive_character" ||
+      current.strategy === "parent_child") &&
+    (strategy === "recursive_estimated_token" ||
+      strategy === "parent_child_estimated_token");
+  return {
+    ...current,
+    strategy,
+    ...(leavesLegacy
+      ? {
+          chunkSize: "500",
+          chunkOverlap: "50",
+          parentChunkSize: "1500",
+          parentChunkOverlap: "100",
+          childChunkSize: "400",
+          childChunkOverlap: "50",
+        }
+      : {}),
+  };
 }
 
 const EMPTY_DOCUMENT_WARNING_SUMMARY: RagDocumentWarningSummary = {
@@ -605,7 +723,7 @@ function embeddingProfileSection(
   return isUnknownRecord(value) ? value : {};
 }
 
-function draftEditsFromResponse(draft: PipelineDraftResponse): PipelineDraftEdits {
+export function draftEditsFromResponse(draft: PipelineDraftResponse): PipelineDraftEdits {
   const processor = draft.stages.find((stage) => stage.kind === "processor")?.config ?? {};
   const chunker = draft.stages.find((stage) => stage.kind === "chunker")?.config ?? {};
   const retrieval = draft.retrieval_profile ?? {};
@@ -613,7 +731,17 @@ function draftEditsFromResponse(draft: PipelineDraftResponse): PipelineDraftEdit
     draft.embedding_profile,
     "requested",
   );
-  const strategy = chunker.strategy === "parent_child" ? "parent_child" : "recursive_character";
+  const rawStrategy = String(chunker.strategy ?? "recursive_character");
+  const strategy = (
+    [
+      "recursive_estimated_token",
+      "parent_child_estimated_token",
+      "recursive_character",
+      "parent_child",
+    ].includes(rawStrategy)
+      ? rawStrategy
+      : "recursive_character"
+  ) as PipelineDraftEdits["strategy"];
   const retrievalMode = ["vector", "fulltext", "hybrid"].includes(String(retrieval.mode))
     ? String(retrieval.mode) as PipelineDraftEdits["retrievalMode"]
     : "hybrid";
@@ -831,7 +959,7 @@ export default function RagPage() {
     preserveCodeBlocks: true,
     removeRepeatedHeadersFooters: true,
     maxGeneratedItems: "20",
-    strategy: "recursive_character",
+    strategy: "recursive_estimated_token",
     chunkSize: "",
     chunkOverlap: "",
     separators: "",
@@ -939,6 +1067,11 @@ export default function RagPage() {
   const effectiveEmbeddingProfile = embeddingProfileSection(
     pipelineDraft?.embedding_profile,
     "effective",
+  );
+  const pipelineDraftExecution = draftExecutionDisposition(
+    pipelineDraft?.content_index_contract,
+    pipelineDraft?.retrieval_profile?.mode,
+    pipelineDraft?.index_schema_version,
   );
   const ragFileSelectionDisabled = ragCapabilityDisabled || Boolean(selectedKnowledgeBase?.corpus_locked);
 
@@ -1264,7 +1397,16 @@ export default function RagPage() {
       setPipelineDraft(draftData);
       setPipelineDraftEdits(draftEditsFromResponse(draftData));
       setPipelinePreflight(null);
-      setPipelineDraftNotice("高级 RAG 草稿已保存；执行候选版本并手动激活前，不影响现有检索与聊天 RAG。");
+      const savedDisposition = draftExecutionDisposition(
+        draftData.content_index_contract,
+        draftData.retrieval_profile?.mode,
+        draftData.index_schema_version,
+      );
+      setPipelineDraftNotice(
+        savedDisposition.status === "normal"
+          ? "高级 RAG 草稿已保存；候选版本经预览与手动激活前，不影响现有检索。"
+          : `高级 RAG 草稿已保存。${savedDisposition.message}`,
+      );
     } catch (saveError) {
       setPipelineError(saveError instanceof Error ? saveError.message : "保存流水线草稿失败。");
     } finally {
@@ -1313,7 +1455,7 @@ export default function RagPage() {
       setPipelinePreflight(preflightData);
       setPipelineDraftNotice(
         preflightData.ready
-          ? "预检通过：当前草稿配置与已入库文档元数据一致。"
+          ? "预检通过：当前草稿配置与源文档元数据一致。"
           : "预检完成：请查看 warnings 与 stage 检查结果。",
       );
     } catch (preflightError) {
@@ -1327,6 +1469,10 @@ export default function RagPage() {
 
   async function executePipelineDraft() {
     if (!selectedKbId || !pipelineDraft || isExecutingPipeline) return;
+    if (!pipelineDraftExecution.canExecute) {
+      setPipelineError(pipelineDraftExecution.message);
+      return;
+    }
     setIsExecutingPipeline(true);
     setPipelineError("");
     setPipelineDraftNotice("");
@@ -1344,7 +1490,11 @@ export default function RagPage() {
       const created = (await response.json()) as PipelineJob;
       setSelectedPipelineJobId(created.job_id);
       setPipelineJobs((current) => [created, ...current]);
-      setPipelineDraftNotice("执行任务已创建。候选索引完成后需人工预览并激活，当前检索不会自动切换。");
+      setPipelineDraftNotice(
+        pipelineDraftExecution.status === "diagnostic_only"
+          ? "Diagnostic 执行任务已创建。该候选不能首次激活或晋级，当前检索不会切换。"
+          : "执行任务已创建。候选索引完成后需人工预览并激活，当前检索不会自动切换。",
+      );
       await loadPipelineRuntime(selectedKbId);
     } catch (executeError) {
       setPipelineError(
@@ -1523,7 +1673,11 @@ export default function RagPage() {
     setUploadWarningSummary(EMPTY_DOCUMENT_WARNING_SUMMARY);
     try {
       const uploaded = await uploadFileRequest(file, selectedKbId);
-      setNotice(`文档「${uploaded.filename}」已入库，切成 ${uploaded.chunk_count} 个片段。`);
+      setNotice(
+        uploaded.ingestion_status === "pipeline_required"
+          ? `源文件「${uploaded.filename}」已保存，等待知识流水线处理。`
+          : `文档「${uploaded.filename}」已完成历史索引，共 ${uploaded.chunk_count} 个片段。`,
+      );
       setUploadWarningSummary(getRagOfficeWarningSummary(uploaded));
       await refreshAfterUploads(selectedKbId);
       return true;
@@ -1588,6 +1742,7 @@ export default function RagPage() {
                     status: "succeeded",
                     error: "",
                     chunkCount: uploaded.chunk_count,
+                    ingestionStatus: uploaded.ingestion_status ?? null,
                   }
                 : candidate,
             ),
@@ -1629,7 +1784,7 @@ export default function RagPage() {
         cancelRequested > 0
           ? `已请求取消 ${cancelRequested} 个上传并自动刷新文档清单；服务端可能仍在处理，请稍后再次刷新确认。`
           : succeeded > 0
-            ? `批量入库完成：${succeeded} 个成功${failed ? `，${failed} 个失败` : ""}。`
+            ? `批量上传完成：${succeeded} 个源文件已保存并等待流水线${failed ? `，${failed} 个失败` : ""}。`
           : "",
       );
       if (warnings.length > 0) {
@@ -1677,6 +1832,7 @@ export default function RagPage() {
             ? "XLSX 需要逐个确认“加入资料库”用途，请单独选择该文件。"
             : ""),
         chunkCount: null,
+        ingestionStatus: null,
       };
     });
     setUploadQueue((current) => [...current, ...created]);
@@ -1705,7 +1861,13 @@ export default function RagPage() {
   function retryQueuedUpload(item: RagUploadQueueItem) {
     if (isUploading || item.knowledgeBaseId !== selectedKbId) return;
     cancelledUploadIdsRef.current.delete(item.id);
-    const queued = { ...item, status: "queued" as const, error: "", chunkCount: null };
+    const queued = {
+      ...item,
+      status: "queued" as const,
+      error: "",
+      chunkCount: null,
+      ingestionStatus: null,
+    };
     setUploadQueue((current) =>
       current.map((candidate) => (candidate.id === item.id ? queued : candidate)),
     );
@@ -1806,7 +1968,7 @@ export default function RagPage() {
         <div>
           <p className="text-sm font-semibold text-white">资料库服务台</p>
           <p className="mt-2 text-sm leading-6 text-slate-400">
-            本地 RAG 已接管资料库：上传文档后自动解析、切块、向量化，面试间可以直接引用。
+            上传只保存源文档；执行并激活合格的知识流水线版本后，面试间才能引用。
           </p>
           <div className="mt-4 rounded-lg border border-hire-300/20 bg-hire-300/10 p-3 text-xs leading-5 text-hire-50">
             {ragFormatHint}
@@ -2031,7 +2193,7 @@ export default function RagPage() {
               {selectedKnowledgeBase.corpus_locked ? (
                 <div className="mt-5 rounded-lg border border-amber-300/25 bg-amber-300/10 px-4 py-3 text-sm text-amber-100">
                   <strong>RAG 引擎标准基准语料已锁定。</strong>
-                  <span className="ml-2 text-amber-100/80">该语料只用于检索一致性与回归验证，不代表业务知识库质量。不能上传、删除文档或审批写入；仍可调整流水线、构建候选版本、评测、激活和回滚。</span>
+                  <span className="ml-2 text-amber-100/80">该语料只用于检索一致性与回归验证，不代表业务知识库质量。4A 期间不能新建标准 Benchmark 实例；现有锁定库仅可查看历史证据或运行 vector-only Diagnostic。新的标准 content-contract 候选、固定评测和首次激活须等到 4C；曾激活版本仍可回滚。</span>
                 </div>
               ) : null}
 
@@ -2080,10 +2242,10 @@ export default function RagPage() {
                 onDrop={handleDrop}
               >
                 <p className="text-sm font-semibold text-white">
-                  {selectedKnowledgeBase.corpus_locked ? "此 Benchmark 知识库的标准语料不可变更" : isUploading ? "正在按队列入库..." : "拖拽一批文档到这里，或点击上传"}
+                  {selectedKnowledgeBase.corpus_locked ? "此 Benchmark 知识库的标准语料不可变更" : isUploading ? "正在按队列上传源文件..." : "拖拽一批文档到这里，或点击上传"}
                 </p>
                 <p className="mt-2 text-xs text-slate-400">
-                  {selectedKnowledgeBase.corpus_locked ? "请在流水线中调整处理、分块和检索配置，并用固定评测版本比较候选。" : ragFormatHint}
+                  {selectedKnowledgeBase.corpus_locked ? "可查看历史证据；4A 只允许 vector-only Diagnostic，标准基准重建和固定评测等待 4C。" : ragFormatHint}
                 </p>
                 <button
                   className="mt-4 rounded-full bg-white/[0.08] px-4 py-2 text-sm font-semibold text-slate-100 transition hover:bg-white/[0.12] disabled:cursor-not-allowed disabled:opacity-50"
@@ -2110,7 +2272,7 @@ export default function RagPage() {
                     <div>
                       <h3 className="text-sm font-semibold text-white">批量上传队列</h3>
                       <p className="mt-0.5 text-[11px] text-slate-400">
-                        文件逐个入库；浏览器取消不保证服务端停止，系统会刷新文档清单确认结果。
+                        文件逐个上传为待处理源文档；浏览器取消不保证服务端停止，系统会刷新文档清单确认结果。
                       </p>
                     </div>
                     <button
@@ -2145,8 +2307,10 @@ export default function RagPage() {
                               {item.file.name}
                             </p>
                             <p className="mt-0.5 text-[11px] text-slate-400">
-                              {formatFileSize(item.file.size)} · {ragUploadStatusLabel(item.status)}
-                              {item.chunkCount != null ? ` · ${item.chunkCount} 个片段` : ""}
+                              {formatFileSize(item.file.size)} · {ragUploadStatusLabel(item.status, item.ingestionStatus)}
+                              {item.ingestionStatus !== "pipeline_required" && item.chunkCount != null
+                                ? ` · ${item.chunkCount} 个片段`
+                                : ""}
                             </p>
                             {item.error ? (
                               <p className="mt-1 text-xs text-rose-200" role="alert">
@@ -2211,7 +2375,7 @@ export default function RagPage() {
                       <>
                         <div className="rounded-lg border border-hire-300/20 bg-hire-300/10 p-3 text-xs leading-5 text-hire-50">
                           <span className="font-semibold">使用须知：</span>
-                          保存草稿不会改变检索。执行后会生成隔离的候选索引，预览并手动激活后，RAG、聊天和知识引用才会切换；激活旧版本即可回滚。
+                          保存草稿不会改变检索。4A 仅允许 vector-only Diagnostic 候选；完整内容合同合入前不能首次激活或晋级。曾激活旧版本仍可回滚。
                         </div>
 
                         <div className="mt-3 flex flex-col gap-3 rounded-lg border border-white/10 bg-ink-950/35 p-3 sm:flex-row sm:items-center sm:justify-between">
@@ -2244,9 +2408,18 @@ export default function RagPage() {
                             </button>
                             <button
                               className="inline-flex items-center gap-1.5 rounded-lg bg-hire-300 px-3 py-1.5 text-xs font-semibold text-ink-950 transition hover:bg-hire-200 disabled:cursor-not-allowed disabled:opacity-50"
-                              disabled={isExecutingPipeline || !pipelineDraft || documents.length === 0}
+                              disabled={
+                                isExecutingPipeline ||
+                                !pipelineDraft ||
+                                documents.length === 0 ||
+                                !pipelineDraftExecution.canExecute
+                              }
                               onClick={() => void executePipelineDraft()}
-                              title={documents.length === 0 ? "请先上传至少一份文档" : "构建候选知识索引"}
+                              title={
+                                documents.length === 0
+                                  ? "请先上传至少一份文档"
+                                  : pipelineDraftExecution.message
+                              }
                               type="button"
                             >
                               {isExecutingPipeline ? "创建任务中..." : "执行草稿"}
@@ -2482,14 +2655,24 @@ export default function RagPage() {
                                   <span className="text-xs font-medium text-slate-300">分块策略</span>
                                   <select
                                     className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50"
-                                    onChange={(event) => setPipelineDraftEdits((current) => ({
-                                      ...current,
-                                      strategy: event.target.value as PipelineDraftEdits["strategy"],
-                                    }))}
+                                    onChange={(event) =>
+                                      setPipelineDraftEdits((current) =>
+                                        chunkerEditsForStrategy(
+                                          current,
+                                          event.target.value as PipelineDraftEdits["strategy"],
+                                        ),
+                                      )
+                                    }
                                     value={pipelineDraftEdits.strategy}
                                   >
-                                    <option value="recursive_character">递归字符分块</option>
-                                    <option value="parent_child">父子分段</option>
+                                    {pipelineDraftEdits.strategy === "recursive_character" ? (
+                                      <option disabled value="recursive_character">递归字符分块（历史只读）</option>
+                                    ) : null}
+                                    {pipelineDraftEdits.strategy === "parent_child" ? (
+                                      <option disabled value="parent_child">父子字符分段（历史只读）</option>
+                                    ) : null}
+                                    <option value="recursive_estimated_token">递归估算 Token 分块</option>
+                                    <option value="parent_child_estimated_token">父子估算 Token 分段</option>
                                   </select>
                                 </label>
                                 <label className="block">
@@ -2543,13 +2726,21 @@ export default function RagPage() {
                                         : `（不可用：${pipelineDraft.vector_backend_readiness.reason_code || "unknown"}）`}
                                     </p>
                                   ) : null}
+                                  <p className={pipelineDraftExecution.status === "normal" ? "text-slate-500" : "text-amber-200"}>
+                                    内容合同：分块 {pipelineDraft.content_index_contract?.components?.chunker || "legacy_read_only"}
+                                    {" · "}全文 {pipelineDraft.content_index_contract?.components?.lexical || "legacy_read_only"}
+                                    {" · "}解析 {pipelineDraft.content_index_contract?.components?.parser || "legacy_read_only"}
+                                    {"（"}{pipelineDraftExecution.message}{"）"}
+                                  </p>
                                 </div>
                               ) : null}
 
-                              {pipelineDraftEdits.strategy === "recursive_character" ? (
+                              {pipelineDraftEdits.strategy === "recursive_character" || pipelineDraftEdits.strategy === "recursive_estimated_token" ? (
                                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
                                   <label className="block">
-                                    <span className="text-xs font-medium text-slate-300">分块大小</span>
+                                    <span className="text-xs font-medium text-slate-300">
+                                      分块大小（{pipelineDraftEdits.strategy === "recursive_estimated_token" ? "估算 Token" : "字符，历史只读"}）
+                                    </span>
                                     <input
                                       className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50"
                                       max={4000}
@@ -2560,7 +2751,9 @@ export default function RagPage() {
                                     />
                                   </label>
                                   <label className="block">
-                                    <span className="text-xs font-medium text-slate-300">重叠字符</span>
+                                    <span className="text-xs font-medium text-slate-300">
+                                      重叠（{pipelineDraftEdits.strategy === "recursive_estimated_token" ? "估算 Token" : "字符，历史只读"}）
+                                    </span>
                                     <input
                                       className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50"
                                       min={0}
@@ -2582,14 +2775,18 @@ export default function RagPage() {
                                 <div className="mt-3 space-y-3">
                                   <div className="grid gap-3 sm:grid-cols-2">
                                     <label className="block">
-                                      <span className="text-xs font-medium text-slate-300">父段大小 / 重叠</span>
+                                      <span className="text-xs font-medium text-slate-300">
+                                        父段大小 / 重叠（{pipelineDraftEdits.strategy === "parent_child_estimated_token" ? "估算 Token" : "字符，历史只读"}）
+                                      </span>
                                       <div className="mt-2 grid grid-cols-2 gap-2">
                                         <input className="w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50" min={100} onChange={(event) => setPipelineDraftEdits((current) => ({ ...current, parentChunkSize: event.target.value }))} type="number" value={pipelineDraftEdits.parentChunkSize} />
                                         <input className="w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50" min={0} onChange={(event) => setPipelineDraftEdits((current) => ({ ...current, parentChunkOverlap: event.target.value }))} type="number" value={pipelineDraftEdits.parentChunkOverlap} />
                                       </div>
                                     </label>
                                     <label className="block">
-                                      <span className="text-xs font-medium text-slate-300">子段大小 / 重叠</span>
+                                      <span className="text-xs font-medium text-slate-300">
+                                        子段大小 / 重叠（{pipelineDraftEdits.strategy === "parent_child_estimated_token" ? "估算 Token" : "字符，历史只读"}）
+                                      </span>
                                       <div className="mt-2 grid grid-cols-2 gap-2">
                                         <input className="w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50" min={100} onChange={(event) => setPipelineDraftEdits((current) => ({ ...current, childChunkSize: event.target.value }))} type="number" value={pipelineDraftEdits.childChunkSize} />
                                         <input className="w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50" min={0} onChange={(event) => setPipelineDraftEdits((current) => ({ ...current, childChunkOverlap: event.target.value }))} type="number" value={pipelineDraftEdits.childChunkOverlap} />
@@ -2720,7 +2917,7 @@ export default function RagPage() {
                             </div>
                             {!pipelinePreflight ? (
                               <p className="mt-3 text-xs leading-5 text-slate-400">
-                                点击“运行预检”检查当前草稿与已入库文档、Artifact、Chunk 的一致性。
+                                点击“运行预检”检查当前草稿、源文档与已有 Pipeline Artifact/Chunk 的一致性。
                               </p>
                             ) : (
                               <div className="mt-3 space-y-3">
@@ -2942,6 +3139,10 @@ export default function RagPage() {
                                       <p className="mt-1 text-[10px] text-slate-500">
                                         index schema v{versionItem.index_schema_version ?? 1} · vector {pipelineIndexUsesVector(versionItem.index_contract) === false ? "not applicable" : versionItem.vector_index_ready === false ? "incomplete" : "ready"} · fulltext {versionItem.lexical_index_ready ? "ready" : "legacy/off"}
                                       </p>
+                                      <p className={versionItem.content_index_contract?.status === "current" ? "mt-1 text-[10px] text-slate-500" : "mt-1 text-[10px] text-amber-200"}>
+                                        content {versionItem.content_index_contract?.chunker_contract_version || "legacy"}
+                                        {versionItem.content_index_contract?.status === "current" ? " · current" : " · read-only / diagnostic"}
+                                      </p>
                                       {pipelineIndexUsesVector(versionItem.index_contract) !== false && versionItem.vector_backend_readiness ? (
                                         <p className="mt-1 text-[10px] text-slate-500">
                                           backend {versionItem.vector_backend_readiness.configured_backend} → {versionItem.vector_backend_readiness.effective_backend} · {versionItem.vector_backend_readiness.distance_contract}
@@ -2960,8 +3161,16 @@ export default function RagPage() {
                                       {!versionItem.active ? (
                                         <button
                                           className="rounded-md bg-hire-300 px-2.5 py-1.5 text-[11px] font-semibold text-ink-950 transition hover:bg-hire-200 disabled:opacity-50"
-                                          disabled={Boolean(activatingVersionId)}
+                                          disabled={
+                                            Boolean(activatingVersionId)
+                                            || isPipelineVersionFirstActivationBlocked(versionItem)
+                                          }
                                           onClick={() => void activatePipelineVersion(versionItem.version_id)}
+                                          title={
+                                            isPipelineVersionFirstActivationBlocked(versionItem)
+                                              ? "内容索引合同尚未完整，只能预览诊断，不能首次激活"
+                                              : undefined
+                                          }
                                           type="button"
                                         >
                                           {activePipelineVersionId ? "回滚/切换" : "激活"}
@@ -3148,7 +3357,7 @@ export default function RagPage() {
                     </div>
                   ) : documents.length === 0 ? (
                     <div className="bg-white/[0.035] p-6 text-sm leading-6 text-slate-400">
-                      还没有文档。上传第一份资料后，面试间就能引用它回答问题。
+                      还没有文档。上传源文件后，需执行并激活合格的知识流水线版本，面试间才能引用。
                     </div>
                   ) : (
                     <div className="divide-y divide-white/10">

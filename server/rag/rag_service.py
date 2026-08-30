@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import hmac
 import io
 import json
+import math
 import mimetypes
 import os
 import re
 import shutil
 import threading
 import time
+import unicodedata
 import uuid
 from pathlib import Path
 from typing import Any
@@ -39,6 +42,21 @@ from .document_parser import (
     supported_extensions,
 )
 from .document_processor import ProcessedDocument, StructuredDocumentProcessor
+from .chunking_receipt import (
+    candidate_namespace_fingerprint,
+    canonical_chunk_sequence_hash,
+    chunker_profile_fingerprint,
+    chunking_receipt_is_valid as _chunking_receipt_is_valid,
+    safe_chunker_profile,
+    safe_chunking_receipt as _safe_chunking_receipt,
+)
+from .content_identity import (
+    generated_parent_identity,
+    generated_parent_window_identity,
+    generated_segment_source_mapping,
+    generated_source_block_match_status,
+    resolve_generated_item_parent_identity,
+)
 from .embedder import EmbeddingClient, EmbeddingError
 from .lexical_store import LexicalChunk, LexicalSearchResult, SqliteLexicalStore
 from .reranker import RerankDocument, RerankItem, RerankOutcome, RerankService
@@ -51,7 +69,13 @@ from .retrieval import (
     select_candidates,
     select_v3_candidates,
 )
-from .source_metadata import normalize_heading_path
+from .source_metadata import (
+    heading_path_boundary,
+    heading_path_segments,
+    heading_path_source_hash,
+    heading_path_source_truncated,
+    normalize_heading_path,
+)
 from .processor_generator import (
     ProcessorGenerationError,
     ProcessorGenerationOutcome,
@@ -66,11 +90,26 @@ from .pipeline_graph import (
     sync_graph_from_draft,
     validate_pipeline_graph,
 )
-from .splitter import DEFAULT_SEPARATORS, ParentChildTextSplitter, TextSplitter
+from .splitter import (
+    DEFAULT_SEPARATORS,
+    ESTIMATED_TOKEN_CHUNKER_CONTRACT,
+    ESTIMATED_TOKEN_ESTIMATOR,
+    ESTIMATED_TOKEN_SIZE_UNIT,
+    EstimatedTokenParentChildTextSplitter,
+    EstimatedTokenTextSplitter,
+    ParentChildTextSplitter,
+    TextSplitter,
+    bounded_generated_index_text as _bounded_generated_index_text,
+    bounded_heading_prefix as _bounded_heading_prefix,
+    heading_prefix_budget as _heading_prefix_budget,
+    estimate_mixed_cjk_latin_v1_tokens as _estimate_rag_tokens,
+    with_heading_prefix as _with_heading_prefix,
+)
 from .vector_store import (
     SearchResult,
     VectorChunk,
     VectorStore,
+    VectorStoreContractError,
     VectorStoreUnavailableError,
     create_vector_store,
 )
@@ -104,7 +143,24 @@ EMBEDDING_PROVIDER_UNAVAILABLE = "unavailable"
 EMBEDDING_SPACE_CONTRACT_VERSION = "modelmirror-provider-embedding-space-v1"
 INDEX_SCHEMA_VERSION = 3
 VECTOR_DISTANCE_CONTRACT = "cosine_v1"
+CONTENT_INDEX_CONTRACT_VERSION = "rag-content-index-contract-v1"
+LEGACY_CHARACTER_CHUNKER_CONTRACT = "legacy-character-v1"
+LEGACY_LEXICAL_CONTRACT = "sqlite-fts5-lexical-v1"
+CURRENT_LEXICAL_CONTRACT = "sqlite-fts5-lexical-v2"
+LEGACY_PARSER_CONTRACT = "structured-local-parser-v1"
+CURRENT_PARSER_CONTRACT = "canonical-structured-parser-v2"
 _WARNING_CONTROL_CHARACTERS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def has_prior_activation(value: Any) -> bool:
+    """Accept only a finite positive persisted activation timestamp."""
+
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(float(value))
+        and float(value) > 0
+    )
 
 
 def _bounded_document_warnings(values: Any) -> list[str]:
@@ -186,6 +242,14 @@ class PipelineVersionNotFoundError(RagError):
 
 class PipelineJobStateError(RagError):
     """Raised when a pipeline job operation is invalid for its current state."""
+
+
+class PipelineContentContractError(PipelineJobStateError):
+    """Stable fail-closed error for legacy content-index contracts."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.code = "rag_content_contract_legacy_read_only"
 
 
 class PipelineGraphRevisionError(RagError):
@@ -333,6 +397,20 @@ class RagService:
             chunk_size=int(os.getenv("RAG_CHUNK_SIZE", "500")),
             chunk_overlap=int(os.getenv("RAG_CHUNK_OVERLAP", "50")),
         )
+        token_chunk_size = _safe_env_int(
+            "RAG_TOKEN_CHUNK_SIZE",
+            500,
+            minimum=100,
+        )
+        token_chunk_overlap = _safe_env_int(
+            "RAG_TOKEN_CHUNK_OVERLAP",
+            50,
+            minimum=0,
+        )
+        if token_chunk_overlap >= token_chunk_size:
+            token_chunk_overlap = min(50, token_chunk_size - 1)
+        self._default_token_chunk_size = token_chunk_size
+        self._default_token_chunk_overlap = token_chunk_overlap
         if llm_enabled is None:
             self.llm_enabled = os.getenv("RAG_DISABLE_LLM", "").lower() not in {"1", "true", "yes"}
         else:
@@ -708,9 +786,15 @@ class RagService:
         content: bytes,
         declared_media_type: str | None = None,
         allow_locked: bool = False,
-        pipeline_only: bool = False,
+        pipeline_only: bool = True,
     ) -> dict[str, Any]:
-        """Hold a write claim so knowledge-base deletion cannot finalize mid-upload."""
+        """Persist source material; candidate indexes are built only by Pipeline Jobs."""
+
+        if pipeline_only is not True:
+            raise PipelineContentContractError(
+                "Direct legacy document indexing is read-only; upload the source and "
+                "run an explicit estimated-token Pipeline Job instead."
+            )
 
         with self._metadata_lock:
             metadata = self._read_metadata_unlocked()
@@ -741,9 +825,15 @@ class RagService:
         filename: str,
         content: bytes,
         declared_media_type: str | None = None,
-        pipeline_only: bool = False,
+        pipeline_only: bool = True,
     ) -> dict[str, Any]:
-        """Save, parse, split, embed and index an uploaded document."""
+        """Save source material for a later explicit Pipeline Job."""
+
+        if pipeline_only is not True:
+            raise PipelineContentContractError(
+                "Direct legacy document indexing is read-only; upload the source and "
+                "run an explicit estimated-token Pipeline Job instead."
+            )
 
         metadata = self._read_metadata()
         self._ensure_kb_exists(metadata, kb_id)
@@ -1019,7 +1109,6 @@ class RagService:
         ).hexdigest()[:24]
         stored_path: Path | None = None
         derived_asset_id: str | None = None
-        indexed = False
         try:
             analysis = await asyncio.to_thread(
                 get_file_asset_service().resolve_analysis_artifact,
@@ -1032,8 +1121,6 @@ class RagService:
 
             filename = _safe_filename(analysis.source_filename or "analysis.txt")
             derived_name = f"{Path(filename).stem or 'analysis'}.analysis.txt"
-            chunks: list[str] = []
-            sources: list[tuple[int, str]] = []
             persistent_sections: list[str] = []
             for section in analysis.sections:
                 source_label = (
@@ -1041,44 +1128,8 @@ class RagService:
                     f"{analysis.connection_name}/{analysis.model_id}"
                 )
                 persistent_sections.append(f"[{source_label}]\n{section.text}")
-                section_chunks = self.splitter.split_text(section.text)
-                chunks.extend(section_chunks)
-                sources.extend((section.page, section.kind) for _ in section_chunks)
-            if not chunks:
-                raise UnsupportedDocumentError("识别结果没有可索引的文字片段。")
-
-            embeddings = await self.embedder.embed_texts(chunks)
-            vector_chunks = [
-                VectorChunk(
-                    id=f"{doc_id}_chunk_{index}",
-                    kb_id=kb_id,
-                    doc_id=doc_id,
-                    document_name=filename,
-                    text=text,
-                    embedding=embeddings[index],
-                    chunk_index=index,
-                    chunk_type="visual_analysis",
-                    page_number=sources[index][0],
-                    visual_kind=sources[index][1],
-                    source_block_id=clean_artifact,
-                )
-                for index, text in enumerate(chunks)
-            ]
-            lexical_chunks = [
-                LexicalChunk(
-                    chunk_id=item.id,
-                    namespace=kb_id,
-                    doc_id=doc_id,
-                    document_name=filename,
-                    text=item.text,
-                    chunk_index=item.chunk_index,
-                    chunk_type=item.chunk_type,
-                    page_number=item.page_number,
-                    visual_kind=item.visual_kind,
-                    source_block_id=item.source_block_id,
-                )
-                for item in vector_chunks
-            ]
+            if not any(str(section.text or "").strip() for section in analysis.sections):
+                raise UnsupportedDocumentError("识别结果没有可保存的文字内容。")
             derived_bytes = "\n\n".join(persistent_sections).encode("utf-8")
             target_dir = self.uploads_dir / kb_id
             target_dir.mkdir(parents=True, exist_ok=True)
@@ -1094,9 +1145,6 @@ class RagService:
                 declared_media_type="text/plain",
             )
             derived_asset_id = registered.asset_id
-            self.vector_store.add_chunks(vector_chunks)
-            self.lexical_store.add_chunks(lexical_chunks)
-            indexed = True
 
             now = time.time()
             document = {
@@ -1105,9 +1153,9 @@ class RagService:
                 "filename": filename,
                 "stored_path": str(stored_path),
                 "size": len(derived_bytes),
-                "chunk_count": len(chunks),
+                "chunk_count": 0,
                 "content_type": "text/plain",
-                "ingestion_status": "indexed_file_analysis",
+                "ingestion_status": "pipeline_required",
                 "visual_candidate": False,
                 "warnings": _bounded_document_warnings(analysis.warnings),
                 "content_hash": hashlib.sha256(derived_bytes).hexdigest(),
@@ -1148,9 +1196,6 @@ class RagService:
                 self._write_metadata_unlocked(latest)
             return self._document_payload(document)
         except Exception:
-            if indexed:
-                self.vector_store.delete_document(doc_id)
-                self.lexical_store.delete_document(doc_id)
             if stored_path is not None:
                 stored_path.unlink(missing_ok=True)
             if derived_asset_id:
@@ -1221,7 +1266,6 @@ class RagService:
         ).hexdigest()[:24]
         stored_path: Path | None = None
         derived_asset_id: str | None = None
-        indexed = False
         try:
             output_service = get_file_output_service()
             record, content = await asyncio.to_thread(
@@ -1250,21 +1294,9 @@ class RagService:
                 stored_path,
                 filename,
             )
-            chunks: list[str] = []
-            chunk_sources: list[dict[str, Any]] = []
             section_sources: list[dict[str, Any]] = []
             for section in parsed.sections:
                 heading_path = list(normalize_heading_path(section.heading_path))
-                heading_prefix = " > ".join(heading_path)
-                section_text = section.text
-                if (
-                    heading_prefix
-                    and section.text.strip() != heading_path[-1]
-                    and not section.text.lstrip().startswith(heading_prefix)
-                ):
-                    section_text = f"{heading_prefix}\n{section.text}"
-                section_chunks = self.splitter.split_text(section_text)
-                chunks.extend(section_chunks)
                 source = {
                     "page_number": section.page,
                     "slide": section.slide,
@@ -1276,51 +1308,8 @@ class RagService:
                 }
                 if len(section_sources) < MAX_FILE_OUTPUT_SECTION_SOURCES:
                     section_sources.append(source)
-                chunk_sources.extend(source for _chunk in section_chunks)
-            if not chunks:
-                raise UnsupportedDocumentError("文件输出没有可索引的文本片段。")
-
-            embeddings = await asyncio.to_thread(
-                self.embedder.embed_texts_locally,
-                chunks,
-            )
-            vector_chunks = [
-                VectorChunk(
-                    id=f"{doc_id}_chunk_{index}",
-                    kb_id=kb_id,
-                    doc_id=doc_id,
-                    document_name=filename,
-                    text=text,
-                    embedding=embeddings[index],
-                    chunk_index=index,
-                    chunk_type=("table" if chunk_sources[index]["sheet"] else "standard"),
-                    page_number=chunk_sources[index]["page_number"],
-                    slide=chunk_sources[index]["slide"],
-                    heading_path=tuple(chunk_sources[index]["heading_path"]),
-                    sheet=chunk_sources[index]["sheet"],
-                    row_range=chunk_sources[index]["row_range"],
-                    source_block_id=clean_output_id,
-                )
-                for index, text in enumerate(chunks)
-            ]
-            lexical_chunks = [
-                LexicalChunk(
-                    chunk_id=item.id,
-                    namespace=kb_id,
-                    doc_id=doc_id,
-                    document_name=filename,
-                    text=item.text,
-                    chunk_index=item.chunk_index,
-                    chunk_type=item.chunk_type,
-                    page_number=item.page_number,
-                    slide=item.slide,
-                    heading_path=item.heading_path,
-                    sheet=item.sheet,
-                    row_range=item.row_range,
-                    source_block_id=item.source_block_id,
-                )
-                for item in vector_chunks
-            ]
+            if not any(str(section.text or "").strip() for section in parsed.sections):
+                raise UnsupportedDocumentError("文件输出没有可保存的文本内容。")
 
             registered = await asyncio.to_thread(
                 get_file_asset_service().upload,
@@ -1331,9 +1320,6 @@ class RagService:
                 declared_media_type=record.media_type,
             )
             derived_asset_id = registered.asset_id
-            self.vector_store.add_chunks(vector_chunks)
-            self.lexical_store.add_chunks(lexical_chunks)
-            indexed = True
 
             now = time.time()
             document = {
@@ -1342,9 +1328,9 @@ class RagService:
                 "filename": filename,
                 "stored_path": str(stored_path),
                 "size": len(content),
-                "chunk_count": len(chunks),
+                "chunk_count": 0,
                 "content_type": record.media_type,
-                "ingestion_status": "indexed_file_output",
+                "ingestion_status": "pipeline_required",
                 "visual_candidate": False,
                 "warnings": _bounded_document_warnings(
                     [
@@ -1396,9 +1382,6 @@ class RagService:
                 self._write_metadata_unlocked(latest)
             return self._document_payload(document)
         except Exception:
-            if indexed:
-                self.vector_store.delete_document(doc_id)
-                self.lexical_store.delete_document(doc_id)
             if stored_path is not None:
                 stored_path.unlink(missing_ok=True)
             if derived_asset_id:
@@ -1820,6 +1803,9 @@ class RagService:
             ),
             "embedding_profile": json.loads(json.dumps(draft["embedding_profile"])),
             "retrieval_profile": json.loads(json.dumps(draft["retrieval_profile"])),
+            "content_index_contract": json.loads(
+                json.dumps(draft["content_index_contract"])
+            ),
             "index_contract": self._index_contract(
                 index_schema_version=int(
                     draft.get("index_schema_version", INDEX_SCHEMA_VERSION)
@@ -1866,7 +1852,7 @@ class RagService:
                     "metadata": {
                         "chunk_count": chunk_count,
                         "strategy": configs["stage_chunker"].get(
-                            "strategy", "recursive_character"
+                            "strategy", "recursive_estimated_token"
                         ),
                     },
                 },
@@ -1953,6 +1939,10 @@ class RagService:
             issues, compiled = self._validate_and_compile_pipeline_graph(kb_id, graph, draft)
             if issues or compiled is None:
                 raise PipelineGraphValidationError(issues)
+            self._assert_current_chunker_build_contract(
+                compiled.stage_updates,
+                draft.get("content_index_contract"),
+            )
 
             now = time.time()
             next_draft_version = int(draft["version"]) + 1
@@ -1967,6 +1957,10 @@ class RagService:
                 ),
                 "retrieval_profile": json.loads(json.dumps(compiled.retrieval_profile)),
                 "stages": json.loads(json.dumps(compiled.stage_updates)),
+                "content_index_contract": self._content_index_contract(
+                    compiled.stage_updates,
+                    draft.get("content_index_contract"),
+                ),
             }
             metadata["pipeline_graphs"][kb_id] = {
                 "graph_id": str(current["graph_id"]),
@@ -2066,14 +2060,20 @@ class RagService:
                 document_id,
                 processor,
                 vision_override=vision if bool(vision.get("enabled")) else None,
+                full_for_chunking=True,
             )
-            chunks = self._preview_pipeline_chunks(processed, config, kind=kind)
+            chunks, chunking_receipt = self._preview_pipeline_chunks(
+                processed,
+                config,
+                kind=kind,
+            )
             return {
                 "node_id": node_id,
                 "kind": kind,
                 "preview_type": "chunks",
                 "item_count": len(chunks),
                 "items": chunks[:20],
+                "chunking_receipt": chunking_receipt,
                 "truncated": len(chunks) > 20,
             }
         if kind == "image_understanding":
@@ -2177,6 +2177,16 @@ class RagService:
                 configs[stage_id],
                 raw_config,
             )
+            if stage_id == "stage_chunker":
+                content_contract = self._content_index_contract(
+                    configs,
+                    draft.get("content_index_contract"),
+                )
+                if (content_contract.get("components") or {}).get("chunker") != "current":
+                    raise PipelineDraftValidationError(
+                        "Legacy character chunking is read-only and must be explicitly upgraded "
+                        "to recursive_estimated_token or parent_child_estimated_token."
+                    )
 
         now = time.time()
         with self._metadata_lock:
@@ -2191,6 +2201,10 @@ class RagService:
                 "embedding_profile": next_embedding,
                 "retrieval_profile": next_retrieval,
                 "stages": configs,
+                "content_index_contract": self._content_index_contract(
+                    configs,
+                    current.get("content_index_contract"),
+                ),
             }
             latest["pipeline_drafts"][kb_id] = next_draft
             existing_graph = latest["pipeline_graphs"].get(kb_id)
@@ -2216,7 +2230,12 @@ class RagService:
         draft = self.get_pipeline_draft(kb_id)
         stages = {stage["id"]: stage for stage in draft["stages"]}
         warnings: list[str] = []
+        blocking_reasons: list[str] = []
         stage_checks: list[dict[str, Any]] = []
+
+        def block(message: str) -> None:
+            warnings.append(message)
+            blocking_reasons.append(message)
 
         document_count = int(stages["stage_data_source"]["metadata"].get("document_count", 0))
         artifact_count = int(stages["stage_processor"]["metadata"].get("artifact_count", 0))
@@ -2249,38 +2268,57 @@ class RagService:
         visual_document_count = int(
             vision_stage.get("metadata", {}).get("visual_document_count", 0)
         )
+        content_contract = dict(draft.get("content_index_contract") or {})
+        content_components = dict(content_contract.get("components") or {})
 
         if document_count == 0:
-            warnings.append("当前知识库还没有上传文档，流水线只能预检配置。")
+            block("当前知识库还没有上传文档，流水线只能预检配置。")
         if artifact_count == 0:
-            warnings.append("当前没有可检索 Artifact，上传文档后处理器才会产生结果。")
-        if chunk_count == 0:
-            warnings.append("当前没有 KnowledgeChunk，RAG 检索不会返回引用片段。")
-        if not bool(embedding_effective.get("ready")):
-            requested = dict(embedding_profile.get("requested") or {})
+            warnings.append("当前没有 Pipeline Artifact；执行候选 Job 后处理器才会产生结果。")
+        elif document_count > 0 and chunk_count == 0:
             warnings.append(
+                "上传仅保存了源文件元数据；候选 Job 尚未物化处理结果和 Chunk。"
+            )
+        if chunk_count == 0:
+            warnings.append("当前没有 KnowledgeChunk；执行候选 Job 前不会产生引用片段。")
+        if content_components.get("chunker") != "current":
+            block("历史字符分块合同只读；保存估算 Token 分块预算后才能执行。")
+        if (
+            retrieval_mode in {"fulltext", "hybrid"}
+            and content_components.get("lexical") != "current"
+        ):
+            block(
+                "Legacy lexical-v1 is read-only; fulltext/hybrid candidate builds "
+                "remain blocked until the lexical-v2 contract is available."
+            )
+        if (
+            retrieval_mode in {"vector", "hybrid"}
+            and not bool(embedding_effective.get("ready"))
+        ):
+            requested = dict(embedding_profile.get("requested") or {})
+            block(
                 "Embedding provider is unavailable for the requested model "
                 f"{str(requested.get('model') or '(unset)')[:200]}; configure "
                 "EMBEDDING_API_KEY before executing this pipeline."
             )
         if retrieval_mode in {"vector", "hybrid"} and not vector_readiness["ready"]:
-            warnings.append(
+            block(
                 "The configured vector backend is unavailable; vector and hybrid "
                 "pipeline execution is blocked."
             )
         if processor_mode in {"qa", "summary"} and not processor_capabilities.get(
             "llm_configured"
         ):
-            warnings.append("生成式处理模式需要先配置可用的模型网关。")
+            block("生成式处理模式需要先配置可用的模型网关。")
         if visual_document_count and not bool(vision_config.get("enabled")):
-            warnings.append(
+            block(
                 "Image or scanned PDF sources require an enabled image understanding stage."
             )
         if bool(vision_config.get("enabled")):
             if not str(vision_config.get("vision_model_id") or "").strip():
-                warnings.append("Image understanding requires an explicit vision model.")
+                block("Image understanding requires an explicit vision model.")
             if not vision_configured:
-                warnings.append(
+                block(
                     "Image understanding requires PDF/image rendering and a configured model gateway."
                 )
 
@@ -2292,10 +2330,12 @@ class RagService:
                 severity = "warning"
                 status = "empty"
                 summary = "数据源配置有效，但当前知识库没有上传文件。"
-            elif stage["id"] == "stage_processor" and artifact_count == 0:
-                severity = "warning"
-                status = "empty"
-                summary = "处理器配置有效，但当前没有解析产物。"
+            elif stage["id"] == "stage_processor" and (
+                artifact_count == 0 or (document_count > 0 and chunk_count == 0)
+            ):
+                severity = "info" if document_count > 0 else "warning"
+                status = "pending_execution" if document_count > 0 else "empty"
+                summary = "处理器配置有效；候选 Job 执行后生成 Artifact。"
             elif (
                 stage["id"] == "stage_processor"
                 and processor_mode in {"qa", "summary"}
@@ -2305,9 +2345,16 @@ class RagService:
                 status = "blocked"
                 summary = "生成式处理器配置有效，但当前没有可用模型网关。"
             elif stage["id"] == "stage_chunker" and chunk_count == 0:
-                severity = "warning"
-                status = "empty"
-                summary = "分块器草稿配置有效，但当前没有已索引 chunk。"
+                severity = "info" if document_count > 0 else "warning"
+                status = "pending_execution" if document_count > 0 else "empty"
+                summary = "分块器草稿配置有效；候选 Job 执行后生成 Chunk。"
+            if (
+                stage["id"] == "stage_chunker"
+                and content_components.get("chunker") != "current"
+            ):
+                severity = "error"
+                status = "blocked"
+                summary = "历史字符分块合同只读，不能创建新候选。"
             elif stage["id"] == "stage_image_understanding":
                 if visual_document_count and not bool(vision_config.get("enabled")):
                     severity = "warning"
@@ -2339,7 +2386,7 @@ class RagService:
         return {
             "kb_id": kb_id,
             "draft_id": draft["draft_id"],
-            "ready": not warnings,
+            "ready": not blocking_reasons,
             "warnings": warnings,
             "stage_checks": stage_checks,
             "document_count": document_count,
@@ -2454,6 +2501,7 @@ class RagService:
         document_id: str,
         processor_override: dict[str, Any] | None = None,
         vision_override: dict[str, Any] | None = None,
+        full_for_chunking: bool = False,
     ) -> dict[str, Any]:
         metadata = self._read_metadata()
         self._ensure_kb_exists(metadata, kb_id)
@@ -2493,7 +2541,11 @@ class RagService:
             processed,
             mode=str(config.get("mode") or "general"),
             model_id=str(config.get("model_id") or ""),
-            max_items=min(20, int(config.get("max_generated_items", 20))),
+            max_items=(
+                int(config.get("max_generated_items", 20))
+                if full_for_chunking
+                else min(20, int(config.get("max_generated_items", 20)))
+            ),
             parent_run_reference=(
                 f"rag_processor:preview:{kb_id}:{document_id}:{uuid.uuid4().hex}"
             ),
@@ -2512,10 +2564,14 @@ class RagService:
             "generated_count": len(generated),
             "warnings": list(processed.warnings),
             "blocks": [
-                block.payload(max_text=600) for block in processed.blocks[:20]
+                block.payload(max_text=None if full_for_chunking else 600)
+                for block in (
+                    processed.blocks if full_for_chunking else processed.blocks[:20]
+                )
             ],
             "generated_items": [
-                item.payload(max_text=600) for item in generated[:20]
+                item.payload(max_text=None if full_for_chunking else 600)
+                for item in (generated if full_for_chunking else generated[:20])
             ],
             "execution_mode": generation.execution_mode,
             "provider_route_receipts": generation.provider_route_receipts,
@@ -2542,6 +2598,10 @@ class RagService:
                 raise PipelineJobStateError(
                     f"Pipeline draft changed. Expected v{draft_version}, current v{draft['version']}."
                 )
+            self._assert_current_chunker_build_contract(
+                draft.get("stages"),
+                draft.get("content_index_contract"),
+            )
             retrieval_mode = str(
                 (draft.get("retrieval_profile") or {}).get("mode") or "hybrid"
             )
@@ -2560,6 +2620,17 @@ class RagService:
             )
             if issues or compiled is None:
                 raise PipelineGraphValidationError(issues)
+            index_contract = self._index_contract(
+                index_schema_version=INDEX_SCHEMA_VERSION,
+                retrieval_profile=draft["retrieval_profile"],
+                embedding_profile=draft["embedding_profile"],
+            )
+            self._assert_buildable_content_contract(
+                compiled.stage_updates,
+                draft.get("content_index_contract"),
+                index_contract=index_contract,
+                retrieval_mode=retrieval_mode,
+            )
 
             documents = [
                 item
@@ -2760,11 +2831,6 @@ class RagService:
             embedding_metadata = self._embedding_job_metadata(
                 draft["embedding_profile"]
             )
-            index_contract = self._index_contract(
-                index_schema_version=INDEX_SCHEMA_VERSION,
-                retrieval_profile=draft["retrieval_profile"],
-                embedding_profile=draft["embedding_profile"],
-            )
             candidate_namespace = self._candidate_namespace(
                 kb_id,
                 candidate_version_id,
@@ -2787,6 +2853,9 @@ class RagService:
                     "embedding_profile": json.loads(json.dumps(draft["embedding_profile"])),
                     "retrieval_profile": json.loads(json.dumps(draft["retrieval_profile"])),
                     "index_contract": json.loads(json.dumps(index_contract)),
+                    "content_index_contract": json.loads(
+                        json.dumps(draft["content_index_contract"])
+                    ),
                 },
                 "origin": self._safe_pipeline_origin(origin),
                 "base_version_id": base_version_id,
@@ -2798,7 +2867,11 @@ class RagService:
                 "candidate_version": candidate_version,
                 "candidate_namespace": candidate_namespace,
                 "index_contract": json.loads(json.dumps(index_contract)),
+                "content_index_contract": json.loads(
+                    json.dumps(draft["content_index_contract"])
+                ),
                 "vector_backend_readiness": self._vector_backend_readiness(),
+                "chunking_receipt": {},
                 "run_id": None,
                 "attempt": 0,
                 "cancel_requested": False,
@@ -2847,6 +2920,15 @@ class RagService:
                 raise PipelineDraftValidationError(
                     "RAG strategy tuning requires an index schema v3 base version."
                 )
+            base_content_contract = self._content_index_contract_for_version(base_version)
+            self._assert_current_chunker_build_contract(
+                (
+                    (base_version.get("config_snapshot") or {}).get("stages")
+                    if isinstance(base_version.get("config_snapshot"), dict)
+                    else {}
+                ),
+                base_content_contract,
+            )
             base_job = metadata["pipeline_jobs"].get(str(base_version.get("job_id") or ""))
             if not isinstance(base_job, dict) or not base_job.get("sources"):
                 raise PipelineJobNotFoundError(
@@ -2867,6 +2949,10 @@ class RagService:
                 "stage_chunker",
                 dict(stages.get("stage_chunker") or {}),
                 chunker_profile,
+            )
+            self._assert_current_chunker_build_contract(
+                stages,
+                base_content_contract,
             )
             try:
                 base_retrieval = RetrievalConfig.from_mapping(
@@ -2894,6 +2980,17 @@ class RagService:
             if retrieval_mode in {"vector", "hybrid"}:
                 self._ensure_embedding_profile_ready(config_snapshot["embedding_profile"])
                 self._ensure_vector_backend_ready()
+            index_contract = self._index_contract(
+                index_schema_version=INDEX_SCHEMA_VERSION,
+                retrieval_profile=config_snapshot["retrieval_profile"],
+                embedding_profile=config_snapshot["embedding_profile"],
+            )
+            self._assert_buildable_content_contract(
+                stages,
+                base_content_contract,
+                index_contract=index_contract,
+                retrieval_mode=retrieval_mode,
+            )
             processor_profile = json.loads(
                 json.dumps(stages.get("stage_processor") or {})
             )
@@ -2989,13 +3086,13 @@ class RagService:
             embedding_metadata = self._embedding_job_metadata(
                 config_snapshot.get("embedding_profile")
             )
-            index_contract = self._index_contract(
-                index_schema_version=INDEX_SCHEMA_VERSION,
-                retrieval_profile=config_snapshot["retrieval_profile"],
-                embedding_profile=config_snapshot["embedding_profile"],
-            )
             config_snapshot["index_schema_version"] = INDEX_SCHEMA_VERSION
             config_snapshot["index_contract"] = json.loads(json.dumps(index_contract))
+            config_snapshot["content_index_contract"] = self._content_index_contract(
+                stages,
+                base_content_contract,
+                index_contract=index_contract,
+            )
             candidate_namespace = self._candidate_namespace(
                 kb_id,
                 candidate_version_id,
@@ -3019,7 +3116,11 @@ class RagService:
                 "candidate_version": candidate_version,
                 "candidate_namespace": candidate_namespace,
                 "index_contract": json.loads(json.dumps(index_contract)),
+                "content_index_contract": json.loads(
+                    json.dumps(config_snapshot["content_index_contract"])
+                ),
                 "vector_backend_readiness": self._vector_backend_readiness(),
+                "chunking_receipt": {},
                 "run_id": None,
                 "attempt": 0,
                 "cancel_requested": False,
@@ -3085,7 +3186,7 @@ class RagService:
             for result in job.get("document_results", [])
             if isinstance(result, dict)
         ]
-        return {
+        payload = {
             key: json.loads(json.dumps(value))
             for key, value in job.items()
             if key
@@ -3103,6 +3204,30 @@ class RagService:
             "source_count": len(sources),
             "document_results": document_results,
         }
+        config_snapshot = (
+            job.get("config_snapshot")
+            if isinstance(job.get("config_snapshot"), dict)
+            else {}
+        )
+        payload["content_index_contract"] = self._content_index_contract(
+            (
+                config_snapshot.get("stages")
+                if isinstance(config_snapshot.get("stages"), dict)
+                else {}
+            ),
+            (
+                job.get("content_index_contract")
+                if isinstance(job.get("content_index_contract"), dict)
+                else config_snapshot.get("content_index_contract")
+            ),
+            index_contract=(
+                config_snapshot.get("index_contract")
+                if isinstance(config_snapshot.get("index_contract"), dict)
+                else job.get("index_contract")
+            ),
+        )
+        payload.setdefault("chunking_receipt", {})
+        return payload
 
     def claim_next_pipeline_job(self) -> dict[str, Any] | None:
         with self._metadata_lock:
@@ -3115,16 +3240,76 @@ class RagService:
             if not queued:
                 return None
             queued.sort(key=lambda item: float(item.get("created_at", 0)))
-            job = queued[0]
-            now = time.time()
-            job["status"] = "running"
-            job["attempt"] = int(job.get("attempt", 0)) + 1
-            job["started_at"] = now
-            job["updated_at"] = now
-            job["error"] = None
-            job["cancel_requested"] = False
-            self._write_metadata_unlocked(metadata)
-            return json.loads(json.dumps(job))
+            metadata_changed = False
+            for job in queued:
+                snapshot = (
+                    job.get("config_snapshot")
+                    if isinstance(job.get("config_snapshot"), dict)
+                    else {}
+                )
+                stages = (
+                    snapshot.get("stages")
+                    if isinstance(snapshot.get("stages"), dict)
+                    else {}
+                )
+                retrieval = (
+                    snapshot.get("retrieval_profile")
+                    if isinstance(snapshot.get("retrieval_profile"), dict)
+                    else {}
+                )
+                retrieval_mode = str(retrieval.get("mode") or "hybrid")
+                index_contract = (
+                    snapshot.get("index_contract")
+                    if isinstance(snapshot.get("index_contract"), dict)
+                    else (
+                        job.get("index_contract")
+                        if isinstance(job.get("index_contract"), dict)
+                        else None
+                    )
+                )
+                try:
+                    self._assert_buildable_content_contract(
+                        stages,
+                        (
+                            snapshot.get("content_index_contract")
+                            if isinstance(
+                                snapshot.get("content_index_contract"), dict
+                            )
+                            else job.get("content_index_contract")
+                        ),
+                        index_contract=index_contract,
+                        retrieval_mode=retrieval_mode,
+                    )
+                except PipelineContentContractError as exc:
+                    now = time.time()
+                    job["status"] = "failed"
+                    job["error_code"] = exc.code
+                    job["error"] = str(exc)[:500]
+                    job["completed_at"] = now
+                    job["updated_at"] = now
+                    for stage in job.get("stages", []):
+                        if isinstance(stage, dict) and stage.get("status") in {
+                            "pending",
+                            "running",
+                        }:
+                            stage["status"] = "blocked"
+                            stage["error"] = str(exc)[:500]
+                    metadata_changed = True
+                    continue
+
+                now = time.time()
+                job["status"] = "running"
+                job["attempt"] = int(job.get("attempt", 0)) + 1
+                job["started_at"] = now
+                job["updated_at"] = now
+                job["error"] = None
+                job["error_code"] = None
+                job["cancel_requested"] = False
+                self._write_metadata_unlocked(metadata)
+                return json.loads(json.dumps(job))
+            if metadata_changed:
+                self._write_metadata_unlocked(metadata)
+            return None
 
     def recover_pipeline_jobs(self) -> int:
         with self._metadata_lock:
@@ -3222,6 +3407,77 @@ class RagService:
             "vector",
             "hybrid",
         }
+
+    def _stored_vector_chunk_sequence_hash(
+        self,
+        *,
+        namespace: str,
+        version_id: str,
+        sources: Any,
+    ) -> str | None:
+        """Rebuild the receipt hash from the authoritative stored vector index."""
+
+        if not namespace or not version_id or not isinstance(sources, list):
+            return None
+        sequence: list[dict[str, Any]] = []
+        seen_source_ids: set[str] = set()
+        try:
+            for source in sources:
+                if not isinstance(source, dict):
+                    return None
+                source_id = str(source.get("source_id") or "")
+                if not source_id or source_id in seen_source_ids:
+                    return None
+                seen_source_ids.add(source_id)
+                doc_id = f"{version_id}_{source_id}"
+                stored_chunks = self.vector_store.list_document_chunks(
+                    doc_id,
+                    kb_id=namespace,
+                )
+                if any(str(chunk.kb_id) != namespace for chunk in stored_chunks):
+                    return None
+                ordered = sorted(
+                    stored_chunks,
+                    key=lambda chunk: (int(chunk.chunk_index), str(chunk.chunk_id)),
+                )
+                if len({int(chunk.chunk_index) for chunk in ordered}) != len(ordered):
+                    return None
+                for chunk in ordered:
+                    expected_chunk_id = f"{doc_id}_chunk_{int(chunk.chunk_index)}"
+                    if str(chunk.chunk_id) != expected_chunk_id:
+                        return None
+                    sequence.append(
+                        {
+                            "source": {"source_id": source_id},
+                            "chunk_id": str(chunk.chunk_id),
+                            "chunk_index": int(chunk.chunk_index),
+                            "index_text": str(chunk.text or ""),
+                            "context_text": str(
+                                chunk.parent_text
+                                if chunk.parent_text is not None
+                                else chunk.text
+                            ),
+                            "parent_chunk_id": chunk.parent_chunk_id,
+                            "chunk_type": str(chunk.chunk_type or "standard"),
+                            "start_char": int(chunk.start_char),
+                            "end_char": int(chunk.end_char),
+                            "page_number": chunk.page_number,
+                            "slide": chunk.slide,
+                            "heading_path": tuple(chunk.heading_path),
+                            "sheet": chunk.sheet,
+                            "row_range": chunk.row_range,
+                            "visual_kind": chunk.visual_kind,
+                            "source_block_id": chunk.source_block_id,
+                            "source_block_hash": chunk.source_block_hash,
+                            "source_block_ids": list(chunk.source_block_ids),
+                            "generated_item": bool(chunk.generated_item),
+                        }
+                    )
+            if int(self.vector_store.count_namespace(namespace)) != len(sequence):
+                return None
+        except Exception:
+            return None
+        return canonical_chunk_sequence_hash(sequence)
 
     def set_pipeline_job_run_id(self, job_id: str, run_id: str) -> None:
         self._update_pipeline_job(job_id, lambda job: job.update({"run_id": run_id}))
@@ -3401,7 +3657,9 @@ class RagService:
                         "vision_processed_page_count": int(payload.get("processed_page_count", 0)),
                         "vision_failed_page_count": failed_pages,
                         "vision_block_count": len(payload.get("blocks") or []),
-                        "vision_warnings": list(payload.get("warnings") or []),
+                        "vision_warnings": _bounded_document_warnings(
+                            payload.get("warnings") or []
+                        ),
                         "vision_execution_mode": str(
                             payload.get("execution_mode") or "legacy"
                         ),
@@ -3572,7 +3830,7 @@ class RagService:
                     "generated_count": generated_count,
                     "qa_count": generated_count if mode == "qa" else 0,
                     "summary_count": generated_count if mode == "summary" else 0,
-                    "warnings": list(document.warnings),
+                    "warnings": _bounded_document_warnings(document.warnings),
                     "error": None,
                     "duration_ms": duration_ms,
                 }
@@ -3791,6 +4049,26 @@ class RagService:
         chunk_count: int,
     ) -> dict[str, Any]:
         version_holder: dict[str, Any] = {}
+        stored_job = self.get_pipeline_job(job_id)
+        if self._pipeline_job_uses_vector(stored_job):
+            stored_receipt = _safe_chunking_receipt(
+                stored_job.get("chunking_receipt")
+            )
+            stored_sequence_hash = self._stored_vector_chunk_sequence_hash(
+                namespace=str(stored_job.get("candidate_namespace") or ""),
+                version_id=str(stored_job.get("candidate_version_id") or ""),
+                sources=stored_job.get("sources"),
+            )
+            if (
+                stored_sequence_hash is None
+                or not hmac.compare_digest(
+                    stored_sequence_hash,
+                    str(stored_receipt.get("chunk_sequence_hash") or ""),
+                )
+            ):
+                raise PipelineJobStateError(
+                    "Stored vector chunks do not match the Pipeline Job chunking receipt."
+                )
 
         def update(metadata: dict[str, Any], job: dict[str, Any]) -> None:
             if (
@@ -3800,6 +4078,33 @@ class RagService:
             ):
                 raise PipelineJobStateError(
                     "Cancelled or deletion-invalidated pipeline jobs cannot publish a candidate version."
+                )
+            config_snapshot = (
+                job.get("config_snapshot")
+                if isinstance(job.get("config_snapshot"), dict)
+                else {}
+            )
+            config_stages = (
+                config_snapshot.get("stages")
+                if isinstance(config_snapshot.get("stages"), dict)
+                else {}
+            )
+            chunker_fingerprint = chunker_profile_fingerprint(
+                config_stages.get("stage_chunker")
+            )
+            chunking_receipt = _safe_chunking_receipt(
+                job.get("chunking_receipt")
+            )
+            if not _chunking_receipt_is_valid(
+                chunking_receipt,
+                expected_chunk_count=chunk_count,
+                expected_chunker_profile=config_stages.get("stage_chunker"),
+                expected_chunker_profile_fingerprint=chunker_fingerprint,
+                expected_candidate_version_id=job.get("candidate_version_id"),
+                expected_candidate_namespace=job.get("candidate_namespace"),
+            ):
+                raise PipelineJobStateError(
+                    "Pipeline job chunking receipt is invalid; the candidate version cannot become ready."
                 )
             now = time.time()
             processor_profile = json.loads(
@@ -3880,6 +4185,16 @@ class RagService:
                     )
                 ),
                 "index_contract": json.loads(json.dumps(index_contract)),
+                "content_index_contract": json.loads(
+                    json.dumps(
+                        job["config_snapshot"].get("content_index_contract")
+                        or job.get("content_index_contract")
+                        or {}
+                    )
+                ),
+                "chunking_receipt": json.loads(
+                    json.dumps(chunking_receipt)
+                ),
                 "vector_backend_readiness": json.loads(
                     json.dumps(job.get("vector_backend_readiness") or {})
                 ),
@@ -4014,17 +4329,128 @@ class RagService:
         )
         processor_profile = dict(version.get("processor_profile") or {})
         vision_profile = dict(version.get("vision_profile") or {})
+        config_snapshot = (
+            version.get("config_snapshot")
+            if isinstance(version.get("config_snapshot"), dict)
+            else {}
+        )
+        snapshot_stages = (
+            config_snapshot.get("stages")
+            if isinstance(config_snapshot.get("stages"), dict)
+            else {}
+        )
+        raw_chunker_profile = (
+            snapshot_stages.get("stage_chunker")
+            if isinstance(snapshot_stages.get("stage_chunker"), dict)
+            else {}
+        )
+        chunker_profile = safe_chunker_profile(raw_chunker_profile)
+        chunker_fingerprint = chunker_profile_fingerprint(chunker_profile)
+        chunking_receipt = _safe_chunking_receipt(
+            version.get("chunking_receipt")
+        )
+        chunking_receipt_fingerprint = (
+            self._mapping_sha256(chunking_receipt) if chunking_receipt else ""
+        )
+        expected_chunk_count = int(version.get("chunk_count") or 0)
+        receipt_owner_id = str(
+            version.get("index_owner_version_id") or version_id
+        )
+        namespace_fingerprint = candidate_namespace_fingerprint(
+            version.get("namespace")
+        )
+        try:
+            build_job = self.get_pipeline_job(str(version.get("job_id") or ""))
+        except PipelineJobNotFoundError:
+            build_job = {}
+        build_snapshot = (
+            build_job.get("config_snapshot")
+            if isinstance(build_job.get("config_snapshot"), dict)
+            else {}
+        )
+        build_stages = (
+            build_snapshot.get("stages")
+            if isinstance(build_snapshot.get("stages"), dict)
+            else {}
+        )
+        build_chunker_profile = safe_chunker_profile(
+            build_stages.get("stage_chunker")
+        )
+        build_chunker_fingerprint = chunker_profile_fingerprint(
+            build_chunker_profile
+        )
+        job_receipt = _safe_chunking_receipt(build_job.get("chunking_receipt"))
+        stored_sequence_hash: str | None = None
+        stored_sequence_status = "not_applicable"
+        if build_job and self._pipeline_job_uses_vector(build_job):
+            stored_sequence_hash = self._stored_vector_chunk_sequence_hash(
+                namespace=str(version.get("namespace") or ""),
+                version_id=receipt_owner_id,
+                sources=build_job.get("sources"),
+            )
+            stored_sequence_status = (
+                "current"
+                if stored_sequence_hash is not None
+                and hmac.compare_digest(
+                    stored_sequence_hash,
+                    str(chunking_receipt.get("chunk_sequence_hash") or ""),
+                )
+                else "mismatch"
+            )
+        if not chunking_receipt:
+            chunking_receipt_status = "missing"
+        elif not _chunking_receipt_is_valid(
+            chunking_receipt,
+            expected_chunk_count=expected_chunk_count,
+        ):
+            chunking_receipt_status = "invalid"
+        else:
+            chunking_receipt_status = (
+                "current"
+                if str(build_job.get("status") or "") == "succeeded"
+                and str(build_job.get("candidate_version_id") or "")
+                == receipt_owner_id
+                and str(build_job.get("candidate_namespace") or "")
+                == str(version.get("namespace") or "")
+                and build_chunker_fingerprint == chunker_fingerprint
+                and _chunking_receipt_is_valid(
+                    job_receipt,
+                    expected_chunk_count=expected_chunk_count,
+                    expected_chunker_profile=build_chunker_profile,
+                    expected_chunker_profile_fingerprint=(
+                        build_chunker_fingerprint
+                    ),
+                    expected_candidate_version_id=receipt_owner_id,
+                    expected_candidate_namespace=build_job.get(
+                        "candidate_namespace"
+                    ),
+                )
+                and _chunking_receipt_is_valid(
+                    chunking_receipt,
+                    expected_chunk_count=expected_chunk_count,
+                    expected_chunker_profile=chunker_profile,
+                    expected_chunker_profile_fingerprint=chunker_fingerprint,
+                    expected_candidate_version_id=receipt_owner_id,
+                    expected_candidate_namespace=version.get("namespace"),
+                )
+                and job_receipt == chunking_receipt
+                and stored_sequence_status in {"current", "not_applicable"}
+                else "mismatch"
+            )
         processor_fingerprint = self._mapping_sha256(
             {
                 "processor": processor_profile,
                 "vision": vision_profile,
             }
         )
+        content_index_contract = self._content_index_contract_for_version(version)
         configuration_fingerprint = self._mapping_sha256(
             {
                 "index_schema_version": int(version.get("index_schema_version") or 1),
+                "content_index_contract": content_index_contract,
                 "embedding": safe_embedding,
                 "retrieval": retrieval,
+                "chunker": chunker_profile,
                 "processor": processor_profile,
                 "vision": vision_profile,
             }
@@ -4035,6 +4461,12 @@ class RagService:
                 "version": int(version.get("version") or 0),
                 "source_manifest_fingerprint": source_manifest_fingerprint,
                 "configuration_fingerprint": configuration_fingerprint,
+                "chunking_receipt_fingerprint": chunking_receipt_fingerprint,
+                "chunking_receipt_status": chunking_receipt_status,
+                "chunker_profile_fingerprint": chunker_fingerprint,
+                "index_owner_version_id": receipt_owner_id,
+                "candidate_namespace_fingerprint": namespace_fingerprint,
+                "stored_chunk_sequence_status": stored_sequence_status,
                 "document_count": int(version.get("document_count") or 0),
                 "chunk_count": int(version.get("chunk_count") or 0),
             }
@@ -4052,11 +4484,22 @@ class RagService:
                 "vision_enabled": bool(vision_profile.get("enabled")),
                 "fingerprint": processor_fingerprint,
             },
+            "chunker": {
+                "profile": chunker_profile,
+                "fingerprint": chunker_fingerprint,
+            },
             "embedding": safe_embedding,
             "retrieval": retrieval,
             "index_contract": json.loads(
                 json.dumps(version.get("index_contract") or {})
             ),
+            "content_index_contract": content_index_contract,
+            "chunking_receipt": chunking_receipt,
+            "chunking_receipt_fingerprint": chunking_receipt_fingerprint,
+            "chunking_receipt_status": chunking_receipt_status,
+            "index_owner_version_id": receipt_owner_id,
+            "candidate_namespace_fingerprint": namespace_fingerprint,
+            "stored_chunk_sequence_status": stored_sequence_status,
             "vector_backend_readiness": json.loads(
                 json.dumps(version.get("vector_backend_readiness") or {})
             ),
@@ -4129,6 +4572,92 @@ class RagService:
             raise PipelineJobStateError(
                 "Pipeline version corpus provenance is inconsistent."
             )
+        expected_chunk_count = int(index_owner.get("chunk_count") or 0)
+        job_chunking_receipt = _safe_chunking_receipt(
+            job.get("chunking_receipt")
+        )
+        owner_chunking_receipt = _safe_chunking_receipt(
+            index_owner.get("chunking_receipt")
+        )
+        version_chunking_receipt = _safe_chunking_receipt(
+            version.get("chunking_receipt")
+        )
+        job_config = (
+            job.get("config_snapshot")
+            if isinstance(job.get("config_snapshot"), dict)
+            else {}
+        )
+        owner_config = (
+            index_owner.get("config_snapshot")
+            if isinstance(index_owner.get("config_snapshot"), dict)
+            else {}
+        )
+        version_config = (
+            version.get("config_snapshot")
+            if isinstance(version.get("config_snapshot"), dict)
+            else {}
+        )
+        chunker_profiles: list[dict[str, Any]] = []
+        chunker_fingerprints = []
+        for config in (job_config, owner_config, version_config):
+            stages = (
+                config.get("stages")
+                if isinstance(config.get("stages"), dict)
+                else {}
+            )
+            profile = safe_chunker_profile(stages.get("stage_chunker"))
+            chunker_profiles.append(profile)
+            chunker_fingerprints.append(chunker_profile_fingerprint(profile))
+        expected_namespace = str(index_owner.get("namespace") or "")
+        if (
+            len(set(chunker_fingerprints)) != 1
+            or not _chunking_receipt_is_valid(
+                job_chunking_receipt,
+                expected_chunk_count=expected_chunk_count,
+                expected_chunker_profile=chunker_profiles[0],
+                expected_chunker_profile_fingerprint=chunker_fingerprints[0],
+                expected_candidate_version_id=index_owner_id,
+                expected_candidate_namespace=expected_namespace,
+            )
+            or not _chunking_receipt_is_valid(
+                owner_chunking_receipt,
+                expected_chunk_count=expected_chunk_count,
+                expected_chunker_profile=chunker_profiles[1],
+                expected_chunker_profile_fingerprint=chunker_fingerprints[1],
+                expected_candidate_version_id=index_owner_id,
+                expected_candidate_namespace=expected_namespace,
+            )
+            or not _chunking_receipt_is_valid(
+                version_chunking_receipt,
+                expected_chunk_count=expected_chunk_count,
+                expected_chunker_profile=chunker_profiles[2],
+                expected_chunker_profile_fingerprint=chunker_fingerprints[2],
+                expected_candidate_version_id=index_owner_id,
+                expected_candidate_namespace=expected_namespace,
+            )
+            or owner_chunking_receipt != job_chunking_receipt
+            or version_chunking_receipt != job_chunking_receipt
+            or int(version.get("chunk_count") or 0) != expected_chunk_count
+        ):
+            raise PipelineJobStateError(
+                "Pipeline version chunking receipt provenance is inconsistent."
+            )
+        if self._pipeline_job_uses_vector(job):
+            stored_sequence_hash = self._stored_vector_chunk_sequence_hash(
+                namespace=expected_namespace,
+                version_id=index_owner_id,
+                sources=job.get("sources"),
+            )
+            if (
+                stored_sequence_hash is None
+                or not hmac.compare_digest(
+                    stored_sequence_hash,
+                    str(job_chunking_receipt.get("chunk_sequence_hash") or ""),
+                )
+            ):
+                raise PipelineJobStateError(
+                    "Pipeline version stored vector chunks do not match provenance."
+                )
         raw_results = [
             item
             for item in job.get("document_results", [])
@@ -4154,6 +4683,149 @@ class RagService:
                 str(item.chunk_id),
             ),
         )
+
+    @staticmethod
+    def _generated_parent_source_block_map(
+        document_id: str,
+        artifact: dict[str, Any],
+    ) -> dict[str, tuple[str, ...]]:
+        """Recover multi-block Generated Item provenance without widening index schemas."""
+
+        generated_items = artifact.get("generated_items")
+        if generated_items is None:
+            return {}
+        if not isinstance(generated_items, list):
+            raise PipelineJobStateError(
+                "Pipeline version generated-item provenance is invalid."
+            )
+        processed = artifact.get("processed_document")
+        raw_blocks = processed.get("blocks") if isinstance(processed, dict) else None
+        if not isinstance(raw_blocks, list):
+            raise PipelineJobStateError(
+                "Pipeline version generated-item provenance is invalid."
+            )
+        blocks_by_id = {
+            str(block.get("block_id")): block
+            for block in raw_blocks
+            if isinstance(block, dict) and str(block.get("block_id") or "")
+        }
+        parent_map: dict[str, tuple[str, ...]] = {}
+        for item in generated_items:
+            if not isinstance(item, dict):
+                raise PipelineJobStateError(
+                    "Pipeline version generated-item provenance is invalid."
+                )
+            try:
+                parent_chunk_id, block_ids = generated_parent_identity(
+                    document_id,
+                    item,
+                    blocks_by_id,
+                )
+            except ValueError as exc:
+                raise PipelineJobStateError(
+                    "Pipeline version generated-item provenance is invalid."
+                ) from exc
+            if parent_chunk_id in parent_map:
+                raise PipelineJobStateError(
+                    "Pipeline version generated-item provenance is invalid."
+                )
+            parent_map[parent_chunk_id] = block_ids
+        return parent_map
+
+    @staticmethod
+    def _group_indexed_chunks_by_canonical_block(
+        chunks: list[Any],
+        generated_parent_blocks: dict[str, tuple[str, ...]],
+        *,
+        strict_generated_lineage: bool,
+    ) -> tuple[dict[str, list[Any]], set[tuple[str, str]]]:
+        """Validate Generated parent identity before projecting indexed blocks."""
+
+        chunks_by_block: dict[str, list[Any]] = {}
+        generated_links: set[tuple[str, str]] = set()
+        generated_parent_contexts: dict[str, str] = {}
+        for chunk in chunks:
+            source_block_id = str(chunk.source_block_id or "")
+            parent_chunk_id = str(chunk.parent_chunk_id or "")
+            generated_parent = parent_chunk_id.startswith("generated_v1_")
+            generated_item = getattr(chunk, "generated_item", False) is True
+            if strict_generated_lineage and generated_parent != generated_item:
+                raise PipelineJobStateError(
+                    "Pipeline version generated-item provenance is inconsistent."
+                )
+            if generated_parent:
+                parent_text = str(getattr(chunk, "parent_text", None) or "")
+                if strict_generated_lineage:
+                    if not parent_text:
+                        raise PipelineJobStateError(
+                            "Pipeline version generated-item provenance is inconsistent."
+                        )
+                    previous_context = generated_parent_contexts.setdefault(
+                        parent_chunk_id,
+                        parent_text,
+                    )
+                    if previous_context != parent_text:
+                        raise PipelineJobStateError(
+                            "Pipeline version generated-item provenance is inconsistent."
+                        )
+                try:
+                    item_parent_id = resolve_generated_item_parent_identity(
+                        parent_chunk_id,
+                        parent_text=parent_text,
+                    )
+                except ValueError as exc:
+                    raise PipelineJobStateError(
+                        "Pipeline version generated-item provenance is inconsistent."
+                    ) from exc
+                linked_block_ids = generated_parent_blocks.get(item_parent_id)
+                raw_persisted_ids = getattr(chunk, "source_block_ids", ())
+                persisted_block_ids = (
+                    tuple(str(block_id) for block_id in raw_persisted_ids)
+                    if isinstance(raw_persisted_ids, (list, tuple))
+                    else ()
+                )
+                invalid_persisted_ids = (
+                    any(not block_id for block_id in persisted_block_ids)
+                    or len(set(persisted_block_ids)) != len(persisted_block_ids)
+                )
+                if (
+                    not linked_block_ids
+                    or invalid_persisted_ids
+                    or any(
+                        block_id not in linked_block_ids
+                        for block_id in persisted_block_ids
+                    )
+                    or (
+                        source_block_id
+                        and source_block_id not in linked_block_ids
+                    )
+                    or (
+                        strict_generated_lineage
+                        and (
+                            not persisted_block_ids
+                            or (
+                                source_block_id
+                                and persisted_block_ids != (source_block_id,)
+                            )
+                        )
+                    )
+                ):
+                    raise PipelineJobStateError(
+                        "Pipeline version generated-item provenance is inconsistent."
+                    )
+                if strict_generated_lineage:
+                    projected_block_ids = persisted_block_ids
+                elif source_block_id:
+                    projected_block_ids = (source_block_id,)
+                else:
+                    projected_block_ids = persisted_block_ids or linked_block_ids
+                for linked_block_id in projected_block_ids:
+                    chunks_by_block.setdefault(linked_block_id, []).append(chunk)
+                    generated_links.add((linked_block_id, str(chunk.chunk_id)))
+                continue
+            if source_block_id:
+                chunks_by_block.setdefault(source_block_id, []).append(chunk)
+        return chunks_by_block, generated_links
 
     def pipeline_corpus_snapshot(self, version_id: str) -> dict[str, Any]:
         """Rebuild and verify the exact source-block corpus behind an index."""
@@ -4201,19 +4873,47 @@ class RagService:
                 raise PipelineJobStateError(
                     "Pipeline version processed source blocks are unavailable."
                 )
-            chunks_by_block: dict[str, list[Any]] = {}
-            chunk_store = (
-                self.lexical_store
-                if str((version.get("retrieval_profile") or {}).get("mode") or "vector")
-                == "fulltext"
-                else self.vector_store
+            generated_parent_blocks = self._generated_parent_source_block_map(
+                document_id,
+                artifact,
             )
-            for chunk in chunk_store.list_document_chunks(f"{index_owner}_{document_id}"):
-                source_block_id = str(chunk.source_block_id or "")
-                if source_block_id:
-                    chunks_by_block.setdefault(source_block_id, []).append(chunk)
+            strict_generated_lineage = (
+                (
+                    self._content_index_contract_for_version(version).get(
+                        "components"
+                    )
+                    or {}
+                ).get("chunker")
+                == "current"
+            )
+            retrieval_mode = str(
+                (version.get("retrieval_profile") or {}).get("mode")
+                or "vector"
+            )
+            indexed_document_id = f"{index_owner}_{document_id}"
+            try:
+                indexed_chunks = (
+                    self.lexical_store.list_document_chunks(indexed_document_id)
+                    if retrieval_mode == "fulltext"
+                    else self.vector_store.list_document_chunks(
+                        indexed_document_id,
+                        kb_id=str(version.get("namespace") or ""),
+                    )
+                )
+            except VectorStoreContractError as exc:
+                raise PipelineJobStateError(
+                    "Pipeline version vector namespace contract is invalid."
+                ) from exc
+            chunks_by_block, generated_links = (
+                self._group_indexed_chunks_by_canonical_block(
+                    list(indexed_chunks),
+                    generated_parent_blocks,
+                    strict_generated_lineage=strict_generated_lineage,
+                )
+            )
             source_blocks: list[dict[str, str]] = []
             seen_blocks: set[str] = set()
+            index_required_blocks: set[str] = set()
             for raw_block in raw_blocks:
                 if not isinstance(raw_block, dict):
                     raise PipelineJobStateError(
@@ -4231,6 +4931,17 @@ class RagService:
                         "Pipeline version processed source block is invalid."
                     )
                 block_hash = self._canonical_sha256(text)
+                is_heading = str(raw_block.get("kind") or "") == "heading"
+                if is_heading:
+                    seen_blocks.add(source_block_id)
+                    source_blocks.append(
+                        {
+                            "source_block_id": source_block_id,
+                            "block_hash": block_hash,
+                        }
+                    )
+                    continue
+                index_required_blocks.add(source_block_id)
                 indexed_chunks = chunks_by_block.get(source_block_id) or []
                 stored_hashes = {
                     str(chunk.source_block_hash or "")
@@ -4240,12 +4951,19 @@ class RagService:
                 if stored_hashes:
                     index_matches = stored_hashes == {block_hash}
                 elif indexed_chunks:
-                    representative = self._representative_source_block_chunk(
-                        indexed_chunks
+                    linked_by_generated_item = any(
+                        (source_block_id, str(chunk.chunk_id)) in generated_links
+                        for chunk in indexed_chunks
                     )
-                    index_matches = text.strip() in str(
-                        representative.text or ""
-                    ).strip()
+                    if linked_by_generated_item:
+                        index_matches = True
+                    else:
+                        representative = self._representative_source_block_chunk(
+                            indexed_chunks
+                        )
+                        index_matches = text.strip() in str(
+                            representative.text or ""
+                        ).strip()
                 else:
                     index_matches = False
                 if not index_matches:
@@ -4259,7 +4977,11 @@ class RagService:
                         "block_hash": block_hash,
                     }
                 )
-            if set(chunks_by_block) != seen_blocks:
+            indexed_block_ids = set(chunks_by_block)
+            if (
+                not index_required_blocks.issubset(indexed_block_ids)
+                or not indexed_block_ids.issubset(seen_blocks)
+            ):
                 raise PipelineJobStateError(
                     "Pipeline version source-block index is inconsistent."
                 )
@@ -4305,7 +5027,6 @@ class RagService:
         retrieval_mode = str(
             (version.get("retrieval_profile") or {}).get("mode") or "vector"
         )
-        chunk_store = self.lexical_store if retrieval_mode == "fulltext" else self.vector_store
         documents: list[dict[str, Any]] = []
         for source in version.get("source_summary", []):
             document_id = str((source or {}).get("source_id") or "")
@@ -4328,24 +5049,52 @@ class RagService:
                 raise PipelineJobStateError(
                     "Pipeline version processed source blocks are unavailable."
                 )
-            chunks_by_block: dict[str, list[Any]] = {}
-            for chunk in chunk_store.list_document_chunks(
-                f"{index_owner}_{document_id}"
-            ):
-                source_block_id = str(chunk.source_block_id or "")
-                if source_block_id:
-                    chunks_by_block.setdefault(source_block_id, []).append(chunk)
+            generated_parent_blocks = self._generated_parent_source_block_map(
+                document_id,
+                artifact,
+            )
+            indexed_document_id = f"{index_owner}_{document_id}"
+            try:
+                indexed_chunks = (
+                    self.lexical_store.list_document_chunks(indexed_document_id)
+                    if retrieval_mode == "fulltext"
+                    else self.vector_store.list_document_chunks(
+                        indexed_document_id,
+                        kb_id=str(version.get("namespace") or ""),
+                    )
+                )
+            except VectorStoreContractError as exc:
+                raise PipelineJobStateError(
+                    "Pipeline version vector namespace contract is invalid."
+                ) from exc
+            chunks_by_block, _ = self._group_indexed_chunks_by_canonical_block(
+                list(indexed_chunks),
+                generated_parent_blocks,
+                strict_generated_lineage=(
+                    (
+                        self._content_index_contract_for_version(version).get(
+                            "components"
+                        )
+                        or {}
+                    ).get("chunker")
+                    == "current"
+                ),
+            )
             manifest_blocks = {
                 str(item.get("source_block_id") or ""): str(item.get("block_hash") or "")
                 for item in list(manifest.get("source_blocks") or [])
                 if isinstance(item, dict)
             }
             source_blocks: list[dict[str, Any]] = []
+            heading_block_ids: set[str] = set()
             for block_index, raw_block in enumerate(raw_blocks):
                 if not isinstance(raw_block, dict):
                     raise PipelineJobStateError(
                         "Pipeline version processed source block is invalid."
                     )
+                if str(raw_block.get("kind") or "") == "heading":
+                    heading_block_ids.add(str(raw_block.get("block_id") or ""))
+                    continue
                 source_block_id = str(raw_block.get("block_id") or "")
                 text = raw_block.get("text")
                 block_hash = self._canonical_sha256(text) if isinstance(text, str) else ""
@@ -4392,7 +5141,7 @@ class RagService:
                         "text": text,
                     }
                 )
-            if set(manifest_blocks) != {
+            if set(manifest_blocks) - heading_block_ids != {
                 str(item["source_block_id"]) for item in source_blocks
             }:
                 raise PipelineJobStateError(
@@ -4428,6 +5177,10 @@ class RagService:
         payload["threshold_contract_status"] = RetrievalConfig.from_mapping(
             version.get("retrieval_profile")
         ).threshold_contract_status
+        payload["content_index_contract"] = self._content_index_contract_for_version(
+            version
+        )
+        payload.setdefault("chunking_receipt", {})
         payload.setdefault("threshold_calibration_evidence", None)
         payload["active"] = str(active_id or "") == str(version.get("version_id"))
         return payload
@@ -4450,13 +5203,120 @@ class RagService:
             kb_id = str(version["kb_id"])
             self._ensure_kb_exists(metadata, kb_id)
             previous_id = metadata["pipeline_active_versions"].get(kb_id)
+            previously_activated = has_prior_activation(version.get("activated_at"))
             if (
                 int(version.get("index_schema_version") or 1) < INDEX_SCHEMA_VERSION
-                and (promotion or previous_id != version_id)
+                and (promotion or not previously_activated)
             ):
                 raise PipelineJobStateError(
                     "Legacy V2 indexes remain readable but cannot be newly activated or promoted."
                 )
+            content_contract = self._content_index_contract_for_version(version)
+            if content_contract.get("status") != "current" and (
+                promotion or not previously_activated
+            ):
+                raise PipelineContentContractError(
+                    "Legacy content-index contracts remain readable and previously active "
+                    "versions may be used for rollback, but they cannot be newly activated "
+                    "or promoted."
+                )
+            if promotion and content_contract.get("status") != "current":
+                raise PipelineContentContractError(
+                    "Candidate promotion requires the complete current content-index contract."
+                )
+            if promotion or not previously_activated:
+                index_owner_id = str(
+                    version.get("index_owner_version_id") or version_id
+                )
+                index_owner = metadata["pipeline_versions"].get(index_owner_id)
+                job = (
+                    metadata["pipeline_jobs"].get(str(version.get("job_id") or ""))
+                    if isinstance(index_owner, dict)
+                    else None
+                )
+                lineage_items = (
+                    [job, index_owner, version]
+                    if isinstance(job, dict) and isinstance(index_owner, dict)
+                    else []
+                )
+                chunker_profiles: list[dict[str, Any]] = []
+                chunker_fingerprints: list[str] = []
+                for item in lineage_items:
+                    config = (
+                        item.get("config_snapshot")
+                        if isinstance(item.get("config_snapshot"), dict)
+                        else {}
+                    )
+                    stages = (
+                        config.get("stages")
+                        if isinstance(config.get("stages"), dict)
+                        else {}
+                    )
+                    profile = safe_chunker_profile(stages.get("stage_chunker"))
+                    chunker_profiles.append(profile)
+                    chunker_fingerprints.append(
+                        chunker_profile_fingerprint(profile)
+                    )
+                expected_chunk_count = int(
+                    index_owner.get("chunk_count") or 0
+                ) if isinstance(index_owner, dict) else 0
+                expected_namespace = str(
+                    index_owner.get("namespace") or ""
+                ) if isinstance(index_owner, dict) else ""
+                receipts = [
+                    _safe_chunking_receipt(item.get("chunking_receipt"))
+                    for item in lineage_items
+                ]
+                if (
+                    len(lineage_items) != 3
+                    or len(set(chunker_fingerprints)) != 1
+                    or str(job.get("status") or "") != "succeeded"
+                    or str(job.get("candidate_version_id") or "")
+                    != index_owner_id
+                    or str(job.get("candidate_namespace") or "")
+                    != expected_namespace
+                    or str(version.get("namespace") or "")
+                    != expected_namespace
+                    or int(version.get("chunk_count") or 0)
+                    != expected_chunk_count
+                    or len(receipts) != 3
+                    or len({self._mapping_sha256(item) for item in receipts}) != 1
+                    or any(
+                        not _chunking_receipt_is_valid(
+                            receipt,
+                            expected_chunk_count=expected_chunk_count,
+                            expected_chunker_profile=chunker_profiles[position],
+                            expected_chunker_profile_fingerprint=(
+                                chunker_fingerprints[position]
+                            ),
+                            expected_candidate_version_id=index_owner_id,
+                            expected_candidate_namespace=expected_namespace,
+                        )
+                        for position, receipt in enumerate(receipts)
+                    )
+                    or (
+                        self._pipeline_job_uses_vector(job)
+                        and (
+                            (
+                                stored_sequence_hash := self._stored_vector_chunk_sequence_hash(
+                                    namespace=expected_namespace,
+                                    version_id=index_owner_id,
+                                    sources=job.get("sources"),
+                                )
+                            )
+                            is None
+                            or not hmac.compare_digest(
+                                stored_sequence_hash,
+                                str(receipts[0].get("chunk_sequence_hash") or "")
+                                if receipts
+                                else "",
+                            )
+                        )
+                    )
+                ):
+                    raise PipelineJobStateError(
+                        "Pipeline version chunking receipt lineage is invalid; first activation is blocked."
+                    )
             if promotion:
                 self._assert_v3_threshold_promotion_ready(version)
             if previous_id and previous_id in metadata["pipeline_versions"]:
@@ -4801,6 +5661,18 @@ class RagService:
 
         self._update_pipeline_job(job_id, update)
 
+    def update_pipeline_chunking_receipt(
+        self,
+        job_id: str,
+        receipt: dict[str, Any],
+    ) -> None:
+        safe_receipt = _safe_chunking_receipt(receipt)
+
+        def update(job: dict[str, Any]) -> None:
+            job["chunking_receipt"] = safe_receipt
+
+        self._update_pipeline_job(job_id, update)
+
     def update_pipeline_embedding_dimension(
         self,
         job_id: str,
@@ -4852,6 +5724,7 @@ class RagService:
                 profile.get("embedding_space_fingerprint") or ""
             )
             if int(snapshot.get("index_schema_version") or 1) >= INDEX_SCHEMA_VERSION:
+                previous_namespace = str(job.get("candidate_namespace") or "")
                 index_contract = self._index_contract(
                     index_schema_version=INDEX_SCHEMA_VERSION,
                     retrieval_profile=dict(snapshot.get("retrieval_profile") or {}),
@@ -4864,6 +5737,30 @@ class RagService:
                 )
                 snapshot["index_contract"] = json.loads(json.dumps(index_contract))
                 job["index_contract"] = json.loads(json.dumps(index_contract))
+                receipt = _safe_chunking_receipt(job.get("chunking_receipt"))
+                if receipt:
+                    expected_version_id = str(job.get("candidate_version_id") or "")
+                    if (
+                        not hmac.compare_digest(
+                            str(receipt.get("candidate_version_id") or ""),
+                            expected_version_id,
+                        )
+                        or not hmac.compare_digest(
+                            str(
+                                receipt.get("candidate_namespace_fingerprint")
+                                or ""
+                            ),
+                            candidate_namespace_fingerprint(previous_namespace),
+                        )
+                    ):
+                        raise PipelineJobStateError(
+                            "Pipeline chunking receipt cannot be rebound after "
+                            "Embedding dimension discovery."
+                        )
+                    receipt["candidate_namespace_fingerprint"] = (
+                        candidate_namespace_fingerprint(namespace)
+                    )
+                    job["chunking_receipt"] = receipt
                 job["candidate_namespace"] = namespace
 
         self._update_pipeline_job(job_id, update)
@@ -5352,6 +6249,8 @@ class RagService:
             "row_range": chunk.row_range,
             "visual_kind": chunk.visual_kind,
             "source_block_id": chunk.source_block_id,
+            "source_block_ids": list(chunk.source_block_ids),
+            "generated_item": bool(chunk.generated_item),
         }
 
     def list_pipeline_artifact_chunks(self, artifact_id: str) -> list[dict[str, Any]]:
@@ -5424,6 +6323,11 @@ class RagService:
                     "row_range": source.get("row_range"),
                     "visual_kind": source.get("visual_kind"),
                     "source_block_id": source.get("source_block_id"),
+                    "source_block_ids": list(source.get("source_block_ids") or []),
+                    "generated_item": source.get("generated_item") is True,
+                    "source_block_match_status": source.get(
+                        "source_block_match_status"
+                    ),
                 }
             )
         return citations
@@ -5922,13 +6826,15 @@ class RagService:
             if config.mode in {"fulltext", "hybrid"}
             else 0
         )
-        lexical_available = lexical_count > 0 or (lexical_ready and not is_v3)
+        # A persisted readiness flag is not proof that the lexical namespace is
+        # still present. Missing indexes fail closed for both legacy and V3;
+        # fulltext/hybrid must never silently become vector-only retrieval.
+        lexical_available = lexical_count > 0
         if config.mode in {"fulltext", "hybrid"} and not lexical_available:
-            if is_v3:
-                raise RagRetrievalUnavailableError(
-                    "rag_fulltext_index_unavailable",
-                    "The required full-text index is unavailable.",
-                )
+            raise RagRetrievalUnavailableError(
+                "rag_fulltext_index_unavailable",
+                "The required full-text index is unavailable.",
+            )
 
         async def query_vector_candidates() -> list[SearchResult]:
             nonlocal provider_route_receipts, execution_mode
@@ -5948,10 +6854,11 @@ class RagService:
         if config.mode in {"vector", "hybrid"}:
             vector_results = await query_vector_candidates()
         if config.mode in {"fulltext", "hybrid"}:
-            if lexical_ready or self.lexical_store.count_namespace(namespace) > 0:
-                lexical_results = self.lexical_store.query(namespace, clean_question, candidate_count)
-            elif not is_v3:
-                warnings.append("Full-text index is unavailable for this legacy version; vector retrieval was used.")
+            lexical_results = self.lexical_store.query(
+                namespace,
+                clean_question,
+                candidate_count,
+            )
 
         deleted_document_ids = self._deleted_document_ids()
         if deleted_document_ids:
@@ -5979,25 +6886,6 @@ class RagService:
             for item in lexical_results
         ]
         effective_config = config
-        if (
-            not is_v3
-            and config.mode == "fulltext"
-            and not lexical_candidates
-            and not lexical_ready
-        ):
-            effective_config = RetrievalConfig.from_mapping(
-                {**config.payload(), "mode": "vector", "rerank_enabled": config.rerank_enabled}
-            )
-            if not vector_candidates:
-                vector_results = await query_vector_candidates()
-                vector_results = [
-                    item
-                    for item in vector_results
-                    if not self._indexed_document_is_deleted(
-                        str(item.doc_id), deleted_document_ids
-                    )
-                ]
-                vector_candidates = [self._candidate_from_vector(item) for item in vector_results]
         raw_candidate_count = len(
             {
                 item.chunk_id
@@ -6254,6 +7142,18 @@ class RagService:
                     "row_range": result.row_range,
                     "visual_kind": result.visual_kind,
                     "source_block_id": result.source_block_id,
+                    "source_block_ids": list(result.source_block_ids),
+                    "generated_item": bool(result.generated_item),
+                    "source_block_match_status": (
+                        generated_source_block_match_status(
+                            result.source_block_id,
+                            result.source_block_ids,
+                            result.start_char,
+                            result.end_char,
+                        )
+                        if result.generated_item
+                        else None
+                    ),
                     "merged_chunk_ids": list(result.merged_chunk_ids),
                 }
                 for result in results
@@ -6856,6 +7756,45 @@ class RagService:
                 }
             )
         merged = dict(override or {})
+        requested_mode = str(merged.get("mode") or "").strip()
+        if version and requested_mode:
+            mode_channels = {
+                "vector": {"vector"},
+                "fulltext": {"fulltext"},
+                "hybrid": {"vector", "fulltext"},
+            }
+            declared_channels = set(mode_channels.get(base.mode, set()))
+            if schema_version >= INDEX_SCHEMA_VERSION:
+                raw_index_contract = (
+                    version.get("index_contract")
+                    if isinstance(version.get("index_contract"), dict)
+                    else {}
+                )
+                vector_contract = (
+                    raw_index_contract.get("vector")
+                    if isinstance(raw_index_contract.get("vector"), dict)
+                    else {}
+                )
+                lexical_contract = (
+                    raw_index_contract.get("lexical")
+                    if isinstance(raw_index_contract.get("lexical"), dict)
+                    else {}
+                )
+                contract_channels: set[str] = set()
+                if vector_contract.get("required") is True:
+                    contract_channels.add("vector")
+                if lexical_contract.get("required") is True:
+                    contract_channels.add("fulltext")
+                declared_channels &= contract_channels
+            requested_channels = mode_channels.get(requested_mode)
+            if (
+                requested_channels is None
+                or not requested_channels.issubset(declared_channels)
+            ):
+                raise RagRetrievalUnavailableError(
+                    "rag_retrieval_mode_unavailable",
+                    "The requested retrieval mode was not built for this immutable version.",
+                )
         if top_k is not None:
             merged["top_k"] = top_k
         if schema_version >= INDEX_SCHEMA_VERSION:
@@ -6926,6 +7865,8 @@ class RagService:
             row_range=item.row_range,
             visual_kind=item.visual_kind,
             source_block_id=item.source_block_id,
+            source_block_ids=tuple(item.source_block_ids),
+            generated_item=bool(item.generated_item),
             vector_score=item.score,
         )
 
@@ -7670,6 +8611,137 @@ class RagService:
             "before creating a pipeline job."
         )
 
+    def _content_index_contract(
+        self,
+        stages: dict[str, Any] | None,
+        existing: dict[str, Any] | None = None,
+        *,
+        index_contract: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        chunker = (
+            stages.get("stage_chunker")
+            if isinstance(stages, dict)
+            and isinstance(stages.get("stage_chunker"), dict)
+            else {}
+        )
+        strategy = str(chunker.get("strategy") or "recursive_character")
+        chunker_current = (
+            strategy
+            in {"recursive_estimated_token", "parent_child_estimated_token"}
+            and str(chunker.get("chunk_contract_version") or "")
+            == ESTIMATED_TOKEN_CHUNKER_CONTRACT
+            and str(chunker.get("size_unit") or "") == ESTIMATED_TOKEN_SIZE_UNIT
+            and str(chunker.get("token_estimator") or "")
+            == ESTIMATED_TOKEN_ESTIMATOR
+        )
+        # Stored aggregate or nested labels are projections, never authority.
+        # Round 4A has no lexical-v2 or parser-v2 implementation receipt, so a
+        # forward-declared version string must not make either component current.
+        # Rounds 4B/4C replace these constants with receipt-backed validators.
+        lexical_contract = LEGACY_LEXICAL_CONTRACT
+        parser_contract = LEGACY_PARSER_CONTRACT
+        components = {
+            "chunker": "current" if chunker_current else "legacy_read_only",
+            "lexical": (
+                "current"
+                if lexical_contract == CURRENT_LEXICAL_CONTRACT
+                else "legacy_read_only"
+            ),
+            "parser": (
+                "current"
+                if parser_contract == CURRENT_PARSER_CONTRACT
+                else "legacy_read_only"
+            ),
+        }
+        return {
+            "contract_version": CONTENT_INDEX_CONTRACT_VERSION,
+            "chunker_contract_version": (
+                ESTIMATED_TOKEN_CHUNKER_CONTRACT
+                if chunker_current
+                else LEGACY_CHARACTER_CHUNKER_CONTRACT
+            ),
+            "lexical_contract_version": lexical_contract,
+            "parser_contract_version": parser_contract,
+            "status": (
+                "current"
+                if all(value == "current" for value in components.values())
+                else "legacy_read_only"
+            ),
+            "components": components,
+        }
+
+    def _content_index_contract_for_version(
+        self,
+        version: dict[str, Any],
+    ) -> dict[str, Any]:
+        config_snapshot = (
+            version.get("config_snapshot")
+            if isinstance(version.get("config_snapshot"), dict)
+            else {}
+        )
+        stages = (
+            config_snapshot.get("stages")
+            if isinstance(config_snapshot.get("stages"), dict)
+            else {}
+        )
+        stored = (
+            version.get("content_index_contract")
+            if isinstance(version.get("content_index_contract"), dict)
+            else config_snapshot.get("content_index_contract")
+        )
+        return self._content_index_contract(
+            stages,
+            stored if isinstance(stored, dict) else None,
+            index_contract=(
+                config_snapshot.get("index_contract")
+                if isinstance(config_snapshot.get("index_contract"), dict)
+                else (
+                    version.get("index_contract")
+                    if isinstance(version.get("index_contract"), dict)
+                    else None
+                )
+            ),
+        )
+
+    def _assert_current_chunker_build_contract(
+        self,
+        stages: dict[str, Any] | None,
+        existing: dict[str, Any] | None = None,
+    ) -> None:
+        contract = self._content_index_contract(stages, existing)
+        if (contract.get("components") or {}).get("chunker") != "current":
+            raise PipelineContentContractError(
+                "Legacy character chunking remains readable but must be explicitly "
+                "upgraded before creating or rebuilding a knowledge index."
+            )
+
+    def _assert_buildable_content_contract(
+        self,
+        stages: dict[str, Any] | None,
+        existing: dict[str, Any] | None = None,
+        *,
+        index_contract: dict[str, Any] | None,
+        retrieval_mode: str,
+    ) -> None:
+        contract = self._content_index_contract(
+            stages,
+            existing,
+            index_contract=index_contract,
+        )
+        if (contract.get("components") or {}).get("chunker") != "current":
+            raise PipelineContentContractError(
+                "Legacy character chunking remains readable but must be explicitly "
+                "upgraded before creating or rebuilding a knowledge index."
+            )
+        if (
+            retrieval_mode in {"fulltext", "hybrid"}
+            and (contract.get("components") or {}).get("lexical") != "current"
+        ):
+            raise PipelineContentContractError(
+                "Legacy lexical-v1 indexes remain readable, but new fulltext or hybrid "
+                "indexes require the lexical-v2 contract delivered in Round 4B."
+            )
+
     def _default_pipeline_draft_stages(self) -> dict[str, dict[str, Any]]:
         return {
             "stage_data_source": {
@@ -7688,9 +8760,9 @@ class RagService:
                 "max_generated_items": 20,
             },
             "stage_chunker": {
-                "strategy": "recursive_character",
-                "chunk_size": self.splitter.chunk_size,
-                "chunk_overlap": self.splitter.chunk_overlap,
+                "strategy": "recursive_estimated_token",
+                "chunk_size": self._default_token_chunk_size,
+                "chunk_overlap": self._default_token_chunk_overlap,
                 "separators": list(DEFAULT_SEPARATORS),
                 "parent_chunk_size": 1500,
                 "parent_chunk_overlap": 100,
@@ -7698,6 +8770,9 @@ class RagService:
                 "child_chunk_overlap": 50,
                 "parent_separators": list(DEFAULT_SEPARATORS),
                 "child_separators": list(DEFAULT_SEPARATORS),
+                "size_unit": ESTIMATED_TOKEN_SIZE_UNIT,
+                "token_estimator": ESTIMATED_TOKEN_ESTIMATOR,
+                "chunk_contract_version": ESTIMATED_TOKEN_CHUNKER_CONTRACT,
             },
             "stage_image_understanding": {
                 "enabled": False,
@@ -7710,6 +8785,31 @@ class RagService:
                 "failure_policy": "continue_on_error",
             },
         }
+
+    @staticmethod
+    def _stored_chunker_contract_is_explicit_current(value: Any) -> bool:
+        if not isinstance(value, dict):
+            return False
+        strategy = str(value.get("strategy") or "")
+        required_budgets = (
+            {"chunk_size", "chunk_overlap"}
+            if strategy == "recursive_estimated_token"
+            else {
+                "parent_chunk_size",
+                "parent_chunk_overlap",
+                "child_chunk_size",
+                "child_chunk_overlap",
+            }
+            if strategy == "parent_child_estimated_token"
+            else set()
+        )
+        return bool(required_budgets) and required_budgets.issubset(value) and (
+            str(value.get("size_unit") or "") == ESTIMATED_TOKEN_SIZE_UNIT
+            and str(value.get("token_estimator") or "")
+            == ESTIMATED_TOKEN_ESTIMATOR
+            and str(value.get("chunk_contract_version") or "")
+            == ESTIMATED_TOKEN_CHUNKER_CONTRACT
+        )
 
     def _pipeline_draft_record(
         self,
@@ -7732,6 +8832,7 @@ class RagService:
                 ),
                 "retrieval_profile": retrieval_profile,
                 "stages": defaults,
+                "content_index_contract": self._content_index_contract(defaults),
             }
 
         stages = {
@@ -7739,19 +8840,59 @@ class RagService:
             for stage_id, config in defaults.items()
         }
         raw_stages = draft.get("stages")
+        seen_stage_ids: set[str] = set()
         if isinstance(raw_stages, dict):
             for raw_stage_id, raw_config in raw_stages.items():
                 stage_id = self._normalize_pipeline_stage_id(str(raw_stage_id))
                 if stage_id is None or not isinstance(raw_config, dict):
                     continue
+                seen_stage_ids.add(stage_id)
+                current_config = stages[stage_id]
+                if (
+                    stage_id == "stage_chunker"
+                    and not self._stored_chunker_contract_is_explicit_current(
+                        raw_config
+                    )
+                ):
+                    current_config = dict(defaults["stage_chunker"])
+                    current_config.update(
+                        {
+                            "strategy": "recursive_character",
+                            "size_unit": "characters",
+                            "token_estimator": None,
+                            "chunk_contract_version": (
+                                LEGACY_CHARACTER_CHUNKER_CONTRACT
+                            ),
+                        }
+                    )
                 try:
                     stages[stage_id] = self._validated_pipeline_stage_config(
                         stage_id,
-                        stages[stage_id],
+                        current_config,
                         raw_config,
                     )
                 except PipelineDraftValidationError:
+                    if stage_id == "stage_chunker":
+                        invalid = dict(stages[stage_id])
+                        invalid.update(json.loads(json.dumps(raw_config)))
+                        invalid["chunk_contract_version"] = "invalid"
+                        invalid["contract_error_code"] = (
+                            "rag_chunker_config_invalid"
+                        )
+                        stages[stage_id] = invalid
                     continue
+        if isinstance(raw_stages, dict) and "stage_chunker" not in seen_stage_ids:
+            invalid = dict(defaults["stage_chunker"])
+            invalid.update(
+                {
+                    "strategy": "recursive_character",
+                    "size_unit": "characters",
+                    "token_estimator": None,
+                    "chunk_contract_version": "invalid",
+                    "contract_error_code": "rag_chunker_config_invalid",
+                }
+            )
+            stages["stage_chunker"] = invalid
 
         retrieval_profile = RetrievalConfig.from_mapping(
             draft.get("retrieval_profile")
@@ -7775,6 +8916,14 @@ class RagService:
             ),
             "retrieval_profile": retrieval_profile,
             "stages": stages,
+            "content_index_contract": self._content_index_contract(
+                stages,
+                (
+                    draft.get("content_index_contract")
+                    if isinstance(draft.get("content_index_contract"), dict)
+                    else None
+                ),
+            ),
         }
 
     def _pipeline_graph_record(
@@ -7907,58 +9056,485 @@ class RagService:
         config: dict[str, Any],
         *,
         kind: str,
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        strategy = str(config.get("strategy") or "recursive_estimated_token")
+        token_strategy = strategy in {
+            "recursive_estimated_token",
+            "parent_child_estimated_token",
+        }
+        receipt: dict[str, Any] = {
+            "contract_version": str(
+                config.get("chunk_contract_version") or LEGACY_CHARACTER_CHUNKER_CONTRACT
+            ),
+            "strategy": strategy,
+            "size_unit": str(config.get("size_unit") or "characters"),
+            "token_estimator": str(config.get("token_estimator") or "") or None,
+            "raw_candidate_count": 0,
+            "heading_block_count": 0,
+            "heading_prefix_truncated_count": 0,
+            "generated_item_count": 0,
+            "generated_item_chunk_count": 0,
+            "generated_item_rejected_count": 0,
+            "generated_item_rejection_reasons": {},
+            "deduplicated_chunk_count": 0,
+            "final_chunk_count": 0,
+        }
+
+        def reject_generated(reason: str) -> None:
+            receipt["generated_item_rejected_count"] += 1
+            reasons = receipt["generated_item_rejection_reasons"]
+            reasons[reason] = int(reasons.get(reason, 0)) + 1
+
+        chunks: list[dict[str, Any]] = []
+        blocks = [
+            block for block in processed.get("blocks", []) if isinstance(block, dict)
+        ]
         generated = processed.get("generated_items")
         if isinstance(generated, list) and generated:
-            return [
-                {
-                    "index": index,
-                    "chunk_type": str(item.get("item_type") or "generated"),
-                    "text_preview": str(item.get("index_text") or "")[:600],
-                    "context_preview": str(item.get("context_text") or "")[:600],
-                    "source_block_ids": list(item.get("source_block_ids") or []),
-                    "truncated": bool(item.get("truncated")),
-                }
-                for index, item in enumerate(generated)
-                if isinstance(item, dict)
-            ]
-
-        if kind == "parent_child_chunker":
-            splitter: TextSplitter | ParentChildTextSplitter = ParentChildTextSplitter(
-                parent_chunk_size=int(config.get("parent_chunk_size", 1500)),
-                parent_chunk_overlap=int(config.get("parent_chunk_overlap", 100)),
-                child_chunk_size=int(config.get("child_chunk_size", 400)),
-                child_chunk_overlap=int(config.get("child_chunk_overlap", 50)),
-                parent_separators=list(config.get("parent_separators") or DEFAULT_SEPARATORS),
-                child_separators=list(config.get("child_separators") or DEFAULT_SEPARATORS),
-            )
-        else:
-            splitter = TextSplitter(
-                chunk_size=int(config.get("chunk_size", self.splitter.chunk_size)),
-                chunk_overlap=int(config.get("chunk_overlap", self.splitter.chunk_overlap)),
-                separators=list(config.get("separators") or DEFAULT_SEPARATORS),
-            )
-        chunks: list[dict[str, Any]] = []
-        for block in processed.get("blocks", []):
-            if not isinstance(block, dict):
-                continue
-            text = str(block.get("text") or "").strip()
-            if not text:
-                continue
-            for segment in splitter.split_segments(text):
-                chunks.append(
-                    {
-                        "index": len(chunks),
-                        "chunk_type": segment.chunk_type,
-                        "text_preview": segment.text[:600],
-                        "parent_preview": (segment.parent_text or "")[:600] or None,
-                        "parent_chunk_id": segment.parent_chunk_id,
-                        "start_char": int(block.get("start_char", 0)) + segment.start_char,
-                        "end_char": int(block.get("start_char", 0)) + segment.end_char,
-                        "truncated": len(segment.text) > 600,
-                    }
+            blocks_by_id = {
+                str(block.get("block_id")): block
+                for block in blocks
+                if block.get("block_id") is not None
+            }
+            for item in generated:
+                if not isinstance(item, dict):
+                    continue
+                receipt["generated_item_count"] += 1
+                try:
+                    parent_chunk_id, source_block_ids_tuple = (
+                        generated_parent_identity(
+                            str(processed.get("document_id") or "preview"),
+                            item,
+                            blocks_by_id,
+                        )
+                    )
+                except ValueError:
+                    reject_generated("source_block_provenance_invalid")
+                    continue
+                source_block_ids = list(source_block_ids_tuple)
+                source_blocks = [blocks_by_id[block_id] for block_id in source_block_ids]
+                source_heading_paths = [
+                    heading_path_segments(block.get("heading_path"))
+                    for block in source_blocks
+                ]
+                source_heading_hashes = [
+                    str(block.get("heading_path_source_hash") or "")
+                    or heading_path_source_hash(block.get("heading_path"))
+                    for block in source_blocks
+                ]
+                source_heading_was_truncated = any(
+                    bool(block.get("heading_path_source_truncated"))
+                    or heading_path_source_truncated(block.get("heading_path"))
+                    for block in source_blocks
                 )
-        return chunks
+                source_heading_path = ()
+                heading_path = ()
+                if (
+                    source_heading_paths
+                    and all(source_heading_paths)
+                    and all(source_heading_hashes)
+                    and len(set(source_heading_hashes)) == 1
+                ):
+                    source_heading_path = source_heading_paths[0]
+                    heading_path = normalize_heading_path(source_heading_path)
+                prefix = ""
+                prefix_truncated = False
+                if token_strategy:
+                    index_budget = int(
+                        config.get("child_chunk_size", 400)
+                        if strategy == "parent_child_estimated_token"
+                        else config.get("chunk_size", 500)
+                    )
+                    context_budget = int(
+                        config.get("parent_chunk_size", 1500)
+                        if strategy == "parent_child_estimated_token"
+                        else config.get("chunk_size", 500)
+                    )
+                    index_overlap = int(
+                        config.get("child_chunk_overlap", 50)
+                        if strategy == "parent_child_estimated_token"
+                        else config.get("chunk_overlap", 50)
+                    )
+                    context_overlap = int(
+                        config.get("parent_chunk_overlap", 100)
+                        if strategy == "parent_child_estimated_token"
+                        else config.get("chunk_overlap", 50)
+                    )
+                    prefix_input = (
+                        heading_path_boundary(source_heading_path)
+                        if source_heading_was_truncated and source_heading_path
+                        else source_heading_path
+                    )
+                    prefix, budget_truncated = _bounded_heading_prefix(
+                        prefix_input,
+                        budget=_heading_prefix_budget(
+                            index_budget=index_budget,
+                            index_overlap=index_overlap,
+                            context_budget=context_budget,
+                            context_overlap=context_overlap,
+                        ),
+                    )
+                    prefix_truncated = source_heading_was_truncated or budget_truncated
+                    if prefix_truncated:
+                        receipt["heading_prefix_truncated_count"] += 1
+                    index_text = _with_heading_prefix(
+                        prefix,
+                        str(item.get("index_text") or "").strip(),
+                    )
+                    if not index_text or _estimate_rag_tokens(index_text) > index_budget:
+                        reject_generated("index_text_over_budget")
+                        continue
+                    context_body = str(item.get("context_text") or "")
+                    prefix_tokens = _estimate_rag_tokens(prefix + "\n") if prefix else 0
+                    if strategy == "parent_child_estimated_token":
+                        parent_body_budget = max(1, context_budget - prefix_tokens)
+                        child_body_budget = max(1, index_budget - prefix_tokens)
+                        context_segments = EstimatedTokenParentChildTextSplitter(
+                            parent_chunk_size=parent_body_budget,
+                            parent_chunk_overlap=min(
+                                context_overlap,
+                                parent_body_budget - 1,
+                            ),
+                            child_chunk_size=child_body_budget,
+                            child_chunk_overlap=min(
+                                index_overlap,
+                                child_body_budget - 1,
+                            ),
+                            parent_separators=(
+                                list(config.get("parent_separators") or []) or None
+                            ),
+                            child_separators=(
+                                list(config.get("child_separators") or []) or None
+                            ),
+                        ).split_segments(context_body)
+                    else:
+                        body_budget = max(
+                            1,
+                            min(index_budget, context_budget) - prefix_tokens,
+                        )
+                        body_overlap = min(context_overlap, body_budget - 1)
+                        context_segments = EstimatedTokenTextSplitter(
+                            chunk_size=body_budget,
+                            chunk_overlap=max(0, body_overlap),
+                            separators=(
+                                list(config.get("separators") or []) or None
+                            ),
+                        ).split_segments(context_body)
+                    if not context_segments:
+                        reject_generated("context_text_empty")
+                        continue
+                else:
+                    index_text = str(item.get("index_text") or "")
+                    context_body = str(item.get("context_text") or "")
+                    context_segments = TextSplitter(
+                        chunk_size=max(100, len(context_body) or 100),
+                        chunk_overlap=0,
+                    ).split_segments(context_body)
+                for segment in context_segments:
+                    context_text = _with_heading_prefix(
+                        prefix,
+                        segment.parent_text or segment.text,
+                    )
+                    local_parent_id = segment.parent_chunk_id
+                    if (
+                        not local_parent_id
+                        and token_strategy
+                        and len(context_segments) > 1
+                    ):
+                        local_parent_id = f"segment_{segment.index}"
+                    segment_parent_chunk_id = (
+                        generated_parent_window_identity(
+                            parent_chunk_id,
+                            local_parent_id,
+                            context_text,
+                        )
+                        if local_parent_id
+                        else parent_chunk_id
+                    )
+                    if token_strategy:
+                        segment_index_text = _bounded_generated_index_text(
+                            index_text,
+                            segment.text,
+                            budget=index_budget,
+                        )
+                        mapping_text = segment.parent_text or segment.text
+                        mapping_start = (
+                            segment.parent_start_char
+                            if segment.parent_text is not None
+                            and segment.parent_start_char is not None
+                            else segment.start_char
+                        )
+                        mapping_end = (
+                            segment.parent_end_char
+                            if segment.parent_text is not None
+                            and segment.parent_end_char is not None
+                            else segment.end_char
+                        )
+                        source_mapping = generated_segment_source_mapping(
+                            mapping_text,
+                            source_blocks,
+                            segment_start=mapping_start,
+                            segment_end=mapping_end,
+                            context_source_ranges=item.get("context_source_ranges"),
+                        )
+                        start_char = source_mapping.start_char
+                        end_char = source_mapping.end_char
+                    else:
+                        segment_index_text = index_text
+                        start_char = min(
+                            (
+                                int(block.get("start_char", 0))
+                                for block in source_blocks
+                            ),
+                            default=0,
+                        )
+                        source_mapping = None
+                        end_char = max(
+                            (
+                                int(block.get("end_char", 0))
+                                for block in source_blocks
+                            ),
+                            default=0,
+                        )
+                    chunks.append(
+                        {
+                            "index": len(chunks),
+                            "chunk_type": str(item.get("item_type") or "generated"),
+                            "text_preview": segment_index_text[:600],
+                            "context_preview": context_text[:600],
+                            "source_block_ids": (
+                                list(source_mapping.source_block_ids)
+                                if source_mapping is not None
+                                else source_block_ids
+                            ),
+                            "source_block_id": (
+                                source_mapping.source_block_id
+                                if source_mapping is not None
+                                else (
+                                    source_block_ids[0]
+                                    if len(source_block_ids) == 1
+                                    else None
+                                )
+                            ),
+                            "source_block_match_status": (
+                                source_mapping.status
+                                if source_mapping is not None
+                                else (
+                                    "eligible"
+                                    if len(source_block_ids) == 1
+                                    else "ambiguous_multi_source"
+                                )
+                            ),
+                            "parent_chunk_id": segment_parent_chunk_id,
+                            "start_char": start_char,
+                            "end_char": end_char,
+                            "estimated_index_tokens": _estimate_rag_tokens(
+                                segment_index_text
+                            ),
+                            "estimated_context_tokens": _estimate_rag_tokens(context_text),
+                            "heading_prefix_truncated": prefix_truncated,
+                            "generated_item": True,
+                            "contract_status": (
+                                "current" if token_strategy else "legacy_read_only"
+                            ),
+                            "truncated": len(segment_index_text) > 600
+                            or len(context_text) > 600,
+                            "_index_text": segment_index_text,
+                            "_context_text": context_text,
+                        }
+                    )
+                    receipt["raw_candidate_count"] += 1
+        else:
+            for block in blocks:
+                text = str(block.get("text") or "")
+                if not text.strip():
+                    continue
+                if str(block.get("kind") or "") == "heading":
+                    receipt["heading_block_count"] += 1
+                    continue
+                source_heading_path = heading_path_segments(block.get("heading_path"))
+                heading_path = normalize_heading_path(source_heading_path)
+                source_heading_was_truncated = (
+                    bool(block.get("heading_path_source_truncated"))
+                    or heading_path_source_truncated(block.get("heading_path"))
+                )
+                prefix_truncated = False
+                if token_strategy:
+                    index_budget = int(
+                        config.get("child_chunk_size", 400)
+                        if strategy == "parent_child_estimated_token"
+                        else config.get("chunk_size", self.splitter.chunk_size)
+                    )
+                    context_budget = int(
+                        config.get("parent_chunk_size", 1500)
+                        if strategy == "parent_child_estimated_token"
+                        else config.get("chunk_size", self.splitter.chunk_size)
+                    )
+                    index_overlap = int(
+                        config.get("child_chunk_overlap", 50)
+                        if strategy == "parent_child_estimated_token"
+                        else config.get("chunk_overlap", self.splitter.chunk_overlap)
+                    )
+                    context_overlap = int(
+                        config.get("parent_chunk_overlap", 100)
+                        if strategy == "parent_child_estimated_token"
+                        else config.get("chunk_overlap", self.splitter.chunk_overlap)
+                    )
+                    prefix_input = (
+                        heading_path_boundary(source_heading_path)
+                        if source_heading_was_truncated and source_heading_path
+                        else source_heading_path
+                    )
+                    prefix, budget_truncated = _bounded_heading_prefix(
+                        prefix_input,
+                        budget=_heading_prefix_budget(
+                            index_budget=index_budget,
+                            index_overlap=index_overlap,
+                            context_budget=context_budget,
+                            context_overlap=context_overlap,
+                        ),
+                    )
+                    prefix_truncated = source_heading_was_truncated or budget_truncated
+                    if prefix_truncated:
+                        receipt["heading_prefix_truncated_count"] += 1
+                    prefix_tokens = _estimate_rag_tokens(prefix + "\n") if prefix else 0
+                    if strategy == "parent_child_estimated_token":
+                        splitter = EstimatedTokenParentChildTextSplitter(
+                            parent_chunk_size=max(1, context_budget - prefix_tokens),
+                            parent_chunk_overlap=context_overlap,
+                            child_chunk_size=max(1, index_budget - prefix_tokens),
+                            child_chunk_overlap=index_overlap,
+                            parent_separators=list(
+                                config.get("parent_separators") or DEFAULT_SEPARATORS
+                            ),
+                            child_separators=list(
+                                config.get("child_separators") or DEFAULT_SEPARATORS
+                            ),
+                        )
+                    else:
+                        splitter = EstimatedTokenTextSplitter(
+                            chunk_size=max(1, index_budget - prefix_tokens),
+                            chunk_overlap=index_overlap,
+                            separators=list(config.get("separators") or DEFAULT_SEPARATORS),
+                        )
+                else:
+                    prefix = " > ".join(heading_path)
+                    if kind == "parent_child_chunker":
+                        splitter = ParentChildTextSplitter(
+                            parent_chunk_size=int(config.get("parent_chunk_size", 1500)),
+                            parent_chunk_overlap=int(config.get("parent_chunk_overlap", 100)),
+                            child_chunk_size=int(config.get("child_chunk_size", 400)),
+                            child_chunk_overlap=int(config.get("child_chunk_overlap", 50)),
+                            parent_separators=list(
+                                config.get("parent_separators") or DEFAULT_SEPARATORS
+                            ),
+                            child_separators=list(
+                                config.get("child_separators") or DEFAULT_SEPARATORS
+                            ),
+                        )
+                    else:
+                        splitter = TextSplitter(
+                            chunk_size=int(config.get("chunk_size", self.splitter.chunk_size)),
+                            chunk_overlap=int(
+                                config.get("chunk_overlap", self.splitter.chunk_overlap)
+                            ),
+                            separators=list(config.get("separators") or DEFAULT_SEPARATORS),
+                        )
+                for segment in splitter.split_segments(text):
+                    index_text = _with_heading_prefix(prefix, segment.text)
+                    context_text = _with_heading_prefix(
+                        prefix,
+                        segment.parent_text or segment.text,
+                    )
+                    parent_chunk_id = (
+                        f"{processed.get('document_id', 'preview')}_"
+                        f"{block.get('block_id')}_{segment.parent_chunk_id}"
+                        if segment.parent_chunk_id
+                        else None
+                    )
+                    chunks.append(
+                        {
+                            "index": len(chunks),
+                            "chunk_type": segment.chunk_type,
+                            "text_preview": index_text[:600],
+                            "context_preview": context_text[:600],
+                            "parent_preview": (
+                                context_text[:600] if segment.parent_text else None
+                            ),
+                            "parent_chunk_id": parent_chunk_id,
+                            "source_block_id": block.get("block_id"),
+                            "start_char": int(block.get("start_char", 0))
+                            + segment.start_char,
+                            "end_char": int(block.get("start_char", 0))
+                            + segment.end_char,
+                            "estimated_index_tokens": _estimate_rag_tokens(index_text),
+                            "estimated_context_tokens": _estimate_rag_tokens(context_text),
+                            "heading_prefix_truncated": prefix_truncated,
+                            "generated_item": False,
+                            "contract_status": (
+                                "current" if token_strategy else "legacy_read_only"
+                            ),
+                            "truncated": len(index_text) > 600 or len(context_text) > 600,
+                            "_index_text": index_text,
+                            "_context_text": context_text,
+                        }
+                    )
+                    receipt["raw_candidate_count"] += 1
+
+        deduplicated: list[dict[str, Any]] = []
+        seen: dict[tuple[str, str], int] = {}
+        for chunk in chunks:
+            scope_id = str(
+                chunk.get("source_block_id")
+                or chunk.get("parent_chunk_id")
+                or "document"
+            )
+            normalized_index = " ".join(
+                unicodedata.normalize("NFKC", str(chunk.pop("_index_text", ""))).split()
+            )
+            normalized_context = " ".join(
+                unicodedata.normalize("NFKC", str(chunk.pop("_context_text", ""))).split()
+            )
+            identity = (
+                json.dumps(
+                    {
+                        "index_text": normalized_index,
+                        "context_text": normalized_context,
+                    },
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
+                if chunk.get("generated_item") is True
+                else normalized_index
+            )
+            key = (scope_id, identity)
+            existing_index = seen.get(key)
+            if existing_index is not None:
+                receipt["deduplicated_chunk_count"] += 1
+                existing = deduplicated[existing_index]
+                if (
+                    chunk.get("generated_item") is not True
+                    and (
+                        int(chunk.get("start_char") or 0),
+                        int(chunk.get("end_char") or 0),
+                    )
+                    < (
+                        int(existing.get("start_char") or 0),
+                        int(existing.get("end_char") or 0),
+                    )
+                ):
+                    chunk["index"] = existing_index
+                    deduplicated[existing_index] = chunk
+                continue
+            seen[key] = len(deduplicated)
+            chunk["index"] = len(deduplicated)
+            deduplicated.append(chunk)
+        receipt["generated_item_chunk_count"] = sum(
+            1 for item in deduplicated if item.get("generated_item") is True
+        )
+        receipt["final_chunk_count"] = len(deduplicated)
+        return deduplicated, receipt
 
     def _normalize_pipeline_stage_id(self, value: str) -> str | None:
         if value in self._default_pipeline_draft_stages():
@@ -8052,6 +9628,19 @@ class RagService:
             return config
 
         if stage_id == "stage_chunker":
+            current_strategy = str(current.get("strategy") or "recursive_character")
+            if current_strategy == "local_recursive_character_chunks":
+                current_strategy = "recursive_character"
+            current_is_token = (
+                current_strategy
+                in {"recursive_estimated_token", "parent_child_estimated_token"}
+                and str(current.get("chunk_contract_version") or "")
+                == ESTIMATED_TOKEN_CHUNKER_CONTRACT
+                and str(current.get("size_unit") or "")
+                == ESTIMATED_TOKEN_SIZE_UNIT
+                and str(current.get("token_estimator") or "")
+                == ESTIMATED_TOKEN_ESTIMATOR
+            )
             strategy = str(
                 patch.get(
                     "strategy",
@@ -8060,10 +9649,38 @@ class RagService:
             )
             if strategy == "local_recursive_character_chunks":
                 strategy = "recursive_character"
-            if strategy not in {"recursive_character", "parent_child"}:
+            if strategy not in {
+                "recursive_character",
+                "parent_child",
+                "recursive_estimated_token",
+                "parent_child_estimated_token",
+            }:
                 raise PipelineDraftValidationError(
-                    "chunker.strategy must be recursive_character or parent_child."
+                    "chunker.strategy must use a supported character or estimated-token contract."
                 )
+            if (
+                strategy
+                in {"recursive_estimated_token", "parent_child_estimated_token"}
+                and (not current_is_token or strategy != current_strategy)
+            ):
+                required_budget_fields = (
+                    {"chunk_size", "chunk_overlap"}
+                    if strategy == "recursive_estimated_token"
+                    else {
+                        "parent_chunk_size",
+                        "parent_chunk_overlap",
+                        "child_chunk_size",
+                        "child_chunk_overlap",
+                    }
+                )
+                missing_budget_fields = sorted(required_budget_fields - set(patch))
+                if missing_budget_fields:
+                    raise PipelineDraftValidationError(
+                        "Changing estimated-token strategy family requires explicit "
+                        "size and overlap values for the target strategy; missing: "
+                        + ", ".join(missing_budget_fields)
+                        + "."
+                    )
             chunk_size = self._coerce_int(
                 patch.get("chunk_size", config.get("chunk_size", self.splitter.chunk_size)),
                 "chunker.chunk_size",
@@ -8114,6 +9731,28 @@ class RagService:
                 raise PipelineDraftValidationError(
                     "chunker.child_chunk_overlap must be smaller than child_chunk_size."
                 )
+            token_strategy = strategy in {
+                "recursive_estimated_token",
+                "parent_child_estimated_token",
+            }
+            if token_strategy:
+                active_size = child_size if strategy == "parent_child_estimated_token" else chunk_size
+                active_overlap = (
+                    child_overlap
+                    if strategy == "parent_child_estimated_token"
+                    else chunk_overlap
+                )
+                if active_size - active_overlap < 8:
+                    raise PipelineDraftValidationError(
+                        "Estimated-token chunking must reserve at least 8 tokens beyond overlap."
+                    )
+                if (
+                    strategy == "parent_child_estimated_token"
+                    and parent_size - parent_overlap < 8
+                ):
+                    raise PipelineDraftValidationError(
+                        "Estimated-token parent chunks must reserve at least 8 tokens beyond overlap."
+                    )
             config.update(
                 {
                     "strategy": strategy,
@@ -8138,8 +9777,20 @@ class RagService:
                         ),
                         "chunker.child_separators",
                     ),
+                    "size_unit": (
+                        ESTIMATED_TOKEN_SIZE_UNIT if token_strategy else "characters"
+                    ),
+                    "token_estimator": (
+                        ESTIMATED_TOKEN_ESTIMATOR if token_strategy else None
+                    ),
+                    "chunk_contract_version": (
+                        ESTIMATED_TOKEN_CHUNKER_CONTRACT
+                        if token_strategy
+                        else LEGACY_CHARACTER_CHUNKER_CONTRACT
+                    ),
                 }
             )
+            config.pop("contract_error_code", None)
             return config
 
         if stage_id == "stage_image_understanding":

@@ -22,7 +22,6 @@ from server.rag import rag_service as service_module
 from server.rag.api import (
     CitationAnchorPayload,
     DocumentPayload,
-    KnowledgeChunkPayload,
     RagSourcePayload,
     set_rag_service_for_tests,
 )
@@ -75,6 +74,44 @@ def _service(tmp_path: Path, *, processor: Any | None = None) -> RagService:
     )
 
 
+async def _build_vector_candidate(
+    service: RagService,
+    kb_id: str,
+    document_id: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    draft = service.update_pipeline_draft(
+        kb_id,
+        {},
+        retrieval_profile={"mode": "vector"},
+    )
+    job = service.create_pipeline_job(
+        kb_id,
+        draft_version=int(draft["version"]),
+        source_document_ids=[document_id],
+    )
+    assert await KnowledgePipelineExecutor(service).run_once() is True
+    completed = service.get_pipeline_job(job["job_id"])
+    assert completed["status"] == "succeeded"
+    version = service.get_pipeline_version(str(completed["candidate_version_id"]))
+    return completed, version
+
+
+def _mark_pipeline_version_as_previously_active(
+    service: RagService,
+    version_id: str,
+) -> None:
+    """Model a historical active index without authorizing a new activation."""
+
+    with service._metadata_lock:  # noqa: SLF001 - historical compatibility fixture.
+        metadata = service._read_metadata_unlocked()  # noqa: SLF001
+        version = metadata["pipeline_versions"][version_id]
+        kb_id = str(version["kb_id"])
+        version["status"] = "active"
+        version["activated_at"] = 1.0
+        metadata["pipeline_active_versions"][kb_id] = version_id
+        service._write_metadata_unlocked(metadata)  # noqa: SLF001
+
+
 def _allow_mock_office(
     monkeypatch: pytest.MonkeyPatch,
     parsed: ParsedDocument,
@@ -86,6 +123,7 @@ def _allow_mock_office(
         lambda self, stream, **kwargs: None,
     )
     monkeypatch.setattr(service_module, "parse_document_structured", lambda *args: parsed)
+    monkeypatch.setattr(processor_module, "parse_document_structured", lambda *args: parsed)
 
 
 def test_structured_office_blocks_keep_real_slide_and_heading_metadata(
@@ -117,7 +155,7 @@ def test_structured_office_blocks_keep_real_slide_and_heading_metadata(
 
 
 @pytest.mark.asyncio
-async def test_direct_office_upload_indexes_each_section_with_slide_source(
+async def test_office_source_only_upload_requires_vector_candidate_for_slide_source(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -125,8 +163,21 @@ async def test_direct_office_upload_indexes_each_section_with_slide_source(
     service = _service(tmp_path)
     kb = service.create_knowledge_base("Office direct upload")
 
-    document = await service.upload_document(kb["id"], "review.pptx", b"mock")
-    stored = service.vector_store.list_document_chunks(document["id"])
+    document = await service.upload_document(
+        kb["id"],
+        "review.pptx",
+        b"mock",
+        pipeline_only=True,
+    )
+    assert document["ingestion_status"] == "pipeline_required"
+    assert document["chunk_count"] == 0
+    assert service.vector_store.list_document_chunks(document["id"]) == []
+    assert service.list_pipeline_artifact_chunks(f"artifact_{document['id']}") == []
+
+    _, version = await _build_vector_candidate(service, kb["id"], document["id"])
+    stored = service.vector_store.list_document_chunks(
+        f"{version['version_id']}_{document['id']}"
+    )
 
     assert len(stored) == 1
     assert stored[0].slide == 3
@@ -134,15 +185,12 @@ async def test_direct_office_upload_indexes_each_section_with_slide_source(
     assert stored[0].heading_path == ("季度回顾",)
     assert stored[0].text.startswith("季度回顾\n")
 
+    _mark_pipeline_version_as_previously_active(service, version["version_id"])
     result = await service.query(kb["id"], "收入增长", top_k=1)
     source = RagSourcePayload.model_validate(result["sources"][0])
     assert source.slide == 3
     assert source.page_number is None
     assert source.heading_path == ["季度回顾"]
-
-    chunks = service.list_pipeline_artifact_chunks(f"artifact_{document['id']}")
-    chunk_payload = KnowledgeChunkPayload.model_validate(chunks[0])
-    assert chunk_payload.heading_path == ["季度回顾"]
 
     citations = await service.create_pipeline_citations(kb["id"], "收入增长", top_k=1)
     citation = CitationAnchorPayload.model_validate(citations[0])
@@ -152,7 +200,7 @@ async def test_direct_office_upload_indexes_each_section_with_slide_source(
 
 
 @pytest.mark.asyncio
-async def test_office_upload_parsing_does_not_block_event_loop(
+async def test_office_pipeline_parsing_does_not_block_event_loop(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -168,17 +216,36 @@ async def test_office_upload_parsing_does_not_block_event_loop(
         return parsed
 
     monkeypatch.setattr(service_module, "parse_document_structured", blocking_parse)
+    monkeypatch.setattr(processor_module, "parse_document_structured", blocking_parse)
     service = _service(tmp_path)
     kb = service.create_knowledge_base("Office heartbeat")
+    document = await service.upload_document(
+        kb["id"],
+        "heartbeat.pptx",
+        b"mock",
+        pipeline_only=True,
+    )
+    assert entered.is_set() is False
+    draft = service.update_pipeline_draft(
+        kb["id"],
+        {},
+        retrieval_profile={"mode": "vector"},
+    )
+    service.create_pipeline_job(
+        kb["id"],
+        draft_version=int(draft["version"]),
+        source_document_ids=[document["id"]],
+    )
     asyncio.get_running_loop().call_later(0.05, release.set)
 
-    document = await asyncio.wait_for(
-        service.upload_document(kb["id"], "heartbeat.pptx", b"mock"),
+    assert await asyncio.wait_for(
+        KnowledgePipelineExecutor(service).run_once(),
         timeout=1.0,
-    )
+    ) is True
 
     assert entered.is_set()
-    assert document["chunk_count"] == 1
+    assert document["chunk_count"] == 0
+    assert service.list_pipeline_versions(kb["id"])[0]["chunk_count"] == 1
 
 
 @pytest.mark.asyncio
@@ -197,22 +264,29 @@ async def test_office_warnings_are_bounded_persisted_and_returned(
     service = _service(tmp_path)
     kb = service.create_knowledge_base("Office warnings")
 
-    uploaded = await service.upload_document(kb["id"], "warnings.pptx", b"mock")
+    uploaded = await service.upload_document(
+        kb["id"],
+        "warnings.pptx",
+        b"mock",
+        pipeline_only=True,
+    )
+    completed, _ = await _build_vector_candidate(service, kb["id"], uploaded["id"])
     listed = service.list_documents(kb["id"])[0]
     persisted = json.loads(service.metadata_path.read_text(encoding="utf-8"))[
         "documents"
     ][uploaded["id"]]["warnings"]
+    pipeline_warnings = completed["document_results"][0]["warnings"]
 
-    assert uploaded["warnings"] == listed["warnings"] == persisted
-    assert DocumentPayload.model_validate(uploaded).warnings == persisted
-    assert len(persisted) <= service_module.MAX_DOCUMENT_WARNINGS
+    assert uploaded["warnings"] == listed["warnings"] == persisted == []
+    assert DocumentPayload.model_validate(uploaded).warnings == []
+    assert len(pipeline_warnings) <= service_module.MAX_DOCUMENT_WARNINGS
     assert all(
         len(item) <= service_module.MAX_DOCUMENT_WARNING_CHARACTERS
-        for item in persisted
+        for item in pipeline_warnings
     )
-    assert sum(map(len, persisted)) <= service_module.MAX_DOCUMENT_WARNINGS_CHARACTERS
-    assert all("\n" not in item and "\x00" not in item for item in persisted)
-    assert all("top-secret" not in item for item in persisted)
+    assert sum(map(len, pipeline_warnings)) <= service_module.MAX_DOCUMENT_WARNINGS_CHARACTERS
+    assert all("\n" not in item and "\x00" not in item for item in pipeline_warnings)
+    assert all("top-secret" not in item for item in pipeline_warnings)
 
 
 def test_rag_parser_preserves_local_parser_status_and_error_code(
@@ -252,7 +326,7 @@ def test_rag_parser_preserves_local_parser_status_and_error_code(
         (503, "office_parser_unavailable"),
     ),
 )
-async def test_rag_upload_api_preserves_office_parser_error_contract(
+async def test_rag_pipeline_surfaces_office_parser_failure_after_source_only_upload(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     status_code: int,
@@ -268,6 +342,7 @@ async def test_rag_upload_api_preserves_office_parser_error_contract(
         )
 
     monkeypatch.setattr(service_module, "parse_document_structured", fail_parse)
+    monkeypatch.setattr(processor_module, "parse_document_structured", fail_parse)
     service = _service(tmp_path)
     kb = service.create_knowledge_base("Office API errors")
     set_rag_service_for_tests(service)
@@ -290,17 +365,36 @@ async def test_rag_upload_api_preserves_office_parser_error_contract(
             listed = await client.get(
                 f"/api/rag/knowledge_bases/{kb['id']}/documents"
             )
+            configured = await client.patch(
+                f"/api/rag/pipeline/draft/{kb['id']}",
+                json={"retrieval_profile": {"mode": "vector"}},
+            )
+            assert configured.status_code == 200, configured.text
+            queued = await client.post(
+                f"/api/rag/pipeline/draft/{kb['id']}/execute",
+                json={
+                    "draft_version": configured.json()["version"],
+                    "source_document_ids": [response.json()["id"]],
+                },
+            )
+            assert queued.status_code == 200, queued.text
+            assert await KnowledgePipelineExecutor(service).run_once() is True
+            failed = service.get_pipeline_job(queued.json()["job_id"])
     finally:
         set_rag_service_for_tests(None)
 
-    assert response.status_code == status_code
-    assert response.json()["detail"] == {
-        "code": error_code,
-        "message": "Office 文件无法安全解析。",
-    }
+    assert response.status_code == 200
+    assert response.json()["ingestion_status"] == "pipeline_required"
+    assert response.json()["chunk_count"] == 0
     assert listed.status_code == 200
-    assert listed.json()["documents"] == []
-    assert not any(path.is_file() for path in (tmp_path / "uploads").rglob("*"))
+    assert len(listed.json()["documents"]) == 1
+    assert failed["status"] == "failed"
+    assert failed["error"] == "All source documents failed during processing."
+    assert failed["document_results"][0]["status"] == "failed"
+    assert failed["document_results"][0]["error"] == "Office 文件无法安全解析。"
+    assert service.list_pipeline_versions(kb["id"]) == []
+    assert service.get_active_pipeline_version(kb["id"]) is None
+    assert any(path.is_file() for path in (tmp_path / "uploads").rglob("*"))
 
 
 class _OfficePipelineProcessor:
@@ -330,17 +424,27 @@ class _OfficePipelineProcessor:
 
 
 @pytest.mark.asyncio
-async def test_pipeline_propagates_slide_to_vector_fulltext_and_api_source(
+async def test_pipeline_propagates_slide_to_vector_and_api_source(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _allow_mock_office(monkeypatch, _pptx_document(slide=4))
     service = _service(tmp_path, processor=_OfficePipelineProcessor())
     kb = service.create_knowledge_base("Office pipeline")
-    document = await service.upload_document(kb["id"], "release.pptx", b"mock")
+    document = await service.upload_document(
+        kb["id"],
+        "release.pptx",
+        b"mock",
+        pipeline_only=True,
+    )
+    draft = service.update_pipeline_draft(
+        kb["id"],
+        {},
+        retrieval_profile={"mode": "vector"},
+    )
     job = service.create_pipeline_job(
         kb["id"],
-        draft_version=1,
+        draft_version=int(draft["version"]),
         source_document_ids=[document["id"]],
     )
 
@@ -354,16 +458,13 @@ async def test_pipeline_propagates_slide_to_vector_fulltext_and_api_source(
     assert vector_chunks[0].page_number is None
     assert vector_chunks[0].heading_path == ("发布摘要",)
 
-    lexical = service.lexical_store.query(version["namespace"], "AURORA-42", 1)
-    assert lexical[0].slide == 4
-    assert lexical[0].page_number is None
-    assert lexical[0].heading_path == ("发布摘要",)
+    assert service.lexical_store.count_namespace(version["namespace"]) == 0
 
     result = await service.query_pipeline_version(
         version["version_id"],
         "AURORA-42",
         top_k=1,
-        retrieval={"mode": "fulltext"},
+        retrieval={"mode": "vector"},
     )
     source = RagSourcePayload.model_validate(result["sources"][0])
     assert source.slide == 4
