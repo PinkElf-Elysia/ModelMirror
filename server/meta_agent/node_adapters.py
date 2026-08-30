@@ -66,6 +66,47 @@ class PlannerNodeAdapter:
     def validate_config(self, node: MetaPlannerIRNode) -> BaseModel:
         return self.config_model.model_validate(node.config)
 
+    def validate_authoring_config(self, config: dict[str, Any]) -> dict[str, Any]:
+        """Normalize editor/model config through the same compiler contract."""
+
+        unknown = sorted(set(config) - set(self.config_model.model_fields))
+        if unknown:
+            raise ValueError(
+                f"Node kind {self.kind} has undeclared Adapter config fields: "
+                + ", ".join(unknown)
+            )
+        return self.config_model.model_validate(config).model_dump(mode="json")
+
+    def default_intent_config(self) -> dict[str, Any]:
+        """Return the contract-owned authoring seed for a newly added node."""
+
+        contract = workflow_node_contract_registry.require(self.kind)
+        raw_default = dict(contract.planner.default_data or {})
+        field_map = {
+            "rolePrompt": "role_prompt",
+            "taskInput": "task_input",
+            "modelId": "model_id",
+            "sourceAgentId": "source_agent_id",
+            "methodSkillIds": "method_skill_ids",
+        }
+        normalized = {
+            field_map.get(key, key): value
+            for key, value in raw_default.items()
+            if field_map.get(key, key) in self.config_model.model_fields
+        }
+        if self.kind == "workflow_agent":
+            normalized.setdefault(
+                "role_prompt", "Complete the assigned plan task accurately."
+            )
+            normalized.setdefault("task_input", "{{user_input}}")
+        return self.validate_authoring_config(normalized)
+
+    def editor_config(self, node: NativeWorkflowNode) -> dict[str, Any]:
+        """Convert a native editor node into validated Adapter config only."""
+
+        restored = self.decompile_node_v3(node)
+        return self.validate_authoring_config(restored.config)
+
     @property
     def config_schema_checksum(self) -> str:
         return canonical_checksum(self.config_model.model_json_schema())
@@ -79,6 +120,20 @@ class PlannerNodeAdapter:
                 "ir_version": META_PLANNER_IR_VERSION,
                 "adapter_version": META_PLANNER_ADAPTER_VERSION,
                 "config_schema_checksum": self.config_schema_checksum,
+                "compiler_checksum": contract.compiler_checksum,
+            }
+        )
+
+    @property
+    def authoring_checksum(self) -> str:
+        contract = workflow_node_contract_registry.require(self.kind)
+        return canonical_checksum(
+            {
+                "kind": self.kind,
+                "authoring_protocol_version": 1,
+                "adapter_checksum": self.adapter_checksum,
+                "config_schema_checksum": self.config_schema_checksum,
+                "default_intent_config": self.default_intent_config(),
                 "compiler_checksum": contract.compiler_checksum,
             }
         )
@@ -286,4 +341,17 @@ def planner_capability_metadata(kind: str) -> dict[str, Any] | None:
         "contract_checksum": contract.checksum,
         "compiler_checksum": contract.compiler_checksum,
         "adapter_checksum": adapter_checksum,
+        "authoring_checksum": (
+            adapter.authoring_checksum
+            if adapter is not None
+            else canonical_checksum(
+                {
+                    "kind": kind,
+                    "authoring_protocol_version": 1,
+                    "adapter_checksum": adapter_checksum,
+                    "support": support,
+                    "compiler_checksum": contract.compiler_checksum,
+                }
+            )
+        ),
     }

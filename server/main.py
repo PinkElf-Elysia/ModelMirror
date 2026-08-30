@@ -616,6 +616,14 @@ try:
         MetaPlannerGenerateResponse,
         MetaPlannerScope,
         MetaPlannerV2Service,
+        GRAPH_PATCH_MAX_JSON_DEPTH,
+        GRAPH_PATCH_MAX_REQUEST_BYTES,
+        GraphPatchApplyRequest,
+        GraphPatchEditorDiffRequest,
+        GraphPatchEnvelopeV1,
+        HeadlessAuthoringError,
+        HeadlessAuthoringService,
+        safe_headless_error_message,
         build_capability_snapshot,
         build_meta_agent_prompt,
         build_workflow_from_plan,
@@ -758,6 +766,14 @@ except ModuleNotFoundError:
         MetaPlannerGenerateResponse,
         MetaPlannerScope,
         MetaPlannerV2Service,
+        GRAPH_PATCH_MAX_JSON_DEPTH,
+        GRAPH_PATCH_MAX_REQUEST_BYTES,
+        GraphPatchApplyRequest,
+        GraphPatchEditorDiffRequest,
+        GraphPatchEnvelopeV1,
+        HeadlessAuthoringError,
+        HeadlessAuthoringService,
+        safe_headless_error_message,
         build_capability_snapshot,
         build_meta_agent_prompt,
         build_workflow_from_plan,
@@ -7296,6 +7312,144 @@ def build_meta_planner_capability_snapshot(
 @app.get("/api/meta-agent/capabilities")
 async def get_meta_planner_capabilities():
     return build_meta_planner_capability_snapshot().model_dump(mode="json")
+
+
+def get_headless_authoring_service() -> HeadlessAuthoringService:
+    return HeadlessAuthoringService(
+        authoring_service=authoring_service,
+        planner_service=MetaPlannerV2Service(
+            authoring_service=authoring_service,
+            preflight=preview_xpert_for_publish,
+        ),
+        capability_snapshot_builder=build_meta_planner_capability_snapshot,
+    )
+
+
+def _raise_headless_authoring_error(exc: HeadlessAuthoringError) -> None:
+    raise HTTPException(
+        status_code=exc.status_code,
+        detail={
+            "code": exc.code,
+            "message": str(exc),
+            "diagnostics": exc.diagnostics,
+        },
+    ) from exc
+
+
+def _parse_headless_authoring_request(model, payload: Any):
+    try:
+        return model.model_validate(payload)
+    except ValidationError as exc:
+        message = safe_headless_error_message(exc)
+        _raise_headless_authoring_error(
+            HeadlessAuthoringError(
+                message,
+                code="headless_request_invalid",
+                diagnostics=[
+                    {
+                        "code": "request_validation",
+                        "severity": "error",
+                        "message": message,
+                    }
+                ],
+            )
+        )
+
+
+async def _read_headless_authoring_json(request: Request) -> Any:
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > GRAPH_PATCH_MAX_REQUEST_BYTES:
+                raise HeadlessAuthoringError(
+                    "Headless authoring request body is too large.",
+                    code="headless_request_too_large",
+                    status_code=413,
+                )
+        except ValueError:
+            pass
+    try:
+        chunks: list[bytes] = []
+        total_bytes = 0
+        async for chunk in request.stream():
+            total_bytes += len(chunk)
+            if total_bytes > GRAPH_PATCH_MAX_REQUEST_BYTES:
+                raise HeadlessAuthoringError(
+                    "Headless authoring request body is too large.",
+                    code="headless_request_too_large",
+                    status_code=413,
+                )
+            chunks.append(chunk)
+        payload = json.loads(b"".join(chunks))
+    except Exception as exc:
+        if isinstance(exc, HeadlessAuthoringError):
+            raise
+        raise HeadlessAuthoringError(
+            "Request body must contain valid JSON.",
+            code="headless_request_invalid",
+        ) from exc
+    stack = [(payload, 1)]
+    while stack:
+        value, depth = stack.pop()
+        if depth > GRAPH_PATCH_MAX_JSON_DEPTH:
+            raise HeadlessAuthoringError(
+                "Headless authoring request body is nested too deeply.",
+                code="headless_request_too_deep",
+            )
+        if isinstance(value, dict):
+            stack.extend((item, depth + 1) for item in value.values())
+        elif isinstance(value, list):
+            stack.extend((item, depth + 1) for item in value)
+    return payload
+
+
+@app.get("/api/meta-agent/authoring/proposals/{proposal_id}")
+async def get_meta_planner_authoring_proposal(proposal_id: str):
+    try:
+        return get_headless_authoring_service().proposal_state(proposal_id)
+    except HeadlessAuthoringError as exc:
+        _raise_headless_authoring_error(exc)
+
+
+@app.post("/api/meta-agent/authoring/proposals/{proposal_id}/editor-diff")
+async def diff_meta_planner_authoring_proposal(
+    proposal_id: str,
+    request: Request,
+):
+    try:
+        payload = await _read_headless_authoring_json(request)
+        parsed = _parse_headless_authoring_request(
+            GraphPatchEditorDiffRequest, payload
+        )
+        return get_headless_authoring_service().editor_diff(proposal_id, parsed)
+    except HeadlessAuthoringError as exc:
+        _raise_headless_authoring_error(exc)
+
+
+@app.post("/api/meta-agent/authoring/proposals/{proposal_id}/patch/preview")
+async def preview_meta_planner_authoring_patch(
+    proposal_id: str,
+    request: Request,
+):
+    try:
+        payload = await _read_headless_authoring_json(request)
+        parsed = _parse_headless_authoring_request(GraphPatchEnvelopeV1, payload)
+        return get_headless_authoring_service().preview(proposal_id, parsed)
+    except HeadlessAuthoringError as exc:
+        _raise_headless_authoring_error(exc)
+
+
+@app.post("/api/meta-agent/authoring/proposals/{proposal_id}/patch/apply")
+async def apply_meta_planner_authoring_patch(
+    proposal_id: str,
+    request: Request,
+):
+    try:
+        payload = await _read_headless_authoring_json(request)
+        parsed = _parse_headless_authoring_request(GraphPatchApplyRequest, payload)
+        return get_headless_authoring_service().apply(proposal_id, parsed)
+    except HeadlessAuthoringError as exc:
+        _raise_headless_authoring_error(exc)
 
 
 def expert_team_agency_planner_enabled() -> bool:

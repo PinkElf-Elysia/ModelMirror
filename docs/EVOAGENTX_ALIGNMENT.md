@@ -76,6 +76,7 @@ Client Tools、Automation、Plugin 和 Prompt。Meta Planner V2 已补齐候选�
 | 能力域 | ModelMirror 当前状态 | 审计判定 | 目标产物 |
 | --- | --- | --- | --- |
 | Workflow generation | Graph IR V3 已表达 Agent DAG、类型化 data 边与五类绑定 | `adapt` | V3 首轮已交付，节点开放继续分轮 |
+| Headless authoring | 类型化 Graph Patch、无副作用预览、冲突绑定 Apply | `rewrite` | 复用 ModelMirror NodeContract、Adapter、Proposal 与发布预检，不引入上游 Runtime |
 | Agent generation | V2 已覆盖当前 Agent 配置、资源与 middleware | `adapt` | 候选 Xpert 草稿已交付 |
 | Task planning | V2 已生成 1–8 个带依赖与契约的任务 | `adapt` | 结构化规划已交付 |
 | Evaluator | 已支持只读安全的固定版本/Proposal 快照评测 | `adapt` | Evaluator 已交付 |

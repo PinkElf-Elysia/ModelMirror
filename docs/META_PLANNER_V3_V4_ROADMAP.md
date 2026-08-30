@@ -1,6 +1,6 @@
 # Meta Planner V3/V4 锁定路线
 
-最后更新日期：2026-08-28
+最后更新日期：2026-08-30
 状态：目标/锁定路线
 维护人：模镜团队
 
@@ -91,6 +91,10 @@ Graph IR V3 至少需要表达：
 - 提供 Adapter SDK/测试夹具，后续每开放一种节点只增加 Adapter，不新增旁路编译器。
 
 本轮仍不开放新节点。没有这一层，后续节点扩张会再次把 Planner Prompt 变成第二套 Registry。
+
+实现契约与回退边界记录在
+[META_PLANNER_HEADLESS_AUTHORING.md](./META_PLANNER_HEADLESS_AUTHORING.md)。Round 2 保持
+七类能力不变，并采用 V3 单写、V2 无损升级、有损候选兼容只读的边界。
 
 ### Round 3：Pure Nodes
 

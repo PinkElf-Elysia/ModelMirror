@@ -8,6 +8,18 @@ import { listXperts, toXpertDraftWorkflow } from "../../utils/xpertApi";
 import ProviderRouteReceiptSummary, {
   type ProviderRouteReceipt,
 } from "./ProviderRouteReceiptSummary";
+import {
+  authoringDiffSummary,
+  buildMetadataPatch,
+  headlessStateMode,
+  normalizeGraphPatchEnvelope,
+  normalizeGraphPatchPreview,
+  normalizeHeadlessProposalState,
+  normalizeAuthoringDiagnostics,
+  type GraphPatchEnvelopeV1,
+  type GraphPatchPreview,
+  type HeadlessAuthoringProposalState,
+} from "./metaAuthoring";
 import WorkflowEditor from "../workflow/WorkflowEditor";
 
 type ScopeKey =
@@ -55,6 +67,8 @@ interface CapabilitySnapshot {
   plugins: CapabilityItem[];
   prompt_profiles: CapabilityItem[];
   default_scope: MetaPlannerScope;
+  authoring_protocol_version?: string | number;
+  authoring_limits?: Record<string, unknown>;
 }
 
 const DEFAULT_META_PLANNER_MODEL_ID = models.some(
@@ -136,6 +150,17 @@ interface AuthoringProposal {
   updated_at: number;
 }
 
+type AuthoringAvailability =
+  | { mode: "legacy"; reason: string }
+  | { mode: "headless"; state: HeadlessAuthoringProposalState }
+  | { mode: "unavailable"; reason: string };
+
+interface PendingAuthoringPreview {
+  patch: GraphPatchEnvelopeV1;
+  preview: GraphPatchPreview;
+  source: "canvas" | "metadata";
+}
+
 const emptyScope = (): MetaPlannerScope => ({
   allowed_node_kinds: [],
   external_xpert_ids: [],
@@ -150,10 +175,27 @@ function readError(payload: unknown, fallback: string) {
   if (typeof payload === "object" && payload !== null) {
     const detail = (payload as { detail?: unknown }).detail;
     if (typeof detail === "string") return detail;
+    if (typeof detail === "object" && detail !== null) {
+      const message = (detail as { message?: unknown }).message;
+      if (typeof message === "string") return message;
+    }
     const error = (payload as { error?: unknown }).error;
     if (typeof error === "string") return error;
   }
   return fallback;
+}
+
+function readAuthoringError(payload: unknown, fallback: string) {
+  const base = readError(payload, fallback);
+  if (typeof payload !== "object" || payload === null) return base;
+  const detail = (payload as { detail?: unknown }).detail;
+  const diagnostics = normalizeAuthoringDiagnostics(
+    typeof detail === "object" && detail !== null
+      ? (detail as { diagnostics?: unknown }).diagnostics
+      : (payload as { diagnostics?: unknown }).diagnostics,
+  );
+  if (!diagnostics.length) return base;
+  return `${base} ${diagnostics.map((item) => item.message).join("；")}`;
 }
 
 export function candidateGenerationOutcome(
@@ -303,6 +345,13 @@ export default function MetaPlannerV2() {
   const [maxAgents, setMaxAgents] = useState(5);
   const [proposal, setProposal] = useState<AuthoringProposal | null>(null);
   const [candidate, setCandidate] = useState<CandidateXpert | null>(null);
+  const [authoringAvailability, setAuthoringAvailability] =
+    useState<AuthoringAvailability>({
+      mode: "legacy",
+      reason: "尚未加载候选。",
+    });
+  const [pendingAuthoringPreview, setPendingAuthoringPreview] =
+    useState<PendingAuthoringPreview | null>(null);
   const [plan, setPlan] = useState<PlannerPlan | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [repairUsed, setRepairUsed] = useState(false);
@@ -375,6 +424,7 @@ export default function MetaPlannerV2() {
     }
     const restored = payload as AuthoringProposal;
     const report = reportFromProposal(restored);
+    setPendingAuthoringPreview(null);
     setProposal(restored);
     setCandidate(candidateFromProposal(restored));
     setMode(restored.kind === "xpert_update" ? "update" : "create");
@@ -394,7 +444,56 @@ export default function MetaPlannerV2() {
           "",
       ),
     );
+    await loadAuthoringState(restored);
     if (showNotice) setNotice("已恢复持久化候选。");
+  }
+
+  async function loadAuthoringState(restored: AuthoringProposal) {
+    const report = reportFromProposal(restored);
+    const compatibility =
+      typeof report.compatibility === "object" && report.compatibility !== null
+        ? (report.compatibility as { lossy?: unknown })
+        : null;
+    if (compatibility?.lossy === true) {
+      setAuthoringAvailability({
+        mode: "legacy",
+        reason: "该候选存在有损 V2/V3 转换，继续使用兼容保存路径。",
+      });
+      return;
+    }
+    try {
+      const response = await fetch(
+        `/api/meta-agent/authoring/proposals/${restored.proposal_id}`,
+      );
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(readError(payload, "无法加载无头编排状态。"));
+      }
+      const state = normalizeHeadlessProposalState(payload);
+      if (!state) throw new Error("无头编排状态响应不完整。候选未降级保存。");
+      if (
+        state.proposal_id !== restored.proposal_id ||
+        state.proposal_revision !== restored.revision
+      ) {
+        throw new Error("Proposal revision 已变化，请重新加载候选后再编辑。");
+      }
+      if (headlessStateMode(state) !== "headless") {
+        setAuthoringAvailability({
+          mode: "unavailable",
+          reason: state.compatibility.lossy
+            ? "该候选无法无损反编译；类型化编辑已锁定。"
+            : "该候选无法满足类型化编排门禁；请处理诊断并重新加载，系统不会降级为整包保存。",
+        });
+        return;
+      }
+      setAuthoringAvailability({ mode: "headless", state });
+    } catch (stateError) {
+      setAuthoringAvailability({
+        mode: "unavailable",
+        reason:
+          stateError instanceof Error ? stateError.message : "无头编排状态加载失败。",
+      });
+    }
   }
 
   function toggleScope(key: ScopeKey, value: string) {
@@ -487,7 +586,7 @@ export default function MetaPlannerV2() {
     };
   }
 
-  async function saveCandidate(definition?: WorkflowDefinition) {
+  async function saveLegacyCandidate(definition?: WorkflowDefinition) {
     if (!proposal || !candidate) return;
     const nextCandidate: CandidateXpert = definition
       ? {
@@ -498,34 +597,191 @@ export default function MetaPlannerV2() {
           },
         }
       : candidate;
+    const response = await fetch(
+      `/api/runtime/authoring-proposals/${proposal.proposal_id}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          revision: proposal.revision,
+          title: `Meta Planner: ${nextCandidate.name}`,
+          payload: proposalPayload(nextCandidate),
+          base_revision: proposal.base_revision,
+        }),
+      },
+    );
+    const payload = (await response.json().catch(() => null)) as
+      | AuthoringProposal
+      | { detail?: string }
+      | null;
+    if (!response.ok || !payload || !("proposal_id" in payload)) {
+      throw new Error(readError(payload, "保存候选失败。"));
+    }
+    setProposal(payload as AuthoringProposal);
+    setCandidate(candidateFromProposal(payload as AuthoringProposal));
+    setNotice("兼容候选已保存，Proposal revision 已更新。");
+  }
+
+  async function previewGraphPatch(
+    patch: GraphPatchEnvelopeV1,
+    source: PendingAuthoringPreview["source"],
+  ) {
+    if (!proposal) return;
+    const response = await fetch(
+      `/api/meta-agent/authoring/proposals/${proposal.proposal_id}/patch/preview`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      },
+    );
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      const prefix = response.status === 409 ? "预览冲突" : "Patch 预览失败";
+      throw new Error(`${prefix}：${readAuthoringError(payload, "服务端拒绝了当前变更。")}`);
+    }
+    const preview = normalizeGraphPatchPreview(payload);
+    if (!preview) throw new Error("Patch 预览响应不完整，未执行任何写入。");
+    setPendingAuthoringPreview({ patch, preview, source });
+    setNotice(
+      preview.can_apply
+        ? "变更预览已生成；确认前 Proposal 保持不变。"
+        : "变更未通过门禁；请查看预览诊断。",
+    );
+  }
+
+  async function previewEditorDiff(definition: WorkflowDefinition) {
+    if (!proposal) return;
+    const response = await fetch(
+      `/api/meta-agent/authoring/proposals/${proposal.proposal_id}/editor-diff`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          proposal_revision: proposal.revision,
+          definition,
+        }),
+      },
+    );
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      const prefix = response.status === 409 ? "编辑冲突" : "画布差异转换失败";
+      throw new Error(`${prefix}：${readAuthoringError(payload, "存在无法表达的画布修改。")}`);
+    }
+    const patch = normalizeGraphPatchEnvelope(payload);
+    if (!patch) throw new Error("服务端未返回有效的 Graph Patch；Proposal 未发生变化。");
+    if (patch.operations.length === 0) {
+      setNotice("画布没有需要应用的语义或布局变更。");
+      return;
+    }
+    await previewGraphPatch(patch, "canvas");
+  }
+
+  async function saveCandidate(definition?: WorkflowDefinition) {
+    if (!proposal || !candidate) return;
+    setIsSaving(true);
+    setError("");
+    setNotice("");
+    try {
+      if (authoringAvailability.mode === "headless") {
+        if (definition) {
+          await previewEditorDiff(definition);
+        } else {
+          await previewGraphPatch(
+            buildMetadataPatch(authoringAvailability.state, {
+              name: candidate.name,
+              description: candidate.description,
+              tags: candidate.tags,
+              starters: candidate.starters,
+            }),
+            "metadata",
+          );
+        }
+      } else if (authoringAvailability.mode === "legacy") {
+        await saveLegacyCandidate(definition);
+      } else {
+        throw new Error(
+          `${authoringAvailability.reason} 为避免绕过类型化门禁，V3 候选不会降级为整包保存。`,
+        );
+      }
+    } catch (saveError) {
+      const message = saveError instanceof Error ? saveError.message : "保存候选失败。";
+      setError(message);
+      throw saveError instanceof Error ? saveError : new Error(message);
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function applyPendingPreview() {
+    if (!proposal || !pendingAuthoringPreview) return;
     setIsSaving(true);
     setError("");
     try {
       const response = await fetch(
-        `/api/runtime/authoring-proposals/${proposal.proposal_id}`,
+        `/api/meta-agent/authoring/proposals/${proposal.proposal_id}/patch/apply`,
         {
-          method: "PATCH",
+          method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            revision: proposal.revision,
-            title: `Meta Planner: ${nextCandidate.name}`,
-            payload: proposalPayload(nextCandidate),
-            base_revision: proposal.base_revision,
+            patch: pendingAuthoringPreview.patch,
+            preview_checksum: pendingAuthoringPreview.preview.preview_checksum,
           }),
         },
       );
-      const payload = (await response.json().catch(() => null)) as
-        | AuthoringProposal
-        | { detail?: string }
-        | null;
-      if (!response.ok || !payload || !("proposal_id" in payload)) {
-        throw new Error(readError(payload, "保存候选失败。"));
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        if (response.status === 409) {
+          setPendingAuthoringPreview(null);
+          throw new Error(
+            `应用冲突：${readAuthoringError(payload, "Proposal、目标草稿或能力快照已变化，请重新加载并预览。")}`,
+          );
+        }
+        throw new Error(readAuthoringError(payload, "应用 Graph Patch 失败。"));
       }
-      setProposal(payload as AuthoringProposal);
-      setCandidate(candidateFromProposal(payload as AuthoringProposal));
-      setNotice("候选已保存，Proposal revision 已更新。");
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "保存候选失败。");
+      // A successful Apply is authoritative even if the follow-up read fails.
+      // Clear the one-shot preview before reloading so it cannot be submitted twice.
+      setPendingAuthoringPreview(null);
+      const applied =
+        typeof payload === "object" && payload !== null && "proposal" in payload
+          ? (payload as { proposal?: unknown }).proposal
+          : payload;
+      if (
+        typeof applied !== "object" ||
+        applied === null ||
+        !("proposal_id" in applied) ||
+        typeof (applied as { proposal_id?: unknown }).proposal_id !== "string"
+      ) {
+        throw new Error(
+          "服务端已接受 Patch，但回执缺少 Proposal 标识；请重新加载确认状态，不要重复应用。",
+        );
+      }
+      const appliedProposalId = String(
+        (applied as { proposal_id: unknown }).proposal_id,
+      );
+      const appliedRevision =
+        typeof (applied as { proposal_revision?: unknown }).proposal_revision === "number"
+          ? Number((applied as { proposal_revision: number }).proposal_revision)
+          : typeof (applied as { revision?: unknown }).revision === "number"
+            ? Number((applied as { revision: number }).revision)
+            : null;
+      const expectedRevision = proposal.revision + 1;
+      try {
+        await loadProposal(appliedProposalId, false);
+      } catch (reloadError) {
+        const message =
+          reloadError instanceof Error ? reloadError.message : "无法重新加载候选。";
+        throw new Error(
+          `类型化变更已应用，但刷新候选失败：${message} 请重新加载确认状态，不要重复应用。`,
+        );
+      }
+      setNotice(
+        appliedRevision === expectedRevision
+          ? "类型化变更已原子应用，Proposal revision 增加一次。"
+          : "变更已应用，但 revision 回执异常；请在继续审批前重新核对候选。",
+      );
+    } catch (applyError) {
+      setError(applyError instanceof Error ? applyError.message : "应用 Graph Patch 失败。");
     } finally {
       setIsSaving(false);
     }
@@ -852,14 +1108,16 @@ export default function MetaPlannerV2() {
                     <button
                       className="rounded-md border border-white/10 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/5"
                       disabled={isSaving}
-                      onClick={() => void saveCandidate()}
+                      onClick={() => void saveCandidate().catch(() => undefined)}
                       type="button"
                     >
-                      保存元数据
+                      {authoringAvailability.mode === "headless"
+                        ? "预览元数据变更"
+                        : "保存元数据"}
                     </button>
                     <button
                       className="rounded-md border border-cyan-300/30 bg-cyan-300/10 px-3 py-2 text-xs font-semibold text-cyan-100 hover:bg-cyan-300/15"
-                      disabled={isSaving}
+                      disabled={isSaving || Boolean(pendingAuthoringPreview)}
                       onClick={() => void proposalAction("validate")}
                       type="button"
                     >
@@ -867,7 +1125,7 @@ export default function MetaPlannerV2() {
                     </button>
                     <button
                       className="rounded-md bg-emerald-300 px-3 py-2 text-xs font-semibold text-emerald-950 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500"
-                      disabled={isSaving}
+                      disabled={isSaving || Boolean(pendingAuthoringPreview)}
                       onClick={() => void proposalAction("approve")}
                       type="button"
                     >
@@ -932,14 +1190,95 @@ export default function MetaPlannerV2() {
                 </div>
               </div>
 
+              <div
+                className={`rounded-lg border px-3 py-2 text-xs leading-5 ${
+                  authoringAvailability.mode === "headless"
+                    ? "border-cyan-300/20 bg-cyan-300/[0.07] text-cyan-100"
+                    : authoringAvailability.mode === "legacy"
+                      ? "border-amber-300/20 bg-amber-300/[0.07] text-amber-100"
+                      : "border-rose-300/25 bg-rose-300/[0.08] text-rose-100"
+                }`}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p>
+                    {authoringAvailability.mode === "headless" ? (
+                      <>
+                        无头编排已启用。画布与元数据修改会先转换为类型化 Patch；确认应用前不会修改
+                        Proposal。当前授权 {authoringAvailability.state.allowed_node_kinds.length} 类节点。
+                      </>
+                    ) : (
+                      authoringAvailability.reason
+                    )}
+                  </p>
+                  <button
+                    className="rounded-md border border-current/20 px-2.5 py-1 font-semibold hover:bg-white/5 disabled:opacity-50"
+                    disabled={isSaving}
+                    onClick={() => {
+                      setIsSaving(true);
+                      setError("");
+                      void loadProposal(proposal.proposal_id)
+                        .catch((reloadError) => {
+                          setError(
+                            reloadError instanceof Error
+                              ? reloadError.message
+                              : "重新加载候选失败。",
+                          );
+                        })
+                        .finally(() => setIsSaving(false));
+                    }}
+                    type="button"
+                  >
+                    重新加载候选
+                  </button>
+                </div>
+              </div>
+
               <div className="h-[820px] overflow-hidden rounded-lg border border-white/10 bg-slate-950">
-                <WorkflowEditor
+                {authoringAvailability.mode === "unavailable" ? (
+                  <div className="flex h-full items-center justify-center p-8 text-center">
+                    <div className="max-w-xl rounded-lg border border-rose-300/20 bg-rose-300/[0.06] p-5 text-sm leading-6 text-rose-100">
+                      <p className="font-semibold">候选画布已锁定为只读</p>
+                      <p className="mt-2 text-rose-100/75">
+                        {authoringAvailability.reason}
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <WorkflowEditor
+                  authoringPolicy={
+                    authoringAvailability.mode === "headless"
+                      ? {
+                          allowedNodeKinds: [
+                            ...authoringAvailability.state.allowed_node_kinds,
+                            ...(authoringAvailability.state.allowed_middleware_ids.length
+                              ? (["runtime_middleware"] as const)
+                              : []),
+                          ],
+                          compilerManagedNodeKinds:
+                            authoringAvailability.state.compiler_managed_node_kinds,
+                          allowedRuntimeMiddlewareIds:
+                            authoringAvailability.state.allowed_middleware_ids,
+                          allowedSourceAgentIds:
+                            authoringAvailability.state.allowed_source_agent_ids,
+                        }
+                      : undefined
+                  }
                   initialDefinition={workflow}
                   key={`${proposal.proposal_id}-${proposal.revision}`}
                   onSave={saveCandidate}
-                  saveLabel="保存候选画布"
+                  saveCompletionLabel={
+                    authoringAvailability.mode === "headless"
+                      ? "变更预览已生成，等待确认应用"
+                      : "候选画布已保存"
+                  }
+                  saveLabel={
+                    authoringAvailability.mode === "headless"
+                      ? "预览候选画布"
+                      : "保存候选画布"
+                  }
                   workflowId={`meta-planner-${proposal.proposal_id}`}
-                />
+                  />
+                )}
               </div>
             </>
           ) : (
@@ -968,6 +1307,97 @@ export default function MetaPlannerV2() {
           ) : null}
         </div>
       </div>
+      {pendingAuthoringPreview ? (
+        <div
+          aria-labelledby="meta-authoring-preview-title"
+          aria-modal="true"
+          className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm"
+          role="dialog"
+        >
+          <div className="max-h-[86vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-cyan-300/25 bg-slate-950 p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-base font-semibold text-white" id="meta-authoring-preview-title">
+                  确认类型化变更
+                </h2>
+                <p className="mt-1 text-xs leading-5 text-slate-400">
+                  {pendingAuthoringPreview.source === "canvas" ? "候选画布" : "候选元数据"}
+                  已完成无副作用预览。只有点击“确认应用”后 Proposal revision 才会更新一次。
+                </p>
+              </div>
+              <button
+                aria-label="关闭变更预览"
+                className="flex h-8 w-8 items-center justify-center rounded-md border border-white/10 text-slate-400 hover:bg-white/5 hover:text-white"
+                onClick={() => setPendingAuthoringPreview(null)}
+                type="button"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-md border border-white/10 bg-white/[0.035] p-3">
+                <p className="text-xs font-semibold text-slate-200">Patch 操作</p>
+                <div className="mt-2 space-y-1 text-xs text-slate-400">
+                  {pendingAuthoringPreview.patch.operations.map((operation, index) => (
+                    <p key={`${operation.op}-${index}`}>
+                      {index + 1}. <span className="font-mono text-cyan-100">{operation.op}</span>
+                    </p>
+                  ))}
+                </div>
+              </div>
+              <div className="rounded-md border border-white/10 bg-white/[0.035] p-3">
+                <p className="text-xs font-semibold text-slate-200">结构差异</p>
+                <div className="mt-2 space-y-1 text-xs text-slate-400">
+                  {authoringDiffSummary(pendingAuthoringPreview.preview.diff).map((line) => (
+                    <p key={line}>{line}</p>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {pendingAuthoringPreview.preview.diagnostics.length ? (
+              <div className="mt-3 rounded-md border border-rose-300/20 bg-rose-300/[0.07] p-3">
+                <p className="text-xs font-semibold text-rose-100">门禁诊断</p>
+                <div className="mt-2 space-y-1 text-xs text-rose-100/90">
+                  {pendingAuthoringPreview.preview.diagnostics.map((diagnostic, index) => (
+                    <p key={`${diagnostic.code ?? "diagnostic"}-${index}`}>
+                      {diagnostic.code ? `[${diagnostic.code}] ` : ""}{diagnostic.message}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {pendingAuthoringPreview.preview.warnings.length ? (
+              <div className="mt-3 rounded-md border border-amber-300/20 bg-amber-300/[0.07] p-3 text-xs text-amber-100">
+                {pendingAuthoringPreview.preview.warnings.map((warning) => (
+                  <p key={warning}>{warning}</p>
+                ))}
+              </div>
+            ) : null}
+
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button
+                className="rounded-md border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-white/5"
+                disabled={isSaving}
+                onClick={() => setPendingAuthoringPreview(null)}
+                type="button"
+              >
+                放弃预览
+              </button>
+              <button
+                className="rounded-md bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500"
+                disabled={isSaving || !pendingAuthoringPreview.preview.can_apply}
+                onClick={() => void applyPendingPreview()}
+                type="button"
+              >
+                {isSaving ? "正在应用..." : "确认应用"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

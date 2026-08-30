@@ -6,6 +6,7 @@ import os
 import threading
 import time
 import uuid
+from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -313,9 +314,62 @@ class AuthoringProposalStore:
         payload: dict[str, Any] | None = None,
         base_revision: int | None = None,
     ) -> AuthoringProposal:
+        return self._update_pending(
+            proposal_id,
+            revision=revision,
+            title=title,
+            payload=payload,
+            base_revision=base_revision,
+            preserve_meta_planner_ir=False,
+        )
+
+    def update_pending_from_headless_authoring(
+        self,
+        proposal_id: str,
+        *,
+        revision: int,
+        payload: dict[str, Any],
+        validation: dict[str, Any],
+        content_digest: str | None = None,
+        base_digest: str | None = None,
+    ) -> AuthoringProposal:
+        """Apply a server-validated Graph Patch without invalidating its IR."""
+
+        return self._update_pending(
+            proposal_id,
+            revision=revision,
+            payload=payload,
+            preserve_meta_planner_ir=True,
+            prevalidated_validation=validation,
+            content_digest=content_digest,
+            base_digest=base_digest,
+        )
+
+    def _update_pending(
+        self,
+        proposal_id: str,
+        *,
+        revision: int,
+        title: str | None = None,
+        payload: dict[str, Any] | None = None,
+        base_revision: int | None = None,
+        preserve_meta_planner_ir: bool,
+        prevalidated_validation: dict[str, Any] | None = None,
+        content_digest: str | None = None,
+        base_digest: str | None = None,
+    ) -> AuthoringProposal:
         with self._lock:
-            item = self._require_unlocked(proposal_id)
-            self._require_pending_revision(item, revision)
+            current = self._require_unlocked(proposal_id)
+            self._require_pending_revision(current, revision)
+            item = self._copy(current)
+            if preserve_meta_planner_ir:
+                if item.source_type != "meta_planner" or item.kind not in {
+                    "xpert_create",
+                    "xpert_update",
+                }:
+                    raise AuthoringProposalValidationError(
+                        "Headless authoring only accepts Meta Planner Xpert proposals."
+                    )
             if title is not None:
                 clean_title = str(title).strip()
                 if not clean_title or len(clean_title) > 200:
@@ -333,8 +387,26 @@ class AuthoringProposalStore:
                 item.title = clean_title
             if payload is not None:
                 next_payload = self._validate_payload(payload, kind=item.kind)
+                if item.source_type == "meta_planner" and item.kind in {
+                    "xpert_create",
+                    "xpert_update",
+                }:
+                    current_report = item.payload.get("meta_planner_report")
+                    next_report = next_payload.get("meta_planner_report")
+                    if isinstance(current_report, dict) and isinstance(
+                        next_report, dict
+                    ):
+                        original_scope = current_report.get("authorized_scope")
+                        if isinstance(original_scope, dict):
+                            next_report["authorized_scope"] = deepcopy(
+                                original_scope
+                            )
                 payload_changed = next_payload != item.payload
-                if item.source_type == "meta_planner" and payload_changed:
+                if (
+                    item.source_type == "meta_planner"
+                    and payload_changed
+                    and not preserve_meta_planner_ir
+                ):
                     report = next_payload.get("meta_planner_report")
                     if isinstance(report, dict):
                         report["human_modified"] = True
@@ -351,14 +423,25 @@ class AuthoringProposalStore:
                         "base_revision must be positive."
                     )
                 item.base_revision = base_revision
-            item.validation = {}
+            item.validation = dict(prevalidated_validation or {})
+            if content_digest is not None:
+                item.content_digest = self._optional_digest(
+                    content_digest, "content_digest"
+                )
+            if base_digest is not None:
+                item.base_digest = self._optional_digest(base_digest, "base_digest")
             item.error = None
             item.revision += 1
             item.apply_key = f"apply_{uuid.uuid4().hex}"
             item.applied_apply_key = None
             item.applied_from_revision = None
             item.updated_at = time.time()
-            self._save_unlocked()
+            self._items[proposal_id] = item
+            try:
+                self._save_unlocked()
+            except Exception:
+                self._items[proposal_id] = current
+                raise
             return self._copy(item)
 
     def set_validation(

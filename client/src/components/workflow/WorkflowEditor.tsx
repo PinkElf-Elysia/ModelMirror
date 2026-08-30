@@ -363,11 +363,13 @@ function QuickNodePicker({
   y,
   onClose,
   onPick,
+  allowedKinds,
 }: {
   x: number;
   y: number;
   onClose: () => void;
   onPick: (kind: string) => void;
+  allowedKinds?: ReadonlySet<WorkflowNodeKind>;
 }) {
   const [query, setQuery] = useState("");
   const [registry, setRegistry] = useState<WorkflowNodeRegistryResponse>(
@@ -401,13 +403,14 @@ function QuickNodePicker({
     return registry.sections
       .flatMap((section) => section.items)
       .filter((item) => item.enabled !== false)
+      .filter((item) => !allowedKinds || allowedKinds.has(item.kind))
       .filter(
         (item) =>
           !normalized ||
           item.title.toLowerCase().includes(normalized) ||
           item.description.toLowerCase().includes(normalized),
       );
-  }, [query, registry.sections]);
+  }, [allowedKinds, query, registry.sections]);
 
   return (
     <>
@@ -2099,6 +2102,175 @@ function HandoffExecutionConfig({
   );
 }
 
+interface HeadlessWorkflowAgentAdapterPanelProps {
+  node: WorkflowNode;
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+  declarations: WorkflowVariableDeclaration[];
+  variableContract: WorkflowNodeContractProjection | null;
+  data: WorkflowNodeData;
+  update: (patch: Partial<WorkflowNodeData>) => void;
+  allowedSourceAgentIds: string[];
+}
+
+export function HeadlessWorkflowAgentAdapterPanel({
+  node,
+  nodes,
+  edges,
+  declarations,
+  variableContract,
+  data,
+  update,
+  allowedSourceAgentIds,
+}: HeadlessWorkflowAgentAdapterPanelProps) {
+  const sourceAgentId = String(data.sourceAgentId ?? "");
+  const sourceOptions = Array.from(
+    new Set(allowedSourceAgentIds.map((item) => item.trim()).filter(Boolean)),
+  );
+  const sourceOutsideScope = Boolean(
+    sourceAgentId && !sourceOptions.includes(sourceAgentId),
+  );
+  const methodSkillId = Array.isArray(data.methodSkillIds)
+    ? String(data.methodSkillIds[0] ?? "")
+    : "";
+  const methodSkillValid =
+    !methodSkillId || /^[a-z0-9][a-z0-9-]{0,159}$/.test(methodSkillId);
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-lg border border-cyan-300/25 bg-cyan-300/10 px-3 py-3 text-xs leading-5 text-cyan-50">
+        <p className="font-semibold">Headless Adapter 受控编辑</p>
+        <p className="mt-1 text-cyan-100/80">
+          此模式只会提交当前 Adapter 可表达的提示词、模型、来源专家、方法 Skill 和输出变量。
+          工具、并发与调用预算、知识、记忆、异常策略和输出 Schema 均已锁定，资源与中间件请通过绑定边调整。
+        </p>
+      </div>
+
+      <ConfigSection
+        description="这些字段会进入 workflow_agent Adapter，并在应用前经过类型、授权与版本预检。"
+        title="Agent Adapter"
+      >
+        <Field label="调用模型">
+          <select
+            className={textInputClass()}
+            onChange={(event) => update({ modelId: event.target.value })}
+            value={data.modelId ?? ""}
+          >
+            <option className="bg-slate-950" value="">
+              使用候选默认模型
+            </option>
+            {models.map((model) => (
+              <option
+                className="bg-slate-950 text-white"
+                key={model.id}
+                value={model.id}
+              >
+                {model.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        <Field label="角色提示词（支持 {{变量}}）">
+          <WorkflowVariableField
+            className="min-h-32 resize-none leading-6"
+            contract={variableContract}
+            declarations={declarations}
+            edges={edges}
+            fieldName="rolePrompt"
+            multiline
+            node={node}
+            nodes={nodes}
+            onChange={(value) => update({ rolePrompt: value })}
+            value={data.rolePrompt ?? ""}
+          />
+        </Field>
+
+        <Field label="任务输入（支持 {{变量}}）">
+          <WorkflowVariableField
+            className="min-h-32 resize-none leading-6"
+            contract={variableContract}
+            declarations={declarations}
+            edges={edges}
+            fieldName="taskInput"
+            multiline
+            node={node}
+            nodes={nodes}
+            onChange={(value) => update({ taskInput: value })}
+            value={data.taskInput ?? ""}
+          />
+        </Field>
+
+        <Field label="来源专家 ID（可选）">
+          <select
+            className={textInputClass()}
+            onChange={(event) => update({ sourceAgentId: event.target.value })}
+            value={sourceAgentId}
+          >
+            <option className="bg-slate-950" value="">
+              不绑定来源专家
+            </option>
+            {sourceOutsideScope ? (
+              <option className="bg-slate-950" disabled value={sourceAgentId}>
+                {sourceAgentId}（已不在授权范围）
+              </option>
+            ) : null}
+            {sourceOptions.map((agentId) => (
+              <option className="bg-slate-950" key={agentId} value={agentId}>
+                {agentId}
+              </option>
+            ))}
+          </select>
+          {!sourceOptions.length ? (
+            <p className="mt-2 text-xs text-slate-500">
+              当前 Proposal 未授权来源专家；该字段只能保持为空。
+            </p>
+          ) : null}
+        </Field>
+
+        <Field label="方法 Skill ID（可选，最多 1 个）">
+          <input
+            aria-invalid={!methodSkillValid}
+            className={textInputClass()}
+            maxLength={160}
+            onChange={(event) =>
+              update({
+                methodSkillIds: event.target.value ? [event.target.value] : [],
+              })
+            }
+            pattern="[a-z0-9][a-z0-9-]{0,159}"
+            placeholder="例如 research-review"
+            value={methodSkillId}
+          />
+          {!methodSkillValid ? (
+            <p className="mt-2 text-xs text-rose-200">
+              Skill ID 只能包含小写字母、数字和连字符，并且必须以字母或数字开头。
+            </p>
+          ) : null}
+        </Field>
+      </ConfigSection>
+
+      <ConfigSection
+        description="位置通过画布移动修改；标题和说明位于本面板上方。"
+        title="输出"
+      >
+        <Field label="输出变量">
+          <WorkflowVariableField
+            contract={variableContract}
+            declarations={declarations}
+            edges={edges}
+            fieldName="outputVariable"
+            node={node}
+            nodes={nodes}
+            onChange={(value) => update({ outputVariable: value })}
+            value={data.outputVariable ?? ""}
+          />
+        </Field>
+      </ConfigSection>
+    </div>
+  );
+}
+
 function AgentStudioPanel({
   node,
   nodes,
@@ -2112,6 +2284,8 @@ function AgentStudioPanel({
   boundMiddlewares,
   boundResources,
   onSelectNode,
+  headlessAuthoring = false,
+  allowedSourceAgentIds = [],
 }: {
   node: WorkflowNode;
   nodes: WorkflowNode[];
@@ -2125,6 +2299,8 @@ function AgentStudioPanel({
   boundMiddlewares: WorkflowNode[];
   boundResources: WorkflowNode[];
   onSelectNode: (nodeId: string) => void;
+  headlessAuthoring?: boolean;
+  allowedSourceAgentIds?: string[];
 }) {
   const isWorkflowAgent = data.kind === "workflow_agent";
   const toolsEnabled = isWorkflowAgent
@@ -2147,7 +2323,7 @@ function AgentStudioPanel({
   );
 
   useEffect(() => {
-    if (!isWorkflowAgent) return;
+    if (!isWorkflowAgent || headlessAuthoring) return;
     let cancelled = false;
     void fetch("/api/rag/knowledge_bases")
       .then(async (response) => {
@@ -2172,7 +2348,7 @@ function AgentStudioPanel({
     return () => {
       cancelled = true;
     };
-  }, [isWorkflowAgent]);
+  }, [headlessAuthoring, isWorkflowAgent]);
 
   function toggleKnowledgeBase(kbId: string, checked: boolean) {
     const next = new Set(selectedKnowledgeBaseIds);
@@ -2195,6 +2371,21 @@ function AgentStudioPanel({
   const toolNamesPlaceholder = registryTools.length
     ? registryTools.map((tool) => tool.name).slice(0, 3).join(", ")
     : "先在 MCP 页面连接工具 Server";
+
+  if (headlessAuthoring && isWorkflowAgent) {
+    return (
+      <HeadlessWorkflowAgentAdapterPanel
+        allowedSourceAgentIds={allowedSourceAgentIds}
+        data={data}
+        declarations={declarations}
+        edges={edges}
+        node={node}
+        nodes={nodes}
+        update={update}
+        variableContract={variableContract}
+      />
+    );
+  }
 
   return (
     <div className="space-y-3">
@@ -3587,6 +3778,7 @@ function LegacyKnowledgeCitationConfig({
 interface NodeConfigProps {
   workflowId: string;
   node: WorkflowNode | null;
+  authoringPolicy?: WorkflowEditorAuthoringPolicy;
   declarations: WorkflowVariableDeclaration[];
   onChange: (nodeId: string, data: Partial<WorkflowNodeData>) => void;
   onRuntimeMiddlewareConfigChange: (
@@ -3610,6 +3802,7 @@ interface NodeConfigProps {
 function NodeConfig({
   workflowId,
   node,
+  authoringPolicy,
   declarations,
   onChange,
   onRuntimeMiddlewareConfigChange,
@@ -5409,6 +5602,7 @@ function NodeConfig({
 
       {data.kind === "agent" || data.kind === "workflow_agent" ? (
         <AgentStudioPanel
+          allowedSourceAgentIds={authoringPolicy?.allowedSourceAgentIds}
           boundMiddlewares={boundMiddlewares}
           boundResources={boundResources}
           data={data}
@@ -5419,6 +5613,9 @@ function NodeConfig({
           onSelectNode={onSelectNode}
           registryTools={registryTools}
           registryToolsError={registryToolsError}
+          headlessAuthoring={Boolean(
+            authoringPolicy && data.kind === "workflow_agent",
+          )}
           update={update}
           variableContract={variableContract}
         />
@@ -6465,6 +6662,88 @@ interface WorkflowCanvasProps {
   initialDefinition?: WorkflowDefinition;
   onSave?: (definition: WorkflowDefinition) => Promise<void> | void;
   saveLabel?: string;
+  saveCompletionLabel?: string;
+  authoringPolicy?: WorkflowEditorAuthoringPolicy;
+}
+
+export interface WorkflowEditorAuthoringPolicy {
+  allowedNodeKinds: WorkflowNodeKind[];
+  compilerManagedNodeKinds?: WorkflowNodeKind[];
+  allowedRuntimeMiddlewareIds?: string[];
+  allowedSourceAgentIds?: string[];
+}
+
+export const HEADLESS_WORKFLOW_AGENT_EDITABLE_FIELDS = [
+  "title",
+  "description",
+  "rolePrompt",
+  "taskInput",
+  "modelId",
+  "sourceAgentId",
+  "methodSkillIds",
+  "outputVariable",
+] as const;
+
+const headlessWorkflowAgentEditableFieldSet = new Set<string>(
+  HEADLESS_WORKFLOW_AGENT_EDITABLE_FIELDS,
+);
+
+export function constrainAuthoringNodeDataPatch(
+  kind: WorkflowNodeKind,
+  patch: Partial<WorkflowNodeData>,
+  policy?: WorkflowEditorAuthoringPolicy,
+): {
+  patch: Partial<WorkflowNodeData>;
+  rejectedFields: string[];
+} {
+  if (!policy || kind !== "workflow_agent") {
+    return { patch, rejectedFields: [] };
+  }
+  const allowedPatch: Partial<WorkflowNodeData> = {};
+  const rejectedFields: string[] = [];
+  Object.entries(patch).forEach(([field, value]) => {
+    if (headlessWorkflowAgentEditableFieldSet.has(field)) {
+      (allowedPatch as Record<string, unknown>)[field] = value;
+    } else {
+      rejectedFields.push(field);
+    }
+  });
+  return {
+    patch: allowedPatch,
+    rejectedFields: rejectedFields.sort(),
+  };
+}
+
+export function prepareAuthoringNodeForInsert(
+  node: WorkflowNode,
+  policy?: WorkflowEditorAuthoringPolicy,
+): WorkflowNode {
+  if (!policy || node.data.kind !== "workflow_agent") return node;
+  const data = Object.fromEntries(
+    Object.entries(node.data).filter(
+      ([field]) =>
+        field === "kind" || headlessWorkflowAgentEditableFieldSet.has(field),
+    ),
+  ) as WorkflowNodeData;
+  return { ...node, data };
+}
+
+export function authoringNodeMutationError(
+  kind: WorkflowNodeKind,
+  action: "add" | "delete",
+  policy?: WorkflowEditorAuthoringPolicy,
+): string | null {
+  if (!policy) return null;
+  const compilerManaged = new Set(policy.compilerManagedNodeKinds ?? ["input", "output"]);
+  if (compilerManaged.has(kind)) {
+    return action === "delete"
+      ? "该节点由编译器管理，不能从候选画布删除。"
+      : "该节点由编译器管理，不能手动新增或复制。";
+  }
+  if (!new Set(policy.allowedNodeKinds).has(kind)) {
+    return "该节点不在当前 Proposal 的授权能力范围内。";
+  }
+  return null;
 }
 
 type WorkflowWorkspaceTab = "config" | "run";
@@ -6487,6 +6766,8 @@ function WorkflowCanvas({
   initialDefinition: controlledDefinition,
   onSave,
   saveLabel = "保存草稿",
+  saveCompletionLabel = "智能体草稿已保存",
+  authoringPolicy,
 }: WorkflowCanvasProps) {
   const localDraftCandidate = useMemo(() => {
     if (controlledDefinition || onSave || workflowId !== "draft") return null;
@@ -6582,6 +6863,43 @@ function WorkflowCanvas({
   const hasEmailEntry = nodes.some((node) => node.data.kind === "email_event_entry");
   const { screenToFlowPosition, fitView } = useReactFlow();
   const navigate = useNavigate();
+  const allowedAuthoringKinds = useMemo(
+    () => authoringPolicy ? new Set(authoringPolicy.allowedNodeKinds) : undefined,
+    [authoringPolicy],
+  );
+  const compilerManagedKinds = useMemo(
+    () => new Set(
+      authoringPolicy
+        ? (authoringPolicy.compilerManagedNodeKinds ?? ["input", "output"])
+        : [],
+    ),
+    [authoringPolicy],
+  );
+  const addableAuthoringKinds = useMemo(() => {
+    if (!allowedAuthoringKinds) return undefined;
+    return new Set(
+      Array.from(allowedAuthoringKinds).filter((kind) => !compilerManagedKinds.has(kind)),
+    );
+  }, [allowedAuthoringKinds, compilerManagedKinds]);
+  const restrictedAuthoringPaletteItems = useMemo(() => {
+    if (!authoringPolicy || !xpertRegistry || !addableAuthoringKinds) return [];
+    const unique = new Map(
+      [
+        ...xpertRegistry.sections.flatMap((section) => section.items),
+        ...xpertRegistry.knowledge_pipeline.items,
+      ].map((item) => [item.kind, item]),
+    );
+    return Array.from(unique.values()).filter(
+      (item) => item.enabled !== false && addableAuthoringKinds.has(item.kind),
+    );
+  }, [addableAuthoringKinds, authoringPolicy, xpertRegistry]);
+  const restrictedAuthoringMiddleware = useMemo(() => {
+    if (!authoringPolicy) return [];
+    const allowedIds = new Set(authoringPolicy.allowedRuntimeMiddlewareIds ?? []);
+    return runtimeMiddlewareRegistry.filter(
+      (item) => item.enabled && allowedIds.has(item.id),
+    );
+  }, [authoringPolicy, runtimeMiddlewareRegistry]);
 
   useEffect(() => {
     let cancelled = false;
@@ -6751,6 +7069,7 @@ function WorkflowCanvas({
   }, [setEdges, setNodes, workflowId]);
   const xpertEntryRepair = useMemo(() => {
     if (
+      authoringPolicy ||
       !onSave ||
       !xpertRegistry ||
       nodes.some((node) => node.data.kind === "input") ||
@@ -6763,7 +7082,11 @@ function WorkflowCanvas({
       xpertRegistry,
       conversionInputVariable || undefined,
     );
-  }, [conversionInputVariable, definition, nodes, onSave, xpertRegistry]);
+  }, [authoringPolicy, conversionInputVariable, definition, nodes, onSave, xpertRegistry]);
+
+  useEffect(() => {
+    if (authoringPolicy) setWorkspaceTab("config");
+  }, [authoringPolicy]);
 
   const selectedNode = useMemo(
     () => nodes.find((node) => node.id === selectedNodeId) ?? null,
@@ -7023,9 +7346,17 @@ function WorkflowCanvas({
 
   const handleNodesChange = useCallback(
     (changes: NodeChange<WorkflowNode>[]) => {
-      onNodesChange(changes);
+      const permittedChanges = changes.filter((change) => {
+        if (change.type !== "remove" || !authoringPolicy) return true;
+        const node = nodes.find((item) => item.id === change.id);
+        if (!node) return true;
+        const reason = authoringNodeMutationError(node.data.kind, "delete", authoringPolicy);
+        if (reason) setErrorNotice(reason);
+        return !reason;
+      });
+      if (permittedChanges.length > 0) onNodesChange(permittedChanges);
     },
-    [onNodesChange],
+    [authoringPolicy, nodes, onNodesChange],
   );
 
   const handleEdgesChange = useCallback(
@@ -7052,6 +7383,14 @@ function WorkflowCanvas({
 
   const deleteSelectedNode = useCallback(() => {
     if (!selectedNodeId) return;
+    const selected = nodes.find((node) => node.id === selectedNodeId);
+    if (!selected) return;
+    const reason = authoringNodeMutationError(selected.data.kind, "delete", authoringPolicy);
+    if (reason) {
+      setErrorNotice(reason);
+      setContextMenu(null);
+      return;
+    }
     commitHistory();
     setNodes((currentNodes) =>
       currentNodes.filter((node) => node.id !== selectedNodeId),
@@ -7062,20 +7401,35 @@ function WorkflowCanvas({
       ),
     );
     setSelectedNodeId(null);
-  }, [commitHistory, selectedNodeId, setEdges, setNodes]);
+  }, [authoringPolicy, commitHistory, nodes, selectedNodeId, setEdges, setNodes]);
 
   function updateNodeData(nodeId: string, patch: Partial<WorkflowNodeData>) {
     // 配置面板与保存/运行共用同一份同步状态，避免输入后立即操作时
     // 仍有防抖 patch 留在计时器中而被序列化遗漏。
+    const targetNode = nodes.find((node) => node.id === nodeId);
+    if (!targetNode) return;
+    const constrained = constrainAuthoringNodeDataPatch(
+      targetNode.data.kind,
+      patch,
+      authoringPolicy,
+    );
+    if (constrained.rejectedFields.length) {
+      setErrorNotice(
+        `Headless Adapter 无法表达字段：${constrained.rejectedFields.join(
+          "、",
+        )}。这些修改未写入候选。`,
+      );
+    }
+    if (!Object.keys(constrained.patch).length) return;
     setNodes((currentNodes) =>
       currentNodes.map((node) =>
         node.id === nodeId
           ? {
               ...node,
-              data: {
-                ...node.data,
-                ...patch,
-              },
+            data: {
+              ...node.data,
+              ...constrained.patch,
+            },
             }
           : node,
       ),
@@ -7311,13 +7665,21 @@ function WorkflowCanvas({
   const pasteClipboard = useCallback(
     (position: { x: number; y: number }) => {
       if (!clipboard || clipboard.nodes.length === 0) return;
+      const blocked = clipboard.nodes
+        .map((node) => authoringNodeMutationError(node.data.kind, "add", authoringPolicy))
+        .find(Boolean);
+      if (blocked) {
+        setErrorNotice(blocked);
+        setContextMenu(null);
+        return;
+      }
       const stamp = `${Date.now().toString(36)}${Math.random().toString(16).slice(2, 5)}`;
       const anchor = clipboard.nodes[0];
       const idMap = new Map<string, string>();
       const pastedNodes = clipboard.nodes.map((node) => {
         const newId = `${node.data.kind}-${stamp}-${node.id}`;
         idMap.set(node.id, newId);
-        return {
+        return prepareAuthoringNodeForInsert({
           ...node,
           id: newId,
           position: {
@@ -7325,7 +7687,7 @@ function WorkflowCanvas({
             y: position.y + (node.position.y - anchor.position.y),
           },
           data: { ...node.data, runStatus: undefined },
-        };
+        }, authoringPolicy);
       });
       const pastedEdges = clipboard.edges
         .map((edge) => ({
@@ -7347,7 +7709,7 @@ function WorkflowCanvas({
       setSelectedNodeId(pastedNodes[0]?.id ?? null);
       setContextMenu(null);
     },
-    [clipboard, commitHistory, setEdges, setNodes],
+    [authoringPolicy, clipboard, commitHistory, setEdges, setNodes],
   );
 
   const pasteAtViewportCenter = useCallback(() => {
@@ -7361,18 +7723,34 @@ function WorkflowCanvas({
 
   const addAnnotationAt = useCallback(
     (position: { x: number; y: number }) => {
+      const reason = authoringNodeMutationError("annotation", "add", authoringPolicy);
+      if (reason) {
+        setErrorNotice(reason);
+        setContextMenu(null);
+        return;
+      }
       commitHistory();
       const node = createNode("annotation", position.x, position.y);
       setNodes((currentNodes) => [...currentNodes, node]);
       setSelectedNodeId(node.id);
       setContextMenu(null);
     },
-    [commitHistory, setNodes],
+    [authoringPolicy, commitHistory, setNodes],
   );
 
   const handleQuickAddPick = useCallback(
     (kind: string) => {
       if (!quickAddMenu) return;
+      const authoringError = authoringNodeMutationError(
+        kind as WorkflowNodeKind,
+        "add",
+        authoringPolicy,
+      );
+      if (authoringError) {
+        setErrorNotice(authoringError);
+        setQuickAddMenu(null);
+        return;
+      }
       if (onSave && INDEPENDENT_DEPLOYMENT_NODE_KINDS.has(kind as WorkflowNodeKind)) {
         setErrorNotice("Xpert 内嵌画布不能使用独立部署节点。");
         setQuickAddMenu(null);
@@ -7393,7 +7771,10 @@ function WorkflowCanvas({
         x: quickAddMenu.x,
         y: quickAddMenu.y,
       });
-      const node = createNode(kind as WorkflowNodeKind, position.x, position.y);
+      const node = prepareAuthoringNodeForInsert(
+        createNode(kind as WorkflowNodeKind, position.x, position.y),
+        authoringPolicy,
+      );
       commitHistory();
       setNodes((currentNodes) => [...currentNodes, node]);
       setEdges((currentEdges) =>
@@ -7410,7 +7791,7 @@ function WorkflowCanvas({
       setSelectedNodeId(node.id);
       setQuickAddMenu(null);
     },
-    [commitHistory, edges, nodes, onSave, quickAddMenu, screenToFlowPosition, setEdges, setNodes],
+    [authoringPolicy, commitHistory, edges, nodes, onSave, quickAddMenu, screenToFlowPosition, setEdges, setNodes],
   );
 
   const handleConnectEnd: OnConnectEnd = useCallback((event, connectionState) => {
@@ -7485,7 +7866,7 @@ function WorkflowCanvas({
     try {
       if (onSave) {
         await onSave(savedDefinition);
-        setSaveNotice("智能体草稿已保存");
+        setSaveNotice(saveCompletionLabel);
       } else {
         savedProjectId = await persistIndependentWorkflow(savedDefinition);
         setSaveNotice("服务端草稿已保存；本地副本已保留");
@@ -7726,7 +8107,7 @@ function WorkflowCanvas({
   }
 
   function repairXpertEntry() {
-    if (!onSave || !xpertRegistry || !xpertEntryRepair || isConverting) return;
+    if (authoringPolicy || !onSave || !xpertRegistry || !xpertEntryRepair || isConverting) return;
     const selectedInput =
       conversionInputVariable || xpertEntryRepair.selectedInputVariable;
     const analysis = analyzeXpertWorkflowConversion(
@@ -7758,13 +8139,21 @@ function WorkflowCanvas({
 
   const handlePaletteAddNode = useCallback(
     (kind: WorkflowNodeKind) => {
+      const authoringError = authoringNodeMutationError(kind, "add", authoringPolicy);
+      if (authoringError) {
+        setErrorNotice(authoringError);
+        return;
+      }
       if (onSave && INDEPENDENT_DEPLOYMENT_NODE_KINDS.has(kind)) {
         setErrorNotice("Xpert 内嵌画布不能使用独立部署节点。");
         return;
       }
       const position = paletteInsertPosition();
       try {
-        const nextNode = createNode(kind, position.x, position.y);
+        const nextNode = prepareAuthoringNodeForInsert(
+          createNode(kind, position.x, position.y),
+          authoringPolicy,
+        );
         commitHistory();
         setNodes((currentNodes) => [...currentNodes, nextNode]);
         setSelectedNodeId(nextNode.id);
@@ -7777,11 +8166,27 @@ function WorkflowCanvas({
         );
       }
     },
-    [commitHistory, onSave, paletteInsertPosition, setNodes],
+    [authoringPolicy, commitHistory, onSave, paletteInsertPosition, setNodes],
   );
 
   const handlePaletteAddRuntimeMiddleware = useCallback(
     (middleware: RuntimeMiddlewareNode) => {
+      const authoringError = authoringNodeMutationError(
+        "runtime_middleware",
+        "add",
+        authoringPolicy,
+      );
+      if (authoringError) {
+        setErrorNotice(authoringError);
+        return;
+      }
+      if (
+        authoringPolicy &&
+        !(authoringPolicy.allowedRuntimeMiddlewareIds ?? []).includes(middleware.id)
+      ) {
+        setErrorNotice("该中间件不在当前 Proposal 的授权范围内。");
+        return;
+      }
       const position = paletteInsertPosition();
       const payload: RuntimeMiddlewareDragPayload = {
         kind: "runtime_middleware",
@@ -7805,7 +8210,7 @@ function WorkflowCanvas({
       setSaveNotice("");
       setErrorNotice("");
     },
-    [commitHistory, paletteInsertPosition, setNodes],
+    [authoringPolicy, commitHistory, paletteInsertPosition, setNodes],
   );
 
   function onDrop(event: React.DragEvent<HTMLDivElement>) {
@@ -7822,6 +8227,25 @@ function WorkflowCanvas({
       ? parseRuntimeMiddlewarePayload(runtimeMiddlewareRaw)
       : null;
     if (runtimeMiddlewarePayload) {
+      const authoringError = authoringNodeMutationError(
+        "runtime_middleware",
+        "add",
+        authoringPolicy,
+      );
+      if (authoringError) {
+        setErrorNotice(authoringError);
+        return;
+      }
+      if (
+        authoringPolicy &&
+        (!runtimeMiddlewarePayload.runtimeMiddlewareId ||
+          !(authoringPolicy.allowedRuntimeMiddlewareIds ?? []).includes(
+            runtimeMiddlewarePayload.runtimeMiddlewareId,
+          ))
+      ) {
+        setErrorNotice("该中间件不在当前 Proposal 的授权范围内。");
+        return;
+      }
       const nextNode = createNode(
         "runtime_middleware",
         position.x,
@@ -7838,6 +8262,25 @@ function WorkflowCanvas({
     const rawKind = event.dataTransfer.getData("application/modelmirror-node");
     const fallbackPayload = parseRuntimeMiddlewarePayload(rawKind);
     if (fallbackPayload) {
+      const authoringError = authoringNodeMutationError(
+        "runtime_middleware",
+        "add",
+        authoringPolicy,
+      );
+      if (authoringError) {
+        setErrorNotice(authoringError);
+        return;
+      }
+      if (
+        authoringPolicy &&
+        (!fallbackPayload.runtimeMiddlewareId ||
+          !(authoringPolicy.allowedRuntimeMiddlewareIds ?? []).includes(
+            fallbackPayload.runtimeMiddlewareId,
+          ))
+      ) {
+        setErrorNotice("该中间件不在当前 Proposal 的授权范围内。");
+        return;
+      }
       const nextNode = createNode(
         "runtime_middleware",
         position.x,
@@ -7853,13 +8296,21 @@ function WorkflowCanvas({
 
     const kind = rawKind as WorkflowNodeKind;
     if (!kind) return;
+    const authoringError = authoringNodeMutationError(kind, "add", authoringPolicy);
+    if (authoringError) {
+      setErrorNotice(authoringError);
+      return;
+    }
     if (onSave && INDEPENDENT_DEPLOYMENT_NODE_KINDS.has(kind)) {
       setErrorNotice("Xpert 内嵌画布不能使用独立部署节点。");
       return;
     }
 
     try {
-      const nextNode = createNode(kind, position.x, position.y);
+      const nextNode = prepareAuthoringNodeForInsert(
+        createNode(kind, position.x, position.y),
+        authoringPolicy,
+      );
       commitHistory();
       setNodes((currentNodes) => [...currentNodes, nextNode]);
       setSelectedNodeId(nextNode.id);
@@ -7983,11 +8434,70 @@ function WorkflowCanvas({
             </button>
           </div>
           <div className="mt-4">
-            <NodePalette
-              excludeKinds={onSave ? Array.from(INDEPENDENT_DEPLOYMENT_NODE_KINDS) : []}
-              onAddNode={handlePaletteAddNode}
-              onAddRuntimeMiddleware={handlePaletteAddRuntimeMiddleware}
-            />
+            {authoringPolicy ? (
+              <div className="space-y-2">
+                {!xpertRegistry ? (
+                  <p className="rounded-md border border-amber-300/20 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100">
+                    节点 Registry 不可用；受控候选编辑器已暂停新增节点。
+                  </p>
+                ) : null}
+                {xpertRegistry &&
+                restrictedAuthoringPaletteItems.length === 0 &&
+                restrictedAuthoringMiddleware.length === 0 ? (
+                  <p className="rounded-md border border-dashed border-white/10 px-3 py-5 text-center text-xs leading-5 text-slate-500">
+                    当前 Proposal 没有可手动新增的节点能力。
+                  </p>
+                ) : null}
+                {restrictedAuthoringPaletteItems.map((item) => (
+                  <button
+                    aria-label={`添加节点：${item.title}`}
+                    className="w-full rounded-lg border border-white/10 bg-[#101828] p-3 text-left transition hover:border-white/25 hover:bg-[#151f33]"
+                    draggable
+                    key={item.kind}
+                    onClick={() => handlePaletteAddNode(item.kind)}
+                    onDragStart={(event) => {
+                      event.dataTransfer.setData("application/modelmirror-node", item.kind);
+                      event.dataTransfer.effectAllowed = "move";
+                    }}
+                    type="button"
+                  >
+                    <span className="flex items-start gap-3">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-hire-300/25 bg-hire-300/10 text-[11px] font-semibold text-hire-100">
+                        {item.icon}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-sm font-semibold text-white">{item.title}</span>
+                        <span className="mt-1 block text-xs leading-5 text-slate-400">
+                          {item.description}
+                        </span>
+                      </span>
+                    </span>
+                  </button>
+                ))}
+                {restrictedAuthoringMiddleware.map((middleware) => (
+                  <button
+                    aria-label={`添加中间件：${middleware.title}`}
+                    className="w-full rounded-lg border border-indigo-300/15 bg-indigo-300/[0.06] p-3 text-left transition hover:border-indigo-200/30 hover:bg-indigo-300/10"
+                    key={middleware.id}
+                    onClick={() => handlePaletteAddRuntimeMiddleware(middleware)}
+                    type="button"
+                  >
+                    <span className="block text-sm font-semibold text-indigo-100">
+                      {middleware.title}
+                    </span>
+                    <span className="mt-1 block text-xs leading-5 text-slate-400">
+                      {middleware.description}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <NodePalette
+                excludeKinds={onSave ? Array.from(INDEPENDENT_DEPLOYMENT_NODE_KINDS) : []}
+                onAddNode={handlePaletteAddNode}
+                onAddRuntimeMiddleware={handlePaletteAddRuntimeMiddleware}
+              />
+            )}
           </div>
         </aside>
       ) : null}
@@ -8005,27 +8515,35 @@ function WorkflowCanvas({
             </p>
           </div>
           <div className="relative flex flex-wrap items-center gap-1.5">
-            <button
-              aria-expanded={isVariableCenterOpen}
-              aria-haspopup="dialog"
-              className={`rounded-md border px-3 py-1.5 text-xs font-semibold transition ${
-                isVariableCenterOpen
-                  ? "border-brand-300/50 bg-brand-300/15 text-brand-100"
-                  : "border-white/10 bg-white/[0.05] text-slate-200 hover:border-brand-300/45 hover:bg-brand-300/10 hover:text-brand-100"
-              }`}
-              onClick={() => setIsVariableCenterOpen(true)}
-              ref={variableCenterTriggerRef}
-              type="button"
-            >
-              变量 {workflowVariables.length}
-            </button>
-            <button
-              className="rounded-md border border-white/10 bg-white/[0.05] px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-emerald-200/45 hover:bg-emerald-300/10 hover:text-emerald-100"
-              onClick={() => navigate("/data-tables")}
-              type="button"
-            >
-              数据表
-            </button>
+            {!authoringPolicy ? (
+              <>
+                <button
+                  aria-expanded={isVariableCenterOpen}
+                  aria-haspopup="dialog"
+                  className={`rounded-md border px-3 py-1.5 text-xs font-semibold transition ${
+                    isVariableCenterOpen
+                      ? "border-brand-300/50 bg-brand-300/15 text-brand-100"
+                      : "border-white/10 bg-white/[0.05] text-slate-200 hover:border-brand-300/45 hover:bg-brand-300/10 hover:text-brand-100"
+                  }`}
+                  onClick={() => setIsVariableCenterOpen(true)}
+                  ref={variableCenterTriggerRef}
+                  type="button"
+                >
+                  变量 {workflowVariables.length}
+                </button>
+                <button
+                  className="rounded-md border border-white/10 bg-white/[0.05] px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-emerald-200/45 hover:bg-emerald-300/10 hover:text-emerald-100"
+                  onClick={() => navigate("/data-tables")}
+                  type="button"
+                >
+                  数据表
+                </button>
+              </>
+            ) : (
+              <span className="rounded-md border border-cyan-300/20 bg-cyan-300/[0.07] px-2.5 py-1 text-[11px] font-semibold text-cyan-100">
+                类型化 Patch 编辑
+              </span>
+            )}
             <button
               className={`rounded-md border px-3 py-1.5 text-xs font-semibold transition ${
                 isNodePaletteOpen
@@ -8536,7 +9054,7 @@ function WorkflowCanvas({
                 </button>
               </Panel>
             ) : null}
-            {selectedNodeId ? (
+            {selectedNodeId && selectedNode && !compilerManagedKinds.has(selectedNode.data.kind) ? (
               <Panel position="bottom-left">
                 <button
                   className="mb-16 rounded-full border border-rose-300/35 bg-rose-400/15 px-3 py-1.5 text-xs font-semibold text-rose-100 shadow-lg shadow-rose-950/30 transition hover:bg-rose-400/25"
@@ -8582,8 +9100,18 @@ function WorkflowCanvas({
                   <MenuItem onClick={() => setContextMenu(null)}>
                     配置节点
                   </MenuItem>
-                  <MenuItem onClick={copySelectedNode}>复制</MenuItem>
                   <MenuItem
+                    disabled={Boolean(
+                      selectedNode && compilerManagedKinds.has(selectedNode.data.kind),
+                    )}
+                    onClick={copySelectedNode}
+                  >
+                    复制
+                  </MenuItem>
+                  <MenuItem
+                    disabled={Boolean(
+                      selectedNode && compilerManagedKinds.has(selectedNode.data.kind),
+                    )}
                     onClick={() => {
                       setContextMenu(null);
                       deleteSelectedNode();
@@ -8592,6 +9120,9 @@ function WorkflowCanvas({
                     删除
                   </MenuItem>
                   <MenuItem
+                    disabled={Boolean(
+                      authoringNodeMutationError("annotation", "add", authoringPolicy),
+                    )}
                     onClick={() => {
                       const node = nodes.find(
                         (item) => item.id === contextMenu.nodeId,
@@ -8657,6 +9188,7 @@ function WorkflowCanvas({
 
         {quickAddMenu ? (
           <QuickNodePicker
+            allowedKinds={addableAuthoringKinds}
             onClose={() => setQuickAddMenu(null)}
             onPick={handleQuickAddPick}
             x={quickAddMenu.x}
@@ -8685,19 +9217,21 @@ function WorkflowCanvas({
             >
               配置
             </button>
-            <button
-              className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-                workspaceTab === "run"
-                  ? "bg-hire-300 text-ink-950"
-                  : "text-slate-400 hover:text-slate-100"
-              } disabled:cursor-wait disabled:opacity-45`}
-              disabled={projectPending}
-              onClick={() => setWorkspaceTab("run")}
-              title={projectPending ? "正在加载服务端工作流草稿" : undefined}
-              type="button"
-            >
-              运行
-            </button>
+            {!authoringPolicy ? (
+              <button
+                className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                  workspaceTab === "run"
+                    ? "bg-hire-300 text-ink-950"
+                    : "text-slate-400 hover:text-slate-100"
+                } disabled:cursor-wait disabled:opacity-45`}
+                disabled={projectPending}
+                onClick={() => setWorkspaceTab("run")}
+                title={projectPending ? "正在加载服务端工作流草稿" : undefined}
+                type="button"
+              >
+                运行
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -8714,6 +9248,7 @@ function WorkflowCanvas({
           </p>
           <div className="mt-4">
             <NodeConfig
+              authoringPolicy={authoringPolicy}
               declarations={variables}
               edges={edges}
               node={selectedNode}
