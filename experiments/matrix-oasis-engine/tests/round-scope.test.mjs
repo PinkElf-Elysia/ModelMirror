@@ -118,6 +118,8 @@ function makeParentFixture(t) {
   write(fixture, `${MODULE_PREFIX}/third-party/godot-demo-projects/reference.lock.json`);
   write(fixture, `${MODULE_PREFIX}/scripts/validate-pack.mjs`);
   write(fixture, `${MODULE_PREFIX}/tests/game-pack-simulator-semantics.test.mjs`);
+  write(fixture, `${MODULE_PREFIX}/tests/prototype-generation-cli.test.mjs`);
+  write(fixture, `${MODULE_PREFIX}/packages/prototype-generator/src/openai-compatible.mjs`);
   write(fixture, "client/fixture.txt", "parent fixture\n");
   const base = initializeGit(fixture);
   registerCleanup(t, fixture);
@@ -172,13 +174,38 @@ test("accepts exact R20 files and new behavior prefixes in every Git status sour
   write(fixture, `${MODULE_PREFIX}/scripts/run-verify.mjs`, "unstaged update\n");
   write(fixture, `${MODULE_PREFIX}/docs/V2_STATUS.json`);
   write(fixture, `${MODULE_PREFIX}/tests/r20-falsification.test.mjs`);
+  write(fixture, `${MODULE_PREFIX}/tests/prototype-generation-cli.test.mjs`, "approved test-only correction\n");
   write(fixture, `${MODULE_PREFIX}/docs/rounds/R20_ACCEPTANCE.md`);
   write(fixture, `${MODULE_PREFIX}/third-party/npc-behavior-references/reference.lock.json`, "{}\n");
 
   const result = checkRoundScope({ moduleRoot, base, expectedBase: base });
   assert.equal(result.status, "ok");
   assert.equal(result.mode, "parent");
-  assert.equal(result.uniqueChangedPaths, 7);
+  assert.equal(result.uniqueChangedPaths, 8);
+});
+
+test("rejects adjacent prototype generation tests outside the exact exception", (t) => {
+  const { fixture, moduleRoot, base } = makeParentFixture(t);
+  write(fixture, `${MODULE_PREFIX}/tests/prototype-generation-orchestrator.test.mjs`);
+
+  expectCode(
+    () => checkRoundScope({ moduleRoot, base, expectedBase: base }),
+    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
+  );
+});
+
+test("keeps the prototype provider production implementation frozen", (t) => {
+  const { fixture, moduleRoot, base } = makeParentFixture(t);
+  write(
+    fixture,
+    `${MODULE_PREFIX}/packages/prototype-generator/src/openai-compatible.mjs`,
+    "changed\n",
+  );
+
+  expectCode(
+    () => checkRoundScope({ moduleRoot, base, expectedBase: base }),
+    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
+  );
 });
 
 test("rejects a committed R1 contracts change", (t) => {
@@ -413,6 +440,18 @@ test("round path classifier exposes stable R20 guard categories", () => {
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/tests/r20-falsification.test.mjs`),
     null,
+  );
+  assert.equal(
+    classifyRoundPath(`${MODULE_PREFIX}/tests/prototype-generation-cli.test.mjs`),
+    null,
+  );
+  assert.equal(
+    classifyRoundPath(`${MODULE_PREFIX}/tests/prototype-generation-orchestrator.test.mjs`),
+    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
+  );
+  assert.equal(
+    classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-generator/src/openai-compatible.mjs`),
+    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/third-party/npc-behavior-references/reference.lock.json`),

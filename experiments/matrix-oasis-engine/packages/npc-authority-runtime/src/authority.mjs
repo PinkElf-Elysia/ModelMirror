@@ -383,21 +383,26 @@ export function submitNpcAuthorityIncrementalIntent(input) {
     if (!appended.ok) return appended;
     const inspected = inspectRuntimeGameSession(current.data.runtimePrepared, evaluated.snapshot);
     if (!inspected.ok) return deepFreeze({ ok: false, diagnostics: inspected.diagnostics });
-    current.ledger = appended.ledger;
-    current.ledgerJson = appended.canonicalWorldEventLedgerJson;
-    current.snapshot = evaluated.snapshot;
-    current.inspection = inspected.inspection;
     let fullReplayPerformed = false;
-    if (powerOfTwo(current.ledger.revision)) {
-      const replayed = replayWorldEventLedger({ prepared: current.prepared, worldEventLedgerJson: current.ledgerJson });
-      if (!replayed.ok || !compareCanonical(replayed.runtimeSnapshot, current.snapshot) || !compareCanonical(replayed.inspection, current.inspection)) return fail("NPC_AUTHORITY_INCREMENTAL_REPLAY_MISMATCH");
-      current.fullReplayCount += 1;
+    let nextFullReplayCount = current.fullReplayCount;
+    if (powerOfTwo(appended.ledger.revision)) {
+      const replayed = replayWorldEventLedger({ prepared: current.prepared, worldEventLedgerJson: appended.canonicalWorldEventLedgerJson });
+      if (!replayed.ok || !compareCanonical(replayed.runtimeSnapshot, evaluated.snapshot) || !compareCanonical(replayed.inspection, inspected.inspection)) return fail("NPC_AUTHORITY_INCREMENTAL_REPLAY_MISMATCH");
+      nextFullReplayCount += 1;
       fullReplayPerformed = true;
     }
     const document = resultDocument({ timelineId: intent.timelineId, intentId: intent.id, replayed: false, revision: appended.entry.revision, headSha256: appended.entry.entrySha256, entry: appended.entry });
     const captured = captureResultDocument(document);
     if (!captured.ok) return captured;
-    return deepFreeze({ ok: true, replayed: false, fullReplayPerformed, canonicalAdjudicationResultJson: captured.canonicalNpcAdjudicationResultJson, runtimeSnapshot: current.snapshot, inspection: current.inspection, canonicalWorldEventLedgerJson: current.ledgerJson });
+    incrementalStateData.set(state, {
+      ...current,
+      ledger: appended.ledger,
+      ledgerJson: appended.canonicalWorldEventLedgerJson,
+      snapshot: evaluated.snapshot,
+      inspection: inspected.inspection,
+      fullReplayCount: nextFullReplayCount,
+    });
+    return deepFreeze({ ok: true, replayed: false, fullReplayPerformed, canonicalAdjudicationResultJson: captured.canonicalNpcAdjudicationResultJson, runtimeSnapshot: evaluated.snapshot, inspection: inspected.inspection, canonicalWorldEventLedgerJson: appended.canonicalWorldEventLedgerJson });
   } catch (error) {
     if (error instanceof NpcAuthorityRuntimeOperationalError) throw error;
     throw new NpcAuthorityRuntimeOperationalError();

@@ -23,6 +23,7 @@ var _returning := false
 var _movement_ticks := 0
 var _path_length := 0.0
 var _last_position := Vector3.ZERO
+var _target_floor_position := Vector3.ZERO
 var _gravity := 9.8
 
 
@@ -33,12 +34,17 @@ func configure(actor_id: String, placement: Node3D) -> bool:
 	var parent := placement.get_parent()
 	var original_name := placement.name
 	var initially_visible := placement.visible
-	home_transform = placement.global_transform
+	# The actor root owns the fixed human capsule, so it must never inherit an
+	# asset's import scale or shear. Reparenting with keep_global_transform keeps
+	# the visual exactly where it was while the physics root remains rigid/unit.
+	var placement_transform := placement.global_transform
+	home_transform = Transform3D(placement_transform.basis.orthonormalized(), placement_transform.origin)
 	placement.name = StringName(str(original_name) + "Visual")
 	name = original_name
 	parent.add_child(self)
 	global_transform = home_transform
 	placement.reparent(self, true)
+	placement.reset_physics_interpolation()
 	placement.visible = true
 	visible = initially_visible
 	for child: Node in placement.find_children("*", "CollisionObject3D", true, false):
@@ -76,6 +82,7 @@ func begin_move(target_floor_position: Vector3, returning := false) -> bool:
 	_movement_ticks = 0
 	_path_length = 0.0
 	_last_position = global_position
+	_target_floor_position = target_floor_position
 	_agent.target_position = target_floor_position
 	_moving = true
 	set_physics_process(true)
@@ -118,7 +125,8 @@ func _physics_process(_delta: float) -> void:
 		return
 	var target := _agent.target_position
 	var flat_distance := Vector2(global_position.x, global_position.z).distance_to(Vector2(target.x, target.z))
-	if _agent.is_navigation_finished() and flat_distance <= ARRIVAL_TOLERANCE:
+	var vertical_distance := absf(global_position.y - target.y)
+	if _agent.is_navigation_finished() and flat_distance <= ARRIVAL_TOLERANCE and vertical_distance <= ARRIVAL_TOLERANCE:
 		_stop_arrived()
 		return
 	var next := _agent.get_next_path_position()
@@ -167,6 +175,17 @@ func _physics_evidence() -> Dictionary:
 	)
 	floor_query.exclude = [get_rid()]
 	var floor_hit := space.intersect_ray(floor_query)
+	var floor_position: Variant = floor_hit.get("position")
+	var floor_normal: Variant = floor_hit.get("normal")
+	var floor_verified := typeof(floor_position) == TYPE_VECTOR3 and typeof(floor_normal) == TYPE_VECTOR3
+	if floor_verified:
+		var verified_floor_position: Vector3 = floor_position
+		var verified_floor_normal: Vector3 = floor_normal
+		floor_verified = (
+			absf(verified_floor_position.y - global_position.y) <= ARRIVAL_TOLERANCE
+			and absf(verified_floor_position.y - _target_floor_position.y) <= ARRIVAL_TOLERANCE
+			and verified_floor_normal.normalized().dot(Vector3.UP) >= cos(deg_to_rad(45.0))
+		)
 	var shape_query := PhysicsShapeQueryParameters3D.new()
 	shape_query.shape = _collision.shape
 	shape_query.transform = Transform3D(global_basis, global_position + _collision.position + Vector3.UP * 0.025)
@@ -174,8 +193,8 @@ func _physics_evidence() -> Dictionary:
 	shape_query.exclude = [get_rid()]
 	var closest := NavigationServer3D.map_get_closest_point(_agent.get_navigation_map(), global_position)
 	return {
-		"pathComplete": _agent.is_navigation_finished(),
-		"floorVerified": not floor_hit.is_empty(),
+		"pathComplete": _agent.is_navigation_finished() and global_position.distance_to(_target_floor_position) <= ARRIVAL_TOLERANCE,
+		"floorVerified": floor_verified,
 		"capsuleVerified": space.intersect_shape(shape_query, 1).is_empty(),
-		"domainVerified": Vector2(closest.x, closest.z).distance_to(Vector2(global_position.x, global_position.z)) <= ARRIVAL_TOLERANCE,
+		"domainVerified": closest.distance_to(global_position) <= ARRIVAL_TOLERANCE,
 	}

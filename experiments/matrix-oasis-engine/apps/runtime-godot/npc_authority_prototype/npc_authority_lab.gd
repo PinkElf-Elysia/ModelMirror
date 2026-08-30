@@ -5,11 +5,14 @@ const TRACE_MARKER := "MATRIX_OASIS_R20_NPC_TRACE_JSON:"
 const LOOPBACK_BASE := "http://127.0.0.1:43120/v1/"
 const SESSION_TOKEN_ENV := "MATRIX_OASIS_R20_SESSION_TOKEN"
 const BINDING_PATH := "res://npc_authority_prototype/entity-bindings.json"
+const RECOVERY_PATH := "res://npc_authority_prototype/recovery-state.json"
 const FACTS_PATH := "res://npc_authority_prototype/environment-facts.json"
 const SOLUTION_PATH := "res://npc_authority_prototype/spatial-solution.json"
 const SOLVED_SCENE := preload("res://solved_spatial_prototype/solved_spatial_lab.tscn")
 const ACTOR_SCRIPT := preload("res://npc_authority_prototype/npc_actor_controller.gd")
 const MAX_STARTUP_FRAMES := 7200
+const PERFORMANCE_SAMPLE_COUNT := 300
+const MAX_PERFORMANCE_FRAMES := 10800
 
 @onready var _request: HTTPRequest = $AuthorityRequest
 
@@ -20,18 +23,39 @@ var _floor_anchors: Dictionary = {}
 var _actors: Dictionary = {}
 var _bindings: Dictionary = {}
 var _session_token := ""
+var _qualification_mode := false
+var _entity_binding_sha256 := ""
 var _pending_route := ""
 var _active_command: Dictionary = {}
 var _active_actor: MatrixOasisNpcActorController
+var _active_arrival_evidence: Dictionary = {}
+var _active_decision := ""
+var _active_before_snapshot_sha256 := ""
+var _active_after_snapshot_sha256 := ""
 var _trace: Array = []
+var _frame_micros: Array[int] = []
+var _previous_frame_usec := 0
+var _performance_sampling := false
+var _performance_cycle_complete := false
+var _submitted_trace_json := ""
+var _verification_started := false
 var _failed := false
 
 
 func _ready() -> void:
 	_session_token = OS.get_environment(SESSION_TOKEN_ENV)
+	var qualification_file := FileAccess.open("res://npc_authority_prototype/qualification-request.json", FileAccess.READ)
+	_qualification_mode = qualification_file != null
 	if _session_token.length() < 32:
 		_fail("R20_GODOT_SESSION_TOKEN_INVALID")
 		return
+	if _qualification_mode:
+		var qualification_request := _read_json(qualification_file)
+		if not _exact(qualification_request, ["format", "formatVersion"]) or \
+				qualification_request["format"] != "matrix-oasis.r20-qualification-request" or \
+				qualification_request["formatVersion"] != "0.1.0":
+			_fail("R20_GODOT_QUALIFICATION_REQUEST_INVALID")
+			return
 	_request.request_completed.connect(_on_request_completed)
 	_tested_scene = SOLVED_SCENE.instantiate()
 	if _tested_scene == null:
@@ -42,6 +66,9 @@ func _ready() -> void:
 
 
 func _initialize() -> void:
+	if RenderingServer.get_current_rendering_method() != "forward_plus":
+		_fail("R20_GODOT_RENDERER_INVALID")
+		return
 	for _frame in MAX_STARTUP_FRAMES:
 		await get_tree().process_frame
 		var candidate: Variant = _tested_scene.get("_scene_lab")
@@ -51,10 +78,16 @@ func _initialize() -> void:
 	if _scene_lab == null or _scene_lab.player == null:
 		_fail("R20_GODOT_SOLVED_SCENE_STARTUP_FAILED")
 		return
+	var binding_hash := FileAccess.get_sha256(BINDING_PATH)
+	if binding_hash.length() != 64 or not binding_hash.is_valid_hex_number():
+		_fail("R20_GODOT_BINDING_IDENTITY_INVALID")
+		return
+	_entity_binding_sha256 = "sha256:" + binding_hash.to_lower()
 	var bindings := _read_json(FileAccess.open("res://npc_authority_prototype/entity-bindings.json", FileAccess.READ))
 	var facts := _read_json(FileAccess.open("res://npc_authority_prototype/environment-facts.json", FileAccess.READ))
 	var solution := _read_json(FileAccess.open("res://npc_authority_prototype/spatial-solution.json", FileAccess.READ))
-	if not _install_navigation(facts, solution) or not _install_actors(bindings):
+	var recovery := {} if not FileAccess.file_exists(RECOVERY_PATH) else _read_json(FileAccess.open("res://npc_authority_prototype/recovery-state.json", FileAccess.READ))
+	if not _restore_runtime(recovery) or not _install_navigation(facts, solution) or not _install_actors(bindings):
 		_fail("R20_GODOT_BRIDGE_INPUT_INVALID")
 		return
 	if not await _wait_for_navigation_sync():
@@ -70,6 +103,20 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		if _active_command.is_empty() and _pending_route.is_empty():
 			_post("reset", {})
+
+
+func _process(_delta: float) -> void:
+	if not _qualification_mode or not _performance_sampling or _failed:
+		return
+	var now := Time.get_ticks_usec()
+	if _previous_frame_usec <= 0:
+		_previous_frame_usec = now
+		return
+	if _frame_micros.size() >= MAX_PERFORMANCE_FRAMES:
+		_fail("R20_GODOT_PERFORMANCE_WINDOW_LIMIT")
+		return
+	_frame_micros.append(maxi(1, now - _previous_frame_usec))
+	_previous_frame_usec = now
 
 
 func _disable_player_timeline_writes() -> void:
@@ -90,7 +137,7 @@ func _install_navigation(facts: Dictionary, solution: Dictionary) -> bool:
 		if typeof(domain) != TYPE_DICTIONARY or typeof(domain.get("floorAnchorIds")) != TYPE_ARRAY:
 			return false
 		for anchor_id: Variant in domain["floorAnchorIds"]:
-			if typeof(anchor_id) != TYPE_STRING or domain_ids.has(anchor_id):
+			if typeof(anchor_id) != TYPE_STRING:
 				return false
 			domain_ids[anchor_id] = true
 	var faces: Variant = _scene_lab.get("_navigation_domain_faces")
@@ -154,6 +201,47 @@ func _install_actors(document: Dictionary) -> bool:
 	return not _actors.is_empty()
 
 
+func _restore_runtime(document: Dictionary) -> bool:
+	if document.is_empty():
+		return true
+	if not _exact(document, ["canonicalization", "commands", "entityBindingSha256", "format", "formatVersion"]) or document.get("format") != "matrix-oasis.npc-godot-recovery" or document.get("formatVersion") != "0.1.0" or document.get("canonicalization") != "matrix-oasis.canonical-json/1" or document.get("entityBindingSha256") != _entity_binding_sha256:
+		return false
+	var commands: Variant = document.get("commands")
+	if typeof(commands) != TYPE_ARRAY or commands.size() > 10000:
+		return false
+	for index in commands.size():
+		var command: Variant = commands[index]
+		if typeof(command) != TYPE_DICTIONARY or int(command.get("sequence", -1)) != index + 1 or command.get("state") not in ["accepted", "rejected"]:
+			return false
+		var arrival: Variant = command.get("arrivalEvidence")
+		var mirror: Variant = command.get("mirrorEvidence")
+		if typeof(arrival) != TYPE_DICTIONARY or typeof(mirror) != TYPE_DICTIONARY or mirror.get("entityBindingSha256") != _entity_binding_sha256:
+			return false
+		if _snapshot_sha256() != mirror.get("beforeSnapshotSha256"):
+			return false
+		if command["state"] == "accepted" and not _scene_lab._apply_action(command.get("actionId")):
+			return false
+		if _snapshot_sha256() != mirror.get("afterSnapshotSha256"):
+			return false
+		_trace.append({
+			"sequence": int(command["sequence"]), "actorEntityId": command.get("actorEntityId"), "actionId": command.get("actionId"),
+			"state": "arrived", "arrivalEvidence": {
+				"pathComplete": arrival.get("pathComplete"),
+				"floorVerified": arrival.get("floorVerified"),
+				"capsuleVerified": arrival.get("capsuleVerified"),
+				"domainVerified": arrival.get("domainVerified"),
+				"movementTicks": int(arrival.get("movementTicks")),
+				"pathLengthMm": int(arrival.get("pathLengthMm")),
+			},
+		})
+		_trace.append({
+			"sequence": int(command["sequence"]), "actorEntityId": command.get("actorEntityId"), "actionId": command.get("actionId"),
+			"state": "mirrored", "decision": command["state"],
+			"beforeSnapshotSha256": mirror.get("beforeSnapshotSha256"), "afterSnapshotSha256": mirror.get("afterSnapshotSha256"),
+		})
+	return true
+
+
 func _wait_for_navigation_sync() -> bool:
 	var navigation_map := _navigation_region.get_navigation_map()
 	for _frame in 8:
@@ -164,10 +252,10 @@ func _wait_for_navigation_sync() -> bool:
 
 
 func _request_command() -> void:
-	_get("command")
+	_get_route("command")
 
 
-func _get(route: String) -> void:
+func _get_route(route: String) -> void:
 	_start_request(route, HTTPClient.METHOD_GET, "")
 
 
@@ -210,7 +298,15 @@ func _on_request_completed(result: int, response_code: int, _headers: PackedStri
 
 func _accept_command_response(response: Dictionary) -> void:
 	if response.get("status") in ["quiescent", "ended"]:
-		_post("verify", {})
+		# Interactive preview is observational only.  It must not turn a
+		# quiescent preview into qualification evidence or a publishable run.
+		if not _qualification_mode:
+			return
+		if _verification_started:
+			_fail("R20_GODOT_VERIFY_DUPLICATE")
+			return
+		_verification_started = true
+		_submit_verification.call_deferred()
 		return
 	var command: Variant = response.get("command")
 	if response.get("status") != "command" or typeof(command) != TYPE_DICTIONARY or not _actors.has(command.get("actorEntityId")):
@@ -226,7 +322,13 @@ func _accept_command_response(response: Dictionary) -> void:
 		return
 	_active_command = command.duplicate(true)
 	_active_actor = actor
-	_trace.append({"sequence": command["sequence"], "actorEntityId": command["actorEntityId"], "actionId": command["actionId"], "state": "moving"})
+	_active_arrival_evidence = {}
+	_active_decision = ""
+	_active_before_snapshot_sha256 = ""
+	_active_after_snapshot_sha256 = ""
+	if _qualification_mode and not _performance_sampling:
+		_performance_sampling = true
+		_previous_frame_usec = Time.get_ticks_usec()
 	if not actor.begin_move(_floor_anchors[anchor_id]):
 		_fail("R20_GODOT_MOVEMENT_START_FAILED")
 
@@ -234,6 +336,9 @@ func _accept_command_response(response: Dictionary) -> void:
 func _on_actor_arrived(evidence: Dictionary, actor: MatrixOasisNpcActorController) -> void:
 	if actor != _active_actor:
 		_fail("R20_GODOT_ACTOR_MISMATCH")
+		return
+	if not _arrival_evidence_valid(evidence):
+		_fail("R20_GODOT_ARRIVAL_EVIDENCE_INVALID")
 		return
 	if actor.is_returning():
 		actor.restore_home()
@@ -243,7 +348,23 @@ func _on_actor_arrived(evidence: Dictionary, actor: MatrixOasisNpcActorControlle
 		return
 	var request_body := evidence.duplicate(true)
 	request_body["sequence"] = _active_command["sequence"]
+	_active_arrival_evidence = request_body.duplicate(true)
 	_post("arrived", request_body)
+
+
+func _arrival_evidence_valid(evidence: Dictionary) -> bool:
+	return (
+		evidence.get("pathComplete") == true
+		and evidence.get("floorVerified") == true
+		and evidence.get("capsuleVerified") == true
+		and evidence.get("domainVerified") == true
+		and typeof(evidence.get("movementTicks")) == TYPE_INT
+		and evidence["movementTicks"] >= 0
+		and evidence["movementTicks"] <= 1800
+		and typeof(evidence.get("pathLengthMm")) == TYPE_INT
+		and evidence["pathLengthMm"] >= 0
+		and evidence["pathLengthMm"] <= 100000
+	)
 
 
 func _on_actor_failed(code: String, actor: MatrixOasisNpcActorController) -> void:
@@ -272,6 +393,23 @@ func _accept_adjudication_response(response: Dictionary) -> void:
 	if after != response.get("afterSnapshotSha256"):
 		_fail("R20_GODOT_AFTER_MIRROR_MISMATCH")
 		return
+	_active_decision = response["decision"]
+	_active_before_snapshot_sha256 = before
+	_active_after_snapshot_sha256 = after
+	_trace.append({
+		"sequence": int(_active_command["sequence"]),
+		"actorEntityId": _active_command["actorEntityId"],
+		"actionId": _active_command["actionId"],
+		"state": "arrived",
+		"arrivalEvidence": {
+			"pathComplete": _active_arrival_evidence["pathComplete"],
+			"floorVerified": _active_arrival_evidence["floorVerified"],
+			"capsuleVerified": _active_arrival_evidence["capsuleVerified"],
+			"domainVerified": _active_arrival_evidence["domainVerified"],
+			"movementTicks": int(_active_arrival_evidence["movementTicks"]),
+			"pathLengthMm": int(_active_arrival_evidence["pathLengthMm"]),
+		},
+	})
 	_post("mirror", {"sequence": _active_command["sequence"], "beforeSnapshotSha256": before, "afterSnapshotSha256": after})
 
 
@@ -279,7 +417,16 @@ func _accept_mirror_response(response: Dictionary) -> void:
 	if response.get("status") != "committed" or _active_actor == null:
 		_fail("R20_GODOT_MIRROR_ACK_INVALID")
 		return
-	_trace.append({"sequence": _active_command["sequence"], "actorEntityId": _active_command["actorEntityId"], "actionId": _active_command["actionId"], "state": "mirrored", "snapshotSha256": _snapshot_sha256()})
+	_trace.append({
+		"sequence": int(_active_command["sequence"]),
+		"actorEntityId": _active_command["actorEntityId"],
+		"actionId": _active_command["actionId"],
+		"state": "mirrored",
+		"decision": _active_decision,
+		"beforeSnapshotSha256": _active_before_snapshot_sha256,
+		"afterSnapshotSha256": _active_after_snapshot_sha256,
+	})
+	_performance_cycle_complete = true
 	if not _active_actor.visible:
 		_active_actor.hide_at_home()
 		_active_actor = null
@@ -297,17 +444,79 @@ func _accept_reset_response(response: Dictionary) -> void:
 	for actor: MatrixOasisNpcActorController in _actors.values():
 		actor.hide_at_home()
 		actor.visible = _bindings[actor.actor_entity_id]["visibleNodeIds"].has(_scene_lab.get("_inspection")["location"]["id"])
+		actor.refresh_visibility_collision()
 	_active_actor = null
 	_active_command = {}
+	_active_arrival_evidence = {}
+	_active_decision = ""
+	_active_before_snapshot_sha256 = ""
+	_active_after_snapshot_sha256 = ""
 	_trace.clear()
+	_frame_micros.clear()
+	_previous_frame_usec = 0
+	_performance_sampling = false
+	_performance_cycle_complete = false
+	_submitted_trace_json = ""
+	_verification_started = false
 	_request_command()
 
 
+func _submit_verification() -> void:
+	if _trace.is_empty() or _trace.size() > 20000 or _trace.size() % 2 != 0:
+		_fail("R20_GODOT_TRACE_INVALID")
+		return
+	while _frame_micros.size() < PERFORMANCE_SAMPLE_COUNT or not _performance_cycle_complete:
+		await get_tree().process_frame
+		if _failed:
+			return
+	_performance_sampling = false
+	var sorted := _select_performance_samples(_frame_micros)
+	sorted.sort()
+	var median_micros: int = sorted[sorted.size() / 2]
+	if median_micros <= 0:
+		_fail("R20_GODOT_PERFORMANCE_INVALID")
+		return
+	var trace := {
+		"traceVersion": 1,
+		"entityBindingSha256": _entity_binding_sha256,
+		"navigationSynchronized": true,
+		"renderer": "forward_plus",
+		"eventCount": _trace.size(),
+		"eventsSha256": "sha256:" + JSON.stringify(_trace, "", true).sha256_text(),
+		"performance": {
+			"sampleCount": PERFORMANCE_SAMPLE_COUNT,
+			"medianFrameMicros": median_micros,
+			"medianFpsMilli": floori(1000000000.0 / float(median_micros)),
+		},
+	}
+	_submitted_trace_json = JSON.stringify(trace, "", true)
+	_post("verify", trace)
+
+
+func _select_performance_samples(frames: Array[int]) -> Array[int]:
+	var selected: Array[int] = []
+	if frames.size() < PERFORMANCE_SAMPLE_COUNT:
+		return selected
+	for index in PERFORMANCE_SAMPLE_COUNT:
+		var source_index := floori(float(index) * float(frames.size() - 1) / float(PERFORMANCE_SAMPLE_COUNT - 1))
+		selected.append(frames[source_index])
+	return selected
+
+
 func _accept_verify_response(response: Dictionary) -> void:
-	if response.get("status") != "verified" or typeof(response.get("revision")) != TYPE_INT:
+	var revision_value: Variant = response.get("revision")
+	var revision_is_integer: bool = typeof(revision_value) == TYPE_INT or (
+		typeof(revision_value) == TYPE_FLOAT and is_finite(revision_value) and revision_value == floor(revision_value)
+	)
+	if response.get("status") != "verified" or not revision_is_integer or revision_value < 0 or revision_value > 10000:
 		_fail("R20_GODOT_VERIFY_FAILED")
 		return
-	print(TRACE_MARKER + JSON.stringify({"traceVersion": 1, "revision": response["revision"], "events": _trace}, "", true))
+	if _submitted_trace_json.is_empty():
+		_fail("R20_GODOT_VERIFY_TRACE_MISSING")
+		return
+	print(TRACE_MARKER + _submitted_trace_json)
+	if _qualification_mode:
+		get_tree().quit(0)
 
 
 func _snapshot_sha256() -> String:

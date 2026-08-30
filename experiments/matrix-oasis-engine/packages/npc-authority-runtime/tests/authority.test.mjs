@@ -7,6 +7,7 @@ import {
   adjudicateNpcIntent,
   createNpcAuthorityIncrementalState,
   createNpcAuthorityTimeline,
+  exportNpcAuthorityIncrementalState,
   hashCanonicalValue,
   prepareNpcAuthority,
   replayWorldEventLedger,
@@ -235,29 +236,214 @@ test("step-limit and ended intents are deterministic rejection entries", async (
   assert.equal(JSON.parse(ended.result.canonicalAdjudicationResultJson).decision.reason, "NPC_INTENT_SESSION_ENDED");
 });
 
-test("R20 incremental path remains byte-equivalent to the R19 adjudication path", async () => {
+test("R20 incremental path remains byte-equivalent to R19 across accepted, rejected and fail-closed cases for 20 runs", async () => {
   const prepared = await preparedAuthority();
-  const created = createNpcAuthorityTimeline(prepared, { timelineId: "timeline-incremental", stepLimit: 16 });
-  const incremental = createNpcAuthorityIncrementalState({ prepared, worldEventLedgerJson: created.canonicalWorldEventLedgerJson });
-  assert.equal(incremental.ok, true);
-  let oldState = { snapshot: created.runtimeSnapshot, ledgerJson: created.canonicalWorldEventLedgerJson };
-  const route = [
-    ["unauthorized", "control-unit", "node-start", "action-initialize"],
-    ["initialize", "actor-unit", "node-start", "action-initialize"],
-    ["check", "actor-unit", "node-check", "action-check"],
-    ["adjust", "actor-unit", "node-adjust", "action-adjust"],
-  ];
-  for (const [id, actor, node, action] of route) {
-    const intent = nextIntent(`intent-diff-${id}`, actor, node, action, oldState);
-    const legacy = adjudicateNpcIntent({ prepared, runtimeSnapshot: oldState.snapshot, worldEventLedgerJson: oldState.ledgerJson, npcIntentJson: intent });
-    const next = submitNpcAuthorityIncrementalIntent({ state: incremental.state, npcIntentJson: intent });
-    assert.equal(next.ok, true, JSON.stringify(next.diagnostics));
-    assert.equal(next.canonicalAdjudicationResultJson, legacy.canonicalAdjudicationResultJson);
-    assert.equal(next.canonicalWorldEventLedgerJson, legacy.canonicalWorldEventLedgerJson);
-    assert.deepEqual(next.runtimeSnapshot, legacy.runtimeSnapshot);
-    oldState = { snapshot: legacy.runtimeSnapshot, ledgerJson: legacy.canonicalWorldEventLedgerJson };
+  const overflowSource = {
+    format: "matrix-oasis.authoring-game-pack",
+    formatVersion: "0.1.0",
+    id: "authority-overflow-differential",
+    contentVersion: "1",
+    language: "en",
+    title: "Overflow differential",
+    summary: "Exercises the deterministic integer overflow rejection.",
+    entryNodeId: "node-overflow",
+    entities: [{ id: "actor-unit", label: "Actor" }],
+    variables: [{ id: "counter-value", type: "integer", initial: Number.MAX_SAFE_INTEGER }],
+    cues: [],
+    nodes: [{
+      id: "node-overflow",
+      title: "Overflow",
+      entityIds: ["actor-unit"],
+      entryCueIds: [],
+      actions: [{
+        id: "action-overflow",
+        label: "Overflow",
+        effects: [{ op: "add", variableId: "counter-value", value: 1 }],
+        target: { kind: "ending", id: "ending-overflow" },
+      }],
+    }],
+    endings: [{ id: "ending-overflow", title: "Done", cueIds: [] }],
+  };
+  const overflowCompiled = await compileAuthoringGamePackJson(canonicalizeJsonValue(overflowSource));
+  assert.equal(overflowCompiled.ok, true, JSON.stringify(overflowCompiled.validationReport?.diagnostics));
+  const overflowPolicy = canonicalizeJsonValue({
+    format: "matrix-oasis.npc-authority-policy",
+    formatVersion: "0.1.0",
+    canonicalization: "matrix-oasis.canonical-json/1",
+    id: "authority-overflow-policy",
+    contentVersion: "1",
+    runtime: {
+      format: overflowCompiled.runtimePack.format,
+      formatVersion: overflowCompiled.runtimePack.formatVersion,
+      id: overflowCompiled.runtimePack.source.id,
+      contentVersion: overflowCompiled.runtimePack.source.contentVersion,
+      sourceSha256: `sha256:${overflowCompiled.runtimePack.source.canonicalSha256}`,
+      artifactSha256: `sha256:${overflowCompiled.receipt.artifact.sha256}`,
+      receiptSha256: hashCanonicalValue(overflowCompiled.receipt),
+    },
+    actorGrants: [{ actorEntityId: "actor-unit", grants: [{ nodeId: "node-overflow", actionId: "action-overflow" }] }],
+  });
+  const overflowPreparedResult = await prepareNpcAuthority({
+    runtimeGamePackJson: overflowCompiled.canonicalJson,
+    runtimeReceiptJson: canonicalizeJsonValue(overflowCompiled.receipt),
+    policyJson: overflowPolicy,
+  });
+  assert.equal(overflowPreparedResult.ok, true, JSON.stringify(overflowPreparedResult.diagnostics));
+
+  let baselineTranscript;
+  for (let run = 0; run < 20; run += 1) {
+    const transcript = [];
+    const compareSubmission = ({ authority, incremental, state, npcIntentJson, expectedReason, expectedDiagnostic, expectedReplayed }) => {
+      const beforeIncremental = exportNpcAuthorityIncrementalState(incremental.state);
+      const legacyStateBytes = canonicalizeJsonValue({ runtimeSnapshot: state.snapshot, worldEventLedgerJson: state.ledgerJson });
+      const legacy = adjudicateNpcIntent({ prepared: authority, runtimeSnapshot: state.snapshot, worldEventLedgerJson: state.ledgerJson, npcIntentJson });
+      const next = submitNpcAuthorityIncrementalIntent({ state: incremental.state, npcIntentJson });
+      assert.equal(canonicalizeJsonValue(next.ok ? { ok: true } : next), canonicalizeJsonValue(legacy.ok ? { ok: true } : legacy));
+      if (!legacy.ok) {
+        if (expectedDiagnostic) assert.equal(legacy.diagnostics[0].code, expectedDiagnostic);
+        assert.equal(canonicalizeJsonValue(exportNpcAuthorityIncrementalState(incremental.state)), canonicalizeJsonValue(beforeIncremental));
+        assert.equal(canonicalizeJsonValue({ runtimeSnapshot: state.snapshot, worldEventLedgerJson: state.ledgerJson }), legacyStateBytes);
+        transcript.push(canonicalizeJsonValue(legacy));
+        return state;
+      }
+      assert.equal(next.canonicalAdjudicationResultJson, legacy.canonicalAdjudicationResultJson);
+      assert.equal(next.canonicalWorldEventLedgerJson, legacy.canonicalWorldEventLedgerJson);
+      assert.equal(canonicalizeJsonValue(next.runtimeSnapshot), canonicalizeJsonValue(legacy.runtimeSnapshot));
+      assert.equal(next.replayed, legacy.replayed);
+      if (expectedReplayed !== undefined) assert.equal(legacy.replayed, expectedReplayed);
+      const decision = JSON.parse(legacy.canonicalAdjudicationResultJson).decision;
+      if (expectedReason) assert.equal(decision.reason, expectedReason);
+      if (decision.status === "rejected") assert.equal(canonicalizeJsonValue(legacy.runtimeSnapshot), canonicalizeJsonValue(state.snapshot));
+      const exported = exportNpcAuthorityIncrementalState(incremental.state);
+      assert.equal(exported.canonicalWorldEventLedgerJson, legacy.canonicalWorldEventLedgerJson);
+      assert.equal(canonicalizeJsonValue(exported.runtimeSnapshot), canonicalizeJsonValue(legacy.runtimeSnapshot));
+      transcript.push(legacy.canonicalAdjudicationResultJson, legacy.canonicalWorldEventLedgerJson, canonicalizeJsonValue(legacy.runtimeSnapshot));
+      return { snapshot: legacy.runtimeSnapshot, ledgerJson: legacy.canonicalWorldEventLedgerJson };
+    };
+
+    const created = createNpcAuthorityTimeline(prepared, { timelineId: "timeline-incremental-differential", stepLimit: 16 });
+    const incremental = createNpcAuthorityIncrementalState({ prepared, worldEventLedgerJson: created.canonicalWorldEventLedgerJson });
+    assert.equal(incremental.ok, true);
+    let state = { snapshot: created.runtimeSnapshot, ledgerJson: created.canonicalWorldEventLedgerJson };
+    state = compareSubmission({ authority: prepared, incremental, state, npcIntentJson: nextIntent("intent-diff-unauthorized", "control-unit", "node-start", "action-initialize", state), expectedReason: "NPC_INTENT_ACTOR_UNAUTHORIZED" });
+    const acceptedIntent = nextIntent("intent-diff-initialize", "actor-unit", "node-start", "action-initialize", state);
+    state = compareSubmission({ authority: prepared, incremental, state, npcIntentJson: acceptedIntent, expectedReason: "NPC_INTENT_ACCEPTED", expectedReplayed: false });
+    state = compareSubmission({ authority: prepared, incremental, state, npcIntentJson: acceptedIntent, expectedReason: "NPC_INTENT_ACCEPTED", expectedReplayed: true });
+
+    const collision = JSON.parse(acceptedIntent);collision.actionId = "different-action";
+    state = compareSubmission({ authority: prepared, incremental, state, npcIntentJson: canonicalizeJsonValue(collision), expectedDiagnostic: "NPC_INTENT_ID_COLLISION" });
+    const staleRevision = JSON.parse(nextIntent("intent-diff-stale-revision", "actor-unit", "node-check", "action-check", state));staleRevision.observed.revision -= 1;
+    state = compareSubmission({ authority: prepared, incremental, state, npcIntentJson: canonicalizeJsonValue(staleRevision), expectedDiagnostic: "NPC_INTENT_STALE_REVISION" });
+    const staleHead = JSON.parse(nextIntent("intent-diff-stale-head", "actor-unit", "node-check", "action-check", state));staleHead.observed.headSha256 = `sha256:${"0".repeat(64)}`;
+    state = compareSubmission({ authority: prepared, incremental, state, npcIntentJson: canonicalizeJsonValue(staleHead), expectedDiagnostic: "NPC_INTENT_STALE_HEAD" });
+    const staleSnapshot = JSON.parse(nextIntent("intent-diff-stale-snapshot", "actor-unit", "node-check", "action-check", state));staleSnapshot.observed.runtimeSnapshotSha256 = `sha256:${"0".repeat(64)}`;
+    state = compareSubmission({ authority: prepared, incremental, state, npcIntentJson: canonicalizeJsonValue(staleSnapshot), expectedDiagnostic: "NPC_INTENT_STALE_SNAPSHOT" });
+
+    for (const [id, nodeId, actionId] of [
+      ["check", "node-check", "action-check"],
+      ["adjust", "node-adjust", "action-adjust"],
+      ["review", "node-review", "action-review"],
+      ["complete", "node-complete", "action-complete"],
+    ]) state = compareSubmission({ authority: prepared, incremental, state, npcIntentJson: nextIntent(`intent-diff-${id}`, "actor-unit", nodeId, actionId, state), expectedReason: "NPC_INTENT_ACCEPTED" });
+    state = compareSubmission({ authority: prepared, incremental, state, npcIntentJson: nextIntent("intent-diff-ended", "actor-unit", "node-complete", "action-complete", state), expectedReason: "NPC_INTENT_SESSION_ENDED" });
+    const verified = verifyNpcAuthorityIncrementalState(incremental.state);
+    assert.equal(verified.ok, true, JSON.stringify(verified.diagnostics));
+    assert.equal(canonicalizeJsonValue(verified.runtimeSnapshot), canonicalizeJsonValue(state.snapshot));
+
+    const limited = createNpcAuthorityTimeline(prepared, { timelineId: "timeline-incremental-step-limit", stepLimit: 1 });
+    const limitedIncremental = createNpcAuthorityIncrementalState({ prepared, worldEventLedgerJson: limited.canonicalWorldEventLedgerJson });
+    let limitedState = { snapshot: limited.runtimeSnapshot, ledgerJson: limited.canonicalWorldEventLedgerJson };
+    limitedState = compareSubmission({ authority: prepared, incremental: limitedIncremental, state: limitedState, npcIntentJson: nextIntent("intent-diff-limited-accept", "actor-unit", "node-start", "action-initialize", limitedState), expectedReason: "NPC_INTENT_ACCEPTED" });
+    limitedState = compareSubmission({ authority: prepared, incremental: limitedIncremental, state: limitedState, npcIntentJson: nextIntent("intent-diff-step-limit", "actor-unit", "node-check", "action-check", limitedState), expectedReason: "NPC_INTENT_STEP_LIMIT" });
+
+    const overflowCreated = createNpcAuthorityTimeline(overflowPreparedResult.prepared, { timelineId: "timeline-incremental-overflow", stepLimit: 1 });
+    const overflowIncremental = createNpcAuthorityIncrementalState({ prepared: overflowPreparedResult.prepared, worldEventLedgerJson: overflowCreated.canonicalWorldEventLedgerJson });
+    let overflowState = { snapshot: overflowCreated.runtimeSnapshot, ledgerJson: overflowCreated.canonicalWorldEventLedgerJson };
+    overflowState = compareSubmission({ authority: overflowPreparedResult.prepared, incremental: overflowIncremental, state: overflowState, npcIntentJson: nextIntent("intent-diff-overflow", "actor-unit", "node-overflow", "action-overflow", overflowState), expectedReason: "NPC_INTENT_INTEGER_OVERFLOW" });
+
+    const transcriptBytes = canonicalizeJsonValue(transcript);
+    if (baselineTranscript === undefined) baselineTranscript = transcriptBytes;
+    else assert.equal(transcriptBytes, baselineTranscript);
   }
+});
+
+test("incremental state is unchanged when result capture rejects the verified candidate", async () => {
+  const cues = Array.from({ length: 256 }, (_, index) => ({
+    id: `cue-${String(index).padStart(3, "0")}`,
+    channel: "visual",
+    intent: "x".repeat(4096),
+  }));
+  const source = {
+    format: "matrix-oasis.authoring-game-pack",
+    formatVersion: "0.1.0",
+    id: "capture-limit-fixture",
+    contentVersion: "1",
+    language: "en",
+    title: "Capture Limit Fixture",
+    summary: "Forces result capture to reject an otherwise replayable candidate.",
+    entryNodeId: "node-start",
+    entities: [{ id: "actor-unit", label: "Actor" }],
+    variables: [],
+    cues,
+    nodes: [
+      {
+        id: "node-start",
+        title: "Start",
+        entityIds: ["actor-unit"],
+        entryCueIds: [],
+        actions: [{ id: "action-advance", label: "Advance", effects: [], target: { kind: "node", id: "node-target" } }],
+      },
+      {
+        id: "node-target",
+        title: "Target",
+        entityIds: ["actor-unit"],
+        entryCueIds: cues.map(({ id }) => id),
+        actions: [{ id: "action-finish", label: "Finish", effects: [], target: { kind: "ending", id: "ending-done" } }],
+      },
+    ],
+    endings: [{ id: "ending-done", title: "Done", cueIds: [] }],
+  };
+  const compiledLargeResult = await compileAuthoringGamePackJson(canonicalizeJsonValue(source));
+  assert.equal(compiledLargeResult.ok, true, JSON.stringify(compiledLargeResult.validationReport?.diagnostics));
+  const largePolicy = {
+    format: "matrix-oasis.npc-authority-policy",
+    formatVersion: "0.1.0",
+    canonicalization: "matrix-oasis.canonical-json/1",
+    id: "capture-limit-authority",
+    contentVersion: "1.0.0",
+    runtime: {
+      format: compiledLargeResult.runtimePack.format,
+      formatVersion: compiledLargeResult.runtimePack.formatVersion,
+      id: compiledLargeResult.runtimePack.source.id,
+      contentVersion: compiledLargeResult.runtimePack.source.contentVersion,
+      sourceSha256: `sha256:${compiledLargeResult.runtimePack.source.canonicalSha256}`,
+      artifactSha256: `sha256:${compiledLargeResult.receipt.artifact.sha256}`,
+      receiptSha256: hashCanonicalValue(compiledLargeResult.receipt),
+    },
+    actorGrants: [{ actorEntityId: "actor-unit", grants: [{ nodeId: "node-start", actionId: "action-advance" }] }],
+  };
+  const preparedResult = await prepareNpcAuthority({
+    runtimeGamePackJson: compiledLargeResult.canonicalJson,
+    runtimeReceiptJson: canonicalizeJsonValue(compiledLargeResult.receipt),
+    policyJson: canonicalizeJsonValue(largePolicy),
+  });
+  assert.equal(preparedResult.ok, true, JSON.stringify(preparedResult.diagnostics));
+  const created = createNpcAuthorityTimeline(preparedResult.prepared, { timelineId: "capture-limit", stepLimit: 2 });
+  assert.equal(created.ok, true, JSON.stringify(created.diagnostics));
+  const incremental = createNpcAuthorityIncrementalState({ prepared: preparedResult.prepared, worldEventLedgerJson: created.canonicalWorldEventLedgerJson });
+  assert.equal(incremental.ok, true, JSON.stringify(incremental.diagnostics));
+  const before = exportNpcAuthorityIncrementalState(incremental.state);
+  const intent = nextIntent("intent-capture-limit", "actor-unit", "node-start", "action-advance", {
+    snapshot: created.runtimeSnapshot,
+    ledgerJson: created.canonicalWorldEventLedgerJson,
+  });
+
+  const rejected = submitNpcAuthorityIncrementalIntent({ state: incremental.state, npcIntentJson: intent });
+
+  assert.equal(rejected.ok, false);
+  assert.equal(rejected.diagnostics[0].code, "NPC_ADJUDICATION_RESULT_JSON_SIZE_EXCEEDED");
+  assert.deepEqual(exportNpcAuthorityIncrementalState(incremental.state), before);
   const verified = verifyNpcAuthorityIncrementalState(incremental.state);
   assert.equal(verified.ok, true, JSON.stringify(verified.diagnostics));
-  assert.deepEqual(verified.runtimeSnapshot, oldState.snapshot);
+  assert.equal(JSON.parse(verified.canonicalWorldEventLedgerReplayReportJson).throughRevision, 0);
 });
