@@ -7,6 +7,8 @@ import re
 import threading
 import time
 import uuid
+from contextlib import contextmanager
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -150,6 +152,20 @@ class XpertStore:
         with self._lock:
             item = self._find_unlocked(self._read_unlocked(), xpert_id)
             return item.model_copy(deep=True)
+
+    @contextmanager
+    def revision_guard(
+        self, xpert_id: str, expected_revision: int | None
+    ) -> Iterator[XpertDefinition]:
+        """Keep a target draft revision stable across a dependent atomic write."""
+
+        with self._lock:
+            item = self._find_unlocked(self._read_unlocked(), xpert_id)
+            if item.draft_revision != expected_revision:
+                raise XpertConflictError(
+                    "Xpert draft changed during the guarded operation."
+                )
+            yield item.model_copy(deep=True)
 
     def resolve_xpert(self, reference: str) -> XpertDefinition:
         """Resolve an Xpert by stable id first, then by its unique slug."""

@@ -18,6 +18,7 @@ try:
         NativeWorkflowNode,
         WorkflowPosition,
     )
+    from server.workflow_native.node_contracts import canonical_checksum
     from server.workflow_native.validate import node_kind, validate_workflow_graph
     from server.xpert_runtime.authoring_service import AuthoringService
     from server.xpert_runtime.authoring_store import AuthoringProposal
@@ -30,6 +31,7 @@ except ModuleNotFoundError:
         NativeWorkflowNode,
         WorkflowPosition,
     )
+    from workflow_native.node_contracts import canonical_checksum
     from workflow_native.validate import node_kind, validate_workflow_graph
     from xpert_runtime.authoring_service import AuthoringService
     from xpert_runtime.authoring_store import AuthoringProposal
@@ -39,12 +41,15 @@ from .capabilities import assert_scope_is_authorized
 from .graph_ir_v3 import (
     GRAPH_IR_VERSION,
     annotate_candidate_with_graph_ir,
+    graph_authoring_checksum,
     graph_intent_to_v2,
     resolve_middleware_config,
     resolve_graph_intent,
     v2_to_graph_intent,
+    workflow_authoring_checksum,
     workflow_semantic_checksum,
 )
+from .graph_patch import GraphPatchEnvelopeV1, apply_graph_patch
 from .node_adapters import (
     META_PLANNER_BINDING_KINDS,
     META_PLANNER_COMPILER_MANAGED_KINDS,
@@ -112,6 +117,16 @@ executable nodes; input/output and resource nodes are compiler-managed.
 Make the smallest changes required by the structured validation issues. Do not add
 capabilities outside the supplied authorized snapshot. This is the only repair pass.
 Return the complete blueprint and obey every supplied typed_ir_constraint.
+"""
+
+
+PATCH_REPAIR_SYSTEM_PROMPT = """\
+You repair one parsed ModelMirror GraphIntentV3 using GraphPatchEnvelopeV1.
+Return one strict JSON object only. Never return a complete workflow or GraphIntent.
+Use only the listed semantic refs, named ports, Adapter config, and authorized IDs.
+Do not emit native node IDs, Handles, resource versions, schemas, policies, checksums
+other than the exact expected checksums supplied in the envelope. Make the smallest
+ordered patch that addresses the validation issues. This is the only repair pass.
 """
 
 
@@ -1487,7 +1502,10 @@ def compile_xpert_candidate(
         node_id = resolved_resource_ids[
             (binding.kind, binding.resource_id, binding.target_ref)
         ]
-        published_version = resource.get("published_version")
+        published_version = intent._pinned_resource_versions.get(
+            (binding.kind, binding.resource_id, binding.target_ref),
+            resource.get("published_version"),
+        )
         if binding.kind == "external_xpert":
             data = {
                 "kind": binding.kind,
@@ -1648,7 +1666,9 @@ def compile_xpert_candidate(
         PromptProfileBinding(
             profile_id=profile_id,
             version_policy="pinned",
-            pinned_version=prompt_lookup[profile_id]["published_version"],
+            pinned_version=intent._pinned_prompt_profile_versions.get(
+                profile_id, prompt_lookup[profile_id]["published_version"]
+            ),
         )
         for profile_id in dict.fromkeys(typed.prompt_profile_ids)
     ]
@@ -1871,35 +1891,105 @@ class MetaPlannerV2Service:
             snapshot=snapshot,
             target=target,
         )
+        repair_protocol = "none"
         if issues:
             repair_used = True
-            repaired_raw = await self.completion(
-                request.planner_model_id,
-                REPAIR_SYSTEM_PROMPT,
-                self._repair_prompt(
-                    request,
-                    plan,
-                    snapshot,
-                    raw_blueprint,
+            if blueprint is not None:
+                repair_protocol = "graph_patch_v1"
+                base_graph_checksum = canonical_checksum(
+                    blueprint.model_dump(mode="json")
+                )
+                base_candidate_checksum = canonical_checksum(candidate or {})
+                repaired_raw = await self.completion(
+                    request.planner_model_id,
+                    PATCH_REPAIR_SYSTEM_PROMPT,
+                    self._patch_repair_prompt(
+                        request,
+                        plan,
+                        snapshot,
+                        blueprint,
+                        issues,
+                        expected_graph_checksum=base_graph_checksum,
+                        expected_candidate_checksum=base_candidate_checksum,
+                    ),
+                    0,
+                    8_192,
+                )
+                try:
+                    repair_patch = GraphPatchEnvelopeV1.model_validate(
+                        _json_payload(repaired_raw)
+                    )
+                    if repair_patch.proposal_revision != 1:
+                        raise ValueError(
+                            "Planner repair patch must use synthetic revision 1."
+                        )
+                    if (
+                        repair_patch.expected_graph_checksum
+                        != base_graph_checksum
+                        or repair_patch.expected_candidate_checksum
+                        != base_candidate_checksum
+                    ):
+                        raise ValueError(
+                            "Planner repair patch changed its base checksums."
+                        )
+                    patched = apply_graph_patch(
+                        blueprint,
+                        repair_patch,
+                        plan_task_ids={task.task_id for task in plan.tasks},
+                        allowed_node_kinds=set(request.scope.allowed_node_kinds),
+                    )
+                    repaired_raw = json.dumps(
+                        patched.intent.model_dump(mode="json"), ensure_ascii=False
+                    )
+                    (
+                        blueprint,
+                        candidate,
+                        validation,
+                        issues,
+                        graph_ir,
+                        compatibility,
+                    ) = self._compile_and_validate(
+                        request=request,
+                        plan=plan,
+                        raw_blueprint=repaired_raw,
+                        snapshot=snapshot,
+                        target=target,
+                    )
+                except Exception as exc:
+                    message = _safe_exception_message(exc)
+                    candidate = {}
+                    graph_ir = None
+                    issues = [message]
+                    validation = {"valid": False, "issues": [message]}
+            else:
+                repair_protocol = "graph_intent_v3"
+                repaired_raw = await self.completion(
+                    request.planner_model_id,
+                    REPAIR_SYSTEM_PROMPT,
+                    self._repair_prompt(
+                        request,
+                        plan,
+                        snapshot,
+                        raw_blueprint,
+                        issues,
+                    ),
+                    0,
+                    8_192,
+                )
+                (
+                    blueprint,
+                    candidate,
+                    validation,
                     issues,
-                ),
-                0,
-                8_192,
-            )
-            (
-                blueprint,
-                candidate,
-                validation,
-                issues,
-                graph_ir,
-                compatibility,
-            ) = self._compile_and_validate(
-                request=request,
-                plan=plan,
-                raw_blueprint=repaired_raw,
-                snapshot=snapshot,
-                target=target,
-            )
+                    graph_ir,
+                    compatibility,
+                ) = self._compile_and_validate(
+                    request=request,
+                    plan=plan,
+                    raw_blueprint=repaired_raw,
+                    snapshot=snapshot,
+                    target=target,
+                )
             if issues:
                 warnings.append(
                     "The single repair pass did not produce an approvable candidate."
@@ -1949,8 +2039,12 @@ class MetaPlannerV2Service:
             "graph_ir_checksum": (
                 graph_ir.graph_checksum if graph_ir is not None else ""
             ),
+            "authoring_graph_checksum": (
+                graph_authoring_checksum(graph_ir) if graph_ir is not None else ""
+            ),
             "graph_ir_status": "current" if graph_ir is not None else "unavailable",
             "compiled_workflow_checksum": workflow_semantic_checksum(candidate),
+            "authoring_candidate_checksum": workflow_authoring_checksum(candidate),
             "compatibility": compatibility.model_dump(mode="json"),
             "goal": request.goal,
             "mode": request.mode,
@@ -1961,8 +2055,14 @@ class MetaPlannerV2Service:
                 "hash": snapshot.snapshot_hash,
             },
             "authorized_scope": request.scope.model_dump(mode="json"),
+            "generation_config": {
+                "planner_model_id": request.planner_model_id,
+                "default_agent_model_id": request.default_agent_model_id,
+                "max_agents": request.max_agents,
+            },
             "validation": validation,
             "repair_used": repair_used,
+            "repair_protocol": repair_protocol,
             "warnings": warnings,
             "human_modified": False,
         }
@@ -2336,6 +2436,45 @@ class MetaPlannerV2Service:
                     request, plan
                 ),
                 "typed_ir_constraints": _typed_ir_prompt_constraints(request, plan),
+            },
+            ensure_ascii=False,
+        )
+
+    @staticmethod
+    def _patch_repair_prompt(
+        request: MetaPlannerGenerateRequest,
+        plan: MetaPlannerTaskPlan,
+        snapshot: MetaPlannerCapabilitySnapshot,
+        blueprint: GraphIntentV3,
+        issues: list[str],
+        *,
+        expected_graph_checksum: str,
+        expected_candidate_checksum: str,
+    ) -> str:
+        prompt_snapshot = _planner_prompt_snapshot(request, snapshot)
+        return json.dumps(
+            {
+                "goal": request.goal,
+                "task_plan": plan.model_dump(mode="json"),
+                "authorized_scope": request.scope.model_dump(mode="json"),
+                "capability_snapshot_hash": snapshot.snapshot_hash,
+                "capability_snapshot": prompt_snapshot,
+                "base_graph_intent": blueprint.model_dump(mode="json"),
+                "validation_issues": issues[:30],
+                "required_schema": GraphPatchEnvelopeV1.model_json_schema(),
+                "required_envelope": {
+                    "protocol_version": 1,
+                    "proposal_revision": 1,
+                    "expected_graph_checksum": expected_graph_checksum,
+                    "expected_candidate_checksum": expected_candidate_checksum,
+                },
+                "rules": [
+                    "Return GraphPatchEnvelopeV1, never a complete GraphIntent or Native Workflow.",
+                    "Copy every required_envelope value exactly.",
+                    "Use Adapter config only; do not emit resource versions, Handles, schemas, policies, or native node IDs.",
+                    "Do not change the fixed task plan or add unauthorized capabilities.",
+                    "This is the only repair pass.",
+                ],
             },
             ensure_ascii=False,
         )

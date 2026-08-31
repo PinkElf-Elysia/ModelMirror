@@ -2,7 +2,7 @@
 
 这里集中记录 ModelMirror 的产品叙事、当前实现、目标架构、模块契约和历史决策。阅读时应先区分“今天怎样运行”和“未来希望怎样设计”。
 
-最后更新日期：2026-08-28
+最后更新日期：2026-08-30
 维护人：模镜团队
 
 ## 文档状态规则
@@ -62,6 +62,7 @@
 | [SKILL_INTEGRATION.md](./SKILL_INTEGRATION.md) | 当前 | Skill 安装、注入和供应链边界。 |
 | [SKILL_EXPERIENCE_AUDIT.md](./SKILL_EXPERIENCE_AUDIT.md) | 当前 | Skill 目录治理、Creator V1 质量门与后续资源化增强边界。 |
 | [META_AGENT.md](./META_AGENT.md) | 当前 | Meta Planner 当前契约。 |
+| [META_PLANNER_HEADLESS_AUTHORING.md](./META_PLANNER_HEADLESS_AUTHORING.md) | 当前 | 类型化 Graph Patch、无副作用预览和冲突绑定 Apply。 |
 | [META_PLANNER_V3_V4_ROADMAP.md](./META_PLANNER_V3_V4_ROADMAP.md) | 目标/锁定路线 | Meta Planner V3 十轮、V4 准入、变更控制与开源复用边界。 |
 | [AGENCY_ORCHESTRATOR_INTEGRATION.md](./AGENCY_ORCHESTRATOR_INTEGRATION.md) | 当前/可选 | 专家团智能组队预览、Worker 边界、开关与回退。 |
 | [BENCHMARKS.md](./BENCHMARKS.md) | 当前 | 标准 Benchmark 目录、数据来源、实例化和后续生成边界。 |

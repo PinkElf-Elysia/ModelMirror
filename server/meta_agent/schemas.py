@@ -364,7 +364,7 @@ class GraphIntentV3(BaseModel):
 
     # Trusted decompilation constraints are deliberately absent from the JSON
     # schema, so model output cannot forge immutable resource versions.
-    _pinned_resource_versions: dict[tuple[str, str], int] = PrivateAttr(
+    _pinned_resource_versions: dict[tuple[str, str, str], int] = PrivateAttr(
         default_factory=dict
     )
     _pinned_prompt_profile_versions: dict[str, int] = PrivateAttr(
@@ -490,6 +490,10 @@ class MetaPlannerCapabilitySnapshot(BaseModel):
     models: list[dict[str, Any]]
     agents: list[dict[str, Any]] = Field(default_factory=list)
     default_scope: MetaPlannerScope
+    authoring_protocol_version: int = 0
+    authoring_operation_schema: dict[str, Any] = Field(default_factory=dict)
+    authoring_adapter_checksums: dict[str, str] = Field(default_factory=dict)
+    authoring_limits: dict[str, int] = Field(default_factory=dict)
 
 
 class MetaPlannerPreviewResponse(BaseModel):

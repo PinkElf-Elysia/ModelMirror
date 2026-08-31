@@ -1,7 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { createElement } from "react";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import { type WorkflowNode } from "../../types/workflow";
 
 import {
+  authoringNodeMutationError,
+  constrainAuthoringNodeDataPatch,
   createNodeData,
   dataMergeConnectionError,
   errorOutputConnectionError,
@@ -9,10 +13,13 @@ import {
   migrateDocumentExtractorFileToV3,
   normalizeWorkflowNodePositions,
   parseSkillRuntimeIds,
+  prepareAuthoringNodeForInsert,
   reconcileMcpArgumentBindings,
   updateSkillRuntimeIds,
   workflowProjectPending,
   workflowTypesForMcpSchema,
+  HeadlessWorkflowAgentAdapterPanel,
+  HEADLESS_WORKFLOW_AGENT_EDITABLE_FIELDS,
 } from "./WorkflowEditor";
 import {
   knowledgePipelineItems,
@@ -20,6 +27,160 @@ import {
 } from "./workflowNodeRegistry";
 
 describe("WorkflowEditor palette defaults", () => {
+  it("fails closed for unauthorized authoring nodes and protects compiler nodes", () => {
+    const policy = {
+      allowedNodeKinds: ["input", "output", "workflow_agent"] as const,
+      compilerManagedNodeKinds: ["input", "output"] as const,
+    };
+    expect(
+      authoringNodeMutationError("workflow_agent", "add", {
+        allowedNodeKinds: [...policy.allowedNodeKinds],
+        compilerManagedNodeKinds: [...policy.compilerManagedNodeKinds],
+      }),
+    ).toBeNull();
+    expect(
+      authoringNodeMutationError("json_serialize", "add", {
+        allowedNodeKinds: [...policy.allowedNodeKinds],
+        compilerManagedNodeKinds: [...policy.compilerManagedNodeKinds],
+      }),
+    ).toContain("授权能力范围");
+    expect(
+      authoringNodeMutationError("input", "delete", {
+        allowedNodeKinds: [...policy.allowedNodeKinds],
+        compilerManagedNodeKinds: [...policy.compilerManagedNodeKinds],
+      }),
+    ).toContain("编译器管理");
+    expect(authoringNodeMutationError("input", "delete")).toBeNull();
+  });
+
+  it("allows only Adapter-backed workflow_agent fields during headless authoring", () => {
+    expect(HEADLESS_WORKFLOW_AGENT_EDITABLE_FIELDS).toEqual([
+      "title",
+      "description",
+      "rolePrompt",
+      "taskInput",
+      "modelId",
+      "sourceAgentId",
+      "methodSkillIds",
+      "outputVariable",
+    ]);
+    const policy = {
+      allowedNodeKinds: ["input", "output", "workflow_agent"] as const,
+      compilerManagedNodeKinds: ["input", "output"] as const,
+    };
+    const attemptedPatch = {
+      rolePrompt: "Review the evidence.",
+      outputVariable: "review_result",
+      toolNames: "search",
+      maxIterations: "20",
+      maxToolCalls: "50",
+      memoryWriteEnabled: "true",
+    };
+    const constrained = constrainAuthoringNodeDataPatch(
+      "workflow_agent",
+      attemptedPatch,
+      {
+        allowedNodeKinds: [...policy.allowedNodeKinds],
+        compilerManagedNodeKinds: [...policy.compilerManagedNodeKinds],
+      },
+    );
+
+    expect(constrained.patch).toEqual({
+      rolePrompt: "Review the evidence.",
+      outputVariable: "review_result",
+    });
+    expect(constrained.rejectedFields).toEqual([
+      "maxIterations",
+      "maxToolCalls",
+      "memoryWriteEnabled",
+      "toolNames",
+    ]);
+    expect(
+      constrainAuthoringNodeDataPatch("workflow_agent", attemptedPatch),
+    ).toEqual({ patch: attemptedPatch, rejectedFields: [] });
+
+    const freshAgent = {
+      id: "new-agent",
+      type: "workflowNode",
+      position: { x: 100, y: 100 },
+      data: {
+        ...createNodeData("workflow_agent"),
+        rolePrompt: "Review evidence.",
+        maxIterations: "20",
+        toolNames: "search",
+        plannerIRVersion: 3,
+        plannerRef: "copied-ref",
+      },
+    } as WorkflowNode;
+    const prepared = prepareAuthoringNodeForInsert(freshAgent, {
+      allowedNodeKinds: [...policy.allowedNodeKinds],
+      compilerManagedNodeKinds: [...policy.compilerManagedNodeKinds],
+    });
+    expect(prepared.data.kind).toBe("workflow_agent");
+    expect(prepared.data.rolePrompt).toBe("Review evidence.");
+    expect(prepared.data.maxIterations).toBeUndefined();
+    expect(prepared.data.toolNames).toBeUndefined();
+    expect(prepared.data.plannerIRVersion).toBeUndefined();
+    expect(prepared.data.plannerRef).toBeUndefined();
+    expect(prepareAuthoringNodeForInsert(freshAgent)).toBe(freshAgent);
+  });
+
+  it("renders only Adapter-backed workflow_agent controls in headless mode", () => {
+    const data = {
+      ...createNodeData("workflow_agent"),
+      sourceAgentId: "expert-reviewer",
+      methodSkillIds: ["research-review"],
+      toolNames: "search",
+      maxIterations: "20",
+      maxToolCalls: "50",
+      memoryWriteEnabled: "true",
+    };
+    const node = {
+      id: "agent-review",
+      type: "workflowNode",
+      position: { x: 100, y: 100 },
+      data,
+    } as WorkflowNode;
+    const update = vi.fn();
+
+    render(
+      createElement(HeadlessWorkflowAgentAdapterPanel, {
+        node,
+        nodes: [node],
+        edges: [],
+        declarations: [],
+        variableContract: null,
+        data,
+        update,
+        allowedSourceAgentIds: ["expert-reviewer"],
+      }),
+    );
+
+    expect(screen.getByText("Headless Adapter 受控编辑")).toBeInTheDocument();
+    expect(screen.getByLabelText("调用模型")).toBeInTheDocument();
+    expect(screen.getByLabelText("角色提示词（支持 {{变量}}）")).toBeInTheDocument();
+    expect(screen.getByText("任务输入（支持 {{变量}}）")).toBeInTheDocument();
+    expect(screen.getByLabelText("来源专家 ID（可选）")).toBeInTheDocument();
+    expect(screen.getByLabelText("方法 Skill ID（可选，最多 1 个）")).toBeInTheDocument();
+    expect(screen.getByText("输出变量")).toBeInTheDocument();
+
+    expect(
+      screen.queryByLabelText("允许工具名（逗号分隔，留空代表全部已注册工具）"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("最大工具循环次数")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("总调用预算")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("异常处理")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("输出结构模式")).not.toBeInTheDocument();
+    expect(screen.queryByText("记忆写入")).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("角色提示词（支持 {{变量}}）"), {
+      target: { value: "Act as a strict reviewer." },
+    });
+    expect(update).toHaveBeenCalledWith({
+      rolePrompt: "Act as a strict reviewer.",
+    });
+  });
+
   it("blocks a server workflow run until its draft revision is loaded", () => {
     expect(workflowProjectPending("wf_server", false, null)).toBe(true);
     expect(workflowProjectPending("wf_server", false, 1)).toBe(false);

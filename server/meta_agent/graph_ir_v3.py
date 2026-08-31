@@ -54,7 +54,8 @@ SUPPORTED_GRAPH_IR_VERSIONS = (2, 3)
 _TEMPLATE_PATTERN = re.compile(r"\{\{\s*(.*?)\s*\}\}", re.DOTALL)
 _SENSITIVE_CONFIG_KEY = re.compile(
     r"(?:^|[_-])(?:authorization|cookie|credential|password|passwd|secret|"
-    r"api[_-]?key|access[_-]?token|refresh[_-]?token|private[_-]?key)"
+    r"api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|"
+    r"client[_-]?secret|private[_-]?key)"
     r"(?:$|[_-])",
     re.IGNORECASE,
 )
@@ -92,7 +93,9 @@ def _template_variables(template: str) -> set[str]:
 def _contains_sensitive_config(value: Any) -> bool:
     if isinstance(value, dict):
         return any(
-            _SENSITIVE_CONFIG_KEY.search(str(key))
+            _SENSITIVE_CONFIG_KEY.search(
+                re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", str(key))
+            )
             or _contains_sensitive_config(item)
             for key, item in value.items()
         )
@@ -186,6 +189,37 @@ def graph_ir_checksum(graph_ir: ResolvedGraphIRV3 | dict[str, Any]) -> str:
     return canonical_checksum(payload)
 
 
+def graph_authoring_checksum(
+    graph_ir: ResolvedGraphIRV3 | dict[str, Any]
+) -> str:
+    """Hash graph-relevant resolved facts without global Snapshot identity."""
+
+    payload = (
+        graph_ir.model_dump(mode="json")
+        if isinstance(graph_ir, ResolvedGraphIRV3)
+        else deepcopy(graph_ir)
+    )
+    payload.pop("graph_checksum", None)
+    payload.pop("capability_snapshot_version", None)
+    payload.pop("capability_snapshot_hash", None)
+    payload["tags"] = sorted(set(payload.get("tags") or []))
+    payload["starters"] = sorted(set(payload.get("starters") or []))
+    payload["nodes"] = sorted(
+        payload.get("nodes") or [], key=lambda item: str(item.get("ref") or "")
+    )
+    payload["edges"] = sorted(
+        payload.get("edges") or [], key=lambda item: str(item.get("ref") or "")
+    )
+    payload["prompt_profiles"] = sorted(
+        payload.get("prompt_profiles") or [],
+        key=lambda item: (
+            str(item.get("profile_id") or ""),
+            int(item.get("pinned_version") or 0),
+        ),
+    )
+    return canonical_checksum(payload)
+
+
 def workflow_semantic_checksum(candidate: dict[str, Any]) -> str:
     workflow = dict(candidate.get("draft", {}).get("workflow") or {})
     payload = {
@@ -227,6 +261,32 @@ def workflow_semantic_checksum(candidate: dict[str, Any]) -> str:
             ),
         ),
     }
+    return canonical_checksum(payload)
+
+
+def workflow_authoring_checksum(candidate: dict[str, Any]) -> str:
+    """Checksum the complete candidate, including deterministic editor layout."""
+
+    payload = deepcopy(candidate)
+    draft = payload.get("draft")
+    if isinstance(draft, dict):
+        workflow = draft.get("workflow")
+        if isinstance(workflow, dict):
+            workflow["nodes"] = sorted(
+                list(workflow.get("nodes") or []),
+                key=lambda item: str(item.get("id") or ""),
+            )
+            workflow["edges"] = sorted(
+                list(workflow.get("edges") or []),
+                key=lambda item: str(item.get("id") or ""),
+            )
+        draft["prompt_profiles"] = sorted(
+            list(draft.get("prompt_profiles") or []),
+            key=lambda item: (
+                str(item.get("profile_id") or ""),
+                int(item.get("pinned_version") or 0),
+            ),
+        )
     return canonical_checksum(payload)
 
 
@@ -522,6 +582,41 @@ def _resolved_node(
         execution=contract.execution.model_dump(mode="json"),
         resource_contracts=[item.model_dump(mode="json") for item in contract.resources],
     )
+
+
+def _resolve_immutable_resource_version(
+    resource: dict[str, Any],
+    *,
+    expected_version: int | None,
+    label: str,
+) -> tuple[int, str]:
+    """Resolve an exact immutable version independently from the latest pointer."""
+
+    latest = resource.get("published_version")
+    if not latest:
+        raise ValueError(f"{label} has no published version.")
+    target = int(expected_version or latest)
+    available = list((resource.get("metadata") or {}).get("available_versions") or [])
+    if available:
+        match = next(
+            (
+                item
+                for item in available
+                if isinstance(item, dict) and int(item.get("version") or 0) == target
+            ),
+            None,
+        )
+        if match is None:
+            raise ValueError(f"{label} pinned version {target} is unavailable.")
+        checksum = str(match.get("checksum") or "").strip()
+        return target, checksum or canonical_checksum(
+            {"id": resource.get("id"), "version": target}
+        )
+    if target != int(latest):
+        raise ValueError(
+            f"{label} drifted from pinned version {target} to {int(latest)}."
+        )
+    return target, canonical_checksum(resource)
 
 
 def resolve_graph_intent(
@@ -841,18 +936,15 @@ def resolve_graph_intent(
             config["top_k"] = binding.top_k
             config["score_threshold"] = binding.score_threshold
         else:
-            version = resource.get("published_version")
-            if not version:
-                raise ValueError(f"Resource {binding.resource_id} has no published version.")
             expected_version = intent._pinned_resource_versions.get(
-                (binding.kind, binding.resource_id)
+                (binding.kind, binding.resource_id, binding.target_ref)
             )
-            if expected_version is not None and int(version) != expected_version:
-                raise ValueError(
-                    f"Resource {binding.resource_id} drifted from pinned version "
-                    f"{expected_version} to {version}."
-                )
-            config["pinned_version"] = expected_version or int(version)
+            version, version_checksum = _resolve_immutable_resource_version(
+                resource,
+                expected_version=expected_version,
+                label=f"Resource {binding.resource_id}",
+            )
+            config["pinned_version"] = version
         if binding.kind == "external_xpert":
             tool_name = _safe_identifier(
                 binding.tool_name or f"xpert_{binding.resource_id[:12]}",
@@ -866,7 +958,11 @@ def resolve_graph_intent(
                 )
             seen_external_tools.add(tool_key)
             config["tool_name"] = tool_name
-        config["resource_checksum"] = canonical_checksum(resource)
+        config["resource_checksum"] = (
+            version_checksum
+            if binding.kind != "knowledge_base"
+            else canonical_checksum(resource)
+        )
         resolved_resource = _resolved_node(
             ref=ref,
             node_id=ref,
@@ -1012,18 +1108,17 @@ def resolve_graph_intent(
         resource = prompt_lookup.get(profile_id)
         if resource is None or not resource.get("published_version"):
             raise ValueError(f"Prompt Profile {profile_id} is unavailable.")
-        version = int(resource["published_version"])
         expected_version = intent._pinned_prompt_profile_versions.get(profile_id)
-        if expected_version is not None and version != expected_version:
-            raise ValueError(
-                f"Prompt Profile {profile_id} drifted from pinned version "
-                f"{expected_version} to {version}."
-            )
+        version, version_checksum = _resolve_immutable_resource_version(
+            resource,
+            expected_version=expected_version,
+            label=f"Prompt Profile {profile_id}",
+        )
         prompt_profiles.append(
             ResolvedPromptProfileV3(
                 profile_id=profile_id,
-                pinned_version=expected_version or version,
-                checksum=canonical_checksum(resource),
+                pinned_version=version,
+                checksum=version_checksum,
             )
         )
 
@@ -1070,10 +1165,10 @@ def annotate_candidate_with_graph_ir(
             ]
 
 
-def decompile_candidate_to_graph_intent(
+def decompile_candidate_to_graph_intent_compat(
     candidate: dict[str, Any],
-) -> GraphIntentV3:
-    from .node_adapters import decompile_planner_node_v3
+) -> tuple[GraphIntentV3 | None, MetaPlannerIRCompatibility]:
+    from .node_adapters import decompile_planner_node, decompile_planner_node_v3
 
     try:
         from server.workflow_native.schemas import NativeWorkflowNode
@@ -1084,60 +1179,161 @@ def decompile_candidate_to_graph_intent(
     workflow = draft.get("workflow") or {}
     raw_nodes = list(workflow.get("nodes") or [])
     node_by_id = {str(node.get("id") or ""): node for node in raw_nodes}
+    if len(node_by_id) != len(raw_nodes) or "" in node_by_id:
+        raise ValueError("Compiled candidate node IDs must be present and unique.")
+    kind_by_id = {
+        node_id: str(
+            (node.get("data") or {}).get("kind") or node.get("type") or ""
+        )
+        for node_id, node in node_by_id.items()
+    }
+    supported_kinds = {
+        "input",
+        "output",
+        "workflow_agent",
+        "external_xpert",
+        "knowledge_base",
+        "toolset_resource",
+        "plugin_resource",
+        "runtime_middleware",
+    }
+    unsupported = sorted(
+        f"{node_id}:{kind or '<missing>'}"
+        for node_id, kind in kind_by_id.items()
+        if kind not in supported_kinds
+    )
+    if unsupported:
+        raise ValueError(
+            "Compiled candidate contains nodes outside the recoverable Planner graph: "
+            + ", ".join(unsupported)
+        )
+    input_ids = sorted(
+        node_id for node_id, kind in kind_by_id.items() if kind == "input"
+    )
+    output_ids = sorted(
+        node_id for node_id, kind in kind_by_id.items() if kind == "output"
+    )
+    if input_ids != ["input"] or output_ids != ["output"]:
+        raise ValueError(
+            "Compiled candidate must contain the canonical input and output nodes exactly once."
+        )
+    workflow_agents = [
+        raw_node
+        for raw_node in raw_nodes
+        if str(
+            (raw_node.get("data") or {}).get("kind")
+            or raw_node.get("type")
+            or ""
+        )
+        == "workflow_agent"
+    ]
+    if not workflow_agents:
+        raise ValueError("Compiled candidate has no Workflow Agent node.")
+    marker_versions = {
+        int((raw_node.get("data") or {}).get("plannerIRVersion") or 0)
+        for raw_node in workflow_agents
+    }
+    if not marker_versions.issubset({0, GRAPH_IR_VERSION}):
+        raise ValueError("Compiled candidate carries an unknown Graph IR marker.")
+    if len(marker_versions) != 1:
+        raise ValueError(
+            "Compiled candidate mixes Graph IR V2 and V3 Workflow Agent markers."
+        )
+    use_v3 = marker_versions == {GRAPH_IR_VERSION}
     ref_by_id: dict[str, str] = {}
     business_nodes: list[GraphIntentNodeV3] = []
-    for raw_node in raw_nodes:
-        data = raw_node.get("data") or {}
-        kind = str(data.get("kind") or raw_node.get("type") or "")
-        if kind != "workflow_agent":
-            continue
-        restored = decompile_planner_node_v3(
-            NativeWorkflowNode.model_validate(raw_node)
+    legacy_nodes: list[MetaPlannerIRNode] = []
+    for raw_node in workflow_agents:
+        native_node = NativeWorkflowNode.model_validate(raw_node)
+        restored = (
+            decompile_planner_node_v3(native_node)
+            if use_v3
+            else decompile_planner_node(native_node)
         )
         node_id = str(raw_node.get("id") or "")
         ref_by_id[node_id] = restored.ref
-        business_nodes.append(restored)
+        if use_v3:
+            business_nodes.append(restored)
+        else:
+            legacy_nodes.append(restored)
 
     control_edges: list[GraphIntentControlEdgeV3] = []
     resources: list[MetaPlannerIRResourceBinding] = []
-    pinned_resource_versions: dict[tuple[str, str], int] = {}
+    pinned_resource_versions: dict[tuple[str, str, str], int] = {}
     middleware: list[MetaPlannerIRMiddlewareBinding] = []
+    consumed_node_ids = {"input", "output", *ref_by_id}
+    input_root_refs: set[str] = set()
+    input_root_edges: list[str] = []
+    terminal_edges: list[dict[str, Any]] = []
+    seen_edge_ids: set[str] = set()
     for raw_edge in workflow.get("edges") or []:
+        edge_id = str(raw_edge.get("id") or "")
+        if not edge_id or edge_id in seen_edge_ids:
+            raise ValueError("Compiled candidate edge IDs must be present and unique.")
+        seen_edge_ids.add(edge_id)
         source_id = str(raw_edge.get("source") or "")
         target_id = str(raw_edge.get("target") or "")
+        if source_id not in node_by_id or target_id not in node_by_id:
+            raise ValueError(f"Compiled edge {edge_id} has an unknown endpoint.")
         source_ref = ref_by_id.get(source_id)
         target_ref = ref_by_id.get(target_id)
         source_handle = str(raw_edge.get("sourceHandle") or "")
         target_handle = str(raw_edge.get("targetHandle") or "")
-        if source_ref and target_ref and not source_handle and not target_handle:
-            control_edges.append(
-                GraphIntentControlEdgeV3(
-                    source_ref=source_ref,
-                    target_ref=target_ref,
+        source_kind = kind_by_id[source_id]
+        target_kind = kind_by_id[target_id]
+        if not source_handle and not target_handle:
+            if source_kind == "input" and target_ref:
+                input_root_edges.append(target_ref)
+                input_root_refs.add(target_ref)
+                continue
+            if source_ref and target_ref:
+                control_edges.append(
+                    GraphIntentControlEdgeV3(
+                        source_ref=source_ref,
+                        target_ref=target_ref,
+                    )
                 )
+                continue
+            if source_ref and target_kind == "output":
+                terminal_edges.append(raw_edge)
+                continue
+            raise ValueError(
+                f"Compiled control edge {edge_id} is outside the recoverable Planner graph."
             )
-            continue
         if not target_ref:
-            continue
+            raise ValueError(
+                f"Compiled binding edge {edge_id} must target a Workflow Agent."
+            )
         source_node = node_by_id.get(source_id) or {}
         source_data = source_node.get("data") or {}
-        source_kind = str(source_data.get("kind") or source_node.get("type") or "")
-        if target_handle == "middleware" and source_kind == "runtime_middleware":
+        expected_handles = {
+            "external_xpert": ("expert-binding", "expert"),
+            "knowledge_base": ("knowledge-binding", "knowledge"),
+            "toolset_resource": ("toolset-binding", "toolset"),
+            "plugin_resource": ("plugin-binding", "plugin"),
+            "runtime_middleware": ("middleware-binding", "middleware"),
+        }.get(source_kind)
+        if expected_handles != (source_handle, target_handle):
+            raise ValueError(
+                f"Compiled binding edge {edge_id} has invalid source/target Handles."
+            )
+        if source_id in consumed_node_ids:
+            raise ValueError(
+                f"Compiled resource node {source_id} is bound more than once."
+            )
+        consumed_node_ids.add(source_id)
+        if source_kind == "runtime_middleware":
+            middleware_id = str(source_data.get("runtimeMiddlewareId") or "")
+            if not middleware_id:
+                raise ValueError("Compiled middleware binding has no middleware ID.")
             middleware.append(
                 MetaPlannerIRMiddlewareBinding(
                     target_ref=target_ref,
-                    middleware_id=str(source_data.get("runtimeMiddlewareId") or ""),
+                    middleware_id=middleware_id,
                     priority=int(source_data.get("middlewarePriority") or 100),
                     config=dict(source_data.get("runtimeMiddlewareConfig") or {}),
                 )
             )
-            continue
-        if source_kind not in {
-            "external_xpert",
-            "knowledge_base",
-            "toolset_resource",
-            "plugin_resource",
-        }:
             continue
         id_fields = {
             "external_xpert": "xpertId",
@@ -1146,6 +1342,8 @@ def decompile_candidate_to_graph_intent(
             "plugin_resource": "pluginId",
         }
         resource_id = str(source_data.get(id_fields[source_kind]) or "")
+        if not resource_id:
+            raise ValueError(f"Compiled {source_kind} binding has no resource ID.")
         if source_kind != "knowledge_base":
             try:
                 pinned_version = int(source_data.get("pinnedVersion"))
@@ -1153,7 +1351,7 @@ def decompile_candidate_to_graph_intent(
                 raise ValueError(
                     f"Compiled {source_kind} resource has no pinned version."
                 ) from None
-            pin_key = (source_kind, resource_id)
+            pin_key = (source_kind, resource_id, target_ref)
             previous_pin = pinned_resource_versions.get(pin_key)
             if previous_pin is not None and previous_pin != pinned_version:
                 raise ValueError(
@@ -1172,6 +1370,23 @@ def decompile_candidate_to_graph_intent(
             )
         )
 
+    unconsumed_nodes = sorted(set(node_by_id) - consumed_node_ids)
+    if unconsumed_nodes:
+        raise ValueError(
+            "Compiled candidate contains unbound or unconsumed nodes: "
+            + ", ".join(unconsumed_nodes)
+        )
+    parents = {ref: set() for ref in ref_by_id.values()}
+    for edge in control_edges:
+        parents[edge.target_ref].add(edge.source_ref)
+    expected_roots = {ref for ref, values in parents.items() if not values}
+    if len(input_root_edges) != len(input_root_refs) or input_root_refs != expected_roots:
+        raise ValueError(
+            "Compiled input edges do not match the semantic control roots."
+        )
+    if len(terminal_edges) != 1:
+        raise ValueError("Compiled candidate must contain exactly one terminal edge.")
+
     output_node = next(
         (
             node
@@ -1185,17 +1400,8 @@ def decompile_candidate_to_graph_intent(
         raise ValueError("Compiled candidate has no output node.")
     output_data = output_node.get("data") or {}
     output_variable = str(output_data.get("outputVariable") or "")
-    terminal_edge = next(
-        (
-            edge
-            for edge in workflow.get("edges") or []
-            if str(edge.get("target") or "") == str(output_node.get("id") or "")
-            and not edge.get("sourceHandle")
-            and not edge.get("targetHandle")
-        ),
-        None,
-    )
-    terminal_ref = ref_by_id.get(str((terminal_edge or {}).get("source") or ""))
+    terminal_edge = terminal_edges[0]
+    terminal_ref = ref_by_id.get(str(terminal_edge.get("source") or ""))
     if not terminal_ref or not output_variable:
         raise ValueError("Compiled candidate final output metadata is incomplete.")
     prompt_items = [
@@ -1216,25 +1422,64 @@ def decompile_candidate_to_graph_intent(
             raise ValueError(
                 f"Compiled Prompt Profile {profile_id} has no pinned version."
             ) from None
-    intent = GraphIntentV3(
-        name=str(candidate.get("name") or workflow.get("title") or "Xpert"),
-        description=str(candidate.get("description") or ""),
-        tags=list(candidate.get("tags") or []),
-        starters=list(candidate.get("starters") or []),
-        nodes=sorted(business_nodes, key=lambda item: item.ref),
-        control_edges=sorted(
-            control_edges, key=lambda item: (item.source_ref, item.target_ref)
-        ),
-        resources=resources,
-        middleware=middleware,
-        prompt_profile_ids=prompt_ids,
-        final_output=GraphIntentFinalOutputV3(
-            node_ref=terminal_ref,
-            variable=output_variable,
-        ),
-    )
+    metadata = {
+        "name": str(candidate.get("name") or workflow.get("title") or "Xpert"),
+        "description": str(candidate.get("description") or ""),
+        "tags": list(candidate.get("tags") or []),
+        "starters": list(candidate.get("starters") or []),
+    }
+    if use_v3:
+        compatibility = MetaPlannerIRCompatibility(source_version=3)
+        intent = GraphIntentV3(
+            **metadata,
+            nodes=sorted(business_nodes, key=lambda item: item.ref),
+            control_edges=sorted(
+                control_edges, key=lambda item: (item.source_ref, item.target_ref)
+            ),
+            resources=resources,
+            middleware=middleware,
+            prompt_profile_ids=prompt_ids,
+            final_output=GraphIntentFinalOutputV3(
+                node_ref=terminal_ref,
+                variable=output_variable,
+            ),
+        )
+    else:
+        blueprint = MetaPlannerTypedBlueprintV2(
+            **metadata,
+            nodes=sorted(legacy_nodes, key=lambda item: item.ref),
+            control_edges=[
+                MetaPlannerIRControlEdge(
+                    source_ref=edge.source_ref,
+                    target_ref=edge.target_ref,
+                )
+                for edge in sorted(
+                    control_edges,
+                    key=lambda item: (item.source_ref, item.target_ref),
+                )
+            ],
+            resources=resources,
+            middleware=middleware,
+            prompt_profile_ids=prompt_ids,
+            final_output=MetaPlannerIRFinalOutput(
+                node_ref=terminal_ref,
+                variable=output_variable,
+            ),
+        )
+        intent, compatibility = v2_to_graph_intent(blueprint)
+        if intent is None:
+            return None, compatibility
     intent._pinned_resource_versions = pinned_resource_versions
     intent._pinned_prompt_profile_versions = pinned_prompt_versions
+    return intent, compatibility
+
+
+def decompile_candidate_to_graph_intent(
+    candidate: dict[str, Any],
+) -> GraphIntentV3:
+    intent, compatibility = decompile_candidate_to_graph_intent_compat(candidate)
+    if intent is None:
+        raise ValueError("; ".join(compatibility.warnings))
     return intent
 
 
