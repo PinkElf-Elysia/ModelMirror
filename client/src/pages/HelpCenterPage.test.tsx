@@ -119,9 +119,12 @@ describe("unified help reading shell", () => {
     expect(screen.getAllByRole("link", { name: "安全、费用与数据" }).length).toBeGreaterThan(0);
   });
 
-  it("renders the evidence baseline owned by the current article", () => {
+  it("keeps the evidence commit in collapsed maintenance details", () => {
     renderHelp("/help/review-remote-mcp-auth");
-    expect(screen.getByText(remoteMcpReviewBaseline.commit)).toBeInTheDocument();
+    expect(screen.getByText("界面核对")).toBeInTheDocument();
+    const details = screen.getByText("维护信息").closest("details");
+    expect(details).not.toHaveAttribute("open");
+    expect(within(details as HTMLElement).getByText(remoteMcpReviewBaseline.commit)).toBeInTheDocument();
   });
 
   it("renders a first-level index and module topic in the same shell", () => {
@@ -180,9 +183,10 @@ describe("unified help reading shell", () => {
     expect(screen.getByRole("link", { name: "打开帮助首页" })).toHaveAttribute("href", "/help");
   });
 
-  it("shows a verified-date notice on published articles", () => {
+  it("does not repeat a generic staleness disclaimer on every article", () => {
     renderHelp("/help/start-with-a-model");
-    expect(screen.getByText(`本文基于 ${helpCenterCloseoutBaseline.date} 的界面验证，产品更新后部分按钮名称、入口或价格可能变化。`)).toBeInTheDocument();
+    expect(screen.getByText(helpCenterCloseoutBaseline.date)).toBeInTheDocument();
+    expect(screen.queryByText(/产品更新后部分按钮名称、入口或价格可能变化/)).not.toBeInTheDocument();
   });
 
   it("does not expose the removed article feedback control", () => {
@@ -195,9 +199,9 @@ describe("unified help reading shell", () => {
     renderHelp("/help/create-repeatable-agent");
     scrollToMock.mockClear();
 
-    await user.click(screen.getAllByRole("link", { name: /搭建并保存第一个固定步骤工作流/ }).at(-1)!);
+    await user.click(screen.getAllByRole("link", { name: /操作前检查可用性、费用与数据影响/ }).at(-1)!);
 
-    expect(screen.getByRole("heading", { name: "搭建并保存第一个固定步骤工作流", level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "操作前检查可用性、费用与数据影响", level: 1 })).toBeInTheDocument();
     expect(scrollToMock).toHaveBeenCalledWith({ left: 0, top: 0 });
   });
 

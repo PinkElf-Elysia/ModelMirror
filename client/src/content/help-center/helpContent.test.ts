@@ -139,6 +139,36 @@ describe("help center content catalog", () => {
     expect(searchHelpContent("Agent").some((entry) => entry.id === "agents/agent-studio")).toBe(true);
   });
 
+  it("keeps task-oriented search queries precise", () => {
+    const cases = [
+      { query: "发布前检查", expected: "create-repeatable-agent", forbidden: ["build-first-workflow"] },
+      { query: "上传文件会不会外发", expected: "check-availability-cost-data", forbidden: ["models/image-generation"] },
+      { query: "工作流保存后怎么运行", expected: "build-first-workflow", forbidden: ["create-repeatable-agent"] },
+      { query: "看图片", expected: "start-with-a-model", forbidden: ["models/image-generation"] },
+      { query: "生成图片", expected: "models/image-generation", forbidden: ["start-with-a-model"] },
+      { query: "外部工具怎么连接", expected: "mcps/connected-registry", forbidden: ["mcps/toolsets"] },
+      { query: "工具集在哪里", expected: "mcps/toolsets", forbidden: ["mcps/tool-shelf"] },
+      { query: "模型服务连接在哪里", expected: "workspace/settings", forbidden: ["troubleshooting"] },
+      { query: "Agent 草稿怎么保存", expected: "create-repeatable-agent", forbidden: ["build-first-workflow"] },
+      { query: "工作流节点失败怎么办", expected: "handle-workflow-node-failure", forbidden: ["start-with-a-model"] },
+    ];
+
+    cases.forEach(({ expected, forbidden, query }) => {
+      const topThree = searchHelpContent(query).slice(0, 3).map((entry) => entry.id);
+      expect(topThree, query).toContain(expected);
+      forbidden.forEach((id) => expect(topThree, `${query}: ${id}`).not.toContain(id));
+    });
+  });
+
+  it("keeps the two closeout tutorials free of unexplained implementation terms", () => {
+    const agent = helpArticles.find((article) => article.slug === "create-repeatable-agent")!;
+    const workflow = helpArticles.find((article) => article.slug === "build-first-workflow")!;
+
+    expect(agent.content).not.toContain("revision");
+    expect(workflow.content).toContain("任务输入框（页面标为 `user_input`）");
+    expect(workflow.content).toContain("表示草稿已经保存");
+  });
+
   it("ranks title and article hits above module and body-only hits", () => {
     // 精确的模型名应优先召回对应教程
     const titleHit = searchHelpContent("Qwen3.8 Max")[0];

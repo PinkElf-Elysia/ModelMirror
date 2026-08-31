@@ -146,7 +146,7 @@ export const helpArticles: HelpArticle[] = [
     verifiedCommit: agentWorkflowTutorialBaseline.commit,
     verifiedDate: agentWorkflowTutorialBaseline.date,
     content: createRepeatableAgent,
-    nextSlug: "build-first-workflow",
+    nextSlug: "check-availability-cost-data",
   },
   {
     slug: "build-first-workflow",
@@ -493,9 +493,14 @@ export function findHelpSection(id: string | undefined) { return helpSections.fi
 export function findHelpModule(id: string | undefined) { return helpModules.find((module) => module.id === id); }
 export function findHelpModuleTopic(moduleId: string | undefined, topicId: string | undefined) { return findHelpModule(moduleId)?.topics.find((topic) => topic.id === topicId); }
 
-/** 中文近义词/别名映射：让用户用日常说法也能找到内容。 */
+/**
+ * 受控任务词表：只扩展用户意图明确、不会改变任务类型的说法。
+ * 不使用“工具”“发布”“配置”等宽泛词，避免把不同模块和生命周期混为一谈。
+ */
 const HELP_SYNONYMS: Record<string, string[]> = {
   看图: ["图片识别", "图片理解", "视觉"],
+  看图片: ["图片识别", "图片理解", "视觉"],
+  生成图片: ["图片生成", "文生图"],
   问答: ["聊天", "对话", "提问"],
   聊天: ["对话", "问答", "提问"],
   收费: ["费用", "价格", "计费"],
@@ -507,20 +512,22 @@ const HELP_SYNONYMS: Record<string, string[]> = {
   资料: ["RAG", "知识库", "文档"],
   知识库: ["RAG", "资料", "文档"],
   运维: ["Runtime", "运行", "诊断"],
-  运行: ["Runtime", "运维", "运行记录"],
-  工具: ["MCP", "Toolset", "插件"],
+  运行记录: ["Runtime", "运维"],
   技能: ["Skill"],
-  设置: ["配置", "Provider", "连接"],
-  配置: ["设置", "Provider", "连接"],
   订阅: ["RSS", "Atom", "订阅源"],
   定时任务: ["自动化", "Cron"],
   打不开: ["不可用", "未开放", "连接"],
   不能用: ["不可用", "未开放", "待适配"],
   没反应: ["不可用", "加载", "按钮"],
   审批: ["Inbox", "知识", "提案"],
-  发布: ["部署", "版本", "草稿"],
-  部署: ["发布", "版本"],
-  草稿: ["发布", "版本", "保存"],
+  发布预检: ["发布前检查", "发布前核对"],
+  上传文件会不会外发: ["文件", "上传", "数据影响", "外发"],
+  工作流保存后怎么运行: ["经典工作流", "保存草稿", "运行工作流"],
+  外部工具怎么连接: ["MCP", "已连接注册表", "连接状态"],
+  工具集在哪里: ["Toolset", "工具集"],
+  模型服务连接在哪里: ["系统设置", "Provider", "模型服务连接"],
+  "agent 草稿": ["保存智能体草稿", "发布预检", "角色提示词"],
+  工作流节点失败: ["错误分支", "已处理失败", "运行记录"],
   试用: ["立即面试", "聊天", "开始对话"],
 };
 
