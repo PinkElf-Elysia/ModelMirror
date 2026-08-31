@@ -1,6 +1,6 @@
 # MCP 目录扩充与适配路线
 
-最后更新日期：2026-08-13
+最后更新日期：2026-08-31
 维护人：模镜团队
 
 ## 1. 目标与当前范围
@@ -33,7 +33,7 @@ Wave 28—31 的实现、真实验收、许可证阻断与回退边界见 [Wave 
 
 批次 19B 的 Milvus、Neo4j 与 ArcadeDB 已完成固定原生只读 facade，并在 Wave 23 最新主线基线重新通过真实隔离验收：绑定 database/collection、原生只读账号、查询语法门禁、Schema、代表调用、429、超时、拒写、重启和清理均已验证。用户已明确批准三项晋级 `ready` 并加入生产数据库精确 allowlist，详见 [19B 图与向量数据库](./MCP_WAVE19B_GRAPH_VECTOR_SERVICES.md)。
 
-批次 20 选择 GoGraph v1.5.6 作为唯一实现：仅接受封存 Go 工作区、构建 session 内存索引并开放六个固定结构读取工具；Codebase Memory 因无法在不放宽 Landlock 根目录遍历的前提下启动，CodeGraphContext 因多数据库和宽控制面，均转为 superseded blocked。GoGraph 已通过真实断网镜像、隔离 UDS 与用户验收并进入精确默认 allowlist，详见 [20 代码索引](./MCP_WAVE20_CODE_INDEX.md)。
+批次 20 曾以 GoGraph v1.5.6 作为唯一实现：仅接受封存 Go 工作区、构建 session 内存索引并开放六个固定结构读取工具；Codebase Memory 与 CodeGraphContext 转为 superseded blocked。v1.5.6 的既有镜像在 2026-08-11 通过真实断网镜像、隔离 UDS 与用户验收并进入精确默认 allowlist，但该版本的上游 GitHub Release 资产现已删除，当前 Dockerfile 的冷构建会返回 404。v1.5.6 仅是历史验收快照，不是现行版本要求；恢复同摘要内部制品或选择现行版本完成全套复验前，不得把该条目描述为当前可重建 `ready`。详见 [20 代码索引](./MCP_WAVE20_CODE_INDEX.md)。
 
 批次 21 的七个状态化资源与批次 22 的多租户/OAuth 恢复组只完成归组和退出门槛，不新增运行时；详见 [21—22 暂缓实现收口](./MCP_WAVE21_22_DEFERRED.md)。
 
@@ -135,7 +135,7 @@ Wave 26A 仅晋级断网 Calculator，ImageSorcery 继续 planned；Wave 26B 为
 | 18B | 受控文件分析 | 3 | **已实现并验收**：llm-context、Excel MCP、Dingo；Excel 仅输出副本并拒绝宏/外链，Dingo 仅固定规则；[边界与验收](./MCP_WAVE18B_FILE_ANALYSIS.md) |
 | 19A | 只读数据服务 | 3 | **已实现并验收**：Prometheus、Qdrant、Elasticsearch 固定资源、原生只读账号与查询上限；[边界与验收](./MCP_WAVE19A_DATA_SERVICES.md) |
 | 19B / 23A | 图与向量数据库 | 3 | **已晋级 ready**：Milvus、Neo4j、ArcadeDB 在最新基线完成真实复验并进入精确数据库 allowlist；[验收证据](./MCP_WAVE19B_GRAPH_VECTOR_SERVICES.md) |
-| 20 | 代码索引收敛 | 3 | **已实现并验收**：GoGraph v1.5.6 仅索引封存 Go 工作区并开放六个固定结构读取工具；Codebase Memory 与 CodeGraphContext 转为 superseded blocked；[边界与验收](./MCP_WAVE20_CODE_INDEX.md) |
+| 20 | 代码索引收敛 | 3 | **历史验收完成，当前冷构建受阻**：GoGraph v1.5.6 既有镜像仅索引封存 Go 工作区并开放六个固定结构读取工具；上游 Release 资产删除后不得将 v1.5.6 当作现行要求或可重建证据；Codebase Memory 与 CodeGraphContext 保持 superseded blocked；[边界、历史证据与恢复门槛](./MCP_WAVE20_CODE_INDEX.md) |
 | 21 | 状态化资源 | 7 | **暂缓**：等待项目级持久卷、所有权、配额、保留/导出/删除、模型费用和写入审批基础；[恢复条件](./MCP_WAVE21_22_DEFERRED.md) |
 | 22 | 多租户与 OAuth | 17 | **暂缓**：等待不可伪造主体、租户隔离、PKCE/state、刷新/撤销/解绑和最小只读 Scope；写入与管理工具继续 blocked；[恢复条件](./MCP_WAVE21_22_DEFERRED.md) |
 

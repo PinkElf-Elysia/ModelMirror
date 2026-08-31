@@ -25,6 +25,13 @@ BACKEND_PATH = ROOT / "server" / "mcp" / "catalog_expansion_v2.py"
 
 SNAPSHOT_DATE = "2026-08-09"
 WAVE = 13
+GOGRAPH_SUPPLY_CHAIN_CORRECTION = (
+    "> **2026-08-31 更正：**本表保留审查与历史晋级快照，不等同于当前供应链可用性。",
+    "> 第 94 项 GoGraph v1.5.6 的 tag/commit 仍存在，但 GitHub Release 对象与 Linux 发布资产已删除；",
+    "> 当前 Dockerfile 冷构建返回 404。该行的 `ready` 只表示既有镜像曾通过验收，不是要求成员",
+    "> 获取 v1.5.6 的现行规范，也不得作为新部署可重建证据。恢复门槛见",
+    "> [MCP 第 20 批代码索引](./MCP_WAVE20_CODE_INDEX.md)。",
+)
 
 READY_DECISIONS = {
     "brave-brave-search-mcp-server": {
@@ -1306,6 +1313,8 @@ def render_report(payload: dict[str, Any]) -> str:
         "> 100 项已经逐项归入 `ready`、`planned` 或 `blocked`。只有通过固定工具、隔离和代表调用门槛的条目可执行。",
         "> 非 ready 条目不包含命令、端点、凭据槽、工具策略或功能开关绕过路径。",
         "",
+        *GOGRAPH_SUPPLY_CHAIN_CORRECTION,
+        "",
         "## 固定来源",
         "",
     ]
@@ -1339,11 +1348,15 @@ def render_report(payload: dict[str, Any]) -> str:
     for item in payload["candidates"]:
         github = item["github"]
         license_spdx = github["licenseInfo"]["spdxId"]
+        availability = item["proposed_availability"]
+        reason = f"`{item['decision_reason_code']}`"
+        if item["catalog_id"] == "ozgurcd-gograph":
+            availability = "ready（历史快照；当前冷构建 blocked）"
+            reason += "；当前供应链状态见更正说明"
         lines.append(
             f"| {item['rank']} | `{item['catalog_id']}` | "
             f"[{github['nameWithOwner']}]({github['url']}) | {item['category']} | "
-            f"{github['stargazerCount']} | {license_spdx} | {item['proposed_availability']} | "
-            f"`{item['decision_reason_code']}` |"
+            f"{github['stargazerCount']} | {license_spdx} | {availability} | {reason} |"
         )
     lines.extend(
         [
