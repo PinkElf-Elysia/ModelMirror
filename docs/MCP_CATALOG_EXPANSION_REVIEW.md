@@ -5,6 +5,12 @@
 > 100 项已经逐项归入 `ready`、`planned` 或 `blocked`。只有通过固定工具、隔离和代表调用门槛的条目可执行。
 > 非 ready 条目不包含命令、端点、凭据槽、工具策略或功能开关绕过路径。
 
+> **2026-08-31 更正：**本表保留审查与历史晋级快照，不等同于当前供应链可用性。
+> 第 94 项 GoGraph v1.5.6 的 tag/commit 仍存在，但 GitHub Release 对象与 Linux 发布资产已删除；
+> 当前 Dockerfile 冷构建返回 404。该行的 `ready` 只表示既有镜像曾通过验收，不是要求成员
+> 获取 v1.5.6 的现行规范，也不得作为新部署可重建证据。恢复门槛见
+> [MCP 第 20 批代码索引](./MCP_WAVE20_CODE_INDEX.md)。
+
 ## 固定来源
 
 - `awesome-mcp-zh`：`b29e114d95fa26338b092423fd1ede1e5598e4df`，README SHA-256 `854802528cb508a6f6d00e2d142b57a44bc5393bfd4321ddd96e1e9a2b10b51a`
@@ -121,7 +127,7 @@
 | 91 | `g0t4-mcp-server-commands` | [g0t4/mcp-server-commands](https://github.com/g0t4/mcp-server-commands) | 开发与代码 | 232 | MIT | blocked | `blocked-arbitrary-command-or-code-execution` |
 | 92 | `keboola-keboola-mcp-server` | [keboola/mcp-server](https://github.com/keboola/mcp-server) | 数据分析 | 84 | MIT | planned | `planned-real-account-readonly-preflight-required` |
 | 93 | `line-line-bot-mcp-server` | [line/line-bot-mcp-server](https://github.com/line/line-bot-mcp-server) | 通讯与协作 | 756 | Apache-2.0 | blocked | `blocked-broad-account-or-message-write` |
-| 94 | `ozgurcd-gograph` | [ozgurcd/gograph](https://github.com/ozgurcd/gograph) | 开发与代码 | 209 | MIT | ready | `ready-isolated-code-index-facade` |
+| 94 | `ozgurcd-gograph` | [ozgurcd/gograph](https://github.com/ozgurcd/gograph) | 开发与代码 | 209 | MIT | ready（历史快照；当前冷构建 blocked） | `ready-isolated-code-index-facade`；当前供应链状态见更正说明 |
 | 95 | `patdolitse-piia-engram` | [Patdolitse/piia-engram](https://github.com/Patdolitse/piia-engram) | 知识与记忆 | 169 | AGPL-3.0 | planned | `planned-wave21-stateful-foundation-required` |
 | 96 | `taisly-agent` | [taisly/agent](https://github.com/taisly/agent) | 社交与内容 | 264 | MIT | blocked | `blocked-social-publishing-or-session-reuse` |
 | 97 | `zinja-coder-jadx-ai-mcp` | [zinja-coder/jadx-ai-mcp](https://github.com/zinja-coder/jadx-ai-mcp) | 安全分析 | 2621 | Apache-2.0 | blocked | `blocked-desktop-host-instance-unverified` |

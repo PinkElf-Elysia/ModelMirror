@@ -5,10 +5,15 @@ import json
 import time
 import uuid
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass, replace
 from typing import Any, Literal, TypeVar
 
 import httpx
 
+from .egress import ProviderEgressError
+from .multimodal_control import (
+    OPENROUTER_GENERATION_METADATA_REQUEST_TIMEOUT_SECONDS,
+)
 from .service import ModelRouterService, RouterServiceError
 from .workflow_gateway import (
     ManagedWorkflowGateway,
@@ -20,6 +25,7 @@ from .workload_control import (
     PROVIDER_WORKLOAD_CONTRACT_VERSION,
     ProviderWorkloadCallService,
     ProviderWorkloadPreparedCall,
+    r8c_audio_parameter_profile_reason,
 )
 
 
@@ -31,10 +37,34 @@ R8BEntryId = Literal[
     "workflow_deployment_vision",
     "xpert_vision",
     "image_generation",
+    "multimodal_transcription",
+    "multimodal_speech",
+    "xpert_transcription",
+    "xpert_speech",
 ]
 R8BRoutingMode = Literal["legacy", "managed_required", "degraded_required"]
 _T = TypeVar("_T")
 _MAX_IMAGE_RESPONSE_BYTES = 32 * 1024 * 1024
+_OPENROUTER_GENERATION_METADATA_POLL_DELAYS_SECONDS = (
+    0.0,
+    1.0,
+    1.0,
+    2.0,
+    2.0,
+    3.0,
+    4.0,
+    5.0,
+    5.0,
+    5.0,
+)
+_OPENROUTER_GENERATION_METADATA_POLL_TIMEOUT_SECONDS = 30.0
+
+
+@dataclass(slots=True)
+class _GenerationMetadataObservation:
+    actual_model: str | None
+    get_count: int
+    elapsed_ms: float
 
 
 class ManagedMultimodalError(RuntimeError):
@@ -111,6 +141,32 @@ class ManagedMultimodalGateway:
         if len(matches) != 1:
             raise self._blocked(entry_id, "provider_workload_binding_missing")
         return matches[0]
+
+    def certified_audio_parameters(
+        self,
+        entry_id: R8BEntryId,
+        *,
+        certification_id: str,
+        execution_shape: Literal["audio_transcription", "audio_speech"],
+    ) -> dict[str, object]:
+        row = self.call_service.repository.get_workload_certification(
+            self.call_service.router_service.tenant_id,
+            certification_id,
+        )
+        if row is None or str(row.get("execution_shape") or "") != execution_shape:
+            raise self._blocked(
+                entry_id,
+                "provider_multimodal_audio_parameter_contract_stale",
+            )
+        try:
+            parsed = json.loads(str(row.get("profile_json") or "{}"))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            parsed = {}
+        profile = parsed if isinstance(parsed, dict) else {}
+        reason = r8c_audio_parameter_profile_reason(execution_shape, profile)
+        if reason is not None:
+            raise self._blocked(entry_id, reason)
+        return profile
 
     def start_run(
         self,
@@ -375,6 +431,301 @@ class ManagedMultimodalRun:
                 receipt=self._delegate.receipt_summary(),
             ) from exc
 
+    async def complete_audio(
+        self,
+        *,
+        execution_shape: Literal["audio_transcription", "audio_speech"],
+        logical_call_key: str,
+        model_id: str,
+        expected_connection_id: str,
+        expected_certification_id: str,
+        expected_connection_fingerprint: str,
+        expected_adapter_contract: str | None,
+        expected_protocol_version: str | None,
+        payload: Mapping[str, object] | None,
+        files: Mapping[str, tuple[str, bytes, str]] | None,
+        parse_response: Callable[[httpx.Response], _T],
+    ) -> tuple[_T, dict[str, Any]]:
+        prepared: ProviderWorkloadPreparedCall | None = None
+        dispatched = False
+        response_received = False
+        response_complete = False
+        generation_id_observed: bool | None = None
+        generation_metadata_get_count: int | None = None
+        generation_metadata_wait_ms: float | None = None
+        started = time.perf_counter()
+        try:
+            prepared = await self.gateway.call_service.prepare_call(
+                run_id=self._delegate.run_id,
+                entry_id=self.entry_id,
+                execution_shape=execution_shape,
+                model_id=model_id,
+                logical_call_key=logical_call_key,
+                call_sequence=1,
+            )
+            if (
+                prepared.connection_id != expected_connection_id
+                or prepared.certification_id != expected_certification_id
+                or prepared.connection_fingerprint
+                != expected_connection_fingerprint
+                or prepared.adapter_contract != expected_adapter_contract
+                or prepared.protocol_version != expected_protocol_version
+            ):
+                raise RouterServiceError(
+                    "provider_workload_binding_changed",
+                    "Workload Binding 或资格已变化，本次调用在 Provider 派发前失败关闭。",
+                    status_code=409,
+                )
+            target = prepared.multimodal_target
+            if target is None:
+                raise RouterServiceError(
+                    "provider_multimodal_target_missing",
+                    "音频调用缺少已授权的 Adapter 目标。",
+                    status_code=409,
+                )
+            async with self._client() as client:
+                if files is not None:
+                    transport = self.gateway.call_service.multimodal_transport
+                    request = transport.build_authorized_multipart_request(
+                        client,
+                        target,
+                        prepared.authorized_target,
+                        data={
+                            key: str(value)
+                            for key, value in dict(payload or {}).items()
+                            if value is not None
+                        },
+                        files=files,
+                    )
+                else:
+                    transport = self.gateway.call_service.multimodal_transport
+                    request = transport.build_authorized_json_request(
+                        client,
+                        target,
+                        prepared.authorized_target,
+                        dict(payload or {}),
+                    )
+                self.gateway.call_service.mark_dispatched(prepared)
+                dispatched = True
+                response = await self.gateway.call_service.multimodal_transport.send_authorized(
+                    client, request
+                )
+                response_received = True
+                generation_id = str(
+                    response.headers.get("X-Generation-Id") or ""
+                ).strip()
+                if target.provider_kind == "openrouter":
+                    generation_id_observed = bool(generation_id)
+                    generation_metadata_get_count = 0
+                    generation_metadata_wait_ms = 0.0
+                try:
+                    self._validate_status(response.status_code)
+                    await self._read_bounded(response)
+                    response_complete = True
+                    result = parse_response(response)
+                finally:
+                    await response.aclose()
+                actual_model = str(
+                    getattr(result, "actual_model", "") or ""
+                ).strip()
+                if not actual_model and target.provider_kind == "openrouter":
+                    if not generation_id:
+                        raise ManagedMultimodalError(
+                            "provider_multimodal_generation_id_missing",
+                            "音频 Provider 未返回实际模型查询所需的 Generation ID。",
+                            status_code=502,
+                        )
+                    observation = _GenerationMetadataObservation(None, 0, 0.0)
+                    try:
+                        await self._poll_openrouter_generation_model(
+                            client=client,
+                            target=target,
+                            generation_id=generation_id,
+                            observation=observation,
+                        )
+                    finally:
+                        generation_metadata_get_count = observation.get_count
+                        generation_metadata_wait_ms = observation.elapsed_ms
+                    actual_model = str(observation.actual_model or "").strip()
+                    if not actual_model:
+                        raise ManagedMultimodalError(
+                            "provider_multimodal_generation_metadata_wait_exhausted",
+                            "音频 Provider 的实际模型元数据未在限定时间内可用。",
+                            status_code=502,
+                        )
+                if not actual_model:
+                    raise ManagedMultimodalError(
+                        "provider_multimodal_actual_model_unverified",
+                        "音频 Provider 未提供可验证的实际模型证据。",
+                        status_code=502,
+                    )
+                if actual_model != model_id:
+                    raise ManagedMultimodalError(
+                        "provider_workload_model_mismatch",
+                        "音频 Provider 返回的实际模型与 Binding 不一致。",
+                        status_code=502,
+                    )
+                result = replace(result, actual_model=actual_model)
+            elapsed_ms = (time.perf_counter() - started) * 1000
+            actual_model = str(getattr(result, "actual_model", "") or "") or None
+            usage = getattr(result, "usage", None)
+            self.gateway.call_service.complete_call(
+                prepared,
+                status="passed",
+                result_class="success",
+                actual_model=actual_model,
+                ttft_ms=elapsed_ms,
+                e2e_ms=elapsed_ms,
+                prompt_tokens=getattr(usage, "input_tokens", None),
+                completion_tokens=getattr(usage, "output_tokens", None),
+                total_tokens=getattr(usage, "total_tokens", None),
+                generation_id_observed=generation_id_observed,
+                generation_metadata_get_count=generation_metadata_get_count,
+                generation_metadata_wait_ms=generation_metadata_wait_ms,
+            )
+            self._delegate.calls.append(
+                WorkflowProviderCallReceipt(
+                    call_sequence=1,
+                    model_id=model_id,
+                    actual_model=actual_model,
+                    dispatched=True,
+                    status="passed",
+                    prompt_tokens=getattr(usage, "input_tokens", None),
+                    completion_tokens=getattr(usage, "output_tokens", None),
+                    total_tokens=getattr(usage, "total_tokens", None),
+                )
+            )
+            self._delegate.finish("passed")
+            return result, self._delegate.receipt_summary()
+        except asyncio.CancelledError:
+            status = "uncertain" if dispatched else "failed"
+            code = (
+                "provider_workload_dispatch_uncertain"
+                if dispatched
+                else "provider_workload_call_cancelled"
+            )
+            self._record_failure(
+                prepared,
+                model_id,
+                dispatched,
+                status,
+                "client_cancelled",
+                code,
+                generation_id_observed=generation_id_observed,
+                generation_metadata_get_count=generation_metadata_get_count,
+                generation_metadata_wait_ms=generation_metadata_wait_ms,
+            )
+            raise
+        except ManagedMultimodalError as exc:
+            response_incomplete = (
+                dispatched
+                and not response_complete
+                and exc.code == "provider_multimodal_response_too_large"
+            )
+            status = (
+                "uncertain"
+                if response_incomplete
+                else "failed" if response_received or not dispatched else "uncertain"
+            )
+            self._record_failure(
+                prepared,
+                model_id,
+                dispatched,
+                status,
+                "provider_error" if response_received else "transport_error",
+                exc.code,
+                generation_id_observed=generation_id_observed,
+                generation_metadata_get_count=generation_metadata_get_count,
+                generation_metadata_wait_ms=generation_metadata_wait_ms,
+            )
+            raise ManagedMultimodalError(
+                exc.code,
+                str(exc),
+                status_code=exc.status_code,
+                receipt=self._delegate.receipt_summary(),
+            ) from exc
+        except Exception as exc:
+            status = "failed" if response_complete or not dispatched else "uncertain"
+            code = self._error_code(
+                exc, dispatched=dispatched, complete=response_complete
+            )
+            self._record_failure(
+                prepared,
+                model_id,
+                dispatched,
+                status,
+                "provider_error" if response_complete else "transport_error",
+                code,
+                generation_id_observed=generation_id_observed,
+                generation_metadata_get_count=generation_metadata_get_count,
+                generation_metadata_wait_ms=generation_metadata_wait_ms,
+            )
+            raise ManagedMultimodalError(
+                code,
+                "音频 Managed Provider 调用失败，系统未重试或切换目标。",
+                status_code=getattr(exc, "status_code", 502),
+                receipt=self._delegate.receipt_summary(),
+            ) from exc
+
+    async def _poll_openrouter_generation_model(
+        self,
+        *,
+        client: httpx.AsyncClient,
+        target: object,
+        generation_id: str,
+        observation: _GenerationMetadataObservation,
+    ) -> _GenerationMetadataObservation:
+        """Poll one dispatched generation with bounded read-only GETs only."""
+
+        transport = self.gateway.call_service.multimodal_transport
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        deadline = (
+            started + _OPENROUTER_GENERATION_METADATA_POLL_TIMEOUT_SECONDS
+        )
+        try:
+            for delay_seconds in _OPENROUTER_GENERATION_METADATA_POLL_DELAYS_SECONDS:
+                remaining_seconds = deadline - loop.time()
+                if remaining_seconds <= 0:
+                    break
+                if delay_seconds:
+                    if delay_seconds >= remaining_seconds:
+                        await asyncio.sleep(remaining_seconds)
+                        break
+                    await asyncio.sleep(delay_seconds)
+                remaining_seconds = deadline - loop.time()
+                if remaining_seconds <= 0:
+                    break
+                attempt_timeout = min(
+                    OPENROUTER_GENERATION_METADATA_REQUEST_TIMEOUT_SECONDS,
+                    remaining_seconds,
+                )
+                def mark_metadata_get_dispatched() -> None:
+                    observation.get_count += 1
+
+                try:
+                    async with asyncio.timeout(attempt_timeout):
+                        actual_model = await (
+                            transport.fetch_openrouter_generation_model(
+                                client,
+                                target,
+                                generation_id,
+                                on_dispatch=mark_metadata_get_dispatched,
+                            )
+                        )
+                except asyncio.CancelledError:
+                    raise
+                except ProviderEgressError:
+                    raise
+                except (TimeoutError, httpx.HTTPError):
+                    continue
+                if actual_model:
+                    observation.actual_model = actual_model
+                    return observation
+            return observation
+        finally:
+            observation.elapsed_ms = max(0.0, (loop.time() - started) * 1000)
+
     def finish_success(self) -> dict[str, Any]:
         self._delegate.finish("passed")
         return self._delegate.receipt_summary()
@@ -410,7 +761,7 @@ class ManagedMultimodalRun:
             if total > _MAX_IMAGE_RESPONSE_BYTES:
                 raise ManagedMultimodalError(
                     "provider_multimodal_response_too_large",
-                    "图片生成响应超过安全上限。",
+                    "多模态 Provider 响应超过安全上限。",
                     status_code=502,
                 )
             chunks.append(chunk)
@@ -459,13 +810,19 @@ class ManagedMultimodalRun:
             if status_code >= 500
             else "provider_workload_http_error",
         )
-        raise ManagedMultimodalError(code, "图片生成 Provider 请求失败。", status_code=status_code)
+        raise ManagedMultimodalError(
+            code,
+            "多模态 Provider 请求失败。",
+            status_code=status_code,
+        )
 
     @staticmethod
     def _error_code(exc: Exception, *, dispatched: bool, complete: bool) -> str:
         if isinstance(exc, ManagedMultimodalError):
             return exc.code
         if isinstance(exc, RouterServiceError):
+            return exc.code
+        if isinstance(exc, ProviderEgressError):
             return exc.code
         if isinstance(exc, (httpx.TimeoutException, TimeoutError)):
             return "provider_workload_timeout"
@@ -483,6 +840,10 @@ class ManagedMultimodalRun:
         status: str,
         result_class: str,
         code: str,
+        *,
+        generation_id_observed: bool | None = None,
+        generation_metadata_get_count: int | None = None,
+        generation_metadata_wait_ms: float | None = None,
     ) -> None:
         if prepared is not None:
             self.gateway.call_service.complete_call(
@@ -490,6 +851,9 @@ class ManagedMultimodalRun:
                 status=status,
                 result_class=result_class,
                 error_code=code,
+                generation_id_observed=generation_id_observed,
+                generation_metadata_get_count=generation_metadata_get_count,
+                generation_metadata_wait_ms=generation_metadata_wait_ms,
             )
         self._delegate.calls.append(
             WorkflowProviderCallReceipt(

@@ -119,6 +119,12 @@ interface CertificationSummary {
   batch_status?: string | null;
   adapter_contract?: AdapterContract | null;
   protocol_version?: string | null;
+  certified_input_formats?: string[];
+  certified_voice?: string | null;
+  certified_response_format?: "mp3" | "wav" | null;
+  provider_dispatch_state?: string | null;
+  retry_allowed?: boolean | null;
+  refresh_available?: boolean;
 }
 
 interface BindingSummary {
@@ -268,11 +274,13 @@ const MULTIMODAL_SHAPES = new Set<ExecutionShape>([
   "realtime_voice_session",
 ]);
 
-const R8B_CERTIFICATION_SHAPES = new Set<ExecutionShape>([
+const ACTIVE_MULTIMODAL_CERTIFICATION_SHAPES = new Set<ExecutionShape>([
   "chat_image_stream",
   "chat_document_stream",
   "vision_json_unary",
   "image_generation",
+  "audio_transcription",
+  "audio_speech",
 ]);
 
 const ADAPTER_OPTIONS: Record<AdapterContract, {
@@ -460,6 +468,7 @@ export default function ProviderWorkloadControlSettings({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [messageTone, setMessageTone] = useState<"success" | "warning">("success");
   const [error, setError] = useState("");
 
   const [connectionId, setConnectionId] = useState("");
@@ -592,6 +601,7 @@ export default function ProviderWorkloadControlSettings({
     setBusy(true);
     setError("");
     setMessage("");
+    setMessageTone("success");
     try {
       const response = await fetch(
         `/api/router/connections/${encodeURIComponent(connectionId)}/certifications/workloads`,
@@ -644,6 +654,44 @@ export default function ProviderWorkloadControlSettings({
     rerankAccessMode,
   ]);
 
+  const refreshCertificationEvidence = useCallback(async (certificationId: string) => {
+    setBusy(true);
+    setError("");
+    setMessage("");
+    setMessageTone("success");
+    try {
+      const response = await fetch(
+        `/api/router/certifications/workloads/${encodeURIComponent(certificationId)}/refresh`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-ModelMirror-CSRF": csrfToken,
+          },
+          body: JSON.stringify({ acknowledge_poll_only: true }),
+        },
+      );
+      if (!response.ok) throw new Error(await readError(response));
+      const result = (await response.json()) as CertificationSummary;
+      await load();
+      if (result.status === "passed") {
+        setMessageTone("success");
+        setMessage("实际模型证据已确认；本次只执行了上游元数据 GET。");
+      } else if (result.status === "failed") {
+        setError(
+          `实际模型证据核验失败：${result.error_code ?? "provider_workload_certification_failed"}`,
+        );
+      } else {
+        setMessageTone("warning");
+        setMessage(`实际模型证据仍待确认：${result.error_code ?? result.status}`);
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "只读刷新模型证据失败。");
+    } finally {
+      setBusy(false);
+    }
+  }, [csrfToken, load]);
+
   const addBinding = () => {
     const shape = ENTRY_SHAPES[entryId][0];
     const adapter = adaptersForShape(shape)[0]?.[0] ?? null;
@@ -668,6 +716,7 @@ export default function ProviderWorkloadControlSettings({
     setBusy(true);
     setError("");
     setMessage("");
+    setMessageTone("success");
     try {
       const response = await fetch(
         `/api/router/workload-control/policies/${entryId}`,
@@ -711,6 +760,7 @@ export default function ProviderWorkloadControlSettings({
     setBusy(true);
     setError("");
     setMessage("");
+    setMessageTone("success");
     try {
       const response = await fetch(
         `/api/router/workload-control/policies/${entryId}/activate`,
@@ -751,6 +801,8 @@ export default function ProviderWorkloadControlSettings({
     if (!selectedPolicy) return;
     setBusy(true);
     setError("");
+    setMessage("");
+    setMessageTone("success");
     try {
       const response = await fetch(
         `/api/router/workload-control/policies/${entryId}/deactivate`,
@@ -787,7 +839,7 @@ export default function ProviderWorkloadControlSettings({
     const fusionSelected = certificationShape === "fusion_native";
     const multimodalSelected = MULTIMODAL_SHAPES.has(certificationShape);
     const multimodalFoundationOnly = multimodalSelected
-      && !R8B_CERTIFICATION_SHAPES.has(certificationShape);
+      && !ACTIVE_MULTIMODAL_CERTIFICATION_SHAPES.has(certificationShape);
     const canConfirm = Boolean(
       connectionId &&
       certificationModel.trim() &&
@@ -795,6 +847,9 @@ export default function ProviderWorkloadControlSettings({
       (!multimodalSelected || certificationAdapter) &&
       !multimodalFoundationOnly,
     );
+    const certificationInputDisclosure = certificationShape === "audio_transcription"
+      ? "将上传仓库内固定、无敏感信息的合成 WAV；不会发送真实用户的会话、文件或工具参数。"
+      : "将发送仓库内固定、无敏感信息的合成素材（部分形态包含固定合成媒体）；不会发送真实用户的内容、文件或工具参数。";
     return (
       <section className="mb-6 overflow-hidden rounded-lg border border-violet-300/15 bg-ink-950/82 shadow-prism">
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-white/10 bg-violet-300/[0.04] px-5 py-5">
@@ -854,24 +909,31 @@ export default function ProviderWorkloadControlSettings({
             <h3 className="text-sm font-semibold text-white">最近资格</h3>
             <div className="mt-3 space-y-2">
               {certifications.length ? certifications.map((item) => <div className="rounded-lg border border-white/10 bg-white/[0.025] p-3" key={item.certification_id ?? `${item.connection_id}-${item.execution_shape}`}>
-                <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-semibold text-white">{item.connection_name} · {SHAPE_LABELS[item.execution_shape]}</p><span className={`rounded-full border px-2.5 py-1 text-xs ${item.status === "passed" ? "border-emerald-300/25 text-emerald-200" : "border-amber-300/25 text-amber-100"}`}>{item.status}</span></div>
+                <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-semibold text-white">{item.connection_name} · {SHAPE_LABELS[item.execution_shape]}</p><span className={`rounded-full border px-2.5 py-1 text-xs ${item.status === "passed" ? "border-emerald-300/25 text-emerald-200" : item.status === "failed" ? "border-rose-300/25 text-rose-100" : "border-amber-300/25 text-amber-100"}`}>{item.status}</span></div>
                 <p className="mt-2 break-all font-mono text-xs text-slate-300">{item.requested_model ?? "尚未运行"}</p>
                 <p className="mt-1 text-xs text-slate-400">{item.error_code ?? (item.total_tokens != null ? `${item.total_tokens} tokens` : "不保存合成输入或模型正文")}</p>
                 {item.rerank_access_mode ? <p className="mt-1 text-xs text-slate-500">访问方式：{item.rerank_access_mode}</p> : null}
                 {item.vector_dimension != null ? <p className="mt-1 text-xs text-slate-500">向量维度：{item.vector_dimension}</p> : null}
                 {item.batch_status ? <p className="mt-1 text-xs text-slate-500">Batch：{item.batch_status} · {item.batch_job_id}</p> : null}
+                {item.certified_input_formats?.length ? <p className="mt-1 text-xs text-slate-500">认证输入格式：{item.certified_input_formats.map((format) => format.toUpperCase()).join("、")}</p> : null}
+                {item.certified_voice ? <p className="mt-1 text-xs text-slate-500">认证声线：{item.certified_voice}</p> : null}
+                {item.certified_response_format ? <p className="mt-1 text-xs text-slate-500">认证外部输出格式：{item.certified_response_format.toUpperCase()}</p> : null}
                 {item.adapter_contract ? <p className="mt-1 break-all text-xs text-slate-500">Adapter：{item.adapter_contract} · {item.protocol_version ?? "协议待确认"}</p> : null}
+                {item.refresh_available && item.certification_id ? <div className="mt-3 rounded-lg border border-sky-300/15 bg-sky-300/[0.04] p-3">
+                  <p className="text-xs leading-5 text-sky-100">仅查询已保存 Generation ID 的实际模型证据；不会重新提交音频或产生第二次模型 POST。</p>
+                  <button className="mt-2 inline-flex items-center gap-2 rounded-full border border-sky-200/25 px-3 py-1.5 text-xs font-semibold text-sky-100 disabled:cursor-not-allowed disabled:opacity-40" disabled={busy} onClick={() => void refreshCertificationEvidence(item.certification_id!)} type="button"><RefreshCw className="h-3.5 w-3.5" />只读刷新模型证据</button>
+                </div> : null}
               </div>) : <p className="rounded-lg border border-dashed border-white/10 p-4 text-sm text-slate-400">尚无 Workload 资格记录。</p>}
             </div>
           </div>
         </div>
         {confirmCertification ? <div aria-modal="true" className="border-t border-amber-300/20 bg-amber-300/[0.05] p-5" role="dialog">
           <p className="text-sm font-semibold text-amber-100">确认一次真实付费资格调用</p>
-          <p className="mt-2 text-sm leading-6 text-slate-300">将发送固定合成输入；不发送用户会话、文件或工具参数。{certificationShape.startsWith("openrouter_batch_") ? "最多提交一个异步 Batch；后续只读轮询不会重放提交" : "最多一个 Provider POST、零自动重试"}，可能产生少量费用。</p>
+          <p className="mt-2 text-sm leading-6 text-slate-300">{certificationInputDisclosure}{certificationShape.startsWith("openrouter_batch_") ? "最多提交一个异步 Batch；后续只读轮询不会重放提交" : "最多一个 Provider POST、零自动重试"}，可能产生少量费用。</p>
           <div className="mt-3 flex gap-2"><button className="rounded-full bg-amber-200 px-4 py-2 text-sm font-semibold text-ink-950" disabled={busy} onClick={() => void runCertification()} type="button">确认并运行</button><button className="rounded-full border border-white/15 px-4 py-2 text-sm text-slate-200" onClick={() => setConfirmCertification(false)} type="button">取消</button></div>
         </div> : null}
-        {error ? <p className="m-5 flex items-center gap-2 rounded-lg border border-rose-300/20 bg-rose-300/10 p-3 text-sm text-rose-100"><CircleAlert className="h-4 w-4" />{error}</p> : null}
-        {message ? <p className="m-5 flex items-center gap-2 rounded-lg border border-emerald-300/20 bg-emerald-300/10 p-3 text-sm text-emerald-100"><BadgeCheck className="h-4 w-4" />{message}</p> : null}
+        {error ? <p className="m-5 flex items-center gap-2 rounded-lg border border-rose-300/20 bg-rose-300/10 p-3 text-sm text-rose-100" role="alert"><CircleAlert className="h-4 w-4" />{error}</p> : null}
+        {message ? <p className={`m-5 flex items-center gap-2 rounded-lg border p-3 text-sm ${messageTone === "success" ? "border-emerald-300/20 bg-emerald-300/10 text-emerald-100" : "border-amber-300/20 bg-amber-300/10 text-amber-100"}`} data-tone={messageTone} role="status">{messageTone === "success" ? <BadgeCheck className="h-4 w-4" /> : <CircleAlert className="h-4 w-4" />}{message}</p> : null}
       </section>
     );
   }
@@ -978,8 +1040,8 @@ export default function ProviderWorkloadControlSettings({
         <label className="mt-2 flex items-start gap-2 text-sm text-slate-200"><input checked={acknowledgeFailClosed} className="mt-1" onChange={(event) => setAcknowledgeFailClosed(event.target.checked)} type="checkbox" />理解并接受 Managed 不可用时失败关闭</label>
         <div className="mt-4 flex gap-2"><button className="rounded-full bg-amber-200 px-4 py-2 text-sm font-semibold text-ink-950 disabled:cursor-not-allowed disabled:opacity-40" disabled={busy || !confirmNoOpenP0P1 || !acknowledgeFailClosed} onClick={() => void activate()} type="button">确认激活</button><button className="rounded-full border border-white/15 px-4 py-2 text-sm text-slate-200" disabled={busy} onClick={() => setConfirmActivation(false)} type="button">取消</button></div>
       </div> : null}
-      {error ? <p className="m-5 flex items-center gap-2 rounded-lg border border-rose-300/20 bg-rose-300/10 p-3 text-sm text-rose-100"><CircleAlert className="h-4 w-4" />{error}</p> : null}
-      {message ? <p className="m-5 flex items-center gap-2 rounded-lg border border-emerald-300/20 bg-emerald-300/10 p-3 text-sm text-emerald-100"><BadgeCheck className="h-4 w-4" />{message}</p> : null}
+      {error ? <p className="m-5 flex items-center gap-2 rounded-lg border border-rose-300/20 bg-rose-300/10 p-3 text-sm text-rose-100" role="alert"><CircleAlert className="h-4 w-4" />{error}</p> : null}
+      {message ? <p className={`m-5 flex items-center gap-2 rounded-lg border p-3 text-sm ${messageTone === "success" ? "border-emerald-300/20 bg-emerald-300/10 text-emerald-100" : "border-amber-300/20 bg-amber-300/10 text-amber-100"}`} data-tone={messageTone} role="status">{messageTone === "success" ? <BadgeCheck className="h-4 w-4" /> : <CircleAlert className="h-4 w-4" />}{message}</p> : null}
     </section>
   );
 }

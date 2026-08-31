@@ -24,6 +24,7 @@ from server.multimodal.tts import (
     MINIMAX_SYSTEM_SPEECH_VOICES,
     OPENAI_SPEECH_PROFILES,
     OpenRouterTtsAdapter,
+    SpeechResult,
     SpeechService,
     speech_output_format,
 )
@@ -682,7 +683,55 @@ async def test_speech_endpoint_validates_profile_and_returns_safe_headers(
     assert success.headers["x-modelmirror-actual-model"] == MODEL_ID
     assert success.headers["x-modelmirror-provider"] == "openrouter"
     assert success.headers["x-modelmirror-cost-kind"] == "unavailable"
+    assert success.headers["x-modelmirror-execution-mode"] == "legacy"
+    assert success.headers["x-modelmirror-generation-id"] == "generation-safe"
+    assert "x-modelmirror-provider-dispatch-state" not in success.headers
+    assert success.headers["x-modelmirror-fallback-reason-codes"] == "[]"
     assert success.content == MP3_BYTES
+
+
+@pytest.mark.asyncio
+async def test_speech_endpoint_never_exposes_managed_generation_id() -> None:
+    class FakeManagedSpeechService:
+        async def synthesize(self, **_kwargs: Any) -> SpeechResult:
+            return SpeechResult(
+                content=MP3_BYTES,
+                requested_model=MODEL_ID,
+                actual_model=MODEL_ID,
+                provider="openrouter",
+                request_id="managed-run-safe",
+                generation_id="generation-sensitive-upstream",
+                output_bytes=len(MP3_BYTES),
+                response_format="mp3",
+                execution_mode="managed",
+                provider_route_receipts=[],
+            )
+
+    configure_speech_service(FakeManagedSpeechService())  # type: ignore[arg-type]
+    transport = httpx.ASGITransport(app=app)
+    try:
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://testserver",
+        ) as client:
+            response = await client.post(
+                "/api/multimodal/speech",
+                headers={"Idempotency-Key": "managed-generation-header-test"},
+                json={
+                    "model_id": MODEL_ID,
+                    "input": "Hello",
+                    "voice": VOICE,
+                    "response_format": "mp3",
+                    "speed": 1.0,
+                },
+            )
+    finally:
+        configure_speech_service(None)
+
+    assert response.status_code == 200
+    assert response.headers["x-modelmirror-execution-mode"] == "managed"
+    assert "x-modelmirror-generation-id" not in response.headers
+    assert "generation-sensitive-upstream" not in json.dumps(dict(response.headers))
 
 
 @pytest.mark.asyncio

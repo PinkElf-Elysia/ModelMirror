@@ -560,6 +560,7 @@ describe("WorkflowEditor Xpert entry repair", () => {
   });
 
   it("keeps the first-save confirmation visible after navigating to the created workflow", async () => {
+    const timeoutSpy = vi.spyOn(window, "setTimeout");
     render(
       <MemoryRouter initialEntries={["/workflow"]}>
         <WorkflowLocationProbe />
@@ -579,6 +580,13 @@ describe("WorkflowEditor Xpert entry repair", () => {
     });
     expect(await screen.findByText("服务端草稿已保存；本地副本已保留")).toBeVisible();
     expect(await screen.findByDisplayValue("新建 AI 流水线")).toBeInTheDocument();
+    expect(
+      timeoutSpy.mock.calls.some(([, delay]) => delay === 4000),
+    ).toBe(true);
+    expect(
+      timeoutSpy.mock.calls.some(([, delay]) => delay === 1800),
+    ).toBe(false);
+    timeoutSpy.mockRestore();
   });
 
   it("recognizes global variables in the legacy aggregator migration UI", async () => {

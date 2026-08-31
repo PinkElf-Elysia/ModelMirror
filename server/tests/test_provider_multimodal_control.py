@@ -53,6 +53,18 @@ def test_multimodal_dispatch_claim_is_one_shot_across_repository_instances(
     assert results.count("provider_multimodal_dispatch_already_claimed") == 1
 
 
+def test_multimodal_dispatch_claim_rejects_sequential_repeat(tmp_path: Path) -> None:
+    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    claim_session(repository)
+    dispatch(repository)
+
+    with pytest.raises(
+        RouterRepositoryError,
+        match="provider_multimodal_dispatch_already_claimed",
+    ):
+        dispatch(repository)
+
+
 def test_known_async_operation_survives_restart_for_polling_only(tmp_path: Path) -> None:
     repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
     claim_session(repository)

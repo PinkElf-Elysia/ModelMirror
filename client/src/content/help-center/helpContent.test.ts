@@ -8,6 +8,7 @@ import {
   helpModules,
   helpSections,
   emailReviewBaseline,
+  providerMultimodalR8cBaseline,
   ragDiversityBaseline,
   remoteMcpReviewBaseline,
   rssReviewBaseline,
@@ -66,8 +67,9 @@ describe("help center content catalog", () => {
     expect(helpArticles.find((article) => article.slug === "build-first-workflow")?.verifiedCommit).toBe(agentWorkflowTutorialBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "build-first-workflow")?.verifiedDate).toBe(agentWorkflowTutorialBaseline.date);
     expect(helpArticles.find((article) => article.slug === "modules-and-terms")?.verifiedCommit).toBe(helpCenterCloseoutBaseline.commit);
-    expect(helpArticles.find((article) => article.slug === "recover-unavailable-feature")?.verifiedCommit).toBe(helpCenterCloseoutBaseline.commit);
-    expect(helpArticles.find((article) => article.slug === "recover-unavailable-feature")?.verifiedDate).toBe(helpCenterCloseoutBaseline.date);
+    expect(helpArticles.find((article) => article.slug === "recover-unavailable-feature")?.verifiedCommit).toBe(providerMultimodalR8cBaseline.commit);
+    expect(helpArticles.find((article) => article.slug === "recover-unavailable-feature")?.verifiedDate).toBe(providerMultimodalR8cBaseline.date);
+    expect(helpArticles.find((article) => article.slug === "recover-unavailable-feature")?.content).toContain("只读刷新模型证据");
     expect(helpArticles.find((article) => article.slug === "review-remote-mcp-auth")?.verifiedCommit).toBe(remoteMcpReviewBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "subscribe-rss-workflow")?.verifiedCommit).toBe(rssReviewBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "subscribe-email-workflow")?.verifiedCommit).toBe(emailReviewBaseline.commit);
@@ -107,6 +109,7 @@ describe("help center content catalog", () => {
     expect(helpArticles.find((article) => article.slug === "create-repeatable-agent")?.content).toContain("/help-center/b5e0e85e/agent-preflight-ready.png");
     expect(helpArticles.find((article) => article.slug === "build-first-workflow")?.content).toContain("/help-center/b5e0e85e/workflow-default-template.png");
     expect(helpArticles.find((article) => article.slug === "build-first-workflow")?.content).toContain("/help-center/b5e0e85e/workflow-draft-saved.png");
+    expect(helpArticles.find((article) => article.slug === "recover-unavailable-feature")?.content).toContain("/help-center/ae284fbb/provider-audio-certification-evidence.png");
   });
 
   it("searches formal articles, indexes, modules, and second-level topics", () => {
@@ -128,6 +131,7 @@ describe("help center content catalog", () => {
     expect(searchHelpContent("已处理失败").some((entry) => entry.id === "handle-workflow-node-failure")).toBe(true);
     expect(searchHelpContent("发布预检").some((entry) => entry.id === "create-repeatable-agent")).toBe(true);
     expect(searchHelpContent("保存草稿").some((entry) => entry.id === "build-first-workflow")).toBe(true);
+    expect(searchHelpContent("只读刷新模型证据").some((entry) => entry.id === "recover-unavailable-feature")).toBe(true);
     const ids = getHelpSearchEntries().map((entry) => `${entry.kind}:${entry.id}`);
     expect(new Set(ids).size).toBe(ids.length);
   });

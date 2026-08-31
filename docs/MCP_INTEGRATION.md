@@ -1,6 +1,6 @@
 # MCP 原生集成说明
 
-最后更新日期：2026-08-06
+最后更新日期：2026-08-31
 维护人：模镜团队
 
 ## 0. 产品入口与预算层级
@@ -94,7 +94,7 @@ Agent 画布使用 `toolset_resource -> workflow_agent` 的 `toolset` 绑定边�
 - 批次 18B 已在同一断网文件 sidecar 中冻结 llm-context、Excel MCP 与 Dingo 的受控兼容层，并通过 staged 镜像与用户验收；三项已晋级 ready，生产文件 allowlist 仅增加这三个精确 ID。固定输入、输出副本与规则模式边界见 [18B 受控文件分析](./MCP_WAVE18B_FILE_ANALYSIS.md)。
 - 批次 19A 已在 `mcp-database` 中冻结 Prometheus、Qdrant 与 Elasticsearch 的原生只读兼容层，并通过真实服务、原生只读凭据、429、超时、拒写、清理与用户验收；三项已晋级 ready 并加入精确数据库 allowlist。边界见 [19A 只读数据服务](./MCP_WAVE19A_DATA_SERVICES.md)。
 - 批次 19B 已在同一 sidecar 中完成 Milvus、Neo4j 与 ArcadeDB 的固定原生只读 facade，并在 Wave 23 最新主线基线重新通过真实服务、原生只读账号、代表调用、429、超时、拒写、重启与清理验收。用户已明确批准三项晋级 `ready` 并进入生产数据库精确 allowlist；边界见 [19B 图与向量数据库](./MCP_WAVE19B_GRAPH_VECTOR_SERVICES.md)。
-- 批次 20 按 Codebase Memory → CodeGraphContext → GoGraph 顺序复审，只实现 GoGraph v1.5.6 的封存 Go 仓库、一次性内存索引和六工具 facade；另外两项转为 superseded blocked。GoGraph 已通过真实断网镜像、隔离 UDS 与用户验收并进入精确默认 allowlist，边界见 [20 代码索引](./MCP_WAVE20_CODE_INDEX.md)。
+- 批次 20 按 Codebase Memory → CodeGraphContext → GoGraph 顺序复审，历史实现固定为 GoGraph v1.5.6 的封存 Go 仓库、一次性内存索引和六工具 facade；另外两项转为 superseded blocked。该 v1.5.6 镜像在 2026-08-11 通过真实断网镜像、隔离 UDS 与用户验收，但上游 Release 资产截至 2026-08-31 已不可用，当前 Dockerfile 冷构建返回 404。目录和 allowlist 中的 `ready` 是遗留运行时元数据，不代表当前可重建；v1.5.6 不是现行版本要求，恢复供应链并重新验收前不得用于新部署交付声明。边界、历史证据与恢复门槛见 [20 代码索引](./MCP_WAVE20_CODE_INDEX.md)。
 - 批次 21—22 暂缓实现：状态化资源等待持久化、所有权、配额、保留/删除和写入审批基础；多租户/OAuth 等待不可伪造主体、租户隔离、PKCE/state、刷新/撤销/解绑和最小只读 Scope。当前没有运行时或真实凭据，恢复条件见 [21—22 暂缓实现收口](./MCP_WAVE21_22_DEFERRED.md)。
 - Wave 25A 已为 DexPaprika、Chess 与 AniList 冻结匿名公共读取兼容层，完成隔离双轮与用户验收，并只把三个精确 ID 加入生产 allowlist；MCP-NixOS 已 blocked。固定身份、Schema、真实调用和回退边界见 [Wave 25A 匿名公共读取](./MCP_WAVE25A_ANONYMOUS_PUBLIC_READ.md)。
 - 批次 16A/16B 的冻结身份、Schema、真实调用和回退证据分别见 [16A 匿名公共读取](./MCP_WAVE16A_PUBLIC_READ.md) 与 [16B 研究与安全公共读取](./MCP_WAVE16B_RESEARCH_SECURITY.md)。

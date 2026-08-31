@@ -6873,6 +6873,7 @@ function WorkflowCanvas({
 
   useEffect(() => {
     if (!routedSaveNotice) return;
+    setSaveNotice(routedSaveNotice);
     const timer = window.setTimeout(() => {
       setSaveNotice("");
       navigate(location.pathname, { replace: true, state: null });
@@ -7883,6 +7884,7 @@ function WorkflowCanvas({
       updatedAt: new Date().toISOString(),
     });
     setIsSaving(true);
+    const isFirstServerSave = !onSave && workflowId === "draft";
     let savedProjectId: string | null = null;
     try {
       if (onSave) {
@@ -7900,7 +7902,9 @@ function WorkflowCanvas({
     } finally {
       setIsSaving(false);
     }
-    window.setTimeout(() => setSaveNotice(""), 1800);
+    if (!isFirstServerSave || !savedProjectId) {
+      window.setTimeout(() => setSaveNotice(""), 1800);
+    }
     return savedProjectId;
   }
 

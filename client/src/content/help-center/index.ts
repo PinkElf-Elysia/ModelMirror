@@ -94,6 +94,7 @@ export const ragFormalIntegrityBaseline = { commit: "be056e99", date: "2026-08-2
 export const skillExperienceBaseline = { commit: "bf486f25", date: "2026-08-27" };
 export const emailReviewBaseline = { commit: "afda87ff", date: "2026-08-28" };
 export const workflowErrorRoutingBaseline = { commit: "b5e0e85e", date: "2026-08-29" };
+export const providerMultimodalR8cBaseline = { commit: "ae284fbb", date: "2026-08-31" };
 
 export const helpContentTypeLabels: Record<HelpContentType, string> = {
   tutorial: "入门教程",
@@ -260,10 +261,10 @@ export const helpArticles: HelpArticle[] = [
     contentType: "how-to",
     audience: "遇到按钮不可用、能力未开放或需要配置提示的用户",
     estimatedMinutes: 4,
-    keywords: ["不可用", "未开放", "需要配置", "待适配", "开关未开启", "恢复", "替代入口"],
-    relatedRoutes: ["/models"],
-    verifiedCommit: helpCenterCloseoutBaseline.commit,
-    verifiedDate: helpCenterCloseoutBaseline.date,
+    keywords: ["不可用", "未开放", "需要配置", "待适配", "开关未开启", "恢复", "替代入口", "语音转写", "语音合成", "实际模型证据", "只读刷新模型证据"],
+    relatedRoutes: ["/models", "/settings", "/chat/:modelId?operation=transcribe", "/chat/:modelId?operation=synthesize_speech"],
+    verifiedCommit: providerMultimodalR8cBaseline.commit,
+    verifiedDate: providerMultimodalR8cBaseline.date,
     content: recoverUnavailableFeature,
     nextSlug: "review-remote-mcp-auth",
   },

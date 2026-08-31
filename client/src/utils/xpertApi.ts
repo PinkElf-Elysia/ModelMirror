@@ -18,7 +18,10 @@ import {
   type XpertVersion,
   type XpertWorkflowDefinition,
 } from "../types/xpert";
-import { type WorkflowDefinition } from "../types/workflow";
+import {
+  type ProviderRouteCallReceipt,
+  type WorkflowDefinition,
+} from "../types/workflow";
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
@@ -191,6 +194,135 @@ async function readResponseError(response: Response) {
   return `请求失败：${response.status}`;
 }
 
+export interface XpertAudioProviderRouteReceipt {
+  contract_version: string;
+  entry_id: "xpert_transcription" | "xpert_speech";
+  routing_mode: "managed_required";
+  run_reference: string;
+  status: "running" | "passed" | "failed" | "uncertain" | "cancelled";
+  call_count: number;
+  reason_codes: string[];
+  calls: ProviderRouteCallReceipt[];
+}
+
+export class XpertAudioRequestError extends Error {
+  readonly providerRouteReceipt: XpertAudioProviderRouteReceipt | null;
+
+  constructor(
+    message: string,
+    providerRouteReceipt: XpertAudioProviderRouteReceipt | null,
+  ) {
+    super(message);
+    this.name = "XpertAudioRequestError";
+    this.providerRouteReceipt = providerRouteReceipt;
+  }
+}
+
+function parseXpertAudioProviderRouteReceipt(
+  value: unknown,
+): XpertAudioProviderRouteReceipt | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Record<string, unknown>;
+  const statuses = new Set([
+    "running",
+    "passed",
+    "failed",
+    "uncertain",
+    "cancelled",
+  ]);
+  if (
+    typeof candidate.contract_version !== "string" ||
+    !["xpert_transcription", "xpert_speech"].includes(
+      String(candidate.entry_id),
+    ) ||
+    candidate.routing_mode !== "managed_required" ||
+    typeof candidate.run_reference !== "string" ||
+    typeof candidate.status !== "string" ||
+    !statuses.has(candidate.status) ||
+    typeof candidate.call_count !== "number" ||
+    !Array.isArray(candidate.reason_codes) ||
+    !candidate.reason_codes.every((item) => typeof item === "string") ||
+    !Array.isArray(candidate.calls)
+  ) {
+    return null;
+  }
+  const calls: ProviderRouteCallReceipt[] = [];
+  for (const value of candidate.calls) {
+    if (!value || typeof value !== "object") return null;
+    const call = value as Record<string, unknown>;
+    if (
+      typeof call.call_sequence !== "number" ||
+      typeof call.model_id !== "string" ||
+      typeof call.status !== "string" ||
+      !["passed", "failed", "uncertain", "cancelled"].includes(call.status)
+    ) {
+      return null;
+    }
+    calls.push({
+      call_sequence: call.call_sequence,
+      model_id: call.model_id,
+      ...(typeof call.actual_model === "string" || call.actual_model === null
+        ? { actual_model: call.actual_model }
+        : {}),
+      ...(typeof call.dispatched === "boolean"
+        ? { dispatched: call.dispatched }
+        : {}),
+      status: call.status as ProviderRouteCallReceipt["status"],
+      ...(typeof call.error_code === "string" || call.error_code === null
+        ? { error_code: call.error_code }
+        : {}),
+      ...(typeof call.prompt_tokens === "number" || call.prompt_tokens === null
+        ? { prompt_tokens: call.prompt_tokens }
+        : {}),
+      ...(typeof call.completion_tokens === "number" ||
+      call.completion_tokens === null
+        ? { completion_tokens: call.completion_tokens }
+        : {}),
+      ...(typeof call.total_tokens === "number" || call.total_tokens === null
+        ? { total_tokens: call.total_tokens }
+        : {}),
+    });
+  }
+  return {
+    contract_version: candidate.contract_version,
+    entry_id: candidate.entry_id as XpertAudioProviderRouteReceipt["entry_id"],
+    routing_mode: "managed_required",
+    run_reference: candidate.run_reference,
+    status: candidate.status as XpertAudioProviderRouteReceipt["status"],
+    call_count: candidate.call_count,
+    reason_codes: [...candidate.reason_codes] as string[],
+    calls,
+  };
+}
+
+async function readXpertAudioError(
+  response: Response,
+): Promise<XpertAudioRequestError> {
+  let receipt: XpertAudioProviderRouteReceipt | null = null;
+  try {
+    const payload = await response.clone().json() as { detail?: unknown };
+    const detail = payload.detail;
+    if (detail && typeof detail === "object" && "route_receipt" in detail) {
+      receipt = parseXpertAudioProviderRouteReceipt(
+        (detail as { route_receipt?: unknown }).route_receipt,
+      );
+    }
+  } catch {
+    // Error text still follows the existing sanitized response parser.
+  }
+  return new XpertAudioRequestError(await readResponseError(response), receipt);
+}
+
+function readXpertAudioReceiptHeader(response: Response) {
+  const raw = response.headers.get("X-ModelMirror-Provider-Route-Receipt");
+  if (!raw) return null;
+  try {
+    return parseXpertAudioProviderRouteReceipt(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
 export function createXpertConversation(xpertId: string, title = "") {
   return requestJson<XpertConversation>(
     `/api/xperts/${xpertId}/conversations`,
@@ -251,11 +383,17 @@ export interface XpertAudioCapabilities {
     model_id: string;
     voice: string;
     max_text_chars: number;
+    available: boolean;
+    routing_mode: "legacy" | "managed_required" | "degraded_required";
+    reason_code: string;
   };
   speech_to_text: {
     enabled: boolean;
     model_id: string;
     max_file_bytes: number;
+    available: boolean;
+    routing_mode: "legacy" | "managed_required" | "degraded_required";
+    reason_code: string;
   };
   gateway_configured: boolean;
 }
@@ -278,10 +416,25 @@ export async function transcribeXpertAudio(
   const body = new FormData();
   body.append("version", String(version));
   body.append("file", file);
-  return requestJson<{ text: string; model_id: string; xpert_version: number }>(
-    `/api/xperts/${xpertId}/audio/transcriptions`,
-    { method: "POST", body },
-  );
+  const response = await fetch(`/api/xperts/${xpertId}/audio/transcriptions`, {
+    method: "POST",
+    headers: { "Idempotency-Key": window.crypto.randomUUID() },
+    body,
+  });
+  if (!response.ok) throw await readXpertAudioError(response);
+  const payload = await response.json() as {
+    text: string;
+    model_id: string;
+    xpert_version: number;
+    execution_mode?: "managed" | "legacy";
+    provider_route_receipts?: unknown;
+  };
+  const receipts = Array.isArray(payload.provider_route_receipts)
+    ? payload.provider_route_receipts
+      .map(parseXpertAudioProviderRouteReceipt)
+      .filter((item): item is XpertAudioProviderRouteReceipt => item !== null)
+    : [];
+  return { ...payload, provider_route_receipts: receipts };
 }
 
 export async function synthesizeXpertSpeech(
@@ -289,11 +442,22 @@ export async function synthesizeXpertSpeech(
   version: number,
   text: string,
 ) {
+  const request = jsonRequest("POST", { text, version });
+  const headers = new Headers(request.headers);
+  headers.set("Idempotency-Key", window.crypto.randomUUID());
   const response = await fetch(`/api/xperts/${xpertId}/audio/speech`, {
-    ...jsonRequest("POST", { text, version }),
+    ...request,
+    headers,
   });
-  if (!response.ok) throw new Error(await readResponseError(response));
-  return response.blob();
+  if (!response.ok) throw await readXpertAudioError(response);
+  return {
+    blob: await response.blob(),
+    executionMode:
+      response.headers.get("X-ModelMirror-Execution-Mode") === "managed"
+        ? "managed" as const
+        : "legacy" as const,
+    providerRouteReceipt: readXpertAudioReceiptHeader(response),
+  };
 }
 
 export function listXpertMemories(

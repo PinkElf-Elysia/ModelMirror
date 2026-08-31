@@ -1643,8 +1643,25 @@ async def test_published_xpert_audio_features_use_fixed_version_gateway_contract
         params={"version": 1},
     )
     assert capabilities.status_code == 200, capabilities.text
-    assert capabilities.json()["text_to_speech"]["model_id"] == "text-to-speech-model"
-    assert capabilities.json()["speech_to_text"]["model_id"] == "speech-to-text-model"
+    capability_payload = capabilities.json()
+    assert capability_payload["gateway_configured"] is True
+    assert capability_payload["text_to_speech"] == {
+        "enabled": True,
+        "model_id": "text-to-speech-model",
+        "voice": "calm",
+        "max_text_chars": 4_000,
+        "available": True,
+        "routing_mode": "legacy",
+        "reason_code": "xpert_audio_legacy_gateway_available",
+    }
+    assert capability_payload["speech_to_text"] == {
+        "enabled": True,
+        "model_id": "speech-to-text-model",
+        "max_file_bytes": 10 * 1024 * 1024,
+        "available": True,
+        "routing_mode": "legacy",
+        "reason_code": "xpert_audio_legacy_gateway_available",
+    }
 
     transcription = await client.post(
         f"/api/xperts/{created.id}/audio/transcriptions",
@@ -1652,7 +1669,12 @@ async def test_published_xpert_audio_features_use_fixed_version_gateway_contract
         files={"file": ("request.wav", b"wave-data", "audio/wav")},
     )
     assert transcription.status_code == 200, transcription.text
-    assert transcription.json()["text"] == "transcribed request"
+    transcription_payload = transcription.json()
+    assert transcription_payload["text"] == "transcribed request"
+    assert transcription_payload["execution_mode"] == "legacy"
+    assert transcription_payload["provider_route_receipts"] == []
+    assert transcription_payload["provider_dispatch_state"] is None
+    assert transcription_payload["fallback_reason_codes"] == []
 
     speech = await client.post(
         f"/api/xperts/{created.id}/audio/speech",
@@ -1661,12 +1683,340 @@ async def test_published_xpert_audio_features_use_fixed_version_gateway_contract
     assert speech.status_code == 200, speech.text
     assert speech.content == b"fake-mp3"
     assert speech.headers["x-modelmirror-xpert-version"] == "1"
+    assert speech.headers["x-modelmirror-execution-mode"] == "legacy"
+    assert "x-modelmirror-provider-dispatch-state" not in speech.headers
+    assert json.loads(
+        speech.headers["x-modelmirror-fallback-reason-codes"]
+    ) == []
     assert [item[0] for item in captured] == [
         "https://gateway.example/v1/audio/transcriptions",
         "https://gateway.example/v1/audio/speech",
     ]
     assert captured[1][1]["json"]["model"] == "text-to-speech-model"
     assert captured[1][1]["json"]["voice"] == "calm"
+
+
+@pytest.mark.asyncio
+async def test_xpert_audio_capabilities_fail_closed_per_entry_and_exact_model(
+    client: httpx.AsyncClient,
+    xpert_store: XpertStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_status_calls: list[tuple[str, str, str]] = []
+
+    class FakeControl:
+        def public_status(
+            self,
+            entry_id: str,
+            model_id: str,
+            execution_shape: str,
+        ):
+            public_status_calls.append((entry_id, model_id, execution_shape))
+            return type(
+                "PublicStatus",
+                (),
+                {
+                    "available": model_id == "qualified-tts-model",
+                    "status": "managed_required",
+                    "reason_code": (
+                        "provider_workload_available"
+                        if model_id == "qualified-tts-model"
+                        else "provider_workload_binding_missing"
+                    ),
+                },
+            )()
+
+    class FakeManagedGateway:
+        call_service = type(
+            "CallService",
+            (),
+            {"control": FakeControl()},
+        )()
+
+        @staticmethod
+        def routing_mode(entry_id: str) -> str:
+            return (
+                "legacy"
+                if entry_id == "xpert_transcription"
+                else "managed_required"
+            )
+
+    monkeypatch.setattr(
+        main_module.ManagedMultimodalGateway,
+        "for_router",
+        lambda _service: FakeManagedGateway(),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "get_llm_gateway_config",
+        lambda: ("", ""),
+    )
+
+    created = xpert_store.create_xpert(name="Audio Capability Isolation")
+    draft = created.draft.model_copy(deep=True)
+    draft.features.speech_to_text.enabled = True
+    draft.features.speech_to_text.model_id = "legacy-stt-model"
+    draft.features.text_to_speech.enabled = True
+    draft.features.text_to_speech.model_id = "unqualified-tts-model"
+    updated = xpert_store.update_xpert(
+        created.id,
+        {"draft": draft.model_dump(mode="json")},
+    )
+    xpert_store.publish_xpert(
+        created.id,
+        expected_revision=updated.draft_revision,
+    )
+
+    response = await client.get(
+        f"/api/xperts/{created.id}/audio-capabilities",
+        params={"version": 1},
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["gateway_configured"] is True
+    assert payload["speech_to_text"]["available"] is False
+    assert payload["speech_to_text"]["routing_mode"] == "legacy"
+    assert (
+        payload["speech_to_text"]["reason_code"]
+        == "xpert_audio_legacy_gateway_not_configured"
+    )
+    assert payload["text_to_speech"]["available"] is False
+    assert payload["text_to_speech"]["routing_mode"] == "managed_required"
+    assert (
+        payload["text_to_speech"]["reason_code"]
+        == "provider_workload_binding_missing"
+    )
+    assert public_status_calls == [
+        ("xpert_speech", "unqualified-tts-model", "audio_speech")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_published_xpert_audio_uses_managed_entry_and_idempotency(
+    client: httpx.AsyncClient,
+    xpert_store: XpertStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[tuple[str, dict[str, Any]]] = []
+
+    def receipt(entry_id: str, status: str) -> dict[str, Any]:
+        return {
+            "contract_version": "modelmirror-provider-workload-routing-v1",
+            "entry_id": entry_id,
+            "routing_mode": "managed_required",
+            "run_reference": f"workrun_{entry_id}_{status}",
+            "status": status,
+            "call_count": 1,
+            "reason_codes": (
+                [] if status == "passed" else ["provider_workload_call_failed"]
+            ),
+            "calls": [
+                {
+                    "call_sequence": 1,
+                    "model_id": f"provider/{entry_id}",
+                    "dispatched": True,
+                    "status": status,
+                }
+            ],
+        }
+
+    class FakeManagedGateway:
+        @staticmethod
+        def routing_mode(_entry_id: str) -> str:
+            return "managed_required"
+
+    class FakeTranscriptionService:
+        async def transcribe(self, **kwargs: Any):
+            captured.append(("transcription", kwargs))
+            if kwargs["filename"] == "fail.wav":
+                raise main_module.MultimodalServiceError(
+                    "provider_call_failed",
+                    "Managed transcription failed.",
+                    status_code=502,
+                    route_receipt=receipt("xpert_transcription", "failed"),
+                )
+            return type(
+                "Result",
+                (),
+                {
+                    "text": "managed transcript",
+                    "actual_model": kwargs["model_id"],
+                    "execution_mode": "managed",
+                    "provider_route_receipts": [
+                        receipt("xpert_transcription", "passed")
+                    ],
+                },
+            )()
+
+    class FakeSpeechService:
+        async def synthesize(self, **kwargs: Any):
+            captured.append(("speech", kwargs))
+            if kwargs["text"] == "Fail this response.":
+                raise main_module.MultimodalServiceError(
+                    "provider_call_failed",
+                    "Managed speech failed.",
+                    status_code=502,
+                    route_receipt=receipt("xpert_speech", "failed"),
+                )
+            return type(
+                "Result",
+                (),
+                {
+                    "content": b"ID3-managed",
+                    "response_format": "mp3",
+                    "execution_mode": "managed",
+                    "provider_route_receipts": [
+                        receipt("xpert_speech", "passed")
+                    ],
+                },
+            )()
+
+    monkeypatch.setattr(
+        main_module.ManagedMultimodalGateway,
+        "for_router",
+        lambda _service: FakeManagedGateway(),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "get_transcription_service",
+        lambda: FakeTranscriptionService(),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "get_speech_service",
+        lambda: FakeSpeechService(),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "get_llm_gateway_config",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("managed Xpert audio must not read the legacy gateway")
+        ),
+    )
+
+    created = xpert_store.create_xpert(name="Managed Audio Features")
+    draft = created.draft.model_copy(deep=True)
+    draft.features.speech_to_text.enabled = True
+    draft.features.speech_to_text.model_id = "managed-stt-model"
+    draft.features.text_to_speech.enabled = True
+    draft.features.text_to_speech.model_id = "managed-tts-model"
+    draft.features.text_to_speech.voice = "managed-voice"
+    updated = xpert_store.update_xpert(
+        created.id,
+        {"draft": draft.model_dump(mode="json")},
+    )
+    xpert_store.publish_xpert(
+        created.id,
+        expected_revision=updated.draft_revision,
+    )
+
+    transcription = await client.post(
+        f"/api/xperts/{created.id}/audio/transcriptions",
+        headers={"Idempotency-Key": "xpert-stt-key"},
+        data={"version": "1"},
+        files={"file": ("request.wav", b"wave-data", "audio/wav")},
+    )
+    speech = await client.post(
+        f"/api/xperts/{created.id}/audio/speech",
+        headers={"Idempotency-Key": "xpert-tts-key"},
+        json={"text": "Read this response.", "version": 1},
+    )
+
+    assert transcription.status_code == 200, transcription.text
+    assert transcription.json()["execution_mode"] == "managed"
+    assert transcription.json()["provider_route_receipts"] == [
+        receipt("xpert_transcription", "passed")
+    ]
+    assert transcription.json()["provider_dispatch_state"] == "confirmed"
+    assert transcription.json()["fallback_reason_codes"] == []
+    assert speech.status_code == 200, speech.text
+    assert speech.headers["x-modelmirror-execution-mode"] == "managed"
+    assert (
+        speech.headers["x-modelmirror-provider-dispatch-state"]
+        == "confirmed"
+    )
+    assert json.loads(
+        speech.headers["x-modelmirror-fallback-reason-codes"]
+    ) == []
+    assert json.loads(
+        speech.headers["x-modelmirror-provider-route-receipt"]
+    ) == receipt("xpert_speech", "passed")
+    assert captured[0][1]["managed_entry_id"] == "xpert_transcription"
+    assert captured[0][1]["idempotency_key"] == "xpert-stt-key"
+    assert captured[1][1]["managed_entry_id"] == "xpert_speech"
+    assert captured[1][1]["idempotency_key"] == "xpert-tts-key"
+
+    failed_transcription = await client.post(
+        f"/api/xperts/{created.id}/audio/transcriptions",
+        headers={"Idempotency-Key": "xpert-stt-failed-key"},
+        data={"version": "1"},
+        files={"file": ("fail.wav", b"wave-data", "audio/wav")},
+    )
+    failed_speech = await client.post(
+        f"/api/xperts/{created.id}/audio/speech",
+        headers={"Idempotency-Key": "xpert-tts-failed-key"},
+        json={"text": "Fail this response.", "version": 1},
+    )
+
+    assert failed_transcription.status_code == 502
+    assert failed_transcription.json()["detail"] == {
+        "code": "provider_call_failed",
+        "message": "Managed transcription failed.",
+        "provider_dispatch_state": "confirmed",
+        "fallback_reason_codes": [],
+        "route_receipt": receipt("xpert_transcription", "failed"),
+    }
+    assert failed_speech.status_code == 502
+    assert failed_speech.json()["detail"] == {
+        "code": "provider_call_failed",
+        "message": "Managed speech failed.",
+        "provider_dispatch_state": "confirmed",
+        "fallback_reason_codes": [],
+        "route_receipt": receipt("xpert_speech", "failed"),
+    }
+
+
+def test_xpert_audio_dispatch_projection_distinguishes_retry_boundaries() -> None:
+    def receipt(status: str, *, dispatched: bool) -> dict[str, object]:
+        return {
+            "status": status,
+            "call_count": int(dispatched),
+            "calls": [
+                {
+                    "dispatched": dispatched,
+                    "status": status,
+                }
+            ]
+            if dispatched
+            else [],
+        }
+
+    assert (
+        main_module.provider_dispatch_state_from_receipts(
+            receipt("failed", dispatched=False)
+        )
+        == "not_dispatched"
+    )
+    assert (
+        main_module.provider_dispatch_state_from_receipts(
+            receipt("running", dispatched=True)
+        )
+        == "dispatched"
+    )
+    assert (
+        main_module.provider_dispatch_state_from_receipts(
+            receipt("failed", dispatched=True)
+        )
+        == "confirmed"
+    )
+    assert (
+        main_module.provider_dispatch_state_from_receipts(
+            receipt("uncertain", dispatched=True)
+        )
+        == "uncertain"
+    )
+    assert main_module.provider_dispatch_state_from_receipts([]) is None
 
 
 @pytest.mark.asyncio

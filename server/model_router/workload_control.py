@@ -26,6 +26,9 @@ from .provider_operations import (
 from .multimodal_control import (
     PROVIDER_MULTIMODAL_PROTOCOL_VERSION,
     R8B_EXECUTION_SHAPES,
+    R8C_EXECUTION_SHAPES,
+    SYNTHETIC_AUDIO_WAV_BASE64,
+    SYNTHETIC_AUDIO_WAV_BYTES,
     ProviderMultimodalTarget,
     ProviderMultimodalTransport,
     validate_multimodal_adapter,
@@ -56,6 +59,7 @@ from .service import ModelRouterService, RouterServiceError
 
 
 PROVIDER_WORKLOAD_CONTRACT_VERSION = "modelmirror-provider-workload-routing-v1"
+R8C_AUDIO_PARAMETER_CONTRACT_VERSION = "modelmirror-provider-audio-parameters-v1"
 PROVIDER_WORKLOAD_CERTIFICATION_ENABLED_ENV = (
     "MODEL_MIRROR_PROVIDER_CHAT_CERTIFICATION_ENABLED"
 )
@@ -75,6 +79,37 @@ SYNTHETIC_VISION_PNG_DATA_URL = (
     "data:image/png;base64,"
     "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEklEQVR4nGNkSPvPwMDAxAAGAA/nAWnOxjxZAAAAAElFTkSuQmCC"
 )
+
+
+def r8c_audio_parameter_profile_reason(
+    execution_shape: str,
+    profile: Mapping[str, object],
+) -> str | None:
+    """Return the stable reason why an R8C audio parameter profile is stale."""
+
+    if execution_shape not in R8C_EXECUTION_SHAPES:
+        return None
+    if str(profile.get("audio_parameter_contract_version") or "") != (
+        R8C_AUDIO_PARAMETER_CONTRACT_VERSION
+    ):
+        return "provider_multimodal_audio_parameter_contract_stale"
+    if execution_shape == "audio_transcription":
+        formats = profile.get("certified_input_formats")
+        if formats != ["wav"]:
+            return "provider_multimodal_audio_parameter_profile_invalid"
+        return None
+    voice = profile.get("certified_voice")
+    response_format = profile.get("certified_response_format")
+    upstream_format = profile.get("certified_upstream_format")
+    if not isinstance(voice, str) or not voice.strip():
+        return "provider_multimodal_audio_parameter_profile_invalid"
+    if response_format not in {"mp3", "wav"}:
+        return "provider_multimodal_audio_parameter_profile_invalid"
+    if upstream_format not in {"mp3", "pcm", "wav"}:
+        return "provider_multimodal_audio_parameter_profile_invalid"
+    if (response_format == "wav") != (upstream_format in {"pcm", "wav"}):
+        return "provider_multimodal_audio_parameter_profile_invalid"
+    return None
 
 
 def _build_synthetic_single_page_pdf() -> bytes:
@@ -267,6 +302,10 @@ DATA_PLANE_INTEGRATED_ENTRIES: frozenset[ProviderWorkloadEntryId] = frozenset(
         "workflow_deployment_vision",
         "xpert_vision",
         "image_generation",
+        "multimodal_transcription",
+        "multimodal_speech",
+        "xpert_transcription",
+        "xpert_speech",
     }
 )
 
@@ -286,6 +325,23 @@ def _safe_json_object(value: object) -> dict[str, object]:
     if isinstance(value, dict):
         return {str(key): item for key, item in value.items()}
     return {}
+
+
+def _clean_provider_evidence_identifier(
+    value: object,
+    *,
+    max_length: int,
+) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    if (
+        not cleaned
+        or len(cleaned) > max_length
+        or any(ord(character) < 32 or ord(character) == 127 for character in cleaned)
+    ):
+        return None
+    return cleaned
 
 
 class _WorkloadCertificationFailure(Exception):
@@ -428,7 +484,8 @@ class ProviderWorkloadCertificationService:
         )
         if (
             payload.execution_shape in MULTIMODAL_WORKLOAD_SHAPES
-            and payload.execution_shape not in R8B_EXECUTION_SHAPES
+            and payload.execution_shape
+            not in R8B_EXECUTION_SHAPES | R8C_EXECUTION_SHAPES
         ):
             raise RouterServiceError(
                 "provider_multimodal_certification_not_integrated",
@@ -436,7 +493,14 @@ class ProviderWorkloadCertificationService:
                 status_code=409,
             )
 
-        profile = self._profile(payload)
+        try:
+            profile = self._profile(payload)
+        except _WorkloadCertificationFailure as exc:
+            raise RouterServiceError(
+                exc.code,
+                "该音频模型缺少可认证的固定参数合同，未发送付费调用。",
+                status_code=409,
+            ) from exc
         profile_fingerprint = _fingerprint(profile)
         idempotency_hash = hashlib.sha256(
             clean_idempotency_key.encode("utf-8")
@@ -488,9 +552,38 @@ class ProviderWorkloadCertificationService:
                 "最新目录已截断，不能作为精确模型资格证据。",
                 status_code=409,
             )
-        connection = self.repository.get_connection(
-            self.router_service.tenant_id, connection_id
+        connection, api_key, connection_fingerprint = (
+            self.repository.get_connection_credential_snapshot(
+                self.router_service.tenant_id, connection_id
+            )
         )
+        self._validate_connection(
+            connection,
+            payload.execution_shape,
+            adapter_contract=payload.adapter_contract,
+        )
+        refresh_record = next(
+            (
+                item
+                for item in self.repository.list_catalog_refreshes(
+                    self.router_service.tenant_id,
+                    connection_id=connection_id,
+                    limit=500,
+                )
+                if str(item["id"]) == refreshed.refresh_id
+            ),
+            None,
+        )
+        if (
+            refresh_record is None
+            or str(refresh_record["connection_fingerprint"])
+            != connection_fingerprint
+        ):
+            raise RouterServiceError(
+                "provider_workload_catalog_stale",
+                "模型服务配置在目录刷新后发生变化，未发送资格认证调用。",
+                status_code=409,
+            )
         required_models = [payload.model_id]
         if payload.execution_shape == "fusion_native":
             required_models.extend(payload.candidate_model_ids)
@@ -510,8 +603,10 @@ class ProviderWorkloadCertificationService:
                     status_code=409,
                 )
 
-        connection_fingerprint = self.repository.connection_config_fingerprint(
-            self.router_service.tenant_id, connection_id
+        multimodal_session_id = (
+            f"mmcertsession_{uuid.uuid4().hex}"
+            if payload.execution_shape in R8C_EXECUTION_SHAPES
+            else None
         )
         try:
             row, created = self._repository_method(
@@ -533,6 +628,7 @@ class ProviderWorkloadCertificationService:
                     if payload.adapter_contract is not None
                     else None
                 ),
+                multimodal_session_id=multimodal_session_id,
             )
         except RouterRepositoryError as exc:
             code = str(exc)
@@ -548,6 +644,24 @@ class ProviderWorkloadCertificationService:
                     "该 Idempotency-Key 已用于另一份 Workload 资格配置。",
                     status_code=409,
                 ) from exc
+            if code == "provider_multimodal_session_idempotency_conflict":
+                raise RouterServiceError(
+                    code,
+                    "该 Idempotency-Key 已用于另一份多模态资格配置。",
+                    status_code=409,
+                ) from exc
+            if code == "provider_multimodal_dispatch_preconditions_changed":
+                raise RouterServiceError(
+                    code,
+                    "模型服务配置在资格创建前发生变化，未发送付费调用。",
+                    status_code=409,
+                ) from exc
+            if code == "provider_multimodal_session_store_busy":
+                raise RouterServiceError(
+                    code,
+                    "资格存储当前繁忙，未创建认证记录或发送付费调用。",
+                    status_code=503,
+                ) from exc
             raise
         if not created:
             return self._summary(connection, row)
@@ -557,9 +671,6 @@ class ProviderWorkloadCertificationService:
         error_code: str | None = None
         started = time.perf_counter()
         try:
-            api_key = self.repository.resolve_api_key(
-                self.router_service.tenant_id, connection_id
-            )
             async with asyncio.timeout(60):
                 async with self._client_factory() as client:
                     if payload.execution_shape in R8B_EXECUTION_SHAPES:
@@ -570,6 +681,17 @@ class ProviderWorkloadCertificationService:
                             payload,
                             evidence,
                             started,
+                        )
+                    elif payload.execution_shape in R8C_EXECUTION_SHAPES:
+                        await self._run_r8c_audio_certification(
+                            client,
+                            connection,
+                            api_key,
+                            payload,
+                            evidence,
+                            started,
+                            session_id=str(multimodal_session_id),
+                            connection_fingerprint=connection_fingerprint,
                         )
                     elif payload.execution_shape in {
                         "embedding_vectors",
@@ -666,30 +788,299 @@ class ProviderWorkloadCertificationService:
             error_code = "provider_workload_transport_error"
         except asyncio.CancelledError:
             status = "uncertain"
+            if multimodal_session_id is not None:
+                session = self._repository_method(
+                    "get_multimodal_certification_session"
+                )(
+                    self.router_service.tenant_id,
+                    session_id=multimodal_session_id,
+                )
+                if session is not None and not bool(session["post_dispatched"]):
+                    status = "failed"
             error_code = "provider_workload_cancelled"
             raise
         except Exception:
             error_code = "provider_workload_unexpected_error"
         finally:
-            completed = self._repository_method(
-                "complete_workload_certification"
-            )(
-                self.router_service.tenant_id,
-                str(row["id"]),
-                status=status,
-                checks=evidence.checks,
-                warning_codes=evidence.warning_codes,
-                error_code=error_code,
-                actual_model=evidence.actual_model,
-                ttft_ms=evidence.ttft_ms,
-                e2e_ms=(time.perf_counter() - started) * 1000,
-                prompt_tokens=evidence.prompt_tokens,
-                completion_tokens=evidence.completion_tokens,
-                total_tokens=evidence.total_tokens,
-                vector_dimension=evidence.vector_dimension,
-            )
+            completed: dict[str, object]
+            if multimodal_session_id is not None:
+                session = self._repository_method(
+                    "get_multimodal_certification_session"
+                )(
+                    self.router_service.tenant_id,
+                    session_id=multimodal_session_id,
+                )
+                if session is not None and str(session["status"]) == "uncertain":
+                    status = "uncertain"
+                    error_code = str(session.get("error_code") or error_code or (
+                        "provider_multimodal_certification_result_uncertain"
+                    ))
+                    completed = self._repository_method(
+                        "complete_workload_certification"
+                    )(
+                        self.router_service.tenant_id,
+                        str(row["id"]),
+                        status=status,
+                        checks=evidence.checks,
+                        warning_codes=evidence.warning_codes,
+                        error_code=error_code,
+                        actual_model=evidence.actual_model,
+                        ttft_ms=evidence.ttft_ms,
+                        e2e_ms=(time.perf_counter() - started) * 1000,
+                        prompt_tokens=evidence.prompt_tokens,
+                        completion_tokens=evidence.completion_tokens,
+                        total_tokens=evidence.total_tokens,
+                        vector_dimension=evidence.vector_dimension,
+                    )
+                elif session is not None and str(session["status"]) == "running":
+                    post_dispatched = bool(session["post_dispatched"])
+                    if status != "passed" and post_dispatched and (
+                        str(session["provider_dispatch_state"]) == "uncertain"
+                    ):
+                        status = "uncertain"
+                        error_code = error_code or (
+                            "provider_multimodal_certification_result_uncertain"
+                        )
+                    completed, _completed_session = self._repository_method(
+                        "complete_multimodal_workload_certification"
+                    )(
+                        self.router_service.tenant_id,
+                        str(row["id"]),
+                        multimodal_session_id,
+                        status=status,
+                        checks=evidence.checks,
+                        warning_codes=evidence.warning_codes,
+                        error_code=error_code,
+                        actual_model=evidence.actual_model,
+                        ttft_ms=evidence.ttft_ms,
+                        e2e_ms=(time.perf_counter() - started) * 1000,
+                        prompt_tokens=evidence.prompt_tokens,
+                        completion_tokens=evidence.completion_tokens,
+                        total_tokens=evidence.total_tokens,
+                        vector_dimension=evidence.vector_dimension,
+                    )
+                else:
+                    completed = self._repository_method(
+                        "complete_workload_certification"
+                    )(
+                        self.router_service.tenant_id,
+                        str(row["id"]),
+                        status=status,
+                        checks=evidence.checks,
+                        warning_codes=evidence.warning_codes,
+                        error_code=error_code,
+                        actual_model=evidence.actual_model,
+                        ttft_ms=evidence.ttft_ms,
+                        e2e_ms=(time.perf_counter() - started) * 1000,
+                        prompt_tokens=evidence.prompt_tokens,
+                        completion_tokens=evidence.completion_tokens,
+                        total_tokens=evidence.total_tokens,
+                        vector_dimension=evidence.vector_dimension,
+                    )
+            else:
+                completed = self._repository_method(
+                    "complete_workload_certification"
+                )(
+                    self.router_service.tenant_id,
+                    str(row["id"]),
+                    status=status,
+                    checks=evidence.checks,
+                    warning_codes=evidence.warning_codes,
+                    error_code=error_code,
+                    actual_model=evidence.actual_model,
+                    ttft_ms=evidence.ttft_ms,
+                    e2e_ms=(time.perf_counter() - started) * 1000,
+                    prompt_tokens=evidence.prompt_tokens,
+                    completion_tokens=evidence.completion_tokens,
+                    total_tokens=evidence.total_tokens,
+                    vector_dimension=evidence.vector_dimension,
+                )
         if status == "passed":
             self._record_certified_offering(connection, completed)
+        return self._summary(connection, completed)
+
+    async def refresh_multimodal_certification(
+        self,
+        certification_id: str,
+    ) -> ProviderWorkloadCertificationSummary:
+        """Refresh only persisted OpenRouter generation metadata.
+
+        This path never calls the certification runner and therefore cannot
+        submit another billed Provider POST.
+        """
+
+        session = self._repository_method(
+            "get_multimodal_certification_session"
+        )(
+            self.router_service.tenant_id,
+            certification_id=certification_id,
+        )
+        certification = self._repository_method("get_workload_certification")(
+            self.router_service.tenant_id,
+            certification_id,
+        )
+        if session is None or certification is None:
+            raise RouterServiceError(
+                "provider_multimodal_certification_session_not_found",
+                "未找到该多模态资格会话。",
+                status_code=404,
+            )
+        try:
+            connection = self.repository.get_connection(
+                self.router_service.tenant_id,
+                str(certification["connection_id"]),
+            )
+        except RouterRepositoryError as exc:
+            raise RouterServiceError(
+                "provider_multimodal_dispatch_preconditions_changed",
+                "模型服务配置已变化，不能刷新该资格证据。",
+                status_code=409,
+            ) from exc
+        if str(certification["status"]) in {"passed", "failed"}:
+            return self._summary(connection, certification)
+        if str(certification["status"]) == "running":
+            raise RouterServiceError(
+                "provider_multimodal_certification_refresh_in_progress",
+                "该资格证据正在刷新，请稍后查看结果。",
+                status_code=409,
+            )
+        if (
+            str(certification.get("contract_version") or "")
+            != PROVIDER_WORKLOAD_CONTRACT_VERSION
+            or str(certification.get("protocol_version") or "")
+            != PROVIDER_MULTIMODAL_PROTOCOL_VERSION
+        ):
+            raise RouterServiceError(
+                "provider_multimodal_certification_contract_stale",
+                "该资格证据的契约版本已过期，未执行上游查询。",
+                status_code=409,
+            )
+        time_reason = ProviderChatControlService._certification_time_status(  # noqa: SLF001
+            certification
+        )
+        if time_reason is not None:
+            raise RouterServiceError(
+                time_reason.replace("provider_chat_", "provider_workload_", 1),
+                "该资格证据已过期或时间无效，未执行上游查询。",
+                status_code=409,
+            )
+        if (
+            str(certification["status"]) != "uncertain"
+            or connection.kind != "openrouter"
+            or not str(session.get("upstream_operation_id") or "").strip()
+        ):
+            raise RouterServiceError(
+                "provider_multimodal_certification_not_refreshable",
+                "该资格没有可执行只读刷新的上游证据。",
+                status_code=409,
+            )
+        try:
+            claimed, claimed_session = self._repository_method(
+                "claim_multimodal_certification_refresh"
+            )(
+                self.router_service.tenant_id,
+                certification_id,
+                expected_contract_version=PROVIDER_WORKLOAD_CONTRACT_VERSION,
+                expected_protocol_version=PROVIDER_MULTIMODAL_PROTOCOL_VERSION,
+            )
+        except RouterRepositoryError as exc:
+            code = str(exc)
+            if code == "provider_multimodal_certification_session_not_found":
+                status_code = 404
+                message = "未找到该多模态资格会话。"
+            elif code == "provider_multimodal_certification_refresh_in_progress":
+                status_code = 409
+                message = "该资格证据正在刷新，请稍后查看结果。"
+            elif code == "provider_multimodal_dispatch_preconditions_changed":
+                status_code = 409
+                message = "模型服务配置已变化，未执行上游查询。"
+            elif code == "provider_multimodal_certification_refresh_store_busy":
+                status_code = 503
+                message = "资格存储当前繁忙，未执行上游查询。"
+            else:
+                status_code = 409
+                message = "该资格没有可执行只读刷新的上游证据。"
+            raise RouterServiceError(code, message, status_code=status_code) from exc
+
+        checks = _safe_json_object(
+            json.loads(str(claimed.get("checks_json") or "{}"))
+        )
+        checks["actual_model_verified"] = False
+        status = "uncertain"
+        error_code: str | None = "provider_multimodal_actual_model_pending"
+        actual_model: str | None = None
+        cancelled = False
+        try:
+            connection, api_key, current_fingerprint = (
+                self.repository.get_connection_credential_snapshot(
+                    self.router_service.tenant_id,
+                    str(claimed["connection_id"]),
+                )
+            )
+            if current_fingerprint != str(claimed["connection_fingerprint"]):
+                raise RouterRepositoryError(
+                    "provider_multimodal_dispatch_preconditions_changed"
+                )
+            validate_multimodal_adapter(
+                contract=str(claimed["adapter_contract"]),  # type: ignore[arg-type]
+                execution_shape=str(claimed["execution_shape"]),  # type: ignore[arg-type]
+                provider_kind=connection.kind,
+                scopes=connection.scopes,
+            )
+            target = ProviderMultimodalTarget.create(
+                provider_kind=connection.kind,
+                connection_id=connection.id,
+                base_url=connection.base_url,
+                api_key=api_key,
+                adapter_contract=str(claimed["adapter_contract"]),  # type: ignore[arg-type]
+                execution_shape=str(claimed["execution_shape"]),  # type: ignore[arg-type]
+            )
+            async with asyncio.timeout(30):
+                async with self._client_factory() as client:
+                    actual_model = _clean_provider_evidence_identifier(
+                        await self.multimodal_transport.fetch_openrouter_generation_model(
+                            client,
+                            target,
+                            str(claimed_session["upstream_operation_id"]),
+                        ),
+                        max_length=512,
+                    )
+            if actual_model:
+                checks["actual_model_verified"] = True
+                if actual_model == str(claimed["requested_model"]):
+                    status = "passed"
+                    error_code = None
+                else:
+                    status = "failed"
+                    error_code = "provider_workload_model_mismatch"
+        except asyncio.CancelledError:
+            cancelled = True
+            error_code = "provider_workload_cancelled"
+        except ProviderEgressError as exc:
+            error_code = exc.code
+        except RouterCredentialUnavailable:
+            error_code = "provider_workload_credential_unavailable"
+        except RouterRepositoryError as exc:
+            error_code = str(exc)
+        except (httpx.HTTPError, TimeoutError):
+            error_code = "provider_multimodal_generation_metadata_unavailable"
+        except Exception:
+            error_code = "provider_multimodal_generation_metadata_unavailable"
+
+        completed, _completed_session = self._repository_method(
+            "complete_multimodal_certification_refresh"
+        )(
+            self.router_service.tenant_id,
+            certification_id,
+            status=status,
+            checks={str(key): bool(value) for key, value in checks.items()},
+            error_code=error_code,
+            actual_model=actual_model,
+        )
+        if status == "passed":
+            self._record_certified_offering(connection, completed)
+        if cancelled:
+            raise asyncio.CancelledError
         return self._summary(connection, completed)
 
     async def resume_pending_batch_certifications(self) -> int:
@@ -884,7 +1275,7 @@ class ProviderWorkloadCertificationService:
     def _profile(
         payload: ProviderWorkloadCertificationRequest,
     ) -> dict[str, object]:
-        return {
+        profile: dict[str, object] = {
             "execution_shape": payload.execution_shape,
             "model_id": payload.model_id,
             "adapter_contract": payload.adapter_contract,
@@ -897,6 +1288,34 @@ class ProviderWorkloadCertificationService:
             "judge_model_id": payload.judge_model_id,
             "rerank_access_mode": payload.rerank_access_mode,
         }
+        if payload.execution_shape == "audio_transcription":
+            profile.update(
+                {
+                    "audio_parameter_contract_version": (
+                        R8C_AUDIO_PARAMETER_CONTRACT_VERSION
+                    ),
+                    "certified_input_formats": ["wav"],
+                }
+            )
+        elif payload.execution_shape == "audio_speech":
+            voice, response_format, upstream_format = (
+                ProviderWorkloadCertificationService._r8c_speech_contract(
+                    payload.model_id,
+                    openai_compatible=payload.adapter_contract
+                    == "openai_compatible_audio_speech_v1",
+                )
+            )
+            profile.update(
+                {
+                    "audio_parameter_contract_version": (
+                        R8C_AUDIO_PARAMETER_CONTRACT_VERSION
+                    ),
+                    "certified_voice": voice,
+                    "certified_response_format": response_format,
+                    "certified_upstream_format": upstream_format,
+                }
+            )
+        return profile
 
     @staticmethod
     def _request_payload(
@@ -1000,6 +1419,359 @@ class ProviderWorkloadCertificationService:
         finally:
             await response.aclose()
         evidence.checks["multimodal_adapter_verified"] = True
+
+    async def _run_r8c_audio_certification(
+        self,
+        client: httpx.AsyncClient,
+        connection: RouterConnection,
+        api_key: str,
+        payload: ProviderWorkloadCertificationRequest,
+        evidence: _CertificationEvidence,
+        started: float,
+        *,
+        session_id: str,
+        connection_fingerprint: str,
+    ) -> None:
+        try:
+            await self._run_r8c_audio_certification_once(
+                client,
+                connection,
+                api_key,
+                payload,
+                evidence,
+                started,
+                session_id=session_id,
+                connection_fingerprint=connection_fingerprint,
+            )
+        except _WorkloadCertificationFailure as exc:
+            if (
+                exc.code == "provider_workload_response_too_large"
+                and self._r8c_certification_was_dispatched(session_id)
+            ):
+                raise _WorkloadCertificationUncertain(exc.code) from exc
+            raise
+        except asyncio.CancelledError:
+            raise
+        except RouterRepositoryError as exc:
+            if str(exc) == "provider_multimodal_dispatch_preconditions_changed":
+                raise _WorkloadCertificationFailure(str(exc)) from exc
+            raise
+        except Exception as exc:
+            error_code = self._r8c_transport_error_code(exc)
+            if self._r8c_certification_was_dispatched(session_id):
+                raise _WorkloadCertificationUncertain(error_code) from exc
+            raise
+
+    async def _run_r8c_audio_certification_once(
+        self,
+        client: httpx.AsyncClient,
+        connection: RouterConnection,
+        api_key: str,
+        payload: ProviderWorkloadCertificationRequest,
+        evidence: _CertificationEvidence,
+        started: float,
+        *,
+        session_id: str,
+        connection_fingerprint: str,
+    ) -> None:
+        if payload.adapter_contract is None:
+            raise _WorkloadCertificationFailure(
+                "provider_multimodal_adapter_required"
+            )
+        target = ProviderMultimodalTarget.create(
+            provider_kind=connection.kind,
+            connection_id=connection.id,
+            base_url=connection.base_url,
+            api_key=api_key,
+            adapter_contract=payload.adapter_contract,
+            execution_shape=payload.execution_shape,
+        )
+        authorized = await self.multimodal_transport.authorize(target)
+        speech_response_format: str | None = None
+        if payload.execution_shape == "audio_transcription":
+            if payload.adapter_contract == "openrouter_audio_transcription_json_v1":
+                request = self.multimodal_transport.build_authorized_json_request(
+                    client,
+                    target,
+                    authorized,
+                    {
+                        "model": payload.model_id,
+                        "input_audio": {
+                            "data": SYNTHETIC_AUDIO_WAV_BASE64,
+                            "format": "wav",
+                        },
+                        "language": "en",
+                    },
+                )
+            else:
+                request = self.multimodal_transport.build_authorized_multipart_request(
+                    client,
+                    target,
+                    authorized,
+                    data={"model": payload.model_id, "language": "en"},
+                    files={
+                        "file": (
+                            "modelmirror-certification.wav",
+                            SYNTHETIC_AUDIO_WAV_BYTES,
+                            "audio/wav",
+                        )
+                    },
+                )
+        else:
+            voice, _external_format, upstream_format = self._r8c_speech_contract(
+                payload.model_id,
+                openai_compatible=payload.adapter_contract
+                == "openai_compatible_audio_speech_v1",
+            )
+            speech_response_format = upstream_format
+            request = self.multimodal_transport.build_authorized_json_request(
+                client,
+                target,
+                authorized,
+                {
+                    "model": payload.model_id,
+                    "input": "OK",
+                    "voice": voice,
+                    "response_format": upstream_format,
+                    "speed": 1.0,
+                },
+            )
+        self._repository_method("update_multimodal_certification_session")(
+            self.router_service.tenant_id,
+            session_id,
+            status="running",
+            provider_dispatch_state="dispatched",
+            post_dispatched=True,
+            expected_connection_fingerprint=connection_fingerprint,
+        )
+        response = await self.multimodal_transport.send_authorized(client, request)
+        actual_model: str | None = None
+        generation_id = _clean_provider_evidence_identifier(
+            response.headers.get("X-Generation-Id"),
+            max_length=200,
+        )
+        try:
+            self._validate_status(response.status_code)
+            evidence.checks["http_ok"] = True
+            if payload.execution_shape == "audio_transcription":
+                response_payload = await self._read_json_response(response)
+                text = response_payload.get("text")
+                if not isinstance(text, str) or not text.strip():
+                    raise _WorkloadCertificationFailure(
+                        "provider_multimodal_transcription_empty"
+                    )
+                candidate = response_payload.get("model")
+                actual_model = _clean_provider_evidence_identifier(
+                    candidate,
+                    max_length=512,
+                )
+                if actual_model is None:
+                    header_model = (
+                        response.headers.get("x-model-id")
+                        or response.headers.get("x-openrouter-model")
+                    )
+                    actual_model = _clean_provider_evidence_identifier(
+                        header_model,
+                        max_length=512,
+                    )
+                self._read_usage(response_payload, evidence)
+                evidence.checks["content_observed"] = True
+                evidence.checks["response_complete"] = True
+                evidence.checks["media_format_verified"] = True
+            else:
+                audio = await self._read_audio_response(response)
+                if not self._is_audio_payload(
+                    audio,
+                    content_type=response.headers.get("content-type", ""),
+                    response_format=speech_response_format or "",
+                ):
+                    raise _WorkloadCertificationFailure(
+                        "provider_multimodal_speech_output_invalid"
+                    )
+                evidence.checks["content_observed"] = True
+                evidence.checks["response_complete"] = True
+                evidence.checks["media_format_verified"] = True
+                header_model = (
+                    response.headers.get("x-model-id")
+                    or response.headers.get("x-openrouter-model")
+                )
+                actual_model = _clean_provider_evidence_identifier(
+                    header_model,
+                    max_length=512,
+                )
+                evidence.ttft_ms = (time.perf_counter() - started) * 1000
+        finally:
+            await response.aclose()
+        if actual_model is None:
+            if connection.kind == "openrouter" and generation_id:
+                self._repository_method(
+                    "record_multimodal_certification_pending_evidence"
+                )(
+                    self.router_service.tenant_id,
+                    session_id,
+                    upstream_operation_id=generation_id,
+                    checks=evidence.checks,
+                    warning_codes=evidence.warning_codes,
+                    error_code="provider_multimodal_actual_model_pending",
+                    ttft_ms=evidence.ttft_ms,
+                    e2e_ms=(time.perf_counter() - started) * 1000,
+                    prompt_tokens=evidence.prompt_tokens,
+                    completion_tokens=evidence.completion_tokens,
+                    total_tokens=evidence.total_tokens,
+                    expected_connection_fingerprint=connection_fingerprint,
+                )
+                raise _WorkloadCertificationUncertain(
+                    "provider_multimodal_actual_model_pending"
+                )
+            raise _WorkloadCertificationFailure(
+                "provider_multimodal_actual_model_unverified"
+            )
+        self._repository_method("update_multimodal_certification_session")(
+            self.router_service.tenant_id,
+            session_id,
+            status="running",
+            provider_dispatch_state="confirmed",
+            post_dispatched=True,
+            upstream_operation_id=generation_id,
+        )
+        evidence.actual_model = actual_model
+        evidence.checks["actual_model_verified"] = True
+        if actual_model != payload.model_id:
+            raise _WorkloadCertificationFailure("provider_workload_model_mismatch")
+        evidence.checks["multimodal_adapter_verified"] = True
+
+    def _r8c_certification_was_dispatched(
+        self,
+        session_id: str,
+    ) -> bool:
+        session = self._repository_method("get_multimodal_certification_session")(
+            self.router_service.tenant_id,
+            session_id=session_id,
+        )
+        return bool(
+            session is not None
+            and str(session["status"]) == "running"
+            and bool(session["post_dispatched"])
+        )
+
+    @staticmethod
+    def _r8c_transport_error_code(exc: Exception) -> str:
+        if isinstance(exc, httpx.ConnectTimeout):
+            return "provider_workload_connect_timeout"
+        if isinstance(exc, httpx.ReadTimeout):
+            return "provider_workload_read_timeout"
+        if isinstance(exc, httpx.TimeoutException):
+            return "provider_workload_timeout"
+        if isinstance(exc, TimeoutError):
+            return "provider_workload_total_timeout"
+        if isinstance(exc, httpx.ConnectError):
+            return "provider_workload_connect_error"
+        if isinstance(exc, httpx.HTTPError):
+            return "provider_workload_transport_error"
+        return "provider_workload_unexpected_error"
+
+    @staticmethod
+    def _r8c_speech_parameters(
+        model_id: str,
+        *,
+        openai_compatible: bool,
+    ) -> tuple[str, str]:
+        voice, _response_format, upstream_format = (
+            ProviderWorkloadCertificationService._r8c_speech_contract(
+                model_id,
+                openai_compatible=openai_compatible,
+            )
+        )
+        return voice, upstream_format
+
+    @staticmethod
+    def _r8c_speech_contract(
+        model_id: str,
+        *,
+        openai_compatible: bool,
+    ) -> tuple[str, str, str]:
+        if openai_compatible:
+            return "alloy", "mp3", "mp3"
+        try:
+            try:
+                from server.multimodal.tts import (
+                    ALLOWED_SPEECH_PROFILES,
+                    speech_output_format,
+                )
+            except ModuleNotFoundError:
+                # The container copies ``server/`` contents to ``/app`` and
+                # imports this package as ``model_router`` rather than
+                # ``server.model_router``.
+                from multimodal.tts import (
+                    ALLOWED_SPEECH_PROFILES,
+                    speech_output_format,
+                )
+
+            voices = ALLOWED_SPEECH_PROFILES.get(model_id)
+            if not voices:
+                raise KeyError(model_id)
+            response_format = speech_output_format(model_id)
+            return (
+                voices[0],
+                response_format,
+                "pcm" if response_format == "wav" else "mp3",
+            )
+        except (ImportError, KeyError):
+            raise _WorkloadCertificationFailure(
+                "provider_multimodal_speech_profile_missing"
+            ) from None
+
+    @staticmethod
+    async def _read_audio_response(response: httpx.Response) -> bytes:
+        chunks: list[bytes] = []
+        total_bytes = 0
+        async for chunk in response.aiter_bytes(
+            chunk_size=WORKLOAD_RESPONSE_CHUNK_BYTES
+        ):
+            total_bytes += len(chunk)
+            if total_bytes > MAX_WORKLOAD_UNARY_RESPONSE_BYTES:
+                raise _WorkloadCertificationFailure(
+                    "provider_workload_response_too_large"
+                )
+            chunks.append(chunk)
+        return b"".join(chunks)
+
+    @staticmethod
+    def _is_audio_payload(
+        content: bytes,
+        *,
+        content_type: str,
+        response_format: str,
+    ) -> bool:
+        if not content:
+            return False
+        if response_format == "pcm":
+            parts = [part.strip() for part in content_type.split(";")]
+            parameters = {
+                key.strip().lower(): value.strip()
+                for part in parts[1:]
+                for key, separator, value in [part.partition("=")]
+                if separator
+            }
+            return (
+                parts[0].lower() == "audio/pcm"
+                and parameters.get("rate") == "24000"
+                and parameters.get("channels") == "1"
+                and len(content) % 2 == 0
+            )
+        return (
+            content.startswith(b"ID3")
+            or (
+                len(content) >= 2
+                and content[0] == 0xFF
+                and content[1] & 0xE0 == 0xE0
+            )
+            or (
+                len(content) >= 12
+                and content[:4] in {b"RIFF", b"RF64"}
+                and content[8:12] == b"WAVE"
+            )
+        )
 
     @staticmethod
     def _r8b_request_payload(
@@ -2063,6 +2835,21 @@ class ProviderWorkloadCertificationService:
         if str(row["connection_fingerprint"]) != fingerprint and status != "running":
             status = "stale"
             blocked_reason = "provider_workload_connection_fingerprint_changed"
+        elif (
+            status != "running"
+            and str(row.get("contract_version") or "")
+            != PROVIDER_WORKLOAD_CONTRACT_VERSION
+        ):
+            status = "stale"
+            blocked_reason = "provider_workload_contract_stale"
+        elif (
+            status != "running"
+            and str(row["execution_shape"]) in MULTIMODAL_WORKLOAD_SHAPES
+            and str(row.get("protocol_version") or "")
+            != PROVIDER_MULTIMODAL_PROTOCOL_VERSION
+        ):
+            status = "stale"
+            blocked_reason = "provider_multimodal_protocol_stale"
         elif status == "passed":
             time_reason = ProviderChatControlService._certification_time_status(  # noqa: SLF001
                 row
@@ -2090,6 +2877,70 @@ class ProviderWorkloadCertificationService:
             except RouterCredentialUnavailable:
                 blocked_reason = "provider_workload_credential_unavailable"
         checks = _safe_json_object(json.loads(str(row["checks_json"] or "{}")))
+        if (
+            str(row["execution_shape"]) in R8C_EXECUTION_SHAPES
+            and status == "passed"
+            and (
+                not row.get("actual_model")
+                or checks.get("actual_model_verified") is not True
+            )
+        ):
+            status = "stale"
+            blocked_reason = "provider_multimodal_actual_model_unverified"
+        if str(row["execution_shape"]) in R8C_EXECUTION_SHAPES and status == "passed":
+            profile_reason = r8c_audio_parameter_profile_reason(
+                str(row["execution_shape"]),
+                profile,
+            )
+            if profile_reason is not None:
+                status = "stale"
+                blocked_reason = profile_reason
+        provider_dispatch_state: str | None = None
+        retry_allowed: bool | None = None
+        refresh_available = False
+        if str(row["execution_shape"]) in R8C_EXECUTION_SHAPES:
+            session = self._repository_method(
+                "get_multimodal_certification_session"
+            )(
+                self.router_service.tenant_id,
+                certification_id=str(row["id"]),
+            )
+            retry_allowed = False
+            if session is not None:
+                provider_dispatch_state = str(
+                    session.get("provider_dispatch_state") or ""
+                ) or None
+                refresh_time_reason = (
+                    ProviderChatControlService._certification_time_status(  # noqa: SLF001
+                        row
+                    )
+                    if str(row["status"]) == "uncertain"
+                    else None
+                )
+                refresh_available = bool(
+                    str(row["status"]) == "uncertain"
+                    and str(session.get("status") or "") == "uncertain"
+                    and str(session.get("provider_dispatch_state") or "")
+                    == "confirmed"
+                    and session.get("post_dispatched")
+                    and session.get("upstream_operation_id")
+                    and connection.kind == "openrouter"
+                    and blocked_reason is None
+                    and all(
+                        checks.get(name) is True
+                        for name in (
+                            "http_ok",
+                            "content_observed",
+                            "response_complete",
+                            "media_format_verified",
+                        )
+                    )
+                    and str(row.get("contract_version") or "")
+                    == PROVIDER_WORKLOAD_CONTRACT_VERSION
+                    and str(row.get("protocol_version") or "")
+                    == PROVIDER_MULTIMODAL_PROTOCOL_VERSION
+                    and refresh_time_reason is None
+                )
         warnings = json.loads(str(row["warnings_json"] or "[]"))
         batch_job = None
         if str(row["execution_shape"]).startswith("openrouter_batch_"):
@@ -2149,6 +3000,24 @@ class ProviderWorkloadCertificationService:
             ),
             batch_job_id=(str(batch_job["id"]) if batch_job else None),
             batch_status=(str(batch_job["status"]) if batch_job else None),
+            certified_input_formats=[
+                str(item)
+                for item in profile.get("certified_input_formats", [])
+                if isinstance(item, str) and item
+            ],
+            certified_voice=(
+                str(profile["certified_voice"])
+                if isinstance(profile.get("certified_voice"), str)
+                else None
+            ),
+            certified_response_format=(
+                str(profile["certified_response_format"])  # type: ignore[arg-type]
+                if profile.get("certified_response_format") in {"mp3", "wav"}
+                else None
+            ),
+            provider_dispatch_state=provider_dispatch_state,  # type: ignore[arg-type]
+            retry_allowed=retry_allowed,
+            refresh_available=refresh_available,
             ttft_ms=self._float(row["ttft_ms"]),
             e2e_ms=self._float(row["e2e_ms"]),
             prompt_tokens=self._integer(row["prompt_tokens"]),
@@ -2395,6 +3264,21 @@ class ProviderWorkloadControlService:
         elif not binding.valid:
             reason = binding.reason_code
             available = False
+        profile: dict[str, object] = {}
+        if binding is not None and execution_shape in R8C_EXECUTION_SHAPES:
+            certification = self.repository.get_workload_certification(
+                self.router_service.tenant_id,
+                binding.certification_id,
+            )
+            if certification is not None:
+                try:
+                    parsed_profile = json.loads(
+                        str(certification.get("profile_json") or "{}")
+                    )
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    parsed_profile = {}
+                if isinstance(parsed_profile, dict):
+                    profile = parsed_profile
         return ProviderWorkloadPublicStatus(
             contract_version=PROVIDER_WORKLOAD_CONTRACT_VERSION,
             entry_id=entry_id,
@@ -2405,6 +3289,21 @@ class ProviderWorkloadControlService:
             available=available,
             blocks_before_dispatch=not available,
             reason_code=reason,
+            certified_input_formats=[
+                str(item)
+                for item in profile.get("certified_input_formats", [])
+                if isinstance(item, str) and item
+            ],
+            certified_voice=(
+                str(profile["certified_voice"])
+                if isinstance(profile.get("certified_voice"), str)
+                else None
+            ),
+            certified_response_format=(
+                str(profile["certified_response_format"])  # type: ignore[arg-type]
+                if profile.get("certified_response_format") in {"mp3", "wav"}
+                else None
+            ),
         )
 
     def receipts(
@@ -2462,6 +3361,17 @@ class ProviderWorkloadControlService:
                     prompt_tokens=self._integer(row["prompt_tokens"]),
                     completion_tokens=self._integer(row["completion_tokens"]),
                     total_tokens=self._integer(row["total_tokens"]),
+                    generation_id_observed=(
+                        bool(row["generation_id_observed"])
+                        if row.get("generation_id_observed") is not None
+                        else None
+                    ),
+                    generation_metadata_get_count=self._integer(
+                        row.get("generation_metadata_get_count")
+                    ),
+                    generation_metadata_wait_ms=self._float(
+                        row.get("generation_metadata_wait_ms")
+                    ),
                     created_at=str(row["created_at"]),
                     completed_at=(
                         str(row["completed_at"]) if row["completed_at"] else None
@@ -2779,6 +3689,24 @@ class ProviderWorkloadControlService:
                 PROVIDER_MULTIMODAL_PROTOCOL_VERSION
             ):
                 return None, "provider_multimodal_protocol_stale"
+        if execution_shape in R8C_EXECUTION_SHAPES:
+            checks = _safe_json_object(
+                json.loads(str(certification.get("checks_json") or "{}"))
+            )
+            if (
+                not certification.get("actual_model")
+                or checks.get("actual_model_verified") is not True
+            ):
+                return None, "provider_multimodal_actual_model_unverified"
+            profile = _safe_json_object(
+                json.loads(str(certification.get("profile_json") or "{}"))
+            )
+            profile_reason = r8c_audio_parameter_profile_reason(
+                execution_shape,
+                profile,
+            )
+            if profile_reason is not None:
+                return None, profile_reason
         time_reason = ProviderChatControlService._certification_time_status(  # noqa: SLF001
             certification
         )
@@ -3105,12 +4033,21 @@ class ProviderWorkloadCallService:
                 "当前入口没有该精确模型与执行形态的合格 Binding。",
                 status_code=409,
             )
-        connection = self.repository.get_connection(
-            self.router_service.tenant_id, binding.connection_id
+        connection, api_key, current_connection_fingerprint = (
+            self.repository.get_connection_credential_snapshot(
+                self.router_service.tenant_id, binding.connection_id
+            )
         )
-        api_key = self.repository.resolve_api_key(
-            self.router_service.tenant_id, binding.connection_id
-        )
+        if (
+            not connection.enabled
+            or connection.health != "online"
+            or current_connection_fingerprint != binding.connection_fingerprint
+        ):
+            raise RouterServiceError(
+                "provider_workload_binding_changed",
+                "Workload Binding 或连接配置已变化，本次调用在 Provider 派发前失败关闭。",
+                status_code=409,
+            )
         target = ProviderChatTarget.create(
             source="managed",
             provider_kind=connection.kind,
@@ -3253,6 +4190,7 @@ class ProviderWorkloadCallService:
                 policy_fingerprint=prepared.policy_fingerprint,
                 adapter_contract=prepared.adapter_contract,
                 protocol_version=prepared.protocol_version,
+                verify_current_connection=True,
             )
         except RouterRepositoryError as exc:
             if str(exc) == "provider_workload_dispatch_preconditions_changed":
@@ -3276,6 +4214,9 @@ class ProviderWorkloadCallService:
         prompt_tokens: int | None = None,
         completion_tokens: int | None = None,
         total_tokens: int | None = None,
+        generation_id_observed: bool | None = None,
+        generation_metadata_get_count: int | None = None,
+        generation_metadata_wait_ms: float | None = None,
     ) -> None:
         self.repository.complete_workload_call(
             self.router_service.tenant_id,
@@ -3289,6 +4230,9 @@ class ProviderWorkloadCallService:
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             total_tokens=total_tokens,
+            generation_id_observed=generation_id_observed,
+            generation_metadata_get_count=generation_metadata_get_count,
+            generation_metadata_wait_ms=generation_metadata_wait_ms,
         )
 
     def complete_run(
