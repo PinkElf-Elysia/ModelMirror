@@ -1,7 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ResourceNav from "../components/ResourceNav";
 import {
   helpArticles,
@@ -12,6 +12,17 @@ import {
 } from "../content/help-center";
 import HelpArticlePage from "./HelpArticlePage";
 import HelpCenterPage from "./HelpCenterPage";
+
+const scrollToMock = vi.fn();
+
+beforeEach(() => {
+  scrollToMock.mockReset();
+  vi.spyOn(window, "scrollTo").mockImplementation(scrollToMock);
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 function LocationProbe() {
   const location = useLocation();
@@ -177,6 +188,17 @@ describe("unified help reading shell", () => {
   it("does not expose the removed article feedback control", () => {
     renderHelp("/help/start-with-a-model");
     expect(screen.queryByText("这篇对你有帮助吗？")).not.toBeInTheDocument();
+  });
+
+  it("returns to the top when a reader opens the next help article", async () => {
+    const user = userEvent.setup();
+    renderHelp("/help/create-repeatable-agent");
+    scrollToMock.mockClear();
+
+    await user.click(screen.getAllByRole("link", { name: /搭建并保存第一个固定步骤工作流/ }).at(-1)!);
+
+    expect(screen.getByRole("heading", { name: "搭建并保存第一个固定步骤工作流", level: 1 })).toBeInTheDocument();
+    expect(scrollToMock).toHaveBeenCalledWith({ left: 0, top: 0 });
   });
 
 });

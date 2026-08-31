@@ -244,6 +244,7 @@ function HelpNotFound() {
 }
 
 export default function HelpArticlePage() {
+  const location = useLocation();
   const { moduleId, sectionId, slug, topicId } = useParams();
   const article = findHelpArticle(slug);
   const section = findHelpSection(sectionId);
@@ -256,6 +257,21 @@ export default function HelpArticlePage() {
     const title = article?.title ?? topic?.title ?? module?.title ?? section?.title;
     document.title = title ? `${title} · ModelMirror 帮助` : "未找到帮助 · ModelMirror";
   }, [article, module, section, topic]);
+
+  useEffect(() => {
+    const encodedTargetId = location.hash.slice(1);
+    if (encodedTargetId) {
+      let targetId = encodedTargetId;
+      try {
+        targetId = decodeURIComponent(encodedTargetId);
+      } catch {
+        // Keep the original hash when it is not valid percent-encoded text.
+      }
+      document.getElementById(targetId)?.scrollIntoView();
+      return;
+    }
+    window.scrollTo({ left: 0, top: 0 });
+  }, [location.hash, location.pathname]);
 
   return (
     <PageContainer className="help-center-shell" hideSidebar maxWidthClassName="max-w-[1480px]" showSystemCapabilityBar={false}>
