@@ -24,6 +24,7 @@ from server.meta_agent.schemas import (
     GraphIntentOutputBindingV3,
     GraphIntentV3,
     MetaPlannerIRInputBinding,
+    MetaPlannerIRMiddlewareBinding,
     MetaPlannerIROutputBinding,
     MetaPlannerIRResourceBinding,
 )
@@ -411,6 +412,31 @@ def test_attack_allowed_middleware_field_rejects_embedded_secret_value():
     intent.middleware[0].config["system_prompt"] = (
         f"Use this credential {synthetic_secret} for requests."
     )
+
+    issues = validate_blueprint_authorization(
+        _request(), _plan(), intent, _snapshot()
+    )
+
+    assert any("credential material" in issue for issue in issues)
+
+
+@pytest.mark.parametrize("credential_key", ["clientSecret", "authToken"])
+def test_attack_json_middleware_rejects_nested_credential_aliases(
+    credential_key: str,
+):
+    intent = _intent().model_copy(deep=True)
+    intent.middleware = [
+        MetaPlannerIRMiddlewareBinding(
+            target_ref=intent.nodes[0].ref,
+            middleware_id="structured_output",
+            config={
+                "schema_json": {
+                    "type": "object",
+                    "extensions": {credential_key: "adversarial-sentinel"},
+                }
+            },
+        )
+    ]
 
     issues = validate_blueprint_authorization(
         _request(), _plan(), intent, _snapshot()

@@ -5,6 +5,8 @@ import threading
 import time
 import uuid
 from collections.abc import Callable
+from contextlib import nullcontext
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -16,14 +18,18 @@ try:
         WorkspaceSkillDraftStore,
     )
     from server.xperts.models import XpertDefinition, XpertDraft
-    from server.xperts.store import XpertStore, default_xpert_workflow
+    from server.xperts.store import (
+        XpertConflictError,
+        XpertStore,
+        default_xpert_workflow,
+    )
     from server.xperts.validation import validate_xpert_definition
 except ModuleNotFoundError:
     from prompts.store import PromptProfileStore
     from skills.creator_quality import evaluate_creator_payload
     from skills.draft_store import SkillDraftValidationError, WorkspaceSkillDraftStore
     from xperts.models import XpertDefinition, XpertDraft
-    from xperts.store import XpertStore, default_xpert_workflow
+    from xperts.store import XpertConflictError, XpertStore, default_xpert_workflow
     from xperts.validation import validate_xpert_definition
 
 from .authoring_store import (
@@ -146,6 +152,79 @@ class AuthoringService:
                 payload=payload,
                 base_revision=base_revision,
             )
+
+    def apply_headless_authoring_payload(
+        self,
+        proposal_id: str,
+        *,
+        revision: int,
+        payload: dict[str, Any],
+        expected_target_id: str | None = None,
+        expected_target_revision: int | None = None,
+    ) -> AuthoringProposal:
+        """Validate a detached candidate, then persist one atomic Proposal revision."""
+
+        with self._apply_lock:
+            current_proposal = self.proposal_store.require(proposal_id)
+            if current_proposal.revision != revision:
+                raise AuthoringProposalConflictError(
+                    "Proposal changed. Reload it before applying the Graph Patch."
+                )
+            if current_proposal.status != "pending":
+                raise AuthoringProposalConflictError(
+                    f"Proposal is already {current_proposal.status}."
+                )
+            try:
+                target_guard = (
+                    self.xpert_store.revision_guard(
+                        expected_target_id, expected_target_revision
+                    )
+                    if expected_target_id
+                    else nullcontext()
+                )
+                with target_guard:
+                    detached = deepcopy(current_proposal)
+                    detached.payload = deepcopy(payload)
+                    details = self._validate_payload(detached)
+                    creator_quality = details.get("creator_quality")
+                    quality_ready = not isinstance(creator_quality, dict) or bool(
+                        creator_quality.get("ready")
+                    )
+                    validation = {
+                        "valid": quality_ready,
+                        "issues": (
+                            []
+                            if quality_ready
+                            else list(creator_quality.get("issues") or [])[:20]
+                        ),
+                        **details,
+                    }
+                    if not validation["valid"]:
+                        raise AuthoringProposalValidationError(
+                            "Headless authoring candidate did not pass final validation.",
+                            issues=list(validation.get("issues") or [])[:20],
+                        )
+                    return self.proposal_store.update_pending_from_headless_authoring(
+                        proposal_id,
+                        revision=revision,
+                        payload=payload,
+                        validation=validation,
+                        content_digest=details.get("content_digest"),
+                        base_digest=details.get("base_digest"),
+                    )
+            except XpertConflictError as exc:
+                raise AuthoringProposalConflictError(
+                    "Target Xpert draft changed after preview."
+                ) from exc
+            except (
+                AuthoringProposalConflictError,
+                AuthoringProposalValidationError,
+            ):
+                raise
+            except Exception as exc:
+                raise AuthoringProposalValidationError(
+                    "Headless authoring final validation failed."
+                ) from exc
 
     def approve(
         self,

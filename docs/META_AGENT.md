@@ -9,7 +9,7 @@
 已经可以从实时 Registry 编译 `workflow_agent`、资源绑定、中间件和发布预检所需配置；
 旧生成器仍保留用于兼容经典工作流导入与既有 AgentTask/Handoff 操作。
 
-当前实现是 **Capability Snapshot V4 + Graph IR V3 单写、Typed IR V2 双读**。后续升级已经锁定为
+当前实现是 **Capability Snapshot V5 + Graph IR V3 单写、Typed IR V2 双读**。后续升级已经锁定为
 “V3 十轮 + V4 轮次待定”，唯一方向文档是
 [META_PLANNER_V3_V4_ROADMAP.md](./META_PLANNER_V3_V4_ROADMAP.md)。V3 先补齐
 Graph IR、无头编排、节点 Adapter、效果语义和评测，再逐类开放真实节点；V4 只有在
@@ -136,14 +136,14 @@ EvoAgentX 的来源与已交付历史见
 
 ### NodeContract V3 能力门禁
 
-Meta Planner 的节点事实统一来自 `NodeContractRegistry`。Capability Snapshot V4
+Meta Planner 的节点事实统一来自 `NodeContractRegistry`。Capability Snapshot V5
 只暴露满足以下全部条件的节点：契约状态完整、Planner 显式启用、编译模式真实存在、
 Adapter 版本一致，并且契约与 Adapter 的 compiler checksum 匹配。UI Registry 中出现
 节点不等于 Planner 可以生成该节点。
 
 当前开放范围仍严格保持为 `input`、`output`、`workflow_agent`、
 `external_xpert`、`knowledge_base`、`toolset_resource` 和 `plugin_resource`。
-NodeContract V3 与 Planner IR 独立演进。Capability Snapshot 当前为 V4，
+NodeContract V3 与 Planner IR 独立演进。Capability Snapshot 当前为 V5，
 `ir_version=3` 且声明 `supported_ir_versions=[2,3]`。旧 V2 Snapshot 保持可读，详见
 [NODE_CONTRACT_V3.md](./NODE_CONTRACT_V3.md)。
 
@@ -163,13 +163,24 @@ data 边只表达类型化变量来源，不进入 classic runner 的拓扑或�
 V3；歧义来源返回结构化 `lossy_conversion`，不得猜测。生成入口已经单写 V3，模型
 调用预算仍为任务规划、能力编译和最多一次修复。
 
+### Headless Authoring 边界
+
+管理端候选编辑不再把完整 Workflow 作为可信持久化输入。V3 候选及可无损恢复的 V2
+候选统一经过 `editor-diff -> Graph Patch preview -> checksum-bound apply`。服务端从实际
+Proposal、NodeContract、Adapter 与资源 Store 重新解析并预检，Preview 不持久化，Apply
+只更新 pending Proposal 一次。Proposal、目标 Xpert 或相关资源发生漂移时 fail-closed。
+
+旧整包 Proposal PATCH 保持兼容并将 IR 标记为 `stale`；有损 V2 候选不得进入 Headless
+Apply。操作、接口、安全 receipt 和回退边界见
+[META_PLANNER_HEADLESS_AUTHORING.md](./META_PLANNER_HEADLESS_AUTHORING.md)。
+
 ### Typed IR V2 兼容边界
 
 旧候选可继续读取 `MetaPlannerTypedBlueprintV2`，其中显式声明节点引用、任务覆盖、
 类型化输入/输出变量、控制边、资源/中间件目标和唯一最终输出。任务和 Agent 不再
 强制一一对应：一个 Agent 可以覆盖多个任务，一个任务也可以由多个节点共同完成。
 
-Capability Snapshot V4 只暴露当前存在且与 NodeContract 校验一致的编译能力。首轮可执行 IR 节点只有
+Capability Snapshot V5 只暴露当前存在且与 NodeContract 校验一致的编译能力。首轮可执行 IR 节点只有
 `workflow_agent`；`input/output` 由编译器管理，外部 Xpert、知识库、Toolset 和
 Plugin 通过绑定记录编译。JSON、Agent Table、知识检索和视觉理解尚无 Planner
 适配器，因此不会进入授权快照，也不会被模型生成。

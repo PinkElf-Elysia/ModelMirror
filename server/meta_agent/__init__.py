@@ -27,6 +27,19 @@ from .managed_gateway import (
     ManagedMetaAgentRun,
 )
 from .meta_planner_v2 import MetaPlannerV2Service
+from .graph_patch import (
+    GRAPH_PATCH_MAX_JSON_DEPTH,
+    GRAPH_PATCH_MAX_REQUEST_BYTES,
+    GraphPatchApplyRequest,
+    GraphPatchEditorDiffRequest,
+    GraphPatchEnvelopeV1,
+)
+from .headless_authoring import (
+    HeadlessAuthoringConflictError,
+    HeadlessAuthoringError,
+    HeadlessAuthoringService,
+    safe_headless_error_message,
+)
 
 __all__ = [
     "MetaAgentGenerateRequest",
@@ -39,6 +52,15 @@ __all__ = [
     "MetaPlannerScope",
     "ResolvedGraphIRV3",
     "MetaPlannerV2Service",
+    "GRAPH_PATCH_MAX_JSON_DEPTH",
+    "GRAPH_PATCH_MAX_REQUEST_BYTES",
+    "GraphPatchApplyRequest",
+    "GraphPatchEditorDiffRequest",
+    "GraphPatchEnvelopeV1",
+    "HeadlessAuthoringConflictError",
+    "HeadlessAuthoringError",
+    "HeadlessAuthoringService",
+    "safe_headless_error_message",
     "ManagedMetaAgentGateway",
     "ManagedMetaAgentRoutingError",
     "ManagedMetaAgentRun",

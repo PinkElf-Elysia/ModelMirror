@@ -354,7 +354,7 @@ npm.cmd run build
 - 所有 `NativeNodeKind` 必须在 `NodeContractRegistry` 中唯一登记；未知或缺失契约必须 fail-closed。
 - `contract_status=complete` 不等于 Planner、Evaluator、Evolution 或 App 可用。入口许可必须由契约显式声明。
 - Capability Snapshot 只允许完整契约、真实 Adapter、Adapter 版本和 compiler checksum 一致的节点；当前范围仍严格为既有七类。
-- NodeContract 版本与 Planner IR 版本独立。Capability Snapshot V4 声明
+- NodeContract 版本与 Planner IR 版本独立。Capability Snapshot V5 声明
   `ir_version=3` 与 `supported_ir_versions=[2,3]`，但仍只开放既有七类能力。
 - `checksum` 覆盖完整契约，`compiler_checksum` 仅覆盖编译关键事实；标题、图标和分类不得使 Adapter 失效。
 - 前端 fallback 只能保存展示信息，不得伪造 Planner 状态、端口、安全策略或 checksum。
@@ -370,6 +370,17 @@ npm.cmd run build
 - 鼓励复用、适配或重写宽松许可证开源实现，但必须逐文件锁定官方 commit、相对路径、许可证、第三方依赖、SHA-256、`reuse/adapt/rewrite/reject`、NOTICE 和测试映射。
 - AGPL、source-available、混合许可证或来源不明实现默认仅作行为参考并独立重写；任何例外必须先完成新的许可证与架构审计。
 - Planner、Optimizer 和 Migration 能力始终只能生成候选、差异和报告，不得自动批准、静默覆盖人工草稿或发布线上版本。
+
+### 8.1.3 Meta Planner Headless Authoring 护栏
+
+- V3 候选和可无损恢复的 V2 候选必须使用 `GraphPatchEnvelopeV1`；不得把前端或模型输出的完整 Native Workflow 直接持久化。
+- Patch 只能引用 Planner ref、命名端口和 Adapter config。资源版本、Handle、Schema、执行策略和 checksum 必须由服务端推导。
+- Preview 必须无副作用；Apply 必须重新读取 Proposal、目标 Xpert 和 Capability Snapshot，并同时绑定 revision、Graph checksum、candidate checksum 与 Preview checksum。
+- `input/output` 为 compiler-managed。无法表达的画布修改、资源漂移、类型或基数错误必须显式 fail-closed，不得静默忽略。
+- Headless Apply 只更新 pending Proposal 一次；不得创建 Xpert 草稿、版本或运行。安全 receipt 不得保存 Prompt 正文、资源内容、工具输出或凭据。
+- Meta Planner Proposal 创建时的授权范围不得被后续整包 PATCH 扩大；Headless 请求必须遵守正文大小和 JSON 深度上限，持久化失败不得在内存中留下已递增 revision。
+- 有损 V2 转换继续走兼容读取、校验和审批路径，禁止 Headless Apply。旧整包 Proposal PATCH 必须将 Graph IR 标记为 stale。
+- 当前节点范围仍严格为既有七类；Headless Authoring 完成不等于开放 JSON、控制流、知识检索、数据库或视觉节点。
 
 ### 8.2 EvoAgentX Evaluator 护栏
 

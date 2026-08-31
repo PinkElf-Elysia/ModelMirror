@@ -104,8 +104,10 @@ Planner claims. If the server response is absent, incomplete, or has a checksum
 shape other than V3, contract-dependent operations stay disabled while the
 classic palette may continue to render.
 
-Meta Planner Capability Snapshot version is V4 with `ir_version=3` and
-`supported_ir_versions=[2,3]`. Persisted V2 snapshots without contract metadata remain readable. Contract
+Meta Planner Capability Snapshot version is V5 with `ir_version=3` and
+`supported_ir_versions=[2,3]`. V5 also projects the typed Headless Authoring
+operation schema and per-kind authoring checksum without widening the node set.
+Persisted V2 snapshots without contract metadata remain readable. Contract
 drift is a warning for an existing proposal; missing or invalid resources still
 block approval.
 

@@ -478,7 +478,9 @@ def test_capability_api_returns_stable_safe_contract():
     response = client.get("/api/meta-agent/capabilities")
     assert response.status_code == 200
     payload = response.json()
-    assert payload["version"] == "evoagentx-meta-planner-capabilities-v4"
+    assert payload["version"] == "evoagentx-meta-planner-capabilities-v5"
+    assert payload["authoring_protocol_version"] == 1
+    assert payload["authoring_limits"]["max_operations"] == 64
     assert payload["ir_version"] == 3
     assert payload["supported_ir_versions"] == [2, 3]
     assert payload["contract_version"] == 3
@@ -798,6 +800,71 @@ async def test_generation_persists_proposal_and_uses_at_most_one_repair(
     created = xpert_store.get_xpert(approved.applied_resource_id or "")
     assert created.published_version is None
     assert created.status == "draft"
+
+
+@pytest.mark.asyncio
+async def test_parseable_v3_repair_uses_one_typed_graph_patch(tmp_path: Path):
+    proposal_store = AuthoringProposalStore(tmp_path / "runtime")
+    xpert_store = XpertStore(tmp_path / "xperts")
+    authoring = AuthoringService(
+        proposal_store,
+        xpert_store,
+        WorkspaceSkillDraftStore(tmp_path / "skills"),
+        xpert_preflight=lambda candidate: (
+            validate_xpert_definition(candidate),
+            candidate.draft.workflow,
+            [],
+        ),
+    )
+    graph_intent, _ = v2_to_graph_intent(_typed_blueprint())
+    assert graph_intent is not None
+    invalid = graph_intent.model_copy(deep=True)
+    invalid.final_output.variable = "missing_output"
+    calls: list[dict[str, object]] = []
+
+    async def complete(model_id, system_prompt, user_prompt, temperature, max_tokens):
+        calls.append(
+            {
+                "system_prompt": system_prompt,
+                "temperature": temperature,
+            }
+        )
+        if len(calls) == 1:
+            return _plan().model_dump_json()
+        if len(calls) == 2:
+            return invalid.model_dump_json()
+        prompt = json.loads(user_prompt)
+        return json.dumps(
+            {
+                **prompt["required_envelope"],
+                "operations": [
+                    {
+                        "op": "set_final_output",
+                        "node_ref": graph_intent.final_output.node_ref,
+                        "port": "result",
+                    }
+                ],
+            }
+        )
+
+    service = MetaPlannerV2Service(
+        authoring_service=authoring,
+        preflight=lambda candidate: (
+            validate_xpert_definition(candidate),
+            candidate.draft.workflow,
+            [],
+        ),
+        completion=complete,
+    )
+    response = await service.generate(_request(), _snapshot())
+
+    assert len(calls) == 3
+    assert "GraphPatchEnvelopeV1" in str(calls[-1]["system_prompt"])
+    assert calls[-1]["temperature"] == 0
+    assert response.repair_used is True
+    assert response.validation["valid"] is True
+    proposal = proposal_store.require(response.proposal_id)
+    assert proposal.payload["meta_planner_report"]["repair_protocol"] == "graph_patch_v1"
 
 
 @pytest.mark.asyncio

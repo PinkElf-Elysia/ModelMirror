@@ -10,6 +10,13 @@ from .node_adapters import (
     META_PLANNER_COMPILABLE_NODE_KINDS,
     planner_capability_metadata,
 )
+from .graph_patch import (
+    GRAPH_PATCH_MAX_JSON_DEPTH,
+    GRAPH_PATCH_MAX_OPERATIONS,
+    GRAPH_PATCH_MAX_REQUEST_BYTES,
+    GRAPH_PATCH_PROTOCOL_VERSION,
+    graph_patch_schema,
+)
 from .schemas import MetaPlannerCapabilitySnapshot, MetaPlannerScope
 
 
@@ -64,6 +71,31 @@ def _safe_resource(
     }
 
 
+def _immutable_version_catalog(resource: Any) -> list[dict[str, Any]]:
+    """Project immutable version identity without exposing version contents."""
+
+    catalog: list[dict[str, Any]] = []
+    for version in list(getattr(resource, "versions", None) or []):
+        if hasattr(version, "model_dump"):
+            payload = version.model_dump(mode="json")
+        elif isinstance(version, dict):
+            payload = dict(version)
+        else:
+            payload = dict(vars(version))
+        try:
+            version_number = int(payload.get("version"))
+        except (TypeError, ValueError):
+            continue
+        checksum = str(
+            payload.get("checksum")
+            or payload.get("schema_hash")
+            or payload.get("package_checksum")
+            or _canonical_hash(payload)
+        )
+        catalog.append({"version": version_number, "checksum": checksum})
+    return sorted(catalog, key=lambda item: int(item["version"]))
+
+
 def build_capability_snapshot(
     *,
     workflow_registry: Any,
@@ -110,6 +142,7 @@ def build_capability_snapshot(
                         "contract_checksum": compiler["contract_checksum"],
                         "compiler_checksum": compiler["compiler_checksum"],
                         "adapter_checksum": compiler["adapter_checksum"],
+                        "authoring_checksum": compiler["authoring_checksum"],
                         "default_data": dict(planner.get("default_data") or {}),
                         "config_constraints": dict(
                             planner.get("config_constraints") or {}
@@ -149,6 +182,7 @@ def build_capability_snapshot(
                         "contract_checksum": compiler["contract_checksum"],
                         "compiler_checksum": compiler["compiler_checksum"],
                         "adapter_checksum": compiler["adapter_checksum"],
+                        "authoring_checksum": compiler["authoring_checksum"],
                         "default_data": dict(planner.get("default_data") or {}),
                         "config_constraints": dict(
                             planner.get("config_constraints") or {}
@@ -205,7 +239,10 @@ def build_capability_snapshot(
             description=item.description,
             status=item.status,
             version=item.published_version,
-            metadata={"slug": item.slug},
+            metadata={
+                "slug": item.slug,
+                "available_versions": _immutable_version_catalog(item),
+            },
         )
         for item in external_xperts
         if item.status == "published" and item.published_version
@@ -235,7 +272,10 @@ def build_capability_snapshot(
             description=item.description,
             status=item.status,
             version=item.published_version,
-            metadata={"kind": item.kind},
+            metadata={
+                "kind": item.kind,
+                "available_versions": _immutable_version_catalog(item),
+            },
         )
         for item in toolsets
         if item.status == "published" and item.published_version
@@ -247,7 +287,10 @@ def build_capability_snapshot(
             description=item.description,
             status=item.status,
             version=item.published_version,
-            metadata={"slug": item.slug},
+            metadata={
+                "slug": item.slug,
+                "available_versions": _immutable_version_catalog(item),
+            },
         )
         for item in plugins
         if item.status == "published" and item.published_version
@@ -259,7 +302,11 @@ def build_capability_snapshot(
             description=item.description,
             status=item.status,
             version=item.published_version,
-            metadata={"slug": item.slug, "aliases": list(item.aliases)[:5]},
+            metadata={
+                "slug": item.slug,
+                "aliases": list(item.aliases)[:5],
+                "available_versions": _immutable_version_catalog(item),
+            },
         )
         for item in prompt_profiles
         if item.status == "published" and item.published_version
@@ -315,7 +362,7 @@ def build_capability_snapshot(
         agent_ids=[item["id"] for item in expert_summaries],
     )
     payload = {
-        "version": "evoagentx-meta-planner-capabilities-v4",
+        "version": "evoagentx-meta-planner-capabilities-v5",
         "ir_version": 3,
         "supported_ir_versions": [2, 3],
         "contract_version": int(node_payload.get("contract_version") or 0),
@@ -331,6 +378,18 @@ def build_capability_snapshot(
         "models": models,
         "agents": expert_summaries,
         "default_scope": default_scope.model_dump(mode="json"),
+        "authoring_protocol_version": GRAPH_PATCH_PROTOCOL_VERSION,
+        "authoring_operation_schema": graph_patch_schema(),
+        "authoring_adapter_checksums": {
+            item["kind"]: str(item["planner"]["authoring_checksum"])
+            for item in nodes
+        },
+        "authoring_limits": {
+            "max_operations": GRAPH_PATCH_MAX_OPERATIONS,
+            "max_receipts": 20,
+            "max_request_bytes": GRAPH_PATCH_MAX_REQUEST_BYTES,
+            "max_json_depth": GRAPH_PATCH_MAX_JSON_DEPTH,
+        },
     }
     return MetaPlannerCapabilitySnapshot(
         **payload,
