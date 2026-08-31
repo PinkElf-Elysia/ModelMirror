@@ -52,6 +52,8 @@ import {
   synthesizeXpertSpeech,
   transcribeXpertAudio,
   uploadXpertFile,
+  XpertAudioRequestError,
+  type XpertAudioProviderRouteReceipt,
   type XpertAudioCapabilities,
 } from "../utils/xpertApi";
 
@@ -239,6 +241,168 @@ export function isCurrentXpertConversationRequest(
     && requestConversationId === currentConversationId;
 }
 
+export interface XpertAudioRequestIdentity {
+  requestToken: number;
+  xpertId: string;
+  version: number | null;
+  conversationId: string;
+  conversationRequestToken: number;
+}
+
+export interface XpertPendingResumeIdentity {
+  taskId: string;
+  xpertId: string;
+  version: number | null;
+  conversationId: string;
+  conversationRequestToken: number;
+}
+
+export function isCurrentXpertPendingResume(
+  pending: XpertPendingResumeIdentity,
+  current: XpertPendingResumeIdentity,
+): boolean {
+  return pending.taskId === current.taskId
+    && pending.xpertId === current.xpertId
+    && pending.version === current.version
+    && pending.conversationId === current.conversationId
+    && pending.conversationRequestToken === current.conversationRequestToken;
+}
+
+export function claimXpertResumeExecution(
+  inFlightRef: { current: boolean },
+): boolean {
+  if (inFlightRef.current) return false;
+  inFlightRef.current = true;
+  return true;
+}
+
+export interface XpertResumeExecutionState {
+  mounted: boolean;
+  requestToken: number;
+  currentRequestToken: number;
+  inFlight: boolean;
+  activeController: boolean;
+  routeValid: boolean;
+}
+
+export function isCurrentXpertResumeExecution(
+  expected: XpertPendingResumeIdentity,
+  current: XpertPendingResumeIdentity,
+  state: XpertResumeExecutionState,
+): boolean {
+  return state.mounted
+    && state.requestToken === state.currentRequestToken
+    && state.inFlight
+    && state.activeController
+    && state.routeValid
+    && isCurrentXpertPendingResume(expected, current);
+}
+
+export function xpertResumeTemporarilyLocked(
+  running: boolean,
+  contextLoading: boolean,
+  transcribing: boolean,
+  speakingMessageId: string,
+  audioRequestBusy: boolean,
+): boolean {
+  return running
+    || contextLoading
+    || transcribing
+    || Boolean(speakingMessageId)
+    || audioRequestBusy;
+}
+
+export function isCurrentXpertRouteContext(
+  routeXpertId: string,
+  loadedXpertId: string,
+  conversationId: string,
+  conversationXpertId: string,
+): boolean {
+  return Boolean(routeXpertId)
+    && loadedXpertId === routeXpertId
+    && Boolean(conversationId)
+    && conversationXpertId === routeXpertId;
+}
+
+export function isCurrentXpertAudioRequest(
+  request: XpertAudioRequestIdentity,
+  current: XpertAudioRequestIdentity,
+): boolean {
+  return request.requestToken === current.requestToken
+    && request.xpertId === current.xpertId
+    && request.version === current.version
+    && request.conversationId === current.conversationId
+    && request.conversationRequestToken === current.conversationRequestToken;
+}
+
+export function claimXpertAudioRequest(
+  busyRef: { current: boolean },
+): boolean {
+  if (busyRef.current) return false;
+  busyRef.current = true;
+  return true;
+}
+
+export function invalidateXpertAudioActivity(
+  requestTokenRef: { current: number },
+  busyRef: { current: boolean },
+  playbackCleanupRef: { current: (() => void) | null },
+  audioInput: { value: string } | null = null,
+): void {
+  requestTokenRef.current += 1;
+  busyRef.current = false;
+  playbackCleanupRef.current?.();
+  playbackCleanupRef.current = null;
+  if (audioInput) audioInput.value = "";
+}
+
+interface XpertAudioPlaybackCallbacks {
+  onCleanupReady?: (cleanup: () => void) => void;
+  onEnded?: () => void;
+  onError?: () => void;
+}
+
+export async function playXpertAudioBlob(
+  blob: Blob,
+  callbacks: XpertAudioPlaybackCallbacks = {},
+): Promise<void> {
+  const url = URL.createObjectURL(blob);
+  let audio: HTMLAudioElement;
+  try {
+    audio = new Audio(url);
+  } catch (caught) {
+    URL.revokeObjectURL(url);
+    throw caught;
+  }
+  let cleaned = false;
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    audio.removeEventListener("ended", handleEnded);
+    audio.removeEventListener("error", handleError);
+    audio.pause();
+    audio.removeAttribute("src");
+    URL.revokeObjectURL(url);
+  };
+  function handleEnded() {
+    cleanup();
+    callbacks.onEnded?.();
+  }
+  function handleError() {
+    cleanup();
+    callbacks.onError?.();
+  }
+  audio.addEventListener("ended", handleEnded, { once: true });
+  audio.addEventListener("error", handleError, { once: true });
+  callbacks.onCleanupReady?.(cleanup);
+  try {
+    await audio.play();
+  } catch (caught) {
+    cleanup();
+    throw caught;
+  }
+}
+
 export function xpertFilesAfterPermanentDelete(
   files: XpertFileAsset[],
   assetId: string,
@@ -251,15 +415,31 @@ export function xpertConversationNavigationLocked(
   running: boolean,
   uploading: boolean,
   deletingFileId: string,
+  transcribing = false,
+  speakingMessageId = "",
+  audioRequestBusy = false,
 ): boolean {
-  return contextLoading || running || uploading || Boolean(deletingFileId);
+  return contextLoading
+    || running
+    || uploading
+    || Boolean(deletingFileId)
+    || transcribing
+    || Boolean(speakingMessageId)
+    || audioRequestBusy;
 }
 
 export function xpertMessageInputLocked(
   contextLoading: boolean,
   running: boolean,
+  transcribing = false,
+  speakingMessageId = "",
+  audioRequestBusy = false,
 ): boolean {
-  return contextLoading || running;
+  return contextLoading
+    || running
+    || transcribing
+    || Boolean(speakingMessageId)
+    || audioRequestBusy;
 }
 
 interface RuntimeRunSummary {
@@ -407,6 +587,41 @@ function roleCopy(role: XpertConversationMessage["role"]) {
   return role === "user" ? "你" : "智能体";
 }
 
+export function xpertTranscriptionAvailable(
+  capabilities: XpertAudioCapabilities | null | undefined,
+) {
+  return Boolean(
+    capabilities?.speech_to_text.enabled &&
+    capabilities.speech_to_text.available,
+  );
+}
+
+export function xpertSpeechAvailable(
+  capabilities: XpertAudioCapabilities | null | undefined,
+) {
+  return Boolean(
+    capabilities?.text_to_speech.enabled &&
+    capabilities.text_to_speech.available,
+  );
+}
+
+function xpertAudioCapabilityTitle(
+  label: string,
+  capability:
+    | XpertAudioCapabilities["speech_to_text"]
+    | XpertAudioCapabilities["text_to_speech"],
+) {
+  return capability.available
+    ? `${label} · ${capability.routing_mode}`
+    : `${label}当前不可用 · ${capability.routing_mode} · ${capability.reason_code}`;
+}
+
+function visibleAudioProviderReceipt(
+  receipt: XpertAudioProviderRouteReceipt,
+): ProviderRouteReceipt {
+  return receipt as unknown as ProviderRouteReceipt;
+}
+
 export default function XpertChatPage() {
   const { xpertId = "" } = useParams();
   const navigate = useNavigate();
@@ -454,20 +669,173 @@ export default function XpertChatPage() {
   const [audioCapabilities, setAudioCapabilities] = useState<XpertAudioCapabilities | null>(null);
   const [transcribing, setTranscribing] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState("");
+  const [approvalResumeQueued, setApprovalResumeQueued] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const audioInputRef = useRef<HTMLInputElement | null>(null);
   const conversationIdRef = useRef("");
+  const conversationXpertIdRef = useRef("");
   const conversationRequestTokenRef = useRef(0);
+  const audioRequestTokenRef = useRef(0);
+  const audioRequestBusyRef = useRef(false);
+  const activeAudioPlaybackCleanupRef = useRef<(() => void) | null>(null);
+  const pendingApprovalResumeRef = useRef<XpertPendingResumeIdentity | null>(null);
+  const resumeInFlightRef = useRef(false);
+  const resumeRequestTokenRef = useRef(0);
+  const activeResumeAbortRef = useRef<AbortController | null>(null);
+  const resumeRefreshTimerRef = useRef<number | null>(null);
+  const runRequestTokenRef = useRef(0);
+  const activeRunAbortRef = useRef<AbortController | null>(null);
+  const mountedRef = useRef(true);
+  const currentXpertIdRef = useRef("");
+  const currentLoadedXpertIdRef = useRef("");
+  const currentVersionRef = useRef<number | null>(null);
+  const currentTaskIdRef = useRef("");
+  const runningRef = useRef(false);
+  const contextLoadingRef = useRef(false);
+  currentXpertIdRef.current = xpertId;
+  currentLoadedXpertIdRef.current = xpert?.id ?? "";
+  currentVersionRef.current = version;
+  currentTaskIdRef.current = taskId;
+  runningRef.current = running;
+  contextLoadingRef.current = contextLoading;
+  const loadedXpertId = xpert?.id ?? "";
+  const loadedXpertMatchesRoute = Boolean(loadedXpertId) && loadedXpertId === xpertId;
+  const currentRouteContext = isCurrentXpertRouteContext(
+    xpertId,
+    loadedXpertId,
+    conversationId,
+    conversationXpertIdRef.current,
+  );
   const conversationNavigationLocked = xpertConversationNavigationLocked(
     contextLoading,
     running,
     uploading,
     deletingFileId,
-  );
-  const messageInputLocked = xpertMessageInputLocked(contextLoading, running);
+    transcribing,
+    speakingMessageId,
+    audioRequestBusyRef.current,
+  ) || !loadedXpertMatchesRoute || approvalResumeQueued;
+  const conversationSelectionLocked = conversationNavigationLocked || !currentRouteContext;
+  const messageInputLocked = xpertMessageInputLocked(
+    contextLoading,
+    running,
+    transcribing,
+    speakingMessageId,
+    audioRequestBusyRef.current,
+  ) || !currentRouteContext || approvalResumeQueued;
+
+  function currentResumeIdentity(): XpertPendingResumeIdentity {
+    return {
+      taskId: currentTaskIdRef.current,
+      xpertId: currentXpertIdRef.current,
+      version: currentVersionRef.current,
+      conversationId: conversationIdRef.current,
+      conversationRequestToken: conversationRequestTokenRef.current,
+    };
+  }
+
+  function currentResumeRouteIsValid(): boolean {
+    return mountedRef.current && isCurrentXpertRouteContext(
+      currentXpertIdRef.current,
+      currentLoadedXpertIdRef.current,
+      conversationIdRef.current,
+      conversationXpertIdRef.current,
+    );
+  }
+
+  function invalidateResumeExecutionRefs() {
+    resumeRequestTokenRef.current += 1;
+    activeResumeAbortRef.current?.abort();
+    activeResumeAbortRef.current = null;
+    if (resumeRefreshTimerRef.current !== null) {
+      window.clearTimeout(resumeRefreshTimerRef.current);
+      resumeRefreshTimerRef.current = null;
+    }
+    resumeInFlightRef.current = false;
+    pendingApprovalResumeRef.current = null;
+  }
+
+  function invalidateResumeExecution() {
+    invalidateResumeExecutionRefs();
+    setApprovalResumeQueued(false);
+  }
+
+  function invalidateRunExecutionRefs() {
+    runRequestTokenRef.current += 1;
+    activeRunAbortRef.current?.abort();
+    activeRunAbortRef.current = null;
+  }
+
+  function setRunningState(value: boolean) {
+    runningRef.current = value;
+    setRunning(value);
+  }
+
+  function setContextLoadingState(value: boolean) {
+    contextLoadingRef.current = value;
+    setContextLoading(value);
+  }
+
+  function changePublishedVersion(nextVersion: number) {
+    if (conversationSelectionLocked) return;
+    invalidateRunExecutionRefs();
+    invalidateResumeExecution();
+    setRunningState(false);
+    setRunId("");
+    setTaskId("");
+    currentTaskIdRef.current = "";
+    setTrace(null);
+    setVersion(nextVersion);
+  }
+
+  const resumeIdentityForRender = currentResumeIdentity();
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      invalidateRunExecutionRefs();
+      invalidateResumeExecutionRefs();
+      invalidateXpertAudioActivity(
+        audioRequestTokenRef,
+        audioRequestBusyRef,
+        activeAudioPlaybackCleanupRef,
+        audioInputRef.current,
+      );
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
+    invalidateRunExecutionRefs();
+    invalidateResumeExecution();
+    setRunningState(false);
+    setContextLoadingState(true);
+    setLoading(true);
+    setXpert(null);
+    setVersion(null);
+    setError("");
+    setConversations([]);
+    setConversationId("");
+    conversationIdRef.current = "";
+    conversationXpertIdRef.current = "";
+    conversationRequestTokenRef.current += 1;
+    setMessages([]);
+    setInput("");
+    setFiles([]);
+    setFileOutputs([]);
+    setSelectedFileIds([]);
+    setMemories([]);
+    setMemoryCandidates([]);
+    setToolMemories([]);
+    setTodos([]);
+    setEvents([]);
+    resetXpertProviderReceipts(providerReceiptEventsRef, setProviderReceipt);
+    setRunId("");
+    setTaskId("");
+    currentTaskIdRef.current = "";
+    setTrace(null);
+    setAudioCapabilities(null);
     getXpert(xpertId)
       .then((data) => {
         if (cancelled) return;
@@ -513,7 +881,7 @@ export default function XpertChatPage() {
   useEffect(() => {
     if (!xpert) return;
     let cancelled = false;
-    setContextLoading(true);
+    setContextLoadingState(true);
     listXpertConversations(xpert.id)
       .then(async (payload) => {
         if (cancelled) return;
@@ -527,7 +895,7 @@ export default function XpertChatPage() {
         if (!cancelled) setError(caught instanceof Error ? caught.message : "\u4f1a\u8bdd\u52a0\u8f7d\u5931\u8d25");
       })
       .finally(() => {
-        if (!cancelled) setContextLoading(false);
+        if (!cancelled) setContextLoadingState(false);
       });
     return () => {
       cancelled = true;
@@ -599,6 +967,66 @@ export default function XpertChatPage() {
   }, [xpert?.id, version]);
 
   useEffect(() => {
+    invalidateRunExecutionRefs();
+    invalidateResumeExecution();
+    setRunningState(false);
+    invalidateXpertAudioActivity(
+      audioRequestTokenRef,
+      audioRequestBusyRef,
+      activeAudioPlaybackCleanupRef,
+      audioInputRef.current,
+    );
+    setTranscribing(false);
+    setSpeakingMessageId("");
+    setRunId("");
+    setTaskId("");
+    currentTaskIdRef.current = "";
+    setTrace(null);
+    return () => {
+      invalidateXpertAudioActivity(
+        audioRequestTokenRef,
+        audioRequestBusyRef,
+        activeAudioPlaybackCleanupRef,
+        audioInputRef.current,
+      );
+    };
+  }, [xpertId, version]);
+
+  useEffect(() => {
+    if (!approvalResumeQueued) return;
+    const pending = pendingApprovalResumeRef.current;
+    if (!pending) {
+      setApprovalResumeQueued(false);
+      return;
+    }
+    const current = currentResumeIdentity();
+    if (!currentResumeRouteIsValid() || !isCurrentXpertPendingResume(pending, current)) {
+      pendingApprovalResumeRef.current = null;
+      setApprovalResumeQueued(false);
+      return;
+    }
+    if (resumeInFlightRef.current || xpertResumeTemporarilyLocked(
+      runningRef.current,
+      contextLoadingRef.current,
+      transcribing,
+      speakingMessageId,
+      audioRequestBusyRef.current,
+    )) return;
+    void resumeApprovalExecution(pending);
+  }, [
+    approvalResumeQueued,
+    contextLoading,
+    conversationId,
+    currentRouteContext,
+    running,
+    speakingMessageId,
+    taskId,
+    transcribing,
+    version,
+    xpertId,
+  ]);
+
+  useEffect(() => {
     setSelectedFileIds((current) => (
       fileUploadEnabled ? current.slice(0, maxFilesPerRun) : []
     ));
@@ -608,10 +1036,22 @@ export default function XpertChatPage() {
     nextConversationId: string,
     selectedXpertId = xpert?.id,
   ) {
-    if (!selectedXpertId || !nextConversationId) return;
+    if (!selectedXpertId || selectedXpertId !== xpertId || !nextConversationId) return;
+    invalidateRunExecutionRefs();
+    invalidateResumeExecution();
+    setRunningState(false);
+    invalidateXpertAudioActivity(
+      audioRequestTokenRef,
+      audioRequestBusyRef,
+      activeAudioPlaybackCleanupRef,
+      audioInputRef.current,
+    );
+    setTranscribing(false);
+    setSpeakingMessageId("");
     const requestToken = conversationRequestTokenRef.current + 1;
     conversationRequestTokenRef.current = requestToken;
     conversationIdRef.current = nextConversationId;
+    conversationXpertIdRef.current = "";
     setConversationId(nextConversationId);
     setMessages([]);
     setInput("");
@@ -620,7 +1060,11 @@ export default function XpertChatPage() {
     setSelectedFileIds([]);
     setEvents([]);
     resetXpertProviderReceipts(providerReceiptEventsRef, setProviderReceipt);
-    setContextLoading(true);
+    setRunId("");
+    setTaskId("");
+    currentTaskIdRef.current = "";
+    setTrace(null);
+    setContextLoadingState(true);
     setError("");
     try {
       const [conversation, filePayload, outputItems, memoryPayload, candidatePayload, todoItems, toolMemoryPayload] = await Promise.all([
@@ -641,6 +1085,10 @@ export default function XpertChatPage() {
         nextConversationId,
         conversationIdRef.current,
       )) return;
+      if (conversation.xpert_id !== selectedXpertId) {
+        throw new Error("会话与当前智能体不匹配");
+      }
+      conversationXpertIdRef.current = conversation.xpert_id;
       setMessages(conversation.messages ?? []);
       setSummaryRevision(conversation.summary_revision ?? 0);
       setFiles(filePayload.items);
@@ -694,7 +1142,7 @@ export default function XpertChatPage() {
         nextConversationId,
         conversationIdRef.current,
       )) {
-        setContextLoading(false);
+        setContextLoadingState(false);
       }
     }
   }
@@ -747,25 +1195,29 @@ export default function XpertChatPage() {
 
   async function syncCompletedAssistantMessage(
     fallback: XpertConversationMessage,
+    targetXpertId = xpert?.id ?? "",
+    targetConversationId = conversationId,
+    shouldApply: () => boolean = () => true,
   ) {
+    if (!shouldApply()) return;
     setMessages((current) => [...current, fallback]);
     if (
-      !xpert
-      || !conversationId
+      !targetXpertId
+      || !targetConversationId
       || !fallback.source_task_id
       || !fallback.source_run_id
     ) {
       return;
     }
     try {
-      const persisted = await getXpertConversation(xpert.id, conversationId);
+      const persisted = await getXpertConversation(targetXpertId, targetConversationId);
       const linked = persisted.messages?.some((message) => (
         message.role === "assistant"
         && message.source_task_id === fallback.source_task_id
         && message.source_run_id === fallback.source_run_id
         && Boolean(message.message_id)
       ));
-      if (linked) setMessages(persisted.messages ?? []);
+      if (shouldApply() && linked) setMessages(persisted.messages ?? []);
     } catch {
       // Keep the visible fallback. It intentionally has no message ID, so it
       // cannot expose the trusted-source action until a later refresh.
@@ -810,7 +1262,7 @@ export default function XpertChatPage() {
   }
 
   async function startConversation() {
-    if (!xpert || running || contextLoading || uploading || deletingFileId) return;
+    if (!xpert || conversationNavigationLocked) return;
     const created = await createXpertConversation(xpert.id);
     setConversations((current) => [created, ...current]);
     await selectConversation(created.conversation_id);
@@ -914,41 +1366,158 @@ export default function XpertChatPage() {
   }
 
   async function handleAudioTranscription(file: File) {
-    if (!xpert || !version || !audioCapabilities?.speech_to_text.enabled) return;
+    if (
+      !xpert
+      || !currentRouteContext
+      || !version
+      || !conversationId
+      || runningRef.current
+      || contextLoadingRef.current
+      || transcribing
+      || speakingMessageId
+      || pendingApprovalResumeRef.current !== null
+      || audioCapabilities?.version !== version
+      || !xpertTranscriptionAvailable(audioCapabilities)
+    ) return;
+    if (!claimXpertAudioRequest(audioRequestBusyRef)) return;
+    const requestIdentity: XpertAudioRequestIdentity = {
+      requestToken: audioRequestTokenRef.current + 1,
+      xpertId: xpert.id,
+      version,
+      conversationId,
+      conversationRequestToken: conversationRequestTokenRef.current,
+    };
+    audioRequestTokenRef.current = requestIdentity.requestToken;
+    const requestIsCurrent = () => isCurrentXpertAudioRequest(
+      requestIdentity,
+      {
+        requestToken: audioRequestTokenRef.current,
+        xpertId: currentXpertIdRef.current,
+        version: currentVersionRef.current,
+        conversationId: conversationIdRef.current,
+        conversationRequestToken: conversationRequestTokenRef.current,
+      },
+    );
     setTranscribing(true);
     setError("");
+    resetXpertProviderReceipts(providerReceiptEventsRef, setProviderReceipt);
     try {
       const payload = await transcribeXpertAudio(xpert.id, version, file);
+      if (!requestIsCurrent()) return;
+      const receipt = payload.provider_route_receipts?.[0];
+      if (receipt) setProviderReceipt(visibleAudioProviderReceipt(receipt));
       setInput((current) => [current.trim(), payload.text.trim()].filter(Boolean).join("\n"));
     } catch (caught) {
+      if (!requestIsCurrent()) return;
+      if (
+        caught instanceof XpertAudioRequestError &&
+        caught.providerRouteReceipt
+      ) {
+        setProviderReceipt(
+          visibleAudioProviderReceipt(caught.providerRouteReceipt),
+        );
+      }
       setError(caught instanceof Error ? caught.message : "语音转写失败");
     } finally {
-      setTranscribing(false);
-      if (audioInputRef.current) audioInputRef.current.value = "";
+      if (requestIsCurrent()) {
+        audioRequestBusyRef.current = false;
+        setTranscribing(false);
+        if (audioInputRef.current) audioInputRef.current.value = "";
+      }
     }
   }
 
   async function speakMessage(message: XpertConversationMessage, index: number) {
-    if (!xpert || !version || !audioCapabilities?.text_to_speech.enabled) return;
+    if (
+      !xpert
+      || !currentRouteContext
+      || !version
+      || !conversationId
+      || runningRef.current
+      || contextLoadingRef.current
+      || transcribing
+      || speakingMessageId
+      || pendingApprovalResumeRef.current !== null
+      || audioCapabilities?.version !== version
+      || !xpertSpeechAvailable(audioCapabilities)
+    ) return;
+    if (!claimXpertAudioRequest(audioRequestBusyRef)) return;
     const messageId = message.message_id || `assistant-${index}`;
+    const requestIdentity: XpertAudioRequestIdentity = {
+      requestToken: audioRequestTokenRef.current + 1,
+      xpertId: xpert.id,
+      version,
+      conversationId,
+      conversationRequestToken: conversationRequestTokenRef.current,
+    };
+    audioRequestTokenRef.current = requestIdentity.requestToken;
+    const requestIsCurrent = () => isCurrentXpertAudioRequest(
+      requestIdentity,
+      {
+        requestToken: audioRequestTokenRef.current,
+        xpertId: currentXpertIdRef.current,
+        version: currentVersionRef.current,
+        conversationId: conversationIdRef.current,
+        conversationRequestToken: conversationRequestTokenRef.current,
+      },
+    );
+    const playback = { cleanup: null as (() => void) | null };
     setSpeakingMessageId(messageId);
     setError("");
+    resetXpertProviderReceipts(providerReceiptEventsRef, setProviderReceipt);
     try {
-      const blob = await synthesizeXpertSpeech(xpert.id, version, message.content);
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      audio.addEventListener("ended", () => {
-        URL.revokeObjectURL(url);
-        setSpeakingMessageId("");
-      }, { once: true });
-      audio.addEventListener("error", () => {
-        URL.revokeObjectURL(url);
-        setSpeakingMessageId("");
-        setError("语音播放失败");
-      }, { once: true });
-      await audio.play();
+      const result = await synthesizeXpertSpeech(xpert.id, version, message.content);
+      if (!requestIsCurrent()) return;
+      if (result.providerRouteReceipt) {
+        setProviderReceipt(
+          visibleAudioProviderReceipt(result.providerRouteReceipt),
+        );
+      }
+      await playXpertAudioBlob(result.blob, {
+        onCleanupReady: (cleanup) => {
+          playback.cleanup = cleanup;
+          if (requestIsCurrent()) {
+            activeAudioPlaybackCleanupRef.current = cleanup;
+          } else {
+            cleanup();
+          }
+        },
+        onEnded: () => {
+          if (activeAudioPlaybackCleanupRef.current === playback.cleanup) {
+            activeAudioPlaybackCleanupRef.current = null;
+          }
+          if (requestIsCurrent()) {
+            audioRequestBusyRef.current = false;
+            setSpeakingMessageId("");
+          }
+        },
+        onError: () => {
+          if (activeAudioPlaybackCleanupRef.current === playback.cleanup) {
+            activeAudioPlaybackCleanupRef.current = null;
+          }
+          if (requestIsCurrent()) {
+            audioRequestBusyRef.current = false;
+            setSpeakingMessageId("");
+            setError("语音播放失败");
+          }
+        },
+      });
     } catch (caught) {
+      playback.cleanup?.();
+      if (activeAudioPlaybackCleanupRef.current === playback.cleanup) {
+        activeAudioPlaybackCleanupRef.current = null;
+      }
+      if (!requestIsCurrent()) return;
+      audioRequestBusyRef.current = false;
       setSpeakingMessageId("");
+      if (
+        caught instanceof XpertAudioRequestError &&
+        caught.providerRouteReceipt
+      ) {
+        setProviderReceipt(
+          visibleAudioProviderReceipt(caught.providerRouteReceipt),
+        );
+      }
       setError(caught instanceof Error ? caught.message : "语音合成失败");
     }
   }
@@ -1069,7 +1638,11 @@ export default function XpertChatPage() {
     }
   }
 
-  async function loadTrace(nextRunId: string, nextTaskId: string) {
+  async function loadTrace(
+    nextRunId: string,
+    nextTaskId: string,
+    shouldApply: () => boolean = () => true,
+  ) {
     try {
       const [runResponse, checkpointsResponse, childrenResponse, observationResponse] =
         await Promise.all([
@@ -1101,6 +1674,7 @@ export default function XpertChatPage() {
       const observation = observationResponse?.ok
         ? ((await observationResponse.json()) as { tool_audit_records?: ToolAuditRecord[] })
         : null;
+      if (!shouldApply()) return;
       setTrace({
         run,
         childRuns,
@@ -1109,14 +1683,49 @@ export default function XpertChatPage() {
         audits: observation?.tool_audit_records ?? [],
       });
     } catch {
-      setTrace(null);
+      if (shouldApply()) setTrace(null);
     }
   }
 
   async function sendMessage(messageOverride?: string) {
     const message = (messageOverride ?? input).trim();
-    if (!message || !xpert || !version || running || contextLoading || !conversationId) return;
+    if (
+      !message
+      || !xpert
+      || !version
+      || !conversationId
+      || !currentResumeRouteIsValid()
+      || xpertMessageInputLocked(
+        contextLoadingRef.current,
+        runningRef.current,
+        transcribing,
+        speakingMessageId,
+        audioRequestBusyRef.current,
+      )
+      || pendingApprovalResumeRef.current !== null
+    ) return;
 
+    const requestIdentity: XpertAudioRequestIdentity = {
+      requestToken: runRequestTokenRef.current + 1,
+      xpertId,
+      version,
+      conversationId,
+      conversationRequestToken: conversationRequestTokenRef.current,
+    };
+    runRequestTokenRef.current = requestIdentity.requestToken;
+    const controller = new AbortController();
+    activeRunAbortRef.current = controller;
+    const requestIdentityIsCurrent = () => mountedRef.current
+      && currentResumeRouteIsValid()
+      && isCurrentXpertAudioRequest(requestIdentity, {
+        requestToken: runRequestTokenRef.current,
+        xpertId: currentXpertIdRef.current,
+        version: currentVersionRef.current,
+        conversationId: conversationIdRef.current,
+        conversationRequestToken: conversationRequestTokenRef.current,
+      });
+    const requestIsCurrent = () => activeRunAbortRef.current === controller
+      && requestIdentityIsCurrent();
     const history = messages.slice(-20);
     const { fileAssetIdsForRun, nextSelectedFileIds } = consumeSelectedXpertFiles(
       fileUploadEnabled,
@@ -1130,21 +1739,24 @@ export default function XpertChatPage() {
     setTrace(null);
     setRunId("");
     setTaskId("");
-    setRunning(true);
+    currentTaskIdRef.current = "";
+    setRunningState(true);
     setError("");
 
     try {
-      const response = await fetch(`/api/xperts/${xpert.id}/run`, {
+      const response = await fetch(`/api/xperts/${requestIdentity.xpertId}/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           message,
           messages: history,
-          version,
-          conversation_id: conversationId,
+          version: requestIdentity.version,
+          conversation_id: requestIdentity.conversationId,
           file_asset_ids: fileAssetIdsForRun,
         }),
       });
+      if (!requestIsCurrent()) return;
       if (!response.ok) throw new Error(await responseError(response));
       if (!response.body) throw new Error("浏览器未收到流式响应。 ");
 
@@ -1160,11 +1772,13 @@ export default function XpertChatPage() {
       let finalConversationTitle = "";
 
       const processBlock = (block: string) => {
+        if (!requestIsCurrent()) throw new Error("xpert_run_superseded");
         for (const line of block.split(/\r?\n/)) {
           if (!line.startsWith("data:")) continue;
           const raw = line.slice(5).trim();
           if (!raw) continue;
           const event = JSON.parse(raw) as XpertRunEvent;
+          if (!requestIsCurrent()) throw new Error("xpert_run_superseded");
           setEvents((current) => [...current.slice(-79), event]);
           recordXpertProviderReceipt(providerReceiptEventsRef, event, setProviderReceipt);
           if (event.run_id) {
@@ -1173,6 +1787,7 @@ export default function XpertChatPage() {
           }
           if (event.task_id) {
             nextTaskId = event.task_id;
+            currentTaskIdRef.current = event.task_id;
             setTaskId(event.task_id);
           }
           if (event.event === "workflow_end") {
@@ -1190,8 +1805,9 @@ export default function XpertChatPage() {
         }
       };
 
-      while (true) {
+      while (requestIsCurrent()) {
         const { done, value } = await reader.read();
+        if (!requestIsCurrent()) return;
         buffer += decoder.decode(value, { stream: !done });
         let match = buffer.match(/\r?\n\r?\n/);
         while (match?.index !== undefined) {
@@ -1201,6 +1817,7 @@ export default function XpertChatPage() {
         }
         if (done) break;
       }
+      if (!requestIsCurrent()) return;
       if (buffer.trim()) processBlock(buffer);
       if (!approvalPending && !clientToolPending) {
         await syncCompletedAssistantMessage({
@@ -1209,33 +1826,88 @@ export default function XpertChatPage() {
           suggestions: finalSuggestions,
           source_task_id: nextTaskId || null,
           source_run_id: nextRunId || null,
-        });
+        }, requestIdentity.xpertId, requestIdentity.conversationId, requestIsCurrent);
+        if (!requestIsCurrent()) return;
         if (finalConversationTitle) {
           setConversations((current) => current.map((item) => (
-            item.conversation_id === conversationId
+            item.conversation_id === requestIdentity.conversationId
               ? { ...item, title: finalConversationTitle }
               : item
           )));
         }
       }
-      if (nextRunId) await loadTrace(nextRunId, nextTaskId);
-      window.setTimeout(() => void refreshContext(), 800);
-      window.setTimeout(() => void refreshKnowledgeProposals(), 800);
+      if (nextRunId) await loadTrace(nextRunId, nextTaskId, requestIsCurrent);
+      if (!requestIsCurrent()) return;
+      window.setTimeout(() => {
+        if (requestIdentityIsCurrent()) void refreshContext();
+      }, 800);
+      window.setTimeout(() => {
+        if (requestIdentityIsCurrent()) void refreshKnowledgeProposals();
+      }, 800);
     } catch (caught) {
+      if (controller.signal.aborted || !requestIsCurrent()) return;
       const messageText = caught instanceof Error ? caught.message : "智能体运行失败";
       setError(messageText);
       setMessages((current) => [...current, { role: "assistant", content: `运行失败：${messageText}` }]);
     } finally {
-      setRunning(false);
+      if (activeRunAbortRef.current === controller) {
+        activeRunAbortRef.current = null;
+        setRunningState(false);
+      }
     }
   }
 
-  async function resumeApprovalExecution() {
-    if (!taskId || running) return;
-    setRunning(true);
+  async function resumeApprovalExecution(
+    expectedIdentity: XpertPendingResumeIdentity,
+  ) {
+    const liveIdentity = currentResumeIdentity();
+    if (
+      !mountedRef.current
+      ||
+      !expectedIdentity.taskId
+      || !currentResumeRouteIsValid()
+      || !isCurrentXpertPendingResume(expectedIdentity, liveIdentity)
+    ) return;
+    if (resumeInFlightRef.current || xpertResumeTemporarilyLocked(
+      runningRef.current,
+      contextLoadingRef.current,
+      transcribing,
+      speakingMessageId,
+      audioRequestBusyRef.current,
+    )) {
+      pendingApprovalResumeRef.current = expectedIdentity;
+      setApprovalResumeQueued(true);
+      return;
+    }
+    if (!claimXpertResumeExecution(resumeInFlightRef)) return;
+
+    const requestToken = resumeRequestTokenRef.current + 1;
+    resumeRequestTokenRef.current = requestToken;
+    const controller = new AbortController();
+    activeResumeAbortRef.current = controller;
+    const requestIsCurrent = () => isCurrentXpertResumeExecution(
+      expectedIdentity,
+      currentResumeIdentity(),
+      {
+        mounted: mountedRef.current,
+        requestToken,
+        currentRequestToken: resumeRequestTokenRef.current,
+        inFlight: resumeInFlightRef.current,
+        activeController: activeResumeAbortRef.current === controller,
+        routeValid: currentResumeRouteIsValid(),
+      },
+    );
+    pendingApprovalResumeRef.current = null;
+    setApprovalResumeQueued(false);
+    setRunningState(true);
     setError("");
     try {
-      const response = await fetch(`/api/workflow/run/${taskId}/stream?after_sequence=0`);
+      if (!requestIsCurrent()) return;
+      const response = await fetch(
+        `/api/workflow/run/${expectedIdentity.taskId}/stream?after_sequence=0`,
+        { signal: controller.signal },
+      );
+      if (!requestIsCurrent()) return;
       if (!response.ok) throw new Error(await responseError(response));
       if (!response.body) throw new Error("浏览器未收到恢复执行流。");
 
@@ -1248,15 +1920,18 @@ export default function XpertChatPage() {
       let nextRunId = runId;
       let finalSuggestions: string[] = [];
       let finalConversationTitle = "";
+      if (!requestIsCurrent()) return;
       setEvents([]);
       resetXpertProviderReceipts(providerReceiptEventsRef, setProviderReceipt);
 
       const processBlock = (block: string) => {
+        if (!requestIsCurrent()) throw new Error("xpert_resume_superseded");
         for (const line of block.split(/\r?\n/)) {
           if (!line.startsWith("data:")) continue;
           const raw = line.slice(5).trim();
           if (!raw) continue;
           const event = JSON.parse(raw) as XpertRunEvent;
+          if (!requestIsCurrent()) throw new Error("xpert_resume_superseded");
           setEvents((current) => [...current.slice(-79), event]);
           recordXpertProviderReceipt(providerReceiptEventsRef, event, setProviderReceipt);
           if (event.run_id) {
@@ -1274,8 +1949,9 @@ export default function XpertChatPage() {
         }
       };
 
-      while (true) {
+      while (requestIsCurrent()) {
         const { done, value } = await reader.read();
+        if (!requestIsCurrent()) return;
         buffer += decoder.decode(value, { stream: !done });
         let match = buffer.match(/\r?\n\r?\n/);
         while (match?.index !== undefined) {
@@ -1285,29 +1961,50 @@ export default function XpertChatPage() {
         }
         if (done) break;
       }
+      if (!requestIsCurrent()) return;
       if (buffer.trim()) processBlock(buffer);
       if (!approvalPending && !clientToolPending && finalOutput) {
         await syncCompletedAssistantMessage({
           role: "assistant",
           content: finalOutput,
           suggestions: finalSuggestions,
-          source_task_id: taskId,
+          source_task_id: expectedIdentity.taskId,
           source_run_id: nextRunId || null,
-        });
+        }, expectedIdentity.xpertId, expectedIdentity.conversationId, requestIsCurrent);
+        if (!requestIsCurrent()) return;
         if (finalConversationTitle) {
           setConversations((current) => current.map((item) => (
-            item.conversation_id === conversationId
+            item.conversation_id === expectedIdentity.conversationId
               ? { ...item, title: finalConversationTitle }
               : item
           )));
         }
       }
-      if (nextRunId) await loadTrace(nextRunId, taskId);
-      window.setTimeout(() => void refreshContext(), 800);
+      if (nextRunId) {
+        await loadTrace(nextRunId, expectedIdentity.taskId, requestIsCurrent);
+      }
+      if (!requestIsCurrent()) return;
+      resumeRefreshTimerRef.current = window.setTimeout(() => {
+        resumeRefreshTimerRef.current = null;
+        if (
+          mountedRef.current
+          &&
+          currentResumeRouteIsValid()
+          && isCurrentXpertPendingResume(expectedIdentity, currentResumeIdentity())
+        ) void refreshContext();
+      }, 800);
     } catch (caught) {
+      if (controller.signal.aborted || !requestIsCurrent()) return;
       setError(caught instanceof Error ? caught.message : "智能体恢复执行失败");
     } finally {
-      setRunning(false);
+      if (
+        requestToken === resumeRequestTokenRef.current
+        && activeResumeAbortRef.current === controller
+      ) {
+        activeResumeAbortRef.current = null;
+        resumeInFlightRef.current = false;
+        setRunningState(false);
+      }
     }
   }
 
@@ -1388,7 +2085,7 @@ export default function XpertChatPage() {
             <div className="flex flex-wrap items-center justify-end gap-2">
               <select
                 className="h-9 max-w-44 rounded-lg border border-white/10 bg-white/[0.055] px-3 text-xs text-white outline-none"
-                disabled={conversationNavigationLocked}
+                disabled={conversationSelectionLocked}
                 onChange={(event) => void selectConversation(event.target.value)}
                 value={conversationId}
               >
@@ -1419,7 +2116,7 @@ export default function XpertChatPage() {
               >
                 <span aria-hidden="true" className="text-[10px] font-bold">AT</span>创建自动化
               </Link>
-              <select className="h-9 rounded-lg border border-white/10 bg-white/[0.055] px-3 text-xs text-white outline-none" onChange={(event) => setVersion(Number(event.target.value))} value={version}>
+              <select className="h-9 rounded-lg border border-white/10 bg-white/[0.055] px-3 text-xs text-white outline-none" disabled={conversationSelectionLocked} onChange={(event) => changePublishedVersion(Number(event.target.value))} value={version}>
                 {publishedVersions.map((item) => <option className="bg-ink-950" key={item.version} value={item.version}>v{item.version} · revision {item.draft_revision}</option>)}
               </select>
               <Link className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-slate-300" to={`/agents/studio/${xpert.id}`}>编辑</Link>
@@ -1454,7 +2151,7 @@ export default function XpertChatPage() {
                 {openingQuestions.length > 0 ? (
                   <div className="mt-6 grid gap-2 sm:grid-cols-2">
                     {openingQuestions.map((starter) => (
-                      <button className="rounded-lg border border-white/10 bg-white/[0.04] p-3 text-left text-sm leading-5 text-slate-300 transition hover:border-hire-300/35 hover:bg-hire-300/10 hover:text-hire-100" key={starter} onClick={() => void sendMessage(starter)} type="button">{starter}</button>
+                      <button className="rounded-lg border border-white/10 bg-white/[0.04] p-3 text-left text-sm leading-5 text-slate-300 transition hover:border-hire-300/35 hover:bg-hire-300/10 hover:text-hire-100 disabled:cursor-not-allowed disabled:opacity-50" disabled={messageInputLocked} key={starter} onClick={() => void sendMessage(starter)} type="button">{starter}</button>
                     ))}
                   </div>
                 ) : null}
@@ -1501,8 +2198,18 @@ export default function XpertChatPage() {
                       {message.role === "assistant" && audioCapabilities?.text_to_speech.enabled ? (
                         <button
                           className="text-[10px] font-semibold text-violet-200/75 transition hover:text-violet-100 disabled:opacity-50"
-                          disabled={Boolean(speakingMessageId)}
+                          disabled={
+                            running ||
+                            contextLoading ||
+                            transcribing ||
+                            Boolean(speakingMessageId) ||
+                            !xpertSpeechAvailable(audioCapabilities)
+                          }
                           onClick={() => void speakMessage(message, index)}
+                          title={xpertAudioCapabilityTitle(
+                            "生成并播放语音",
+                            audioCapabilities.text_to_speech,
+                          )}
                           type="button"
                         >
                           {speakingMessageId === (message.message_id || `assistant-${index}`)
@@ -1521,7 +2228,8 @@ export default function XpertChatPage() {
                       <div className="mt-3 flex flex-wrap gap-2">
                         {message.suggestions.map((suggestion) => (
                           <button
-                            className="rounded-md border border-white/10 bg-white/[0.035] px-2.5 py-1.5 text-left text-[11px] text-slate-300 transition hover:border-hire-300/30 hover:text-hire-100"
+                            className="rounded-md border border-white/10 bg-white/[0.035] px-2.5 py-1.5 text-left text-[11px] text-slate-300 transition hover:border-hire-300/30 hover:text-hire-100 disabled:cursor-not-allowed disabled:opacity-50"
+                            disabled={messageInputLocked}
                             key={suggestion}
                             onClick={() => void sendMessage(suggestion)}
                             type="button"
@@ -1577,14 +2285,17 @@ export default function XpertChatPage() {
               />
             </div>
             {taskId ? (
-              <div className="mb-3">
+              <fieldset className="mb-3 disabled:opacity-60" disabled={messageInputLocked}>
                 <RuntimeApprovalPanel
                   compact
-                  onResolved={() => resumeApprovalExecution()}
+                  onResolved={(approval) => resumeApprovalExecution({
+                    ...resumeIdentityForRender,
+                    taskId: approval.task_id,
+                  })}
                   taskId={taskId}
                   title="智能体等待审批"
                 />
-              </div>
+              </fieldset>
             ) : null}
             {xpert && conversationId ? (
               <div className="mb-3 overflow-hidden rounded-lg border border-white/10">
@@ -1598,12 +2309,17 @@ export default function XpertChatPage() {
                   scopeId={`${xpert.id}:${conversationId}`}
                   scopeType="conversation"
                 />
-                <ClientToolPanel
-                  compact
-                  onResolved={() => resumeApprovalExecution()}
-                  scopeId={`${xpert.id}:${conversationId}`}
-                  scopeType="conversation"
-                />
+                <fieldset className="contents" disabled={messageInputLocked}>
+                  <ClientToolPanel
+                    compact
+                    onResolvedRequest={(request) => resumeApprovalExecution({
+                      ...resumeIdentityForRender,
+                      taskId: request.task_id,
+                    })}
+                    scopeId={`${xpert.id}:${conversationId}`}
+                    scopeType="conversation"
+                  />
+                </fieldset>
               </div>
             ) : null}
             {error ? <p className="mb-3 rounded-lg border border-rose-300/25 bg-rose-300/10 px-3 py-2 text-xs text-rose-100">{error}</p> : null}
@@ -1648,6 +2364,7 @@ export default function XpertChatPage() {
               <input
                 accept="audio/*"
                 className="hidden"
+                disabled={!xpertTranscriptionAvailable(audioCapabilities)}
                 onChange={(event) => {
                   const file = event.target.files?.[0];
                   if (file) void handleAudioTranscription(file);
@@ -1658,9 +2375,18 @@ export default function XpertChatPage() {
               {audioCapabilities?.speech_to_text.enabled ? (
                 <button
                   className="h-12 rounded-lg border border-violet-300/20 bg-violet-300/[0.07] px-3 text-xs font-semibold text-violet-100 hover:bg-violet-300/[0.12] disabled:opacity-50"
-                  disabled={running || contextLoading || transcribing || !audioCapabilities.gateway_configured}
+                  disabled={
+                    running ||
+                    contextLoading ||
+                    transcribing ||
+                    Boolean(speakingMessageId) ||
+                    !xpertTranscriptionAvailable(audioCapabilities)
+                  }
                   onClick={() => audioInputRef.current?.click()}
-                  title={audioCapabilities.gateway_configured ? "上传音频并转写" : "模型网关尚未配置"}
+                  title={xpertAudioCapabilityTitle(
+                    "上传音频并转写",
+                    audioCapabilities.speech_to_text,
+                  )}
                   type="button"
                 >
                   {transcribing ? "转写中..." : "语音"}

@@ -915,8 +915,12 @@ class ProviderWorkloadCertificationSummary(BaseModel):
     vector_dimension: int | None = None
     batch_job_id: str | None = None
     batch_status: str | None = None
+    certified_input_formats: list[str] = Field(default_factory=list)
+    certified_voice: str | None = None
+    certified_response_format: Literal["mp3", "wav"] | None = None
     provider_dispatch_state: ProviderDispatchState | None = None
     retry_allowed: bool | None = None
+    refresh_available: bool = False
     ttft_ms: float | None = None
     e2e_ms: float | None = None
     prompt_tokens: int | None = None
@@ -1053,12 +1057,15 @@ class ProviderWorkloadCallSummary(BaseModel):
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
     total_tokens: int | None = None
+    generation_id_observed: bool | None = None
+    generation_metadata_get_count: int | None = None
+    generation_metadata_wait_ms: float | None = None
     created_at: str
     completed_at: str | None = None
 
 
 class ProviderMultimodalCertificationRefreshRequest(BaseModel):
-    acknowledge_poll_only: bool = True
+    acknowledge_poll_only: Literal[True]
 
 
 class ProviderRealtimeCertificationSessionRequest(BaseModel):
@@ -1138,6 +1145,9 @@ class ProviderWorkloadPublicStatus(BaseModel):
     available: bool
     blocks_before_dispatch: bool
     reason_code: str
+    certified_input_formats: list[str] = Field(default_factory=list)
+    certified_voice: str | None = None
+    certified_response_format: Literal["mp3", "wav"] | None = None
 
 
 class RouterPolicy(BaseModel):

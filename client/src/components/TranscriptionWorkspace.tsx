@@ -8,11 +8,18 @@ import {
 } from "react";
 import { Link } from "react-router-dom";
 import type { Model } from "../data/models";
+import {
+  AudioRequestError,
+  parseAudioProviderRouteReceipt,
+  parseAudioProviderRouteReceipts,
+  type AudioProviderRouteReceipt,
+} from "../utils/speechAudio";
 import BrandLogo from "./BrandLogo";
+import ProviderRouteReceiptSummary from "./ProviderRouteReceiptSummary";
 import ResourceNav from "./ResourceNav";
 
 export const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
-const ACCEPTED_EXTENSIONS = new Set([
+const LEGACY_AUDIO_FORMATS = [
   "wav",
   "mp3",
   "flac",
@@ -20,23 +27,23 @@ const ACCEPTED_EXTENSIONS = new Set([
   "ogg",
   "webm",
   "aac",
-]);
-export const AUDIO_ACCEPT = [
-  ".wav",
-  ".mp3",
-  ".flac",
-  ".m4a",
-  ".ogg",
-  ".webm",
-  ".aac",
-  "audio/wav",
-  "audio/mpeg",
-  "audio/flac",
-  "audio/mp4",
-  "audio/ogg",
-  "audio/webm",
-  "audio/aac",
-].join(",");
+] as const;
+const ACCEPTED_EXTENSIONS = new Set<string>(LEGACY_AUDIO_FORMATS);
+const AUDIO_ACCEPT_BY_FORMAT: Record<string, string[]> = {
+  wav: [".wav", "audio/wav", "audio/x-wav"],
+  mp3: [".mp3", "audio/mpeg"],
+  flac: [".flac", "audio/flac"],
+  m4a: [".m4a", "audio/mp4"],
+  ogg: [".ogg", "audio/ogg"],
+  webm: [".webm", "audio/webm"],
+  aac: [".aac", "audio/aac"],
+};
+
+function audioAccept(formats: readonly string[]) {
+  return formats.flatMap((format) => AUDIO_ACCEPT_BY_FORMAT[format] ?? []).join(",");
+}
+
+export const AUDIO_ACCEPT = audioAccept(LEGACY_AUDIO_FORMATS);
 
 export const LANGUAGE_OPTIONS = [
   { value: "auto", label: "自动识别" },
@@ -73,11 +80,26 @@ export interface TranscriptionResponse {
   provider: string;
   request_id: string;
   usage: TranscriptionUsage;
+  provider_route_receipts?: AudioProviderRouteReceipt[];
 }
 
 interface TranscriptionWorkspaceProps {
   model: Model;
 }
+
+interface ProviderWorkloadPublicStatus {
+  feature_enabled: boolean;
+  status: "legacy" | "managed_required" | "degraded_required";
+  available: boolean;
+  reason_code: string;
+  certified_input_formats: string[];
+}
+
+type TranscriptionControlState =
+  | { mode: "loading" }
+  | { mode: "legacy" }
+  | { mode: "managed"; formats: string[] }
+  | { mode: "blocked"; message: string };
 
 export interface ProgressUpdate {
   phase: "uploading" | "processing";
@@ -95,8 +117,18 @@ export function fileExtension(file: File) {
   return file.name.split(".").pop()?.toLowerCase() ?? "";
 }
 
-export function validateAudioFile(file: File) {
-  if (!ACCEPTED_EXTENSIONS.has(fileExtension(file))) {
+export function validateAudioFile(
+  file: File,
+  acceptedFormats: readonly string[] = LEGACY_AUDIO_FORMATS,
+  managedRestricted = false,
+) {
+  if (!new Set(acceptedFormats).has(fileExtension(file))) {
+    if (managedRestricted) {
+      const formats = acceptedFormats.map((format) => format.toUpperCase()).join("、");
+      return formats
+        ? `当前 Managed Provider 仅认证 ${formats} 音频，请转换格式后重试。`
+        : "当前 Managed Provider 没有可用的已认证音频格式，请先在设置页重新认证。";
+    }
     return "请选择 WAV、MP3、FLAC、M4A、OGG、WebM 或 AAC 音频。";
   }
   if (file.size <= 0) {
@@ -132,6 +164,27 @@ function responseErrorMessage(payload: unknown, status: number) {
   if (status === 429) return "模型服务当前请求较多，请稍后重试。";
   if (status === 402) return "模型服务余额不足，请检查 OpenRouter 账户。";
   return "转录没有完成，请检查连接后重试。";
+}
+
+function responseRouteReceipt(payload: unknown) {
+  if (!isRecord(payload)) return null;
+  const detail = payload.detail;
+  if (!isRecord(detail)) return null;
+  return parseAudioProviderRouteReceipt(detail.route_receipt);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function parsedTranscriptionResponse(payload: unknown) {
+  if (!isRecord(payload)) return payload as TranscriptionResponse;
+  return {
+    ...payload,
+    provider_route_receipts: parseAudioProviderRouteReceipts(
+      payload.provider_route_receipts,
+    ),
+  } as unknown as TranscriptionResponse;
 }
 
 let traditionalToSimplifiedPromise:
@@ -191,6 +244,7 @@ export function requestTranscription({
     const handleAbort = () => xhr.abort();
 
     xhr.open("POST", "/api/multimodal/transcriptions");
+    xhr.setRequestHeader("Idempotency-Key", window.crypto.randomUUID());
     xhr.responseType = "json";
     xhr.upload.onprogress = (event) => {
       const percent = event.lengthComputable
@@ -205,19 +259,25 @@ export function requestTranscription({
       cleanup();
       const payload = responsePayload(xhr);
       if (xhr.status >= 200 && xhr.status < 300) {
+        const parsedPayload = parsedTranscriptionResponse(payload);
         try {
           resolve(
             await normalizedTranscription(
-              payload as TranscriptionResponse,
+              parsedPayload,
               language,
             ),
           );
         } catch {
-          resolve(payload as TranscriptionResponse);
+          resolve(parsedPayload);
         }
         return;
       }
-      reject(new Error(responseErrorMessage(payload, xhr.status)));
+      reject(
+        new AudioRequestError(
+          responseErrorMessage(payload, xhr.status),
+          responseRouteReceipt(payload),
+        ),
+      );
     };
     xhr.onerror = () => {
       cleanup();
@@ -249,18 +309,91 @@ export default function TranscriptionWorkspace({
   const [status, setStatus] = useState<TranscriptionStatus>("idle");
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState<TranscriptionResponse | null>(null);
+  const [providerRouteReceipts, setProviderRouteReceipts] = useState<
+    AudioProviderRouteReceipt[]
+  >([]);
   const [error, setError] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [controlState, setControlState] =
+    useState<TranscriptionControlState>({ mode: "loading" });
   const inputRef = useRef<HTMLInputElement>(null);
   const selectButtonRef = useRef<HTMLButtonElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const copyTimerRef = useRef<number | null>(null);
   const isRunning = status === "uploading" || status === "processing";
+  const acceptedInputFormats =
+    controlState.mode === "managed"
+      ? controlState.formats
+      : controlState.mode === "legacy"
+        ? LEGACY_AUDIO_FORMATS
+        : [];
+  const managedFormatRestricted = controlState.mode === "managed";
+  const controlBlocked =
+    controlState.mode === "loading" || controlState.mode === "blocked";
 
   useEffect(() => {
     document.title = `转录音频 · ${model.name} · 模镜`;
   }, [model.name]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setControlState({ mode: "loading" });
+    const params = new URLSearchParams({
+      entry_id: "multimodal_transcription",
+      model_id: model.id,
+      execution_shape: "audio_transcription",
+    });
+    fetch(`/api/models/provider-workload-control?${params}`, {
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error("provider_workload_status_unavailable");
+        }
+        return (await response.json()) as ProviderWorkloadPublicStatus;
+      })
+      .then((control) => {
+        if (controller.signal.aborted) return;
+        if (control.feature_enabled === false || control.status === "legacy") {
+          setControlState({ mode: "legacy" });
+          return;
+        }
+        if (!control.available) {
+          setControlState({
+            mode: "blocked",
+            message: `Provider 控制面处于 ${control.status}，该模型当前不可用，已在发送前阻断本次付费转录。原因：${control.reason_code}`,
+          });
+          return;
+        }
+        const formats = [...new Set(control.certified_input_formats ?? [])]
+          .map((format) => format.toLowerCase())
+          .filter((format) => ACCEPTED_EXTENSIONS.has(format));
+        if (!formats.length) {
+          setControlState({
+            mode: "blocked",
+            message:
+              "Provider 控制面未返回可用的认证输入格式，已在发送前阻断本次付费转录。",
+          });
+          return;
+        }
+        setControlState({ mode: "managed", formats });
+      })
+      .catch((loadError) => {
+        if (
+          loadError instanceof DOMException &&
+          loadError.name === "AbortError"
+        ) {
+          return;
+        }
+        setControlState({
+          mode: "blocked",
+          message:
+            "无法读取 Provider 控制面状态，已安全阻断本次付费转录；请检查服务后重试。",
+        });
+      });
+    return () => controller.abort();
+  }, [model.id]);
 
   useEffect(() => {
     if (!file) {
@@ -284,6 +417,7 @@ export default function TranscriptionWorkspace({
 
   const resetOutcome = useCallback(() => {
     setResult(null);
+    setProviderRouteReceipts([]);
     setError("");
     setProgress(0);
     setStatus("idle");
@@ -292,18 +426,29 @@ export default function TranscriptionWorkspace({
 
   const chooseFile = useCallback(
     (nextFile: File | undefined) => {
-      if (!nextFile || isRunning) return;
-      const validationError = validateAudioFile(nextFile);
+      if (!nextFile || isRunning || controlBlocked) return;
+      const validationError = validateAudioFile(
+        nextFile,
+        acceptedInputFormats,
+        managedFormatRestricted,
+      );
       if (validationError) {
         setError(validationError);
         setStatus("failed");
         setResult(null);
+        setProviderRouteReceipts([]);
         return;
       }
       setFile(nextFile);
       resetOutcome();
     },
-    [isRunning, resetOutcome],
+    [
+      acceptedInputFormats,
+      controlBlocked,
+      isRunning,
+      managedFormatRestricted,
+      resetOutcome,
+    ],
   );
 
   function handleFileInput(event: ChangeEvent<HTMLInputElement>) {
@@ -325,8 +470,12 @@ export default function TranscriptionWorkspace({
   }
 
   async function runTranscription() {
-    if (!file || isRunning) return;
-    const validationError = validateAudioFile(file);
+    if (!file || isRunning || controlBlocked) return;
+    const validationError = validateAudioFile(
+      file,
+      acceptedInputFormats,
+      managedFormatRestricted,
+    );
     if (validationError) {
       setError(validationError);
       setStatus("failed");
@@ -336,6 +485,7 @@ export default function TranscriptionWorkspace({
     const controller = new AbortController();
     abortRef.current = controller;
     setResult(null);
+    setProviderRouteReceipts([]);
     setError("");
     setCopied(false);
 
@@ -351,6 +501,7 @@ export default function TranscriptionWorkspace({
         },
       });
       setResult(nextResult);
+      setProviderRouteReceipts(nextResult.provider_route_receipts ?? []);
       setProgress(100);
       setStatus("succeeded");
     } catch (requestError) {
@@ -362,6 +513,12 @@ export default function TranscriptionWorkspace({
         setStatus("cancelled");
         setError("");
       } else {
+        setProviderRouteReceipts(
+          requestError instanceof AudioRequestError &&
+            requestError.providerRouteReceipt
+            ? [requestError.providerRouteReceipt]
+            : [],
+        );
         setStatus("failed");
         setError(
           requestError instanceof Error
@@ -430,8 +587,19 @@ export default function TranscriptionWorkspace({
             <div className="border-b border-white/10 px-5 py-5 sm:px-6">
               <h2 className="text-lg font-semibold text-white">选择音频</h2>
               <p className="mt-1 text-sm leading-6 text-slate-400">
-                WAV、MP3、FLAC、M4A、OGG、WebM、AAC，单个文件不超过 25 MiB。
+                {managedFormatRestricted
+                  ? `${acceptedInputFormats.map((format) => format.toUpperCase()).join("、") || "暂无"}，单个文件不超过 25 MiB。`
+                  : controlState.mode === "legacy"
+                    ? "WAV、MP3、FLAC、M4A、OGG、WebM、AAC，单个文件不超过 25 MiB。"
+                    : controlState.mode === "loading"
+                      ? "正在确认 Provider 控制面状态…"
+                      : "当前 Provider 控制面未提供可用输入格式。"}
               </p>
+              {managedFormatRestricted ? (
+                <p className="mt-2 text-xs leading-5 text-amber-100">
+                  当前由 Managed Provider 控制面接管，只接受本次真实资格认证通过的输入格式。
+                </p>
+              ) : null}
             </div>
 
             <div className="space-y-5 p-5 sm:p-6">
@@ -440,19 +608,19 @@ export default function TranscriptionWorkspace({
                   isDragging
                     ? "border-hire-200 bg-hire-300/12"
                     : "border-white/20 bg-white/[0.035] hover:border-hire-300/45 hover:bg-hire-300/[0.06]"
-                } ${isRunning ? "cursor-not-allowed opacity-60" : ""}`}
+                } ${isRunning || controlBlocked ? "cursor-not-allowed opacity-60" : ""}`}
                 onDragEnter={(event) => {
                   event.preventDefault();
-                  if (!isRunning) setIsDragging(true);
+                  if (!isRunning && !controlBlocked) setIsDragging(true);
                 }}
                 onDragLeave={() => setIsDragging(false)}
                 onDragOver={(event) => event.preventDefault()}
                 onDrop={handleDrop}
               >
                 <input
-                  accept={AUDIO_ACCEPT}
+                  accept={audioAccept(acceptedInputFormats)}
                   className="hidden"
-                  disabled={isRunning}
+                  disabled={isRunning || controlBlocked}
                   id="transcription-audio"
                   onChange={handleFileInput}
                   ref={inputRef}
@@ -466,7 +634,7 @@ export default function TranscriptionWorkspace({
                 </p>
                 <button
                   className="mt-5 inline-flex rounded-full bg-hire-300 px-4 py-2.5 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 disabled:cursor-not-allowed disabled:opacity-45"
-                  disabled={isRunning}
+                  disabled={isRunning || controlBlocked}
                   onClick={() => inputRef.current?.click()}
                   ref={selectButtonRef}
                   type="button"
@@ -485,7 +653,7 @@ export default function TranscriptionWorkspace({
                   </div>
                   <button
                     className="self-start rounded-full border border-white/15 px-3 py-1.5 text-sm font-semibold text-slate-200 transition hover:border-rose-300/40 hover:bg-rose-300/10 hover:text-rose-100 disabled:cursor-not-allowed disabled:opacity-50 sm:self-auto"
-                    disabled={isRunning}
+                    disabled={isRunning || controlBlocked}
                     onClick={removeFile}
                     type="button"
                   >
@@ -512,7 +680,7 @@ export default function TranscriptionWorkspace({
                 </label>
                 <select
                   className="w-full rounded-lg border border-white/15 bg-ink-950 px-3 py-3 text-sm text-white outline-none transition focus:border-brand-300/60 focus:ring-4 focus:ring-brand-300/10 disabled:cursor-not-allowed disabled:opacity-60 sm:max-w-xs"
-                  disabled={isRunning}
+                  disabled={isRunning || controlBlocked}
                   id="transcription-language"
                   onChange={(event) => setLanguage(event.target.value)}
                   value={language}
@@ -559,6 +727,20 @@ export default function TranscriptionWorkspace({
                 </div>
               ) : null}
 
+              <ProviderRouteReceiptSummary
+                receipts={providerRouteReceipts}
+                title="转录控制面"
+              />
+
+              {controlState.mode === "blocked" ? (
+                <div
+                  className="rounded-lg border border-amber-300/25 bg-amber-300/10 px-4 py-3 text-sm leading-6 text-amber-100"
+                  role="alert"
+                >
+                  {controlState.message}
+                </div>
+              ) : null}
+
               {status === "cancelled" ? (
                 <div
                   className="rounded-lg border border-amber-300/25 bg-amber-300/10 px-4 py-3 text-sm text-amber-100"
@@ -571,7 +753,7 @@ export default function TranscriptionWorkspace({
               <div className="flex flex-wrap items-center gap-3 border-t border-white/10 pt-5">
                 <button
                   className="rounded-full bg-hire-300 px-5 py-2.5 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 disabled:cursor-not-allowed disabled:opacity-45"
-                  disabled={!file || isRunning}
+                  disabled={!file || isRunning || controlBlocked}
                   onClick={() => void runTranscription()}
                   type="button"
                 >

@@ -87,6 +87,11 @@ describe("ProviderWorkloadControlSettings", () => {
     fireEvent.click(screen.getByRole("button", { name: "运行资格认证" }));
 
     expect(screen.getByRole("dialog")).toHaveTextContent("最多一个 Provider POST");
+    expect(screen.getByRole("dialog")).toHaveTextContent(
+      "仓库内固定、无敏感信息的合成素材",
+    );
+    expect(screen.getByRole("dialog")).toHaveTextContent("不会发送真实用户的内容、文件");
+    expect(screen.getByRole("dialog")).not.toHaveTextContent("不发送用户会话、文件");
     expect(fetchMock).not.toHaveBeenCalledWith(
       expect.stringContaining("/connections/connection-openrouter/certifications/workloads"),
       expect.anything(),
@@ -111,7 +116,7 @@ describe("ProviderWorkloadControlSettings", () => {
     });
   });
 
-  it("opens R8B image certification while later multimodal shapes remain blocked", async () => {
+  it("opens integrated R8B and R8C certifications while later multimodal shapes remain blocked", async () => {
     const multimodalConnection = {
       ...connection,
       scopes: ["chat", "image", "audio"],
@@ -154,8 +159,251 @@ describe("ProviderWorkloadControlSettings", () => {
     });
     await waitFor(() => expect(screen.getByRole("button", {
       name: "运行资格认证",
+    })).toBeEnabled());
+    expect(screen.queryByText(/该多模态形态目前仅建立 Adapter/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "运行资格认证" }));
+    expect(screen.getByRole("dialog")).toHaveTextContent(
+      "将上传仓库内固定、无敏感信息的合成 WAV",
+    );
+    expect(screen.getByRole("dialog")).toHaveTextContent(
+      "不会发送真实用户的会话、文件或工具参数",
+    );
+    expect(screen.getByRole("dialog")).not.toHaveTextContent("不发送用户会话、文件");
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+
+    fireEvent.change(screen.getByLabelText("执行形态"), {
+      target: { value: "chat_audio_input" },
+    });
+    await waitFor(() => expect(screen.getByRole("button", {
+      name: "运行资格认证",
     })).toBeDisabled());
     expect(screen.getByText(/该多模态形态目前仅建立 Adapter/)).toBeVisible();
+  });
+
+  it("shows certified STT input and TTS external parameters in recent qualifications", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/router/connections") {
+        return jsonResponse([{ ...connection, scopes: ["audio"] }]);
+      }
+      if (url === "/api/router/certifications/workloads") {
+        return jsonResponse({
+          certifications: [
+            {
+              certification_id: "cert-stt",
+              connection_id: connection.id,
+              connection_name: connection.name,
+              provider_kind: connection.kind,
+              execution_shape: "audio_transcription",
+              status: "passed",
+              can_run: true,
+              requested_model: "openai/whisper-1",
+              candidate_model_ids: [],
+              certified_input_formats: ["wav"],
+            },
+            {
+              certification_id: "cert-tts",
+              connection_id: connection.id,
+              connection_name: connection.name,
+              provider_kind: connection.kind,
+              execution_shape: "audio_speech",
+              status: "passed",
+              can_run: true,
+              requested_model: "google/gemini-tts",
+              candidate_model_ids: [],
+              certified_voice: "Aoede",
+              certified_response_format: "wav",
+            },
+          ],
+        });
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<ProviderWorkloadControlSettings csrfToken="csrf-value" view="certifications" />);
+
+    expect(await screen.findByText("认证输入格式：WAV")).toBeVisible();
+    expect(screen.getByText("认证声线：Aoede")).toBeVisible();
+    expect(screen.getByText("认证外部输出格式：WAV")).toBeVisible();
+  });
+
+  it("manually refreshes pending audio model evidence without a billed-call retry", async () => {
+    let refreshed = false;
+    const pendingCertification = {
+      certification_id: "cert-audio-pending",
+      connection_id: connection.id,
+      connection_name: connection.name,
+      provider_kind: connection.kind,
+      execution_shape: "audio_transcription",
+      status: "uncertain",
+      can_run: false,
+      requested_model: "openai/whisper-1",
+      actual_model: null,
+      candidate_model_ids: [],
+      error_code: "provider_multimodal_actual_model_pending",
+      provider_dispatch_state: "confirmed",
+      retry_allowed: false,
+      refresh_available: true,
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/router/connections") {
+        return jsonResponse([{ ...connection, scopes: ["audio"] }]);
+      }
+      if (url === "/api/router/certifications/workloads" && !init) {
+        return jsonResponse({
+          certifications: refreshed
+            ? [{ ...pendingCertification, status: "passed", can_run: true, actual_model: "openai/whisper-1", error_code: null, refresh_available: false }]
+            : [pendingCertification],
+        });
+      }
+      if (url === "/api/router/certifications/workloads/cert-audio-pending/refresh") {
+        refreshed = true;
+        return jsonResponse({
+          ...pendingCertification,
+          status: "passed",
+          can_run: true,
+          actual_model: "openai/whisper-1",
+          error_code: null,
+          refresh_available: false,
+        });
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<ProviderWorkloadControlSettings csrfToken="csrf-value" view="certifications" />);
+
+    expect(await screen.findByText("只读刷新模型证据")).toBeVisible();
+    expect(screen.getByText(/不会重新提交音频或产生第二次模型 POST/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "只读刷新模型证据" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/router/certifications/workloads/cert-audio-pending/refresh",
+      expect.objectContaining({ method: "POST" }),
+    ));
+    const call = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith("/cert-audio-pending/refresh")
+    );
+    expect(call?.[1]?.headers).toEqual(expect.objectContaining({
+      "X-ModelMirror-CSRF": "csrf-value",
+    }));
+    expect(call?.[1]?.headers).not.toEqual(expect.objectContaining({
+      "Idempotency-Key": expect.anything(),
+    }));
+    expect(JSON.parse(String(call?.[1]?.body))).toEqual({
+      acknowledge_poll_only: true,
+    });
+    expect(await screen.findByText(/实际模型证据已确认/)).toBeVisible();
+    expect(screen.getByRole("status")).toHaveAttribute("data-tone", "success");
+    expect(screen.getByRole("status")).toHaveClass("text-emerald-100");
+    await waitFor(() => expect(screen.queryByRole("button", {
+      name: "只读刷新模型证据",
+    })).not.toBeInTheDocument());
+  });
+
+  it("keeps pending model-evidence refresh visibly amber rather than green", async () => {
+    const pendingCertification = {
+      certification_id: "cert-audio-still-pending",
+      connection_id: connection.id,
+      connection_name: connection.name,
+      provider_kind: connection.kind,
+      execution_shape: "audio_transcription",
+      status: "uncertain",
+      can_run: false,
+      requested_model: "openai/whisper-1",
+      actual_model: null,
+      candidate_model_ids: [],
+      error_code: "provider_multimodal_actual_model_pending",
+      provider_dispatch_state: "confirmed",
+      retry_allowed: false,
+      refresh_available: true,
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/router/connections") {
+        return jsonResponse([{ ...connection, scopes: ["audio"] }]);
+      }
+      if (url === "/api/router/certifications/workloads" && !init) {
+        return jsonResponse({ certifications: [pendingCertification] });
+      }
+      if (url === "/api/router/certifications/workloads/cert-audio-still-pending/refresh") {
+        return jsonResponse(pendingCertification);
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<ProviderWorkloadControlSettings csrfToken="csrf-value" view="certifications" />);
+    fireEvent.click(await screen.findByRole("button", {
+      name: "只读刷新模型证据",
+    }));
+
+    expect(await screen.findByText(
+      "实际模型证据仍待确认：provider_multimodal_actual_model_pending",
+    )).toBeVisible();
+    expect(screen.getByRole("status")).toHaveAttribute("data-tone", "warning");
+    expect(screen.getByRole("status")).toHaveClass("text-amber-100");
+    expect(screen.getByRole("status")).not.toHaveClass("text-emerald-100");
+    expect(screen.getByText("uncertain")).toHaveClass("text-amber-100");
+  });
+
+  it("reports terminal model-evidence mismatch as failed rather than pending", async () => {
+    let refreshed = false;
+    const pendingCertification = {
+      certification_id: "cert-audio-mismatch",
+      connection_id: connection.id,
+      connection_name: connection.name,
+      provider_kind: connection.kind,
+      execution_shape: "audio_transcription",
+      status: "uncertain",
+      can_run: false,
+      requested_model: "openai/whisper-1",
+      actual_model: null,
+      candidate_model_ids: [],
+      error_code: "provider_multimodal_actual_model_pending",
+      provider_dispatch_state: "confirmed",
+      retry_allowed: false,
+      refresh_available: true,
+    };
+    const failedCertification = {
+      ...pendingCertification,
+      status: "failed",
+      actual_model: "other/whisper",
+      error_code: "provider_workload_model_mismatch",
+      refresh_available: false,
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/router/connections") {
+        return jsonResponse([{ ...connection, scopes: ["audio"] }]);
+      }
+      if (url === "/api/router/certifications/workloads" && !init) {
+        return jsonResponse({
+          certifications: [refreshed ? failedCertification : pendingCertification],
+        });
+      }
+      if (url === "/api/router/certifications/workloads/cert-audio-mismatch/refresh") {
+        refreshed = true;
+        return jsonResponse(failedCertification);
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<ProviderWorkloadControlSettings csrfToken="csrf-value" view="certifications" />);
+    fireEvent.click(await screen.findByRole("button", {
+      name: "只读刷新模型证据",
+    }));
+
+    expect(await screen.findByText(
+      "实际模型证据核验失败：provider_workload_model_mismatch",
+    )).toBeVisible();
+    expect(screen.queryByText(/实际模型证据仍待确认/)).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveClass("text-rose-100");
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getByText("failed")).toHaveClass("text-rose-100");
   });
 
   it("saves exact bindings with optimistic revision while an unintegrated entry stays blocked", async () => {

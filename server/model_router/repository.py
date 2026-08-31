@@ -74,6 +74,10 @@ class RouterRepository(Protocol):
 
     def resolve_api_key(self, tenant_id: str, connection_id: str) -> str: ...
 
+    def get_connection_credential_snapshot(
+        self, tenant_id: str, connection_id: str
+    ) -> tuple[RouterConnection, str, str]: ...
+
     def get_policy(self, tenant_id: str) -> RouterPolicy: ...
 
     def save_policy(self, tenant_id: str, policy: RouterPolicy) -> RouterPolicy: ...
@@ -113,6 +117,14 @@ class SQLiteRouterRepository:
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA journal_mode = WAL")
         return connection
+
+    def _connect_for_atomic_claim(self, busy_error_code: str) -> sqlite3.Connection:
+        try:
+            return self._connect()
+        except sqlite3.OperationalError as exc:
+            if "locked" in str(exc).lower() or "busy" in str(exc).lower():
+                raise RouterRepositoryError(busy_error_code) from exc
+            raise
 
     def _initialize(self) -> None:
         schema = """
@@ -651,6 +663,9 @@ class SQLiteRouterRepository:
             adapter_contract TEXT,
             protocol_version TEXT,
             provider_dispatch_state TEXT NOT NULL DEFAULT 'not_dispatched',
+            generation_id_observed INTEGER,
+            generation_metadata_get_count INTEGER,
+            generation_metadata_wait_ms REAL,
             logical_call_key_hash TEXT NOT NULL,
             call_sequence INTEGER NOT NULL,
             dispatched INTEGER NOT NULL DEFAULT 0,
@@ -920,6 +935,18 @@ class SQLiteRouterRepository:
                 "provider_dispatch_state": (
                     "ALTER TABLE provider_workload_calls "
                     "ADD COLUMN provider_dispatch_state TEXT"
+                ),
+                "generation_id_observed": (
+                    "ALTER TABLE provider_workload_calls "
+                    "ADD COLUMN generation_id_observed INTEGER"
+                ),
+                "generation_metadata_get_count": (
+                    "ALTER TABLE provider_workload_calls "
+                    "ADD COLUMN generation_metadata_get_count INTEGER"
+                ),
+                "generation_metadata_wait_ms": (
+                    "ALTER TABLE provider_workload_calls "
+                    "ADD COLUMN generation_metadata_wait_ms REAL"
                 ),
             }.items():
                 if column not in workload_call_columns:
@@ -1196,7 +1223,7 @@ class SQLiteRouterRepository:
                 """
                 UPDATE provider_workload_certifications
                 SET status = 'uncertain', error_code = 'server_restarted',
-                    updated_at = ?, completed_at = ?
+                    updated_at = ?, completed_at = COALESCE(completed_at, ?)
                 WHERE status = 'running'
                 """,
                 (now, now),
@@ -1220,13 +1247,26 @@ class SQLiteRouterRepository:
                 UPDATE provider_multimodal_certification_sessions
                 SET status = 'uncertain',
                     provider_dispatch_state = CASE
-                        WHEN post_dispatched = 1
-                            THEN 'uncertain'
-                        ELSE provider_dispatch_state
+                        WHEN post_dispatched = 1 THEN 'uncertain'
+                        ELSE 'not_dispatched'
                     END,
                     error_code = 'server_restarted',
                     updated_at = ?, completed_at = ?
-                WHERE status = 'running' AND upstream_operation_id IS NULL
+                WHERE (
+                    status = 'running' AND upstream_operation_id IS NULL
+                ) OR (
+                    status IN ('running', 'passed', 'failed')
+                    AND EXISTS (
+                        SELECT 1
+                        FROM provider_workload_certifications AS certification
+                        WHERE certification.tenant_id =
+                            provider_multimodal_certification_sessions.tenant_id
+                            AND certification.id =
+                                provider_multimodal_certification_sessions.certification_id
+                            AND certification.status = 'uncertain'
+                            AND certification.error_code = 'server_restarted'
+                    )
+                )
                 """,
                 (now, now),
             )
@@ -1422,17 +1462,37 @@ class SQLiteRouterRepository:
             ).fetchone()
         if row is None:
             raise RouterConnectionNotFound("Model service connection was not found.")
-        material = json.dumps(
-            {
-                "kind": row["kind"],
-                "base_url": row["base_url"],
-                "scopes": json.loads(row["scopes_json"]),
-                "credential": row["api_key_ciphertext"],
-            },
-            sort_keys=True,
-            separators=(",", ":"),
+        return self._connection_config_fingerprint_row(row)
+
+    def get_connection_credential_snapshot(
+        self, tenant_id: str, connection_id: str
+    ) -> tuple[RouterConnection, str, str]:
+        """Read public connection fields, credential, and fingerprint from one row."""
+
+        clean_tenant = self._tenant_id(tenant_id)
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM router_connections
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, connection_id),
+            ).fetchone()
+        if row is None:
+            raise RouterConnectionNotFound("Model service connection was not found.")
+        try:
+            api_key = self._fernet.decrypt(
+                str(row["api_key_ciphertext"]).encode("ascii")
+            ).decode("utf-8")
+        except (InvalidToken, ValueError, UnicodeDecodeError) as exc:
+            raise RouterCredentialUnavailable(
+                "The saved credential is unavailable. Please enter the key again."
+            ) from exc
+        return (
+            self._public_connection(row),
+            api_key,
+            self._connection_config_fingerprint_row(row),
         )
-        return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
     def claim_catalog_refresh(
         self,
@@ -1443,10 +1503,26 @@ class SQLiteRouterRepository:
         connection_fingerprint: str,
     ) -> dict[str, object]:
         clean_tenant = self._tenant_id(tenant_id)
-        self.get_connection(clean_tenant, connection_id)
         now = utc_now()
         try:
             with self._lock, self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                current_connection = connection.execute(
+                    """
+                    SELECT * FROM router_connections
+                    WHERE tenant_id = ? AND id = ?
+                    """,
+                    (clean_tenant, connection_id),
+                ).fetchone()
+                if (
+                    current_connection is None
+                    or not bool(current_connection["enabled"])
+                    or self._connection_config_fingerprint_row(current_connection)
+                    != connection_fingerprint
+                ):
+                    raise RouterRepositoryError(
+                        "provider_catalog_connection_changed"
+                    )
                 connection.execute(
                     """
                     INSERT INTO provider_catalog_refreshes (
@@ -1487,13 +1563,15 @@ class SQLiteRouterRepository:
         truncated: bool,
         catalog_fingerprint: str,
         observed_at: str,
+        expected_connection_fingerprint: str | None = None,
     ) -> dict[str, object]:
         clean_tenant = self._tenant_id(tenant_id)
         now = utc_now()
         with self._lock, self._connect() as connection:
             running = connection.execute(
                 """
-                SELECT id FROM provider_catalog_refreshes
+                SELECT id, connection_fingerprint
+                FROM provider_catalog_refreshes
                 WHERE tenant_id = ? AND id = ? AND connection_id = ?
                     AND status = 'running'
                 """,
@@ -1501,6 +1579,44 @@ class SQLiteRouterRepository:
             ).fetchone()
             if running is None:
                 raise RouterRepositoryError("provider_catalog_refresh_not_running")
+            expected_fingerprint = (
+                expected_connection_fingerprint
+                or str(running["connection_fingerprint"])
+            )
+            current_connection = connection.execute(
+                """
+                SELECT * FROM router_connections
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, connection_id),
+            ).fetchone()
+            if (
+                str(running["connection_fingerprint"])
+                != expected_fingerprint
+                or current_connection is None
+                or not bool(current_connection["enabled"])
+                or self._connection_config_fingerprint_row(current_connection)
+                != expected_fingerprint
+            ):
+                connection.execute(
+                    """
+                    UPDATE provider_catalog_refreshes
+                    SET status = 'failed',
+                        error_code = 'provider_catalog_connection_changed',
+                        completed_at = ?
+                    WHERE tenant_id = ? AND id = ? AND connection_id = ?
+                        AND status = 'running'
+                    """,
+                    (now, clean_tenant, refresh_id, connection_id),
+                )
+                row = connection.execute(
+                    """
+                    SELECT * FROM provider_catalog_refreshes
+                    WHERE tenant_id = ? AND id = ?
+                    """,
+                    (clean_tenant, refresh_id),
+                ).fetchone()
+                return dict(row)
 
             if truncated:
                 connection.execute(
@@ -1675,10 +1791,59 @@ class SQLiteRouterRepository:
         model_count: int = 0,
         checked_at: str | None = None,
         error_hint: str | None = None,
+        expected_connection_fingerprint: str | None = None,
+        preserve_inventory: bool = False,
+        preserve_connection_health: bool = False,
     ) -> dict[str, object]:
         clean_tenant = self._tenant_id(tenant_id)
         now = utc_now()
         with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            running = connection.execute(
+                """
+                SELECT * FROM provider_catalog_refreshes
+                WHERE tenant_id = ? AND id = ? AND connection_id = ?
+                    AND status = 'running'
+                """,
+                (clean_tenant, refresh_id, connection_id),
+            ).fetchone()
+            if running is None:
+                raise RouterRepositoryError("provider_catalog_refresh_not_running")
+            if expected_connection_fingerprint is not None:
+                current_connection = connection.execute(
+                    """
+                    SELECT * FROM router_connections
+                    WHERE tenant_id = ? AND id = ?
+                    """,
+                    (clean_tenant, connection_id),
+                ).fetchone()
+                if (
+                    str(running["connection_fingerprint"])
+                    != expected_connection_fingerprint
+                    or current_connection is None
+                    or not bool(current_connection["enabled"])
+                    or self._connection_config_fingerprint_row(current_connection)
+                    != expected_connection_fingerprint
+                ):
+                    connection.execute(
+                        """
+                        UPDATE provider_catalog_refreshes
+                        SET status = 'failed',
+                            error_code = 'provider_catalog_connection_changed',
+                            completed_at = ?
+                        WHERE tenant_id = ? AND id = ? AND connection_id = ?
+                            AND status = 'running'
+                        """,
+                        (now, clean_tenant, refresh_id, connection_id),
+                    )
+                    row = connection.execute(
+                        """
+                        SELECT * FROM provider_catalog_refreshes
+                        WHERE tenant_id = ? AND id = ?
+                        """,
+                        (clean_tenant, refresh_id),
+                    ).fetchone()
+                    return dict(row)
             cursor = connection.execute(
                 """
                 UPDATE provider_catalog_refreshes
@@ -1690,23 +1855,29 @@ class SQLiteRouterRepository:
             )
             if cursor.rowcount != 1:
                 raise RouterRepositoryError("provider_catalog_refresh_not_running")
-            connection.execute(
-                """
-                UPDATE provider_catalog_models
-                SET status = 'stale'
-                WHERE tenant_id = ? AND connection_id = ? AND status = 'active'
-                """,
-                (clean_tenant, connection_id),
-            )
-            connection.execute(
-                """
-                UPDATE provider_catalog_offerings
-                SET stale = 1
-                WHERE tenant_id = ? AND connection_id = ?
-                """,
-                (clean_tenant, connection_id),
-            )
-            if health is not None and checked_at is not None:
+            if not preserve_inventory:
+                connection.execute(
+                    """
+                    UPDATE provider_catalog_models
+                    SET status = 'stale'
+                    WHERE tenant_id = ? AND connection_id = ?
+                        AND status = 'active'
+                    """,
+                    (clean_tenant, connection_id),
+                )
+                connection.execute(
+                    """
+                    UPDATE provider_catalog_offerings
+                    SET stale = 1
+                    WHERE tenant_id = ? AND connection_id = ?
+                    """,
+                    (clean_tenant, connection_id),
+                )
+            if (
+                not preserve_connection_health
+                and health is not None
+                and checked_at is not None
+            ):
                 connection.execute(
                     """
                     UPDATE router_connections
@@ -3307,12 +3478,45 @@ class SQLiteRouterRepository:
         idempotency_key_hash: str,
         adapter_contract: str | None = None,
         protocol_version: str | None = None,
+        multimodal_session_id: str | None = None,
     ) -> tuple[dict[str, object], bool]:
         clean_tenant = self._tenant_id(tenant_id)
-        self.get_connection(clean_tenant, connection_id)
+        if multimodal_session_id is None:
+            self.get_connection(clean_tenant, connection_id)
         now = utc_now()
         profile_json = json.dumps(profile, sort_keys=True, separators=(",", ":"))
-        with self._lock, self._connect() as connection:
+        with self._lock, (
+            self._connect_for_atomic_claim(
+                "provider_multimodal_session_store_busy"
+            )
+            if multimodal_session_id is not None
+            else self._connect()
+        ) as connection:
+            if multimodal_session_id is not None:
+                try:
+                    connection.execute("BEGIN IMMEDIATE")
+                except sqlite3.OperationalError as exc:
+                    if "locked" in str(exc).lower() or "busy" in str(exc).lower():
+                        raise RouterRepositoryError(
+                            "provider_multimodal_session_store_busy"
+                        ) from exc
+                    raise
+                current_connection = connection.execute(
+                    """
+                    SELECT * FROM router_connections
+                    WHERE tenant_id = ? AND id = ?
+                    """,
+                    (clean_tenant, connection_id),
+                ).fetchone()
+                if (
+                    current_connection is None
+                    or not bool(current_connection["enabled"])
+                    or self._connection_config_fingerprint_row(current_connection)
+                    != connection_fingerprint
+                ):
+                    raise RouterRepositoryError(
+                        "provider_multimodal_dispatch_preconditions_changed"
+                    )
             existing = connection.execute(
                 """
                 SELECT * FROM provider_workload_certifications
@@ -3334,6 +3538,28 @@ class SQLiteRouterRepository:
                     raise RouterRepositoryError(
                         "provider_workload_certification_idempotency_conflict"
                     )
+                if multimodal_session_id is not None:
+                    session = connection.execute(
+                        """
+                        SELECT * FROM provider_multimodal_certification_sessions
+                        WHERE tenant_id = ? AND idempotency_key_hash = ?
+                        """,
+                        (clean_tenant, idempotency_key_hash),
+                    ).fetchone()
+                    if (
+                        session is None
+                        or str(session["certification_id"]) != str(existing["id"])
+                        or str(session["connection_id"]) != connection_id
+                        or str(session["requested_model"]) != requested_model
+                        or str(session["execution_shape"]) != execution_shape
+                        or str(session["adapter_contract"])
+                        != str(adapter_contract or "")
+                        or str(session["protocol_version"])
+                        != str(protocol_version or "")
+                    ):
+                        raise RouterRepositoryError(
+                            "provider_multimodal_session_idempotency_conflict"
+                        )
                 return dict(existing), False
             try:
                 connection.execute(
@@ -3367,6 +3593,37 @@ class SQLiteRouterRepository:
                 raise RouterRepositoryError(
                     "provider_workload_certification_already_running"
                 ) from exc
+            if multimodal_session_id is not None:
+                try:
+                    connection.execute(
+                        """
+                        INSERT INTO provider_multimodal_certification_sessions (
+                            id, tenant_id, certification_id, connection_id,
+                            requested_model, execution_shape, adapter_contract,
+                            protocol_version, idempotency_key_hash,
+                            provider_dispatch_state, post_dispatched, status,
+                            created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,
+                            'not_dispatched', 0, 'running', ?, ?)
+                        """,
+                        (
+                            multimodal_session_id,
+                            clean_tenant,
+                            certification_id,
+                            connection_id,
+                            requested_model,
+                            execution_shape,
+                            str(adapter_contract or ""),
+                            str(protocol_version or ""),
+                            idempotency_key_hash,
+                            now,
+                            now,
+                        ),
+                    )
+                except sqlite3.IntegrityError as exc:
+                    raise RouterRepositoryError(
+                        "provider_multimodal_session_idempotency_conflict"
+                    ) from exc
             row = connection.execute(
                 """
                 SELECT * FROM provider_workload_certifications
@@ -3505,6 +3762,178 @@ class SQLiteRouterRepository:
             ).fetchone()
         return dict(row)
 
+    def complete_multimodal_workload_certification(
+        self,
+        tenant_id: str,
+        certification_id: str,
+        session_id: str,
+        *,
+        status: str,
+        checks: dict[str, bool],
+        warning_codes: list[str],
+        error_code: str | None = None,
+        actual_model: str | None = None,
+        ttft_ms: float | None = None,
+        e2e_ms: float | None = None,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        total_tokens: int | None = None,
+        vector_dimension: int | None = None,
+    ) -> tuple[dict[str, object], dict[str, object]]:
+        """Atomically finalize one direct multimodal certification pair."""
+
+        if status not in {"passed", "failed", "uncertain"}:
+            raise RouterRepositoryError(
+                "invalid_provider_workload_certification_status"
+            )
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        with self._lock, self._connect_for_atomic_claim(
+            "provider_multimodal_certification_finalize_store_busy"
+        ) as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+            except sqlite3.OperationalError as exc:
+                if "locked" in str(exc).lower() or "busy" in str(exc).lower():
+                    raise RouterRepositoryError(
+                        "provider_multimodal_certification_finalize_store_busy"
+                    ) from exc
+                raise
+            certification = connection.execute(
+                """
+                SELECT * FROM provider_workload_certifications
+                WHERE tenant_id = ? AND id = ? AND status = 'running'
+                """,
+                (clean_tenant, certification_id),
+            ).fetchone()
+            session = connection.execute(
+                """
+                SELECT * FROM provider_multimodal_certification_sessions
+                WHERE tenant_id = ? AND id = ? AND status = 'running'
+                """,
+                (clean_tenant, session_id),
+            ).fetchone()
+            if certification is None or session is None:
+                raise RouterRepositoryError(
+                    "provider_multimodal_certification_pair_not_running"
+                )
+            if (
+                str(session["certification_id"]) != certification_id
+                or str(session["connection_id"])
+                != str(certification["connection_id"])
+                or str(session["requested_model"])
+                != str(certification["requested_model"])
+                or str(session["execution_shape"])
+                != str(certification["execution_shape"])
+                or str(session["adapter_contract"])
+                != str(certification["adapter_contract"] or "")
+                or str(session["protocol_version"])
+                != str(certification["protocol_version"] or "")
+            ):
+                raise RouterRepositoryError(
+                    "provider_multimodal_certification_pair_mismatch"
+                )
+            post_dispatched = bool(session["post_dispatched"])
+            current_dispatch_state = str(session["provider_dispatch_state"])
+            if status == "passed":
+                required_checks = (
+                    "http_ok",
+                    "content_observed",
+                    "response_complete",
+                    "media_format_verified",
+                    "actual_model_verified",
+                    "multimodal_adapter_verified",
+                )
+                if (
+                    not post_dispatched
+                    or current_dispatch_state != "confirmed"
+                    or not actual_model
+                    or actual_model != str(certification["requested_model"])
+                    or any(checks.get(name) is not True for name in required_checks)
+                ):
+                    raise RouterRepositoryError(
+                        "provider_multimodal_certification_success_evidence_invalid"
+                    )
+                session_dispatch_state = "confirmed"
+            elif status == "uncertain":
+                session_dispatch_state = (
+                    "uncertain" if post_dispatched else "not_dispatched"
+                )
+            else:
+                if current_dispatch_state == "uncertain":
+                    raise RouterRepositoryError(
+                        "provider_multimodal_dispatch_cannot_regress"
+                    )
+                session_dispatch_state = (
+                    "confirmed" if post_dispatched else "not_dispatched"
+                )
+            certification_cursor = connection.execute(
+                """
+                UPDATE provider_workload_certifications
+                SET status = ?, checks_json = ?, warnings_json = ?,
+                    error_code = ?, actual_model = ?, ttft_ms = ?, e2e_ms = ?,
+                    prompt_tokens = ?, completion_tokens = ?, total_tokens = ?,
+                    vector_dimension = ?, updated_at = ?, completed_at = ?
+                WHERE tenant_id = ? AND id = ? AND status = 'running'
+                """,
+                (
+                    status,
+                    json.dumps(checks, sort_keys=True, separators=(",", ":")),
+                    json.dumps(warning_codes, separators=(",", ":")),
+                    error_code,
+                    actual_model,
+                    ttft_ms,
+                    e2e_ms,
+                    prompt_tokens,
+                    completion_tokens,
+                    total_tokens,
+                    vector_dimension,
+                    now,
+                    now,
+                    clean_tenant,
+                    certification_id,
+                ),
+            )
+            session_cursor = connection.execute(
+                """
+                UPDATE provider_multimodal_certification_sessions
+                SET status = ?, provider_dispatch_state = ?,
+                    error_code = ?, updated_at = ?, completed_at = ?
+                WHERE tenant_id = ? AND id = ? AND status = 'running'
+                """,
+                (
+                    status,
+                    session_dispatch_state,
+                    error_code,
+                    now,
+                    now,
+                    clean_tenant,
+                    session_id,
+                ),
+            )
+            if (
+                certification_cursor.rowcount != 1
+                or session_cursor.rowcount != 1
+            ):
+                raise RouterRepositoryError(
+                    "provider_multimodal_certification_pair_not_finalized"
+                )
+            completed_certification = connection.execute(
+                """
+                SELECT * FROM provider_workload_certifications
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, certification_id),
+            ).fetchone()
+            completed_session = connection.execute(
+                """
+                SELECT * FROM provider_multimodal_certification_sessions
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, session_id),
+            ).fetchone()
+        return dict(completed_certification), dict(completed_session)
+
     def list_workload_certifications(
         self, tenant_id: str, *, connection_id: str | None = None
     ) -> list[dict[str, object]]:
@@ -3606,6 +4035,10 @@ class SQLiteRouterRepository:
         clean_tenant = self._tenant_id(tenant_id)
         now = utc_now()
         with self._lock, self._connect() as connection:
+            # Serialize the read-or-insert decision across repository instances
+            # and server processes.  The tenant-wide idempotency constraint is
+            # the authority; the in-process RLock alone cannot protect it.
+            connection.execute("BEGIN IMMEDIATE")
             existing = connection.execute(
                 """
                 SELECT * FROM provider_multimodal_certification_sessions
@@ -3626,32 +4059,37 @@ class SQLiteRouterRepository:
                         "provider_multimodal_session_idempotency_conflict"
                     )
                 return dict(existing), False
-            connection.execute(
-                """
-                INSERT INTO provider_multimodal_certification_sessions (
-                    id, tenant_id, certification_id, connection_id,
-                    requested_model, execution_shape, adapter_contract,
-                    protocol_version, idempotency_key_hash,
-                    provider_dispatch_state, post_dispatched, status,
-                    expires_at, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    'not_dispatched', 0, 'running', ?, ?, ?)
-                """,
-                (
-                    session_id,
-                    clean_tenant,
-                    certification_id,
-                    connection_id,
-                    requested_model,
-                    execution_shape,
-                    adapter_contract,
-                    protocol_version,
-                    idempotency_key_hash,
-                    expires_at,
-                    now,
-                    now,
-                ),
-            )
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO provider_multimodal_certification_sessions (
+                        id, tenant_id, certification_id, connection_id,
+                        requested_model, execution_shape, adapter_contract,
+                        protocol_version, idempotency_key_hash,
+                        provider_dispatch_state, post_dispatched, status,
+                        expires_at, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,
+                        'not_dispatched', 0, 'running', ?, ?, ?)
+                    """,
+                    (
+                        session_id,
+                        clean_tenant,
+                        certification_id,
+                        connection_id,
+                        requested_model,
+                        execution_shape,
+                        adapter_contract,
+                        protocol_version,
+                        idempotency_key_hash,
+                        expires_at,
+                        now,
+                        now,
+                    ),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise RouterRepositoryError(
+                    "provider_multimodal_session_id_conflict"
+                ) from exc
             row = connection.execute(
                 """
                 SELECT * FROM provider_multimodal_certification_sessions
@@ -3698,6 +4136,431 @@ class SQLiteRouterRepository:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def record_multimodal_certification_pending_evidence(
+        self,
+        tenant_id: str,
+        session_id: str,
+        *,
+        upstream_operation_id: str,
+        checks: dict[str, bool],
+        warning_codes: list[str],
+        error_code: str,
+        ttft_ms: float | None,
+        e2e_ms: float | None,
+        prompt_tokens: int | None,
+        completion_tokens: int | None,
+        total_tokens: int | None,
+        expected_connection_fingerprint: str,
+    ) -> tuple[dict[str, object], dict[str, object]]:
+        """Atomically retain completed POST evidence for a read-only refresh.
+
+        The certification intentionally remains ``running`` so the ordinary
+        completion path can finalize it.  If the process stops after this
+        transaction, startup recovery changes the certification to
+        ``uncertain`` while the already-completed Session remains refreshable.
+        """
+
+        clean_tenant = self._tenant_id(tenant_id)
+        operation_id = str(upstream_operation_id).strip()
+        if not operation_id:
+            raise RouterRepositoryError(
+                "provider_multimodal_upstream_operation_id_required"
+            )
+        if any(
+            checks.get(name) is not True
+            for name in (
+                "http_ok",
+                "content_observed",
+                "response_complete",
+                "media_format_verified",
+            )
+        ):
+            raise RouterRepositoryError(
+                "provider_multimodal_pending_evidence_incomplete"
+            )
+        now = utc_now()
+        with self._lock, self._connect_for_atomic_claim(
+            "provider_multimodal_pending_evidence_store_busy"
+        ) as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+            except sqlite3.OperationalError as exc:
+                if "locked" in str(exc).lower() or "busy" in str(exc).lower():
+                    raise RouterRepositoryError(
+                        "provider_multimodal_pending_evidence_store_busy"
+                    ) from exc
+                raise
+            session = connection.execute(
+                """
+                SELECT * FROM provider_multimodal_certification_sessions
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, session_id),
+            ).fetchone()
+            if session is None:
+                raise RouterRepositoryError(
+                    "provider_multimodal_certification_session_not_found"
+                )
+            certification = connection.execute(
+                """
+                SELECT * FROM provider_workload_certifications
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, session["certification_id"]),
+            ).fetchone()
+            existing_operation_id = str(session["upstream_operation_id"] or "")
+            if (
+                certification is None
+                or str(certification["status"]) != "running"
+                or str(session["status"]) != "running"
+                or not bool(session["post_dispatched"])
+                or str(certification["connection_id"])
+                != str(session["connection_id"])
+                or str(certification["connection_fingerprint"])
+                != expected_connection_fingerprint
+                or (
+                    existing_operation_id
+                    and existing_operation_id != operation_id
+                )
+            ):
+                raise RouterRepositoryError(
+                    "provider_multimodal_dispatch_preconditions_changed"
+                )
+            certification_cursor = connection.execute(
+                """
+                UPDATE provider_workload_certifications
+                SET checks_json = ?, warnings_json = ?, error_code = ?,
+                    ttft_ms = ?, e2e_ms = ?, prompt_tokens = ?,
+                    completion_tokens = ?, total_tokens = ?, updated_at = ?,
+                    completed_at = COALESCE(completed_at, ?)
+                WHERE tenant_id = ? AND id = ? AND status = 'running'
+                """,
+                (
+                    json.dumps(checks, sort_keys=True, separators=(",", ":")),
+                    json.dumps(warning_codes, separators=(",", ":")),
+                    error_code,
+                    ttft_ms,
+                    e2e_ms,
+                    prompt_tokens,
+                    completion_tokens,
+                    total_tokens,
+                    now,
+                    now,
+                    clean_tenant,
+                    certification["id"],
+                ),
+            )
+            session_cursor = connection.execute(
+                """
+                UPDATE provider_multimodal_certification_sessions
+                SET status = 'uncertain',
+                    provider_dispatch_state = 'confirmed',
+                    post_dispatched = 1,
+                    upstream_operation_id = ?, error_code = ?,
+                    updated_at = ?, completed_at = ?
+                WHERE tenant_id = ? AND id = ? AND status = 'running'
+                    AND post_dispatched = 1
+                """,
+                (
+                    operation_id,
+                    error_code,
+                    now,
+                    now,
+                    clean_tenant,
+                    session_id,
+                ),
+            )
+            if certification_cursor.rowcount != 1 or session_cursor.rowcount != 1:
+                raise RouterRepositoryError(
+                    "provider_multimodal_pending_evidence_not_recorded"
+                )
+            recorded_certification = connection.execute(
+                """
+                SELECT * FROM provider_workload_certifications
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, certification["id"]),
+            ).fetchone()
+            recorded_session = connection.execute(
+                """
+                SELECT * FROM provider_multimodal_certification_sessions
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, session_id),
+            ).fetchone()
+        return dict(recorded_certification), dict(recorded_session)
+
+    def claim_multimodal_certification_refresh(
+        self,
+        tenant_id: str,
+        certification_id: str,
+        *,
+        expected_contract_version: str,
+        expected_protocol_version: str,
+    ) -> tuple[dict[str, object], dict[str, object]]:
+        """Atomically claim one read-only metadata refresh.
+
+        The paid Provider POST has already completed.  This claim only permits
+        a single concurrent GET for a persisted upstream operation id.
+        """
+
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        with self._lock, self._connect_for_atomic_claim(
+            "provider_multimodal_certification_refresh_store_busy"
+        ) as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+            except sqlite3.OperationalError as exc:
+                if "locked" in str(exc).lower() or "busy" in str(exc).lower():
+                    raise RouterRepositoryError(
+                        "provider_multimodal_certification_refresh_store_busy"
+                    ) from exc
+                raise
+            certification = connection.execute(
+                """
+                SELECT * FROM provider_workload_certifications
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, certification_id),
+            ).fetchone()
+            session = connection.execute(
+                """
+                SELECT * FROM provider_multimodal_certification_sessions
+                WHERE tenant_id = ? AND certification_id = ?
+                """,
+                (clean_tenant, certification_id),
+            ).fetchone()
+            if certification is None or session is None:
+                raise RouterRepositoryError(
+                    "provider_multimodal_certification_session_not_found"
+                )
+            if str(certification["status"]) == "running":
+                raise RouterRepositoryError(
+                    "provider_multimodal_certification_refresh_in_progress"
+                )
+            if (
+                str(certification["status"]) != "uncertain"
+                or str(session["status"]) != "uncertain"
+                or str(certification["execution_shape"])
+                not in {"audio_transcription", "audio_speech"}
+                or str(certification["contract_version"])
+                != expected_contract_version
+                or str(certification["protocol_version"] or "")
+                != expected_protocol_version
+                or not bool(session["post_dispatched"])
+                or str(session["provider_dispatch_state"]) != "confirmed"
+                or not str(session["upstream_operation_id"] or "").strip()
+            ):
+                raise RouterRepositoryError(
+                    "provider_multimodal_certification_not_refreshable"
+                )
+            try:
+                checks = json.loads(str(certification["checks_json"] or "{}"))
+            except (TypeError, ValueError):
+                checks = {}
+            if not isinstance(checks, dict) or any(
+                checks.get(name) is not True
+                for name in (
+                    "http_ok",
+                    "content_observed",
+                    "response_complete",
+                    "media_format_verified",
+                )
+            ):
+                raise RouterRepositoryError(
+                    "provider_multimodal_certification_not_refreshable"
+                )
+            current_connection = connection.execute(
+                """
+                SELECT * FROM router_connections
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, certification["connection_id"]),
+            ).fetchone()
+            if (
+                current_connection is None
+                or not bool(current_connection["enabled"])
+                or str(current_connection["health"]) != "online"
+                or self._connection_config_fingerprint_row(current_connection)
+                != str(certification["connection_fingerprint"])
+                or str(session["connection_id"])
+                != str(certification["connection_id"])
+                or str(session["requested_model"])
+                != str(certification["requested_model"])
+                or str(session["execution_shape"])
+                != str(certification["execution_shape"])
+                or str(session["adapter_contract"])
+                != str(certification["adapter_contract"] or "")
+                or str(session["protocol_version"])
+                != str(certification["protocol_version"] or "")
+            ):
+                raise RouterRepositoryError(
+                    "provider_multimodal_dispatch_preconditions_changed"
+                )
+            try:
+                cursor = connection.execute(
+                    """
+                    UPDATE provider_workload_certifications
+                    SET status = 'running', error_code = NULL, updated_at = ?
+                    WHERE tenant_id = ? AND id = ? AND status = 'uncertain'
+                    """,
+                    (now, clean_tenant, certification_id),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise RouterRepositoryError(
+                    "provider_multimodal_certification_refresh_in_progress"
+                ) from exc
+            if cursor.rowcount != 1:
+                raise RouterRepositoryError(
+                    "provider_multimodal_certification_refresh_in_progress"
+                )
+            session_cursor = connection.execute(
+                """
+                UPDATE provider_multimodal_certification_sessions
+                SET poll_count = poll_count + 1, updated_at = ?
+                WHERE tenant_id = ? AND certification_id = ?
+                    AND status = 'uncertain'
+                """,
+                (now, clean_tenant, certification_id),
+            )
+            if session_cursor.rowcount != 1:
+                raise RouterRepositoryError(
+                    "provider_multimodal_certification_refresh_in_progress"
+                )
+            claimed_certification = connection.execute(
+                """
+                SELECT * FROM provider_workload_certifications
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, certification_id),
+            ).fetchone()
+            claimed_session = connection.execute(
+                """
+                SELECT * FROM provider_multimodal_certification_sessions
+                WHERE tenant_id = ? AND certification_id = ?
+                """,
+                (clean_tenant, certification_id),
+            ).fetchone()
+        return dict(claimed_certification), dict(claimed_session)
+
+    def complete_multimodal_certification_refresh(
+        self,
+        tenant_id: str,
+        certification_id: str,
+        *,
+        status: str,
+        checks: dict[str, bool],
+        error_code: str | None,
+        actual_model: str | None,
+    ) -> tuple[dict[str, object], dict[str, object]]:
+        """Atomically finalize a claimed read-only metadata refresh."""
+
+        if status not in {"passed", "failed", "uncertain"}:
+            raise RouterRepositoryError(
+                "invalid_provider_workload_certification_status"
+            )
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        with self._lock, self._connect_for_atomic_claim(
+            "provider_multimodal_certification_refresh_store_busy"
+        ) as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+            except sqlite3.OperationalError as exc:
+                if "locked" in str(exc).lower() or "busy" in str(exc).lower():
+                    raise RouterRepositoryError(
+                        "provider_multimodal_certification_refresh_store_busy"
+                    ) from exc
+                raise
+            certification = connection.execute(
+                """
+                SELECT * FROM provider_workload_certifications
+                WHERE tenant_id = ? AND id = ? AND status = 'running'
+                """,
+                (clean_tenant, certification_id),
+            ).fetchone()
+            session = connection.execute(
+                """
+                SELECT * FROM provider_multimodal_certification_sessions
+                WHERE tenant_id = ? AND certification_id = ?
+                    AND status = 'uncertain'
+                """,
+                (clean_tenant, certification_id),
+            ).fetchone()
+            if certification is None or session is None:
+                raise RouterRepositoryError(
+                    "provider_multimodal_certification_refresh_not_claimed"
+                )
+            requested_model = str(certification["requested_model"])
+            if status == "passed" and (
+                not actual_model
+                or actual_model != requested_model
+                or checks.get("actual_model_verified") is not True
+            ):
+                raise RouterRepositoryError(
+                    "provider_multimodal_refresh_success_evidence_invalid"
+                )
+            certification_cursor = connection.execute(
+                """
+                UPDATE provider_workload_certifications
+                SET status = ?, checks_json = ?, error_code = ?,
+                    actual_model = ?, updated_at = ?,
+                    completed_at = COALESCE(completed_at, ?)
+                WHERE tenant_id = ? AND id = ? AND status = 'running'
+                """,
+                (
+                    status,
+                    json.dumps(checks, sort_keys=True, separators=(",", ":")),
+                    error_code,
+                    actual_model,
+                    now,
+                    now,
+                    clean_tenant,
+                    certification_id,
+                ),
+            )
+            if certification_cursor.rowcount != 1:
+                raise RouterRepositoryError(
+                    "provider_multimodal_certification_refresh_not_claimed"
+                )
+            session_cursor = connection.execute(
+                """
+                UPDATE provider_multimodal_certification_sessions
+                SET status = ?, provider_dispatch_state = 'confirmed',
+                    error_code = ?, updated_at = ?, completed_at = ?
+                WHERE tenant_id = ? AND certification_id = ?
+                    AND status = 'uncertain'
+                """,
+                (
+                    status,
+                    error_code,
+                    now,
+                    now,
+                    clean_tenant,
+                    certification_id,
+                ),
+            )
+            if session_cursor.rowcount != 1:
+                raise RouterRepositoryError(
+                    "provider_multimodal_certification_refresh_not_claimed"
+                )
+            completed_certification = connection.execute(
+                """
+                SELECT * FROM provider_workload_certifications
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, certification_id),
+            ).fetchone()
+            completed_session = connection.execute(
+                """
+                SELECT * FROM provider_multimodal_certification_sessions
+                WHERE tenant_id = ? AND certification_id = ?
+                """,
+                (clean_tenant, certification_id),
+            ).fetchone()
+        return dict(completed_certification), dict(completed_session)
+
     def update_multimodal_certification_session(
         self,
         tenant_id: str,
@@ -3710,6 +4573,7 @@ class SQLiteRouterRepository:
         error_code: str | None = None,
         increment_poll_count: bool = False,
         completed: bool = False,
+        expected_connection_fingerprint: str | None = None,
     ) -> dict[str, object]:
         if status not in {"running", "passed", "failed", "uncertain"}:
             raise RouterRepositoryError(
@@ -3727,6 +4591,7 @@ class SQLiteRouterRepository:
         clean_tenant = self._tenant_id(tenant_id)
         now = utc_now()
         with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             existing = connection.execute(
                 """
                 SELECT * FROM provider_multimodal_certification_sessions
@@ -3738,6 +4603,40 @@ class SQLiteRouterRepository:
                 raise RouterRepositoryError(
                     "provider_multimodal_session_not_found"
                 )
+            if expected_connection_fingerprint is not None:
+                certification = connection.execute(
+                    """
+                    SELECT connection_fingerprint
+                    FROM provider_workload_certifications
+                    WHERE tenant_id = ? AND id = ? AND connection_id = ?
+                        AND status = 'running'
+                    """,
+                    (
+                        clean_tenant,
+                        existing["certification_id"],
+                        existing["connection_id"],
+                    ),
+                ).fetchone()
+                current_connection = connection.execute(
+                    """
+                    SELECT * FROM router_connections
+                    WHERE tenant_id = ? AND id = ?
+                    """,
+                    (clean_tenant, existing["connection_id"]),
+                ).fetchone()
+                if (
+                    certification is None
+                    or str(certification["connection_fingerprint"])
+                    != expected_connection_fingerprint
+                    or current_connection is None
+                    or not bool(current_connection["enabled"])
+                    or str(current_connection["health"]) != "online"
+                    or self._connection_config_fingerprint_row(current_connection)
+                    != expected_connection_fingerprint
+                ):
+                    raise RouterRepositoryError(
+                        "provider_multimodal_dispatch_preconditions_changed"
+                    )
             if str(existing["status"]) in {"passed", "failed", "uncertain"}:
                 raise RouterRepositoryError(
                     "provider_multimodal_session_not_running"
@@ -3778,7 +4677,7 @@ class SQLiteRouterRepository:
                     "provider_multimodal_upstream_operation_cannot_change"
                 )
             claims_dispatch = (
-                not bool(existing["post_dispatched"]) and post_dispatched
+                post_dispatched and provider_dispatch_state == "dispatched"
             )
             cursor = connection.execute(
                 """
@@ -4250,9 +5149,11 @@ class SQLiteRouterRepository:
         policy_fingerprint: str,
         adapter_contract: str | None = None,
         protocol_version: str | None = None,
+        verify_current_connection: bool = False,
     ) -> None:
         clean_tenant = self._tenant_id(tenant_id)
         with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             current = connection.execute(
                 """
                 SELECT status, dispatched FROM provider_workload_calls
@@ -4268,6 +5169,24 @@ class SQLiteRouterRepository:
                 raise RouterRepositoryError(
                     "provider_workload_duplicate_dispatch_blocked"
                 )
+            if verify_current_connection:
+                current_connection = connection.execute(
+                    """
+                    SELECT * FROM router_connections
+                    WHERE tenant_id = ? AND id = ?
+                    """,
+                    (clean_tenant, connection_id),
+                ).fetchone()
+                if (
+                    current_connection is None
+                    or not bool(current_connection["enabled"])
+                    or str(current_connection["health"]) != "online"
+                    or self._connection_config_fingerprint_row(current_connection)
+                    != connection_fingerprint
+                ):
+                    raise RouterRepositoryError(
+                        "provider_workload_dispatch_preconditions_changed"
+                    )
             cursor = connection.execute(
                 """
                 UPDATE provider_workload_calls
@@ -4340,11 +5259,29 @@ class SQLiteRouterRepository:
         prompt_tokens: int | None = None,
         completion_tokens: int | None = None,
         total_tokens: int | None = None,
+        generation_id_observed: bool | None = None,
+        generation_metadata_get_count: int | None = None,
+        generation_metadata_wait_ms: float | None = None,
     ) -> dict[str, object]:
         if status not in {"passed", "failed", "uncertain", "cancelled"}:
             raise RouterRepositoryError("invalid_provider_workload_call_status")
         clean_tenant = self._tenant_id(tenant_id)
         now = utc_now()
+        clean_generation_id_observed = (
+            None
+            if generation_id_observed is None
+            else int(bool(generation_id_observed))
+        )
+        clean_generation_metadata_get_count = (
+            None
+            if generation_metadata_get_count is None
+            else max(0, int(generation_metadata_get_count))
+        )
+        clean_generation_metadata_wait_ms = (
+            None
+            if generation_metadata_wait_ms is None
+            else max(0.0, float(generation_metadata_wait_ms))
+        )
         with self._lock, self._connect() as connection:
             current = connection.execute(
                 """
@@ -4365,6 +5302,13 @@ class SQLiteRouterRepository:
                 SET status = ?, result_class = ?, error_code = ?, actual_model = ?,
                     ttft_ms = ?, e2e_ms = ?, prompt_tokens = ?,
                     completion_tokens = ?, total_tokens = ?,
+                    generation_id_observed = COALESCE(?, generation_id_observed),
+                    generation_metadata_get_count = COALESCE(
+                        ?, generation_metadata_get_count
+                    ),
+                    generation_metadata_wait_ms = COALESCE(
+                        ?, generation_metadata_wait_ms
+                    ),
                     provider_dispatch_state = CASE
                         WHEN ? = 'uncertain' AND dispatched = 1 THEN 'uncertain'
                         WHEN dispatched = 1 THEN 'confirmed'
@@ -4383,6 +5327,9 @@ class SQLiteRouterRepository:
                     prompt_tokens,
                     completion_tokens,
                     total_tokens,
+                    clean_generation_id_observed,
+                    clean_generation_metadata_get_count,
+                    clean_generation_metadata_wait_ms,
                     status,
                     now,
                     now,
@@ -6331,6 +7278,20 @@ class SQLiteRouterRepository:
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
+
+    @staticmethod
+    def _connection_config_fingerprint_row(row: sqlite3.Row) -> str:
+        material = json.dumps(
+            {
+                "kind": row["kind"],
+                "base_url": row["base_url"],
+                "scopes": json.loads(row["scopes_json"]),
+                "credential": row["api_key_ciphertext"],
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
     @staticmethod
     def _mask(value: str) -> str:

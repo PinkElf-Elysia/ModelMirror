@@ -42,9 +42,15 @@
 
 ### 为什么设置里能选择多模态 Adapter，却不能运行认证或激活？
 
-R8A 建立了图片、文档、语音、视频和 Realtime 的控制面基础；R8B 已接入图片 Chat、原生 PDF Chat、RAG/Workflow/Xpert Vision 和图片生成。管理员仍需为连接添加明确的 `chat`、`document` 或 `image` scope，刷新目录，完成精确模型、执行形态和 Adapter 的真实认证，再到“路由与实验”激活对应入口。认证通过不等于已生产启用，Feature Flag 默认关闭。
+R8A 建立了多模态控制面基础；R8B 接入图片、原生 PDF 和 Vision；R8C 接入独立与 Xpert 的语音转写（STT）和语音合成（TTS）。每种执行形态仍必须单独取得资格，不能用图片、STT 或 TTS 的一次认证证明另一种能力。
 
-STT/TTS、Chat Audio、音频生成、视频和 Realtime 仍等待 R8C—R8F；这些入口的认证按钮和 Managed 激活会继续阻断且不会产生付费调用。图片与原生 PDF、工具或其他未按同一形态认证的组合请求也会在发送前阻断。不要通过修改请求或打开 Feature Flag 绕过门禁。
+管理员应先在[Provider 与 Catalog](/settings?section=providers)确认连接具备所需 scope、目录完整且模型仍存在，再为精确模型选择匹配的 Adapter 并执行真实资格认证。OpenRouter STT 如果已完成付费请求但实际模型证据仍待确认，只能点击“只读刷新模型证据”；该动作只查询已保存的 Generation ID，不会重新提交音频或产生第二次模型 POST。随后在[路由与实验](/settings?section=routing)分别配置并激活独立 STT、独立 TTS、Xpert STT 或 Xpert TTS。认证通过不等于已生产启用，Feature Flag 与入口 Policy 仍需同时满足。
+
+![Provider 音频资格列表显示通过的语音合成与音频转录认证](/help-center/ae284fbb/provider-audio-certification-evidence.png)
+
+在 Managed 模式下，转写工作区只接受认证记录中的音频格式；语音合成工作区只提供认证过的声线和外部输出格式。缺少资格、Binding 漂移或参数不匹配时会在发送前阻断。Chat Audio、音频生成、视频和 Realtime 仍等待 R8D—R8F，不能借用 R8C 资格。不要通过修改请求或打开 Feature Flag 绕过门禁。
+
+真实转写会把所选音频发送给绑定的 Provider，真实语音合成会把待朗读文字发送给绑定的 Provider，并可能产生费用；控制面回执不会保存音频、转录、朗读正文或凭据。资格认证只使用仓库内固定合成素材，不能替代对真实用户入口的单独验收。
 
 ### RAG Formal 显示“引用已失效”或“不可重放”怎么办？
 
@@ -60,8 +66,9 @@ STT/TTS、Chat Audio、音频生成、视频和 Realtime 仍等待 R8C—R8F；�
 
 - 本指南验证的是模型市场中的恢复路径，不代表所有模块都使用相同状态文案。
 - 替代模型可能有不同价格、输入限制或输出表现；发送前仍要重新检查。
-- 没有验证需要管理员配置、供应商凭据或真实调用的恢复方式。
+- 设置页的“资格通过”只证明对应精确模型、执行形态和 Adapter，不证明生产开关已启用或其他音频能力可用。
 - Rerank 能力认证可能产生少量供应商费用；真实认证或 Smoke 必须获得单独授权。
+- STT/TTS 资格认证和用户入口 Smoke 可能产生供应商费用；只读刷新模型证据不提交新的模型请求。
 
 ## 下一步
 

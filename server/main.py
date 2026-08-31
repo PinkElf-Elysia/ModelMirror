@@ -1544,7 +1544,12 @@ try:
         get_audio_catalog_service,
         get_chat_attachment_store,
         get_image_catalog_service,
+        get_speech_service,
+        get_transcription_service,
         get_video_analysis_service,
+        multimodal_error_detail,
+        provider_dispatch_state_from_receipts,
+        provider_response_contract_headers,
     )
     from server.multimodal.chat_attachments import ClaimedChatAttachment
     from server.multimodal.stt import MultimodalServiceError
@@ -1555,7 +1560,12 @@ except ModuleNotFoundError:
         get_audio_catalog_service,
         get_chat_attachment_store,
         get_image_catalog_service,
+        get_speech_service,
+        get_transcription_service,
         get_video_analysis_service,
+        multimodal_error_detail,
+        provider_dispatch_state_from_receipts,
+        provider_response_contract_headers,
     )
     from multimodal.chat_attachments import ClaimedChatAttachment
     from multimodal.stt import MultimodalServiceError
@@ -26493,6 +26503,69 @@ async def get_xpert_audio_capabilities(
         )
     except XpertNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    audio_gateway = ManagedMultimodalGateway.for_router(
+        get_model_router_service()
+    )
+    legacy_gateway_configured = bool(get_llm_gateway_config()[0])
+
+    def audio_availability(
+        entry_id: str,
+        execution_shape: str,
+        *,
+        enabled: bool,
+        model_id: str,
+    ) -> dict[str, object]:
+        routing_mode = audio_gateway.routing_mode(entry_id)  # type: ignore[arg-type]
+        if not enabled:
+            return {
+                "available": False,
+                "routing_mode": routing_mode,
+                "reason_code": "xpert_audio_feature_disabled",
+            }
+        clean_model = model_id.strip()
+        if not clean_model:
+            return {
+                "available": False,
+                "routing_mode": routing_mode,
+                "reason_code": "xpert_audio_model_missing",
+            }
+        if routing_mode == "legacy":
+            return {
+                "available": legacy_gateway_configured,
+                "routing_mode": "legacy",
+                "reason_code": (
+                    "xpert_audio_legacy_gateway_available"
+                    if legacy_gateway_configured
+                    else "xpert_audio_legacy_gateway_not_configured"
+                ),
+            }
+        status = audio_gateway.call_service.control.public_status(
+            entry_id,  # type: ignore[arg-type]
+            clean_model,
+            execution_shape,  # type: ignore[arg-type]
+        )
+        return {
+            "available": status.available,
+            "routing_mode": status.status,
+            "reason_code": status.reason_code,
+        }
+
+    speech_availability = audio_availability(
+        "xpert_speech",
+        "audio_speech",
+        enabled=features.text_to_speech.enabled,
+        model_id=features.text_to_speech.model_id,
+    )
+    transcription_availability = audio_availability(
+        "xpert_transcription",
+        "audio_transcription",
+        enabled=features.speech_to_text.enabled,
+        model_id=features.speech_to_text.model_id,
+    )
+    managed_audio_configured = any(
+        audio_gateway.routing_mode(entry_id) == "managed_required"
+        for entry_id in ("xpert_transcription", "xpert_speech")
+    )
     return {
         "version": snapshot.version,
         "text_to_speech": {
@@ -26500,19 +26573,23 @@ async def get_xpert_audio_capabilities(
             "model_id": features.text_to_speech.model_id,
             "voice": features.text_to_speech.voice,
             "max_text_chars": features.text_to_speech.max_text_chars,
+            **speech_availability,
         },
         "speech_to_text": {
             "enabled": features.speech_to_text.enabled,
             "model_id": features.speech_to_text.model_id,
             "max_file_bytes": 10 * 1024 * 1024,
+            **transcription_availability,
         },
-        "gateway_configured": bool(get_llm_gateway_config()[0]),
+        "gateway_configured": managed_audio_configured
+        or legacy_gateway_configured,
     }
 
 
 @app.post("/api/xperts/{xpert_id}/audio/transcriptions")
 async def transcribe_xpert_audio(
     xpert_id: str,
+    request: Request,
     file: UploadFile = File(...),
     version: int | None = Form(default=None),
 ):
@@ -26543,6 +26620,31 @@ async def transcribe_xpert_audio(
         content = await file.read(10 * 1024 * 1024 + 1)
         if not content or len(content) > 10 * 1024 * 1024:
             raise ValueError("Audio input must be between 1 byte and 10 MB.")
+        managed_gateway = ManagedMultimodalGateway.for_router(
+            get_model_router_service()
+        )
+        if managed_gateway.routing_mode("xpert_transcription") != "legacy":
+            result = await get_transcription_service().transcribe(
+                model_id=config.model_id,
+                filename=filename,
+                content_type=file.content_type,
+                content=content,
+                language="auto",
+                idempotency_key=request.headers.get("Idempotency-Key"),
+                managed_entry_id="xpert_transcription",
+            )
+            receipts = result.provider_route_receipts or []
+            return {
+                "text": result.text[:20_000],
+                "model_id": result.actual_model,
+                "xpert_version": snapshot.version,
+                "execution_mode": result.execution_mode,
+                "provider_route_receipts": receipts,
+                "provider_dispatch_state": (
+                    provider_dispatch_state_from_receipts(receipts)
+                ),
+                "fallback_reason_codes": [],
+            }
         url, key = get_llm_gateway_config()
         if not url:
             raise RuntimeError(LLM_GATEWAY_NOT_CONFIGURED_MESSAGE)
@@ -26579,11 +26681,20 @@ async def transcribe_xpert_audio(
             "text": text[:20_000],
             "model_id": config.model_id,
             "xpert_version": snapshot.version,
+            "execution_mode": "legacy",
+            "provider_route_receipts": [],
+            "provider_dispatch_state": None,
+            "fallback_reason_codes": [],
         }
     except XpertNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except MultimodalServiceError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=multimodal_error_detail(exc),
+        ) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     finally:
@@ -26594,6 +26705,7 @@ async def transcribe_xpert_audio(
 async def synthesize_xpert_speech(
     xpert_id: str,
     payload: XpertSpeechRequest,
+    request: Request,
 ):
     try:
         _, snapshot, features = await resolve_xpert_audio_version(
@@ -26608,6 +26720,43 @@ async def synthesize_xpert_speech(
         if len(payload.text) > config.max_text_chars:
             raise ValueError(
                 "Speech text exceeds this Xpert version's configured limit."
+            )
+        managed_gateway = ManagedMultimodalGateway.for_router(
+            get_model_router_service()
+        )
+        if managed_gateway.routing_mode("xpert_speech") != "legacy":
+            result = await get_speech_service().synthesize(
+                model_id=config.model_id,
+                text=payload.text,
+                voice=config.voice,
+                response_format=None,
+                speed=1.0,
+                idempotency_key=request.headers.get("Idempotency-Key"),
+                managed_entry_id="xpert_speech",
+            )
+            headers = {
+                "X-ModelMirror-Xpert-Version": str(snapshot.version),
+                "X-ModelMirror-Execution-Mode": result.execution_mode,
+                "Cache-Control": "no-store",
+            }
+            headers.update(
+                provider_response_contract_headers(
+                    result.provider_route_receipts
+                )
+            )
+            if result.provider_route_receipts:
+                headers["X-ModelMirror-Provider-Route-Receipt"] = json.dumps(
+                    result.provider_route_receipts[0],
+                    separators=(",", ":"),
+                )
+            return Response(
+                content=result.content,
+                media_type=(
+                    "audio/wav"
+                    if result.response_format == "wav"
+                    else "audio/mpeg"
+                ),
+                headers=headers,
             )
         url, key = get_llm_gateway_config()
         if not url:
@@ -26636,6 +26785,8 @@ async def synthesize_xpert_speech(
             media_type=response.headers.get("content-type", "audio/mpeg"),
             headers={
                 "X-ModelMirror-Xpert-Version": str(snapshot.version),
+                "X-ModelMirror-Execution-Mode": "legacy",
+                **provider_response_contract_headers(None),
                 "Cache-Control": "no-store",
             },
         )
@@ -26643,6 +26794,11 @@ async def synthesize_xpert_speech(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except MultimodalServiceError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=multimodal_error_detail(exc),
+        ) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 

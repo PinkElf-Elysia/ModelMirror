@@ -132,14 +132,15 @@ class ModelRouterService:
     async def test_saved_connection(
         self, connection_id: str
     ) -> ConnectionTestResult:
-        connection = self.repository.get_connection(self.tenant_id, connection_id)
+        connection, api_key, _ = self.repository.get_connection_credential_snapshot(
+            self.tenant_id, connection_id
+        )
         if not connection.enabled:
             raise RouterServiceError(
                 "connection_disabled",
                 "该模型服务已停用，请先启用后再测试。",
                 status_code=409,
             )
-        api_key = self.repository.resolve_api_key(self.tenant_id, connection_id)
         result = await self._probe(connection.base_url, api_key)
         save_result = getattr(self.repository, "save_test_result", None)
         if callable(save_result):
@@ -158,7 +159,9 @@ class ModelRouterService:
     async def fetch_connection_models(
         self, connection_id: str
     ) -> tuple[ConnectionTestResult, list[str]]:
-        connection = self.repository.get_connection(self.tenant_id, connection_id)
+        connection, api_key, _ = self.repository.get_connection_credential_snapshot(
+            self.tenant_id, connection_id
+        )
         if not connection.enabled:
             raise RouterServiceError(
                 "connection_disabled",
@@ -167,7 +170,6 @@ class ModelRouterService:
             )
         if "chat" not in connection.scopes:
             return self._scope_mismatch_result(connection), []
-        api_key = self.repository.resolve_api_key(self.tenant_id, connection_id)
         result, model_ids, _ = await self._probe_with_models(
             connection.base_url, api_key
         )
@@ -190,8 +192,14 @@ class ModelRouterService:
         *,
         persist_result: bool = True,
         require_chat_scope: bool = True,
+        credential_snapshot: tuple[RouterConnection, str, str] | None = None,
     ) -> tuple[ConnectionTestResult, list[dict[str, object]]]:
-        connection = self.repository.get_connection(self.tenant_id, connection_id)
+        connection, api_key, _ = (
+            credential_snapshot
+            or self.repository.get_connection_credential_snapshot(
+                self.tenant_id, connection_id
+            )
+        )
         if not connection.enabled:
             raise RouterServiceError(
                 "connection_disabled",
@@ -200,7 +208,6 @@ class ModelRouterService:
             )
         if require_chat_scope and "chat" not in connection.scopes:
             return self._scope_mismatch_result(connection), []
-        api_key = self.repository.resolve_api_key(self.tenant_id, connection_id)
         result, _, records = await self._probe_with_models(
             connection.base_url, api_key
         )
@@ -220,8 +227,15 @@ class ModelRouterService:
     async def fetch_connection_embedding_model_records(
         self,
         connection_id: str,
+        *,
+        credential_snapshot: tuple[RouterConnection, str, str] | None = None,
     ) -> tuple[ConnectionTestResult, list[dict[str, object]]]:
-        connection = self.repository.get_connection(self.tenant_id, connection_id)
+        connection, api_key, _ = (
+            credential_snapshot
+            or self.repository.get_connection_credential_snapshot(
+                self.tenant_id, connection_id
+            )
+        )
         if not connection.enabled:
             raise RouterServiceError(
                 "connection_disabled",
@@ -230,12 +244,42 @@ class ModelRouterService:
             )
         if connection.kind != "openrouter" or "embedding" not in connection.scopes:
             return self._scope_mismatch_result(connection), []
-        api_key = self.repository.resolve_api_key(self.tenant_id, connection_id)
         endpoint = ProviderOperationEndpointResolver.resolve(
             provider_kind=connection.kind,
             base_url=connection.base_url,
         ).embeddings_models_url
         result, _, records = await self._probe_models_url(endpoint, api_key)
+        return result, records
+
+    async def fetch_connection_audio_model_records(
+        self,
+        connection_id: str,
+        *,
+        output_modality: str,
+        credential_snapshot: tuple[RouterConnection, str, str] | None = None,
+    ) -> tuple[ConnectionTestResult, list[dict[str, object]]]:
+        if output_modality not in {"speech", "transcription"}:
+            raise ValueError("unsupported OpenRouter audio output modality")
+        connection, api_key, _ = (
+            credential_snapshot
+            or self.repository.get_connection_credential_snapshot(
+                self.tenant_id, connection_id
+            )
+        )
+        if not connection.enabled:
+            raise RouterServiceError(
+                "connection_disabled",
+                "该模型服务已停用。",
+                status_code=409,
+            )
+        if connection.kind != "openrouter" or "audio" not in connection.scopes:
+            return self._scope_mismatch_result(connection), []
+        result, _, records = await self._probe_models_url(
+            self._models_url(connection.base_url),
+            api_key,
+            params={"output_modalities": output_modality},
+            allow_empty=True,
+        )
         return result, records
 
     def get_policy(self) -> RouterPolicy:
@@ -354,14 +398,23 @@ class ModelRouterService:
         return await self._probe_models_url(self._models_url(base_url), api_key)
 
     async def _probe_models_url(
-        self, models_url: str, api_key: str
+        self,
+        models_url: str,
+        api_key: str,
+        *,
+        params: dict[str, str] | None = None,
+        allow_empty: bool = False,
     ) -> tuple[ConnectionTestResult, list[str], list[dict[str, object]]]:
         checked_at = utc_now()
         headers = {"Authorization": f"Bearer {api_key.strip()}"}
         try:
             async with self._client_factory() as client:
                 response = await self.egress_policy.request(
-                    client, "GET", models_url, headers=headers
+                    client,
+                    "GET",
+                    models_url,
+                    headers=headers,
+                    params=params,
                 )
         except ProviderEgressError:
             raise
@@ -466,7 +519,7 @@ class ModelRouterService:
                 if isinstance(item, dict) and str(item.get("id", "")).strip()
             }
         )
-        if not model_ids:
+        if not model_ids and not allow_empty:
             return (
                 ConnectionTestResult(
                     ok=False,

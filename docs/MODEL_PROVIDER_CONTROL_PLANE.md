@@ -143,9 +143,12 @@ python -m server.model_router.migrate_credentials --storage-dir <path>
 - SQLite v14 加法新增刷新、Inventory 和 Offering 表，所有唯一键包含 `tenant_id`。
   完整未截断刷新才会退休未再次出现的旧模型；失败或截断只将旧证据标为 stale，
   不删除最后一次成功目录。遗留 `running` 在重启后变为 `uncertain`，不会重放。
-- `POST /api/router/connections/{id}/catalog/refresh` 只执行显式模型目录 GET。连接健康、
-  Inventory、Offering 与刷新证据在同一事务提交；旧 `/models/refresh` 委托同一服务并
-  保留原有最多 500 个 ID 的响应契约。
+- `POST /api/router/connections/{id}/catalog/refresh` 只执行显式、只读模型目录 GET。基础目录
+  之外，OpenRouter 可按已授权的 embedding/audio scope 增加专用筛选查询，单次刷新最多
+  四个 GET，不发起推理或付费调用。刷新冻结同一连接与凭据快照，并在提交前原子复核连接
+  指纹；漂移时整体丢弃结果。补充目录失败保留上一份完整成功 Inventory 与连接健康，不写入
+  部分结果。连接健康、Inventory、Offering 与刷新证据在同一事务提交；旧 `/models/refresh`
+  委托同一服务并保留原有最多 500 个 ID 的响应契约。
 - 公共 `GET /api/models/control-plane-catalog` 按模型、operation 和 access mode 返回
   目录出现、连接状态、认证、Canary 与专用数据面的聚合证据。响应不包含 tenant、连接
   ID、Base URL、凭据或内部错误，并设置 `Cache-Control: no-store`。
@@ -337,6 +340,29 @@ python -m server.model_router.migrate_credentials --storage-dir <path>
   Prompt、Vision 结果、生成正文和完整错误体不进入 Router SQLite 或 Receipt。
 - 所有 R8B Feature Flag 仍默认关闭。PR 合并不等于生产启用、真实认证或 Provider 默认切换。
 
+## STT 与 TTS 数据面（Round 8C）
+
+- R8C 接管独立转写、独立语音生成以及 Published Xpert 的 STT/TTS 四个入口。每个入口继续使用
+  独立 Policy；`audio_transcription` 和 `audio_speech` 的资格不能证明 Chat Audio 或音频生成。
+- OpenRouter 转写固定使用 JSON/Base64；OpenAI-compatible 转写固定使用 multipart。OpenRouter 与
+  OpenAI-compatible TTS 分别认证。资格 profile 记录独立的音频参数合同：STT 首期只证明固定 WAV，
+  TTS 只证明认证时的声线、对外格式和上游格式；未认证参数在 POST 前失败关闭。Legacy 路径继续
+  保留既有静态模型、声线、格式、大小和音频 Magic 校验。
+- 资格与运行 Receipt 必须取得可信的实际模型证据，不得用请求模型补空。OpenRouter 运行时在音频
+  响应不含模型时，可针对同一 `X-Generation-Id` 在 30 秒总 deadline 内执行最多十次只读
+  `/generation` GET，单次上限 2 秒。每次 GET 都重新执行出口授权、只连接该次批准的一个 IP、
+  不跟随重定向且不进行 HTTP Transport 重试；整个逻辑调用仍始终只有一个音频 POST。轮询窗口
+  耗尽后仍无可信模型证据则失败关闭。Receipt 只保存 Generation ID 是否出现、GET 次数和等待
+  毫秒数，不保存原始 ID。显式资格认证 refresh 不使用该运行时轮询，每次 refresh 操作恰好执行
+  一个只读 GET，也不会重发音频 POST。其他兼容 Adapter 若既不返回模型字段也不
+  返回受信模型响应头，则失败关闭，不能激活 Binding。
+- Managed 直接请求要求 1—200 字符的 `Idempotency-Key`。控制面只保存 Key 哈希、精确 Binding、
+  派发状态、指标和脱敏 Receipt；音频、转录、朗读文字与上游完整错误体不进入 Router SQLite。
+- 同一逻辑键最多一个 POST。资格认证和用户调用都在 POST 前持久化派发状态；响应正文未完整、
+  超时、取消或结果不确定均记为 `uncertain`，不切换第二 IP、连接、模型、Adapter 或 legacy，且
+  Server 重启后不得重放。Policy、资格或连接漂移时保持 `degraded_required` 并失败关闭。
+- 三个 R8C Feature Flag 仍默认关闭。PR 合并、真实付费认证、用户 Smoke 与生产激活分别需要授权。
+
 ## 回退
 
 关闭管理面或回退路由不得删除 Provider SQLite、newAPI 数据目录、旧主密钥或迁移
@@ -345,7 +371,8 @@ python -m server.model_router.migrate_credentials --storage-dir <path>
 `MODEL_CONTROL_*_ENABLED` 可保持 R6 数据面为 legacy。代码回退保留 v15/v16 表和
 脱敏证据；关闭 R7 对应 Feature Flag 可恢复 RAG/Skill/Batch 的 legacy 路径，并保留 v17 表、
 资格、Batch 映射与 Receipt。关闭对应 R8B Flag 可恢复图片、PDF 和 Vision 的 legacy 路径；
-关闭全部 R8 Flag 可保持其余多模态数据面为 legacy。回退 R8A/R8B 时保留 v18 表、Adapter、
+关闭 R8C Flag 可恢复 Dedicated/Xpert STT/TTS 的 legacy 路径。关闭全部 R8 Flag 可保持其余
+多模态数据面为 legacy。回退 R8A—R8C 时保留 v18 表、Adapter、
 资格会话与新增任务证据列。非终态 Batch 应继续通过本地任务 ID只读轮询，
 不得清理或重发。
 只需将策略 `auto_enabled=false` 即可停止新增 Auto 证据而不改变 Auto 调度。

@@ -5,6 +5,7 @@ import {
   helpModules,
   helpSections,
   emailReviewBaseline,
+  providerMultimodalR8cBaseline,
   ragDiversityBaseline,
   ragFormalIntegrityBaseline,
   remoteMcpReviewBaseline,
@@ -54,8 +55,10 @@ describe("help center content catalog", () => {
       expect(article.content).not.toMatch(/内容稍后补充|coming soon/i);
     });
     expect(helpArticles.filter((article) => !["recover-unavailable-feature", "review-remote-mcp-auth", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "handle-workflow-node-failure"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
-    expect(helpArticles.find((article) => article.slug === "recover-unavailable-feature")?.verifiedCommit).toBe(ragFormalIntegrityBaseline.commit);
-    expect(helpArticles.find((article) => article.slug === "recover-unavailable-feature")?.verifiedDate).toBe(ragFormalIntegrityBaseline.date);
+    expect(helpArticles.find((article) => article.slug === "recover-unavailable-feature")?.verifiedCommit).toBe(providerMultimodalR8cBaseline.commit);
+    expect(helpArticles.find((article) => article.slug === "recover-unavailable-feature")?.verifiedDate).toBe(providerMultimodalR8cBaseline.date);
+    expect(helpArticles.find((article) => article.slug === "recover-unavailable-feature")?.content).not.toContain("STT/TTS、Chat Audio、音频生成、视频和 Realtime 仍等待 R8C—R8F");
+    expect(helpArticles.find((article) => article.slug === "recover-unavailable-feature")?.content).toContain("只读刷新模型证据");
     expect(helpArticles.find((article) => article.slug === "review-remote-mcp-auth")?.verifiedCommit).toBe(remoteMcpReviewBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "subscribe-rss-workflow")?.verifiedCommit).toBe(rssReviewBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "subscribe-email-workflow")?.verifiedCommit).toBe(emailReviewBaseline.commit);
@@ -82,6 +85,7 @@ describe("help center content catalog", () => {
     });
     expect(helpArticles.find((article) => article.slug === "start-with-a-model")?.content).toContain("/help-center/cc49136c/kimi-k3-add-image-menu.png");
     expect(helpArticles.find((article) => article.slug === "start-with-a-model")?.content).not.toContain("kimi-k3-ready-to-send.png");
+    expect(helpArticles.find((article) => article.slug === "recover-unavailable-feature")?.content).toContain("/help-center/ae284fbb/provider-audio-certification-evidence.png");
   });
 
   it("searches formal articles, indexes, modules, and second-level topics", () => {
@@ -100,6 +104,7 @@ describe("help center content catalog", () => {
     expect(searchHelpContent("RSS").some((entry) => entry.id === "subscribe-rss-workflow")).toBe(true);
     expect(searchHelpContent("IMAP").some((entry) => entry.id === "subscribe-email-workflow")).toBe(true);
     expect(searchHelpContent("已处理失败").some((entry) => entry.id === "handle-workflow-node-failure")).toBe(true);
+    expect(searchHelpContent("只读刷新模型证据").some((entry) => entry.id === "recover-unavailable-feature")).toBe(true);
     const ids = getHelpSearchEntries().map((entry) => `${entry.kind}:${entry.id}`);
     expect(new Set(ids).size).toBe(ids.length);
   });

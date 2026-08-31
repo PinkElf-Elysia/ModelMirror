@@ -48,6 +48,7 @@ from server.model_router.workload_control import (
     ProviderWorkloadControlService,
 )
 import server.model_router.workload_control as workload_control_module
+import server.model_router.api as model_router_api_module
 from server.model_router.cleanup_chat_receipts import cleanup_receipts
 
 
@@ -235,15 +236,31 @@ def test_v17_to_v18_is_additive_and_tenant_scoped(tmp_path: Path) -> None:
             "PRAGMA table_info(provider_workload_calls)"
         ).fetchall()
         call_columns = {row[1] for row in call_column_rows}
-        assert {"adapter_contract", "protocol_version", "provider_dispatch_state"} <= call_columns
+        assert {
+            "adapter_contract",
+            "protocol_version",
+            "provider_dispatch_state",
+            "generation_id_observed",
+            "generation_metadata_get_count",
+            "generation_metadata_wait_ms",
+        } <= call_columns
         dispatch_column = next(
             row for row in call_column_rows if row[1] == "provider_dispatch_state"
         )
         assert dispatch_column[3] == 0
         assert connection.execute(
-            "SELECT provider_dispatch_state FROM provider_workload_calls "
+            "SELECT provider_dispatch_state, generation_id_observed, "
+            "generation_metadata_get_count, generation_metadata_wait_ms "
+            "FROM provider_workload_calls "
             "WHERE tenant_id = 'local' AND id = 'legacy-call'"
-        ).fetchone()[0] is None
+        ).fetchone() == (None, None, None, None)
+        for evidence_column in (
+            "generation_id_observed",
+            "generation_metadata_get_count",
+            "generation_metadata_wait_ms",
+        ):
+            column = next(row for row in call_column_rows if row[1] == evidence_column)
+            assert column[3] == 0
         for table_name in ("audio_jobs", "video_jobs", "realtime_calls"):
             job_columns = {
                 row[1]
@@ -413,7 +430,7 @@ async def test_future_multimodal_certification_fails_before_catalog_or_paid_post
             kind="openrouter",
             base_url="https://openrouter.ai/api/v1",
             api_key="test-secret",
-            scopes=["audio"],
+            scopes=["chat", "audio"],
         ),
     )
 
@@ -430,9 +447,9 @@ async def test_future_multimodal_certification_fails_before_catalog_or_paid_post
         ).run(
             connection.id,
             ProviderWorkloadCertificationRequest(
-                model_id="provider/audio",
-                execution_shape="audio_transcription",
-                adapter_contract="openrouter_audio_transcription_json_v1",
+                model_id="provider/audio-chat",
+                execution_shape="chat_audio_input",
+                adapter_contract="openrouter_chat_audio_v1",
                 acknowledge_billed_call=True,
             ),
             idempotency_key="future-r8-no-paid-call",
@@ -690,7 +707,11 @@ def test_policy_revision_drift_and_receipt_replay_guards(tmp_path: Path) -> None
     )
     assert other_created is True
     assert other_call["id"] == "call-one"
-    assert len(repository.list_workload_receipts("local")["calls"]) == 1
+    local_receipt_calls = repository.list_workload_receipts("local")["calls"]
+    assert len(local_receipt_calls) == 1
+    assert local_receipt_calls[0]["generation_id_observed"] is None
+    assert local_receipt_calls[0]["generation_metadata_get_count"] is None
+    assert local_receipt_calls[0]["generation_metadata_wait_ms"] is None
     assert len(repository.list_workload_receipts("other")["calls"]) == 1
     with pytest.raises(RouterRepositoryError) as entry_error:
         repository.claim_workload_call(
@@ -2420,7 +2441,7 @@ async def test_workload_admin_api_is_session_and_csrf_protected_and_public_redac
         }
         assert len(r8_policies) == 18
         assert all(item["feature_enabled"] is False for item in r8_policies.values())
-        r8b_entries = {
+        r8_integrated_entries = {
             "chat_image",
             "chat_document_native",
             "rag_vision",
@@ -2428,9 +2449,13 @@ async def test_workload_admin_api_is_session_and_csrf_protected_and_public_redac
             "workflow_deployment_vision",
             "xpert_vision",
             "image_generation",
+            "multimodal_transcription",
+            "multimodal_speech",
+            "xpert_transcription",
+            "xpert_speech",
         }
         assert all(
-            item["data_plane_integrated"] is (entry_id in r8b_entries)
+            item["data_plane_integrated"] is (entry_id in r8_integrated_entries)
             for entry_id, item in r8_policies.items()
         )
         assert all(
@@ -2438,7 +2463,7 @@ async def test_workload_admin_api_is_session_and_csrf_protected_and_public_redac
                 "provider_workload_data_plane_not_integrated"
                 in item["blocking_reason_codes"]
             )
-            is (entry_id not in r8b_entries)
+            is (entry_id not in r8_integrated_entries)
             for entry_id, item in r8_policies.items()
         )
         assert policies.json()["contract_version"] == PROVIDER_WORKLOAD_CONTRACT_VERSION
@@ -2520,3 +2545,115 @@ async def test_workload_admin_api_is_session_and_csrf_protected_and_public_redac
         assert "tenant" not in public.text
         assert "connection_id" not in public.text
         assert "base_url" not in public.text
+
+
+@pytest.mark.asyncio
+async def test_multimodal_refresh_api_is_explicit_poll_only_and_redacted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MODEL_MIRROR_PROVIDER_ADMIN_PAIRING_SECRET", PAIRING_SECRET)
+    requests: list[Request] = []
+    model_id = "openai/whisper-1"
+
+    def handler(request: Request) -> Response:
+        requests.append(request)
+        if request.url.path == "/v1/generation":
+            return Response(200, json={"data": {"model": model_id}})
+        if request.method == "GET":
+            return Response(200, json={"data": [{"id": model_id}]})
+        return Response(
+            200,
+            json={"text": "OK"},
+            headers={"X-Generation-Id": "gen-api-refresh"},
+        )
+
+    transport = MockTransport(handler)
+    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    connection = repository.create_connection(
+        "local",
+        RouterConnectionCreate(
+            name="Refresh API Audio",
+            kind="openrouter",
+            base_url="https://provider.example/v1",
+            api_key="refresh-api-secret",
+            scopes=["audio"],
+        ),
+    )
+    router_service = ModelRouterService(
+        repository,
+        client_factory=lambda: AsyncClient(
+            transport=transport, follow_redirects=False, trust_env=False
+        ),
+        egress_policy=ProviderEgressPolicy(
+            resolver=lambda _host, _port: ["8.8.8.8"]
+        ),
+    )
+    certification_service = ProviderWorkloadCertificationService(
+        router_service,
+        client_factory=lambda: AsyncClient(
+            transport=transport, follow_redirects=False, trust_env=False
+        ),
+    )
+    pending = await certification_service.run(
+        connection.id,
+        ProviderWorkloadCertificationRequest(
+            execution_shape="audio_transcription",
+            model_id=model_id,
+            adapter_contract="openrouter_audio_transcription_json_v1",
+            acknowledge_billed_call=True,
+        ),
+        idempotency_key="refresh-api-pending",
+    )
+    assert pending.status == "uncertain"
+    configure_model_router(router_service)
+    monkeypatch.setattr(
+        model_router_api_module,
+        "ProviderWorkloadCertificationService",
+        lambda _router_service: certification_service,
+    )
+    app = FastAPI()
+    app.include_router(router)
+    app.include_router(models_router)
+    path = f"/api/router/certifications/workloads/{pending.certification_id}/refresh"
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://localhost"
+    ) as client:
+        paired = await client.post(
+            "/api/router/admin/session", json={"pairing_secret": PAIRING_SECRET}
+        )
+        csrf = paired.json()["csrf_token"]
+        without_csrf = await client.post(
+            path,
+            json={"acknowledge_poll_only": True},
+        )
+        assert without_csrf.status_code == 403
+        missing_ack = await client.post(
+            path,
+            headers={"X-ModelMirror-CSRF": csrf},
+            json={},
+        )
+        assert missing_ack.status_code == 422
+        false_ack = await client.post(
+            path,
+            headers={"X-ModelMirror-CSRF": csrf},
+            json={"acknowledge_poll_only": False},
+        )
+        assert false_ack.status_code == 422
+        refreshed = await client.post(
+            path,
+            headers={"X-ModelMirror-CSRF": csrf},
+            json={"acknowledge_poll_only": True},
+        )
+
+    assert refreshed.status_code == 200
+    payload = refreshed.json()
+    assert payload["status"] == "passed"
+    assert payload["actual_model"] == model_id
+    assert payload["refresh_available"] is False
+    assert "upstream_operation_id" not in refreshed.text
+    assert "gen-api-refresh" not in refreshed.text
+    assert "refresh-api-secret" not in refreshed.text
+    assert [request.method for request in requests].count("POST") == 1
+    assert [request.url.path for request in requests].count("/v1/generation") == 1

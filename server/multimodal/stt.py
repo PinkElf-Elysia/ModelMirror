@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import os
 import re
 import time
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import httpx
 
@@ -18,6 +19,9 @@ try:
 except ModuleNotFoundError:
     from model_router.egress import ProviderEgressPolicy, request_provider_url
     from model_router.service import ModelRouterService
+
+if TYPE_CHECKING:
+    from server.model_router.multimodal_gateway import ManagedMultimodalGateway
 
 
 MAX_AUDIO_BYTES = 25 * 1024 * 1024
@@ -138,6 +142,8 @@ class TranscriptionResult:
     provider: str
     request_id: str
     usage: TranscriptionUsage
+    execution_mode: Literal["managed", "legacy"] = "legacy"
+    provider_route_receipts: list[dict[str, Any]] | None = None
 
 
 class OpenRouterSttAdapter:
@@ -450,11 +456,13 @@ class TranscriptionService:
         router_service: ModelRouterService,
         *,
         adapter: OpenRouterSttAdapter | None = None,
+        managed_gateway: ManagedMultimodalGateway | None = None,
     ) -> None:
         self.router_service = router_service
         self.adapter = adapter or OpenRouterSttAdapter(
             egress_policy=router_service.egress_policy
         )
+        self._managed_gateway = managed_gateway
 
     async def transcribe(
         self,
@@ -464,23 +472,59 @@ class TranscriptionService:
         content_type: str | None,
         content: bytes,
         language: str,
+        idempotency_key: str | None = None,
+        managed_entry_id: Literal[
+            "multimodal_transcription", "xpert_transcription"
+        ] = "multimodal_transcription",
     ) -> TranscriptionResult:
-        clean_model = self._model_id(model_id)
-        clean_language = self._language(language)
-        profile = (
-            VERIFIED_TRANSCRIPTION_PROFILES.get(clean_model)
-            or MANUAL_TRANSCRIPTION_PROFILES[clean_model]
+        if self._managed_gateway is None:
+            try:
+                from server.model_router.multimodal_gateway import (
+                    ManagedMultimodalGateway,
+                )
+            except ModuleNotFoundError:
+                from model_router.multimodal_gateway import (
+                    ManagedMultimodalGateway,
+                )
+
+            gateway = ManagedMultimodalGateway.for_router(self.router_service)
+        else:
+            gateway = self._managed_gateway
+        managed = gateway.routing_mode(managed_entry_id) != "legacy"
+        clean_model = (
+            self._control_plane_model_id(model_id)
+            if managed
+            else self._model_id(model_id)
         )
+        clean_language = self._language(language)
         clean_filename, audio_format = self._validate_audio(
             filename,
             content_type,
             content,
         )
-        if audio_format not in profile.input_formats:
-            raise MultimodalServiceError(
-                "unsupported_model_audio_format",
-                "所选转写模型尚未验证该音频格式，请更换模型或重新导出音频。",
-                status_code=415,
+        if not managed:
+            profile = (
+                VERIFIED_TRANSCRIPTION_PROFILES.get(clean_model)
+                or MANUAL_TRANSCRIPTION_PROFILES.get(clean_model)
+                or _STANDARD_TRANSCRIPTION_PROFILE
+            )
+            if audio_format not in profile.input_formats:
+                raise MultimodalServiceError(
+                    "unsupported_model_audio_format",
+                    "所选转写模型尚未验证该音频格式，请更换模型或重新导出音频。",
+                    status_code=415,
+                )
+        if managed:
+            return await self._transcribe_managed(
+                gateway,
+                entry_id=managed_entry_id,
+                model_id=clean_model,
+                filename=clean_filename,
+                audio_format=audio_format,
+                content_type=content_type,
+                content=content,
+                language=clean_language,
+                idempotency_key=idempotency_key,
             )
         target = self._target()
         decision_id = self._record_start(
@@ -509,6 +553,190 @@ class TranscriptionService:
             request_id=decision_id,
             usage=usage,
         )
+
+    async def _transcribe_managed(
+        self,
+        gateway: ManagedMultimodalGateway,
+        *,
+        entry_id: Literal["multimodal_transcription", "xpert_transcription"],
+        model_id: str,
+        filename: str,
+        audio_format: str,
+        content_type: str | None,
+        content: bytes,
+        language: str | None,
+        idempotency_key: str | None,
+    ) -> TranscriptionResult:
+        try:
+            from server.model_router.multimodal_gateway import (
+                ManagedMultimodalError,
+            )
+        except ModuleNotFoundError:
+            from model_router.multimodal_gateway import ManagedMultimodalError
+
+        clean_key = str(idempotency_key or "").strip()
+        if not clean_key or len(clean_key) > 200:
+            raise MultimodalServiceError(
+                "invalid_idempotency_key",
+                "Managed 音频转写要求 1 至 200 个字符的 Idempotency-Key。",
+                status_code=422,
+                route_receipt=gateway.blocked_receipt(
+                    entry_id, "invalid_idempotency_key"
+                ),
+            )
+        try:
+            exact_model = gateway.exact_model_id(
+                entry_id,
+                "audio_transcription",
+                requested_model=model_id,
+            )
+            policy = gateway.call_service.control.get_policy(entry_id)
+            binding = next(
+                (
+                    item
+                    for item in policy.bindings
+                    if item.execution_shape == "audio_transcription"
+                    and item.model_id == exact_model
+                    and item.valid
+                ),
+                None,
+            )
+            if binding is None:
+                raise ManagedMultimodalError(
+                    "provider_workload_binding_missing",
+                    "音频转写 Binding 在派发前发生漂移。",
+                    status_code=409,
+                    receipt=gateway.blocked_receipt(
+                        entry_id, "provider_workload_binding_missing"
+                    ),
+                )
+            parameters = gateway.certified_audio_parameters(
+                entry_id,
+                certification_id=binding.certification_id,
+                execution_shape="audio_transcription",
+            )
+            certified_formats = parameters.get("certified_input_formats")
+            if not isinstance(certified_formats, list) or (
+                audio_format not in certified_formats
+            ):
+                raise ManagedMultimodalError(
+                    "provider_multimodal_audio_format_not_certified",
+                    "该音频格式未包含在当前 Provider 资格合同中。",
+                    status_code=415,
+                    receipt=gateway.blocked_receipt(
+                        entry_id,
+                        "provider_multimodal_audio_format_not_certified",
+                    ),
+                )
+            run = gateway.start_run(
+                entry_id,
+                parent_run_reference=(
+                    "audio-transcription:"
+                    + hashlib.sha256(clean_key.encode("utf-8")).hexdigest()
+                ),
+                stable=True,
+            )
+            if binding.adapter_contract == "openrouter_audio_transcription_json_v1":
+                payload: dict[str, object] = {
+                    "model": exact_model,
+                    "input_audio": {
+                        "data": base64.b64encode(content).decode("ascii"),
+                        "format": audio_format,
+                    },
+                }
+                files = None
+            else:
+                payload = {"model": exact_model}
+                files = {
+                    "file": (
+                        filename,
+                        content,
+                        content_type or "application/octet-stream",
+                    )
+                }
+            if language:
+                payload["language"] = language
+
+            def parse_response(response: httpx.Response) -> TranscriptionResult:
+                try:
+                    upstream = response.json()
+                except ValueError as exc:
+                    raise ManagedMultimodalError(
+                        "provider_multimodal_transcription_invalid_json",
+                        "音频转写 Provider 返回了无效 JSON。",
+                        status_code=502,
+                    ) from exc
+                text = (
+                    str(upstream.get("text") or "").strip()
+                    if isinstance(upstream, dict)
+                    else ""
+                )
+                if not text:
+                    raise ManagedMultimodalError(
+                        "provider_multimodal_transcription_empty",
+                        "音频转写 Provider 未返回文字。",
+                        status_code=502,
+                    )
+                actual_model = (
+                    str(upstream.get("model") or "").strip()
+                    if isinstance(upstream, dict)
+                    else ""
+                )
+                if actual_model and actual_model != exact_model:
+                    raise ManagedMultimodalError(
+                        "provider_workload_model_mismatch",
+                        "音频转写 Provider 返回的实际模型与 Binding 不一致。",
+                        status_code=502,
+                    )
+                return TranscriptionResult(
+                    text=text[:MAX_TRANSCRIPT_CHARS],
+                    requested_model=exact_model,
+                    actual_model=actual_model,
+                    provider="managed",
+                    request_id="",
+                    usage=self.adapter._usage(
+                        upstream.get("usage")
+                        if isinstance(upstream, dict)
+                        else None
+                    ),
+                    execution_mode="managed",
+                )
+
+            result, receipt = await run.complete_audio(
+                execution_shape="audio_transcription",
+                logical_call_key="request",
+                model_id=exact_model,
+                expected_connection_id=binding.connection_id,
+                expected_certification_id=binding.certification_id,
+                expected_connection_fingerprint=binding.connection_fingerprint,
+                expected_adapter_contract=binding.adapter_contract,
+                expected_protocol_version=binding.protocol_version,
+                payload=payload,
+                files=files,
+                parse_response=parse_response,
+            )
+            provider_kind = next(
+                (
+                    item.provider_kind
+                    for item in policy.bindings
+                    if item.execution_shape == "audio_transcription"
+                    and item.model_id == exact_model
+                ),
+                None,
+            )
+            return replace(
+                result,
+                provider=str(provider_kind or "managed"),
+                request_id=str(receipt.get("run_reference") or ""),
+                provider_route_receipts=[receipt],
+            )
+        except ManagedMultimodalError as exc:
+            raise MultimodalServiceError(
+                exc.code,
+                str(exc),
+                status_code=exc.status_code,
+                route_receipt=exc.receipt,
+            ) from exc
 
     def _target(self) -> OpenRouterTarget:
         connections = [
@@ -674,6 +902,23 @@ class TranscriptionService:
             raise MultimodalServiceError(
                 "unsupported_transcription_model",
                 "该转写模型尚未完成本地契约验证，请从转写设置的可用列表中选择。",
+                status_code=422,
+            )
+        return model_id
+
+    @staticmethod
+    def _control_plane_model_id(value: str) -> str:
+        model_id = str(value or "").strip()
+        if (
+            not model_id
+            or len(model_id) > 256
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]*", model_id)
+            or model_id == "auto"
+            or model_id.startswith("auto/")
+        ):
+            raise MultimodalServiceError(
+                "invalid_model_id",
+                "请选择一个具体的音频转文字模型。",
                 status_code=422,
             )
         return model_id

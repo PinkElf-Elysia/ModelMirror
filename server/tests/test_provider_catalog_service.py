@@ -133,6 +133,404 @@ async def test_openrouter_embedding_scope_merges_dedicated_model_catalog(
 
 
 @pytest.mark.asyncio
+async def test_openrouter_audio_scope_merges_modality_filtered_catalogs(
+    tmp_path: Path,
+) -> None:
+    def handler(request: Request) -> Response:
+        modality = request.url.params.get("output_modalities")
+        if modality == "transcription":
+            return Response(
+                200,
+                json={"data": [{"id": "openai/whisper-large-v3"}]},
+            )
+        if modality == "speech":
+            return Response(
+                200,
+                json={"data": [{"id": "openai/gpt-4o-mini-tts-2025-12-15"}]},
+            )
+        return Response(200, json={"data": [{"id": "provider/chat-model"}]})
+
+    service, repository, connection_id, requests = _service(
+        tmp_path,
+        handler,
+        scopes=["chat", "audio"],
+        kind="openrouter",
+        base_url="https://openrouter.ai/api/v1",
+    )
+
+    result = await service.refresh_connection(connection_id)
+
+    assert result.status == "succeeded"
+    assert result.model_count == 3
+    assert [request.url.params.get("output_modalities") for request in requests] == [
+        None,
+        "transcription",
+        "speech",
+    ]
+    offerings = repository.list_catalog_offerings("local")
+    assert {
+        (row["model_id"], row["operation"], row["capability_source"])
+        for row in offerings
+    } == {
+        ("provider/chat-model", "chat", "connection_scope"),
+        (
+            "openai/whisper-large-v3",
+            "transcribe",
+            "provider_operation_catalog",
+        ),
+        (
+            "openai/gpt-4o-mini-tts-2025-12-15",
+            "synthesize_speech",
+            "provider_operation_catalog",
+        ),
+    }
+
+
+@pytest.mark.asyncio
+async def test_openrouter_empty_audio_filters_do_not_mark_connection_offline(
+    tmp_path: Path,
+) -> None:
+    def handler(request: Request) -> Response:
+        if request.url.params.get("output_modalities") is not None:
+            return Response(200, json={"data": []})
+        return Response(200, json={"data": [{"id": "provider/chat-model"}]})
+
+    service, repository, connection_id, requests = _service(
+        tmp_path,
+        handler,
+        scopes=["chat", "audio"],
+        kind="openrouter",
+        base_url="https://openrouter.ai/api/v1",
+    )
+
+    result = await service.refresh_connection(connection_id)
+
+    assert result.status == "succeeded"
+    assert result.model_count == 1
+    assert len(requests) == 3
+    assert repository.get_connection("local", connection_id).health == "online"
+    assert {
+        (row["model_id"], row["operation"])
+        for row in repository.list_catalog_offerings("local")
+    } == {("provider/chat-model", "chat")}
+
+
+@pytest.mark.asyncio
+async def test_openrouter_audio_supplement_failure_keeps_previous_catalog_atomic(
+    tmp_path: Path,
+) -> None:
+    phase = "initial"
+
+    def handler(request: Request) -> Response:
+        modality = request.url.params.get("output_modalities")
+        if phase == "failed" and modality == "speech":
+            return Response(503)
+        suffix = "initial" if phase == "initial" else "partial"
+        if modality == "transcription":
+            return Response(200, json={"data": [{"id": f"audio/stt-{suffix}"}]})
+        if modality == "speech":
+            return Response(200, json={"data": [{"id": f"audio/tts-{suffix}"}]})
+        return Response(200, json={"data": [{"id": f"chat/{suffix}"}]})
+
+    service, repository, connection_id, _requests = _service(
+        tmp_path,
+        handler,
+        scopes=["chat", "audio"],
+        kind="openrouter",
+        base_url="https://openrouter.ai/api/v1",
+    )
+    first = await service.refresh_connection(connection_id)
+    assert first.status == "succeeded"
+    phase = "failed"
+
+    second = await service.refresh_connection(connection_id)
+
+    assert second.status == "failed"
+    rows = repository.list_catalog_models("local", connection_id=connection_id)
+    assert {row["model_id"] for row in rows} == {
+        "chat/initial",
+        "audio/stt-initial",
+        "audio/tts-initial",
+    }
+    assert {row["status"] for row in rows} == {"active"}
+    offerings = repository.list_catalog_offerings(
+        "local", connection_id=connection_id
+    )
+    assert {row["model_id"] for row in offerings} == {
+        "chat/initial",
+        "audio/stt-initial",
+        "audio/tts-initial",
+    }
+    assert {row["stale"] for row in offerings} == {0}
+    connection = repository.get_connection("local", connection_id)
+    assert connection.health == "online"
+    assert connection.model_count == 3
+
+
+@pytest.mark.asyncio
+async def test_refresh_connection_change_does_not_persist_or_overwrite_health(
+    tmp_path: Path,
+) -> None:
+    state: dict[str, object] = {"changed": False}
+
+    def handler(request: Request) -> Response:
+        repository = state["repository"]
+        connection_id = str(state["connection_id"])
+        if not state["changed"]:
+            state["changed"] = True
+            assert isinstance(repository, SQLiteRouterRepository)
+            repository.update_connection(
+                "local",
+                connection_id,
+                payload=RouterConnectionUpdate(
+                    base_url="https://changed.example/v1",
+                    api_key="changed-secret",
+                ),
+            )
+        return Response(200, json={"data": [{"id": "transient/model"}]})
+
+    service, repository, connection_id, requests = _service(tmp_path, handler)
+    state.update(repository=repository, connection_id=connection_id)
+
+    result = await service.refresh_connection(connection_id)
+
+    assert result.status == "failed"
+    assert result.error_code == "provider_catalog_connection_changed"
+    assert len(requests) == 1
+    assert repository.list_catalog_models("local", connection_id=connection_id) == []
+    connection = repository.get_connection("local", connection_id)
+    assert connection.base_url == "https://changed.example/v1"
+    assert connection.health != "online"
+    refresh = repository.list_catalog_refreshes(
+        "local", connection_id=connection_id
+    )[0]
+    assert refresh["status"] == "failed"
+    assert refresh["error_code"] == "provider_catalog_connection_changed"
+
+
+@pytest.mark.asyncio
+async def test_refresh_rejects_snapshot_drift_before_network(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, repository, connection_id, requests = _service(
+        tmp_path,
+        lambda _request: Response(200, json={"data": [{"id": "model"}]}),
+    )
+    original_claim = repository.claim_catalog_refresh
+
+    def claim_after_rotation(tenant_id: str, **kwargs):
+        repository.update_connection(
+            "local",
+            connection_id,
+            payload=RouterConnectionUpdate(
+                base_url="https://rotated.example/v1",
+                api_key="rotated-secret",
+            ),
+        )
+        return original_claim(tenant_id, **kwargs)
+
+    monkeypatch.setattr(repository, "claim_catalog_refresh", claim_after_rotation)
+
+    with pytest.raises(RouterServiceError) as exc_info:
+        await service.refresh_connection(connection_id)
+
+    assert exc_info.value.code == "provider_catalog_connection_changed"
+    assert requests == []
+    assert repository.list_catalog_refreshes(
+        "local", connection_id=connection_id
+    ) == []
+
+
+@pytest.mark.asyncio
+async def test_audio_supplement_egress_failure_preserves_previous_catalog(
+    tmp_path: Path,
+) -> None:
+    phase = "initial"
+    failed_resolutions = 0
+
+    def resolver(_host: str, _port: int) -> list[str]:
+        nonlocal failed_resolutions
+        if phase != "failed":
+            return ["8.8.8.8"]
+        failed_resolutions += 1
+        return ["8.8.8.8"] if failed_resolutions == 1 else ["198.18.0.1"]
+
+    def handler(request: Request) -> Response:
+        modality = request.url.params.get("output_modalities")
+        suffix = "initial" if phase == "initial" else "partial"
+        if modality == "transcription":
+            return Response(200, json={"data": [{"id": f"audio/stt-{suffix}"}]})
+        if modality == "speech":
+            return Response(200, json={"data": [{"id": f"audio/tts-{suffix}"}]})
+        return Response(200, json={"data": [{"id": f"chat/{suffix}"}]})
+
+    service, repository, connection_id, requests = _service(
+        tmp_path,
+        handler,
+        scopes=["chat", "audio"],
+        kind="openrouter",
+        base_url="https://openrouter.ai/api/v1",
+        resolver=resolver,
+    )
+    assert (await service.refresh_connection(connection_id)).status == "succeeded"
+    initial_request_count = len(requests)
+    phase = "failed"
+
+    with pytest.raises(ProviderEgressError) as exc_info:
+        await service.refresh_connection(connection_id)
+
+    assert exc_info.value.code == "provider_address_blocked"
+    assert len(requests) == initial_request_count + 1
+    rows = repository.list_catalog_models("local", connection_id=connection_id)
+    assert {row["model_id"] for row in rows} == {
+        "chat/initial",
+        "audio/stt-initial",
+        "audio/tts-initial",
+    }
+    assert {row["status"] for row in rows} == {"active"}
+    offerings = repository.list_catalog_offerings(
+        "local", connection_id=connection_id
+    )
+    assert {row["stale"] for row in offerings} == {0}
+    saved_connection = repository.get_connection("local", connection_id)
+    assert saved_connection.health == "online"
+    assert saved_connection.model_count == 3
+
+
+@pytest.mark.asyncio
+async def test_audio_supplement_exception_preserves_previous_catalog(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def handler(request: Request) -> Response:
+        modality = request.url.params.get("output_modalities")
+        if modality == "transcription":
+            return Response(200, json={"data": [{"id": "audio/stt"}]})
+        if modality == "speech":
+            return Response(200, json={"data": [{"id": "audio/tts"}]})
+        return Response(200, json={"data": [{"id": "chat/model"}]})
+
+    service, repository, connection_id, requests = _service(
+        tmp_path,
+        handler,
+        scopes=["chat", "audio"],
+        kind="openrouter",
+        base_url="https://openrouter.ai/api/v1",
+    )
+    assert (await service.refresh_connection(connection_id)).status == "succeeded"
+    initial_request_count = len(requests)
+
+    async def fail_audio_records(*_args, **_kwargs):
+        raise RuntimeError("supplement parser failed")
+
+    monkeypatch.setattr(
+        service.router_service,
+        "fetch_connection_audio_model_records",
+        fail_audio_records,
+    )
+
+    with pytest.raises(RuntimeError, match="supplement parser failed"):
+        await service.refresh_connection(connection_id)
+
+    assert len(requests) == initial_request_count + 1
+    rows = repository.list_catalog_models("local", connection_id=connection_id)
+    assert {row["model_id"] for row in rows} == {
+        "chat/model",
+        "audio/stt",
+        "audio/tts",
+    }
+    assert {row["status"] for row in rows} == {"active"}
+    offerings = repository.list_catalog_offerings(
+        "local", connection_id=connection_id
+    )
+    assert {row["stale"] for row in offerings} == {0}
+    saved_connection = repository.get_connection("local", connection_id)
+    assert saved_connection.health == "online"
+    assert saved_connection.model_count == 3
+
+
+@pytest.mark.asyncio
+async def test_supplement_failure_stops_before_later_audio_requests(
+    tmp_path: Path,
+) -> None:
+    phase = "initial"
+
+    def handler(request: Request) -> Response:
+        if request.url.path.endswith("/embeddings/models"):
+            if phase == "failed":
+                return Response(503)
+            return Response(200, json={"data": [{"id": "embed/model"}]})
+        modality = request.url.params.get("output_modalities")
+        if modality is not None:
+            return Response(200, json={"data": [{"id": f"audio/{modality}"}]})
+        return Response(200, json={"data": [{"id": "chat/model"}]})
+
+    service, repository, connection_id, requests = _service(
+        tmp_path,
+        handler,
+        scopes=["chat", "embedding", "audio"],
+        kind="openrouter",
+        base_url="https://openrouter.ai/api/v1",
+    )
+    assert (await service.refresh_connection(connection_id)).status == "succeeded"
+    initial_request_count = len(requests)
+    phase = "failed"
+
+    result = await service.refresh_connection(connection_id)
+
+    assert result.status == "failed"
+    assert result.error_code == "unreachable"
+    second_requests = requests[initial_request_count:]
+    assert [request.url.path for request in second_requests] == [
+        "/api/v1/models",
+        "/api/v1/embeddings/models",
+    ]
+    assert all(
+        request.url.params.get("output_modalities") is None
+        for request in second_requests
+    )
+    rows = repository.list_catalog_models("local", connection_id=connection_id)
+    assert {row["status"] for row in rows} == {"active"}
+    assert repository.get_connection("local", connection_id).health == "online"
+
+
+@pytest.mark.asyncio
+async def test_empty_audio_supplements_retire_previous_audio_models(
+    tmp_path: Path,
+) -> None:
+    phase = "initial"
+
+    def handler(request: Request) -> Response:
+        modality = request.url.params.get("output_modalities")
+        if modality is None:
+            return Response(200, json={"data": [{"id": "chat/model"}]})
+        if phase == "empty":
+            return Response(200, json={"data": []})
+        return Response(200, json={"data": [{"id": f"audio/{modality}"}]})
+
+    service, repository, connection_id, _requests = _service(
+        tmp_path,
+        handler,
+        scopes=["chat", "audio"],
+        kind="openrouter",
+        base_url="https://openrouter.ai/api/v1",
+    )
+    assert (await service.refresh_connection(connection_id)).status == "succeeded"
+    phase = "empty"
+
+    result = await service.refresh_connection(connection_id)
+
+    assert result.status == "succeeded"
+    rows = repository.list_catalog_models("local", connection_id=connection_id)
+    assert {(row["model_id"], row["status"]) for row in rows} == {
+        ("chat/model", "active"),
+        ("audio/transcription", "retired"),
+        ("audio/speech", "retired"),
+    }
+
+
+@pytest.mark.asyncio
 async def test_non_chat_connection_can_refresh_without_inferred_chat_offering(
     tmp_path: Path,
 ) -> None:
