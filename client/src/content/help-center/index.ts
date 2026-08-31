@@ -260,10 +260,10 @@ export const helpArticles: HelpArticle[] = [
     contentType: "how-to",
     audience: "遇到按钮不可用、能力未开放或需要配置提示的用户",
     estimatedMinutes: 4,
-    keywords: ["不可用", "未开放", "需要配置", "待适配", "开关未开启", "恢复", "RAG", "Skill", "重排"],
-    relatedRoutes: ["/models", "/rag", "/skills/rerank", "/settings"],
-    verifiedCommit: ragFormalIntegrityBaseline.commit,
-    verifiedDate: ragFormalIntegrityBaseline.date,
+    keywords: ["不可用", "未开放", "需要配置", "待适配", "开关未开启", "恢复", "替代入口"],
+    relatedRoutes: ["/models"],
+    verifiedCommit: helpCenterCloseoutBaseline.commit,
+    verifiedDate: helpCenterCloseoutBaseline.date,
     content: recoverUnavailableFeature,
     nextSlug: "review-remote-mcp-auth",
   },
@@ -290,7 +290,7 @@ export const helpArticles: HelpArticle[] = [
     contentType: "explanation",
     audience: "希望避免误操作、意外费用或不必要数据发送的用户",
     estimatedMinutes: 4,
-    keywords: ["费用", "价格", "数据", "文件", "上传", "发送", "安全", "权限", "Batch", "批处理", "幂等"],
+    keywords: ["费用", "价格", "数据", "文件", "上传", "发送", "安全", "权限", "外发"],
     relatedRoutes: ["/models", "/settings"],
     verifiedCommit: verifiedBaseline.commit,
     verifiedDate: verifiedBaseline.date,
@@ -405,7 +405,7 @@ export const helpModules: HelpModule[] = [
     homeTopicIds: ["rag", "coding"],
     topics: [
       { id: "workflow", title: "经典工作流", summary: "在稳定画布中编排并试运行多步骤任务。", outcome: "把固定顺序、条件分支和资源调用组织成可重复流程。", points: ["经典画布是当前稳定工作流入口", "草稿可本地保存并通过后端试运行", "需要把确定性文本交给知识管理员时，可使用“知识写入提议”进入 Knowledge Inbox"], productRoute: "/workflow", keywords: ["工作流", "经典画布", "流程", "分支", "知识写入提议", "Knowledge Inbox"] },
-      { id: "rag", title: "RAG 知识库", summary: "创建资料库、上传文档，并让回答引用指定资料。", outcome: "知道什么时候使用自己的资料库，而不是普通聊天。", points: ["RAG 可以理解为先从指定资料找内容，再让模型回答", "V3 检索会去除重复片段，并默认每份文档最多保留 2 条结果，避免单一文档占满结果列表", "正式评测只接受逐条审核、带 anchor 的锁定晋级集；候选选择集和阈值校准集不能替代最终验收", "无答案样例必须同时核对近邻语料和完整语料复核回执", "当前空白页从“新建知识库”开始", "上传前确认资料权限和数据边界"], productRoute: "/rag", keywords: ["RAG", "知识库", "资料", "引用", "Formal", "Gold", "anchor"], verifiedCommit: ragDiversityBaseline.commit, verifiedDate: ragDiversityBaseline.date },
+      { id: "rag", title: "RAG 知识库", summary: "创建资料库、上传文档，并让回答优先查找指定资料。", outcome: "知道什么时候使用自己的资料库，而不是普通聊天。", points: ["RAG 可以理解为先从指定资料中查找内容，再让模型回答", "第一次进入时，先选择“新建知识库”并填写名称", "上传前确认资料允许使用，且不包含密钥或未获授权的隐私信息", "文档上传后，等待页面显示处理完成，再把知识库用于回答", "需要核对答案时，查看页面是否给出引用；没有引用时不要猜测答案来自哪份资料"], productRoute: "/rag", keywords: ["RAG", "知识库", "资料", "文档", "引用", "上传"], verifiedCommit: ragDiversityBaseline.commit, verifiedDate: ragDiversityBaseline.date },
       { id: "data-tables", title: "本地数据表", summary: "为私有工作流维护有固定字段的业务记录。", outcome: "创建数据表、发布 Schema，并管理本地记录。", points: ["数据表用于类型化业务记录", "Schema 以不可变版本发布", "字段和记录操作属于数据表内部条目，本轮不展开"], productRoute: "/data-tables", keywords: ["数据表", "Schema", "业务记录", "数据库"] },
       { id: "coding", title: "Coding", summary: "在只读实验工作台中查看项目并询问代码问题。", outcome: "理解当前入口的只读边界和启用状态。", points: ["当前页面说明只能读取项目并回答问题", "不能修改文件或运行命令", "页面显示“代码助手暂时不可用”时，应等待管理员启用"], productRoute: "/coding", keywords: ["Coding", "代码", "只读实验", "暂时不可用"] },
       { id: "settings", title: "系统设置", summary: "由授权人员管理 Provider、路由实验和其他服务连接。", outcome: "知道哪些设置需要交给有配置权限的人处理。", points: ["未配置时页面会明确提示", "Provider 管理和其他集成分区显示", "设置变更可能影响其他用户或产生外部费用"], productRoute: "/settings", badge: "管理员", keywords: ["设置", "Provider", "连接", "权限", "路由实验"] },
@@ -446,6 +446,7 @@ export const helpSections: HelpSection[] = [
       { id: "one-time", title: "只完成眼前这一次", summary: "问答、写作、看图或临时分析，先直接用模型。", to: "/help/modules/models", keywords: ["一次", "问答", "写作", "看图"] },
       { id: "repeat-role", title: "以后反复使用同一角色", summary: "创建 Agent 草稿，保存模型和角色要求，并完成发布预检。", to: "/help/create-repeatable-agent", keywords: ["重复", "角色", "Agent", "Agent Studio"] },
       { id: "repeat-process", title: "按固定顺序完成多步任务", summary: "使用默认三节点模板，配置处理步骤并保存经典工作流草稿。", to: "/help/build-first-workflow", keywords: ["多步", "固定顺序", "Workflow", "经典工作流"] },
+      { id: "reuse-success", title: "把成功做法保存为 Skill", summary: "从已完成的运行中整理可复用经验，并交给 Skill Creator 继续检查。", to: "/help/promote-run-to-skill", keywords: ["成功运行", "复用", "Skill", "Creator"] },
       { id: "connect-tool", title: "让 AI 使用外部工具", summary: "需要访问外部服务时，先查看 MCP 目录与连接状态。", to: "/help/modules/mcps", keywords: ["外部工具", "MCP", "连接"] },
       { id: "use-own-docs", title: "根据自己的资料回答", summary: "需要从指定文档查找内容时，查看 RAG 知识库。", to: "/help/modules/workspace/rag", keywords: ["自己的资料", "文档", "RAG", "知识库"] },
       { id: "subscribe-feed", title: "订阅公告或博客更新", summary: "用 RSS 或 Atom 在新条目出现时启动工作流。", to: "/help/subscribe-rss-workflow", keywords: ["RSS", "Atom", "订阅", "公告", "博客"] },
@@ -459,7 +460,10 @@ export const helpSections: HelpSection[] = [
     title: "按模块浏览",
     summary: "先看模块负责什么，再进入具体功能。",
     path: "/help/sections/modules",
-    items: helpModules.map((module) => ({ id: module.id, title: module.title, summary: module.summary, to: `/help/modules/${module.id}`, keywords: module.keywords })),
+    items: [
+      { id: "overview", title: "整体结构与常用词", summary: "先看各入口怎样配合，再选择具体模块。", to: "/help/modules-and-terms", keywords: ["整体结构", "模块", "术语", "入口"] },
+      ...helpModules.map((module) => ({ id: module.id, title: module.title, summary: module.summary, to: `/help/modules/${module.id}`, keywords: module.keywords })),
+    ],
   },
   {
     id: "troubleshooting",
@@ -479,9 +483,10 @@ export const helpSections: HelpSection[] = [
     summary: "发送、上传或配置前，确认权限、费用和资料范围。",
     path: "/help/sections/safety",
     items: [
-      { id: "availability", title: "使用前确认是否可用", summary: "区分目录存在、入口可进入和真实调用已验证。", to: "/help/check-availability-cost-data#可用性怎么看", keywords: ["可用", "状态", "入口"] },
+      { id: "before-send", title: "发送前做一次完整检查", summary: "依次确认可用性、费用授权和资料是否允许发送。", to: "/help/check-availability-cost-data", keywords: ["发送前", "可用", "费用", "数据"] },
       { id: "cost", title: "查看价格与收费环节", summary: "看懂输入、输出、动态和按媒体计费。", to: "/help/check-availability-cost-data#费用怎么看", keywords: ["价格", "收费", "费用"] },
       { id: "data", title: "了解文件与数据处理", summary: "只发送完成任务所需、并且允许外发的内容。", to: "/help/check-availability-cost-data#文件与数据怎么看", keywords: ["文件", "数据", "上传", "隐私"] },
+      { id: "remote-mcp", title: "安全连接需要认证的远程 MCP", summary: "供有权限的运维者核对来源、权限范围、激活和撤销。", to: "/help/review-remote-mcp-auth", keywords: ["MCP", "远程", "认证", "权限", "撤销"] },
     ],
   },
 ];
@@ -529,6 +534,21 @@ const HELP_SYNONYMS: Record<string, string[]> = {
   "agent 草稿": ["保存智能体草稿", "发布预检", "角色提示词"],
   工作流节点失败: ["错误分支", "已处理失败", "运行记录"],
   试用: ["立即面试", "聊天", "开始对话"],
+};
+
+/** 已验证的自然语言任务直接指向唯一首选结果，避免宽泛词把目录页排在操作指南之前。 */
+const HELP_TASK_TARGETS: Record<string, string> = {
+  发布前检查: "create-repeatable-agent",
+  上传文件会不会外发: "check-availability-cost-data",
+  工作流保存后怎么运行: "build-first-workflow",
+  看图片: "start-with-a-model",
+  生成图片: "models/image-generation",
+  外部工具怎么连接: "mcps/connected-registry",
+  工具集在哪里: "mcps/toolsets",
+  模型服务连接在哪里: "workspace/settings",
+  "agent 草稿": "create-repeatable-agent",
+  工作流节点失败: "handle-workflow-node-failure",
+  功能不可用: "recover-unavailable-feature",
 };
 
 /** 把查询词展开成"原文 + 近义词"，用于提升召回。 */
@@ -622,8 +642,14 @@ export function searchHelpContent(query: string) {
   const entries = getHelpSearchEntries();
   if (!normalized) return entries;
   const expanded = expandQuery(normalized);
+  const preferredTarget = Object.entries(HELP_TASK_TARGETS).find(([task]) => normalized.includes(task))?.[1];
   return entries
-    .map((entry) => ({ entry, score: scoreEntry(entry, normalized, expanded) }))
+    .map((entry) => ({
+      entry,
+      score: scoreEntry(entry, normalized, expanded)
+        + (entry.id === preferredTarget ? 100 : 0)
+        - (preferredTarget && entry.kind === "section" ? 50 : 0),
+    }))
     .filter(({ score }) => score > 0)
     .sort((a, b) => b.score - a.score || KIND_ORDER[b.entry.kind] - KIND_ORDER[a.entry.kind])
     .map(({ entry }) => entry);

@@ -108,14 +108,24 @@ export default function HelpCenterPage() {
   const [paused, setPaused] = useState(false);
   const [interacting, setInteracting] = useState(false);
   const [cycleKey, setCycleKey] = useState(0);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
 
   useEffect(() => { document.title = "帮助中心 · ModelMirror"; }, []);
 
   useEffect(() => {
-    if (paused || interacting) return;
+    if (!window.matchMedia) return;
+    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const syncPreference = () => setPrefersReducedMotion(mediaQuery.matches);
+    syncPreference();
+    mediaQuery.addEventListener?.("change", syncPreference);
+    return () => mediaQuery.removeEventListener?.("change", syncPreference);
+  }, []);
+
+  useEffect(() => {
+    if (paused || interacting || prefersReducedMotion) return;
     const timer = window.setInterval(() => setActiveSlide((current) => (current + 1) % carouselSlides.length), 3000);
     return () => window.clearInterval(timer);
-  }, [paused, interacting, cycleKey]);
+  }, [paused, interacting, prefersReducedMotion, cycleKey]);
 
   const updateQuery = (value: string) => {
     const next = new URLSearchParams(searchParams);
@@ -155,7 +165,7 @@ export default function HelpCenterPage() {
                 value={query}
               />
               {query ? (
-                <button aria-label="清除帮助搜索" className="absolute right-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-lg text-slate-400 hover:bg-white/[0.07] hover:text-white" onClick={() => updateQuery("")} type="button">
+                <button aria-label="清除帮助搜索" className="absolute right-1.5 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-lg text-slate-400 hover:bg-white/[0.07] hover:text-white" onClick={() => updateQuery("")} type="button">
                   <X aria-hidden="true" className="h-4 w-4" />
                 </button>
               ) : null}
@@ -223,10 +233,10 @@ export default function HelpCenterPage() {
               >
                 <div className="flex items-center justify-between gap-4">
                   <h2><Link className="text-xl font-bold text-white hover:text-cyan-100" to={gettingStarted.path}>第一次使用</Link></h2>
-                  <span className="text-xs text-slate-500">自动切换</span>
+                  <span className="text-xs text-slate-500">{prefersReducedMotion ? "手动切换" : "自动切换"}</span>
                 </div>
                 <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.65fr)_minmax(170px,0.65fr)_minmax(170px,0.65fr)]">
-                  <article aria-live="polite" className="min-h-[250px] rounded-xl border border-cyan-300/35 bg-cyan-300/[0.055] p-5 sm:p-6">
+                  <article className="min-h-[250px] rounded-xl border border-cyan-300/35 bg-cyan-300/[0.055] p-5 sm:p-6">
                     <div className="flex h-full flex-col sm:flex-row sm:items-center sm:gap-4">
                       <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl border border-cyan-300/25 bg-cyan-300/[0.08] text-cyan-200 sm:h-24 sm:w-24">
                         <ActiveIcon aria-hidden="true" className="h-10 w-10 sm:h-12 sm:w-12" />
@@ -254,11 +264,11 @@ export default function HelpCenterPage() {
                   })}
                 </div>
                 <div className="mt-4 flex items-center justify-center gap-4">
-                  <button aria-label="上一个入门主题" className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 text-slate-300 hover:border-cyan-300/30 hover:text-cyan-100" onClick={() => selectSlide(activeSlide - 1)} type="button"><ArrowLeft aria-hidden="true" className="h-4 w-4" /></button>
+                  <button aria-label="上一个入门主题" className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 text-slate-300 hover:border-cyan-300/30 hover:text-cyan-100" onClick={() => selectSlide(activeSlide - 1)} type="button"><ArrowLeft aria-hidden="true" className="h-4 w-4" /></button>
                   <span className="min-w-10 text-center text-sm text-slate-300">{activeSlide + 1} / {carouselSlides.length}</span>
                   <div className="hidden gap-2 sm:flex" aria-hidden="true">{carouselSlides.map((slide, index) => <span className={`h-1.5 w-10 rounded-full ${index === activeSlide ? "bg-cyan-300" : "bg-white/10"}`} key={slide.title} />)}</div>
-                  <button aria-label="下一个入门主题" className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 text-slate-300 hover:border-cyan-300/30 hover:text-cyan-100" onClick={() => selectSlide(activeSlide + 1)} type="button"><ArrowRight aria-hidden="true" className="h-4 w-4" /></button>
-                  <button aria-label={paused ? "继续自动切换" : "暂停自动切换"} className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 text-slate-300 hover:border-cyan-300/30 hover:text-cyan-100" onClick={() => setPaused((value) => !value)} type="button">{paused ? <Play aria-hidden="true" className="h-4 w-4" /> : <Pause aria-hidden="true" className="h-4 w-4" />}</button>
+                  <button aria-label="下一个入门主题" className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 text-slate-300 hover:border-cyan-300/30 hover:text-cyan-100" onClick={() => selectSlide(activeSlide + 1)} type="button"><ArrowRight aria-hidden="true" className="h-4 w-4" /></button>
+                  <button aria-label={prefersReducedMotion ? "已按系统设置关闭自动切换" : paused ? "继续自动切换" : "暂停自动切换"} className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 text-slate-300 hover:border-cyan-300/30 hover:text-cyan-100 disabled:cursor-not-allowed disabled:text-slate-600" disabled={prefersReducedMotion} onClick={() => setPaused((value) => !value)} type="button">{paused || prefersReducedMotion ? <Play aria-hidden="true" className="h-4 w-4" /> : <Pause aria-hidden="true" className="h-4 w-4" />}</button>
                 </div>
               </section>
 

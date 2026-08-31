@@ -9,7 +9,6 @@ import {
   helpSections,
   emailReviewBaseline,
   ragDiversityBaseline,
-  ragFormalIntegrityBaseline,
   remoteMcpReviewBaseline,
   rssReviewBaseline,
   searchHelpContent,
@@ -24,7 +23,7 @@ describe("help center content catalog", () => {
   it("has five complete first-level sections and eight module groups", () => {
     expect(helpSections.map((section) => section.title)).toEqual(["第一次使用", "按目标找指南", "按模块浏览", "解决问题", "安全、费用与数据"]);
     expect(helpSections.every((section) => section.items.length >= 3)).toBe(true);
-    expect(helpSections.find((section) => section.id === "goals")?.items.map((item) => item.id)).toEqual(["one-time", "repeat-role", "repeat-process", "connect-tool", "use-own-docs", "subscribe-feed", "subscribe-email", "propose-knowledge", "check-runtime"]);
+    expect(helpSections.find((section) => section.id === "goals")?.items.map((item) => item.id)).toEqual(["one-time", "repeat-role", "repeat-process", "reuse-success", "connect-tool", "use-own-docs", "subscribe-feed", "subscribe-email", "propose-knowledge", "check-runtime"]);
     expect(helpModules.map((module) => module.title)).toEqual(["模型", "Agent", "MCP", "Skill", "提示词", "运维", "工作台与设置", "实验功能"]);
     expect(helpModules.find((module) => module.id === "agents")?.topics.some((topic) => topic.id === "expert-team" && topic.title === "专家团")).toBe(true);
     expect(helpModules.find((module) => module.id === "agents")?.topics.find((topic) => topic.id === "agent-studio")?.productRoute).toBe("/agents/studio");
@@ -67,13 +66,22 @@ describe("help center content catalog", () => {
     expect(helpArticles.find((article) => article.slug === "build-first-workflow")?.verifiedCommit).toBe(agentWorkflowTutorialBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "build-first-workflow")?.verifiedDate).toBe(agentWorkflowTutorialBaseline.date);
     expect(helpArticles.find((article) => article.slug === "modules-and-terms")?.verifiedCommit).toBe(helpCenterCloseoutBaseline.commit);
-    expect(helpArticles.find((article) => article.slug === "recover-unavailable-feature")?.verifiedCommit).toBe(ragFormalIntegrityBaseline.commit);
-    expect(helpArticles.find((article) => article.slug === "recover-unavailable-feature")?.verifiedDate).toBe(ragFormalIntegrityBaseline.date);
+    expect(helpArticles.find((article) => article.slug === "recover-unavailable-feature")?.verifiedCommit).toBe(helpCenterCloseoutBaseline.commit);
+    expect(helpArticles.find((article) => article.slug === "recover-unavailable-feature")?.verifiedDate).toBe(helpCenterCloseoutBaseline.date);
     expect(helpArticles.find((article) => article.slug === "review-remote-mcp-auth")?.verifiedCommit).toBe(remoteMcpReviewBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "subscribe-rss-workflow")?.verifiedCommit).toBe(rssReviewBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "subscribe-email-workflow")?.verifiedCommit).toBe(emailReviewBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "promote-run-to-skill")?.verifiedCommit).toBe(skillExperienceBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "handle-workflow-node-failure")?.verifiedCommit).toBe(workflowErrorRoutingBaseline.commit);
+  });
+
+  it("places every formal article in a first-level index", () => {
+    const indexedPaths = new Set(
+      helpSections.flatMap((section) => section.items.map((item) => item.to.split("#")[0])),
+    );
+    helpArticles.forEach((article) => {
+      expect(indexedPaths, article.slug).toContain(`/help/${article.slug}`);
+    });
   });
 
   it("keeps operational articles within the required structure and step count", () => {
@@ -108,8 +116,9 @@ describe("help center content catalog", () => {
     const ragTopic = helpModules.find((module) => module.id === "workspace")?.topics.find((topic) => topic.id === "rag");
     expect(ragTopic?.verifiedCommit).toBe(ragDiversityBaseline.commit);
     expect(ragTopic?.verifiedDate).toBe(ragDiversityBaseline.date);
-    expect(ragTopic?.points).toContain("正式评测只接受逐条审核、带 anchor 的锁定晋级集；候选选择集和阈值校准集不能替代最终验收");
-    expect(ragTopic?.points).toContain("无答案样例必须同时核对近邻语料和完整语料复核回执");
+    expect(ragTopic?.points).toContain("第一次进入时，先选择“新建知识库”并填写名称");
+    expect(ragTopic?.points).toContain("文档上传后，等待页面显示处理完成，再把知识库用于回答");
+    expect(ragTopic?.points.join(" ")).not.toMatch(/Formal|Gold|anchor|回执|阈值/);
     expect(searchHelpContent("Science").some((entry) => entry.id === "experimental/science")).toBe(true);
     expect(searchHelpContent("专家团").some((entry) => entry.id === "agents/expert-team")).toBe(true);
     expect(searchHelpContent("运行记录").some((entry) => entry.id === "runtime/run-records")).toBe(true);
@@ -151,12 +160,13 @@ describe("help center content catalog", () => {
       { query: "模型服务连接在哪里", expected: "workspace/settings", forbidden: ["troubleshooting"] },
       { query: "Agent 草稿怎么保存", expected: "create-repeatable-agent", forbidden: ["build-first-workflow"] },
       { query: "工作流节点失败怎么办", expected: "handle-workflow-node-failure", forbidden: ["start-with-a-model"] },
+      { query: "功能不可用", expected: "recover-unavailable-feature", forbidden: ["troubleshooting"] },
     ];
 
     cases.forEach(({ expected, forbidden, query }) => {
-      const topThree = searchHelpContent(query).slice(0, 3).map((entry) => entry.id);
-      expect(topThree, query).toContain(expected);
-      forbidden.forEach((id) => expect(topThree, `${query}: ${id}`).not.toContain(id));
+      const hits = searchHelpContent(query);
+      expect(hits[0]?.id, query).toBe(expected);
+      forbidden.forEach((id) => expect(hits.slice(0, 3).map((entry) => entry.id), `${query}: ${id}`).not.toContain(id));
     });
   });
 
@@ -167,6 +177,12 @@ describe("help center content catalog", () => {
     expect(agent.content).not.toContain("revision");
     expect(workflow.content).toContain("任务输入框（页面标为 `user_input`）");
     expect(workflow.content).toContain("表示草稿已经保存");
+  });
+
+  it("keeps ordinary-user safety and recovery copy free of operator internals", () => {
+    const safety = helpArticles.find((article) => article.slug === "check-availability-cost-data")!;
+    const recovery = helpArticles.find((article) => article.slug === "recover-unavailable-feature")!;
+    expect(`${safety.content}\n${recovery.content}`).not.toMatch(/mmbatch_|local_non_model_fallback|R8[A-F]|Promotion Gate|Formal|Gold|幂等键/);
   });
 
   it("ranks title and article hits above module and body-only hits", () => {

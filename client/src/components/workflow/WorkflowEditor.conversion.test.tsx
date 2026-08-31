@@ -1,5 +1,11 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
+import {
+  MemoryRouter,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { type WorkflowDefinition, type WorkflowNodeKind } from "../../types/workflow";
@@ -189,6 +195,10 @@ function WorkflowRouteHarness() {
       </Routes>
     </>
   );
+}
+
+function WorkflowLocationProbe() {
+  return <output data-testid="workflow-location">{useLocation().pathname}</output>;
 }
 
 function signedFormWorkflow(): WorkflowDefinition {
@@ -387,7 +397,7 @@ describe("WorkflowEditor Xpert entry repair", () => {
     vi.stubGlobal("ResizeObserver", TestResizeObserver);
     vi.stubGlobal(
       "fetch",
-      vi.fn((request: RequestInfo | URL) => {
+      vi.fn((request: RequestInfo | URL, init?: RequestInit) => {
         const url = String(request);
         if (url === "/api/workflow/node-registry") {
           return Promise.resolve(
@@ -398,6 +408,22 @@ describe("WorkflowEditor Xpert entry repair", () => {
         }
         if (url === "/api/workflow-native/validate") {
           return Promise.resolve(jsonResponse(staticValidation));
+        }
+        if (url === "/api/workflows" && init?.method === "POST") {
+          const payload = JSON.parse(String(init.body)) as { workflow: WorkflowDefinition };
+          serverWorkflow = { ...payload.workflow, id: "wf_created" };
+          return Promise.resolve(jsonResponse({
+            project_id: "wf_created",
+            title: serverWorkflow.title,
+            draft: serverWorkflow,
+            draft_revision: 1,
+            active_version: null,
+            active_deployment: null,
+            form_publication: null,
+            published_versions: [],
+            created_at: 0,
+            updated_at: 0,
+          }));
         }
         if (url.startsWith("/api/workflows/wf_") && serverWorkflow) {
           return Promise.resolve(jsonResponse({
@@ -531,6 +557,28 @@ describe("WorkflowEditor Xpert entry repair", () => {
     });
     expect(recoveryDialog).toHaveTextContent("等待恢复的本地草稿");
     expect(screen.queryByDisplayValue("已保存的工作流")).not.toBeInTheDocument();
+  });
+
+  it("keeps the first-save confirmation visible after navigating to the created workflow", async () => {
+    render(
+      <MemoryRouter initialEntries={["/workflow"]}>
+        <WorkflowLocationProbe />
+        <Routes>
+          <Route path="/workflow" element={<WorkflowClassicPage />} />
+          <Route path="/workflow/:id" element={<WorkflowClassicPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "保存草稿" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("workflow-location")).toHaveTextContent(
+        "/workflow/wf_created",
+      );
+    });
+    expect(await screen.findByText("服务端草稿已保存；本地副本已保留")).toBeVisible();
+    expect(await screen.findByDisplayValue("新建 AI 流水线")).toBeInTheDocument();
   });
 
   it("recognizes global variables in the legacy aggregator migration UI", async () => {

@@ -69,8 +69,8 @@ const markdownComponents: Components = {
   td: ({ children }) => <td className="border-b border-white/[0.07] px-4 py-3 align-top leading-6">{children}</td>,
 };
 
-function DirectoryLink({ active, children, to }: { active?: boolean; children: ReactNode; to: string }) {
-  return <Link aria-current={active ? "page" : undefined} className={`flex min-h-10 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition ${active ? "bg-cyan-300/12 text-cyan-100 shadow-[inset_2px_0_0_rgba(34,211,238,0.9)]" : "text-slate-300 hover:bg-white/[0.055] hover:text-white"}`} to={to}>{children}</Link>;
+function DirectoryLink({ active, children, current = active, to }: { active?: boolean; children: ReactNode; current?: boolean; to: string }) {
+  return <Link aria-current={current ? "page" : undefined} className={`flex min-h-10 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition ${active ? "bg-cyan-300/12 text-cyan-100 shadow-[inset_2px_0_0_rgba(34,211,238,0.9)]" : "text-slate-300 hover:bg-white/[0.055] hover:text-white"}`} to={to}>{children}</Link>;
 }
 
 function HelpDirectory({ activeModuleId, activeSectionId, activeTopicId }: { activeModuleId?: string; activeSectionId?: string; activeTopicId?: string }) {
@@ -82,6 +82,41 @@ function HelpDirectory({ activeModuleId, activeSectionId, activeTopicId }: { act
     navigate(value ? `/help?q=${encodeURIComponent(value)}` : "/help");
   };
   const sectionIcons = { "getting-started": BookOpen, goals: Compass, modules: Boxes, troubleshooting: CircleHelp, safety: ShieldCheck } as const;
+  const currentTarget = `${location.pathname}${location.hash}`;
+  const itemIsCurrent = (to: string) => {
+    const [pathname, hash] = to.split("#");
+    if (pathname !== location.pathname) return false;
+    if (!hash) return !location.hash;
+    let currentHash = location.hash.slice(1);
+    try {
+      currentHash = decodeURIComponent(currentHash);
+    } catch {
+      // Compare the original hash when it is not valid percent-encoded text.
+    }
+    return currentHash === hash;
+  };
+  const renderSection = (section: HelpSection) => {
+    const Icon = sectionIcons[section.id];
+    const isOpen = activeSectionId === section.id;
+    return (
+      <div key={section.id}>
+        <DirectoryLink active={isOpen} current={location.pathname === section.path} to={section.path}>
+          <Icon aria-hidden="true" className="h-4 w-4 text-cyan-300" />
+          <span className="min-w-0 flex-1">{section.title}</span>
+          {isOpen ? <ChevronDown aria-hidden="true" className="h-4 w-4 text-slate-500" /> : <ChevronRight aria-hidden="true" className="h-4 w-4 text-slate-600" />}
+        </DirectoryLink>
+        {isOpen ? (
+          <div className="ml-4 mt-1 space-y-0.5 border-l border-cyan-300/15 pl-2">
+            {section.items.map((item) => (
+              <DirectoryLink active={itemIsCurrent(item.to)} key={item.id} to={item.to}>
+                <span className="min-w-0 flex-1">{item.title}</span>
+              </DirectoryLink>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    );
+  };
 
   return (
     <nav aria-label="帮助目录">
@@ -92,19 +127,17 @@ function HelpDirectory({ activeModuleId, activeSectionId, activeTopicId }: { act
         <input className="h-11 w-full rounded-lg border border-white/15 bg-[#04111f]/85 pl-10 pr-3 text-sm text-white placeholder:text-slate-500 focus:border-cyan-300/50 focus:outline-none" id="help-directory-search" name="q" placeholder="搜索帮助" />
       </form>
       <div className="mt-4 space-y-1">
-        {helpSections.slice(0, 2).map((section) => {
-          const Icon = sectionIcons[section.id];
-          return <DirectoryLink active={activeSectionId === section.id} key={section.id} to={section.path}><Icon aria-hidden="true" className="h-4 w-4 text-cyan-300" /><span className="min-w-0 flex-1">{section.title}</span><ChevronRight aria-hidden="true" className="h-4 w-4 text-slate-600" /></DirectoryLink>;
-        })}
+        {helpSections.slice(0, 2).map(renderSection)}
 
         <div className="pt-1">
-          <DirectoryLink active={activeSectionId === "modules" && !activeModuleId} to="/help/sections/modules"><Boxes aria-hidden="true" className="h-4 w-4 text-cyan-300" /><span className="min-w-0 flex-1">按模块浏览</span><ChevronDown aria-hidden="true" className="h-4 w-4 text-slate-500" /></DirectoryLink>
+          <DirectoryLink active={activeSectionId === "modules"} current={location.pathname === "/help/sections/modules"} to="/help/sections/modules"><Boxes aria-hidden="true" className="h-4 w-4 text-cyan-300" /><span className="min-w-0 flex-1">按模块浏览</span><ChevronDown aria-hidden="true" className="h-4 w-4 text-slate-500" /></DirectoryLink>
           <div className="ml-4 mt-1 space-y-1 border-l border-white/10 pl-2">
+            <DirectoryLink active={currentTarget === "/help/modules-and-terms"} to="/help/modules-and-terms"><span className="min-w-0 flex-1">整体结构与常用词</span></DirectoryLink>
             {helpModules.map((module) => {
               const isOpen = module.id === activeModuleId;
               return (
                 <div key={module.id}>
-                  <DirectoryLink active={isOpen && !activeTopicId} to={`/help/modules/${module.id}`}><span className="min-w-0 flex-1">{module.title}</span><ChevronRight aria-hidden="true" className={`h-4 w-4 text-slate-600 ${isOpen ? "rotate-90" : ""}`} /></DirectoryLink>
+                  <DirectoryLink active={isOpen} current={currentTarget === `/help/modules/${module.id}`} to={`/help/modules/${module.id}`}><span className="min-w-0 flex-1">{module.title}</span><ChevronRight aria-hidden="true" className={`h-4 w-4 text-slate-600 ${isOpen ? "rotate-90" : ""}`} /></DirectoryLink>
                   {isOpen ? <div className="ml-3 space-y-0.5 border-l border-cyan-300/15 pl-2">{module.topics.map((topic) => <DirectoryLink active={activeTopicId === topic.id} key={topic.id} to={`/help/modules/${module.id}/${topic.id}`}><span className="min-w-0 flex-1">{topic.title}</span>{topic.badge ? <span className="rounded border border-amber-300/25 px-1.5 py-0.5 text-[10px] text-amber-200">{topic.badge}</span> : null}</DirectoryLink>)}</div> : null}
                 </div>
               );
@@ -112,10 +145,7 @@ function HelpDirectory({ activeModuleId, activeSectionId, activeTopicId }: { act
           </div>
         </div>
 
-        {helpSections.slice(3).map((section) => {
-          const Icon = sectionIcons[section.id];
-          return <DirectoryLink active={activeSectionId === section.id} key={section.id} to={section.path}><Icon aria-hidden="true" className="h-4 w-4 text-cyan-300" /><span className="min-w-0 flex-1">{section.title}</span><ChevronRight aria-hidden="true" className="h-4 w-4 text-slate-600" /></DirectoryLink>;
-        })}
+        {helpSections.slice(3).map(renderSection)}
       </div>
       <div className="mt-6 border-t border-white/10 pt-4"><DirectoryLink active={location.pathname === "/help"} to="/help"><ArrowLeft aria-hidden="true" className="h-4 w-4" />返回帮助首页</DirectoryLink></div>
     </nav>
@@ -212,7 +242,7 @@ function SectionPage({ section }: { section: HelpSection }) {
           const guidance = sectionGuidance[item.id];
           return (
             <section className="scroll-mt-28 rounded-xl border border-white/10 bg-[#071a2b]/68 p-5" id={item.id} key={item.id}>
-              <div className="flex items-start gap-4"><div className="min-w-0 flex-1"><h2 className="text-xl font-bold text-white">{item.title}</h2><p className="mt-2 text-sm leading-6 text-slate-400">{item.summary}</p></div><Link aria-label={`打开${item.title}`} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 text-slate-400 hover:border-cyan-300/30 hover:text-cyan-100" to={item.to}><ArrowRight aria-hidden="true" className="h-4 w-4" /></Link></div>
+              <div className="flex items-start gap-4"><div className="min-w-0 flex-1"><h2 className="text-xl font-bold text-white">{item.title}</h2><p className="mt-2 text-sm leading-6 text-slate-400">{item.summary}</p></div><Link aria-label={`打开${item.title}`} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/10 text-slate-400 hover:border-cyan-300/30 hover:text-cyan-100" to={item.to}><ArrowRight aria-hidden="true" className="h-4 w-4" /></Link></div>
               {guidance ? <ul className="mt-4 space-y-2 border-t border-white/[0.08] pt-4 text-sm leading-6 text-slate-300">{guidance.map((line) => <li className="flex gap-3" key={line}><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300" />{line}</li>)}</ul> : null}
             </section>
           );

@@ -10,7 +10,7 @@ const isPublicWorkflowFormPath = /^\/forms\/[^/]+\/?$/.test(window.location.path
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <BrowserRouter>
-      <Suspense fallback={<main className="min-h-screen bg-slate-50" aria-label="正在载入页面" />}>
+      <Suspense fallback={<main aria-label="正在加载页面" className="min-h-screen bg-ink-950" role="status" />}>
         {isPublicWorkflowFormPath ? (
           <Routes>
             <Route element={<WorkflowFormPage />} path="/forms/:formId" />
