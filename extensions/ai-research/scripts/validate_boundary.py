@@ -79,12 +79,61 @@ def git(*args: str) -> list[str]:
         text=True,
         encoding="utf-8",
     )
-    return [line.strip().replace("\\", "/") for line in result.stdout.splitlines() if line.strip()]
+    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+
+def git_paths(*args: str) -> list[str]:
+    result = subprocess.run(
+        ["git", *args],
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+    )
+    try:
+        paths = [item.decode("utf-8") for item in result.stdout.split(b"\0") if item]
+    except UnicodeDecodeError as exc:
+        raise BoundaryFailure("Git paths are not valid UTF-8") from exc
+    if any("\\" in path for path in paths):
+        raise BoundaryFailure("Git paths contain an unsafe backslash")
+    return paths
 
 
 def changed_paths(base: str) -> set[str]:
-    paths = set(git("diff", "--name-only", "--diff-filter=ACMRTUXB", base))
-    paths.update(git("ls-files", "--others", "--exclude-standard"))
+    paths = set(
+        git_paths(
+            "diff",
+            "--name-only",
+            "-z",
+            "--no-renames",
+            "--diff-filter=ACDMRTUXB",
+            base,
+            "HEAD",
+            "--",
+        )
+    )
+    paths.update(
+        git_paths(
+            "diff",
+            "--name-only",
+            "-z",
+            "--no-renames",
+            "--diff-filter=ACDMRTUXB",
+            "--cached",
+            "HEAD",
+            "--",
+        )
+    )
+    paths.update(
+        git_paths(
+            "diff",
+            "--name-only",
+            "-z",
+            "--no-renames",
+            "--diff-filter=ACDMRTUXB",
+            "--",
+        )
+    )
+    paths.update(git_paths("ls-files", "-z", "--others", "--exclude-standard"))
     return paths
 
 
@@ -114,7 +163,14 @@ def sha256(path: Path) -> str:
 
 
 def validate_paths(base: str, boundary: dict) -> None:
-    allowed_parent = set(boundary["allowedParentFiles"])
+    allowed_value = boundary.get("allowedParentFiles")
+    if not isinstance(allowed_value, list) or not all(
+        isinstance(path, str) and path for path in allowed_value
+    ):
+        raise BoundaryFailure("allowedParentFiles must be a list of paths")
+    if any("\\" in path for path in allowed_value):
+        raise BoundaryFailure("allowedParentFiles contains an unsafe backslash")
+    allowed_parent = set(allowed_value)
     prefix = "extensions/ai-research/"
     illegal = sorted(
         path for path in changed_paths(base) if not path.startswith(prefix) and path not in allowed_parent
