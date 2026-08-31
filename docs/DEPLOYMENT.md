@@ -112,9 +112,12 @@ Provider 管理面仍需外部注入至少 32 字符的
 /settings?section=routing
 ```
 
-管理员在 Provider 页执行“刷新目录”只会对该连接发送一次受 SSRF/DNS pinning 保护的
-模型目录 GET，不会发起 Chat、认证或付费调用。刷新失败或返回截断目录时，最后一次成功
-Inventory 会保留并标记 stale；不要通过删除 Router SQLite 来处理目录异常。
+管理员在 Provider 页执行“刷新目录”只会发送受 SSRF/DNS pinning 保护的只读模型目录 GET，
+不会发起 Chat、认证或付费调用。基础目录之外，OpenRouter 会按连接已授权的 embedding/audio
+scope 增加专用筛选查询，因此单次刷新最多四个 GET。刷新期间若连接、Endpoint、scope 或凭据
+发生变化，本次结果会整体丢弃；补充能力目录失败时保留上一份完整成功 Inventory 与连接健康，
+不提交部分结果。基础刷新失败或返回截断目录仍按既有规则保留旧证据并标记 stale；不要通过
+删除 Router SQLite 来处理目录异常。
 
 受管 Provider 连接与普通 `/api/chat` 当前使用的环境路径相互独立。R4 不会把设置页中的
 OpenRouter 或 newAPI 连接自动转成 `LLM_GATEWAY_URL/KEY`；迁移属于 Round 5。若公网
@@ -316,15 +319,30 @@ MODEL_CONTROL_REALTIME_VOICE_ENABLED=false
 ```
 
 R8A 迁移 Router SQLite 至 v18，并展示 scope、Adapter、Binding 与资格框架。R8B 已接入图片 Chat、
-原生 PDF Chat、RAG/Workflow/Xpert Vision 与图片生成的数据面；只有对应连接完成精确 shape/Adapter
-资格后才能激活。STT/TTS、Chat Audio、音频生成、视频与 Realtime 在 R8C—R8F 合并并完成真实
-验收前仍会阻止付费认证和 Policy 激活。不得把打开环境变量解释为资格已通过或生产切换已批准。
+原生 PDF Chat、RAG/Workflow/Xpert Vision 与图片生成。R8C 已接入 Dedicated 与 Published Xpert
+的 STT/TTS；只有对应连接完成精确 shape/Adapter 资格后才能激活。Chat Audio、音频生成、视频与
+Realtime 在 R8D—R8F 合并并完成真实验收前仍会阻止付费认证和 Policy 激活。不得把打开环境变量
+解释为资格已通过、真实 Smoke 已完成或生产切换已批准。
 
 Managed 图片生成请求必须携带 1—200 字符的 `Idempotency-Key`。OpenAI-compatible Images
 连接使用 `/v1/images/generations`、标准 `size` 和 `response_format=b64_json`；若所选高级参数不在
 该 Adapter 合同内，请改用已认证 Adapter或移除参数，不要靠失败后切换 Provider 探测。
 
-部署前使用 SQLite Backup API 备份 Router 数据库；回滚时关闭受影响 R8B Flag 并显式停用 Policy，
+Managed Dedicated/Xpert STT 与 TTS 请求也必须携带 1—200 字符的 `Idempotency-Key`。OpenRouter
+STT 使用 JSON/Base64，OpenAI-compatible STT 使用 multipart；两种 TTS Adapter 继续验证响应格式
+和音频 Magic。STT 首期只接受认证过的 WAV；TTS 的声线、对外格式和上游格式必须与资格 profile
+完全一致。OpenRouter 运行时音频响应缺少模型字段时，后端依赖同一 `X-Generation-Id` 在 30 秒总
+deadline 内执行最多十次只读 `/generation` GET，单次上限 2 秒。每次 GET 都重新执行出口授权、
+只连接该次批准的一个 IP、不跟随重定向且不进行 HTTP Transport 重试；整个逻辑调用始终只有一个
+音频 POST。缺少 Generation ID与轮询窗口耗尽使用不同稳定错误码；模型不一致同样失败关闭。
+Receipt 只保存 ID 是否出现、GET 次数和等待毫秒数，不保存原始 Generation ID。显式资格认证
+refresh 不使用该运行时轮询，每次 refresh 操作恰好执行一个只读 GET，也不会重发音频 POST。
+OpenAI-compatible Adapter 必须返回可信模型字段或受信模型响应头，否则不能取得资格。资格认证或
+运行时若在派发后未完整取得结果，将持久化为 `uncertain`；重启不得自动重放。
+关闭 `MODEL_CONTROL_TRANSCRIPTION_ENABLED`、`MODEL_CONTROL_SPEECH_ENABLED` 或
+`MODEL_CONTROL_XPERT_AUDIO_ENABLED` 并重启，可使对应入口恢复 legacy；不得删除 v18 证据。
+
+部署前使用 SQLite Backup API 备份 Router 数据库；回滚时关闭受影响 R8B/R8C Flag 并显式停用 Policy，
 保留 v18 表、资格、Receipt 和新增的可空任务证据列。不得删除现有媒体任务、Provider 凭据或
 newAPI 数据。
 

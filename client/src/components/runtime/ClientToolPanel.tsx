@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-interface ClientToolRequest {
+export interface ClientToolRequest {
   request_id: string;
   host_id: string;
   task_id: string;
@@ -30,6 +30,7 @@ interface ClientToolPanelProps {
   scopeIdPrefix?: string;
   compact?: boolean;
   onResolved?: () => void | Promise<void>;
+  onResolvedRequest?: (request: ClientToolRequest) => void | Promise<void>;
 }
 
 const waitingStatuses = new Set(["pending", "dispatched", "running"]);
@@ -61,6 +62,7 @@ export default function ClientToolPanel({
   scopeIdPrefix,
   compact = false,
   onResolved,
+  onResolvedRequest,
 }: ClientToolPanelProps) {
   const [requests, setRequests] = useState<ClientToolRequest[]>([]);
   const [expanded, setExpanded] = useState(false);
@@ -88,16 +90,24 @@ export default function ClientToolPanel({
       const newlyResolved = next.filter(
         (item) => !waitingStatuses.has(item.status) && !seenTerminal.current.has(item.request_id),
       );
+      // Claim every terminal request before invoking callbacks. A callback may
+      // synchronously rerender its parent and trigger another refresh; marking
+      // first keeps each terminal transition single-delivery.
       newlyResolved.forEach((item) => seenTerminal.current.add(item.request_id));
       setRequests(next);
-      if (initialized.current && newlyResolved.length > 0) await onResolved?.();
+      if (initialized.current && newlyResolved.length > 0) {
+        await onResolved?.();
+        for (const request of newlyResolved) {
+          await onResolvedRequest?.(request);
+        }
+      }
       initialized.current = true;
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "客户端工具请求暂不可用");
     } finally {
       setLoading(false);
     }
-  }, [onResolved, scopeId, scopeIdPrefix, scopeType, taskId]);
+  }, [onResolved, onResolvedRequest, scopeId, scopeIdPrefix, scopeType, taskId]);
 
   useEffect(() => {
     void refresh();

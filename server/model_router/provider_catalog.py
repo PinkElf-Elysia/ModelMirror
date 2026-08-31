@@ -182,9 +182,12 @@ class ProviderCatalogService:
     async def refresh_connection(
         self, connection_id: str
     ) -> ProviderCatalogRefreshResponse:
-        connection = self.repository.get_connection(
-            self.router_service.tenant_id, connection_id
+        connection, api_key, fingerprint = (
+            self.repository.get_connection_credential_snapshot(
+                self.router_service.tenant_id, connection_id
+            )
         )
+        credential_snapshot = (connection, api_key, fingerprint)
         if not connection.enabled:
             raise RouterServiceError(
                 "connection_disabled",
@@ -192,9 +195,6 @@ class ProviderCatalogService:
                 status_code=409,
             )
         refresh_id = f"catalog_{uuid.uuid4().hex}"
-        fingerprint = self.repository.connection_config_fingerprint(
-            self.router_service.tenant_id, connection_id
-        )
         try:
             self.repository.claim_catalog_refresh(
                 self.router_service.tenant_id,
@@ -209,6 +209,12 @@ class ProviderCatalogService:
                     "该连接已有目录刷新正在运行。",
                     status_code=409,
                 ) from exc
+            if str(exc) == "provider_catalog_connection_changed":
+                raise RouterServiceError(
+                    "provider_catalog_connection_changed",
+                    "模型服务配置在目录刷新开始前发生变化，未发送目录请求。",
+                    status_code=409,
+                ) from exc
             raise
 
         try:
@@ -216,24 +222,11 @@ class ProviderCatalogService:
                 connection_id,
                 persist_result=False,
                 require_chat_scope=False,
+                credential_snapshot=credential_snapshot,
             )
-            embedding_result = None
-            if connection.kind == "openrouter" and "embedding" in connection.scopes:
-                embedding_result, embedding_records = (
-                    await self.router_service.fetch_connection_embedding_model_records(
-                        connection_id
-                    )
-                )
-                records.extend(
-                    {
-                        **record,
-                        "_catalog_operation": "embed",
-                    }
-                    for record in embedding_records
-                )
         except ProviderEgressError as exc:
             checked_at = utc_now()
-            self.repository.fail_catalog_refresh(
+            failed_row = self.repository.fail_catalog_refresh(
                 self.router_service.tenant_id,
                 refresh_id,
                 connection_id=connection_id,
@@ -241,15 +234,37 @@ class ProviderCatalogService:
                 health="offline",
                 checked_at=checked_at,
                 error_hint=exc.message,
+                expected_connection_fingerprint=fingerprint,
             )
+            if str(failed_row.get("error_code")) == "provider_catalog_connection_changed":
+                raise RouterServiceError(
+                    "provider_catalog_connection_changed",
+                    "模型服务配置在目录刷新期间发生变化，未保存本次结果。",
+                    status_code=409,
+                ) from exc
             raise
-        except Exception:
-            self._safe_fail(refresh_id, connection_id, "provider_catalog_request_failed")
+        except Exception as exc:
+            failed_row = self._safe_fail(
+                refresh_id,
+                connection_id,
+                "provider_catalog_request_failed",
+                expected_connection_fingerprint=fingerprint,
+            )
+            if (
+                failed_row is not None
+                and str(failed_row.get("error_code"))
+                == "provider_catalog_connection_changed"
+            ):
+                raise RouterServiceError(
+                    "provider_catalog_connection_changed",
+                    "模型服务配置在目录刷新期间发生变化，未保存本次结果。",
+                    status_code=409,
+                ) from exc
             raise
 
         if not result.ok:
             error_code = self.router_service._result_error_code(result)
-            self.repository.fail_catalog_refresh(
+            failed_row = self.repository.fail_catalog_refresh(
                 self.router_service.tenant_id,
                 refresh_id,
                 connection_id=connection_id,
@@ -258,7 +273,9 @@ class ProviderCatalogService:
                 model_count=result.model_count,
                 checked_at=result.checked_at,
                 error_hint=result.message,
+                expected_connection_fingerprint=fingerprint,
             )
+            error_code = str(failed_row.get("error_code") or error_code)
             return ProviderCatalogRefreshResponse(
                 contract_version=PROVIDER_CATALOG_CONTRACT_VERSION,
                 refresh_id=refresh_id,
@@ -267,30 +284,129 @@ class ProviderCatalogService:
                 model_count=0,
                 checked_at=result.checked_at,
                 error_code=error_code,
-                message=result.message,
+                message=(
+                    "模型服务配置在目录刷新期间发生变化，未保存本次结果。"
+                    if error_code == "provider_catalog_connection_changed"
+                    else result.message
+                ),
             )
 
-        if embedding_result is not None and not embedding_result.ok:
-            error_code = self.router_service._result_error_code(embedding_result)
-            self.repository.fail_catalog_refresh(
+        failed_supplemental = None
+        try:
+            if connection.kind == "openrouter" and "embedding" in connection.scopes:
+                embedding_result, embedding_records = (
+                    await self.router_service.fetch_connection_embedding_model_records(
+                        connection_id,
+                        credential_snapshot=credential_snapshot,
+                    )
+                )
+                if not embedding_result.ok:
+                    failed_supplemental = embedding_result
+                else:
+                    records.extend(
+                        {
+                            **record,
+                            "_catalog_operation": "embed",
+                        }
+                        for record in embedding_records
+                    )
+            if (
+                failed_supplemental is None
+                and connection.kind == "openrouter"
+                and "audio" in connection.scopes
+            ):
+                for output_modality, operation in (
+                    ("transcription", "transcribe"),
+                    ("speech", "synthesize_speech"),
+                ):
+                    audio_result, audio_records = (
+                        await self.router_service.fetch_connection_audio_model_records(
+                            connection_id,
+                            output_modality=output_modality,
+                            credential_snapshot=credential_snapshot,
+                        )
+                    )
+                    if not audio_result.ok:
+                        failed_supplemental = audio_result
+                        break
+                    records.extend(
+                        {
+                            **record,
+                            "_catalog_operation": operation,
+                        }
+                        for record in audio_records
+                    )
+        except ProviderEgressError as exc:
+            checked_at = utc_now()
+            failed_row = self.repository.fail_catalog_refresh(
+                self.router_service.tenant_id,
+                refresh_id,
+                connection_id=connection_id,
+                error_code=exc.code,
+                health="offline",
+                checked_at=checked_at,
+                error_hint=exc.message,
+                expected_connection_fingerprint=fingerprint,
+                preserve_inventory=True,
+                preserve_connection_health=True,
+            )
+            if str(failed_row.get("error_code")) == "provider_catalog_connection_changed":
+                raise RouterServiceError(
+                    "provider_catalog_connection_changed",
+                    "模型服务配置在目录刷新期间发生变化，未保存本次结果。",
+                    status_code=409,
+                ) from exc
+            raise
+        except Exception as exc:
+            failed_row = self._safe_fail(
+                refresh_id,
+                connection_id,
+                "provider_catalog_request_failed",
+                expected_connection_fingerprint=fingerprint,
+                preserve_inventory=True,
+                preserve_connection_health=True,
+            )
+            if (
+                failed_row is not None
+                and str(failed_row.get("error_code"))
+                == "provider_catalog_connection_changed"
+            ):
+                raise RouterServiceError(
+                    "provider_catalog_connection_changed",
+                    "模型服务配置在目录刷新期间发生变化，未保存本次结果。",
+                    status_code=409,
+                ) from exc
+            raise
+
+        if failed_supplemental is not None:
+            error_code = self.router_service._result_error_code(failed_supplemental)
+            failed_row = self.repository.fail_catalog_refresh(
                 self.router_service.tenant_id,
                 refresh_id,
                 connection_id=connection_id,
                 error_code=error_code,
-                health=embedding_result.health,
-                model_count=embedding_result.model_count,
-                checked_at=embedding_result.checked_at,
-                error_hint=embedding_result.message,
+                health=failed_supplemental.health,
+                model_count=failed_supplemental.model_count,
+                checked_at=failed_supplemental.checked_at,
+                error_hint=failed_supplemental.message,
+                expected_connection_fingerprint=fingerprint,
+                preserve_inventory=True,
+                preserve_connection_health=True,
             )
+            error_code = str(failed_row.get("error_code") or error_code)
             return ProviderCatalogRefreshResponse(
                 contract_version=PROVIDER_CATALOG_CONTRACT_VERSION,
                 refresh_id=refresh_id,
                 connection_id=connection_id,
                 status="failed",
                 model_count=0,
-                checked_at=embedding_result.checked_at,
+                checked_at=failed_supplemental.checked_at,
                 error_code=error_code,
-                message=embedding_result.message,
+                message=(
+                    "模型服务配置在目录刷新期间发生变化，未保存本次结果。"
+                    if error_code == "provider_catalog_connection_changed"
+                    else "基础目录仍可用，但补充能力目录刷新失败；已保留上一份成功目录。"
+                ),
             )
 
         models, offerings, model_count, truncated = normalize_provider_catalog(
@@ -299,7 +415,7 @@ class ProviderCatalogService:
             observed_at=result.checked_at,
         )
         if not models:
-            self.repository.fail_catalog_refresh(
+            failed_row = self.repository.fail_catalog_refresh(
                 self.router_service.tenant_id,
                 refresh_id,
                 connection_id=connection_id,
@@ -308,6 +424,10 @@ class ProviderCatalogService:
                 model_count=0,
                 checked_at=result.checked_at,
                 error_hint="服务已连接，但模型目录没有可保存的规范模型 ID。",
+                expected_connection_fingerprint=fingerprint,
+            )
+            error_code = str(
+                failed_row.get("error_code") or "incompatible_catalog"
             )
             return ProviderCatalogRefreshResponse(
                 contract_version=PROVIDER_CATALOG_CONTRACT_VERSION,
@@ -316,8 +436,12 @@ class ProviderCatalogService:
                 status="failed",
                 model_count=0,
                 checked_at=result.checked_at,
-                error_code="incompatible_catalog",
-                message="服务已连接，但模型目录没有可保存的规范模型 ID。",
+                error_code=error_code,
+                message=(
+                    "模型服务配置在目录刷新期间发生变化，未保存本次结果。"
+                    if error_code == "provider_catalog_connection_changed"
+                    else "服务已连接，但模型目录没有可保存的规范模型 ID。"
+                ),
             )
 
         fingerprint_payload = {
@@ -345,7 +469,22 @@ class ProviderCatalogService:
             truncated=truncated,
             catalog_fingerprint=catalog_fingerprint,
             observed_at=result.checked_at,
+            expected_connection_fingerprint=fingerprint,
         )
+        if str(row["status"]) != "succeeded":
+            return ProviderCatalogRefreshResponse(
+                contract_version=PROVIDER_CATALOG_CONTRACT_VERSION,
+                refresh_id=refresh_id,
+                connection_id=connection_id,
+                status="failed",
+                model_count=0,
+                checked_at=result.checked_at,
+                error_code=str(
+                    row.get("error_code")
+                    or "provider_catalog_connection_changed"
+                ),
+                message="模型服务配置在目录刷新期间发生变化，未保存本次结果。",
+            )
         return ProviderCatalogRefreshResponse(
             contract_version=PROVIDER_CATALOG_CONTRACT_VERSION,
             refresh_id=refresh_id,
@@ -377,14 +516,24 @@ class ProviderCatalogService:
         )
 
     def _safe_fail(
-        self, refresh_id: str, connection_id: str, error_code: str
-    ) -> None:
+        self,
+        refresh_id: str,
+        connection_id: str,
+        error_code: str,
+        *,
+        expected_connection_fingerprint: str | None = None,
+        preserve_inventory: bool = False,
+        preserve_connection_health: bool = False,
+    ) -> dict[str, object] | None:
         try:
-            self.repository.fail_catalog_refresh(
+            return self.repository.fail_catalog_refresh(
                 self.router_service.tenant_id,
                 refresh_id,
                 connection_id=connection_id,
                 error_code=error_code,
+                expected_connection_fingerprint=expected_connection_fingerprint,
+                preserve_inventory=preserve_inventory,
+                preserve_connection_health=preserve_connection_health,
             )
         except RouterRepositoryError:
-            return
+            return None

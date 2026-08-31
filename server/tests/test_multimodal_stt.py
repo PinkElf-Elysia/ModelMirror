@@ -414,6 +414,10 @@ async def test_transcription_endpoint_validates_format_language_and_model(
     assert success.json()["provider"] == "openrouter"
     assert success.json()["usage"]["cost_usd"] is None
     assert success.json()["usage"]["cost_kind"] == "unavailable"
+    assert success.json()["execution_mode"] == "legacy"
+    assert success.json()["provider_route_receipts"] == []
+    assert success.json()["provider_dispatch_state"] is None
+    assert success.json()["fallback_reason_codes"] == []
 
 
 @pytest.mark.asyncio

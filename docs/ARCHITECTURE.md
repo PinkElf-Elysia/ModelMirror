@@ -144,8 +144,11 @@ sequenceDiagram
 
 Provider Control Plane 是单租户 `local` 的管理与证据层，不是新的统一数据面。
 SQLite v14 保存租户隔离的 Provider Inventory、逐 operation Offering 与脱敏刷新证据；
-Provider 凭据仍使用既有加密存储。显式目录刷新只发送 `/models` GET，并与连接健康、
-Inventory 和 Offering 在同一事务提交。
+Provider 凭据仍使用既有加密存储。显式目录刷新只发送只读模型目录 GET：基础目录之外，
+OpenRouter 连接可按已授权的 embedding/audio scope 增加专用筛选查询，单次刷新最多四个 GET，
+不会发起模型推理或付费调用。刷新开始时冻结同一连接与凭据快照；只有连接指纹仍一致时，
+连接健康、Inventory 和 Offering 才会在同一事务提交。补充能力目录失败时保留上一份完整成功
+目录和连接健康，并单独记录本次刷新失败，避免部分结果污染既有 Chat/Embedding 证据。
 
 `GET /api/models/control-plane-catalog` 将 managed Inventory、static/default、OmniRoute、
 Chat certification、显式 newAPI Canary 和多模态专用目录的已有证据聚合为只读 Readiness。
@@ -166,7 +169,19 @@ STT/TTS、Chat Audio、音频生成、视频分析/生成和 Realtime SDP 保持
 Round 8B 在该外壳内接入图片 Chat、原生 PDF Chat、RAG/Workflow/Xpert Vision 和图片生成。
 每个入口只调用一个精确 Managed Connection；图片、PDF、严格 JSON 和 Images 仍保留独立执行
 协议。图片与原生 PDF等未认证混合形态会在派发前阻断，派发后错误不触发第二 Provider或 legacy。
-STT/TTS、Chat Audio、音频生成、视频与 Realtime 继续等待 R8C—R8F，全部 Feature Flag 仍默认关闭。
+Round 8C 进一步接入 Dedicated 与 Published Xpert 的 STT/TTS。OpenRouter JSON/Base64 STT、
+OpenAI-compatible multipart STT、OpenRouter TTS 与 OpenAI-compatible TTS 保持四个显式 Adapter；
+音频格式、声线、字节响应和转录 JSON 仍由原模块验证。资格 profile 另行固定认证过的 STT 输入格式
+以及 TTS 声线、对外格式和上游格式，运行参数不一致时在 POST 前阻断。每个 Managed 调用只派发
+一个 POST，并通过幂等键哈希与 Workload Receipt 阻断重放。请求模型不能替代实际模型证据；
+OpenRouter 运行时可针对同一 Generation ID 在 30 秒总 deadline 内执行最多十次只读元数据 GET，
+单次上限 2 秒。每次 GET 都重新执行出口授权、只连接该次批准的一个 IP、不跟随重定向且不进行
+HTTP Transport 重试，整个逻辑调用仍始终只有一个音频 POST；窗口耗尽后仍无可信模型证据则失败
+关闭。Receipt 只保存 Generation ID 是否出现、GET 次数和等待毫秒数，不保存原始 ID。显式资格
+认证 refresh 不使用该运行时轮询，每次 refresh 操作恰好执行一个只读 GET。
+资格认证与运行时在派发前持久化状态，正文未完整、超时或取消记录为 `uncertain`。
+Chat Audio、音频生成、视频与 Realtime 继续等待 R8D—R8F，全部
+Feature Flag 仍默认关闭。
 
 Round 5A 在控制面增加 `modelmirror-provider-chat-routing-v1`：`chat_text`、
 `chat_tools` 与 `chat_file_output` 各自具有独立认证、稳定模型资格和有序 Managed

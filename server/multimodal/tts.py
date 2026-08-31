@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
+import re
 import struct
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING, Any, Literal
 
 import httpx
 
@@ -16,6 +18,9 @@ try:
 except ModuleNotFoundError:
     from model_router.egress import ProviderEgressPolicy, request_provider_url
     from model_router.service import ModelRouterService
+
+if TYPE_CHECKING:
+    from server.model_router.multimodal_gateway import ManagedMultimodalGateway
 
 from .stt import MultimodalServiceError, OpenRouterTarget
 
@@ -202,6 +207,8 @@ class SpeechResult:
     response_format: str = "mp3"
     cost_usd: float | None = None
     cost_kind: str = "unavailable"
+    execution_mode: Literal["managed", "legacy"] = "legacy"
+    provider_route_receipts: list[dict[str, Any]] | None = None
 
 
 class OpenRouterTtsAdapter:
@@ -593,11 +600,13 @@ class SpeechService:
         router_service: ModelRouterService,
         *,
         adapter: OpenRouterTtsAdapter | None = None,
+        managed_gateway: ManagedMultimodalGateway | None = None,
     ) -> None:
         self.router_service = router_service
         self.adapter = adapter or OpenRouterTtsAdapter(
             egress_policy=router_service.egress_policy
         )
+        self._managed_gateway = managed_gateway
 
     async def synthesize(
         self,
@@ -605,14 +614,63 @@ class SpeechService:
         model_id: str,
         text: str,
         voice: str,
-        response_format: str,
+        response_format: str | None,
         speed: float,
+        idempotency_key: str | None = None,
+        managed_entry_id: Literal[
+            "multimodal_speech", "xpert_speech"
+        ] = "multimodal_speech",
     ) -> SpeechResult:
-        clean_model = self._model_id(model_id)
+        if self._managed_gateway is None:
+            try:
+                from server.model_router.multimodal_gateway import (
+                    ManagedMultimodalGateway,
+                )
+            except ModuleNotFoundError:
+                from model_router.multimodal_gateway import (
+                    ManagedMultimodalGateway,
+                )
+
+            gateway = ManagedMultimodalGateway.for_router(self.router_service)
+        else:
+            gateway = self._managed_gateway
+        managed = gateway.routing_mode(managed_entry_id) != "legacy"
+        clean_model = (
+            self._control_plane_model_id(model_id)
+            if managed
+            else self._model_id(model_id)
+        )
         clean_text = self._text(text)
-        clean_voice = self._voice(clean_model, voice)
-        clean_format = self._response_format(clean_model, response_format)
+        clean_voice = (
+            self._control_plane_voice(voice)
+            if managed
+            else self._voice(clean_model, voice)
+        )
+        clean_format = None
+        if response_format is not None:
+            clean_format = (
+                self._control_plane_response_format(response_format)
+                if managed
+                else self._response_format(clean_model, response_format)
+            )
+        elif not managed:
+            raise MultimodalServiceError(
+                "unsupported_speech_format",
+                "Legacy 语音调用必须指定输出格式。",
+                status_code=422,
+            )
         clean_speed = self._speed(speed)
+        if managed:
+            return await self._synthesize_managed(
+                gateway,
+                entry_id=managed_entry_id,
+                model_id=clean_model,
+                text=clean_text,
+                voice=clean_voice,
+                response_format=clean_format,
+                speed=clean_speed,
+                idempotency_key=idempotency_key,
+            )
         provider = (
             "openai"
             if clean_model in OPENAI_SPEECH_PROFILES
@@ -655,6 +713,195 @@ class SpeechService:
             output_bytes=len(content),
             response_format=actual_format,
         )
+
+    async def _synthesize_managed(
+        self,
+        gateway: ManagedMultimodalGateway,
+        *,
+        entry_id: Literal["multimodal_speech", "xpert_speech"],
+        model_id: str,
+        text: str,
+        voice: str,
+        response_format: str | None,
+        speed: float,
+        idempotency_key: str | None,
+    ) -> SpeechResult:
+        try:
+            from server.model_router.multimodal_gateway import (
+                ManagedMultimodalError,
+            )
+        except ModuleNotFoundError:
+            from model_router.multimodal_gateway import ManagedMultimodalError
+
+        clean_key = str(idempotency_key or "").strip()
+        if not clean_key or len(clean_key) > 200:
+            raise MultimodalServiceError(
+                "invalid_idempotency_key",
+                "Managed 语音生成要求 1 至 200 个字符的 Idempotency-Key。",
+                status_code=422,
+                route_receipt=gateway.blocked_receipt(
+                    entry_id, "invalid_idempotency_key"
+                ),
+            )
+        try:
+            exact_model = gateway.exact_model_id(
+                entry_id,
+                "audio_speech",
+                requested_model=model_id,
+            )
+            policy = gateway.call_service.control.get_policy(entry_id)
+            binding = next(
+                (
+                    item
+                    for item in policy.bindings
+                    if item.execution_shape == "audio_speech"
+                    and item.model_id == exact_model
+                    and item.valid
+                ),
+                None,
+            )
+            if binding is None:
+                raise ManagedMultimodalError(
+                    "provider_workload_binding_missing",
+                    "语音 Binding 在派发前发生漂移。",
+                    status_code=409,
+                    receipt=gateway.blocked_receipt(
+                        entry_id, "provider_workload_binding_missing"
+                    ),
+                )
+            parameters = gateway.certified_audio_parameters(
+                entry_id,
+                certification_id=binding.certification_id,
+                execution_shape="audio_speech",
+            )
+            certified_voice = str(parameters.get("certified_voice") or "")
+            certified_response_format = str(
+                parameters.get("certified_response_format") or ""
+            )
+            certified_upstream_format = str(
+                parameters.get("certified_upstream_format") or ""
+            )
+            if voice != certified_voice:
+                raise ManagedMultimodalError(
+                    "provider_multimodal_speech_voice_not_certified",
+                    "该声线未包含在当前 Provider 资格合同中。",
+                    status_code=422,
+                    receipt=gateway.blocked_receipt(
+                        entry_id,
+                        "provider_multimodal_speech_voice_not_certified",
+                    ),
+                )
+            effective_response_format = (
+                response_format or certified_response_format
+            )
+            if effective_response_format != certified_response_format:
+                raise ManagedMultimodalError(
+                    "provider_multimodal_speech_format_not_certified",
+                    "该输出格式未包含在当前 Provider 资格合同中。",
+                    status_code=422,
+                    receipt=gateway.blocked_receipt(
+                        entry_id,
+                        "provider_multimodal_speech_format_not_certified",
+                    ),
+                )
+            run = gateway.start_run(
+                entry_id,
+                parent_run_reference=(
+                    "audio-speech:"
+                    + hashlib.sha256(clean_key.encode("utf-8")).hexdigest()
+                ),
+                stable=True,
+            )
+            openrouter_adapter = (
+                binding.adapter_contract == "openrouter_audio_speech_v1"
+            )
+            upstream_format = certified_upstream_format
+
+            def parse_response(response: httpx.Response) -> SpeechResult:
+                if effective_response_format == "wav" and openrouter_adapter:
+                    content = self.adapter._pcm_response_to_wav(response)
+                elif effective_response_format == "wav":
+                    content = bytes(response.content)
+                    if not (
+                        len(content) >= 12
+                        and content[:4] in {b"RIFF", b"RF64"}
+                        and content[8:12] == b"WAVE"
+                    ):
+                        raise ManagedMultimodalError(
+                            "invalid_speech_audio",
+                            "语音 Provider 返回的 WAV 不完整或已损坏。",
+                            status_code=502,
+                        )
+                else:
+                    self.adapter._validate_mp3(response)
+                    content = bytes(response.content)
+                actual_model = str(
+                    response.headers.get("x-model-id")
+                    or response.headers.get("x-openrouter-model")
+                    or ""
+                ).strip()
+                if actual_model and actual_model != exact_model:
+                    raise ManagedMultimodalError(
+                        "provider_workload_model_mismatch",
+                        "语音 Provider 返回的实际模型与 Binding 不一致。",
+                        status_code=502,
+                    )
+                return SpeechResult(
+                    content=content,
+                    requested_model=exact_model,
+                    actual_model=actual_model,
+                    provider="managed",
+                    request_id="",
+                    # The managed gateway consumes upstream generation metadata
+                    # for the sanitized receipt before returning this result.
+                    # Do not propagate the raw upstream identifier to callers.
+                    generation_id=None,
+                    output_bytes=len(content),
+                    response_format=effective_response_format,
+                    execution_mode="managed",
+                )
+
+            result, receipt = await run.complete_audio(
+                execution_shape="audio_speech",
+                logical_call_key="request",
+                model_id=exact_model,
+                expected_connection_id=binding.connection_id,
+                expected_certification_id=binding.certification_id,
+                expected_connection_fingerprint=binding.connection_fingerprint,
+                expected_adapter_contract=binding.adapter_contract,
+                expected_protocol_version=binding.protocol_version,
+                payload={
+                    "model": exact_model,
+                    "input": text,
+                    "voice": voice,
+                    "response_format": upstream_format,
+                    "speed": speed,
+                },
+                files=None,
+                parse_response=parse_response,
+            )
+            provider_kind = next(
+                (
+                    item.provider_kind
+                    for item in policy.bindings
+                    if item.execution_shape == "audio_speech"
+                    and item.model_id == exact_model
+                ),
+                None,
+            )
+            return replace(
+                result,
+                provider=str(provider_kind or "managed"),
+                request_id=str(receipt.get("run_reference") or ""),
+                provider_route_receipts=[receipt],
+            )
+        except ManagedMultimodalError as exc:
+            raise MultimodalServiceError(
+                exc.code,
+                str(exc),
+                status_code=exc.status_code,
+                route_receipt=exc.receipt,
+            ) from exc
 
     def _target(self, model_id: str) -> OpenRouterTarget:
         direct_openai = model_id in OPENAI_SPEECH_PROFILES
@@ -815,6 +1062,43 @@ class SpeechService:
                 status_code=422,
             )
         return model_id
+
+    @staticmethod
+    def _control_plane_model_id(value: str) -> str:
+        model_id = str(value or "").strip()
+        if (
+            not model_id
+            or len(model_id) > 256
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]*", model_id)
+        ):
+            raise MultimodalServiceError(
+                "unsupported_speech_model",
+                "请选择控制面已认证的具体语音模型。",
+                status_code=422,
+            )
+        return model_id
+
+    @staticmethod
+    def _control_plane_voice(value: str) -> str:
+        voice = str(value or "").strip()
+        if not voice or len(voice) > 128:
+            raise MultimodalServiceError(
+                "unsupported_voice",
+                "语音声线为空或超过安全长度限制。",
+                status_code=422,
+            )
+        return voice
+
+    @staticmethod
+    def _control_plane_response_format(value: str) -> str:
+        response_format = str(value or "").strip().lower()
+        if response_format not in {"mp3", "wav"}:
+            raise MultimodalServiceError(
+                "unsupported_speech_format",
+                "Managed 语音仅支持 MP3 或 WAV 输出。",
+                status_code=422,
+            )
+        return response_format
 
     @staticmethod
     def _text(value: str) -> str:

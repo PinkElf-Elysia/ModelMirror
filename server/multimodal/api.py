@@ -22,8 +22,10 @@ from pydantic import BaseModel, Field
 
 try:
     from server.model_router.api import get_model_router_service
+    from server.model_router.schemas import ProviderDispatchState
 except ModuleNotFoundError:
     from model_router.api import get_model_router_service
+    from model_router.schemas import ProviderDispatchState
 
 from .audio_catalog import (
     AudioCatalogService,
@@ -98,6 +100,10 @@ class TranscriptionResponse(BaseModel):
     provider: str
     request_id: str
     usage: TranscriptionUsageResponse
+    execution_mode: Literal["managed", "legacy"] = "legacy"
+    provider_route_receipts: list[dict[str, object]] = Field(default_factory=list)
+    provider_dispatch_state: ProviderDispatchState | None = None
+    fallback_reason_codes: list[str] = Field(default_factory=list)
 
 
 class SpeechRequest(BaseModel):
@@ -818,6 +824,7 @@ async def transcribe_audio(
     model_id: str = Form(...),
     file: UploadFile = File(...),
     language: str = Form(default="auto"),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> TranscriptionResponse:
     try:
         content = await file.read(MAX_AUDIO_BYTES + 1)
@@ -827,19 +834,20 @@ async def transcribe_audio(
             content_type=file.content_type,
             content=content,
             language=language,
+            idempotency_key=idempotency_key,
         )
         return _response(result)
     except MultimodalServiceError as exc:
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail={"code": exc.code, "message": exc.message},
-        ) from exc
+        raise _http_error(exc) from exc
     finally:
         await file.close()
 
 
 @router.post("/speech")
-async def synthesize_speech(payload: SpeechRequest) -> Response:
+async def synthesize_speech(
+    payload: SpeechRequest,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+) -> Response:
     try:
         result = await get_speech_service().synthesize(
             model_id=payload.model_id,
@@ -847,16 +855,15 @@ async def synthesize_speech(payload: SpeechRequest) -> Response:
             voice=payload.voice,
             response_format=payload.response_format,
             speed=payload.speed,
+            idempotency_key=idempotency_key,
         )
     except MultimodalServiceError as exc:
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail={"code": exc.code, "message": exc.message},
-        ) from exc
+        raise _http_error(exc) from exc
     return _speech_response(result)
 
 
 def _response(result: TranscriptionResult) -> TranscriptionResponse:
+    receipts = result.provider_route_receipts or []
     return TranscriptionResponse(
         text=result.text,
         requested_model=result.requested_model,
@@ -871,6 +878,10 @@ def _response(result: TranscriptionResult) -> TranscriptionResponse:
             cost_usd=result.usage.cost_usd,
             cost_kind=result.usage.cost_kind,
         ),
+        execution_mode=result.execution_mode,
+        provider_route_receipts=receipts,
+        provider_dispatch_state=provider_dispatch_state_from_receipts(receipts),
+        fallback_reason_codes=[],
     )
 
 
@@ -886,8 +897,17 @@ def _speech_response(result: SpeechResult) -> Response:
         "X-ModelMirror-Provider": result.provider,
         "X-ModelMirror-Cost-Kind": result.cost_kind,
         "X-ModelMirror-Output-Bytes": str(result.output_bytes),
+        "X-ModelMirror-Execution-Mode": result.execution_mode,
     }
-    if result.generation_id:
+    headers.update(
+        provider_response_contract_headers(result.provider_route_receipts)
+    )
+    if result.provider_route_receipts:
+        headers["X-ModelMirror-Provider-Route-Receipt"] = json.dumps(
+            result.provider_route_receipts[0],
+            separators=(",", ":"),
+        )
+    if result.execution_mode == "legacy" and result.generation_id:
         headers["X-ModelMirror-Generation-Id"] = result.generation_id
     return Response(
         content=result.content,
@@ -944,10 +964,65 @@ def _provider_options(raw: str | None) -> dict[str, object] | None:
 
 
 def _http_error(exc: MultimodalServiceError) -> HTTPException:
-    detail = {"code": exc.code, "message": exc.message}
-    if exc.route_receipt is not None:
-        detail["route_receipt"] = exc.route_receipt
     return HTTPException(
         status_code=exc.status_code,
-        detail=detail,
+        detail=multimodal_error_detail(exc),
     )
+
+
+def provider_dispatch_state_from_receipts(
+    receipts: object,
+) -> ProviderDispatchState | None:
+    """Project the persisted dispatch lifecycle without exposing internals."""
+
+    receipt: object = receipts
+    if isinstance(receipts, list):
+        receipt = receipts[0] if receipts else None
+    if not isinstance(receipt, dict):
+        return None
+    calls = receipt.get("calls")
+    if not isinstance(calls, list):
+        return None
+    dispatched_calls = [
+        call
+        for call in calls
+        if isinstance(call, dict) and call.get("dispatched") is True
+    ]
+    if not dispatched_calls:
+        return "not_dispatched"
+    if receipt.get("status") == "uncertain" or any(
+        call.get("status") == "uncertain" for call in dispatched_calls
+    ):
+        return "uncertain"
+    if receipt.get("status") == "running" or any(
+        call.get("status") == "running" for call in dispatched_calls
+    ):
+        return "dispatched"
+    return "confirmed"
+
+
+def provider_response_contract_headers(receipts: object) -> dict[str, str]:
+    headers = {
+        "X-ModelMirror-Fallback-Reason-Codes": "[]",
+    }
+    dispatch_state = provider_dispatch_state_from_receipts(receipts)
+    if dispatch_state is not None:
+        headers["X-ModelMirror-Provider-Dispatch-State"] = dispatch_state
+    return headers
+
+
+def multimodal_error_detail(
+    exc: MultimodalServiceError,
+) -> dict[str, object]:
+    detail: dict[str, object] = {
+        "code": exc.code,
+        "message": exc.message,
+        "provider_dispatch_state": provider_dispatch_state_from_receipts(
+            exc.route_receipt
+        ),
+        # R8C is fail-closed and has no local or remote fallback path.
+        "fallback_reason_codes": [],
+    }
+    if exc.route_receipt is not None:
+        detail["route_receipt"] = exc.route_receipt
+    return detail

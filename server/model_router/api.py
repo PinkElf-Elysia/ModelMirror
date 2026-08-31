@@ -606,15 +606,23 @@ async def run_workload_certification(
     "/certifications/workloads/{certification_id}/refresh",
     response_model=ProviderWorkloadCertificationSummary,
 )
-def refresh_multimodal_workload_certification(
+async def refresh_multimodal_workload_certification(
     certification_id: str,
-    _payload: ProviderMultimodalCertificationRefreshRequest,
+    payload: ProviderMultimodalCertificationRefreshRequest,
     _principal: ProviderControlPrincipal = Depends(require_provider_admin_csrf),
 ) -> ProviderWorkloadCertificationSummary:
+    if not payload.acknowledge_poll_only:
+        _raise_public_error(
+            RouterServiceError(
+                "provider_multimodal_poll_only_acknowledgement_required",
+                "只读刷新前必须确认本次操作不会重新提交模型请求。",
+                status_code=422,
+            )
+        )
     try:
-        ProviderMultimodalCertificationSessionService(
+        return await ProviderWorkloadCertificationService(
             get_model_router_service()
-        ).refresh(certification_id)
+        ).refresh_multimodal_certification(certification_id)
     except (RouterServiceError, RouterRepositoryError) as exc:
         _raise_public_error(exc)
     raise AssertionError("multimodal certification refresh returned unexpectedly")
