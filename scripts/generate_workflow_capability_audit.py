@@ -241,7 +241,7 @@ DIRECT_UPDATES = {
     "httpRequest": {
         "模镜当前状态": "已实现",
         "模镜对应节点": "http_request",
-        "判断说明": "自研安全 HTTP 请求仅允许固定公网源站，使用结构化绑定与加密凭据，逐跳校验并绑定 DNS 结果，限制超时、重定向和响应大小；可把明确归一化的运行故障送入结构化错误出口，但凭据、安全门禁、配置和未知异常仍失败关闭；不支持 OAuth2、私网、二进制响应或自动重试。",
+        "判断说明": "自研安全 HTTP 请求仅允许固定公网源站，使用结构化绑定与加密凭据，逐跳校验并绑定 DNS 结果，限制超时、重定向和响应大小；固定 GET 且无正文的 V2 节点可对连接失败、超时及 408/429/502/503/504 做最多三次的持久受限重试，耗尽后可进入结构化错误出口；凭据、安全门禁、配置、解析和未知异常仍失败关闭，不支持 OAuth2、私网、二进制响应、写请求重试或通用重试。",
     },
     "if": {
         "模镜当前状态": "已实现",
@@ -326,7 +326,7 @@ DIRECT_UPDATES = {
     "dataTable": {
         "模镜当前状态": "部分实现",
         "模镜对应节点": "data_table_query / data_table_insert / data_table_update / data_table_delete",
-        "判断说明": "模镜已有自研 Agent Table 四类操作；只读查询可把明确归一化的临时锁等待送入结构化错误出口，写操作不借此扩大失败处理范围；Schema、过滤与产品语义不宣称和参考项等价。",
+        "判断说明": "模镜已有自研 Agent Table 四类操作；只读查询仅对真实 SQLite BUSY/LOCKED 做最多三次的持久受限重试，耗尽后可进入结构化错误出口，写操作不借此扩大失败处理或重试范围；Schema、过滤与产品语义不宣称和参考项等价。",
     },
     "stickyNote": {
         "模镜当前状态": "已实现",
@@ -451,7 +451,11 @@ EXACT_RUNTIME_EVIDENCE = {
     "file_output": "server/tests/test_workflow_r18_file_data.py",
     "http_event_entry": "server/tests/test_workflow_deployments.py",
     "http_event_reply": "server/tests/test_workflow_deployments.py",
-    "http_request": "server/tests/test_workflow_r17_secure_http.py",
+    "http_request": (
+        "server/tests/test_workflow_r17_secure_http.py",
+        "server/tests/test_workflow_retry_policy.py",
+        "server/tests/test_workflow_retry_runtime.py",
+    ),
     "input": "server/tests/test_workflow_run_contract.py",
     "invoke_workflow": "server/tests/test_workflow_subworkflows.py",
     "list_operation": "server/tests/test_workflow_control_data_nodes.py",
@@ -592,11 +596,20 @@ def mapped_node_kinds(value: str) -> list[str]:
     ]
 
 
+def exact_runtime_evidence_paths(kind: str) -> tuple[str, ...]:
+    evidence = EXACT_RUNTIME_EVIDENCE[kind]
+    return (evidence,) if isinstance(evidence, str) else tuple(evidence)
+
+
 def audit_evidence(row: dict[str, str]) -> str:
     level = row["覆盖等级"]
     kinds = mapped_node_kinds(row.get("模镜对应节点", ""))
     if level == "exact":
-        evidence = [EXACT_RUNTIME_EVIDENCE[kind] for kind in kinds]
+        evidence = [
+            path
+            for kind in kinds
+            for path in exact_runtime_evidence_paths(kind)
+        ]
         return f"NodeContract V3 complete；运行/测试：{'；'.join(dict.fromkeys(evidence))}"
     if level == "limited":
         return "受限子集；未覆盖语义见判断说明；对应合同与运行路径需按节点复核"
@@ -662,9 +675,10 @@ def validate_audit_rows(rows: list[dict[str, str]]) -> None:
                 )
             missing_evidence_files = sorted(
                 {
-                    EXACT_RUNTIME_EVIDENCE[kind]
+                    path
                     for kind in kinds
-                    if not (ROOT / EXACT_RUNTIME_EVIDENCE[kind]).is_file()
+                    for path in exact_runtime_evidence_paths(kind)
+                    if not (ROOT / path).is_file()
                 }
             )
             if missing_evidence_files:
@@ -842,7 +856,7 @@ def main() -> None:
 - R2.6 结果：新增完整合同 `knowledge_write_proposal`，只向 Knowledge Inbox 创建或复用待审批提议，不批准、构建、激活或推广知识版本；允许确定性的私有工作流与 Xpert 路径，匿名表单、公共 App、Evaluation、Evolution 与 Planner 禁用
 - R2.7 结果：新增完整合同 `rss_event_entry`，以仅公网 HTTPS、逐跳安全校验、首次无回放基线和持久条目去重提供 RSS 2.0/Atom 1.0 订阅入口；认证源、附件、WebSub、Xpert 与等待节点禁用
 - R2.8 结果：新增完整合同 `email_event_entry`，以只读 IMAPS 993、首次无回放 UID 基线和持久 UID 重读恢复提供固定 INBOX 邮件入口；OAuth2、IDLE、多文件夹、附件内容、原始 HTML、Xpert 与等待节点禁用
-- R2.9 PR2 结果：不新增节点类型；为 `http_request` V2、`data_table_query` 与 `knowledge_retrieval` V2 增加结构化失败出口。仅明确归一化的读取运行故障可被处理，成功与错误出口互斥；凭据、权限、安全、配置、资源漂移、取消和未知异常仍失败关闭，且本批次不提供自动重试
+- R2.9 PR2 结果：不新增节点类型；在 `http_request` V2、`data_table_query` 与 `knowledge_retrieval` V2 的结构化失败出口前增加默认关闭的持久受限重试。仅固定 GET 无正文、只读表查询及本地合格知识检索可对精确白名单瞬时故障尝试 2–3 次；恢复绑定 Scheduler V2、稳定等待 ID 和安全目标指纹。写操作、外部临时正文入口、公共 App、Evaluation、Evolution、Planner、凭据、权限、安全、配置、资源漂移、取消和未知异常不得重试
 - 当前 Registry 事实：{registry_facts.native} Native、{registry_facts.palette_registered} 个已登记 Palette 项、默认 {registry_facts.palette_draggable} 个可拖拽 Palette 项、{registry_facts.complete} 个完整合同、{registry_facts.compatibility} 个 compatibility 合同、{registry_facts.planner} 个 Planner 节点
 - 默认运行功能门禁：{len(registry_facts.runtime_feature_gated)} 个已登记项（{runtime_feature_gated}）允许编辑但执行面关闭；该口径与 Palette 是否登记、是否可拖拽相互独立
 - 参考清单：563 条节点名称/类型，其中 `.ee` {ee_count} 条仅保留名称审计

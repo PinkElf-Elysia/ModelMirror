@@ -16,7 +16,9 @@ import {
   type WorkflowVariableDeclaration,
 } from "../../types/workflow";
 import WorkflowVariableField from "./WorkflowVariableField";
-import WorkflowFailureRoutingConfig from "./WorkflowFailureRoutingConfig";
+import WorkflowFailureRoutingConfig, {
+  type WorkflowRetryAvailability,
+} from "./WorkflowFailureRoutingConfig";
 import type { WorkflowNodeContractProjection } from "./workflowNodeRegistry";
 import type {
   WorkflowVariableFieldDescriptor,
@@ -665,6 +667,7 @@ export default function WorkflowTypedDataNodeConfig({
   contract,
   onChange,
   onOpenVariableCenter,
+  retryAvailability,
 }: {
   data: WorkflowNodeData;
   node: WorkflowNode;
@@ -674,6 +677,7 @@ export default function WorkflowTypedDataNodeConfig({
   contract?: WorkflowNodeContractProjection | null;
   onChange: (patch: Partial<WorkflowNodeData>) => void;
   onOpenVariableCenter?: () => void;
+  retryAvailability?: WorkflowRetryAvailability;
 }) {
   const isDataTable = dataTableKinds.has(data.kind);
   const [tables, setTables] = useState<AgentTableDefinition[]>([]);
@@ -1058,6 +1062,7 @@ export default function WorkflowTypedDataNodeConfig({
           nodes={nodes}
           onChange={onChange}
           onOpenVariableCenter={onOpenVariableCenter}
+          retryAvailability={retryAvailability}
         />
       ) : null}
     </div>

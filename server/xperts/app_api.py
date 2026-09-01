@@ -33,9 +33,11 @@ from .store import XpertNotFoundError, XpertStoreError
 try:
     from server.xpert_runtime.execution_store import WorkflowExecutionStore
     from server.xpert_runtime.middleware_registry import runtime_middleware_registry
+    from server.workflow_native.retry_policy import retry_enabled
 except ModuleNotFoundError:
     from xpert_runtime.execution_store import WorkflowExecutionStore
     from xpert_runtime.middleware_registry import runtime_middleware_registry
+    from workflow_native.retry_policy import retry_enabled
 
 
 router = APIRouter(tags=["xpert-apps"])
@@ -194,6 +196,14 @@ def _deployment_preflight(version: XpertVersion, policy: XpertAppPolicy) -> dict
                     "code": code,
                     "message": node_policy.message
                     or f"Public Xpert Apps cannot deploy node kind: {kind}.",
+                },
+            )
+        if retry_enabled(data):
+            node_policy_issues.setdefault(
+                "app_node_retries_forbidden",
+                {
+                    "code": "app_node_retries_forbidden",
+                    "message": "Public Xpert Apps cannot deploy durable node retries.",
                 },
             )
         if kind == "code":

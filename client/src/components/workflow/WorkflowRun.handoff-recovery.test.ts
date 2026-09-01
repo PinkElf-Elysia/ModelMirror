@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   buildRunSteps,
+  isTerminalWorkflowRunEvent,
   persistWorkflowRunRecovery,
   readWorkflowRunRecovery,
   shouldShowHandoffInboxLink,
@@ -13,6 +14,129 @@ afterEach(() => {
 });
 
 describe("WorkflowRun handoff recovery pointer", () => {
+  it("keeps node compatibility errors non-terminal unless explicitly marked", () => {
+    expect(isTerminalWorkflowRunEvent({
+      event: "error",
+      node_id: "legacy-1",
+      message: "soft error",
+    })).toBe(false);
+    expect(isTerminalWorkflowRunEvent({
+      event: "error",
+      node_id: "http-1",
+      terminal: true,
+      message: "terminal error",
+    })).toBe(true);
+  });
+
+  it("keeps safe code and actual attempts on a recovered node-less error", () => {
+    const steps = buildRunSteps([{
+      event: "error",
+      terminal: true,
+      code: "HTTP_TIMEOUT",
+      message: "HTTP request timed out.",
+      attempt: 3,
+      max_attempts: 3,
+      classification: "transient",
+      exhausted: true,
+    }]);
+
+    expect(steps).toEqual([
+      expect.objectContaining({
+        title: "工作流",
+        status: "error",
+        output: expect.stringMatching(/HTTP_TIMEOUT.*第 3\/3 次尝试.*已耗尽/),
+      }),
+    ]);
+    expect(buildRunSteps([{
+      event: "error",
+      terminal: true,
+      code: "unsafe secret code",
+      message: "safe message",
+    }])[0]?.output).not.toContain("unsafe secret code");
+  });
+
+  it("keeps scheduled and started retry attempts as structured node history", () => {
+    const steps = buildRunSteps([
+      {
+        event: "node_retry_scheduled",
+        node_id: "http-1",
+        node_title: "安全 HTTP 请求",
+        node_type: "http_request",
+        attempt: 2,
+        max_attempts: 3,
+        resume_at: 1_780_000_005,
+        error_code: "HTTP_STATUS_503",
+        classification: "transient",
+      },
+      {
+        event: "node_retry_started",
+        node_id: "http-1",
+        node_title: "安全 HTTP 请求",
+        node_type: "http_request",
+        attempt: 2,
+        max_attempts: 3,
+      },
+      {
+        event: "node_end",
+        node_id: "http-1",
+        node_title: "安全 HTTP 请求",
+        node_type: "http_request",
+        output: "request completed",
+      },
+    ]);
+
+    expect(steps).toEqual([
+      expect.objectContaining({
+        id: "http-1",
+        status: "done",
+        output: "request completed",
+        retryEvents: [
+          expect.objectContaining({
+            state: "scheduled",
+            attempt: 2,
+            maxAttempts: 3,
+            errorCode: "HTTP_STATUS_503",
+          }),
+          expect.objectContaining({ state: "started", attempt: 2, maxAttempts: 3 }),
+        ],
+      }),
+    ]);
+  });
+
+  it("deduplicates replayed retry events and reports the final actual attempt", () => {
+    const scheduled = {
+      event: "node_retry_scheduled" as const,
+      node_id: "query-1",
+      node_title: "查询数据表",
+      node_type: "data_table_query" as const,
+      attempt: 3,
+      max_attempts: 3,
+      resume_at: 1_780_000_030,
+      error_code: "DATA_TABLE_BUSY",
+      classification: "transient" as const,
+    };
+    const steps = buildRunSteps([
+      scheduled,
+      scheduled,
+      {
+        event: "node_error_routed",
+        node_id: "query-1",
+        node_title: "查询数据表",
+        node_type: "data_table_query",
+        attempt: 3,
+        max_attempts: 3,
+        error_code: "DATA_TABLE_BUSY",
+        classification: "transient",
+      },
+    ]);
+
+    expect(steps[0]).toEqual(expect.objectContaining({
+      status: "handled_error",
+      output: expect.stringContaining("尝试 3/3"),
+      retryEvents: [expect.objectContaining({ state: "scheduled", attempt: 3 })],
+    }));
+  });
+
   it("distinguishes a handled node failure from a failed workflow", () => {
     const steps = buildRunSteps([
       {

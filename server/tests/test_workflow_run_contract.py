@@ -248,3 +248,64 @@ async def test_workflow_cancel_persists_terminal_state_and_stops_live_task(
     assert execution_store.complete(task_id, result="late result").status == "cancelled"
     events = execution_store.require(task_id).events
     assert [event["event"] for event in events].count("workflow_cancelled") == 1
+
+
+@pytest.mark.asyncio
+async def test_workflow_cancel_does_not_override_a_concurrent_completion(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    task_id = "classic-cancel-race-task"
+    run_id = "classic-cancel-race-run"
+    execution_store = WorkflowExecutionStore(tmp_path / "workflow-executions")
+    execution_store.create(
+        task_id=task_id,
+        run_id=run_id,
+        run_type="workflow",
+        workflow={"id": "cancel-race", "title": "Cancel race"},
+        inputs={},
+        source_kind="workflow_classic",
+    )
+    pause_event = asyncio.Event()
+    task_store = {
+        task_id: {
+            "cancel_requested": False,
+            "pause_event": pause_event,
+        }
+    }
+
+    class FakeRunRegistry:
+        cancelled: list[tuple[str, str]] = []
+
+        async def cancel_run(self, target_run_id: str, *, reason: str):
+            self.cancelled.append((target_run_id, reason))
+            return None
+
+    original_cancel = execution_store.cancel
+
+    def completion_wins(target_task_id: str, *, error: str):
+        execution_store.complete(target_task_id, result="winner")
+        return original_cancel(target_task_id, error=error)
+
+    monkeypatch.setattr(execution_store, "cancel", completion_wins)
+    fake_registry = FakeRunRegistry()
+    monkeypatch.setattr(main_module, "workflow_execution_store", execution_store)
+    monkeypatch.setattr(main_module, "workflow_task_store", task_store)
+    monkeypatch.setattr(main_module, "run_registry", fake_registry)
+    monkeypatch.setattr(main_module, "rate_limit_or_raise", lambda _client: None)
+
+    transport = httpx.ASGITransport(app=main_module.app)
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://testserver",
+    ) as client:
+        response = await client.post(f"/api/workflow/run/{task_id}/cancel")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "completed"
+    assert task_store[task_id]["cancel_requested"] is False
+    assert pause_event.is_set() is False
+    assert fake_registry.cancelled == []
+    stored = execution_store.require(task_id)
+    assert stored.result == "winner"
+    assert not any(event["event"] == "workflow_cancelled" for event in stored.events)

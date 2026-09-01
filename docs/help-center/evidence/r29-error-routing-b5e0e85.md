@@ -18,7 +18,7 @@
 ## 帮助中心重放
 
 - 文章：`/help/handle-workflow-node-failure`。
-- 截图：`client/public/help-center/b5e0e85e/workflow-error-output-config.png`。
+- 截图归档：`docs/help-center/evidence/screenshots/r29-error-routing-b5e0e85e-workflow-error-output-config.png`（已从公开帮助资产目录移出）。
 - 截图仅包含合成节点名和安全配置，不含用户数据、凭据、Token、请求正文或内部服务地址。
 - 帮助中心最终集成时发现原文件为 JPEG 字节但误用 `.png` 扩展名；已从同一真实截图裁去无关顶栏和空白并转换为 `900 × 634` 的真实 PNG（`140138` bytes，SHA256 `D9D281675EF61440A52251046822165EC51D04162977CC00680A16BE1C1C85EF`），界面内容未生成或补画。
 - 按文章从失败处理区创建错误变量、连接红色错误出口，并核对运行区状态；按钮名称、顺序和结果与预览一致。

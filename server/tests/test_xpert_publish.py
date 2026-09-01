@@ -1151,6 +1151,81 @@ async def test_r17_secure_http_xpert_publish_is_fail_closed_by_feature_flag(
 
 
 @pytest.mark.asyncio
+async def test_private_xpert_http_retry_publish_is_fail_closed_by_retry_flag(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created_response = await client.post(
+        "/api/xperts",
+        json={"name": "R2.9 restricted retry"},
+    )
+    assert created_response.status_code == 200, created_response.text
+    xpert = created_response.json()
+    draft = xpert["draft"]
+    workflow = draft["workflow"]
+    base_nodes = {node["id"]: node for node in workflow["nodes"]}
+    workflow["nodes"] = [
+        base_nodes["input-1"],
+        {
+            "id": "http-retry-1",
+            "type": "http_request",
+            "position": {"x": 220, "y": 140},
+            "data": {
+                "kind": "http_request",
+                "contractVersion": 2,
+                "method": "GET",
+                "url": "https://api.example.test/status",
+                "queryItems": [],
+                "headerItems": [],
+                "bodyMode": "none",
+                "formFields": [],
+                "authType": "none",
+                "timeoutSeconds": 30,
+                "redirectLimit": 0,
+                "responseLimitBytes": 1_048_576,
+                "responseMode": "auto",
+                "statusPolicy": "success_only",
+                "outputVariable": "http_response",
+                "failureAction": "stop",
+                "retryMode": "transient",
+                "maxAttempts": 2,
+            },
+        },
+        base_nodes["workflow-agent-1"],
+        base_nodes["output-1"],
+    ]
+    workflow["edges"] = [
+        {"id": "input-http", "source": "input-1", "target": "http-retry-1"},
+        {
+            "id": "http-agent",
+            "source": "http-retry-1",
+            "target": "workflow-agent-1",
+        },
+        {
+            "id": "agent-output",
+            "source": "workflow-agent-1",
+            "target": "output-1",
+        },
+    ]
+    updated = await client.patch(f"/api/xperts/{xpert['id']}", json={"draft": draft})
+    assert updated.status_code == 200, updated.text
+
+    monkeypatch.setenv("WORKFLOW_HTTP_REQUESTS_ENABLED", "true")
+    monkeypatch.setenv("WORKFLOW_NODE_RETRIES_ENABLED", "false")
+    blocked = await client.post(f"/api/xperts/{xpert['id']}/publish", json={})
+    assert blocked.status_code == 422, blocked.text
+    assert any(
+        issue["code"] == "xpert_node_retries_disabled"
+        and issue["node_id"] == "http-retry-1"
+        for issue in blocked.json()["detail"]["issues"]
+    )
+
+    monkeypatch.setenv("WORKFLOW_NODE_RETRIES_ENABLED", "true")
+    published = await client.post(f"/api/xperts/{xpert['id']}/publish", json={})
+    assert published.status_code == 200, published.text
+
+
+@pytest.mark.asyncio
 async def test_r26_knowledge_proposal_private_xpert_revalidates_flag_and_target(
     client: httpx.AsyncClient,
     monkeypatch: pytest.MonkeyPatch,

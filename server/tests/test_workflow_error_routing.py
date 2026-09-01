@@ -183,6 +183,10 @@ def test_error_receipts_use_only_fixed_safe_fields() -> None:
     assert route_knowledge_error(
         RagRetrievalUnavailableError("rag_vector_index_unavailable", "secret")
     )
+    imposter_type = type("RagRetrievalUnavailableError", (Exception,), {})
+    imposter = imposter_type()
+    imposter.code = "rag_vector_index_unavailable"
+    assert route_knowledge_error(imposter) is None
     for code in (
         "rag_vector_index_contract_mismatch",
         "rag_embedding_fingerprint_mismatch",
@@ -191,7 +195,7 @@ def test_error_receipts_use_only_fixed_safe_fields() -> None:
         assert route_knowledge_error(RagRetrievalContractError(code, "secret")) is None
     assert route_http_error(
         WorkflowHttpRequestError("HTTP_DNS_UNAVAILABLE", "secret")
-    ).classification == "transient"
+    ) is None
     assert route_knowledge_error(RuntimeError("secret")) is None
 
 

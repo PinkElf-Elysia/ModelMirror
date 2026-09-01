@@ -59,11 +59,25 @@ class WorkflowControlDataError(ValueError):
 
 
 class WorkflowTerminationError(RuntimeError):
-    def __init__(self, code: str, safe_message: str, *, node_id: str) -> None:
+    def __init__(
+        self,
+        code: str,
+        safe_message: str,
+        *,
+        node_id: str,
+        attempts: int | None = None,
+        max_attempts: int | None = None,
+        classification: str | None = None,
+        exhausted: bool | None = None,
+    ) -> None:
         super().__init__(f"{code}: {safe_message}")
         self.code = code
         self.safe_message = safe_message
         self.node_id = node_id
+        self.attempts = attempts
+        self.max_attempts = max_attempts
+        self.classification = classification
+        self.exhausted = exhausted
 
 
 def _fail(code: str, message: str) -> None:

@@ -470,7 +470,8 @@ async def test_workflow_stream_failure_retains_safe_node_identity() -> None:
         yield (
             'data: {"event":"error","task_id":"task-source",'
             '"run_id":"run-source","node_id":"llm-node",'
-            '"node_title":"生成回复","message":"provider rejected"}\n\n'
+            '"node_title":"生成回复","terminal":true,'
+            '"message":"provider rejected"}\n\n'
         )
 
     response = main_module.StreamingResponse(error_stream())

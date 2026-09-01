@@ -58,6 +58,7 @@ NodePlannerCompilationMode = Literal[
     "none",
 ]
 NodePlannerTaskBinding = Literal["required", "optional", "forbidden"]
+NodeRetryMode = Literal["none", "transient"]
 
 
 def canonical_checksum(value: Any) -> str:
@@ -191,6 +192,29 @@ class NodeExecutionPolicy(BaseModel):
     security_category: str = "legacy"
 
 
+class NodeRetryPolicy(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    supported: bool = False
+    modes: tuple[NodeRetryMode, ...] = ("none",)
+    max_attempts: tuple[int, ...] = ()
+    backoff_seconds: tuple[int, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_policy(self) -> "NodeRetryPolicy":
+        if not self.supported:
+            if self.modes != ("none",) or self.max_attempts or self.backoff_seconds:
+                raise ValueError("unsupported retry policies cannot declare retry settings")
+            return self
+        if self.modes != ("none", "transient"):
+            raise ValueError("supported retry policies must be transient-only")
+        if self.max_attempts != (2, 3):
+            raise ValueError("supported retry policies must allow 2 or 3 attempts")
+        if self.backoff_seconds != (5, 30):
+            raise ValueError("supported retry policies must use fixed 5/30 second backoff")
+        return self
+
+
 class NodeAvailabilityRule(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -256,6 +280,7 @@ class NodeContract(BaseModel):
     edge: NodeEdgeContract = Field(default_factory=NodeEdgeContract)
     execution: NodeExecutionPolicy = Field(default_factory=NodeExecutionPolicy)
     execution_variants: dict[int, NodeExecutionPolicy] = Field(default_factory=dict)
+    retry: NodeRetryPolicy = Field(default_factory=NodeRetryPolicy)
     availability: NodeAvailabilityPolicy = Field(default_factory=NodeAvailabilityPolicy)
     resources: tuple[NodeResourceContract, ...] = ()
     planner: NodePlannerContract = Field(default_factory=NodePlannerContract)
@@ -289,6 +314,7 @@ class NodeContract(BaseModel):
             "config_schema": self.config_schema,
             "ports": [port.model_dump(mode="json") for port in self.ports],
             "edge": self.edge.model_dump(mode="json"),
+            "retry": self.retry.model_dump(mode="json"),
             "resources": [resource.model_dump(mode="json") for resource in self.resources],
             "planner": {
                 "support": self.planner.support,
@@ -2082,6 +2108,8 @@ def _complete_contracts() -> dict[str, NodeContract]:
             "outputVariable": {"type": "string"},
             "failureAction": {"type": "string", "enum": ["stop", "error_output"]},
             "errorVariable": {"type": "string"},
+            "retryMode": {"type": "string", "enum": ["none", "transient"]},
+            "maxAttempts": {"type": "integer", "enum": [2, 3]},
         },
         required=[
             "contractVersion",
@@ -2124,6 +2152,12 @@ def _complete_contracts() -> dict[str, NodeContract]:
             idempotent=False,
             error_semantics="fail_closed",
             security_category="network",
+        ),
+        retry=NodeRetryPolicy(
+            supported=True,
+            modes=("none", "transient"),
+            max_attempts=(2, 3),
+            backoff_seconds=(5, 30),
         ),
         availability=NodeAvailabilityPolicy(
             app=_rule(
@@ -3296,6 +3330,8 @@ def _complete_contracts() -> dict[str, NodeContract]:
                 "outputVariable": {"type": "string"},
                 "failureAction": {"type": "string", "enum": ["stop", "error_output"]},
                 "errorVariable": {"type": "string"},
+                "retryMode": {"type": "string", "enum": ["none", "transient"]},
+                "maxAttempts": {"type": "integer", "enum": [2, 3]},
             },
             required=["knowledgeBaseId", "queryVariable", "outputVariable"],
         ),
@@ -3322,6 +3358,12 @@ def _complete_contracts() -> dict[str, NodeContract]:
             external_io=True,
             error_semantics="fail_closed",
             security_category="knowledge",
+        ),
+        retry=NodeRetryPolicy(
+            supported=True,
+            modes=("none", "transient"),
+            max_attempts=(2, 3),
+            backoff_seconds=(5, 30),
         ),
         resources=(
             NodeResourceContract(
@@ -3538,6 +3580,14 @@ def _complete_contracts() -> dict[str, NodeContract]:
                                 "enum": ["stop", "error_output"],
                             },
                             "errorVariable": {"type": "string"},
+                            "retryMode": {
+                                "type": "string",
+                                "enum": ["none", "transient"],
+                            },
+                            "maxAttempts": {
+                                "type": "integer",
+                                "enum": [2, 3],
+                            },
                         }
                         if kind == "data_table_query"
                         else {}
@@ -3573,6 +3623,16 @@ def _complete_contracts() -> dict[str, NodeContract]:
                 idempotent=True,
                 error_semantics="fail_closed",
                 security_category="private_data",
+            ),
+            retry=(
+                NodeRetryPolicy(
+                    supported=True,
+                    modes=("none", "transient"),
+                    max_attempts=(2, 3),
+                    backoff_seconds=(5, 30),
+                )
+                if kind == "data_table_query"
+                else NodeRetryPolicy()
             ),
             availability=_availability(
                 app=app_table_denied,

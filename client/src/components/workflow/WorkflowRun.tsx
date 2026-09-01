@@ -117,7 +117,7 @@ interface WorkflowRunRecoveryPointer {
 
 interface WorkflowStreamProgress {
   lastSequence: number;
-  waitingForAgentHandoff: boolean;
+  waitingForDurableResume: boolean;
   terminal: boolean;
 }
 
@@ -125,7 +125,7 @@ const WORKFLOW_RUN_RECOVERY_PREFIX = "modelmirror-workflow-run-v1";
 const WORKFLOW_TASK_ID_PATTERN = /^[0-9a-f]{32}$/i;
 const RUNTIME_RUN_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const AGENT_HANDOFF_STREAM_POLL_MS = 1000;
+const DURABLE_STREAM_POLL_MS = 1000;
 
 export function workflowRunRecoveryKey(workflowId: string) {
   return `${WORKFLOW_RUN_RECOVERY_PREFIX}:${workflowId.trim()}`;
@@ -225,7 +225,23 @@ interface PendingHumanIntervention {
   outputVariable: string;
 }
 
-type RunStepStatus = "running" | "done" | "handled_error" | "waiting" | "skipped" | "error";
+type RunStepStatus =
+  | "running"
+  | "retry_waiting"
+  | "done"
+  | "handled_error"
+  | "waiting"
+  | "skipped"
+  | "error";
+
+interface WorkflowNodeRetryEvent {
+  state: "scheduled" | "started";
+  attempt: number;
+  maxAttempts: number;
+  resumeAt?: number;
+  errorCode?: string;
+  classification?: "transient" | "permanent";
+}
 
 interface WorkflowRunStep {
   id: string;
@@ -235,6 +251,7 @@ interface WorkflowRunStep {
   output: string;
   variable?: string;
   providerRouteReceipt?: ProviderRouteReceipt;
+  retryEvents?: WorkflowNodeRetryEvent[];
 }
 
 export interface WorkflowBatchReceipt {
@@ -588,6 +605,7 @@ function appendStepOutput(
 
 function statusCopy(status: RunStepStatus) {
   if (status === "done") return "完成";
+  if (status === "retry_waiting") return "等待重试";
   if (status === "handled_error") return "失败已处理";
   if (status === "waiting") return "等待输入";
   if (status === "skipped") return "已跳过";
@@ -602,6 +620,9 @@ function statusClass(status: RunStepStatus) {
   if (status === "waiting") {
     return "border-sky-300/25 bg-sky-300/10 text-sky-100";
   }
+  if (status === "retry_waiting") {
+    return "border-amber-300/30 bg-amber-300/10 text-amber-100";
+  }
   if (status === "handled_error") {
     return "border-amber-300/30 bg-amber-300/10 text-amber-100";
   }
@@ -612,6 +633,122 @@ function statusClass(status: RunStepStatus) {
     return "border-rose-300/25 bg-rose-300/10 text-rose-100";
   }
   return "border-hire-300/25 bg-hire-300/10 text-hire-100";
+}
+
+export function isTerminalWorkflowRunEvent(event: WorkflowRunEvent): boolean {
+  if (event.event === "workflow_end" || event.event === "workflow_cancelled") {
+    return true;
+  }
+  if (event.event !== "error") return false;
+  return event.terminal === true || !event.node_id;
+}
+
+function workflowErrorAttemptCopy(event: WorkflowRunEvent): string {
+  if (event.event !== "error" || !event.attempt) return "";
+  const attempt = Math.max(1, Number(event.attempt) || 1);
+  const maxAttempts = Math.max(attempt, Number(event.max_attempts) || attempt);
+  const classification = event.classification === "permanent"
+    ? "永久故障"
+    : event.classification === "transient"
+      ? "临时故障"
+      : "";
+  const exhausted = event.exhausted === true ? "已耗尽" : "不会继续重试";
+  return `第 ${attempt}/${maxAttempts} 次尝试${classification ? ` · ${classification}` : ""} · ${exhausted}`;
+}
+
+function workflowSafeErrorCode(event: WorkflowRunEvent): string {
+  const code = String(event.code ?? event.error_code ?? "").trim();
+  return /^[A-Z][A-Z0-9_]{0,63}$/.test(code) ? code : "";
+}
+
+function workflowTerminalErrorSummary(event: WorkflowRunEvent): string {
+  const message = event.message ?? "工作流运行异常。";
+  const code = workflowSafeErrorCode(event);
+  const attemptCopy = workflowErrorAttemptCopy(event);
+  const details = [code, attemptCopy].filter(Boolean).join(" · ");
+  return details ? `${message}（${details}）` : message;
+}
+
+function normalizedRetryEvent(
+  event: WorkflowRunEvent,
+  state: WorkflowNodeRetryEvent["state"],
+): WorkflowNodeRetryEvent {
+  const attempt = Math.max(1, Number(event.attempt) || 1);
+  return {
+    state,
+    attempt,
+    maxAttempts: Math.max(attempt, Number(event.max_attempts) || attempt),
+    ...(typeof event.resume_at === "number" ? { resumeAt: event.resume_at } : {}),
+    ...(event.error_code ? { errorCode: event.error_code } : {}),
+    ...(event.classification ? { classification: event.classification } : {}),
+  };
+}
+
+function appendRetryEvent(
+  step: WorkflowRunStep,
+  event: WorkflowRunEvent,
+  state: WorkflowNodeRetryEvent["state"],
+) {
+  const next = normalizedRetryEvent(event, state);
+  const current = step.retryEvents ?? [];
+  if (current.some((item) => item.state === next.state && item.attempt === next.attempt)) {
+    return;
+  }
+  step.retryEvents = [...current, next];
+}
+
+function retryCountdownCopy(resumeAt: number | undefined, now: number) {
+  if (!resumeAt) return "等待协调器恢复";
+  const remainingSeconds = Math.max(0, Math.ceil(resumeAt - now / 1000));
+  if (remainingSeconds === 0) return "即将恢复";
+  if (remainingSeconds < 60) return `${remainingSeconds} 秒后`;
+  return `${Math.ceil(remainingSeconds / 60)} 分钟后`;
+}
+
+function WorkflowRetryTimeline({ events }: { events: WorkflowNodeRetryEvent[] }) {
+  const [now, setNow] = useState(() => Date.now());
+  const latest = events.at(-1);
+
+  useEffect(() => {
+    if (latest?.state !== "scheduled" || !latest.resumeAt) return undefined;
+    const interval = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, [latest?.resumeAt, latest?.state]);
+
+  return (
+    <div
+      aria-label="节点重试记录"
+      className="mt-2 space-y-1 rounded-md border border-amber-300/15 bg-amber-300/[0.06] p-2"
+    >
+      {events.map((item) => (
+        <div
+          className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px] leading-5 text-amber-50"
+          key={`${item.state}-${item.attempt}`}
+        >
+          <span>
+            {item.state === "scheduled"
+              ? `第 ${item.attempt}/${item.maxAttempts} 次尝试已排队`
+              : `第 ${item.attempt}/${item.maxAttempts} 次尝试已开始`}
+            {item.errorCode ? ` · ${item.errorCode}` : ""}
+          </span>
+          {item.state === "scheduled" ? (
+            <time
+              aria-live="off"
+              className="font-medium text-amber-200"
+              dateTime={item.resumeAt ? new Date(item.resumeAt * 1000).toISOString() : undefined}
+              title={item.resumeAt ? new Date(item.resumeAt * 1000).toLocaleString() : undefined}
+            >
+              {events.some(
+                (candidate) => candidate.state === "started" && candidate.attempt === item.attempt,
+              )
+                ? "已恢复"
+                : retryCountdownCopy(item.resumeAt, now)}
+            </time>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export function shouldShowHandoffInboxLink(step: WorkflowRunStep): boolean {
@@ -751,7 +888,7 @@ export function buildRunSteps(events: WorkflowRunEvent[]) {
         id: `workflow-error-${index}`,
         title: "工作流",
         status: "error",
-        output: event.message ?? "工作流运行异常。",
+        output: workflowTerminalErrorSummary(event),
       });
       return;
     }
@@ -801,6 +938,16 @@ export function buildRunSteps(events: WorkflowRunEvent[]) {
       );
       return;
     }
+    if (event.event === "node_retry_scheduled") {
+      step.status = "retry_waiting";
+      appendRetryEvent(step, event, "scheduled");
+      return;
+    }
+    if (event.event === "node_retry_started") {
+      step.status = "running";
+      appendRetryEvent(step, event, "started");
+      return;
+    }
     if (event.event === "node_delta") {
       step.output = appendStepOutput(step.output, event.output, step.type);
       return;
@@ -842,6 +989,14 @@ export function buildRunSteps(events: WorkflowRunEvent[]) {
     if (event.event === "error") {
       step.status = "error";
       step.output = appendStepOutput(step.output, event.message, step.type);
+      const safeCode = workflowSafeErrorCode(event);
+      if (safeCode) {
+        step.output = appendStepOutput(step.output, `错误码：${safeCode}`, step.type);
+      }
+      const attemptCopy = workflowErrorAttemptCopy(event);
+      if (attemptCopy) {
+        step.output = appendStepOutput(step.output, attemptCopy, step.type);
+      }
       step.providerRouteReceipt = event.provider_route_receipts ?? step.providerRouteReceipt;
     }
   });
@@ -878,6 +1033,10 @@ export default function WorkflowRun({
     useState<PendingHumanIntervention | null>(null);
   const [humanInput, setHumanInput] = useState("");
   const [isResuming, setIsResuming] = useState(false);
+  const [recoveryPending, setRecoveryPending] = useState(() =>
+    Boolean(readWorkflowRunRecovery(definition.id)),
+  );
+  const [recoveryAttempt, setRecoveryAttempt] = useState(0);
   const [showObservation, setShowObservation] = useState(false);
   const [observationData, setObservationData] =
     useState<WorkflowObservationData | null>(null);
@@ -1253,16 +1412,19 @@ export default function WorkflowRun({
     let receivedEvent = false;
     const progress: WorkflowStreamProgress = {
       lastSequence: 0,
-      waitingForAgentHandoff: false,
+      waitingForDurableResume: false,
       terminal: false,
     };
     const acceptEvent = (event: WorkflowRunEvent) => {
       receivedEvent = true;
       progress.lastSequence = Math.max(progress.lastSequence, event.sequence ?? 0);
-      if (event.event === "agent_handoff_waiting") {
-        progress.waitingForAgentHandoff = true;
+      if (
+        event.event === "agent_handoff_waiting"
+        || event.event === "node_retry_scheduled"
+      ) {
+        progress.waitingForDurableResume = true;
       }
-      if (["workflow_end", "workflow_cancelled", "error"].includes(event.event)) {
+      if (isTerminalWorkflowRunEvent(event)) {
         progress.terminal = true;
       }
       handleRunEvent(event);
@@ -1295,7 +1457,7 @@ export default function WorkflowRun({
     return progress;
   }
 
-  async function consumeWorkflowThroughAgentHandoff(
+  async function consumeWorkflowThroughDurableWait(
     response: Response,
     options: {
       signal: AbortSignal;
@@ -1307,16 +1469,16 @@ export default function WorkflowRun({
       response,
       options.replaceEvents ?? false,
     );
-    if (!progress.waitingForAgentHandoff || progress.terminal) return;
+    if (!progress.waitingForDurableResume || progress.terminal) return;
 
     const followTaskId = options.taskId.trim();
     if (!WORKFLOW_TASK_ID_PATTERN.test(followTaskId)) {
-      throw new Error("无法继续跟踪协作任务。请刷新页面恢复运行状态。");
+      throw new Error("无法继续跟踪持久运行。请刷新页面恢复运行状态。");
     }
     let cursor = progress.lastSequence;
     while (!progress.terminal) {
       await new Promise<void>((resolve) => {
-        window.setTimeout(resolve, AGENT_HANDOFF_STREAM_POLL_MS);
+        window.setTimeout(resolve, DURABLE_STREAM_POLL_MS);
       });
       if (options.signal.aborted) {
         throw new DOMException("Workflow stream aborted.", "AbortError");
@@ -1329,13 +1491,13 @@ export default function WorkflowRun({
         { signal: options.signal },
       );
       if (!followResponse.ok) {
-        throw new Error("无法继续跟踪协作任务。请刷新页面恢复运行状态。");
+        throw new Error("无法继续跟踪持久运行。请刷新页面恢复运行状态。");
       }
       const next = await consumeWorkflowResponse(followResponse);
       cursor = Math.max(cursor, next.lastSequence);
       progress = {
         lastSequence: cursor,
-        waitingForAgentHandoff: true,
+        waitingForDurableResume: true,
         terminal: next.terminal,
       };
     }
@@ -1343,16 +1505,23 @@ export default function WorkflowRun({
 
   useEffect(() => {
     const recovery = readWorkflowRunRecovery(definition.id);
-    if (!recovery) return;
+    if (!recovery) {
+      setRecoveryPending(false);
+      return;
+    }
     const abort = new AbortController();
     let active = true;
 
+    setError("");
+    setRecoveryPending(true);
     setTaskId(recovery.taskId);
     setRunId(recovery.runId);
     runMetaRef.current = {
       taskId: recovery.taskId,
       runId: recovery.runId,
     };
+    runAbortRef.current = abort;
+    setIsRunning(true);
     setIsResuming(true);
     fetch(
       `/api/workflow/run/${encodeURIComponent(recovery.taskId)}/stream?after_sequence=0`,
@@ -1362,33 +1531,57 @@ export default function WorkflowRun({
         if (!response.ok) {
           if (response.status === 404) {
             window.sessionStorage.removeItem(workflowRunRecoveryKey(definition.id));
+            setRecoveryPending(false);
           }
           throw new Error("无法恢复上次运行。请重新运行工作流。");
         }
-        await consumeWorkflowThroughAgentHandoff(response, {
+        await consumeWorkflowThroughDurableWait(response, {
           signal: abort.signal,
           taskId: recovery.taskId,
           replaceEvents: true,
         });
       })
       .catch((caught) => {
-        if (!active || (caught instanceof DOMException && caught.name === "AbortError")) {
+        if (!active) {
           return;
         }
-        setError(caught instanceof Error ? caught.message : "无法恢复上次运行。");
+        if (caught instanceof DOMException && caught.name === "AbortError") {
+          runningNodesRef.current.forEach((nodeId) =>
+            onNodeStatusChange?.(nodeId, "idle"),
+          );
+          runningNodesRef.current.clear();
+          setFinishedOutcome("cancelled");
+          recordRunHistory("cancelled", "已取消。");
+          window.sessionStorage.removeItem(workflowRunRecoveryKey(definition.id));
+          return;
+        }
+        const canRecover = Boolean(readWorkflowRunRecovery(definition.id));
+        setRecoveryPending(canRecover);
+        const message = caught instanceof Error ? caught.message : "无法恢复上次运行。";
+        setError(
+          canRecover
+            ? `${message} 原运行可能仍在服务端继续，请继续跟踪或取消原运行。`
+            : message,
+        );
       })
       .finally(() => {
-        if (active) setIsResuming(false);
+        if (active) {
+          setIsResuming(false);
+          setIsRunning(false);
+          setRecoveryPending(Boolean(readWorkflowRunRecovery(definition.id)));
+          if (runAbortRef.current === abort) runAbortRef.current = null;
+        }
       });
 
     return () => {
       active = false;
       abort.abort();
+      if (runAbortRef.current === abort) runAbortRef.current = null;
     };
     // The persisted task pointer is scoped by immutable workflow id. Event
     // handlers intentionally remain the same ones used by live execution.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [definition.id]);
+  }, [definition.id, recoveryAttempt]);
 
   async function selectWorkflowFile(
     variableName: string,
@@ -1535,6 +1728,12 @@ export default function WorkflowRun({
   }
 
   async function runWorkflow() {
+    if (isRunning || isResuming) return;
+    if (recoveryPending || readWorkflowRunRecovery(definition.id)) {
+      setRecoveryPending(true);
+      setError("上次运行仍待恢复。请先继续跟踪或取消原运行，避免重复执行下游操作。");
+      return;
+    }
     if (fileAssetVariables.length > 0 && !workflowFileInputEnabled) {
       setError(workflowFileDisabledReason);
       return;
@@ -1562,6 +1761,7 @@ export default function WorkflowRun({
     setError("");
     setTaskId(null);
     setRunId(null);
+    runMetaRef.current = { taskId: null, runId: null };
     setPendingHuman(null);
     setHumanInput("");
     setShowObservation(false);
@@ -1625,9 +1825,10 @@ export default function WorkflowRun({
           taskId: responseTaskId,
           runId: responseRunId,
         });
+        setRecoveryPending(true);
       }
 
-      await consumeWorkflowThroughAgentHandoff(response, {
+      await consumeWorkflowThroughDurableWait(response, {
         signal: abort.signal,
         taskId: responseTaskId ?? "",
       });
@@ -1654,10 +1855,19 @@ export default function WorkflowRun({
         runningNodesRef.current.clear();
         recordRunHistory("cancelled", "已取消。");
       } else {
-        setFinishedOutcome("error");
-        setError(
-          runError instanceof Error ? runError.message : "工作流运行失败。",
-        );
+        const hasDurableRecovery = Boolean(readWorkflowRunRecovery(definition.id));
+        if (hasDurableRecovery) {
+          setRecoveryPending(true);
+          setFinishedOutcome(null);
+          setError(
+            "运行结果流暂时中断，原运行可能仍在服务端继续。请继续跟踪或取消原运行。",
+          );
+        } else {
+          setFinishedOutcome("error");
+          setError(
+            runError instanceof Error ? runError.message : "工作流运行失败。",
+          );
+        }
       }
     } finally {
       setIsRunning(false);
@@ -1668,9 +1878,8 @@ export default function WorkflowRun({
   async function cancelWorkflow() {
     const abort = runAbortRef.current;
     const activeTaskId = runMetaRef.current.taskId;
-    if (!abort) return;
     if (!activeTaskId) {
-      abort.abort();
+      abort?.abort();
       return;
     }
 
@@ -1679,15 +1888,38 @@ export default function WorkflowRun({
       const response = await fetch(`/api/workflow/run/${activeTaskId}/cancel`, {
         method: "POST",
       });
+      const payload = (await response.json().catch(() => null)) as
+        | { error?: string; detail?: string; status?: string }
+        | null;
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as
-          | { error?: string; detail?: string }
-          | null;
         throw new Error(
           payload?.error ?? payload?.detail ?? "工作流取消失败，请重试。",
         );
       }
-      abort.abort();
+      const authoritativeStatus = String(payload?.status ?? "");
+      if (authoritativeStatus === "cancelled") {
+        window.sessionStorage.removeItem(workflowRunRecoveryKey(definition.id));
+        setRecoveryPending(false);
+        if (abort) {
+          abort.abort();
+        } else {
+          setFinishedOutcome("cancelled");
+          recordRunHistory("cancelled", "已取消。");
+        }
+        return;
+      }
+      if (["completed", "failed", "rejected"].includes(authoritativeStatus)) {
+        setError(
+          authoritativeStatus === "completed"
+            ? "原运行已完成，正在同步最终结果。"
+            : "原运行已结束，正在同步最终状态。",
+        );
+        if (!abort && readWorkflowRunRecovery(definition.id)) {
+          setRecoveryAttempt((current) => current + 1);
+        }
+        return;
+      }
+      throw new Error("取消结果暂未确认，原运行不会被本地中断。请继续跟踪后重试。");
     } catch (cancelError) {
       setError(
         cancelError instanceof Error
@@ -1695,6 +1927,16 @@ export default function WorkflowRun({
           : "工作流取消失败，请重试。",
       );
     }
+  }
+
+  function retryPersistedWorkflow() {
+    if (!readWorkflowRunRecovery(definition.id)) {
+      setRecoveryPending(false);
+      setError("上次运行已结束或不存在，可以重新运行工作流。");
+      return;
+    }
+    setError("");
+    setRecoveryAttempt((current) => current + 1);
   }
 
   function retryWorkflow() {
@@ -1734,6 +1976,15 @@ export default function WorkflowRun({
         );
       }
     }
+    if (event.event === "node_retry_scheduled" && event.node_id) {
+      runningNodesRef.current.delete(event.node_id);
+      onNodeStatusChange?.(event.node_id, "retry_waiting");
+    }
+    if (event.event === "node_retry_started" && event.node_id) {
+      failedNodesRef.current.delete(event.node_id);
+      runningNodesRef.current.add(event.node_id);
+      onNodeStatusChange?.(event.node_id, "running");
+    }
     if (event.event === "node_error_routed" && event.node_id) {
       runningNodesRef.current.delete(event.node_id);
       onNodeStatusChange?.(event.node_id, "handled_error");
@@ -1743,6 +1994,7 @@ export default function WorkflowRun({
       onNodeStatusChange?.(event.node_id, "skipped");
     }
     if (event.event === "error") {
+      const terminal = isTerminalWorkflowRunEvent(event);
       if (event.node_id) {
         lastNodeErrorRef.current = event.message ?? "工作流节点运行异常。";
         failedNodesRef.current.add(event.node_id);
@@ -1754,8 +2006,18 @@ export default function WorkflowRun({
           onNodeStatusChange?.(nodeId, "error"),
         );
         runningNodesRef.current.clear();
+      }
+      if (terminal) {
+        const summary = workflowTerminalErrorSummary(event);
+        runningNodesRef.current.forEach((nodeId) =>
+          onNodeStatusChange?.(nodeId, "error"),
+        );
+        runningNodesRef.current.clear();
         setFinishedOutcome("error");
-        recordRunHistory("error", event.message ?? "工作流运行异常。");
+        setError(summary);
+        recordRunHistory("error", summary);
+        window.sessionStorage.removeItem(workflowRunRecoveryKey(definition.id));
+        setRecoveryPending(false);
       }
     }
     if (event.event === "workflow_meta" && event.task_id) {
@@ -1769,8 +2031,11 @@ export default function WorkflowRun({
       runningNodesRef.current.clear();
       setPendingHuman(null);
       setHumanInput("");
+      setError("");
       setFinishedOutcome("cancelled");
       recordRunHistory("cancelled", event.message ?? "已取消。");
+      window.sessionStorage.removeItem(workflowRunRecoveryKey(definition.id));
+      setRecoveryPending(false);
     }
     if (
       (event.event === "workflow_meta" || event.event === "workflow_end") &&
@@ -1802,11 +2067,14 @@ export default function WorkflowRun({
       runningNodesRef.current.clear();
       setPendingHuman(null);
       setHumanInput("");
+      setError("");
       setFinishedOutcome("completed");
       recordRunHistory(
         "completed",
         workflowRunCompletedSummary(event.final_output),
       );
+      window.sessionStorage.removeItem(workflowRunRecoveryKey(definition.id));
+      setRecoveryPending(false);
     }
   }
 
@@ -1855,7 +2123,7 @@ export default function WorkflowRun({
           | null;
         throw new Error(payload?.detail || "恢复执行流失败");
       }
-      await consumeWorkflowThroughAgentHandoff(response, {
+      await consumeWorkflowThroughDurableWait(response, {
         signal: abort.signal,
         taskId,
         replaceEvents: true,
@@ -2260,6 +2528,23 @@ export default function WorkflowRun({
             >
               取消运行
             </button>
+          ) : recoveryPending ? (
+            <div className="grid w-full grid-cols-2 gap-2">
+              <button
+                className="rounded-full bg-hire-300 px-4 py-2.5 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 active:scale-[0.98]"
+                onClick={retryPersistedWorkflow}
+                type="button"
+              >
+                继续跟踪
+              </button>
+              <button
+                className="rounded-full border border-rose-300/40 bg-rose-400/10 px-4 py-2.5 text-sm font-semibold text-rose-100 transition hover:bg-rose-400/25 active:scale-[0.98]"
+                onClick={cancelWorkflow}
+                type="button"
+              >
+                取消原运行
+              </button>
+            </div>
           ) : (
             <button
               className="w-full rounded-full bg-hire-300 px-4 py-2.5 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500"
@@ -2274,7 +2559,7 @@ export default function WorkflowRun({
               运行工作流
             </button>
           )}
-          {finishedOutcome ? (
+          {finishedOutcome && !recoveryPending ? (
             <button
               className="shrink-0 rounded-full border border-brand-300/35 bg-brand-300/10 px-3 py-2.5 text-sm font-semibold text-brand-100 transition hover:bg-brand-300/20 active:scale-[0.98]"
               onClick={retryWorkflow}
@@ -2461,6 +2746,9 @@ export default function WorkflowRun({
                     {statusCopy(step.status)}
                   </span>
                 </div>
+                {step.retryEvents?.length ? (
+                  <WorkflowRetryTimeline events={step.retryEvents} />
+                ) : null}
                 {step.output ? (
                   batchReceipts ? (
                     <WorkflowBatchReceiptList compact receipts={batchReceipts} />

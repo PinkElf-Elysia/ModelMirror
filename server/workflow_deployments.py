@@ -45,6 +45,12 @@ try:
         validate_mcp_tool_v2_config,
     )
     from server.workflow_native.r23_iteration import is_workflow_map
+    from server.workflow_native.retry_policy import (
+        WorkflowRetryPolicyError,
+        effective_can_wait,
+        retry_enabled,
+        validate_static_retry_eligibility,
+    )
     from server.workflow_native.content_parser import document_extractor_uses_file_asset
     from server.workflow_forms import (
         WorkflowFormError,
@@ -97,6 +103,12 @@ except ModuleNotFoundError:
         validate_mcp_tool_v2_config,
     )
     from workflow_native.r23_iteration import is_workflow_map
+    from workflow_native.retry_policy import (
+        WorkflowRetryPolicyError,
+        effective_can_wait,
+        retry_enabled,
+        validate_static_retry_eligibility,
+    )
     from workflow_native.content_parser import document_extractor_uses_file_asset
     from workflow_forms import (
         WorkflowFormError,
@@ -388,6 +400,7 @@ class WorkflowDeploymentStore:
         mcp_tool_validator: Callable[[dict[str, Any]], Any] | None = None,
         xpert_target_validator: Callable[[str, int], Any] | None = None,
         knowledge_proposal_validator: Callable[[str], Any] | None = None,
+        knowledge_retry_validator: Callable[[str], str] | None = None,
     ) -> None:
         package_dir = Path(__file__).resolve().parent
         self.storage_dir = Path(
@@ -414,6 +427,7 @@ class WorkflowDeploymentStore:
         self._mcp_tool_validator = mcp_tool_validator
         self._xpert_target_validator = xpert_target_validator
         self._knowledge_proposal_validator = knowledge_proposal_validator
+        self._knowledge_retry_validator = knowledge_retry_validator
         self._load()
 
     def create_project(self, workflow: dict[str, Any]) -> WorkflowProject:
@@ -518,6 +532,7 @@ class WorkflowDeploymentStore:
                 xpert_target_validator=self._xpert_target_validator,
             )
             self._validate_knowledge_proposal_targets_unlocked(project.draft)
+            self._validate_retry_targets_unlocked(project.draft)
             if trigger_kind == "failure":
                 self._validate_failure_sources_unlocked(
                     project_id,
@@ -575,6 +590,7 @@ class WorkflowDeploymentStore:
         rss_triggers_enabled: bool = False,
         imap_triggers_enabled: bool = False,
         knowledge_proposals_enabled: bool = False,
+        node_retries_enabled: bool = False,
         now: float | None = None,
     ) -> tuple[WorkflowDeployment, str | None]:
         current = time.time() if now is None else float(now)
@@ -640,6 +656,19 @@ class WorkflowDeploymentStore:
                 for node in release.workflow.get("nodes", [])
                 if isinstance(node, dict)
             ]
+            retry_nodes = [
+                node
+                for node in nodes
+                if retry_enabled(dict(node.get("data") or {}))
+            ]
+            if retry_nodes and not node_retries_enabled:
+                raise WorkflowDeploymentConflictError(
+                    "Workflow node retries are disabled."
+                )
+            try:
+                self._validate_retry_targets_unlocked(release.workflow)
+            except WorkflowDeploymentValidationError as exc:
+                raise WorkflowDeploymentConflictError(str(exc)) from exc
             proposal_nodes = [
                 node
                 for node in nodes
@@ -995,6 +1024,52 @@ class WorkflowDeploymentStore:
                 raise WorkflowDeploymentValidationError(
                     "The selected knowledge base is unavailable or read-only."
                 ) from exc
+
+    def _validate_retry_targets_unlocked(
+        self,
+        workflow: dict[str, Any],
+    ) -> None:
+        retry_nodes = [
+            node
+            for node in workflow.get("nodes", [])
+            if isinstance(node, dict)
+            and retry_enabled(dict(node.get("data") or {}))
+        ]
+        for node in retry_nodes:
+            try:
+                validate_static_retry_eligibility(
+                    dict(node.get("data") or {}),
+                    node_kind=_raw_node_kind(node),
+                )
+            except WorkflowRetryPolicyError as exc:
+                raise WorkflowDeploymentValidationError(exc.safe_message) from exc
+        knowledge_nodes = [
+            node
+            for node in retry_nodes
+            if _raw_node_kind(node) == "knowledge_retrieval"
+        ]
+        if not knowledge_nodes:
+            return
+        if self._knowledge_retry_validator is None:
+            raise WorkflowDeploymentValidationError(
+                "Knowledge retry target validation is unavailable."
+            )
+        for node in knowledge_nodes:
+            kb_id = str(
+                dict(node.get("data") or {}).get("knowledgeBaseId") or ""
+            ).strip()
+            try:
+                fingerprint = self._knowledge_retry_validator(kb_id)
+            except WorkflowRetryPolicyError as exc:
+                raise WorkflowDeploymentValidationError(exc.safe_message) from exc
+            except Exception as exc:
+                raise WorkflowDeploymentValidationError(
+                    "The knowledge retry target is unavailable or ineligible."
+                ) from exc
+            if not isinstance(fingerprint, str) or not fingerprint.strip():
+                raise WorkflowDeploymentValidationError(
+                    "The knowledge retry target fingerprint is unavailable."
+                )
 
     def deactivate(self, project_id: str, version: int) -> WorkflowDeployment:
         with self._lock:
@@ -1899,6 +1974,8 @@ class WorkflowDeploymentStore:
     ) -> WorkflowTriggerExecution:
         with self._lock:
             item = self._require_execution_unlocked(execution_id)
+            if item.status in TERMINAL_EXECUTION_STATUSES:
+                return item
             if expected_lease_token is not None:
                 self._require_execution_lease_unlocked(item, expected_lease_token)
             item.status = "waiting"
@@ -1910,6 +1987,80 @@ class WorkflowDeploymentStore:
             self._clear_lease(item)
             item.updated_at = time.time()
             self._persist_unlocked()
+            return item
+
+    def record_execution_retry_event(
+        self,
+        execution_id: str,
+        event: dict[str, Any],
+    ) -> WorkflowTriggerExecution:
+        """Persist a bounded, content-free retry timeline for deployment UI only."""
+
+        event_name = str(event.get("event") or "")
+        if event_name not in {
+            "node_retry_scheduled",
+            "node_retry_started",
+            "node_error_routed",
+        }:
+            raise WorkflowDeploymentValidationError(
+                "Workflow retry event is invalid."
+            )
+        attempt = event.get("attempt")
+        maximum = event.get("max_attempts")
+        if (
+            isinstance(attempt, bool)
+            or not isinstance(attempt, int)
+            or attempt not in {1, 2, 3}
+            or isinstance(maximum, bool)
+            or not isinstance(maximum, int)
+            or maximum not in {1, 2, 3}
+            or attempt > maximum
+        ):
+            raise WorkflowDeploymentValidationError(
+                "Workflow retry attempt is invalid."
+            )
+        classification = str(event.get("classification") or "")
+        if classification not in {"transient", "permanent"}:
+            raise WorkflowDeploymentValidationError(
+                "Workflow retry classification is invalid."
+            )
+        summary = {
+            "event": event_name,
+            "node_id": str(event.get("node_id") or "")[:200],
+            "node_type": str(event.get("node_type") or "")[:100],
+            "attempt": attempt,
+            "max_attempts": maximum,
+            "resume_at": (
+                float(event["resume_at"])
+                if isinstance(event.get("resume_at"), (int, float))
+                and not isinstance(event.get("resume_at"), bool)
+                else None
+            ),
+            "error_code": str(event.get("error_code") or "")[:200],
+            "classification": classification,
+        }
+        with self._lock:
+            item = self._require_execution_unlocked(execution_id)
+            current = item.trigger_summary.get("retry_events")
+            events = [
+                dict(value)
+                for value in current
+                if isinstance(value, dict)
+            ] if isinstance(current, list) else []
+            identity = (event_name, summary["node_id"], attempt)
+            if not any(
+                (
+                    value.get("event"),
+                    value.get("node_id"),
+                    value.get("attempt"),
+                )
+                == identity
+                for value in events
+            ):
+                events.append(summary)
+                item.trigger_summary["retry_events"] = events[-8:]
+                item.updated_at = time.time()
+                self._persist_unlocked()
             return item
 
     def complete_execution(
@@ -1924,6 +2075,8 @@ class WorkflowDeploymentStore:
     ) -> WorkflowTriggerExecution:
         with self._lock:
             item = self._require_execution_unlocked(execution_id)
+            if item.status in TERMINAL_EXECUTION_STATUSES:
+                return item
             if expected_lease_token is not None:
                 self._require_execution_lease_unlocked(item, expected_lease_token)
             item.status = "completed"
@@ -3321,6 +3474,14 @@ def validate_publishable_workflow(
             raise WorkflowDeploymentValidationError(
                 f"Node '{node.id}' does not satisfy its NodeContract: {errors[0].message}"
             )
+        if (
+            trigger_kind in {"http", "form", "rss", "email"}
+            and retry_enabled(node.data)
+            and effective_can_wait(node.data, contract)
+        ):
+            raise WorkflowDeploymentValidationError(
+                "External event deployments cannot contain durable node retries."
+            )
         if trigger_kind == "http" and kind == "runtime_middleware":
             raise WorkflowDeploymentValidationError(
                 "HTTP deployments cannot contain runtime middleware in R1."
@@ -3431,7 +3592,7 @@ def validate_publishable_workflow(
                 raise WorkflowDeploymentValidationError(
                     "The fixed Xpert Handoff target is unavailable."
                 ) from exc
-        if trigger_kind == "call" and contract.execution.can_wait:
+        if trigger_kind == "call" and effective_can_wait(node.data, contract):
             raise WorkflowDeploymentValidationError(
                 "Callable workflows cannot contain waiting nodes."
             )

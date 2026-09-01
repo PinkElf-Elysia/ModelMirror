@@ -24,6 +24,12 @@ from .control_data import (
     validate_terminate_error_config,
 )
 from .node_contracts import WorkflowValueSchema, workflow_node_contract_registry
+from .retry_policy import (
+    WorkflowRetryPolicyError,
+    effective_can_wait,
+    retry_is_enabled,
+    validate_retry_configuration,
+)
 from .content_parser import (
     WorkflowContentParserError,
     is_document_extractor_v3,
@@ -541,7 +547,11 @@ def validate_handoff_execution_configuration(
     return issues
 
 
-def validate_workflow_graph(workflow: NativeWorkflowDefinition) -> ValidateWorkflowResponse:
+def validate_workflow_graph(
+    workflow: NativeWorkflowDefinition,
+    *,
+    runtime_input_names: set[str] | None = None,
+) -> ValidateWorkflowResponse:
     """Validate a workflow graph without executing any node."""
 
     issues: list[ValidationIssue] = []
@@ -577,6 +587,7 @@ def validate_workflow_graph(workflow: NativeWorkflowDefinition) -> ValidateWorkf
             )
         )
 
+    nodes_by_id = {node.id: node for node in workflow.nodes}
     kinds_by_id = {node.id: node_kind(node) for node in workflow.nodes}
     for node in workflow.nodes:
         kind = kinds_by_id[node.id]
@@ -614,6 +625,38 @@ def validate_workflow_graph(workflow: NativeWorkflowDefinition) -> ValidateWorkf
     for node in workflow.nodes:
         issues.extend(validate_node_configuration(node, kinds_by_id[node.id]))
 
+    external_entry_kinds = {
+        "http_event_entry": "http",
+        "form_event_entry": "form",
+    }
+    active_external_entry = next(
+        (
+            label
+            for entry_kind, label in external_entry_kinds.items()
+            if any(kind == entry_kind for kind in kinds_by_id.values())
+        ),
+        None,
+    )
+    if active_external_entry is not None:
+        for node in workflow.nodes:
+            kind = kinds_by_id.get(node.id, "")
+            contract = workflow_node_contract_registry.get(kind)
+            if (
+                contract is not None
+                and retry_is_enabled(node.data)
+                and effective_can_wait(node.data, contract)
+            ):
+                issues.append(
+                    ValidationIssue(
+                        code=f"{active_external_entry}_node_retry_forbidden",
+                        message=(
+                            "External event workflows cannot contain durable "
+                            "node retries."
+                        ),
+                        node_id=node.id,
+                    )
+                )
+
     if any(kind == "form_event_entry" for kind in kinds_by_id.values()):
         for node in workflow.nodes:
             if kinds_by_id.get(node.id) == "knowledge_write_proposal":
@@ -631,9 +674,14 @@ def validate_workflow_graph(workflow: NativeWorkflowDefinition) -> ValidateWorkf
     if any(kind == "rss_event_entry" for kind in kinds_by_id.values()):
         for node in workflow.nodes:
             kind = kinds_by_id.get(node.id)
+            contract = workflow_node_contract_registry.get(kind or "")
             if kind in {"suspend_wait", "human_intervention", "mcp_tool"} or (
                 kind in {"agent_handoff", "handoff_router"}
                 and config_truthy(node.data.get("waitForCompletion"))
+            ) or (
+                contract is not None
+                and retry_is_enabled(node.data)
+                and effective_can_wait(node.data, contract)
             ):
                 issues.append(
                     ValidationIssue(
@@ -646,9 +694,14 @@ def validate_workflow_graph(workflow: NativeWorkflowDefinition) -> ValidateWorkf
     if any(kind == "email_event_entry" for kind in kinds_by_id.values()):
         for node in workflow.nodes:
             kind = kinds_by_id.get(node.id)
+            contract = workflow_node_contract_registry.get(kind or "")
             if kind in {"scheduled_start", "suspend_wait", "human_intervention", "mcp_tool"} or (
                 kind in {"agent_handoff", "handoff_router"}
                 and config_truthy(node.data.get("waitForCompletion"))
+            ) or (
+                contract is not None
+                and retry_is_enabled(node.data)
+                and effective_can_wait(node.data, contract)
             ):
                 issues.append(
                     ValidationIssue(
@@ -674,7 +727,12 @@ def validate_workflow_graph(workflow: NativeWorkflowDefinition) -> ValidateWorkf
             visited.add(ancestor_id)
             ancestor_kind = kinds_by_id.get(ancestor_id, "")
             ancestor_contract = workflow_node_contract_registry.get(ancestor_kind)
-            if ancestor_contract is not None and ancestor_contract.execution.can_wait:
+            ancestor_node = nodes_by_id.get(ancestor_id)
+            if (
+                ancestor_contract is not None
+                and ancestor_node is not None
+                and effective_can_wait(ancestor_node.data, ancestor_contract)
+            ):
                 waiting_ancestor = ancestor_id
                 break
             pending.extend(predecessors.get(ancestor_id, set()))
@@ -737,8 +795,26 @@ def validate_workflow_graph(workflow: NativeWorkflowDefinition) -> ValidateWorkf
             )
         )
 
+    injected_input_names = {
+        name.strip()
+        for name in (runtime_input_names or set())
+        if isinstance(name, str) and is_variable_name(name.strip())
+    }
+    for name in sorted(injected_input_names.intersection(node_variable_producers)):
+        issues.append(
+            ValidationIssue(
+                code="runtime_input_variable_producer_conflict",
+                message=(
+                    f"Runtime input variable '{name}' conflicts with a node output."
+                ),
+            )
+        )
+    reconstructible_injected_names = injected_input_names.difference(
+        node_variable_producers
+    )
     available_variables = collect_declared_variables(workflow.nodes, kinds_by_id)
     available_variables.update(declaration_names)
+    available_variables.update(injected_input_names)
     for node in workflow.nodes:
         issues.extend(
             validate_variable_references(node, kinds_by_id[node.id], available_variables)
@@ -748,7 +824,7 @@ def validate_workflow_graph(workflow: NativeWorkflowDefinition) -> ValidateWorkf
         workflow.edges,
         node_ids,
         issues,
-        nodes_by_id={node.id: node for node in workflow.nodes},
+        nodes_by_id=nodes_by_id,
         kinds_by_id=kinds_by_id,
     )
     validate_error_output_structure(
@@ -756,6 +832,14 @@ def validate_workflow_graph(workflow: NativeWorkflowDefinition) -> ValidateWorkf
         valid_edges,
         issues,
         kinds_by_id=kinds_by_id,
+    )
+    validate_retry_resume_variable_flow(
+        workflow.nodes,
+        valid_edges,
+        issues,
+        kinds_by_id=kinds_by_id,
+        declaration_names=set(declaration_names) | reconstructible_injected_names,
+        producers=node_variable_producers,
     )
     validate_invoke_workflow_upstream_bindings(
         workflow.nodes,
@@ -885,6 +969,361 @@ def validate_invoke_workflow_upstream_bindings(
                         node_id=node.id,
                     )
                 )
+
+
+def retry_resume_reference_issues(
+    nodes: list[NativeWorkflowNode],
+    edges: list[NativeWorkflowEdge],
+    *,
+    retry_node_id: str,
+    kinds_by_id: dict[str, str],
+    declaration_names: set[str],
+    producers: dict[str, list[str]],
+    resume_root_ids: set[str] | None = None,
+    known_skipped_edge_ids: set[str] | None = None,
+) -> list[ValidationIssue]:
+    """Return references that are not guaranteed reconstructible after retry resume."""
+
+    control_edges = [edge for edge in edges if not is_non_control_binding_edge(edge)]
+    skipped_edge_ids = set(known_skipped_edge_ids or set())
+    children: dict[str, set[str]] = defaultdict(set)
+    incoming: dict[str, list[NativeWorkflowEdge]] = defaultdict(list)
+    outgoing: dict[str, list[NativeWorkflowEdge]] = defaultdict(list)
+    for edge in control_edges:
+        children[edge.source].add(edge.target)
+        incoming[edge.target].append(edge)
+        outgoing[edge.source].append(edge)
+
+    # Only the classic input node is reconstructed from the execution's
+    # persisted inputs. Trigger event payloads are intentionally ephemeral and
+    # entry nodes are already marked executed when a retry resumes.
+    entry_kinds = {"input"}
+    initial_names = set(declaration_names)
+    initial_names.update(
+        variable_name
+        for variable_name, producer_ids in producers.items()
+        if any(kinds_by_id.get(producer_id) in entry_kinds for producer_id in producer_ids)
+    )
+    sensitive_names = {
+        str(node.data.get("contentVariable") or "").strip()
+        for node in nodes
+        if kinds_by_id.get(node.id) == "knowledge_write_proposal"
+        and str(node.data.get("contentVariable") or "").strip()
+    }
+    initial_names.difference_update(sensitive_names)
+    nodes_by_id = {node.id: node for node in nodes}
+    order_index = {node.id: index for index, node in enumerate(nodes)}
+    root_ids = set(resume_root_ids or {retry_node_id})
+    root_ids.add(retry_node_id)
+    future_ids = set(root_ids)
+    stack = [
+        child_id
+        for root_id in root_ids
+        for child_id in children.get(root_id, set())
+    ]
+    while stack:
+        current = stack.pop()
+        if current in future_ids:
+            continue
+        future_ids.add(current)
+        stack.extend(children.get(current, set()))
+
+    outputs_by_node: dict[str, set[str]] = defaultdict(set)
+    for variable_name, producer_ids in producers.items():
+        for producer_id in producer_ids:
+            outputs_by_node[producer_id].add(variable_name)
+
+    internal_indegree = {
+        node_id: sum(
+            1
+            for edge in incoming.get(node_id, [])
+            if edge.source in future_ids
+        )
+        for node_id in future_ids
+    }
+    ready = sorted(
+        (node_id for node_id, degree in internal_indegree.items() if degree == 0),
+        key=lambda node_id: order_index.get(node_id, len(order_index)),
+    )
+    edge_names: dict[str, set[str]] = {}
+    reference_issues: list[ValidationIssue] = []
+    while ready:
+        node_id = ready.pop(0)
+        node = nodes_by_id.get(node_id)
+        if node is None:
+            continue
+        if node_id in root_ids:
+            must_names = set(initial_names)
+        else:
+            incoming_states = [
+                (
+                    edge_names.get(edge.id, set(initial_names))
+                    if edge.source in future_ids
+                    else set(initial_names)
+                )
+                for edge in incoming.get(node_id, [])
+                if edge.id not in skipped_edge_ids
+            ]
+            must_names = (
+                set.intersection(*(set(state) for state in incoming_states))
+                if incoming_states
+                else set(initial_names)
+            )
+        output_base_names = set(must_names)
+        if kinds_by_id[node_id] == "data_merge":
+            # A merge is the one fan-in node whose two data dependencies are
+            # deliberately carried by different control handles. Requiring the
+            # intersection of both incoming paths would reject every valid
+            # left/right merge; accepting their union would let the variables
+            # arrive on the wrong handles. Check each dependency against its
+            # own edge state instead.
+            states_by_handle: dict[str, set[str]] = {}
+            for edge in incoming.get(node_id, []):
+                if edge.id in skipped_edge_ids:
+                    continue
+                edge_state = set(initial_names)
+                if node_id not in root_ids and edge.source in future_ids:
+                    edge_state = edge_names.get(edge.id, set(initial_names))
+                states_by_handle[str(edge.targetHandle or "").strip()] = set(
+                    edge_state
+                )
+            for field_name, handle_name in (
+                ("leftVariable", "left"),
+                ("rightVariable", "right"),
+            ):
+                variable = str(node.data.get(field_name) or "").strip()
+                if variable and variable not in states_by_handle.get(
+                    handle_name, set()
+                ):
+                    reference_issues.append(
+                        ValidationIssue(
+                            code="missing_data_merge_variable_reference",
+                            message=(
+                                "Data merge references undefined variable "
+                                f"'{variable}' on its {handle_name} input."
+                            ),
+                            node_id=node.id,
+                        )
+                    )
+            # A successful data merge proves that both labelled inputs arrived,
+            # so variables from either side remain available downstream. A
+            # missing side terminates the merge and never reaches an output edge.
+            output_base_names = set().union(
+                *(states_by_handle.values() or [set(initial_names)])
+            )
+        else:
+            reference_issues.extend(
+                validate_variable_references(
+                    node,
+                    kinds_by_id[node_id],
+                    must_names,
+                )
+            )
+
+        produced = set(outputs_by_node.get(node_id, set()))
+        error_variable = (
+            str(node.data.get("errorVariable") or "").strip()
+            if kinds_by_id[node_id] in ROUTABLE_NODE_KINDS
+            and failure_action(node.data) == "error_output"
+            else ""
+        )
+        for edge in outgoing.get(node_id, []):
+            edge_produced = set(produced)
+            if error_variable:
+                if str(edge.sourceHandle or "").strip() == "error":
+                    edge_produced = {error_variable}
+                else:
+                    edge_produced.discard(error_variable)
+            edge_names[edge.id] = output_base_names.union(edge_produced)
+            if edge.target not in internal_indegree:
+                continue
+            internal_indegree[edge.target] -= 1
+            if internal_indegree[edge.target] == 0:
+                ready.append(edge.target)
+                ready.sort(
+                    key=lambda candidate: order_index.get(candidate, len(order_index))
+                )
+    return reference_issues
+
+
+def validate_retry_resume_variable_flow(
+    nodes: list[NativeWorkflowNode],
+    edges: list[NativeWorkflowEdge],
+    issues: list[ValidationIssue],
+    *,
+    kinds_by_id: dict[str, str],
+    declaration_names: set[str],
+    producers: dict[str, list[str]],
+) -> None:
+    """Reject data dependencies that would require retry snapshots to retain output data."""
+
+    parents: dict[str, set[str]] = defaultdict(set)
+    children: dict[str, set[str]] = defaultdict(set)
+    incoming: dict[str, list[NativeWorkflowEdge]] = defaultdict(list)
+    outgoing: dict[str, list[NativeWorkflowEdge]] = defaultdict(list)
+    for edge in edges:
+        if is_non_control_binding_edge(edge):
+            continue
+        parents[edge.target].add(edge.source)
+        children[edge.source].add(edge.target)
+        incoming[edge.target].append(edge)
+        outgoing[edge.source].append(edge)
+
+    nodes_by_id = {node.id: node for node in nodes}
+    creator_handoff_agent_ids: set[str] = set()
+    for edge in edges:
+        if not is_middleware_binding_edge(edge):
+            continue
+        middleware = nodes_by_id.get(edge.source)
+        if (
+            middleware is None
+            or kinds_by_id.get(middleware.id) != "runtime_middleware"
+            or str(middleware.data.get("runtimeMiddlewareId") or "").strip()
+            != "skill_creator"
+        ):
+            continue
+        raw_config = middleware.data.get("runtimeMiddlewareConfig")
+        config = raw_config if isinstance(raw_config, dict) else {}
+        if str(config.get("authoring_mode") or "").strip() == "creator_handoff":
+            creator_handoff_agent_ids.add(edge.target)
+
+    for retry_node in nodes:
+        if not retry_is_enabled(retry_node.data):
+            continue
+        ancestors: set[str] = set()
+        stack = list(parents.get(retry_node.id, set()))
+        while stack:
+            current = stack.pop()
+            if current in ancestors:
+                continue
+            ancestors.add(current)
+            stack.extend(parents.get(current, set()))
+
+        future_ids = {retry_node.id}
+        stack = list(children.get(retry_node.id, set()))
+        while stack:
+            current = stack.pop()
+            if current in future_ids:
+                continue
+            future_ids.add(current)
+            stack.extend(children.get(current, set()))
+
+        def edge_selection_group(
+            source_id: str,
+            edge: NativeWorkflowEdge,
+        ) -> str:
+            kind = kinds_by_id.get(source_id, "")
+            handle = str(edge.sourceHandle or "").strip()
+            source = nodes_by_id[source_id]
+            if kind in {"condition", "multi_route"} or (
+                kind == "question_classifier"
+                and typed_ai_contract_version(source.data) == 2
+            ):
+                return f"handle:{handle}"
+            if kind in ROUTABLE_NODE_KINDS and failure_action(
+                source.data
+            ) == "error_output":
+                return "error" if handle == "error" else "success"
+            return "all"
+
+        potential_resume_roots: set[str] = set()
+        guaranteed_skipped_edge_ids: set[str] = set()
+        for source_id in sorted(ancestors):
+            path_groups = {
+                edge_selection_group(source_id, edge)
+                for edge in outgoing.get(source_id, [])
+                if edge.target in ancestors or edge.target == retry_node.id
+            }
+            guaranteed_skipped_edge_ids.update(
+                edge.id
+                for edge in outgoing.get(source_id, [])
+                if edge_selection_group(source_id, edge) not in path_groups
+            )
+            for edge in outgoing.get(source_id, []):
+                if (
+                    edge.target not in ancestors
+                    and edge.target != retry_node.id
+                    and edge.target not in future_ids
+                    and edge_selection_group(source_id, edge) in path_groups
+                ):
+                    potential_resume_roots.add(edge.target)
+        changed = True
+        while changed:
+            changed = False
+            for candidate in nodes:
+                if candidate.id in ancestors or candidate.id == retry_node.id:
+                    continue
+                candidate_incoming = incoming.get(candidate.id, [])
+                if not candidate_incoming or not all(
+                    edge.id in guaranteed_skipped_edge_ids
+                    for edge in candidate_incoming
+                ):
+                    continue
+                for edge in outgoing.get(candidate.id, []):
+                    if edge.id not in guaranteed_skipped_edge_ids:
+                        guaranteed_skipped_edge_ids.add(edge.id)
+                        changed = True
+
+        # A sibling branch can be at any queued node when the retrying branch
+        # persists its continuation.  Treat every reachable node in that
+        # escape subtree as a possible resume cut, rather than only the first
+        # child leaving the retry ancestors.  Otherwise a branch-local
+        # producer can run before the retry and leave its consumer queued with
+        # data that is deliberately absent from the durable continuation.
+        escape_stack = list(potential_resume_roots)
+        while escape_stack:
+            source_id = escape_stack.pop()
+            for edge in outgoing.get(source_id, []):
+                target_id = edge.target
+                if (
+                    edge.id in guaranteed_skipped_edge_ids
+                    or target_id in ancestors
+                    or target_id in future_ids
+                    or target_id == retry_node.id
+                    or target_id in potential_resume_roots
+                ):
+                    continue
+                potential_resume_roots.add(target_id)
+                escape_stack.append(target_id)
+
+        unsafe_state_nodes = sorted(
+            node_id
+            for node_id in ancestors | potential_resume_roots
+            if kinds_by_id.get(node_id) in {"output", "runtime_middleware"}
+            or node_id in creator_handoff_agent_ids
+        )
+        if unsafe_state_nodes:
+            issues.append(
+                ValidationIssue(
+                    code="node_retry_resume_runtime_state_unavailable",
+                    message=(
+                        "Durable retry cannot preserve output, runtime middleware, "
+                        "or Creator handoff state created before the retrying node."
+                    ),
+                    node_id=retry_node.id,
+                )
+            )
+        reference_issues = retry_resume_reference_issues(
+            nodes,
+            edges,
+            retry_node_id=retry_node.id,
+            kinds_by_id=kinds_by_id,
+            declaration_names=declaration_names,
+            producers=producers,
+            resume_root_ids=potential_resume_roots | {retry_node.id},
+            known_skipped_edge_ids=guaranteed_skipped_edge_ids,
+        )
+        if reference_issues:
+            issues.append(
+                ValidationIssue(
+                    code="node_retry_resume_variable_unavailable",
+                    message=(
+                        "Durable retry cannot carry variables produced by earlier nodes; "
+                        "recreate the required value after this retrying node."
+                    ),
+                    node_id=retry_node.id,
+                )
+            )
 
 
 def validate_iteration_local_variable_conflicts(
@@ -4346,6 +4785,27 @@ def validate_node_configuration(
                         node_id=node.id,
                     )
                 )
+
+    contract = workflow_node_contract_registry.get(kind)
+    if contract is not None and (
+        contract.retry.supported
+        or data.get("retryMode") not in {None, ""}
+        or data.get("maxAttempts") not in {None, ""}
+    ):
+        try:
+            validate_retry_configuration(
+                data,
+                node_kind=kind,
+                contract=contract,
+            )
+        except WorkflowRetryPolicyError as exc:
+            issues.append(
+                ValidationIssue(
+                    code=exc.code.lower(),
+                    message=exc.safe_message,
+                    node_id=node.id,
+                )
+            )
 
     return issues
 

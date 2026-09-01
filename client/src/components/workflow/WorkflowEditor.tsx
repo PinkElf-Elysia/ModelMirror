@@ -85,7 +85,10 @@ import {
   type WorkflowNodeRegistryResponse,
 } from "./workflowNodeRegistry";
 import WorkflowTypedDataNodeConfig from "./WorkflowTypedDataNodeConfig";
-import WorkflowFailureRoutingConfig from "./WorkflowFailureRoutingConfig";
+import WorkflowFailureRoutingConfig, {
+  type WorkflowRetryAvailability,
+} from "./WorkflowFailureRoutingConfig";
+import WorkflowDeploymentRetryStatus from "./WorkflowDeploymentRetryStatus";
 import WorkflowControlDataNodeConfig from "./WorkflowControlDataNodeConfig";
 import WorkflowHttpRequestNodeConfig from "./WorkflowHttpRequestNodeConfig";
 import WorkflowFileDataNodeConfig from "./WorkflowFileDataNodeConfig";
@@ -3005,14 +3008,18 @@ interface WorkflowResourceOption {
   prompt_count?: number;
   skill_count?: number;
   middleware_count?: number;
+  retry_eligible?: boolean;
+  retry_ineligible_reason?: string;
 }
 
 function useWorkflowResourceOptions(resourceKind: string) {
   const [options, setOptions] = useState<WorkflowResourceOption[]>([]);
   const [loadError, setLoadError] = useState("");
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
     void fetch(`/api/workflow/resource-options?kind=${resourceKind}`)
       .then(async (response) => {
         const payload = (await response.json()) as {
@@ -3024,6 +3031,7 @@ function useWorkflowResourceOptions(resourceKind: string) {
         if (!cancelled) {
           setOptions(payload.items);
           setLoadError("");
+          setLoading(false);
         }
       })
       .catch((error: unknown) => {
@@ -3032,6 +3040,7 @@ function useWorkflowResourceOptions(resourceKind: string) {
           setLoadError(
             error instanceof Error ? error.message : "资源选项加载失败。",
           );
+          setLoading(false);
         }
       });
     return () => {
@@ -3039,7 +3048,7 @@ function useWorkflowResourceOptions(resourceKind: string) {
     };
   }, [resourceKind]);
 
-  return { loadError, options };
+  return { loadError, loading, options };
 }
 
 function ResourceNodeConfig({
@@ -3394,13 +3403,25 @@ function ResourceNodeConfig({
 function KnowledgeBaseSelector({
   allowLegacyEmpty = false,
   onChange,
+  onLoadStateChange,
+  onSelectedOptionChange,
   value,
 }: {
   allowLegacyEmpty?: boolean;
   onChange: (value: string) => void;
+  onLoadStateChange?: (state: "loading" | "ready" | "error") => void;
+  onSelectedOptionChange?: (option: WorkflowResourceOption | null) => void;
   value: string;
 }) {
-  const { loadError, options } = useWorkflowResourceOptions("knowledge_base");
+  const { loadError, loading, options } = useWorkflowResourceOptions("knowledge_base");
+  useEffect(() => {
+    onSelectedOptionChange?.(
+      options.find((item) => item.id === value) ?? null,
+    );
+  }, [onSelectedOptionChange, options, value]);
+  useEffect(() => {
+    onLoadStateChange?.(loading ? "loading" : loadError ? "error" : "ready");
+  }, [loadError, loading, onLoadStateChange]);
   return (
     <>
       <select
@@ -3433,6 +3454,7 @@ function KnowledgeRetrievalNodeConfig({
   data,
   update,
   onOpenVariableCenter,
+  retryAvailability,
 }: {
   node: WorkflowNode;
   nodes: WorkflowNode[];
@@ -3442,8 +3464,31 @@ function KnowledgeRetrievalNodeConfig({
   data: WorkflowNodeData;
   update: (patch: Partial<WorkflowNodeData>) => void;
   onOpenVariableCenter: () => void;
+  retryAvailability?: WorkflowRetryAvailability;
 }) {
   const isLegacy = Number(data.contractVersion ?? 1) !== 2;
+  const [selectedKnowledgeBase, setSelectedKnowledgeBase] =
+    useState<WorkflowResourceOption | null>(null);
+  const [knowledgeBaseLoadState, setKnowledgeBaseLoadState] =
+    useState<"loading" | "ready" | "error">("loading");
+  const resolvedRetryAvailability: WorkflowRetryAvailability = {
+    ...retryAvailability,
+    resourceStatus: knowledgeBaseLoadState,
+    ...(knowledgeBaseLoadState === "ready"
+      && Boolean(data.knowledgeBaseId)
+      && !selectedKnowledgeBase
+      ? {
+          eligible: false,
+          ineligibleReason: "所选知识库不在当前资源目录中，无法确认活动版本资格。",
+        }
+      : {}),
+    ...(typeof selectedKnowledgeBase?.retry_eligible === "boolean"
+      ? { eligible: selectedKnowledgeBase.retry_eligible }
+      : {}),
+    ...(selectedKnowledgeBase?.retry_ineligible_reason
+      ? { ineligibleReason: selectedKnowledgeBase.retry_ineligible_reason }
+      : {}),
+  };
   return (
     <>
       <div className="rounded-lg border border-cyan-300/25 bg-cyan-300/10 px-3 py-2 text-xs leading-5 text-cyan-50">
@@ -3455,6 +3500,8 @@ function KnowledgeRetrievalNodeConfig({
         <KnowledgeBaseSelector
           allowLegacyEmpty={isLegacy}
           onChange={(value) => update({ knowledgeBaseId: value })}
+          onLoadStateChange={setKnowledgeBaseLoadState}
+          onSelectedOptionChange={setSelectedKnowledgeBase}
           value={data.knowledgeBaseId ?? ""}
         />
       </Field>
@@ -3517,6 +3564,7 @@ function KnowledgeRetrievalNodeConfig({
           nodes={nodes}
           onChange={update}
           onOpenVariableCenter={onOpenVariableCenter}
+          retryAvailability={resolvedRetryAvailability}
         />
       ) : null}
     </>
@@ -3832,6 +3880,9 @@ function NodeConfig({
   const [nodeRegistryMetadata, setNodeRegistryMetadata] = useState<
     Map<WorkflowNodeKind, Record<string, unknown>>
   >(new Map());
+  const [nodeRegistryStatus, setNodeRegistryStatus] = useState<
+    "loading" | "ready" | "error"
+  >("loading");
   const migrationVariableDescriptors = useMemo(
     () => analyzeWorkflowVariables(nodes, edges, node?.id ?? null, declarations)
       .filter((variable) => variable.availability === "available"),
@@ -4004,9 +4055,12 @@ function NodeConfig({
         });
         setVariableNodeContracts(contracts);
         setNodeRegistryMetadata(metadata);
+        setNodeRegistryStatus("ready");
       })
       .catch(() => {
+        if (cancelled) return;
         // compatibility 节点会继续使用字段表中的保守类型回退。
+        setNodeRegistryStatus("error");
       });
     return () => {
       cancelled = true;
@@ -4034,6 +4088,18 @@ function NodeConfig({
     && Boolean(selectedRegistryTool)
     && data.inputSchemaChecksum !== selectedRegistryTool?.schema_checksum;
   const variableContract = variableNodeContracts.get(data.kind) ?? null;
+  const selectedRegistryMetadata = nodeRegistryMetadata.get(data.kind) ?? {};
+  const retryAvailability: WorkflowRetryAvailability = {
+    registryStatus: nodeRegistryStatus === "ready" && !nodeRegistryMetadata.has(data.kind)
+      ? "error"
+      : nodeRegistryStatus,
+    ...(typeof selectedRegistryMetadata.retry_feature_enabled === "boolean"
+      ? { featureEnabled: selectedRegistryMetadata.retry_feature_enabled }
+      : {}),
+    ...(typeof selectedRegistryMetadata.retry_feature_disabled_reason === "string"
+      ? { featureDisabledReason: selectedRegistryMetadata.retry_feature_disabled_reason }
+      : {}),
+  };
   const documentRegistryMetadata = nodeRegistryMetadata.get("document_extractor") ?? {};
   const knowledgeProposalMetadata = nodeRegistryMetadata.get("knowledge_write_proposal") ?? {};
   const rssRegistryMetadata = nodeRegistryMetadata.get("rss_event_entry") ?? {};
@@ -4401,6 +4467,7 @@ function NodeConfig({
           nodes={nodes}
           onChange={update}
           onOpenVariableCenter={onOpenVariableCenter}
+          retryAvailability={retryAvailability}
         />
       ) : null}
 
@@ -5089,6 +5156,7 @@ function NodeConfig({
           update={update}
           variableContract={variableContract}
           onOpenVariableCenter={onOpenVariableCenter}
+          retryAvailability={retryAvailability}
         />
       ) : null}
 
@@ -6162,6 +6230,7 @@ function NodeConfig({
           nodes={nodes}
           onChange={update}
           onOpenVariableCenter={onOpenVariableCenter}
+          retryAvailability={retryAvailability}
         />
       ) : null}
 
@@ -9327,16 +9396,8 @@ function WorkflowCanvas({
                     </span>
                   </>
                 ) : null}
-                {deploymentExecutions[0].wait_kind ? (
-                  <span>等待：{deploymentExecutions[0].wait_kind}</span>
-                ) : null}
-                {deploymentExecutions[0].resume_at ? (
-                  <span>
-                    恢复时间：
-                    {new Date(deploymentExecutions[0].resume_at * 1000).toLocaleString()}
-                  </span>
-                ) : null}
               </div>
+              <WorkflowDeploymentRetryStatus execution={deploymentExecutions[0]} />
             </div>
           ) : null}
           {projectPending ? (

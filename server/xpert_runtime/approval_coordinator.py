@@ -110,6 +110,7 @@ class ApprovalCoordinator:
             approval: RuntimeApprovalRequest,
         ) -> bool:
             self._active.add(execution.task_id)
+            claimed: WorkflowExecution | None = None
             try:
                 claimed = self.executions.claim(
                     execution.task_id,
@@ -123,7 +124,12 @@ class ApprovalCoordinator:
             except Exception as exc:
                 if getattr(exc, "defer_resume", False):
                     try:
-                        self.executions.release_ready(execution.task_id)
+                        self.executions.release_ready(
+                            execution.task_id,
+                            expected_lease_token=str(
+                                (claimed.lease_token if claimed is not None else "") or ""
+                            ),
+                        )
                     except WorkflowExecutionConflictError:
                         pass
                     return False
@@ -131,7 +137,29 @@ class ApprovalCoordinator:
                     "Runtime approval resume failed task_id=%s",
                     execution.task_id,
                 )
-                self.executions.fail(execution.task_id, error=str(exc))
+                try:
+                    self.executions.fail(
+                        execution.task_id,
+                        error=str(exc),
+                        expected_lease_token=str(
+                            (claimed.lease_token if claimed is not None else "") or ""
+                        ),
+                    )
+                except WorkflowExecutionConflictError:
+                    # If the callback crossed its lease deadline but no newer
+                    # worker reclaimed the task, put it back into the bounded
+                    # ready queue. release_ready is token-fenced and therefore
+                    # cannot clear a newer worker's lease.
+                    try:
+                        self.executions.release_ready(
+                            execution.task_id,
+                            expected_lease_token=str(
+                                (claimed.lease_token if claimed is not None else "")
+                                or ""
+                            ),
+                        )
+                    except WorkflowExecutionConflictError:
+                        pass
                 return False
             finally:
                 self._active.discard(execution.task_id)

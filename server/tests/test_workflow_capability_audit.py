@@ -146,10 +146,17 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     assert mapped["aggregate"]["模镜对应节点"] == "data_aggregate"
     assert mapped["summarize"]["模镜对应节点"] == "data_aggregate"
     assert mapped["httpRequest"]["模镜对应节点"] == "http_request"
+    assert "固定 GET 且无正文" in mapped["httpRequest"]["判断说明"]
+    assert "写请求重试或通用重试" in mapped["httpRequest"]["判断说明"]
+    assert "server/tests/test_workflow_r17_secure_http.py" in mapped["httpRequest"]["模镜证据"]
+    assert "server/tests/test_workflow_retry_policy.py" in mapped["httpRequest"]["模镜证据"]
+    assert "server/tests/test_workflow_retry_runtime.py" in mapped["httpRequest"]["模镜证据"]
     assert mapped["if"]["模镜对应节点"] == "condition"
     assert mapped["compareDatasets"]["模镜对应节点"] == "dataset_compare"
     assert mapped["merge"]["模镜当前状态"] == "已实现"
     assert mapped["merge"]["模镜对应节点"] == "data_merge"
+    assert "真实 SQLite BUSY/LOCKED" in mapped["dataTable"]["判断说明"]
+    assert "写操作不借此扩大失败处理或重试范围" in mapped["dataTable"]["判断说明"]
     assert mapped["set"]["模镜当前状态"] == "已实现"
     assert mapped["set"]["模镜对应节点"] == "object_transform"
     assert mapped["convertToFile"]["模镜对应节点"] == "file_output"
@@ -407,9 +414,12 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
         "首次无回放 UID 基线和持久 UID 重读恢复提供固定 INBOX 邮件入口"
     ) in markdown
     assert (
-        "- R2.9 PR2 结果：不新增节点类型；为 `http_request` V2、"
-        "`data_table_query` 与 `knowledge_retrieval` V2 增加结构化失败出口"
+        "- R2.9 PR2 结果：不新增节点类型；在 `http_request` V2、"
+        "`data_table_query` 与 `knowledge_retrieval` V2 的结构化失败出口前增加"
+        "默认关闭的持久受限重试"
     ) in markdown
+    assert "写操作、外部临时正文入口、公共 App、Evaluation、Evolution、Planner" in markdown
+    assert "且本批次不提供自动重试" not in markdown
     assert (
         "- R2.2 PR1 结果：将 `variable_aggregator` 提升为“变量打包”V2 完整合同，"
         "修正元智能体新图的报告汇总，并为 563 行参考清单增加 "

@@ -91,7 +91,6 @@ def build_error_receipt(
 _HTTP_ROUTABLE: dict[str, tuple[FailureClassification, str]] = {
     "HTTP_TIMEOUT": ("transient", "HTTP request timed out."),
     "HTTP_NETWORK_ERROR": ("transient", "HTTP request could not reach the remote service."),
-    "HTTP_DNS_UNAVAILABLE": ("transient", "HTTP request could not resolve the remote service."),
     "HTTP_STATUS_NOT_SUCCESSFUL": ("permanent", "HTTP service returned an unsuccessful status."),
     "HTTP_RESPONSE_TOO_LARGE": ("permanent", "HTTP response exceeded the configured size limit."),
     "HTTP_RESPONSE_NOT_UTF8": ("permanent", "HTTP response was not supported UTF-8 text."),
@@ -105,6 +104,13 @@ _KNOWLEDGE_TRANSIENT_CODES = frozenset(
         "rag_vector_backend_unavailable",
         "rag_vector_index_unavailable",
         "rag_fulltext_index_unavailable",
+    }
+)
+SAFE_ROUTABLE_ERROR_CODES = frozenset(
+    {
+        *_HTTP_ROUTABLE,
+        "DATA_TABLE_QUERY_BUSY",
+        "KNOWLEDGE_RETRIEVAL_UNAVAILABLE",
     }
 )
 
@@ -163,11 +169,21 @@ def route_data_table_error(error: BaseException) -> RoutedNodeFailure | None:
     return None
 
 
+def is_rag_retrieval_unavailable_error(error: BaseException) -> bool:
+    """Accept only the RAG layer's concrete availability exception type."""
+
+    try:
+        from server.rag.rag_service import RagRetrievalUnavailableError
+    except ModuleNotFoundError:
+        from rag.rag_service import RagRetrievalUnavailableError
+    return isinstance(error, RagRetrievalUnavailableError)
+
+
 def route_knowledge_error(error: BaseException) -> RoutedNodeFailure | None:
     # Only the RAG layer's explicit, content-free availability errors are
     # routable. Missing resources, managed provider failures, and unknown
     # exceptions remain fatal.
-    if error.__class__.__name__ != "RagRetrievalUnavailableError":
+    if not is_rag_retrieval_unavailable_error(error):
         return None
     code = str(getattr(error, "code", "") or "")
     if code not in _KNOWLEDGE_TRANSIENT_CODES:

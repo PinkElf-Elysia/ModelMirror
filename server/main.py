@@ -4,10 +4,12 @@ import base64
 import hashlib
 import json
 import logging
+import math
 import os
 import re
 import secrets
 import shutil
+import sqlite3
 import stat
 import subprocess
 import sys
@@ -637,7 +639,11 @@ try:
         WorkflowVariableDeclaration,
         workflow_variable_value_matches_type,
     )
-    from server.workflow_native.validate import validate_workflow_graph
+    from server.workflow_native.validate import (
+        collect_node_variable_producers,
+        retry_resume_reference_issues,
+        validate_workflow_graph,
+    )
     from server.workflow_native.control_data import (
         WorkflowTerminationError,
         aggregate_rows,
@@ -672,6 +678,7 @@ try:
     )
     from server.workflow_native.error_routing import (
         ROUTABLE_NODE_KINDS,
+        SAFE_ROUTABLE_ERROR_CODES,
         WorkflowErrorRoutingConfigError,
         build_error_receipt,
         failure_action,
@@ -680,6 +687,19 @@ try:
         route_knowledge_error,
         safe_http_fatal_message,
         validate_error_routing_config,
+    )
+    from server.workflow_native.retry_policy import (
+        WorkflowRetryPolicyError,
+        retry_delay_seconds,
+        retry_error_code_is_safe,
+        retry_enabled,
+        retry_max_attempts,
+        retry_wait_id,
+        strict_retry_failure,
+        validate_retry_config,
+        validate_knowledge_retry_evidence,
+        validate_static_retry_eligibility,
+        workflow_node_retries_enabled,
     )
     from server.workflow_native.typed_ai import (
         ClassifierSelection,
@@ -788,7 +808,11 @@ except ModuleNotFoundError:
         WorkflowVariableDeclaration,
         workflow_variable_value_matches_type,
     )
-    from workflow_native.validate import validate_workflow_graph
+    from workflow_native.validate import (
+        collect_node_variable_producers,
+        retry_resume_reference_issues,
+        validate_workflow_graph,
+    )
     from workflow_native.control_data import (
         WorkflowTerminationError,
         aggregate_rows,
@@ -823,6 +847,7 @@ except ModuleNotFoundError:
     )
     from workflow_native.error_routing import (
         ROUTABLE_NODE_KINDS,
+        SAFE_ROUTABLE_ERROR_CODES,
         WorkflowErrorRoutingConfigError,
         build_error_receipt,
         failure_action,
@@ -831,6 +856,19 @@ except ModuleNotFoundError:
         route_knowledge_error,
         safe_http_fatal_message,
         validate_error_routing_config,
+    )
+    from workflow_native.retry_policy import (
+        WorkflowRetryPolicyError,
+        retry_delay_seconds,
+        retry_error_code_is_safe,
+        retry_enabled,
+        retry_max_attempts,
+        retry_wait_id,
+        strict_retry_failure,
+        validate_retry_config,
+        validate_knowledge_retry_evidence,
+        validate_static_retry_eligibility,
+        workflow_node_retries_enabled,
     )
     from workflow_native.typed_ai import (
         ClassifierSelection,
@@ -1173,6 +1211,7 @@ try:
         OFFICE_MUTATING_TOOL_NAMES,
         OfficeToolsetProvider,
         WorkflowExecution,
+        WorkflowExecutionConflictError,
         WorkflowExecutionStore,
         WorkflowHandoffCoordinator,
         RuntimeToolCall,
@@ -1305,6 +1344,7 @@ except ModuleNotFoundError:
         OFFICE_MUTATING_TOOL_NAMES,
         OfficeToolsetProvider,
         WorkflowExecution,
+        WorkflowExecutionConflictError,
         WorkflowExecutionStore,
         WorkflowHandoffCoordinator,
         RuntimeToolCall,
@@ -1636,6 +1676,8 @@ WORKFLOW_FILE_ASSETS_ENABLED = (
     in {"1", "true", "yes", "on"}
 )
 WORKFLOW_TASK_TTL_SECONDS = 1800
+WORKFLOW_DURABLE_WAIT_LEASE_SECONDS = 120.0
+WORKFLOW_DURABLE_WAIT_HEARTBEAT_SECONDS = 30.0
 WORKFLOW_HUMAN_INTERVENTION_ENABLED = True
 WORKFLOW_QUESTION_CLASSIFIER_ENABLED = True
 WORKFLOW_MCP_TOOL_ENABLED = True
@@ -1751,6 +1793,12 @@ MAX_IMAGE_DATA_URL_BYTES = 5 * 1024 * 1024
 AGENTS_DATA_PATH = Path(__file__).parent / "data" / "agents.json"
 MAX_AGENT_PROMPT_CHARS = 6000
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+# httpx's request-level INFO record includes the complete outbound URL, while
+# httpcore's DEBUG records can expose lower-level request details. Workflow HTTP
+# queries may contain variable bindings or query credentials, so both client
+# access loggers must stay disabled even when the application log level is DEBUG.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger("modelmirror.chat")
 BLOCKED_KEYWORDS = (
     "儿童色情",
@@ -2087,6 +2135,39 @@ workflow_execution_store = WorkflowExecutionStore(
 )
 
 
+def resolve_workflow_knowledge_retry_target(
+    knowledge_base_id: str,
+) -> tuple[str, str]:
+    """Return the content-free fingerprint and fixed version of an eligible RAG target."""
+
+    clean_id = str(knowledge_base_id or "").strip()
+    try:
+        service = get_rag_service()
+        active = service.get_active_pipeline_version(clean_id)
+        if not isinstance(active, dict):
+            raise WorkflowRetryPolicyError(
+                "NODE_RETRY_KNOWLEDGE_TARGET_INVALID",
+                "The active knowledge version is unavailable for retry.",
+            )
+        version_id = str(active.get("version_id") or "").strip()
+        evidence = service.pipeline_version_evidence(version_id)
+        return (
+            validate_knowledge_retry_evidence(clean_id, active, evidence),
+            version_id,
+        )
+    except WorkflowRetryPolicyError:
+        raise
+    except Exception as exc:
+        raise WorkflowRetryPolicyError(
+            "NODE_RETRY_KNOWLEDGE_TARGET_INVALID",
+            "The active knowledge version is unavailable for retry.",
+        ) from exc
+
+
+def validate_workflow_knowledge_retry_target(knowledge_base_id: str) -> str:
+    return resolve_workflow_knowledge_retry_target(knowledge_base_id)[0]
+
+
 def validate_workflow_handoff_target(xpert_id: str, version: int) -> None:
     target = get_xpert_store().get_xpert(str(xpert_id).strip())
     if (
@@ -2113,6 +2194,7 @@ workflow_deployment_store = WorkflowDeploymentStore(
     knowledge_proposal_validator=lambda kb_id: (
         get_rag_service().validate_knowledge_write_target(kb_id)
     ),
+    knowledge_retry_validator=validate_workflow_knowledge_retry_target,
 )
 
 
@@ -6051,6 +6133,89 @@ def checkpoint_safe_workflow_variables(
     return safe
 
 
+def checkpoint_safe_workflow_runtime_metadata(
+    metadata: dict[str, Any],
+    *,
+    sensitive_variable_names: set[str],
+    trusted_xpert_context: bool,
+) -> dict[str, Any]:
+    """Remove Xpert text that aliases an intentionally ephemeral proposal source."""
+
+    safe = dict(metadata)
+    if not trusted_xpert_context:
+        return safe
+    input_aliases = {
+        str(metadata.get("xpert_input_variable") or "").strip(),
+        "user_input",
+    }
+    history_aliases = {
+        str(metadata.get("xpert_history_variable") or "").strip(),
+        "conversation_history",
+    }
+    input_aliases.discard("")
+    history_aliases.discard("")
+    input_is_sensitive = bool(
+        input_aliases.intersection(sensitive_variable_names)
+    )
+    history_is_sensitive = bool(
+        history_aliases.intersection(sensitive_variable_names)
+    )
+    if not input_is_sensitive and not history_is_sensitive:
+        return safe
+
+    # Keep unrelated context recoverable: memory replies are selected from the
+    # current input, while conversation metadata is derived from prior history.
+    # The full sensitive value remains available only to the live task.
+    if input_is_sensitive:
+        safe["memory_reply"] = None
+    if history_is_sensitive:
+        safe["conversation_title"] = None
+        safe["conversation_messages"] = []
+    return safe
+
+
+def initialize_retry_reconstructible_variables(
+    workflow: WorkflowPayload,
+    inputs: dict[str, WorkflowValue],
+    *,
+    additional_sensitive_names: set[str] | None = None,
+) -> dict[str, WorkflowValue]:
+    """Rebuild only values that the durable execution record can reproduce."""
+
+    sensitive_names = {
+        str(node.data.get("contentVariable") or "").strip()
+        for node in workflow.nodes
+        if workflow_node_kind(node) == "knowledge_write_proposal"
+        and str(node.data.get("contentVariable") or "").strip()
+    }
+    sensitive_names.update(
+        str(name).strip()
+        for name in (additional_sensitive_names or set())
+        if str(name).strip()
+    )
+    persisted_inputs = checkpoint_safe_workflow_variables(
+        dict(inputs),
+        ephemeral_names=sensitive_names,
+    )
+    for name in sensitive_names:
+        persisted_inputs.pop(name, None)
+    initialized = initialize_declared_workflow_variables(
+        workflow,
+        persisted_inputs,
+    )
+    for node in workflow.nodes:
+        if workflow_node_kind(node) != "input":
+            continue
+        variable_name = str(node.data.get("variableName") or "user_input").strip()
+        if not variable_name or variable_name in sensitive_names:
+            continue
+        initialized[variable_name] = initialized.get(
+            variable_name,
+            initialized.get("user_input", ""),
+        )
+    return initialized
+
+
 def split_workflow_variable_names(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
@@ -9427,6 +9592,8 @@ async def prepare_published_xpert_run(
             "xpert_version": version.version,
             "xpert_draft_revision": version.draft_revision,
             "xpert_checksum": version.checksum,
+            "xpert_input_variable": version.input_variable,
+            "xpert_history_variable": version.history_variable,
             "prompt_command": (
                 {
                     "alias": command.alias,
@@ -9819,6 +9986,43 @@ async def _run_workflow_response(
             resume_execution=resume_execution,
         )
     )
+    validation_metadata = dict(
+        resume_execution.runtime_metadata
+        if resume_execution is not None
+        else (runtime_metadata or {})
+    )
+    runtime_validation_input_names: set[str] = set()
+    metadata_xpert_id = str(validation_metadata.get("xpert_id") or "").strip()
+    metadata_xpert_version = validation_metadata.get("xpert_version")
+    metadata_xpert_checksum = str(
+        validation_metadata.get("xpert_checksum") or ""
+    ).strip()
+    metadata_history_variable = str(
+        validation_metadata.get("xpert_history_variable") or ""
+    ).strip()
+    trusted_xpert_validation_context = (
+        runtime_run_type == "xpert"
+        and bool(metadata_xpert_id)
+        and (
+            (
+                resume_execution is None
+                and metadata_xpert_id == str(runtime_source_id or "").strip()
+            )
+            or (
+                resume_execution is not None
+                and resume_execution.run_type == "xpert"
+            )
+        )
+        and type(metadata_xpert_version) is int
+        and metadata_xpert_version > 0
+        and bool(metadata_xpert_checksum)
+        and metadata_history_variable in payload.inputs
+    )
+    if trusted_xpert_validation_context:
+        # Published Xperts inject exactly one undeclared runtime value that may
+        # safely be reconstructed after a durable retry. Never widen this to
+        # arbitrary request inputs.
+        runtime_validation_input_names.add(metadata_history_variable)
     workflow_managed_gateway = ManagedWorkflowGateway.for_router(
         get_model_router_service()
     )
@@ -9934,17 +10138,41 @@ async def _run_workflow_response(
                 or node.data.get("errorVariable") not in {None, ""}
             )
         }
+        retry_policy_node_ids = {
+            node.id
+            for node in payload.workflow.nodes
+            if workflow_node_kind(node) in ROUTABLE_NODE_KINDS
+            or node.data.get("retryMode") not in {None, ""}
+            or node.data.get("maxAttempts") not in {None, ""}
+        }
+        retry_node_ids = {
+            node.id
+            for node in payload.workflow.nodes
+            if node.id in retry_policy_node_ids and retry_enabled(node.data)
+        }
         error_output_variables = {
             str(node.data.get("errorVariable") or "").strip()
             for node in payload.workflow.nodes
             if node.id in error_routing_node_ids
             and str(node.data.get("errorVariable") or "").strip()
         }
-        if data_merge_node_ids or error_routing_node_ids or error_edge_source_ids:
+        if (
+            data_merge_node_ids
+            or error_routing_node_ids
+            or error_edge_source_ids
+            or retry_policy_node_ids
+        ):
             native_workflow = NativeWorkflowDefinition.model_validate(
                 payload.workflow.model_dump()
             )
-            workflow_validation = validate_workflow_graph(native_workflow)
+            workflow_validation = (
+                validate_workflow_graph(
+                    native_workflow,
+                    runtime_input_names=runtime_validation_input_names,
+                )
+                if runtime_validation_input_names
+                else validate_workflow_graph(native_workflow)
+            )
             error_routing_issue_codes = {
                 "node_error_routing_requires_v2",
                 "node_error_routing_unsupported",
@@ -9961,9 +10189,24 @@ async def _run_workflow_response(
                 for issue in workflow_validation.issues
                 if issue.node_id in data_merge_node_ids
                 or issue.code == "duplicate_edge_id"
+                or issue.code == "runtime_input_variable_producer_conflict"
                 or (
                     issue.node_id in error_routing_node_ids
                     and issue.code in error_routing_issue_codes
+                )
+                or (
+                    issue.node_id in retry_policy_node_ids
+                    and (
+                        issue.code.startswith("node_retry_")
+                        or issue.code.startswith("invalid_node_retry_")
+                        or issue.code
+                        in {
+                            "http_node_retry_forbidden",
+                            "form_node_retry_forbidden",
+                            "rss_persistent_wait_forbidden",
+                            "email_persistent_wait_forbidden",
+                        }
+                    )
                 )
                 or (
                     issue.code
@@ -9985,6 +10228,29 @@ async def _run_workflow_response(
                         "issues": [issue.model_dump() for issue in validation_issues],
                     },
                 )
+        for retry_node in payload.workflow.nodes:
+            if retry_node.id not in retry_policy_node_ids:
+                continue
+            retry_kind = workflow_node_kind(retry_node)
+            try:
+                validate_retry_config(retry_node.data, retry_kind)
+                if retry_enabled(retry_node.data) and retry_kind == "knowledge_retrieval":
+                    resolve_workflow_knowledge_retry_target(
+                        str(retry_node.data.get("knowledgeBaseId") or "")
+                    )
+            except WorkflowRetryPolicyError as exc:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": exc.safe_message, "code": exc.code},
+                )
+        if retry_node_ids and not workflow_node_retries_enabled():
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "error": "Durable workflow node retries are disabled.",
+                    "code": "NODE_RETRIES_DISABLED",
+                },
+            )
         order = workflow_topological_order(payload.workflow.nodes, payload.workflow.edges)
     except HTTPException as exc:
         return JSONResponse(status_code=exc.status_code, content={"error": str(exc.detail)})
@@ -10040,11 +10306,58 @@ async def _run_workflow_response(
         if resume_execution is not None
         else {}
     )
+    is_node_retry_resume = (
+        resume_execution is not None
+        and resume_execution.wait_kind == "node_retry"
+    )
+    retry_resume_allowed_keys = {
+        "queue",
+        "queued",
+        "executed",
+        "scheduler",
+        "retry_state",
+        "execution_budget",
+    }
+    raw_retry_resume_budget = resume_state.get("execution_budget")
+    retry_resume_budget_valid = raw_retry_resume_budget is None or (
+        isinstance(raw_retry_resume_budget, dict)
+        and set(raw_retry_resume_budget) == {
+            "steps_used",
+            "model_calls",
+            "tool_calls",
+        }
+        and all(
+            isinstance(value, int) and not isinstance(value, bool) and value >= 0
+            for value in raw_retry_resume_budget.values()
+        )
+    )
+    retry_resume_envelope_invalid = bool(
+        is_node_retry_resume
+        and (
+            set(resume_state) != retry_resume_allowed_keys
+            or not retry_resume_budget_valid
+        )
+    )
+    safe_resume_state = {} if retry_resume_envelope_invalid else resume_state
     task_id = (
         resume_execution.task_id
         if resume_execution is not None
         else str(runtime_task_id or uuid.uuid4().hex)
     )
+    resume_lease_token = (
+        str(resume_execution.lease_token or "").strip() or None
+        if resume_execution is not None
+        else None
+    )
+
+    def execution_store_lease_kwargs() -> dict[str, str]:
+        """Fence recovery writes without changing the legacy call contract."""
+
+        return (
+            {"expected_lease_token": resume_lease_token}
+            if resume_lease_token
+            else {}
+        )
     run_metadata = {
         "workflow_id": payload.workflow.id,
         "workflow_title": payload.workflow.title,
@@ -10066,22 +10379,52 @@ async def _run_workflow_response(
         run_metadata[_PROVIDER_WORKLOAD_SOURCE_METADATA_KEY] = trusted_source_kind
     else:
         run_metadata.pop(_PROVIDER_WORKLOAD_SOURCE_METADATA_KEY, None)
+    knowledge_proposal_sensitive_variable_names = {
+        str(node.data.get("contentVariable") or "").strip()
+        for node in payload.workflow.nodes
+        if workflow_node_kind(node) == "knowledge_write_proposal"
+        and str(node.data.get("contentVariable") or "").strip()
+    }
+    if trusted_xpert_validation_context:
+        xpert_history_variable = str(
+            run_metadata.get("xpert_history_variable") or ""
+        ).strip()
+        xpert_input_variable = str(
+            run_metadata.get("xpert_input_variable") or ""
+        ).strip()
+        history_aliases = {
+            name for name in {xpert_history_variable, "conversation_history"} if name
+        }
+        input_aliases = {
+            name for name in {xpert_input_variable, "user_input"} if name
+        }
+        if history_aliases.intersection(knowledge_proposal_sensitive_variable_names):
+            knowledge_proposal_sensitive_variable_names.update(history_aliases)
+        if input_aliases.intersection(knowledge_proposal_sensitive_variable_names):
+            knowledge_proposal_sensitive_variable_names.update(input_aliases)
+    recovery_run_created = False
     workflow_run = (
         await run_registry.get_run(resume_execution.run_id)
         if resume_execution is not None
         else None
     )
+    if workflow_run is None and resume_execution is not None:
+        run_metadata["recovery_run_from"] = resume_execution.run_id
+    persisted_run_metadata = checkpoint_safe_workflow_runtime_metadata(
+        run_metadata,
+        sensitive_variable_names=knowledge_proposal_sensitive_variable_names,
+        trusted_xpert_context=trusted_xpert_validation_context,
+    )
     if workflow_run is None:
-        if resume_execution is not None:
-            run_metadata["recovery_run_from"] = resume_execution.run_id
         workflow_run = await run_registry.create_run(
             runtime_run_type,  # type: ignore[arg-type]
             payload.workflow.title,
             status="running",
             source_id=runtime_source_id or payload.workflow.id,
             parent_run_id=runtime_parent_run_id,
-            metadata=run_metadata,
+            metadata=persisted_run_metadata,
         )
+        recovery_run_created = resume_execution is not None
     else:
         await run_registry.update_run(
             workflow_run.run_id,
@@ -10098,10 +10441,19 @@ async def _run_workflow_response(
         and resume_execution.run_id != workflow_run.run_id
     ):
         previous_run_id = resume_execution.run_id
-        workflow_execution_store.update_run_id(
-            resume_execution.task_id,
-            run_id=workflow_run.run_id,
-        )
+        try:
+            workflow_execution_store.update_run_id(
+                resume_execution.task_id,
+                run_id=workflow_run.run_id,
+                **execution_store_lease_kwargs(),
+            )
+        except WorkflowExecutionConflictError:
+            if recovery_run_created:
+                await run_registry.cancel_run(
+                    workflow_run.run_id,
+                    reason="recovery_lease_lost",
+                )
+            raise
         if trusted_source_kind == "xpert_chat":
             xpert_id = str(resume_execution.runtime_metadata.get("xpert_id") or "").strip()
             conversation_id = str(
@@ -10135,10 +10487,10 @@ async def _run_workflow_response(
             else ("Xpert started" if runtime_run_type == "xpert" else "Workflow started")
         ),
         summary=payload.workflow.title,
-        metadata=run_metadata,
+        metadata=persisted_run_metadata,
     )
     initial_queue = deque(
-        list(resume_state.get("queue") or [])
+        list(safe_resume_state.get("queue") or [])
         if resume_execution is not None
         else sorted(start_node_ids, key=lambda node_id: order_index[node_id])
     )
@@ -10147,7 +10499,7 @@ async def _run_workflow_response(
     if runtime_run_type in {"xpert", "xpert_app", "xpert_evaluation"} and isinstance(
         raw_agent_config, dict
     ):
-        restored_budget = resume_state.get("execution_budget")
+        restored_budget = safe_resume_state.get("execution_budget")
         restored_steps = (
             int(restored_budget.get("steps_used") or 0)
             if isinstance(restored_budget, dict)
@@ -10178,26 +10530,32 @@ async def _run_workflow_response(
                 else 0
             ),
         )
+    if is_node_retry_resume and "variables" not in safe_resume_state:
+        restored_workflow_variables = initialize_retry_reconstructible_variables(
+            payload.workflow,
+            dict(payload.inputs),
+            additional_sensitive_names=knowledge_proposal_sensitive_variable_names,
+        )
+    elif resume_execution is not None:
+        restored_workflow_variables = normalize_workflow_variables(
+            dict(safe_resume_state.get("variables") or payload.inputs)
+        )
+    else:
+        restored_workflow_variables = initialize_declared_workflow_variables(
+            payload.workflow,
+            dict(payload.inputs),
+        )
     task_state: dict[str, Any] = {
         "task_id": task_id,
         "run_id": workflow_run.run_id,
-        "variables": (
-            normalize_workflow_variables(
-                dict(resume_state.get("variables") or payload.inputs)
-            )
-            if resume_execution is not None
-            else initialize_declared_workflow_variables(
-                payload.workflow,
-                dict(payload.inputs),
-            )
-        ),
+        "variables": restored_workflow_variables,
         "queue": initial_queue,
-        "queued": set(resume_state.get("queued") or initial_queue),
-        "executed": set(resume_state.get("executed") or []),
+        "queued": set(safe_resume_state.get("queued") or initial_queue),
+        "executed": set(safe_resume_state.get("executed") or []),
         "nodes_by_id": nodes_by_id,
         "outgoing": outgoing,
         "order_index": order_index,
-        "final_output": str(resume_state.get("final_output") or ""),
+        "final_output": str(safe_resume_state.get("final_output") or ""),
         "pause_event": None,
         "resume_input": None,
         "paused_node_id": None,
@@ -10212,10 +10570,12 @@ async def _run_workflow_response(
             for edge in payload.workflow.edges
             if str(edge.targetHandle or "").strip() == "middleware"
         ],
-        "agent_resume_state": dict(resume_state.get("agent_state") or {}),
+        "agent_resume_state": dict(safe_resume_state.get("agent_state") or {}),
         "skill_creator_handoff_request": (
-            dict(resume_state.get("skill_creator_handoff_request") or {})
-            if isinstance(resume_state.get("skill_creator_handoff_request"), dict)
+            dict(safe_resume_state.get("skill_creator_handoff_request") or {})
+            if isinstance(
+                safe_resume_state.get("skill_creator_handoff_request"), dict
+            )
             else None
         ),
         "resolved_approval": (
@@ -10246,12 +10606,9 @@ async def _run_workflow_response(
             and runtime_trigger_event.get("type") == "email_received"
             and not runtime_trigger_event.get("test_mode")
         ),
-        "knowledge_proposal_sensitive_variable_names": {
-            str(node.data.get("contentVariable") or "").strip()
-            for node in payload.workflow.nodes
-            if workflow_node_kind(node) == "knowledge_write_proposal"
-            and str(node.data.get("contentVariable") or "").strip()
-        },
+        "knowledge_proposal_sensitive_variable_names": (
+            knowledge_proposal_sensitive_variable_names
+        ),
         "ephemeral_variable_names": {
             str(node.data.get(field_name) or "").strip()
             for node in payload.workflow.nodes
@@ -10279,12 +10636,7 @@ async def _run_workflow_response(
             if isinstance(field, dict)
             and str(field.get("outputVariable") or "").strip()
         }
-        | {
-            str(node.data.get("contentVariable") or "").strip()
-            for node in payload.workflow.nodes
-            if workflow_node_kind(node) == "knowledge_write_proposal"
-            and str(node.data.get("contentVariable") or "").strip()
-        },
+        | knowledge_proposal_sensitive_variable_names,
         "cancel_requested": False,
     }
     _encode_sse_payload = globals()["sse_payload"]
@@ -10301,6 +10653,18 @@ async def _run_workflow_response(
             data = dict(data)
             data["output"] = "knowledge proposal source withheld"
         return _encode_sse_payload(data)
+
+    def assert_resume_lease() -> None:
+        if resume_lease_token:
+            workflow_execution_store.assert_lease(
+                task_id,
+                lease_token=resume_lease_token,
+            )
+
+    def assert_retry_call_lease(_attempt: int) -> None:
+        """Fence an eligible read immediately before a resumed worker calls it."""
+
+        assert_resume_lease()
 
     if (
         task_state["resolved_approval"] is None
@@ -10327,7 +10691,7 @@ async def _run_workflow_response(
                 ),
             ),
             source_kind=trusted_source_kind,
-            runtime_metadata=run_metadata,
+            runtime_metadata=persisted_run_metadata,
         )
 
     if model_gateway_missing and not input_block_policy_can_stop_before_model:
@@ -10335,6 +10699,7 @@ async def _run_workflow_response(
         workflow_execution_store.fail(
             task_id,
             error=LLM_GATEWAY_NOT_CONFIGURED_MESSAGE,
+            **execution_store_lease_kwargs(),
         )
         await run_registry.update_run(
             workflow_run.run_id,
@@ -10469,7 +10834,7 @@ async def _run_workflow_response(
                 "status": "cancelled",
                 "message": "工作流已取消。",
             }
-        restored_runtime_context = resume_state.get("runtime_context")
+        restored_runtime_context = safe_resume_state.get("runtime_context")
         restored_runtime_context = (
             dict(restored_runtime_context)
             if isinstance(restored_runtime_context, dict)
@@ -15635,7 +16000,284 @@ async def _run_workflow_response(
                 output_text = ""
             return output_text, events
 
+        raw_retry_state = resume_state.get("retry_state")
+        retry_resume_state = (
+            dict(raw_retry_state) if isinstance(raw_retry_state, dict) else {}
+        )
+
+        def retry_state_invalid(node_id: str = "scheduler") -> WorkflowTerminationError:
+            return WorkflowTerminationError(
+                "NODE_RETRY_STATE_INVALID",
+                "The durable retry state is invalid or no longer eligible.",
+                node_id=node_id,
+            )
+
+        def validate_retry_resume_state_contract() -> None:
+            if resume_execution is None or resume_execution.wait_kind != "node_retry":
+                if raw_retry_state is not None:
+                    raise retry_state_invalid()
+                return
+            if not isinstance(raw_retry_state, dict):
+                raise retry_state_invalid()
+            if retry_resume_envelope_invalid:
+                raise retry_state_invalid()
+            expected_retry_state_keys = {
+                "version",
+                "node_id",
+                "node_kind",
+                "next_attempt",
+                "max_attempts",
+                "error_code",
+                "classification",
+                "resume_at",
+                "target_fingerprint",
+                "target_version_id",
+            }
+            if set(retry_resume_state) != expected_retry_state_keys:
+                raise retry_state_invalid()
+            node_id = retry_resume_state.get("node_id")
+            node_kind_value = retry_resume_state.get("node_kind")
+            attempt = retry_resume_state.get("next_attempt")
+            maximum = retry_resume_state.get("max_attempts")
+            resume_at = retry_resume_state.get("resume_at")
+            retry_node = nodes_by_id.get(node_id) if isinstance(node_id, str) else None
+            kind = workflow_node_kind(retry_node) if retry_node is not None else ""
+            fingerprint = retry_resume_state.get("target_fingerprint")
+            target_version_id = retry_resume_state.get("target_version_id")
+            if (
+                type(retry_resume_state.get("version")) is not int
+                or retry_resume_state.get("version") != 1
+                or "variables" in resume_state
+                or retry_node is None
+                or node_kind_value != kind
+                or kind not in {"http_request", "data_table_query", "knowledge_retrieval"}
+                or not retry_enabled(retry_node.data)
+                or isinstance(attempt, bool)
+                or not isinstance(attempt, int)
+                or attempt not in {2, 3}
+                or isinstance(maximum, bool)
+                or not isinstance(maximum, int)
+                or maximum not in {2, 3}
+                or attempt > maximum
+                or maximum != retry_max_attempts(retry_node.data)
+                or isinstance(resume_at, bool)
+                or not isinstance(resume_at, (int, float))
+                or not math.isfinite(float(resume_at))
+                or resume_execution.resume_at is None
+                or abs(float(resume_execution.resume_at) - float(resume_at)) > 0.001
+                or str(resume_execution.wait_id or "")
+                != retry_wait_id(task_id, node_id, attempt)
+                or retry_resume_state.get("classification") != "transient"
+                or not retry_error_code_is_safe(
+                    kind, retry_resume_state.get("error_code")
+                )
+            ):
+                raise retry_state_invalid(str(node_id or "scheduler"))
+            if kind == "knowledge_retrieval":
+                if (
+                    not isinstance(fingerprint, str)
+                    or re.fullmatch(r"[a-f0-9]{64}", fingerprint) is None
+                    or not isinstance(target_version_id, str)
+                    or not target_version_id.strip()
+                ):
+                    raise retry_state_invalid(node_id)
+            elif fingerprint is not None or target_version_id is not None:
+                raise retry_state_invalid(node_id)
+            matching_schedule_events = [
+                event
+                for event in resume_execution.events
+                if event.get("event") == "node_retry_scheduled"
+                and event.get("node_id") == node_id
+            ]
+            latest_schedule = (
+                matching_schedule_events[-1] if matching_schedule_events else None
+            )
+            if (
+                latest_schedule is None
+                or latest_schedule.get("node_type") != kind
+                or latest_schedule.get("attempt") != attempt
+                or latest_schedule.get("max_attempts") != maximum
+                or latest_schedule.get("wait_id") != resume_execution.wait_id
+                or latest_schedule.get("error_code")
+                != retry_resume_state.get("error_code")
+                or latest_schedule.get("classification") != "transient"
+                or isinstance(latest_schedule.get("resume_at"), bool)
+                or not isinstance(latest_schedule.get("resume_at"), (int, float))
+                or abs(
+                    float(latest_schedule["resume_at"]) - float(resume_at)
+                )
+                > 0.001
+            ):
+                raise retry_state_invalid(node_id)
+
+        def record_deployment_retry_event(event: dict[str, Any]) -> None:
+            deployment_execution_id = str(
+                run_metadata.get("workflow_deployment_execution_id") or ""
+            ).strip()
+            if deployment_execution_id:
+                workflow_deployment_store.record_execution_retry_event(
+                    deployment_execution_id,
+                    event,
+                )
+
+        def retry_attempt_for(node: WorkflowNodePayload) -> int:
+            if retry_resume_state and str(
+                retry_resume_state.get("node_id") or ""
+            ) == node.id:
+                return retry_resume_state["next_attempt"]
+            return 1
+
+        def require_retry_runtime(
+            node: WorkflowNodePayload,
+            *,
+            target_fingerprint: str | None = None,
+        ) -> int:
+            kind = workflow_node_kind(node)
+            if not retry_enabled(node.data):
+                return 1
+            try:
+                validate_static_retry_eligibility(node.data, node_kind=kind)
+            except WorkflowRetryPolicyError as exc:
+                raise WorkflowTerminationError(
+                    exc.code,
+                    exc.safe_message,
+                    node_id=node.id,
+                ) from None
+            if not workflow_node_retries_enabled():
+                raise WorkflowTerminationError(
+                    "NODE_RETRIES_DISABLED",
+                    "Durable workflow node retries are disabled.",
+                    node_id=node.id,
+                )
+            attempt = retry_attempt_for(node)
+            if retry_resume_state:
+                expected_fingerprint = retry_resume_state.get("target_fingerprint")
+                if (
+                    retry_resume_state.get("node_id") != node.id
+                    or retry_resume_state.get("node_kind") != kind
+                    or (
+                        kind == "knowledge_retrieval"
+                        and expected_fingerprint != target_fingerprint
+                    )
+                ):
+                    raise retry_state_invalid(node.id)
+            return attempt
+
+        def prepare_retry_interrupt(
+            node: WorkflowNodePayload,
+            error: BaseException,
+            *,
+            attempt: int,
+            target_fingerprint: str | None = None,
+            target_version_id: str | None = None,
+        ) -> tuple[dict[str, Any], RuntimeInterrupt] | None:
+            kind = workflow_node_kind(node)
+            if not retry_enabled(node.data):
+                return None
+            failure = strict_retry_failure(kind, error)
+            maximum = retry_max_attempts(node.data)
+            if failure is None or attempt >= maximum:
+                return None
+            unsafe_runtime_state = bool(
+                task_state.get("final_output")
+                or task_state.get("skill_creator_handoff_request")
+                or workflow_runtime_context.get("system_prompt")
+                or workflow_runtime_context.get("override_system_prompt")
+                or workflow_runtime_context.get("active_middlewares")
+                or workflow_runtime_context.get("global_middleware_specs")
+                or workflow_runtime_context.get("tool_policy") is not None
+            )
+            if unsafe_runtime_state:
+                raise WorkflowTerminationError(
+                    "NODE_RETRY_RUNTIME_SNAPSHOT_UNSAFE",
+                    "Durable retry cannot persist runtime content created earlier in the workflow.",
+                    node_id=node.id,
+                )
+            reconstructible_variables = initialize_retry_reconstructible_variables(
+                payload.workflow,
+                dict(payload.inputs),
+                additional_sensitive_names=set(
+                    task_state.get("knowledge_proposal_sensitive_variable_names")
+                    or set()
+                ),
+            )
+            all_kinds = {
+                candidate.id: workflow_node_kind(candidate)
+                for candidate in payload.workflow.nodes
+            }
+            all_producers = collect_node_variable_producers(
+                payload.workflow.nodes,
+                all_kinds,
+            )
+            unrecoverable_references = retry_resume_reference_issues(
+                payload.workflow.nodes,
+                payload.workflow.edges,
+                retry_node_id=node.id,
+                kinds_by_id=all_kinds,
+                declaration_names=set(reconstructible_variables),
+                producers=all_producers,
+                resume_root_ids=set(queue) | {node.id},
+                known_skipped_edge_ids=(
+                    {
+                        edge_id
+                        for edge_id, outcome in scheduler_v2.edge_outcomes.items()
+                        if outcome == "skipped"
+                    }
+                    if scheduler_v2 is not None
+                    else set()
+                ),
+            )
+            if unrecoverable_references:
+                raise WorkflowTerminationError(
+                    "NODE_RETRY_INPUT_SNAPSHOT_UNSAFE",
+                    "Durable retry cannot persist variables produced earlier in the workflow.",
+                    node_id=node.id,
+                )
+            next_attempt = attempt + 1
+            delay = retry_delay_seconds(
+                next_attempt,
+                getattr(error, "retry_after_seconds", None),
+            )
+            resume_at = time.time() + delay
+            wait_id = retry_wait_id(task_id, node.id, next_attempt)
+            state = {
+                "version": 1,
+                "node_id": node.id,
+                "node_kind": kind,
+                "next_attempt": next_attempt,
+                "max_attempts": maximum,
+                "error_code": failure.code,
+                "classification": failure.classification,
+                "resume_at": resume_at,
+                "target_fingerprint": target_fingerprint,
+                "target_version_id": target_version_id,
+            }
+            event = {
+                "event": "node_retry_scheduled",
+                "task_id": task_id,
+                "run_id": workflow_run.run_id,
+                "wait_kind": "node_retry",
+                "wait_id": wait_id,
+                "node_id": node.id,
+                "node_title": workflow_node_title(node),
+                "node_type": kind,
+                "attempt": next_attempt,
+                "max_attempts": maximum,
+                "resume_at": resume_at,
+                "error_code": failure.code,
+                "classification": failure.classification,
+                "message": "Workflow node retry was scheduled.",
+            }
+            return event, RuntimeInterrupt(
+                task_id=task_id,
+                run_id=workflow_run.run_id,
+                wait_kind="node_retry",
+                wait_id=wait_id,
+                continuation={"retry_state": state},
+            )
+
         try:
+            validate_retry_resume_state_contract()
             scheduler_present = "scheduler" in resume_state
             raw_scheduler = resume_state.get("scheduler")
             scheduler_version = (
@@ -15643,6 +16285,20 @@ async def _run_workflow_response(
                 if isinstance(raw_scheduler, dict)
                 else None
             )
+            if (
+                resume_execution is not None
+                and resume_execution.wait_kind == "node_retry"
+                and not (
+                    isinstance(raw_scheduler, dict)
+                    and type(scheduler_version) is int
+                    and scheduler_version == 2
+                )
+            ):
+                raise WorkflowTerminationError(
+                    "NODE_RETRY_SCHEDULER_INVALID",
+                    "Durable node retry requires a Scheduler V2 continuation.",
+                    node_id="scheduler",
+                )
             if resume_execution is None or (
                 isinstance(raw_scheduler, dict)
                 and type(scheduler_version) is int
@@ -15685,6 +16341,28 @@ async def _run_workflow_response(
                     node_id="scheduler",
                 )
 
+            if resume_execution is not None and resume_execution.wait_kind == "node_retry":
+                retry_node_id = str(retry_resume_state.get("node_id") or "")
+                retry_node = nodes_by_id.get(retry_node_id)
+                if (
+                    not retry_resume_state
+                    or retry_node is None
+                    or not queue
+                    or queue[0] != retry_node_id
+                    or not retry_enabled(retry_node.data)
+                ):
+                    raise WorkflowTerminationError(
+                        "NODE_RETRY_STATE_INVALID",
+                        "The durable retry state is invalid or no longer eligible.",
+                        node_id=retry_node_id or "scheduler",
+                    )
+            elif raw_retry_state is not None:
+                raise WorkflowTerminationError(
+                    "NODE_RETRY_STATE_INVALID",
+                    "Unexpected durable retry state was found.",
+                    node_id="scheduler",
+                )
+
             meta_event = {
                 "event": "workflow_meta",
                 "task_id": task_id,
@@ -15700,11 +16378,16 @@ async def _run_workflow_response(
                         "file_count": run_metadata.get("file_count", 0),
                     }
                 )
+            assert_resume_lease()
             yield sse_payload(meta_event)
             if cancellation_requested():
                 yield sse_payload(cancellation_event())
                 return
-            workflow_execution_store.append_event(task_id, meta_event)
+            workflow_execution_store.append_event(
+                task_id,
+                meta_event,
+                **execution_store_lease_kwargs(),
+            )
             if resolved_approval is not None:
                 resolved_event = {
                     "event": "runtime_approval_resolved",
@@ -15718,12 +16401,17 @@ async def _run_workflow_response(
                     "tool_name": resolved_approval.tool_name,
                     "message": "审批已处理，执行已从断点恢复。",
                 }
-                workflow_execution_store.append_event(task_id, resolved_event)
+                workflow_execution_store.append_event(
+                    task_id,
+                    resolved_event,
+                    **execution_store_lease_kwargs(),
+                )
                 yield sse_payload(resolved_event)
             while queue:
                 if cancellation_requested():
                     yield sse_payload(cancellation_event())
                     return
+                assert_resume_lease()
                 node_id = queue.popleft()
                 node = nodes_by_id[node_id]
                 kind = workflow_node_kind(node)
@@ -16319,6 +17007,35 @@ async def _run_workflow_response(
                         output_variable = str(
                             node.data.get("outputVariable") or "http_response"
                         )
+                        retry_attempt = require_retry_runtime(node)
+                        active_retry_state = dict(retry_resume_state)
+                        if retry_attempt > 1:
+                            retry_started_event = {
+                                "event": "node_retry_started",
+                                "node_id": node.id,
+                                "node_title": title,
+                                "node_type": kind,
+                                "attempt": retry_attempt,
+                                "max_attempts": retry_max_attempts(node.data),
+                                "resume_at": active_retry_state.get("resume_at"),
+                                "error_code": active_retry_state.get("error_code"),
+                                "classification": active_retry_state.get(
+                                    "classification"
+                                ),
+                                "message": "Workflow node retry started.",
+                            }
+                            workflow_execution_store.append_event(
+                                task_id,
+                                retry_started_event,
+                                **execution_store_lease_kwargs(),
+                            )
+                            record_deployment_retry_event(retry_started_event)
+                            yield sse_payload(retry_started_event)
+                        retry_resume_state.clear()
+                        if cancellation_requested():
+                            yield sse_payload(cancellation_event())
+                            return
+                        assert_retry_call_lease(retry_attempt)
                         try:
                             stored_output = await execute_workflow_http_request(
                                 node.data,
@@ -16326,6 +17043,17 @@ async def _run_workflow_response(
                                 toolset_credential_store,
                             )
                         except WorkflowHttpRequestError as exc:
+                            if cancellation_requested():
+                                yield sse_payload(cancellation_event())
+                                return
+                            prepared_retry = prepare_retry_interrupt(
+                                node,
+                                exc,
+                                attempt=retry_attempt,
+                            )
+                            if prepared_retry is not None:
+                                _retry_event, retry_interrupt = prepared_retry
+                                raise retry_interrupt
                             routed_failure = route_http_error(exc)
                             if routed_failure is None:
                                 raise WorkflowTerminationError(
@@ -16338,12 +17066,21 @@ async def _run_workflow_response(
                                     routed_failure.code,
                                     routed_failure.safe_message,
                                     node_id=node.id,
+                                    attempts=retry_attempt,
+                                    max_attempts=(
+                                        retry_max_attempts(node.data)
+                                        if retry_enabled(node.data)
+                                        else retry_attempt
+                                    ),
+                                    classification=routed_failure.classification,
+                                    exhausted=True,
                                 ) from None
                             error_variable = runtime_error_variable(node)
                             routed_failure_receipt = build_error_receipt(
                                 routed_failure,
                                 node_id=node.id,
                                 node_kind=kind,
+                                attempts=retry_attempt,
                             )
                             variables[error_variable] = normalize_workflow_value(
                                 routed_failure_receipt,
@@ -16352,6 +17089,10 @@ async def _run_workflow_response(
                             output = routed_failure.safe_message
                             node_end_status = "handled_error"
                         else:
+                            if cancellation_requested():
+                                yield sse_payload(cancellation_event())
+                                return
+                            assert_resume_lease()
                             variables[output_variable] = normalize_workflow_value(
                                 stored_output,
                                 path=f"$.variables.{output_variable}",
@@ -17160,6 +17901,35 @@ async def _run_workflow_response(
                     result_count = 0
                     affected_count = 0
                     if kind == "data_table_query":
+                        retry_attempt = require_retry_runtime(node)
+                        active_retry_state = dict(retry_resume_state)
+                        if retry_attempt > 1:
+                            retry_started_event = {
+                                "event": "node_retry_started",
+                                "node_id": node.id,
+                                "node_title": title,
+                                "node_type": kind,
+                                "attempt": retry_attempt,
+                                "max_attempts": retry_max_attempts(node.data),
+                                "resume_at": active_retry_state.get("resume_at"),
+                                "error_code": active_retry_state.get("error_code"),
+                                "classification": active_retry_state.get(
+                                    "classification"
+                                ),
+                                "message": "Workflow node retry started.",
+                            }
+                            workflow_execution_store.append_event(
+                                task_id,
+                                retry_started_event,
+                                **execution_store_lease_kwargs(),
+                            )
+                            record_deployment_retry_event(retry_started_event)
+                            yield sse_payload(retry_started_event)
+                        retry_resume_state.clear()
+                        if cancellation_requested():
+                            yield sse_payload(cancellation_event())
+                            return
+                        assert_retry_call_lease(retry_attempt)
                         fields = node.data.get("selectFields")
                         selected_fields = (
                             [str(value) for value in fields]
@@ -17184,6 +17954,17 @@ async def _run_workflow_response(
                                 limit=int(node.data.get("limit") or 20),
                             )
                         except Exception as exc:
+                            if cancellation_requested():
+                                yield sse_payload(cancellation_event())
+                                return
+                            prepared_retry = prepare_retry_interrupt(
+                                node,
+                                exc,
+                                attempt=retry_attempt,
+                            )
+                            if prepared_retry is not None:
+                                _retry_event, retry_interrupt = prepared_retry
+                                raise retry_interrupt
                             routed_failure = route_data_table_error(exc)
                             if routed_failure is None:
                                 raise WorkflowTerminationError(
@@ -17204,12 +17985,21 @@ async def _run_workflow_response(
                                     routed_failure.code,
                                     routed_failure.safe_message,
                                     node_id=node.id,
+                                    attempts=retry_attempt,
+                                    max_attempts=(
+                                        retry_max_attempts(node.data)
+                                        if retry_enabled(node.data)
+                                        else retry_attempt
+                                    ),
+                                    classification=routed_failure.classification,
+                                    exhausted=True,
                                 ) from None
                             error_variable = runtime_error_variable(node)
                             routed_failure_receipt = build_error_receipt(
                                 routed_failure,
                                 node_id=node.id,
                                 node_kind=kind,
+                                attempts=retry_attempt,
                             )
                             variables[error_variable] = normalize_workflow_value(
                                 routed_failure_receipt,
@@ -17219,6 +18009,10 @@ async def _run_workflow_response(
                             node_end_status = "handled_error"
                             stored_output = None
                         else:
+                            if cancellation_requested():
+                                yield sse_payload(cancellation_event())
+                                return
+                            assert_resume_lease()
                             result_count = len(records)
                             if str(node.data.get("returnMode") or "list") == "first":
                                 stored_output = records[0] if records else None
@@ -17731,6 +18525,65 @@ async def _run_workflow_response(
                         configured_kb_id = str(
                             node.data.get("knowledgeBaseId") or ""
                         ).strip()
+                        retry_target_fingerprint: str | None = None
+                        retry_target_version_id: str | None = None
+                        if retry_enabled(node.data):
+                            try:
+                                (
+                                    retry_target_fingerprint,
+                                    retry_target_version_id,
+                                ) = resolve_workflow_knowledge_retry_target(
+                                    configured_kb_id
+                                )
+                            except WorkflowRetryPolicyError as exc:
+                                raise WorkflowTerminationError(
+                                    exc.code,
+                                    exc.safe_message,
+                                    node_id=node.id,
+                                ) from None
+                        active_retry_state = dict(retry_resume_state)
+                        retry_attempt = require_retry_runtime(
+                            node,
+                            target_fingerprint=retry_target_fingerprint,
+                        )
+                        if retry_attempt > 1:
+                            expected_version_id = str(
+                                active_retry_state.get("target_version_id") or ""
+                            )
+                            if expected_version_id != str(
+                                retry_target_version_id or ""
+                            ):
+                                raise WorkflowTerminationError(
+                                    "NODE_RETRY_TARGET_CHANGED",
+                                    "The knowledge retry target changed before resume.",
+                                    node_id=node.id,
+                                )
+                            retry_started_event = {
+                                "event": "node_retry_started",
+                                "node_id": node.id,
+                                "node_title": title,
+                                "node_type": kind,
+                                "attempt": retry_attempt,
+                                "max_attempts": retry_max_attempts(node.data),
+                                "resume_at": active_retry_state.get("resume_at"),
+                                "error_code": active_retry_state.get("error_code"),
+                                "classification": active_retry_state.get(
+                                    "classification"
+                                ),
+                                "message": "Workflow node retry started.",
+                            }
+                            workflow_execution_store.append_event(
+                                task_id,
+                                retry_started_event,
+                                **execution_store_lease_kwargs(),
+                            )
+                            record_deployment_retry_event(retry_started_event)
+                            yield sse_payload(retry_started_event)
+                        retry_resume_state.clear()
+                        if cancellation_requested():
+                            yield sse_payload(cancellation_event())
+                            return
+                        assert_retry_call_lease(retry_attempt)
                         retrieval_run = await run_registry.create_run(
                             "knowledge_retrieval",
                             title,
@@ -17761,6 +18614,21 @@ async def _run_workflow_response(
                                 "top_k": top_k,
                             },
                         )
+                        if cancellation_requested():
+                            await run_registry.cancel_run(
+                                retrieval_run.run_id,
+                                reason="workflow_cancelled",
+                            )
+                            yield sse_payload(cancellation_event())
+                            return
+                        try:
+                            assert_retry_call_lease(retry_attempt)
+                        except WorkflowExecutionConflictError:
+                            await run_registry.cancel_run(
+                                retrieval_run.run_id,
+                                reason="resume_lease_lost",
+                            )
+                            raise
                         output, retrieval_metadata = (
                             await execute_workflow_knowledge_retrieval(
                                 get_rag_service(),
@@ -17769,8 +18637,24 @@ async def _run_workflow_response(
                                 top_k=top_k,
                                 contract_version=contract_version,
                                 return_mode=return_mode,
+                                version_id=retry_target_version_id,
                             )
                         )
+                        if cancellation_requested():
+                            await run_registry.cancel_run(
+                                retrieval_run.run_id,
+                                reason="workflow_cancelled",
+                            )
+                            yield sse_payload(cancellation_event())
+                            return
+                        try:
+                            assert_resume_lease()
+                        except WorkflowExecutionConflictError:
+                            await run_registry.cancel_run(
+                                retrieval_run.run_id,
+                                reason="resume_lease_lost",
+                            )
+                            raise
                         variables[output_variable] = output
                         output_length = len(workflow_value_to_text(output))
                         await run_registry.update_run(
@@ -17816,6 +18700,12 @@ async def _run_workflow_response(
                                 **retrieval_metadata,
                             }
                         )
+                    except WorkflowTerminationError:
+                        # Runtime retry guards already carry a fixed safe code and
+                        # message. Preserve that fail-closed decision instead of
+                        # collapsing target drift or a disabled retry feature into
+                        # a generic knowledge retrieval failure.
+                        raise
                     except WorkflowKnowledgeContractError as exc:
                         if retrieval_run is not None:
                             await run_registry.record_checkpoint(
@@ -17839,8 +18729,59 @@ async def _run_workflow_response(
                             exc.error_code,
                             exc.safe_message,
                         ) from None
-                    except RagRetrievalUnavailableError as exc:
-                        routed_failure = route_knowledge_error(exc)
+                    except (RagRetrievalUnavailableError, sqlite3.OperationalError) as exc:
+                        if cancellation_requested():
+                            if retrieval_run is not None:
+                                await run_registry.record_checkpoint(
+                                    retrieval_run.run_id,
+                                    event_type="knowledge_retrieval.cancelled",
+                                    title="Knowledge retrieval cancelled",
+                                    summary="KNOWLEDGE_RETRIEVAL_CANCELLED",
+                                    severity="warning",
+                                    metadata={
+                                        "node_id": node.id,
+                                        "error_code": "KNOWLEDGE_RETRIEVAL_CANCELLED",
+                                    },
+                                )
+                                await run_registry.update_run(
+                                    retrieval_run.run_id,
+                                    status="cancelled",
+                                    error="KNOWLEDGE_RETRIEVAL_CANCELLED",
+                                )
+                            yield sse_payload(cancellation_event())
+                            return
+                        prepared_retry = prepare_retry_interrupt(
+                            node,
+                            exc,
+                            attempt=retry_attempt,
+                            target_fingerprint=retry_target_fingerprint,
+                            target_version_id=retry_target_version_id,
+                        )
+                        if prepared_retry is not None:
+                            retry_event, retry_interrupt = prepared_retry
+                            if retrieval_run is not None:
+                                await run_registry.record_checkpoint(
+                                    retrieval_run.run_id,
+                                    event_type="knowledge_retrieval.retry_scheduled",
+                                    title="Knowledge retrieval retry scheduled",
+                                    summary=str(retry_event["error_code"]),
+                                    severity="warning",
+                                    metadata={
+                                        "node_id": node.id,
+                                        "attempt": retry_event["attempt"],
+                                        "max_attempts": retry_event["max_attempts"],
+                                        "error_code": retry_event["error_code"],
+                                    },
+                                )
+                                await run_registry.update_run(
+                                    retrieval_run.run_id,
+                                    status="failed",
+                                    error="KNOWLEDGE_RETRIEVAL_RETRY_SCHEDULED",
+                                )
+                            raise retry_interrupt
+                        routed_failure = route_knowledge_error(exc) or strict_retry_failure(
+                            kind, exc
+                        )
                         if retrieval_run is not None:
                             await run_registry.record_checkpoint(
                                 retrieval_run.run_id,
@@ -17873,16 +18814,25 @@ async def _run_workflow_response(
                                 "Knowledge retrieval failed.",
                             ) from None
                         if failure_action(node.data) != "error_output":
-                            raise WorkflowKnowledgeFatalError(
-                                node.id,
+                            raise WorkflowTerminationError(
                                 routed_failure.code,
                                 routed_failure.safe_message,
+                                node_id=node.id,
+                                attempts=retry_attempt,
+                                max_attempts=(
+                                    retry_max_attempts(node.data)
+                                    if retry_enabled(node.data)
+                                    else retry_attempt
+                                ),
+                                classification=routed_failure.classification,
+                                exhausted=True,
                             ) from None
                         error_variable = runtime_error_variable(node)
                         routed_failure_receipt = build_error_receipt(
                             routed_failure,
                             node_id=node.id,
                             node_kind=kind,
+                            attempts=retry_attempt,
                         )
                         variables[error_variable] = normalize_workflow_value(
                             routed_failure_receipt,
@@ -21088,7 +22038,9 @@ async def _run_workflow_response(
                                     for agent_event in agent_events:
                                         if agent_event.get("event") == "skill_runtime_status":
                                             workflow_execution_store.append_event(
-                                                task_id, agent_event
+                                                task_id,
+                                                agent_event,
+                                                **execution_store_lease_kwargs(),
                                             )
                                         yield sse_payload(agent_event)
                                     if structured_spec is None and ralph_spec is None:
@@ -21403,7 +22355,9 @@ async def _run_workflow_response(
                                     "run_id": workflow_agent_run.run_id,
                                 }
                                 workflow_execution_store.append_event(
-                                    task_id, skill_failure_event
+                                    task_id,
+                                    skill_failure_event,
+                                    **execution_store_lease_kwargs(),
                                 )
                                 yield sse_payload(skill_failure_event)
                             if exception_handling == "empty_output":
@@ -21873,6 +22827,7 @@ async def _run_workflow_response(
                             yield sse_payload(
                                 {
                                     "event": "error",
+                                    "terminal": True,
                                     "node_id": node.id,
                                     "message": str(exc),
                                 }
@@ -23573,6 +24528,7 @@ async def _run_workflow_response(
                 if cancellation_requested():
                     yield sse_payload(cancellation_event())
                     return
+                assert_resume_lease()
 
                 if routed_failure_receipt is not None:
                     routed_event = {
@@ -23581,13 +24537,22 @@ async def _run_workflow_response(
                         "node_title": title,
                         "node_type": kind,
                         "attempt": int(routed_failure_receipt["attempts"]),
-                        "max_attempts": int(routed_failure_receipt["attempts"]),
+                        "max_attempts": (
+                            retry_max_attempts(node.data)
+                            if retry_enabled(node.data)
+                            else int(routed_failure_receipt["attempts"])
+                        ),
                         "error_code": str(routed_failure_receipt["code"]),
                         "classification": str(
                             routed_failure_receipt["classification"]
                         ),
                     }
-                    workflow_execution_store.append_event(task_id, routed_event)
+                    workflow_execution_store.append_event(
+                        task_id,
+                        routed_event,
+                        **execution_store_lease_kwargs(),
+                    )
+                    record_deployment_retry_event(routed_event)
                     yield sse_payload(routed_event)
 
                 executed.add(node_id)
@@ -23600,7 +24565,11 @@ async def _run_workflow_response(
                 }
                 if node_provider_receipt is not None:
                     node_end_event["provider_route_receipts"] = node_provider_receipt
-                workflow_execution_store.append_event(task_id, node_end_event)
+                workflow_execution_store.append_event(
+                    task_id,
+                    node_end_event,
+                    **execution_store_lease_kwargs(),
+                )
                 sensitive_variable_names = set(
                     task_state.get("knowledge_proposal_sensitive_variable_names")
                     or set()
@@ -23753,6 +24722,7 @@ async def _run_workflow_response(
                         workflow_execution_store.append_event(
                             task_id,
                             skipped_event,
+                            **execution_store_lease_kwargs(),
                         )
                         yield sse_payload(skipped_event)
                     for target_id in scheduled_targets:
@@ -23783,6 +24753,7 @@ async def _run_workflow_response(
             if cancellation_requested():
                 yield sse_payload(cancellation_event())
                 return
+            assert_resume_lease()
 
             await run_registry.update_run(
                 workflow_run.run_id,
@@ -23792,6 +24763,7 @@ async def _run_workflow_response(
                     "variables_count": len(variables),
                 },
             )
+            assert_resume_lease()
             await run_registry.record_checkpoint(
                 workflow_run.run_id,
                 event_type=f"{runtime_run_type}.completed",
@@ -23801,6 +24773,7 @@ async def _run_workflow_response(
                     "variables_count": len(variables),
                 },
             )
+            assert_resume_lease()
             conversation_suggestions: list[str] = []
             generated_conversation_title = ""
             if (
@@ -23841,6 +24814,7 @@ async def _run_workflow_response(
                         or TEXT_FALLBACK_MODEL
                     ).strip()
                     try:
+                        assert_resume_lease()
                         (
                             generated_conversation_title,
                             conversation_suggestions,
@@ -23859,6 +24833,7 @@ async def _run_workflow_response(
                                 question_config.get("count") or 3
                             ),
                         )
+                        assert_resume_lease()
                         await run_registry.record_checkpoint(
                             workflow_run.run_id,
                             event_type="xpert.conversation.enriched",
@@ -23877,6 +24852,8 @@ async def _run_workflow_response(
                                 "model_id": enrichment_model_id,
                             },
                         )
+                    except WorkflowExecutionConflictError:
+                        raise
                     except Exception as exc:
                         logger.warning(
                             "Failed to generate Xpert conversation metadata: %s",
@@ -23884,6 +24861,7 @@ async def _run_workflow_response(
                         )
             if runtime_run_type == "xpert" and run_metadata.get("conversation_id"):
                 try:
+                    assert_resume_lease()
                     await asyncio.to_thread(
                         xpert_context_store.append_message,
                         str(run_metadata.get("xpert_id") or ""),
@@ -23896,6 +24874,7 @@ async def _run_workflow_response(
                         source_run_id=workflow_run.run_id,
                     )
                     if generated_conversation_title:
+                        assert_resume_lease()
                         await asyncio.to_thread(
                             xpert_context_store.update_conversation_title,
                             str(run_metadata.get("xpert_id") or ""),
@@ -23909,6 +24888,7 @@ async def _run_workflow_response(
                 and run_metadata.get("memory_write_enabled")
                 and final_output
             ):
+                assert_resume_lease()
                 asyncio.create_task(
                     generate_xpert_memory_candidates(
                         xpert_id=str(run_metadata.get("xpert_id") or ""),
@@ -23963,9 +24943,11 @@ async def _run_workflow_response(
                     f"{source_name} output_bytes={len(encoded_final_output)} "
                     f"sha256={hashlib.sha256(encoded_final_output).hexdigest()}"
                 )
+            assert_resume_lease()
             completed_execution = workflow_execution_store.complete(
                 task_id,
                 result=persisted_final_output,
+                **execution_store_lease_kwargs(),
             )
             if completed_execution.status == "cancelled":
                 yield sse_payload(cancellation_event())
@@ -24077,6 +25059,9 @@ async def _run_workflow_response(
                 },
             )
         except RuntimeInterrupt as interrupt:
+            if cancellation_requested():
+                yield sse_payload(cancellation_event())
+                return
             if (
                 bool(task_state.get("private_form_event"))
                 or bool(task_state.get("private_rss_event"))
@@ -24091,7 +25076,11 @@ async def _run_workflow_response(
                         else "Form workflows cannot persist a continuation."
                     )
                 )
-                workflow_execution_store.fail(task_id, error=failure_message)
+                workflow_execution_store.fail(
+                    task_id,
+                    error=failure_message,
+                    **execution_store_lease_kwargs(),
+                )
                 await run_registry.update_run(
                     workflow_run.run_id,
                     status="failed",
@@ -24100,6 +25089,7 @@ async def _run_workflow_response(
                 yield sse_payload(
                     {
                         "event": "error",
+                        "terminal": True,
                         "task_id": task_id,
                         "run_id": workflow_run.run_id,
                         "message": failure_message,
@@ -24113,7 +25103,11 @@ async def _run_workflow_response(
                 failure_message = (
                     "HTTP event workflows cannot persist an interactive continuation."
                 )
-                workflow_execution_store.fail(task_id, error=failure_message)
+                workflow_execution_store.fail(
+                    task_id,
+                    error=failure_message,
+                    **execution_store_lease_kwargs(),
+                )
                 await run_registry.update_run(
                     workflow_run.run_id,
                     status="failed",
@@ -24122,6 +25116,7 @@ async def _run_workflow_response(
                 yield sse_payload(
                     {
                         "event": "error",
+                        "terminal": True,
                         "task_id": task_id,
                         "run_id": workflow_run.run_id,
                         "message": failure_message,
@@ -24130,10 +25125,6 @@ async def _run_workflow_response(
                 return
             current_node_id = str(locals().get("node_id") or "")
             continuation = {
-                "variables": checkpoint_safe_workflow_variables(
-                    variables,
-                    ephemeral_names=set(task_state.get("ephemeral_variable_names") or set()),
-                ),
                 "queue": [current_node_id, *list(queue)] if current_node_id else list(queue),
                 "queued": sorted(queued),
                 "executed": sorted(executed),
@@ -24142,31 +25133,6 @@ async def _run_workflow_response(
                     if scheduler_v2 is not None
                     else {"version": 1}
                 ),
-                "final_output": final_output,
-                "agent_state": dict(interrupt.continuation.get("agent_state") or {}),
-                "skill_creator_handoff_request": (
-                    dict(task_state.get("skill_creator_handoff_request") or {})
-                    if isinstance(
-                        task_state.get("skill_creator_handoff_request"), dict
-                    )
-                    else None
-                ),
-                "runtime_context": {
-                    "system_prompt": workflow_runtime_context.get("system_prompt"),
-                    "override_system_prompt": workflow_runtime_context.get(
-                        "override_system_prompt", False
-                    ),
-                    "active_middlewares": list(
-                        workflow_runtime_context.get("active_middlewares") or []
-                    ),
-                    "global_middleware_specs": [
-                        asdict(spec)
-                        for spec in workflow_runtime_context.get(
-                            "global_middleware_specs", []
-                        )
-                        if isinstance(spec, RuntimeMiddlewareSpec)
-                    ],
-                },
                 "execution_budget": (
                     {
                         "steps_used": task_state["execution_budget"].steps_used,
@@ -24180,7 +25146,124 @@ async def _run_workflow_response(
                     else None
                 ),
             }
-            if interrupt.wait_kind == "timer":
+            if interrupt.wait_kind == "node_retry":
+                continuation["retry_state"] = dict(
+                    interrupt.continuation.get("retry_state") or {}
+                )
+            else:
+                continuation.update(
+                    {
+                        "final_output": final_output,
+                        "agent_state": dict(
+                            interrupt.continuation.get("agent_state") or {}
+                        ),
+                        "retry_state": None,
+                        "skill_creator_handoff_request": (
+                            dict(task_state.get("skill_creator_handoff_request") or {})
+                            if isinstance(
+                                task_state.get("skill_creator_handoff_request"), dict
+                            )
+                            else None
+                        ),
+                        "runtime_context": {
+                            "system_prompt": workflow_runtime_context.get(
+                                "system_prompt"
+                            ),
+                            "override_system_prompt": workflow_runtime_context.get(
+                                "override_system_prompt", False
+                            ),
+                            "active_middlewares": list(
+                                workflow_runtime_context.get("active_middlewares") or []
+                            ),
+                            "global_middleware_specs": [
+                                asdict(spec)
+                                for spec in workflow_runtime_context.get(
+                                    "global_middleware_specs", []
+                                )
+                                if isinstance(spec, RuntimeMiddlewareSpec)
+                            ],
+                        },
+                    }
+                )
+                continuation["variables"] = checkpoint_safe_workflow_variables(
+                    variables,
+                    ephemeral_names=set(
+                        task_state.get("ephemeral_variable_names") or set()
+                    ),
+                )
+            if interrupt.wait_kind == "node_retry":
+                if scheduler_v2 is None:
+                    raise RuntimeMiddlewareFatalError(
+                        "Node retry requires Scheduler V2 state."
+                    )
+                retry_state = dict(interrupt.continuation.get("retry_state") or {})
+                resume_at = float(retry_state.get("resume_at") or 0)
+                if (
+                    resume_at <= 0
+                    or str(retry_state.get("node_id") or "") != current_node_id
+                    or str(interrupt.wait_id or "")
+                    != retry_wait_id(
+                        task_id,
+                        current_node_id,
+                        int(retry_state.get("next_attempt") or 0),
+                    )
+                ):
+                    raise RuntimeMiddlewareFatalError(
+                        "Node retry interrupt is missing durable state."
+                    )
+                pending_event = {
+                    "event": "node_retry_scheduled",
+                    "task_id": task_id,
+                    "run_id": workflow_run.run_id,
+                    "wait_kind": "node_retry",
+                    "wait_id": interrupt.wait_id,
+                    "node_id": current_node_id,
+                    "node_type": retry_state.get("node_kind"),
+                    "attempt": retry_state.get("next_attempt"),
+                    "max_attempts": retry_state.get("max_attempts"),
+                    "resume_at": resume_at,
+                    "error_code": retry_state.get("error_code"),
+                    "classification": retry_state.get("classification"),
+                    "message": "Workflow node retry was scheduled.",
+                }
+                workflow_execution_store.suspend(
+                    task_id,
+                    wait_kind="node_retry",
+                    wait_id=interrupt.wait_id,
+                    continuation=continuation,
+                    safe_event=pending_event,
+                    resume_at=resume_at,
+                    **execution_store_lease_kwargs(),
+                )
+                record_deployment_retry_event(pending_event)
+                await run_registry.update_run(
+                    workflow_run.run_id,
+                    status="waiting",
+                    metadata={
+                        "wait_kind": "node_retry",
+                        "node_id": current_node_id,
+                        "attempt": retry_state.get("next_attempt"),
+                        "resume_at": resume_at,
+                    },
+                )
+                await run_registry.record_checkpoint(
+                    workflow_run.run_id,
+                    event_type="runtime.node_retry.waiting",
+                    title="Node retry waiting",
+                    summary=(
+                        f"attempt={retry_state.get('next_attempt')}, "
+                        f"resume_at={resume_at}"
+                    ),
+                    metadata={
+                        "wait_id": interrupt.wait_id,
+                        "node_id": current_node_id,
+                        "attempt": retry_state.get("next_attempt"),
+                        "max_attempts": retry_state.get("max_attempts"),
+                        "error_code": retry_state.get("error_code"),
+                        "resume_at": resume_at,
+                    },
+                )
+            elif interrupt.wait_kind == "timer":
                 timer_state = dict(interrupt.continuation.get("agent_state") or {})
                 resume_at = float(timer_state.get("resume_at") or 0)
                 if resume_at <= 0:
@@ -24204,6 +25287,7 @@ async def _run_workflow_response(
                     continuation=continuation,
                     safe_event=pending_event,
                     resume_at=resume_at,
+                    **execution_store_lease_kwargs(),
                 )
                 await run_registry.update_run(
                     workflow_run.run_id,
@@ -24250,6 +25334,7 @@ async def _run_workflow_response(
                     continuation=continuation,
                     safe_event=pending_event,
                     resume_at=resume_at,
+                    **execution_store_lease_kwargs(),
                 )
                 task_state["ttl"] = max(
                     WORKFLOW_TASK_TTL_SECONDS,
@@ -24323,6 +25408,7 @@ async def _run_workflow_response(
                     wait_id=client_request.request_id,
                     continuation=continuation,
                     safe_event=pending_event,
+                    **execution_store_lease_kwargs(),
                 )
                 task_state["ttl"] = max(
                     WORKFLOW_TASK_TTL_SECONDS,
@@ -24373,6 +25459,7 @@ async def _run_workflow_response(
                     approval_id=approval.approval_id,
                     continuation=continuation,
                     safe_event=pending_event,
+                    **execution_store_lease_kwargs(),
                 )
                 task_state["ttl"] = max(
                     WORKFLOW_TASK_TTL_SECONDS,
@@ -24401,8 +25488,35 @@ async def _run_workflow_response(
                 )
             task_state["created_at"] = time.monotonic()
             yield sse_payload(pending_event)
+        except WorkflowExecutionConflictError:
+            if resume_lease_token:
+                logger.warning(
+                    "Workflow resume lease was lost task_id=%s",
+                    task_id,
+                )
+                return
+            raise
         except WorkflowTerminationError as exc:
+            assert_resume_lease()
             failure_error = f"{exc.code}: {exc.safe_message}"
+            terminal_event = {
+                "event": "error",
+                "terminal": True,
+                "task_id": task_id,
+                "run_id": workflow_run.run_id,
+                "node_id": exc.node_id,
+                "code": exc.code,
+                "message": exc.safe_message,
+            }
+            for event_key, attribute_name in (
+                ("attempt", "attempts"),
+                ("max_attempts", "max_attempts"),
+                ("classification", "classification"),
+                ("exhausted", "exhausted"),
+            ):
+                value = getattr(exc, attribute_name, None)
+                if value is not None:
+                    terminal_event[event_key] = value
             logger.warning(
                 "Workflow terminated workflow=%s node=%s code=%s",
                 payload.workflow.id,
@@ -24429,34 +25543,25 @@ async def _run_workflow_response(
                     exc_info=True,
                 )
             try:
-                workflow_execution_store.fail(task_id, error=failure_error)
+                workflow_execution_store.fail(
+                    task_id,
+                    error=failure_error,
+                    **execution_store_lease_kwargs(),
+                )
                 workflow_execution_store.append_event(
                     task_id,
-                    {
-                        "event": "error",
-                        "task_id": task_id,
-                        "run_id": workflow_run.run_id,
-                        "node_id": exc.node_id,
-                        "code": exc.code,
-                        "message": exc.safe_message,
-                    },
+                    terminal_event,
                 )
+            except WorkflowExecutionConflictError:
+                raise
             except Exception:
                 logger.warning(
                     "Failed to persist terminated workflow status",
                     exc_info=True,
                 )
-            yield sse_payload(
-                {
-                    "event": "error",
-                    "task_id": task_id,
-                    "run_id": workflow_run.run_id,
-                    "node_id": exc.node_id,
-                    "code": exc.code,
-                    "message": exc.safe_message,
-                }
-            )
+            yield sse_payload(terminal_event)
         except WorkflowKnowledgeFatalError as exc:
+            assert_resume_lease()
             failure_error = f"{exc.error_code}: {exc.safe_message}"
             logger.warning(
                 "Workflow knowledge node failed workflow=%s node=%s code=%s",
@@ -24487,11 +25592,16 @@ async def _run_workflow_response(
                     exc_info=True,
                 )
             try:
-                workflow_execution_store.fail(task_id, error=failure_error)
+                workflow_execution_store.fail(
+                    task_id,
+                    error=failure_error,
+                    **execution_store_lease_kwargs(),
+                )
                 workflow_execution_store.append_event(
                     task_id,
                     {
                         "event": "error",
+                        "terminal": True,
                         "task_id": task_id,
                         "run_id": workflow_run.run_id,
                         "node_id": exc.node_id,
@@ -24499,6 +25609,8 @@ async def _run_workflow_response(
                         "message": exc.safe_message,
                     },
                 )
+            except WorkflowExecutionConflictError:
+                raise
             except Exception:
                 logger.warning(
                     "Failed to persist workflow knowledge failure",
@@ -24507,6 +25619,7 @@ async def _run_workflow_response(
             yield sse_payload(
                 {
                     "event": "error",
+                    "terminal": True,
                     "task_id": task_id,
                     "run_id": workflow_run.run_id,
                     "node_id": exc.node_id,
@@ -24515,12 +25628,14 @@ async def _run_workflow_response(
                 }
             )
         except WorkflowVisionFatalError as exc:
+            assert_resume_lease()
             failure_error = f"{exc.error_code}: {exc.safe_message}"
             failure_receipt = compose_workflow_vision_receipt(
                 exc.provider_route_receipts
             )
             failure_event = {
                 "event": "error",
+                "terminal": True,
                 "task_id": task_id,
                 "run_id": workflow_run.run_id,
                 "node_id": exc.node_id,
@@ -24558,11 +25673,17 @@ async def _run_workflow_response(
                     exc_info=True,
                 )
             try:
-                workflow_execution_store.fail(task_id, error=failure_error)
+                workflow_execution_store.fail(
+                    task_id,
+                    error=failure_error,
+                    **execution_store_lease_kwargs(),
+                )
                 workflow_execution_store.append_event(
                     task_id,
                     failure_event,
                 )
+            except WorkflowExecutionConflictError:
+                raise
             except Exception:
                 logger.warning(
                     "Failed to persist workflow vision failure",
@@ -24570,6 +25691,7 @@ async def _run_workflow_response(
                 )
             yield sse_payload(failure_event)
         except WorkflowDocumentFatalError as exc:
+            assert_resume_lease()
             failure_error = f"{exc.error_code}: {exc.safe_message}"
             logger.warning(
                 "Workflow document node failed workflow=%s node=%s code=%s",
@@ -24600,11 +25722,16 @@ async def _run_workflow_response(
                     exc_info=True,
                 )
             try:
-                workflow_execution_store.fail(task_id, error=failure_error)
+                workflow_execution_store.fail(
+                    task_id,
+                    error=failure_error,
+                    **execution_store_lease_kwargs(),
+                )
                 workflow_execution_store.append_event(
                     task_id,
                     {
                         "event": "error",
+                        "terminal": True,
                         "task_id": task_id,
                         "run_id": workflow_run.run_id,
                         "node_id": exc.node_id,
@@ -24612,6 +25739,8 @@ async def _run_workflow_response(
                         "message": exc.safe_message,
                     },
                 )
+            except WorkflowExecutionConflictError:
+                raise
             except Exception:
                 logger.warning(
                     "Failed to persist workflow document failure",
@@ -24620,6 +25749,7 @@ async def _run_workflow_response(
             yield sse_payload(
                 {
                     "event": "error",
+                    "terminal": True,
                     "task_id": task_id,
                     "run_id": workflow_run.run_id,
                     "node_id": exc.node_id,
@@ -24628,6 +25758,7 @@ async def _run_workflow_response(
                 }
             )
         except ContentPolicyError as exc:
+            assert_resume_lease()
             failed_node_id = str(locals().get("node_id") or "").strip() or None
             failed_node = nodes_by_id.get(failed_node_id) if failed_node_id else None
             failed_node_title = (
@@ -24669,6 +25800,7 @@ async def _run_workflow_response(
                 logger.warning("Failed to update content policy failure", exc_info=True)
             error_event = {
                 "event": "error",
+                "terminal": True,
                 "task_id": task_id,
                 "run_id": workflow_run.run_id,
                 "node_id": failed_node_id,
@@ -24682,17 +25814,31 @@ async def _run_workflow_response(
             if isinstance(provider_receipt, dict):
                 error_event["provider_route_receipts"] = provider_receipt
             try:
-                workflow_execution_store.fail(task_id, error=failure_error)
+                workflow_execution_store.fail(
+                    task_id,
+                    error=failure_error,
+                    **execution_store_lease_kwargs(),
+                )
                 workflow_execution_store.append_event(task_id, error_event)
+            except WorkflowExecutionConflictError:
+                raise
             except Exception:
                 logger.warning("Failed to persist content policy failure", exc_info=True)
             yield sse_payload(error_event)
         except Exception as exc:
+            assert_resume_lease()
             managed_error = (
                 exc if isinstance(exc, ManagedWorkflowRoutingError) else None
             )
             iteration_error = (
                 exc if isinstance(exc, WorkflowIterationError) else None
+            )
+            current_kind = str(locals().get("kind") or "")
+            restricted_node_error = (
+                managed_error is None
+                and iteration_error is None
+                and current_kind
+                in {"http_request", "data_table_query", "knowledge_retrieval"}
             )
             if managed_error is not None:
                 logger.warning(
@@ -24706,6 +25852,13 @@ async def _run_workflow_response(
                     payload.workflow.id,
                     iteration_error.code,
                 )
+            elif restricted_node_error:
+                logger.warning(
+                    "Restricted retry node failed safely workflow=%s node=%s kind=%s",
+                    payload.workflow.id,
+                    str(locals().get("node_id") or ""),
+                    current_kind,
+                )
             else:
                 logger.exception(
                     "Workflow run failed workflow=%s", payload.workflow.id
@@ -24715,11 +25868,15 @@ async def _run_workflow_response(
                 if managed_error is not None
                 else iteration_error.safe_message
                 if iteration_error is not None
+                else "Workflow node failed."
+                if restricted_node_error
                 else str(exc)
             )
             durable_error = (
                 f"{iteration_error.code}: {iteration_error.safe_message}"
                 if iteration_error is not None
+                else "WORKFLOW_NODE_FAILED: Workflow node failed."
+                if restricted_node_error
                 else public_error
             )
             provider_receipt = (
@@ -24741,9 +25898,14 @@ async def _run_workflow_response(
             except Exception:
                 logger.warning("Failed to update workflow run status", exc_info=True)
             try:
-                workflow_execution_store.fail(task_id, error=durable_error)
+                workflow_execution_store.fail(
+                    task_id,
+                    error=durable_error,
+                    **execution_store_lease_kwargs(),
+                )
                 error_event = {
                     "event": "error",
+                    "terminal": True,
                     "task_id": task_id,
                     "run_id": workflow_run.run_id,
                     "node_id": failed_node_id,
@@ -24754,13 +25916,18 @@ async def _run_workflow_response(
                     error_event["code"] = managed_error.code
                 elif iteration_error is not None:
                     error_event["code"] = iteration_error.code
+                elif restricted_node_error:
+                    error_event["code"] = "WORKFLOW_NODE_FAILED"
                 if isinstance(provider_receipt, dict):
                     error_event["provider_route_receipts"] = provider_receipt
                 workflow_execution_store.append_event(task_id, error_event)
+            except WorkflowExecutionConflictError:
+                raise
             except Exception:
                 logger.warning("Failed to persist workflow failure", exc_info=True)
             error_event = {
                 "event": "error",
+                "terminal": True,
                 "task_id": task_id,
                 "run_id": workflow_run.run_id,
                 "node_id": failed_node_id,
@@ -24771,6 +25938,8 @@ async def _run_workflow_response(
                 error_event["code"] = managed_error.code
             elif iteration_error is not None:
                 error_event["code"] = iteration_error.code
+            elif restricted_node_error:
+                error_event["code"] = "WORKFLOW_NODE_FAILED"
             if isinstance(provider_receipt, dict):
                 error_event["provider_route_receipts"] = provider_receipt
             yield sse_payload(error_event)
@@ -24818,8 +25987,23 @@ async def cancel_workflow_task(task_id: str, request: Request):
     if execution.status in {"completed", "failed", "cancelled", "rejected"}:
         return workflow_execution_store.serialize_public(execution)
 
-    if execution.wait_kind == "agent_handoff" and execution.wait_id:
-        handoff = await agent_task_store.get_handoff(execution.wait_id)
+    waiting_handoff_id = (
+        str(execution.wait_id or "")
+        if execution.wait_kind == "agent_handoff"
+        else ""
+    )
+    cancelled = workflow_execution_store.cancel(
+        task_id,
+        error="cancelled_by_user",
+    )
+    # Completion and cancellation race under the execution Store lock. If the
+    # worker won, do not manufacture a cancellation event or cancel its
+    # already-terminal RunRegistry entry.
+    if cancelled.status != "cancelled":
+        return workflow_execution_store.serialize_public(cancelled)
+
+    if waiting_handoff_id:
+        handoff = await agent_task_store.get_handoff(waiting_handoff_id)
         if handoff is not None and handoff.status not in {
             "rejected",
             "completed",
@@ -24849,10 +26033,6 @@ async def cancel_workflow_task(task_id: str, request: Request):
         if isinstance(pause_event, asyncio.Event):
             pause_event.set()
 
-    cancelled = workflow_execution_store.cancel(
-        task_id,
-        error="cancelled_by_user",
-    )
     cancelled_event = {
         "event": "workflow_cancelled",
         "task_id": task_id,
@@ -24886,6 +26066,12 @@ class WorkflowStreamFailure(RuntimeError):
         failed_node_id: str | None = None,
         failed_node_title: str | None = None,
         provider_route_receipts: dict[str, Any] | None = None,
+        code: str | None = None,
+        safe_message: str | None = None,
+        attempt: int | None = None,
+        max_attempts: int | None = None,
+        classification: str | None = None,
+        exhausted: bool | None = None,
     ) -> None:
         super().__init__(message)
         self.task_id = task_id
@@ -24893,6 +26079,12 @@ class WorkflowStreamFailure(RuntimeError):
         self.failed_node_id = failed_node_id
         self.failed_node_title = failed_node_title
         self.provider_route_receipts = provider_route_receipts
+        self.code = str(code or "").strip() or None
+        self.safe_message = str(safe_message or message)
+        self.attempt = attempt
+        self.max_attempts = max_attempts
+        self.classification = classification
+        self.exhausted = exhausted
 
 
 async def consume_workflow_stream(response: Any) -> dict[str, Any]:
@@ -24912,6 +26104,12 @@ async def consume_workflow_stream(response: Any) -> dict[str, Any]:
                 and isinstance(payload.get("provider_route_receipts"), dict)
                 else None
             ),
+            code=(
+                str(payload.get("code") or "").strip() or None
+                if isinstance(payload, dict)
+                else None
+            ),
+            safe_message=str(message or "Xpert workflow could not start."),
         )
     if not isinstance(response, StreamingResponse):
         raise RuntimeError("Xpert workflow returned an unsupported response.")
@@ -24925,6 +26123,10 @@ async def consume_workflow_stream(response: Any) -> dict[str, Any]:
     failed_node_id: str | None = None
     failed_node_title: str | None = None
     provider_route_receipts: dict[str, Any] | None = None
+    error_attempt: int | None = None
+    error_max_attempts: int | None = None
+    error_classification: str | None = None
+    error_exhausted: bool | None = None
     buffer = ""
     async for chunk in response.body_iterator:
         if isinstance(chunk, bytes):
@@ -24949,11 +26151,33 @@ async def consume_workflow_stream(response: Any) -> dict[str, Any]:
                     failed_node_title = (
                         str(event.get("node_title") or "").strip() or None
                     )
+                    error_attempt = (
+                        int(event["attempt"])
+                        if isinstance(event.get("attempt"), int)
+                        and not isinstance(event.get("attempt"), bool)
+                        else None
+                    )
+                    error_max_attempts = (
+                        int(event["max_attempts"])
+                        if isinstance(event.get("max_attempts"), int)
+                        and not isinstance(event.get("max_attempts"), bool)
+                        else None
+                    )
+                    error_classification = (
+                        str(event.get("classification") or "").strip() or None
+                    )
+                    error_exhausted = (
+                        event.get("exhausted")
+                        if isinstance(event.get("exhausted"), bool)
+                        else None
+                    )
                     if isinstance(event.get("provider_route_receipts"), dict):
                         provider_route_receipts = dict(
                             event["provider_route_receipts"]
                         )
                 elif event.get("event") == "workflow_end":
+                    final_event = event
+                elif event.get("event") == "workflow_cancelled":
                     final_event = event
                 elif event.get("event") == "runtime_approval_pending":
                     pending_wait_event = event
@@ -24961,18 +26185,27 @@ async def consume_workflow_stream(response: Any) -> dict[str, Any]:
                     pending_wait_event = event
                 elif event.get("event") == "timer_waiting":
                     pending_wait_event = event
+                elif event.get("event") == "node_retry_scheduled":
+                    pending_wait_event = event
                 elif event.get("event") == "agent_handoff_waiting":
                     pending_wait_event = event
     if error_message:
-        if error_code:
-            error_message = f"{error_code}: {error_message}"
+        display_message = (
+            f"{error_code}: {error_message}" if error_code else error_message
+        )
         raise WorkflowStreamFailure(
-            error_message,
+            display_message,
             task_id=error_task_id,
             run_id=error_run_id,
             failed_node_id=failed_node_id,
             failed_node_title=failed_node_title,
             provider_route_receipts=provider_route_receipts,
+            code=error_code,
+            safe_message=error_message,
+            attempt=error_attempt,
+            max_attempts=error_max_attempts,
+            classification=error_classification,
+            exhausted=error_exhausted,
         )
     if pending_wait_event is not None:
         return pending_wait_event
@@ -25051,6 +26284,7 @@ async def run_deployed_workflow_trigger(
         "runtime_approval_pending",
         "client_tool_waiting",
         "timer_waiting",
+        "node_retry_scheduled",
         "agent_handoff_waiting",
     }:
         return {
@@ -25064,12 +26298,21 @@ async def run_deployed_workflow_trigger(
                 if final_event.get("event") == "client_tool_waiting"
                 else "timer"
                 if final_event.get("event") == "timer_waiting"
+                else "node_retry"
+                if final_event.get("event") == "node_retry_scheduled"
                 else "agent_handoff"
             ),
             "wait_id": final_event.get("wait_id")
             or final_event.get("approval_id")
             or final_event.get("request_id"),
             "resume_at": final_event.get("resume_at"),
+        }
+    if final_event.get("event") == "workflow_cancelled":
+        return {
+            "status": "cancelled",
+            "task_id": final_event.get("task_id"),
+            "run_id": final_event.get("run_id"),
+            "error": "WORKFLOW_CANCELLED",
         }
     return {
         "status": "completed",
@@ -25080,40 +26323,81 @@ async def run_deployed_workflow_trigger(
     }
 
 
-async def resume_runtime_timer_execution(task_id: str) -> dict[str, Any]:
+async def resume_runtime_due_execution(task_id: str) -> dict[str, Any]:
     execution = workflow_execution_store.require(task_id)
+    if execution.status in {"completed", "failed", "cancelled", "rejected"}:
+        return reconcile_runtime_deployment_execution(execution)
     if (
-        execution.status != "waiting"
-        or execution.wait_kind != "timer"
+        execution.status not in {"waiting", "ready", "running"}
+        or execution.wait_kind not in {"timer", "node_retry"}
         or execution.resume_at is None
         or execution.resume_at > time.time()
     ):
         return {"status": execution.status, "task_id": task_id}
+    wait_kind = str(execution.wait_kind)
     wait_id = str(execution.wait_id or "")
-    workflow_execution_store.mark_ready(
-        task_id,
-        wait_kind="timer",
-        wait_id=wait_id,
-    )
-    claimed = workflow_execution_store.claim(
-        task_id,
-        worker_id=f"workflow-timer-{uuid.uuid4().hex[:12]}",
-        lease_seconds=120,
-    )
-    continuation = dict(claimed.continuation or {})
-    agent_state = dict(continuation.get("agent_state") or {})
-    agent_state["resolved_timer_wait_id"] = wait_id
-    continuation["agent_state"] = agent_state
-    claimed.continuation = continuation
-    workflow = WorkflowPayload.model_validate(claimed.workflow)
-    payload = WorkflowRunRequest(
-        workflow=workflow,
-        inputs=dict(claimed.inputs),
-    )
-    deployment_execution_id = str(
-        claimed.runtime_metadata.get("workflow_deployment_execution_id") or ""
-    )
     try:
+        claimed = workflow_execution_store.claim_due_wait(
+            task_id,
+            wait_kind=wait_kind,
+            wait_id=wait_id,
+            worker_id=f"workflow-{wait_kind}-{uuid.uuid4().hex[:12]}",
+            lease_seconds=WORKFLOW_DURABLE_WAIT_LEASE_SECONDS,
+        )
+    except WorkflowExecutionConflictError:
+        current = workflow_execution_store.require(task_id)
+        return {"status": current.status, "task_id": task_id}
+    lease_token = str(claimed.lease_token or "").strip()
+    heartbeat_stop = asyncio.Event()
+
+    async def refresh_resume_lease() -> None:
+        while not heartbeat_stop.is_set():
+            try:
+                await asyncio.wait_for(
+                    heartbeat_stop.wait(),
+                    timeout=WORKFLOW_DURABLE_WAIT_HEARTBEAT_SECONDS,
+                )
+                return
+            except TimeoutError:
+                pass
+            try:
+                await asyncio.to_thread(
+                    workflow_execution_store.refresh_lease,
+                    task_id,
+                    lease_token=lease_token,
+                    lease_seconds=WORKFLOW_DURABLE_WAIT_LEASE_SECONDS,
+                )
+            except WorkflowExecutionConflictError:
+                return
+            except Exception:
+                logger.exception(
+                    "Workflow durable wait lease refresh failed task_id=%s",
+                    task_id,
+                )
+                return
+
+    heartbeat_task = asyncio.create_task(
+        refresh_resume_lease(),
+        name=f"workflow-wait-lease-{task_id[:64]}",
+    )
+    payload: WorkflowRunRequest | None = None
+    deployment_execution_id = ""
+    try:
+        continuation = dict(claimed.continuation or {})
+        if wait_kind == "timer":
+            agent_state = dict(continuation.get("agent_state") or {})
+            agent_state["resolved_timer_wait_id"] = wait_id
+            continuation["agent_state"] = agent_state
+        claimed.continuation = continuation
+        workflow = WorkflowPayload.model_validate(claimed.workflow)
+        payload = WorkflowRunRequest(
+            workflow=workflow,
+            inputs=dict(claimed.inputs),
+        )
+        deployment_execution_id = str(
+            claimed.runtime_metadata.get("workflow_deployment_execution_id") or ""
+        )
+        workflow_execution_store.assert_lease(task_id, lease_token=lease_token)
         response = await _run_workflow_response(
             payload,
             None,
@@ -25126,13 +26410,61 @@ async def resume_runtime_timer_execution(task_id: str) -> dict[str, Any]:
             runtime_execution_source_kind=claimed.source_kind,
         )
         final_event = await consume_workflow_stream(response)
+    except WorkflowExecutionConflictError:
+        current = workflow_execution_store.require(task_id)
+        return {"status": current.status, "task_id": task_id}
     except Exception as exc:
-        workflow_execution_store.fail(task_id, error=str(exc))
+        if isinstance(exc, WorkflowStreamFailure):
+            safe_code = str(exc.code or "WORKFLOW_NODE_FAILED")
+            safe_message = str(
+                exc.safe_message or "Workflow durable wait resume failed."
+            )
+        elif isinstance(exc, WorkflowTerminationError):
+            safe_code = str(exc.code or "WORKFLOW_NODE_FAILED")
+            safe_message = str(
+                exc.safe_message or "Workflow durable wait resume failed."
+            )
+        else:
+            safe_code = "WORKFLOW_DURABLE_WAIT_RESUME_FAILED"
+            safe_message = "Workflow durable wait resume failed."
+        try:
+            failed_execution = workflow_execution_store.fail(
+                task_id,
+                error=safe_code,
+                expected_lease_token=lease_token,
+            )
+        except WorkflowExecutionConflictError:
+            current = workflow_execution_store.require(task_id)
+            failure_run_id = str(getattr(exc, "run_id", "") or "").strip()
+            if (
+                current.status not in {"failed", "cancelled"}
+                or not failure_run_id
+                or failure_run_id != str(current.run_id or "").strip()
+            ):
+                return {"status": current.status, "task_id": task_id}
+            # The inner stream persisted this worker's terminal decision before
+            # surfacing its safe error event. Reuse that authoritative state so
+            # the deployment summary does not remain stuck in waiting.
+            failed_execution = current
+        if failed_execution.status == "cancelled":
+            if deployment_execution_id:
+                workflow_deployment_store.cancel_execution(
+                    deployment_execution_id,
+                    error="WORKFLOW_CANCELLED",
+                )
+            return {
+                "event": "workflow_cancelled",
+                "status": "cancelled",
+                "task_id": task_id,
+                "run_id": failed_execution.run_id,
+                "code": "WORKFLOW_CANCELLED",
+                "message": "Workflow execution was cancelled.",
+            }
         failed_node_id = str(getattr(exc, "failed_node_id", "") or "") or None
         failed_node_title = (
             str(getattr(exc, "failed_node_title", "") or "") or None
         )
-        if failed_node_id and not failed_node_title:
+        if failed_node_id and not failed_node_title and payload is not None:
             failed_node = next(
                 (node for node in payload.workflow.nodes if node.id == failed_node_id),
                 None,
@@ -25142,24 +26474,48 @@ async def resume_runtime_timer_execution(task_id: str) -> dict[str, Any]:
         if deployment_execution_id:
             workflow_deployment_store.fail_execution(
                 deployment_execution_id,
-                error=str(exc),
+                error=safe_code,
                 task_id=str(getattr(exc, "task_id", "") or task_id),
-                run_id=str(getattr(exc, "run_id", "") or claimed.run_id),
+                run_id=str(
+                    getattr(exc, "run_id", "") or failed_execution.run_id
+                ),
                 dispatch_failures=workflow_failure_triggers_enabled(),
                 failed_node_id=failed_node_id,
                 failed_node_title=failed_node_title,
             )
-        return {
+        terminal_event = {
             "event": "error",
+            "terminal": True,
             "status": "failed",
             "task_id": task_id,
-            "run_id": claimed.run_id,
-            "message": "Workflow timer resume failed.",
+            "run_id": failed_execution.run_id,
+            "code": safe_code,
+            "message": safe_message,
         }
+        for event_key, attribute_name in (
+            ("attempt", "attempt"),
+            ("max_attempts", "max_attempts"),
+            ("classification", "classification"),
+            ("exhausted", "exhausted"),
+        ):
+            value = getattr(exc, attribute_name, None)
+            if value is not None:
+                terminal_event[event_key] = value
+        return terminal_event
+    finally:
+        heartbeat_stop.set()
+        await asyncio.gather(heartbeat_task, return_exceptions=True)
     if deployment_execution_id:
         pending_event = str(final_event.get("event") or "")
+        if pending_event == "workflow_cancelled":
+            workflow_deployment_store.cancel_execution(
+                deployment_execution_id,
+                error="WORKFLOW_CANCELLED",
+            )
+            return final_event
         if pending_event in {
             "timer_waiting",
+            "node_retry_scheduled",
             "runtime_approval_pending",
             "client_tool_waiting",
             "agent_handoff_waiting",
@@ -25168,6 +26524,7 @@ async def resume_runtime_timer_execution(task_id: str) -> dict[str, Any]:
                 "runtime_approval_pending": "approval",
                 "client_tool_waiting": "client_tool",
                 "timer_waiting": "timer",
+                "node_retry_scheduled": "node_retry",
                 "agent_handoff_waiting": "agent_handoff",
             }[pending_event]
             workflow_deployment_store.mark_execution_waiting(
@@ -25194,11 +26551,204 @@ async def resume_runtime_timer_execution(task_id: str) -> dict[str, Any]:
     return final_event
 
 
+async def resume_runtime_timer_execution(task_id: str) -> dict[str, Any]:
+    """Compatibility wrapper retained for timer-focused callers and tests."""
+
+    execution = workflow_execution_store.require(task_id)
+    if execution.wait_kind != "timer":
+        return {"status": execution.status, "task_id": task_id}
+    return await resume_runtime_due_execution(task_id)
+
+
+_RECONCILABLE_EXECUTION_ERROR_CODES = frozenset(
+    {
+        "CONTENT_INPUT_UNAVAILABLE",
+        "DATA_TABLE_QUERY_BUSY",
+        "DATA_TABLE_UNAVAILABLE",
+        "HTTP_NETWORK_ERROR",
+        "HTTP_REQUEST_FAILED",
+        "HTTP_RESPONSE_PROTOCOL_INVALID",
+        "HTTP_STATUS_NOT_SUCCESSFUL",
+        "HTTP_TIMEOUT",
+        "KNOWLEDGE_RETRIEVAL_BUSY",
+        "KNOWLEDGE_RETRIEVAL_UNAVAILABLE",
+        "NODE_RETRIES_DISABLED",
+        "NODE_RETRY_KNOWLEDGE_TARGET_INVALID",
+        "NODE_RETRY_SCHEDULER_INVALID",
+        "NODE_RETRY_STATE_INVALID",
+        "NODE_RETRY_TARGET_CHANGED",
+        "WORKFLOW_DURABLE_WAIT_RESUME_FAILED",
+        "WORKFLOW_EXECUTION_FAILED",
+        "WORKFLOW_NODE_FAILED",
+        "WORKFLOW_WAIT_STATE_INVALID",
+    }
+) | SAFE_ROUTABLE_ERROR_CODES
+
+
+def _safe_reconciled_execution_error(execution: WorkflowExecution) -> str:
+    # Prefer the already-sanitized terminal event journal. Never promote an
+    # arbitrary raw exception string merely because it happens to look like an
+    # uppercase error code.
+    for event in reversed(execution.events):
+        if event.get("event") != "error":
+            continue
+        candidate = str(event.get("code") or event.get("error_code") or "").strip()
+        if candidate in _RECONCILABLE_EXECUTION_ERROR_CODES:
+            return candidate
+    error_prefix = str(execution.error or "").partition(":")[0].strip()
+    if error_prefix in _RECONCILABLE_EXECUTION_ERROR_CODES:
+        return error_prefix
+    return "WORKFLOW_EXECUTION_FAILED"
+
+
+def reconcile_runtime_deployment_execution(
+    execution: WorkflowExecution,
+) -> dict[str, Any]:
+    """Project an authoritative terminal task into its waiting deployment row."""
+
+    metadata = dict(execution.runtime_metadata or {})
+    deployment_execution_id = str(
+        metadata.get("workflow_deployment_execution_id") or ""
+    ).strip()
+    if not deployment_execution_id:
+        return {"status": execution.status, "task_id": execution.task_id}
+    deployment_execution = workflow_deployment_store.get_execution(
+        deployment_execution_id
+    )
+    if (
+        deployment_execution is None
+        or deployment_execution.status
+        not in {"pending", "running", "waiting"}
+        or str(deployment_execution.task_id or "") != execution.task_id
+        or str(metadata.get("workflow_project_id") or "")
+        != deployment_execution.project_id
+        or str(metadata.get("workflow_version") or "")
+        != str(deployment_execution.version)
+    ):
+        workflow_execution_store.mark_deployment_projection_reconciled(
+            execution.task_id
+        )
+        return {"status": execution.status, "task_id": execution.task_id}
+
+    if execution.status == "completed":
+        workflow_deployment_store.complete_execution(
+            deployment_execution_id,
+            task_id=execution.task_id,
+            run_id=execution.run_id,
+            result=str(execution.result or ""),
+        )
+        workflow_execution_store.mark_deployment_projection_reconciled(
+            execution.task_id
+        )
+        return {
+            "event": "workflow_end",
+            "status": "completed",
+            "task_id": execution.task_id,
+            "run_id": execution.run_id,
+            "final_output": execution.result or "",
+        }
+    if execution.status == "cancelled":
+        workflow_deployment_store.cancel_execution(
+            deployment_execution_id,
+            error="WORKFLOW_CANCELLED",
+        )
+        workflow_execution_store.mark_deployment_projection_reconciled(
+            execution.task_id
+        )
+        return {
+            "event": "workflow_cancelled",
+            "status": "cancelled",
+            "task_id": execution.task_id,
+            "run_id": execution.run_id,
+            "code": "WORKFLOW_CANCELLED",
+        }
+
+    safe_code = _safe_reconciled_execution_error(execution)
+    failed_node_id: str | None = None
+    failed_node_title: str | None = None
+    for event in reversed(execution.events):
+        if event.get("event") != "error":
+            continue
+        failed_node_id = str(event.get("node_id") or "").strip() or None
+        failed_node_title = str(event.get("node_title") or "").strip() or None
+        break
+    workflow_deployment_store.fail_execution(
+        deployment_execution_id,
+        error=safe_code,
+        task_id=execution.task_id,
+        run_id=execution.run_id,
+        dispatch_failures=workflow_failure_triggers_enabled(),
+        failed_node_id=failed_node_id,
+        failed_node_title=failed_node_title,
+    )
+    workflow_execution_store.mark_deployment_projection_reconciled(
+        execution.task_id
+    )
+    return {
+        "event": "error",
+        "terminal": True,
+        "status": "failed",
+        "task_id": execution.task_id,
+        "run_id": execution.run_id,
+        "code": safe_code,
+        "message": "Workflow durable execution failed.",
+    }
+
+
+def list_terminal_workflow_deployment_waits() -> list[WorkflowExecution]:
+    # Return the oldest unreconciled terminal tasks directly. The resume path
+    # validates the deployment identity and marks both successful projections
+    # and obsolete historical rows as reconciled, so old history cannot
+    # permanently occupy this bounded page.
+    return workflow_execution_store.list_terminal_deployment_executions(limit=20)
+
+
+def guard_claimable_workflow_deployment_execution(
+    execution: WorkflowTriggerExecution,
+) -> bool:
+    """Keep a persisted continuation authoritative over a fresh trigger replay."""
+
+    task_id = str(execution.task_id or "").strip()
+    if not task_id:
+        return False
+    durable = workflow_execution_store.get(task_id)
+    if durable is None or durable.source_kind != "workflow_deployment":
+        return False
+    metadata = dict(durable.runtime_metadata or {})
+    if (
+        str(metadata.get("workflow_deployment_execution_id") or "")
+        != execution.execution_id
+        or str(metadata.get("workflow_project_id") or "") != execution.project_id
+        or str(metadata.get("workflow_version") or "") != str(execution.version)
+    ):
+        return False
+    if durable.status in {"completed", "failed", "cancelled", "rejected"}:
+        reconcile_runtime_deployment_execution(durable)
+        return True
+    if (
+        durable.status in {"waiting", "ready", "running"}
+        and str(durable.wait_kind or "").strip()
+        and str(durable.wait_id or "").strip()
+    ):
+        workflow_deployment_store.mark_execution_waiting(
+            execution.execution_id,
+            task_id=durable.task_id,
+            run_id=durable.run_id,
+            wait_kind=str(durable.wait_kind),
+            wait_id=str(durable.wait_id),
+            resume_at=durable.resume_at,
+        )
+        return True
+    return False
+
+
 configure_workflow_deployment_runtime(
     workflow_deployment_store,
     trigger_executor=run_deployed_workflow_trigger,
-    timer_due_source=lambda: workflow_execution_store.list_due_timers(limit=20),
-    timer_resume_executor=resume_runtime_timer_execution,
+    wait_due_source=lambda: workflow_execution_store.list_due_waits(limit=20),
+    wait_resume_executor=resume_runtime_due_execution,
+    wait_reconciliation_source=list_terminal_workflow_deployment_waits,
+    trigger_execution_recovery_guard=guard_claimable_workflow_deployment_execution,
     credential_resolver=toolset_credential_store.resolve,
     credential_lookup=toolset_credential_store.get_public,
 )
@@ -27227,6 +28777,31 @@ def runtime_run_to_payload(run: Any) -> dict[str, Any]:
     }
 
 
+def durable_execution_runtime_payload(
+    execution: WorkflowExecution,
+) -> dict[str, Any]:
+    """Return a safe Run-shaped projection when the in-memory index was lost."""
+
+    status = (
+        execution.status
+        if execution.status in {"pending", "running", "waiting", "completed", "failed", "cancelled"}
+        else "failed"
+    )
+    return {
+        "run_id": execution.run_id,
+        "run_type": execution.run_type,
+        "status": status,
+        "title": str(execution.workflow.get("title") or "Recovered workflow execution"),
+        "source_id": None,
+        "parent_run_id": None,
+        "metadata": {"task_id": execution.task_id, "recovered": True},
+        "created_at": execution.created_at,
+        "updated_at": execution.updated_at,
+        "cancelled_at": execution.completed_at if status == "cancelled" else None,
+        "error": "cancelled_by_user" if status == "cancelled" else None,
+    }
+
+
 def runtime_run_checkpoint_to_payload(checkpoint: Any) -> dict[str, Any]:
     return {
         "checkpoint_id": checkpoint.checkpoint_id,
@@ -27361,6 +28936,103 @@ async def list_runtime_run_checkpoints(run_id: str, limit: int = 50):
 @app.post("/api/runtime/runs/{run_id}/cancel")
 async def cancel_runtime_run(run_id: str, payload: dict[str, Any] | None = None):
     reason = str((payload or {}).get("reason") or "cancelled")
+    linked_execution = workflow_execution_store.find_by_run_id(run_id)
+    if linked_execution is not None:
+        linked_run_ids = list(
+            dict.fromkeys(
+                [
+                    linked_execution.run_id,
+                    run_id,
+                    *linked_execution.previous_run_ids,
+                ]
+            )
+        )
+        if linked_execution.status in {
+            "completed",
+            "failed",
+            "cancelled",
+            "rejected",
+        }:
+            response_run = None
+            for linked_run_id in linked_run_ids:
+                existing_run = await run_registry.get_run(linked_run_id)
+                if existing_run is None:
+                    continue
+                if linked_execution.status == "cancelled":
+                    await run_registry.cancel_run(
+                        linked_run_id,
+                        reason="cancelled_by_user",
+                    )
+                if response_run is None:
+                    response_run = existing_run
+            if response_run is not None:
+                return runtime_run_to_payload(response_run)
+            return durable_execution_runtime_payload(linked_execution)
+        cancelled_execution = workflow_execution_store.cancel(
+            linked_execution.task_id,
+            error="cancelled_by_user",
+        )
+        linked_run_ids = list(
+            dict.fromkeys(
+                [
+                    cancelled_execution.run_id,
+                    run_id,
+                    *cancelled_execution.previous_run_ids,
+                    *linked_run_ids,
+                ]
+            )
+        )
+        if cancelled_execution.status != "cancelled":
+            for linked_run_id in linked_run_ids:
+                existing_run = await run_registry.get_run(linked_run_id)
+                if existing_run is not None:
+                    return runtime_run_to_payload(existing_run)
+            return durable_execution_runtime_payload(cancelled_execution)
+        if cancelled_execution.status == "cancelled":
+            live_task = workflow_task_store.get(cancelled_execution.task_id)
+            if live_task is not None:
+                live_task["cancel_requested"] = True
+                provider_cancel_event = live_task.get("provider_cancel_event")
+                if isinstance(provider_cancel_event, asyncio.Event):
+                    provider_cancel_event.set()
+                pause_event = live_task.get("pause_event")
+                if isinstance(pause_event, asyncio.Event):
+                    pause_event.set()
+            workflow_execution_store.append_event(
+                cancelled_execution.task_id,
+                {
+                    "event": "workflow_cancelled",
+                    "task_id": cancelled_execution.task_id,
+                    "run_id": cancelled_execution.run_id,
+                    "status": "cancelled",
+                    "message": "工作流已取消。",
+                },
+            )
+            deployment_execution_id = str(
+                cancelled_execution.runtime_metadata.get(
+                    "workflow_deployment_execution_id"
+                )
+                or ""
+            ).strip()
+            if deployment_execution_id:
+                workflow_deployment_store.cancel_execution(
+                    deployment_execution_id,
+                    error="WORKFLOW_CANCELLED",
+                )
+        response_run = None
+        for linked_run_id in linked_run_ids:
+            existing_run = await run_registry.get_run(linked_run_id)
+            if existing_run is None:
+                continue
+            await run_registry.cancel_run(
+                linked_run_id,
+                reason="cancelled_by_user",
+            )
+            if response_run is None:
+                response_run = existing_run
+        if response_run is not None:
+            return runtime_run_to_payload(response_run)
+        return durable_execution_runtime_payload(cancelled_execution)
     try:
         run = await run_registry.cancel_run(run_id, reason=reason)
     except KeyError as exc:
@@ -28941,7 +30613,23 @@ async def list_registered_tools():
 async def list_workflow_node_registry():
     """Return Xpert-style workflow node palette metadata."""
 
-    return workflow_node_registry.to_payload()
+    payload = workflow_node_registry.to_payload()
+    feature_enabled = workflow_node_retries_enabled()
+    for section in payload.get("sections", []):
+        for item in section.get("items", []):
+            if item.get("kind") not in {
+                "http_request",
+                "data_table_query",
+                "knowledge_retrieval",
+            }:
+                continue
+            metadata = item.setdefault("metadata", {})
+            metadata["retry_feature_enabled"] = feature_enabled
+            if not feature_enabled:
+                metadata["retry_feature_disabled_reason"] = (
+                    "WORKFLOW_NODE_RETRIES_ENABLED is off."
+                )
+    return payload
 
 
 @app.get("/api/workflow/vision-capabilities", response_model=dict[str, Any])
@@ -29110,6 +30798,19 @@ async def list_workflow_resource_options(
             get_rag_service().get_active_pipeline_version,
             kb_id,
         )
+        retry_eligible = False
+        retry_ineligible_reason: str | None = None
+        if active is None:
+            retry_ineligible_reason = "尚无活动知识版本。"
+        else:
+            try:
+                await asyncio.to_thread(
+                    validate_workflow_knowledge_retry_target,
+                    kb_id,
+                )
+                retry_eligible = True
+            except WorkflowRetryPolicyError as exc:
+                retry_ineligible_reason = exc.safe_message
         items.append(
             {
                 "id": kb_id,
@@ -29124,6 +30825,8 @@ async def list_workflow_resource_options(
                 "provisioning_status": str(
                     item.get("provisioning_status") or "ready"
                 ),
+                "retry_eligible": retry_eligible,
+                "retry_ineligible_reason": retry_ineligible_reason,
             }
         )
     return {"kind": kind, "items": items}

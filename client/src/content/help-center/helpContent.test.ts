@@ -132,6 +132,8 @@ describe("help center content catalog", () => {
     expect(searchHelpContent("发布预检").some((entry) => entry.id === "create-repeatable-agent")).toBe(true);
     expect(searchHelpContent("保存草稿").some((entry) => entry.id === "build-first-workflow")).toBe(true);
     expect(searchHelpContent("只读刷新模型证据").some((entry) => entry.id === "recover-unavailable-feature")).toBe(true);
+    expect(searchHelpContent("受限重试").some((entry) => entry.id === "handle-workflow-node-failure")).toBe(true);
+    expect(searchHelpContent("等待重试").some((entry) => entry.id === "handle-workflow-node-failure")).toBe(true);
     const ids = getHelpSearchEntries().map((entry) => `${entry.kind}:${entry.id}`);
     expect(new Set(ids).size).toBe(ids.length);
   });
