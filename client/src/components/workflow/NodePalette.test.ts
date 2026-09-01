@@ -48,7 +48,7 @@ describe("NodePalette disabled workflow nodes", () => {
         }
         return new Response(
           JSON.stringify({
-            version: "xpert-workflow-node-registry-v4",
+            version: "xpert-workflow-node-registry-v5",
             contract_version: 3,
             contract_checksum: "a".repeat(64),
             tabs: [
@@ -112,7 +112,7 @@ describe("NodePalette disabled workflow nodes", () => {
         }
         return new Response(
           JSON.stringify({
-            version: "xpert-workflow-node-registry-v4",
+            version: "xpert-workflow-node-registry-v5",
             contract_version: 3,
             contract_checksum: "a".repeat(64),
             tabs: [

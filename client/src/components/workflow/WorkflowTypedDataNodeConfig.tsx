@@ -45,6 +45,91 @@ const dataTableKinds = new Set([
   "data_table_delete",
 ]);
 
+const workflowSchemaTypes = new Set([
+  "any",
+  "null",
+  "string",
+  "number",
+  "integer",
+  "boolean",
+  "object",
+  "array",
+]);
+
+function validateExpectedSchema(
+  value: unknown,
+  path = "$",
+  depth = 0,
+): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return `${path} 必须是对象。`;
+  }
+  if (depth > 8) return `${path} 嵌套超过 8 层。`;
+  const schema = value as Record<string, unknown>;
+  const allowedKeys = new Set([
+    "type",
+    "nullable",
+    "items",
+    "properties",
+    "required",
+    "any_of",
+  ]);
+  const unknown = Object.keys(schema).filter((key) => !allowedKeys.has(key));
+  if (unknown.length > 0) return `${path} 包含不支持字段：${unknown.join("、")}。`;
+  if (typeof schema.type !== "string" || !workflowSchemaTypes.has(schema.type)) {
+    return `${path}.type 不是受支持的工作流类型。`;
+  }
+  if (schema.nullable !== undefined && typeof schema.nullable !== "boolean") {
+    return `${path}.nullable 必须是布尔值。`;
+  }
+  if (schema.items !== undefined) {
+    if (schema.type !== "array") return `${path}.items 仅可用于 array。`;
+    const error = validateExpectedSchema(schema.items, `${path}.items`, depth + 1);
+    if (error) return error;
+  }
+  if (schema.properties !== undefined) {
+    if (schema.type !== "object") return `${path}.properties 仅可用于 object。`;
+    if (!schema.properties || typeof schema.properties !== "object" || Array.isArray(schema.properties)) {
+      return `${path}.properties 必须是对象。`;
+    }
+    const entries = Object.entries(schema.properties as Record<string, unknown>);
+    if (entries.length > 50) return `${path}.properties 最多 50 项。`;
+    for (const [name, child] of entries) {
+      if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(name)) {
+        return `${path}.properties.${name} 不是合法字段名。`;
+      }
+      const error = validateExpectedSchema(child, `${path}.properties.${name}`, depth + 1);
+      if (error) return error;
+    }
+  }
+  if (schema.required !== undefined) {
+    if (schema.type !== "object" || !Array.isArray(schema.required)) {
+      return `${path}.required 仅可用于 object 且必须是数组。`;
+    }
+    const properties = schema.properties && typeof schema.properties === "object"
+      ? schema.properties as Record<string, unknown>
+      : {};
+    const required = schema.required as unknown[];
+    if (required.some((item) => typeof item !== "string" || !(item in properties))) {
+      return `${path}.required 必须引用已声明属性。`;
+    }
+  }
+  if (schema.any_of !== undefined) {
+    if (!Array.isArray(schema.any_of) || schema.any_of.length > 4) {
+      return `${path}.any_of 最多包含 4 个 Schema。`;
+    }
+    for (let index = 0; index < schema.any_of.length; index += 1) {
+      const error = validateExpectedSchema(
+        schema.any_of[index],
+        `${path}.any_of[${index}]`,
+        depth + 1,
+      );
+      if (error) return error;
+    }
+  }
+  return null;
+}
+
 const systemFields: AgentTableField[] = [
   {
     field_id: "system-record-id",
@@ -595,6 +680,35 @@ export default function WorkflowTypedDataNodeConfig({
   const [detail, setDetail] = useState<AgentTableDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const expectedSchemaValue = useMemo(
+    () => JSON.stringify(data.expectedSchema ?? { type: "any" }, null, 2),
+    [data.expectedSchema],
+  );
+  const [expectedSchemaDraft, setExpectedSchemaDraft] = useState(
+    expectedSchemaValue,
+  );
+  const [expectedSchemaError, setExpectedSchemaError] = useState("");
+
+  useEffect(() => {
+    setExpectedSchemaDraft(expectedSchemaValue);
+    setExpectedSchemaError("");
+  }, [expectedSchemaValue]);
+
+  function updateExpectedSchema(raw: string) {
+    setExpectedSchemaDraft(raw);
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      const validationError = validateExpectedSchema(parsed);
+      if (validationError) {
+        setExpectedSchemaError(validationError);
+        return;
+      }
+      setExpectedSchemaError("");
+      onChange({ expectedSchema: parsed as Record<string, unknown> });
+    } catch {
+      setExpectedSchemaError("请输入有效 JSON Schema。");
+    }
+  }
 
   const loadTables = useCallback(async () => {
     if (!isDataTable) return;
@@ -680,6 +794,31 @@ export default function WorkflowTypedDataNodeConfig({
         <LabeledField label="类型化输出变量">
           <WorkflowVariableField ariaLabel="类型化输出变量" contract={contract} edges={edges} fieldName="outputVariable" inputClassName={inputClass} node={node} nodes={nodes} onChange={(value) => onChange({ outputVariable: value })} value={String(data.outputVariable ?? "")} />
         </LabeledField>
+        {Number(data.contractVersion ?? 1) === 2 ? (
+          <LabeledField label="期望值 Schema">
+            <textarea
+              aria-invalid={Boolean(expectedSchemaError)}
+              aria-label="期望值 Schema"
+              className={`${inputClass} min-h-36 resize-y font-mono text-xs leading-5`}
+              onChange={(event) => updateExpectedSchema(event.target.value)}
+              spellCheck={false}
+              value={expectedSchemaDraft}
+            />
+            {expectedSchemaError ? (
+              <p className="mt-1.5 text-xs leading-5 text-rose-200" role="alert">
+                {expectedSchemaError}
+              </p>
+            ) : (
+              <p className="mt-1.5 text-xs leading-5 text-slate-500">
+                运行时将按此受限 Schema 校验真实解析值；不匹配时节点立即失败。
+              </p>
+            )}
+          </LabeledField>
+        ) : (
+          <p className="text-xs leading-5 text-amber-100">
+            旧版节点保留兼容错误行为；Meta Planner 只生成带期望 Schema 的 V2 节点。
+          </p>
+        )}
       </Section>
     );
   }

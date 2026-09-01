@@ -30,8 +30,13 @@ from server.xpert_runtime.workflow_node_registry import workflow_node_registry
 
 
 EXPECTED_PLANNER_KINDS = {
+    "data_aggregate",
+    "dataset_compare",
     "input",
+    "json_deserialize",
+    "json_serialize",
     "output",
+    "variable_aggregator",
     "workflow_agent",
     "external_xpert",
     "knowledge_base",
@@ -82,7 +87,7 @@ PROMOTED_COMPLETE_KINDS = {
 }
 
 
-def test_r22_variable_pack_contract_is_complete_and_not_plannable() -> None:
+def test_r22_variable_pack_contract_is_complete_and_auxiliary_plannable() -> None:
     contract = workflow_node_contract_registry.require("variable_aggregator")
 
     assert contract.contract_status == "complete"
@@ -91,7 +96,9 @@ def test_r22_variable_pack_contract_is_complete_and_not_plannable() -> None:
     assert contract.execution.idempotent is True
     assert contract.execution.can_wait is False
     assert contract.execution.error_semantics == "fail_closed"
-    assert contract.planner.enabled is False
+    assert contract.planner.enabled is True
+    assert contract.planner.support == "full"
+    assert contract.planner.task_binding == "forbidden"
     assert contract.ports[0].name == "values"
     assert contract.ports[0].cardinality == "many"
     assert contract.ports[1].value_schema.type == "object"
@@ -186,7 +193,7 @@ def test_subworkflow_call_contract_does_not_overclaim_idempotency() -> None:
     assert contract.planner.enabled is False
 
 
-def test_r16_control_data_contracts_are_complete_local_and_not_plannable() -> None:
+def test_r16_control_data_contracts_are_complete_and_only_aggregate_is_plannable() -> None:
     kinds = {"terminate_error", "multi_route", "list_operation", "data_aggregate"}
 
     for kind in kinds:
@@ -196,7 +203,7 @@ def test_r16_control_data_contracts_are_complete_local_and_not_plannable() -> No
         assert contract.execution.deterministic is True
         assert contract.execution.external_io is False
         assert contract.execution.can_wait is False
-        assert contract.planner.enabled is False
+        assert contract.planner.enabled is (kind == "data_aggregate")
         assert node_policy_service.decision(kind, "workflow").allowed
         assert node_policy_service.decision(kind, "xpert").allowed
 
@@ -236,11 +243,11 @@ def test_r23_iteration_contract_is_complete_and_not_plannable() -> None:
     assert not node_policy_service.decision("iteration", "evolution").allowed
 
 
-def test_r17_http_condition_and_dataset_contracts_are_complete_and_not_plannable() -> None:
+def test_r17_only_dataset_compare_is_plannable_among_r17_contracts() -> None:
     for kind in {"http_request", "condition", "dataset_compare"}:
         contract = workflow_node_contract_registry.require(kind)
         assert contract.contract_status == "complete"
-        assert contract.planner.enabled is False
+        assert contract.planner.enabled is (kind == "dataset_compare")
         assert node_policy_service.decision(kind, "workflow").allowed
         assert node_policy_service.decision(kind, "xpert").allowed
 
@@ -506,7 +513,53 @@ def test_r18_v2_configs_cannot_match_legacy_contract_branches(
     assert errors
 
 
-def test_only_current_seven_nodes_have_valid_planner_contracts() -> None:
+def test_json_v2_contract_branches_require_schema_and_allow_planner_metadata() -> None:
+    deserialize = Draft202012Validator(
+        workflow_node_contract_registry.require("json_deserialize").config_schema
+    )
+    serialize = Draft202012Validator(
+        workflow_node_contract_registry.require("json_serialize").config_schema
+    )
+
+    assert not list(
+        deserialize.iter_errors(
+            {"inputVariable": "json_text", "outputVariable": "json_value"}
+        )
+    )
+    assert list(
+        deserialize.iter_errors(
+            {
+                "contractVersion": 2,
+                "inputVariable": "json_text",
+                "outputVariable": "json_value",
+            }
+        )
+    )
+    assert not list(
+        deserialize.iter_errors(
+            {
+                "contractVersion": 2,
+                "inputVariable": "json_text",
+                "outputVariable": "json_value",
+                "expectedSchema": {"type": "array", "items": {"type": "number"}},
+                "plannerRef": "decode_values",
+            }
+        )
+    )
+    assert not list(
+        serialize.iter_errors(
+            {
+                "contractVersion": 2,
+                "inputVariable": "json_value",
+                "outputVariable": "json_text",
+                "format": "compact",
+                "plannerRef": "encode_values",
+            }
+        )
+    )
+
+
+def test_only_current_planner_node_pack_has_valid_contracts() -> None:
     available = {
         kind
         for kind in workflow_node_contract_registry.kinds()
@@ -690,7 +743,7 @@ def test_old_capability_snapshot_remains_readable() -> None:
     assert snapshot.contract_checksum == ""
 
 
-def test_registry_ui_projection_is_v4_and_contains_no_runtime_payloads() -> None:
+def test_registry_ui_projection_is_v5_and_contains_no_runtime_payloads() -> None:
     payload = workflow_node_registry.to_payload()
     serialized = str(payload).lower()
     items = [
@@ -700,7 +753,7 @@ def test_registry_ui_projection_is_v4_and_contains_no_runtime_payloads() -> None
     ] + list(payload["knowledge_pipeline"]["items"])
 
     assert len({item["kind"] for item in items}) == 51
-    assert payload["version"] == "xpert-workflow-node-registry-v4"
+    assert payload["version"] == "xpert-workflow-node-registry-v5"
     assert payload["contract_version"] == 3
     assert payload["contract_checksum"] == workflow_node_contract_registry.checksum
     assert all(item["contract"]["kind"] == item["kind"] for item in items)

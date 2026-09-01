@@ -61,7 +61,7 @@ from .graph_patch import (
     graph_patch_checksum,
 )
 from .meta_planner_v2 import MetaPlannerV2Service
-from .node_adapters import get_planner_node_adapter
+from .node_adapters import META_PLANNER_ADAPTER_KINDS, get_planner_node_adapter
 from .schemas import (
     GraphIntentInputBindingV3,
     GraphIntentOutputBindingV3,
@@ -77,9 +77,6 @@ from .schemas import (
 
 HEADLESS_AUTHORING_MAX_RECEIPTS = 20
 HEADLESS_AUTHORING_VERSION = "meta-planner-headless-authoring-v1"
-_TEMPLATE_VARIABLE = re.compile(
-    r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}"
-)
 _AUTHORABLE_WORKFLOW_AGENT_DATA_FIELDS = frozenset(
     {
         "kind",
@@ -93,6 +90,63 @@ _AUTHORABLE_WORKFLOW_AGENT_DATA_FIELDS = frozenset(
         "outputVariable",
     }
 )
+_AUTHORABLE_PURE_NODE_DATA_FIELDS: dict[str, frozenset[str]] = {
+    "json_serialize": frozenset(
+        {
+            "kind",
+            "title",
+            "description",
+            "contractVersion",
+            "inputVariable",
+            "outputVariable",
+            "format",
+        }
+    ),
+    "json_deserialize": frozenset(
+        {
+            "kind",
+            "title",
+            "description",
+            "contractVersion",
+            "inputVariable",
+            "outputVariable",
+            "expectedSchema",
+        }
+    ),
+    "variable_aggregator": frozenset(
+        {
+            "kind",
+            "title",
+            "description",
+            "contractVersion",
+            "bindings",
+            "outputVariable",
+        }
+    ),
+    "data_aggregate": frozenset(
+        {
+            "kind",
+            "title",
+            "description",
+            "inputVariable",
+            "outputVariable",
+            "groupByFields",
+            "measures",
+        }
+    ),
+    "dataset_compare": frozenset(
+        {
+            "kind",
+            "title",
+            "description",
+            "leftVariable",
+            "rightVariable",
+            "outputVariable",
+            "keyFields",
+            "includeUnchanged",
+        }
+    ),
+}
 _SENSITIVE_ERROR_VALUE = re.compile(
     r"(?i)(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{8,}|"
     r"bearer\s+[A-Za-z0-9._-]{8,}|"
@@ -966,28 +1020,29 @@ class HeadlessAuthoringService:
             (state.candidate.get("draft") or {}).get("workflow") or {}
         )
         current_ids = {node.id for node in current_workflow.nodes}
+        allowed_adapter_kinds = set(state.scope.allowed_node_kinds) & set(
+            META_PLANNER_ADAPTER_KINDS
+        )
         allowed_kinds = {
             "input",
             "output",
             "runtime_middleware",
-            "workflow_agent",
             "external_xpert",
             "knowledge_base",
             "toolset_resource",
             "plugin_resource",
-        }
+        } | allowed_adapter_kinds
         for node in definition.nodes:
             kind = str((node.data or {}).get("kind") or node.type or "")
             if kind not in allowed_kinds:
                 raise ValueError(f"Editor node kind {kind} is not authorized.")
             if node.id not in current_ids and kind not in {
-                "workflow_agent",
                 "runtime_middleware",
                 "external_xpert",
                 "knowledge_base",
                 "toolset_resource",
                 "plugin_resource",
-            }:
+            } | allowed_adapter_kinds:
                 raise ValueError(f"Compiler-managed node {kind} cannot be added.")
         for managed_id in ("input", "output"):
             if not any(node.id == managed_id for node in definition.nodes):
@@ -995,8 +1050,8 @@ class HeadlessAuthoringService:
 
         self._validate_compiler_managed_editor_nodes(definition, current_workflow)
         self._validate_editor_edges(definition)
-        self._validate_editor_agent_fields(definition, current_workflow)
-        self._annotate_editor_agents(state, definition)
+        self._validate_editor_adapter_fields(definition, current_workflow)
+        self._annotate_editor_adapter_nodes(state, definition)
         self._resolve_editor_resource_versions(state, definition)
         candidate = deepcopy(state.candidate)
         candidate.setdefault("draft", {})["workflow"] = definition.model_dump(
@@ -1032,37 +1087,46 @@ class HeadlessAuthoringService:
         return target_intent, target_layout
 
     @staticmethod
-    def _validate_editor_agent_fields(
+    def _validate_editor_adapter_fields(
         definition: NativeWorkflowDefinition,
         current: NativeWorkflowDefinition,
     ) -> None:
-        current_by_ref = {
-            str((node.data or {}).get("plannerRef") or ""): dict(node.data or {})
-            for node in current.nodes
-            if str((node.data or {}).get("kind") or node.type or "")
-            == "workflow_agent"
-            and str((node.data or {}).get("plannerRef") or "")
-        }
+        current_by_id = {node.id: node for node in current.nodes}
         for node in definition.nodes:
             data = dict(node.data or {})
-            if str(data.get("kind") or node.type or "") != "workflow_agent":
+            kind = str(data.get("kind") or node.type or "")
+            if kind not in META_PLANNER_ADAPTER_KINDS:
                 continue
-            ref = str(data.get("plannerRef") or "").strip()
-            before = current_by_ref.get(ref)
-            if before is None:
-                unsupported = sorted(
-                    set(data) - _AUTHORABLE_WORKFLOW_AGENT_DATA_FIELDS
+            current_node = current_by_id.get(node.id)
+            before = dict(current_node.data or {}) if current_node else None
+            if current_node is not None:
+                current_kind = str(
+                    (current_node.data or {}).get("kind")
+                    or current_node.type
+                    or ""
                 )
+                if current_kind != kind:
+                    raise ValueError(
+                        f"Editor node {node.id} cannot change kind from "
+                        f"{current_kind} to {kind}."
+                    )
+            allowed_fields = (
+                _AUTHORABLE_WORKFLOW_AGENT_DATA_FIELDS
+                if kind == "workflow_agent"
+                else _AUTHORABLE_PURE_NODE_DATA_FIELDS.get(kind, frozenset())
+            )
+            if before is None:
+                unsupported = sorted(set(data) - allowed_fields)
             else:
                 unsupported = sorted(
                     key
                     for key in set(before) | set(data)
-                    if key not in _AUTHORABLE_WORKFLOW_AGENT_DATA_FIELDS
+                    if key not in allowed_fields
                     and before.get(key) != data.get(key)
                 )
             if unsupported:
                 raise ValueError(
-                    f"Workflow Agent {ref or node.id} changes fields outside its "
+                    f"Editor node {node.id} changes fields outside its "
                     "authoring Adapter: "
                     + ", ".join(unsupported)
                 )
@@ -1186,7 +1250,11 @@ class HeadlessAuthoringService:
             node.id: str((node.data or {}).get("plannerRef") or "").strip()
             for node in definition.nodes
             if str((node.data or {}).get("kind") or node.type or "")
-            == "workflow_agent"
+            in META_PLANNER_ADAPTER_KINDS
+        }
+        kind_by_id = {
+            node.id: str((node.data or {}).get("kind") or node.type or "")
+            for node in definition.nodes
         }
         parents = {node.ref: set() for node in intent.nodes}
         for edge in intent.control_edges:
@@ -1203,12 +1271,12 @@ class HeadlessAuthoringService:
                 target_ref = ref_by_id.get(edge.target)
                 if not target_ref:
                     raise ValueError(
-                        "Compiler-managed input edge must target a Workflow Agent."
+                        "Compiler-managed input edge must target an Adapter node."
                     )
                 actual_roots.add(target_ref)
             if edge.target == "output":
                 source_ref = ref_by_id.get(edge.source)
-                if not source_ref:
+                if not source_ref or kind_by_id.get(edge.source) != "workflow_agent":
                     raise ValueError(
                         "Compiler-managed output edge must source a Workflow Agent."
                     )
@@ -1251,30 +1319,35 @@ class HeadlessAuthoringService:
                 )
 
     @staticmethod
-    def _annotate_editor_agents(
+    def _annotate_editor_adapter_nodes(
         state: _ProposalState, definition: NativeWorkflowDefinition
     ) -> None:
         node_by_id = {node.id: node for node in definition.nodes}
         current_refs = {
             node.id: str((node.data or {}).get("plannerRef") or "")
             for node in definition.nodes
-            if str((node.data or {}).get("plannerRef") or "")
+            if str((node.data or {}).get("kind") or node.type or "")
+            in META_PLANNER_ADAPTER_KINDS
+            and str((node.data or {}).get("plannerRef") or "")
         }
         used_refs = set(current_refs.values())
         ref_by_id: dict[str, str] = {}
+        kind_by_id: dict[str, str] = {}
         for node in definition.nodes:
             kind = str((node.data or {}).get("kind") or node.type or "")
-            if kind != "workflow_agent":
+            if kind not in META_PLANNER_ADAPTER_KINDS:
                 continue
             ref = str((node.data or {}).get("plannerRef") or "").strip()
             if not ref:
                 suffix = hashlib.sha256(node.id.encode("utf-8")).hexdigest()[:10]
-                ref = f"agent_{suffix}"
+                prefix = "agent" if kind == "workflow_agent" else "node"
+                ref = f"{prefix}_{suffix}"
                 while ref in used_refs:
                     suffix = hashlib.sha256((node.id + ref).encode("utf-8")).hexdigest()[:10]
-                    ref = f"agent_{suffix}"
+                    ref = f"{prefix}_{suffix}"
             used_refs.add(ref)
             ref_by_id[node.id] = ref
+            kind_by_id[node.id] = kind
 
         control_edges: list[tuple[str, str]] = []
         for edge in definition.edges:
@@ -1297,39 +1370,78 @@ class HeadlessAuthoringService:
                 indegree[child] -= 1
                 if indegree[child] == 0:
                     queue.append(child)
+        if len(order) != len(ref_by_id):
+            raise ValueError("Editor Adapter control graph must be acyclic.")
         ancestors: dict[str, set[str]] = {ref: set() for ref in parents}
         for ref in order:
             for parent in parents[ref]:
                 ancestors[ref].add(parent)
                 ancestors[ref].update(ancestors[parent])
 
-        output_by_ref: dict[str, tuple[str, str]] = {}
-        for node_id, ref in ref_by_id.items():
-            node = node_by_id[node_id]
-            variable = str((node.data or {}).get("outputVariable") or "").strip()
-            output_by_ref[ref] = (variable or f"{ref}_result", "result")
-        plan_task_ids = {task.task_id for task in state.plan.tasks}
-        default_task_id = state.plan.tasks[0].task_id
-        contract = workflow_node_contract_registry.require("workflow_agent")
+        parsed_by_ref: dict[str, Any] = {}
+        output_bindings_by_ref: dict[str, list[GraphIntentOutputBindingV3]] = {}
+        output_by_variable: dict[
+            str, list[tuple[str, str, WorkflowValueSchema]]
+        ] = defaultdict(list)
         for node_id, ref in ref_by_id.items():
             node = node_by_id[node_id]
             data = node.data
+            kind = kind_by_id[node_id]
+            adapter = get_planner_node_adapter(kind)
+            assert adapter is not None
+            if kind == "workflow_agent":
+                role_prompt = str(data.get("rolePrompt") or "").strip()
+                task_input = str(data.get("taskInput") or "").strip()
+                if not role_prompt or not task_input:
+                    defaults = adapter.default_intent_config()
+                    data["rolePrompt"] = role_prompt or defaults["role_prompt"]
+                    data["taskInput"] = task_input or defaults["task_input"]
+            parsed = adapter.authoring_config_from_native(data)
+            output_variables = adapter.editor_output_variables(data, parsed)
+            outputs = [
+                GraphIntentOutputBindingV3(
+                    port=port,
+                    variable=variable,
+                    value_schema=adapter.authoritative_output_schema(port, parsed),
+                )
+                for port, variable in output_variables.items()
+            ]
+            parsed_by_ref[ref] = parsed
+            output_bindings_by_ref[ref] = outputs
+            for output in outputs:
+                output_by_variable[output.variable].append(
+                    (ref, output.port, output.value_schema)
+                )
+        plan_task_ids = {task.task_id for task in state.plan.tasks}
+        default_task_id = state.plan.tasks[0].task_id
+        for node_id, ref in ref_by_id.items():
+            node = node_by_id[node_id]
+            data = node.data
+            kind = kind_by_id[node_id]
+            adapter = get_planner_node_adapter(kind)
+            assert adapter is not None
+            parsed = parsed_by_ref[ref]
+            contract = workflow_node_contract_registry.require(kind)
             raw_task_ids = data.get("plannerTaskIds")
-            task_ids = (
-                [str(item) for item in raw_task_ids if str(item) in plan_task_ids]
+            supplied_task_ids = (
+                [str(item) for item in raw_task_ids]
                 if isinstance(raw_task_ids, list)
                 else []
             )
-            if not task_ids:
-                task_ids = [default_task_id]
-            output_variable = output_by_ref[ref][0]
-            referenced = {
-                match.group(1)
-                for field in ("rolePrompt", "taskInput")
-                for match in _TEMPLATE_VARIABLE.finditer(str(data.get(field) or ""))
-            }
+            unknown_task_ids = sorted(set(supplied_task_ids) - plan_task_ids)
+            if unknown_task_ids:
+                raise ValueError(
+                    f"Editor node {ref} references unknown plan tasks: "
+                    + ", ".join(unknown_task_ids)
+                )
+            if contract.planner.task_binding == "required":
+                task_ids = supplied_task_ids or [default_task_id]
+            else:
+                if supplied_task_ids:
+                    raise ValueError(f"Editor node {ref} cannot cover plan tasks.")
+                task_ids = []
             inputs: list[GraphIntentInputBindingV3] = []
-            for variable in sorted(referenced):
+            for port, variable in adapter.editor_input_variables(data, parsed):
                 if variable in {"user_input", "conversation_history"}:
                     source_ref = "input"
                     source_port = variable
@@ -1342,26 +1454,44 @@ class HeadlessAuthoringService:
                     )
                 else:
                     candidates = [
-                        (candidate_ref, port)
-                        for candidate_ref, (candidate_variable, port) in output_by_ref.items()
-                        if candidate_variable == variable
-                        and candidate_ref in ancestors.get(ref, set())
+                        (candidate_ref, candidate_port, schema)
+                        for candidate_ref, candidate_port, schema in output_by_variable.get(
+                            variable, []
+                        )
+                        if candidate_ref in ancestors.get(ref, set())
                     ]
                     if len(candidates) != 1:
                         raise ValueError(
                             f"Editor variable {variable} for {ref} has no unique control-reachable producer."
                         )
-                    source_ref, source_port = candidates[0]
-                    schema = WorkflowValueSchema(type="string")
+                    source_ref, source_port, schema = candidates[0]
                 inputs.append(
                     GraphIntentInputBindingV3(
-                        port="task",
+                        port=port,
                         variable=variable,
                         source_ref=source_ref,
                         source_port=source_port,
                         value_schema=schema,
                     )
                 )
+            port_totals = Counter(item.port for item in inputs)
+            port_seen: Counter[str] = Counter()
+            legacy_inputs: list[dict[str, Any]] = []
+            for item in inputs:
+                port_seen[item.port] += 1
+                legacy_port = (
+                    f"{item.port}_{port_seen[item.port]}"
+                    if port_totals[item.port] > 1
+                    else item.port
+                )
+                legacy_inputs.append(
+                    {
+                        "port": legacy_port,
+                        "variable": item.variable,
+                        "value_type": item.value_schema.type,
+                    }
+                )
+            outputs = output_bindings_by_ref[ref]
             data.update(
                 {
                     "plannerIRVersion": 3,
@@ -1371,48 +1501,17 @@ class HeadlessAuthoringService:
                     "plannerCompilerChecksum": contract.compiler_checksum,
                     "plannerInputsV3": [item.model_dump(mode="json") for item in inputs],
                     "plannerOutputsV3": [
-                        GraphIntentOutputBindingV3(
-                            port="result",
-                            variable=output_variable,
-                            value_schema=WorkflowValueSchema(type="string"),
-                        ).model_dump(mode="json")
+                        item.model_dump(mode="json") for item in outputs
                     ],
-                    "plannerInputs": [
+                    "plannerInputs": legacy_inputs,
+                    "plannerOutputs": [
                         {
-                            "port": f"task_{index + 1}",
+                            "port": item.port,
                             "variable": item.variable,
                             "value_type": item.value_schema.type,
                         }
-                        for index, item in enumerate(inputs)
+                        for item in outputs
                     ],
-                    "plannerOutputs": [
-                        {
-                            "port": "result",
-                            "variable": output_variable,
-                            "value_type": "string",
-                        }
-                    ],
-                    "outputVariable": output_variable,
                 }
             )
-            adapter = get_planner_node_adapter("workflow_agent")
-            assert adapter is not None
-            config = {
-                "role_prompt": str(data.get("rolePrompt") or "").strip(),
-                "task_input": str(data.get("taskInput") or "").strip(),
-                "model_id": str(data.get("modelId") or "").strip() or None,
-                "source_agent_id": str(data.get("sourceAgentId") or "").strip()
-                or None,
-                "method_skill_ids": (
-                    list(data.get("methodSkillIds") or [])
-                    if isinstance(data.get("methodSkillIds"), list)
-                    else []
-                ),
-            }
-            if not config["role_prompt"] or not config["task_input"]:
-                defaults = adapter.default_intent_config()
-                config["role_prompt"] = config["role_prompt"] or defaults["role_prompt"]
-                config["task_input"] = config["task_input"] or defaults["task_input"]
-                data["rolePrompt"] = config["role_prompt"]
-                data["taskInput"] = config["task_input"]
-            adapter.validate_authoring_config(config)
+            adapter.validate_authoring_config(parsed.model_dump(mode="json"))

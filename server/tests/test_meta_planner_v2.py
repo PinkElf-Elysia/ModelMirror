@@ -83,7 +83,9 @@ def test_generic_meta_planner_keeps_hitl_scoped_to_expert_team():
         "Generic Meta Planner task plans support expert tasks only; "
         "HITL is scoped to Expert Team: manual_gate."
     ]
-    prompt = json.loads(MetaPlannerV2Service._plan_prompt(_request()))
+    prompt = json.loads(
+        MetaPlannerV2Service._plan_prompt(_request(), _snapshot())
+    )
     task_properties = prompt["required_schema"]["$defs"]["MetaPlannerTask"][
         "properties"
     ]
@@ -111,7 +113,9 @@ def test_blueprint_and_repair_prompts_expose_typed_ir_agent_constraints():
     request = _request()
     plan = _plan()
     snapshot = _snapshot()
-    plan_prompt = json.loads(MetaPlannerV2Service._plan_prompt(request))
+    plan_prompt = json.loads(
+        MetaPlannerV2Service._plan_prompt(request, snapshot)
+    )
 
     blueprint_prompt = json.loads(
         MetaPlannerV2Service._blueprint_prompt(request, plan, snapshot, None)
@@ -157,16 +161,24 @@ def test_blueprint_and_repair_prompts_expose_typed_ir_agent_constraints():
             for rule in constraints["rules"]
         )
         assert graph_contract["required_ir_version"] == 3
-        assert graph_contract["node_roles"] == {
-            "executable_node_kinds": ["workflow_agent"],
-            "compiler_managed_node_kinds": ["input", "output"],
-            "resource_binding_kinds": [
-                "external_xpert",
-                "knowledge_base",
-                "plugin_resource",
-                "toolset_resource",
-            ],
+        node_roles = graph_contract["node_roles"]
+        assert node_roles["executable_node_kinds"] == ["workflow_agent"]
+        assert node_roles["compiler_managed_node_kinds"] == ["input", "output"]
+        assert node_roles["resource_binding_kinds"] == [
+            "external_xpert",
+            "knowledge_base",
+            "plugin_resource",
+            "toolset_resource",
+        ]
+        assert set(node_roles["executable_node_contracts"]) == {
+            "workflow_agent"
         }
+        assert (
+            node_roles["executable_node_contracts"]["workflow_agent"][
+                "task_binding"
+            ]
+            == "required"
+        )
         assert graph_contract["workflow_agent"]["config_field_names"] == list(
             MetaPlannerWorkflowAgentConfig.model_fields
         )
@@ -478,7 +490,7 @@ def test_capability_api_returns_stable_safe_contract():
     response = client.get("/api/meta-agent/capabilities")
     assert response.status_code == 200
     payload = response.json()
-    assert payload["version"] == "evoagentx-meta-planner-capabilities-v5"
+    assert payload["version"] == "evoagentx-meta-planner-capabilities-v6"
     assert payload["authoring_protocol_version"] == 1
     assert payload["authoring_limits"]["max_operations"] == 64
     assert payload["ir_version"] == 3
@@ -496,8 +508,13 @@ def test_capability_snapshot_only_exposes_compilable_node_kinds():
     kinds = {item["kind"] for item in snapshot.nodes}
 
     assert kinds == {
+        "data_aggregate",
+        "dataset_compare",
         "input",
+        "json_deserialize",
+        "json_serialize",
         "output",
+        "variable_aggregator",
         "workflow_agent",
         "external_xpert",
         "knowledge_base",
@@ -907,6 +924,16 @@ async def test_failed_repair_persists_unapprovable_candidate_until_human_edit(
     proposal = proposal_store.require(response.proposal_id)
     assert proposal.status == "pending"
     assert proposal.validation["valid"] is False
+    assert (
+        proposal.payload["meta_planner_report"]["repair_protocol"]
+        == "graph_intent_v3"
+    )
+    fallback_agent = next(
+        node
+        for node in proposal.payload["draft"]["workflow"]["nodes"]
+        if node["type"] == "workflow_agent"
+    )
+    assert fallback_agent["data"]["modelId"] == ""
     with pytest.raises(AuthoringProposalValidationError):
         authoring.approve(
             proposal.proposal_id,
@@ -1005,9 +1032,9 @@ async def test_update_with_unsupported_target_node_fails_before_model_call(
     target = xpert_store.create_xpert(name="Typed target")
     target.draft.workflow.nodes.append(
         NativeWorkflowNode(
-            id="json-node",
-            type="json_serialize",
-            data={"kind": "json_serialize", "outputVariable": "serialized"},
+            id="list-node",
+            type="list_operation",
+            data={"kind": "list_operation", "outputVariable": "items"},
         )
     )
 

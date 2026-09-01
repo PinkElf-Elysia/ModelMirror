@@ -453,6 +453,31 @@ def v2_to_graph_intent(
     )
 
 
+def _graph_intent_inputs_to_v2(
+    node: GraphIntentNodeV3,
+) -> list[MetaPlannerIRInputBinding]:
+    totals: dict[str, int] = defaultdict(int)
+    for item in node.inputs:
+        totals[item.port] += 1
+    seen: dict[str, int] = defaultdict(int)
+    converted: list[MetaPlannerIRInputBinding] = []
+    for item in node.inputs:
+        seen[item.port] += 1
+        legacy_port = (
+            f"{item.port}_{seen[item.port]}"
+            if totals[item.port] > 1
+            else item.port
+        )
+        converted.append(
+            MetaPlannerIRInputBinding(
+                port=legacy_port,
+                variable=item.variable,
+                value_type=item.value_schema.type,
+            )
+        )
+    return converted
+
+
 def graph_intent_to_v2(intent: GraphIntentV3) -> MetaPlannerTypedBlueprintV2:
     return MetaPlannerTypedBlueprintV2(
         name=intent.name,
@@ -466,14 +491,7 @@ def graph_intent_to_v2(intent: GraphIntentV3) -> MetaPlannerTypedBlueprintV2:
                 title=node.title,
                 description=node.description,
                 task_ids=node.task_ids,
-                inputs=[
-                    MetaPlannerIRInputBinding(
-                        port=f"{item.port}_{index + 1}",
-                        variable=item.variable,
-                        value_type=item.value_schema.type,
-                    )
-                    for index, item in enumerate(node.inputs)
-                ],
+                inputs=_graph_intent_inputs_to_v2(node),
                 outputs=[
                     MetaPlannerIROutputBinding(
                         port=item.port,
@@ -564,8 +582,14 @@ def _resolved_node(
     description: str = "",
     task_ids: list[str] | None = None,
     config: dict[str, Any] | None = None,
+    execution_version: int | None = None,
 ) -> ResolvedGraphNodeV3:
     contract = workflow_node_contract_registry.require(kind)
+    execution_data = (
+        {"contractVersion": execution_version}
+        if execution_version is not None
+        else config
+    )
     return ResolvedGraphNodeV3(
         ref=ref,
         node_id=node_id,
@@ -579,7 +603,7 @@ def _resolved_node(
         contract_version=NODE_CONTRACT_VERSION,
         contract_checksum=contract.checksum,
         compiler_checksum=contract.compiler_checksum,
-        execution=contract.execution.model_dump(mode="json"),
+        execution=contract.effective_execution(execution_data).model_dump(mode="json"),
         resource_contracts=[item.model_dump(mode="json") for item in contract.resources],
     )
 
@@ -734,20 +758,23 @@ def resolve_graph_intent(
             resolved_config["model_id"] = default_agent_model_id
         adapter = get_planner_node_adapter(node.kind)
         assert adapter is not None
-        resolved_config = adapter.config_model.model_validate(
-            resolved_config
-        ).model_dump(mode="json")
+        effective_node = node.model_copy(update={"config": resolved_config})
+        parsed_config = adapter.validate_intent_node(effective_node)
+        resolved_config = parsed_config.model_dump(mode="json")
+        contract = workflow_node_contract_registry.require(node.kind)
+        if len(node.task_ids) != len(set(node.task_ids)):
+            raise ValueError(f"Node {node.ref} task IDs must be unique.")
+        if contract.planner.task_binding == "required" and not node.task_ids:
+            raise ValueError(f"Node {node.ref} must cover at least one plan task.")
+        if contract.planner.task_binding == "forbidden" and node.task_ids:
+            raise ValueError(f"Node {node.ref} cannot cover plan tasks.")
         model_id = str(resolved_config.get("model_id") or "")
         if model_id and model_id not in available_models:
             raise ValueError(
                 f"Agent model {model_id} is unavailable in the Capability Snapshot."
             )
         declared_inputs = {binding.variable for binding in node.inputs}
-        referenced: set[str] = set()
-        for field in ("role_prompt", "task_input"):
-            referenced.update(
-                _template_variables(str(resolved_config.get(field) or ""))
-            )
+        referenced = adapter.referenced_input_variables(parsed_config)
         missing_bindings = sorted(referenced - declared_inputs)
         if missing_bindings:
             raise ValueError(
@@ -763,6 +790,11 @@ def resolve_graph_intent(
             description=node.description,
             task_ids=node.task_ids,
             config=resolved_config,
+            execution_version=(
+                2
+                if node.kind in {"json_serialize", "json_deserialize"}
+                else None
+            ),
         )
         contract_outputs = {
             port.name: port for port in resolved.ports if port.direction == "output"
@@ -773,9 +805,16 @@ def resolve_graph_intent(
                 raise ValueError(
                     f"Node {node.ref} declares unknown output port {output.port}."
                 )
-            if not _schemas_compatible(output.value_schema, contract_port.value_schema):
+            authoritative_schema = adapter.authoritative_output_schema(
+                output.port,
+                parsed_config,
+            )
+            if canonical_checksum(
+                output.value_schema.model_dump(mode="json")
+            ) != canonical_checksum(authoritative_schema.model_dump(mode="json")):
                 raise ValueError(
-                    f"Node {node.ref} output {output.port} has an incompatible type."
+                    f"Node {node.ref} output {output.port} does not match its "
+                    "authoritative Adapter type."
                 )
             key = (node.ref, output.port)
             if key in declared_outputs:
@@ -1048,6 +1087,9 @@ def resolve_graph_intent(
     final_source = declared_outputs.get(
         (intent.final_output.node_ref, intent.final_output.port)
     )
+    final_node = resolved_by_ref.get(intent.final_output.node_ref)
+    if final_node is None or final_node.kind != "workflow_agent":
+        raise ValueError("Graph IR final output must come from a workflow_agent.")
     if final_source is None or final_source[0] != intent.final_output.variable:
         raise ValueError("Graph IR final output does not match its source port.")
     output_node = _resolved_node(
@@ -1168,7 +1210,11 @@ def annotate_candidate_with_graph_ir(
 def decompile_candidate_to_graph_intent_compat(
     candidate: dict[str, Any],
 ) -> tuple[GraphIntentV3 | None, MetaPlannerIRCompatibility]:
-    from .node_adapters import decompile_planner_node, decompile_planner_node_v3
+    from .node_adapters import (
+        META_PLANNER_ADAPTER_KINDS,
+        decompile_planner_node,
+        decompile_planner_node_v3,
+    )
 
     try:
         from server.workflow_native.schemas import NativeWorkflowNode
@@ -1190,12 +1236,12 @@ def decompile_candidate_to_graph_intent_compat(
     supported_kinds = {
         "input",
         "output",
-        "workflow_agent",
         "external_xpert",
         "knowledge_base",
         "toolset_resource",
         "plugin_resource",
         "runtime_middleware",
+        *META_PLANNER_ADAPTER_KINDS,
     }
     unsupported = sorted(
         f"{node_id}:{kind or '<missing>'}"
@@ -1217,21 +1263,19 @@ def decompile_candidate_to_graph_intent_compat(
         raise ValueError(
             "Compiled candidate must contain the canonical input and output nodes exactly once."
         )
-    workflow_agents = [
+    planner_nodes = [
         raw_node
         for raw_node in raw_nodes
-        if str(
-            (raw_node.get("data") or {}).get("kind")
-            or raw_node.get("type")
-            or ""
-        )
-        == "workflow_agent"
+        if kind_by_id[str(raw_node.get("id") or "")] in META_PLANNER_ADAPTER_KINDS
     ]
-    if not workflow_agents:
+    if not any(
+        kind_by_id[str(raw_node.get("id") or "")] == "workflow_agent"
+        for raw_node in planner_nodes
+    ):
         raise ValueError("Compiled candidate has no Workflow Agent node.")
     marker_versions = {
         int((raw_node.get("data") or {}).get("plannerIRVersion") or 0)
-        for raw_node in workflow_agents
+        for raw_node in planner_nodes
     }
     if not marker_versions.issubset({0, GRAPH_IR_VERSION}):
         raise ValueError("Compiled candidate carries an unknown Graph IR marker.")
@@ -1243,7 +1287,7 @@ def decompile_candidate_to_graph_intent_compat(
     ref_by_id: dict[str, str] = {}
     business_nodes: list[GraphIntentNodeV3] = []
     legacy_nodes: list[MetaPlannerIRNode] = []
-    for raw_node in workflow_agents:
+    for raw_node in planner_nodes:
         native_node = NativeWorkflowNode.model_validate(raw_node)
         restored = (
             decompile_planner_node_v3(native_node)
@@ -1301,6 +1345,10 @@ def decompile_candidate_to_graph_intent_compat(
                 f"Compiled control edge {edge_id} is outside the recoverable Planner graph."
             )
         if not target_ref:
+            raise ValueError(
+                f"Compiled binding edge {edge_id} must target a Workflow Agent."
+            )
+        if target_kind != "workflow_agent":
             raise ValueError(
                 f"Compiled binding edge {edge_id} must target a Workflow Agent."
             )
@@ -1404,6 +1452,9 @@ def decompile_candidate_to_graph_intent_compat(
     terminal_ref = ref_by_id.get(str(terminal_edge.get("source") or ""))
     if not terminal_ref or not output_variable:
         raise ValueError("Compiled candidate final output metadata is incomplete.")
+    terminal_node_id = str(terminal_edge.get("source") or "")
+    if kind_by_id.get(terminal_node_id) != "workflow_agent":
+        raise ValueError("Compiled candidate final output must use a Workflow Agent.")
     prompt_items = [
         item
         for item in draft.get("prompt_profiles") or []

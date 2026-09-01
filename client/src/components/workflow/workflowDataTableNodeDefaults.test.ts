@@ -58,7 +58,15 @@ describe("Agent Table workflow node defaults", () => {
     expect(createTypedCanvasNodeData(kind)).toMatchObject({
       kind,
       title,
+      contractVersion: 2,
       outputVariable,
+    });
+  });
+
+  it("creates JSON deserialize with an explicit non-narrowing V2 schema", () => {
+    expect(createTypedCanvasNodeData("json_deserialize")).toMatchObject({
+      contractVersion: 2,
+      expectedSchema: { type: "any" },
     });
   });
 

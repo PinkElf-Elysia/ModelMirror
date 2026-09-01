@@ -57,6 +57,7 @@ NodePlannerCompilationMode = Literal[
     "compiler_managed",
     "none",
 ]
+NodePlannerTaskBinding = Literal["required", "optional", "forbidden"]
 
 
 def canonical_checksum(value: Any) -> str:
@@ -72,7 +73,7 @@ def canonical_checksum(value: Any) -> str:
 
 
 class WorkflowValueSchema(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     type: WorkflowValueType = "any"
     nullable: bool = False
@@ -92,6 +93,57 @@ class WorkflowValueSchema(BaseModel):
         if len(self.any_of) > 4:
             raise ValueError("any_of supports at most four alternatives")
         return self
+
+    def assert_value(self, value: Any, *, path: str = "$") -> None:
+        """Validate a normalized workflow value against this restricted schema."""
+
+        if value is None and (self.nullable or self.type in {"any", "null"}):
+            return
+        if self.any_of:
+            for candidate in self.any_of:
+                try:
+                    candidate.assert_value(value, path=path)
+                    return
+                except ValueError:
+                    continue
+            raise ValueError(
+                f"Workflow value at {path} does not match any allowed schema."
+            )
+        if value is None:
+            raise ValueError(f"Workflow value at {path} must not be null.")
+        if self.type == "any":
+            return
+        if self.type == "null":
+            raise ValueError(f"Workflow value at {path} must be null.")
+        if self.type == "string" and isinstance(value, str):
+            return
+        if self.type == "boolean" and isinstance(value, bool):
+            return
+        if self.type == "integer" and isinstance(value, int) and not isinstance(value, bool):
+            return
+        if (
+            self.type == "number"
+            and isinstance(value, (int, float))
+            and not isinstance(value, bool)
+        ):
+            return
+        if self.type == "array" and isinstance(value, list):
+            if self.items is not None:
+                for index, item in enumerate(value):
+                    self.items.assert_value(item, path=f"{path}[{index}]")
+            return
+        if self.type == "object" and isinstance(value, dict):
+            missing = sorted(set(self.required) - set(value))
+            if missing:
+                raise ValueError(
+                    f"Workflow object at {path} is missing required properties: "
+                    + ", ".join(missing)
+                )
+            for name, property_schema in self.properties.items():
+                if name in value:
+                    property_schema.assert_value(value[name], path=f"{path}.{name}")
+            return
+        raise ValueError(f"Workflow value at {path} must have type {self.type}.")
 
 
 class NodePortContract(BaseModel):
@@ -188,6 +240,7 @@ class NodePlannerContract(BaseModel):
     compilation_mode: NodePlannerCompilationMode = "none"
     ir_version: int = 3
     adapter_version: str = ""
+    task_binding: NodePlannerTaskBinding = "forbidden"
     default_data: dict[str, Any] = Field(default_factory=dict)
     config_constraints: dict[str, Any] = Field(default_factory=dict)
     ir_config_schema: dict[str, Any] = Field(default_factory=dict)
@@ -202,6 +255,7 @@ class NodeContract(BaseModel):
     ports: tuple[NodePortContract, ...] = ()
     edge: NodeEdgeContract = Field(default_factory=NodeEdgeContract)
     execution: NodeExecutionPolicy = Field(default_factory=NodeExecutionPolicy)
+    execution_variants: dict[int, NodeExecutionPolicy] = Field(default_factory=dict)
     availability: NodeAvailabilityPolicy = Field(default_factory=NodeAvailabilityPolicy)
     resources: tuple[NodeResourceContract, ...] = ()
     planner: NodePlannerContract = Field(default_factory=NodePlannerContract)
@@ -216,7 +270,17 @@ class NodeContract(BaseModel):
             raise ValueError("planner-enabled nodes need complete contracts")
         if self.planner.enabled and self.planner.support == "unsupported":
             raise ValueError("planner-enabled nodes cannot be unsupported")
+        if any(version < 2 for version in self.execution_variants):
+            raise ValueError("execution variants require contractVersion 2 or newer")
         return self
+
+    def effective_execution(self, data: dict[str, Any] | None = None) -> NodeExecutionPolicy:
+        raw_version = (data or {}).get("contractVersion")
+        try:
+            version = int(raw_version) if raw_version is not None else 1
+        except (TypeError, ValueError):
+            version = 0
+        return self.execution_variants.get(version, self.execution)
 
     def compiler_payload(self) -> dict[str, Any]:
         return {
@@ -231,6 +295,7 @@ class NodeContract(BaseModel):
                 "compilation_mode": self.planner.compilation_mode,
                 "ir_version": self.planner.ir_version,
                 "adapter_version": self.planner.adapter_version,
+                "task_binding": self.planner.task_binding,
                 "ir_config_schema": self.planner.ir_config_schema,
             },
         }
@@ -273,6 +338,84 @@ class WorkflowAgentPlannerConfig(BaseModel):
             for item in self.method_skill_ids
         ):
             raise ValueError("method_skill_ids contains an invalid Skill id")
+        return self
+
+
+class JsonSerializePlannerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    format: Literal["compact", "pretty"] = "compact"
+
+
+class JsonDeserializePlannerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_schema: WorkflowValueSchema
+
+
+class VariableAggregatorPlannerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    output_fields: list[str] = Field(min_length=1, max_length=50)
+
+    @model_validator(mode="after")
+    def validate_output_fields(self) -> "VariableAggregatorPlannerConfig":
+        pattern = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+        if any(not pattern.fullmatch(item) for item in self.output_fields):
+            raise ValueError("output_fields must contain valid workflow field names")
+        if len(self.output_fields) != len(set(self.output_fields)):
+            raise ValueError("output_fields must be unique")
+        return self
+
+
+class DataAggregatePlannerMeasure(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    output_field: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+    operation: Literal["count", "sum", "avg", "min", "max"]
+    source_field: str = Field(default="", max_length=64)
+
+    @model_validator(mode="after")
+    def validate_source_field(self) -> "DataAggregatePlannerMeasure":
+        if self.operation == "count" and self.source_field:
+            raise ValueError("count measures do not accept source_field")
+        if self.operation != "count" and not self.source_field:
+            raise ValueError("numeric measures require source_field")
+        return self
+
+
+class DataAggregatePlannerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    group_by_fields: list[str] = Field(default_factory=list, max_length=3)
+    measures: list[DataAggregatePlannerMeasure] = Field(min_length=1, max_length=10)
+
+    @model_validator(mode="after")
+    def validate_fields(self) -> "DataAggregatePlannerConfig":
+        if len(self.group_by_fields) != len(set(self.group_by_fields)):
+            raise ValueError("group_by_fields must be unique")
+        if any(not item or len(item) > 64 for item in self.group_by_fields):
+            raise ValueError("group_by_fields must be non-empty top-level fields")
+        output_fields = [item.output_field for item in self.measures]
+        if len(output_fields) != len(set(output_fields)):
+            raise ValueError("measure output fields must be unique")
+        if set(output_fields) & set(self.group_by_fields):
+            raise ValueError("measure output fields cannot replace group fields")
+        return self
+
+
+class DatasetComparePlannerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key_fields: list[str] = Field(min_length=1, max_length=3)
+    include_unchanged: bool = False
+
+    @model_validator(mode="after")
+    def validate_key_fields(self) -> "DatasetComparePlannerConfig":
+        if len(self.key_fields) != len(set(self.key_fields)):
+            raise ValueError("key_fields must be unique")
+        if any(not item or len(item) > 64 for item in self.key_fields):
+            raise ValueError("key_fields must be non-empty top-level fields")
         return self
 
 
@@ -365,6 +508,7 @@ class NodePolicyService:
             and contract.planner.enabled
             and contract.planner.support == "full"
             and contract.planner.compilation_mode == "adapter"
+            and contract.planner.task_binding == "required"
             and contract.availability.evolution.state == "allow"
         }
 
@@ -411,6 +555,7 @@ def _planner(
     support: NodePlannerSupport = "unsupported",
     compilation_mode: NodePlannerCompilationMode = "none",
     adapter_version: str = "",
+    task_binding: NodePlannerTaskBinding = "forbidden",
     default_data: dict[str, Any] | None = None,
     constraints: dict[str, Any] | None = None,
     ir_config_schema: dict[str, Any] | None = None,
@@ -420,6 +565,7 @@ def _planner(
         support=support,
         compilation_mode=compilation_mode,
         adapter_version=adapter_version,
+        task_binding=task_binding,
         default_data=dict(default_data or {}),
         config_constraints=dict(constraints or {}),
         ir_config_schema=dict(ir_config_schema or {}),
@@ -1239,7 +1385,15 @@ def _complete_contracts() -> dict[str, NodeContract]:
             evaluation=_rule("allow"),
             evolution=_rule("allow"),
         ),
-        planner=_planner(),
+        planner=_planner(
+            enabled=True,
+            support="full",
+            compilation_mode="adapter",
+            adapter_version=planner_adapter_version,
+            task_binding="forbidden",
+            default_data={"output_fields": ["value"]},
+            ir_config_schema=VariableAggregatorPlannerConfig.model_json_schema(),
+        ),
     )
 
     iteration_v1_schema = _object_schema(
@@ -2593,7 +2747,24 @@ def _complete_contracts() -> dict[str, NodeContract]:
             error_semantics="fail_closed",
             security_category="transform",
         ),
-        planner=_planner(),
+        planner=_planner(
+            enabled=True,
+            support="full",
+            compilation_mode="adapter",
+            adapter_version=planner_adapter_version,
+            task_binding="forbidden",
+            default_data={
+                "group_by_fields": [],
+                "measures": [
+                    {
+                        "output_field": "count",
+                        "operation": "count",
+                        "source_field": "",
+                    }
+                ],
+            },
+            ir_config_schema=DataAggregatePlannerConfig.model_json_schema(),
+        ),
     )
     contracts["data_merge"] = NodeContract(
         kind="data_merge",
@@ -2717,7 +2888,18 @@ def _complete_contracts() -> dict[str, NodeContract]:
             error_semantics="fail_closed",
             security_category="transform",
         ),
-        planner=_planner(),
+        planner=_planner(
+            enabled=True,
+            support="full",
+            compilation_mode="adapter",
+            adapter_version=planner_adapter_version,
+            task_binding="forbidden",
+            default_data={
+                "key_fields": ["id"],
+                "include_unchanged": False,
+            },
+            ir_config_schema=DatasetComparePlannerConfig.model_json_schema(),
+        ),
     )
     contracts["llm"] = NodeContract(
         kind="llm",
@@ -2827,6 +3009,7 @@ def _complete_contracts() -> dict[str, NodeContract]:
             support="full",
             compilation_mode="adapter",
             adapter_version=planner_adapter_version,
+            task_binding="required",
             default_data={
                 "toolMode": "none",
                 "maxIterations": "6",
@@ -2976,17 +3159,35 @@ def _complete_contracts() -> dict[str, NodeContract]:
             ),
         )
 
+    workflow_value_schema = WorkflowValueSchema.model_json_schema(
+        ref_template="#/$defs/{model}"
+    )
+    workflow_value_schema_defs = dict(workflow_value_schema.pop("$defs", {}))
+    json_serialize_legacy_schema = _object_schema(
+        {
+            "inputVariable": {"type": "string"},
+            "outputVariable": {"type": "string"},
+            "format": {"enum": ["compact", "pretty"]},
+        },
+        required=["inputVariable", "outputVariable"],
+    )
+    json_serialize_legacy_schema["not"] = {"required": ["contractVersion"]}
+    json_serialize_v2_schema = _object_schema(
+        {
+            "contractVersion": {"const": 2},
+            "inputVariable": {"type": "string"},
+            "outputVariable": {"type": "string"},
+            "format": {"enum": ["compact", "pretty"]},
+        },
+        required=["contractVersion", "inputVariable", "outputVariable", "format"],
+    )
     contracts["json_serialize"] = NodeContract(
         kind="json_serialize",
         contract_status="complete",
-        config_schema=_object_schema(
-            {
-                "inputVariable": {"type": "string"},
-                "outputVariable": {"type": "string"},
-                "format": {"enum": ["compact", "pretty"]},
-            },
-            required=["inputVariable", "outputVariable"],
-        ),
+        config_schema={
+            "type": "object",
+            "anyOf": [json_serialize_legacy_schema, json_serialize_v2_schema],
+        },
         ports=(
             NodePortContract(name="value", direction="input", value_schema=any_value),
             NodePortContract(name="json", direction="output", value_schema=string_value),
@@ -2998,28 +3199,58 @@ def _complete_contracts() -> dict[str, NodeContract]:
             error_semantics="legacy_inline_error",
             security_category="transform",
         ),
+        execution_variants={
+            2: NodeExecutionPolicy(
+                side_effect="none",
+                deterministic=True,
+                idempotent=True,
+                error_semantics="fail_closed",
+                security_category="transform",
+            )
+        },
         planner=_planner(
-            default_data={
-                "inputVariable": "json_value",
-                "outputVariable": "json_text",
-                "format": "compact",
-            },
+            enabled=True,
+            support="full",
+            compilation_mode="adapter",
+            adapter_version=planner_adapter_version,
+            task_binding="forbidden",
+            default_data={"format": "compact"},
             constraints={
-                "required": ["inputVariable", "outputVariable"],
                 "format": ["compact", "pretty"],
             },
+            ir_config_schema=JsonSerializePlannerConfig.model_json_schema(),
         ),
+    )
+    json_deserialize_legacy_schema = _object_schema(
+        {
+            "inputVariable": {"type": "string"},
+            "outputVariable": {"type": "string"},
+        },
+        required=["inputVariable", "outputVariable"],
+    )
+    json_deserialize_legacy_schema["not"] = {"required": ["contractVersion"]}
+    json_deserialize_v2_schema = _object_schema(
+        {
+            "contractVersion": {"const": 2},
+            "inputVariable": {"type": "string"},
+            "outputVariable": {"type": "string"},
+            "expectedSchema": workflow_value_schema,
+        },
+        required=[
+            "contractVersion",
+            "inputVariable",
+            "outputVariable",
+            "expectedSchema",
+        ],
     )
     contracts["json_deserialize"] = NodeContract(
         kind="json_deserialize",
         contract_status="complete",
-        config_schema=_object_schema(
-            {
-                "inputVariable": {"type": "string"},
-                "outputVariable": {"type": "string"},
-            },
-            required=["inputVariable", "outputVariable"],
-        ),
+        config_schema={
+            "type": "object",
+            "anyOf": [json_deserialize_legacy_schema, json_deserialize_v2_schema],
+            "$defs": workflow_value_schema_defs,
+        },
         ports=(
             NodePortContract(name="json", direction="input", value_schema=string_value),
             NodePortContract(name="value", direction="output", value_schema=any_value),
@@ -3031,12 +3262,24 @@ def _complete_contracts() -> dict[str, NodeContract]:
             error_semantics="legacy_inline_error",
             security_category="transform",
         ),
+        execution_variants={
+            2: NodeExecutionPolicy(
+                side_effect="none",
+                deterministic=True,
+                idempotent=True,
+                error_semantics="fail_closed",
+                security_category="transform",
+            )
+        },
         planner=_planner(
-            default_data={
-                "inputVariable": "json_text",
-                "outputVariable": "json_value",
-            },
-            constraints={"required": ["inputVariable", "outputVariable"]},
+            enabled=True,
+            support="full",
+            compilation_mode="adapter",
+            adapter_version=planner_adapter_version,
+            task_binding="forbidden",
+            default_data={"expected_schema": {"type": "object"}},
+            constraints={"required": ["expected_schema"]},
+            ir_config_schema=JsonDeserializePlannerConfig.model_json_schema(),
         ),
     )
 

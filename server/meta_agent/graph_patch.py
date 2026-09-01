@@ -4,7 +4,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal, Union
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 try:
     from server.workflow_native.node_contracts import (
@@ -65,13 +65,27 @@ class SetXpertMetadataOperation(GraphPatchModel):
 
 class AddNodeOperation(GraphPatchModel):
     op: Literal["add_node"] = "add_node"
-    ref: str = Field(pattern=GRAPH_PATCH_REF_PATTERN)
+    ref: str = Field(
+        pattern=GRAPH_PATCH_REF_PATTERN,
+        description=(
+            "A new semantic node ref. The compiler-managed refs input and output "
+            "are forbidden."
+        ),
+        json_schema_extra={"not": {"enum": ["input", "output"]}},
+    )
     kind: str = Field(min_length=1, max_length=80)
     title: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=2_000)
-    task_ids: list[str] = Field(min_length=1, max_length=8)
+    task_ids: list[str] = Field(default_factory=list, max_length=8)
     config: dict[str, Any] = Field(default_factory=dict)
     output_variables: dict[str, str] = Field(default_factory=dict, max_length=16)
+
+    @field_validator("ref")
+    @classmethod
+    def reject_compiler_managed_ref(cls, value: str) -> str:
+        if value in {"input", "output"}:
+            raise ValueError(f"{value} is a compiler-managed ref and cannot be added")
+        return value
 
 
 class UpdateNodeOperation(GraphPatchModel):
@@ -79,7 +93,7 @@ class UpdateNodeOperation(GraphPatchModel):
     ref: str = Field(pattern=GRAPH_PATCH_REF_PATTERN)
     title: str | None = Field(default=None, min_length=1, max_length=120)
     description: str | None = Field(default=None, max_length=2_000)
-    task_ids: list[str] | None = Field(default=None, min_length=1, max_length=8)
+    task_ids: list[str] | None = Field(default=None, max_length=8)
     config: dict[str, Any] | None = None
 
     @model_validator(mode="after")
@@ -307,10 +321,19 @@ def _node(intent: GraphIntentV3, ref: str) -> GraphIntentNodeV3:
     return node
 
 
-def _validate_task_ids(task_ids: list[str], plan_task_ids: set[str]) -> None:
+def _validate_task_ids(
+    kind: str,
+    task_ids: list[str],
+    plan_task_ids: set[str],
+) -> None:
     unknown = sorted(set(task_ids) - plan_task_ids)
     if unknown:
         raise ValueError("Patch references unknown plan tasks: " + ", ".join(unknown))
+    contract = workflow_node_contract_registry.require(kind)
+    if contract.planner.task_binding == "required" and not task_ids:
+        raise ValueError(f"Node kind {kind} must cover at least one plan task.")
+    if contract.planner.task_binding == "forbidden" and task_ids:
+        raise ValueError(f"Node kind {kind} cannot cover plan tasks.")
 
 
 def _replace_node(intent: GraphIntentV3, replacement: GraphIntentNodeV3) -> None:
@@ -371,8 +394,9 @@ def apply_graph_patch(
             adapter = get_planner_node_adapter(operation.kind)
             if adapter is None:
                 raise ValueError(f"Node kind {operation.kind} has no authoring adapter.")
-            _validate_task_ids(operation.task_ids, plan_task_ids)
+            _validate_task_ids(operation.kind, operation.task_ids, plan_task_ids)
             parsed_config = adapter.validate_authoring_config(operation.config)
+            parsed_model = adapter.config_model.model_validate(parsed_config)
             contract = workflow_node_contract_registry.require(operation.kind)
             output_ports = {
                 port.name: port
@@ -389,21 +413,23 @@ def apply_graph_patch(
                 GraphIntentOutputBindingV3(
                     port=port_name,
                     variable=variable,
-                    value_schema=output_ports[port_name].value_schema,
+                    value_schema=adapter.authoritative_output_schema(
+                        port_name,
+                        parsed_model,
+                    ),
                 )
                 for port_name, variable in sorted(operation.output_variables.items())
             ]
-            result.nodes.append(
-                GraphIntentNodeV3(
-                    ref=operation.ref,
-                    kind=operation.kind,
-                    title=operation.title,
-                    description=operation.description,
-                    task_ids=operation.task_ids,
-                    config=parsed_config,
-                    outputs=outputs,
-                )
+            added_node = GraphIntentNodeV3(
+                ref=operation.ref,
+                kind=operation.kind,
+                title=operation.title,
+                description=operation.description,
+                task_ids=operation.task_ids,
+                config=parsed_config,
+                outputs=outputs,
             )
+            result.nodes.append(added_node)
             continue
 
         if isinstance(operation, UpdateNodeOperation):
@@ -414,7 +440,11 @@ def apply_graph_patch(
             if operation.description is not None:
                 updates["description"] = operation.description
             if operation.task_ids is not None:
-                _validate_task_ids(operation.task_ids, plan_task_ids)
+                _validate_task_ids(
+                    current.kind,
+                    operation.task_ids,
+                    plan_task_ids,
+                )
                 updates["task_ids"] = operation.task_ids
             if operation.config is not None:
                 adapter = get_planner_node_adapter(current.kind)
@@ -422,8 +452,25 @@ def apply_graph_patch(
                     raise ValueError(
                         f"Node kind {current.kind} has no authoring adapter."
                     )
-                updates["config"] = adapter.validate_authoring_config(operation.config)
-            _replace_node(result, current.model_copy(update=updates))
+                normalized_config = adapter.validate_authoring_config(operation.config)
+                parsed_model = adapter.config_model.model_validate(normalized_config)
+                updates["config"] = normalized_config
+                updates["outputs"] = [
+                    output.model_copy(
+                        update={
+                            "value_schema": adapter.authoritative_output_schema(
+                                output.port,
+                                parsed_model,
+                            )
+                        }
+                    )
+                    for output in current.outputs
+                ]
+            updated_node = current.model_copy(update=updates)
+            adapter = get_planner_node_adapter(current.kind)
+            assert adapter is not None
+            adapter.validate_intent_node(updated_node)
+            _replace_node(result, updated_node)
             continue
 
         if isinstance(operation, RemoveNodeOperation):
@@ -634,6 +681,8 @@ def apply_graph_patch(
 
         if isinstance(operation, SetFinalOutputOperation):
             target = _node(result, operation.node_ref)
+            if target.kind != "workflow_agent":
+                raise ValueError("Final output must come from a workflow_agent.")
             output = next(
                 (item for item in target.outputs if item.port == operation.port), None
             )
@@ -692,7 +741,21 @@ def apply_graph_patch(
         result.nodes = [node for node in result.nodes if node.ref != ref]
         next_layout.pop(ref, None)
 
-    covered_tasks = {task_id for node in result.nodes for task_id in node.task_ids}
+    for node in result.nodes:
+        adapter = get_planner_node_adapter(node.kind)
+        if adapter is None:
+            raise ValueError(f"Node kind {node.kind} has no authoring adapter.")
+        adapter.validate_intent_node(node)
+
+    covered_tasks = {
+        task_id
+        for node in result.nodes
+        if workflow_node_contract_registry.require(
+            node.kind
+        ).planner.task_binding
+        == "required"
+        for task_id in node.task_ids
+    }
     missing_tasks = sorted(plan_task_ids - covered_tasks)
     if missing_tasks:
         raise ValueError(

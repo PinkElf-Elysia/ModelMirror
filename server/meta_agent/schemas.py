@@ -240,8 +240,8 @@ class MetaPlannerIRNode(BaseModel):
     kind: str = Field(min_length=1, max_length=80)
     title: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=2_000)
-    task_ids: list[str] = Field(min_length=1, max_length=8)
-    inputs: list[MetaPlannerIRInputBinding] = Field(default_factory=list, max_length=16)
+    task_ids: list[str] = Field(default_factory=list, max_length=8)
+    inputs: list[MetaPlannerIRInputBinding] = Field(default_factory=list, max_length=50)
     outputs: list[MetaPlannerIROutputBinding] = Field(
         default_factory=list, max_length=16
     )
@@ -332,9 +332,9 @@ class GraphIntentNodeV3(BaseModel):
     kind: str = Field(min_length=1, max_length=80)
     title: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=2_000)
-    task_ids: list[str] = Field(min_length=1, max_length=8)
+    task_ids: list[str] = Field(default_factory=list, max_length=8)
     inputs: list[GraphIntentInputBindingV3] = Field(
-        default_factory=list, max_length=16
+        default_factory=list, max_length=50
     )
     outputs: list[GraphIntentOutputBindingV3] = Field(
         default_factory=list, max_length=16

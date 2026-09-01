@@ -278,6 +278,50 @@ async def test_xpert_candidate_endpoint_records_plan_blueprint_and_one_repair(
 
 
 @pytest.mark.asyncio
+async def test_xpert_candidate_legacy_gateway_requests_json_without_reasoning(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    legacy_gateway = FakeManagedGateway(FakeManagedRun([]), mode="legacy")
+    _install_gateway(monkeypatch, legacy_gateway)
+    monkeypatch.setattr(
+        main_module,
+        "get_llm_gateway_config",
+        lambda: ("http://mock", "key"),
+    )
+    outputs = _planner_outputs()
+    observed: list[dict[str, object]] = []
+
+    async def legacy_completion(*_args, **kwargs):
+        observed.append(dict(kwargs))
+        return outputs.pop(0)
+
+    monkeypatch.setattr(
+        main_module, "collect_chat_completion_text", legacy_completion
+    )
+
+    response = await client.post(
+        "/api/meta-agent/generate-xpert-candidate",
+        json={
+            "goal": "Generate a bounded Xpert candidate through the legacy route.",
+            "mode": "create",
+            "planner_model_id": MODEL_ID,
+            "default_agent_model_id": MODEL_ID,
+            "temperature": 0.2,
+            "max_agents": 3,
+            "scope": {},
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert len(observed) == 3
+    for call in observed:
+        assert call["response_format"] == {"type": "json_object"}
+        assert call["reasoning"] == {"effort": "none", "exclude": True}
+        assert call["allow_json_reasoning_fallback"] is True
+
+
+@pytest.mark.asyncio
 async def test_xpert_candidate_validation_failure_marks_managed_run_failed(
     client: httpx.AsyncClient,
     monkeypatch: pytest.MonkeyPatch,

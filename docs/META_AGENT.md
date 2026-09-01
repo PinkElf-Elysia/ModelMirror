@@ -1,6 +1,6 @@
 # 元智能体集成说明
 
-最后更新日期：2026-08-28
+最后更新日期：2026-08-31
 维护人：模镜团队
 
 ## 定位
@@ -9,7 +9,7 @@
 已经可以从实时 Registry 编译 `workflow_agent`、资源绑定、中间件和发布预检所需配置；
 旧生成器仍保留用于兼容经典工作流导入与既有 AgentTask/Handoff 操作。
 
-当前实现是 **Capability Snapshot V5 + Graph IR V3 单写、Typed IR V2 双读**。后续升级已经锁定为
+当前实现是 **Capability Snapshot V6 + Graph IR V3 单写、Typed IR V2 双读**。后续升级已经锁定为
 “V3 十轮 + V4 轮次待定”，唯一方向文档是
 [META_PLANNER_V3_V4_ROADMAP.md](./META_PLANNER_V3_V4_ROADMAP.md)。V3 先补齐
 Graph IR、无头编排、节点 Adapter、效果语义和评测，再逐类开放真实节点；V4 只有在
@@ -136,14 +136,15 @@ EvoAgentX 的来源与已交付历史见
 
 ### NodeContract V3 能力门禁
 
-Meta Planner 的节点事实统一来自 `NodeContractRegistry`。Capability Snapshot V5
+Meta Planner 的节点事实统一来自 `NodeContractRegistry`。Capability Snapshot V6
 只暴露满足以下全部条件的节点：契约状态完整、Planner 显式启用、编译模式真实存在、
 Adapter 版本一致，并且契约与 Adapter 的 compiler checksum 匹配。UI Registry 中出现
 节点不等于 Planner 可以生成该节点。
 
-当前开放范围仍严格保持为 `input`、`output`、`workflow_agent`、
-`external_xpert`、`knowledge_base`、`toolset_resource` 和 `plugin_resource`。
-NodeContract V3 与 Planner IR 独立演进。Capability Snapshot 当前为 V5，
+当前开放范围为 `input`、`output`、`workflow_agent`、四类资源绑定，以及
+`json_serialize`、`json_deserialize`、`variable_aggregator`、`data_aggregate`、
+`dataset_compare` 五种无副作用类型化纯节点。NodeContract V3 与 Planner IR 独立演进。
+Capability Snapshot 当前为 V6，
 `ir_version=3` 且声明 `supported_ir_versions=[2,3]`。旧 V2 Snapshot 保持可读，详见
 [NODE_CONTRACT_V3.md](./NODE_CONTRACT_V3.md)。
 
@@ -180,10 +181,20 @@ Apply。操作、接口、安全 receipt 和回退边界见
 类型化输入/输出变量、控制边、资源/中间件目标和唯一最终输出。任务和 Agent 不再
 强制一一对应：一个 Agent 可以覆盖多个任务，一个任务也可以由多个节点共同完成。
 
-Capability Snapshot V5 只暴露当前存在且与 NodeContract 校验一致的编译能力。首轮可执行 IR 节点只有
-`workflow_agent`；`input/output` 由编译器管理，外部 Xpert、知识库、Toolset 和
-Plugin 通过绑定记录编译。JSON、Agent Table、知识检索和视觉理解尚无 Planner
-适配器，因此不会进入授权快照，也不会被模型生成。
+Capability Snapshot V6 只暴露当前存在且与 NodeContract、Adapter checksum 校验一致的
+编译能力。`workflow_agent` 的 `task_binding=required`，每个计划任务仍必须由 Agent
+覆盖；五种纯节点的 `task_binding=forbidden`，只能作为 Agent 之间的确定性辅助步骤，
+不能承担任务或成为最终输出。`input/output` 由编译器管理，外部 Xpert、知识库、
+Toolset 和 Plugin 通过绑定记录编译。
+
+Meta Planner 只生成 JSON `contractVersion=2`：Deserialize 必须携带受限
+`expectedSchema`，输入、解析结果和输出均受 5 MiB 限制，非法 JSON 或类型不符立即
+失败。缺少版本的旧 JSON 节点继续保留历史 inline-error/null 行为，不被 Planner
+生成或自动升级。Variable Aggregator V2、Data Aggregate 和 Dataset Compare 复用
+现有 Runtime，并由 Adapter 从 Graph IR data 边派生原生变量绑定。
+
+`variable_assign`、`list_operation`、`object_transform`、`data_merge`、Agent Table、
+知识检索、视觉理解和控制流仍无本轮 Planner Adapter，不会进入授权快照。
 
 旧 `MetaPlannerBlueprint` 仅用于 Expert Team Agency 等兼容入口，进入编译器前会
 转换为 Typed IR。旧计划也必须只有一个终点。更新已有 Xpert 时，如目标工作流含

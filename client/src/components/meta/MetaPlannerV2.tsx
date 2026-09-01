@@ -41,6 +41,10 @@ interface CapabilityItem {
   published_version?: number | null;
   high_risk?: boolean;
   security_category?: string;
+  task_binding?: "required" | "optional" | "forbidden";
+  planner?: {
+    task_binding?: "required" | "optional" | "forbidden";
+  };
 }
 
 interface MetaPlannerScope extends Record<ScopeKey, string[]> {
@@ -1007,6 +1011,12 @@ export default function MetaPlannerV2() {
                                     {item.high_risk ? (
                                       <span className="rounded border border-amber-300/30 bg-amber-300/10 px-1 text-[9px] text-amber-100">
                                         高风险
+                                      </span>
+                                    ) : null}
+                                    {(item.task_binding ?? item.planner?.task_binding) ===
+                                    "forbidden" ? (
+                                      <span className="rounded border border-cyan-300/30 bg-cyan-300/10 px-1 text-[9px] text-cyan-100">
+                                        辅助节点
                                       </span>
                                     ) : null}
                                   </span>

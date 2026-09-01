@@ -23,7 +23,7 @@ from .control_data import (
     validate_dataset_compare_config,
     validate_terminate_error_config,
 )
-from .node_contracts import workflow_node_contract_registry
+from .node_contracts import WorkflowValueSchema, workflow_node_contract_registry
 from .content_parser import (
     WorkflowContentParserError,
     is_document_extractor_v3,
@@ -1834,6 +1834,20 @@ def validate_node_configuration(
                     ValidationIssue(
                         code="invalid_json_serialize_format",
                         message="json_serialize format must be compact or pretty.",
+                        node_id=node.id,
+                    )
+                )
+        elif r20_contract_version(data) == 2:
+            try:
+                WorkflowValueSchema.model_validate(data.get("expectedSchema"))
+            except ValueError as exc:
+                issues.append(
+                    ValidationIssue(
+                        code="invalid_json_deserialize_expected_schema",
+                        message=(
+                            "json_deserialize V2 requires a valid restricted "
+                            f"expectedSchema: {str(exc)[:200]}"
+                        ),
                         node_id=node.id,
                     )
                 )

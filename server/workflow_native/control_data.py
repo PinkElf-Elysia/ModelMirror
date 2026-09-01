@@ -35,6 +35,7 @@ LIST_OPERATORS = {
 }
 AGGREGATE_OPERATIONS = {"count", "sum", "avg", "min", "max"}
 MAX_COLLECTION_ITEMS = 10_000
+MAX_DATA_AGGREGATE_OUTPUT_BYTES = 5 * 1_024 * 1_024
 MAX_DATASET_COMPARE_OUTPUT_BYTES = 5 * 1_024 * 1_024
 VARIABLE_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 ROUTE_ID_PATTERN = re.compile(r"^route_[1-8]$")
@@ -704,6 +705,7 @@ def aggregate_rows(
     *,
     group_by_fields: object,
     measures: object,
+    max_output_bytes: int = MAX_DATA_AGGREGATE_OUTPUT_BYTES,
 ) -> list[dict[str, WorkflowValue]]:
     rows = normalize_workflow_value(value, path="$.aggregate_input")
     if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
@@ -771,6 +773,17 @@ def aggregate_rows(
             else:
                 result[output_field] = max(numeric_values) if numeric_values else None
         output.append(result)
+    encoded = json.dumps(
+        output,
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    if len(encoded) > max(1, int(max_output_bytes)):
+        _fail(
+            "AGGREGATE_OUTPUT_LIMIT_EXCEEDED",
+            "Data aggregate output exceeds the workflow persistence limit.",
+        )
     return output
 
 

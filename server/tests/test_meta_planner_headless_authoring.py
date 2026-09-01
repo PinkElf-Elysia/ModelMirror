@@ -338,10 +338,10 @@ def _headless_fixture(
     return service, authoring, proposal
 
 
-def test_capability_snapshot_exposes_patch_protocol_without_new_nodes():
+def test_capability_snapshot_exposes_patch_protocol_and_pure_node_pack():
     snapshot = _snapshot()
 
-    assert snapshot.version == "evoagentx-meta-planner-capabilities-v5"
+    assert snapshot.version == "evoagentx-meta-planner-capabilities-v6"
     assert snapshot.authoring_protocol_version == 1
     assert snapshot.authoring_limits["max_operations"] == 64
     assert snapshot.authoring_limits["max_receipts"] == 20
@@ -351,12 +351,17 @@ def test_capability_snapshot_exposes_patch_protocol_without_new_nodes():
         item["kind"] for item in snapshot.nodes
     }
     assert {item["kind"] for item in snapshot.nodes} == {
+        "data_aggregate",
+        "dataset_compare",
         "input",
+        "json_deserialize",
+        "json_serialize",
         "output",
         "workflow_agent",
         "external_xpert",
         "knowledge_base",
         "toolset_resource",
+        "variable_aggregator",
         "plugin_resource",
     }
 
@@ -900,6 +905,88 @@ def test_editor_diff_can_add_authorized_resources_with_server_owned_versions(
         assert compiled["data"]["pinnedVersion"] == 2
 
 
+def test_editor_diff_adds_pure_node_through_adapter_projection(tmp_path: Path):
+    service, authoring, proposal = _headless_fixture(tmp_path)
+    state = service.proposal_state(proposal.proposal_id)
+    definition = deepcopy(state["candidate"]["draft"]["workflow"])
+    agent = next(
+        node
+        for node in definition["nodes"]
+        if (node.get("data") or {}).get("kind") == "workflow_agent"
+    )
+    agent["data"]["rolePrompt"] = "Answer from {{encoded_request}}."
+    agent["data"]["taskInput"] = "{{encoded_request}}"
+    serializer_id = "editor-json-serialize"
+    definition["nodes"].append(
+        {
+            "id": serializer_id,
+            "type": "json_serialize",
+            "position": {"x": 260, "y": 180},
+            "data": {
+                "kind": "json_serialize",
+                "title": "Encode request",
+                "description": "Deterministic JSON encoding",
+                "contractVersion": 2,
+                "inputVariable": "user_input",
+                "outputVariable": "encoded_request",
+                "format": "compact",
+            },
+        }
+    )
+    definition["edges"] = [
+        edge
+        for edge in definition["edges"]
+        if not (edge["source"] == "input" and edge["target"] == agent["id"])
+    ]
+    definition["edges"].extend(
+        [
+            {
+                "id": "edge-input-serializer",
+                "source": "input",
+                "target": serializer_id,
+            },
+            {
+                "id": "edge-serializer-agent",
+                "source": serializer_id,
+                "target": agent["id"],
+            },
+        ]
+    )
+
+    diff = service.editor_diff(
+        proposal.proposal_id,
+        GraphPatchEditorDiffRequest(
+            proposal_revision=proposal.revision,
+            definition=definition,
+        ),
+    )
+    patch = GraphPatchEnvelopeV1.model_validate(diff["patch"])
+    add = next(operation for operation in patch.operations if operation.op == "add_node")
+    assert add.kind == "json_serialize"
+    assert add.task_ids == []
+
+    preview = service.preview(proposal.proposal_id, patch)
+    assert preview["can_apply"] is True
+    result = service.apply(
+        proposal.proposal_id,
+        GraphPatchApplyRequest(
+            patch=patch,
+            preview_checksum=preview["preview_checksum"],
+        ),
+    )
+
+    assert result["proposal_revision"] == 2
+    persisted = authoring.proposal_store.require(proposal.proposal_id)
+    pure_nodes = [
+        node
+        for node in persisted.payload["draft"]["workflow"]["nodes"]
+        if (node.get("data") or {}).get("kind") == "json_serialize"
+    ]
+    assert len(pure_nodes) == 1
+    assert pure_nodes[0]["data"]["contractVersion"] == 2
+    assert pure_nodes[0]["data"]["plannerTaskIds"] == []
+
+
 def test_editor_diff_can_remove_existing_fixed_resource_binding(tmp_path: Path):
     service, _, proposal = _headless_fixture(tmp_path, with_toolset=True)
     state = service.proposal_state(proposal.proposal_id)
@@ -1275,6 +1362,91 @@ def test_lossless_v2_candidate_upgrades_on_first_typed_apply(tmp_path: Path):
     )
     assert agent["data"]["plannerIRVersion"] == 3
     assert updated.payload["meta_planner_report"]["graph_ir_status"] == "current"
+
+
+def test_headless_preview_and_apply_persists_pure_node_atomically(tmp_path: Path):
+    service, authoring, proposal = _headless_fixture(tmp_path)
+    state = service.proposal_state(proposal.proposal_id)
+    patch = GraphPatchEnvelopeV1(
+        proposal_revision=proposal.revision,
+        expected_graph_checksum=state["graph_checksum"],
+        expected_candidate_checksum=state["candidate_checksum"],
+        operations=[
+            {
+                "op": "add_node",
+                "ref": "encode_request",
+                "kind": "json_serialize",
+                "title": "Encode request",
+                "task_ids": [],
+                "config": {"format": "compact"},
+                "output_variables": {"json": "encoded_request"},
+            },
+            {
+                "op": "connect_control",
+                "source_ref": "encode_request",
+                "target_ref": "answerer",
+            },
+            {
+                "op": "disconnect_data",
+                "source_ref": "input",
+                "source_port": "user_input",
+                "target_ref": "answerer",
+                "target_port": "task",
+            },
+            {
+                "op": "connect_data",
+                "source_ref": "input",
+                "source_port": "user_input",
+                "target_ref": "encode_request",
+                "target_port": "value",
+            },
+            {
+                "op": "connect_data",
+                "source_ref": "encode_request",
+                "source_port": "json",
+                "target_ref": "answerer",
+                "target_port": "task",
+            },
+            {
+                "op": "update_node",
+                "ref": "answerer",
+                "config": {
+                    "role_prompt": "Answer from {{encoded_request}}.",
+                    "task_input": "{{encoded_request}}",
+                    "model_id": "model/agent",
+                    "source_agent_id": None,
+                    "method_skill_ids": [],
+                },
+            },
+        ],
+    )
+
+    preview = service.preview(proposal.proposal_id, patch)
+    assert preview["can_apply"] is True
+    assert authoring.proposal_store.require(proposal.proposal_id).revision == 1
+
+    result = service.apply(
+        proposal.proposal_id,
+        GraphPatchApplyRequest(
+            patch=patch,
+            preview_checksum=preview["preview_checksum"],
+        ),
+    )
+
+    assert result["proposal_revision"] == 2
+    updated = authoring.proposal_store.require(proposal.proposal_id)
+    assert updated.revision == 2
+    workflow_nodes = updated.payload["draft"]["workflow"]["nodes"]
+    serializer = next(
+        node
+        for node in workflow_nodes
+        if (node.get("data") or {}).get("kind") == "json_serialize"
+    )
+    assert serializer["data"]["contractVersion"] == 2
+    assert serializer["data"]["plannerTaskIds"] == []
+    report = updated.payload["meta_planner_report"]
+    assert report["graph_ir_status"] == "current"
+    assert len(report["authoring_patch_receipts"]) == 1
 
 
 def test_apply_rejects_tampered_preview_checksum(tmp_path: Path):
