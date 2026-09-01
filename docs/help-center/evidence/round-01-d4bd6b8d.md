@@ -45,10 +45,10 @@
 
 在发送前停止。未选择文件、未输入消息、未发送请求、未产生模型费用。
 
-用户可见基线截图：
+用户可见基线截图（本轮后已清理，保留哈希供审计）：
 
-- `client/public/help-center/d4bd6b8d/model-market-image-understanding.png`
-- `client/public/help-center/d4bd6b8d/kimi-k3-add-image-menu.png`
+- `client/public/help-center/d4bd6b8d/model-market-image-understanding.png`（SHA256 `64C8A4E8579E5E172561D3106DE2DCCB0A9E954E226292457EE7D0692DBD44B8`）
+- `client/public/help-center/d4bd6b8d/kimi-k3-add-image-menu.png`（SHA256 `8A11B1B5824C8CBF856020C868FFCF3053CBE3F0D7A35BC3AF3ED6C6257E4DA0`）
 
 ### 全局内容事实复核
 

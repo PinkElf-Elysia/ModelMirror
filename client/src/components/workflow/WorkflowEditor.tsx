@@ -18,7 +18,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import { ShieldCheck, Upload, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { DEFAULT_WORKFLOW_AGENT_MODEL_ID } from "../../data/modelOptions";
 import { models } from "../../data/models";
 import {
@@ -6769,6 +6769,13 @@ function WorkflowCanvas({
   saveCompletionLabel = "智能体草稿已保存",
   authoringPolicy,
 }: WorkflowCanvasProps) {
+  const location = useLocation();
+  const routedSaveNotice =
+    typeof (
+      location.state as { workflowSaveNotice?: unknown } | null
+    )?.workflowSaveNotice === "string"
+      ? (location.state as { workflowSaveNotice: string }).workflowSaveNotice
+      : "";
   const localDraftCandidate = useMemo(() => {
     if (controlledDefinition || onSave || workflowId !== "draft") return null;
     const storedDefinition = readStoredWorkflow(workflowId);
@@ -6793,7 +6800,7 @@ function WorkflowCanvas({
   );
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
-  const [saveNotice, setSaveNotice] = useState("");
+  const [saveNotice, setSaveNotice] = useState(routedSaveNotice);
   const [errorNotice, setErrorNotice] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isConverting, setIsConverting] = useState(false);
@@ -6863,6 +6870,16 @@ function WorkflowCanvas({
   const hasEmailEntry = nodes.some((node) => node.data.kind === "email_event_entry");
   const { screenToFlowPosition, fitView } = useReactFlow();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!routedSaveNotice) return;
+    setSaveNotice(routedSaveNotice);
+    const timer = window.setTimeout(() => {
+      setSaveNotice("");
+      navigate(location.pathname, { replace: true, state: null });
+    }, 4000);
+    return () => window.clearTimeout(timer);
+  }, [location.pathname, navigate, routedSaveNotice]);
   const allowedAuthoringKinds = useMemo(
     () => authoringPolicy ? new Set(authoringPolicy.allowedNodeKinds) : undefined,
     [authoringPolicy],
@@ -7852,7 +7869,12 @@ function WorkflowCanvas({
     setFormPublication(project.form_publication ?? null);
     setRssSubscription(project.rss_subscription ?? null);
     setEmailSubscription(project.email_subscription ?? null);
-    navigate(`/workflow/${project.project_id}`, { replace: true });
+    navigate(`/workflow/${project.project_id}`, {
+      replace: true,
+      state: {
+        workflowSaveNotice: "服务端草稿已保存；本地副本已保留",
+      },
+    });
     return project.project_id;
   }
 
@@ -7862,6 +7884,7 @@ function WorkflowCanvas({
       updatedAt: new Date().toISOString(),
     });
     setIsSaving(true);
+    const isFirstServerSave = !onSave && workflowId === "draft";
     let savedProjectId: string | null = null;
     try {
       if (onSave) {
@@ -7879,7 +7902,9 @@ function WorkflowCanvas({
     } finally {
       setIsSaving(false);
     }
-    window.setTimeout(() => setSaveNotice(""), 1800);
+    if (!isFirstServerSave || !savedProjectId) {
+      window.setTimeout(() => setSaveNotice(""), 1800);
+    }
     return savedProjectId;
   }
 

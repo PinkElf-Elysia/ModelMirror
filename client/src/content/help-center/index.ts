@@ -1,5 +1,7 @@
+import buildFirstWorkflow from "./articles/build-first-workflow.md?raw";
 import checkAvailabilityCostData from "./articles/check-availability-cost-data.md?raw";
 import chooseModelAgentWorkflow from "./articles/choose-model-agent-workflow.md?raw";
+import createRepeatableAgent from "./articles/create-repeatable-agent.md?raw";
 import handleWorkflowNodeFailure from "./articles/handle-workflow-node-failure.md?raw";
 import modulesAndTerms from "./articles/modules-and-terms.md?raw";
 import promoteRunToSkill from "./articles/promote-run-to-skill.md?raw";
@@ -78,9 +80,13 @@ export type HelpSearchEntry = {
   keywords: string[];
   to: string;
   category: HelpCategory;
+  /** 仅用于全文检索的正文索引，不参与展示。 */
+  body?: string;
 };
 
 export const verifiedBaseline = { commit: "cc49136c", date: "2026-08-26" };
+export const helpCenterCloseoutBaseline = { commit: "b5e0e85e", date: "2026-08-29" };
+export const agentWorkflowTutorialBaseline = { commit: "b5e0e85e", date: "2026-08-30" };
 export const remoteMcpReviewBaseline = { commit: "821067a7", date: "2026-08-27" };
 export const ragDiversityBaseline = { commit: "f0150fb5", date: "2026-08-27" };
 export const rssReviewBaseline = { commit: "821067a7", date: "2026-08-27" };
@@ -106,27 +112,57 @@ export const helpArticles: HelpArticle[] = [
     contentType: "tutorial",
     audience: "第一次使用模镜、希望让 AI 理解图片的用户",
     estimatedMinutes: 4,
-    keywords: ["第一次使用", "图片", "图片识别", "模型", "聊天", "立即面试", "Kimi"],
-    relatedRoutes: ["/models", "/chat/moonshotai%2Fkimi-k3"],
-    verifiedCommit: verifiedBaseline.commit,
-    verifiedDate: verifiedBaseline.date,
+    keywords: ["第一次使用", "图片", "图片识别", "模型", "聊天", "立即面试", "Qwen", "Qwen3.8 Max"],
+    relatedRoutes: ["/models", "/chat/qwen%2Fqwen3.8-max"],
+    verifiedCommit: helpCenterCloseoutBaseline.commit,
+    verifiedDate: helpCenterCloseoutBaseline.date,
     content: startWithAModel,
     nextSlug: "check-availability-cost-data",
   },
   {
     slug: "choose-model-agent-workflow",
     title: "该用模型、Agent，还是 Workflow？",
-    summary: "按一次性任务、重复角色和固定多步骤流程，快速判断从哪里开始。",
+    summary: "判断是直接使用模型、保存为 Agent，还是用 Workflow 固定多个步骤。",
     category: "按目标找指南",
     contentType: "explanation",
     audience: "知道要完成什么，但不确定该进入哪个模块的用户",
     estimatedMinutes: 3,
     keywords: ["模型", "Agent", "智能体", "Workflow", "工作流", "选择"],
     relatedRoutes: ["/models", "/agents", "/workflow"],
-    verifiedCommit: verifiedBaseline.commit,
-    verifiedDate: verifiedBaseline.date,
+    verifiedCommit: helpCenterCloseoutBaseline.commit,
+    verifiedDate: helpCenterCloseoutBaseline.date,
     content: chooseModelAgentWorkflow,
-    nextSlug: "modules-and-terms",
+    nextSlug: "create-repeatable-agent",
+  },
+  {
+    slug: "create-repeatable-agent",
+    title: "创建一个可重复使用的 Agent 草稿",
+    summary: "创建 Agent，设置模型和角色提示词，保存草稿并完成发布预检。",
+    category: "按目标找指南",
+    contentType: "tutorial",
+    audience: "需要反复使用同一角色、回答要求或工具组合的用户",
+    estimatedMinutes: 6,
+    keywords: ["Agent", "智能体", "Agent Studio", "重复角色", "角色提示词", "草稿", "发布预检"],
+    relatedRoutes: ["/agents/studio", "/agents/studio/:xpertId"],
+    verifiedCommit: agentWorkflowTutorialBaseline.commit,
+    verifiedDate: agentWorkflowTutorialBaseline.date,
+    content: createRepeatableAgent,
+    nextSlug: "check-availability-cost-data",
+  },
+  {
+    slug: "build-first-workflow",
+    title: "搭建并保存第一个固定步骤工作流",
+    summary: "使用经典工作流的三节点模板，配置中间步骤并保存草稿。",
+    category: "按目标找指南",
+    contentType: "tutorial",
+    audience: "需要按固定顺序重复处理输入并交付结果的用户",
+    estimatedMinutes: 6,
+    keywords: ["Workflow", "工作流", "经典工作流", "固定步骤", "草稿", "角色提示词", "保存草稿"],
+    relatedRoutes: ["/workflow", "/workflow/:workflowId"],
+    verifiedCommit: agentWorkflowTutorialBaseline.commit,
+    verifiedDate: agentWorkflowTutorialBaseline.date,
+    content: buildFirstWorkflow,
+    nextSlug: "check-availability-cost-data",
   },
   {
     slug: "promote-run-to-skill",
@@ -204,16 +240,16 @@ export const helpArticles: HelpArticle[] = [
   },
   {
     slug: "modules-and-terms",
-    title: "先认识模镜：资源、工作台与运行状态",
-    summary: "了解模镜怎样组织 AI 能力、任务入口和运行状态，再决定从哪里开始。",
+    title: "先认识模镜：各入口怎样配合",
+    summary: "分清直接完成任务、保存角色、固定流程、连接资料和排查问题分别从哪里开始。",
     category: "按模块浏览",
     contentType: "reference",
     audience: "第一次浏览模镜，或不确定各入口如何配合的用户",
     estimatedMinutes: 5,
     keywords: ["模镜", "整体结构", "模块", "术语", "入口", "状态", "资源", "工作台", "运维"],
-    relatedRoutes: ["/models", "/agents", "/mcps", "/skills", "/runtime", "/prompts"],
-    verifiedCommit: verifiedBaseline.commit,
-    verifiedDate: verifiedBaseline.date,
+    relatedRoutes: ["/models", "/agents", "/workflow", "/rag", "/mcps", "/skills", "/runtime", "/settings"],
+    verifiedCommit: helpCenterCloseoutBaseline.commit,
+    verifiedDate: helpCenterCloseoutBaseline.date,
     content: modulesAndTerms,
     nextSlug: "recover-unavailable-feature",
   },
@@ -225,8 +261,8 @@ export const helpArticles: HelpArticle[] = [
     contentType: "how-to",
     audience: "遇到按钮不可用、能力未开放或需要配置提示的用户",
     estimatedMinutes: 4,
-    keywords: ["不可用", "未开放", "需要配置", "待适配", "开关未开启", "恢复", "RAG", "Skill", "重排", "STT", "TTS", "语音转写", "语音合成", "实际模型证据", "只读刷新模型证据"],
-    relatedRoutes: ["/models", "/rag", "/skills/rerank", "/settings", "/chat/:modelId?operation=transcribe", "/chat/:modelId?operation=synthesize_speech"],
+    keywords: ["不可用", "未开放", "需要配置", "待适配", "开关未开启", "恢复", "替代入口", "语音转写", "语音合成", "实际模型证据", "只读刷新模型证据"],
+    relatedRoutes: ["/models", "/settings", "/chat/:modelId?operation=transcribe", "/chat/:modelId?operation=synthesize_speech"],
     verifiedCommit: providerMultimodalR8cBaseline.commit,
     verifiedDate: providerMultimodalR8cBaseline.date,
     content: recoverUnavailableFeature,
@@ -255,7 +291,7 @@ export const helpArticles: HelpArticle[] = [
     contentType: "explanation",
     audience: "希望避免误操作、意外费用或不必要数据发送的用户",
     estimatedMinutes: 4,
-    keywords: ["费用", "价格", "数据", "文件", "上传", "发送", "安全", "权限", "Batch", "批处理", "幂等"],
+    keywords: ["费用", "价格", "数据", "文件", "上传", "发送", "安全", "权限", "外发"],
     relatedRoutes: ["/models", "/settings"],
     verifiedCommit: verifiedBaseline.commit,
     verifiedDate: verifiedBaseline.date,
@@ -370,7 +406,7 @@ export const helpModules: HelpModule[] = [
     homeTopicIds: ["rag", "coding"],
     topics: [
       { id: "workflow", title: "经典工作流", summary: "在稳定画布中编排并试运行多步骤任务。", outcome: "把固定顺序、条件分支和资源调用组织成可重复流程。", points: ["经典画布是当前稳定工作流入口", "草稿可本地保存并通过后端试运行", "需要把确定性文本交给知识管理员时，可使用“知识写入提议”进入 Knowledge Inbox"], productRoute: "/workflow", keywords: ["工作流", "经典画布", "流程", "分支", "知识写入提议", "Knowledge Inbox"] },
-      { id: "rag", title: "RAG 知识库", summary: "创建资料库、上传文档，并让回答引用指定资料。", outcome: "知道什么时候使用自己的资料库，而不是普通聊天。", points: ["RAG 可以理解为先从指定资料找内容，再让模型回答", "V3 检索会去除重复片段，并默认每份文档最多保留 2 条结果，避免单一文档占满结果列表", "正式评测只接受逐条审核、带 anchor 的锁定晋级集；候选选择集和阈值校准集不能替代最终验收", "无答案样例必须同时核对近邻语料和完整语料复核回执", "当前空白页从“新建知识库”开始", "上传前确认资料权限和数据边界"], productRoute: "/rag", keywords: ["RAG", "知识库", "资料", "引用", "Formal", "Gold", "anchor"], verifiedCommit: ragDiversityBaseline.commit, verifiedDate: ragDiversityBaseline.date },
+      { id: "rag", title: "RAG 知识库", summary: "创建资料库、上传文档，并让回答优先查找指定资料。", outcome: "知道什么时候使用自己的资料库，而不是普通聊天。", points: ["RAG 可以理解为先从指定资料中查找内容，再让模型回答", "第一次进入时，先选择“新建知识库”并填写名称", "上传前确认资料允许使用，且不包含密钥或未获授权的隐私信息", "文档上传后，等待页面显示处理完成，再把知识库用于回答", "需要核对答案时，查看页面是否给出引用；没有引用时不要猜测答案来自哪份资料"], productRoute: "/rag", keywords: ["RAG", "知识库", "资料", "文档", "引用", "上传"], verifiedCommit: ragDiversityBaseline.commit, verifiedDate: ragDiversityBaseline.date },
       { id: "data-tables", title: "本地数据表", summary: "为私有工作流维护有固定字段的业务记录。", outcome: "创建数据表、发布 Schema，并管理本地记录。", points: ["数据表用于类型化业务记录", "Schema 以不可变版本发布", "字段和记录操作属于数据表内部条目，本轮不展开"], productRoute: "/data-tables", keywords: ["数据表", "Schema", "业务记录", "数据库"] },
       { id: "coding", title: "Coding", summary: "在只读实验工作台中查看项目并询问代码问题。", outcome: "理解当前入口的只读边界和启用状态。", points: ["当前页面说明只能读取项目并回答问题", "不能修改文件或运行命令", "页面显示“代码助手暂时不可用”时，应等待管理员启用"], productRoute: "/coding", keywords: ["Coding", "代码", "只读实验", "暂时不可用"] },
       { id: "settings", title: "系统设置", summary: "由授权人员管理 Provider、路由实验和其他服务连接。", outcome: "知道哪些设置需要交给有配置权限的人处理。", points: ["未配置时页面会明确提示", "Provider 管理和其他集成分区显示", "设置变更可能影响其他用户或产生外部费用"], productRoute: "/settings", badge: "管理员", keywords: ["设置", "Provider", "连接", "权限", "路由实验"] },
@@ -409,8 +445,9 @@ export const helpSections: HelpSection[] = [
     path: "/help/sections/goals",
     items: [
       { id: "one-time", title: "只完成眼前这一次", summary: "问答、写作、看图或临时分析，先直接用模型。", to: "/help/modules/models", keywords: ["一次", "问答", "写作", "看图"] },
-      { id: "repeat-role", title: "以后反复使用同一角色", summary: "需要保留角色设定和工具时，查看 Agent。", to: "/help/modules/agents", keywords: ["重复", "角色", "Agent"] },
-      { id: "repeat-process", title: "按固定顺序完成多步任务", summary: "需要同一流程重复运行时，查看 Workflow 判断。", to: "/help/choose-model-agent-workflow", keywords: ["多步", "固定顺序", "Workflow"] },
+      { id: "repeat-role", title: "以后反复使用同一角色", summary: "创建 Agent 草稿，保存模型和角色要求，并完成发布预检。", to: "/help/create-repeatable-agent", keywords: ["重复", "角色", "Agent", "Agent Studio"] },
+      { id: "repeat-process", title: "按固定顺序完成多步任务", summary: "使用默认三节点模板，配置处理步骤并保存经典工作流草稿。", to: "/help/build-first-workflow", keywords: ["多步", "固定顺序", "Workflow", "经典工作流"] },
+      { id: "reuse-success", title: "把成功做法保存为 Skill", summary: "从已完成的运行中整理可复用经验，并交给 Skill Creator 继续检查。", to: "/help/promote-run-to-skill", keywords: ["成功运行", "复用", "Skill", "Creator"] },
       { id: "connect-tool", title: "让 AI 使用外部工具", summary: "需要访问外部服务时，先查看 MCP 目录与连接状态。", to: "/help/modules/mcps", keywords: ["外部工具", "MCP", "连接"] },
       { id: "use-own-docs", title: "根据自己的资料回答", summary: "需要从指定文档查找内容时，查看 RAG 知识库。", to: "/help/modules/workspace/rag", keywords: ["自己的资料", "文档", "RAG", "知识库"] },
       { id: "subscribe-feed", title: "订阅公告或博客更新", summary: "用 RSS 或 Atom 在新条目出现时启动工作流。", to: "/help/subscribe-rss-workflow", keywords: ["RSS", "Atom", "订阅", "公告", "博客"] },
@@ -424,7 +461,10 @@ export const helpSections: HelpSection[] = [
     title: "按模块浏览",
     summary: "先看模块负责什么，再进入具体功能。",
     path: "/help/sections/modules",
-    items: helpModules.map((module) => ({ id: module.id, title: module.title, summary: module.summary, to: `/help/modules/${module.id}`, keywords: module.keywords })),
+    items: [
+      { id: "overview", title: "整体结构与常用词", summary: "先看各入口怎样配合，再选择具体模块。", to: "/help/modules-and-terms", keywords: ["整体结构", "模块", "术语", "入口"] },
+      ...helpModules.map((module) => ({ id: module.id, title: module.title, summary: module.summary, to: `/help/modules/${module.id}`, keywords: module.keywords })),
+    ],
   },
   {
     id: "troubleshooting",
@@ -444,9 +484,10 @@ export const helpSections: HelpSection[] = [
     summary: "发送、上传或配置前，确认权限、费用和资料范围。",
     path: "/help/sections/safety",
     items: [
-      { id: "availability", title: "使用前确认是否可用", summary: "区分目录存在、入口可进入和真实调用已验证。", to: "/help/check-availability-cost-data#可用性怎么看", keywords: ["可用", "状态", "入口"] },
+      { id: "before-send", title: "发送前做一次完整检查", summary: "依次确认可用性、费用授权和资料是否允许发送。", to: "/help/check-availability-cost-data", keywords: ["发送前", "可用", "费用", "数据"] },
       { id: "cost", title: "查看价格与收费环节", summary: "看懂输入、输出、动态和按媒体计费。", to: "/help/check-availability-cost-data#费用怎么看", keywords: ["价格", "收费", "费用"] },
       { id: "data", title: "了解文件与数据处理", summary: "只发送完成任务所需、并且允许外发的内容。", to: "/help/check-availability-cost-data#文件与数据怎么看", keywords: ["文件", "数据", "上传", "隐私"] },
+      { id: "remote-mcp", title: "安全连接需要认证的远程 MCP", summary: "供有权限的运维者核对来源、权限范围、激活和撤销。", to: "/help/review-remote-mcp-auth", keywords: ["MCP", "远程", "认证", "权限", "撤销"] },
     ],
   },
 ];
@@ -458,19 +499,159 @@ export function findHelpSection(id: string | undefined) { return helpSections.fi
 export function findHelpModule(id: string | undefined) { return helpModules.find((module) => module.id === id); }
 export function findHelpModuleTopic(moduleId: string | undefined, topicId: string | undefined) { return findHelpModule(moduleId)?.topics.find((topic) => topic.id === topicId); }
 
+/**
+ * 受控任务词表：只扩展用户意图明确、不会改变任务类型的说法。
+ * 不使用“工具”“发布”“配置”等宽泛词，避免把不同模块和生命周期混为一谈。
+ */
+const HELP_SYNONYMS: Record<string, string[]> = {
+  看图: ["图片识别", "图片理解", "视觉"],
+  看图片: ["图片识别", "图片理解", "视觉"],
+  生成图片: ["图片生成", "文生图"],
+  问答: ["聊天", "对话", "提问"],
+  聊天: ["对话", "问答", "提问"],
+  收费: ["费用", "价格", "计费"],
+  花钱: ["费用", "价格", "收费", "计费"],
+  多少钱: ["费用", "价格", "收费", "计费"],
+  多步: ["工作流", "流程", "流水线"],
+  流程: ["工作流", "流水线"],
+  智能体: ["agent"],
+  资料: ["RAG", "知识库", "文档"],
+  知识库: ["RAG", "资料", "文档"],
+  运维: ["Runtime", "运行", "诊断"],
+  运行记录: ["Runtime", "运维"],
+  技能: ["Skill"],
+  订阅: ["RSS", "Atom", "订阅源"],
+  定时任务: ["自动化", "Cron"],
+  打不开: ["不可用", "未开放", "连接"],
+  不能用: ["不可用", "未开放", "待适配"],
+  没反应: ["不可用", "加载", "按钮"],
+  审批: ["Inbox", "知识", "提案"],
+  发布预检: ["发布前检查", "发布前核对"],
+  上传文件会不会外发: ["文件", "上传", "数据影响", "外发"],
+  工作流保存后怎么运行: ["经典工作流", "保存草稿", "运行工作流"],
+  外部工具怎么连接: ["MCP", "已连接注册表", "连接状态"],
+  工具集在哪里: ["Toolset", "工具集"],
+  模型服务连接在哪里: ["系统设置", "Provider", "模型服务连接"],
+  "agent 草稿": ["保存智能体草稿", "发布预检", "角色提示词"],
+  工作流节点失败: ["错误分支", "已处理失败", "运行记录"],
+  试用: ["立即面试", "聊天", "开始对话"],
+};
+
+/** 已验证的自然语言任务直接指向唯一首选结果，避免宽泛词把目录页排在操作指南之前。 */
+const HELP_TASK_TARGETS: Record<string, string> = {
+  发布前检查: "create-repeatable-agent",
+  上传文件会不会外发: "check-availability-cost-data",
+  工作流保存后怎么运行: "build-first-workflow",
+  看图片: "start-with-a-model",
+  生成图片: "models/image-generation",
+  外部工具怎么连接: "mcps/connected-registry",
+  工具集在哪里: "mcps/toolsets",
+  模型服务连接在哪里: "workspace/settings",
+  "agent 草稿": "create-repeatable-agent",
+  工作流节点失败: "handle-workflow-node-failure",
+  功能不可用: "recover-unavailable-feature",
+};
+
+/** 把查询词展开成"原文 + 近义词"，用于提升召回。 */
+function expandQuery(normalized: string): string[] {
+  const terms = new Set<string>([normalized]);
+  for (const [key, aliases] of Object.entries(HELP_SYNONYMS)) {
+    const normalizedKey = key.toLocaleLowerCase();
+    const normalizedAliases = aliases.map((alias) => alias.toLocaleLowerCase());
+    if (normalized.includes(normalizedKey)) {
+      normalizedAliases.forEach((alias) => terms.add(alias));
+    }
+    if (normalizedAliases.some((alias) => normalized.includes(alias))) {
+      terms.add(normalizedKey);
+    }
+  }
+  return [...terms];
+}
+
+/** 加权匹配：title > keywords > summary > body。分数来自实际命中，未命中为 0。 */
+function scoreEntry(entry: HelpSearchEntry, normalized: string, expanded: string[]): number {
+  const titleLower = entry.title.toLocaleLowerCase();
+  const summaryLower = entry.summary.toLocaleLowerCase();
+  const keywordsLower = entry.keywords.join(" ").toLocaleLowerCase();
+  const bodyLower = (entry.body ?? "").toLocaleLowerCase();
+  let score = 0;
+  // 每个字段只计一次，避免同组近义词重复加分压过更直接的任务指南。
+  if (expanded.some((term) => titleLower.includes(term))) score += 4;
+  if (expanded.some((term) => keywordsLower.includes(term))) score += 3;
+  if (expanded.some((term) => summaryLower.includes(term))) score += 2;
+  // 正文只匹配用户实际输入；近义词只扩展标题、摘要和关键词，避免结果被泛化词铺满。
+  if (bodyLower.includes(normalized)) score += 1;
+  return score;
+}
+
+/** 内容类型优先权重：文章 > 模块主题 > 一级索引 > 模块。仅用于同分排序，不参与命中判定。 */
+const KIND_ORDER: Record<HelpSearchEntry["kind"], number> = { article: 4, topic: 3, section: 2, module: 1 };
+
 export function getHelpSearchEntries(): HelpSearchEntry[] {
-  const articleEntries: HelpSearchEntry[] = helpArticles.map((article) => ({ id: article.slug, kind: "article", title: article.title, summary: article.summary, keywords: article.keywords, to: `/help/${article.slug}`, category: article.category }));
-  const sectionEntries: HelpSearchEntry[] = helpSections.map((section) => ({ id: section.id, kind: "section", title: section.title, summary: section.summary, keywords: section.items.flatMap((item) => item.keywords), to: section.path, category: section.title }));
+  const articleEntries: HelpSearchEntry[] = helpArticles.map((article) => ({
+    id: article.slug,
+    kind: "article",
+    title: article.title,
+    summary: article.summary,
+    keywords: article.keywords,
+    to: `/help/${article.slug}`,
+    category: article.category,
+    body: article.content,
+  }));
+  const sectionEntries: HelpSearchEntry[] = helpSections.map((section) => ({
+    id: section.id,
+    kind: "section",
+    title: section.title,
+    summary: section.summary,
+    keywords: section.items.flatMap((item) => item.keywords),
+    to: section.path,
+    category: section.title,
+  }));
   const moduleEntries: HelpSearchEntry[] = helpModules.flatMap((module) => [
     { id: module.id, kind: "module" as const, title: module.title, summary: module.summary, keywords: module.keywords, to: `/help/modules/${module.id}`, category: "按模块浏览" as const },
-    ...module.topics.map((topic) => ({ id: `${module.id}/${topic.id}`, kind: "topic" as const, title: `${module.title}：${topic.title}`, summary: topic.summary, keywords: topic.keywords, to: `/help/modules/${module.id}/${topic.id}`, category: "按模块浏览" as const })),
+    ...module.topics.map((topic) => ({
+      id: `${module.id}/${topic.id}`,
+      kind: "topic" as const,
+      title: `${module.title}：${topic.title}`,
+      summary: topic.summary,
+      keywords: topic.keywords,
+      to: `/help/modules/${module.id}/${topic.id}`,
+      category: "按模块浏览" as const,
+      body: topic.points?.join(" "),
+    })),
   ]);
   return [...articleEntries, ...sectionEntries, ...moduleEntries];
+}
+
+/** 空态时的推荐词：基于近义词映射给出可尝试的搜索词。 */
+export function getHelpSearchSuggestions(query: string): string[] {
+  const expanded = expandQuery(query.trim().toLocaleLowerCase());
+  const candidates = new Set<string>();
+  for (const term of expanded) {
+    if (term === query.trim().toLocaleLowerCase()) continue;
+    // 优先给短、便于继续搜索的候选
+    if (term.length <= 6) candidates.add(term);
+  }
+  // 兜底：返回固定示例任务词
+  const fallback = ["图片", "费用", "不可用", "Agent", "工作流"];
+  fallback.forEach((word) => candidates.add(word));
+  return [...candidates].slice(0, 5);
 }
 
 export function searchHelpContent(query: string) {
   const normalized = query.trim().toLocaleLowerCase();
   const entries = getHelpSearchEntries();
   if (!normalized) return entries;
-  return entries.filter((entry) => [entry.title, entry.summary, ...entry.keywords].join(" ").toLocaleLowerCase().includes(normalized));
+  const expanded = expandQuery(normalized);
+  const preferredTarget = Object.entries(HELP_TASK_TARGETS).find(([task]) => normalized.includes(task))?.[1];
+  return entries
+    .map((entry) => ({
+      entry,
+      score: scoreEntry(entry, normalized, expanded)
+        + (entry.id === preferredTarget ? 100 : 0)
+        - (preferredTarget && entry.kind === "section" ? 50 : 0),
+    }))
+    .filter(({ score }) => score > 0)
+    .sort((a, b) => b.score - a.score || KIND_ORDER[b.entry.kind] - KIND_ORDER[a.entry.kind])
+    .map(({ entry }) => entry);
 }

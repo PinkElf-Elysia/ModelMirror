@@ -39,6 +39,8 @@ jobs:
         run: npm run test:run
       - name: Build frontend
         run: npm run build
+      - name: Verify help-center image assets
+        run: npm run verify:help-images
 
   backend:
     name: Backend quality

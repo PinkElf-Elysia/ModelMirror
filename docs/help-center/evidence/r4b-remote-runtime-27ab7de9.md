@@ -37,7 +37,7 @@
 - “激活 Runtime”按钮不可用。
 - 已发布契约仍可导出审计；页面没有 Token、授权码、client ID、用户信息或本机密钥。
 
-截图：`client/public/help-center/27ab7de9/catalog-tako-runtime-revoked.png`
+截图：`client/public/help-center/27ab7de9/catalog-tako-runtime-revoked.png`（资产已清理，保留哈希供审计）
 
 SHA256：`EFF0714D638696103F7F249325B7327A3E07E61927E0A8A081E8338AA0E9429E`
 

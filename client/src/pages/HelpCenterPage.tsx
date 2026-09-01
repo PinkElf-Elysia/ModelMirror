@@ -28,6 +28,7 @@ import PageContainer from "../components/PageContainer";
 import {
   findHelpArticle,
   findHelpSection,
+  getHelpSearchSuggestions,
   helpContentTypeLabels,
   helpModules,
   searchHelpContent,
@@ -49,7 +50,7 @@ const carouselSlides = [
     eyebrow: "推荐顺序 1 / 3",
     title: "找到能看图片的模型",
     summary: "筛选支持图片输入和图片识别的模型，进入聊天后找到图片选择入口。",
-    meta: "约 4 分钟 · 不发送 · 不计费",
+    meta: "约 4 分钟 · 不上传 · 不发送",
     to: "/help/start-with-a-model",
     action: "开始入门教程",
     icon: ImageIcon,
@@ -57,7 +58,7 @@ const carouselSlides = [
   {
     eyebrow: "推荐顺序 2 / 3",
     title: "模型、Agent 还是 Workflow？",
-    summary: "按一次任务、重复角色和固定多步骤，选对开始位置。",
+    summary: "按任务是否只做一次、是否重复角色或步骤，选对入口。",
     meta: "约 3 分钟 · 先判断再操作",
     to: "/help/choose-model-agent-workflow",
     action: "比较三种入口",
@@ -102,18 +103,29 @@ export default function HelpCenterPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const query = searchParams.get("q") ?? "";
   const results = useMemo(() => searchHelpContent(query).slice(0, 16), [query]);
+  const suggestions = useMemo(() => (results.length ? [] : getHelpSearchSuggestions(query)), [results.length, query]);
   const [activeSlide, setActiveSlide] = useState(0);
   const [paused, setPaused] = useState(false);
   const [interacting, setInteracting] = useState(false);
   const [cycleKey, setCycleKey] = useState(0);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
 
   useEffect(() => { document.title = "帮助中心 · ModelMirror"; }, []);
 
   useEffect(() => {
-    if (paused || interacting) return;
+    if (!window.matchMedia) return;
+    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const syncPreference = () => setPrefersReducedMotion(mediaQuery.matches);
+    syncPreference();
+    mediaQuery.addEventListener?.("change", syncPreference);
+    return () => mediaQuery.removeEventListener?.("change", syncPreference);
+  }, []);
+
+  useEffect(() => {
+    if (paused || interacting || prefersReducedMotion) return;
     const timer = window.setInterval(() => setActiveSlide((current) => (current + 1) % carouselSlides.length), 3000);
     return () => window.clearInterval(timer);
-  }, [paused, interacting, cycleKey]);
+  }, [paused, interacting, prefersReducedMotion, cycleKey]);
 
   const updateQuery = (value: string) => {
     const next = new URLSearchParams(searchParams);
@@ -139,7 +151,7 @@ export default function HelpCenterPage() {
           <div className="max-w-4xl">
             <p className="text-sm font-semibold tracking-wide text-cyan-200">帮助中心</p>
             <h1 className="mt-3 text-4xl font-bold tracking-tight text-white sm:text-5xl">你想完成什么？</h1>
-            <p className="mt-3 max-w-3xl text-base leading-7 text-slate-300">模镜把模型、Agent、工具、Skill 和工作台放在同一处。搜索你要做的事，或从下方入口开始。</p>
+            <p className="mt-3 max-w-3xl text-base leading-7 text-slate-300">在这里查找操作步骤、功能说明和故障处理。不确定从哪里开始时，可以先按要完成的任务选择指南。</p>
             <form className="relative mt-6" role="search" onSubmit={(event) => event.preventDefault()}>
               <label className="sr-only" htmlFor="help-search">搜索帮助</label>
               <Search aria-hidden="true" className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-500" />
@@ -153,15 +165,15 @@ export default function HelpCenterPage() {
                 value={query}
               />
               {query ? (
-                <button aria-label="清除帮助搜索" className="absolute right-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-lg text-slate-400 hover:bg-white/[0.07] hover:text-white" onClick={() => updateQuery("")} type="button">
+                <button aria-label="清除帮助搜索" className="absolute right-1.5 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-lg text-slate-400 hover:bg-white/[0.07] hover:text-white" onClick={() => updateQuery("")} type="button">
                   <X aria-hidden="true" className="h-4 w-4" />
                 </button>
               ) : null}
             </form>
             <p className="mt-4 max-w-3xl text-sm leading-6 text-slate-400">
-              模镜先帮你找到能力，再在聊天或工作台中完成任务，最后用 Runtime 查看运行和连接状态。
+              第一次使用时，先了解各入口怎样配合，再选择当前任务需要的部分。
               <Link className="ml-2 inline-flex items-center gap-1 font-semibold text-cyan-200 hover:text-cyan-100" to="/help/modules-and-terms">
-                先认识模镜的整体结构
+                了解模镜的整体结构
                 <ArrowRight aria-hidden="true" className="h-3.5 w-3.5" />
               </Link>
             </p>
@@ -195,7 +207,14 @@ export default function HelpCenterPage() {
             ) : (
               <div className="mt-5 rounded-xl border border-white/10 bg-[#071a2b]/76 p-6">
                 <h3 className="text-lg font-semibold text-white">没有找到相关帮助</h3>
-                <p className="mt-2 text-sm leading-6 text-slate-400">换用任务词，例如“图片”“费用”或“不可用”，也可以清除搜索浏览全部入口。</p>
+                <p className="mt-2 text-sm leading-6 text-slate-400">试试更短、更具体的说法，例如“看图”或“费用”；也可以清除搜索，浏览全部帮助。</p>
+                {suggestions.length ? (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {suggestions.map((word) => (
+                      <button className="rounded-full border border-cyan-300/25 bg-cyan-300/[0.07] px-3 py-1.5 text-sm text-cyan-100 hover:bg-cyan-300/15" key={word} onClick={() => updateQuery(word)} type="button">{word}</button>
+                    ))}
+                  </div>
+                ) : null}
                 <button className="mt-4 inline-flex min-h-11 items-center rounded-lg border border-cyan-300/30 bg-cyan-300/10 px-4 text-sm font-semibold text-cyan-100" onClick={() => updateQuery("")} type="button">清除搜索并浏览全部</button>
               </div>
             )}
@@ -214,10 +233,10 @@ export default function HelpCenterPage() {
               >
                 <div className="flex items-center justify-between gap-4">
                   <h2><Link className="text-xl font-bold text-white hover:text-cyan-100" to={gettingStarted.path}>第一次使用</Link></h2>
-                  <span className="text-xs text-slate-500">自动切换</span>
+                  <span className="text-xs text-slate-500">{prefersReducedMotion ? "手动切换" : "自动切换"}</span>
                 </div>
                 <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.65fr)_minmax(170px,0.65fr)_minmax(170px,0.65fr)]">
-                  <article aria-live="polite" className="min-h-[250px] rounded-xl border border-cyan-300/35 bg-cyan-300/[0.055] p-5 sm:p-6">
+                  <article className="min-h-[250px] rounded-xl border border-cyan-300/35 bg-cyan-300/[0.055] p-5 sm:p-6">
                     <div className="flex h-full flex-col sm:flex-row sm:items-center sm:gap-4">
                       <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl border border-cyan-300/25 bg-cyan-300/[0.08] text-cyan-200 sm:h-24 sm:w-24">
                         <ActiveIcon aria-hidden="true" className="h-10 w-10 sm:h-12 sm:w-12" />
@@ -245,11 +264,11 @@ export default function HelpCenterPage() {
                   })}
                 </div>
                 <div className="mt-4 flex items-center justify-center gap-4">
-                  <button aria-label="上一个入门主题" className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 text-slate-300 hover:border-cyan-300/30 hover:text-cyan-100" onClick={() => selectSlide(activeSlide - 1)} type="button"><ArrowLeft aria-hidden="true" className="h-4 w-4" /></button>
+                  <button aria-label="上一个入门主题" className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 text-slate-300 hover:border-cyan-300/30 hover:text-cyan-100" onClick={() => selectSlide(activeSlide - 1)} type="button"><ArrowLeft aria-hidden="true" className="h-4 w-4" /></button>
                   <span className="min-w-10 text-center text-sm text-slate-300">{activeSlide + 1} / {carouselSlides.length}</span>
                   <div className="hidden gap-2 sm:flex" aria-hidden="true">{carouselSlides.map((slide, index) => <span className={`h-1.5 w-10 rounded-full ${index === activeSlide ? "bg-cyan-300" : "bg-white/10"}`} key={slide.title} />)}</div>
-                  <button aria-label="下一个入门主题" className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 text-slate-300 hover:border-cyan-300/30 hover:text-cyan-100" onClick={() => selectSlide(activeSlide + 1)} type="button"><ArrowRight aria-hidden="true" className="h-4 w-4" /></button>
-                  <button aria-label={paused ? "继续自动切换" : "暂停自动切换"} className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 text-slate-300 hover:border-cyan-300/30 hover:text-cyan-100" onClick={() => setPaused((value) => !value)} type="button">{paused ? <Play aria-hidden="true" className="h-4 w-4" /> : <Pause aria-hidden="true" className="h-4 w-4" />}</button>
+                  <button aria-label="下一个入门主题" className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 text-slate-300 hover:border-cyan-300/30 hover:text-cyan-100" onClick={() => selectSlide(activeSlide + 1)} type="button"><ArrowRight aria-hidden="true" className="h-4 w-4" /></button>
+                  <button aria-label={prefersReducedMotion ? "已按系统设置关闭自动切换" : paused ? "继续自动切换" : "暂停自动切换"} className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 text-slate-300 hover:border-cyan-300/30 hover:text-cyan-100 disabled:cursor-not-allowed disabled:text-slate-600" disabled={prefersReducedMotion} onClick={() => setPaused((value) => !value)} type="button">{paused || prefersReducedMotion ? <Play aria-hidden="true" className="h-4 w-4" /> : <Pause aria-hidden="true" className="h-4 w-4" />}</button>
                 </div>
               </section>
 
@@ -276,7 +295,7 @@ export default function HelpCenterPage() {
 
             <section aria-labelledby="help-modules-heading">
               <div className="flex items-end justify-between gap-4">
-                <div><h2 id="help-modules-heading"><Link className="text-2xl font-bold text-white hover:text-cyan-100" to="/help/sections/modules">按模块浏览</Link></h2><p className="mt-1 text-sm leading-6 text-slate-400">首页只展示常用二级入口；点击模块进入完整分级目录。</p></div>
+                <div><h2 id="help-modules-heading"><Link className="text-2xl font-bold text-white hover:text-cyan-100" to="/help/sections/modules">按模块浏览</Link></h2><p className="mt-1 text-sm leading-6 text-slate-400">选择一个模块，查看它包含的功能和使用说明。</p></div>
               </div>
               <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
                 {helpModules.map((module) => {

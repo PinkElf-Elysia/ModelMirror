@@ -1,16 +1,29 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ResourceNav from "../components/ResourceNav";
 import {
   helpArticles,
+  helpCenterCloseoutBaseline,
   helpModules,
   helpSections,
   remoteMcpReviewBaseline,
 } from "../content/help-center";
 import HelpArticlePage from "./HelpArticlePage";
 import HelpCenterPage from "./HelpCenterPage";
+
+const scrollToMock = vi.fn();
+
+beforeEach(() => {
+  scrollToMock.mockReset();
+  vi.spyOn(window, "scrollTo").mockImplementation(scrollToMock);
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 function LocationProbe() {
   const location = useLocation();
@@ -71,16 +84,18 @@ describe("HelpCenterPage", () => {
     ["只完成眼前这一次", "以后反复使用同一角色", "按固定顺序完成多步任务"].forEach((label) => expect(screen.getByRole("link", { name: new RegExp(label) })).toBeInTheDocument());
     expect(screen.queryByRole("link", { name: /让 AI 使用外部工具/ })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "查看全部目标" })).toHaveAttribute("href", "/help/sections/goals");
-    expect(screen.getByRole("link", { name: /先认识模镜的整体结构/ })).toHaveAttribute("href", "/help/modules-and-terms");
+    expect(screen.getByRole("link", { name: /了解模镜的整体结构/ })).toHaveAttribute("href", "/help/modules-and-terms");
+    expect(screen.getByRole("link", { name: /以后反复使用同一角色/ })).toHaveAttribute("href", "/help/create-repeatable-agent");
+    expect(screen.getByRole("link", { name: /按固定顺序完成多步任务/ })).toHaveAttribute("href", "/help/build-first-workflow");
   });
 
   it("searches articles and second-level topics while writing q to the URL", async () => {
     const user = userEvent.setup();
     renderHelp();
     const search = screen.getByRole("searchbox", { name: "搜索帮助" });
-    await user.type(search, "Kimi");
+    await user.type(search, "Qwen3.8 Max");
     expect(screen.getByRole("link", { name: /第一次使用：找到能看图片的模型/ })).toBeInTheDocument();
-    expect(screen.getByLabelText("current location")).toHaveTextContent("/help?q=Kimi");
+    expect(screen.getByLabelText("current location")).toHaveTextContent("/help?q=Qwen3.8+Max");
     await user.clear(search);
     await user.type(search, "RAG");
     expect(screen.getByRole("link", { name: /工作台与设置：RAG 知识库/ })).toBeInTheDocument();
@@ -94,6 +109,19 @@ describe("HelpCenterPage", () => {
     expect(screen.getByRole("heading", { name: "第一次使用" })).toBeInTheDocument();
     expect(screen.getByLabelText("current location")).toHaveTextContent("/help");
   });
+
+  it("disables automatic carousel changes when reduced motion is requested", () => {
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
+      matches: true,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+    renderHelp();
+    expect(screen.getByText("手动切换")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "已按系统设置关闭自动切换" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "上一个入门主题" })).toHaveClass("h-11", "w-11");
+    expect(screen.getByRole("button", { name: "下一个入门主题" })).toHaveClass("h-11", "w-11");
+  });
 });
 
 describe("unified help reading shell", () => {
@@ -105,9 +133,12 @@ describe("unified help reading shell", () => {
     expect(screen.getAllByRole("link", { name: "安全、费用与数据" }).length).toBeGreaterThan(0);
   });
 
-  it("renders the evidence baseline owned by the current article", () => {
+  it("keeps the evidence commit in collapsed maintenance details", () => {
     renderHelp("/help/review-remote-mcp-auth");
-    expect(screen.getByText(remoteMcpReviewBaseline.commit)).toBeInTheDocument();
+    expect(screen.getByText("界面核对")).toBeInTheDocument();
+    const details = screen.getByText("维护信息").closest("details");
+    expect(details).not.toHaveAttribute("open");
+    expect(within(details as HTMLElement).getByText(remoteMcpReviewBaseline.commit)).toBeInTheDocument();
   });
 
   it("renders a first-level index and module topic in the same shell", () => {
@@ -133,7 +164,21 @@ describe("unified help reading shell", () => {
   it("expands the full goal index beyond the three homepage choices", () => {
     renderHelp("/help/sections/goals");
     expect(screen.getByRole("heading", { name: "按目标找指南", level: 1 })).toBeInTheDocument();
-    ["让 AI 使用外部工具", "根据自己的资料回答", "查找运行或连接问题"].forEach((label) => expect(screen.getByRole("link", { name: new RegExp(label) })).toBeInTheDocument());
+    ["把成功做法保存为 Skill", "让 AI 使用外部工具", "根据自己的资料回答", "查找运行或连接问题"].forEach((label) => expect(screen.getAllByRole("link", { name: new RegExp(label) }).length).toBeGreaterThan(0));
+  });
+
+  it("expands the active article section in the unified directory", () => {
+    renderHelp("/help/build-first-workflow");
+    screen.getAllByRole("navigation", { name: "帮助目录" }).forEach((directory) => {
+      expect(within(directory).getByRole("link", { name: "按固定顺序完成多步任务" })).toHaveAttribute("aria-current", "page");
+      expect(within(directory).getByRole("link", { name: "把成功做法保存为 Skill" })).toBeInTheDocument();
+    });
+  });
+
+  it("uses safety as a complete index instead of one article's anchor list", () => {
+    renderHelp("/help/sections/safety");
+    expect(screen.getByRole("link", { name: "打开发送前做一次完整检查" })).toHaveAttribute("href", "/help/check-availability-cost-data");
+    expect(screen.getByRole("link", { name: "打开安全连接需要认证的远程 MCP" })).toHaveAttribute("href", "/help/review-remote-mcp-auth");
   });
 
   it("keeps Expert Team as an Agent second-level index", () => {
@@ -155,6 +200,9 @@ describe("unified help reading shell", () => {
     renderHelp("/help/start-with-a-model");
     const article = document.querySelector("article.help-article")!;
     within(article as HTMLElement).getAllByRole("img").forEach((image) => expect(image).toHaveAccessibleName());
+    expect(article.querySelectorAll("figure")).toHaveLength(2);
+    expect(article.querySelectorAll("p figure")).toHaveLength(0);
+    expect(article.querySelectorAll("figure figcaption")).toHaveLength(2);
   });
 
   it("keeps an unknown path inside the help center", () => {
@@ -162,16 +210,43 @@ describe("unified help reading shell", () => {
     expect(screen.getByRole("heading", { name: "这篇帮助不存在", level: 1 })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "打开帮助首页" })).toHaveAttribute("href", "/help");
   });
+
+  it("does not repeat a generic staleness disclaimer on every article", () => {
+    renderHelp("/help/start-with-a-model");
+    expect(screen.getByText(helpCenterCloseoutBaseline.date)).toBeInTheDocument();
+    expect(screen.queryByText(/产品更新后部分按钮名称、入口或价格可能变化/)).not.toBeInTheDocument();
+  });
+
+  it("does not expose the removed article feedback control", () => {
+    renderHelp("/help/start-with-a-model");
+    expect(screen.queryByText("这篇对你有帮助吗？")).not.toBeInTheDocument();
+  });
+
+  it("returns to the top when a reader opens the next help article", async () => {
+    const user = userEvent.setup();
+    renderHelp("/help/create-repeatable-agent");
+    scrollToMock.mockClear();
+
+    await user.click(screen.getAllByRole("link", { name: /操作前检查可用性、费用与数据影响/ }).at(-1)!);
+
+    expect(screen.getByRole("heading", { name: "操作前检查可用性、费用与数据影响", level: 1 })).toBeInTheDocument();
+    expect(scrollToMock).toHaveBeenCalledWith({ left: 0, top: 0 });
+  });
+
 });
 
 describe("ResourceNav help entry", () => {
-  it("keeps six resource links in each nav and exposes help separately", () => {
-    render(<MemoryRouter initialEntries={["/help"]}><ResourceNav /></MemoryRouter>);
+  it("keeps six resource links on product pages and removes the overlapping mobile dock inside help", () => {
+    const product = render(<MemoryRouter initialEntries={["/models"]}><ResourceNav /></MemoryRouter>);
     const resourceNavs = screen.getAllByRole("navigation", { name: "资源类型" });
     expect(resourceNavs).toHaveLength(2);
     resourceNavs.forEach((nav) => expect(within(nav).getAllByRole("link")).toHaveLength(6));
-    const helpLinks = screen.getAllByRole("link", { name: "帮助" });
-    expect(helpLinks).toHaveLength(2);
-    helpLinks.forEach((link) => expect(link).toHaveAttribute("aria-current", "page"));
+    expect(screen.getAllByRole("link", { name: "帮助" })).toHaveLength(2);
+
+    product.unmount();
+    render(<MemoryRouter initialEntries={["/help"]}><ResourceNav /></MemoryRouter>);
+    expect(screen.getAllByRole("navigation", { name: "资源类型" })).toHaveLength(1);
+    expect(screen.getByRole("link", { name: "帮助" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "返回模型市场" })).toHaveAttribute("href", "/models");
   });
 });
