@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import binascii
 import hashlib
 import json
 import math
@@ -27,6 +28,7 @@ from .multimodal_control import (
     PROVIDER_MULTIMODAL_PROTOCOL_VERSION,
     R8B_EXECUTION_SHAPES,
     R8C_EXECUTION_SHAPES,
+    R8D_EXECUTION_SHAPES,
     SYNTHETIC_AUDIO_WAV_BASE64,
     SYNTHETIC_AUDIO_WAV_BYTES,
     ProviderMultimodalTarget,
@@ -60,6 +62,9 @@ from .service import ModelRouterService, RouterServiceError
 
 PROVIDER_WORKLOAD_CONTRACT_VERSION = "modelmirror-provider-workload-routing-v1"
 R8C_AUDIO_PARAMETER_CONTRACT_VERSION = "modelmirror-provider-audio-parameters-v1"
+R8D_AUDIO_PARAMETER_CONTRACT_VERSION = (
+    "modelmirror-provider-chat-audio-parameters-v1"
+)
 PROVIDER_WORKLOAD_CERTIFICATION_ENABLED_ENV = (
     "MODEL_MIRROR_PROVIDER_CHAT_CERTIFICATION_ENABLED"
 )
@@ -75,6 +80,12 @@ SYNTHETIC_RERANK_DOCUMENTS = (
     "This document is unrelated to provider routing.",
     "Managed bindings select one exact provider model.",
 )
+SYNTHETIC_CHAT_AUDIO_INPUT_PROMPT = (
+    "Transcribe the single spoken word in the audio. Return only that word."
+)
+SYNTHETIC_CHAT_AUDIO_INPUT_EXPECTED = "okay"
+SYNTHETIC_CHAT_AUDIO_OUTPUT_PROMPT = "Say OK."
+SYNTHETIC_AUDIO_GENERATION_PROMPT = "Generate a short neutral musical tone."
 SYNTHETIC_VISION_PNG_DATA_URL = (
     "data:image/png;base64,"
     "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEklEQVR4nGNkSPvPwMDAxAAGAA/nAWnOxjxZAAAAAElFTkSuQmCC"
@@ -109,6 +120,61 @@ def r8c_audio_parameter_profile_reason(
         return "provider_multimodal_audio_parameter_profile_invalid"
     if (response_format == "wav") != (upstream_format in {"pcm", "wav"}):
         return "provider_multimodal_audio_parameter_profile_invalid"
+    return None
+
+
+def r8d_audio_parameter_profile_reason(
+    execution_shape: str,
+    profile: Mapping[str, object],
+) -> str | None:
+    """Return the stable reason why an R8D audio stream profile is stale."""
+
+    if execution_shape not in R8D_EXECUTION_SHAPES:
+        return None
+    if str(profile.get("audio_parameter_contract_version") or "") != (
+        R8D_AUDIO_PARAMETER_CONTRACT_VERSION
+    ):
+        return "provider_multimodal_audio_parameter_contract_stale"
+    if profile.get("stream") is not True:
+        return "provider_multimodal_audio_parameter_profile_invalid"
+    if execution_shape == "chat_audio_input":
+        if profile.get("certified_input_formats") != ["wav"]:
+            return "provider_multimodal_audio_parameter_profile_invalid"
+        return None
+    if execution_shape == "chat_audio_output":
+        if (
+            profile.get("certified_voice") != "alloy"
+            or profile.get("certified_response_format") != "mp3"
+        ):
+            return "provider_multimodal_audio_parameter_profile_invalid"
+        return None
+    if (
+        profile.get("certified_output_format") != "mp3"
+        or profile.get("supports_image_prompt") is not False
+    ):
+        return "provider_multimodal_audio_parameter_profile_invalid"
+    return None
+
+
+def r8d_audio_certification_evidence_reason(
+    execution_shape: str,
+    checks: Mapping[str, object],
+) -> str | None:
+    """Require every R8D shape-specific proof before a certification can bind."""
+
+    if execution_shape not in R8D_EXECUTION_SHAPES:
+        return None
+    required = (
+        "http_ok",
+        "response_complete",
+        "content_observed",
+        "actual_model_verified",
+        "media_format_verified",
+        "terminal_signal_verified",
+        "multimodal_adapter_verified",
+    )
+    if not all(checks.get(name) is True for name in required):
+        return "provider_multimodal_audio_evidence_incomplete"
     return None
 
 
@@ -306,6 +372,9 @@ DATA_PLANE_INTEGRATED_ENTRIES: frozenset[ProviderWorkloadEntryId] = frozenset(
         "multimodal_speech",
         "xpert_transcription",
         "xpert_speech",
+        "chat_audio_input",
+        "chat_audio_output",
+        "audio_generation",
     }
 )
 
@@ -485,7 +554,7 @@ class ProviderWorkloadCertificationService:
         if (
             payload.execution_shape in MULTIMODAL_WORKLOAD_SHAPES
             and payload.execution_shape
-            not in R8B_EXECUTION_SHAPES | R8C_EXECUTION_SHAPES
+            not in R8B_EXECUTION_SHAPES | R8C_EXECUTION_SHAPES | R8D_EXECUTION_SHAPES
         ):
             raise RouterServiceError(
                 "provider_multimodal_certification_not_integrated",
@@ -605,7 +674,7 @@ class ProviderWorkloadCertificationService:
 
         multimodal_session_id = (
             f"mmcertsession_{uuid.uuid4().hex}"
-            if payload.execution_shape in R8C_EXECUTION_SHAPES
+            if payload.execution_shape in R8C_EXECUTION_SHAPES | R8D_EXECUTION_SHAPES
             else None
         )
         try:
@@ -684,6 +753,17 @@ class ProviderWorkloadCertificationService:
                         )
                     elif payload.execution_shape in R8C_EXECUTION_SHAPES:
                         await self._run_r8c_audio_certification(
+                            client,
+                            connection,
+                            api_key,
+                            payload,
+                            evidence,
+                            started,
+                            session_id=str(multimodal_session_id),
+                            connection_fingerprint=connection_fingerprint,
+                        )
+                    elif payload.execution_shape in R8D_EXECUTION_SHAPES:
+                        await self._run_r8d_audio_certification(
                             client,
                             connection,
                             api_key,
@@ -953,6 +1033,12 @@ class ProviderWorkloadCertificationService:
             raise RouterServiceError(
                 "provider_multimodal_certification_contract_stale",
                 "该资格证据的契约版本已过期，未执行上游查询。",
+                status_code=409,
+            )
+        if str(certification.get("execution_shape") or "") in R8D_EXECUTION_SHAPES:
+            raise RouterServiceError(
+                "provider_multimodal_certification_not_refreshable",
+                "R8D 音频资格必须由运行流内模型证据确认，不能通过异步元数据升级。",
                 status_code=409,
             )
         time_reason = ProviderChatControlService._certification_time_status(  # noqa: SLF001
@@ -1315,6 +1401,31 @@ class ProviderWorkloadCertificationService:
                     "certified_upstream_format": upstream_format,
                 }
             )
+        elif payload.execution_shape in R8D_EXECUTION_SHAPES:
+            profile.update(
+                {
+                    "audio_parameter_contract_version": (
+                        R8D_AUDIO_PARAMETER_CONTRACT_VERSION
+                    ),
+                    "stream": True,
+                }
+            )
+            if payload.execution_shape == "chat_audio_input":
+                profile["certified_input_formats"] = ["wav"]
+            elif payload.execution_shape == "chat_audio_output":
+                profile.update(
+                    {
+                        "certified_voice": "alloy",
+                        "certified_response_format": "mp3",
+                    }
+                )
+            else:
+                profile.update(
+                    {
+                        "certified_output_format": "mp3",
+                        "supports_image_prompt": False,
+                    }
+                )
         return profile
 
     @staticmethod
@@ -1639,6 +1750,365 @@ class ProviderWorkloadCertificationService:
         if actual_model != payload.model_id:
             raise _WorkloadCertificationFailure("provider_workload_model_mismatch")
         evidence.checks["multimodal_adapter_verified"] = True
+
+    async def _run_r8d_audio_certification(
+        self,
+        client: httpx.AsyncClient,
+        connection: RouterConnection,
+        api_key: str,
+        payload: ProviderWorkloadCertificationRequest,
+        evidence: _CertificationEvidence,
+        started: float,
+        *,
+        session_id: str,
+        connection_fingerprint: str,
+    ) -> None:
+        try:
+            await self._run_r8d_audio_certification_once(
+                client,
+                connection,
+                api_key,
+                payload,
+                evidence,
+                started,
+                session_id=session_id,
+                connection_fingerprint=connection_fingerprint,
+            )
+        except asyncio.CancelledError:
+            raise
+        except RouterRepositoryError as exc:
+            if str(exc) == "provider_multimodal_dispatch_preconditions_changed":
+                raise _WorkloadCertificationFailure(str(exc)) from exc
+            raise
+        except _WorkloadCertificationFailure:
+            raise
+        except Exception as exc:
+            error_code = self._r8c_transport_error_code(exc)
+            if self._r8c_certification_was_dispatched(session_id):
+                raise _WorkloadCertificationUncertain(error_code) from exc
+            raise
+
+    async def _run_r8d_audio_certification_once(
+        self,
+        client: httpx.AsyncClient,
+        connection: RouterConnection,
+        api_key: str,
+        payload: ProviderWorkloadCertificationRequest,
+        evidence: _CertificationEvidence,
+        started: float,
+        *,
+        session_id: str,
+        connection_fingerprint: str,
+    ) -> None:
+        if payload.adapter_contract is None:
+            raise _WorkloadCertificationFailure(
+                "provider_multimodal_adapter_required"
+            )
+        target = ProviderMultimodalTarget.create(
+            provider_kind=connection.kind,
+            connection_id=connection.id,
+            base_url=connection.base_url,
+            api_key=api_key,
+            adapter_contract=payload.adapter_contract,
+            execution_shape=payload.execution_shape,
+        )
+        authorized = await self.multimodal_transport.authorize(target)
+        request = self.multimodal_transport.build_authorized_json_request(
+            client,
+            target,
+            authorized,
+            self._r8d_request_payload(payload),
+            headers={"Accept": "text/event-stream"},
+        )
+        self._repository_method("update_multimodal_certification_session")(
+            self.router_service.tenant_id,
+            session_id,
+            status="running",
+            provider_dispatch_state="dispatched",
+            post_dispatched=True,
+            expected_connection_fingerprint=connection_fingerprint,
+        )
+        response = await self.multimodal_transport.send_authorized(client, request)
+        generation_id = _clean_provider_evidence_identifier(
+            response.headers.get("x-generation-id"),
+            max_length=200,
+        )
+        try:
+            self._validate_status(response.status_code)
+            evidence.checks["http_ok"] = True
+            stream_generation_id = await self._consume_r8d_audio_stream(
+                response,
+                evidence,
+                started,
+                expected_model=payload.model_id,
+                execution_shape=payload.execution_shape,
+            )
+            generation_id = generation_id or stream_generation_id
+        finally:
+            await response.aclose()
+        if evidence.actual_model is None:
+            raise _WorkloadCertificationFailure(
+                "provider_multimodal_actual_model_unverified"
+            )
+        evidence.checks["actual_model_verified"] = True
+        if evidence.actual_model != payload.model_id:
+            raise _WorkloadCertificationFailure("provider_workload_model_mismatch")
+        self._repository_method("update_multimodal_certification_session")(
+            self.router_service.tenant_id,
+            session_id,
+            status="running",
+            provider_dispatch_state="confirmed",
+            post_dispatched=True,
+            upstream_operation_id=generation_id,
+        )
+        evidence.checks["multimodal_adapter_verified"] = True
+
+    @staticmethod
+    def _r8d_request_payload(
+        payload: ProviderWorkloadCertificationRequest,
+    ) -> dict[str, object]:
+        request: dict[str, object] = {
+            "model": payload.model_id,
+            "stream": True,
+            "temperature": 0,
+            "max_tokens": 32,
+        }
+        if payload.execution_shape == "chat_audio_input":
+            request["messages"] = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": SYNTHETIC_CHAT_AUDIO_INPUT_PROMPT},
+                        {
+                            "type": "input_audio",
+                            "input_audio": {
+                                "data": SYNTHETIC_AUDIO_WAV_BASE64,
+                                "format": "wav",
+                            },
+                        },
+                    ],
+                }
+            ]
+        elif payload.execution_shape == "chat_audio_output":
+            request.update(
+                {
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": SYNTHETIC_CHAT_AUDIO_OUTPUT_PROMPT,
+                        }
+                    ],
+                    "modalities": ["text", "audio"],
+                    "audio": {"voice": "alloy", "format": "mp3"},
+                }
+            )
+        else:
+            request["messages"] = [
+                {
+                    "role": "user",
+                    "content": SYNTHETIC_AUDIO_GENERATION_PROMPT,
+                }
+            ]
+        return request
+
+    @staticmethod
+    async def _consume_r8d_audio_stream(
+        response: httpx.Response,
+        evidence: _CertificationEvidence,
+        started: float,
+        *,
+        expected_model: str,
+        execution_shape: ProviderWorkloadExecutionShape,
+    ) -> str | None:
+        buffer = b""
+        total_bytes = 0
+        saw_done = False
+        finish_reason: str | None = None
+        encoded_audio: list[str] = []
+        text_parts: list[str] = []
+        generation_id: str | None = None
+
+        def consume_event(event: str) -> None:
+            nonlocal saw_done, finish_reason, generation_id
+            data_lines = [
+                line[5:].lstrip()
+                for line in event.split("\n")
+                if line.startswith("data:")
+            ]
+            if not data_lines:
+                return
+            data = "\n".join(data_lines)
+            if saw_done:
+                raise _WorkloadCertificationFailure(
+                    "provider_workload_invalid_sse"
+                )
+            if data == "[DONE]":
+                saw_done = True
+                return
+            try:
+                item = json.loads(data)
+            except json.JSONDecodeError as exc:
+                raise _WorkloadCertificationFailure(
+                    "provider_workload_invalid_sse"
+                ) from exc
+            if not isinstance(item, dict) or isinstance(item.get("error"), dict):
+                raise _WorkloadCertificationFailure("provider_workload_invalid_sse")
+            ProviderWorkloadCertificationService._read_usage(item, evidence)
+            generation_id = generation_id or _clean_provider_evidence_identifier(
+                item.get("id"), max_length=200
+            )
+            model = _clean_provider_evidence_identifier(
+                item.get("model"), max_length=512
+            )
+            if model is not None:
+                evidence.actual_model = model
+                if model != expected_model:
+                    raise _WorkloadCertificationFailure(
+                        "provider_workload_model_mismatch"
+                    )
+            choices = item.get("choices")
+            if not isinstance(choices, list):
+                return
+            for choice in choices:
+                if not isinstance(choice, dict):
+                    continue
+                candidate_finish = choice.get("finish_reason")
+                if isinstance(candidate_finish, str) and candidate_finish:
+                    finish_reason = candidate_finish
+                delta = choice.get("delta")
+                if not isinstance(delta, dict):
+                    continue
+                content = delta.get("content")
+                if (
+                    execution_shape == "chat_audio_input"
+                    and isinstance(content, str)
+                    and content
+                ):
+                    if evidence.ttft_ms is None:
+                        evidence.ttft_ms = (time.perf_counter() - started) * 1000
+                    evidence.checks["content_observed"] = True
+                    text_parts.append(content)
+                audio = delta.get("audio")
+                data_part = audio.get("data") if isinstance(audio, dict) else None
+                if (
+                    execution_shape != "chat_audio_input"
+                    and isinstance(data_part, str)
+                    and data_part
+                ):
+                    if evidence.ttft_ms is None:
+                        evidence.ttft_ms = (time.perf_counter() - started) * 1000
+                    encoded_audio.append(data_part)
+                    evidence.checks["content_observed"] = True
+
+        try:
+            async for chunk in response.aiter_bytes(
+                chunk_size=WORKLOAD_RESPONSE_CHUNK_BYTES
+            ):
+                total_bytes += len(chunk)
+                if total_bytes > MAX_WORKLOAD_STREAM_BYTES:
+                    raise _WorkloadCertificationFailure(
+                        "provider_workload_stream_too_large"
+                    )
+                buffer += chunk
+                while True:
+                    delimiters = [
+                        (index, delimiter)
+                        for delimiter in (b"\n\n", b"\r\n\r\n", b"\r\r")
+                        if (index := buffer.find(delimiter)) >= 0
+                    ]
+                    if not delimiters:
+                        break
+                    index, delimiter = min(delimiters, key=lambda item: item[0])
+                    event_bytes = buffer[:index]
+                    buffer = buffer[index + len(delimiter) :]
+                    if len(event_bytes) > MAX_WORKLOAD_SSE_EVENT_BYTES:
+                        raise _WorkloadCertificationFailure(
+                            "provider_workload_sse_event_too_large"
+                        )
+                    try:
+                        event = event_bytes.decode("utf-8").replace(
+                            "\r\n", "\n"
+                        ).replace("\r", "\n")
+                    except UnicodeDecodeError as exc:
+                        raise _WorkloadCertificationFailure(
+                            "provider_workload_invalid_sse"
+                        ) from exc
+                    consume_event(event)
+                if len(buffer) > MAX_WORKLOAD_SSE_EVENT_BYTES:
+                    raise _WorkloadCertificationFailure(
+                        "provider_workload_sse_event_too_large"
+                    )
+            if buffer.strip():
+                try:
+                    event = buffer.decode("utf-8").replace("\r\n", "\n").replace(
+                        "\r", "\n"
+                    )
+                except UnicodeDecodeError as exc:
+                    raise _WorkloadCertificationFailure(
+                        "provider_workload_invalid_sse"
+                    ) from exc
+                consume_event(event)
+        except _WorkloadCertificationFailure:
+            raise
+        except Exception as exc:
+            raise _WorkloadCertificationFailure(
+                "provider_workload_stream_interrupted"
+            ) from exc
+
+        evidence.checks["response_complete"] = True
+        if execution_shape == "chat_audio_input":
+            if not evidence.checks["content_observed"]:
+                raise _WorkloadCertificationFailure(
+                    "provider_multimodal_chat_audio_input_empty"
+                )
+            normalized_transcript = "".join(
+                character
+                for character in "".join(text_parts).casefold()
+                if character.isalnum()
+            )
+            if normalized_transcript != SYNTHETIC_CHAT_AUDIO_INPUT_EXPECTED:
+                raise _WorkloadCertificationFailure(
+                    "provider_multimodal_chat_audio_input_content_mismatch"
+                )
+            evidence.checks["media_format_verified"] = True
+            terminal = saw_done or finish_reason is not None
+        else:
+            if not encoded_audio:
+                raise _WorkloadCertificationFailure(
+                    "provider_multimodal_audio_stream_empty"
+                )
+            try:
+                audio = b"".join(
+                    base64.b64decode(part, validate=True)
+                    for part in encoded_audio
+                )
+            except (binascii.Error, ValueError):
+                try:
+                    audio = base64.b64decode(
+                        "".join(encoded_audio), validate=True
+                    )
+                except (binascii.Error, ValueError) as exc:
+                    raise _WorkloadCertificationFailure(
+                        "provider_multimodal_audio_stream_invalid"
+                    ) from exc
+            try:
+                from server.multimodal.audio_jobs import is_complete_mp3
+            except ModuleNotFoundError:  # pragma: no cover - direct imports
+                from multimodal.audio_jobs import is_complete_mp3
+            if not is_complete_mp3(audio):
+                raise _WorkloadCertificationFailure(
+                    "provider_multimodal_audio_stream_invalid"
+                )
+            evidence.checks["media_format_verified"] = True
+            terminal = (
+                saw_done and finish_reason == "stop"
+                if execution_shape == "audio_generation_stream"
+                else saw_done or finish_reason is not None
+            )
+        if not terminal:
+            raise _WorkloadCertificationFailure("provider_workload_missing_terminal")
+        evidence.checks["terminal_signal_verified"] = True
+        return generation_id
 
     def _r8c_certification_was_dispatched(
         self,
@@ -2878,7 +3348,8 @@ class ProviderWorkloadCertificationService:
                 blocked_reason = "provider_workload_credential_unavailable"
         checks = _safe_json_object(json.loads(str(row["checks_json"] or "{}")))
         if (
-            str(row["execution_shape"]) in R8C_EXECUTION_SHAPES
+            str(row["execution_shape"])
+            in R8C_EXECUTION_SHAPES | R8D_EXECUTION_SHAPES
             and status == "passed"
             and (
                 not row.get("actual_model")
@@ -2887,10 +3358,32 @@ class ProviderWorkloadCertificationService:
         ):
             status = "stale"
             blocked_reason = "provider_multimodal_actual_model_unverified"
-        if str(row["execution_shape"]) in R8C_EXECUTION_SHAPES and status == "passed":
-            profile_reason = r8c_audio_parameter_profile_reason(
+        if (
+            str(row["execution_shape"]) in R8D_EXECUTION_SHAPES
+            and status == "passed"
+        ):
+            evidence_reason = r8d_audio_certification_evidence_reason(
                 str(row["execution_shape"]),
-                profile,
+                checks,
+            )
+            if evidence_reason is not None:
+                status = "stale"
+                blocked_reason = evidence_reason
+        if (
+            str(row["execution_shape"])
+            in R8C_EXECUTION_SHAPES | R8D_EXECUTION_SHAPES
+            and status == "passed"
+        ):
+            profile_reason = (
+                r8c_audio_parameter_profile_reason(
+                    str(row["execution_shape"]),
+                    profile,
+                )
+                if str(row["execution_shape"]) in R8C_EXECUTION_SHAPES
+                else r8d_audio_parameter_profile_reason(
+                    str(row["execution_shape"]),
+                    profile,
+                )
             )
             if profile_reason is not None:
                 status = "stale"
@@ -2898,7 +3391,10 @@ class ProviderWorkloadCertificationService:
         provider_dispatch_state: str | None = None
         retry_allowed: bool | None = None
         refresh_available = False
-        if str(row["execution_shape"]) in R8C_EXECUTION_SHAPES:
+        if (
+            str(row["execution_shape"])
+            in R8C_EXECUTION_SHAPES | R8D_EXECUTION_SHAPES
+        ):
             session = self._repository_method(
                 "get_multimodal_certification_session"
             )(
@@ -2918,7 +3414,8 @@ class ProviderWorkloadCertificationService:
                     else None
                 )
                 refresh_available = bool(
-                    str(row["status"]) == "uncertain"
+                    str(row["execution_shape"]) in R8C_EXECUTION_SHAPES
+                    and str(row["status"]) == "uncertain"
                     and str(session.get("status") or "") == "uncertain"
                     and str(session.get("provider_dispatch_state") or "")
                     == "confirmed"
@@ -3013,6 +3510,14 @@ class ProviderWorkloadCertificationService:
             certified_response_format=(
                 str(profile["certified_response_format"])  # type: ignore[arg-type]
                 if profile.get("certified_response_format") in {"mp3", "wav"}
+                else None
+            ),
+            certified_output_format=(
+                "mp3" if profile.get("certified_output_format") == "mp3" else None
+            ),
+            supports_image_prompt=(
+                bool(profile["supports_image_prompt"])
+                if isinstance(profile.get("supports_image_prompt"), bool)
                 else None
             ),
             provider_dispatch_state=provider_dispatch_state,  # type: ignore[arg-type]
@@ -3265,7 +3770,9 @@ class ProviderWorkloadControlService:
             reason = binding.reason_code
             available = False
         profile: dict[str, object] = {}
-        if binding is not None and execution_shape in R8C_EXECUTION_SHAPES:
+        if binding is not None and execution_shape in (
+            R8C_EXECUTION_SHAPES | R8D_EXECUTION_SHAPES
+        ):
             certification = self.repository.get_workload_certification(
                 self.router_service.tenant_id,
                 binding.certification_id,
@@ -3302,6 +3809,14 @@ class ProviderWorkloadControlService:
             certified_response_format=(
                 str(profile["certified_response_format"])  # type: ignore[arg-type]
                 if profile.get("certified_response_format") in {"mp3", "wav"}
+                else None
+            ),
+            certified_output_format=(
+                "mp3" if profile.get("certified_output_format") == "mp3" else None
+            ),
+            supports_image_prompt=(
+                bool(profile["supports_image_prompt"])
+                if isinstance(profile.get("supports_image_prompt"), bool)
                 else None
             ),
         )
@@ -3689,7 +4204,7 @@ class ProviderWorkloadControlService:
                 PROVIDER_MULTIMODAL_PROTOCOL_VERSION
             ):
                 return None, "provider_multimodal_protocol_stale"
-        if execution_shape in R8C_EXECUTION_SHAPES:
+        if execution_shape in R8C_EXECUTION_SHAPES | R8D_EXECUTION_SHAPES:
             checks = _safe_json_object(
                 json.loads(str(certification.get("checks_json") or "{}"))
             )
@@ -3701,12 +4216,19 @@ class ProviderWorkloadControlService:
             profile = _safe_json_object(
                 json.loads(str(certification.get("profile_json") or "{}"))
             )
-            profile_reason = r8c_audio_parameter_profile_reason(
-                execution_shape,
-                profile,
+            profile_reason = (
+                r8c_audio_parameter_profile_reason(execution_shape, profile)
+                if execution_shape in R8C_EXECUTION_SHAPES
+                else r8d_audio_parameter_profile_reason(execution_shape, profile)
             )
             if profile_reason is not None:
                 return None, profile_reason
+            evidence_reason = r8d_audio_certification_evidence_reason(
+                execution_shape,
+                checks,
+            )
+            if evidence_reason is not None:
+                return None, evidence_reason
         time_reason = ProviderChatControlService._certification_time_status(  # noqa: SLF001
             certification
         )
@@ -4217,6 +4739,9 @@ class ProviderWorkloadCallService:
         generation_id_observed: bool | None = None,
         generation_metadata_get_count: int | None = None,
         generation_metadata_wait_ms: float | None = None,
+        complete_run_id: str | None = None,
+        run_result_class: str | None = None,
+        run_reason_codes: list[str] | None = None,
     ) -> None:
         self.repository.complete_workload_call(
             self.router_service.tenant_id,
@@ -4233,6 +4758,17 @@ class ProviderWorkloadCallService:
             generation_id_observed=generation_id_observed,
             generation_metadata_get_count=generation_metadata_get_count,
             generation_metadata_wait_ms=generation_metadata_wait_ms,
+            complete_run_id=complete_run_id,
+            run_result_class=run_result_class,
+            run_reason_codes=run_reason_codes,
+        )
+
+    def mark_delivery_pending(
+        self, prepared: ProviderWorkloadPreparedCall
+    ) -> None:
+        self.repository.mark_workload_call_delivery_pending(
+            self.router_service.tenant_id,
+            prepared.call_id,
         )
 
     def complete_run(

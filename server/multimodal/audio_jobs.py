@@ -14,7 +14,7 @@ from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import httpx
 from pydantic import BaseModel, Field
@@ -26,11 +26,41 @@ except ModuleNotFoundError:
     from model_router.egress import ProviderEgressPolicy, stream_provider_url
     from model_router.service import ModelRouterService
 
+if TYPE_CHECKING:
+    try:
+        from server.model_router.multimodal_gateway import (
+            ManagedMultimodalChatDispatch,
+            ManagedMultimodalError,
+            ManagedMultimodalGateway,
+        )
+    except ModuleNotFoundError:
+        from model_router.multimodal_gateway import (
+            ManagedMultimodalChatDispatch,
+            ManagedMultimodalError,
+            ManagedMultimodalGateway,
+        )
+
 from .audio_catalog import AudioCatalogService, AudioChatProfile
 from .stt import MultimodalServiceError, OpenRouterTarget
 
 
 logger = logging.getLogger("modelmirror.multimodal")
+
+
+def _managed_multimodal_gateway_types() -> tuple[type[Any], type[Exception]]:
+    """Load Managed gateway types lazily to avoid the API import cycle."""
+
+    try:
+        from server.model_router.multimodal_gateway import (
+            ManagedMultimodalError,
+            ManagedMultimodalGateway,
+        )
+    except ModuleNotFoundError:
+        from model_router.multimodal_gateway import (
+            ManagedMultimodalError,
+            ManagedMultimodalGateway,
+        )
+    return ManagedMultimodalGateway, ManagedMultimodalError
 
 LYRIA_MODEL_IDS = {
     "google/lyria-3-clip-preview",
@@ -39,9 +69,14 @@ LYRIA_MODEL_IDS = {
 MAX_AUDIO_GENERATION_PROMPT_CHARS = 4_000
 MAX_AUDIO_JOB_IMAGE_BYTES = 10 * 1024 * 1024
 MAX_GENERATED_AUDIO_BYTES = 25 * 1024 * 1024
+MAX_AUDIO_JOB_SSE_EVENT_BYTES = 2 * 1024 * 1024
+MAX_AUDIO_JOB_SSE_STREAM_BYTES = (
+    MAX_GENERATED_AUDIO_BYTES * 4 // 3 + 4 * 1024 * 1024
+)
 MAX_IDEMPOTENCY_KEY_CHARS = 128
 DEFAULT_AUDIO_JOB_TTL_SECONDS = 30 * 60
 IDEMPOTENCY_KEY_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{8,128}$")
+AUDIO_OUTPUT_TEMP_PATTERN = re.compile(r"^[0-9a-f]{64}\.tmp-[0-9a-f]{32}$")
 TERMINAL_AUDIO_JOB_STATUSES = {"succeeded", "failed", "expired"}
 
 AUDIO_JOB_IMAGE_FORMATS: dict[
@@ -80,8 +115,18 @@ SAFE_AUDIO_JOB_ERRORS: dict[str, str] = {
     "worker_interrupted": (
         "服务重启中断了本地接收，请重新提交音乐生成任务。"
     ),
+    "provider_result_uncertain": (
+        "Provider 请求已经派发，但服务中断前无法确认结果；系统不会自动重放，"
+        "请先在供应商侧核对后再决定是否创建新任务。"
+    ),
     "audio_expired": "临时音频已过期，请重新生成后下载。",
     "generation_failed": "音乐生成未完成，请检查输入后重新提交。",
+    "managed_audio_job_retained": (
+        "Managed 音频任务必须保留幂等证据，暂不能从任务列表中硬删除。"
+    ),
+    "audio_output_persistence_failed": (
+        "Provider 已返回完整音频，但本地安全落盘失败；系统不会自动重放。"
+    ),
 }
 
 
@@ -115,6 +160,15 @@ class AudioJob(BaseModel):
     updated_at: str
     expires_at: str | None = None
     error: AudioJobError | None = None
+    execution_mode: Literal["managed", "legacy"] = "legacy"
+    provider_route_receipts: list[dict[str, object]] = Field(
+        default_factory=list
+    )
+    provider_dispatch_state: Literal[
+        "not_dispatched", "dispatched", "confirmed", "uncertain"
+    ] | None = None
+    retry_allowed: bool = True
+    fallback_reason_codes: list[str] = Field(default_factory=list)
 
 
 class AudioJobList(BaseModel):
@@ -144,10 +198,11 @@ class AudioGenerationResult:
 @dataclass(frozen=True)
 class AudioJobTask:
     job_id: str
-    target: OpenRouterTarget
+    target: OpenRouterTarget | None
     model_id: str
     prompt: str
     image_data_url: str | None
+    managed_dispatch: ManagedMultimodalChatDispatch | None = None
 
 
 @dataclass(frozen=True)
@@ -174,29 +229,11 @@ class OpenRouterAudioJobAdapter:
         prompt: str,
         image_data_url: str | None,
     ) -> AudioGenerationResult:
-        content: str | list[dict[str, object]] = prompt
-        if image_data_url:
-            content = [
-                {"type": "text", "text": prompt},
-                {
-                    "type": "image_url",
-                    "image_url": {"url": image_data_url},
-                },
-            ]
-        payload = {
-            "model": model_id,
-            "stream": True,
-            "messages": [{"role": "user", "content": content}],
-        }
-
-        encoded_parts: list[str] = []
-        encoded_length = 0
-        actual_model = model_id
-        generation_id: str | None = None
-        finish_reason: str | None = None
-        usage: object = None
-        saw_done = False
-
+        payload = self._payload(
+            model_id=model_id,
+            prompt=prompt,
+            image_data_url=image_data_url,
+        )
         async with self._client_factory() as client:
             try:
                 async with stream_provider_url(
@@ -209,59 +246,11 @@ class OpenRouterAudioJobAdapter:
                     json=payload,
                 ) as response:
                     await self._raise_for_status(response)
-                    generation_id = (
-                        response.headers.get("x-generation-id") or None
+                    return await self._consume_response(
+                        response,
+                        requested_model=model_id,
+                        require_observed_model=False,
                     )
-                    async for line in response.aiter_lines():
-                        if not line or not line.startswith("data: "):
-                            continue
-                        raw = line[6:]
-                        if raw.strip() == "[DONE]":
-                            saw_done = True
-                            continue
-                        try:
-                            item = json.loads(raw)
-                        except ValueError as exc:
-                            raise self._incomplete_error() from exc
-                        if isinstance(item.get("error"), dict):
-                            raise MultimodalServiceError(
-                                "provider_unavailable",
-                                SAFE_AUDIO_JOB_ERRORS["provider_unavailable"],
-                                status_code=502,
-                            )
-                        if isinstance(item.get("model"), str):
-                            actual_model = item["model"]
-                        if isinstance(item.get("id"), str):
-                            generation_id = generation_id or item["id"]
-                        if isinstance(item.get("usage"), dict):
-                            usage = item["usage"]
-                        choices = item.get("choices")
-                        if not isinstance(choices, list) or not choices:
-                            continue
-                        choice = choices[0]
-                        if not isinstance(choice, dict):
-                            continue
-                        if isinstance(choice.get("finish_reason"), str):
-                            finish_reason = choice["finish_reason"]
-                        delta = choice.get("delta")
-                        if not isinstance(delta, dict):
-                            continue
-                        audio = delta.get("audio")
-                        if not isinstance(audio, dict):
-                            continue
-                        data = audio.get("data")
-                        if not isinstance(data, str) or not data:
-                            continue
-                        encoded_length += len(data)
-                        if encoded_length > (MAX_GENERATED_AUDIO_BYTES * 4 // 3 + 16):
-                            raise MultimodalServiceError(
-                                "audio_output_too_large",
-                                SAFE_AUDIO_JOB_ERRORS[
-                                    "audio_output_too_large"
-                                ],
-                                status_code=502,
-                            )
-                        encoded_parts.append(data)
             except MultimodalServiceError:
                 raise
             except (
@@ -282,14 +271,209 @@ class OpenRouterAudioJobAdapter:
                     status_code=502,
                 ) from exc
 
-        if not saw_done or finish_reason != "stop" or not encoded_parts:
+    async def generate_managed(
+        self,
+        dispatch: ManagedMultimodalChatDispatch,
+        *,
+        model_id: str,
+        prompt: str,
+        on_dispatched: Callable[[], None] | None = None,
+    ) -> AudioGenerationResult:
+        """Send exactly one qualified POST through the R8D dispatch guard."""
+
+        payload = self._payload(
+            model_id=model_id,
+            prompt=prompt,
+            image_data_url=None,
+        )
+        async with self._client_factory() as client:
+            response: httpx.Response | None = None
+            try:
+                response = await dispatch.send(
+                    client,
+                    payload,
+                    headers={
+                        "Accept": "text/event-stream",
+                        "HTTP-Referer": "http://localhost",
+                        "X-Title": "ModelMirror audio generation",
+                    },
+                    on_dispatched=on_dispatched,
+                )
+                await self._raise_for_status(response)
+                return await self._consume_response(
+                    response,
+                    requested_model=model_id,
+                    require_observed_model=True,
+                )
+            except MultimodalServiceError:
+                raise
+            except (
+                httpx.ConnectTimeout,
+                httpx.ReadTimeout,
+                httpx.WriteTimeout,
+                httpx.PoolTimeout,
+            ) as exc:
+                raise MultimodalServiceError(
+                    "provider_result_uncertain",
+                    SAFE_AUDIO_JOB_ERRORS["provider_result_uncertain"],
+                    status_code=504,
+                ) from exc
+            except httpx.HTTPError as exc:
+                raise MultimodalServiceError(
+                    "provider_result_uncertain",
+                    SAFE_AUDIO_JOB_ERRORS["provider_result_uncertain"],
+                    status_code=502,
+                ) from exc
+            finally:
+                if response is not None:
+                    await response.aclose()
+
+    @staticmethod
+    def _payload(
+        *,
+        model_id: str,
+        prompt: str,
+        image_data_url: str | None,
+    ) -> dict[str, object]:
+        content: str | list[dict[str, object]] = prompt
+        if image_data_url:
+            content = [
+                {"type": "text", "text": prompt},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": image_data_url},
+                },
+            ]
+        return {
+            "model": model_id,
+            "stream": True,
+            "messages": [{"role": "user", "content": content}],
+        }
+
+    async def _consume_response(
+        self,
+        response: httpx.Response,
+        *,
+        requested_model: str,
+        require_observed_model: bool,
+    ) -> AudioGenerationResult:
+        encoded_parts: list[str] = []
+        encoded_length = 0
+        actual_model: str | None = None
+        generation_id = response.headers.get("x-generation-id") or None
+        finish_reason: str | None = None
+        usage: object = None
+        saw_done = False
+
+        async for event in self._iter_sse_events(response):
+            data_lines = [
+                line[5:].lstrip()
+                for line in event.split("\n")
+                if line.startswith("data:")
+            ]
+            if not data_lines:
+                continue
+            raw = "\n".join(data_lines)
+            if saw_done:
+                raise self._incomplete_error()
+            if raw == "[DONE]":
+                saw_done = True
+                continue
+            try:
+                item = json.loads(raw)
+            except ValueError as exc:
+                raise self._incomplete_error() from exc
+            if not isinstance(item, dict):
+                raise self._incomplete_error()
+            if isinstance(item.get("error"), dict):
+                raise MultimodalServiceError(
+                    "provider_unavailable",
+                    SAFE_AUDIO_JOB_ERRORS["provider_unavailable"],
+                    status_code=502,
+                )
+            if isinstance(item.get("model"), str) and item["model"].strip():
+                observed_model = item["model"].strip()
+                if require_observed_model and (
+                    observed_model != requested_model
+                    or (
+                        actual_model is not None
+                        and observed_model != actual_model
+                    )
+                ):
+                    raise MultimodalServiceError(
+                        "provider_workload_model_mismatch",
+                        "音乐 Provider 返回的实际模型与 Binding 不一致。",
+                        status_code=502,
+                    )
+                actual_model = observed_model
+            if isinstance(item.get("id"), str):
+                generation_id = generation_id or item["id"]
+            if isinstance(item.get("usage"), dict):
+                usage = item["usage"]
+            choices = item.get("choices")
+            if not isinstance(choices, list) or not choices:
+                continue
+            choice = choices[0]
+            if not isinstance(choice, dict):
+                continue
+            if isinstance(choice.get("finish_reason"), str):
+                finish_reason = choice["finish_reason"]
+            delta = choice.get("delta")
+            if not isinstance(delta, dict):
+                continue
+            audio = delta.get("audio")
+            if not isinstance(audio, dict):
+                continue
+            data = audio.get("data")
+            if not isinstance(data, str) or not data:
+                continue
+            encoded_length += len(data)
+            if encoded_length > (MAX_GENERATED_AUDIO_BYTES * 4 // 3 + 16):
+                raise MultimodalServiceError(
+                    "audio_output_too_large",
+                    SAFE_AUDIO_JOB_ERRORS["audio_output_too_large"],
+                    status_code=502,
+                )
+            encoded_parts.append(data)
+
+        if not saw_done:
+            if require_observed_model:
+                raise MultimodalServiceError(
+                    "provider_result_uncertain",
+                    SAFE_AUDIO_JOB_ERRORS["provider_result_uncertain"],
+                    status_code=502,
+                )
             raise self._incomplete_error()
-        try:
-            audio_bytes = base64.b64decode(
-                "".join(encoded_parts), validate=True
+        if finish_reason != "stop" or not encoded_parts:
+            raise self._incomplete_error()
+        if require_observed_model and not actual_model:
+            raise MultimodalServiceError(
+                "provider_workload_actual_model_unverified",
+                "音乐 Provider 未返回可验证的实际模型。",
+                status_code=502,
             )
-        except (binascii.Error, ValueError) as exc:
-            raise self._incomplete_error() from exc
+        if (
+            require_observed_model
+            and actual_model
+            and actual_model != requested_model
+        ):
+            raise MultimodalServiceError(
+                "provider_workload_model_mismatch",
+                "音乐 Provider 返回的实际模型与 Binding 不一致。",
+                status_code=502,
+            )
+        try:
+            audio_bytes = b"".join(
+                base64.b64decode(part, validate=True)
+                for part in encoded_parts
+            )
+        except (binascii.Error, ValueError):
+            try:
+                audio_bytes = base64.b64decode(
+                    "".join(encoded_parts), validate=True
+                )
+            except (binascii.Error, ValueError) as exc:
+                raise self._incomplete_error() from exc
         if (
             len(audio_bytes) < 1_024
             or len(audio_bytes) > MAX_GENERATED_AUDIO_BYTES
@@ -298,10 +482,62 @@ class OpenRouterAudioJobAdapter:
             raise self._incomplete_error()
         return AudioGenerationResult(
             content=audio_bytes,
-            actual_model=actual_model,
+            actual_model=actual_model or requested_model,
             generation_id=generation_id,
             cost_usd=self._cost(usage),
         )
+
+    @staticmethod
+    async def _iter_sse_events(
+        response: httpx.Response,
+    ) -> AsyncIterator[str]:
+        buffer = b""
+        total_bytes = 0
+        async for chunk in response.aiter_bytes(chunk_size=64 * 1024):
+            total_bytes += len(chunk)
+            if total_bytes > MAX_AUDIO_JOB_SSE_STREAM_BYTES:
+                raise MultimodalServiceError(
+                    "audio_output_too_large",
+                    SAFE_AUDIO_JOB_ERRORS["audio_output_too_large"],
+                    status_code=502,
+                )
+            buffer += chunk
+            while True:
+                delimiters = [
+                    (index, delimiter)
+                    for delimiter in (b"\n\n", b"\r\n\r\n", b"\r\r")
+                    if (index := buffer.find(delimiter)) >= 0
+                ]
+                if not delimiters:
+                    break
+                index, delimiter = min(delimiters, key=lambda item: item[0])
+                event_bytes = buffer[:index]
+                buffer = buffer[index + len(delimiter) :]
+                if len(event_bytes) > MAX_AUDIO_JOB_SSE_EVENT_BYTES:
+                    raise MultimodalServiceError(
+                        "audio_output_too_large",
+                        SAFE_AUDIO_JOB_ERRORS["audio_output_too_large"],
+                        status_code=502,
+                    )
+                try:
+                    yield event_bytes.decode("utf-8").replace(
+                        "\r\n", "\n"
+                    ).replace("\r", "\n")
+                except UnicodeDecodeError as exc:
+                    raise OpenRouterAudioJobAdapter._incomplete_error() from exc
+            if len(buffer) > MAX_AUDIO_JOB_SSE_EVENT_BYTES:
+                raise MultimodalServiceError(
+                    "audio_output_too_large",
+                    SAFE_AUDIO_JOB_ERRORS["audio_output_too_large"],
+                    status_code=502,
+                )
+        if buffer.strip():
+            try:
+                yield buffer.decode("utf-8").replace("\r\n", "\n").replace(
+                    "\r", "\n"
+                )
+            except UnicodeDecodeError as exc:
+                raise OpenRouterAudioJobAdapter._incomplete_error() from exc
 
     @staticmethod
     def _default_client() -> httpx.AsyncClient:
@@ -330,7 +566,6 @@ class OpenRouterAudioJobAdapter:
         status = response.status_code
         if status < 400:
             return
-        await response.aread()
         if status == 401:
             raise MultimodalServiceError(
                 "provider_unauthorized",
@@ -370,13 +605,280 @@ class OpenRouterAudioJobAdapter:
             return max(0.0, float(value))
         return None
 
-    @staticmethod
-    def _is_mp3(content: bytes) -> bool:
-        return content.startswith(b"ID3") or (
-            len(content) >= 2
-            and content[0] == 0xFF
-            and content[1] & 0xE0 == 0xE0
+    @classmethod
+    def _is_mp3(cls, content: bytes) -> bool:
+        audio_start = cls._id3v2_audio_start(content)
+        if audio_start is None:
+            return False
+
+        audio_end = len(content)
+        saw_id3v1 = False
+        saw_apev2 = False
+        while True:
+            if (
+                audio_end - audio_start >= 128
+                and content[audio_end - 128 : audio_end - 125] == b"TAG"
+            ):
+                if saw_id3v1:
+                    return False
+                saw_id3v1 = True
+                audio_end -= 128
+                continue
+
+            if (
+                audio_end - audio_start >= 32
+                and content[audio_end - 32 : audio_end - 24]
+                == b"APETAGEX"
+            ):
+                if saw_apev2:
+                    return False
+                ape_start = cls._apev2_start(
+                    content,
+                    audio_start=audio_start,
+                    tag_end=audio_end,
+                )
+                if ape_start is None:
+                    return False
+                saw_apev2 = True
+                audio_end = ape_start
+                continue
+            break
+
+        return cls._has_complete_layer3_frames(
+            content,
+            audio_start=audio_start,
+            audio_end=audio_end,
         )
+
+    @staticmethod
+    def _id3v2_audio_start(content: bytes) -> int | None:
+        if not content.startswith(b"ID3"):
+            return 0
+        if len(content) < 10:
+            return None
+
+        major_version = content[3]
+        revision = content[4]
+        flags = content[5]
+        allowed_flag_masks = {2: 0xC0, 3: 0xE0, 4: 0xF0}
+        allowed_flags = allowed_flag_masks.get(major_version)
+        if (
+            allowed_flags is None
+            or revision == 0xFF
+            or flags & ~allowed_flags
+        ):
+            return None
+
+        size_bytes = content[6:10]
+        if any(value & 0x80 for value in size_bytes):
+            return None
+        tag_size = (
+            (size_bytes[0] << 21)
+            | (size_bytes[1] << 14)
+            | (size_bytes[2] << 7)
+            | size_bytes[3]
+        )
+        has_footer = major_version == 4 and bool(flags & 0x10)
+        audio_start = 10 + tag_size + (10 if has_footer else 0)
+        if audio_start > len(content):
+            return None
+        if has_footer:
+            footer = content[audio_start - 10 : audio_start]
+            if (
+                footer[:3] != b"3DI"
+                or footer[3:6] != content[3:6]
+                or footer[6:10] != size_bytes
+            ):
+                return None
+        return audio_start
+
+    @staticmethod
+    def _apev2_start(
+        content: bytes,
+        *,
+        audio_start: int,
+        tag_end: int,
+    ) -> int | None:
+        footer_start = tag_end - 32
+        footer = content[footer_start:tag_end]
+        if len(footer) != 32 or footer[:8] != b"APETAGEX":
+            return None
+
+        version = int.from_bytes(footer[8:12], "little")
+        tag_size = int.from_bytes(footer[12:16], "little")
+        item_count = int.from_bytes(footer[16:20], "little")
+        flags = int.from_bytes(footer[20:24], "little")
+        if (
+            version != 2_000
+            or tag_size < 32
+            or tag_size > tag_end - audio_start
+            or footer[24:32] != b"\x00" * 8
+            or flags & 0x1FFFFFFF
+            or flags & 0x60000000
+        ):
+            return None
+
+        items_start = tag_end - tag_size
+        tag_start = items_start
+        contains_header = bool(flags & 0x80000000)
+        if contains_header:
+            tag_start = items_start - 32
+            if tag_start < audio_start:
+                return None
+            header = content[tag_start:items_start]
+            header_flags = int.from_bytes(header[20:24], "little")
+            if (
+                header[:8] != b"APETAGEX"
+                or header[8:20] != footer[8:20]
+                or header_flags != (flags | 0x20000000)
+                or header[24:32] != b"\x00" * 8
+            ):
+                return None
+
+        cursor = items_start
+        if item_count > (footer_start - items_start) // 11:
+            return None
+        seen_keys: set[bytes] = set()
+        for _ in range(item_count):
+            if cursor + 8 > footer_start:
+                return None
+            value_size = int.from_bytes(
+                content[cursor : cursor + 4], "little"
+            )
+            item_flags = int.from_bytes(
+                content[cursor + 4 : cursor + 8], "little"
+            )
+            if item_flags & ~0x7:
+                return None
+            key_start = cursor + 8
+            key_end = content.find(b"\x00", key_start, footer_start)
+            if key_end < 0:
+                return None
+            key = content[key_start:key_end]
+            normalized_key = key.lower()
+            if (
+                not 2 <= len(key) <= 255
+                or b"=" in key
+                or any(value < 0x20 or value > 0x7E for value in key)
+                or normalized_key in seen_keys
+            ):
+                return None
+            seen_keys.add(normalized_key)
+            cursor = key_end + 1 + value_size
+            if cursor > footer_start:
+                return None
+        if cursor != footer_start:
+            return None
+        return tag_start
+
+    @staticmethod
+    def _has_complete_layer3_frames(
+        content: bytes,
+        *,
+        audio_start: int,
+        audio_end: int,
+    ) -> bool:
+        mpeg1_bitrates = (
+            0,
+            32,
+            40,
+            48,
+            56,
+            64,
+            80,
+            96,
+            112,
+            128,
+            160,
+            192,
+            224,
+            256,
+            320,
+            0,
+        )
+        mpeg2_bitrates = (
+            0,
+            8,
+            16,
+            24,
+            32,
+            40,
+            48,
+            56,
+            64,
+            80,
+            96,
+            112,
+            128,
+            144,
+            160,
+            0,
+        )
+        sample_rates = {
+            0b11: (44_100, 48_000, 32_000),
+            0b10: (22_050, 24_000, 16_000),
+            0b00: (11_025, 12_000, 8_000),
+        }
+
+        cursor = audio_start
+        frame_count = 0
+        stream_signature: tuple[int, int] | None = None
+        while cursor < audio_end:
+            if audio_end - cursor < 4:
+                return False
+            header = int.from_bytes(content[cursor : cursor + 4], "big")
+            version_bits = (header >> 19) & 0x3
+            layer_bits = (header >> 17) & 0x3
+            bitrate_index = (header >> 12) & 0xF
+            sample_rate_index = (header >> 10) & 0x3
+            padding = (header >> 9) & 0x1
+            emphasis = header & 0x3
+            if (
+                header >> 21 != 0x7FF
+                or version_bits == 0b01
+                or layer_bits != 0b01
+                or bitrate_index in {0, 0xF}
+                or sample_rate_index == 0b11
+                or emphasis == 0b10
+            ):
+                return False
+
+            rates = sample_rates.get(version_bits)
+            if rates is None:
+                return False
+            sample_rate = rates[sample_rate_index]
+            bitrate_kbps = (
+                mpeg1_bitrates[bitrate_index]
+                if version_bits == 0b11
+                else mpeg2_bitrates[bitrate_index]
+            )
+            coefficient = 144_000 if version_bits == 0b11 else 72_000
+            frame_length = (
+                coefficient * bitrate_kbps // sample_rate + padding
+            )
+            has_crc = not bool((header >> 16) & 0x1)
+            channel_mode = (header >> 6) & 0x3
+            side_info_size = (
+                (17 if channel_mode == 0b11 else 32)
+                if version_bits == 0b11
+                else (9 if channel_mode == 0b11 else 17)
+            )
+            minimum_frame_length = 4 + (2 if has_crc else 0) + side_info_size
+            if (
+                frame_length < minimum_frame_length
+                or cursor + frame_length > audio_end
+            ):
+                return False
+
+            signature = (version_bits, sample_rate)
+            if stream_signature is None:
+                stream_signature = signature
+            elif signature != stream_signature:
+                return False
+            cursor += frame_length
+            frame_count += 1
+
+        return cursor == audio_end and frame_count >= 2
 
     @staticmethod
     def _incomplete_error() -> MultimodalServiceError:
@@ -387,6 +889,12 @@ class OpenRouterAudioJobAdapter:
         )
 
 
+def is_complete_mp3(content: bytes) -> bool:
+    """Return whether content is one complete, bounded Layer III stream."""
+
+    return OpenRouterAudioJobAdapter._is_mp3(content)
+
+
 class AudioJobService:
     def __init__(
         self,
@@ -394,6 +902,7 @@ class AudioJobService:
         catalog_service: AudioCatalogService,
         *,
         adapter: OpenRouterAudioJobAdapter | None = None,
+        managed_gateway: ManagedMultimodalGateway | None = None,
         output_dir: str | Path | None = None,
         ttl_seconds: int = DEFAULT_AUDIO_JOB_TTL_SECONDS,
     ) -> None:
@@ -402,6 +911,11 @@ class AudioJobService:
         self.adapter = adapter or OpenRouterAudioJobAdapter(
             egress_policy=router_service.egress_policy
         )
+        if managed_gateway is None:
+            managed_gateway_type, _ = _managed_multimodal_gateway_types()
+            self.managed_gateway = managed_gateway_type.for_router(router_service)
+        else:
+            self.managed_gateway = managed_gateway
         self.output_dir = Path(
             output_dir
             or Path(tempfile.gettempdir()) / "modelmirror-audio-jobs"
@@ -428,6 +942,13 @@ class AudioJobService:
             image_content_type,
             image_content,
         )
+        if self.managed_gateway.routing_mode("audio_generation") != "legacy":
+            return await self._create_managed(
+                model_id=clean_model,
+                prompt=clean_prompt,
+                idempotency_key=clean_key,
+                image_data_url=image_data_url,
+            )
         profile = await self._profile(
             clean_model, has_image=image_data_url is not None
         )
@@ -491,78 +1012,383 @@ class AudioJobService:
             ),
         )
 
+    async def _create_managed(
+        self,
+        *,
+        model_id: str,
+        prompt: str,
+        idempotency_key: str,
+        image_data_url: str | None,
+    ) -> AudioJobLaunch:
+        _, managed_error_type = _managed_multimodal_gateway_types()
+        entry_id = "audio_generation"
+        execution_shape = "audio_generation_stream"
+        try:
+            exact_model = self.managed_gateway.exact_model_id(
+                entry_id,
+                execution_shape,
+                requested_model=model_id,
+            )
+            policy = self.managed_gateway.call_service.control.get_policy(
+                entry_id
+            )
+            binding = next(
+                (
+                    item
+                    for item in policy.bindings
+                    if item.execution_shape == execution_shape
+                    and item.model_id == exact_model
+                    and item.valid
+                ),
+                None,
+            )
+            if binding is None:
+                raise managed_error_type(
+                    "provider_workload_binding_missing",
+                    "音乐生成缺少当前精确模型的合格 Managed Binding。",
+                    status_code=409,
+                    receipt=self.managed_gateway.blocked_receipt(
+                        entry_id, "provider_workload_binding_missing"
+                    ),
+                )
+            profile = self.managed_gateway.certified_audio_parameters(
+                entry_id,
+                certification_id=binding.certification_id,
+                execution_shape=execution_shape,
+            )
+            if image_data_url is not None and not bool(
+                profile.get("supports_image_prompt")
+            ):
+                raise managed_error_type(
+                    "provider_multimodal_audio_image_prompt_unsupported",
+                    "当前 Managed 音频生成资格不支持图片提示。",
+                    status_code=422,
+                    receipt=self.managed_gateway.blocked_receipt(
+                        entry_id,
+                        "provider_multimodal_audio_image_prompt_unsupported",
+                    ),
+                )
+        except managed_error_type as exc:
+            raise self._managed_error(exc) from exc
+
+        tenant_id = self.router_service.tenant_id
+        key_hash = hashlib.sha256(
+            f"{tenant_id}\0{idempotency_key}".encode("utf-8")
+        ).hexdigest()
+        existing = self.router_service.repository.get_audio_job_by_idempotency_hash(
+            tenant_id, key_hash
+        )
+        if existing is not None:
+            return AudioJobLaunch(job=self._public(existing), task=None)
+
+        job_id = f"audio_{uuid.uuid4().hex}"
+        row, created = self.router_service.repository.create_audio_job_if_absent(
+            tenant_id,
+            job_id=job_id,
+            idempotency_key_hash=key_hash,
+            connection_id=binding.connection_id,
+            requested_model=exact_model,
+            provider="openrouter",
+            has_image=image_data_url is not None,
+            cost_kind="unavailable",
+            workload_run_id=f"managed-reservation:{job_id}",
+        )
+        if not created:
+            return AudioJobLaunch(job=self._public(row), task=None)
+
+        try:
+            dispatch = await self.managed_gateway.prepare_chat_dispatch(
+                entry_id,
+                execution_shape=execution_shape,
+                requested_model=exact_model,
+                parent_run_reference=f"audio-job:{job_id}",
+            )
+        except managed_error_type as exc:
+            self._update(
+                job_id,
+                status="failed",
+                error_code=exc.code,
+                provider_dispatch_state="not_dispatched",
+                post_dispatched=False,
+                provider_terminal_status="failed",
+            )
+            raise self._managed_error(exc) from exc
+
+        prepared = dispatch.prepared
+        row = self._update(
+            job_id,
+            workload_run_id=prepared.run_id,
+            workload_call_id=prepared.call_id,
+            policy_fingerprint=prepared.policy_fingerprint,
+            connection_fingerprint=prepared.connection_fingerprint,
+            adapter_contract=prepared.adapter_contract,
+            protocol_version=prepared.protocol_version,
+            provider_dispatch_state="not_dispatched",
+            post_dispatched=False,
+        )
+        if row is None:
+            raise MultimodalServiceError(
+                "audit_unavailable",
+                "暂时无法建立音乐生成审计记录，请稍后重试。",
+                status_code=503,
+                route_receipt=dispatch.run.finish_failure(
+                    "provider_multimodal_audio_job_link_failed"
+                ),
+            )
+        return AudioJobLaunch(
+            job=self._public(row),
+            task=AudioJobTask(
+                job_id=job_id,
+                target=None,
+                model_id=exact_model,
+                prompt=prompt,
+                image_data_url=None,
+                managed_dispatch=dispatch,
+            ),
+        )
+
     async def run(self, task: AudioJobTask) -> None:
         row = self._update(task.job_id, status="running", error_code=None)
         if row is None:
             return
         decision_id = str(row.get("decision_id") or "")
+        dispatch = task.managed_dispatch
         try:
-            result = await self.adapter.generate(
-                task.target,
-                model_id=task.model_id,
-                prompt=task.prompt,
-                image_data_url=task.image_data_url,
-            )
-            await asyncio.to_thread(
-                self._write_output, task.job_id, result.content
-            )
+            if dispatch is not None:
+                result = await self.adapter.generate_managed(
+                    dispatch,
+                    model_id=task.model_id,
+                    prompt=task.prompt,
+                    on_dispatched=lambda: self._update(
+                        task.job_id,
+                        provider_dispatch_state="dispatched",
+                        post_dispatched=True,
+                    ),
+                )
+            else:
+                if task.target is None:
+                    raise MultimodalServiceError(
+                        "provider_unavailable",
+                        SAFE_AUDIO_JOB_ERRORS["provider_unavailable"],
+                        status_code=502,
+                    )
+                result = await self.adapter.generate(
+                    task.target,
+                    model_id=task.model_id,
+                    prompt=task.prompt,
+                    image_data_url=task.image_data_url,
+                )
+            try:
+                await self._write_output_cancellation_safe(
+                    task.job_id, result.content
+                )
+            except Exception as exc:
+                if dispatch is None:
+                    raise
+                if not dispatch.completed:
+                    dispatch.complete(
+                        status="failed",
+                        result_class="local_persistence_error",
+                        error_code="audio_output_persistence_failed",
+                        actual_model=result.actual_model,
+                    )
+                self._update(
+                    task.job_id,
+                    status="failed",
+                    actual_model=result.actual_model,
+                    generation_id=result.generation_id,
+                    output_bytes=0,
+                    error_code="audio_output_persistence_failed",
+                    provider_dispatch_state="confirmed",
+                    post_dispatched=True,
+                    provider_terminal_status="failed",
+                )
+                logger.warning(
+                    "Managed audio output persistence failed job=%s",
+                    task.job_id,
+                )
+                return
             expires_at = (
                 datetime.now(UTC) + timedelta(seconds=self.ttl_seconds)
             ).isoformat()
             changes: dict[str, object] = {
-                "status": "succeeded",
+                "status": "running" if dispatch is not None else "succeeded",
                 "actual_model": result.actual_model,
                 "generation_id": result.generation_id,
                 "output_bytes": len(result.content),
                 "error_code": None,
                 "expires_at": expires_at,
             }
+            if dispatch is not None:
+                changes.update(
+                    provider_dispatch_state="dispatched",
+                    post_dispatched=True,
+                )
             if result.cost_usd is not None:
                 changes["cost_usd"] = result.cost_usd
                 changes["cost_kind"] = "actual"
             row = self._update(task.job_id, **changes)
             if row is None:
                 await asyncio.to_thread(self._remove_output, task.job_id)
-                return
+                raise RuntimeError("audio_job_finalize_store_missing")
+            if dispatch is not None:
+                dispatch.complete(
+                    status="passed",
+                    result_class="success",
+                    actual_model=result.actual_model,
+                )
+                row = self._update(
+                    task.job_id,
+                    status="succeeded",
+                    provider_dispatch_state="confirmed",
+                    post_dispatched=True,
+                    provider_terminal_status="passed",
+                )
+                if row is None:
+                    raise RuntimeError("audio_job_finalize_store_missing")
             self._record_success(
                 decision_id,
                 output_bytes=len(result.content),
                 cost_usd=result.cost_usd,
             )
+        except asyncio.CancelledError:
+            await asyncio.to_thread(self._remove_output, task.job_id)
+            if dispatch is not None:
+                status = "uncertain" if dispatch.dispatched else "cancelled"
+                code = (
+                    "provider_result_uncertain"
+                    if dispatch.dispatched
+                    else "provider_workload_call_cancelled"
+                )
+                if not dispatch.completed:
+                    dispatch.complete(
+                        status=status,
+                        result_class="client_cancelled",
+                        error_code=code,
+                    )
+                self._update(
+                    task.job_id,
+                    status="failed",
+                    error_code=code,
+                    provider_dispatch_state=(
+                        "uncertain" if dispatch.dispatched else "not_dispatched"
+                    ),
+                    post_dispatched=dispatch.dispatched,
+                    provider_terminal_status=status,
+                )
+            else:
+                self._update(
+                    task.job_id,
+                    status="failed",
+                    error_code="worker_interrupted",
+                )
+                self._record_failure(decision_id, "worker_interrupted")
+            raise
         except MultimodalServiceError as exc:
             await asyncio.to_thread(self._remove_output, task.job_id)
-            self._update(
-                task.job_id,
-                status="failed",
-                error_code=exc.code,
-            )
-            self._record_failure(decision_id, exc.code)
-        except Exception:
+            if dispatch is not None:
+                uncertain = (
+                    dispatch.dispatched
+                    and exc.code == "provider_result_uncertain"
+                )
+                call_status = "uncertain" if uncertain else "failed"
+                if not dispatch.completed:
+                    dispatch.complete(
+                        status=call_status,
+                        result_class=(
+                            "transport_error" if uncertain else "provider_error"
+                        ),
+                        error_code=exc.code,
+                    )
+                self._update(
+                    task.job_id,
+                    status="failed",
+                    error_code=exc.code,
+                    provider_dispatch_state=(
+                        "uncertain"
+                        if uncertain
+                        else "confirmed"
+                        if dispatch.dispatched
+                        else "not_dispatched"
+                    ),
+                    post_dispatched=dispatch.dispatched,
+                    provider_terminal_status=call_status,
+                )
+            else:
+                self._update(
+                    task.job_id,
+                    status="failed",
+                    error_code=exc.code,
+                )
+                self._record_failure(decision_id, exc.code)
+        except Exception as exc:
+            if dispatch is not None and dispatch.completed:
+                logger.warning(
+                    "Managed audio job final status reconciliation is pending "
+                    "job=%s code=job_store_unavailable",
+                    task.job_id,
+                )
+                return
             logger.exception(
                 "Audio job failed without exposing request content: %s",
                 task.job_id,
             )
             await asyncio.to_thread(self._remove_output, task.job_id)
-            self._update(
-                task.job_id,
-                status="failed",
-                error_code="generation_failed",
-            )
-            self._record_failure(decision_id, "generation_failed")
+            if dispatch is not None:
+                uncertain = dispatch.dispatched and not dispatch.completed
+                code = (
+                    "provider_result_uncertain"
+                    if uncertain
+                    else "generation_failed"
+                )
+                if not dispatch.completed:
+                    dispatch.complete(
+                        status="uncertain" if uncertain else "failed",
+                        result_class=(
+                            "transport_error" if uncertain else "local_failure"
+                        ),
+                        error_code=code,
+                    )
+                self._update(
+                    task.job_id,
+                    status="failed",
+                    error_code=code,
+                    provider_dispatch_state=(
+                        "uncertain"
+                        if uncertain
+                        else "confirmed"
+                        if dispatch.completed
+                        else "not_dispatched"
+                    ),
+                    post_dispatched=dispatch.dispatched,
+                    provider_terminal_status=(
+                        "uncertain" if uncertain else "failed"
+                    ),
+                )
+            else:
+                self._update(
+                    task.job_id,
+                    status="failed",
+                    error_code="generation_failed",
+                )
+                self._record_failure(decision_id, "generation_failed")
 
     def list(self, *, limit: int = 50) -> AudioJobList:
         self.cleanup_expired()
         rows = self.router_service.repository.list_audio_jobs(
             self.router_service.tenant_id, limit=limit
         )
+        rows = [self._reconcile_managed_terminal(row) for row in rows]
         return AudioJobList(jobs=[self._public(row) for row in rows])
 
     def get(self, job_id: str) -> AudioJob:
-        return self._public(self._refresh_expiry(self._row(job_id)))
+        row = self._reconcile_managed_terminal(self._row(job_id))
+        return self._public(self._refresh_expiry(row))
 
     async def content(self, job_id: str) -> AudioContent:
         self._ensure_enabled()
-        row = self._refresh_expiry(self._row(job_id))
+        row = self._reconcile_managed_terminal(self._row(job_id))
+        row = self._refresh_expiry(row)
         if str(row["status"]) != "succeeded":
             raise MultimodalServiceError(
                 "audio_not_ready",
@@ -599,7 +1425,13 @@ class AudioJobService:
         )
 
     def delete(self, job_id: str) -> AudioJobDeleteResult:
-        self._row(job_id)
+        row = self._row(job_id)
+        if row.get("workload_run_id"):
+            raise MultimodalServiceError(
+                "managed_audio_job_retained",
+                SAFE_AUDIO_JOB_ERRORS["managed_audio_job_retained"],
+                status_code=409,
+            )
         if not self.router_service.repository.delete_audio_job(
             self.router_service.tenant_id, job_id
         ):
@@ -607,52 +1439,167 @@ class AudioJobService:
         self._remove_output(job_id)
         return AudioJobDeleteResult(removed=True)
 
-    def cleanup_expired(self) -> None:
-        rows = self.router_service.repository.list_audio_jobs(
-            self.router_service.tenant_id, limit=100
-        )
+    def cleanup_expired(
+        self,
+        *,
+        include_terminal_orphans: bool = False,
+    ) -> None:
         now = datetime.now(UTC)
-        for row in rows:
-            job_id = str(row["id"])
-            status = str(row.get("status") or "")
-            if status in {"queued", "running"}:
-                continue
-            if status != "succeeded":
-                self._remove_output(job_id)
-                continue
-            expires_at = self._datetime(row.get("expires_at"))
-            if (
-                expires_at is None
-                or expires_at <= now
-                or not self._output_path(job_id).is_file()
-            ):
-                self._update(
-                    job_id,
-                    status="expired",
-                    error_code="audio_expired",
-                    output_bytes=0,
-                )
-                self._remove_output(job_id)
+        before_created_at: str | None = None
+        before_id: str | None = None
+        while True:
+            rows = self.router_service.repository.list_audio_jobs_for_cleanup(
+                self.router_service.tenant_id,
+                limit=100,
+                before_created_at=before_created_at,
+                before_id=before_id,
+                include_non_success_terminal=include_terminal_orphans,
+            )
+            if not rows:
+                return
+            for row in rows:
+                job_id = str(row["id"])
+                if str(row.get("status") or "") != "succeeded":
+                    self._remove_output(job_id)
+                    continue
+                expires_at = self._datetime(row.get("expires_at"))
+                if (
+                    expires_at is None
+                    or expires_at <= now
+                    or not self._output_path(job_id).is_file()
+                ):
+                    self._update(
+                        job_id,
+                        status="expired",
+                        error_code="audio_expired",
+                        output_bytes=0,
+                    )
+                    self._remove_output(job_id)
+            if len(rows) < 100:
+                return
+            before_created_at = str(rows[-1]["created_at"])
+            before_id = str(rows[-1]["id"])
 
     def recover_interrupted(self) -> None:
-        rows = self.router_service.repository.list_audio_jobs(
-            self.router_service.tenant_id, limit=100
-        )
-        for row in rows:
-            if str(row.get("status") or "") not in {"queued", "running"}:
-                continue
-            job_id = str(row["id"])
-            self._update(
-                job_id,
-                status="failed",
-                error_code="worker_interrupted",
+        self._cleanup_orphaned_output_temps()
+        before_created_at: str | None = None
+        before_id: str | None = None
+        while True:
+            rows = self.router_service.repository.list_active_audio_jobs(
+                self.router_service.tenant_id,
+                limit=100,
+                before_created_at=before_created_at,
+                before_id=before_id,
             )
-            self._record_failure(
-                str(row.get("decision_id") or ""),
-                "worker_interrupted",
-            )
-            self._remove_output(job_id)
-        self.cleanup_expired()
+            if not rows:
+                break
+            for row in rows:
+                job_id = str(row["id"])
+                workload_call = None
+                if row.get("workload_call_id"):
+                    workload_call = (
+                        self.router_service.repository.get_workload_call(
+                            self.router_service.tenant_id,
+                            str(row["workload_call_id"]),
+                        )
+                    )
+                managed_dispatched = bool(row.get("workload_run_id")) and (
+                    bool(row.get("post_dispatched"))
+                    or bool(workload_call and workload_call.get("dispatched"))
+                )
+                workload_status = str(
+                    workload_call.get("status") if workload_call else ""
+                )
+                if workload_status == "passed":
+                    path = self._output_path(job_id)
+                    valid_output = False
+                    try:
+                        content = path.read_bytes()
+                        valid_output = is_complete_mp3(content)
+                    except OSError:
+                        content = b""
+                    if valid_output:
+                        self._update(
+                            job_id,
+                            status="succeeded",
+                            actual_model=(
+                                workload_call.get("actual_model")
+                                if workload_call
+                                else row.get("actual_model")
+                            ),
+                            output_bytes=len(content),
+                            error_code=None,
+                            expires_at=(
+                                row.get("expires_at")
+                                or (
+                                    datetime.now(UTC)
+                                    + timedelta(seconds=self.ttl_seconds)
+                                ).isoformat()
+                            ),
+                            provider_dispatch_state="confirmed",
+                            post_dispatched=True,
+                            provider_terminal_status="passed",
+                        )
+                        continue
+                    self._update(
+                        job_id,
+                        status="failed",
+                        error_code="audio_output_persistence_failed",
+                        output_bytes=0,
+                        provider_dispatch_state="confirmed",
+                        post_dispatched=True,
+                        provider_terminal_status="passed",
+                    )
+                    self._remove_output(job_id)
+                    continue
+                if workload_status == "failed":
+                    self._update(
+                        job_id,
+                        status="failed",
+                        error_code=(
+                            str(workload_call.get("error_code") or "")
+                            or "generation_failed"
+                        ),
+                        provider_dispatch_state="confirmed",
+                        post_dispatched=bool(
+                            workload_call and workload_call.get("dispatched")
+                        ),
+                        provider_terminal_status="failed",
+                    )
+                    self._remove_output(job_id)
+                    continue
+                self._update(
+                    job_id,
+                    status="failed",
+                    error_code=(
+                        "provider_result_uncertain"
+                        if managed_dispatched
+                        else "worker_interrupted"
+                    ),
+                    provider_dispatch_state=(
+                        "uncertain"
+                        if managed_dispatched
+                        else str(
+                            row.get("provider_dispatch_state")
+                            or "not_dispatched"
+                        )
+                    ),
+                    provider_terminal_status=(
+                        "uncertain" if managed_dispatched else "failed"
+                    ),
+                    post_dispatched=managed_dispatched,
+                )
+                if not row.get("workload_run_id"):
+                    self._record_failure(
+                        str(row.get("decision_id") or ""),
+                        "worker_interrupted",
+                    )
+                self._remove_output(job_id)
+            if len(rows) < 100:
+                break
+            before_created_at = str(rows[-1]["created_at"])
+            before_id = str(rows[-1]["id"])
+        self.cleanup_expired(include_terminal_orphans=True)
 
     async def _profile(
         self, model_id: str, *, has_image: bool
@@ -900,6 +1847,60 @@ class AudioJobService:
         self._remove_output(str(row["id"]))
         return updated or row
 
+    def _reconcile_managed_terminal(
+        self, row: dict[str, object]
+    ) -> dict[str, object]:
+        if (
+            str(row.get("status") or "") not in {"queued", "running"}
+            or not row.get("workload_call_id")
+        ):
+            return row
+        workload_call = self.router_service.repository.get_workload_call(
+            self.router_service.tenant_id,
+            str(row["workload_call_id"]),
+        )
+        if (
+            workload_call is None
+            or str(workload_call.get("status") or "") != "passed"
+        ):
+            return row
+        path = self._output_path(str(row["id"]))
+        try:
+            content = path.read_bytes()
+        except OSError:
+            return row
+        if not is_complete_mp3(content):
+            return row
+        try:
+            updated = self._update(
+                str(row["id"]),
+                status="succeeded",
+                actual_model=(
+                    workload_call.get("actual_model")
+                    or row.get("actual_model")
+                ),
+                output_bytes=len(content),
+                error_code=None,
+                expires_at=(
+                    row.get("expires_at")
+                    or (
+                        datetime.now(UTC)
+                        + timedelta(seconds=self.ttl_seconds)
+                    ).isoformat()
+                ),
+                provider_dispatch_state="confirmed",
+                post_dispatched=True,
+                provider_terminal_status="passed",
+            )
+        except Exception:
+            logger.warning(
+                "Managed audio job terminal reconciliation is still pending "
+                "job=%s code=job_store_unavailable",
+                row["id"],
+            )
+            return row
+        return updated or row
+
     def _write_output(self, job_id: str, content: bytes) -> None:
         path = self._output_path(job_id)
         temporary = path.with_suffix(f".tmp-{uuid.uuid4().hex}")
@@ -913,8 +1914,44 @@ class AudioJobService:
         finally:
             temporary.unlink(missing_ok=True)
 
+    async def _write_output_cancellation_safe(
+        self, job_id: str, content: bytes
+    ) -> None:
+        write_future = asyncio.get_running_loop().run_in_executor(
+            None,
+            self._write_output,
+            job_id,
+            content,
+        )
+        cancelled = False
+        while True:
+            try:
+                await asyncio.shield(write_future)
+                break
+            except asyncio.CancelledError:
+                cancelled = True
+            except Exception:
+                if not cancelled:
+                    raise
+                break
+        if cancelled:
+            self._remove_output(job_id)
+            raise asyncio.CancelledError
+
     def _remove_output(self, job_id: str) -> None:
         self._output_path(job_id).unlink(missing_ok=True)
+
+    def _cleanup_orphaned_output_temps(self) -> None:
+        for temporary in self.output_dir.iterdir():
+            if not AUDIO_OUTPUT_TEMP_PATTERN.fullmatch(temporary.name):
+                continue
+            try:
+                if temporary.is_file():
+                    temporary.unlink(missing_ok=True)
+            except OSError:
+                logger.warning(
+                    "Unable to remove orphaned audio output temporary file"
+                )
 
     def _output_path(self, job_id: str) -> Path:
         digest = hashlib.sha256(
@@ -934,9 +1971,22 @@ class AudioJobService:
             else parsed.astimezone(UTC)
         )
 
-    @staticmethod
-    def _public(row: dict[str, object]) -> AudioJob:
+    def _public(self, row: dict[str, object]) -> AudioJob:
         error_code = str(row.get("error_code") or "").strip()
+        execution_mode: Literal["managed", "legacy"] = (
+            "managed" if row.get("workload_run_id") else "legacy"
+        )
+        dispatch_state = str(
+            row.get("provider_dispatch_state") or ""
+        ).strip()
+        if dispatch_state not in {
+            "not_dispatched",
+            "dispatched",
+            "confirmed",
+            "uncertain",
+        }:
+            dispatch_state = ""
+        receipts = self._managed_receipts(row) if execution_mode == "managed" else []
         return AudioJob(
             job_id=str(row["id"]),
             status=str(row["status"]),
@@ -947,7 +1997,7 @@ class AudioJobService:
             provider="openrouter",
             generation_id=(
                 str(row["generation_id"])
-                if row.get("generation_id")
+                if row.get("generation_id") and execution_mode == "legacy"
                 else None
             ),
             parameters=AudioJobParameters(
@@ -978,6 +2028,101 @@ class AudioJobService:
                 if error_code
                 else None
             ),
+            execution_mode=execution_mode,
+            provider_route_receipts=receipts,
+            provider_dispatch_state=(
+                dispatch_state if dispatch_state else None
+            ),
+            retry_allowed=not (
+                execution_mode == "managed"
+                and str(row.get("status") or "") == "failed"
+                and bool(row.get("post_dispatched"))
+            ),
+            fallback_reason_codes=(
+                [error_code]
+                if execution_mode == "managed" and error_code
+                else []
+            ),
+        )
+
+    def _managed_receipts(
+        self, row: dict[str, object]
+    ) -> list[dict[str, object]]:
+        run_id = str(row.get("workload_run_id") or "").strip()
+        call_id = str(row.get("workload_call_id") or "").strip()
+        if not run_id or not call_id:
+            return []
+        try:
+            run = self.router_service.repository.get_workload_run(
+                self.router_service.tenant_id, run_id
+            )
+            call = self.router_service.repository.get_workload_call(
+                self.router_service.tenant_id, call_id
+            )
+        except Exception:
+            logger.warning(
+                "Unable to project audio job workload receipt: %s", row.get("id")
+            )
+            return []
+        if call is None or str(call.get("run_id") or "") != run_id:
+            return []
+        try:
+            raw_reasons = json.loads(str(run.get("reason_codes_json") or "[]"))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            raw_reasons = []
+        reasons = (
+            [str(item) for item in raw_reasons if isinstance(item, str)]
+            if isinstance(raw_reasons, list)
+            else []
+        )
+        dispatched = bool(call.get("dispatched"))
+        public_call: dict[str, object] = {
+            "call_sequence": max(1, int(call.get("call_sequence") or 1)),
+            "model_id": str(call.get("requested_model") or ""),
+            "actual_model": (
+                str(call["actual_model"]) if call.get("actual_model") else None
+            ),
+            "dispatched": dispatched,
+            "status": str(call.get("status") or "failed"),
+            "error_code": (
+                str(call["error_code"]) if call.get("error_code") else None
+            ),
+            "prompt_tokens": (
+                int(call["prompt_tokens"])
+                if call.get("prompt_tokens") is not None
+                else None
+            ),
+            "completion_tokens": (
+                int(call["completion_tokens"])
+                if call.get("completion_tokens") is not None
+                else None
+            ),
+            "total_tokens": (
+                int(call["total_tokens"])
+                if call.get("total_tokens") is not None
+                else None
+            ),
+        }
+        return [
+            {
+                "contract_version": "modelmirror-provider-workload-routing-v1",
+                "entry_id": "audio_generation",
+                "routing_mode": "managed_required",
+                "run_reference": run_id,
+                "status": str(run.get("status") or "failed"),
+                "call_count": 1 if dispatched else 0,
+                "reason_codes": reasons,
+                "calls": [public_call],
+            }
+        ]
+
+    @staticmethod
+    def _managed_error(exc: ManagedMultimodalError) -> MultimodalServiceError:
+        return MultimodalServiceError(
+            exc.code,
+            exc.public_message,
+            status_code=exc.status_code,
+            route_receipt=exc.receipt,
         )
 
     @staticmethod

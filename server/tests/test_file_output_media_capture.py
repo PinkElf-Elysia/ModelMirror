@@ -43,3 +43,16 @@ def test_capture_joins_bounded_native_audio_chunks_and_drops_invalid_stream() ->
     invalid = ChatMediaCapture()
     invalid.consume_line(_event({"audio": {"data": "not base64"}}))
     assert invalid.items(audio_format="mp3") == ()
+
+
+def test_capture_accepts_one_base64_value_split_across_sse_events() -> None:
+    content = b"one-continuous-provider-audio-value"
+    encoded = base64.b64encode(content).decode("ascii")
+    capture = ChatMediaCapture()
+    capture.consume_line(_event({"audio": {"data": encoded[:7]}}))
+    capture.consume_line(_event({"audio": {"data": encoded[7:19]}}))
+    capture.consume_line(_event({"audio": {"data": encoded[19:]}}))
+
+    audio = capture.items(audio_format="mp3")
+    assert len(audio) == 1
+    assert audio[0].content == content

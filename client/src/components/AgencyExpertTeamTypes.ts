@@ -168,7 +168,10 @@ export interface ProviderRouteReceipt {
     | "expert_team_dag"
     | "fusion"
     | "route_agent"
-    | "team_chat";
+    | "team_chat"
+    | "chat_audio_input"
+    | "chat_audio_output"
+    | "audio_generation";
   routing_mode: "managed_required";
   run_reference: string;
   status: "running" | "passed" | "failed" | "uncertain" | "cancelled";

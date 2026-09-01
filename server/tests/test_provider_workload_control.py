@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import sqlite3
 from pathlib import Path
@@ -426,11 +427,11 @@ async def test_future_multimodal_certification_fails_before_catalog_or_paid_post
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
-            name="OpenRouter audio",
+            name="OpenRouter video",
             kind="openrouter",
             base_url="https://openrouter.ai/api/v1",
             api_key="test-secret",
-            scopes=["chat", "audio"],
+            scopes=["chat", "video"],
         ),
     )
 
@@ -447,15 +448,148 @@ async def test_future_multimodal_certification_fails_before_catalog_or_paid_post
         ).run(
             connection.id,
             ProviderWorkloadCertificationRequest(
-                model_id="provider/audio-chat",
-                execution_shape="chat_audio_input",
-                adapter_contract="openrouter_chat_audio_v1",
+                model_id="provider/video-chat",
+                execution_shape="chat_video_stream",
+                adapter_contract="openrouter_chat_video_v1",
                 acknowledge_billed_call=True,
             ),
             idempotency_key="future-r8-no-paid-call",
         )
     assert blocked.value.code == "provider_multimodal_certification_not_integrated"
     assert repository.list_workload_certifications("local") == []
+
+
+@pytest.mark.asyncio
+async def test_r8d_public_status_exposes_only_safe_generation_parameters_and_no_refresh(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model_id = "provider/audio-generation"
+    mp3_frame = b"\xff\xfb\x90\xc0" + b"\x55" * 413
+    encoded_audio = base64.b64encode(mp3_frame * 3).decode("ascii")
+    include_actual_model = True
+
+    def handler(request: Request) -> Response:
+        if request.method == "GET":
+            return Response(200, json={"data": [{"id": model_id}]})
+        event: dict[str, object] = {
+            "id": "r8d-generation",
+            "choices": [
+                {
+                    "delta": {"audio": {"data": encoded_audio}},
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+        if include_actual_model:
+            event["model"] = model_id
+        return Response(
+            200,
+            content=(
+                f"data: {json.dumps(event)}\n\ndata: [DONE]\n\n"
+            ).encode(),
+            headers={"x-generation-id": "generation-evidence-r8d"},
+        )
+
+    transport = MockTransport(handler)
+    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    connection = repository.create_connection(
+        "local",
+        RouterConnectionCreate(
+            name="R8D generation",
+            kind="openrouter",
+            base_url="https://provider.example/v1",
+            api_key="r8d-public-secret",
+            scopes=["audio"],
+        ),
+    )
+    router_service = ModelRouterService(
+        repository,
+        client_factory=lambda: AsyncClient(
+            transport=transport,
+            follow_redirects=False,
+            trust_env=False,
+        ),
+        egress_policy=ProviderEgressPolicy(
+            resolver=lambda _host, _port: ["8.8.8.8"]
+        ),
+    )
+    certification_service = ProviderWorkloadCertificationService(
+        router_service,
+        client_factory=lambda: AsyncClient(
+            transport=transport,
+            follow_redirects=False,
+            trust_env=False,
+        ),
+    )
+    certification = await certification_service.run(
+        connection.id,
+        ProviderWorkloadCertificationRequest(
+            execution_shape="audio_generation_stream",
+            model_id=model_id,
+            adapter_contract="openrouter_audio_generation_stream_v1",
+            acknowledge_billed_call=True,
+        ),
+        idempotency_key="r8d-public-success",
+    )
+    assert certification.status == "passed"
+    assert certification.certified_output_format == "mp3"
+    assert certification.supports_image_prompt is False
+    assert certification.refresh_available is False
+
+    monkeypatch.setenv("MODEL_CONTROL_AUDIO_GENERATION_ENABLED", "true")
+    control = ProviderWorkloadControlService(router_service)
+    saved = control.update_policy(
+        "audio_generation",
+        ProviderWorkloadPolicyUpdate(
+            expected_revision=0,
+            bindings=[
+                ProviderWorkloadBindingUpdate(
+                    execution_shape="audio_generation_stream",
+                    model_id=model_id,
+                    connection_id=connection.id,
+                    adapter_contract="openrouter_audio_generation_stream_v1",
+                )
+            ],
+        ),
+    )
+    control.activate(
+        "audio_generation",
+        ProviderWorkloadActivationRequest(
+            expected_revision=saved.revision,
+            no_open_p0_p1=True,
+            acknowledge_fail_closed=True,
+        ),
+    )
+    public = control.public_status(
+        "audio_generation",
+        model_id,
+        "audio_generation_stream",
+    )
+    assert public.available is True
+    assert public.certified_output_format == "mp3"
+    assert public.supports_image_prompt is False
+    public_json = json.dumps(public.model_dump(mode="json"), sort_keys=True)
+    assert connection.id not in public_json
+    assert "r8d-public-secret" not in public_json
+    assert "provider.example" not in public_json
+
+    include_actual_model = False
+    uncertain = await certification_service.run(
+        connection.id,
+        ProviderWorkloadCertificationRequest(
+            execution_shape="audio_generation_stream",
+            model_id=model_id,
+            adapter_contract="openrouter_audio_generation_stream_v1",
+            acknowledge_billed_call=True,
+        ),
+        idempotency_key="r8d-public-uncertain",
+    )
+    assert uncertain.status == "failed"
+    assert uncertain.error_code == "provider_multimodal_actual_model_unverified"
+    assert uncertain.provider_dispatch_state == "confirmed"
+    assert uncertain.retry_allowed is False
+    assert uncertain.refresh_available is False
 
 
 @pytest.mark.asyncio
@@ -822,6 +956,119 @@ def test_workload_receipt_state_machine_rejects_impossible_success(
         result_class="preflight_failure",
     )
     assert completed["status"] == "failed"
+
+
+def test_complete_workload_call_and_run_roll_back_together_when_run_update_fails(
+    tmp_path: Path,
+) -> None:
+    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository.claim_workload_run(
+        "local",
+        run_id="run-atomic-failure",
+        entry_id="chat_audio_output",
+        policy_fingerprint="policy-atomic-failure",
+    )
+    repository.claim_workload_call(
+        "local",
+        call_id="call-atomic-failure",
+        run_id="run-atomic-failure",
+        entry_id="chat_audio_output",
+        execution_shape="chat_audio_output",
+        requested_model="provider/audio-model",
+        connection_id="conn-one",
+        certification_id="cert-one",
+        connection_fingerprint="connection-one",
+        logical_call_key_hash="logical-atomic-failure",
+        call_sequence=1,
+    )
+    with sqlite3.connect(repository.database_path) as connection:
+        connection.execute(
+            """
+            UPDATE provider_workload_calls
+            SET dispatched = 1, provider_dispatch_state = 'dispatched'
+            WHERE tenant_id = 'local' AND id = 'call-atomic-failure'
+            """
+        )
+        connection.execute(
+            """
+            CREATE TRIGGER fail_atomic_workload_run_update
+            BEFORE UPDATE ON provider_workload_runs
+            WHEN NEW.tenant_id = 'local' AND NEW.id = 'run-atomic-failure'
+            BEGIN
+                SELECT RAISE(ABORT, 'injected_run_update_failure');
+            END
+            """
+        )
+
+    with pytest.raises(sqlite3.IntegrityError, match="injected_run_update_failure"):
+        repository.complete_workload_call(
+            "local",
+            "call-atomic-failure",
+            status="passed",
+            result_class="success",
+            actual_model="provider/audio-model",
+            complete_run_id="run-atomic-failure",
+            run_result_class="workflow_node_passed",
+            run_reason_codes=[],
+        )
+
+    receipts = repository.list_workload_receipts(
+        "local", entry_id="chat_audio_output"
+    )
+    assert len(receipts["calls"]) == 1
+    assert receipts["calls"][0]["status"] == "running"
+    assert receipts["calls"][0]["completed_at"] is None
+    assert receipts["calls"][0]["provider_dispatch_state"] == "dispatched"
+    assert len(receipts["runs"]) == 1
+    assert receipts["runs"][0]["status"] == "running"
+    assert receipts["runs"][0]["completed_at"] is None
+    assert receipts["runs"][0]["result_class"] is None
+    assert receipts["runs"][0]["reason_codes_json"] == "[]"
+
+
+def test_delivery_pending_workload_call_is_serializable_in_receipts(
+    tmp_path: Path,
+) -> None:
+    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository.claim_workload_run(
+        "local",
+        run_id="run-delivery-pending",
+        entry_id="chat_audio_output",
+        policy_fingerprint="policy-delivery-pending",
+    )
+    repository.claim_workload_call(
+        "local",
+        call_id="call-delivery-pending",
+        run_id="run-delivery-pending",
+        entry_id="chat_audio_output",
+        execution_shape="chat_audio_output",
+        requested_model="provider/audio-model",
+        connection_id="conn-one",
+        certification_id="cert-one",
+        connection_fingerprint="connection-one",
+        logical_call_key_hash="logical-delivery-pending",
+        call_sequence=1,
+    )
+    with sqlite3.connect(repository.database_path) as connection:
+        connection.execute(
+            """
+            UPDATE provider_workload_calls
+            SET dispatched = 1, provider_dispatch_state = 'dispatched'
+            WHERE tenant_id = 'local' AND id = 'call-delivery-pending'
+            """
+        )
+    repository.mark_workload_call_delivery_pending(
+        "local",
+        "call-delivery-pending",
+    )
+
+    receipts = ProviderWorkloadControlService(
+        ModelRouterService(repository)
+    ).receipts(entry_id="chat_audio_output")
+
+    assert len(receipts.runs) == 1
+    assert len(receipts.runs[0].calls) == 1
+    assert receipts.runs[0].calls[0].provider_dispatch_state == "delivery_pending"
 
 
 def test_running_workload_evidence_becomes_uncertain_and_cleanup_is_dry_run(
@@ -2453,6 +2700,9 @@ async def test_workload_admin_api_is_session_and_csrf_protected_and_public_redac
             "multimodal_speech",
             "xpert_transcription",
             "xpert_speech",
+            "chat_audio_input",
+            "chat_audio_output",
+            "audio_generation",
         }
         assert all(
             item["data_plane_integrated"] is (entry_id in r8_integrated_entries)

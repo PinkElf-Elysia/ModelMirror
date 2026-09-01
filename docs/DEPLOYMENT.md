@@ -320,9 +320,10 @@ MODEL_CONTROL_REALTIME_VOICE_ENABLED=false
 
 R8A 迁移 Router SQLite 至 v18，并展示 scope、Adapter、Binding 与资格框架。R8B 已接入图片 Chat、
 原生 PDF Chat、RAG/Workflow/Xpert Vision 与图片生成。R8C 已接入 Dedicated 与 Published Xpert
-的 STT/TTS；只有对应连接完成精确 shape/Adapter 资格后才能激活。Chat Audio、音频生成、视频与
-Realtime 在 R8D—R8F 合并并完成真实验收前仍会阻止付费认证和 Policy 激活。不得把打开环境变量
-解释为资格已通过、真实 Smoke 已完成或生产切换已批准。
+的 STT/TTS。R8D 增加 Chat Audio Input、Chat Audio Output 与异步音频生成的独立受管路径；三种
+shape 必须分别完成精确模型和 Adapter 资格，不能互相继承。视频与 Realtime 仍等待 R8E—R8F。
+不得把打开环境变量解释为资格已通过、真实 Smoke 已完成或生产切换已批准；R8D 的真实付费验收
+必须另行授权并记录证据。
 
 Managed 图片生成请求必须携带 1—200 字符的 `Idempotency-Key`。OpenAI-compatible Images
 连接使用 `/v1/images/generations`、标准 `size` 和 `response_format=b64_json`；若所选高级参数不在
@@ -342,7 +343,19 @@ OpenAI-compatible Adapter 必须返回可信模型字段或受信模型响应头
 关闭 `MODEL_CONTROL_TRANSCRIPTION_ENABLED`、`MODEL_CONTROL_SPEECH_ENABLED` 或
 `MODEL_CONTROL_XPERT_AUDIO_ENABLED` 并重启，可使对应入口恢复 legacy；不得删除 v18 证据。
 
-部署前使用 SQLite Backup API 备份 Router 数据库；回滚时关闭受影响 R8B/R8C Flag 并显式停用 Policy，
+Managed Chat Audio 与音频生成还必须遵守以下边界：
+
+- `MODEL_CONTROL_CHAT_AUDIO_ENABLED` 和 `MODEL_CONTROL_AUDIO_GENERATION_ENABLED` 默认均为
+  `false`；对应 Policy 为 `legacy` 时保持旧执行路径。
+- Chat Audio Input、Chat Audio Output 与 `audio_generation_stream` 分别认证。当前组合的 Managed
+  音频输入加原生音频输出会在派发前阻断，不能借此触发两个 Provider 调用。
+- 音频生成请求必须携带 1—200 字符的 `Idempotency-Key`；同一键不得产生第二次 POST。
+- 原生音频输出与音频生成必须通过完整 MP3 帧结构校验。截断音频、只含 Magic 的伪 MP3 或缺少
+  安全终止的流不得发布为成功。
+- POST 派发后发生超时、断流、取消或重启时保留 `provider_dispatch_state=uncertain`、
+  `retry_allowed=false`；不得自动重放或切换 Provider、Adapter、模型、IP 或 legacy。
+
+部署前使用 SQLite Backup API 备份 Router 数据库；回滚时关闭受影响 R8B—R8D Flag 并显式停用 Policy，
 保留 v18 表、资格、Receipt 和新增的可空任务证据列。不得删除现有媒体任务、Provider 凭据或
 newAPI 数据。
 

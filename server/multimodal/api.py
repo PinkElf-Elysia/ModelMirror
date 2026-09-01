@@ -466,17 +466,39 @@ async def create_audio_job(
     prompt: str = Form(...),
     idempotency_key: str = Form(...),
     image: UploadFile | None = File(default=None),
+    idempotency_key_header: str | None = Header(
+        default=None, alias="Idempotency-Key"
+    ),
 ) -> AudioJob:
     try:
+        service = get_audio_job_service()
+        routing_mode = service.managed_gateway.routing_mode(
+            "audio_generation"
+        )
+        effective_idempotency_key = idempotency_key
+        if routing_mode != "legacy":
+            if not idempotency_key_header:
+                raise MultimodalServiceError(
+                    "provider_multimodal_idempotency_key_required",
+                    "Managed 音频生成必须提供 Idempotency-Key 请求头。",
+                    status_code=422,
+                )
+            if idempotency_key_header != idempotency_key:
+                raise MultimodalServiceError(
+                    "provider_multimodal_idempotency_key_conflict",
+                    "Idempotency-Key 请求头与表单值不一致。",
+                    status_code=409,
+                )
+            effective_idempotency_key = idempotency_key_header
         image_content = (
             await image.read(MAX_AUDIO_JOB_IMAGE_BYTES + 1)
             if image is not None
             else None
         )
-        launch = await get_audio_job_service().create(
+        launch = await service.create(
             model_id=model_id,
             prompt=prompt,
-            idempotency_key=idempotency_key,
+            idempotency_key=effective_idempotency_key,
             image_filename=image.filename if image is not None else None,
             image_content_type=(
                 image.content_type if image is not None else None
@@ -485,7 +507,7 @@ async def create_audio_job(
         )
         if launch.task is not None:
             background_tasks.add_task(
-                get_audio_job_service().run,
+                service.run,
                 launch.task,
             )
         return launch.job

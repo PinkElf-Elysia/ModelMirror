@@ -6,7 +6,10 @@ import {
   CHAT_COMPOSER_COLUMN_CLASSES,
   CHAT_MESSAGE_COLUMN_CLASSES,
   CHAT_SHELL_HEADER_CLASSES,
+  ChatRouteReceiptCard,
   ProviderChatCanaryControl,
+  directAudioNativeOutputConflictReason,
+  requiresManagedChatAudioShapeSeparation,
   shouldShowBatchServingSettings,
   skillActivationContentUrl,
 } from "./ChatPage";
@@ -31,6 +34,82 @@ function activePositionClasses(classNames: string, viewportWidth: number) {
 }
 
 describe("ChatPage conversation-first shell", () => {
+  it("keeps direct audio input mutually exclusive with native audio output", () => {
+    expect(
+      directAudioNativeOutputConflictReason(true, false),
+    ).toBeUndefined();
+    expect(
+      directAudioNativeOutputConflictReason(false, true),
+    ).toBeUndefined();
+    expect(directAudioNativeOutputConflictReason(true, true)).toContain(
+      "暂不同时生成原生语音回答",
+    );
+    expect(
+      requiresManagedChatAudioShapeSeparation([
+        { feature_enabled: false, status: "managed_required" },
+        { feature_enabled: true, status: "legacy" },
+      ]),
+    ).toBe(false);
+    expect(
+      requiresManagedChatAudioShapeSeparation([
+        { feature_enabled: true, status: "degraded_required" },
+      ]),
+    ).toBe(true);
+  });
+
+  it("renders managed Chat Audio receipts without exposing internal routing details", () => {
+    render(
+      createElement(ChatRouteReceiptCard, {
+        receipt: {
+          contract_version: "modelmirror-provider-workload-routing-v1",
+          entry_id: "chat_audio_output",
+          routing_mode: "managed_required",
+          run_reference: "run-managed-audio",
+          status: "passed",
+          call_count: 1,
+          reason_codes: [],
+          calls: [
+            {
+              call_sequence: 1,
+              model_id: "provider/audio-model",
+              actual_model: "provider/audio-model",
+              dispatched: true,
+              status: "passed",
+            },
+          ],
+          connection_id: "must-not-render",
+          base_url: "https://must-not-render.example",
+        } as never,
+      }),
+    );
+
+    expect(
+      screen.getByText("Chat 音频输出控制面：已纳管 · 1 次 Provider 调用"),
+    ).toBeVisible();
+    expect(screen.getByText(/provider\/audio-model/)).toBeVisible();
+    expect(screen.queryByText(/must-not-render/)).not.toBeInTheDocument();
+    expect(screen.queryByText("成本暂不可用")).not.toBeInTheDocument();
+  });
+
+  it("preserves the legacy Chat route receipt card", () => {
+    render(
+      createElement(ChatRouteReceiptCard, {
+        receipt: {
+          requested_model: "provider/text-model",
+          actual_model: "provider/text-model",
+          provider: "legacy-provider",
+          cost_kind: "unavailable",
+          request_id: "legacy-request",
+        },
+      }),
+    );
+
+    expect(screen.getByText("路由回执")).toBeVisible();
+    expect(screen.getByText("legacy-provider")).toBeVisible();
+    expect(screen.getByText("成本暂不可用")).toBeVisible();
+    expect(screen.queryByText(/已纳管/)).not.toBeInTheDocument();
+  });
+
   it("keeps one compact header and bounded message/composer columns at every viewport", () => {
     expect(activePositionClasses(CHAT_SHELL_HEADER_CLASSES, 390)).toEqual(
       expect.arrayContaining(["sticky", "top-0", "h-16"]),
