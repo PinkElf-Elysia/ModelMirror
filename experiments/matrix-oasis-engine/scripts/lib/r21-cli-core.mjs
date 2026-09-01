@@ -7,6 +7,10 @@ import {
   readdir,
   realpath,
   rename,
+  rm,
+  rmdir,
+  stat,
+  writeFile,
 } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -69,9 +73,76 @@ const PROJECT_MAXIMUMS = Object.freeze({
   [R21_QUALIFICATION_REPORT_FILE]: NPC_DERIVED_STATE_LIMITS.qualificationReportBytes,
 });
 
+export async function listR21QualifiedTimelineIds(timelinesRoot, filesystem = { lstat, readdir, realpath }) {
+  const root = path.resolve(timelinesRoot);
+  const names = (await filesystem.readdir(root)).sort();
+  if (names.some((name) => !MANIFEST_ID.test(name))) fail("R21_R20_TIMELINE_DIRECTORY_INVALID");
+  const qualified = [];
+  for (const name of names) {
+    const evidence = path.join(root, name, "qualification-evidence.json");
+    let linked;
+    try {
+      linked = await filesystem.lstat(evidence, { bigint: true });
+    } catch (error) {
+      if (error?.code === "ENOENT") continue;
+      throw error;
+    }
+    const resolved = path.resolve(await filesystem.realpath(evidence));
+    if (!linked.isFile() || linked.isSymbolicLink() || resolved !== evidence) fail("R21_R20_QUALIFICATION_FILE_INVALID");
+    qualified.push(name);
+  }
+  return Object.freeze(qualified);
+}
+
+function createQualifiedR20AuditOperations(npcRunRoot) {
+  const timelinesRoot = path.join(path.resolve(npcRunRoot), "timelines");
+  const filesystem = { lstat, readdir, realpath };
+  return Object.freeze({
+    lstat,
+    mkdir,
+    mkdtemp,
+    openFile: open,
+    async readdir(directory, options) {
+      if (path.resolve(directory) === timelinesRoot && options === undefined) return listR21QualifiedTimelineIds(timelinesRoot, filesystem);
+      return readdir(directory, options);
+    },
+    realpath,
+    rename,
+    rm,
+    rmdir,
+    stat,
+    writeFile,
+    isProcessAlive(pid) {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch (error) {
+        return error?.code !== "ESRCH";
+      }
+    },
+  });
+}
+
+async function acquireQualifiedR20AuditLease(request) {
+  const auditOperations = createQualifiedR20AuditOperations(request.npcRunRoot);
+  const lease = await acquireR20WriterLease(request, auditOperations);
+  return Object.freeze({ auditOperations, lease });
+}
+
+async function auditQualifiedR20TimelineStore(request) {
+  const wrapper = request.writerLease;
+  if (!wrapper?.auditOperations || !wrapper?.lease) fail("R21_R20_AUDIT_LEASE_INVALID");
+  return auditR20TimelineStore({ ...request, writerLease: wrapper.lease }, wrapper.auditOperations);
+}
+
+async function releaseQualifiedR20AuditLease(wrapper) {
+  if (!wrapper?.lease) fail("R21_R20_AUDIT_LEASE_INVALID");
+  return releaseR20WriterLease(wrapper.lease);
+}
+
 const defaultOperations = Object.freeze({
-  acquireWriterLease: acquireR20WriterLease,
-  auditTimelineStore: auditR20TimelineStore,
+  acquireWriterLease: acquireQualifiedR20AuditLease,
+  auditTimelineStore: auditQualifiedR20TimelineStore,
   lstat,
   mkdir,
   mkdtemp,
@@ -79,7 +150,7 @@ const defaultOperations = Object.freeze({
   readStableFile: readStableR20File,
   readdir,
   realpath,
-  releaseWriterLease: releaseR20WriterLease,
+  releaseWriterLease: releaseQualifiedR20AuditLease,
   rename,
   validateQualificationEvidence: validateR20QualificationEvidenceJson,
 });
@@ -333,10 +404,12 @@ async function acquireSource(request, overrides = {}) {
   let keepLease = false;
   let primaryError = null;
   try {
-    const audit = await ops.auditTimelineStore({ npcRunRoot: request.npcRunRoot, temporaryRoot: trustedRoot.path, writerLease: lease });
     const currentRecord = await readStableR21FileRecord(path.join(request.npcRunRoot, "npc-current.json"), 1024 * 1024, trustedRoot, ops);
     const current = canonicalDocument(currentRecord, "R21_R20_CURRENT_INVALID");
     currentDocument(current.value);
+    const targetManifestId = current.value.manifestSha256.slice(7);
+    if (!MANIFEST_ID.test(targetManifestId)) fail("R21_R20_CURRENT_INVALID");
+    const audit = await ops.auditTimelineStore({ npcRunRoot: request.npcRunRoot, temporaryRoot: trustedRoot.path, writerLease: lease, targetManifestId });
     const selected = exactCurrentSummary(audit, current.value);
     const timelineRoot = path.join(request.npcRunRoot, "timelines", selected.manifestId);
     const timelineDirectory = await observeDirectory(timelineRoot, trustedRoot, ops);
@@ -413,7 +486,7 @@ export async function revalidateQualifiedR20Source(handle) {
   if (!state || state.released) fail("R21_SOURCE_HANDLE_INVALID");
   await observeDirectory(state.npcRunRoot, state.trustedRoot, state.ops, state.npcRoot);
   await observeDirectory(state.timelineRoot, state.trustedRoot, state.ops, state.timelineDirectory);
-  const audit = await state.ops.auditTimelineStore({ npcRunRoot: state.npcRunRoot, temporaryRoot: state.trustedRoot.path, writerLease: state.lease });
+  const audit = await state.ops.auditTimelineStore({ npcRunRoot: state.npcRunRoot, temporaryRoot: state.trustedRoot.path, writerLease: state.lease, targetManifestId: state.selected.manifestId });
   exactCurrentSummary(audit, state.current.value);
   if (!sameJson(audit.current, state.audit.current) || !sameJson(audit.timelines, state.audit.timelines)) fail("R21_R20_SOURCE_CHANGED");
   for (const record of Object.values(state.records)) await rereadRecord(record, state);

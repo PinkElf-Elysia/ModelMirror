@@ -9,6 +9,7 @@ import {
   R21_PROJECT_FILES,
   acquireQualifiedR20Source,
   inspectQualifiedR20Source,
+  listR21QualifiedTimelineIds,
   parseR21ProjectArguments,
   publishR21Artifacts,
   releaseQualifiedR20Source,
@@ -88,7 +89,7 @@ async function sourceFixture(t, label = "source") {
   let leaseActive = false;
   const operations = {
     async acquireWriterLease() { assert.equal(leaseActive, false); leaseActive = true; return Object.freeze({ lease: label }); },
-    async auditTimelineStore() { assert.equal(leaseActive, true); return structuredClone(audit); },
+    async auditTimelineStore(request) { assert.equal(leaseActive, true); assert.equal(request.targetManifestId, manifestId); return structuredClone(audit); },
     async releaseWriterLease() { assert.equal(leaseActive, true); leaseActive = false; },
     validateQualificationEvidence() { return Object.freeze({ ...evidence }); },
   };
@@ -109,6 +110,18 @@ test("R21 argument parsing fixes all inputs and the output to one new temp child
   assert.equal(parseR21ProjectArguments(values, root).output, path.join(root, "derived-output"));
   await assert.rejects(async () => parseR21ProjectArguments([...values.slice(0, -1), path.join(root, "nested", "output")], root), /R21_CLI_ARGUMENT_INVALID/u);
   await assert.rejects(async () => parseR21ProjectArguments([...values.slice(0, -1), path.join(root, "CON")], root), /R21_CLI_ARGUMENT_INVALID/u);
+});
+
+test("R21 source discovery selects only finalized qualification timelines", async (t) => {
+  const root = await temporary(t, "qualified-timeline-discovery");
+  const complete = "a".repeat(64);
+  const incomplete = "b".repeat(64);
+  await mkdir(path.join(root, complete), { recursive: true });
+  await mkdir(path.join(root, incomplete), { recursive: true });
+  await writeFile(path.join(root, complete, "qualification-evidence.json"), "qualified", { flag: "wx" });
+  assert.deepEqual(await listR21QualifiedTimelineIds(root), [complete]);
+  await mkdir(path.join(root, "not-a-manifest"));
+  await assert.rejects(listR21QualifiedTimelineIds(root), /R21_R20_TIMELINE_DIRECTORY_INVALID/u);
 });
 
 test("qualified R20 loader keeps one lease, binds exact embedded inputs, and detects source drift", async (t) => {
