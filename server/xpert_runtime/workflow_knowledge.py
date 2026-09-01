@@ -124,6 +124,7 @@ async def execute_workflow_knowledge_retrieval(
     top_k: int,
     contract_version: int,
     return_mode: str,
+    version_id: str | None = None,
 ) -> tuple[str | dict[str, Any], dict[str, Any]]:
     is_v2 = contract_version >= 2
     knowledge_base_id, compatibility_warnings = resolve_workflow_knowledge_base(
@@ -131,10 +132,15 @@ async def execute_workflow_knowledge_retrieval(
         configured_kb_id,
         allow_legacy_fallback=not is_v2,
     )
+    search_options: dict[str, Any] = {
+        "top_k": max(1, min(int(top_k), 10)),
+    }
+    if version_id is not None:
+        search_options["version_id"] = version_id
     result = await service.search_knowledge(
         knowledge_base_id,
         query,
-        top_k=max(1, min(int(top_k), 10)),
+        **search_options,
     )
     raw_sources = result.get("sources")
     sources = [

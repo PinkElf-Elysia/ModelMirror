@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 import pytest
 
+import server.xpert_runtime.execution_store as execution_store_module
 from server.main import app
 from server.xpert_runtime import (
     ApprovalCoordinator,
@@ -684,6 +685,133 @@ async def test_approval_coordinator_resumes_once_and_never_auto_approves_timeout
     assert approvals.require(timeout.approval_id).decision is None
     assert expired == [timeout.approval_id]
     assert executions.require("task-timeout").status == "waiting"
+
+
+@pytest.mark.asyncio
+async def test_approval_coordinator_requeues_when_callback_outlives_lease(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = {"now": 1_000.0}
+    monkeypatch.setattr(
+        execution_store_module.time,
+        "time",
+        lambda: clock["now"],
+    )
+    approvals = RuntimeApprovalStore(tmp_path / "approvals")
+    executions = WorkflowExecutionStore(tmp_path / "executions")
+    approval = _create_approval(approvals)
+    executions.create(
+        task_id="task-lease-expiry",
+        run_id="run-lease-expiry",
+        run_type="workflow",
+        workflow={"nodes": [], "edges": []},
+        inputs={},
+    )
+    executions.suspend(
+        "task-lease-expiry",
+        approval_id=approval.approval_id,
+        continuation={"queue": ["agent-1"]},
+    )
+    approvals.decide(
+        approval.approval_id,
+        revision=approval.revision,
+        decision="approve",
+        operator="tester",
+    )
+    attempts = 0
+
+    async def resume(execution, _resolved) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            clock["now"] += 6.0
+            raise RuntimeError("synthetic callback failure")
+        executions.complete(
+            execution.task_id,
+            result="done",
+            expected_lease_token=str(execution.lease_token or ""),
+        )
+
+    coordinator = ApprovalCoordinator(
+        approvals,
+        executions,
+        resume,
+        enabled=True,
+        worker_id="test-worker",
+        lease_seconds=5,
+    )
+
+    assert await coordinator.run_once() == 0
+    deferred = executions.require("task-lease-expiry")
+    assert deferred.status == "ready"
+    assert deferred.lease_token is None
+
+    assert await coordinator.run_once() == 1
+    assert attempts == 2
+    assert executions.require("task-lease-expiry").status == "completed"
+
+
+@pytest.mark.asyncio
+async def test_approval_coordinator_cannot_release_a_reclaimed_lease(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = {"now": 2_000.0}
+    monkeypatch.setattr(
+        execution_store_module.time,
+        "time",
+        lambda: clock["now"],
+    )
+    approvals = RuntimeApprovalStore(tmp_path / "approvals")
+    executions = WorkflowExecutionStore(tmp_path / "executions")
+    approval = _create_approval(approvals)
+    executions.create(
+        task_id="task-reclaimed",
+        run_id="run-reclaimed",
+        run_type="workflow",
+        workflow={"nodes": [], "edges": []},
+        inputs={},
+    )
+    executions.suspend(
+        "task-reclaimed",
+        approval_id=approval.approval_id,
+        continuation={"queue": ["agent-1"]},
+    )
+    approvals.decide(
+        approval.approval_id,
+        revision=approval.revision,
+        decision="approve",
+        operator="tester",
+    )
+    winner_token = ""
+
+    async def resume(execution, _resolved) -> None:
+        nonlocal winner_token
+        clock["now"] += 6.0
+        winner = executions.claim(
+            execution.task_id,
+            worker_id="winner",
+            lease_seconds=30,
+            now=clock["now"],
+        )
+        winner_token = str(winner.lease_token or "")
+        raise RuntimeError("synthetic stale callback failure")
+
+    coordinator = ApprovalCoordinator(
+        approvals,
+        executions,
+        resume,
+        enabled=True,
+        worker_id="stale-worker",
+        lease_seconds=5,
+    )
+
+    assert await coordinator.run_once() == 0
+    reclaimed = executions.require("task-reclaimed")
+    assert reclaimed.status == "running"
+    assert reclaimed.lease_owner == "winner"
+    assert reclaimed.lease_token == winner_token
 
 
 @pytest.mark.asyncio

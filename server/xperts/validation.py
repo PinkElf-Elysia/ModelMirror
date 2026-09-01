@@ -30,7 +30,10 @@ def validate_xpert_workflow_graph(
 ) -> ValidateWorkflowResponse:
     """Validate a workflow while honoring Xpert's injected history variable."""
 
-    base = validate_workflow_graph(workflow)
+    base = validate_workflow_graph(
+        workflow,
+        runtime_input_names={history_variable},
+    )
     history_reference = f"variable '{history_variable}'"
     issues = [
         issue

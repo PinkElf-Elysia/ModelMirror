@@ -12,6 +12,7 @@ from server.workflow_native.secure_http import (
     _PinnedPublicNetworkBackend,
     _resolve_fixed_public_dns,
     execute_workflow_http_request,
+    fetch_public_workflow_resource,
     validate_http_request_credential,
     validate_http_request_v2_config,
     validate_public_workflow_url,
@@ -512,6 +513,138 @@ async def test_http_v2_status_policy_redirect_and_response_limits_fail_closed() 
             url_validator=allow_public,
         )
     assert large_error.value.code == "HTTP_RESPONSE_TOO_LARGE"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("header_value", "expected_seconds"),
+    [
+        ("120", 120),
+        ("999", 300),
+        ("Wed, 21 Oct 2015 07:28:00 GMT", None),
+        ("120.0", None),
+        ("-1", None),
+        ("9" * 5000, 300),
+        ("0" * 5000 + "12", 12),
+    ],
+)
+async def test_http_429_only_accepts_bounded_decimal_retry_after(
+    header_value: str,
+    expected_seconds: int | None,
+) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            429,
+            headers={
+                "Content-Type": "text/plain",
+                "Retry-After": header_value,
+                "X-Sentinel": "must-not-leak",
+            },
+            text="sentinel-response-body",
+        )
+
+    with pytest.raises(WorkflowHttpRequestError) as raised:
+        await execute_workflow_http_request(
+            http_config(),
+            {"item_id": "1"},
+            FakeCredentials(),
+            transport=httpx.MockTransport(handler),
+            url_validator=allow_public,
+        )
+
+    error = raised.value
+    assert error.code == "HTTP_STATUS_NOT_SUCCESSFUL"
+    assert error.status_code == 429
+    assert error.retry_after_seconds == expected_seconds
+    assert header_value not in str(error)
+    assert "sentinel" not in str(error)
+
+
+@pytest.mark.asyncio
+async def test_http_429_rejects_non_ascii_retry_after_before_retry_parsing() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            429,
+            headers={"Content-Type": "text/plain", "Retry-After": "１２"},
+            text="sentinel-response-body",
+        )
+
+    with pytest.raises(WorkflowHttpRequestError) as raised:
+        await execute_workflow_http_request(
+            http_config(),
+            {"item_id": "1"},
+            FakeCredentials(),
+            transport=httpx.MockTransport(handler),
+            url_validator=allow_public,
+        )
+
+    assert raised.value.code == "HTTP_SECURITY_CHECK_FAILED"
+    assert raised.value.retry_after_seconds is None
+    assert "sentinel" not in str(raised.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error_type", "expected_code"),
+    [
+        (httpx.ConnectError, "HTTP_NETWORK_ERROR"),
+        (httpx.DecodingError, "HTTP_RESPONSE_PROTOCOL_INVALID"),
+        (httpx.RemoteProtocolError, "HTTP_RESPONSE_PROTOCOL_INVALID"),
+        (httpx.RequestError, "HTTP_REQUEST_FAILED"),
+        (OSError, "HTTP_REQUEST_FAILED"),
+    ],
+)
+async def test_http_v2_only_retries_real_network_errors(
+    error_type: type[BaseException],
+    expected_code: str,
+) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if issubclass(error_type, httpx.RequestError):
+            raise error_type("sentinel-transport-detail", request=request)
+        raise error_type("sentinel-transport-detail")
+
+    with pytest.raises(WorkflowHttpRequestError) as raised:
+        await execute_workflow_http_request(
+            http_config(),
+            {"item_id": "1"},
+            FakeCredentials(),
+            transport=httpx.MockTransport(handler),
+            url_validator=allow_public,
+        )
+
+    assert raised.value.code == expected_code
+    assert "sentinel" not in str(raised.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error_type", "expected_code"),
+    [
+        (httpx.ConnectError, "HTTP_NETWORK_ERROR"),
+        (httpx.DecodingError, "HTTP_RESPONSE_PROTOCOL_INVALID"),
+        (httpx.RemoteProtocolError, "HTTP_RESPONSE_PROTOCOL_INVALID"),
+        (httpx.RequestError, "HTTP_REQUEST_FAILED"),
+        (OSError, "HTTP_REQUEST_FAILED"),
+    ],
+)
+async def test_public_resource_only_classifies_real_network_errors_as_network(
+    error_type: type[BaseException],
+    expected_code: str,
+) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if issubclass(error_type, httpx.RequestError):
+            raise error_type("sentinel-resource-detail", request=request)
+        raise error_type("sentinel-resource-detail")
+
+    with pytest.raises(WorkflowHttpRequestError) as raised:
+        await fetch_public_workflow_resource(
+            "https://api.example.test/resource",
+            transport=httpx.MockTransport(handler),
+            url_validator=allow_public,
+        )
+
+    assert raised.value.code == expected_code
+    assert "sentinel" not in str(raised.value)
 
 
 @pytest.mark.asyncio

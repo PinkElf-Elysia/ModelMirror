@@ -1312,6 +1312,11 @@ def _normalize_source(source: SkillExperienceSource) -> SkillExperienceSource:
 
 def _reject_ineligible_execution(execution: WorkflowExecution) -> None:
     metadata = execution.runtime_metadata
+    if metadata.get("terminal_source_invalidated") is True:
+        raise SkillExperienceError(
+            "The source execution is no longer current.",
+            code="skill_experience_source_not_completed",
+        )
     excluded_markers = {
         "app_id",
         "agent_task_id",

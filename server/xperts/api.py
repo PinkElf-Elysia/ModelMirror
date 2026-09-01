@@ -59,6 +59,10 @@ try:
         WorkflowR20NodeError,
         contract_version as r20_contract_version,
     )
+    from server.workflow_native.retry_policy import (
+        retry_enabled,
+        validate_knowledge_retry_evidence,
+    )
     from server.workflow_native.content_parser import document_extractor_uses_file_asset
 except ModuleNotFoundError:
     from file_assets.contracts import FileInputKind, FilePurpose
@@ -78,6 +82,10 @@ except ModuleNotFoundError:
         is_http_request_v2,
         validate_http_request_credential,
     )
+    from workflow_native.retry_policy import (
+        retry_enabled,
+        validate_knowledge_retry_evidence,
+    )
     from workflow_native.r20_nodes import (
         WorkflowR20NodeError,
         contract_version as r20_contract_version,
@@ -91,6 +99,18 @@ _xpert_context_store: XpertContextStore | None = None
 _memory_writeback_runner: Callable[..., Awaitable[list[dict]]] | None = None
 _workflow_http_credential_lookup: Callable[[str], object] | None = None
 _workflow_mcp_tool_validator: Callable[[dict], object] | None = None
+
+
+def _validate_xpert_knowledge_retry_target(data: dict) -> str:
+    kb_id = str(data.get("knowledgeBaseId") or "").strip()
+    rag_service = get_rag_service()
+    active = rag_service.get_active_pipeline_version(kb_id)
+    if not isinstance(active, dict):
+        raise ValueError("active knowledge version unavailable")
+    evidence = rag_service.pipeline_version_evidence(
+        str(active.get("version_id") or "")
+    )
+    return validate_knowledge_retry_evidence(kb_id, active, evidence)
 
 
 def configure_workflow_http_credential_lookup(
@@ -794,6 +814,31 @@ def preview_xpert_for_publish(
                     node_id=node.id,
                 )
             )
+        if retry_enabled(data):
+            if os.getenv(
+                "WORKFLOW_NODE_RETRIES_ENABLED", "false"
+            ).strip().lower() not in {"1", "true", "yes", "on"}:
+                feature_issues.append(
+                    ValidationIssue(
+                        code="xpert_node_retries_disabled",
+                        message="Workflow node retries are disabled.",
+                        node_id=node.id,
+                    )
+                )
+            if kind == "knowledge_retrieval":
+                try:
+                    _validate_xpert_knowledge_retry_target(data)
+                except Exception:
+                    feature_issues.append(
+                        ValidationIssue(
+                            code="xpert_knowledge_retry_target_ineligible",
+                            message=(
+                                "Knowledge retry requires a ready local full-text "
+                                "or hash retrieval target without remote reranking."
+                            ),
+                            node_id=node.id,
+                        )
+                    )
         if kind == "http_request":
             if not is_http_request_v2(data):
                 feature_issues.append(

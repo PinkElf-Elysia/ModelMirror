@@ -430,6 +430,8 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
   const statusClassName =
     runStatus === "running"
       ? "border-cyan-300/80 ring-2 ring-cyan-400/40"
+      : runStatus === "retry_waiting"
+        ? "border-amber-300/80 ring-2 ring-amber-300/30"
       : runStatus === "error"
         ? "border-rose-400/80 ring-2 ring-rose-400/30"
         : runStatus === "handled_error"
@@ -452,6 +454,15 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
           className="absolute -right-1.5 -top-1.5 flex h-3.5 w-3.5 animate-pulse items-center justify-center rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)]"
           title="运行中"
         />
+      ) : null}
+      {runStatus === "retry_waiting" ? (
+        <span
+          aria-label="等待重试"
+          className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-amber-300 text-[10px] font-bold text-ink-950 shadow"
+          title="等待下一次重试"
+        >
+          ↻
+        </span>
       ) : null}
       {runStatus === "done" ? (
         <span

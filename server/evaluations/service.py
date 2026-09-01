@@ -9,6 +9,7 @@ from typing import Any, Callable
 try:
     from server.workflow_native.node_contracts import node_policy_service
     from server.workflow_native.r23_iteration import is_workflow_map
+    from server.workflow_native.retry_policy import retry_enabled
     from server.workflow_native.schemas import NativeWorkflowDefinition
     from server.xperts.models import (
         XpertDefinition,
@@ -19,6 +20,7 @@ try:
 except ModuleNotFoundError:
     from workflow_native.node_contracts import node_policy_service
     from workflow_native.r23_iteration import is_workflow_map
+    from workflow_native.retry_policy import retry_enabled
     from workflow_native.schemas import NativeWorkflowDefinition
     from xperts.models import XpertDefinition, XpertDraft, XpertVersion
     from xperts.validation import validate_xpert_workflow_graph
@@ -573,6 +575,14 @@ class XpertEvaluationService:
                         "code": policy.code or "evaluation_unsafe_node",
                         "message": policy.message
                         or f"Evaluation does not allow node kind: {kind}.",
+                        "node_id": node.id,
+                    }
+                )
+            if retry_enabled(data):
+                issues.append(
+                    {
+                        "code": "evaluation_node_retries_forbidden",
+                        "message": "Evaluation does not allow durable node retries.",
                         "node_id": node.id,
                     }
                 )

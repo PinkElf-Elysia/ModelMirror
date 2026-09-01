@@ -178,6 +178,11 @@ class RunRegistry:
             run = self._runs.get(run_id)
             if run is None:
                 raise KeyError(f"Runtime run not found: {run_id}")
+            was_cancelled = run.status == "cancelled"
+            if was_cancelled:
+                # Cancellation is a terminal authority decision. A stale
+                # resumed worker must not resurrect it to running/completed.
+                return run
             if status is not None:
                 run.status = status
                 if status == "cancelled" and run.cancelled_at is None:
@@ -201,7 +206,7 @@ class RunRegistry:
                         metadata={"status": status},
                     )
                 )
-            elif status == "cancelled":
+            elif status == "cancelled" and not was_cancelled:
                 self._checkpoints.setdefault(run_id, []).append(
                     RuntimeRunCheckpoint(
                         checkpoint_id=str(uuid.uuid4()),

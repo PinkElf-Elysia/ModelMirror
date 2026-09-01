@@ -14,7 +14,9 @@ import type {
 } from "../../types/workflow";
 import type { WorkflowNodeContractProjection } from "./workflowNodeRegistry";
 import WorkflowVariableField from "./WorkflowVariableField";
-import WorkflowFailureRoutingConfig from "./WorkflowFailureRoutingConfig";
+import WorkflowFailureRoutingConfig, {
+  type WorkflowRetryAvailability,
+} from "./WorkflowFailureRoutingConfig";
 import type { WorkflowVariableFieldDescriptor } from "./workflowVariables";
 
 
@@ -358,6 +360,7 @@ export default function WorkflowHttpRequestNodeConfig({
   nodes,
   onChange,
   onOpenVariableCenter,
+  retryAvailability,
 }: {
   contract?: WorkflowNodeContractProjection | null;
   data: WorkflowNodeData;
@@ -367,6 +370,7 @@ export default function WorkflowHttpRequestNodeConfig({
   nodes: WorkflowNode[];
   onChange: (patch: Partial<WorkflowNodeData>) => void;
   onOpenVariableCenter: () => void;
+  retryAvailability?: WorkflowRetryAvailability;
 }) {
   const isV2 = String(data.contractVersion ?? "1") === "2";
   const migration = analyzeLegacyHttpMigration(data);
@@ -525,6 +529,7 @@ export default function WorkflowHttpRequestNodeConfig({
         nodes={nodes}
         onChange={onChange}
         onOpenVariableCenter={onOpenVariableCenter}
+        retryAvailability={retryAvailability}
       />
       <div className="flex justify-end"><button className="text-[11px] font-medium text-cyan-200 underline decoration-cyan-300/30 underline-offset-4 hover:text-cyan-100" onClick={onOpenVariableCenter} type="button">管理全局变量</button></div>
     </div>

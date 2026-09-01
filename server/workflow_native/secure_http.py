@@ -73,11 +73,13 @@ class WorkflowHttpRequestError(RuntimeError):
         safe_message: str,
         *,
         status_code: int | None = None,
+        retry_after_seconds: int | None = None,
     ) -> None:
         super().__init__(f"{code}: {safe_message}")
         self.code = code
         self.safe_message = safe_message
         self.status_code = status_code
+        self.retry_after_seconds = retry_after_seconds
 
 
 @dataclass(frozen=True, slots=True)
@@ -231,10 +233,15 @@ async def _resolve_fixed_public_dns(
                 resolved.extend(_parse_fixed_doh_answers(payload, record_type))
     except WorkflowHttpRequestError:
         raise
-    except (httpx.HTTPError, OSError) as exc:
+    except (httpx.TimeoutException, httpx.NetworkError) as exc:
         raise WorkflowHttpRequestError(
             "HTTP_DNS_UNAVAILABLE",
             "Secure public DNS is temporarily unavailable.",
+        ) from exc
+    except (httpx.DecodingError, httpx.ProtocolError, httpx.HTTPError, OSError) as exc:
+        raise WorkflowHttpRequestError(
+            "HTTP_DNS_RESOLUTION_FAILED",
+            "Secure public DNS resolution failed.",
         ) from exc
     return _validated_public_addresses(tuple(resolved))
 
@@ -758,8 +765,28 @@ async def fetch_public_workflow_resource(
         raise
     except (httpx.TimeoutException, TimeoutError) as exc:
         raise WorkflowHttpRequestError("HTTP_TIMEOUT", "HTTP request timed out.") from exc
-    except (httpx.HTTPError, OSError) as exc:
+    except (httpx.DecodingError, httpx.ProtocolError) as exc:
+        raise WorkflowHttpRequestError(
+            "HTTP_RESPONSE_PROTOCOL_INVALID",
+            "HTTP response transport or decoding was invalid.",
+        ) from exc
+    except httpx.NetworkError as exc:
+        if _has_tls_cause(exc):
+            raise WorkflowHttpRequestError(
+                "HTTP_TLS_ERROR",
+                "HTTP TLS verification failed.",
+            ) from exc
         raise WorkflowHttpRequestError("HTTP_NETWORK_ERROR", "HTTP request failed.") from exc
+    except (httpx.HTTPError, OSError) as exc:
+        if _has_tls_cause(exc):
+            raise WorkflowHttpRequestError(
+                "HTTP_TLS_ERROR",
+                "HTTP TLS verification failed.",
+            ) from exc
+        raise WorkflowHttpRequestError(
+            "HTTP_REQUEST_FAILED",
+            "HTTP request failed before a valid response was received.",
+        ) from exc
     except Exception as exc:
         raise WorkflowHttpRequestError(
             "HTTP_SECURITY_CHECK_FAILED",
@@ -945,10 +972,35 @@ async def execute_workflow_http_request(
                             # untrusted error body. In particular, permission
                             # failures must not be reclassified as routable body
                             # parsing or size errors.
+                            retry_after_seconds: int | None = None
+                            if response.status_code == 429:
+                                raw_retry_after = str(
+                                    response.headers.get("retry-after") or ""
+                                ).strip()
+                                if (
+                                    raw_retry_after.isascii()
+                                    and raw_retry_after.isdecimal()
+                                ):
+                                    normalized_retry_after = (
+                                        raw_retry_after.lstrip("0") or "0"
+                                    )
+                                    if (
+                                        len(normalized_retry_after) > 3
+                                        or (
+                                            len(normalized_retry_after) == 3
+                                            and normalized_retry_after > "300"
+                                        )
+                                    ):
+                                        retry_after_seconds = 300
+                                    else:
+                                        retry_after_seconds = int(
+                                            normalized_retry_after
+                                        )
                             raise WorkflowHttpRequestError(
                                 "HTTP_STATUS_NOT_SUCCESSFUL",
                                 "HTTP request returned an unsuccessful status.",
                                 status_code=response.status_code,
+                                retry_after_seconds=retry_after_seconds,
                             )
                         chunks: list[bytes] = []
                         received = 0
@@ -1006,13 +1058,28 @@ async def execute_workflow_http_request(
         raise WorkflowHttpRequestError("HTTP_TIMEOUT", "HTTP request timed out.") from exc
     except TimeoutError as exc:
         raise WorkflowHttpRequestError("HTTP_TIMEOUT", "HTTP request timed out.") from exc
-    except (httpx.HTTPError, OSError) as exc:
+    except (httpx.DecodingError, httpx.ProtocolError) as exc:
+        raise WorkflowHttpRequestError(
+            "HTTP_RESPONSE_PROTOCOL_INVALID",
+            "HTTP response transport or decoding was invalid.",
+        ) from exc
+    except httpx.NetworkError as exc:
         if _has_tls_cause(exc):
             raise WorkflowHttpRequestError(
                 "HTTP_TLS_ERROR",
                 "HTTP TLS verification failed.",
             ) from exc
         raise WorkflowHttpRequestError("HTTP_NETWORK_ERROR", "HTTP request failed.") from exc
+    except (httpx.HTTPError, OSError) as exc:
+        if _has_tls_cause(exc):
+            raise WorkflowHttpRequestError(
+                "HTTP_TLS_ERROR",
+                "HTTP TLS verification failed.",
+            ) from exc
+        raise WorkflowHttpRequestError(
+            "HTTP_REQUEST_FAILED",
+            "HTTP request failed before a valid response was received.",
+        ) from exc
     except Exception as exc:
         # URL validators and credential adapters may use their own exception classes.
         raise WorkflowHttpRequestError("HTTP_SECURITY_CHECK_FAILED", "HTTP request security check failed.") from exc

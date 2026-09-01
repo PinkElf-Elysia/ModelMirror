@@ -123,19 +123,33 @@ async def test_capture_all_keeps_response_parsing_contract() -> None:
 
 
 @pytest.mark.asyncio
-async def test_fixed_dns_transport_failure_is_typed_as_transient_unavailable() -> None:
+@pytest.mark.parametrize(
+    ("error_type", "expected_code"),
+    [
+        (httpx.ConnectTimeout, "HTTP_DNS_UNAVAILABLE"),
+        (httpx.DecodingError, "HTTP_DNS_RESOLUTION_FAILED"),
+        (httpx.RemoteProtocolError, "HTTP_DNS_RESOLUTION_FAILED"),
+        (httpx.RequestError, "HTTP_DNS_RESOLUTION_FAILED"),
+        (OSError, "HTTP_DNS_RESOLUTION_FAILED"),
+    ],
+)
+async def test_fixed_dns_transport_failures_are_not_routable(
+    error_type: type[BaseException],
+    expected_code: str,
+) -> None:
     async def unavailable_handler(request: httpx.Request) -> httpx.Response:
-        raise httpx.ConnectTimeout("resolver unavailable", request=request)
+        if issubclass(error_type, httpx.RequestError):
+            raise error_type("sentinel-resolver-detail", request=request)
+        raise error_type("sentinel-resolver-detail")
 
     with pytest.raises(WorkflowHttpRequestError) as raised:
         await _resolve_fixed_public_dns(
             "example.test",
             transport=httpx.MockTransport(unavailable_handler),
         )
-    assert raised.value.code == "HTTP_DNS_UNAVAILABLE"
-    routed = route_http_error(raised.value)
-    assert routed is not None
-    assert routed.classification == "transient"
+    assert raised.value.code == expected_code
+    assert "sentinel" not in str(raised.value)
+    assert route_http_error(raised.value) is None
 
 
 def _routing_workflow(kind: str = "http_request", **patch: object) -> dict:
@@ -268,15 +282,13 @@ def test_data_table_only_routes_exact_sqlite_busy_errors() -> None:
     ) is None
 
 
-def test_dns_unavailable_is_routable_but_private_target_is_fatal() -> None:
-    routed = route_http_error(
+def test_dns_unavailable_and_private_target_are_fatal() -> None:
+    assert route_http_error(
         WorkflowHttpRequestError(
             "HTTP_DNS_UNAVAILABLE",
             "temporary resolver failure",
         )
-    )
-    assert routed is not None
-    assert routed.classification == "transient"
+    ) is None
     assert route_http_error(
         WorkflowHttpRequestError(
             "HTTP_PRIVATE_TARGET_FORBIDDEN",

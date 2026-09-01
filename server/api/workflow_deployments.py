@@ -104,8 +104,12 @@ TriggerExecutor = Callable[
     [WorkflowTriggerExecution, WorkflowVersion, dict[str, Any]],
     Awaitable[dict[str, Any]],
 ]
-TimerDueSource = Callable[[], list[Any]]
-TimerResumeExecutor = Callable[[str], Awaitable[dict[str, Any]]]
+WaitDueSource = Callable[[], list[Any]]
+WaitResumeExecutor = Callable[[str], Awaitable[dict[str, Any]]]
+WaitReconciliationSource = Callable[[], list[Any]]
+TriggerExecutionRecoveryGuard = Callable[[WorkflowTriggerExecution], bool]
+TimerDueSource = WaitDueSource
+TimerResumeExecutor = WaitResumeExecutor
 RssFetcher = Callable[[str, str | None, str | None], Awaitable[RssFetchResult]]
 CredentialResolver = Callable[[str], str]
 CredentialLookup = Callable[[str], Any]
@@ -113,8 +117,10 @@ EmailClientFactory = Callable[[str, str], SecureImapClient]
 
 _store: WorkflowDeploymentStore | None = None
 _trigger_executor: TriggerExecutor | None = None
-_timer_due_source: TimerDueSource | None = None
-_timer_resume_executor: TimerResumeExecutor | None = None
+_wait_due_source: WaitDueSource | None = None
+_wait_resume_executor: WaitResumeExecutor | None = None
+_wait_reconciliation_source: WaitReconciliationSource | None = None
+_trigger_execution_recovery_guard: TriggerExecutionRecoveryGuard | None = None
 _rss_fetcher: RssFetcher | None = None
 _credential_resolver: CredentialResolver | None = None
 _credential_lookup: CredentialLookup | None = None
@@ -145,6 +151,10 @@ def configure_workflow_deployment_runtime(
     store: WorkflowDeploymentStore,
     *,
     trigger_executor: TriggerExecutor | None = None,
+    wait_due_source: WaitDueSource | None = None,
+    wait_resume_executor: WaitResumeExecutor | None = None,
+    wait_reconciliation_source: WaitReconciliationSource | None = None,
+    trigger_execution_recovery_guard: TriggerExecutionRecoveryGuard | None = None,
     timer_due_source: TimerDueSource | None = None,
     timer_resume_executor: TimerResumeExecutor | None = None,
     rss_fetcher: RssFetcher | None = None,
@@ -152,15 +162,21 @@ def configure_workflow_deployment_runtime(
     credential_lookup: CredentialLookup | None = None,
     email_client_factory: EmailClientFactory | None = None,
 ) -> None:
-    global _store, _trigger_executor, _timer_due_source, _timer_resume_executor, _rss_fetcher
+    global _store, _trigger_executor, _wait_due_source, _wait_resume_executor
+    global _wait_reconciliation_source, _trigger_execution_recovery_guard, _rss_fetcher
     global _credential_resolver, _credential_lookup, _email_client_factory
     _store = store
     if trigger_executor is not None:
         _trigger_executor = trigger_executor
-    if timer_due_source is not None:
-        _timer_due_source = timer_due_source
-    if timer_resume_executor is not None:
-        _timer_resume_executor = timer_resume_executor
+    resolved_due_source = wait_due_source or timer_due_source
+    resolved_resume_executor = wait_resume_executor or timer_resume_executor
+    if resolved_due_source is not None:
+        _wait_due_source = resolved_due_source
+    if resolved_resume_executor is not None:
+        _wait_resume_executor = resolved_resume_executor
+    if wait_reconciliation_source is not None:
+        _wait_reconciliation_source = wait_reconciliation_source
+    _trigger_execution_recovery_guard = trigger_execution_recovery_guard
     if rss_fetcher is not None:
         _rss_fetcher = rss_fetcher
     if credential_resolver is not None:
@@ -245,6 +261,12 @@ def workflow_rss_triggers_enabled() -> bool:
 
 def workflow_imap_triggers_enabled() -> bool:
     return os.getenv("WORKFLOW_IMAP_TRIGGERS_ENABLED", "false").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+
+
+def workflow_node_retries_enabled() -> bool:
+    return os.getenv("WORKFLOW_NODE_RETRIES_ENABLED", "false").strip().lower() in {
         "1", "true", "yes", "on"
     }
 
@@ -437,6 +459,7 @@ async def activate_workflow(project_id: str, version: int) -> dict[str, Any]:
             rss_triggers_enabled=workflow_rss_triggers_enabled(),
             imap_triggers_enabled=workflow_imap_triggers_enabled(),
             knowledge_proposals_enabled=workflow_knowledge_proposals_enabled(),
+            node_retries_enabled=workflow_node_retries_enabled(),
         )
         payload = store.serialize_deployment(deployment)
         if plaintext_key:
@@ -942,6 +965,11 @@ async def _execute_trigger(
                 webhook_reply=outcome.get("webhook_reply"),
                 expected_lease_token=lease_token,
             )
+        if status == "cancelled":
+            return store.cancel_execution(
+                claimed.execution_id,
+                error="WORKFLOW_CANCELLED",
+            )
         return store.fail_execution(
             claimed.execution_id,
             error=str(outcome.get("error") or "Workflow trigger execution failed."),
@@ -1130,6 +1158,7 @@ class WorkflowTriggerCoordinator:
         self._task: asyncio.Task[None] | None = None
         self._stopping = asyncio.Event()
         self._email_delivery_cache: dict[str, NormalizedEmailMessage] = {}
+        self._wait_resume_tasks: dict[str, asyncio.Task[dict[str, Any]]] = {}
 
     async def start(self) -> None:
         if self._task is not None and not self._task.done():
@@ -1142,6 +1171,48 @@ class WorkflowTriggerCoordinator:
         if self._task is not None:
             await self._task
         self._task = None
+        pending = [task for task in self._wait_resume_tasks.values() if not task.done()]
+        if pending:
+            # A coordinator shutdown must be bounded, but cancelling a resume
+            # coroutine here could turn a durable workflow cancellation into an
+            # accidental user-visible failure.  Let the execution finish if it
+            # can; an unfinished lease remains recoverable after process restart.
+            await asyncio.wait(pending, timeout=5.0)
+
+    def _resume_wait_done(
+        self,
+        task_id: str,
+        task: asyncio.Task[dict[str, Any]],
+    ) -> None:
+        if self._wait_resume_tasks.get(task_id) is task:
+            self._wait_resume_tasks.pop(task_id, None)
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            logger.warning(
+                "Workflow durable wait resume task failed safely task_id=%s",
+                task_id,
+            )
+
+    def _start_wait_resume(self, task_id: str) -> None:
+        if _wait_resume_executor is None:
+            return
+        existing = self._wait_resume_tasks.get(task_id)
+        if existing is not None and not existing.done():
+            return
+        task = asyncio.create_task(
+            _wait_resume_executor(task_id),
+            name=f"workflow-wait-resume-{task_id[:64]}",
+        )
+        self._wait_resume_tasks[task_id] = task
+        task.add_done_callback(
+            lambda completed, current_task_id=task_id: self._resume_wait_done(
+                current_task_id,
+                completed,
+            )
+        )
 
     async def run_once(self) -> None:
         store = _require_store()
@@ -1258,6 +1329,11 @@ class WorkflowTriggerCoordinator:
             if store.get_imap_delivery(execution_id) is None:
                 self._email_delivery_cache.pop(execution_id, None)
         for item in store.claimable_executions(limit=20):
+            if (
+                _trigger_execution_recovery_guard is not None
+                and _trigger_execution_recovery_guard(item)
+            ):
+                continue
             if item.trigger_kind == "schedule":
                 event = {"type": "schedule_event", **dict(item.trigger_summary)}
             elif item.trigger_kind == "failure" and workflow_failure_triggers_enabled():
@@ -1351,9 +1427,13 @@ class WorkflowTriggerCoordinator:
             else:
                 continue
             asyncio.create_task(_execute_trigger(item, event))
-        if _timer_due_source is not None and _timer_resume_executor is not None:
-            for execution in _timer_due_source()[:20]:
-                asyncio.create_task(_timer_resume_executor(str(execution.task_id)))
+        if _wait_due_source is not None and _wait_resume_executor is not None:
+            due_waits = _wait_due_source()[:20]
+            if _wait_reconciliation_source is not None:
+                for execution in _wait_reconciliation_source()[:20]:
+                    self._start_wait_resume(str(execution.task_id))
+            for execution in due_waits:
+                self._start_wait_resume(str(execution.task_id))
 
     async def _run(self) -> None:
         while not self._stopping.is_set():

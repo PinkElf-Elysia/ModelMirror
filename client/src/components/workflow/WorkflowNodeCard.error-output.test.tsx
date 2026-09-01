@@ -10,6 +10,7 @@ function renderCard(
   failureAction: "stop" | "error_output",
   contractVersion = 2,
   kind: "http_request" | "knowledge_retrieval" = "http_request",
+  runStatus?: "retry_waiting",
 ) {
   const props = {
     id: "http-1",
@@ -22,6 +23,7 @@ function renderCard(
       outputVariable: "http_response",
       failureAction,
       errorVariable: failureAction === "error_output" ? "node_error" : undefined,
+      runStatus,
     },
     selected: false,
     dragging: false,
@@ -64,4 +66,12 @@ describe("WorkflowNodeCard structured error output", () => {
       expect(screen.queryByLabelText("连接错误出口")).not.toBeInTheDocument();
     },
   );
+
+  it("shows a non-animated retry waiting marker without adding another handle", () => {
+    renderCard("error_output", 2, "http_request", "retry_waiting");
+
+    expect(screen.getByLabelText("等待重试")).toHaveAttribute("title", "等待下一次重试");
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+    expect(screen.getByLabelText("连接错误出口")).toBeInTheDocument();
+  });
 });
