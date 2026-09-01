@@ -116,7 +116,7 @@ describe("ProviderWorkloadControlSettings", () => {
     });
   });
 
-  it("opens integrated R8B and R8C certifications while later multimodal shapes remain blocked", async () => {
+  it("opens integrated R8B through R8D certifications while later multimodal shapes remain blocked", async () => {
     const multimodalConnection = {
       ...connection,
       scopes: ["chat", "image", "audio"],
@@ -176,6 +176,14 @@ describe("ProviderWorkloadControlSettings", () => {
     });
     await waitFor(() => expect(screen.getByRole("button", {
       name: "运行资格认证",
+    })).toBeEnabled());
+    expect(screen.queryByText(/该多模态形态目前仅建立 Adapter/)).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("执行形态"), {
+      target: { value: "chat_video_stream" },
+    });
+    await waitFor(() => expect(screen.getByRole("button", {
+      name: "运行资格认证",
     })).toBeDisabled());
     expect(screen.getByText(/该多模态形态目前仅建立 Adapter/)).toBeVisible();
   });
@@ -226,6 +234,47 @@ describe("ProviderWorkloadControlSettings", () => {
     expect(await screen.findByText("认证输入格式：WAV")).toBeVisible();
     expect(screen.getByText("认证声线：Aoede")).toBeVisible();
     expect(screen.getByText("认证外部输出格式：WAV")).toBeVisible();
+  });
+
+  it("shows R8D generation parameters and never offers its uncertain record an unsupported refresh", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/router/connections") {
+        return jsonResponse([{ ...connection, scopes: ["audio"] }]);
+      }
+      if (url === "/api/router/certifications/workloads") {
+        return jsonResponse({
+          certifications: [
+            {
+              certification_id: "cert-r8d-generation",
+              connection_id: connection.id,
+              connection_name: connection.name,
+              provider_kind: connection.kind,
+              execution_shape: "audio_generation_stream",
+              status: "uncertain",
+              can_run: false,
+              requested_model: "provider/audio-generation",
+              candidate_model_ids: [],
+              certified_output_format: "mp3",
+              supports_image_prompt: false,
+              provider_dispatch_state: "uncertain",
+              retry_allowed: false,
+              refresh_available: true,
+            },
+          ],
+        });
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<ProviderWorkloadControlSettings csrfToken="csrf-value" view="certifications" />);
+
+    expect(await screen.findByText("认证生成格式：MP3")).toBeVisible();
+    expect(screen.getByText("图片提示：不支持")).toBeVisible();
+    expect(screen.queryByRole("button", {
+      name: "只读刷新模型证据",
+    })).not.toBeInTheDocument();
   });
 
   it("manually refreshes pending audio model evidence without a billed-call retry", async () => {

@@ -135,6 +135,7 @@ ProviderMultimodalAdapterContract = Literal[
 ProviderDispatchState = Literal[
     "not_dispatched",
     "dispatched",
+    "delivery_pending",
     "confirmed",
     "uncertain",
 ]
@@ -918,6 +919,8 @@ class ProviderWorkloadCertificationSummary(BaseModel):
     certified_input_formats: list[str] = Field(default_factory=list)
     certified_voice: str | None = None
     certified_response_format: Literal["mp3", "wav"] | None = None
+    certified_output_format: Literal["mp3"] | None = None
+    supports_image_prompt: bool | None = None
     provider_dispatch_state: ProviderDispatchState | None = None
     retry_allowed: bool | None = None
     refresh_available: bool = False
@@ -1148,6 +1151,8 @@ class ProviderWorkloadPublicStatus(BaseModel):
     certified_input_formats: list[str] = Field(default_factory=list)
     certified_voice: str | None = None
     certified_response_format: Literal["mp3", "wav"] | None = None
+    certified_output_format: Literal["mp3"] | None = None
+    supports_image_prompt: bool | None = None
 
 
 class RouterPolicy(BaseModel):

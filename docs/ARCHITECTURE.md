@@ -180,8 +180,18 @@ HTTP Transport 重试，整个逻辑调用仍始终只有一个音频 POST；窗
 关闭。Receipt 只保存 Generation ID 是否出现、GET 次数和等待毫秒数，不保存原始 ID。显式资格
 认证 refresh 不使用该运行时轮询，每次 refresh 操作恰好执行一个只读 GET。
 资格认证与运行时在派发前持久化状态，正文未完整、超时或取消记录为 `uncertain`。
-Chat Audio、音频生成、视频与 Realtime 继续等待 R8D—R8F，全部
-Feature Flag 仍默认关闭。
+
+Round 8D 在相同外壳内接入 Chat Audio Input、Chat Audio Output 与异步音频生成，但继续保留
+Chat SSE 与音频任务两套独立执行协议。三种 shape 必须分别认证；当前没有“音频输入 + 原生音频
+输出”的组合 shape，因此 Managed 请求同时要求两者时会在 POST 前阻断。Chat Audio 只有在完整
+流结束、实际模型精确匹配且观察到对应文本或音频证据后才释放结果；原生音频输出与音频生成均
+使用完整 MPEG Layer III 帧结构验证，不能只凭 `ID3` 或帧头 Magic 把截断内容判为成功。
+
+音频生成要求 1—200 字符的 `Idempotency-Key`，同一逻辑键最多派发一次 Provider POST。派发后的
+断流、超时、取消或重启结果记为 `uncertain`，不得切换第二 IP、连接、模型、Adapter 或 legacy，
+也不得自动重放。`MODEL_CONTROL_CHAT_AUDIO_ENABLED` 与
+`MODEL_CONTROL_AUDIO_GENERATION_ENABLED` 默认关闭；Policy 为 `legacy` 时沿用旧路径，只有
+Feature Flag 与 `managed_required` Policy 同时满足才接管。视频与 Realtime 继续等待 R8E—R8F。
 
 Round 5A 在控制面增加 `modelmirror-provider-chat-routing-v1`：`chat_text`、
 `chat_tools` 与 `chat_file_output` 各自具有独立认证、稳定模型资格和有序 Managed

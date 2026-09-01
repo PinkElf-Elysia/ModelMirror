@@ -27,8 +27,91 @@ const fileMessages: ChatApiMessage[] = [
   },
 ];
 
+const audioMessages: ChatApiMessage[] = [
+  {
+    role: "user",
+    content: [
+      { type: "text", text: "transcribe" },
+      { type: "input_audio", attachment_id: "att_audio_1" },
+    ],
+  },
+];
+
 describe("fetchChatStream file completion gate", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("logs only the HTTP status and a validated stable error code", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: "请求未通过校验。",
+            code: "provider_multimodal_request_shape_unsupported",
+            detail: [{ input: "SECRET_AUDIO_PAYLOAD" }],
+          }),
+          { status: 422, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+
+    await expect(
+      fetchChatStream({
+        modelId: "openai/audio-model",
+        messages: audioMessages,
+        onDelta: vi.fn(),
+      }),
+    ).rejects.toThrow("请求未通过校验");
+    expect(consoleError).toHaveBeenCalledWith("ModelMirror chat request failed", {
+      status: 422,
+      code: "provider_multimodal_request_shape_unsupported",
+    });
+    expect(JSON.stringify(consoleError.mock.calls)).not.toContain(
+      "SECRET_AUDIO_PAYLOAD",
+    );
+  });
+
+  it("falls back to an HTTP code without logging an invalid payload code", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            code: "SECRET\nLEAK",
+            detail: [{ msg: "invalid", input: "SECRET_PROMPT" }],
+          }),
+          { status: 422, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+
+    await expect(
+      fetchChatStream({
+        modelId: "openai/text-model",
+        messages: textMessages,
+        onDelta: vi.fn(),
+      }),
+    ).rejects.toThrow("invalid");
+    expect(consoleError).toHaveBeenCalledWith("ModelMirror chat request failed", {
+      status: 422,
+      code: "http_422",
+    });
+    expect(JSON.stringify(consoleError.mock.calls)).not.toContain(
+      "SECRET_PROMPT",
+    );
+    expect(JSON.stringify(consoleError.mock.calls)).not.toContain(
+      "SECRET\\nLEAK",
+    );
+  });
 
   it("keeps ordinary text compatible with a bare DONE marker", async () => {
     const onMessageEnd = vi.fn();
@@ -93,7 +176,11 @@ describe("fetchChatStream file completion gate", () => {
   });
 
   it("preserves server-confirmed output bindings on existing media inputs", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(streamResponse("data: [DONE]\n\n"));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        streamResponse("event: message_end\ndata: {}\n\ndata: [DONE]\n\n"),
+      );
     vi.stubGlobal("fetch", fetchMock);
     const outputId = `output_${"m".repeat(32)}`;
     const assetId = `file_${"n".repeat(32)}`;
@@ -182,6 +269,71 @@ describe("fetchChatStream file completion gate", () => {
       }),
     ).resolves.toBeUndefined();
     expect(onMessageEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects Chat Audio input when DONE arrives without message_end", async () => {
+    const onMessageEnd = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(streamResponse("data: [DONE]\n\n")),
+    );
+
+    await expect(
+      fetchChatStream({
+        modelId: "openai/audio-model",
+        messages: audioMessages,
+        onDelta: vi.fn(),
+        onMessageEnd,
+      }),
+    ).rejects.toThrow("音频响应未收到完成确认");
+    expect(onMessageEnd).not.toHaveBeenCalled();
+  });
+
+  it("rejects Chat Audio output when DONE arrives without message_end", async () => {
+    const onMessageEnd = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(streamResponse("data: [DONE]\n\n")),
+    );
+
+    await expect(
+      fetchChatStream({
+        modelId: "openai/audio-model",
+        messages: textMessages,
+        responseAudio: { enabled: true, voice: "alloy", format: "mp3" },
+        onDelta: vi.fn(),
+        onMessageEnd,
+      }),
+    ).rejects.toThrow("音频响应未收到完成确认");
+    expect(onMessageEnd).not.toHaveBeenCalled();
+  });
+
+  it("delivers the managed route receipt before accepting Chat Audio completion", async () => {
+    const events: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        streamResponse(
+          [
+            'event: route_receipt\ndata: {"requested_model":"openai/audio-model","cost_kind":"unavailable"}',
+            "event: message_end\ndata: {}",
+            "data: [DONE]",
+            "",
+          ].join("\n\n"),
+        ),
+      ),
+    );
+
+    await expect(
+      fetchChatStream({
+        modelId: "openai/audio-model",
+        messages: audioMessages,
+        onDelta: vi.fn(),
+        onRouteReceipt: () => events.push("receipt"),
+        onMessageEnd: () => events.push("message_end"),
+      }),
+    ).resolves.toBeUndefined();
+    expect(events).toEqual(["receipt", "message_end"]);
   });
 
   it("emits a validated output_file before accepting the explicit terminal event", async () => {

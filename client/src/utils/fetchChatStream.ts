@@ -1,4 +1,5 @@
 import { parseFileOutput, type FileOutput } from "../data/fileOutputs";
+import type { ProviderRouteReceipt } from "../components/AgencyExpertTeamTypes";
 
 export type ChatRole = "system" | "user" | "assistant";
 
@@ -146,6 +147,8 @@ export interface RouteReceipt {
   version?: string | null;
 }
 
+export type ChatRouteReceipt = RouteReceipt | ProviderRouteReceipt;
+
 interface FetchChatStreamOptions {
   modelId: string;
   messages: ChatApiMessage[];
@@ -168,7 +171,7 @@ interface FetchChatStreamOptions {
   promptSuffix?: string;
   signal?: AbortSignal;
   onRuntimeMeta?: (meta: ChatRuntimeMeta) => void;
-  onRouteReceipt?: (receipt: RouteReceipt) => void;
+  onRouteReceipt?: (receipt: ChatRouteReceipt) => void;
   onOutputFile?: (output: FileOutput) => void;
   onAudioDelta?: (audio: ChatAudioDelta) => void;
   onMessageEnd?: () => void;
@@ -228,6 +231,24 @@ function parseErrorMessage(value: unknown) {
   }
 
   return fallbackErrorMessage;
+}
+
+function parseStableErrorCode(value: unknown, status: number) {
+  const fallback = `http_${status}`;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return fallback;
+  }
+  const record = value as Record<string, unknown>;
+  const nestedCode = (candidate: unknown) =>
+    candidate && typeof candidate === "object" && !Array.isArray(candidate)
+      ? (candidate as Record<string, unknown>).code
+      : undefined;
+  const candidate =
+    record.code ?? nestedCode(record.error) ?? nestedCode(record.detail);
+  return typeof candidate === "string" &&
+    /^[a-z][a-z0-9_]{0,127}$/.test(candidate)
+    ? candidate
+    : fallback;
 }
 
 function imageUrlAsMarkdown(url: string) {
@@ -350,7 +371,7 @@ function readFinishReason(payload: unknown) {
 function handleSseEvent(
   eventText: string,
   onDelta: (text: string) => void,
-  onRouteReceipt?: (receipt: RouteReceipt) => void,
+  onRouteReceipt?: (receipt: ChatRouteReceipt) => void,
   onOutputFile?: (output: FileOutput) => void,
   onAudioDelta?: (audio: ChatAudioDelta) => void,
   onMessageEnd?: () => void,
@@ -390,7 +411,7 @@ function handleSseEvent(
 
     if (eventName === "route_receipt") {
       if (onRouteReceipt && payload && typeof payload === "object") {
-        onRouteReceipt(payload as RouteReceipt);
+        onRouteReceipt(payload as ChatRouteReceipt);
       }
       continue;
     }
@@ -426,6 +447,14 @@ function includesInputFile(messages: ChatApiMessage[]) {
     (message) =>
       Array.isArray(message.content) &&
       message.content.some((part) => part.type === "input_file"),
+  );
+}
+
+function includesInputAudio(messages: ChatApiMessage[]) {
+  return messages.some(
+    (message) =>
+      Array.isArray(message.content) &&
+      message.content.some((part) => part.type === "input_audio"),
   );
 }
 
@@ -495,8 +524,7 @@ export async function fetchChatStream({
     }
     console.error("ModelMirror chat request failed", {
       status: response.status,
-      statusText: response.statusText,
-      error: errorPayload,
+      code: parseStableErrorCode(errorPayload, response.status),
     });
     throw new Error(message);
   }
@@ -520,8 +548,12 @@ export async function fetchChatStream({
   const decoder = new TextDecoder("utf-8");
   let buffer = "";
   let messageEnded = false;
+  const requiresAudioMessageEnd =
+    Boolean(responseAudio?.enabled) || includesInputAudio(messages);
   const requiresExplicitMessageEnd =
-    outputMode === "allowlisted" || includesInputFile(messages);
+    outputMode === "allowlisted" ||
+    includesInputFile(messages) ||
+    requiresAudioMessageEnd;
   const emitMessageEnd = () => {
     if (messageEnded) return;
     messageEnded = true;
@@ -575,6 +607,11 @@ export async function fetchChatStream({
   }
   if (!messageEnded) {
     if (requiresExplicitMessageEnd) {
+      if (requiresAudioMessageEnd) {
+        throw new Error(
+          "音频响应未收到完成确认，已保留可重试状态。请检查连接后重试。",
+        );
+      }
       throw new Error(
         "文件处理未收到完成确认，附件已保留。请检查连接后重试。",
       );

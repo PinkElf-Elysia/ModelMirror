@@ -31,6 +31,8 @@ import ImageGenerationWorkspace from "../components/ImageGenerationWorkspace";
 import OpenRouterBatchWorkspace from "../components/OpenRouterBatchWorkspace";
 import PricingTimeWindows from "../components/PricingTimeWindows";
 import BrandLogo from "../components/BrandLogo";
+import ProviderRouteReceiptSummary from "../components/ProviderRouteReceiptSummary";
+import type { ProviderRouteReceipt } from "../components/AgencyExpertTeamTypes";
 import ChatAudioComposer, {
   QuickTranscriptionControl,
 } from "../components/ChatAudioComposer";
@@ -114,6 +116,7 @@ import {
   fetchChatStream,
   type ChatApiMessage,
   type ChatAudioDelta,
+  type ChatRouteReceipt,
   type ChatMessageContent,
   type ChatRuntimeMeta,
   type ChatRole,
@@ -150,6 +153,23 @@ export const CHAT_MESSAGE_COLUMN_CLASSES = "mx-auto w-full max-w-[920px]";
 export const CHAT_COMPOSER_COLUMN_CLASSES = "mx-auto w-full max-w-[1000px]";
 export const AUTO_ROUTING_GUIDANCE =
   "描述任务后，模镜会选择实际模型，并在回答末尾给出服务、Token、成本与请求编号。可在“设置”中更改路由设置。";
+
+export function directAudioNativeOutputConflictReason(
+  nativeAudioEnabled: boolean,
+  managedShapeSeparationRequired: boolean,
+) {
+  return nativeAudioEnabled && managedShapeSeparationRequired
+    ? "音频直接理解暂不同时生成原生语音回答；可在文字回答完成后使用“朗读”。"
+    : undefined;
+}
+
+export function requiresManagedChatAudioShapeSeparation(
+  statuses: Array<{ feature_enabled?: boolean; status?: string }>,
+) {
+  return statuses.some(
+    (status) => status.feature_enabled === true && status.status !== "legacy",
+  );
+}
 
 interface ProviderChatCanaryStatus {
   contract_version: "modelmirror-provider-chat-canary-v1";
@@ -424,7 +444,7 @@ interface ChatMessage {
   content: ChatMessageContent;
   displayContent: string;
   images?: UploadedImage[];
-  routeReceipt?: RouteReceipt;
+  routeReceipt?: ChatRouteReceipt;
   ragExecutionMode?: RagExecutionMode;
   audio?: AssistantMessageAudio;
   videoContext?: VideoUnderstandingContext;
@@ -1086,6 +1106,38 @@ function RouteReceiptCard({ receipt }: { receipt: RouteReceipt }) {
   );
 }
 
+export function isWorkloadProviderRouteReceipt(
+  receipt: ChatRouteReceipt,
+): receipt is ProviderRouteReceipt {
+  if (!("contract_version" in receipt)) return false;
+  return (
+    receipt.contract_version === "modelmirror-provider-workload-routing-v1" &&
+    typeof receipt.entry_id === "string" &&
+    receipt.routing_mode === "managed_required" &&
+    typeof receipt.run_reference === "string" &&
+    typeof receipt.call_count === "number" &&
+    Array.isArray(receipt.reason_codes) &&
+    Array.isArray(receipt.calls)
+  );
+}
+
+export function ChatRouteReceiptCard({
+  receipt,
+}: {
+  receipt: ChatRouteReceipt;
+}) {
+  if (isWorkloadProviderRouteReceipt(receipt)) {
+    const title =
+      receipt.entry_id === "chat_audio_input"
+        ? "Chat 音频输入控制面"
+        : receipt.entry_id === "chat_audio_output"
+          ? "Chat 音频输出控制面"
+          : "Provider 控制面";
+    return <ProviderRouteReceiptSummary receipts={receipt} title={title} />;
+  }
+  return <RouteReceiptCard receipt={receipt} />;
+}
+
 function AssistantAudioControls({
   audio,
   canRead,
@@ -1367,7 +1419,7 @@ const MessageBubble = memo(function MessageBubble({
           />
         ) : null}
         {!isUser && message.routeReceipt ? (
-          <RouteReceiptCard receipt={message.routeReceipt} />
+          <ChatRouteReceiptCard receipt={message.routeReceipt} />
         ) : null}
       </div>
     </div>
@@ -1602,6 +1654,8 @@ function ChatConversationPage() {
   const [isPreparingVideo, setIsPreparingVideo] = useState(false);
   const [chatAudioFeatures, setChatAudioFeatures] =
     useState<ChatAudioFeatures | null>(null);
+  const [managedChatAudioShapeSeparation, setManagedChatAudioShapeSeparation] =
+    useState(false);
   const [imageAnalysisModelIds, setImageAnalysisModelIds] =
     useState<Set<string> | null>(null);
   const [chatVideoEnabled, setChatVideoEnabled] = useState(false);
@@ -2039,12 +2093,17 @@ function ChatConversationPage() {
 
   useEffect(() => {
     if (searchParams.get("media") === "audio") {
-      setAudioComposerOpen(true);
+      const conflict = directAudioNativeOutputConflictReason(
+        nativeAudioEnabled,
+        managedChatAudioShapeSeparation,
+      );
+      setAudioComposerOpen(!conflict);
+      if (conflict) setError(conflict);
     }
     if (searchParams.get("media") === "video") {
       setVideoComposerOpen(true);
     }
-  }, [searchParams]);
+  }, [managedChatAudioShapeSeparation, nativeAudioEnabled, searchParams]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -2059,6 +2118,62 @@ function ChatConversationPage() {
       .catch(() => undefined);
     return () => controller.abort();
   }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setManagedChatAudioShapeSeparation(false);
+    if (isOmniAutoRoute) return () => controller.abort();
+
+    const loadStatus = async (entryId: string, executionShape: string) => {
+      const params = new URLSearchParams({
+        entry_id: entryId,
+        model_id: outputModelId,
+        execution_shape: executionShape,
+      });
+      const response = await fetch(
+        `/api/models/provider-workload-control?${params}`,
+        { signal: controller.signal },
+      );
+      if (!response.ok) throw new Error("provider_workload_status_unavailable");
+      return (await response.json()) as {
+        feature_enabled?: boolean;
+        status?: string;
+      };
+    };
+
+    void Promise.all([
+      loadStatus("chat_audio_input", "chat_audio_input"),
+      loadStatus("chat_audio_output", "chat_audio_output"),
+    ])
+      .then((statuses) => {
+        if (controller.signal.aborted) return;
+        setManagedChatAudioShapeSeparation(
+          requiresManagedChatAudioShapeSeparation(statuses),
+        );
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setManagedChatAudioShapeSeparation(false);
+        }
+      });
+    return () => controller.abort();
+  }, [isOmniAutoRoute, outputModelId]);
+
+  useEffect(() => {
+    if (
+      managedChatAudioShapeSeparation &&
+      nativeAudioEnabled &&
+      (audioComposerOpen || reusedDirectMedia?.kind === "audio")
+    ) {
+      setNativeAudioEnabled(false);
+      setError("已关闭原生语音回答：当前 Managed 请求正在使用音频输入。");
+    }
+  }, [
+    audioComposerOpen,
+    managedChatAudioShapeSeparation,
+    nativeAudioEnabled,
+    reusedDirectMedia,
+  ]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -2582,6 +2697,13 @@ function ChatConversationPage() {
       throw new Error("该输出不属于当前聊天作用域，无法跨会话复用。");
     }
     if (["image", "audio", "video"].includes(output.preview_kind)) {
+      const conflict = directAudioNativeOutputConflictReason(
+        nativeAudioEnabled,
+        managedChatAudioShapeSeparation,
+      );
+      if (output.preview_kind === "audio" && conflict) {
+        throw new Error(conflict);
+      }
       if (
         chatFileState.count > 0 ||
         visualAnalysisState.count > 0 ||
@@ -2796,6 +2918,15 @@ function ChatConversationPage() {
         setError(
           "音频直接理解暂不与知识库、Skill 或 MCP 工具组合，请先转成文字。",
         );
+        return false;
+      }
+      const nativeAudioConflict =
+        directAudioNativeOutputConflictReason(
+          nativeAudioEnabled,
+          managedChatAudioShapeSeparation,
+        );
+      if (nativeAudioConflict) {
+        setError(nativeAudioConflict);
         return false;
       }
       if (images.length > 0) {
@@ -3468,6 +3599,14 @@ function ChatConversationPage() {
   }
 
   function openAudioComposer(source: "upload" | "record") {
+    const conflict = directAudioNativeOutputConflictReason(
+      nativeAudioEnabled,
+      managedChatAudioShapeSeparation,
+    );
+    if (conflict) {
+      setError(conflict);
+      return;
+    }
     if (
       chatFileState.count > 0 ||
       visualAnalysisState.count > 0 ||
@@ -3837,7 +3976,10 @@ function ChatConversationPage() {
       ? "当前已选择 Skill，请先转成文字后再发送。"
       : runtimeToolsEnabled
         ? "MCP 工具模式需先把音频转成文字。"
-        : undefined;
+        : directAudioNativeOutputConflictReason(
+            nativeAudioEnabled,
+            managedChatAudioShapeSeparation,
+          );
   const chatFileMediaBlockedReason = reusedDirectMedia
     ? "本轮已加入复用媒体，请先移除后再添加文件。"
     : uploadedImages.length > 0
@@ -3954,8 +4096,10 @@ function ChatConversationPage() {
           ? "本轮已有文件输入，请先移除后再添加图片。"
           : "";
   const audioBlockedReason =
-    chatOutputEnabled || uploadedImages.length > 0 || videoComposerOpen || reusedDirectMedia || chatFileState.count > 0 || visualAnalysisState.count > 0
-      ? "本轮已有互斥的文件、图片、视频或输出模式。"
+    nativeAudioEnabled && managedChatAudioShapeSeparation
+      ? "原生语音回答已开启，请先关闭后再添加音频输入。"
+      : chatOutputEnabled || uploadedImages.length > 0 || videoComposerOpen || reusedDirectMedia || chatFileState.count > 0 || visualAnalysisState.count > 0
+        ? "本轮已有互斥的文件、图片、视频或输出模式。"
       : "";
   const videoBlockedReason = !chatVideoEnabled
     ? "当前环境未启用视频输入。"
@@ -4826,7 +4970,13 @@ function ChatConversationPage() {
                   <input
                     checked={nativeAudioEnabled}
                     className="h-4 w-4"
-                    disabled={isSending || Boolean(selectedKnowledgeBaseId) || runtimeToolsEnabled}
+                    disabled={
+                      isSending ||
+                      Boolean(selectedKnowledgeBaseId) ||
+                      runtimeToolsEnabled ||
+                      (managedChatAudioShapeSeparation &&
+                        (audioComposerOpen || reusedDirectMedia?.kind === "audio"))
+                    }
                     onChange={(event) => setNativeAudioEnabled(event.target.checked)}
                     type="checkbox"
                   />

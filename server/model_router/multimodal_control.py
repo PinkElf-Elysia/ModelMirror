@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import ipaddress
 import json
 import logging
 import re
 import struct
 from dataclasses import dataclass, field
 from typing import Callable, Literal, Mapping
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -35,6 +37,9 @@ R8B_EXECUTION_SHAPES: frozenset[ProviderWorkloadExecutionShape] = frozenset(
 R8C_EXECUTION_SHAPES: frozenset[ProviderWorkloadExecutionShape] = frozenset(
     {"audio_transcription", "audio_speech"}
 )
+R8D_EXECUTION_SHAPES: frozenset[ProviderWorkloadExecutionShape] = frozenset(
+    {"chat_audio_input", "chat_audio_output", "audio_generation_stream"}
+)
 _MAX_GENERATION_METADATA_BYTES = 256 * 1024
 OPENROUTER_GENERATION_METADATA_REQUEST_TIMEOUT_SECONDS = 2.0
 _OPENROUTER_GENERATION_ID_LOG_PATTERN = re.compile(
@@ -57,12 +62,19 @@ class _OpenRouterGenerationMetadataLogFilter(logging.Filter):
         ):
             return True
         url = str(args[1])
-        if "/generation?" not in url:
-            return True
-        redacted_url = _OPENROUTER_GENERATION_ID_LOG_PATTERN.sub(
-            r"\1[redacted]",
-            url,
-        )
+        redacted_url = url
+        try:
+            parsed = urlsplit(url)
+            if parsed.hostname is not None:
+                ipaddress.ip_address(parsed.hostname)
+                redacted_url = f"{parsed.scheme}://[provider-address-redacted]"
+        except ValueError:
+            pass
+        if "/generation?" in redacted_url:
+            redacted_url = _OPENROUTER_GENERATION_ID_LOG_PATTERN.sub(
+                r"\1[redacted]",
+                redacted_url,
+            )
         if redacted_url != url:
             clean_args = list(args)
             clean_args[1] = redacted_url

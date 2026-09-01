@@ -5262,6 +5262,9 @@ class SQLiteRouterRepository:
         generation_id_observed: bool | None = None,
         generation_metadata_get_count: int | None = None,
         generation_metadata_wait_ms: float | None = None,
+        complete_run_id: str | None = None,
+        run_result_class: str | None = None,
+        run_reason_codes: list[str] | None = None,
     ) -> dict[str, object]:
         if status not in {"passed", "failed", "uncertain", "cancelled"}:
             raise RouterRepositoryError("invalid_provider_workload_call_status")
@@ -5285,7 +5288,7 @@ class SQLiteRouterRepository:
         with self._lock, self._connect() as connection:
             current = connection.execute(
                 """
-                SELECT status, dispatched FROM provider_workload_calls
+                SELECT status, dispatched, run_id FROM provider_workload_calls
                 WHERE tenant_id = ? AND id = ?
                 """,
                 (clean_tenant, call_id),
@@ -5339,11 +5342,98 @@ class SQLiteRouterRepository:
             )
             if cursor.rowcount != 1:
                 raise RouterRepositoryError("provider_workload_call_not_running")
+            if complete_run_id is not None:
+                if str(current["run_id"]) != complete_run_id:
+                    raise RouterRepositoryError(
+                        "provider_workload_call_run_mismatch"
+                    )
+                current_run = connection.execute(
+                    """
+                    SELECT status FROM provider_workload_runs
+                    WHERE tenant_id = ? AND id = ?
+                    """,
+                    (clean_tenant, complete_run_id),
+                ).fetchone()
+                if (
+                    current_run is None
+                    or str(current_run["status"]) != "running"
+                ):
+                    raise RouterRepositoryError(
+                        "provider_workload_run_not_running"
+                    )
+                call_rows = connection.execute(
+                    """
+                    SELECT status FROM provider_workload_calls
+                    WHERE tenant_id = ? AND run_id = ?
+                    """,
+                    (clean_tenant, complete_run_id),
+                ).fetchall()
+                if any(str(item["status"]) == "running" for item in call_rows):
+                    raise RouterRepositoryError(
+                        "provider_workload_run_has_running_calls"
+                    )
+                if status == "passed" and (
+                    not call_rows
+                    or any(
+                        str(item["status"]) != "passed" for item in call_rows
+                    )
+                ):
+                    raise RouterRepositoryError(
+                        "provider_workload_run_passed_without_successful_calls"
+                    )
+                run_cursor = connection.execute(
+                    """
+                    UPDATE provider_workload_runs
+                    SET status = ?, result_class = ?, reason_codes_json = ?,
+                        updated_at = ?, completed_at = ?
+                    WHERE tenant_id = ? AND id = ? AND status = 'running'
+                    """,
+                    (
+                        status,
+                        run_result_class,
+                        json.dumps(
+                            run_reason_codes or [], separators=(",", ":")
+                        ),
+                        now,
+                        now,
+                        clean_tenant,
+                        complete_run_id,
+                    ),
+                )
+                if run_cursor.rowcount != 1:
+                    raise RouterRepositoryError(
+                        "provider_workload_run_not_running"
+                    )
             row = connection.execute(
                 "SELECT * FROM provider_workload_calls WHERE tenant_id = ? AND id = ?",
                 (clean_tenant, call_id),
             ).fetchone()
         return dict(row)
+
+    def mark_workload_call_delivery_pending(
+        self,
+        tenant_id: str,
+        call_id: str,
+    ) -> None:
+        """Persist the verified-before-delivery boundary without ending the call."""
+
+        clean_tenant = self._tenant_id(tenant_id)
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE provider_workload_calls
+                SET provider_dispatch_state = 'delivery_pending',
+                    updated_at = ?
+                WHERE tenant_id = ? AND id = ?
+                    AND status = 'running' AND dispatched = 1
+                    AND provider_dispatch_state = 'dispatched'
+                """,
+                (utc_now(), clean_tenant, call_id),
+            )
+            if cursor.rowcount != 1:
+                raise RouterRepositoryError(
+                    "provider_workload_call_not_ready_for_delivery"
+                )
 
     def complete_workload_run(
         self,
@@ -6092,6 +6182,15 @@ class SQLiteRouterRepository:
         has_image: bool,
         cost_usd: float | None = None,
         cost_kind: str = "unavailable",
+        workload_run_id: str | None = None,
+        workload_call_id: str | None = None,
+        policy_fingerprint: str | None = None,
+        connection_fingerprint: str | None = None,
+        adapter_contract: str | None = None,
+        protocol_version: str | None = None,
+        provider_dispatch_state: str = "not_dispatched",
+        post_dispatched: bool = False,
+        provider_terminal_status: str | None = None,
     ) -> tuple[dict[str, object], bool]:
         """Atomically claim an idempotency key before a paid audio call."""
 
@@ -6103,8 +6202,13 @@ class SQLiteRouterRepository:
                 INSERT OR IGNORE INTO audio_jobs (
                     id, tenant_id, idempotency_key_hash, connection_id,
                     requested_model, provider, status, has_image,
-                    cost_usd, cost_kind, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?)
+                    cost_usd, cost_kind, workload_run_id, workload_call_id,
+                    policy_fingerprint, connection_fingerprint,
+                    adapter_contract, protocol_version,
+                    provider_dispatch_state, post_dispatched,
+                    provider_terminal_status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     job_id,
@@ -6116,6 +6220,15 @@ class SQLiteRouterRepository:
                     int(has_image),
                     cost_usd,
                     cost_kind,
+                    workload_run_id,
+                    workload_call_id,
+                    policy_fingerprint,
+                    connection_fingerprint,
+                    adapter_contract,
+                    protocol_version,
+                    provider_dispatch_state,
+                    int(bool(post_dispatched)),
+                    provider_terminal_status,
                     now,
                     now,
                 ),
@@ -6177,6 +6290,86 @@ class SQLiteRouterRepository:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def list_active_audio_jobs(
+        self,
+        tenant_id: str,
+        *,
+        limit: int = 100,
+        before_created_at: str | None = None,
+        before_id: str | None = None,
+    ) -> list[dict[str, object]]:
+        """Page every queued/running job for bounded startup recovery."""
+
+        clean_tenant = self._tenant_id(tenant_id)
+        safe_limit = max(1, min(int(limit), 100))
+        cursor_enabled = bool(before_created_at and before_id)
+        query = """
+            SELECT * FROM audio_jobs
+            WHERE tenant_id = ? AND status IN ('queued', 'running')
+        """
+        parameters: list[object] = [clean_tenant]
+        if cursor_enabled:
+            query += """
+                AND (
+                    created_at < ?
+                    OR (created_at = ? AND id < ?)
+                )
+            """
+            parameters.extend(
+                [before_created_at, before_created_at, before_id]
+            )
+        query += """
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+        """
+        parameters.append(safe_limit)
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(query, tuple(parameters)).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_audio_jobs_for_cleanup(
+        self,
+        tenant_id: str,
+        *,
+        limit: int = 100,
+        before_created_at: str | None = None,
+        before_id: str | None = None,
+        include_non_success_terminal: bool = False,
+    ) -> list[dict[str, object]]:
+        """Page terminal jobs whose local output needs TTL or orphan checks."""
+
+        clean_tenant = self._tenant_id(tenant_id)
+        safe_limit = max(1, min(int(limit), 100))
+        cursor_enabled = bool(before_created_at and before_id)
+        status_filter = (
+            "status NOT IN ('queued', 'running')"
+            if include_non_success_terminal
+            else "status = 'succeeded'"
+        )
+        query = f"""
+            SELECT * FROM audio_jobs
+            WHERE tenant_id = ? AND {status_filter}
+        """
+        parameters: list[object] = [clean_tenant]
+        if cursor_enabled:
+            query += """
+                AND (
+                    created_at < ?
+                    OR (created_at = ? AND id < ?)
+                )
+            """
+            parameters.extend(
+                [before_created_at, before_created_at, before_id]
+            )
+        query += """
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+        """
+        parameters.append(safe_limit)
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(query, tuple(parameters)).fetchall()
+        return [dict(row) for row in rows]
+
     def update_audio_job(
         self,
         tenant_id: str,
@@ -6193,6 +6386,15 @@ class SQLiteRouterRepository:
             "cost_kind",
             "error_code",
             "expires_at",
+            "workload_run_id",
+            "workload_call_id",
+            "policy_fingerprint",
+            "connection_fingerprint",
+            "adapter_contract",
+            "protocol_version",
+            "provider_dispatch_state",
+            "post_dispatched",
+            "provider_terminal_status",
         }
         selected = {
             key: value for key, value in changes.items() if key in allowed
@@ -6215,12 +6417,26 @@ class SQLiteRouterRepository:
                 return None
         return self.get_audio_job(tenant_id, job_id)
 
+    def get_workload_call(
+        self, tenant_id: str, call_id: str
+    ) -> dict[str, object] | None:
+        clean_tenant = self._tenant_id(tenant_id)
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM provider_workload_calls
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, call_id),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
     def delete_audio_job(self, tenant_id: str, job_id: str) -> bool:
         with self._lock, self._connect() as connection:
             cursor = connection.execute(
                 """
                 DELETE FROM audio_jobs
-                WHERE tenant_id = ? AND id = ?
+                WHERE tenant_id = ? AND id = ? AND workload_run_id IS NULL
                 """,
                 (self._tenant_id(tenant_id), job_id),
             )
