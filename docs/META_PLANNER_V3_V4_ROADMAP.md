@@ -98,14 +98,15 @@ Graph IR V3 至少需要表达：
 
 ### Round 3：Pure Nodes
 
-首批开放无副作用且可确定性评测的节点，候选范围以真实 NodeContract 和 Runner 支持为准，目标包括：
+本轮实际开放范围锁定为 `json_serialize`、`json_deserialize`、
+`variable_aggregator` V2、`data_aggregate` 和 `dataset_compare`。它们只作为 Agent
+之间的确定性辅助步骤，不承担计划任务，也不成为最终输出。JSON V2 使用严格失败、
+5 MiB 边界和 Deserialize `expectedSchema`；旧 JSON 契约保持兼容读取。
 
-- JSON 序列化与反序列化。
-- 变量赋值、变量聚合和列表操作。
-- 对象变换、数据聚合、数据合并和数据集比较。
-- Annotation 仅作为元数据保留，不参与执行。
-
-每个节点必须补齐输入输出类型、默认值、错误策略、Adapter、反编译和确定性评测。不得为了快速开放而把复杂值退化为字符串。
+`variable_assign`、`list_operation`、`object_transform` 和 `data_merge` 因动态端口、
+表达式或多输入 Join 契约尚未成熟而延期。Annotation 继续只作为元数据保留，不参与
+执行，也不获得 Planner Adapter。所有已开放节点必须保持 Adapter 往返、Headless Patch、
+输入输出类型和确定性评测稳定，不得把复杂值退化为字符串。
 
 ### Round 4：Control Flow
 

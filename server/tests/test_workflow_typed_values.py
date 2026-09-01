@@ -15,6 +15,8 @@ from server.main import (
     render_workflow_template,
 )
 from server.workflow_native.schemas import NativeWorkflowDefinition
+from server.workflow_native.control_data import aggregate_rows
+from server.workflow_native.node_contracts import WorkflowValueSchema
 from server.workflow_native.validate import validate_workflow_graph
 from server.workflow_native.values import (
     deserialize_workflow_value,
@@ -274,6 +276,86 @@ def test_json_helpers_and_template_conversion_are_deterministic() -> None:
     )
     assert workflow_condition_matches(["draft", "published"], "contains", '"draft"')
     assert workflow_condition_matches({"status": "ready"}, "contains", "status")
+
+
+@pytest.mark.asyncio
+async def test_json_deserialize_v2_validates_declared_schema_and_fails_closed(
+    client: httpx.AsyncClient,
+) -> None:
+    workflow = _json_round_trip_workflow()
+    workflow["nodes"] = [
+        workflow["nodes"][0],
+        workflow["nodes"][2],
+        workflow["nodes"][3],
+    ]
+    workflow["nodes"][1]["data"].update(
+        {
+            "contractVersion": 2,
+            "inputVariable": "user_input",
+            "expectedSchema": {
+                "type": "object",
+                "properties": {"answer": {"type": "string"}},
+                "required": ["answer"],
+            },
+        }
+    )
+    workflow["edges"] = [
+        {"id": "e1", "source": "input", "target": "deserialize"},
+        {"id": "e2", "source": "deserialize", "target": "output"},
+    ]
+
+    response = await client.post(
+        "/api/workflow/run",
+        json={"workflow": workflow, "inputs": {"user_input": "[]"}},
+    )
+
+    assert response.status_code == 200, response.text
+    events = _parse_sse_events(response.text)
+    assert any(event.get("event") == "error" for event in events)
+    assert not any(event.get("event") == "workflow_end" for event in events)
+
+
+def test_json_deserialize_v2_static_validation_requires_expected_schema() -> None:
+    workflow = _json_round_trip_workflow()
+    workflow["nodes"][2]["data"]["contractVersion"] = 2
+
+    result = validate_workflow_graph(NativeWorkflowDefinition.model_validate(workflow))
+
+    assert result.valid is False
+    assert "invalid_json_deserialize_expected_schema" in {
+        issue.code for issue in result.issues
+    }
+
+
+def test_json_v2_schema_and_output_limits_are_fail_closed() -> None:
+    schema = WorkflowValueSchema(
+        type="object",
+        properties={"count": WorkflowValueSchema(type="integer")},
+        required=("count",),
+    )
+    schema.assert_value({"count": 2})
+    with pytest.raises(ValueError, match="must have type integer"):
+        schema.assert_value({"count": "2"})
+    WorkflowValueSchema(
+        type="string",
+        nullable=True,
+        any_of=(WorkflowValueSchema(type="string"),),
+    ).assert_value(None)
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        WorkflowValueSchema.model_validate(
+            {"type": "string", "forged_runtime_policy": "ignore"}
+        )
+    with pytest.raises(ValueError, match="JSON_SERIALIZE_OUTPUT_TOO_LARGE"):
+        serialize_workflow_value({"value": "0123456789"}, max_bytes=8)
+    with pytest.raises(ValueError, match="JSON_DESERIALIZE_INPUT_TOO_LARGE"):
+        deserialize_workflow_value('"0123456789"', max_bytes=8)
+    with pytest.raises(ValueError, match="AGGREGATE_OUTPUT_LIMIT_EXCEEDED"):
+        aggregate_rows(
+            [{"group": "a"}],
+            group_by_fields=["group"],
+            measures=[{"outputField": "count", "operation": "count"}],
+            max_output_bytes=8,
+        )
 
 
 def test_workflow_run_request_rejects_non_json_numbers() -> None:

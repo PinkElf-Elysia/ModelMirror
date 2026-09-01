@@ -78,6 +78,7 @@ class WorkflowPaletteItem:
                 "compilation_mode": contract.planner.compilation_mode,
                 "ir_version": contract.planner.ir_version,
                 "adapter_version": contract.planner.adapter_version,
+                "task_binding": contract.planner.task_binding,
                 "contract_checksum": contract.checksum,
                 "compiler_checksum": contract.compiler_checksum,
                 "default_data": {
@@ -153,7 +154,7 @@ class WorkflowNodeRegistry:
     """Xpert-style metadata registry for classic workflow palette nodes."""
 
     def __init__(self) -> None:
-        self.version = "xpert-workflow-node-registry-v4"
+        self.version = "xpert-workflow-node-registry-v5"
         self.contract_registry = workflow_node_contract_registry
         self._tabs: list[WorkflowPaletteTab] = []
         self._sections: list[WorkflowPaletteSection] = []

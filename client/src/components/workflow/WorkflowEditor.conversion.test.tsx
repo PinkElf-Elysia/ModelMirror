@@ -39,7 +39,7 @@ function registry(): WorkflowNodeRegistryResponse {
     "output",
   ];
   return {
-    version: "xpert-workflow-node-registry-v4",
+    version: "xpert-workflow-node-registry-v5",
     contract_version: 3,
     contract_checksum: "a".repeat(64),
     tabs: [],

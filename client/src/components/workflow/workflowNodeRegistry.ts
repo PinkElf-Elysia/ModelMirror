@@ -569,7 +569,7 @@ export function hasNodeContractV3(
   registry: WorkflowNodeRegistryResponse,
 ): boolean {
   if (
-    registry.version !== "xpert-workflow-node-registry-v4" ||
+    registry.version !== "xpert-workflow-node-registry-v5" ||
     registry.contract_version !== 3 ||
     !isSha256(registry.contract_checksum)
   ) {

@@ -20,7 +20,16 @@ describe("Meta Planner headless authoring contracts", () => {
       can_author: true,
       graph_checksum: "graph-checksum",
       candidate_checksum: "candidate-checksum",
-      allowed_node_kinds: ["input", "output", "workflow_agent"],
+      allowed_node_kinds: [
+        "input",
+        "output",
+        "workflow_agent",
+        "json_serialize",
+        "json_deserialize",
+        "variable_aggregator",
+        "data_aggregate",
+        "dataset_compare",
+      ],
       compiler_managed_node_kinds: ["input", "output"],
       authorized_scope: {
         agent_ids: ["expert-reviewer"],
@@ -32,10 +41,20 @@ describe("Meta Planner headless authoring contracts", () => {
       proposal_id: "proposal_v3",
       proposal_revision: 4,
       can_author: true,
-      allowed_node_kinds: ["input", "output", "workflow_agent"],
+      allowed_node_kinds: [
+        "input",
+        "output",
+        "workflow_agent",
+        "json_serialize",
+        "json_deserialize",
+        "variable_aggregator",
+        "data_aggregate",
+        "dataset_compare",
+      ],
       allowed_source_agent_ids: ["expert-reviewer"],
     });
-    expect(state?.allowed_node_kinds).not.toContain("json_serialize");
+    expect(state?.allowed_node_kinds).toContain("json_serialize");
+    expect(state?.allowed_node_kinds).not.toContain("knowledge_retrieval");
   });
 
   it("allows a lossless V2 proposal to upgrade through typed apply", () => {

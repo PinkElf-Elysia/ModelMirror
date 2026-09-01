@@ -323,6 +323,7 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   contentVariable?: string;
   tags?: string[];
   contractVersion?: number | string;
+  expectedSchema?: Record<string, unknown>;
   toolsetId?: string;
   pluginId?: string;
   xpertId?: string;

@@ -746,6 +746,7 @@ try:
         workflow_batch_input_digest,
     )
     from server.workflow_native.values import (
+        MAX_WORKFLOW_JSON_BYTES,
         WorkflowValue,
         deserialize_workflow_value,
         normalize_workflow_value,
@@ -896,6 +897,7 @@ except ModuleNotFoundError:
         workflow_batch_input_digest,
     )
     from workflow_native.values import (
+        MAX_WORKFLOW_JSON_BYTES,
         WorkflowValue,
         deserialize_workflow_value,
         normalize_workflow_value,
@@ -8872,6 +8874,9 @@ async def generate_meta_planner_xpert_candidate(
             ],
             temperature=temperature,
             max_tokens=max_tokens,
+            response_format={"type": "json_object"},
+            reasoning={"effort": "none", "exclude": True},
+            allow_json_reasoning_fallback=True,
         )
 
     try:
@@ -17314,19 +17319,24 @@ async def _run_workflow_response(
                         )
 
                 elif kind == "json_serialize":
-                    try:
-                        input_variable = str(node.data.get("inputVariable") or "")
-                        output_variable = str(
-                            node.data.get("outputVariable") or "json_text"
-                        )
+                    input_variable = str(node.data.get("inputVariable") or "")
+                    output_variable = str(
+                        node.data.get("outputVariable") or "json_text"
+                    )
+                    if r20_contract_version(node.data) == 2:
                         if input_variable not in variables:
                             raise ValueError(
                                 f"Workflow variable '{input_variable}' is not available."
                             )
-                        pretty = str(node.data.get("format") or "compact") == "pretty"
+                        json_format = str(node.data.get("format") or "")
+                        if json_format not in {"compact", "pretty"}:
+                            raise ValueError(
+                                "JSON_SERIALIZE_FORMAT_INVALID: format must be compact or pretty."
+                            )
                         output = serialize_workflow_value(
                             variables[input_variable],
-                            pretty=pretty,
+                            pretty=json_format == "pretty",
+                            max_bytes=MAX_WORKFLOW_JSON_BYTES,
                         )
                         variables[output_variable] = output
                         yield sse_payload(
@@ -17339,26 +17349,62 @@ async def _run_workflow_response(
                                 "variable": output_variable,
                             }
                         )
-                    except Exception as exc:
-                        logger.warning("Workflow json_serialize node failed: %s", exc)
-                        yield sse_payload(
-                            {
-                                "event": "error",
-                                "node_id": node.id,
-                                "message": str(exc),
-                            }
-                        )
+                    else:
+                        try:
+                            if input_variable not in variables:
+                                raise ValueError(
+                                    f"Workflow variable '{input_variable}' is not available."
+                                )
+                            pretty = (
+                                str(node.data.get("format") or "compact") == "pretty"
+                            )
+                            output = serialize_workflow_value(
+                                variables[input_variable],
+                                pretty=pretty,
+                            )
+                            variables[output_variable] = output
+                            yield sse_payload(
+                                {
+                                    "event": "node_delta",
+                                    "node_id": node.id,
+                                    "node_title": title,
+                                    "node_type": kind,
+                                    "output": output,
+                                    "variable": output_variable,
+                                }
+                            )
+                        except Exception as exc:
+                            logger.warning(
+                                "Workflow json_serialize node failed: %s", exc
+                            )
+                            yield sse_payload(
+                                {
+                                    "event": "error",
+                                    "node_id": node.id,
+                                    "message": str(exc),
+                                }
+                            )
 
                 elif kind == "json_deserialize":
-                    try:
-                        input_variable = str(node.data.get("inputVariable") or "")
-                        output_variable = str(
-                            node.data.get("outputVariable") or "json_value"
-                        )
+                    input_variable = str(node.data.get("inputVariable") or "")
+                    output_variable = str(
+                        node.data.get("outputVariable") or "json_value"
+                    )
+                    if r20_contract_version(node.data) == 2:
                         source = variables.get(input_variable)
                         if not isinstance(source, str):
                             raise ValueError("JSON deserialize input must be a string.")
-                        stored_output = deserialize_workflow_value(source)
+                        expected_schema = node.data.get("expectedSchema")
+                        if not isinstance(expected_schema, dict):
+                            raise ValueError(
+                                "JSON_DESERIALIZE_SCHEMA_REQUIRED: "
+                                "JSON deserialize V2 requires expectedSchema."
+                            )
+                        stored_output = deserialize_workflow_value(
+                            source,
+                            expected_schema=expected_schema,
+                            max_bytes=MAX_WORKFLOW_JSON_BYTES,
+                        )
                         variables[output_variable] = stored_output
                         output = workflow_value_to_text(stored_output)
                         yield sse_payload(
@@ -17371,16 +17417,38 @@ async def _run_workflow_response(
                                 "variable": output_variable,
                             }
                         )
-                    except Exception as exc:
-                        logger.warning("Workflow json_deserialize node failed: %s", exc)
-                        variables[output_variable] = None
-                        yield sse_payload(
-                            {
-                                "event": "error",
-                                "node_id": node.id,
-                                "message": str(exc),
-                            }
-                        )
+                    else:
+                        try:
+                            source = variables.get(input_variable)
+                            if not isinstance(source, str):
+                                raise ValueError(
+                                    "JSON deserialize input must be a string."
+                                )
+                            stored_output = deserialize_workflow_value(source)
+                            variables[output_variable] = stored_output
+                            output = workflow_value_to_text(stored_output)
+                            yield sse_payload(
+                                {
+                                    "event": "node_delta",
+                                    "node_id": node.id,
+                                    "node_title": title,
+                                    "node_type": kind,
+                                    "output": output,
+                                    "variable": output_variable,
+                                }
+                            )
+                        except Exception as exc:
+                            logger.warning(
+                                "Workflow json_deserialize node failed: %s", exc
+                            )
+                            variables[output_variable] = None
+                            yield sse_payload(
+                                {
+                                    "event": "error",
+                                    "node_id": node.id,
+                                    "message": str(exc),
+                                }
+                            )
 
                 elif kind == "parameter_extractor":
                     try:

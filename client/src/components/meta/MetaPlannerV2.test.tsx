@@ -41,6 +41,73 @@ describe("Meta Planner managed compatibility", () => {
     });
   });
 
+  it("shows pure Planner nodes as auxiliary capabilities without exposing deferred nodes", async () => {
+    const jsonResponse = (body: unknown) =>
+      new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/meta-agent/capabilities") {
+          return jsonResponse({
+            version: "evoagentx-meta-planner-capabilities-v6",
+            ir_version: 3,
+            supported_ir_versions: [2, 3],
+            snapshot_hash: "snapshot-hash",
+            generated_at: 1,
+            nodes: [
+              {
+                kind: "workflow_agent",
+                title: "工作流智能体",
+                planner: { task_binding: "required" },
+              },
+              {
+                kind: "json_serialize",
+                title: "JSON 序列化",
+                planner: { task_binding: "forbidden" },
+              },
+            ],
+            middleware: [],
+            external_xperts: [],
+            knowledge_bases: [],
+            toolsets: [],
+            plugins: [],
+            prompt_profiles: [],
+            default_scope: {
+              allowed_node_kinds: ["workflow_agent", "json_serialize"],
+              external_xpert_ids: [],
+              knowledge_base_ids: [],
+              toolset_ids: [],
+              plugin_ids: [],
+              prompt_profile_ids: [],
+              middleware_ids: [],
+            },
+          });
+        }
+        if (url.startsWith("/api/xperts?")) {
+          return jsonResponse({ items: [], total: 0 });
+        }
+        if (url.startsWith("/api/runtime/authoring-proposals?")) {
+          return jsonResponse({ items: [] });
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+
+    render(
+      <MemoryRouter>
+        <MetaPlannerV2 />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("JSON 序列化")).toBeInTheDocument();
+    expect(screen.getByText("辅助节点")).toBeInTheDocument();
+    expect(screen.queryByText("知识检索")).not.toBeInTheDocument();
+  });
+
   it("preserves the paid-call receipt when the follow-up proposal load fails", async () => {
     const receipt = {
       contract_version: "modelmirror-provider-workload-routing-v1",

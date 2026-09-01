@@ -1,7 +1,7 @@
 # Meta Planner Headless Authoring
 
-最后更新日期：2026-08-30
-状态：V3 Round 2 实现契约
+最后更新日期：2026-08-31
+状态：V3 Round 3 实现契约
 
 ## 目标
 
@@ -26,9 +26,10 @@ Pydantic、Adapter 或 Proposal 服务前失败关闭。
 Patch 只接受 Planner ref、命名端口和 Adapter config。原生节点 ID、Handle、资源版本、
 NodeContract Schema、执行策略与 checksum 均由服务端推导，客户端或模型不能注入。
 
-支持 Xpert 元数据、Workflow Agent、控制/data 边、输出变量、四类资源、中间件、
-Prompt Profile、最终输出和布局。`input/output` 由编译器管理；布局不会改变 Graph
-checksum，但会改变 candidate checksum。
+支持 Xpert 元数据、Workflow Agent、五种纯数据 Adapter、控制/data 边、输出变量、
+四类资源、中间件、Prompt Profile、最终输出和布局。`input/output` 由编译器管理；
+布局不会改变 Graph checksum，但会改变 candidate checksum。纯节点配置、原生变量名、
+端口 Schema 和 binding ID 由 Adapter 推导，不能通过 Patch 注入。
 
 ## 预览与应用
 
@@ -63,6 +64,8 @@ Meta Planner Proposal 创建时的 `authorized_scope` 是不可扩大的授权�
 
 模型首次生成仍输出 GraphIntent V3。若输出可解析但门禁失败，唯一修复调用必须返回
 Graph Patch；完全无法解析时才允许一次完整 GraphIntent V3 修复。总模型调用上限仍为 3。
+唯一 Graph Patch 修复应用后，服务端会按 Adapter 配置刷新其派生输出 Schema，并记录
+安全 warning；正常生成路径中的 Schema 伪造、未知端口和非法配置仍然 fail-closed。
 
 ## API
 
@@ -73,8 +76,9 @@ POST /api/meta-agent/authoring/proposals/{proposal_id}/patch/preview
 POST /api/meta-agent/authoring/proposals/{proposal_id}/patch/apply
 ```
 
-Capability Snapshot V5 暴露 authoring protocol、操作 JSON Schema、Adapter authoring
-checksum 和限制，但节点范围仍严格保持原有七类。
+Capability Snapshot V6 暴露 authoring protocol、操作 JSON Schema、Adapter authoring
+checksum、`task_binding` 和限制。Headless 编辑范围为原有七类加五种纯节点；纯节点
+不得承担任务、绑定资源/中间件或成为最终输出。
 
 ## 回退
 

@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import json
 import math
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import JsonValue
 
+if TYPE_CHECKING:
+    from .node_contracts import WorkflowValueSchema
+
 
 WorkflowValue = JsonValue
+MAX_WORKFLOW_JSON_BYTES = 5 * 1_024 * 1_024
 
 
 def normalize_workflow_value(
@@ -68,25 +72,57 @@ def workflow_value_to_text(value: Any) -> str:
     )
 
 
-def serialize_workflow_value(value: Any, *, pretty: bool = False) -> str:
+def serialize_workflow_value(
+    value: Any,
+    *,
+    pretty: bool = False,
+    max_bytes: int | None = None,
+) -> str:
     normalized = normalize_workflow_value(value)
-    return json.dumps(
+    serialized = json.dumps(
         normalized,
         ensure_ascii=False,
         allow_nan=False,
         indent=2 if pretty else None,
         separators=None if pretty else (",", ":"),
     )
+    if max_bytes is not None and len(serialized.encode("utf-8")) > max_bytes:
+        raise ValueError(
+            f"JSON_SERIALIZE_OUTPUT_TOO_LARGE: JSON output exceeds {max_bytes} bytes."
+        )
+    return serialized
 
 
-def deserialize_workflow_value(value: str) -> WorkflowValue:
+def deserialize_workflow_value(
+    value: str,
+    *,
+    expected_schema: "WorkflowValueSchema | dict[str, Any] | None" = None,
+    max_bytes: int | None = None,
+) -> WorkflowValue:
     if not isinstance(value, str):
         raise ValueError("JSON deserialize input must be a string.")
+    if max_bytes is not None and len(value.encode("utf-8")) > max_bytes:
+        raise ValueError(
+            f"JSON_DESERIALIZE_INPUT_TOO_LARGE: JSON input exceeds {max_bytes} bytes."
+        )
     try:
         parsed = json.loads(value)
     except json.JSONDecodeError as exc:
         raise ValueError(f"JSON deserialize input is invalid: {exc.msg}.") from exc
-    return normalize_workflow_value(parsed)
+    normalized = normalize_workflow_value(parsed)
+    if expected_schema is not None:
+        from .node_contracts import WorkflowValueSchema
+
+        try:
+            schema = WorkflowValueSchema.model_validate(expected_schema)
+            schema.assert_value(normalized)
+        except ValueError as exc:
+            raise ValueError(
+                f"JSON_DESERIALIZE_SCHEMA_MISMATCH: {exc}"
+            ) from exc
+    if max_bytes is not None:
+        serialize_workflow_value(normalized, max_bytes=max_bytes)
+    return normalized
 
 
 def workflow_list_items(value: Any) -> tuple[list[WorkflowValue], bool]:

@@ -18,7 +18,10 @@ try:
         NativeWorkflowNode,
         WorkflowPosition,
     )
-    from server.workflow_native.node_contracts import canonical_checksum
+    from server.workflow_native.node_contracts import (
+        canonical_checksum,
+        workflow_node_contract_registry,
+    )
     from server.workflow_native.validate import node_kind, validate_workflow_graph
     from server.xpert_runtime.authoring_service import AuthoringService
     from server.xpert_runtime.authoring_store import AuthoringProposal
@@ -31,7 +34,10 @@ except ModuleNotFoundError:
         NativeWorkflowNode,
         WorkflowPosition,
     )
-    from workflow_native.node_contracts import canonical_checksum
+    from workflow_native.node_contracts import (
+        canonical_checksum,
+        workflow_node_contract_registry,
+    )
     from workflow_native.validate import node_kind, validate_workflow_graph
     from xpert_runtime.authoring_service import AuthoringService
     from xpert_runtime.authoring_store import AuthoringProposal
@@ -91,6 +97,8 @@ You are the task-planning stage of ModelMirror Meta Planner Graph IR V3.
 Return one strict JSON object only. Do not include markdown or hidden reasoning.
 Create a bounded task DAG. Every task must have a stable lowercase task_id,
 explicit dependencies, an input contract, and one output contract.
+Tasks represent model-driven responsibilities. Deterministic helper-node operations
+must not become tasks; obey the supplied task_planning_contract.
 """
 
 
@@ -102,7 +110,8 @@ only; compiler-managed input/output and resource-binding nodes are never emitted
 Use only IDs and middleware listed in the authorized capability snapshot.
 Compile the task DAG into explicit typed IR nodes, control edges, resource bindings,
 middleware bindings, and one explicit final output. A node may cover multiple tasks
-and a task may require multiple nodes. Bindings must target a workflow_agent node ref.
+and every task must be covered by a workflow_agent. Auxiliary pure nodes must have an
+empty task_ids list. Bindings must target a workflow_agent node ref.
 Every node input must identify its source node and source port. Use the workflow_agent
 task port for each task input; that port accepts multiple typed variables.
 Respect the supplied typed_ir_constraints, including its workflow-agent node limit.
@@ -127,6 +136,8 @@ Use only the listed semantic refs, named ports, Adapter config, and authorized I
 Do not emit native node IDs, Handles, resource versions, schemas, policies, checksums
 other than the exact expected checksums supplied in the envelope. Make the smallest
 ordered patch that addresses the validation issues. This is the only repair pass.
+The virtual refs input and output may be referenced where allowed but can never be
+added, updated, removed, or moved as nodes.
 """
 
 
@@ -218,6 +229,202 @@ def _typed_ir_prompt_constraints(
     }
 
 
+def _task_planning_contract(
+    request: MetaPlannerGenerateRequest,
+    snapshot: MetaPlannerCapabilitySnapshot,
+) -> dict[str, Any]:
+    allowed_kinds = set(request.scope.allowed_node_kinds)
+    auxiliary_node_contracts: list[dict[str, Any]] = []
+    for item in snapshot.nodes:
+        kind = str(item.get("kind") or "")
+        planner = dict(item.get("planner") or {})
+        if (
+            kind not in allowed_kinds
+            or get_planner_node_adapter(kind) is None
+            or planner.get("task_binding") != "forbidden"
+        ):
+            continue
+        contracts = dict(item.get("contracts") or {})
+
+        def port_summary(port: Any) -> dict[str, Any]:
+            payload = dict(port) if isinstance(port, dict) else {}
+            value_schema = dict(payload.get("value_schema") or {})
+            return {
+                "name": str(payload.get("name") or ""),
+                "type": str(value_schema.get("type") or "any"),
+                "cardinality": str(payload.get("cardinality") or "one"),
+            }
+
+        auxiliary_node_contracts.append(
+            {
+                "kind": kind,
+                "title": str(item.get("title") or kind),
+                "purpose": str(item.get("description") or ""),
+                "task_binding": "forbidden",
+                "inputs": [
+                    port_summary(port)
+                    for port in list(contracts.get("inputs") or [])
+                ],
+                "outputs": [
+                    port_summary(port)
+                    for port in list(contracts.get("outputs") or [])
+                ],
+            }
+        )
+    auxiliary_node_contracts.sort(key=lambda item: item["kind"])
+    auxiliary_node_kinds = [item["kind"] for item in auxiliary_node_contracts]
+    return {
+        "expert_task_binding": "required",
+        "max_workflow_agent_nodes": request.max_agents,
+        "auxiliary_node_kinds": auxiliary_node_kinds,
+        "auxiliary_node_contracts": auxiliary_node_contracts,
+        "expert_task_test": {
+            "question": (
+                "After all authorized auxiliary nodes are available, does this "
+                "step still require model judgment, interpretation, extraction "
+                "from unstructured content, or synthesis?"
+            ),
+            "required_answer": "yes",
+        },
+        "non_task_examples": [
+            "Parse a JSON string into a typed value.",
+            "Serialize a typed value to JSON.",
+            "Pack named variables into one object.",
+            "Group rows and calculate deterministic measures.",
+            "Compare two datasets by stable keys.",
+        ],
+        "expert_task_examples": [
+            "Extract audit controls from unstructured evidence.",
+            "Interpret deterministic comparison results and write a professional conclusion.",
+        ],
+        "rules": [
+            "Plan tasks describe model-driven judgment, responsibility, or synthesis that a workflow_agent must perform.",
+            "Deterministic operations represented by auxiliary_node_kinds must not become plan tasks; they are compiled later as task-free helper nodes.",
+            "Do not create one expert task per requested JSON conversion, packing, aggregation, or dataset comparison step.",
+            "Apply expert_task_test to every proposed task and omit the task unless the required answer is yes.",
+            "Use auxiliary_node_contracts purpose and ports to recognize deterministic steps before emitting tasks.",
+            "Keep distinct expert responsibilities separate, but do not split a single responsibility merely to name its deterministic data transforms.",
+        ],
+    }
+
+
+def _graph_patch_repair_contract(
+    request: MetaPlannerGenerateRequest,
+    blueprint: GraphIntentV3,
+    issues: list[str],
+) -> dict[str, Any]:
+    existing_nodes = sorted(
+        (
+            {
+                "ref": node.ref,
+                "kind": node.kind,
+                "task_ids": list(node.task_ids),
+                "input_sources": sorted(
+                    {
+                        f"{binding.source_ref}.{binding.source_port}"
+                        for binding in node.inputs
+                    }
+                ),
+                "output_ports": sorted(output.port for output in node.outputs),
+            }
+            for node in blueprint.nodes
+        ),
+        key=lambda item: item["ref"],
+    )
+    workflow_agent_count = sum(
+        node.kind == "workflow_agent" for node in blueprint.nodes
+    )
+    agent_overflow = workflow_agent_count > request.max_agents
+    issue_playbook: list[str] = []
+    if agent_overflow or any("exceeds max_agents" in issue for issue in issues):
+        issue_playbook.append(
+            "For max_agents overflow, consolidate task_ids into at most "
+            f"{request.max_agents} retained workflow_agent nodes, reconnect their "
+            "control and data edges, set a retained workflow_agent as final output, "
+            "then remove surplus agents; do not add workflow_agent nodes."
+        )
+    return {
+        "compiler_managed_refs": ["input", "output"],
+        "existing_node_refs": [item["ref"] for item in existing_nodes],
+        "existing_nodes": existing_nodes,
+        "max_workflow_agent_nodes": request.max_agents,
+        "current_workflow_agent_nodes": workflow_agent_count,
+        "allow_add_workflow_agent": workflow_agent_count < request.max_agents,
+        "addable_node_kinds": sorted(
+            kind
+            for kind in set(request.scope.allowed_node_kinds)
+            if get_planner_node_adapter(kind) is not None
+        ),
+        "issue_playbook": issue_playbook,
+        "rules": [
+            "The refs input and output are compiler-managed virtual refs: never add, update, remove, or move them.",
+            "input may only be referenced as an existing source_ref; output is created from set_final_output.",
+            "add_node must use a new ref outside compiler_managed_refs and existing_node_refs.",
+            "update_node, remove_node, and move_node may target only existing_node_refs.",
+            "Pure nodes use empty task_ids; workflow_agent nodes cover all fixed plan tasks.",
+            "Do not add a workflow_agent when allow_add_workflow_agent is false.",
+            "Adapter-derived output Schemas are recomputed by the server after this repair; never inject or patch output Schemas directly.",
+        ],
+    }
+
+
+def _normalize_adapter_outputs_for_repair(
+    intent: GraphIntentV3,
+) -> tuple[GraphIntentV3, list[str]]:
+    """Refresh Adapter-owned outputs and their derived data-edge schemas."""
+
+    normalized_refs: set[str] = set()
+    authoritative_outputs: dict[
+        tuple[str, str], tuple[str, Any]
+    ] = {}
+    output_normalized_nodes = []
+    for node in intent.nodes:
+        adapter = get_planner_node_adapter(node.kind)
+        if adapter is None:
+            output_normalized_nodes.append(node)
+            continue
+        parsed = adapter.validate_intent_node(node)
+        outputs = []
+        for output in node.outputs:
+            authoritative = adapter.authoritative_output_schema(output.port, parsed)
+            authoritative_outputs[(node.ref, output.port)] = (
+                output.variable,
+                authoritative,
+            )
+            if canonical_checksum(
+                output.value_schema.model_dump(mode="json")
+            ) != canonical_checksum(authoritative.model_dump(mode="json")):
+                normalized_refs.add(node.ref)
+                output = output.model_copy(
+                    update={"value_schema": authoritative}
+                )
+            outputs.append(output)
+        output_normalized_nodes.append(node.model_copy(update={"outputs": outputs}))
+
+    normalized_nodes = []
+    for node in output_normalized_nodes:
+        inputs = []
+        for binding in node.inputs:
+            source = authoritative_outputs.get(
+                (binding.source_ref, binding.source_port)
+            )
+            if source is not None and binding.variable == source[0]:
+                authoritative = source[1]
+                if canonical_checksum(
+                    binding.value_schema.model_dump(mode="json")
+                ) != canonical_checksum(authoritative.model_dump(mode="json")):
+                    normalized_refs.add(binding.source_ref)
+                    binding = binding.model_copy(
+                        update={"value_schema": authoritative}
+                    )
+            inputs.append(binding)
+        normalized_nodes.append(node.model_copy(update={"inputs": inputs}))
+    return (
+        intent.model_copy(update={"nodes": normalized_nodes}),
+        sorted(normalized_refs),
+    )
+
+
 def _graph_intent_prompt_contract(
     request: MetaPlannerGenerateRequest,
     snapshot: MetaPlannerCapabilitySnapshot,
@@ -237,6 +444,17 @@ def _graph_intent_prompt_contract(
         for item in snapshot.nodes
         if isinstance(item, dict)
     }
+    node_contracts = {
+        str(item.get("kind") or ""): {
+            "task_binding": dict(item.get("planner") or {}).get("task_binding"),
+            "config_schema": dict(
+                (item.get("contract") or {}).get("planner") or {}
+            ).get("ir_config_schema", {}),
+            "ports": list((item.get("contract") or {}).get("ports") or []),
+        }
+        for item in snapshot.nodes
+        if str(item.get("kind") or "") in executable_kinds
+    }
 
     return {
         "required_ir_version": GRAPH_IR_VERSION,
@@ -244,6 +462,7 @@ def _graph_intent_prompt_contract(
             "executable_node_kinds": executable_kinds,
             "compiler_managed_node_kinds": compiler_managed_kinds,
             "resource_binding_kinds": binding_kinds,
+            "executable_node_contracts": node_contracts,
         },
         "workflow_agent": {
             "config_schema": MetaPlannerWorkflowAgentConfig.model_json_schema(),
@@ -276,11 +495,15 @@ def _graph_intent_prompt_contract(
             "Represent resources only in resources and target a workflow_agent ref.",
             "Use snake_case workflow_agent config fields exactly as config_field_names; never emit outputVariable, taskInput, rolePrompt, or agent_id in config.",
             "Every workflow_agent declares exactly one string output on port result with a unique variable.",
+            "Every workflow_agent has one or more task_ids; nodes whose task_binding is forbidden have an empty task_ids list.",
+            "Pure nodes are deterministic auxiliary transforms only; do not use redundant serialize-deserialize round trips or duplicate aggregates.",
+            "Pure node config, named ports, and output Schema must exactly match executable_node_contracts.",
             "Every root workflow_agent binds user_input from source_ref input and source_port user_input to input port task.",
             "Every dependency input binds the exact ancestor result variable from source_port result to input port task.",
             "Every {{variable}} used in role_prompt or task_input has a matching explicit input binding.",
             "Control edges represent every cross-node task dependency and form one acyclic graph with one terminal node.",
             "final_output references the terminal workflow_agent result port and its exact output variable.",
+            "Resources and middleware may target workflow_agent nodes only, never pure nodes.",
             "middleware may contain only authorized middleware_ids; when that list is empty, middleware must be empty.",
         ],
         "snapshot_node_kinds": sorted(snapshot_kinds & allowed_kinds),
@@ -741,7 +964,11 @@ def validate_blueprint_authorization(
         if item.get("safe") is True and item.get("id")
     }
     available_models.add(request.default_agent_model_id)
-    parsed_configs: dict[str, MetaPlannerWorkflowAgentConfig] = {}
+    graph_nodes_by_ref = (
+        {node.ref: node for node in blueprint.nodes}
+        if isinstance(blueprint, GraphIntentV3)
+        else {}
+    )
     for node in typed.nodes:
         if node.kind not in request.scope.allowed_node_kinds:
             issues.append(f"Node kind {node.kind} is not authorized.")
@@ -755,39 +982,37 @@ def validate_blueprint_authorization(
             continue
         try:
             parsed = adapter.validate_config(node)
-            config = MetaPlannerWorkflowAgentConfig.model_validate(parsed)
-            parsed_configs[node.ref] = config
-        except ValidationError as exc:
+            if isinstance(blueprint, GraphIntentV3):
+                adapter.validate_intent_node(graph_nodes_by_ref[node.ref])
+        except (ValidationError, ValueError) as exc:
             issues.append(
                 f"Node {node.ref} config is invalid: {_safe_exception_message(exc)}"
             )
             continue
+        contract = workflow_node_contract_registry.require(node.kind)
+        task_binding = contract.planner.task_binding
+        if task_binding == "required" and not node.task_ids:
+            issues.append(f"Node {node.ref} must cover at least one plan task.")
+        if task_binding == "forbidden" and node.task_ids:
+            issues.append(f"Node {node.ref} cannot cover plan tasks.")
         if isinstance(blueprint, GraphIntentV3):
-            graph_node = next(
-                item for item in blueprint.nodes if item.ref == node.ref
-            )
+            graph_node = graph_nodes_by_ref[node.ref]
             declared_inputs = {item.variable for item in graph_node.inputs}
-            referenced = {
-                match.group(1)
-                for template in (config.role_prompt, config.task_input)
-                for match in re.finditer(
-                    r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}",
-                    template,
-                )
-            }
+            referenced = adapter.referenced_input_variables(parsed)
             for variable in sorted(referenced - declared_inputs):
                 issues.append(
                     f"Node {node.ref} template variable {variable} needs an "
                     "explicit data binding."
                 )
-        if len(node.outputs) != 1 or node.outputs[0].port != "result":
-            issues.append(
-                f"Node {node.ref} must expose exactly one result output port."
-            )
-        elif node.outputs[0].value_type != "string":
-            issues.append(
-                f"Node {node.ref} workflow_agent result must be a string."
-            )
+        if node.kind == "workflow_agent":
+            if len(node.outputs) != 1 or node.outputs[0].port != "result":
+                issues.append(
+                    f"Node {node.ref} must expose exactly one result output port."
+                )
+            elif node.outputs[0].value_type != "string":
+                issues.append(
+                    f"Node {node.ref} workflow_agent result must be a string."
+                )
         if len({item.port for item in node.inputs}) != len(node.inputs):
             issues.append(f"Node {node.ref} input ports must be unique.")
         if len({item.variable for item in node.outputs}) != len(node.outputs):
@@ -798,6 +1023,11 @@ def validate_blueprint_authorization(
                 f"Node {node.ref} references unknown tasks: "
                 + ", ".join(unknown_tasks)
             )
+        if task_binding != "required":
+            continue
+        config = MetaPlannerWorkflowAgentConfig.model_validate(
+            parsed.model_dump(mode="json")
+        )
         for task_id in set(node.task_ids) & plan_ids:
             task_nodes[task_id].append(node)
             planned_task = next(
@@ -858,6 +1088,8 @@ def validate_blueprint_authorization(
     )
     if final_node is None:
         issues.append("Typed IR final_output references an unknown node.")
+    elif final_node.kind != "workflow_agent":
+        issues.append("Typed IR final_output must come from a workflow_agent.")
     elif typed.final_output.variable not in {
         item.variable for item in final_node.outputs
     }:
@@ -1848,7 +2080,7 @@ class MetaPlannerV2Service:
                     + ". Use create mode or wait for a dedicated compiler adapter."
                 )
 
-        plan_prompt = self._plan_prompt(request)
+        plan_prompt = self._plan_prompt(request, snapshot)
         raw_plan = await self.completion(
             request.planner_model_id,
             TASK_PLAN_SYSTEM_PROMPT,
@@ -1938,8 +2170,20 @@ class MetaPlannerV2Service:
                         plan_task_ids={task.task_id for task in plan.tasks},
                         allowed_node_kinds=set(request.scope.allowed_node_kinds),
                     )
+                    normalized_intent, normalized_refs = (
+                        _normalize_adapter_outputs_for_repair(patched.intent)
+                    )
+                    if normalized_refs:
+                        warnings.append(
+                            "The single Graph Patch repair refreshed "
+                            "Adapter-derived output Schemas and dependent data "
+                            "bindings for: "
+                            + ", ".join(normalized_refs)
+                            + "."
+                        )
                     repaired_raw = json.dumps(
-                        patched.intent.model_dump(mode="json"), ensure_ascii=False
+                        normalized_intent.model_dump(mode="json"),
+                        ensure_ascii=False,
                     )
                     (
                         blueprint,
@@ -2222,6 +2466,7 @@ class MetaPlannerV2Service:
         workflow = candidate["draft"]["workflow"]
         for node in workflow["nodes"]:
             if node.get("type") == "workflow_agent":
+                # Keep the emergency fallback unapprovable until a human repairs it.
                 node["data"]["modelId"] = ""
                 break
         return candidate, graph_ir, compatibility
@@ -2243,6 +2488,9 @@ class MetaPlannerV2Service:
         MetaPlannerIRCompatibility,
     ]:
         compatibility = MetaPlannerIRCompatibility(source_version=3)
+        # A parsed Intent remains eligible for the one typed Patch repair even
+        # when a later semantic gate rejects it.
+        blueprint: GraphIntentV3 | None = None
         try:
             payload = _json_payload(raw_blueprint)
             if payload.get("ir_version") == 2:
@@ -2308,7 +2556,7 @@ class MetaPlannerV2Service:
         except Exception as exc:
             message = _safe_exception_message(exc)
             return (
-                None,
+                blueprint,
                 {},
                 {"valid": False, "issues": [message]},
                 [message],
@@ -2317,7 +2565,10 @@ class MetaPlannerV2Service:
             )
 
     @staticmethod
-    def _plan_prompt(request: MetaPlannerGenerateRequest) -> str:
+    def _plan_prompt(
+        request: MetaPlannerGenerateRequest,
+        snapshot: MetaPlannerCapabilitySnapshot,
+    ) -> str:
         required_schema = MetaPlannerTaskPlan.model_json_schema()
         task_schema = (
             required_schema.get("$defs", {}).get("MetaPlannerTask", {})
@@ -2343,6 +2594,9 @@ class MetaPlannerV2Service:
                 "max_tasks": 8,
                 "max_workflow_agents": request.max_agents,
                 "authorized_agent_ids": list(request.scope.agent_ids),
+                "task_planning_contract": _task_planning_contract(
+                    request, snapshot
+                ),
                 "required_schema": required_schema,
                 "rules": [
                     "agent_id may only use an exact value from authorized_agent_ids.",
@@ -2462,6 +2716,12 @@ class MetaPlannerV2Service:
                 "base_graph_intent": blueprint.model_dump(mode="json"),
                 "validation_issues": issues[:30],
                 "required_schema": GraphPatchEnvelopeV1.model_json_schema(),
+                "typed_ir_constraints": _typed_ir_prompt_constraints(
+                    request, plan
+                ),
+                "repair_contract": _graph_patch_repair_contract(
+                    request, blueprint, issues
+                ),
                 "required_envelope": {
                     "protocol_version": 1,
                     "proposal_revision": 1,
@@ -2472,6 +2732,7 @@ class MetaPlannerV2Service:
                     "Return GraphPatchEnvelopeV1, never a complete GraphIntent or Native Workflow.",
                     "Copy every required_envelope value exactly.",
                     "Use Adapter config only; do not emit resource versions, Handles, schemas, policies, or native node IDs.",
+                    "Obey repair_contract ref scopes and issue_playbook exactly.",
                     "Do not change the fixed task plan or add unauthorized capabilities.",
                     "This is the only repair pass.",
                 ],

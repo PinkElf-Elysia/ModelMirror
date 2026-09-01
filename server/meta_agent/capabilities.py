@@ -138,6 +138,7 @@ def build_capability_snapshot(
                         "compilable": True,
                         "ir_version": compiler["ir_version"],
                         "adapter_version": compiler["adapter_version"],
+                        "task_binding": compiler["task_binding"],
                         "contract_version": compiler["contract_version"],
                         "contract_checksum": compiler["contract_checksum"],
                         "compiler_checksum": compiler["compiler_checksum"],
@@ -178,6 +179,7 @@ def build_capability_snapshot(
                         "compilable": True,
                         "ir_version": compiler["ir_version"],
                         "adapter_version": compiler["adapter_version"],
+                        "task_binding": compiler["task_binding"],
                         "contract_version": compiler["contract_version"],
                         "contract_checksum": compiler["contract_checksum"],
                         "compiler_checksum": compiler["compiler_checksum"],
@@ -362,7 +364,7 @@ def build_capability_snapshot(
         agent_ids=[item["id"] for item in expert_summaries],
     )
     payload = {
-        "version": "evoagentx-meta-planner-capabilities-v5",
+        "version": "evoagentx-meta-planner-capabilities-v6",
         "ir_version": 3,
         "supported_ir_versions": [2, 3],
         "contract_version": int(node_payload.get("contract_version") or 0),

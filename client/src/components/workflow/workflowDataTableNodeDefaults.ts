@@ -24,6 +24,7 @@ export function createTypedCanvasNodeData(
       kind: "json_serialize",
       title: "JSON 序列化",
       description: "将类型化工作流变量转换为 JSON 字符串。",
+      contractVersion: 2,
       inputVariable: "json_value",
       outputVariable: "json_text",
       format: "compact",
@@ -32,8 +33,10 @@ export function createTypedCanvasNodeData(
       kind: "json_deserialize",
       title: "JSON 反序列化",
       description: "将 JSON 字符串解析为真实的类型化工作流变量。",
+      contractVersion: 2,
       inputVariable: "json_text",
       outputVariable: "json_value",
+      expectedSchema: { type: "any" },
     },
     annotation: {
       kind: "annotation",

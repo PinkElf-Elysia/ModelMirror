@@ -66,7 +66,7 @@ describe("workflowNodeRegistry NodeContract V3 guard", () => {
   it("rejects a nominal V3 registry without per-node contracts", () => {
     expect(hasNodeContractV3({
       ...workflowNodeRegistryFallback,
-      version: "xpert-workflow-node-registry-v4",
+      version: "xpert-workflow-node-registry-v5",
       contract_version: 3,
       contract_checksum: "registry-checksum",
     })).toBe(false);
@@ -74,7 +74,7 @@ describe("workflowNodeRegistry NodeContract V3 guard", () => {
 
   it("rejects an empty registry even with V3 metadata", () => {
     expect(hasNodeContractV3({
-      version: "xpert-workflow-node-registry-v4",
+      version: "xpert-workflow-node-registry-v5",
       contract_version: 3,
       contract_checksum: "registry-checksum",
       tabs: [],

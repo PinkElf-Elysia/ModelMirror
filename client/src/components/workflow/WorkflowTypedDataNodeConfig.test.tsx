@@ -85,6 +85,40 @@ afterEach(() => {
 });
 
 describe("WorkflowTypedDataNodeConfig", () => {
+  it("edits JSON deserialize V2 expected schema through a restricted parser", async () => {
+    render(
+      <Harness
+        initial={{
+          kind: "json_deserialize",
+          title: "JSON 反序列化",
+          description: "typed",
+          contractVersion: 2,
+          inputVariable: "json_text",
+          outputVariable: "json_value",
+          expectedSchema: {
+            type: "object",
+            properties: { answer: { type: "string" } },
+            required: ["answer"],
+          },
+        }}
+      />,
+    );
+
+    const editor = screen.getByRole("textbox", { name: "期望值 Schema" });
+    expect((editor as HTMLTextAreaElement).value).toContain('"answer"');
+
+    fireEvent.change(editor, {
+      target: { value: '{"type":"string","secretPolicy":"ignore"}' },
+    });
+    expect(screen.getByRole("alert")).toHaveTextContent("不支持字段");
+
+    fireEvent.change(editor, {
+      target: { value: '{"type":"array","items":{"type":"number"}}' },
+    });
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    expect((editor as HTMLTextAreaElement).value).toContain('"array"');
+  });
+
   it("loads a published table and exposes query schema configuration", async () => {
     mockAgentTables();
     render(
