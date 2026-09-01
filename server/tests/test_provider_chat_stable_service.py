@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+import threading
 from pathlib import Path
 
 import pytest
@@ -21,6 +22,7 @@ from server.model_router.service import ModelRouterService, RouterServiceError
 
 
 MODEL_ID = "provider/model"
+SCOPED_MODEL_ID = "provider/scoped-model"
 
 
 def _qualified_connection(
@@ -68,25 +70,34 @@ def _qualified_connection(
         catalog_fingerprint=f"catalog-{connection.id}",
         observed_at="2026-08-21T00:00:00+00:00",
     )
-    certification, created = repository.claim_chat_certification(
-        "local",
-        certification_id=f"cert-{connection.id}",
-        connection_id=connection.id,
-        connection_fingerprint=fingerprint,
-        contract_version="modelmirror-provider-chat-v1",
-        capability="chat_text",
-        requested_model=MODEL_ID,
-        idempotency_key_hash=hashlib.sha256(connection.id.encode()).hexdigest(),
-    )
-    assert created is True
-    repository.complete_chat_certification(
-        "local",
-        str(certification["id"]),
-        status="passed",
-        checks={"capability_verified": True},
-        warning_codes=[],
-        actual_model=MODEL_ID,
-    )
+    for capability in ("chat_text", "chat_tools"):
+        suffix = "" if capability == "chat_text" else f"-{capability}"
+        idempotency_seed = (
+            connection.id
+            if capability == "chat_text"
+            else f"{connection.id}:{capability}"
+        )
+        certification, created = repository.claim_chat_certification(
+            "local",
+            certification_id=f"cert-{connection.id}{suffix}",
+            connection_id=connection.id,
+            connection_fingerprint=fingerprint,
+            contract_version="modelmirror-provider-chat-v1",
+            capability=capability,
+            requested_model=MODEL_ID,
+            idempotency_key_hash=hashlib.sha256(
+                idempotency_seed.encode()
+            ).hexdigest(),
+        )
+        assert created is True
+        repository.complete_chat_certification(
+            "local",
+            str(certification["id"]),
+            status="passed",
+            checks={"capability_verified": True},
+            warning_codes=[],
+            actual_model=MODEL_ID,
+        )
     return connection.id
 
 
@@ -119,11 +130,75 @@ def _service(
                 ProviderChatControlRouteUpdate(
                     capability="chat_text",
                     connection_ids=[newapi_id, backup_id],
-                )
+                ),
+                ProviderChatControlRouteUpdate(
+                    capability="chat_tools",
+                    connection_ids=[newapi_id, backup_id],
+                ),
             ],
         )
     )
     return ProviderChatStableService(service), repository, newapi_id, backup_id
+
+
+def _qualify_scoped_model(
+    repository: SQLiteRouterRepository,
+    connection_id: str,
+    *,
+    revision: str = "",
+) -> None:
+    suffix = f"-{revision}" if revision else ""
+    fingerprint = repository.connection_config_fingerprint("local", connection_id)
+    refresh_id = f"refresh-scoped-{connection_id}{suffix}"
+    repository.claim_catalog_refresh(
+        "local",
+        refresh_id=refresh_id,
+        connection_id=connection_id,
+        connection_fingerprint=fingerprint,
+    )
+    repository.complete_catalog_refresh(
+        "local",
+        refresh_id,
+        connection_id=connection_id,
+        models=[
+            {
+                "model_id": model_id,
+                "normalized_model_id": model_id,
+                "capability_state": "declared",
+            }
+            for model_id in (MODEL_ID, SCOPED_MODEL_ID)
+        ],
+        offerings=[],
+        model_count=2,
+        truncated=False,
+        catalog_fingerprint=f"catalog-scoped-{connection_id}{suffix}",
+        observed_at="2026-08-21T00:01:00+00:00",
+    )
+    for capability in ("chat_text", "chat_tools"):
+        capability_suffix = "" if capability == "chat_text" else f"-{capability}"
+        certification, created = repository.claim_chat_certification(
+            "local",
+            certification_id=(
+                f"cert-scoped-{connection_id}{capability_suffix}{suffix}"
+            ),
+            connection_id=connection_id,
+            connection_fingerprint=fingerprint,
+            contract_version="modelmirror-provider-chat-v1",
+            capability=capability,
+            requested_model=SCOPED_MODEL_ID,
+            idempotency_key_hash=hashlib.sha256(
+                f"scoped-{connection_id}:{capability}:{revision}".encode()
+            ).hexdigest(),
+        )
+        assert created is True
+        repository.complete_chat_certification(
+            "local",
+            str(certification["id"]),
+            status="passed",
+            checks={"capability_verified": True},
+            warning_codes=[],
+            actual_model=SCOPED_MODEL_ID,
+        )
 
 
 def _activate_required_for_test(repository: SQLiteRouterRepository) -> None:
@@ -241,6 +316,16 @@ async def test_preferred_selects_backup_only_after_primary_preflight_failure(
         "provider_address_blocked",
         "provider_chat_preflight_backup_selected",
     )
+    assert [
+        (
+            binding.capability,
+            binding.connection_id,
+            binding.certification_id,
+        )
+        for binding in result.dispatch.required_certifications
+    ] == [
+        ("chat_text", backup_id, result.dispatch.certification_id),
+    ]
     receipts = repository.list_chat_control_receipts("local")
     assert len(receipts["runs"]) == 1
     attempts = receipts["attempts"]
@@ -249,6 +334,276 @@ async def test_preferred_selects_backup_only_after_primary_preflight_failure(
         (backup_id, 0),
     ]
     assert attempts[0]["error_code"] == "provider_address_blocked"
+
+
+@pytest.mark.asyncio
+async def test_scoped_certified_model_uses_current_certificate_without_stable_membership(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, repository, newapi_id, backup_id = _service(tmp_path, monkeypatch)
+    _qualify_scoped_model(repository, newapi_id)
+    _qualify_scoped_model(repository, backup_id)
+
+    assert service.readiness(SCOPED_MODEL_ID, "chat_text") == (
+        False,
+        "provider_chat_no_qualified_route",
+    )
+    assert service.readiness_scoped_certified(SCOPED_MODEL_ID, "chat_text") == (
+        True,
+        None,
+    )
+
+    result = await service.begin_scoped_certified(SCOPED_MODEL_ID, "chat_text")
+
+    assert result.intercepted is True
+    assert result.dispatch is not None
+    assert result.dispatch.target.connection_id == backup_id
+    assert result.dispatch.certification_id == f"cert-scoped-{backup_id}"
+    receipts = repository.list_chat_control_receipts("local")
+    assert receipts["runs"][0]["gateway"] == "ai_research_scoped"
+
+
+@pytest.mark.asyncio
+async def test_scoped_certification_requires_exact_actual_model_at_readiness_and_dispatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, repository, newapi_id, backup_id = _service(tmp_path, monkeypatch)
+    _qualify_scoped_model(repository, newapi_id)
+    _qualify_scoped_model(repository, backup_id)
+
+    with sqlite3.connect(repository.database_path) as database:
+        database.execute(
+            """
+            UPDATE provider_chat_certifications
+            SET actual_model = NULL
+            WHERE tenant_id = 'local' AND requested_model = ?
+            """,
+            (SCOPED_MODEL_ID,),
+        )
+        database.commit()
+
+    assert service.readiness_scoped_certified(SCOPED_MODEL_ID, "chat_text") == (
+        False,
+        "provider_chat_certification_model_identity_required",
+    )
+
+    with sqlite3.connect(repository.database_path) as database:
+        database.execute(
+            """
+            UPDATE provider_chat_certifications
+            SET actual_model = ?
+            WHERE tenant_id = 'local' AND requested_model = ?
+            """,
+            (SCOPED_MODEL_ID, SCOPED_MODEL_ID),
+        )
+        database.commit()
+
+    result = await service.begin_scoped_certified(SCOPED_MODEL_ID, "chat_text")
+    assert result.dispatch is not None
+    with sqlite3.connect(repository.database_path) as database:
+        database.execute(
+            """
+            UPDATE provider_chat_certifications
+            SET actual_model = NULL
+            WHERE tenant_id = 'local' AND id = ?
+            """,
+            (result.dispatch.certification_id,),
+        )
+        database.commit()
+
+    monkeypatch.setattr(service, "ensure_dispatch_current", lambda _dispatch: None)
+    with pytest.raises(RouterServiceError) as exc_info:
+        service.mark_dispatched(result.dispatch)
+
+    assert exc_info.value.code == "provider_chat_policy_or_qualification_changed"
+    selected = next(
+        item
+        for item in repository.list_chat_control_receipts("local")["attempts"]
+        if item["id"] == result.dispatch.attempt_id
+    )
+    assert selected["dispatched"] == 0
+    assert selected["status"] == "failed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "connection_update",
+    [
+        pytest.param(
+            {"base_url": "https://changed.example/v1"},
+            id="base-url",
+        ),
+        pytest.param({"api_key": "rotated-secret"}, id="credential"),
+        pytest.param({"scopes": ["embedding"]}, id="scopes"),
+    ],
+)
+async def test_scoped_dispatch_rechecks_connection_fingerprint_before_post(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    connection_update: dict[str, object],
+) -> None:
+    service, repository, newapi_id, backup_id = _service(tmp_path, monkeypatch)
+    _qualify_scoped_model(repository, newapi_id)
+    _qualify_scoped_model(repository, backup_id)
+    result = await service.begin_scoped_certified(SCOPED_MODEL_ID, "chat_text")
+    assert result.dispatch is not None
+    repository.update_connection(
+        "local",
+        backup_id,
+        RouterConnectionUpdate(**connection_update),
+    )
+
+    with pytest.raises(RouterServiceError) as exc_info:
+        service.mark_dispatched(result.dispatch)
+
+    assert exc_info.value.code == "provider_chat_policy_or_qualification_changed"
+    selected = next(
+        item
+        for item in repository.list_chat_control_receipts("local")["attempts"]
+        if item["id"] == result.dispatch.attempt_id
+    )
+    assert selected["dispatched"] == 0
+    assert selected["status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_scoped_dispatch_binds_one_connection_snapshot_before_post(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, repository, newapi_id, backup_id = _service(tmp_path, monkeypatch)
+    _qualify_scoped_model(repository, newapi_id)
+    _qualify_scoped_model(repository, backup_id)
+    original_snapshot = repository.get_connection_credential_snapshot
+    rotated = False
+
+    def snapshot_with_interleaved_rotation(
+        tenant_id: str, connection_id: str
+    ) -> tuple[object, str, str]:
+        nonlocal rotated
+        snapshot = original_snapshot(tenant_id, connection_id)
+        if connection_id == backup_id and not rotated:
+            rotated = True
+            repository.update_connection(
+                tenant_id,
+                connection_id,
+                RouterConnectionUpdate(
+                    base_url="https://rotated.example/v1",
+                    api_key="rotated-secret",
+                ),
+            )
+            repository.save_test_result(
+                tenant_id,
+                connection_id,
+                health="online",
+                model_count=2,
+                checked_at="2026-08-21T00:02:00+00:00",
+            )
+            _qualify_scoped_model(
+                repository,
+                connection_id,
+                revision="rotated",
+            )
+        return snapshot
+
+    monkeypatch.setattr(
+        repository,
+        "get_connection_credential_snapshot",
+        snapshot_with_interleaved_rotation,
+    )
+    result = await service.begin_scoped_certified(SCOPED_MODEL_ID, "chat_text")
+
+    assert result.dispatch is not None
+    assert rotated is True
+    assert result.dispatch.target.endpoints.base_url == "https://openrouter.example/v1"
+    assert (
+        result.dispatch.connection_fingerprint
+        != repository.connection_config_fingerprint("local", backup_id)
+    )
+    with pytest.raises(RouterServiceError) as exc_info:
+        service.mark_dispatched(result.dispatch)
+
+    assert exc_info.value.code == "provider_chat_policy_or_qualification_changed"
+    selected = next(
+        item
+        for item in repository.list_chat_control_receipts("local")["attempts"]
+        if item["id"] == result.dispatch.attempt_id
+    )
+    assert selected["dispatched"] == 0
+    assert selected["status"] == "failed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("actual_capability", "invalidated_capability"),
+    (("chat_text", "chat_tools"), ("chat_tools", "chat_text")),
+)
+async def test_scoped_dispatch_rechecks_every_required_certificate_before_post(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    actual_capability: str,
+    invalidated_capability: str,
+) -> None:
+    service, repository, newapi_id, backup_id = _service(tmp_path, monkeypatch)
+    _qualify_scoped_model(repository, newapi_id)
+    _qualify_scoped_model(repository, backup_id)
+    result = await service.begin_scoped_certified(
+        SCOPED_MODEL_ID,
+        actual_capability,
+        required_capabilities=("chat_text", "chat_tools"),
+    )
+    assert result.dispatch is not None
+    bindings = {
+        binding.capability: binding
+        for binding in result.dispatch.required_certifications
+    }
+    assert set(bindings) == {"chat_text", "chat_tools"}
+    assert (
+        bindings[actual_capability].certification_id
+        == result.dispatch.certification_id
+    )
+
+    original_current_qualification = service.control.current_qualification
+    invalidated_after_valid_read = False
+
+    def current_qualification_with_concurrent_invalidation(**fields):
+        nonlocal invalidated_after_valid_read
+        qualification = original_current_qualification(**fields)
+        if (
+            fields["capability"] == invalidated_capability
+            and not invalidated_after_valid_read
+        ):
+            assert qualification[0] is not None
+            with sqlite3.connect(repository.database_path) as database:
+                database.execute(
+                    """
+                    UPDATE provider_chat_certifications
+                    SET status = 'failed'
+                    WHERE tenant_id = 'local' AND id = ?
+                    """,
+                    (bindings[invalidated_capability].certification_id,),
+                )
+                database.commit()
+            invalidated_after_valid_read = True
+        return qualification
+
+    monkeypatch.setattr(
+        service.control,
+        "current_qualification",
+        current_qualification_with_concurrent_invalidation,
+    )
+
+    with pytest.raises(RouterServiceError) as exc_info:
+        service.mark_dispatched(result.dispatch)
+
+    assert invalidated_after_valid_read is True
+    assert exc_info.value.code == "provider_chat_policy_or_qualification_changed"
+    selected = next(
+        item
+        for item in repository.list_chat_control_receipts("local")["attempts"]
+        if item["id"] == result.dispatch.attempt_id
+    )
+    assert selected["dispatched"] == 0
+    assert selected["status"] == "failed"
 
 
 @pytest.mark.asyncio
@@ -300,6 +655,124 @@ async def test_dispatch_rechecks_feature_flag_before_post(
 
 
 @pytest.mark.asyncio
+async def test_duplicate_mark_does_not_rewrite_a_dispatched_attempt_as_failed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, repository, _newapi_id, _backup_id = _service(tmp_path, monkeypatch)
+    result = await service.begin(MODEL_ID)
+    assert result.dispatch is not None
+    service.mark_dispatched(result.dispatch)
+
+    with pytest.raises(RouterServiceError) as exc_info:
+        service.mark_dispatched(result.dispatch)
+
+    assert exc_info.value.code == "provider_chat_policy_or_qualification_changed"
+    receipts = repository.list_chat_control_receipts("local")
+    selected = next(
+        item
+        for item in receipts["attempts"]
+        if item["id"] == result.dispatch.attempt_id
+    )
+    run = next(
+        item for item in receipts["runs"] if item["id"] == result.dispatch.run_id
+    )
+    assert selected["dispatched"] == 1
+    assert selected["status"] == "running"
+    assert run["status"] == "running"
+
+    service.complete(
+        result.dispatch,
+        status="succeeded",
+        result_class="success",
+        actual_model=MODEL_ID,
+    )
+    completed = repository.list_chat_control_receipts("local")
+    assert completed["attempts"][-1]["status"] == "succeeded"
+    assert completed["runs"][-1]["status"] == "succeeded"
+
+
+@pytest.mark.asyncio
+async def test_atomic_dispatch_serializes_a_concurrent_certificate_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, repository, newapi_id, backup_id = _service(tmp_path, monkeypatch)
+    _qualify_scoped_model(repository, newapi_id)
+    _qualify_scoped_model(repository, backup_id)
+    result = await service.begin_scoped_certified(
+        SCOPED_MODEL_ID,
+        "chat_text",
+        required_capabilities=("chat_text", "chat_tools"),
+    )
+    assert result.dispatch is not None
+    transaction_open = threading.Event()
+    release_transaction = threading.Event()
+    dispatch_errors: list[BaseException] = []
+    original_envelope = repository._validate_chat_dispatch_envelope
+
+    def pause_inside_write_transaction(*args, **kwargs):
+        value = original_envelope(*args, **kwargs)
+        transaction_open.set()
+        if not release_transaction.wait(timeout=10):
+            raise AssertionError("dispatch transaction was not released")
+        return value
+
+    monkeypatch.setattr(
+        repository,
+        "_validate_chat_dispatch_envelope",
+        pause_inside_write_transaction,
+    )
+
+    def mark_dispatch() -> None:
+        try:
+            service.mark_dispatched(result.dispatch)
+        except BaseException as exc:  # pragma: no cover - asserted below
+            dispatch_errors.append(exc)
+
+    dispatch_thread = threading.Thread(target=mark_dispatch, daemon=True)
+    dispatch_thread.start()
+    assert transaction_open.wait(timeout=10)
+    try:
+        with sqlite3.connect(repository.database_path, timeout=0) as database:
+            with pytest.raises(sqlite3.OperationalError, match="locked"):
+                database.execute(
+                    """
+                    UPDATE provider_chat_certifications
+                    SET status = 'failed'
+                    WHERE tenant_id = 'local' AND id = ?
+                    """,
+                    (
+                        result.dispatch.required_certifications[0]
+                        .certification_id,
+                    ),
+                )
+    finally:
+        release_transaction.set()
+        dispatch_thread.join(timeout=10)
+
+    assert dispatch_thread.is_alive() is False
+    assert dispatch_errors == []
+    selected = next(
+        item
+        for item in repository.list_chat_control_receipts("local")["attempts"]
+        if item["id"] == result.dispatch.attempt_id
+    )
+    assert selected["dispatched"] == 1
+
+    with sqlite3.connect(repository.database_path, timeout=1) as database:
+        database.execute(
+            """
+            UPDATE provider_chat_certifications
+            SET status = 'failed'
+            WHERE tenant_id = 'local' AND id = ?
+            """,
+            (
+                result.dispatch.required_certifications[0].certification_id,
+            ),
+        )
+        database.commit()
+
+
+@pytest.mark.asyncio
 async def test_dispatch_completion_is_tenant_scoped_and_stores_no_content(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -325,6 +798,150 @@ async def test_dispatch_completion_is_tenant_scoped_and_stores_no_content(
         dump = "\n".join(database.iterdump())
     assert "private prompt" not in dump
     assert "model answer" not in dump
+
+
+@pytest.mark.asyncio
+async def test_dispatch_completion_rolls_back_attempt_when_run_write_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, repository, _newapi_id, _backup_id = _service(
+        tmp_path,
+        monkeypatch,
+        newapi_ip="8.8.8.8",
+    )
+    result = await service.begin(MODEL_ID)
+    assert result.dispatch is not None
+    service.mark_dispatched(result.dispatch)
+
+    with sqlite3.connect(repository.database_path) as database:
+        database.execute(
+            f"""
+            CREATE TRIGGER abort_chat_run_completion
+            BEFORE UPDATE OF status ON provider_chat_runs
+            WHEN OLD.tenant_id = 'local'
+              AND OLD.id = '{result.dispatch.run_id}'
+              AND NEW.status != 'running'
+            BEGIN
+                SELECT RAISE(ABORT, 'simulated_run_write_failure');
+            END
+            """
+        )
+
+    with pytest.raises(sqlite3.IntegrityError, match="simulated_run_write_failure"):
+        service.complete(
+            result.dispatch,
+            status="failed",
+            result_class="hard_failure",
+            error_code="provider_chat_http_401",
+            hard_failure=True,
+        )
+
+    receipts = repository.list_chat_control_receipts("local")
+    attempt = next(
+        item
+        for item in receipts["attempts"]
+        if item["id"] == result.dispatch.attempt_id
+    )
+    run = next(
+        item for item in receipts["runs"] if item["id"] == result.dispatch.run_id
+    )
+    assert attempt["status"] == "running"
+    assert attempt["result_class"] is None
+    assert run["status"] == "running"
+    assert run["hard_failure"] == 0
+
+    with sqlite3.connect(repository.database_path) as database:
+        database.execute("DROP TRIGGER abort_chat_run_completion")
+    service.complete(
+        result.dispatch,
+        status="failed",
+        result_class="hard_failure",
+        error_code="provider_chat_http_401",
+        hard_failure=True,
+    )
+    completed = repository.list_chat_control_receipts("local")
+    attempt = next(
+        item
+        for item in completed["attempts"]
+        if item["id"] == result.dispatch.attempt_id
+    )
+    run = next(
+        item for item in completed["runs"] if item["id"] == result.dispatch.run_id
+    )
+    assert attempt["result_class"] == "hard_failure"
+    assert run["result_class"] == "hard_failure"
+    assert run["hard_failure"] == 1
+
+
+@pytest.mark.asyncio
+async def test_restart_rejects_orphaned_dispatched_hard_failure_attempt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, repository, newapi_id, _backup_id = _service(
+        tmp_path,
+        monkeypatch,
+        newapi_ip="8.8.8.8",
+    )
+    _activate_required_for_test(repository)
+    failed = await service.begin(MODEL_ID)
+    pending = await service.begin(MODEL_ID)
+    assert failed.dispatch is not None
+    assert pending.dispatch is not None
+    service.mark_dispatched(failed.dispatch)
+
+    failure_time = "2099-08-31T00:00:00+00:00"
+    with sqlite3.connect(repository.database_path) as database:
+        database.execute(
+            """
+            UPDATE provider_chat_attempts
+            SET status = 'failed', result_class = 'hard_failure',
+                error_code = 'provider_chat_http_401',
+                updated_at = ?, completed_at = ?
+            WHERE tenant_id = 'local' AND id = ? AND dispatched = 1
+            """,
+            (failure_time, failure_time, failed.dispatch.attempt_id),
+        )
+    stale_receipts = repository.list_chat_control_receipts("local")
+    stale_run = next(
+        item
+        for item in stale_receipts["runs"]
+        if item["id"] == failed.dispatch.run_id
+    )
+    assert stale_run["status"] == "running"
+    assert stale_run["hard_failure"] == 0
+
+    monkeypatch.setattr(service, "ensure_dispatch_current", lambda _dispatch: None)
+    with pytest.raises(RouterServiceError) as exc_info:
+        service.mark_dispatched(pending.dispatch)
+    assert exc_info.value.code == "provider_chat_policy_or_qualification_changed"
+    rejected = repository.list_chat_control_receipts("local")
+    pending_attempt = next(
+        item
+        for item in rejected["attempts"]
+        if item["id"] == pending.dispatch.attempt_id
+    )
+    assert pending_attempt["dispatched"] == 0
+    assert pending_attempt["status"] == "failed"
+
+    restarted_repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    restarted = ProviderChatStableService(
+        ModelRouterService(
+            restarted_repository,
+            egress_policy=ProviderEgressPolicy(
+                resolver=lambda _host, _port: ["8.8.8.8"]
+            ),
+        )
+    )
+    qualification, reason = restarted.control.current_qualification(
+        connection_id=newapi_id,
+        model_id=MODEL_ID,
+        capability="chat_text",
+    )
+    assert qualification is None
+    assert reason == "provider_chat_hard_failure_recertification_required"
+    ready, readiness_reason = restarted.readiness(MODEL_ID, "chat_text")
+    assert ready is False
+    assert readiness_reason == "provider_chat_required_gate_degraded"
 
 
 @pytest.mark.asyncio

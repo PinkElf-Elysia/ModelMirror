@@ -1,14 +1,33 @@
 from __future__ import annotations
 
+import os
 import time
 import uuid
 from dataclasses import dataclass
 
+from .chat_canary import (
+    DEFAULT_PROVIDER_CHAT_CERTIFICATION_MAX_AGE_SECONDS,
+    MAX_PROVIDER_CHAT_CERTIFICATION_MAX_AGE_SECONDS,
+    MIN_PROVIDER_CHAT_CERTIFICATION_MAX_AGE_SECONDS,
+    PROVIDER_CHAT_CERTIFICATION_MAX_AGE_ENV,
+)
 from .chat_control import ProviderChatControlService
 from .egress import AuthorizedProviderTarget, ProviderEgressError
-from .provider_chat import ProviderChatTarget, ProviderChatTransport
+from .provider_chat import (
+    PROVIDER_CHAT_CONTRACT_VERSION,
+    ProviderChatTarget,
+    ProviderChatTransport,
+)
+from .repository import RouterRepositoryError
 from .schemas import ProviderChatCapability
 from .service import ModelRouterService, RouterServiceError
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderChatCertificationBinding:
+    capability: ProviderChatCapability
+    connection_id: str
+    certification_id: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,10 +39,13 @@ class ProviderChatStableDispatch:
     capability: ProviderChatCapability
     requested_model: str
     target: ProviderChatTarget
+    connection_fingerprint: str
     authorized: AuthorizedProviderTarget
     position: int
     reason_codes: tuple[str, ...]
+    certification_id: str
     started_at: float
+    required_certifications: tuple[ProviderChatCertificationBinding, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,7 +70,26 @@ class ProviderChatStableService:
         model_id: str,
         capability: ProviderChatCapability = "chat_text",
     ) -> tuple[bool, str | None]:
-        """Inspect the current managed route without creating a run receipt."""
+        """Inspect the current stable managed route without creating a receipt."""
+
+        return self._readiness(model_id, capability, scoped_certified=False)
+
+    def readiness_scoped_certified(
+        self,
+        model_id: str,
+        capability: ProviderChatCapability = "chat_text",
+    ) -> tuple[bool, str | None]:
+        """Inspect an explicit workload model using current route certifications."""
+
+        return self._readiness(model_id, capability, scoped_certified=True)
+
+    def _readiness(
+        self,
+        model_id: str,
+        capability: ProviderChatCapability,
+        *,
+        scoped_certified: bool,
+    ) -> tuple[bool, str | None]:
 
         if not self.control.feature_enabled():
             return False, "provider_chat_control_feature_disabled"
@@ -56,7 +97,7 @@ class ProviderChatStableService:
         clean_model = str(model_id or "").strip()
         if (
             policy.effective_mode == "legacy"
-            or clean_model not in policy.stable_model_ids
+            or (not scoped_certified and clean_model not in policy.stable_model_ids)
         ):
             return False, "provider_chat_no_qualified_route"
         runtime_allowed, runtime_error = self.control.required_runtime_allowed(policy)
@@ -69,21 +110,21 @@ class ProviderChatStableService:
         route_ids = list(route.connection_ids if route else [])
         if policy.effective_mode == "newapi_required_default":
             route_ids = route_ids[:1]
-        qualifications = {
-            item.connection_id: item
-            for item in policy.qualifications
-            if item.capability == capability and item.model_id == clean_model
-        }
+        qualifications = self._policy_qualifications(
+            policy, model_id=clean_model, capability=capability
+        )
         failures: list[str] = []
         for connection_id in route_ids:
-            qualification = qualifications.get(connection_id)
-            if qualification is not None and qualification.valid:
-                return True, None
-            failures.append(
-                qualification.reason_code
-                if qualification is not None
-                else "provider_chat_qualification_missing"
+            certification_id, reason = self._qualification_for_route(
+                qualifications,
+                connection_id=connection_id,
+                model_id=clean_model,
+                capability=capability,
+                scoped_certified=scoped_certified,
             )
+            if certification_id is not None:
+                return True, None
+            failures.append(reason)
         return False, failures[-1] if failures else "provider_chat_no_qualified_route"
 
     async def begin(
@@ -91,13 +132,45 @@ class ProviderChatStableService:
         model_id: str,
         capability: ProviderChatCapability = "chat_text",
     ) -> ProviderChatStablePreflight:
+        return await self._begin(
+            model_id,
+            capability,
+            scoped_certified=False,
+            required_capabilities=(capability,),
+        )
+
+    async def begin_scoped_certified(
+        self,
+        model_id: str,
+        capability: ProviderChatCapability = "chat_text",
+        *,
+        required_capabilities: tuple[ProviderChatCapability, ...] = (),
+    ) -> ProviderChatStablePreflight:
+        """Begin a fixed workload call without adding the model to stable chat."""
+
+        normalized = tuple(dict.fromkeys((*required_capabilities, capability)))
+        return await self._begin(
+            model_id,
+            capability,
+            scoped_certified=True,
+            required_capabilities=normalized,
+        )
+
+    async def _begin(
+        self,
+        model_id: str,
+        capability: ProviderChatCapability,
+        *,
+        scoped_certified: bool,
+        required_capabilities: tuple[ProviderChatCapability, ...],
+    ) -> ProviderChatStablePreflight:
         if not self.control.feature_enabled():
             return ProviderChatStablePreflight(intercepted=False)
         policy = self.control.get_policy()
         clean_model = str(model_id or "").strip()
         if (
             policy.effective_mode == "legacy"
-            or clean_model not in policy.stable_model_ids
+            or (not scoped_certified and clean_model not in policy.stable_model_ids)
         ):
             return ProviderChatStablePreflight(intercepted=False)
         runtime_allowed, runtime_error = self.control.required_runtime_allowed(policy)
@@ -111,7 +184,7 @@ class ProviderChatStableService:
                 capability=capability,
                 requested_model=clean_model,
                 strategy=policy.effective_mode,
-                gateway="default",
+                gateway="ai_research_scoped" if scoped_certified else "default",
                 is_real_user=True,
                 primary_newapi=True,
             )
@@ -150,17 +223,47 @@ class ProviderChatStableService:
             capability=capability,
             requested_model=clean_model,
             strategy=policy.effective_mode,
-            gateway="default",
+            gateway="ai_research_scoped" if scoped_certified else "default",
             epoch_id=str(epoch["id"]) if epoch is not None else None,
             is_real_user=True,
             primary_newapi=True,
         )
 
-        qualification_by_connection = {
-            item.connection_id: item
-            for item in policy.qualifications
-            if item.capability == capability and item.model_id == clean_model
-        }
+        prebound_certifications: dict[
+            ProviderChatCapability, ProviderChatCertificationBinding
+        ] = {}
+        if scoped_certified:
+            for required_capability in required_capabilities:
+                if required_capability == capability:
+                    continue
+                binding, reason = self._current_scoped_binding(
+                    policy,
+                    model_id=clean_model,
+                    capability=required_capability,
+                )
+                if binding is None:
+                    self._repository_method("complete_chat_control_run")(
+                        self.router_service.tenant_id,
+                        run_id,
+                        status="failed",
+                        result_class="preflight_failure",
+                        reason_codes=[reason],
+                    )
+                    return ProviderChatStablePreflight(
+                        intercepted=True,
+                        error_code=reason,
+                        route_receipt=self.route_receipt(
+                            None,
+                            requested_model=clean_model,
+                            reason_codes=[reason],
+                            strategy=policy.effective_mode,
+                        ),
+                    )
+                prebound_certifications[required_capability] = binding
+
+        qualification_by_connection = self._policy_qualifications(
+            policy, model_id=clean_model, capability=capability
+        )
         failures: list[str] = []
         candidate_route_ids = (
             route_ids[:1]
@@ -168,8 +271,13 @@ class ProviderChatStableService:
             else route_ids
         )
         for position, connection_id in enumerate(candidate_route_ids):
-            connection = self.repository.get_connection(
-                self.router_service.tenant_id, connection_id
+            (
+                connection,
+                api_key,
+                connection_fingerprint,
+            ) = self.repository.get_connection_credential_snapshot(
+                self.router_service.tenant_id,
+                connection_id,
             )
             attempt_id = f"chatattempt_{uuid.uuid4().hex}"
             self._repository_method("claim_chat_control_attempt")(
@@ -181,13 +289,14 @@ class ProviderChatStableService:
                 connection_id=connection_id,
                 provider_kind=connection.kind,
             )
-            qualification = qualification_by_connection.get(connection_id)
-            if qualification is None or not qualification.valid:
-                reason = (
-                    qualification.reason_code
-                    if qualification is not None
-                    else "provider_chat_qualification_missing"
-                )
+            certification_id, reason = self._qualification_for_route(
+                qualification_by_connection,
+                connection_id=connection_id,
+                model_id=clean_model,
+                capability=capability,
+                scoped_certified=scoped_certified,
+            )
+            if certification_id is None:
                 self._complete_preflight_attempt(attempt_id, reason)
                 failures.append(reason)
                 continue
@@ -196,9 +305,7 @@ class ProviderChatStableService:
                     source="managed",
                     provider_kind=connection.kind,
                     base_url=connection.base_url,
-                    api_key=self.repository.resolve_api_key(
-                        self.router_service.tenant_id, connection_id
-                    ),
+                    api_key=api_key,
                     connection_id=connection_id,
                 )
                 authorized = await self.transport.authorize_managed_target(target)
@@ -215,6 +322,15 @@ class ProviderChatStableService:
             reason_codes = list(dict.fromkeys(failures))
             if position:
                 reason_codes.append("provider_chat_preflight_backup_selected")
+            actual_binding = ProviderChatCertificationBinding(
+                capability=capability,
+                connection_id=connection_id,
+                certification_id=certification_id,
+            )
+            bindings = {
+                **prebound_certifications,
+                capability: actual_binding,
+            }
             return ProviderChatStablePreflight(
                 intercepted=True,
                 dispatch=ProviderChatStableDispatch(
@@ -225,10 +341,15 @@ class ProviderChatStableService:
                     capability=capability,
                     requested_model=clean_model,
                     target=target,
+                    connection_fingerprint=connection_fingerprint,
                     authorized=authorized,
                     position=position,
                     reason_codes=tuple(reason_codes),
+                    certification_id=certification_id,
                     started_at=time.perf_counter(),
+                    required_certifications=tuple(
+                        bindings[item] for item in required_capabilities
+                    ),
                 ),
             )
 
@@ -254,46 +375,205 @@ class ProviderChatStableService:
     def mark_dispatched(self, dispatch: ProviderChatStableDispatch) -> None:
         try:
             self.ensure_dispatch_current(dispatch)
-        except RouterServiceError as exc:
-            self._complete_preflight_attempt(dispatch.attempt_id, exc.code)
-            self._repository_method("complete_chat_control_run")(
+            if not self.control.feature_enabled():
+                raise RouterServiceError(
+                    "provider_chat_policy_or_qualification_changed",
+                    "Chat 路由策略或资格已变化，请刷新设置后重试。",
+                    status_code=409,
+                )
+            self._repository_method(
+                "mark_chat_control_attempt_dispatched_if_current"
+            )(
                 self.router_service.tenant_id,
-                dispatch.run_id,
-                status="failed",
-                result_class="preflight_failure",
-                reason_codes=[exc.code],
+                dispatch.attempt_id,
+                expected_run_id=dispatch.run_id,
+                expected_policy_fingerprint=dispatch.policy_fingerprint,
+                expected_strategy=dispatch.strategy,
+                expected_model=dispatch.requested_model,
+                expected_capability=dispatch.capability,
+                expected_connection_id=dispatch.target.connection_id,
+                expected_connection_fingerprint=(
+                    dispatch.connection_fingerprint
+                ),
+                required_certifications=tuple(
+                    (
+                        binding.capability,
+                        binding.connection_id,
+                        binding.certification_id,
+                    )
+                    for binding in dispatch.required_certifications
+                ),
+                contract_version=PROVIDER_CHAT_CONTRACT_VERSION,
+                certification_max_age_seconds=(
+                    self._certification_max_age_seconds()
+                ),
             )
-            raise
-        self._repository_method("mark_chat_control_attempt_dispatched")(
-            self.router_service.tenant_id, dispatch.attempt_id
-        )
+        except (RouterServiceError, RouterRepositoryError) as exc:
+            code = (
+                exc.code
+                if isinstance(exc, RouterServiceError)
+                else str(exc)
+            )
+            self._repository_method(
+                "fail_chat_control_preflight_if_undispatched"
+            )(
+                self.router_service.tenant_id,
+                dispatch.attempt_id,
+                expected_run_id=dispatch.run_id,
+                error_code=code,
+            )
+            if isinstance(exc, RouterServiceError):
+                raise
+            raise RouterServiceError(
+                code,
+                "Chat 路由策略或资格已变化，请刷新设置后重试。",
+                status_code=409,
+            ) from exc
 
     def ensure_dispatch_current(self, dispatch: ProviderChatStableDispatch) -> None:
         """Fail closed if a multi-step capability drifts between model calls."""
 
         policy = self.control.get_policy()
-        qualification = next(
-            (
-                item
-                for item in policy.qualifications
-                if item.capability == dispatch.capability
-                and item.model_id == dispatch.requested_model
-                and item.connection_id == dispatch.target.connection_id
-            ),
-            None,
-        )
-        if (
+        bindings = dispatch.required_certifications
+        binding_capabilities = [binding.capability for binding in bindings]
+        actual_bindings = [
+            binding
+            for binding in bindings
+            if binding.capability == dispatch.capability
+        ]
+        invalid = (
             policy.effective_mode != dispatch.strategy
             or policy.policy_fingerprint != dispatch.policy_fingerprint
-            or qualification is None
-            or not qualification.valid
-        ):
+            or not bindings
+            or len(binding_capabilities) != len(set(binding_capabilities))
+            or len(actual_bindings) != 1
+            or actual_bindings[0].connection_id != dispatch.target.connection_id
+            or actual_bindings[0].certification_id != dispatch.certification_id
+        )
+        if not invalid:
+            for binding in bindings:
+                qualification, _ = self.control.current_qualification(
+                    connection_id=binding.connection_id,
+                    model_id=dispatch.requested_model,
+                    capability=binding.capability,
+                )
+                if (
+                    qualification is None
+                    or qualification["certification_id"] != binding.certification_id
+                ):
+                    invalid = True
+                    break
+        if invalid:
             code = "provider_chat_policy_or_qualification_changed"
             raise RouterServiceError(
                 code,
                 "Chat 路由策略或资格已变化，请刷新设置后重试。",
                 status_code=409,
             )
+
+    def _current_scoped_binding(
+        self,
+        policy,
+        *,
+        model_id: str,
+        capability: ProviderChatCapability,
+    ) -> tuple[ProviderChatCertificationBinding | None, str]:
+        route = next(
+            (item for item in policy.routes if item.capability == capability),
+            None,
+        )
+        route_ids = list(route.connection_ids if route else [])
+        if policy.effective_mode == "newapi_required_default":
+            route_ids = route_ids[:1]
+        failures: list[str] = []
+        for connection_id in route_ids:
+            qualification, reason = self.control.current_qualification(
+                connection_id=connection_id,
+                model_id=model_id,
+                capability=capability,
+                require_exact_model=True,
+            )
+            if qualification is not None:
+                return (
+                    ProviderChatCertificationBinding(
+                        capability=capability,
+                        connection_id=connection_id,
+                        certification_id=str(qualification["certification_id"]),
+                    ),
+                    "qualified",
+                )
+            failures.append(reason)
+        return None, (
+            failures[-1] if failures else "provider_chat_no_qualified_route"
+        )
+
+    @staticmethod
+    def _policy_qualifications(
+        policy,
+        *,
+        model_id: str,
+        capability: ProviderChatCapability,
+    ) -> dict[str, object]:
+        return {
+            item.connection_id: item
+            for item in policy.qualifications
+            if item.capability == capability and item.model_id == model_id
+        }
+
+    def _qualification_for_route(
+        self,
+        policy_qualifications: dict[str, object],
+        *,
+        connection_id: str,
+        model_id: str,
+        capability: ProviderChatCapability,
+        scoped_certified: bool,
+    ) -> tuple[str | None, str]:
+        if scoped_certified:
+            current, reason = self.control.current_qualification(
+                connection_id=connection_id,
+                model_id=model_id,
+                capability=capability,
+                require_exact_model=True,
+            )
+            return (
+                str(current["certification_id"]) if current is not None else None,
+                reason,
+            )
+        qualification = policy_qualifications.get(connection_id)
+        if qualification is not None and qualification.valid:
+            return str(qualification.certification_id), "qualified"
+        return (
+            None,
+            qualification.reason_code
+            if qualification is not None
+            else "provider_chat_qualification_missing",
+        )
+
+    @staticmethod
+    def _certification_max_age_seconds() -> int:
+        raw = os.getenv(PROVIDER_CHAT_CERTIFICATION_MAX_AGE_ENV, "").strip()
+        if not raw:
+            return DEFAULT_PROVIDER_CHAT_CERTIFICATION_MAX_AGE_SECONDS
+        try:
+            value = int(raw)
+        except ValueError as exc:
+            raise RouterServiceError(
+                "provider_chat_policy_or_qualification_changed",
+                "Chat 路由策略或资格已变化，请刷新设置后重试。",
+                status_code=409,
+            ) from exc
+        if not (
+            MIN_PROVIDER_CHAT_CERTIFICATION_MAX_AGE_SECONDS
+            <= value
+            <= MAX_PROVIDER_CHAT_CERTIFICATION_MAX_AGE_SECONDS
+        ):
+            raise RouterServiceError(
+                "provider_chat_policy_or_qualification_changed",
+                "Chat 路由策略或资格已变化，请刷新设置后重试。",
+                status_code=409,
+            )
+        return value
 
     def complete(
         self,
@@ -318,24 +598,13 @@ class ProviderChatStableService:
         if error_code:
             codes.append(error_code)
         codes = list(dict.fromkeys(codes))
-        self._repository_method("complete_chat_control_attempt")(
+        self._repository_method("complete_chat_control_dispatch")(
             self.router_service.tenant_id,
             dispatch.attempt_id,
+            expected_run_id=dispatch.run_id,
             status=status,
             result_class=result_class,
             error_code=error_code,
-            actual_model=actual_model,
-            ttft_ms=ttft_ms,
-            e2e_ms=e2e_ms,
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            total_tokens=total_tokens,
-        )
-        self._repository_method("complete_chat_control_run")(
-            self.router_service.tenant_id,
-            dispatch.run_id,
-            status=status,
-            result_class=result_class,
             reason_codes=codes,
             actual_model=actual_model,
             client_cancelled=client_cancelled,

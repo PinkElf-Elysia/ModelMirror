@@ -12,7 +12,7 @@ import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Protocol
+from typing import NoReturn, Protocol
 
 from cryptography.fernet import Fernet, InvalidToken
 
@@ -2528,6 +2528,766 @@ class SQLiteRouterRepository:
             if cursor.rowcount != 1:
                 raise RouterRepositoryError("provider_chat_attempt_not_running")
 
+    @staticmethod
+    def _chat_dispatch_drift() -> NoReturn:
+        raise RouterRepositoryError(
+            "provider_chat_policy_or_qualification_changed"
+        )
+
+    @classmethod
+    def _normalize_chat_dispatch_bindings(
+        cls,
+        required_certifications: tuple[tuple[str, str, str], ...],
+        *,
+        expected_capability: str,
+        expected_connection_id: str,
+    ) -> dict[str, tuple[str, str]]:
+        if not required_certifications:
+            cls._chat_dispatch_drift()
+        bindings: dict[str, tuple[str, str]] = {}
+        certification_ids: set[str] = set()
+        for binding in required_certifications:
+            if not isinstance(binding, tuple) or len(binding) != 3:
+                cls._chat_dispatch_drift()
+            capability, connection_id, certification_id = binding
+            if (
+                not isinstance(capability, str)
+                or not capability
+                or not isinstance(connection_id, str)
+                or not connection_id
+                or not isinstance(certification_id, str)
+                or not certification_id
+                or capability in bindings
+                or certification_id in certification_ids
+            ):
+                cls._chat_dispatch_drift()
+            bindings[capability] = (connection_id, certification_id)
+            certification_ids.add(certification_id)
+        actual_binding = bindings.get(expected_capability)
+        if actual_binding is None or actual_binding[0] != expected_connection_id:
+            cls._chat_dispatch_drift()
+        return bindings
+
+    @classmethod
+    def _validate_chat_dispatch_envelope(
+        cls,
+        connection: sqlite3.Connection,
+        *,
+        tenant_id: str,
+        attempt_id: str,
+        expected_run_id: str,
+        expected_policy_fingerprint: str,
+        expected_strategy: str,
+        expected_model: str,
+        expected_capability: str,
+        expected_connection_id: str,
+        bindings: dict[str, tuple[str, str]],
+    ) -> tuple[
+        sqlite3.Row,
+        str,
+        list[str],
+        dict[str, list[tuple[int, str]]],
+        str,
+    ]:
+        attempt = connection.execute(
+            """
+            SELECT * FROM provider_chat_attempts
+            WHERE tenant_id = ? AND id = ?
+            """,
+            (tenant_id, attempt_id),
+        ).fetchone()
+        if (
+            attempt is None
+            or str(attempt["run_id"]) != expected_run_id
+            or str(attempt["capability"]) != expected_capability
+            or str(attempt["connection_id"] or "") != expected_connection_id
+            or str(attempt["status"]) != "running"
+            or bool(attempt["dispatched"])
+        ):
+            cls._chat_dispatch_drift()
+
+        run = connection.execute(
+            """
+            SELECT * FROM provider_chat_runs
+            WHERE tenant_id = ? AND id = ?
+            """,
+            (tenant_id, expected_run_id),
+        ).fetchone()
+        if (
+            run is None
+            or str(run["status"]) != "running"
+            or str(run["policy_fingerprint"]) != expected_policy_fingerprint
+            or str(run["strategy"]) != expected_strategy
+            or str(run["requested_model"]) != expected_model
+            or str(run["capability"]) != expected_capability
+        ):
+            cls._chat_dispatch_drift()
+        gateway = str(run["gateway"])
+        if gateway not in {"default", "ai_research_scoped"}:
+            cls._chat_dispatch_drift()
+
+        policy = connection.execute(
+            """
+            SELECT * FROM provider_chat_stable_policies
+            WHERE tenant_id = ?
+            """,
+            (tenant_id,),
+        ).fetchone()
+        if (
+            policy is None
+            or str(policy["mode"]) != expected_strategy
+            or str(policy["policy_fingerprint"])
+            != expected_policy_fingerprint
+        ):
+            cls._chat_dispatch_drift()
+        try:
+            stable_models_value = json.loads(
+                str(policy["stable_models_json"] or "[]")
+            )
+        except (TypeError, ValueError):
+            cls._chat_dispatch_drift()
+        if not isinstance(stable_models_value, list) or any(
+            not isinstance(item, str) or not item
+            for item in stable_models_value
+        ):
+            cls._chat_dispatch_drift()
+        stable_models = [str(item) for item in stable_models_value]
+        if gateway == "default" and expected_model not in stable_models:
+            cls._chat_dispatch_drift()
+
+        route_rows = connection.execute(
+            """
+            SELECT capability, position, connection_id
+            FROM provider_chat_capability_routes
+            WHERE tenant_id = ?
+            ORDER BY capability ASC, position ASC
+            """,
+            (tenant_id,),
+        ).fetchall()
+        routes: dict[str, list[tuple[int, str]]] = {}
+        try:
+            for row in route_rows:
+                routes.setdefault(str(row["capability"]), []).append(
+                    (int(row["position"]), str(row["connection_id"]))
+                )
+            attempt_position = int(attempt["position"])
+        except (TypeError, ValueError):
+            cls._chat_dispatch_drift()
+        if (
+            attempt_position,
+            expected_connection_id,
+        ) not in routes.get(expected_capability, []):
+            cls._chat_dispatch_drift()
+        for capability, (connection_id, _) in bindings.items():
+            capability_routes = routes.get(capability, [])
+            if not any(
+                route_connection_id == connection_id
+                for _, route_connection_id in capability_routes
+            ):
+                cls._chat_dispatch_drift()
+            if (
+                expected_strategy == "newapi_required_default"
+                and (
+                    not capability_routes
+                    or capability_routes[0][1] != connection_id
+                )
+            ):
+                cls._chat_dispatch_drift()
+        if (
+            expected_strategy == "newapi_required_default"
+            and attempt_position != 0
+        ):
+            cls._chat_dispatch_drift()
+        return (
+            run,
+            gateway,
+            stable_models,
+            routes,
+            str(attempt["provider_kind"]),
+        )
+
+    def _current_dispatch_connection_fingerprint(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        tenant_id: str,
+        connection_id: str,
+        model_id: str,
+        expected_connection_id: str,
+        expected_provider_kind: str,
+        cache: dict[tuple[str, str], str],
+    ) -> str:
+        cache_key = (connection_id, model_id)
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+        connection_row = connection.execute(
+            """
+            SELECT * FROM router_connections
+            WHERE tenant_id = ? AND id = ?
+            """,
+            (tenant_id, connection_id),
+        ).fetchone()
+        if connection_row is None:
+            self._chat_dispatch_drift()
+        if (
+            connection_id == expected_connection_id
+            and str(connection_row["kind"]) != expected_provider_kind
+        ):
+            self._chat_dispatch_drift()
+        try:
+            scopes = json.loads(str(connection_row["scopes_json"]))
+            decrypted_key = self._fernet.decrypt(
+                str(connection_row["api_key_ciphertext"]).encode("ascii")
+            ).decode("utf-8")
+            fingerprint = self._connection_config_fingerprint_row(
+                connection_row
+            )
+        except (InvalidToken, TypeError, ValueError, UnicodeError):
+            self._chat_dispatch_drift()
+        if (
+            not bool(connection_row["enabled"])
+            or str(connection_row["health"]) != "online"
+            or not isinstance(scopes, list)
+            or "chat" not in scopes
+            or not decrypted_key.strip()
+        ):
+            self._chat_dispatch_drift()
+        inventory = connection.execute(
+            """
+            SELECT * FROM provider_catalog_models
+            WHERE tenant_id = ? AND connection_id = ?
+              AND model_id = ? AND status = 'active'
+            LIMIT 1
+            """,
+            (tenant_id, connection_id, model_id),
+        ).fetchone()
+        if inventory is None:
+            self._chat_dispatch_drift()
+        refresh = connection.execute(
+            """
+            SELECT * FROM provider_catalog_refreshes
+            WHERE tenant_id = ? AND connection_id = ? AND id = ?
+            """,
+            (tenant_id, connection_id, str(inventory["last_refresh_id"])),
+        ).fetchone()
+        if (
+            refresh is None
+            or str(refresh["status"]) != "succeeded"
+            or bool(refresh["truncated"])
+            or not refresh["completed_at"]
+            or str(refresh["connection_fingerprint"]) != fingerprint
+        ):
+            self._chat_dispatch_drift()
+        cache[cache_key] = fingerprint
+        return fingerprint
+
+    @classmethod
+    def _parse_chat_dispatch_timestamp(cls, value: object) -> datetime:
+        try:
+            parsed = datetime.fromisoformat(
+                str(value or "").replace("Z", "+00:00")
+            )
+        except (TypeError, ValueError):
+            cls._chat_dispatch_drift()
+        if parsed.tzinfo is None:
+            cls._chat_dispatch_drift()
+        return parsed.astimezone(UTC)
+
+    def _validate_current_dispatch_certification(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        tenant_id: str,
+        capability: str,
+        connection_id: str,
+        model_id: str,
+        certification_id: str,
+        contract_version: str,
+        certification_max_age_seconds: int,
+        expected_connection_id: str,
+        expected_provider_kind: str,
+        connection_cache: dict[tuple[str, str], str],
+        expirations: list[datetime],
+        require_exact_model: bool = False,
+    ) -> str:
+        fingerprint = self._current_dispatch_connection_fingerprint(
+            connection,
+            tenant_id=tenant_id,
+            connection_id=connection_id,
+            model_id=model_id,
+            expected_connection_id=expected_connection_id,
+            expected_provider_kind=expected_provider_kind,
+            cache=connection_cache,
+        )
+        certification = connection.execute(
+            """
+            SELECT * FROM provider_chat_certifications
+            WHERE tenant_id = ? AND connection_id = ?
+              AND requested_model = ? AND capability = ?
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+            """,
+            (tenant_id, connection_id, model_id, capability),
+        ).fetchone()
+        if (
+            certification is None
+            or str(certification["id"]) != certification_id
+            or str(certification["status"]) != "passed"
+            or str(certification["connection_fingerprint"]) != fingerprint
+            or str(certification["contract_version"]) != contract_version
+            or (require_exact_model and certification["actual_model"] is None)
+            or (
+                certification["actual_model"] is not None
+                and str(certification["actual_model"]) != model_id
+            )
+        ):
+            self._chat_dispatch_drift()
+        completed_at = self._parse_chat_dispatch_timestamp(
+            certification["completed_at"]
+        )
+        expirations.append(
+            completed_at
+            + timedelta(seconds=certification_max_age_seconds)
+        )
+        hard_failure = connection.execute(
+            """
+            SELECT COALESCE(
+                       failed_attempt.completed_at,
+                       run.completed_at
+                   ) AS completed_at
+            FROM provider_chat_runs AS run
+            JOIN provider_chat_attempts AS failed_attempt
+              ON failed_attempt.tenant_id = run.tenant_id
+             AND failed_attempt.run_id = run.id
+            WHERE run.tenant_id = ? AND run.capability = ?
+              AND run.requested_model = ?
+              AND (
+                  run.hard_failure = 1
+                  OR failed_attempt.result_class = 'hard_failure'
+              )
+              AND failed_attempt.connection_id = ?
+              AND failed_attempt.dispatched = 1
+            ORDER BY completed_at DESC, run.id DESC
+            LIMIT 1
+            """,
+            (tenant_id, capability, model_id, connection_id),
+        ).fetchone()
+        if (
+            hard_failure is not None
+            and self._parse_chat_dispatch_timestamp(
+                hard_failure["completed_at"]
+            )
+            >= completed_at
+        ):
+            self._chat_dispatch_drift()
+        return fingerprint
+
+    def _validate_default_dispatch_qualifications(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        tenant_id: str,
+        model_id: str,
+        bindings: dict[str, tuple[str, str]],
+        contract_version: str,
+        expected_connection_id: str,
+        expected_provider_kind: str,
+        connection_cache: dict[tuple[str, str], str],
+    ) -> None:
+        for capability, (connection_id, certification_id) in bindings.items():
+            qualification = connection.execute(
+                """
+                SELECT * FROM provider_chat_model_qualifications
+                WHERE tenant_id = ? AND capability = ?
+                  AND connection_id = ? AND model_id = ?
+                """,
+                (tenant_id, capability, connection_id, model_id),
+            ).fetchone()
+            if (
+                qualification is None
+                or str(qualification["certification_id"]) != certification_id
+                or str(qualification["contract_version"]) != contract_version
+                or str(qualification["connection_fingerprint"])
+                != self._current_dispatch_connection_fingerprint(
+                    connection,
+                    tenant_id=tenant_id,
+                    connection_id=connection_id,
+                    model_id=model_id,
+                    expected_connection_id=expected_connection_id,
+                    expected_provider_kind=expected_provider_kind,
+                    cache=connection_cache,
+                )
+            ):
+                self._chat_dispatch_drift()
+
+    def _validate_required_dispatch_gate(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        tenant_id: str,
+        run: sqlite3.Row,
+        policy_fingerprint: str,
+        stable_models: list[str],
+        routes: dict[str, list[tuple[int, str]]],
+        contract_version: str,
+        certification_max_age_seconds: int,
+        expected_connection_id: str,
+        expected_provider_kind: str,
+        connection_cache: dict[tuple[str, str], str],
+        expirations: list[datetime],
+    ) -> None:
+        epoch_id = str(run["epoch_id"] or "")
+        epoch = connection.execute(
+            """
+            SELECT * FROM provider_chat_gate_epochs
+            WHERE tenant_id = ? AND id = ?
+              AND policy_fingerprint = ? AND status = 'active'
+              AND closed_at IS NULL
+            """,
+            (tenant_id, epoch_id, policy_fingerprint),
+        ).fetchone()
+        approval = connection.execute(
+            """
+            SELECT * FROM provider_chat_gate_approvals
+            WHERE tenant_id = ? AND policy_fingerprint = ?
+              AND epoch_id = ? AND revoked_at IS NULL
+            """,
+            (tenant_id, policy_fingerprint, epoch_id),
+        ).fetchone()
+        if epoch is None or approval is None:
+            self._chat_dispatch_drift()
+        try:
+            drills = json.loads(str(approval["drills_json"] or "{}"))
+        except (TypeError, ValueError):
+            self._chat_dispatch_drift()
+        if (
+            not bool(approval["no_open_p0_p1"])
+            or not bool(approval["acknowledge_fail_closed"])
+            or not isinstance(drills, dict)
+            or bool(validate_provider_chat_drills(drills))
+        ):
+            self._chat_dispatch_drift()
+        evidence_rows = connection.execute(
+            """
+            SELECT evidence_kind FROM provider_chat_acceptance_evidence
+            WHERE tenant_id = ? AND policy_fingerprint = ?
+              AND epoch_id = ? AND passed = 1
+            """,
+            (tenant_id, policy_fingerprint, epoch_id),
+        ).fetchall()
+        passed_evidence = {str(row["evidence_kind"]) for row in evidence_rows}
+        if not {
+            "newapi_quota_decrement",
+            "newapi_usage_log",
+            "newapi_restart_persistence",
+        } <= passed_evidence:
+            self._chat_dispatch_drift()
+        if (
+            not stable_models
+            or not routes.get("chat_text")
+            or len(stable_models) != len(set(stable_models))
+        ):
+            self._chat_dispatch_drift()
+        policy_qualifications = connection.execute(
+            """
+            SELECT * FROM provider_chat_model_qualifications
+            WHERE tenant_id = ?
+            """,
+            (tenant_id,),
+        ).fetchall()
+        expected_qualification_keys = {
+            (capability, route_connection_id, model_id)
+            for capability, capability_routes in routes.items()
+            for _, route_connection_id in capability_routes
+            for model_id in stable_models
+        }
+        actual_qualification_keys = {
+            (
+                str(row["capability"]),
+                str(row["connection_id"]),
+                str(row["model_id"]),
+            )
+            for row in policy_qualifications
+        }
+        if actual_qualification_keys != expected_qualification_keys:
+            self._chat_dispatch_drift()
+        for qualification in policy_qualifications:
+            capability = str(qualification["capability"])
+            connection_id = str(qualification["connection_id"])
+            model_id = str(qualification["model_id"])
+            certification_id = str(qualification["certification_id"])
+            fingerprint = self._validate_current_dispatch_certification(
+                connection,
+                tenant_id=tenant_id,
+                capability=capability,
+                connection_id=connection_id,
+                model_id=model_id,
+                certification_id=certification_id,
+                contract_version=contract_version,
+                certification_max_age_seconds=certification_max_age_seconds,
+                expected_connection_id=expected_connection_id,
+                expected_provider_kind=expected_provider_kind,
+                connection_cache=connection_cache,
+                expirations=expirations,
+            )
+            if (
+                str(qualification["contract_version"]) != contract_version
+                or str(qualification["connection_fingerprint"]) != fingerprint
+            ):
+                self._chat_dispatch_drift()
+
+    def mark_chat_control_attempt_dispatched_if_current(
+        self,
+        tenant_id: str,
+        attempt_id: str,
+        *,
+        expected_run_id: str,
+        expected_policy_fingerprint: str,
+        expected_strategy: str,
+        expected_model: str,
+        expected_capability: str,
+        expected_connection_id: str,
+        expected_connection_fingerprint: str,
+        required_certifications: tuple[tuple[str, str, str], ...],
+        contract_version: str,
+        certification_max_age_seconds: int,
+    ) -> None:
+        """Atomically bind dispatch to the exact policy and certification state."""
+
+        clean_tenant = self._tenant_id(tenant_id)
+        if (
+            not isinstance(attempt_id, str)
+            or not attempt_id
+            or not isinstance(expected_run_id, str)
+            or not expected_run_id
+            or not isinstance(expected_policy_fingerprint, str)
+            or not expected_policy_fingerprint
+            or expected_strategy
+            not in {"newapi_preferred", "newapi_required_default"}
+            or not isinstance(expected_model, str)
+            or not expected_model
+            or not isinstance(expected_capability, str)
+            or not expected_capability
+            or not isinstance(expected_connection_id, str)
+            or not expected_connection_id
+            or not isinstance(expected_connection_fingerprint, str)
+            or not expected_connection_fingerprint
+            or not isinstance(contract_version, str)
+            or not contract_version
+            or not isinstance(certification_max_age_seconds, int)
+            or isinstance(certification_max_age_seconds, bool)
+            or certification_max_age_seconds <= 0
+        ):
+            self._chat_dispatch_drift()
+        bindings = self._normalize_chat_dispatch_bindings(
+            required_certifications,
+            expected_capability=expected_capability,
+            expected_connection_id=expected_connection_id,
+        )
+
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            (
+                run,
+                gateway,
+                stable_models,
+                routes,
+                expected_provider_kind,
+            ) = self._validate_chat_dispatch_envelope(
+                connection,
+                tenant_id=clean_tenant,
+                attempt_id=attempt_id,
+                expected_run_id=expected_run_id,
+                expected_policy_fingerprint=expected_policy_fingerprint,
+                expected_strategy=expected_strategy,
+                expected_model=expected_model,
+                expected_capability=expected_capability,
+                expected_connection_id=expected_connection_id,
+                bindings=bindings,
+            )
+            connection_state_cache: dict[tuple[str, str], str] = {}
+            certification_expirations: list[datetime] = []
+
+            for capability, (
+                connection_id,
+                certification_id,
+            ) in bindings.items():
+                self._validate_current_dispatch_certification(
+                    connection,
+                    tenant_id=clean_tenant,
+                    capability=capability,
+                    connection_id=connection_id,
+                    model_id=expected_model,
+                    certification_id=certification_id,
+                    contract_version=contract_version,
+                    certification_max_age_seconds=(
+                        certification_max_age_seconds
+                    ),
+                    expected_connection_id=expected_connection_id,
+                    expected_provider_kind=expected_provider_kind,
+                    connection_cache=connection_state_cache,
+                    expirations=certification_expirations,
+                    require_exact_model=(gateway == "ai_research_scoped"),
+                )
+
+            if gateway == "default":
+                self._validate_default_dispatch_qualifications(
+                    connection,
+                    tenant_id=clean_tenant,
+                    model_id=expected_model,
+                    bindings=bindings,
+                    contract_version=contract_version,
+                    expected_connection_id=expected_connection_id,
+                    expected_provider_kind=expected_provider_kind,
+                    connection_cache=connection_state_cache,
+                )
+
+            if expected_strategy == "newapi_required_default":
+                self._validate_required_dispatch_gate(
+                    connection,
+                    tenant_id=clean_tenant,
+                    run=run,
+                    policy_fingerprint=expected_policy_fingerprint,
+                    stable_models=stable_models,
+                    routes=routes,
+                    contract_version=contract_version,
+                    certification_max_age_seconds=(
+                        certification_max_age_seconds
+                    ),
+                    expected_connection_id=expected_connection_id,
+                    expected_provider_kind=expected_provider_kind,
+                    connection_cache=connection_state_cache,
+                    expirations=certification_expirations,
+                )
+
+            if (
+                connection_state_cache.get(
+                    (expected_connection_id, expected_model)
+                )
+                != expected_connection_fingerprint
+            ):
+                self._chat_dispatch_drift()
+
+            dispatch_now = datetime.now(UTC)
+            if not certification_expirations or dispatch_now >= min(
+                certification_expirations
+            ):
+                self._chat_dispatch_drift()
+            cursor = connection.execute(
+                """
+                UPDATE provider_chat_attempts
+                SET dispatched = 1, updated_at = ?
+                WHERE tenant_id = ? AND id = ? AND run_id = ?
+                  AND capability = ? AND connection_id = ?
+                  AND status = 'running' AND dispatched = 0
+                """,
+                (
+                    dispatch_now.isoformat(),
+                    clean_tenant,
+                    attempt_id,
+                    expected_run_id,
+                    expected_capability,
+                    expected_connection_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                self._chat_dispatch_drift()
+
+    def fail_chat_control_preflight_if_undispatched(
+        self,
+        tenant_id: str,
+        attempt_id: str,
+        *,
+        expected_run_id: str,
+        error_code: str,
+    ) -> bool:
+        """Atomically fail preflight only while the run has never dispatched."""
+
+        clean_tenant = self._tenant_id(tenant_id)
+        if not isinstance(error_code, str) or not error_code.strip():
+            raise RouterRepositoryError("provider_chat_preflight_error_code_required")
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            state = connection.execute(
+                """
+                SELECT attempt.status AS attempt_status,
+                       attempt.dispatched AS attempt_dispatched,
+                       run.status AS run_status
+                FROM provider_chat_attempts AS attempt
+                JOIN provider_chat_runs AS run
+                  ON run.tenant_id = attempt.tenant_id
+                 AND run.id = attempt.run_id
+                WHERE attempt.tenant_id = ? AND attempt.id = ?
+                  AND attempt.run_id = ?
+                """,
+                (clean_tenant, attempt_id, expected_run_id),
+            ).fetchone()
+            if (
+                state is None
+                or str(state["attempt_status"]) != "running"
+                or bool(state["attempt_dispatched"])
+                or str(state["run_status"]) != "running"
+            ):
+                return False
+            dispatched = connection.execute(
+                """
+                SELECT 1 FROM provider_chat_attempts
+                WHERE tenant_id = ? AND run_id = ? AND dispatched = 1
+                LIMIT 1
+                """,
+                (clean_tenant, expected_run_id),
+            ).fetchone()
+            if dispatched is not None:
+                return False
+
+            now = utc_now()
+            attempt_cursor = connection.execute(
+                """
+                UPDATE provider_chat_attempts
+                SET status = 'failed', result_class = 'preflight_failure',
+                    error_code = ?, updated_at = ?, completed_at = ?
+                WHERE tenant_id = ? AND id = ? AND run_id = ?
+                  AND status = 'running' AND dispatched = 0
+                """,
+                (
+                    error_code,
+                    now,
+                    now,
+                    clean_tenant,
+                    attempt_id,
+                    expected_run_id,
+                ),
+            )
+            run_cursor = connection.execute(
+                """
+                UPDATE provider_chat_runs
+                SET status = 'failed', result_class = 'preflight_failure',
+                    reason_codes_json = ?, updated_at = ?, completed_at = ?
+                WHERE tenant_id = ? AND id = ? AND status = 'running'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM provider_chat_attempts AS dispatched_attempt
+                      WHERE dispatched_attempt.tenant_id = ?
+                        AND dispatched_attempt.run_id = ?
+                        AND dispatched_attempt.dispatched = 1
+                  )
+                """,
+                (
+                    json.dumps([error_code], separators=(",", ":")),
+                    now,
+                    now,
+                    clean_tenant,
+                    expected_run_id,
+                    clean_tenant,
+                    expected_run_id,
+                ),
+            )
+            if attempt_cursor.rowcount != 1 or run_cursor.rowcount != 1:
+                raise RouterRepositoryError(
+                    "provider_chat_preflight_atomic_cleanup_failed"
+                )
+            return True
+
     def complete_chat_control_attempt(
         self,
         tenant_id: str,
@@ -2578,6 +3338,163 @@ class SQLiteRouterRepository:
                 (clean_tenant, attempt_id),
             ).fetchone()
         return dict(row)
+
+    def complete_chat_control_dispatch(
+        self,
+        tenant_id: str,
+        attempt_id: str,
+        *,
+        expected_run_id: str,
+        status: str,
+        result_class: str | None = None,
+        error_code: str | None = None,
+        reason_codes: list[str] | None = None,
+        actual_model: str | None = None,
+        client_cancelled: bool = False,
+        hard_failure: bool = False,
+        ttft_ms: float | None = None,
+        e2e_ms: float | None = None,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        total_tokens: int | None = None,
+    ) -> dict[str, dict[str, object]]:
+        """Atomically terminalize a dispatched attempt, its run, and gate."""
+
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        observed_hard_failure = (
+            bool(hard_failure) or result_class == "hard_failure"
+        )
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            attempt = connection.execute(
+                """
+                SELECT * FROM provider_chat_attempts
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, attempt_id),
+            ).fetchone()
+            if (
+                attempt is None
+                or str(attempt["run_id"]) != expected_run_id
+                or str(attempt["status"]) != "running"
+                or not bool(attempt["dispatched"])
+            ):
+                raise RouterRepositoryError("provider_chat_attempt_not_running")
+            run = connection.execute(
+                """
+                SELECT * FROM provider_chat_runs
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, expected_run_id),
+            ).fetchone()
+            if run is None or str(run["status"]) != "running":
+                raise RouterRepositoryError("provider_chat_run_not_running")
+
+            attempt_cursor = connection.execute(
+                """
+                UPDATE provider_chat_attempts
+                SET status = ?, result_class = ?, error_code = ?,
+                    actual_model = ?, ttft_ms = ?, e2e_ms = ?,
+                    prompt_tokens = ?, completion_tokens = ?, total_tokens = ?,
+                    updated_at = ?, completed_at = ?
+                WHERE tenant_id = ? AND id = ? AND run_id = ?
+                  AND status = 'running' AND dispatched = 1
+                """,
+                (
+                    status,
+                    result_class,
+                    error_code,
+                    actual_model,
+                    ttft_ms,
+                    e2e_ms,
+                    prompt_tokens,
+                    completion_tokens,
+                    total_tokens,
+                    now,
+                    now,
+                    clean_tenant,
+                    attempt_id,
+                    expected_run_id,
+                ),
+            )
+            run_cursor = connection.execute(
+                """
+                UPDATE provider_chat_runs
+                SET status = ?, result_class = ?, reason_codes_json = ?,
+                    actual_model = ?, client_cancelled = ?, hard_failure = ?,
+                    ttft_ms = ?, e2e_ms = ?, prompt_tokens = ?,
+                    completion_tokens = ?, total_tokens = ?,
+                    updated_at = ?, completed_at = ?
+                WHERE tenant_id = ? AND id = ? AND status = 'running'
+                """,
+                (
+                    status,
+                    result_class,
+                    json.dumps(reason_codes or [], separators=(",", ":")),
+                    actual_model,
+                    int(client_cancelled),
+                    int(observed_hard_failure),
+                    ttft_ms,
+                    e2e_ms,
+                    prompt_tokens,
+                    completion_tokens,
+                    total_tokens,
+                    now,
+                    now,
+                    clean_tenant,
+                    expected_run_id,
+                ),
+            )
+            if attempt_cursor.rowcount != 1:
+                raise RouterRepositoryError("provider_chat_attempt_not_running")
+            if run_cursor.rowcount != 1:
+                raise RouterRepositoryError("provider_chat_run_not_running")
+
+            if observed_hard_failure and run["epoch_id"]:
+                failure_code = next(
+                    (
+                        str(item)
+                        for item in reversed(reason_codes or [])
+                        if str(item).strip()
+                    ),
+                    str(result_class or "provider_chat_hard_failure"),
+                )
+                connection.execute(
+                    """
+                    UPDATE provider_chat_gate_epochs
+                    SET status = 'degraded', hard_failure_code = ?, closed_at = ?
+                    WHERE tenant_id = ? AND id = ? AND closed_at IS NULL
+                    """,
+                    (failure_code, now, clean_tenant, run["epoch_id"]),
+                )
+                connection.execute(
+                    """
+                    UPDATE provider_chat_gate_approvals
+                    SET revoked_at = ?
+                    WHERE tenant_id = ? AND epoch_id = ? AND revoked_at IS NULL
+                    """,
+                    (now, clean_tenant, run["epoch_id"]),
+                )
+
+            completed_attempt = connection.execute(
+                """
+                SELECT * FROM provider_chat_attempts
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, attempt_id),
+            ).fetchone()
+            completed_run = connection.execute(
+                """
+                SELECT * FROM provider_chat_runs
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, expected_run_id),
+            ).fetchone()
+        return {
+            "attempt": dict(completed_attempt),
+            "run": dict(completed_run),
+        }
 
     def complete_chat_control_run(
         self,
@@ -2984,14 +3901,22 @@ class SQLiteRouterRepository:
         with self._lock, self._connect() as connection:
             row = connection.execute(
                 """
-                SELECT run.completed_at, run.reason_codes_json, run.epoch_id
+                SELECT COALESCE(
+                           attempt.completed_at,
+                           run.completed_at
+                       ) AS completed_at,
+                       run.reason_codes_json, run.epoch_id
                 FROM provider_chat_runs AS run
                 JOIN provider_chat_attempts AS attempt
                   ON attempt.tenant_id = run.tenant_id AND attempt.run_id = run.id
                 WHERE run.tenant_id = ? AND run.capability = ?
-                  AND run.requested_model = ? AND run.hard_failure = 1
+                  AND run.requested_model = ?
+                  AND (
+                      run.hard_failure = 1
+                      OR attempt.result_class = 'hard_failure'
+                  )
                   AND attempt.connection_id = ? AND attempt.dispatched = 1
-                ORDER BY run.completed_at DESC, run.id DESC
+                ORDER BY completed_at DESC, run.id DESC
                 LIMIT 1
                 """,
                 (clean_tenant, capability, model_id, connection_id),
