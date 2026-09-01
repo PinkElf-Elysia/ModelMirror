@@ -179,6 +179,46 @@ async function preparedFixture(documents = staticDocuments()) {
   return { documents, prepared: prepared.prepared };
 }
 
+test("a qualified zero-binding R20 timeline produces canonical empty derived projections", async () => {
+  const authorityPolicy = authorityPolicyValue();
+  const authorityPolicyJson = canonicalizeJsonValue(authorityPolicy);
+  const binding = bindingValue(hashCanonicalValue(authorityPolicy));
+  binding.bindings = [];
+  const npcEntityBindingJson = canonicalizeJsonValue(binding);
+  const authority = {
+    runtimePackSha256: hashCanonicalValue(compiled.runtimePack),
+    runtimeReceiptSha256: hashCanonicalValue(compiled.receipt),
+    authorityPolicySha256: hashCanonicalValue(authorityPolicy),
+    npcEntityBindingSha256: hashCanonicalValue(binding),
+  };
+  const persona = personaValue(authority);
+  persona.actors = [];
+  const personaSeedJson = canonicalizeJsonValue(persona);
+  const relationshipPolicy = relationshipPolicyValue(authority, hashCanonicalValue(persona));
+  relationshipPolicy.rules = [];
+  const prepared = await prepareNpcDerivedState({
+    runtimeGamePackJson,
+    runtimeReceiptJson,
+    authorityPolicyJson,
+    npcEntityBindingJson,
+    personaSeedJson,
+    relationshipPolicyJson: canonicalizeJsonValue(relationshipPolicy),
+  });
+  assert.equal(prepared.ok, true, JSON.stringify(prepared.diagnostics));
+  const npcAuthority = await prepareNpcAuthority({ runtimeGamePackJson, runtimeReceiptJson, policyJson: authorityPolicyJson });
+  assert.equal(npcAuthority.ok, true, JSON.stringify(npcAuthority.diagnostics));
+  const created = createNpcAuthorityTimeline(npcAuthority.prepared, { timelineId: "timeline-zero-binding", stepLimit: 16 });
+  assert.equal(created.ok, true, JSON.stringify(created.diagnostics));
+  const projected = projectNpcDerivedState({ prepared: prepared.prepared, worldEventLedgerJson: created.canonicalWorldEventLedgerJson });
+  assert.equal(projected.ok, true, JSON.stringify(projected.diagnostics));
+  assert.deepEqual(JSON.parse(projected.canonicalNpcMemoryProjectionJson).scopeActorEntityIds, []);
+  assert.deepEqual(JSON.parse(projected.canonicalNpcMemoryProjectionJson).episodes, []);
+  assert.deepEqual(JSON.parse(projected.canonicalNpcRelationshipProjectionJson).scopeActorEntityIds, []);
+  assert.deepEqual(JSON.parse(projected.canonicalNpcRelationshipProjectionJson).relationships, []);
+  assert.deepEqual(JSON.parse(projected.canonicalMemoryDerivedProjectionManifestJson).scopeEntityIds, []);
+  assert.deepEqual(JSON.parse(projected.canonicalRelationshipDerivedProjectionManifestJson).scopeEntityIds, []);
+});
+
 function intentJson(id, actorEntityId, nodeId, actionId, snapshot, ledgerJson) {
   const ledger = JSON.parse(ledgerJson);
   return canonicalizeJsonValue({

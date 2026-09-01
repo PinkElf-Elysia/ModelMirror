@@ -80,7 +80,7 @@ export const NPC_PERSONA_SEED_SCHEMA = documentSchema(
   ["id", "contentVersion", "authority", "traitIds", "actors"], {
     id, contentVersion: version, authority: authorityIdentity,
     traitIds: { type: "array", minItems: 1, maxItems: NPC_DERIVED_STATE_LIMITS.traitIds, uniqueItems: true, items: id },
-    actors: { type: "array", minItems: 1, maxItems: NPC_DERIVED_STATE_LIMITS.actors, items: {
+    actors: { type: "array", minItems: 0, maxItems: NPC_DERIVED_STATE_LIMITS.actors, items: {
       type: "object", additionalProperties: false, required: ["actorEntityId", "traits"], properties: {
         actorEntityId: id,
         traits: { type: "array", minItems: 1, maxItems: NPC_DERIVED_STATE_LIMITS.traitIds, items: {
@@ -121,7 +121,7 @@ export const NPC_MEMORY_PROJECTION_SCHEMA = documentSchema(
   "urn:matrix-oasis:npc-memory-projection:0.1.0", NPC_MEMORY_PROJECTION_FORMAT,
   ["authority", "personaSeedSha256", "ledger", "reducer", "scopeActorEntityIds", "episodes"], {
     authority: authorityIdentity, personaSeedSha256: sha256, ledger: ledgerIdentity, reducer: reducerIdentity,
-    scopeActorEntityIds: { type: "array", minItems: 1, maxItems: NPC_DERIVED_STATE_LIMITS.actors, uniqueItems: true, items: id },
+    scopeActorEntityIds: { type: "array", minItems: 0, maxItems: NPC_DERIVED_STATE_LIMITS.actors, uniqueItems: true, items: id },
     episodes: { type: "array", maxItems: NPC_DERIVED_STATE_LIMITS.ledgerEntries, items: {
       type: "object", additionalProperties: false,
       required: ["episodeId", "actorEntityId", "intentId", "revision", "entrySha256", "beforeSnapshotSha256", "afterSnapshotSha256", "interactionEntityIds", "transition"],
@@ -140,7 +140,7 @@ export const NPC_RELATIONSHIP_PROJECTION_SCHEMA = documentSchema(
   ["authority", "personaSeedSha256", "relationshipPolicySha256", "ledger", "reducer", "scopeActorEntityIds", "relationships"], {
     authority: authorityIdentity, personaSeedSha256: sha256, relationshipPolicySha256: sha256,
     ledger: ledgerIdentity, reducer: reducerIdentity,
-    scopeActorEntityIds: { type: "array", minItems: 1, maxItems: NPC_DERIVED_STATE_LIMITS.actors, uniqueItems: true, items: id },
+    scopeActorEntityIds: { type: "array", minItems: 0, maxItems: NPC_DERIVED_STATE_LIMITS.actors, uniqueItems: true, items: id },
     relationships: { type: "array", maxItems: NPC_DERIVED_STATE_LIMITS.relationshipEdges, items: {
       type: "object", additionalProperties: false,
       required: ["sourceActorEntityId", "targetEntityId", "dimensionId", "value", "contributions"],

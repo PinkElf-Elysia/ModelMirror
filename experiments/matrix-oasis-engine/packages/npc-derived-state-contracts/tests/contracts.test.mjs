@@ -128,14 +128,13 @@ test("unknown fields, duplicate keys, floats and noncanonical bytes fail closed"
   for (const [validate, fixture, mutate] of floating) { const value = fixture(); mutate(value); assert.equal(validate(JSON.stringify(value)).valid, false); }
   assert.match(api.validateNpcPersonaSeedJson(JSON.stringify(persona(), null, 2)).diagnostics[0].code, /NON_CANONICAL/);
 });
-test("persona requires a sorted 1-16 trait vector fully covered by 1-64 actors", () => {
+test("persona requires a sorted 1-16 trait vector fully covered by 0-64 actors", () => {
   assert.equal(api.NPC_DERIVED_STATE_LIMITS.actors, 64);
   assert.equal(api.NPC_DERIVED_STATE_LIMITS.traitIds, 16);
   assert.equal(api.NPC_DERIVED_STATE_LIMITS.ledgerEntries, 10000);
   assert.equal(api.NPC_DERIVED_STATE_LIMITS.memoryProjectionBytes, 16 * 1024 * 1024);
   for (const mutate of [
     (v) => { v.traitIds = []; v.actors[0].traits = []; v.actors[1].traits = []; },
-    (v) => { v.actors = []; },
     (v) => { v.traitIds.reverse(); },
     (v) => { v.actors.reverse(); },
     (v) => { v.actors[0].traits.pop(); },
@@ -144,6 +143,8 @@ test("persona requires a sorted 1-16 trait vector fully covered by 1-64 actors",
   ]) { const value = persona(); mutate(value); assert.equal(api.validateNpcPersonaSeedJson(canonicalizeJsonValue(value)).valid, false); }
   const overActors = persona(); overActors.actors = Array.from({ length: 65 }, (_, index) => ({ actorEntityId: `actor-${String(index).padStart(2, "0")}`, traits: [{ traitId: "curiosity", value: 0 }, { traitId: "empathy", value: 0 }] }));
   assert.equal(api.validateNpcPersonaSeedJson(canonicalizeJsonValue(overActors)).valid, false);
+  const zeroActors = persona(); zeroActors.actors = [];
+  assert.equal(api.validateNpcPersonaSeedJson(canonicalizeJsonValue(zeroActors)).valid, true);
 });
 test("every semantic array has one deterministic accepted order", () => {
   const policy = relationshipPolicy(); policy.rules.reverse();
@@ -181,6 +182,8 @@ test("memory episodes preserve accepted action provenance but cannot carry cue o
   assert.equal(api.validateNpcMemoryProjectionJson(canonicalizeJsonValue(future)).valid, false);
   const emptyScope = memory(); emptyScope.scopeActorEntityIds = [];
   assert.equal(api.validateNpcMemoryProjectionJson(canonicalizeJsonValue(emptyScope)).valid, false);
+  const emptyProjection = memory(); emptyProjection.scopeActorEntityIds = []; emptyProjection.episodes = [];
+  assert.equal(api.validateNpcMemoryProjectionJson(canonicalizeJsonValue(emptyProjection)).valid, true);
 });
 test("relationship projection retains declared zero edges and scopes rule replay per edge", () => {
   assert.equal(api.validateNpcRelationshipProjectionJson(canonicalizeJsonValue(relationships())).valid, true);
@@ -194,6 +197,8 @@ test("relationship projection retains declared zero edges and scopes rule replay
   assert(mismatch && api.validateNpcRelationshipProjectionJson(canonicalizeJsonValue(mismatch)).diagnostics.some(({ code }) => code === "NPC_RELATIONSHIP_AGGREGATE_MISMATCH"));
   const emptyScope = relationships(); emptyScope.scopeActorEntityIds = [];
   assert.equal(api.validateNpcRelationshipProjectionJson(canonicalizeJsonValue(emptyScope)).valid, false);
+  const emptyProjection = relationships(); emptyProjection.scopeActorEntityIds = []; emptyProjection.relationships = [];
+  assert.equal(api.validateNpcRelationshipProjectionJson(canonicalizeJsonValue(emptyProjection)).valid, true);
 });
 test("bundle binds the complete R20, R19, reducer and six-artifact identity surface", () => {
   const missing = bundle(); delete missing.source.r20QualificationReceiptSha256;
