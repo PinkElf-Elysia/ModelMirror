@@ -17,12 +17,19 @@ function fixture(t) {
   return root;
 }
 
-test("qualified R20 entity bridge keeps the V2 completion claim closed until R25", () => {
+test("in-progress R21 derived state keeps the V2 completion claim closed until R25", () => {
   assert.deepEqual(checkV2Claim({ moduleRoot }), {
-    status: "r20-entity-bridge-qualified",
+    status: "r21-derived-state-in-progress",
     claimAllowed: false,
     blockingRound: "R25",
   });
+  const boundary = JSON.parse(
+    readFileSync(path.join(moduleRoot, "module-boundary.json"), "utf8"),
+  );
+  assert.equal(
+    boundary.v2ClaimPolicy.qualificationProfile,
+    "matrix-oasis.npc-derived-state/1",
+  );
 });
 
 test("rejects a premature V2 claim", (t) => {

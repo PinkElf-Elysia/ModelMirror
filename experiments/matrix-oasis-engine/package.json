@@ -1,6 +1,6 @@
 {
   "name": "@matrix-oasis/engine",
-  "version": "0.20.0-r20",
+  "version": "0.21.0-r21",
   "private": true,
   "license": "UNLICENSED",
   "type": "module",
@@ -53,6 +53,7 @@
     "capture:r20": "node scripts/capture-r20.mjs",
     "verify:r20-capture": "node --test tests/r20-capture.test.mjs",
     "verify:r20": "node scripts/verify-r20.mjs",
+    "verify:r21": "node scripts/verify-r21.mjs",
     "test:r18-sources": "node --test tests/r18-sources.test.mjs",
     "test:r18-landscape-contracts": "npm test --workspace @matrix-oasis/v2-landscape-contracts",
     "test:r18-landscape": "node --test tests/r18-landscape.test.mjs",

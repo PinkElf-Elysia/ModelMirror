@@ -1,0 +1,160 @@
+{
+  "schemaVersion": 1,
+  "format": "matrix-oasis.r21-memory-reference-lock",
+  "formatVersion": "0.1.0",
+  "implementationDecision": "internal-canonical-reducers-only",
+  "policy": {
+    "candidateArtifactsCommitted": false,
+    "newProductionDependencies": 0,
+    "r21CandidateExecutionRequired": false,
+    "transitiveLicenseClosureQualified": false
+  },
+  "references": [
+    {
+      "id": "cognee-v1.5.3",
+      "repository": "topoteretes/cognee",
+      "tag": "v1.5.3",
+      "sourceVersion": "1.5.3",
+      "commit": "25200a548fc6d96aa58d5663603f7c4b6b3f7621",
+      "gitTreeSha1": "9d7c2ce275c278cdb270feaf6cb40d19bec04467",
+      "license": {
+        "spdx": "Apache-2.0",
+        "path": "LICENSE",
+        "gitBlobSha1": "fd57f68790eb9919fc622902caf31f831f9c4e8f",
+        "evidenceKind": "github-license-api",
+        "closure": "direct-only-transitive-unverified"
+      },
+      "reuse": "architecture-reference-only",
+      "conclusionCode": "COGNEE_SERVICE_SCOPE_DELETE_RISK",
+      "reEvaluateWhen": [
+        "MULTI_DATASET_GRAPH_REQUIREMENT_ACCEPTED",
+        "UPSTREAM_SCOPE_DELETE_PROOF_AVAILABLE"
+      ]
+    },
+    {
+      "id": "graphiti-v0.29.3",
+      "repository": "getzep/graphiti",
+      "tag": "v0.29.3",
+      "sourceVersion": "0.29.3",
+      "commit": "021d3a57d511f21b10adaf7fa923bd5c1fce5e9d",
+      "gitTreeSha1": "b7f73e12b6a397465579df63c07c79dd2021cf1e",
+      "license": {
+        "spdx": "Apache-2.0",
+        "path": "LICENSE",
+        "gitBlobSha1": "5feb0d9d299a1107adfa8331306b13cc0eff2d78",
+        "evidenceKind": "github-license-api",
+        "closure": "direct-only-transitive-unverified"
+      },
+      "reuse": "architecture-reference-only",
+      "conclusionCode": "GRAPHITI_SERVICE_TEMPORAL_GRAPH_OVERKILL",
+      "reEvaluateWhen": [
+        "R23_TEMPORAL_GRAPH_REQUIRED",
+        "UPSTREAM_ID_SCOPE_DELETE_BLOCKERS_RESOLVED"
+      ]
+    },
+    {
+      "id": "langmem-0.0.30-source",
+      "repository": "langchain-ai/langmem",
+      "tag": null,
+      "sourceVersion": "0.0.30-unreleased-source",
+      "commit": "29cbe41e58528f92e9efa773c12e15c47be3808c",
+      "gitTreeSha1": "d85d1f815fb2b54bbc0a85c18453b7a7953ca38c",
+      "license": {
+        "spdx": "MIT",
+        "path": "LICENSE",
+        "gitBlobSha1": "c38f6f284dc464af69e9f618bc0304d299d0bdf0",
+        "evidenceKind": "github-license-api",
+        "closure": "direct-only-transitive-unverified"
+      },
+      "reuse": "architecture-reference-only",
+      "conclusionCode": "LANGMEM_RELEASE_AND_MODEL_DEPENDENCY_GAP",
+      "reEvaluateWhen": [
+        "R22_MODEL_MANAGED_MEMORY_ACCEPTED",
+        "STABLE_RELEASE_AND_UNIQUE_VALUE_PROVEN"
+      ]
+    },
+    {
+      "id": "letta-code-v0.31.8",
+      "repository": "letta-ai/letta-code",
+      "tag": "v0.31.8",
+      "sourceVersion": "0.31.8",
+      "commit": "385aca8f3637839d7716d557499a9056aca4198d",
+      "gitTreeSha1": "f0a43b6c8ca3840bf0bbb1611a2b437194366915",
+      "license": {
+        "spdx": "Apache-2.0",
+        "path": "LICENSE",
+        "gitBlobSha1": "e72f5de5dd5610ee3fee7feb791ebff246cc931e",
+        "evidenceKind": "github-license-api",
+        "closure": "direct-only-transitive-unverified"
+      },
+      "reuse": "architecture-reference-only",
+      "conclusionCode": "LETTA_AGENT_STATE_AUTHORITY_MISMATCH",
+      "reEvaluateWhen": [
+        "AGENT_OWNED_STATE_ARCHITECTURE_APPROVED"
+      ]
+    },
+    {
+      "id": "mem0-ts-v3.1.7",
+      "repository": "mem0ai/mem0",
+      "tag": "ts-v3.1.7",
+      "sourceVersion": "3.1.7",
+      "commit": "dc82354e143c2581d505d581a00286d6ef8c3605",
+      "gitTreeSha1": "071e89855584e397c2ce88e5cce0c510ee648166",
+      "license": {
+        "spdx": "Apache-2.0",
+        "path": "LICENSE",
+        "gitBlobSha1": "d20d5102c3cf97ecbee54afd65893de4a11d26fe",
+        "evidenceKind": "github-license-api",
+        "closure": "direct-only-transitive-unverified"
+      },
+      "reuse": "deferred-semantic-retrieval-only",
+      "conclusionCode": "MEM0_MODEL_VECTOR_SCOPE_BLOCKED",
+      "reEvaluateWhen": [
+        "R22_SEMANTIC_RECALL_ACCEPTED",
+        "UPSTREAM_SCOPE_AND_IDEMPOTENCY_BLOCKERS_RESOLVED"
+      ]
+    },
+    {
+      "id": "minisearch-v7.2.0",
+      "repository": "lucaong/minisearch",
+      "tag": "v7.2.0",
+      "sourceVersion": "7.2.0",
+      "commit": "3d239d1c3ae7aef1bf5d8945dd7b5f0709f646f5",
+      "gitTreeSha1": "965c00b7bbece73c81ac23be67e01e4dc6d4f799",
+      "license": {
+        "spdx": "MIT",
+        "path": "LICENSE.txt",
+        "gitBlobSha1": "30922d0947fbb0be92af59f0f0a7340a222b9eb8",
+        "evidenceKind": "github-license-api",
+        "closure": "direct-only-transitive-unverified"
+      },
+      "reuse": "trigger-gated-retrieval-only",
+      "conclusionCode": "MINISEARCH_RETRIEVAL_NOT_REQUIRED",
+      "reEvaluateWhen": [
+        "CJK_FUZZY_RETRIEVAL_REQUIRED",
+        "R21_NATIVE_QUERY_GATE_FAILED"
+      ]
+    },
+    {
+      "id": "orama-v3.2.0",
+      "repository": "oramasearch/orama",
+      "tag": "v3.2.0",
+      "sourceVersion": "3.2.0",
+      "commit": "4e7cbe0de23f2ba239b85d12a03e9e57baee373e",
+      "gitTreeSha1": "0bfcaa2421c68ac7c60d6012ac8bbb72ca3dd133",
+      "license": {
+        "spdx": "Apache-2.0",
+        "path": "LICENSE.md",
+        "gitBlobSha1": "78cbcbb6875982633e7c4b11ca87633e294b2867",
+        "evidenceKind": "manual-top-level-license-text",
+        "closure": "direct-only-transitive-unverified"
+      },
+      "reuse": "trigger-gated-retrieval-only",
+      "conclusionCode": "ORAMA_RETRIEVAL_NOT_REQUIRED",
+      "reEvaluateWhen": [
+        "HYBRID_RETRIEVAL_REQUIRED",
+        "MINISEARCH_QUALIFICATION_FAILED"
+      ]
+    }
+  ]
+}
