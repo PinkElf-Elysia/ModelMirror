@@ -10,6 +10,7 @@ export const VERIFY_STEPS = Object.freeze([
   ["v2-claim", ["run", "check:v2-claim"]],
   ["r18", ["run", "verify:r18"]],
   ["r19", ["run", "verify:r19"]],
+  ["r20", ["run", "verify:r20"]],
   ["godot-foundation", ["run", "verify:godot"]],
   ["pack-examples", ["run", "validate:examples"]],
   ["runtime-pack", ["run", "verify:runtime-pack"]],

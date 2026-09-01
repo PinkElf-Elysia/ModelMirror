@@ -20,11 +20,13 @@ import {
 import {
   NpcAuthorityRuntimeOperationalError,
   appendWorldEventLedgerEntryCore,
+  appendValidatedWorldEventLedgerEntry,
   createWorldEventLedgerCore,
   hashCanonicalValue,
 } from "./ledger.mjs";
 
 const preparedData = new WeakMap();
+const incrementalStateData = new WeakMap();
 
 function deepFreeze(value) {
   if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
@@ -318,6 +320,114 @@ export function adjudicateNpcIntent(input) {
     const captured = captureResultDocument(document);
     if (!captured.ok) return captured;
     return deepFreeze({ ok: true, replayed: false, canonicalAdjudicationResultJson: captured.canonicalNpcAdjudicationResultJson, runtimeSnapshot: evaluated.snapshot, canonicalWorldEventLedgerJson: appended.canonicalWorldEventLedgerJson });
+  } catch (error) {
+    if (error instanceof NpcAuthorityRuntimeOperationalError) throw error;
+    throw new NpcAuthorityRuntimeOperationalError();
+  }
+}
+
+export function createNpcAuthorityIncrementalState(input) {
+  try {
+    const { prepared, worldEventLedgerJson } = input ?? {};
+    const data = dataFor(prepared);
+    if (!data) return fail("NPC_AUTHORITY_PREPARED_INVALID");
+    const replayed = replayWorldEventLedger({ prepared, worldEventLedgerJson });
+    if (!replayed.ok) return replayed;
+    const ledger = JSON.parse(worldEventLedgerJson);
+    const handle = Object.freeze(Object.create(null));
+    incrementalStateData.set(handle, {
+      prepared,
+      data,
+      ledger,
+      ledgerJson: worldEventLedgerJson,
+      snapshot: replayed.runtimeSnapshot,
+      inspection: replayed.inspection,
+      fullReplayCount: 1,
+    });
+    return deepFreeze({ ok: true, state: handle, runtimeSnapshot: replayed.runtimeSnapshot, inspection: replayed.inspection, canonicalWorldEventLedgerJson: worldEventLedgerJson });
+  } catch (error) {
+    if (error instanceof NpcAuthorityRuntimeOperationalError) throw error;
+    throw new NpcAuthorityRuntimeOperationalError();
+  }
+}
+
+function powerOfTwo(value) {
+  return value > 0 && (value & (value - 1)) === 0;
+}
+
+export function submitNpcAuthorityIncrementalIntent(input) {
+  try {
+    const { state, npcIntentJson } = input ?? {};
+    const current = incrementalStateData.get(state);
+    if (!current) return fail("NPC_AUTHORITY_INCREMENTAL_STATE_INVALID");
+    const intentResult = parseValidated(npcIntentJson, validateNpcIntentJson);
+    if (!intentResult.ok) return validationFailure(intentResult.report);
+    const intent = intentResult.value;
+    const duplicate = current.ledger.entries.find((entry) => entry.intent.id === intent.id);
+    if (duplicate && canonicalizeJsonValue(duplicate.intent) !== npcIntentJson) return fail("NPC_INTENT_ID_COLLISION", "/id");
+    if (duplicate) {
+      const document = resultDocument({ timelineId: intent.timelineId, intentId: intent.id, replayed: true, revision: duplicate.revision, headSha256: duplicate.entrySha256, entry: duplicate });
+      const captured = captureResultDocument(document);
+      if (!captured.ok) return captured;
+      return deepFreeze({ ok: true, replayed: true, fullReplayPerformed: false, canonicalAdjudicationResultJson: captured.canonicalNpcAdjudicationResultJson, runtimeSnapshot: current.snapshot, inspection: current.inspection, canonicalWorldEventLedgerJson: current.ledgerJson });
+    }
+    if (intent.timelineId !== current.ledger.timeline.id) return fail("NPC_INTENT_TIMELINE_MISMATCH", "/timelineId");
+    if (intent.observed.revision !== current.ledger.revision) return fail("NPC_INTENT_STALE_REVISION", "/observed/revision");
+    if (intent.observed.headSha256 !== current.ledger.headSha256) return fail("NPC_INTENT_STALE_HEAD", "/observed/headSha256");
+    const beforeSnapshotSha256 = hashCanonicalValue(current.snapshot);
+    if (intent.observed.runtimeSnapshotSha256 !== beforeSnapshotSha256) return fail("NPC_INTENT_STALE_SNAPSHOT", "/observed/runtimeSnapshotSha256");
+    if (current.ledger.revision >= NPC_AUTHORITY_LIMITS.ledgerEntries) return fail("WORLD_EVENT_LEDGER_CAPACITY_EXCEEDED", "/revision");
+    const evaluated = evaluateIntent(current.data, current.snapshot, current.inspection, intent);
+    if (!evaluated) return fail("NPC_AUTHORITY_RUNTIME_FAILURE");
+    const appended = appendValidatedWorldEventLedgerEntry({ ledger: current.ledger, intent, decision: evaluated.decision, beforeSnapshotSha256, afterSnapshotSha256: hashCanonicalValue(evaluated.snapshot), transition: evaluated.transition, validateOutput: false });
+    if (!appended.ok) return appended;
+    const inspected = inspectRuntimeGameSession(current.data.runtimePrepared, evaluated.snapshot);
+    if (!inspected.ok) return deepFreeze({ ok: false, diagnostics: inspected.diagnostics });
+    let fullReplayPerformed = false;
+    let nextFullReplayCount = current.fullReplayCount;
+    if (powerOfTwo(appended.ledger.revision)) {
+      const replayed = replayWorldEventLedger({ prepared: current.prepared, worldEventLedgerJson: appended.canonicalWorldEventLedgerJson });
+      if (!replayed.ok || !compareCanonical(replayed.runtimeSnapshot, evaluated.snapshot) || !compareCanonical(replayed.inspection, inspected.inspection)) return fail("NPC_AUTHORITY_INCREMENTAL_REPLAY_MISMATCH");
+      nextFullReplayCount += 1;
+      fullReplayPerformed = true;
+    }
+    const document = resultDocument({ timelineId: intent.timelineId, intentId: intent.id, replayed: false, revision: appended.entry.revision, headSha256: appended.entry.entrySha256, entry: appended.entry });
+    const captured = captureResultDocument(document);
+    if (!captured.ok) return captured;
+    incrementalStateData.set(state, {
+      ...current,
+      ledger: appended.ledger,
+      ledgerJson: appended.canonicalWorldEventLedgerJson,
+      snapshot: evaluated.snapshot,
+      inspection: inspected.inspection,
+      fullReplayCount: nextFullReplayCount,
+    });
+    return deepFreeze({ ok: true, replayed: false, fullReplayPerformed, canonicalAdjudicationResultJson: captured.canonicalNpcAdjudicationResultJson, runtimeSnapshot: evaluated.snapshot, inspection: inspected.inspection, canonicalWorldEventLedgerJson: appended.canonicalWorldEventLedgerJson });
+  } catch (error) {
+    if (error instanceof NpcAuthorityRuntimeOperationalError) throw error;
+    throw new NpcAuthorityRuntimeOperationalError();
+  }
+}
+
+export function exportNpcAuthorityIncrementalState(state) {
+  try {
+    const current = incrementalStateData.get(state);
+    if (!current) return fail("NPC_AUTHORITY_INCREMENTAL_STATE_INVALID");
+    return deepFreeze({ ok: true, runtimeSnapshot: current.snapshot, inspection: current.inspection, canonicalWorldEventLedgerJson: current.ledgerJson, fullReplayCount: current.fullReplayCount });
+  } catch (error) {
+    if (error instanceof NpcAuthorityRuntimeOperationalError) throw error;
+    throw new NpcAuthorityRuntimeOperationalError();
+  }
+}
+
+export function verifyNpcAuthorityIncrementalState(state) {
+  try {
+    const current = incrementalStateData.get(state);
+    if (!current) return fail("NPC_AUTHORITY_INCREMENTAL_STATE_INVALID");
+    const replayed = replayWorldEventLedger({ prepared: current.prepared, worldEventLedgerJson: current.ledgerJson });
+    if (!replayed.ok || !compareCanonical(replayed.runtimeSnapshot, current.snapshot) || !compareCanonical(replayed.inspection, current.inspection)) return fail("NPC_AUTHORITY_INCREMENTAL_REPLAY_MISMATCH");
+    current.fullReplayCount += 1;
+    return deepFreeze({ ...replayed, fullReplayCount: current.fullReplayCount });
   } catch (error) {
     if (error instanceof NpcAuthorityRuntimeOperationalError) throw error;
     throw new NpcAuthorityRuntimeOperationalError();

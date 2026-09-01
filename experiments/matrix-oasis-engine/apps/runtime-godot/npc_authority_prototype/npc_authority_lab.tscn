@@ -1,0 +1,10 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://npc_authority_prototype/npc_authority_lab.gd" id="1_lab"]
+
+[node name="MatrixOasisR20NpcAuthorityLab" type="Node3D"]
+script = ExtResource("1_lab")
+
+[node name="AuthorityRequest" type="HTTPRequest" parent="."]
+use_threads = false
+timeout = 30.0

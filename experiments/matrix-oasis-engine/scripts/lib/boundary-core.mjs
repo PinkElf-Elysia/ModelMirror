@@ -193,7 +193,7 @@ const R9_SHARP_LIBVIPS_LICENSE_EXCEPTIONS = [
 }));
 
 const REQUIRED_POLICY_VALUES = [
-  [["schemaVersion"], 19],
+  [["schemaVersion"], 20],
   [["moduleId"], "matrix-oasis-engine"],
   [["moduleRoot"], "."],
   [["moduleRootResolution"], "directory-containing-module-boundary"],
@@ -223,22 +223,60 @@ const REQUIRED_POLICY_VALUES = [
   [["networkPolicy", "r19OrdinaryVerificationCalls"], "none"],
   [["networkPolicy", "r19ReferenceAuditCalls"], "fixed-public-source-read-only"],
   [["networkPolicy", "r19ProviderCalls"], "none"],
+  [["networkPolicy", "r20OrdinaryVerificationCalls"], "none"],
+  [["networkPolicy", "r20ReferenceAuditCalls"], "fixed-public-source-read-only"],
+  [["networkPolicy", "r20LoopbackCalls"], "127.0.0.1:43120-only"],
+  [["networkPolicy", "r20ProviderCalls"], "none"],
   [["mvpClaimPolicy", "status"], "r16-qualified"],
   [["mvpClaimPolicy", "claimAllowed"], true],
   [["mvpClaimPolicy", "blockingRound"], null],
   [["mvpClaimPolicy", "acceptanceRecord"], "docs/rounds/R16_ACCEPTANCE.md"],
   [["mvpClaimPolicy", "machineStatus"], "docs/MVP_STATUS.json"],
   [["mvpClaimPolicy", "completionMarker"], "MATRIX_OASIS_R16_CREATOR_MVP_READY"],
-  [["v2ClaimPolicy", "status"], "r19-authority-qualified"],
+  [["v2ClaimPolicy", "status"], "r20-entity-bridge-qualified"],
   [["v2ClaimPolicy", "claimAllowed"], false],
   [["v2ClaimPolicy", "blockingRound"], "R25"],
   [["v2ClaimPolicy", "machineStatus"], "docs/V2_STATUS.json"],
-  [["v2ClaimPolicy", "qualificationProfile"], "matrix-oasis.npc-authority/1"],
+  [["v2ClaimPolicy", "qualificationProfile"], "matrix-oasis.deterministic-npc-bridge/1"],
   [["v2ClaimPolicy", "trackedCandidateSourceAllowed"], false],
   [["v2ClaimPolicy", "trackedQualificationEvidenceAllowed"], false],
   [["v2ClaimPolicy", "providerCallsAllowed"], false],
   [["v2ClaimPolicy", "providerCredentialsAllowed"], false],
   [["v2ClaimPolicy", "containerExecutionRequiresHumanApproval"], true],
+  [["r20NpcBridgePolicy", "behaviorPolicyFormat"], "matrix-oasis.npc-behavior-policy"],
+  [["r20NpcBridgePolicy", "entityBindingFormat"], "matrix-oasis.npc-entity-binding"],
+  [["r20NpcBridgePolicy", "behaviorTraceFormat"], "matrix-oasis.npc-behavior-trace"],
+  [["r20NpcBridgePolicy", "bridgeReportFormat"], "matrix-oasis.npc-entity-bridge-report"],
+  [["r20NpcBridgePolicy", "formatVersion"], "0.1.0"],
+  [["r20NpcBridgePolicy", "host"], "127.0.0.1"],
+  [["r20NpcBridgePolicy", "port"], 43120],
+  [["r20NpcBridgePolicy", "jsonBodyMaxBytes"], 32768],
+  [["r20NpcBridgePolicy", "maxLogicalActors"], 64],
+  [["r20NpcBridgePolicy", "maxRealActors"], 6],
+  [["r20NpcBridgePolicy", "maxRulesPerActor"], 256],
+  [["r20NpcBridgePolicy", "singleInFlightCommand"], true],
+  [["r20NpcBridgePolicy", "physicsTicksPerSecond"], 60],
+  [["r20NpcBridgePolicy", "bodyRadiusMm"], 350],
+  [["r20NpcBridgePolicy", "bodyHeightMm"], 1800],
+  [["r20NpcBridgePolicy", "floorSnapMm"], 200],
+  [["r20NpcBridgePolicy", "speedMmPerTick"], 50],
+  [["r20NpcBridgePolicy", "turnMilliDegreesPerTick"], 3000],
+  [["r20NpcBridgePolicy", "arrivalToleranceMm"], 100],
+  [["r20NpcBridgePolicy", "movementTickLimit"], 1800],
+  [["r20NpcBridgePolicy", "maximumPathLengthMm"], 100000],
+  [["r20NpcBridgePolicy", "fullReplayAtPowerOfTwoRevision"], true],
+  [["r20NpcBridgePolicy", "runtimeRemainsAuthoritative"], true],
+  [["r20NpcBridgePolicy", "playerTimelineWritesAllowed"], false],
+  [["r20NpcBridgePolicy", "navigationAvoidanceAllowed"], false],
+  [["r20NpcBridgePolicy", "modelCallsAllowed"], false],
+  [["r20NpcBridgePolicy", "providerCredentialsAllowed"], false],
+  [["r20NpcBridgePolicy", "externalNetworkAllowed"], false],
+  [["r20NpcBridgePolicy", "creatorDefaultIntegrationAllowed"], false],
+  [["r20NpcBridgePolicy", "memoryAllowed"], false],
+  [["r20NpcBridgePolicy", "relationshipStateAllowed"], false],
+  [["r20NpcBridgePolicy", "dialogueAllowed"], false],
+  [["r20NpcBridgePolicy", "dynamicEventsAllowed"], false],
+  [["r20NpcBridgePolicy", "animationClaimAllowed"], false],
   [["r18LandscapePolicy", "catalogFormat"], "matrix-oasis.v2-candidate-catalog"],
   [["r18LandscapePolicy", "landscapeFormat"], "matrix-oasis.v2-decision-landscape"],
   [["r18LandscapePolicy", "roadmapFormat"], "matrix-oasis.v2-roadmap"],
@@ -1535,6 +1573,55 @@ function checkScriptNetwork(relative, content, specifiers, policy, violations) {
       const host = match[1].replace(/^\[/u, "").replace(/\]$/u, "").split(":", 1)[0];
       if (!LOOPBACK_HOSTS.has(host)) addViolation(violations, "prototype-host-network-invalid", relative,
         "Prototype host literals must remain loopback-only.");
+    }
+    return;
+  }
+  if (relative === "scripts/lib/r20-host-core.mjs") {
+    const allowedModules = new Set(["http", "node:http"]);
+    if (
+      specifiers.some((specifier) => NETWORK_MODULES.has(specifier) && !allowedModules.has(specifier)) ||
+      NETWORK_GLOBAL_NAMES.some((name) => new RegExp(`\\b${name}\\b`).test(content)) ||
+      !/export const R20_NPC_HOST="127\.0\.0\.1";/u.test(content) ||
+      !/export const R20_NPC_HOST_PORT=43120;/u.test(content) ||
+      !/port!==R20_NPC_HOST_PORT/u.test(content) ||
+      !/server\.listen\(R20_NPC_HOST_PORT,R20_NPC_HOST,/u.test(content) ||
+      /\b(?:connect|createConnection|Socket)\s*\(/u.test(content)
+    ) {
+      addViolation(
+        violations,
+        "r20-host-network-invalid",
+        relative,
+        "R20 NPC host may only listen on fixed 127.0.0.1:43120 and may not create outbound clients.",
+      );
+    }
+    for (const match of content.matchAll(/\b(?:https?|wss?):\/\/([A-Za-z0-9.:[\]-]+)/gu)) {
+      const host = match[1].replace(/^\[/u, "").replace(/\]$/u, "").split(":", 1)[0];
+      if (!LOOPBACK_HOSTS.has(host)) {
+        addViolation(
+          violations,
+          "r20-host-network-invalid",
+          relative,
+          "R20 NPC host literals must remain loopback-only.",
+        );
+      }
+    }
+    return;
+  }
+  if (relative === "scripts/check-godot-boundary.mjs") {
+    const expectedModules = new Set(["node:fs", "node:path", "node:url"]);
+    if (
+      specifiers.some((specifier) => !expectedModules.has(specifier)) ||
+      new RegExp(`\\b(?:${FETCH_GLOBAL_NAME}|connect|createConnection|createServer|request)\\s*\\(`, "u").test(content) ||
+      !/function isApprovedR20BridgeCapability\(code, source, relativePath\)/u.test(content) ||
+      !/npc_authority_prototype\/npc_authority_lab\.gd/u.test(content) ||
+      !/127\\\.0\\\.0\\\.1:43120/u.test(content)
+    ) {
+      addViolation(
+        violations,
+        "godot-boundary-network-guard-invalid",
+        relative,
+        "The Godot boundary may contain inert R20 loopback patterns but no executable network capability.",
+      );
     }
     return;
   }

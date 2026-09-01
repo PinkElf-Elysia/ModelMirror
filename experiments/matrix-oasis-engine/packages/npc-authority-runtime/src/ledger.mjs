@@ -126,26 +126,47 @@ export function appendWorldEventLedgerEntryCore(input) {
     if (intent.value.observed.headSha256 !== ledger.value.headSha256) return failure("NPC_INTENT_STALE_HEAD", "/observed/headSha256");
     if (intent.value.observed.runtimeSnapshotSha256 !== beforeSnapshotSha256) return failure("NPC_INTENT_STALE_SNAPSHOT", "/observed/runtimeSnapshotSha256");
     if (ledger.value.revision >= 10_000) return failure("WORLD_EVENT_LEDGER_CAPACITY_EXCEEDED", "/revision");
-    const body = {
-      revision: ledger.value.revision + 1,
+    const appended = appendValidatedWorldEventLedgerEntry({
+      ledger: ledger.value,
       intent: intent.value,
       decision,
       beforeSnapshotSha256,
       afterSnapshotSha256,
       transition,
-      previousEntrySha256: ledger.value.headSha256,
+    });
+    if (!appended.ok) return appended;
+    return deepFreeze({ok:true,kind:"appended",entry:appended.entry,canonicalWorldEventLedgerJson:appended.canonicalWorldEventLedgerJson});
+  } catch (error) {
+    if (error instanceof NpcAuthorityRuntimeOperationalError) throw error;
+    throw new NpcAuthorityRuntimeOperationalError();
+  }
+}
+
+export function appendValidatedWorldEventLedgerEntry(input) {
+  try {
+    const { ledger, intent, decision, beforeSnapshotSha256, afterSnapshotSha256, transition, validateOutput = true } = input ?? {};
+    const body = {
+      revision: ledger.revision + 1,
+      intent,
+      decision,
+      beforeSnapshotSha256,
+      afterSnapshotSha256,
+      transition,
+      previousEntrySha256: ledger.headSha256,
     };
     const entry = { ...body, entrySha256: hashCanonicalValue(body) };
     const nextLedger = {
-      ...ledger.value,
+      ...ledger,
       revision: entry.revision,
       headSha256: entry.entrySha256,
-      entries: [...ledger.value.entries, entry],
+      entries: [...ledger.entries, entry],
     };
     const canonicalWorldEventLedgerJson = canonicalizeJsonValue(nextLedger);
-    const report = validateWorldEventLedgerJson(canonicalWorldEventLedgerJson);
-    if (!report.valid) return validationFailure(report);
-    return deepFreeze({ ok: true, kind: "appended", entry, canonicalWorldEventLedgerJson });
+    if (validateOutput) {
+      const report = validateWorldEventLedgerJson(canonicalWorldEventLedgerJson);
+      if (!report.valid) return validationFailure(report);
+    }
+    return deepFreeze({ ok: true, kind: "appended", entry, ledger: nextLedger, canonicalWorldEventLedgerJson });
   } catch (error) {
     if (error instanceof NpcAuthorityRuntimeOperationalError) throw error;
     throw new NpcAuthorityRuntimeOperationalError();

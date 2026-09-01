@@ -610,17 +610,32 @@ test("redirects are rejected rather than followed", async () => {
   assert.equal(calls, 1);
 });
 
-test("timeout aborts one request without a retry", async () => {
-  let calls = 0;
-  await withServer((_request, _response) => {
-    calls += 1;
+test("provider forwards the configured timeout signal and aborts one in-flight request without a retry", { timeout: 5_000 }, async () => {
+  let serverCalls = 0;
+  let fetchCalls = 0;
+  let fetchSignal;
+  const timeoutCalls = [];
+  let abortTriggered = false;
+  const controller = new AbortController();
+  await withServer(async (request, _response) => {
+    serverCalls += 1;
+    await readRequest(request);
+    abortTriggered = true;
+    controller.abort();
   }, async (endpoint) => {
     const credential = ["loopback", "placeholder", "value"].join("-");
     const instance = createOpenAICompatibleProviderWithSeams(
       { endpoint, model: "neutral-model", apiKey: credential },
       {
-        fetchImplementation: globalThis.fetch,
-        timeoutSignal: (milliseconds) => AbortSignal.timeout(milliseconds),
+        fetchImplementation: (input, options) => {
+          fetchCalls += 1;
+          fetchSignal = options?.signal;
+          return globalThis.fetch(input, options);
+        },
+        timeoutSignal: (milliseconds) => {
+          timeoutCalls.push(milliseconds);
+          return controller.signal;
+        },
         timeoutMs: 20,
       },
     );
@@ -629,7 +644,12 @@ test("timeout aborts one request without a retry", async () => {
       assertOperational,
     );
   });
-  assert.equal(calls, 1);
+  assert.deepEqual(timeoutCalls, [20]);
+  assert.equal(fetchCalls, 1);
+  assert.equal(fetchSignal, controller.signal);
+  assert.equal(serverCalls, 1);
+  assert.equal(abortTriggered, true);
+  assert.equal(controller.signal.aborted, true);
 });
 
 test("declared and streamed response bodies above one MiB are rejected", async (t) => {
@@ -767,6 +787,11 @@ test("runtime source uses only native Web APIs and never reads host environment"
   assert.equal(/from\s+["'](?:node:)?(?:http|https|net|tls|undici)["']/.test(source), false);
   assert.equal(source.includes("globalThis.fetch"), true);
   assert.equal(source.includes('redirect: "error"'), true);
+  assert.equal(source.includes("const REQUEST_TIMEOUT_MS = 120_000;"), true);
+  assert.equal(
+    source.includes("timeoutSignal: (milliseconds) => AbortSignal.timeout(milliseconds)"),
+    true,
+  );
 });
 
 test("prototype CLI parsers reject missing, duplicate, unknown, and unacknowledged arguments", () => {

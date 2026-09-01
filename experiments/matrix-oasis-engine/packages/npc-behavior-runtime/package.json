@@ -1,0 +1,15 @@
+{
+  "name": "@matrix-oasis/npc-behavior-runtime",
+  "version": "0.1.0-r20",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {".": {"types": "./src/index.d.ts", "default": "./src/index.mjs"}},
+  "scripts": {"test": "node --test tests/*.test.mjs"},
+  "dependencies": {
+    "@matrix-oasis/npc-authority-contracts": "0.1.0-r19",
+    "@matrix-oasis/npc-behavior-contracts": "0.1.0-r20",
+    "@matrix-oasis/runtime-pack-contracts": "0.1.0-r3"
+  }
+}
