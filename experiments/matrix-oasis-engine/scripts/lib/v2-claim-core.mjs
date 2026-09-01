@@ -21,7 +21,7 @@ export function checkV2Claim({ moduleRoot }) {
   const policy = boundary.v2ClaimPolicy;
   if (
     boundary.activeRound !== "R20" ||
-    policy?.status !== "r20-implementation-in-progress" ||
+    policy?.status !== "r20-entity-bridge-qualified" ||
     policy?.machineStatus !== "docs/V2_STATUS.json" ||
     policy?.qualificationProfile !== "matrix-oasis.deterministic-npc-bridge/1" ||
     policy?.blockingRound !== "R25" ||

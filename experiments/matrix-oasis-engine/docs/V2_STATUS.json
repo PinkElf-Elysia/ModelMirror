@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "status": "r20-implementation-in-progress",
+  "status": "r20-entity-bridge-qualified",
   "claimAllowed": false,
   "blockingRound": "R25",
   "qualificationProfile": "matrix-oasis.deterministic-npc-bridge/1"

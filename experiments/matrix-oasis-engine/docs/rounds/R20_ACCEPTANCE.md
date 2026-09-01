@@ -1,6 +1,6 @@
 # R20 确定性 NPC 实体桥验收记录
 
-状态：R20.6 自动资格与针对性证伪通过；等待中性与末班地铁人工预览，R20.7 尚未开始
+状态：R20.7已收口；中性与末班地铁隔离预览均由用户判定“基本通过”
 
 测试专用冻结例外：用户在最终门阶段明确批准修复冻结 R8 loopback 超时测试的墙钟竞态。除范围策略、负向护栏和本验收记录外，唯一被解冻的历史测试文件是 `tests/prototype-generation-cli.test.mjs`；没有解冻任何生产文件。测试改为在 loopback 服务端完整收到唯一请求后通过受控 `AbortController` 触发终止，并分别证明 20 ms 配置值传入 timeout seam、同一 signal 传给唯一一次原生 fetch、一次服务端请求、受控 signal 进入 aborted 且该次 loopback fetch 失败关闭、零重试。该测试不宣称验证操作系统的 20 ms 墙钟精度、120秒真实等待、DNS/TLS/connect阶段取消、跨平台调度精度或服务端取消语义；源码护栏继续锁定生产默认 `AbortSignal.timeout` 和 120 秒上限。`packages/prototype-generator/src/openai-compatible.mjs` 生产实现保持冻结，邻近测试文件继续失败关闭。
 
@@ -12,7 +12,7 @@
 - R16 Creator 默认预览、R19 合同和既有供应商适配器保持兼容；外部模型、Marble、Meshy、Docker和共享栈请求：0。
 - 本轮只证明固定策略 NPC 可通过单写者、R19 Runtime 权威和隔离 Godot 桥行动；不宣称具备 AI 认知、对话、人格、记忆、关系、动画或动态事件。
 
-## 六批已完成交付
+## 七批已完成交付
 
 | 批次 | 本地提交 | 结果 |
 |---|---|---|
@@ -21,7 +21,8 @@
 | R20.3 权威增量会话 | `faa1542d` | 完成 |
 | R20.4 确定性调度 | `615be985` | 完成 |
 | R20.5 Godot 实体桥 | `9ee83c8c` | 完成 |
-| R20.6 双缓存资格与证伪 | 本批提交 | 自动资格通过；等待人工预览 |
+| R20.6 双缓存资格与证伪 | `5e4f8c09` | 自动资格与针对性证伪通过 |
+| R20.7 人工验收与状态收口 | 本批提交 | 两案基本通过；第二版声明门保持关闭 |
 
 ## PR 前针对性证伪与修复
 
@@ -68,14 +69,17 @@
 - 冻结R8超时测试原实现使用真实`AbortSignal.timeout(20)`，独立重复20次得到12次通过、8次在请求到达loopback处理器前终止；首个standalone extraction失败现场保留于`C:\tmp\matrix-oasis-extraction-W0E1VC`。受控signal修复后目标用例独立重复20/20通过，完整`tests/prototype-generation-cli.test.mjs`为30/30通过；该证据只证明20 ms配置透传、同一signal、一次请求、真实终止和零重试，不证明20 ms墙钟精度。
 - `tests/round-scope.test.mjs`：87/87通过，分别证明仅精确放行该测试文件、邻近生成测试仍冻结、生产provider实现仍冻结。生产文件相对R20基线的Git blob保持`0c54dff73b58234fe1544f46254c3adfc87d57f1`不变。
 - `npm.cmd run verify`：退出0；根测试935/935通过，Creator build/smoke通过，最终输出`VERIFY_OK steps=29`。
-- `npm.cmd run check:round-scope`：`ROUND_SCOPE_OK checked=72 changed=68`；`check:boundary`为`BOUNDARY_OK checked=1429 tracked=1429`；`check:parent-scope`为`PARENT_SCOPE_OK checked=72 changed=68`；`git diff --check`通过。
+- `npm.cmd run check:round-scope`：`ROUND_SCOPE_OK checked=77 changed=68`；`check:boundary`为`BOUNDARY_OK checked=1429 tracked=1429`；`check:parent-scope`为`PARENT_SCOPE_OK checked=77 changed=68`；`git diff --check`通过。
 - Context7在核对Godot变换语义时达到月度额度，改用Godot官方文档核对：`Node.reparent(..., true)`保留Node3D全局变换，`Basis.orthonormalized()`移除scale/shear并保留旋转。
 
-父`client`干净checkout的typecheck和build通过；测试801/803通过，2项失败均来自实时模型目录较fixture多出`moonshotai/kimi-k2.5`（期望500、实际499），R20父范围为零差异，未修改父client。standalone extraction必须在包含本测试修复的干净第六提交形成后重新执行；当前工作树全绿不能替代该clean-HEAD门。
+父`client`干净checkout的typecheck和build通过；测试801/803通过。两项失败均在`client/src/data/models.refresh.test.ts`：live counted期望500、实际499，inactive集合比fixture多`moonshotai/kimi-k2.5`；R20父范围为零差异，未修改父client。
 
-## 待人工验收与声明边界
+第六提交的clean-HEAD standalone extraction通过：source HEAD `5e4f8c091f71958733a2d3decff2ec84a6f7110d`，split commit `3448129c8bc57f04272e1006d07cf787f72b0ad0`，split tree `3c85727a6727d4c848f137dbf913251d69ed0222`，1429个文件；归档SHA-256为`0c41dd8f6626a83887de345da3f53a3a863cd06439c93ad295102f68289c9343`。R20.7形成最终clean HEAD后仍需再次运行同一extraction门，最终哈希在PR证据中记录，避免文档自引用改变source身份。
 
-- 必须分别启动中性与末班地铁的r10 current，确认NPC沿可行走区抵达Action approach、不穿墙、不离地、不瞬移，裁决后正确返回或隐藏。
-- 至少两个地铁角色按稳定顺序行动；循环、ending及新时间线reset正常；玩家只能WASD观察，不能绕过Node单写者写入时间线。
-- 人工确认前不执行R20.7、不更新`V2_STATUS`为qualified、不push、不创建PR。
-- 当前机器状态继续为`r20-implementation-in-progress / claimAllowed=false / blockingRound=R25`。
+## 人工验收与声明边界
+
+- 2026-08-31，中性r10 current以1个真实角色和已资格manifest `sha256:b8ec13840a18f976000e9bca14bea869729e5d6501590b25d1a923e4797e03cc`启动。用户观察运动较为平滑、无明显问题，并判定基本通过。
+- 2026-08-31，末班地铁r10 current以3个真实角色和已资格manifest `sha256:11dd1e1bf39e853e966b5a17a3793ad1e8e1c3ae6e6f53488d3b4761eb2259b2`启动。用户确认该案基本通过。
+- 人工结论只覆盖本机Godot 4.6.3 Forward+、既有两份真实缓存和隔离R20观察预览；“基本通过”不外推为跨GPU/跨平台保证，也不证明角色动画、AI认知、对话、人格、记忆、关系或动态事件。
+- loop、ending、Runtime镜像、重放和300帧性能由绑定自动证据证明；人工反馈没有逐项复述这些自动指标，因此本文不把自动capture冒充人工观察。
+- R20.7只迁移本轮状态与验收记录，不切换R16 Creator默认入口。当前机器状态为`r20-entity-bridge-qualified / claimAllowed=false / blockingRound=R25`；第二版完成声明仍须等待R25。

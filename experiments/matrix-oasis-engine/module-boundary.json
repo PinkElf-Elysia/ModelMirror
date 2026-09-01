@@ -68,7 +68,7 @@
     "completionMarker": "MATRIX_OASIS_R16_CREATOR_MVP_READY"
   },
   "v2ClaimPolicy": {
-    "status": "r20-implementation-in-progress",
+    "status": "r20-entity-bridge-qualified",
     "claimAllowed": false,
     "blockingRound": "R25",
     "machineStatus": "docs/V2_STATUS.json",

@@ -17,9 +17,9 @@ function fixture(t) {
   return root;
 }
 
-test("R20 entity bridge work keeps the V2 completion claim closed until R25", () => {
+test("qualified R20 entity bridge keeps the V2 completion claim closed until R25", () => {
   assert.deepEqual(checkV2Claim({ moduleRoot }), {
-    status: "r20-implementation-in-progress",
+    status: "r20-entity-bridge-qualified",
     claimAllowed: false,
     blockingRound: "R25",
   });
