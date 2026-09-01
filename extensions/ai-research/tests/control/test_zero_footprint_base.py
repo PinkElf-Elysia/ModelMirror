@@ -38,20 +38,25 @@ TRUST_PATHS = {
     "extensions/ai-research/module-boundary.json",
 }
 DEFAULT_ALLOWED_PARENT = [
-    ".dockerignore",
-    ".github/workflows/ai-research.yml",
     "server/main.py",
     "server/model_router/ai_research_bridge.py",
+    "server/model_router/chat_control.py",
     "server/model_router/chat_stable.py",
+    "server/model_router/repository.py",
     "server/tests/test_ai_research_bridge.py",
     "server/tests/test_provider_chat_stable_service.py",
 ]
 PROTECTED_PATHS = [
+    ".github/workflows/ai-research.yml",
     "docker-compose.yml",
     "server/requirements.txt",
     "server/Dockerfile",
     "client/package.json",
     "client/package-lock.json",
+    "extensions/ai-research/scripts/verify.ps1",
+    "extensions/ai-research/scripts/verify.sh",
+    "extensions/ai-research/scripts/zero_footprint.py",
+    "extensions/ai-research/tests/control/test_zero_footprint_base.py",
 ]
 
 
@@ -958,6 +963,7 @@ def test_workflow_early_gate_accepts_module_and_base_allowlist(
 @pytest.mark.parametrize(
     "relative",
     [
+        ".dockerignore",
         "server/unapproved.py",
         "client/src/unapproved.ts",
         "deploy/unapproved.yml",
@@ -1007,7 +1013,7 @@ def test_workflow_early_gate_rejects_protected_delete_and_rename(
     if operation == "delete":
         (repo / relative).unlink()
     else:
-        _git(repo, "mv", relative, ".dockerignore")
+        _git(repo, "mv", relative, "server/main.py")
     _commit(repo, f"protected {operation}")
 
     result = _run_workflow_gate(repo, base)
@@ -1189,7 +1195,9 @@ def test_workflow_selects_event_base_and_never_coalesces_push_runs() -> None:
     assert "github.event.before" in workflow
     assert "github.event.pull_request.number || github.sha" in workflow
     assert "cancel-in-progress: ${{ github.event_name == 'pull_request' }}" in workflow
-    assert '      - "server/main.py"' not in workflow
+    assert '      - "server/main.py"' in workflow
+    assert '      - "server/model_router/chat_control.py"' in workflow
+    assert '      - "server/model_router/repository.py"' in workflow
     assert '      - "server/tests/test_ai_research_bridge.py"' in workflow
     assert "extensions/ai-research/source-lock.json" in workflow
     assert "extensions/ai-research/module-boundary.json" in workflow
