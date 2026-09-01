@@ -91,6 +91,7 @@ const august27LatestModelIds = [
 ];
 
 const august28LatestModelIds = ["tencent/hy4-preview"];
+const august31LatestModelIds = ["ibm-granite/granite-4.2-8b"];
 
 const august28BatchCatalogIds = [
   "qwen/qwen3.8-2.4t-a95b:batch",
@@ -105,11 +106,11 @@ const august28BatchCatalogIds = [
 describe("OpenRouter model refresh", () => {
   it("reconciles the refreshed counted catalog totals", () => {
     const counted = models.filter((model) => model.catalog_counted);
-    expect(counted).toHaveLength(573);
-    expect(counted.filter((model) => model.catalog_status === "live")).toHaveLength(500);
-    expect(counted.filter((model) => model.catalog_status === "uncertain")).toHaveLength(67);
+    expect(counted).toHaveLength(574);
+    expect(counted.filter((model) => model.catalog_status === "live")).toHaveLength(498);
+    expect(counted.filter((model) => model.catalog_status === "uncertain")).toHaveLength(70);
     expect(counted.filter((model) => model.catalog_status === "expired")).toHaveLength(6);
-    expect(counted.filter((model) => model.catalog_status !== "expired")).toHaveLength(567);
+    expect(counted.filter((model) => model.catalog_status !== "expired")).toHaveLength(568);
   });
 
   it("restores V4 Flash ahead of V4 Pro and keeps Seedream in row four", () => {
@@ -215,7 +216,7 @@ describe("OpenRouter model refresh", () => {
       openrouter_market: {
         series: "Qwen",
         author: "qwen",
-        providers: ["Chutes"],
+        providers: ["Reka"],
       },
     });
     expect(
@@ -273,7 +274,7 @@ describe("OpenRouter model refresh", () => {
       interaction_status: "ready",
       ui_entrypoint: "chat",
       context_length: 1_310_720,
-      pricing: { input: 1.25, output: 4.4 },
+      pricing: { input: 1.17, output: 3.9600000000000004 },
       reasoning_declared: true,
       openrouter_market: { author: "z-ai" },
     });
@@ -794,7 +795,7 @@ describe("OpenRouter model refresh", () => {
         providers: ["Novita"],
         discounted: false,
         zero_data_retention: true,
-        tool_call_success_rate: 100,
+        tool_call_success_rate: 97.84,
       },
     });
   });
@@ -851,6 +852,64 @@ describe("OpenRouter model refresh", () => {
         tool_call_success_rate: expect.any(Number),
       },
     });
+  });
+
+  it("adds the August 31 Granite snapshot below the first six rows", () => {
+    for (const modelId of august31LatestModelIds) {
+      expect(models.find((model) => model.id === modelId)).toMatchObject({
+        catalog_status: "live",
+        catalog_counted: true,
+        active: true,
+        primary_operation: "chat",
+        interaction_status: "ready",
+        ui_entrypoint: "chat",
+      });
+      expect(models.findIndex((model) => model.id === modelId)).toBeGreaterThanOrEqual(
+        2 + 6 * 3,
+      );
+    }
+  });
+
+  it("preserves the Granite text, reasoning, tools, pricing, and market contract", () => {
+    const granite = models.find(
+      (model) => model.id === "ibm-granite/granite-4.2-8b",
+    );
+
+    expect(granite).toMatchObject({
+      canonical_slug: "ibm-granite/granite-4.2-8b-20260831",
+      input_modalities: ["text"],
+      output_modalities: ["text"],
+      operations: ["chat"],
+      job_capabilities: expect.arrayContaining([
+        "text_chat",
+        "coding",
+        "reasoning",
+        "tool_use",
+      ]),
+      context_length: 131_072,
+      pricing: { output: 0.15 },
+      pricing_status: "fixed",
+      pricing_basis: "token",
+      reasoning_declared: true,
+      supported_parameters: expect.arrayContaining([
+        "reasoning",
+        "reasoning_effort",
+        "include_reasoning",
+        "response_format",
+        "structured_outputs",
+        "tools",
+        "tool_choice",
+      ]),
+      openrouter_market: {
+        series: "Other",
+        author: "ibm-granite",
+        providers: ["CoreWeave"],
+        discounted: false,
+        zero_data_retention: true,
+        tool_call_success_rate: 97.68,
+      },
+    });
+    expect(granite?.pricing.input).toBeCloseTo(0.1);
   });
 
   it("routes the August 14 specialized models by their dedicated contracts", () => {
@@ -966,7 +1025,7 @@ describe("OpenRouter model refresh", () => {
     ).toMatchObject({
       series: "DeepSeek",
       author: "deepseek",
-      providers: ["StreamLake"],
+      providers: ["DigitalOcean"],
       categories: expect.arrayContaining(["translation"]),
     });
     expect(
@@ -1049,8 +1108,8 @@ describe("OpenRouter model refresh", () => {
     );
 
     expect(byId.get("~deepseek/deepseek-v4-flash-latest")?.pricing).toEqual({
-      input: 0.03,
-      output: 0.09999999999999999,
+      input: 0.049999999999999996,
+      output: 0.16,
     });
     expect(byId.get("z-ai/glm-5.2")?.pricing).toEqual({
       input: 1.19,
@@ -1065,20 +1124,20 @@ describe("OpenRouter model refresh", () => {
       output: 1.9800000000000002,
     });
     expect(byId.get("deepseek/deepseek-v4-pro")?.pricing).toEqual({
-      input: 0.761946,
-      output: 1.523892,
+      input: 1.5999999999999999,
+      output: 3.1999999999999997,
     });
     expect(byId.get("tencent/hy3")?.pricing).toEqual({
-      input: 0.0825,
-      output: 0.33,
+      input: 0.13199999999999998,
+      output: 0.5279999999999999,
     });
     expect(byId.get("qwen/qwen3.6-27b")?.pricing).toEqual({
       input: 0.6,
       output: 3.5999999999999996,
     });
     expect(byId.get("deepseek/deepseek-v4-flash")?.pricing).toEqual({
-      input: 0.0868,
-      output: 0.1736,
+      input: 0.08092,
+      output: 0.16184,
     });
     expect(byId.get("qwen/qwen3.5-122b-a10b")?.pricing).toEqual({
       input: 0.29,
@@ -1236,7 +1295,7 @@ describe("OpenRouter model refresh", () => {
       (model) => model.catalog_status === "expired",
     );
 
-    expect(uncertain).toHaveLength(67);
+    expect(uncertain).toHaveLength(70);
     expect(ling?.active).toBe(true);
     expect(
       uncertain.find((model) => model.id === "mistralai/ministral-8b")
@@ -1255,6 +1314,16 @@ describe("OpenRouter model refresh", () => {
       "zyphra/zonos-v0.1-hybrid",
       "zyphra/zonos-v0.1-transformer",
     ]);
+    for (const modelId of [
+      "allenai/olmo-3-32b-think",
+      "arcee-ai/virtuoso-large",
+      "kwaipilot/kat-coder-air-v2.5",
+    ]) {
+      expect(uncertain.find((model) => model.id === modelId)).toMatchObject({
+        active: true,
+        catalog_status: "uncertain",
+      });
+    }
     expect(firstUncertainIndex).toBeGreaterThan(lastClearIndex);
     expect(firstExpiredIndex).toBeGreaterThan(firstUncertainIndex);
   });
@@ -1286,12 +1355,29 @@ describe("OpenRouter model refresh", () => {
     );
     const batchCatalogIds = batchVariants.map((variant) => variant.catalog_id);
 
-    expect(batchVariants).toHaveLength(32);
-    expect(batchCatalogIds).not.toContain("openai/gpt-4o:batch");
-    expect(batchCatalogIds).not.toContain("openai/gpt-5.6-luna:batch");
+    expect(batchVariants).toHaveLength(74);
+    expect(batchCatalogIds).toContain("openai/gpt-4o:batch");
+    expect(batchCatalogIds).toContain("openai/gpt-5.6-luna:batch");
     expect(batchCatalogIds).not.toContain(
       "moonshotai/kimi-k2.7-code:batch",
     );
+    expect(
+      batchVariants.filter((variant) => variant.endpoint === "/v1/embeddings"),
+    ).toHaveLength(4);
+    for (const variant of batchVariants) {
+      const isEmbedding = variant.endpoint === "/v1/embeddings";
+      expect(variant.catalog_id).toBe(`${variant.request_model_id}:batch`);
+      expect(variant.request_model_id).not.toContain(":batch");
+      expect(variant.input_modalities).toEqual(["text"]);
+      expect(variant.output_modalities).toEqual(
+        isEmbedding ? ["embeddings"] : ["text"],
+      );
+      expect(variant.completion_window).toBe("24h");
+      expect(variant.data_retention_days).toBe(30);
+      expect(variant.endpoint).toBe(
+        isEmbedding ? "/v1/embeddings" : "/v1/chat/completions",
+      );
+    }
     for (const catalogId of august28BatchCatalogIds) {
       const requestModelId = catalogId.replace(/:batch$/, "");
       const variant = models
@@ -1342,6 +1428,14 @@ describe("OpenRouter model refresh", () => {
       completion_window: "24h",
       data_retention_days: 30,
     });
+    expect(
+      models
+        .find((model) => model.id === "qwen/qwen3.8-2.4t-a95b")
+        ?.serving_variants.find(
+          (variant) =>
+            variant.catalog_id === "qwen/qwen3.8-2.4t-a95b:batch",
+        )?.pricing,
+    ).toEqual({ input: 2.5, output: 6.25 });
   });
 
   it("keeps only explicitly expired models inactive", () => {
