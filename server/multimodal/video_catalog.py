@@ -43,6 +43,9 @@ VERIFIED_VIDEO_GENERATION_MODELS = frozenset(
         "alibaba/wan-2.7",
         "minimax/hailuo-2.3",
         "minimax/hailuo-3",
+        # 2026-09-02：专用视频目录确认 480p/768p、5–15 秒、
+        # 六种画幅、首尾帧与分辨率分档价格；未执行付费生成。
+        "minimax/hailuo-3-max",
         # 2026-08-06 人工验收：首尾帧、参考图及受控音频/种子参数通过。
         "kwaivgi/kling-v3.0-pro",
         "kwaivgi/kling-v3.0-std",

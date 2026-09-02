@@ -165,6 +165,38 @@ describe("estimateVideoCost", () => {
     ).toBeCloseTo(1.68);
   });
 
+  it("uses Hailuo 3 Max resolution-specific per-second pricing", () => {
+    const hailuoProfile = {
+      supported_resolutions: ["768p", "480p"],
+      supported_aspect_ratios: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
+      supported_sizes: [],
+      pricing_skus: {
+        duration_seconds: "0.08",
+        duration_seconds_480p: "0.05",
+        duration_seconds_768p: "0.08",
+      },
+    };
+
+    expect(
+      estimateVideoCost(hailuoProfile, {
+        duration: 15,
+        resolution: "480p",
+        aspectRatio: "21:9",
+        generateAudio: false,
+        imageInputCount: 0,
+      }),
+    ).toBeCloseTo(0.75);
+    expect(
+      estimateVideoCost(hailuoProfile, {
+        duration: 15,
+        resolution: "768p",
+        aspectRatio: "9:16",
+        generateAudio: false,
+        imageInputCount: 1,
+      }),
+    ).toBeCloseTo(1.2);
+  });
+
   it("shows Avatar IV's unit price when script length determines duration", () => {
     const avatarProfile = {
       supported_resolutions: ["720p", "1080p"],

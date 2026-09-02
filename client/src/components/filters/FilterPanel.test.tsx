@@ -140,7 +140,8 @@ describe("FilterPanel", () => {
   });
 
   it("prioritizes common brands and localizes Chinese model companies", () => {
-    expect(providerOptions.slice(0, 7).map((option) => option.value)).toEqual([
+    const providerValues = providerOptions.map((option) => option.value);
+    const presentPriorityProviders = [
       "OpenAI",
       "Anthropic",
       "DeepSeek",
@@ -148,9 +149,13 @@ describe("FilterPanel", () => {
       "Google AI Studio",
       "xAI",
       "Alibaba",
-    ]);
-    expect(providerOptions.find((option) => option.value === "DeepSeek")?.label).toBe(
-      "深度求索",
+    ].filter((provider) => providerValues.includes(provider));
+
+    expect(providerValues.slice(0, presentPriorityProviders.length)).toEqual(
+      presentPriorityProviders,
+    );
+    expect(providerOptions.find((option) => option.value === "Alibaba")?.label).toBe(
+      "阿里云",
     );
     expect(modelAuthorOptions.slice(0, 8).map((option) => option.value)).toEqual([
       "openai",

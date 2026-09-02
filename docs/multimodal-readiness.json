@@ -1,23 +1,23 @@
 {
   "schema_version": 1,
-  "reviewed_at": "2026-08-31",
+  "reviewed_at": "2026-09-02",
   "catalog": {
-    "snapshot_total": 574,
-    "serving_variant_total": 74,
+    "snapshot_total": 578,
+    "serving_variant_total": 70,
     "serving_variants_by_type": {
-      "batch": 74
+      "batch": 70
     },
     "serving_variants_counted_in_snapshot": false,
-    "live": 498,
-    "uncertain": 70,
+    "live": 499,
+    "uncertain": 73,
     "expired": 6,
-    "onsite_openrouter": 568,
-    "adaptation_denominator": 568,
+    "onsite_openrouter": 572,
+    "adaptation_denominator": 572,
     "uncertain_included_in_onsite": true,
     "expired_excluded_from_onsite": true
   },
   "video_generation": {
-    "dedicated_profiles": 27,
+    "dedicated_profiles": 28,
     "verified": [
       { "model_id": "bytedance/seedance-2.0", "verified_at": "2026-07-28", "evidence": ["manual_submission", "polling", "playback", "download"] },
       { "model_id": "runway/aleph-2", "verified_at": "2026-07-28", "evidence": ["manual_submission", "polling", "playback", "download"] },
@@ -30,6 +30,7 @@
       { "model_id": "alibaba/wan-2.7", "verified_at": "2026-08-06", "evidence": ["manual_submission", "playback", "download"] },
       { "model_id": "minimax/hailuo-2.3", "verified_at": "2026-08-06", "evidence": ["manual_submission", "playback", "download"] },
       { "model_id": "minimax/hailuo-3", "verified_at": "2026-08-06", "evidence": ["manual_submission", "playback", "download"] },
+      { "model_id": "minimax/hailuo-3-max", "verified_at": "2026-09-02", "verification_status": "adapted_contract", "evidence": ["catalog_contract", "async_submission", "frame_images", "cost_estimate"] },
       { "model_id": "kwaivgi/kling-v3.0-pro", "verified_at": "2026-08-06", "evidence": ["manual_submission", "frame_controls", "playback", "download"] },
       { "model_id": "kwaivgi/kling-v3.0-std", "verified_at": "2026-08-06", "evidence": ["manual_submission", "frame_controls", "playback", "download"] },
       { "model_id": "kwaivgi/kling-video-o1", "verified_at": "2026-08-06", "evidence": ["manual_submission", "frame_controls", "playback", "download"] },
