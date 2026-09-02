@@ -31,6 +31,7 @@ def test_verified_video_registry_contains_batch_e_acceptance() -> None:
         "alibaba/wan-2.7",
         "minimax/hailuo-2.3",
         "minimax/hailuo-3",
+        "minimax/hailuo-3-max",
     } <= VERIFIED_VIDEO_GENERATION_MODELS
 
 
@@ -308,6 +309,33 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
                             "allowed_passthrough_parameters": [],
                         },
                         {
+                            "id": "minimax/hailuo-3-max",
+                            "supported_resolutions": ["768p", "480p"],
+                            "supported_aspect_ratios": [
+                                "21:9",
+                                "16:9",
+                                "4:3",
+                                "1:1",
+                                "3:4",
+                                "9:16",
+                            ],
+                            "supported_durations": list(range(5, 16)),
+                            "supported_frame_images": [
+                                "first_frame",
+                                "last_frame",
+                            ],
+                            "generate_audio": False,
+                            "seed": False,
+                            "pricing_skus": {
+                                "duration_seconds": "0.08",
+                                "duration_seconds_480p": "0.05",
+                                "duration_seconds_768p": "0.08",
+                            },
+                            "allowed_passthrough_parameters": [
+                                "aigc_watermark"
+                            ],
+                        },
+                        {
                             "id": "alibaba/wan-3.0-prime",
                             "supported_resolutions": [
                                 "480p",
@@ -368,7 +396,7 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
 
     assert result.status == "online"
     assert result.stale is False
-    assert len(result.profiles) == 10
+    assert len(result.profiles) == 11
     analysis = next(
         item for item in result.profiles if item.operation == "analyze_video"
     )
@@ -412,6 +440,11 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
         item
         for item in result.profiles
         if item.model_id == "alibaba/wan-3.0-prime"
+    )
+    hailuo_max = next(
+        item
+        for item in result.profiles
+        if item.model_id == "minimax/hailuo-3-max"
     )
     assert analysis.model_id == "google/gemini-video-test"
     assert analysis.supported_input_sources == ["file", "url"]
@@ -543,6 +576,28 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
         "duration_seconds_480p": "0.068",
         "duration_seconds_720p": "0.14",
         "duration_seconds_1080p": "0.28",
+    }
+    assert hailuo_max.interaction_status == "ready"
+    assert hailuo_max.supported_resolutions == ["768p", "480p"]
+    assert hailuo_max.supported_aspect_ratios == [
+        "21:9",
+        "16:9",
+        "4:3",
+        "1:1",
+        "3:4",
+        "9:16",
+    ]
+    assert hailuo_max.supported_durations == list(range(5, 16))
+    assert hailuo_max.supported_frame_types == [
+        "first_frame",
+        "last_frame",
+    ]
+    assert hailuo_max.supports_generated_audio is False
+    assert hailuo_max.supports_seed is False
+    assert hailuo_max.pricing_skus == {
+        "duration_seconds": "0.08",
+        "duration_seconds_480p": "0.05",
+        "duration_seconds_768p": "0.08",
     }
     assert all(
         request.headers["authorization"]

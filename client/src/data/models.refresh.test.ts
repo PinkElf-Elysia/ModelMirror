@@ -92,29 +92,31 @@ const august27LatestModelIds = [
 
 const august28LatestModelIds = ["tencent/hy4-preview"];
 const august31LatestModelIds = ["ibm-granite/granite-4.2-8b"];
+const september1LatestModelIds = [
+  "inception/mercury-2.5-preview",
+  "anthropic/claude-fable-5.1",
+  "minimax/hailuo-3-max",
+];
 
 const august28BatchCatalogIds = [
   "qwen/qwen3.8-2.4t-a95b:batch",
   "mistralai/mistral-medium-3-5:batch",
-  "mistralai/mistral-small-2603:batch",
-  "mistralai/ministral-8b-2512:batch",
-  "mistralai/mistral-large-2512:batch",
-  "mistralai/mistral-medium-3.1:batch",
-  "mistralai/codestral-2508:batch",
 ];
 
 describe("OpenRouter model refresh", () => {
   it("reconciles the refreshed counted catalog totals", () => {
     const counted = models.filter((model) => model.catalog_counted);
-    expect(counted).toHaveLength(574);
-    expect(counted.filter((model) => model.catalog_status === "live")).toHaveLength(498);
-    expect(counted.filter((model) => model.catalog_status === "uncertain")).toHaveLength(70);
+    expect(counted).toHaveLength(578);
+    expect(counted.filter((model) => model.catalog_status === "live")).toHaveLength(499);
+    expect(counted.filter((model) => model.catalog_status === "uncertain")).toHaveLength(73);
     expect(counted.filter((model) => model.catalog_status === "expired")).toHaveLength(6);
-    expect(counted.filter((model) => model.catalog_status !== "expired")).toHaveLength(568);
+    expect(counted.filter((model) => model.catalog_status !== "expired")).toHaveLength(572);
   });
 
-  it("restores V4 Flash ahead of V4 Pro and keeps Seedream in row four", () => {
+  it("places Fable 5.1 in the flagship slot and moves Opus 5 to row two", () => {
+    expect(models[0]?.id).toBe("anthropic/claude-fable-5.1");
     expect(models[2]?.id).toBe("deepseek/deepseek-v4-flash-0731");
+    expect(models[3]?.id).toBe("anthropic/claude-opus-5");
     expect(models[5]?.id).toBe("deepseek/deepseek-v4-pro-0813");
     expect(models[8]?.id).toBe("bytedance-seed/seedream-5-0-pro");
   });
@@ -216,7 +218,7 @@ describe("OpenRouter model refresh", () => {
       openrouter_market: {
         series: "Qwen",
         author: "qwen",
-        providers: ["Reka"],
+        providers: ["Chutes"],
       },
     });
     expect(
@@ -412,16 +414,16 @@ describe("OpenRouter model refresh", () => {
       output_modalities: ["text"],
       operations: expect.arrayContaining(["analyze_image", "chat"]),
       context_length: 1_048_576,
-      pricing: { input: 0.22, output: 0.66 },
+      pricing: { input: 0.44, output: 1.32 },
       pricing_status: "fixed",
       pricing_basis: "token",
       reasoning_declared: true,
       openrouter_market: {
         series: "DeepSeek",
         author: "deepseek",
-        providers: ["DeepSeek"],
+        providers: ["Fireworks"],
         distillable: true,
-        zero_data_retention: false,
+        zero_data_retention: true,
       },
     });
     expect(
@@ -795,7 +797,7 @@ describe("OpenRouter model refresh", () => {
         providers: ["Novita"],
         discounted: false,
         zero_data_retention: true,
-        tool_call_success_rate: 97.84,
+        tool_call_success_rate: 97.85,
       },
     });
   });
@@ -906,10 +908,147 @@ describe("OpenRouter model refresh", () => {
         providers: ["CoreWeave"],
         discounted: false,
         zero_data_retention: true,
-        tool_call_success_rate: 97.68,
+        tool_call_success_rate: 95.55,
       },
     });
     expect(granite?.pricing.input).toBeCloseTo(0.1);
+  });
+
+  it("adds the September 1 catalog snapshots exactly once", () => {
+    for (const modelId of september1LatestModelIds) {
+      expect(models.filter((model) => model.id === modelId)).toHaveLength(1);
+      expect(models.find((model) => model.id === modelId)).toMatchObject({
+        catalog_status: "live",
+        catalog_counted: true,
+        active: true,
+      });
+    }
+    for (const modelId of [
+      "inception/mercury-2.5-preview",
+      "minimax/hailuo-3-max",
+    ]) {
+      expect(models.findIndex((model) => model.id === modelId)).toBeGreaterThanOrEqual(
+        2 + 6 * 3,
+      );
+    }
+  });
+
+  it("adds the GLM Flash latest alias as a callable router entry", () => {
+    const alias = models.find(
+      (model) => model.id === "~z-ai/glm-flash-latest",
+    );
+
+    expect(alias).toMatchObject({
+      canonical_slug: "~z-ai/glm-flash-latest",
+      input_modalities: ["text", "image", "video"],
+      output_modalities: ["text"],
+      catalog_status: "live",
+      catalog_counted: true,
+      active: true,
+      primary_operation: "chat",
+      interaction_status: "ready",
+      pricing: { input: 0.075, output: 0.25 },
+      openrouter_market: {
+        series: "Router",
+        author: "z-ai",
+        providers: ["Z.AI"],
+        discounted: true,
+        zero_data_retention: true,
+      },
+    });
+    expect(models.findIndex((model) => model.id === alias?.id)).toBeGreaterThanOrEqual(
+      2 + 6 * 3,
+    );
+  });
+
+  it("preserves Mercury 2.5 and Claude Fable 5.1 contracts", () => {
+    const byId = new Map(models.map((model) => [model.id, model]));
+    const mercury = byId.get("inception/mercury-2.5-preview");
+    const fable = byId.get("anthropic/claude-fable-5.1");
+
+    expect(mercury).toMatchObject({
+      canonical_slug: "inception/mercury-2.5-preview-20260831",
+      input_modalities: ["text"],
+      output_modalities: ["text"],
+      primary_operation: "chat",
+      interaction_status: "ready",
+      context_length: 260_000,
+      pricing: { input: 0.04, output: 0.15 },
+      reasoning_declared: true,
+      openrouter_market: {
+        series: "Other",
+        author: "inception",
+        providers: ["Inception"],
+        discounted: true,
+        zero_data_retention: true,
+        tool_call_success_rate: 97.12,
+      },
+    });
+    expect(fable).toMatchObject({
+      canonical_slug: "anthropic/claude-fable-5.1-20260831",
+      input_modalities: ["text", "image", "file"],
+      output_modalities: ["text"],
+      primary_operation: "chat",
+      interaction_status: "ready",
+      context_length: 1_000_000,
+      pricing: { input: 10, output: 50 },
+      reasoning_declared: true,
+      supported_parameters: expect.arrayContaining([
+        "reasoning",
+        "reasoning_effort",
+        "include_reasoning",
+        "response_format",
+        "structured_outputs",
+        "tools",
+        "verbosity",
+      ]),
+      openrouter_market: {
+        series: "Claude",
+        author: "anthropic",
+        providers: ["Anthropic", "Google"],
+        discounted: false,
+        zero_data_retention: false,
+        tool_call_success_rate: 99.42,
+        artificial_analysis: {
+          intelligence_index: 65.7,
+          coding_index: 81.6,
+          agentic_index: 61.3,
+        },
+      },
+    });
+  });
+
+  it("routes Hailuo 3 Max to the dedicated video workspace", () => {
+    const hailuo = models.find(
+      (model) => model.id === "minimax/hailuo-3-max",
+    );
+
+    expect(hailuo).toMatchObject({
+      canonical_slug: "minimax/hailuo-3-max-20260901",
+      input_modalities: ["text", "image"],
+      output_modalities: ["video"],
+      operations: ["generate_video"],
+      primary_operation: "generate_video",
+      interaction_status: "ready",
+      ui_entrypoint: "multimodal",
+      pricing_status: "dynamic",
+      pricing_basis: "media",
+      supported_parameters: [
+        "resolution",
+        "aspect_ratio",
+        "duration",
+        "frame_images",
+      ],
+      openrouter_market: {
+        series: "Other",
+        author: "minimax",
+        providers: ["Minimax"],
+        discounted: false,
+        zero_data_retention: false,
+      },
+    });
+    expect(hailuo?.note).toContain("480p $0.05/视频秒");
+    expect(hailuo?.note).toContain("768p $0.08/视频秒");
   });
 
   it("routes the August 14 specialized models by their dedicated contracts", () => {
@@ -1112,20 +1251,20 @@ describe("OpenRouter model refresh", () => {
       output: 0.16,
     });
     expect(byId.get("z-ai/glm-5.2")?.pricing).toEqual({
-      input: 1.19,
-      output: 3.74,
+      input: 0.966,
+      output: 3.036,
     });
     expect(byId.get("moonshotai/kimi-k2.7-code")?.pricing).toEqual({
       input: 0.66,
       output: 3.4,
     });
     expect(byId.get("deepseek/deepseek-v4-pro-0813")?.pricing).toEqual({
-      input: 0.66,
-      output: 1.9800000000000002,
+      input: 1.1154,
+      output: 3.3461999999999996,
     });
     expect(byId.get("deepseek/deepseek-v4-pro")?.pricing).toEqual({
-      input: 1.5999999999999999,
-      output: 3.1999999999999997,
+      input: 1.04226,
+      output: 2.08452,
     });
     expect(byId.get("tencent/hy3")?.pricing).toEqual({
       input: 0.13199999999999998,
@@ -1136,8 +1275,8 @@ describe("OpenRouter model refresh", () => {
       output: 3.5999999999999996,
     });
     expect(byId.get("deepseek/deepseek-v4-flash")?.pricing).toEqual({
-      input: 0.08092,
-      output: 0.16184,
+      input: 0.088606,
+      output: 0.177212,
     });
     expect(byId.get("qwen/qwen3.5-122b-a10b")?.pricing).toEqual({
       input: 0.29,
@@ -1169,38 +1308,7 @@ describe("OpenRouter model refresh", () => {
     }
     expect(
       byId.get("deepseek/deepseek-v4-pro-0813")?.pricing_time_windows,
-    ).toEqual([
-      {
-        utc_start: 0,
-        utc_end: 100,
-        pricing: { input: 0.66, output: 1.9800000000000002 },
-        price_cny: { input: 4.47, output: 13.4 },
-      },
-      {
-        utc_start: 100,
-        utc_end: 400,
-        pricing: { input: 1.32, output: 3.9600000000000004 },
-        price_cny: { input: 8.94, output: 26.81 },
-      },
-      {
-        utc_start: 400,
-        utc_end: 600,
-        pricing: { input: 0.66, output: 1.9800000000000002 },
-        price_cny: { input: 4.47, output: 13.4 },
-      },
-      {
-        utc_start: 600,
-        utc_end: 1000,
-        pricing: { input: 1.32, output: 3.9600000000000004 },
-        price_cny: { input: 8.94, output: 26.81 },
-      },
-      {
-        utc_start: 1000,
-        utc_end: 0,
-        pricing: { input: 0.66, output: 1.9800000000000002 },
-        price_cny: { input: 4.47, output: 13.4 },
-      },
-    ]);
+    ).toEqual([]);
     expect(
       byId.get("deepseek/deepseek-v4-pro")?.pricing_time_windows,
     ).toEqual([]);
@@ -1295,7 +1403,7 @@ describe("OpenRouter model refresh", () => {
       (model) => model.catalog_status === "expired",
     );
 
-    expect(uncertain).toHaveLength(70);
+    expect(uncertain).toHaveLength(73);
     expect(ling?.active).toBe(true);
     expect(
       uncertain.find((model) => model.id === "mistralai/ministral-8b")
@@ -1318,6 +1426,9 @@ describe("OpenRouter model refresh", () => {
       "allenai/olmo-3-32b-think",
       "arcee-ai/virtuoso-large",
       "kwaipilot/kat-coder-air-v2.5",
+      "anthropic/claude-opus-4.7-fast",
+      "anthropic/claude-opus-4.8-fast",
+      "anthropic/claude-opus-5-fast",
     ]) {
       expect(uncertain.find((model) => model.id === modelId)).toMatchObject({
         active: true,
@@ -1355,7 +1466,7 @@ describe("OpenRouter model refresh", () => {
     );
     const batchCatalogIds = batchVariants.map((variant) => variant.catalog_id);
 
-    expect(batchVariants).toHaveLength(74);
+    expect(batchVariants).toHaveLength(70);
     expect(batchCatalogIds).toContain("openai/gpt-4o:batch");
     expect(batchCatalogIds).toContain("openai/gpt-5.6-luna:batch");
     expect(batchCatalogIds).not.toContain(
@@ -1430,12 +1541,29 @@ describe("OpenRouter model refresh", () => {
     });
     expect(
       models
+        .find((model) => model.id === "anthropic/claude-fable-5.1")
+        ?.serving_variants.find(
+          (variant) =>
+            variant.catalog_id === "anthropic/claude-fable-5.1:batch",
+        ),
+    ).toMatchObject({
+      type: "batch",
+      request_model_id: "anthropic/claude-fable-5.1",
+      endpoint: "/v1/chat/completions",
+      input_modalities: ["text"],
+      output_modalities: ["text"],
+      pricing: { input: 5, output: 25 },
+      completion_window: "24h",
+      data_retention_days: 30,
+    });
+    expect(
+      models
         .find((model) => model.id === "qwen/qwen3.8-2.4t-a95b")
         ?.serving_variants.find(
           (variant) =>
             variant.catalog_id === "qwen/qwen3.8-2.4t-a95b:batch",
         )?.pricing,
-    ).toEqual({ input: 2.5, output: 6.25 });
+    ).toEqual({ input: 2, output: 6 });
   });
 
   it("keeps only explicitly expired models inactive", () => {
