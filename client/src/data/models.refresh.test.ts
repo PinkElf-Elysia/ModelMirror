@@ -106,11 +106,81 @@ const august28BatchCatalogIds = [
 describe("OpenRouter model refresh", () => {
   it("reconciles the refreshed counted catalog totals", () => {
     const counted = models.filter((model) => model.catalog_counted);
-    expect(counted).toHaveLength(578);
-    expect(counted.filter((model) => model.catalog_status === "live")).toHaveLength(499);
+    expect(counted).toHaveLength(581);
+    expect(counted.filter((model) => model.catalog_status === "live")).toHaveLength(502);
     expect(counted.filter((model) => model.catalog_status === "uncertain")).toHaveLength(73);
     expect(counted.filter((model) => model.catalog_status === "expired")).toHaveLength(6);
-    expect(counted.filter((model) => model.catalog_status !== "expired")).toHaveLength(572);
+    expect(counted.filter((model) => model.catalog_status !== "expired")).toHaveLength(575);
+  });
+
+  it.each([
+    ["google/gemini-3.8-flash", "google/gemini-3.8-flash-20260902", 0.75, 3.75],
+    ["meta/muse-spark-1.3", "meta/muse-spark-1.3-20260902", 1.25, 4.25],
+    ["meta/muse-spark-1.3-contributor", "meta/muse-spark-1.3-contributor-20260902", 0.1, 0.2],
+  ])("adapts %s as a post-six-row multimodal chat snapshot", (id, slug, input, output) => {
+    const model = models.find((item) => item.id === id);
+    expect(model).toMatchObject({
+      canonical_slug: slug,
+      catalog_counted: true,
+      catalog_status: "live",
+      active: true,
+      context_length: 1_048_576,
+      input_modalities: ["text", "image", "video", "file", "audio"],
+      output_modalities: ["text"],
+      primary_operation: "chat",
+      interaction_status: "ready",
+      ui_entrypoint: "chat",
+      reasoning_declared: true,
+    });
+    expect(model?.pricing.input).toBeCloseTo(Number(input));
+    expect(model?.pricing.output).toBeCloseTo(Number(output));
+    expect(model?.operations).toEqual([
+      "analyze_image", "analyze_document", "analyze_audio", "analyze_video", "chat",
+    ]);
+    expect(model?.supported_parameters).toEqual(expect.arrayContaining([
+      "reasoning", "reasoning_effort", "tools", "tool_choice", "structured_outputs",
+    ]));
+    expect(models.findIndex((item) => item.id === id)).toBeGreaterThanOrEqual(2 + 6 * 3);
+  });
+
+  it("keeps September market metadata and Muse upstream notices", () => {
+    expect(models.find((item) => item.id === "google/gemini-3.8-flash")?.openrouter_market).toMatchObject({
+      series: "Gemini",
+      author: "google",
+      providers: ["Google", "Google AI Studio"],
+      categories: ["marketing/seo"],
+      discounted: true,
+      zero_data_retention: false,
+      tool_call_success_rate: 97.62,
+      artificial_analysis: { intelligence_index: 58.7, coding_index: 76.3, agentic_index: 50 },
+    });
+    for (const id of ["meta/muse-spark-1.3", "meta/muse-spark-1.3-contributor"]) {
+      const model = models.find((item) => item.id === id);
+      expect(model?.openrouter_market).toMatchObject({
+        series: "Other", author: "meta", providers: ["Meta"],
+        categories: [], zero_data_retention: false,
+      });
+      expect(model?.note).toContain("音频理解尚未完整支持");
+    }
+    expect(models.find((item) => item.id === "meta/muse-spark-1.3-contributor")?.note)
+      .toContain("输入与输出可能用于改进 Meta 产品");
+  });
+
+  it("attaches Gemini 3.8 Batch with its exact text-only discounted contract", () => {
+    const gemini = models.find((item) => item.id === "google/gemini-3.8-flash");
+    expect(gemini?.serving_variants.filter((variant) => variant.type === "batch")).toEqual([
+      expect.objectContaining({
+        catalog_id: "google/gemini-3.8-flash:batch",
+        request_model_id: "google/gemini-3.8-flash",
+        endpoint: "/v1/chat/completions",
+        input_modalities: ["text"],
+        output_modalities: ["text"],
+        pricing: { input: 0.375, output: 1.875 },
+        completion_window: "24h",
+        data_retention_days: 30,
+      }),
+    ]);
+    expect(models.some((item) => item.id === "google/gemini-3.8-flash:batch")).toBe(false);
   });
 
   it("places Fable 5.1 in the flagship slot and moves Opus 5 to row two", () => {
@@ -1466,7 +1536,7 @@ describe("OpenRouter model refresh", () => {
     );
     const batchCatalogIds = batchVariants.map((variant) => variant.catalog_id);
 
-    expect(batchVariants).toHaveLength(70);
+    expect(batchVariants).toHaveLength(71);
     expect(batchCatalogIds).toContain("openai/gpt-4o:batch");
     expect(batchCatalogIds).toContain("openai/gpt-5.6-luna:batch");
     expect(batchCatalogIds).not.toContain(

@@ -4,6 +4,61 @@ import type { OpenRouterMarketSnapshot } from "./openRouterMarket";
 export const openRouterMarketSnapshotGeneratedAt = "2026-09-02T07:25:59.390Z";
 export const openRouterMarketSnapshotSource = "https://openrouter.ai/api/frontend/v1/models/find?active=true&fmt=cards";
 export const openRouterMarketSnapshotByModelId: Record<string, OpenRouterMarketSnapshot> = {
+  "meta/muse-spark-1.3-contributor": {
+    "series": "Other",
+    "author": "meta",
+    "providers": [
+      "Meta"
+    ],
+    "categories": [],
+    "discounted": false,
+    "distillable": false,
+    "zero_data_retention": false,
+    "regions": [],
+    "created_at": 1788381519,
+    "tool_call_success_rate": 95.78,
+    "artificial_analysis": {},
+    "design_arena": {}
+  },
+  "meta/muse-spark-1.3": {
+    "series": "Other",
+    "author": "meta",
+    "providers": [
+      "Meta"
+    ],
+    "categories": [],
+    "discounted": false,
+    "distillable": false,
+    "zero_data_retention": false,
+    "regions": [],
+    "created_at": 1788378359,
+    "tool_call_success_rate": 99.24,
+    "artificial_analysis": {},
+    "design_arena": {}
+  },
+  "google/gemini-3.8-flash": {
+    "series": "Gemini",
+    "author": "google",
+    "providers": [
+      "Google",
+      "Google AI Studio"
+    ],
+    "categories": [
+      "marketing/seo"
+    ],
+    "discounted": true,
+    "distillable": false,
+    "zero_data_retention": false,
+    "regions": [],
+    "created_at": 1788362056,
+    "tool_call_success_rate": 97.62,
+    "artificial_analysis": {
+      "intelligence_index": 58.7,
+      "coding_index": 76.3,
+      "agentic_index": 50
+    },
+    "design_arena": {}
+  },
   "~anthropic/claude-fable-latest": {
     "series": "Router",
     "author": "anthropic",

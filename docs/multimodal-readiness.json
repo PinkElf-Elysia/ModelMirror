@@ -1,18 +1,18 @@
 {
   "schema_version": 1,
-  "reviewed_at": "2026-09-02",
+  "reviewed_at": "2026-09-03",
   "catalog": {
-    "snapshot_total": 578,
-    "serving_variant_total": 70,
+    "snapshot_total": 581,
+    "serving_variant_total": 71,
     "serving_variants_by_type": {
-      "batch": 70
+      "batch": 71
     },
     "serving_variants_counted_in_snapshot": false,
-    "live": 499,
+    "live": 502,
     "uncertain": 73,
     "expired": 6,
-    "onsite_openrouter": 572,
-    "adaptation_denominator": 572,
+    "onsite_openrouter": 575,
+    "adaptation_denominator": 575,
     "uncertain_included_in_onsite": true,
     "expired_excluded_from_onsite": true
   },
@@ -51,6 +51,30 @@
     "verification_required": []
   },
   "operation_readiness": [
+    {
+      "model_id": "google/gemini-3.8-flash",
+      "operation": "analyze_audio",
+      "status": "ready",
+      "verification_status": "contract_verified",
+      "support_level": "native",
+      "status_reason": "实时端点确认 input_audio，复用现有 Gemini 音频理解链路；未执行付费音频调用。"
+    },
+    {
+      "model_id": "meta/muse-spark-1.3",
+      "operation": "analyze_audio",
+      "status": "ready",
+      "verification_status": "contract_verified",
+      "support_level": "native",
+      "status_reason": "复用 Muse Spark WAV 音频输入契约；上游提示音频理解尚未完整支持，回复质量可能下降，未执行付费验收。"
+    },
+    {
+      "model_id": "meta/muse-spark-1.3-contributor",
+      "operation": "analyze_audio",
+      "status": "ready",
+      "verification_status": "contract_verified",
+      "support_level": "native",
+      "status_reason": "复用 Muse Spark WAV 音频输入契约；上游提示音频理解尚未完整支持，且输入与输出可能用于改进 Meta 产品，未执行付费验收。"
+    },
     {
       "model_id": "openai/gpt-transcribe",
       "operation": "transcribe",

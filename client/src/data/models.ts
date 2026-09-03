@@ -1,5 +1,6 @@
 ﻿// Merged with OpenRouter model catalog on 2026-09-02T07:25:55.085Z.
 // Targeted OpenRouter refresh verified on 2026-09-01 against the live all-modalities catalog.
+// Gemini 3.8 Flash, its Batch tier and Muse Spark 1.3 variants added on 2026-09-03.
 // Media contracts refreshed through the Hailuo 3 Max release on 2026-09-02T01:41:50.462Z.
 // Source: https://openrouter.ai/api/v1/models?output_modalities=all&sort=newest&offset=0&limit=1000
 // Full OpenRouter catalog audit refresh: 2026-08-16. Batch catalog entries are
@@ -208,6 +209,128 @@ interface RawCatalogModel {
 }
 
 const rawCatalogModels: RawCatalogModel[] = [
+  {
+    "id": "meta/muse-spark-1.3-contributor",
+    "canonical_slug": "meta/muse-spark-1.3-contributor-20260902",
+    "name": "Meta: Muse Spark 1.3 Contributor",
+    "raw_description": "Muse Spark 1.3 Contributor is the cost-efficient contributor tier of Meta’s multimodal reasoning model for experimentation, learning, and early-stage agentic, multi-agent, and coding workflows. It is designed to track information...",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 0.09999999999999999,
+      "output": 0.19999999999999998
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video",
+      "file",
+      "audio"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "repetition_penalty",
+      "response_format",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1788381519,
+    "expiration_date": null,
+    "model_author": "Meta",
+    "reasoning_declared": true,
+    "note": "上游提示：音频理解尚未完整支持，含音频的回复质量可能下降。 Contributor 档位的输入与输出可能用于改进 Meta 产品；请勿发送敏感或私密资料。"
+  },
+  {
+    "id": "meta/muse-spark-1.3",
+    "canonical_slug": "meta/muse-spark-1.3-20260902",
+    "name": "Meta: Muse Spark 1.3",
+    "raw_description": "Muse Spark 1.3 is a multimodal reasoning model from Meta for long-running agentic, multi-agent, and coding workflows. It is designed to keep track of information across extended tasks, work through...",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 1.25,
+      "output": 4.25
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video",
+      "file",
+      "audio"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "repetition_penalty",
+      "response_format",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1788378359,
+    "expiration_date": null,
+    "model_author": "Meta",
+    "reasoning_declared": true,
+    "note": "上游提示：音频理解尚未完整支持，含音频的回复质量可能下降。"
+  },
+  {
+    "id": "google/gemini-3.8-flash",
+    "canonical_slug": "google/gemini-3.8-flash-20260902",
+    "name": "Google: Gemini 3.8 Flash",
+    "raw_description": "Gemini 3.8 Flash is Google's most intelligent Flash model with significant gains from 3.7 Flash across software engineering, agentic tasks, and multi-step reasoning.",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 0.75,
+      "output": 3.75
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video",
+      "file",
+      "audio"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Gemini",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1788362056,
+    "expiration_date": null,
+    "model_author": "Google",
+    "reasoning_declared": true
+  },
   {
     "id": "minimax/hailuo-3-max",
     "canonical_slug": "minimax/hailuo-3-max-20260901",
@@ -20742,6 +20865,44 @@ const rawCatalogModels: RawCatalogModel[] = [
 
 const rawBatchServingVariants: RawCatalogModel[] = [
   {
+    "id": "google/gemini-3.8-flash:batch",
+    "canonical_slug": "google/gemini-3.8-flash-20260902",
+    "name": "Google: Gemini 3.8 Flash (batch)",
+    "raw_description": "Gemini 3.8 Flash is Google's most intelligent Flash model with significant gains from 3.7 Flash across software engineering, agentic tasks, and multi-step reasoning.",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 0.375,
+      "output": 1.875
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video",
+      "file",
+      "audio"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Gemini",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1788362056,
+    "expiration_date": null,
+    "model_author": "Google",
+    "reasoning_declared": true
+  },
+  {
     "id": "anthropic/claude-fable-5.1:batch",
     "canonical_slug": "anthropic/claude-fable-5.1-20260831",
     "name": "Anthropic: Claude Fable 5.1 (batch)",
@@ -24320,6 +24481,9 @@ const MID_CATALOG_MODEL_IDS = [
   "inclusionai/ling-3.0-tiny:free",
 ];
 const LATEST_REFRESH_MODEL_IDS = [
+  "google/gemini-3.8-flash",
+  "meta/muse-spark-1.3",
+  "meta/muse-spark-1.3-contributor",
   "minimax/hailuo-3-max",
   "inception/mercury-2.5-preview",
   "~z-ai/glm-flash-latest",

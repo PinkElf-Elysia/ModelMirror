@@ -95,6 +95,7 @@ export const skillExperienceBaseline = { commit: "bf486f25", date: "2026-08-27" 
 export const emailReviewBaseline = { commit: "afda87ff", date: "2026-08-28" };
 export const workflowErrorRoutingBaseline = { commit: "48254740", date: "2026-09-01" };
 export const providerMultimodalR8cBaseline = { commit: "ae284fbb", date: "2026-08-31" };
+export const modelServingReviewBaseline = { commit: "07cbd6d1", date: "2026-09-03" };
 
 export const helpContentTypeLabels: Record<HelpContentType, string> = {
   tutorial: "入门教程",
@@ -291,10 +292,10 @@ export const helpArticles: HelpArticle[] = [
     contentType: "explanation",
     audience: "希望避免误操作、意外费用或不必要数据发送的用户",
     estimatedMinutes: 4,
-    keywords: ["费用", "价格", "数据", "文件", "上传", "发送", "安全", "权限", "外发"],
+    keywords: ["费用", "价格", "数据", "文件", "上传", "发送", "安全", "权限", "外发", "批处理", "Gemini", "Muse", "Contributor"],
     relatedRoutes: ["/models", "/settings"],
-    verifiedCommit: verifiedBaseline.commit,
-    verifiedDate: verifiedBaseline.date,
+    verifiedCommit: modelServingReviewBaseline.commit,
+    verifiedDate: modelServingReviewBaseline.date,
     content: checkAvailabilityCostData,
     nextSlug: "start-with-a-model",
   },
