@@ -43,7 +43,7 @@ from .readiness import (
 
 AUDIO_CATALOG_TTL_SECONDS = 300.0
 AUDIO_CATALOG_STALE_SECONDS = 1_800.0
-AUDIO_PROFILE_REGISTRY_VERSION = "modelmirror-audio-contracts-2026-08-14-c2"
+AUDIO_PROFILE_REGISTRY_VERSION = "modelmirror-audio-contracts-2026-09-03-gemini-muse"
 
 NATIVE_AUDIO_VOICES = (
     "alloy",
@@ -102,6 +102,32 @@ class AudioContract:
 
 
 OPENROUTER_AUDIO_CONTRACTS: dict[str, AudioContract] = {
+    "google/gemini-3.8-flash": AudioContract(
+        operations=("analyze_audio",),
+        chat_modes=("direct_audio_input",),
+        input_formats=DIRECT_AUDIO_INPUT_FORMATS,
+        interaction_adapted=True,
+        verification_status="contract_verified",
+    ),
+    "meta/muse-spark-1.3": AudioContract(
+        operations=("analyze_audio",),
+        chat_modes=("direct_audio_input",),
+        input_formats=("wav",),
+        interaction_adapted=True,
+        verification_status="contract_verified",
+        planned_reason="上游提示：音频理解尚未完整支持，含音频的回复质量可能下降。",
+    ),
+    "meta/muse-spark-1.3-contributor": AudioContract(
+        operations=("analyze_audio",),
+        chat_modes=("direct_audio_input",),
+        input_formats=("wav",),
+        interaction_adapted=True,
+        verification_status="contract_verified",
+        planned_reason=(
+            "上游提示：音频理解尚未完整支持，含音频的回复质量可能下降。"
+            "Contributor 档位的输入与输出可能用于改进 Meta 产品。"
+        ),
+    ),
     "openai/gpt-audio": AudioContract(
         operations=("analyze_audio",),
         chat_modes=(

@@ -7,6 +7,7 @@ import {
   helpArticles,
   helpModules,
   helpSections,
+  modelServingReviewBaseline,
   emailReviewBaseline,
   providerMultimodalR8cBaseline,
   ragDiversityBaseline,
@@ -59,7 +60,13 @@ describe("help center content catalog", () => {
       expect(article.verifiedDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       expect(article.content).not.toMatch(/内容稍后补充|coming soon/i);
     });
-    expect(helpArticles.filter((article) => !["start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "handle-workflow-node-failure", "modules-and-terms"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
+    expect(helpArticles.filter((article) => !["start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "handle-workflow-node-failure", "modules-and-terms", "check-availability-cost-data"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
+    const modelServingArticle = helpArticles.find((article) => article.slug === "check-availability-cost-data");
+    expect(modelServingArticle?.verifiedCommit).toBe(modelServingReviewBaseline.commit);
+    expect(modelServingArticle?.verifiedDate).toBe(modelServingReviewBaseline.date);
+    expect(modelServingArticle?.content).toContain("Contributor 的输入与输出可能用于改进 Meta 产品");
+    expect(modelServingArticle?.content).toContain("Gemini 3.8 Flash");
+    expect(modelServingArticle?.content).toContain("不填写或提交请求");
     expect(helpArticles.find((article) => article.slug === "start-with-a-model")?.verifiedCommit).toBe(helpCenterCloseoutBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "choose-model-agent-workflow")?.verifiedCommit).toBe(helpCenterCloseoutBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "create-repeatable-agent")?.verifiedCommit).toBe(agentWorkflowTutorialBaseline.commit);
