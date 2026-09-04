@@ -155,6 +155,12 @@ const MESHY_ENDPOINT = [
 ].join("/");
 const MARBLE_ENDPOINT = ["https:", "", "api.worldlabs.ai", "marble", "v1"].join("/");
 const R22_OPENAI_RESPONSES_ENDPOINT = ["https:", "", "api.openai.com", "v1", "responses"].join("/");
+const R22_CONTRACT_ENDPOINT_METADATA_SOURCES = new Map([
+  ["packages/npc-cognition-contracts/src/index.d.ts", 2],
+  ["packages/npc-cognition-contracts/src/schema.mjs", 1],
+  ["packages/npc-cognition-contracts/tests/contracts.test.mjs", 1],
+  ["packages/npc-cognition-contracts/tests/fixtures.mjs", 1],
+]);
 const APPROVED_PROVIDER_NETWORK_SOURCES = new Set([
   "packages/prototype-generator/src/openai-compatible.mjs",
   "packages/prototype-asset-pipeline/src/meshy-provider.mjs",
@@ -1402,6 +1408,26 @@ function checkRuntimeNetwork(relative, content, specifiers, violations) {
         "creator-prototype-client-network-invalid",
         relative,
         "The approved Creator client may call only bounded same-origin prototype-host API paths.",
+      );
+    }
+    return;
+  }
+  if (R22_CONTRACT_ENDPOINT_METADATA_SOURCES.has(relative)) {
+    const expectedEndpointOccurrences = R22_CONTRACT_ENDPOINT_METADATA_SOURCES.get(relative);
+    const endpointOccurrences = content.split(R22_OPENAI_RESPONSES_ENDPOINT).length - 1;
+    const remainingContent = content.replaceAll(R22_OPENAI_RESPONSES_ENDPOINT, "");
+    const forbiddenCapability =
+      endpointOccurrences !== expectedEndpointOccurrences ||
+      NETWORK_GLOBAL_NAMES.some((name) => new RegExp(`\\b${name}\\b`).test(remainingContent)) ||
+      usesNetworkModule(specifiers) ||
+      hasExternalOrProtocolRelativeUrl(remainingContent) ||
+      /\bprocess\s*\.\s*env\b/u.test(remainingContent);
+    if (forbiddenCapability) {
+      addViolation(
+        violations,
+        "r22-contract-endpoint-metadata-invalid",
+        relative,
+        "R22 contract metadata may contain exactly one inert locked endpoint and no network capability.",
       );
     }
     return;

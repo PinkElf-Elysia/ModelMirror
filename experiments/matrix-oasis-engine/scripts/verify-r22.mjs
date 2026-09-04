@@ -8,6 +8,7 @@ const moduleRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 
 const steps = [
   ["references", ["run", "verify:r22-references"]],
+  ["contracts", ["run", "verify:npc-cognition-contracts"]],
   ["round-scope", ["run", "check:round-scope"]],
   ["boundary", ["run", "check:boundary"]],
   ["v2-claim", ["run", "check:v2-claim"]],
