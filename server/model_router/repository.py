@@ -4455,51 +4455,21 @@ class SQLiteRouterRepository:
         apply: bool = False,
     ) -> dict[str, int | bool | str]:
         clean_tenant = self._tenant_id(tenant_id)
-        with self._lock, self._connect() as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            run_count = int(
-                connection.execute(
-                    """
-                    SELECT COUNT(*) FROM provider_chat_runs
-                    WHERE tenant_id = ? AND status != 'running'
-                        AND hard_failure = 0
-                        AND NOT EXISTS (
-                            SELECT 1 FROM provider_chat_attempts AS failed_attempt
-                            WHERE failed_attempt.tenant_id = provider_chat_runs.tenant_id
-                                AND failed_attempt.run_id = provider_chat_runs.id
-                                AND failed_attempt.result_class = 'hard_failure'
-                        )
-                        AND COALESCE(completed_at, updated_at) < ?
-                    """,
-                    (clean_tenant, before),
-                ).fetchone()[0]
-            )
-            attempt_count = int(
-                connection.execute(
-                    """
-                    SELECT COUNT(*) FROM provider_chat_attempts
-                    WHERE tenant_id = ? AND run_id IN (
-                        SELECT id FROM provider_chat_runs
-                        WHERE tenant_id = ? AND status != 'running'
-                            AND hard_failure = 0
-                            AND NOT EXISTS (
-                                SELECT 1 FROM provider_chat_attempts AS failed_attempt
-                                WHERE failed_attempt.tenant_id = provider_chat_runs.tenant_id
-                                    AND failed_attempt.run_id = provider_chat_runs.id
-                                    AND failed_attempt.result_class = 'hard_failure'
-                            )
-                            AND COALESCE(completed_at, updated_at) < ?
-                    )
-                    """,
-                    (clean_tenant, clean_tenant, before),
-                ).fetchone()[0]
-            )
+        with self._lock:
             if apply:
-                connection.execute(
-                    """
-                    DELETE FROM provider_chat_attempts
-                    WHERE tenant_id = ? AND run_id IN (
-                        SELECT id FROM provider_chat_runs
+                reconciliation = self.reconcile_chat_control_completions(
+                    clean_tenant
+                )
+                if int(reconciliation.get("pending", 0)):
+                    raise RouterRepositoryError(
+                        "provider_chat_completion_reconciliation_pending"
+                    )
+            with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                run_count = int(
+                    connection.execute(
+                        """
+                        SELECT COUNT(*) FROM provider_chat_runs
                         WHERE tenant_id = ? AND status != 'running'
                             AND hard_failure = 0
                             AND NOT EXISTS (
@@ -4509,25 +4479,64 @@ class SQLiteRouterRepository:
                                     AND failed_attempt.result_class = 'hard_failure'
                             )
                             AND COALESCE(completed_at, updated_at) < ?
-                    )
-                    """,
-                    (clean_tenant, clean_tenant, before),
+                        """,
+                        (clean_tenant, before),
+                    ).fetchone()[0]
                 )
-                connection.execute(
-                    """
-                    DELETE FROM provider_chat_runs
-                    WHERE tenant_id = ? AND status != 'running'
-                        AND hard_failure = 0
-                        AND NOT EXISTS (
-                            SELECT 1 FROM provider_chat_attempts AS failed_attempt
-                            WHERE failed_attempt.tenant_id = provider_chat_runs.tenant_id
-                                AND failed_attempt.run_id = provider_chat_runs.id
-                                AND failed_attempt.result_class = 'hard_failure'
+                attempt_count = int(
+                    connection.execute(
+                        """
+                        SELECT COUNT(*) FROM provider_chat_attempts
+                        WHERE tenant_id = ? AND run_id IN (
+                            SELECT id FROM provider_chat_runs
+                            WHERE tenant_id = ? AND status != 'running'
+                                AND hard_failure = 0
+                                AND NOT EXISTS (
+                                    SELECT 1 FROM provider_chat_attempts AS failed_attempt
+                                    WHERE failed_attempt.tenant_id = provider_chat_runs.tenant_id
+                                        AND failed_attempt.run_id = provider_chat_runs.id
+                                        AND failed_attempt.result_class = 'hard_failure'
+                                )
+                                AND COALESCE(completed_at, updated_at) < ?
                         )
-                        AND COALESCE(completed_at, updated_at) < ?
-                    """,
-                    (clean_tenant, before),
+                        """,
+                        (clean_tenant, clean_tenant, before),
+                    ).fetchone()[0]
                 )
+                if apply:
+                    connection.execute(
+                        """
+                        DELETE FROM provider_chat_attempts
+                        WHERE tenant_id = ? AND run_id IN (
+                            SELECT id FROM provider_chat_runs
+                            WHERE tenant_id = ? AND status != 'running'
+                                AND hard_failure = 0
+                                AND NOT EXISTS (
+                                    SELECT 1 FROM provider_chat_attempts AS failed_attempt
+                                    WHERE failed_attempt.tenant_id = provider_chat_runs.tenant_id
+                                        AND failed_attempt.run_id = provider_chat_runs.id
+                                        AND failed_attempt.result_class = 'hard_failure'
+                                )
+                                AND COALESCE(completed_at, updated_at) < ?
+                        )
+                        """,
+                        (clean_tenant, clean_tenant, before),
+                    )
+                    connection.execute(
+                        """
+                        DELETE FROM provider_chat_runs
+                        WHERE tenant_id = ? AND status != 'running'
+                            AND hard_failure = 0
+                            AND NOT EXISTS (
+                                SELECT 1 FROM provider_chat_attempts AS failed_attempt
+                                WHERE failed_attempt.tenant_id = provider_chat_runs.tenant_id
+                                    AND failed_attempt.run_id = provider_chat_runs.id
+                                    AND failed_attempt.result_class = 'hard_failure'
+                            )
+                            AND COALESCE(completed_at, updated_at) < ?
+                        """,
+                        (clean_tenant, before),
+                    )
         return {
             "applied": bool(apply),
             "before": before,

@@ -71,6 +71,7 @@ class FakeStable:
     def __init__(self, handler) -> None:
         self.transport = FakeTransport(handler)
         self.completed: list[dict[str, Any]] = []
+        self.failed_undispatched: list[str] = []
         self.dispatched = 0
         self.capabilities: list[str] = []
         self.scoped_capabilities: list[str] = []
@@ -121,6 +122,12 @@ class FakeStable:
 
     def complete(self, dispatch: FakeDispatch, **fields: Any) -> None:
         self.completed.append(fields)
+
+    def fail_undispatched(
+        self, dispatch: FakeDispatch, *, error_code: str
+    ) -> bool:
+        self.failed_undispatched.append(error_code)
+        return True
 
     @staticmethod
     def classify_http_failure(status_code: int) -> tuple[str, str, bool]:
@@ -751,6 +758,7 @@ def test_hypothesis_model_requires_text_and_tool_certification(
                     {
                         "index": 0,
                         "message": {"role": "assistant", "content": '{"state":"proceed"}'},
+                        "finish_reason": "stop",
                     }
                 ],
             },
@@ -919,6 +927,54 @@ def test_p2r_coherence_tools_require_exact_prompt_schema_and_scoped_qualificatio
     assert stable.dispatched == 1
 
 
+@pytest.mark.parametrize(
+    "finish_reason",
+    [None, "stop", "length", "content_filter", "future_reason"],
+)
+def test_p2r_coherence_initial_rejects_non_contract_finish_reason(
+    monkeypatch, finish_reason: object
+) -> None:
+    prompt = "Locked ResearchStudio coherence JSON prompt."
+    enable_p2r(monkeypatch, prompt)
+    stable = FakeStable(
+        lambda request: httpx.Response(
+            200,
+            json={
+                "model": HYPOTHESIS_MODEL_ID,
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": [
+                                {
+                                    "id": "call_python",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "python",
+                                        "arguments": '{"code":"print(1)"}',
+                                    },
+                                }
+                            ],
+                        },
+                        "finish_reason": finish_reason,
+                    }
+                ],
+            },
+        )
+    )
+    with TestClient(app_for(stable)) as api:
+        response = api.post(
+            "/api/ai-research/v1/chat/completions",
+            json=p2r_tool_payload(prompt),
+            headers=p2r_headers(COHERENCE_PHASE),
+        )
+    assert response.status_code == 502
+    assert stable.completed[0]["error_code"] == (
+        "ai_research_bridge_invalid_p2r_finish_reason"
+    )
+
+
 def test_p2r_tool_contract_mutations_fail_before_provider_dispatch(monkeypatch) -> None:
     prompt = "Locked ResearchStudio coherence JSON prompt."
     enable_p2r(monkeypatch, prompt)
@@ -1011,7 +1067,8 @@ def test_p2r_completion_requires_explicit_fixed_model_identity(monkeypatch) -> N
                         "message": {
                             "role": "assistant",
                             "content": '{"state":"proceed"}',
-                        }
+                        },
+                        "finish_reason": "stop",
                     }
                 ]
             },
@@ -1037,6 +1094,55 @@ def test_p2r_completion_requires_explicit_fixed_model_identity(monkeypatch) -> N
     assert "actual_model" not in stable.completed[0]
 
 
+@pytest.mark.parametrize("stage", ["text", "coherence_finalize"])
+@pytest.mark.parametrize(
+    "finish_reason",
+    [None, "tool_calls", "length", "content_filter", "future_reason"],
+)
+def test_p2r_text_and_finalize_require_stop_finish_reason(
+    monkeypatch,
+    stage: str,
+    finish_reason: object,
+) -> None:
+    prompt = "Locked ResearchStudio coherence JSON prompt."
+    if stage == "text":
+        enable_hypothesis(monkeypatch)
+        bind_phase_prompt(monkeypatch, TEXT_PHASE, LOCKED_TEXT_PHASE_PROMPT)
+        payload = p2r_text_payload()
+        phase = TEXT_PHASE
+    else:
+        enable_p2r(monkeypatch, prompt)
+        payload = p2r_finalize_payload(prompt)
+        phase = COHERENCE_PHASE
+    stable = FakeStable(
+        lambda request: httpx.Response(
+            200,
+            json={
+                "model": HYPOTHESIS_MODEL_ID,
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": '{"state":"proceed"}',
+                        },
+                        "finish_reason": finish_reason,
+                    }
+                ],
+            },
+        )
+    )
+    with TestClient(app_for(stable)) as api:
+        response = api.post(
+            "/api/ai-research/v1/chat/completions",
+            json=payload,
+            headers=p2r_headers(phase),
+        )
+    assert response.status_code == 502
+    assert stable.completed[0]["error_code"] == (
+        "ai_research_bridge_invalid_p2r_finish_reason"
+    )
+
+
 def test_p2r_coherence_finalize_binds_receipt_and_forbids_tampering(
     monkeypatch,
 ) -> None:
@@ -1055,7 +1161,8 @@ def test_p2r_coherence_finalize_binds_receipt_and_forbids_tampering(
                         "message": {
                             "role": "assistant",
                             "content": '{"state":"proceed"}',
-                        }
+                        },
+                        "finish_reason": "stop",
                     }
                 ],
             },
@@ -1188,7 +1295,12 @@ def test_p2r_array_phase_uses_declared_top_level_shape(monkeypatch) -> None:
             200,
             json={
                 "model": HYPOTHESIS_MODEL_ID,
-                "choices": [{"message": {"role": "assistant", "content": "[]"}}],
+                "choices": [
+                    {
+                        "message": {"role": "assistant", "content": "[]"},
+                        "finish_reason": "stop",
+                    }
+                ],
             },
         )
     )
@@ -1376,6 +1488,7 @@ def test_json_object_response_format_is_bounded_and_preserved(monkeypatch) -> No
                     {
                         "index": 0,
                         "message": {"role": "assistant", "content": '{"ok":true}'},
+                        "finish_reason": "stop",
                     }
                 ],
             },
@@ -1970,6 +2083,7 @@ def test_hypothesis_model_accepts_bounded_canonical_chunked_artifact_context(
                     {
                         "index": 0,
                         "message": {"role": "assistant", "content": '{"ok":true}'},
+                        "finish_reason": "stop",
                     }
                 ],
             },
@@ -2441,3 +2555,28 @@ def test_unexpected_dispatch_failure_is_sanitized_and_finalized(monkeypatch) -> 
     assert "provider-secret" not in response.text
     assert stable.completed[0]["status"] == "failed"
     assert stable.completed[0]["error_code"] == "ai_research_bridge_dispatch_failed"
+
+
+def test_request_build_failure_aborts_undispatched_without_outbox_completion(
+    monkeypatch,
+) -> None:
+    enable(monkeypatch)
+    stable = FakeStable(lambda request: httpx.Response(500))
+
+    def fail_request_build(*args: Any, **kwargs: Any) -> httpx.Request:
+        raise ValueError("provider-secret-in-build-error")
+
+    stable.transport.build_authorized_stream_request = fail_request_build
+    with TestClient(app_for(stable), raise_server_exceptions=False) as api:
+        response = api.post(
+            "/api/ai-research/v1/chat/completions",
+            json=valid_payload(),
+            headers=headers(),
+        )
+    assert response.status_code == 503
+    assert "provider-secret" not in response.text
+    assert stable.dispatched == 0
+    assert stable.completed == []
+    assert stable.failed_undispatched == [
+        "ai_research_bridge_transport_failed"
+    ]

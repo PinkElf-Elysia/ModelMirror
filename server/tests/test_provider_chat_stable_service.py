@@ -1183,6 +1183,71 @@ async def test_completion_reconcile_is_idempotent_after_commit_before_unlink(
 
 
 @pytest.mark.asyncio
+async def test_cleanup_refuses_pending_completion_before_deleting_receipts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, repository, newapi_id, backup_id = _service(
+        tmp_path, monkeypatch
+    )
+    _qualify_scoped_model(repository, newapi_id)
+    _qualify_scoped_model(repository, backup_id)
+    result = await service.begin_scoped_certified(SCOPED_MODEL_ID)
+    assert result.dispatch is not None
+    service.mark_dispatched(result.dispatch)
+
+    original_unlink = Path.unlink
+
+    def fail_outbox_unlink(path: Path, *args, **kwargs) -> None:
+        if (
+            path.parent == repository.chat_completion_outbox_dir
+            and path.suffix == ".json"
+        ):
+            raise OSError("simulated completion outbox unlink failure")
+        original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", fail_outbox_unlink)
+    assert service.complete(
+        result.dispatch,
+        status="succeeded",
+        result_class="success",
+        actual_model=SCOPED_MODEL_ID,
+    ) is False
+    outbox_path = next(repository.chat_completion_outbox_dir.glob("*.json"))
+    outbox_bytes = outbox_path.read_bytes()
+
+    with pytest.raises(
+        RouterRepositoryError,
+        match="provider_chat_completion_reconciliation_pending",
+    ):
+        repository.cleanup_chat_control_receipts(
+            "local",
+            before="2100-01-01T00:00:00+00:00",
+            apply=True,
+        )
+    retained = repository.list_chat_control_receipts("local")
+    assert any(item["id"] == result.dispatch.run_id for item in retained["runs"])
+    assert any(
+        item["id"] == result.dispatch.attempt_id for item in retained["attempts"]
+    )
+    retained_run_count = len(retained["runs"])
+    retained_attempt_count = len(retained["attempts"])
+    assert outbox_path.read_bytes() == outbox_bytes
+
+    monkeypatch.setattr(Path, "unlink", original_unlink)
+    cleaned = repository.cleanup_chat_control_receipts(
+        "local",
+        before="2100-01-01T00:00:00+00:00",
+        apply=True,
+    )
+    assert cleaned["runs"] == retained_run_count
+    assert cleaned["attempts"] == retained_attempt_count
+    assert list(repository.chat_completion_outbox_dir.glob("*.json")) == []
+    receipts = repository.list_chat_control_receipts("local")
+    assert receipts["runs"] == []
+    assert receipts["attempts"] == []
+
+
+@pytest.mark.asyncio
 async def test_mismatched_master_key_fails_before_startup_reconciliation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

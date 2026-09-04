@@ -752,6 +752,26 @@ async def chat_completions(
     client = httpx.AsyncClient(**stable.transport.client_kwargs())
     started = time.perf_counter()
     dispatched = False
+
+    def record_dispatch_failure(
+        *,
+        status: str,
+        result_class: str,
+        error_code: str,
+        client_cancelled: bool = False,
+    ) -> None:
+        if dispatched:
+            stable.complete(
+                dispatch,
+                status=status,
+                result_class=result_class,
+                error_code=error_code,
+                client_cancelled=client_cancelled,
+                e2e_ms=_elapsed_ms(started),
+            )
+            return
+        stable.fail_undispatched(dispatch, error_code=error_code)
+
     try:
         request = stable.transport.build_authorized_stream_request(
             client,
@@ -767,37 +787,38 @@ async def chat_completions(
         response = await stable.transport.send_authorized_stream(client, request)
     except asyncio.CancelledError:
         await _close_nonstream_after_cancellation(response=None, client=client)
-        if dispatched:
-            stable.complete(
-                dispatch,
+        try:
+            record_dispatch_failure(
                 status="cancelled",
                 result_class="client_cancelled",
                 error_code="provider_chat_client_cancelled",
                 client_cancelled=True,
-                e2e_ms=_elapsed_ms(started),
             )
+        except Exception:
+            pass
         raise
     except RouterServiceError as exc:
         await client.aclose()
+        record_dispatch_failure(
+            status="failed",
+            result_class="transient_failure",
+            error_code=exc.code,
+        )
         raise HTTPException(status_code=exc.status_code, detail=exc.code) from exc
     except (httpx.HTTPError, OSError, ValueError) as exc:
-        stable.complete(
-            dispatch,
+        record_dispatch_failure(
             status="failed",
             result_class="transient_failure",
             error_code="ai_research_bridge_transport_failed",
-            e2e_ms=_elapsed_ms(started),
         )
         await client.aclose()
         raise HTTPException(status_code=503, detail="fixed model transport failed") from exc
     except Exception as exc:
         try:
-            stable.complete(
-                dispatch,
+            record_dispatch_failure(
                 status="failed",
                 result_class="transient_failure",
                 error_code="ai_research_bridge_dispatch_failed",
-                e2e_ms=_elapsed_ms(started),
             )
         except Exception:
             pass
@@ -1612,6 +1633,10 @@ def _validate_p2r_completion_choices(
             > P2R_PYTHON_LIMITS["scriptBytes"]
         ):
             raise BridgeResponseError("ai_research_bridge_invalid_tool_call")
+        if choice.get("finish_reason") != "tool_calls":
+            raise BridgeResponseError(
+                "ai_research_bridge_invalid_p2r_finish_reason"
+            )
         return
     if tool_calls is not None and tool_calls != []:
         raise BridgeResponseError("ai_research_bridge_unexpected_p2r_tool_call")
@@ -1625,6 +1650,8 @@ def _validate_p2r_completion_choices(
         raise BridgeResponseError("ai_research_bridge_invalid_p2r_shape")
     if context.response_shape == "array" and not isinstance(structured, list):
         raise BridgeResponseError("ai_research_bridge_invalid_p2r_shape")
+    if choice.get("finish_reason") != "stop":
+        raise BridgeResponseError("ai_research_bridge_invalid_p2r_finish_reason")
 
 
 def _json_depth(value: object) -> int:
