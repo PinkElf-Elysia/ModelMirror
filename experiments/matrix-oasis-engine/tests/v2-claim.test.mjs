@@ -17,9 +17,9 @@ function fixture(t) {
   return root;
 }
 
-test("qualified R21 derived state keeps the V2 completion claim closed until R25", () => {
+test("R22 bounded cognition in progress keeps the V2 completion claim closed until R25", () => {
   assert.deepEqual(checkV2Claim({ moduleRoot }), {
-    status: "r21-derived-state-qualified",
+    status: "r22-bounded-cognition-in-progress",
     claimAllowed: false,
     blockingRound: "R25",
   });
@@ -28,7 +28,7 @@ test("qualified R21 derived state keeps the V2 completion claim closed until R25
   );
   assert.equal(
     boundary.v2ClaimPolicy.qualificationProfile,
-    "matrix-oasis.npc-derived-state/1",
+    "matrix-oasis.bounded-npc-cognition/1",
   );
 });
 

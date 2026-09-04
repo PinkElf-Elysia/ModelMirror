@@ -1,6 +1,6 @@
 {
   "name": "@matrix-oasis/engine",
-  "version": "0.21.0-r21",
+  "version": "0.22.0-r22",
   "private": true,
   "license": "UNLICENSED",
   "type": "module",
@@ -60,6 +60,8 @@
     "validate:npc-derived-state": "node scripts/validate-npc-derived-state.mjs",
     "qualify:r21": "node scripts/qualify-r21.mjs",
     "verify:r21": "node scripts/verify-r21.mjs",
+    "verify:r22-references": "node --test tests/r22-reference.test.mjs && node scripts/verify-r22-references.mjs",
+    "verify:r22": "node scripts/verify-r22.mjs",
     "test:r18-sources": "node --test tests/r18-sources.test.mjs",
     "test:r18-landscape-contracts": "npm test --workspace @matrix-oasis/v2-landscape-contracts",
     "test:r18-landscape": "node --test tests/r18-landscape.test.mjs",

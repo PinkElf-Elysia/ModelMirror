@@ -20,10 +20,10 @@ export function checkV2Claim({ moduleRoot }) {
   }
   const policy = boundary.v2ClaimPolicy;
   if (
-    boundary.activeRound !== "R21" ||
-    policy?.status !== "r21-derived-state-qualified" ||
+    boundary.activeRound !== "R22" ||
+    policy?.status !== "r22-bounded-cognition-in-progress" ||
     policy?.machineStatus !== "docs/V2_STATUS.json" ||
-    policy?.qualificationProfile !== "matrix-oasis.npc-derived-state/1" ||
+    policy?.qualificationProfile !== "matrix-oasis.bounded-npc-cognition/1" ||
     policy?.blockingRound !== "R25" ||
     policy?.claimAllowed !== false
   ) {
