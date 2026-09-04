@@ -1470,3 +1470,5 @@ def test_windows_verifier_uses_short_system_pytest_temp_root() -> None:
     assert 'Join-Path $runtime ("pytest-"' not in script
     assert "[System.Security.Cryptography.SHA256]::Create()" in script
     assert "Get-FileHash" not in script
+    assert "('tcp', lambda: socket.create_connection(('1.1.1.1', 443), timeout=1))" in script
+    assert '("tcp", lambda:' not in script

@@ -286,10 +286,10 @@ import urllib.request
 
 unexpected = []
 checks = [
-    ("dns", lambda: socket.getaddrinfo("example.com", 443)),
-    ("tcp", lambda: socket.create_connection(("1.1.1.1", 443), timeout=1)),
-    ("http", lambda: urllib.request.urlopen("http://example.com", timeout=1)),
-    ("host", lambda: socket.getaddrinfo("host.docker.internal", 8000)),
+    ('dns', lambda: socket.getaddrinfo('example.com', 443)),
+    ('tcp', lambda: socket.create_connection(('1.1.1.1', 443), timeout=1)),
+    ('http', lambda: urllib.request.urlopen('http://example.com', timeout=1)),
+    ('host', lambda: socket.getaddrinfo('host.docker.internal', 8000)),
 ]
 for name, check in checks:
     try:
@@ -298,7 +298,7 @@ for name, check in checks:
         continue
     unexpected.append(name)
 if unexpected:
-    raise SystemExit("network unexpectedly available: " + ",".join(unexpected))
+    raise SystemExit('network unexpectedly available: ' + ','.join(unexpected))
 '@
     & docker @compose exec -T ai-research-worker python -c $networkAttack
     if ($LASTEXITCODE -ne 0) { throw "worker network isolation attack failed" }
