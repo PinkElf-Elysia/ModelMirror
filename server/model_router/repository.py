@@ -2623,6 +2623,7 @@ class SQLiteRouterRepository:
                 or not certification_id
                 or capability in bindings
                 or certification_id in certification_ids
+                or connection_id != expected_connection_id
             ):
                 cls._chat_dispatch_drift()
             bindings[capability] = (connection_id, certification_id)

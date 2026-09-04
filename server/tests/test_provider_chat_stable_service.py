@@ -4,12 +4,16 @@ import hashlib
 import json
 import sqlite3
 import threading
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from server.model_router.chat_control import ProviderChatControlService
-from server.model_router.chat_stable import ProviderChatStableService
+from server.model_router.chat_stable import (
+    ProviderChatCertificationBinding,
+    ProviderChatStableService,
+)
 from server.model_router.egress import ProviderEgressPolicy
 from server.model_router.repository import (
     RouterCredentialUnavailable,
@@ -365,6 +369,117 @@ async def test_scoped_certified_model_uses_current_certificate_without_stable_me
     assert result.dispatch.certification_id == f"cert-scoped-{backup_id}"
     receipts = repository.list_chat_control_receipts("local")
     assert receipts["runs"][0]["gateway"] == "ai_research_scoped"
+
+
+@pytest.mark.asyncio
+async def test_scoped_multi_capability_requires_one_fully_qualified_connection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, repository, newapi_id, backup_id = _service(tmp_path, monkeypatch)
+    _qualify_scoped_model(repository, newapi_id)
+    _qualify_scoped_model(repository, backup_id)
+    with sqlite3.connect(repository.database_path) as database:
+        database.execute(
+            """
+            UPDATE provider_chat_certifications
+            SET status = 'failed'
+            WHERE tenant_id = 'local' AND requested_model = ?
+              AND ((connection_id = ? AND capability = 'chat_tools')
+                OR (connection_id = ? AND capability = 'chat_text'))
+            """,
+            (SCOPED_MODEL_ID, newapi_id, backup_id),
+        )
+        database.commit()
+
+    required = ("chat_text", "chat_tools")
+    ready, _reason = service.readiness_scoped_certified(
+        SCOPED_MODEL_ID,
+        "chat_tools",
+        required_capabilities=required,
+    )
+    rejected = await service.begin_scoped_certified(
+        SCOPED_MODEL_ID,
+        "chat_tools",
+        required_capabilities=required,
+    )
+
+    assert ready is False
+    assert rejected.intercepted is True
+    assert rejected.dispatch is None
+    assert all(
+        item["dispatched"] == 0
+        for item in repository.list_chat_control_receipts("local")["attempts"]
+    )
+
+    with sqlite3.connect(repository.database_path) as database:
+        database.execute(
+            """
+            UPDATE provider_chat_certifications
+            SET status = 'passed'
+            WHERE tenant_id = 'local' AND requested_model = ?
+              AND connection_id = ? AND capability = 'chat_text'
+            """,
+            (SCOPED_MODEL_ID, backup_id),
+        )
+        database.commit()
+
+    assert service.readiness_scoped_certified(
+        SCOPED_MODEL_ID,
+        "chat_tools",
+        required_capabilities=required,
+    ) == (True, None)
+    accepted = await service.begin_scoped_certified(
+        SCOPED_MODEL_ID,
+        "chat_tools",
+        required_capabilities=required,
+    )
+    assert accepted.dispatch is not None
+    assert accepted.dispatch.target.connection_id == backup_id
+    assert {
+        binding.connection_id
+        for binding in accepted.dispatch.required_certifications
+    } == {backup_id}
+
+
+@pytest.mark.asyncio
+async def test_atomic_dispatch_rejects_cross_connection_certificate_binding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, repository, newapi_id, backup_id = _service(tmp_path, monkeypatch)
+    _qualify_scoped_model(repository, newapi_id)
+    _qualify_scoped_model(repository, backup_id)
+    result = await service.begin_scoped_certified(
+        SCOPED_MODEL_ID,
+        "chat_tools",
+        required_capabilities=("chat_text", "chat_tools"),
+    )
+    assert result.dispatch is not None
+    assert result.dispatch.target.connection_id == backup_id
+    tampered = replace(
+        result.dispatch,
+        required_certifications=tuple(
+            ProviderChatCertificationBinding(
+                capability=binding.capability,
+                connection_id=newapi_id,
+                certification_id=f"cert-scoped-{newapi_id}",
+            )
+            if binding.capability == "chat_text"
+            else binding
+            for binding in result.dispatch.required_certifications
+        ),
+    )
+
+    with pytest.raises(RouterServiceError) as exc_info:
+        service.mark_dispatched(tampered)
+
+    assert exc_info.value.code == "provider_chat_policy_or_qualification_changed"
+    selected = next(
+        item
+        for item in repository.list_chat_control_receipts("local")["attempts"]
+        if item["id"] == result.dispatch.attempt_id
+    )
+    assert selected["dispatched"] == 0
+    assert selected["status"] == "failed"
 
 
 @pytest.mark.asyncio

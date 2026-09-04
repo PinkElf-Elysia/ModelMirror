@@ -79,10 +79,18 @@ class ProviderChatStableService:
         self,
         model_id: str,
         capability: ProviderChatCapability = "chat_text",
+        *,
+        required_capabilities: tuple[ProviderChatCapability, ...] = (),
     ) -> tuple[bool, str | None]:
         """Inspect an explicit workload model using current route certifications."""
 
-        return self._readiness(model_id, capability, scoped_certified=True)
+        normalized = tuple(dict.fromkeys((*required_capabilities, capability)))
+        return self._readiness(
+            model_id,
+            capability,
+            scoped_certified=True,
+            required_capabilities=normalized,
+        )
 
     def _readiness(
         self,
@@ -90,6 +98,7 @@ class ProviderChatStableService:
         capability: ProviderChatCapability,
         *,
         scoped_certified: bool,
+        required_capabilities: tuple[ProviderChatCapability, ...] = (),
     ) -> tuple[bool, str | None]:
 
         if not self.control.feature_enabled():
@@ -111,6 +120,21 @@ class ProviderChatStableService:
         route_ids = list(route.connection_ids if route else [])
         if policy.effective_mode == "newapi_required_default":
             route_ids = route_ids[:1]
+        if scoped_certified:
+            failures: list[str] = []
+            for connection_id in route_ids:
+                bindings, reason = self._scoped_bindings_for_connection(
+                    policy,
+                    model_id=clean_model,
+                    connection_id=connection_id,
+                    required_capabilities=(required_capabilities or (capability,)),
+                )
+                if bindings is not None:
+                    return True, None
+                failures.append(reason)
+            return False, (
+                failures[-1] if failures else "provider_chat_no_qualified_route"
+            )
         qualifications = self._policy_qualifications(
             policy, model_id=clean_model, capability=capability
         )
@@ -248,38 +272,6 @@ class ProviderChatStableService:
             primary_newapi=True,
         )
 
-        prebound_certifications: dict[
-            ProviderChatCapability, ProviderChatCertificationBinding
-        ] = {}
-        if scoped_certified:
-            for required_capability in required_capabilities:
-                if required_capability == capability:
-                    continue
-                binding, reason = self._current_scoped_binding(
-                    policy,
-                    model_id=clean_model,
-                    capability=required_capability,
-                )
-                if binding is None:
-                    self._repository_method("complete_chat_control_run")(
-                        self.router_service.tenant_id,
-                        run_id,
-                        status="failed",
-                        result_class="preflight_failure",
-                        reason_codes=[reason],
-                    )
-                    return ProviderChatStablePreflight(
-                        intercepted=True,
-                        error_code=reason,
-                        route_receipt=self.route_receipt(
-                            None,
-                            requested_model=clean_model,
-                            reason_codes=[reason],
-                            strategy=policy.effective_mode,
-                        ),
-                    )
-                prebound_certifications[required_capability] = binding
-
         qualification_by_connection = self._policy_qualifications(
             policy, model_id=clean_model, capability=capability
         )
@@ -308,13 +300,29 @@ class ProviderChatStableService:
                 connection_id=connection_id,
                 provider_kind=connection.kind,
             )
-            certification_id, reason = self._qualification_for_route(
-                qualification_by_connection,
-                connection_id=connection_id,
-                model_id=clean_model,
-                capability=capability,
-                scoped_certified=scoped_certified,
-            )
+            bindings: dict[
+                ProviderChatCapability, ProviderChatCertificationBinding
+            ] = {}
+            if scoped_certified:
+                scoped_bindings, reason = self._scoped_bindings_for_connection(
+                    policy,
+                    model_id=clean_model,
+                    connection_id=connection_id,
+                    required_capabilities=required_capabilities,
+                )
+                if scoped_bindings is not None:
+                    bindings = scoped_bindings
+                    certification_id = bindings[capability].certification_id
+                else:
+                    certification_id = None
+            else:
+                certification_id, reason = self._qualification_for_route(
+                    qualification_by_connection,
+                    connection_id=connection_id,
+                    model_id=clean_model,
+                    capability=capability,
+                    scoped_certified=False,
+                )
             if certification_id is None:
                 self._complete_preflight_attempt(attempt_id, reason)
                 failures.append(reason)
@@ -346,10 +354,7 @@ class ProviderChatStableService:
                 connection_id=connection_id,
                 certification_id=certification_id,
             )
-            bindings = {
-                **prebound_certifications,
-                capability: actual_binding,
-            }
+            bindings[capability] = actual_binding
             return ProviderChatStablePreflight(
                 intercepted=True,
                 dispatch=ProviderChatStableDispatch(
@@ -510,41 +515,44 @@ class ProviderChatStableService:
                 status_code=409,
             )
 
-    def _current_scoped_binding(
+    def _scoped_bindings_for_connection(
         self,
         policy,
         *,
         model_id: str,
-        capability: ProviderChatCapability,
-    ) -> tuple[ProviderChatCertificationBinding | None, str]:
-        route = next(
-            (item for item in policy.routes if item.capability == capability),
-            None,
-        )
-        route_ids = list(route.connection_ids if route else [])
-        if policy.effective_mode == "newapi_required_default":
-            route_ids = route_ids[:1]
-        failures: list[str] = []
-        for connection_id in route_ids:
+        connection_id: str,
+        required_capabilities: tuple[ProviderChatCapability, ...],
+    ) -> tuple[
+        dict[ProviderChatCapability, ProviderChatCertificationBinding] | None,
+        str,
+    ]:
+        bindings: dict[
+            ProviderChatCapability, ProviderChatCertificationBinding
+        ] = {}
+        for capability in required_capabilities:
+            route = next(
+                (item for item in policy.routes if item.capability == capability),
+                None,
+            )
+            route_ids = list(route.connection_ids if route else [])
+            if policy.effective_mode == "newapi_required_default":
+                route_ids = route_ids[:1]
+            if connection_id not in route_ids:
+                return None, "provider_chat_no_qualified_route"
             qualification, reason = self.control.current_qualification(
                 connection_id=connection_id,
                 model_id=model_id,
                 capability=capability,
                 require_exact_model=True,
             )
-            if qualification is not None:
-                return (
-                    ProviderChatCertificationBinding(
-                        capability=capability,
-                        connection_id=connection_id,
-                        certification_id=str(qualification["certification_id"]),
-                    ),
-                    "qualified",
-                )
-            failures.append(reason)
-        return None, (
-            failures[-1] if failures else "provider_chat_no_qualified_route"
-        )
+            if qualification is None:
+                return None, reason
+            bindings[capability] = ProviderChatCertificationBinding(
+                capability=capability,
+                connection_id=connection_id,
+                certification_id=str(qualification["certification_id"]),
+            )
+        return bindings, "qualified"
 
     @staticmethod
     def _policy_qualifications(

@@ -98,8 +98,18 @@ class FakeStable:
             error_code=None,
         )
 
-    def readiness_scoped_certified(self, model_id: str, capability: str):
-        return self.readiness(model_id, capability)
+    def readiness_scoped_certified(
+        self,
+        model_id: str,
+        capability: str,
+        *,
+        required_capabilities: tuple[str, ...] = (),
+    ):
+        for required_capability in required_capabilities or (capability,):
+            ready, reason = self.readiness(model_id, required_capability)
+            if not ready:
+                return ready, reason
+        return True, None
 
     async def begin_scoped_certified(
         self,
@@ -1094,6 +1104,46 @@ def test_p2r_completion_requires_explicit_fixed_model_identity(monkeypatch) -> N
     assert "actual_model" not in stable.completed[0]
 
 
+def test_ordinary_hypothesis_requires_explicit_fixed_model_identity(
+    monkeypatch,
+) -> None:
+    enable_hypothesis(monkeypatch)
+    stable = FakeStable(
+        lambda request: httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": '{"hypothesis":"unattributed"}',
+                        }
+                    }
+                ]
+            },
+        )
+    )
+
+    with TestClient(app_for(stable)) as api:
+        response = api.post(
+            "/api/ai-research/v1/chat/completions",
+            json=ordinary_hypothesis_payload(),
+            headers=headers(),
+        )
+
+    assert response.status_code == 502
+    assert stable.dispatched == 1
+    assert stable.completed == [
+        {
+            "status": "failed",
+            "result_class": "hard_failure",
+            "error_code": "ai_research_bridge_model_identity_required",
+            "hard_failure": True,
+            "e2e_ms": stable.completed[0]["e2e_ms"],
+        }
+    ]
+
+
 @pytest.mark.parametrize("stage", ["text", "coherence_finalize"])
 @pytest.mark.parametrize(
     "finish_reason",
@@ -1418,7 +1468,6 @@ def test_unqualified_hypothesis_model_does_not_break_literature_discovery(
     assert stable.readiness_calls == [
         (MODEL_ID, "chat_tools"),
         (HYPOTHESIS_MODEL_ID, "chat_text"),
-        (HYPOTHESIS_MODEL_ID, "chat_tools"),
     ]
 
 

@@ -625,19 +625,15 @@ async def models(
         and settings.p2r_enabled
         and settings.p2r_tools_enabled
     ):
-        text_ready, text_reason = stable.readiness_scoped_certified(
-            settings.hypothesis_model_id, "chat_text"
+        hypothesis_ready, hypothesis_reason = stable.readiness_scoped_certified(
+            settings.hypothesis_model_id,
+            "chat_text",
+            required_capabilities=("chat_text", "chat_tools"),
         )
-        tools_ready, tools_reason = stable.readiness_scoped_certified(
-            settings.hypothesis_model_id, "chat_tools"
-        )
-        if text_ready and tools_ready:
+        if hypothesis_ready:
             model_ids.append(settings.hypothesis_model_id)
-        else:
-            for reason in (text_reason, tools_reason):
-                if reason:
-                    unavailable_reasons.append(reason)
-                    break
+        elif hypothesis_reason:
+            unavailable_reasons.append(hypothesis_reason)
     if not model_ids:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -713,15 +709,16 @@ async def chat_completions(
         raise HTTPException(status_code=422, detail="messages exceed the total text limit")
     capability = "chat_tools" if payload.tools else "chat_text"
     if scoped_certified:
-        for required_capability in required_scoped_capabilities:
-            ready, reason = stable.readiness_scoped_certified(
-                selected_model_id, required_capability
+        ready, reason = stable.readiness_scoped_certified(
+            selected_model_id,
+            capability,
+            required_capabilities=required_scoped_capabilities,
+        )
+        if not ready:
+            raise HTTPException(
+                status_code=503,
+                detail=reason or "fixed model control is not ready",
             )
-            if not ready:
-                raise HTTPException(
-                    status_code=503,
-                    detail=reason or "fixed model control is not ready",
-                )
     try:
         preflight = await (
             stable.begin_scoped_certified(
@@ -924,6 +921,7 @@ async def chat_completions(
                 tool.function.name for tool in (payload.tools or [])
             },
             p2r_context=p2r_context,
+            require_model_identity=scoped_certified,
         )
         usage = value.get("usage") if isinstance(value.get("usage"), dict) else {}
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -1170,11 +1168,12 @@ def _validate_completion_response(
     requested_model: str,
     allowed_tool_names: set[str],
     p2r_context: P2RRequestContext | None = None,
+    require_model_identity: bool = False,
 ) -> str | None:
     if not isinstance(value, dict):
         raise BridgeResponseError("ai_research_bridge_invalid_envelope")
     actual_model = value.get("model")
-    if p2r_context is not None and actual_model is None:
+    if (p2r_context is not None or require_model_identity) and actual_model is None:
         raise BridgeResponseError("ai_research_bridge_model_identity_required")
     if actual_model is not None and actual_model != requested_model:
         raise BridgeResponseError("ai_research_bridge_model_mismatch")
