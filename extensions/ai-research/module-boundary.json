@@ -16,6 +16,14 @@
     "server/tests/test_ai_research_bridge.py",
     "server/tests/test_provider_chat_stable_service.py"
   ],
+  "postTrustAllowedFiles": [
+    "server/model_router/ai_research_bridge.py",
+    "server/model_router/chat_control.py",
+    "server/model_router/chat_stable.py",
+    "server/model_router/repository.py",
+    "server/tests/test_ai_research_bridge.py",
+    "server/tests/test_provider_chat_stable_service.py"
+  ],
   "forbiddenParentRoots": [
     "client",
     "server",

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-08-31",
+  "generatedAt": "2026-09-03",
   "modelMirrorBaseCommit": "ae284fbbbd59831ccdf2df2b34c9cb1239a57220",
   "claimLevel": "harness_only",
   "packStatus": "fixture_only",
@@ -381,8 +381,8 @@
       "sha256": "c32ed664aadf0a8a0f07fee83da6e42f74c2f8e5ae6588d8eb238c71a3d0e60b"
     },
     "module-boundary.json": {
-      "sizeBytes": 2699,
-      "sha256": "9114507ae144233924eda30ff46fabdb32df3fdfd1b425360c90137281e524a9"
+      "sizeBytes": 3011,
+      "sha256": "16083c8c9fff17481354e1ab8a5ffffb3d0feb0f23c58710060ad94abe2864a0"
     },
     "scripts/validate_boundary.py": {
       "sizeBytes": 39607,
@@ -440,6 +440,10 @@
       "sizeBytes": 11942,
       "sha256": "92d4e740a368c6e43adcbedd615acb34681c3d1e6a5a0807517bf468b86b8910"
     },
+    "scripts/trusted_full_bootstrap.py": {
+      "sizeBytes": 14232,
+      "sha256": "36aca93886adb0b2357d1f3ee8bf1f914623848e86fe89d00ca47fb1f3d1cd8f"
+    },
     "compose.yml": {
       "sizeBytes": 13165,
       "sha256": "6c2c4a5f71b347e528755fb1326a559288bc2ae68867ce4d73f457e420bea6d9"
@@ -453,8 +457,8 @@
       "sha256": "1114f36bf7a6d9198ac89ab94e23663179995fc5b7078fd9796e09697bbc5c2d"
     },
     "G1_CLOSEOUT.md": {
-      "sizeBytes": 8778,
-      "sha256": "a352d4e3744c092da0794dc28ea358e5543a4ca4323dc02b2f8090bba0c878b7"
+      "sizeBytes": 9947,
+      "sha256": "c4370cc853b16d2bdc50362a90d085a2a34cdb0d3ab5dd8d3d74d5ab3469091d"
     },
     "tests/control/test_boundary_base.py": {
       "sizeBytes": 16944,
@@ -463,6 +467,10 @@
     "tests/control/test_zero_footprint_base.py": {
       "sizeBytes": 50272,
       "sha256": "e468e35444603bea44166753c05e87cd6f4019fb4a401ac496c331672d9201b9"
+    },
+    "tests/control/test_trusted_full_bootstrap.py": {
+      "sizeBytes": 4209,
+      "sha256": "b8736baac1231c5fea26980e6696b5983477c25ed10d3cf969ee068aa57421b2"
     },
     "tests/worker/test_p2r_connectors.py": {
       "sizeBytes": 20574,
