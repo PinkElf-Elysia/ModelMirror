@@ -61,7 +61,7 @@ test("load probes execute from an owned temporary Godot project", () => {
   );
 });
 
-test("task card records R20.7 acceptance without advancing the V2 completion claim", () => {
+test("task card records R20.7 acceptance while later rounds keep the V2 completion claim closed", () => {
   assert.match(
     taskCard,
     /R20\.7已在用户确认中性与末班地铁隔离预览均“基本通过”后收口/u,
@@ -69,9 +69,10 @@ test("task card records R20.7 acceptance without advancing the V2 completion cla
   assert.match(taskCard, /R20没有切换Creator默认入口/u);
   assert.match(taskCard, /没有增加动画或AI能力/u);
   const status = JSON.parse(v2StatusJson);
-  assert.equal(status.status, "r20-entity-bridge-qualified");
   assert.equal(status.claimAllowed, false);
   assert.equal(status.blockingRound, "R25");
+  assert.equal(typeof status.qualificationProfile, "string");
+  assert.ok(status.qualificationProfile.length > 0);
 });
 
 const authoring = await readFile(

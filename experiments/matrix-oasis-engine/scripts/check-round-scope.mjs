@@ -30,7 +30,7 @@ try {
     readFileSync(path.join(moduleRoot, "module-boundary.json"), "utf8"),
   );
   if (
-    policy.schemaVersion !== 20 ||
+    policy.schemaVersion !== 21 ||
     policy.activeRound !== ACTIVE_ROUND ||
     policy.activeRoundBaselineSha !== ACTIVE_ROUND_BASELINE_SHA ||
     !sameStringArray(

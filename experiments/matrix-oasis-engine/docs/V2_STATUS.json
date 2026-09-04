@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "status": "r20-entity-bridge-qualified",
+  "status": "r21-derived-state-qualified",
   "claimAllowed": false,
   "blockingRound": "R25",
-  "qualificationProfile": "matrix-oasis.deterministic-npc-bridge/1"
+  "qualificationProfile": "matrix-oasis.npc-derived-state/1"
 }
