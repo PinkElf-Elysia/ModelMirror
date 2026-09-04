@@ -349,8 +349,8 @@
       "sha256": "c6095d8c3647eafc5287ed73cf976540c5d0de9b1da8810f12198bd779ed47ae"
     },
     "control/Dockerfile": {
-      "sizeBytes": 3445,
-      "sha256": "a5f6dfc14ae19e69762dc39873618a54301ba49e7960c18ecf03bbbd8bcb35af"
+      "sizeBytes": 3479,
+      "sha256": "84f23bc8bb024dcd8ac46204b1a6d48c9c2ee0fcc3d5d97cb62948686b6bb168"
     },
     "worker/Dockerfile": {
       "sizeBytes": 1807,
@@ -469,8 +469,8 @@
       "sha256": "0ab7aa2e999fa7e9d943e12c943f6a05f8d702f858bc565c434fff2a60e3938a"
     },
     "tests/control/test_trusted_full_bootstrap.py": {
-      "sizeBytes": 6150,
-      "sha256": "424cda3065c370b6056226f5efea4e821ffcbfbf1aac8c65c2e4d18d5222ce36"
+      "sizeBytes": 6342,
+      "sha256": "a1500e22cadeb06f7662564011dc02ed8262111662d3654eef057213abaef092"
     },
     "tests/worker/test_p2r_connectors.py": {
       "sizeBytes": 20574,

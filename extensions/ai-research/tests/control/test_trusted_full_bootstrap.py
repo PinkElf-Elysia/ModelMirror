@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
@@ -15,6 +16,7 @@ SPEC = importlib.util.spec_from_file_location("trusted_full_bootstrap", SCRIPT)
 assert SPEC and SPEC.loader
 bootstrap = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(bootstrap)
+requires_git = pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
 
 
 def git(repo: Path, *args: str) -> str:
@@ -77,6 +79,7 @@ def validate(repo: Path, trust_repo: Path, trust: str) -> dict[str, object]:
     )
 
 
+@requires_git
 def test_allows_only_post_trust_runtime_files(tmp_path: Path) -> None:
     repo, trust_repo, trust = make_repo(tmp_path)
     (repo / "server/runtime.py").write_text("VALUE = 2\n", encoding="utf-8")
@@ -89,6 +92,7 @@ def test_allows_only_post_trust_runtime_files(tmp_path: Path) -> None:
     assert result["lockedFileCount"] == 2
 
 
+@requires_git
 def test_rejects_candidate_rewriting_trusted_configuration(tmp_path: Path) -> None:
     repo, trust_repo, trust = make_repo(tmp_path)
     source_lock = repo / "extensions/ai-research/source-lock.json"
@@ -101,6 +105,7 @@ def test_rejects_candidate_rewriting_trusted_configuration(tmp_path: Path) -> No
         validate(repo, trust_repo, trust)
 
 
+@requires_git
 def test_rejects_tracked_script_shadow_after_trust(tmp_path: Path) -> None:
     repo, trust_repo, trust = make_repo(tmp_path)
     shadow = repo / "extensions/ai-research/scripts/hashlib.py"
@@ -111,6 +116,7 @@ def test_rejects_tracked_script_shadow_after_trust(tmp_path: Path) -> None:
         validate(repo, trust_repo, trust)
 
 
+@requires_git
 def test_rejects_untracked_shadow_before_any_candidate_code_runs(tmp_path: Path) -> None:
     repo, trust_repo, trust = make_repo(tmp_path)
     (repo / "extensions/ai-research/scripts/json.py").write_text("", encoding="utf-8")
@@ -119,6 +125,7 @@ def test_rejects_untracked_shadow_before_any_candidate_code_runs(tmp_path: Path)
         validate(repo, trust_repo, trust)
 
 
+@requires_git
 def test_rejects_ignored_sourceless_shadow(tmp_path: Path) -> None:
     repo, trust_repo, trust = make_repo(tmp_path)
     shadow = repo / "extensions/ai-research/scripts/hashlib.pyc"
@@ -129,6 +136,7 @@ def test_rejects_ignored_sourceless_shadow(tmp_path: Path) -> None:
         validate(repo, trust_repo, trust)
 
 
+@requires_git
 def test_requires_trust_commit_as_comparison_base(tmp_path: Path) -> None:
     repo, _trust_repo, trust = make_repo(tmp_path)
     (repo / "server/runtime.py").write_text("VALUE = 2\n", encoding="utf-8")
