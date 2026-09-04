@@ -457,8 +457,8 @@
       "sha256": "15d727d35df1fdadade79a908fbd934a3e8e1cc996252b6de378b1162952cd6d"
     },
     "G1_CLOSEOUT.md": {
-      "sizeBytes": 10540,
-      "sha256": "890b3ae42f5444b0df4297c657e6d6712d860b5003c7bd834915961000064e0b"
+      "sizeBytes": 10827,
+      "sha256": "b47d866c84b032ceddaffe0544f4acf76cbd2d32efdef638b3454025d836a280"
     },
     "tests/control/test_boundary_base.py": {
       "sizeBytes": 16944,
@@ -477,8 +477,8 @@
       "sha256": "641258116764c2063c3cac3957793bbb6098258832b14e612095311172de0a02"
     },
     "tests/worker/test_p2r_host.py": {
-      "sizeBytes": 45944,
-      "sha256": "6930b484eaed62c6be05133ccbd8db0e4261f3c9f59ba2d0126a9e50548f0ca9"
+      "sizeBytes": 48622,
+      "sha256": "82620d483e9beb9536d9d617f7d6f23453a3cfc93f383bd2d671143f05b3df3b"
     },
     "tests/worker/test_p2r_input_gate.py": {
       "sizeBytes": 8581,

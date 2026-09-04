@@ -22,9 +22,11 @@
 - ResearchStudio、AI-Researcher、Inspect、LDR 的选型、版本与复用边界不变。规范性产品路线仍为 `AI_RESEARCH_V0_ROADMAP.md`。
 - 未修改来源锁、模块边界、主客户端、根 Compose、主服务注册、数据库 schema 或 CI；未调用模型、OpenAlex、Zotero，未变更共享栈。
 
-## 实现与用户影响
+## 后续 F 目标合同与用户影响
 
-### 科研资格终态 outbox（3 个父仓文件）
+本节冻结的是 T 之后六个 allowlist 文件必须实现并验证的目标合同；PR-T 单独合入时不表示下述父仓行为已经落地。只有后续 F 提交及绑定该 T 的可信 Full 均通过后，才能把本节解释为已实现行为。
+
+### 科研资格终态 outbox（后续 F，3 个父仓文件）
 
 `server/model_router/repository.py`、`chat_stable.py` 与对应 `test_provider_chat_stable_service.py`：
 

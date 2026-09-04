@@ -911,6 +911,95 @@ def test_bridge_adapter_rejects_non_contract_initial_finish_reason(
         )
 
 
+@pytest.mark.parametrize(
+    ("finish_reason", "accepted"),
+    [
+        ("stop", True),
+        (None, False),
+        ("tool_calls", False),
+        ("length", False),
+        ("content_filter", False),
+        ("future_reason", False),
+    ],
+)
+def test_bridge_adapter_finalize_requires_stop_finish_reason(
+    monkeypatch: pytest.MonkeyPatch,
+    finish_reason: object,
+    accepted: bool,
+) -> None:
+    code = "print(3)"
+    _, envelope = sample_with_receipt(code=code, stdout="3\n")
+    content = json.dumps(valid_coherence(code=code, stdout="3\n"))
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"X-ModelMirror-Route-Run-Id": "chatrun_finalize_reason"},
+            json={
+                "model": "openai/gpt-5.4",
+                "choices": [
+                    {
+                        "finish_reason": finish_reason,
+                        "message": {"content": content, "tool_calls": []},
+                    }
+                ],
+            },
+        )
+
+    real_client = httpx.AsyncClient
+
+    def client_factory(**kwargs):
+        return real_client(
+            timeout=kwargs["timeout"],
+            trust_env=False,
+            follow_redirects=False,
+            transport=httpx.MockTransport(handler),
+        )
+
+    monkeypatch.setattr(host.httpx, "AsyncClient", client_factory)
+    messages = [
+        ChatMessageSystem(content=BRIDGE_PROMPT.decode("utf-8")),
+        *bridge_artifact_messages(),
+        ChatMessageAssistant(
+            content="",
+            tool_calls=[
+                ToolCall(
+                    id="call_python",
+                    function="python",
+                    arguments={"code": code},
+                )
+            ],
+        ),
+        ChatMessageTool(
+            content=json.dumps(envelope, sort_keys=True, separators=(",", ":")),
+            tool_call_id="call_python",
+            function="python",
+        ),
+    ]
+
+    if accepted:
+        output = asyncio.run(
+            bridge_api().generate(
+                messages,
+                [bridge_tool_info()],
+                "auto",
+                GenerateConfig(max_tokens=30_000, temperature=0.2),
+            )
+        )
+        assert output.stop_reason == "stop"
+        assert output.message.content == content
+    else:
+        with pytest.raises(P2RHostError, match="finish reason"):
+            asyncio.run(
+                bridge_api().generate(
+                    messages,
+                    [bridge_tool_info()],
+                    "auto",
+                    GenerateConfig(max_tokens=30_000, temperature=0.2),
+                )
+            )
+
+
 def test_phase_artifact_messages_are_canonical_chunked_and_utf8_bound() -> None:
     select = ("研究🧪" + "x" * 200_005).encode("utf-8")
     candidate = b'{"candidate":{}}'
