@@ -414,7 +414,14 @@ def view_degraded(state_path: Path) -> None:
     created_status, created = create("success", f"ar1:{uuid.uuid4().hex}:view-degraded")
     if status != 200 or system.get("status") != "degraded" or ready_status != 200 or created_status != 201:
         raise AcceptanceFailure(f"optional View incorrectly changed readiness: {system} {ready}")
-    write_state(state_path, {"runId": created["runId"]})
+    completed = wait_run(created["runId"])
+    verify_run(completed, "success", "success")
+    verify_mlflow_run(completed)
+    verify_console_evidence(completed)
+    write_state(
+        state_path,
+        {"schemaVersion": 1, "status": "passed", "runId": completed["runId"]},
+    )
     print("optional Inspect View degraded acceptance passed")
 
 

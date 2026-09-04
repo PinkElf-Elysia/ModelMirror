@@ -38,5 +38,6 @@ COPY requirements-test.lock /tmp/requirements-test.lock
 RUN python -m pip install --no-cache-dir --require-hashes -r /tmp/requirements-test.lock \
     && python -m pip check
 COPY --chown=65532:65532 tests ./tests
+COPY --chown=65532:65532 scripts/qualify_p2r_connectors.ps1 ./scripts/
 USER 65532:65532
 CMD ["python", "-m", "pytest", "tests/worker", "-q"]

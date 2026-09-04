@@ -3,7 +3,7 @@
 > 状态：**V0 规范性基线（Locked）**
 > 锁定日期：2026-08-24
 > 适用范围：`extensions/ai-research/` 在 V0 完整科研线形成前的产品、架构与分轮实施
-> 当前实现：V0.1 / `0.3.0-v0.1` 实施中；AR1 夹具仍为 `fixture_only`、`harness_only`，文献能力固定 `scientificClaim=none`
+> 当前实现：V0.1 / `0.3.0-v0.1` 已合并；V0.2-P2R 仍处于禁用的资格收口阶段。AR1 夹具保持 `fixture_only`、`harness_only`，文献能力固定 `scientificClaim=none`
 
 本文是模镜科研 V0 的决策基线，不是愿景清单。后续实现计划、代码审查和批次验收必须以本文为参照。除本文“变更控制”列出的必要情形外，不得因实现者偏好、记忆、局部优化或临时技术兴趣改变产品主线、阶段顺序、开源组合或自研边界。
 
@@ -162,15 +162,21 @@ V0 不创造统一科研数据库，也不复制上游内部数据模型。阶�
 
 ### V0.2：候选假设与实验协议
 
-**用户完成什么**：从综述和研究缺口生成候选假设，人工选择一个假设，生成、编辑并冻结实验协议。
+**强制前置批 V0.2-P2R（不构成产品交付）**：ResearchStudio 的锁定 coherence prompt 要求有代码工具时真实执行 Python、无工具时标记 `unexecuted`。首次 P2 资格运行使用纯文本 relay，却接受了模型自报的 `execution.mode=executed`、脚本和 stdout；三次 coherence 阻断证据均无工具调用或沙箱 receipt。该运行还使用六篇全文全部失败的资格夹具而非已验证 V0.1 成果包，最后一次 collision 仅有 `2/4` connector。因此原始 `phase_3_failed` 及费用/哈希必须保留，但只作为失效运行事实，不能证明模型、研究方向或完整产品链路失败。
 
-**复用组件**：R&D-Agent Research 阶段；参考 Agent Laboratory 的阶段、角色、检查点与笔记格式，不自研科研 planner。
+P2R 必须先复用 Inspect 的公开 Agent/tool/sandbox 能力形成固定 ResearchStudio Host：每个 LLM phase 使用新上下文；只有 coherence phase 可在无网络、非 root、只读根文件系统、无 Docker socket、受限 CPU/内存/时间/文件/输出的临时 sandbox 中运行脚本；外部 API 不接受任意命令。`executed` 必须绑定 tool call、镜像 digest、脚本/输出哈希、exit code 和截断状态。主 JSON 与 `blocking_findings.json` 必须在同一 phase 原子交付。完整资格必须使用一个 integrity=`verified` 的 V0.1 OpenAlex 成果包，并锁定/验证 arXiv、OpenAlex、Semantic Scholar、OpenReview connector profile；缺失凭据或限流只能得到 `degraded`，不能得到 P2 pass。
 
-**固定协议字段**：研究问题、批准假设、baseline、自变量、数据集、指标、计算约束、停止条件、预期制品和风险/局限。
+P2R 首次重跑仍使用已通过 Phase 1 契约的 `openai/gpt-5.4`，以隔离宿主修复变量；旧 run 不得续跑。只有可信重跑再次失败后，才讨论更换 framing；只有模型协议在可信宿主上失败后，才另行申请 Claude/Gemini 比较授权。P2R 通过前不得实现 stage worker、academic relay 产品运行面、假设/协议 API 或 UI，也不得把模块版本或 execution mode 提升为 V0.2。
 
-**产品页面**：Research Question、Candidate Hypotheses、Approved Hypothesis、Protocol、Checkpoint History。
+**用户完成什么**：从 V0.1 的已验证综述与来源包启动 IdeaSpark，逐个查看候选、引用依据、碰撞检索、coherence 与 Phase 3 审计事实；人工选择一个候选后，复用 AI-Researcher 生成七段式实验计划，补齐类型化字段并冻结。未通过上游终态或未经人工批准的候选不得进入协议冻结。
 
-**验收产物**：版本化 `hypotheses.md`、人工批准事件、`experiment-protocol.yaml` 和协议哈希。未批准假设不得进入研发执行。
+**复用组件**：固定提交 `a785e3aca7a2f0cb9775d45a7f2b5d3bf16f076a` 的 Microsoft ResearchStudio IdeaSpark 主机循环、prompt、确定性脚本、组合卡与终态；固定提交 `e5dd05a90bcadb436c07283c2f429367c6e525d3` 的 NoviScl AI-Researcher 实验计划 prompt、示例和七段式输出。模镜只实现受限模型控制、状态/receipt、输入成果包门禁、结构校验、人工选择与冻结，不自研科研 planner、候选评分、novelty 判断或实验方法。
+
+**固定协议字段**：研究问题、人工批准的候选与来源引用、hypothesis、experiment design、baseline、自变量、数据集、指标、计算约束、停止条件、expected result、pipeline、失败条件、预期制品和风险/局限。AI-Researcher 原始七段式输出必须原样保存；模镜补充字段必须可区分为人工输入，不能伪装成上游生成。
+
+**产品页面**：Research Question、IdeaSpark Attempts、Candidate Evidence、Human Selection、Experiment Plan、Protocol Completion、Freeze History。页面只有在 P2R 可信重跑与协议资格通过后实现。
+
+**验收产物**：逐 phase receipt、全部上游原始终态与失败尝试、`candidate-manifest.json`、版本化 `hypotheses.md`、人工批准事件、AI-Researcher 原始计划、`experiment-protocol.yaml`、SHA-256 manifest 与 V0.3 交接 receipt。完整 P2R 尚未通过时，这些是目标产物而非现有能力。
 
 ### V0.3：Jupyter 工作区与 R&D 迭代
 
@@ -379,3 +385,27 @@ Amendment ID / 日期：
 - **许可证与分发影响**：v1.10.6 amd64 SBOM 为 438 个包，有效未知项由 37 增至 38，GPL/LGPL 声明仍为 100、AGPL 声明仍为 0。集成继续固定为 `external_pull_only`，镜像化、离线捆绑、修改或模镜再分发仍阻断。
 - **新验收产物与停止条件**：必须重新通过登录/CSRF、研究启动/状态/取消、Library、Zotero、Quarto/RIS 契约，使用真实固定模型完成 OpenAlex 与已索引 Zotero 集合旅程，并证明每个 QMD 引用键都存在于 BibTeX。若引用仍不一致、API 漂移、迁移要求无法回退、凭据泄漏或许可证门禁扩大，则保持 v1.10.5 现有卷不变并停止切换。
 - **回退方法**：隔离验证失败时移除 v1.10.6 候选配置并保留其独立卷用于取证；当前 v1.10.5 验收栈和所有既有卷不变。只有隔离验证通过后才允许另行切换当前验收栈，切换前必须创建并验证 LDR 自身的预迁移备份。
+
+### Amendment V0.2-A1 / 2026-08-28
+
+- **状态**：已批准；本条冻结 V0.2 的产品切口、上游组合与前置资格门禁。
+- **用户批准证据**：用户在审计下一轮、要求补足开源复用和完整科研线、并审阅含前置批次的 V0.2 计划后明确要求“开始执行计划”。
+- **触发事实与复现证据**：V0.1 已形成真实文献检索、Zotero 资料库和一致成果包，但路线图中的 V0.2 仍只描述抽象的“问题—假设—协议”，没有锁定上游主干、真实用户动作、交接格式和停止条件。最新来源审计确认 Microsoft ResearchStudio 的 IdeaSpark 在固定提交中提供五阶段、单想法、可恢复的主机循环和明确终态；NoviScl AI-Researcher 在固定提交中提供七段式实验计划生成模板。两者均为 MIT 项目，但其运行依赖、模型协议和输出质量仍须独立资格验证。
+- **受影响条目/轮次**：V0.2 假设与协议轮次，以及模型桥的受限结构化输出兼容；不改变 V0.1 文献成果，不提前执行 V0.3 的 R&D-Agent/Jupyter/代码与实验，不接 Studio、多租户、计费或商业化。
+- **保持原路线的备选与否决原因**：只编写自有表单与提示词会偏离“复用开源形成科研线”的锁定方向；直接运行完整 AI-Researcher 会引入其密钥文件、直接 Provider 客户端和实验执行面；提前接 R&D-Agent 会把假设、协议、代码与实验一次扩成多轮范围；把 ResearchStudio 或 AI-Researcher 当作自动科学裁判则超出上游证据。
+- **最小必要偏移**：模块版本提升为 `0.4.0-v0.2`。只允许已验证的 V0.1 文献成果包进入 V0.2。依次复用固定提交 `a785e3aca7a2f0cb9775d45a7f2b5d3bf16f076a` 的 ResearchStudio IdeaSpark 主机循环生成最多三个候选，并复用固定提交 `e5dd05a90bcadb436c07283c2f429367c6e525d3` 的 AI-Researcher 七段式模板生成一个候选的实验计划。候选串行生成，最多五次尝试；模镜不排名、不评分、不补写科研方法。用户必须人工选择候选、补齐缺失的类型化协议字段后方可冻结，冻结后以规范 JSON、Markdown 和 SHA-256 manifest 作为 V0.3 唯一输入。
+- **用户旅程、开源复用、许可证和交付影响**：项目新增“假设与协议”阶段，用户可从已验证综述启动候选生成、对照来源证据、选择一个候选、生成并人工补齐协议、冻结和下载成果包。ResearchStudio 与 AI-Researcher 均按精确 commit、archive hash、许可证 hash 和复用文件 hash 锁定；只复制经资格审计的源文件/模板子集，不运行上游安装器，不读取 `keys.json`，不引入直接 Provider key。第三方 notice 随可选模块分发。
+- **新验收产物与停止条件**：P0 固化来源、许可证、边界和零默认增量；P1 运行 ResearchStudio 原生自测并验证确定性 host loop、终态与断点；P2 使用现有固定模型桥分别验证 IdeaSpark 每个 LLM phase 和 AI-Researcher JSON 输出，包括截断、畸形 JSON、引用不存在、重复候选、`do_not_generate`、`phase_3_failed` 和资格失效。若必须自创科研 prompt/Agent loop、固定模型无法完成原版链路、引用无法回指 V0.1 来源、私有资料越过 egress、许可证/依赖存在未处置冲突，V0.2 停止且不得自动切换 CKM、R&D-Agent 或其他候选。
+- **回退方法**：停止显式 V0.2 profile，移除 stage worker、academic relay、假设/协议 API 与模块内页面；保留 V0.1 项目、文献成果和已有 `hypothesis-protocol` 成果目录。删除项目成果或命名卷仍需另行授权。
+
+### Amendment V0.2-A2 / 2026-08-29
+
+- **状态**：已批准；新增 P2R 资格完整性前置批，不授权 V0.2 产品运行面。
+- **用户批准证据**：用户审阅“执行证据来源失真、资格夹具越过真实成果包门禁、collision 仅 `2/4`”的严格审计后明确批准修改 V0.2 工作树中的路线图、协作规则、资格账本、来源锁、模块边界、模型桥及测试，完成 P2R 前置批收口；同时明确禁止模型调用、Commit、Push 和 PR。
+- **触发事实与复现证据**：ResearchStudio `coherence_trace.txt` 规定无代码工具时必须标记 `unexecuted`；纯文本 qualification relay 未声明 tools、也未执行模型返回脚本，但三个 coherence 输出均声明 `mode=executed` 并把自报 stdout 作为 blocking evidence。上游回归检查只验证 script/output 非空，Phase 3 又将其提升为优先执行证据。Attempt 1 的完整 `blocking_findings.json` 还晚于 Phase 3 audit 生成。端到端运行使用六篇摘要级资格夹具，全部 fulltext=`failed`，且最后一次 collision 只有 OpenAlex 主导的 `2/4` connector 覆盖。
+- **受影响条目/轮次**：仅 V0.2-A1 的 P2 资格解释、ResearchStudio Host 适配和进入产品批次的门禁；不改写旧 artifact、终态、usage/cost，不改变 V0.1 文献能力、V0.2 上游组合、候选人工批准或 V0.3–V0.5 顺序。
+- **保持原路线的备选与否决原因**：继续纯 Chat Relay 并接受 `unexecuted` 会与上游把 blocking handoff 视作 executed evidence 的链路冲突；立即换模型或 framing 无法隔离坏宿主变量；更换上游会越过 A1；删除旧证据会破坏可追溯性。
+- **最小必要偏移**：在任何产品实现前增加 V0.2-P2R。允许复用现有 Inspect 0.3.260 的公开 Agent/tool/sandbox 能力，为锁定 ResearchStudio phase 提供真实、可收据化的临时代码执行；调用方仍不能提交任意命令。资格状态改为 `qualification_invalid_execution_provenance`，模块对外版本继续保持 `0.3.0-v0.1`。桥接的 structured output 仅属于固定 hypothesis workload，且 hypothesis 发现/调用不得依赖当前 literature 资格。
+- **用户旅程、开源复用、许可证和交付影响**：本批不增加用户功能。继续复用原 ResearchStudio/AI-Researcher commit；Inspect 已在模块来源锁中，不新增科研算法。若后续固定 sandbox 需要新的镜像或依赖，必须先锁 digest、SBOM 和许可证，不得借 P2R 引入通用代码执行服务。
+- **新验收产物与停止条件**：保留失效 run 的原始终态、哈希和费用；新 run 必须有逐 phase receipt、可信 code-exec provenance、原子 multi-output、verified V0.1 bundle 以及完整 connector 资格。首先以 GPT-5.4 从新 run 重放。任一伪执行、输出截断不可判定、任意命令入口、bundle 不完整、connector degraded、凭据泄漏或上游科研 prompt/loop 被修改时继续 NO-GO。
+- **回退方法**：移除 P2R host/profile 与未通过的新 run，保留失效 run 和 V0.1 项目成果；桥关闭后恢复纯 V0.1。不得删除用户成果、旧资格证据或命名卷。

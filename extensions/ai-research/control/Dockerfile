@@ -67,7 +67,7 @@ COPY requirements-test.lock /tmp/requirements-test.lock
 RUN python -m pip install --no-cache-dir --require-hashes -r /tmp/requirements-test.lock \
     && python -m pip check
 COPY --chown=65532:65532 tests ./tests
-COPY --chown=65532:65532 scripts/acceptance.py scripts/init_ldr_assets.py scripts/literature_acceptance.py scripts/validate_boundary.py ./scripts/
+COPY --chown=65532:65532 scripts/acceptance.py scripts/init_ldr_assets.py scripts/literature_acceptance.py scripts/qualify_p2r_connectors.ps1 scripts/trusted_full_bootstrap.py scripts/validate_boundary.py ./scripts/
 COPY --chown=65532:65532 compose.yml LDR_LICENSE_DISPOSITION.md ./
 USER 65532:65532
 CMD ["python", "-m", "pytest", "tests/control", "-q"]

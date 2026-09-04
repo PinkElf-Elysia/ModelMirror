@@ -2,16 +2,27 @@
   "schemaVersion": 1,
   "moduleId": "modelmirror.ai-research",
   "moduleVersion": "0.3.0-v0.1",
-  "baseCommit": "11d35c1d84c0a18a05779a37d60cb59ef7a25867",
+  "baseCommit": "ae284fbbbd59831ccdf2df2b34c9cb1239a57220",
   "claimLevel": "harness_only",
   "packStatus": "fixture_only",
   "parentIntegration": "restricted-model-bridge",
   "allowedParentFiles": [
-    ".dockerignore",
     ".github/workflows/ai-research.yml",
     "server/main.py",
     "server/model_router/ai_research_bridge.py",
+    "server/model_router/chat_control.py",
+    "server/model_router/cleanup_chat_receipts.py",
     "server/model_router/chat_stable.py",
+    "server/model_router/repository.py",
+    "server/tests/test_ai_research_bridge.py",
+    "server/tests/test_provider_chat_stable_service.py"
+  ],
+  "postTrustAllowedFiles": [
+    "server/model_router/ai_research_bridge.py",
+    "server/model_router/chat_control.py",
+    "server/model_router/cleanup_chat_receipts.py",
+    "server/model_router/chat_stable.py",
+    "server/model_router/repository.py",
     "server/tests/test_ai_research_bridge.py",
     "server/tests/test_provider_chat_stable_service.py"
   ],
@@ -50,6 +61,40 @@
   "allowedExecutionModes": [
     "fixture",
     "literature"
+  ],
+  "qualificationModes": [
+    {
+      "id": "p2r",
+      "status": "disabled_no_go",
+      "productVisible": false,
+      "networkPolicy": {
+        "connectorQualifier": "public_egress_fixed_connectors_only",
+        "host": "loopback_model_bridge_only",
+        "coherenceSandbox": "network_none",
+        "postCoherence": "inactive"
+      },
+      "generatedCodePolicy": "coherence_only_ephemeral_sandbox",
+      "offlinePostCoherenceHost": {
+        "slice": "h1a_trusted_coherence_to_disabled_collision_action",
+        "modelDispatch": false,
+        "network": false,
+        "subprocess": false,
+        "patchedCanonicalMerge": false,
+        "collisionEvidenceAcceptance": false,
+        "critiqueNextAction": false,
+        "stopsBefore": "collision_execution"
+      }
+    }
+  ],
+  "qualificationOnlyAssets": [
+    "worker/ai_research_worker/p2r_input_gate.py",
+    "worker/ai_research_worker/p2r_connectors.py",
+    "worker/ai_research_worker/p2r_phase_contracts.py",
+    "worker/ai_research_worker/p2r_host.py",
+    "worker/ai_research_worker/p2r_post_coherence_host.py",
+    "worker/p2r-connectors-linux-x86_64.requirements.lock",
+    "worker/p2r-sandbox.compose.yml",
+    "scripts/qualify_p2r_connectors.ps1"
   ],
   "allowedFixtures": [
     "success",

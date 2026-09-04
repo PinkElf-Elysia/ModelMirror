@@ -9,7 +9,11 @@ import re
 import stat
 import subprocess
 import sys
+from email.parser import BytesParser
+from email.policy import compat32
+from io import BytesIO
 from pathlib import Path
+from zipfile import BadZipFile, ZipFile
 
 
 MODULE_ROOT = Path(__file__).resolve().parent.parent
@@ -55,6 +59,54 @@ LDR_DISTRIBUTION_POLICY = {
 
 class BoundaryFailure(RuntimeError):
     pass
+
+
+class P2RLicenseFailure(BoundaryFailure):
+    pass
+
+
+P2R_CONNECTOR_LOCK = "worker/p2r-connectors-linux-x86_64.requirements.lock"
+P2R_LICENSE_NOTICE_HEADING = "## P2R connector qualification environment"
+P2R_LICENSE_METADATA_FIELDS = {"License", "License-Expression"}
+P2R_UNKNOWN_LICENSE_VALUES = {"", "n/a", "noassertion", "none", "unknown"}
+P2R_CONNECTOR_BASE_IMAGE = (
+    "python@sha256:401f6e1a67dad31a1bd78e9ad22d0ee0a3b52154e6bd30e90be696bb6a3d7461"
+)
+P2R_CONNECTOR_DISTRIBUTION_POLICY = {
+    "localEphemeralQualification": "allowed",
+    "mirror": "blocked",
+    "offlineBundle": "blocked",
+    "publish": "blocked",
+}
+P2R_KNOWN_COPYLEFT_OR_MULTI_LICENSES = {
+    "certifi": "MPL-2.0",
+    "tld": "MPL-1.1 OR GPL-2.0-only OR LGPL-2.1-or-later",
+    "tqdm": "MPL-2.0 AND MIT",
+}
+P2R_REVIEWED_LICENSE_METADATA = {
+    "certifi": ("License", "MPL-2.0"),
+    "charset-normalizer": ("License", "MIT"),
+    "deprecated": ("License", "MIT"),
+    "editdistance": ("License", "MIT"),
+    "feedparser": ("License", "BSD-2-Clause"),
+    "feedparser-sgmllib": ("License-Expression", "PSF-2.0"),
+    "future": ("License", "MIT"),
+    "idna": ("License-Expression", "BSD-3-Clause"),
+    "openreview-py": ("License", "MIT"),
+    "pycryptodome": ("License", "BSD, Public Domain"),
+    "pyjwt": ("License-Expression", "MIT"),
+    "pylatexenc": ("License", "MIT"),
+    "requests": ("License", "Apache-2.0"),
+    "tld": ("License-Expression", "MPL-1.1 OR GPL-2.0-only OR LGPL-2.1-or-later"),
+    "tqdm": ("License", "MPL-2.0 AND MIT"),
+    "urllib3": ("License-Expression", "MIT"),
+    "wrapt": ("License-Expression", "BSD-2-Clause"),
+}
+P2R_MAX_WHEEL_BYTES = 128_000_000
+P2R_REQUIREMENT_RE = re.compile(
+    r"^([A-Za-z0-9][A-Za-z0-9._-]*)==([^\s]+)\s+"
+    r"--hash=sha256:([0-9a-f]{64})$"
+)
 
 
 def is_ui_generated(path: Path) -> bool:
@@ -162,6 +214,305 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _canonical_package_name(value: str) -> str:
+    return re.sub(r"[-_.]+", "-", value).lower()
+
+
+def _is_safe_module_relative_path(value: str) -> bool:
+    if (
+        not value
+        or "\\" in value
+        or "\0" in value
+        or value.startswith("/")
+        or re.match(r"^[A-Za-z]:", value)
+    ):
+        return False
+    return all(part not in {"", ".", ".."} for part in value.split("/"))
+
+
+def _is_link_like(path: Path) -> bool:
+    is_junction = getattr(path, "is_junction", None)
+    return path.is_symlink() or bool(is_junction and is_junction())
+
+
+def _load_source_lock(*, p2r_license_only: bool) -> dict:
+    path = MODULE_ROOT / "source-lock.json"
+    failure = P2RLicenseFailure if p2r_license_only else BoundaryFailure
+    if not path.is_file() or _is_link_like(path):
+        raise failure("source-lock is missing or is a symlink")
+    try:
+        document = json.loads(path.read_bytes().decode("utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise failure("source-lock cannot be read") from exc
+    if not isinstance(document, dict):
+        raise failure("source-lock root must be an object")
+    return document
+
+
+def _p2r_requirements() -> tuple[list[dict[str, str]], str]:
+    lock_path = MODULE_ROOT / P2R_CONNECTOR_LOCK
+    if not lock_path.is_file() or _is_link_like(lock_path):
+        raise P2RLicenseFailure("connector requirements lock is missing or is a symlink")
+    try:
+        lock_bytes = lock_path.read_bytes()
+        lock_text = lock_bytes.decode("utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise P2RLicenseFailure("connector requirements lock cannot be read") from exc
+    logical_lines: list[str] = []
+    pending = ""
+    for raw_line in lock_text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        pending = f"{pending} {line}".strip()
+        if pending.endswith("\\"):
+            pending = pending[:-1].rstrip()
+            continue
+        logical_lines.append(pending)
+        pending = ""
+    if pending:
+        raise P2RLicenseFailure("connector requirements lock has an unterminated continuation")
+
+    requirements: list[dict[str, str]] = []
+    for line in logical_lines:
+        match = P2R_REQUIREMENT_RE.fullmatch(line)
+        if match is None:
+            raise P2RLicenseFailure(f"connector requirements lock entry is malformed: {line!r}")
+        name, version, digest = match.groups()
+        requirements.append(
+            {
+                "name": name,
+                "canonicalName": _canonical_package_name(name),
+                "version": version,
+                "sha256": digest,
+            }
+        )
+    if len(requirements) != 17:
+        raise P2RLicenseFailure("connector requirements lock must contain exactly 17 wheels")
+    canonical_names = [item["canonicalName"] for item in requirements]
+    digests = [item["sha256"] for item in requirements]
+    if len(canonical_names) != len(set(canonical_names)) or len(digests) != len(set(digests)):
+        raise P2RLicenseFailure("connector requirements lock contains duplicate names or hashes")
+    return requirements, hashlib.sha256(lock_bytes).hexdigest()
+
+
+def _p2r_license_audit(source_lock: dict) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    requirements, lock_sha256 = _p2r_requirements()
+    audit = source_lock.get("licenseAudit", {}).get("p2rConnectorQualification")
+    if not isinstance(audit, dict):
+        raise P2RLicenseFailure("source-lock P2R connector license audit is missing")
+    expected_scalars = {
+        "status": "passed_for_local_ephemeral_qualification_only",
+        "platform": "linux/x86_64",
+        "python": "3.12.13",
+        "baseImage": P2R_CONNECTOR_BASE_IMAGE,
+        "requirementsLockSha256": lock_sha256,
+        "packageCount": 17,
+        "licenseMetadataUnknownCount": 0,
+        "licenseEvidence": "locked wheel METADATA raw License or License-Expression",
+        "knownCopyleftOrMultiLicensePackages": P2R_KNOWN_COPYLEFT_OR_MULTI_LICENSES,
+        "wheelExposure": "exact-hash-isolated-temporary-view",
+        "excludedFullTextExtras": ["PyMuPDF"],
+        "distributionPolicy": P2R_CONNECTOR_DISTRIBUTION_POLICY,
+        "redistributionCandidate": False,
+    }
+    for key, expected in expected_scalars.items():
+        if audit.get(key) != expected:
+            raise P2RLicenseFailure(f"source-lock P2R license fact drifted: {key}")
+    expected_audit_keys = set(expected_scalars) | {"licenseMetadata"}
+    if set(audit) != expected_audit_keys:
+        raise P2RLicenseFailure("source-lock P2R license audit contains unknown or missing facts")
+
+    metadata = audit.get("licenseMetadata")
+    if not isinstance(metadata, list) or len(metadata) != 17:
+        raise P2RLicenseFailure("source-lock must contain exactly 17 P2R license metadata records")
+    required_keys = {"name", "version", "sha256", "field", "rawValue"}
+    by_name: dict[str, dict[str, str]] = {}
+    metadata_order: list[str] = []
+    for record in metadata:
+        if not isinstance(record, dict) or set(record) != required_keys:
+            raise P2RLicenseFailure("source-lock P2R license metadata record is malformed")
+        if any(not isinstance(record[key], str) or not record[key] for key in required_keys):
+            raise P2RLicenseFailure("source-lock P2R license metadata contains an empty fact")
+        canonical_name = _canonical_package_name(record["name"])
+        if canonical_name in by_name:
+            raise P2RLicenseFailure("source-lock P2R license metadata contains duplicate packages")
+        if record["field"] not in P2R_LICENSE_METADATA_FIELDS:
+            raise P2RLicenseFailure("source-lock P2R license metadata field is unsupported")
+        if record["rawValue"].strip().lower() in P2R_UNKNOWN_LICENSE_VALUES:
+            raise P2RLicenseFailure("source-lock P2R license metadata contains an unknown license")
+        by_name[canonical_name] = record
+        metadata_order.append(canonical_name)
+
+    requirement_order = [item["canonicalName"] for item in requirements]
+    if metadata_order != requirement_order:
+        raise P2RLicenseFailure("source-lock P2R license metadata order drifted from the lock")
+    if set(requirement_order) != set(P2R_REVIEWED_LICENSE_METADATA):
+        raise P2RLicenseFailure("connector requirements drifted from reviewed license inventory")
+    for name, (expected_field, expected_value) in P2R_REVIEWED_LICENSE_METADATA.items():
+        record = by_name.get(name)
+        if (
+            record is None
+            or record["field"] != expected_field
+            or record["rawValue"] != expected_value
+        ):
+            raise P2RLicenseFailure(
+                f"source-lock P2R reviewed license disposition drifted: {name}"
+            )
+    for name, raw_value in P2R_KNOWN_COPYLEFT_OR_MULTI_LICENSES.items():
+        record = by_name.get(_canonical_package_name(name))
+        if record is None or record["rawValue"] != raw_value:
+            raise P2RLicenseFailure(
+                f"source-lock P2R reviewed license disposition drifted: {name}"
+            )
+
+    ordered_metadata: list[dict[str, str]] = []
+    for requirement in requirements:
+        record = by_name.get(requirement["canonicalName"])
+        if record is None:
+            raise P2RLicenseFailure(
+                f"source-lock P2R license metadata is missing {requirement['name']}"
+            )
+        for key in ("version", "sha256"):
+            if record[key] != requirement[key]:
+                raise P2RLicenseFailure(
+                    f"source-lock P2R license metadata drifted for {requirement['name']}: {key}"
+                )
+        ordered_metadata.append(record)
+    if set(by_name) != {item["canonicalName"] for item in requirements}:
+        raise P2RLicenseFailure("source-lock P2R license metadata contains an unlocked package")
+
+    notice_path = MODULE_ROOT / "THIRD_PARTY_NOTICES.md"
+    if not notice_path.is_file() or _is_link_like(notice_path):
+        raise P2RLicenseFailure("P2R connector notice is missing or is a symlink")
+    notice = notice_path.read_text(encoding="utf-8")
+    if notice.count(P2R_LICENSE_NOTICE_HEADING) != 1:
+        raise P2RLicenseFailure("P2R connector notice section is missing or ambiguous")
+    section = notice.split(P2R_LICENSE_NOTICE_HEADING, 1)[1]
+    section = re.split(r"(?m)^## ", section, maxsplit=1)[0]
+    table_lines = [line for line in section.splitlines() if line.startswith("| ")]
+    expected_rows = [
+        "| Component | Fixed version | METADATA field | Raw declared value |",
+        "| --- | --- | --- | --- |",
+        *[
+            f"| {record['name']} | {record['version']} | `{record['field']}` | "
+            f"`{record['rawValue']}` |"
+            for record in ordered_metadata
+        ],
+    ]
+    if table_lines != expected_rows:
+        raise P2RLicenseFailure("P2R connector notice table drifted from source-lock metadata")
+    return requirements, ordered_metadata
+
+
+def _wheel_metadata(filename: str, payload: bytes) -> dict[str, str]:
+    try:
+        with ZipFile(BytesIO(payload)) as archive:
+            for member in archive.infolist():
+                if stat.S_ISLNK(member.external_attr >> 16):
+                    raise P2RLicenseFailure(f"wheel contains a symlink entry: {filename}")
+            metadata_members = [
+                member
+                for member in archive.infolist()
+                if member.filename.endswith(".dist-info/METADATA")
+            ]
+            if len(metadata_members) != 1:
+                raise P2RLicenseFailure(
+                    f"wheel must contain exactly one dist-info/METADATA: {filename}"
+                )
+            member = metadata_members[0]
+            if member.file_size > 2_000_000:
+                raise P2RLicenseFailure(f"wheel METADATA is too large: {filename}")
+            message = BytesParser(policy=compat32).parsebytes(archive.read(member))
+    except P2RLicenseFailure:
+        raise
+    except (BadZipFile, OSError, RuntimeError) as exc:
+        raise P2RLicenseFailure(f"wheel archive cannot be inspected: {filename}") from exc
+
+    names = message.get_all("Name", [])
+    versions = message.get_all("Version", [])
+    if len(names) != 1 or len(versions) != 1 or not names[0].strip() or not versions[0].strip():
+        raise P2RLicenseFailure(f"wheel Name or Version metadata is missing or ambiguous: {filename}")
+    declared: list[tuple[str, str]] = []
+    for field in sorted(P2R_LICENSE_METADATA_FIELDS):
+        values = message.get_all(field, [])
+        if len(values) > 1:
+            raise P2RLicenseFailure(f"wheel license metadata is ambiguous: {filename}")
+        if values:
+            declared.append((field, values[0].strip()))
+    if len(declared) != 1:
+        raise P2RLicenseFailure(f"wheel license metadata is missing or ambiguous: {filename}")
+    field, raw_value = declared[0]
+    if raw_value.lower() in P2R_UNKNOWN_LICENSE_VALUES:
+        raise P2RLicenseFailure(f"wheel license metadata is unknown: {filename}")
+    if len(raw_value) > 512 or "\n" in raw_value or "\r" in raw_value:
+        raise P2RLicenseFailure(f"wheel license metadata is not a bounded raw value: {filename}")
+    return {
+        "name": names[0].strip(),
+        "version": versions[0].strip(),
+        "field": field,
+        "rawValue": raw_value,
+    }
+
+
+def validate_p2r_connector_licenses(source_lock: dict, wheel_root: Path) -> None:
+    requirements, expected_metadata = _p2r_license_audit(source_lock)
+    if not wheel_root.is_dir() or _is_link_like(wheel_root):
+        raise P2RLicenseFailure("P2R wheel root is missing, not a directory, or is a symlink")
+    expected_by_digest = {item["sha256"]: item for item in requirements}
+    selected: dict[str, tuple[str, bytes]] = {}
+    ignored: list[str] = []
+    for path in sorted(wheel_root.iterdir(), key=lambda item: item.name.lower()):
+        if _is_link_like(path):
+            raise P2RLicenseFailure(f"P2R wheel root contains a symlink: {path.name}")
+        if path.suffix.lower() != ".whl":
+            continue
+        if not path.is_file():
+            raise P2RLicenseFailure(f"P2R wheel entry is not a regular file: {path.name}")
+        try:
+            with path.open("rb") as stream:
+                payload = stream.read(P2R_MAX_WHEEL_BYTES + 1)
+        except OSError as exc:
+            raise P2RLicenseFailure(f"P2R wheel cannot be read: {path.name}") from exc
+        if len(payload) > P2R_MAX_WHEEL_BYTES:
+            raise P2RLicenseFailure(f"P2R wheel exceeds the inspection size limit: {path.name}")
+        digest = hashlib.sha256(payload).hexdigest()
+        if digest not in expected_by_digest:
+            ignored.append(path.name)
+            continue
+        if digest in selected:
+            raise P2RLicenseFailure("P2R wheel root contains a duplicate locked digest")
+        selected[digest] = (path.name, payload)
+    missing = [item["name"] for item in requirements if item["sha256"] not in selected]
+    if missing:
+        raise P2RLicenseFailure(f"P2R wheel root is missing locked wheels: {missing}")
+
+    expected_by_name = {
+        _canonical_package_name(record["name"]): record for record in expected_metadata
+    }
+    for requirement in requirements:
+        filename, payload = selected[requirement["sha256"]]
+        actual = _wheel_metadata(filename, payload)
+        if (
+            _canonical_package_name(actual["name"]) != requirement["canonicalName"]
+            or actual["version"] != requirement["version"]
+        ):
+            raise P2RLicenseFailure(
+                f"locked wheel METADATA identity drifted: {requirement['name']}"
+            )
+        actual["sha256"] = requirement["sha256"]
+        expected = expected_by_name[requirement["canonicalName"]]
+        if actual != expected:
+            raise P2RLicenseFailure(
+                f"locked wheel license metadata drifted: {requirement['name']}"
+            )
+    ignored_summary = ", ".join(ignored) if ignored else "none"
+    print(
+        f"P2R license validation passed: 17 locked wheels; "
+        f"ignored {len(ignored)} unlocked wheels ({ignored_summary})"
+    )
+
+
 def validate_paths(base: str, boundary: dict) -> None:
     allowed_value = boundary.get("allowedParentFiles")
     if not isinstance(allowed_value, list) or not all(
@@ -185,8 +536,36 @@ def validate_paths(base: str, boundary: dict) -> None:
             raise BoundaryFailure(f"symlink is forbidden: {path.relative_to(MODULE_ROOT)}")
 
 
-def validate_locked_files(source_lock: dict) -> None:
-    for relative, descriptor in source_lock["lockedFiles"].items():
+def validate_locked_files(source_lock: dict, boundary: dict) -> None:
+    locked_files = source_lock.get("lockedFiles")
+    if not isinstance(locked_files, dict):
+        raise BoundaryFailure("source-lock lockedFiles is malformed")
+    unsafe_locked_paths = sorted(
+        path
+        for path in locked_files
+        if not isinstance(path, str) or not _is_safe_module_relative_path(path)
+    )
+    if unsafe_locked_paths:
+        raise BoundaryFailure(f"source-lock contains unsafe locked paths: {unsafe_locked_paths}")
+    locked_paths = set(locked_files)
+    qualification_assets = boundary.get("qualificationOnlyAssets", [])
+    if (
+        not isinstance(qualification_assets, list)
+        or any(not isinstance(path, str) or not path for path in qualification_assets)
+        or len(qualification_assets) != len(set(qualification_assets))
+    ):
+        raise BoundaryFailure("qualification-only asset boundary is malformed")
+    unsafe_assets = sorted(
+        path for path in qualification_assets if not _is_safe_module_relative_path(path)
+    )
+    if unsafe_assets:
+        raise BoundaryFailure(f"qualification-only assets contain unsafe paths: {unsafe_assets}")
+    unlocked_assets = sorted(set(qualification_assets) - locked_paths)
+    if unlocked_assets:
+        raise BoundaryFailure(
+            f"qualification-only assets are absent from source-lock: {unlocked_assets}"
+        )
+    for relative, descriptor in locked_files.items():
         path = MODULE_ROOT / relative
         if not path.is_file():
             raise BoundaryFailure(f"locked file is missing: {relative}")
@@ -198,6 +577,7 @@ def validate_locked_files(source_lock: dict) -> None:
             line for line in text.splitlines() if not line.lstrip().startswith("#")
         ):
             raise BoundaryFailure(f"dependency lock is not hash-only and index-neutral: {relative}")
+    _p2r_license_audit(source_lock)
     license_audit = source_lock["licenseAudit"]
     if sha256(MODULE_ROOT / "license-policy.json") != license_audit["policySha256"]:
         raise BoundaryFailure("license policy drifted from the source lock")
@@ -289,7 +669,7 @@ def validate_ldr_distribution_mode(
     if distribution_mode == "redistributable-bundle":
         raise BoundaryFailure(
             "LDR redistributable-bundle is blocked until package obligations and "
-            "the 37 effective unknown licenses are disposed"
+            "the 38 effective unknown licenses are disposed"
         )
     if distribution_mode != "external-pull":
         raise BoundaryFailure(f"unsupported distribution mode: {distribution_mode}")
@@ -476,16 +856,29 @@ def main() -> int:
     parser.add_argument("--base", default="origin/main")
     parser.add_argument(
         "--distribution-mode",
-        required=True,
         choices=("external-pull", "redistributable-bundle"),
     )
+    parser.add_argument("--p2r-license-only", action="store_true")
+    parser.add_argument("--p2r-wheel-root")
     args = parser.parse_args()
+    source_lock = _load_source_lock(p2r_license_only=args.p2r_license_only)
+    if args.p2r_license_only:
+        if args.p2r_wheel_root is None:
+            raise P2RLicenseFailure("--p2r-wheel-root is required with --p2r-license-only")
+        if args.distribution_mode is not None:
+            raise P2RLicenseFailure("--distribution-mode cannot be combined with --p2r-license-only")
+        validate_p2r_connector_licenses(source_lock, Path(args.p2r_wheel_root))
+        return 0
+    if args.p2r_wheel_root is not None:
+        raise BoundaryFailure("--p2r-wheel-root requires --p2r-license-only")
+    if args.distribution_mode is None:
+        raise BoundaryFailure("--distribution-mode is required")
+
     boundary = json.loads((MODULE_ROOT / "module-boundary.json").read_text(encoding="utf-8"))
-    source_lock = json.loads((MODULE_ROOT / "source-lock.json").read_text(encoding="utf-8"))
     locked_base = source_lock["modelMirrorBaseCommit"]
     validate_requested_base(args.base, locked_base)
     validate_paths(args.base, boundary)
-    validate_locked_files(source_lock)
+    validate_locked_files(source_lock, boundary)
     validate_runtime_references(boundary)
     validate_metric_names()
     validate_parent_controls()

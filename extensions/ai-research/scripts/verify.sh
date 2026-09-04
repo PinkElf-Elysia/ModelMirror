@@ -36,6 +36,7 @@ CLIENT_BASELINE_CONTEXT=""
 CLIENT_CURRENT_CONTEXT=""
 CLIENT_SOURCE_CONTEXT=""
 PYTEST_BASETEMP=""
+STACK_STARTED=0
 
 BASE=$(git -C "$REPO_ROOT" rev-parse --verify "${BASE_INPUT}^{commit}") || {
   echo "comparison base cannot be resolved: $BASE_INPUT" >&2
@@ -64,8 +65,16 @@ if ! git -C "$REPO_ROOT" diff --quiet --no-ext-diff -- "${TRUST_FILES[@]}"; then
   git -C "$REPO_ROOT" diff --name-only --no-ext-diff -- "${TRUST_FILES[@]}" >&2 || true
   exit 2
 fi
+VERIFICATION_HEAD=$(git -C "$REPO_ROOT" rev-parse --verify 'HEAD^{commit}')
+if [[ "$MODE" == "full" && -n "$(git -C "$REPO_ROOT" status --porcelain --untracked-files=all)" ]]; then
+  echo "Full verification requires a clean worktree; use quick for local edits" >&2
+  exit 2
+fi
 cd "$MODULE_ROOT"
 mkdir -p runtime/diagnostics runtime/sbom
+DIAGNOSTICS=$(mktemp -d "$MODULE_ROOT/runtime/diagnostics/verify.XXXXXX")
+SBOM="$DIAGNOSTICS/sbom"
+mkdir -p "$SBOM"
 cleanup() {
   if [[ -n "$CLIENT_PROOF_CONTAINER" ]]; then
     docker rm -f "$CLIENT_PROOF_CONTAINER" >/dev/null 2>&1 || true
@@ -91,7 +100,9 @@ cleanup() {
   if [[ "$PYTEST_BASETEMP" == "$MODULE_ROOT"/runtime/pytest.* ]]; then
     rm -rf -- "$PYTEST_BASETEMP"
   fi
-  "${LITERATURE_COMPOSE[@]}" down >/dev/null 2>&1 || true
+  if [[ "$STACK_STARTED" == "1" ]]; then
+    "${LITERATURE_COMPOSE[@]}" down >/dev/null 2>&1 || true
+  fi
 }
 trap cleanup EXIT
 
@@ -100,6 +111,7 @@ python "${BOUNDARY_ARGS[@]}"
 PYTEST_BASETEMP=$(mktemp -d "$MODULE_ROOT/runtime/pytest.XXXXXX")
 python -m pytest \
   tests/control/test_boundary_base.py \
+  tests/control/test_trusted_full_bootstrap.py \
   tests/control/test_zero_footprint_base.py \
   -q -p no:cacheprovider --basetemp "$PYTEST_BASETEMP"
 "${COMPOSE[@]}" config --quiet
@@ -119,21 +131,21 @@ docker build --sbom=true --provenance=true --target runtime -f worker/Dockerfile
   -t modelmirror-ai-research-worker:v0.1 .
 docker run --rm modelmirror-ai-research-control:v0.1 \
   cat //usr/share/doc/modelmirror-ai-research/runtime-inventory.json \
-  > runtime/sbom/control-runtime-inventory.json
+  > "$SBOM/control-runtime-inventory.json"
 docker run --rm modelmirror-ai-research-control:v0.1 \
   cat //usr/share/doc/modelmirror-ai-research/ui-build-inventory.json \
-  > runtime/sbom/ui-build-inventory.json
+  > "$SBOM/ui-build-inventory.json"
 docker run --rm modelmirror-ai-research-worker:v0.1 \
   cat //usr/share/doc/modelmirror-ai-research/runtime-inventory.json \
-  > runtime/sbom/worker-runtime-inventory.json
+  > "$SBOM/worker-runtime-inventory.json"
 CONTROL_EXPECTED=$(python -c "import json; print(json.load(open('source-lock.json'))['licenseAudit']['control']['inventorySha256'])")
 WORKER_EXPECTED=$(python -c "import json; print(json.load(open('source-lock.json'))['licenseAudit']['worker']['inventorySha256'])")
 UI_EXPECTED=$(python -c "import json; print(json.load(open('source-lock.json'))['licenseAudit']['ui']['inventorySha256'])")
-[[ "$(sha256sum runtime/sbom/control-runtime-inventory.json | cut -d' ' -f1)" == "$CONTROL_EXPECTED" ]]
-[[ "$(sha256sum runtime/sbom/worker-runtime-inventory.json | cut -d' ' -f1)" == "$WORKER_EXPECTED" ]]
-[[ "$(sha256sum runtime/sbom/ui-build-inventory.json | cut -d' ' -f1)" == "$UI_EXPECTED" ]]
+[[ "$(sha256sum "$SBOM/control-runtime-inventory.json" | cut -d' ' -f1)" == "$CONTROL_EXPECTED" ]]
+[[ "$(sha256sum "$SBOM/worker-runtime-inventory.json" | cut -d' ' -f1)" == "$WORKER_EXPECTED" ]]
+[[ "$(sha256sum "$SBOM/ui-build-inventory.json" | cut -d' ' -f1)" == "$UI_EXPECTED" ]]
 measure_image() {
-  local image="$1" slug="$2" tar_path="runtime/diagnostics/${2}-image.tar"
+  local image="$1" slug="$2" tar_path="$DIAGNOSTICS/${2}-image.tar"
   docker save -o "$tar_path" "$image"
   gzip -c "$tar_path" > "${tar_path}.gz"
   docker image inspect "$image" --format \
@@ -143,50 +155,54 @@ measure_image() {
 {
   measure_image modelmirror-ai-research-control:v0.1 control
   measure_image modelmirror-ai-research-worker:v0.1 worker
-} > runtime/diagnostics/image-identities.txt
+} > "$DIAGNOSTICS/image-identities.txt"
 
+STACK_STARTED=1
 "${COMPOSE[@]}" up -d
-python scripts/acceptance.py initial --state runtime/acceptance-state.json
-python scripts/acceptance.py inspect-view-logs --state runtime/acceptance-state.json
+python scripts/acceptance.py initial --state "$DIAGNOSTICS/acceptance-state.json"
+python scripts/acceptance.py inspect-view-logs --state "$DIAGNOSTICS/acceptance-state.json"
 "${COMPOSE[@]}" stop ai-research-inspect-view
-if ! python scripts/acceptance.py view-degraded --state runtime/view-degraded-state.json; then
+if ! python scripts/acceptance.py view-degraded --state "$DIAGNOSTICS/view-degraded-state.json"; then
   "${COMPOSE[@]}" start ai-research-inspect-view
   exit 1
 fi
 "${COMPOSE[@]}" start ai-research-inspect-view
-python scripts/acceptance.py outbox-create --state runtime/outbox-state.json
+python scripts/acceptance.py outbox-create --state "$DIAGNOSTICS/outbox-state.json"
 "${COMPOSE[@]}" stop ai-research-tracking
-python scripts/acceptance.py required-not-ready --state runtime/outbox-state.json
-if ! python scripts/acceptance.py outbox-terminal --state runtime/outbox-state.json; then
+python scripts/acceptance.py required-not-ready --state "$DIAGNOSTICS/outbox-state.json"
+if ! python scripts/acceptance.py outbox-terminal --state "$DIAGNOSTICS/outbox-state.json"; then
   "${COMPOSE[@]}" start ai-research-tracking
   exit 1
 fi
 "${COMPOSE[@]}" start ai-research-tracking
-python scripts/acceptance.py outbox-recovery --state runtime/outbox-state.json
+python scripts/acceptance.py outbox-recovery --state "$DIAGNOSTICS/outbox-state.json"
 
-python scripts/acceptance.py worker-restart-create --state runtime/worker-restart-state.json
+python scripts/acceptance.py worker-restart-create --state "$DIAGNOSTICS/worker-restart-state.json"
 "${COMPOSE[@]}" restart ai-research-worker
-python scripts/acceptance.py worker-restart-recovery --state runtime/worker-restart-state.json
+python scripts/acceptance.py worker-restart-recovery --state "$DIAGNOSTICS/worker-restart-state.json"
 for _ in 1 2; do
   "${COMPOSE[@]}" restart ai-research-control ai-research-tracking
-  python scripts/acceptance.py recovery --state runtime/acceptance-state.json
+  python scripts/acceptance.py recovery --state "$DIAGNOSTICS/acceptance-state.json"
 done
 if [[ "${AI_RESEARCH_LIVE_ACCEPTANCE:-}" == "1" ]]; then
   "${LITERATURE_COMPOSE[@]}" up -d ai-research-model-relay ai-research-ldr
-  python scripts/literature_acceptance.py initial --state runtime/literature-acceptance-state.json
+  python scripts/literature_acceptance.py initial --state "$DIAGNOSTICS/literature-acceptance-state.json"
   for _ in 1 2; do
     "${LITERATURE_COMPOSE[@]}" restart ai-research-control ai-research-ldr
-    python scripts/literature_acceptance.py recovery --state runtime/literature-acceptance-state.json
+    python scripts/literature_acceptance.py recovery --state "$DIAGNOSTICS/literature-acceptance-state.json"
   done
 else
   echo "warning: live model/OpenAlex/Zotero journey was not run; V0.1 real acceptance remains open" >&2
 fi
 mapfile -t RUN_IDS < <(python -c \
-  "import json; a=json.load(open('runtime/acceptance-state.json')); o=json.load(open('runtime/outbox-state.json')); w=json.load(open('runtime/worker-restart-state.json')); print(*a['runs'],o['runId'],w['runId'],sep='\\n')" \
+  "import json,sys; a,v,o,w=[json.load(open(p)) for p in sys.argv[1:]]; print(*a['runs'],v['runId'],o['runId'],w['runId'],sep='\\n')" \
+  "$DIAGNOSTICS/acceptance-state.json" "$DIAGNOSTICS/view-degraded-state.json" \
+  "$DIAGNOSTICS/outbox-state.json" "$DIAGNOSTICS/worker-restart-state.json" \
   | tr -d '\r')
 AUDIT_ARGS=()
 for run_id in "${RUN_IDS[@]}"; do AUDIT_ARGS+=(--run-id "$run_id"); done
-"${COMPOSE[@]}" exec -T ai-research-control python -m ai_research_control.audit_runtime "${AUDIT_ARGS[@]}"
+"${COMPOSE[@]}" exec -T ai-research-control python -m ai_research_control.audit_runtime "${AUDIT_ARGS[@]}" \
+  > "$DIAGNOSTICS/runtime-audit.json"
 "${COMPOSE[@]}" exec -T ai-research-control python -c \
   "import json,os,socket; s=socket.socket(socket.AF_UNIX); s.settimeout(5); s.connect(os.environ['AI_RESEARCH_WORKER_SOCKET']); s.sendall(b'x'*70000+b'\\n'); value=json.loads(s.makefile('rb').readline()); s.close(); assert value['ok'] is False"
 
@@ -252,10 +268,13 @@ for service in "${ENVIRONMENT_SERVICES[@]}"; do
   fi
   CONTAINER_ENV+=$(docker inspect "$container_id" --format '{{json .Config.Env}}')$'\n'
 done
-if grep -E 'OPENROUTER_API_KEY|LLM_GATEWAY_KEY|DIFY_API_KEY|PROVIDER.*(KEY|TOKEN|SECRET)|sk-(or-v1-)?[A-Za-z0-9_-]{32,}|gh[pousr]_[A-Za-z0-9]{30,}|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY' <<<"$CONTAINER_ENV"; then
+if grep -qE 'OPENROUTER_API_KEY|LLM_GATEWAY_KEY|DIFY_API_KEY|PROVIDER.*(KEY|TOKEN|SECRET)|sk-(or-v1-)?[A-Za-z0-9_-]{32,}|gh[pousr]_[A-Za-z0-9]{30,}|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY' <<<"$CONTAINER_ENV"; then
   echo "provider credential names were exposed to module containers" >&2
   exit 1
 fi
+python -c \
+  'import json; print(json.dumps({"schemaVersion":1,"status":"passed","checks":["oversized_worker_protocol_rejected","worker_network_isolated","control_public_network_isolated","module_container_credentials_absent"]},sort_keys=True,separators=(",",":")))' \
+  > "$DIAGNOSTICS/security-attacks.json"
 
 build_client_proof() {
   local git_ref="$1"
@@ -316,7 +335,36 @@ python scripts/zero_footprint.py \
   --base "$BASE" \
   --source-client-dist "$CLIENT_SOURCE_PROOF_DIR" \
   --baseline-client-dist "$CLIENT_BASELINE_PROOF_DIR" \
-  --client-dist "$CLIENT_CURRENT_PROOF_DIR"
+  --client-dist "$CLIENT_CURRENT_PROOF_DIR" \
+  > "$DIAGNOSTICS/zero-footprint.json"
+MANIFEST_ARGS=(
+  scripts/acceptance_manifest.py
+  --base "$BASE"
+  --expected-head "$VERIFICATION_HEAD"
+  --evidence-root "$DIAGNOSTICS"
+  --distribution-mode "$DISTRIBUTION_MODE"
+  --output "$DIAGNOSTICS/full-acceptance-manifest.json"
+)
+for evidence in \
+  "$DIAGNOSTICS/acceptance-state.json" \
+  "$DIAGNOSTICS/view-degraded-state.json" \
+  "$DIAGNOSTICS/outbox-state.json" \
+  "$DIAGNOSTICS/worker-restart-state.json" \
+  "$DIAGNOSTICS/runtime-audit.json" \
+  "$DIAGNOSTICS/security-attacks.json" \
+  "$DIAGNOSTICS/zero-footprint.json"; do
+  MANIFEST_ARGS+=(--json-evidence "$evidence")
+done
+if [[ "${AI_RESEARCH_LIVE_ACCEPTANCE:-}" == "1" ]]; then
+  MANIFEST_ARGS+=(--json-evidence "$DIAGNOSTICS/literature-acceptance-state.json")
+fi
+for evidence in \
+  "$DIAGNOSTICS/image-identities.txt" \
+  "$SBOM/control-runtime-inventory.json" \
+  "$SBOM/worker-runtime-inventory.json" \
+  "$SBOM/ui-build-inventory.json"; do
+  MANIFEST_ARGS+=(--hashed-evidence "$evidence")
+done
 rm -rf -- \
   "$CLIENT_SOURCE_PROOF_DIR" \
   "$CLIENT_BASELINE_PROOF_DIR" \
@@ -330,3 +378,6 @@ CLIENT_CURRENT_PROOF_DIR=""
 CLIENT_SOURCE_CONTEXT=""
 CLIENT_BASELINE_CONTEXT=""
 CLIENT_CURRENT_CONTEXT=""
+"${LITERATURE_COMPOSE[@]}" down
+STACK_STARTED=0
+python "${MANIFEST_ARGS[@]}"

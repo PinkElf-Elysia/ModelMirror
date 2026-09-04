@@ -24,6 +24,14 @@ assert SPEC and SPEC.loader
 zero_footprint = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(zero_footprint)
 
+MANIFEST_SCRIPT = MODULE_ROOT / "scripts" / "acceptance_manifest.py"
+MANIFEST_SPEC = importlib.util.spec_from_file_location(
+    "acceptance_manifest_base", MANIFEST_SCRIPT
+)
+assert MANIFEST_SPEC and MANIFEST_SPEC.loader
+acceptance_manifest = importlib.util.module_from_spec(MANIFEST_SPEC)
+MANIFEST_SPEC.loader.exec_module(acceptance_manifest)
+
 BOUNDARY_SCRIPT = MODULE_ROOT / "scripts" / "validate_boundary.py"
 BOUNDARY_SPEC = importlib.util.spec_from_file_location(
     "validate_boundary_delete_base", BOUNDARY_SCRIPT
@@ -38,20 +46,25 @@ TRUST_PATHS = {
     "extensions/ai-research/module-boundary.json",
 }
 DEFAULT_ALLOWED_PARENT = [
-    ".dockerignore",
-    ".github/workflows/ai-research.yml",
     "server/main.py",
     "server/model_router/ai_research_bridge.py",
+    "server/model_router/chat_control.py",
     "server/model_router/chat_stable.py",
+    "server/model_router/repository.py",
     "server/tests/test_ai_research_bridge.py",
     "server/tests/test_provider_chat_stable_service.py",
 ]
 PROTECTED_PATHS = [
+    ".github/workflows/ai-research.yml",
     "docker-compose.yml",
     "server/requirements.txt",
     "server/Dockerfile",
     "client/package.json",
     "client/package-lock.json",
+    "extensions/ai-research/scripts/verify.ps1",
+    "extensions/ai-research/scripts/verify.sh",
+    "extensions/ai-research/scripts/zero_footprint.py",
+    "extensions/ai-research/tests/control/test_zero_footprint_base.py",
 ]
 
 
@@ -172,6 +185,8 @@ def _source_lock(
         "coreBaseline": {
             "clientDistGate": {"baseCommit": locked_commit},
             "clientDistReference": source_proof,
+            "defaultServices": ["server"],
+            "defaultVolumes": ["data"],
             "trackedFiles": {
                 "docker-compose.yml": zero_footprint.sha256_bytes(b"locked compose"),
                 "server/requirements.txt": zero_footprint.sha256_bytes(b"locked requirements"),
@@ -925,6 +940,211 @@ def test_current_compose_only_requires_successful_current_render(
     assert volumes == ["data"]
 
 
+def test_current_compose_must_match_exact_locked_sets() -> None:
+    source_lock = {
+        "coreBaseline": {
+            "defaultServices": ["client", "server"],
+            "defaultVolumes": ["data"],
+        }
+    }
+    zero_footprint.validate_current_compose(
+        source_lock, ["client", "server"], ["data"]
+    )
+    with pytest.raises(
+        zero_footprint.BaselineFailure,
+        match="default Compose service set changed",
+    ):
+        zero_footprint.validate_current_compose(
+            source_lock, ["replacement", "server"], ["data"]
+        )
+    with pytest.raises(
+        zero_footprint.BaselineFailure,
+        match="default Compose volume set changed",
+    ):
+        zero_footprint.validate_current_compose(
+            source_lock, ["client", "server"], ["replacement"]
+        )
+
+
+def test_acceptance_manifest_rejects_failed_required_evidence(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    runtime = tmp_path / "runtime"
+    runtime.mkdir()
+    for name, status in (
+        ("runtime-audit.json", "passed"),
+        ("security-attacks.json", "failed"),
+        ("zero-footprint.json", "passed"),
+    ):
+        (runtime / name).write_text(json.dumps({"status": status}), encoding="utf-8")
+    monkeypatch.setattr(acceptance_manifest, "RUNTIME_ROOT", runtime.resolve())
+    embedded = acceptance_manifest.load_json_evidence(
+        [runtime / name for name in (
+            "runtime-audit.json",
+            "security-attacks.json",
+            "zero-footprint.json",
+        )], runtime.resolve()
+    )
+
+    with pytest.raises(
+        acceptance_manifest.ManifestFailure,
+        match="required evidence did not pass",
+    ):
+        acceptance_manifest.require_passed_json(
+            embedded, "security-attacks.json"
+        )
+
+
+def _manifest_case(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> tuple[list[str], Path, Path, str]:
+    repo, _ = _init_gate_repo(tmp_path)
+    _write(repo, ".gitignore", "extensions/ai-research/runtime/\n")
+    head = _commit(repo, "freeze verification fixture")
+    module_root = repo / "extensions" / "ai-research"
+    runtime = module_root / "runtime"
+    diagnostics = runtime / "diagnostics" / "verify-test"
+    diagnostics.mkdir(parents=True)
+    values = {
+        "acceptance-state.json": {"runs": ["run-1", "run-2", "run-3"]},
+        "view-degraded-state.json": {
+            "schemaVersion": 1, "status": "passed", "runId": "run-view"
+        },
+        "outbox-state.json": {"runId": "run-4"},
+        "worker-restart-state.json": {"runId": "run-5"},
+        "runtime-audit.json": {
+            "status": "passed",
+            "runs": [
+                *[{"runId": f"run-{i}"} for i in range(1, 6)],
+                {"runId": "run-view"},
+            ],
+        },
+        "security-attacks.json": {
+            "status": "passed", "checks": sorted(acceptance_manifest.SECURITY_CHECKS)
+        },
+        "zero-footprint.json": {"status": "passed", "baseCommit": head, "headCommit": head},
+    }
+    output = diagnostics / "full-acceptance-manifest.json"
+    argv = [
+        "--base", head, "--expected-head", head,
+        "--distribution-mode", "external-pull",
+        "--evidence-root", str(diagnostics), "--output", str(output),
+    ]
+    for name, value in values.items():
+        path = diagnostics / name
+        path.write_text(json.dumps(value), encoding="utf-8")
+        argv.extend(("--json-evidence", str(path)))
+    for name in sorted(acceptance_manifest.REQUIRED_HASHED):
+        path = diagnostics / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("fixture-only test identity", encoding="utf-8")
+        argv.extend(("--hashed-evidence", str(path)))
+    monkeypatch.setattr(acceptance_manifest, "REPO_ROOT", repo)
+    monkeypatch.setattr(acceptance_manifest, "MODULE_ROOT", module_root)
+    monkeypatch.setattr(acceptance_manifest, "RUNTIME_ROOT", runtime.resolve())
+    return argv, output, repo, head
+
+
+def test_acceptance_manifest_embeds_gates_and_hashes_external_evidence(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    argv, output, repo, head = _manifest_case(monkeypatch, tmp_path)
+    assert acceptance_manifest.main(argv) == 0
+
+    receipt = json.loads(output.read_text(encoding="utf-8"))
+    claimed_hash = receipt.pop("receiptSha256")
+    assert claimed_hash == acceptance_manifest.sha256_bytes(
+        json.dumps(
+            receipt, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
+    )
+    assert receipt["baseCommit"] == head
+    assert receipt["headCommit"] == head
+    assert receipt["headTree"] == _git(repo, "rev-parse", "HEAD^{tree}").stdout.strip()
+    assert receipt["embeddedEvidence"]["security-attacks.json"]["status"] == "passed"
+    assert receipt["liveLiteratureAcceptance"] == "not_run"
+    assert receipt["p2rQualification"] == "not_run"
+    assert receipt["hashedEvidence"]["image-identities.txt"] == {
+        "bytes": len(b"fixture-only test identity"),
+        "sha256": acceptance_manifest.sha256_bytes(b"fixture-only test identity"),
+    }
+    original = output.read_bytes()
+    with pytest.raises(FileExistsError):
+        acceptance_manifest.main(argv)
+    assert output.read_bytes() == original
+
+
+@pytest.mark.parametrize("attack", ["empty", "missing-artifact", "invalid-digest", None])
+def test_acceptance_manifest_validates_optional_literature_evidence(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, attack: str | None
+) -> None:
+    argv, output, _repo, _head = _manifest_case(monkeypatch, tmp_path)
+    value = {
+        "schemaVersion": 1,
+        "projectId": "rp_" + "1" * 32,
+        "collectionId": "public-test-collection",
+        "artifactSha256": {name: "2" * 64 for name in acceptance_manifest.LITERATURE_ARTIFACTS},
+    }
+    if attack == "empty":
+        value = {}
+    elif attack == "missing-artifact":
+        value["artifactSha256"].pop("references.bib")
+    elif attack == "invalid-digest":
+        value["artifactSha256"]["references.bib"] = "not-a-sha256"
+    path = output.parent / "literature-acceptance-state.json"
+    path.write_text(json.dumps(value), encoding="utf-8")
+    argv.extend(("--json-evidence", str(path)))
+    if attack is not None:
+        with pytest.raises(acceptance_manifest.ManifestFailure, match="literature acceptance"):
+            acceptance_manifest.main(argv)
+        assert not output.exists()
+    else:
+        assert acceptance_manifest.main(argv) == 0
+        receipt = json.loads(output.read_text(encoding="utf-8"))
+        assert receipt["liveLiteratureAcceptance"] == "passed"
+        assert receipt["embeddedEvidence"][path.name] == value
+
+
+@pytest.mark.parametrize("attack", [
+    "dirty", "head-change", "stale-zero", "missing-file", "cross-run",
+    "missing-security-check", "wrong-audited-run",
+])
+def test_acceptance_manifest_rejects_unbound_or_incomplete_evidence(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, attack: str
+) -> None:
+    argv, output, repo, _head = _manifest_case(monkeypatch, tmp_path)
+    if attack in {"dirty", "head-change"}:
+        _write(repo, "candidate.txt", "changed after tests started")
+        if attack == "head-change":
+            _commit(repo, "unexpected new head")
+    elif attack == "missing-file":
+        (output.parent / "outbox-state.json").unlink()
+    elif attack == "cross-run":
+        old_path = output.parent / "outbox-state.json"
+        other_path = output.parent.parent / "another-run" / old_path.name
+        other_path.parent.mkdir()
+        other_path.write_bytes(old_path.read_bytes())
+        argv[argv.index(str(old_path))] = str(other_path)
+    else:
+        name = {
+            "stale-zero": "zero-footprint.json",
+            "missing-security-check": "security-attacks.json",
+            "wrong-audited-run": "runtime-audit.json",
+        }[attack]
+        path = output.parent / name
+        value = json.loads(path.read_text(encoding="utf-8"))
+        if attack == "stale-zero":
+            value["headCommit"] = "9" * 40
+        elif attack == "missing-security-check":
+            value["checks"].pop()
+        else:
+            value["runs"][0]["runId"] = "different-run"
+        path.write_text(json.dumps(value), encoding="utf-8")
+    with pytest.raises(acceptance_manifest.ManifestFailure):
+        acceptance_manifest.main(argv)
+    assert not output.exists()
+
+
 def test_current_compose_render_failure_is_not_suppressed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -958,6 +1178,7 @@ def test_workflow_early_gate_accepts_module_and_base_allowlist(
 @pytest.mark.parametrize(
     "relative",
     [
+        ".dockerignore",
         "server/unapproved.py",
         "client/src/unapproved.ts",
         "deploy/unapproved.yml",
@@ -1007,7 +1228,7 @@ def test_workflow_early_gate_rejects_protected_delete_and_rename(
     if operation == "delete":
         (repo / relative).unlink()
     else:
-        _git(repo, "mv", relative, ".dockerignore")
+        _git(repo, "mv", relative, "server/main.py")
     _commit(repo, f"protected {operation}")
 
     result = _run_workflow_gate(repo, base)
@@ -1189,7 +1410,9 @@ def test_workflow_selects_event_base_and_never_coalesces_push_runs() -> None:
     assert "github.event.before" in workflow
     assert "github.event.pull_request.number || github.sha" in workflow
     assert "cancel-in-progress: ${{ github.event_name == 'pull_request' }}" in workflow
-    assert '      - "server/main.py"' not in workflow
+    assert '      - "server/main.py"' in workflow
+    assert '      - "server/model_router/chat_control.py"' in workflow
+    assert '      - "server/model_router/repository.py"' in workflow
     assert '      - "server/tests/test_ai_research_bridge.py"' in workflow
     assert "extensions/ai-research/source-lock.json" in workflow
     assert "extensions/ai-research/module-boundary.json" in workflow
@@ -1220,6 +1443,7 @@ def test_verify_scripts_build_three_proofs_and_pass_full_zero_footprint_interfac
     assert "baseline-client-dist" in script
     assert '"--client-dist"' in script or "--client-dist" in script
     assert '"--base"' in script or "--base" in script
+    assert "tests/control/test_trusted_full_bootstrap.py" in script
     assert "client-source" in script
     assert "client-baseline" in script
     assert "client-current" in script
@@ -1234,3 +1458,17 @@ def test_verify_scripts_build_three_proofs_and_pass_full_zero_footprint_interfac
         assert "diff --quiet --no-ext-diff $comparisonBase HEAD --" in script
         assert "diff --quiet --no-ext-diff --cached HEAD --" in script
         assert "diff --quiet --no-ext-diff -- @trustFiles" in script
+
+
+def test_windows_verifier_uses_short_system_pytest_temp_root() -> None:
+    script = (
+        zero_footprint.REPO_ROOT / "extensions/ai-research/scripts/verify.ps1"
+    ).read_text(encoding="utf-8")
+
+    assert "[System.IO.Path]::GetTempPath()" in script
+    assert '"mm-ai-research-pytest-"' in script
+    assert 'Join-Path $runtime ("pytest-"' not in script
+    assert "[System.Security.Cryptography.SHA256]::Create()" in script
+    assert "Get-FileHash" not in script
+    assert "('tcp', lambda: socket.create_connection(('1.1.1.1', 443), timeout=1))" in script
+    assert '("tcp", lambda:' not in script
