@@ -887,6 +887,14 @@ class ProviderWorkloadCertificationChecks(BaseModel):
     batch_terminal_verified: bool = False
     media_format_verified: bool = False
     terminal_signal_verified: bool = False
+    safe_terminal_verified: bool = False
+    sse_done_observed: bool | None = None
+    finish_stop_observed: bool | None = None
+    finish_length_observed: bool | None = None
+    finish_error_observed: bool | None = None
+    finish_filter_observed: bool | None = None
+    finish_other_observed: bool | None = None
+    transcript_matches_fixture: bool | None = None
     async_terminal_verified: bool = False
     manual_media_verified: bool = False
 
