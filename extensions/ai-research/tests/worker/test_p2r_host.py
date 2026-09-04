@@ -96,6 +96,18 @@ def bridge_artifact_messages() -> list[ChatMessageUser]:
     )
 
 
+def bridge_tool_info() -> ToolInfo:
+    return ToolInfo(
+        name="python",
+        description="Execute a bounded Python dry-run in the isolated P2R sandbox.",
+        parameters=ToolParams(
+            properties={"code": {"type": "string"}},
+            required=["code"],
+            additionalProperties=False,
+        ),
+    )
+
+
 def test_p2r_bridge_credentials_never_fall_back_to_literature_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -839,6 +851,66 @@ def test_bridge_adapter_preserves_a_bounded_python_tool_call_and_route_identity(
     assert message.tool_calls[0].arguments == {"code": "print(1)"}
 
 
+@pytest.mark.parametrize(
+    "finish_reason",
+    [None, "stop", "length", "content_filter", "future_reason"],
+)
+def test_bridge_adapter_rejects_non_contract_initial_finish_reason(
+    monkeypatch: pytest.MonkeyPatch,
+    finish_reason: object,
+) -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"X-ModelMirror-Route-Run-Id": "chatrun_finish_reason"},
+            json={
+                "model": "openai/gpt-5.4",
+                "choices": [
+                    {
+                        "finish_reason": finish_reason,
+                        "message": {
+                            "content": None,
+                            "tool_calls": [
+                                {
+                                    "id": "call_python",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "python",
+                                        "arguments": '{"code":"print(1)"}',
+                                    },
+                                }
+                            ],
+                        },
+                    }
+                ],
+            },
+        )
+
+    real_client = httpx.AsyncClient
+
+    def client_factory(**kwargs):
+        return real_client(
+            timeout=kwargs["timeout"],
+            trust_env=False,
+            follow_redirects=False,
+            transport=httpx.MockTransport(handler),
+        )
+
+    monkeypatch.setattr(host.httpx, "AsyncClient", client_factory)
+    with pytest.raises(P2RHostError, match="finish reason"):
+        asyncio.run(
+            bridge_api().generate(
+                [
+                    ChatMessageSystem(content=BRIDGE_PROMPT.decode("utf-8")),
+                    *bridge_artifact_messages(),
+                ],
+                [bridge_tool_info()],
+                "auto",
+                GenerateConfig(max_tokens=30_000, temperature=0.2),
+            )
+        )
+
+
 def test_phase_artifact_messages_are_canonical_chunked_and_utf8_bound() -> None:
     select = ("研究🧪" + "x" * 200_005).encode("utf-8")
     candidate = b'{"candidate":{}}'
@@ -1213,6 +1285,3 @@ def test_inspect_executes_python_in_the_locked_sandbox_and_records_receipt(
     assert receipts[0]["scriptSha256"] == sha(code)
     assert receipts[0]["stdout"] == "3\n"
     assert receipts[0]["exitCode"] == 0
-    ModelMirrorBridgeAPI,
-    _modelmirror_route_run_ids,
-    _validated_loopback_endpoint,

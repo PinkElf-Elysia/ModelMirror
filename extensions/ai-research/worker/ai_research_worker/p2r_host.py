@@ -472,7 +472,14 @@ class ModelMirrorBridgeAPI(ModelAPI):
             if not isinstance(final_value, dict):
                 raise P2RHostError("fixed model bridge returned the wrong coherence shape")
             _validate_coherence_schema(final_value)
-        stop_reason = "tool_calls" if tool_calls else _stop_reason(choice.get("finish_reason"))
+        finish_reason = choice.get("finish_reason")
+        expected_finish_reason = (
+            "tool_calls" if stage == "coherence_initial" else "stop"
+        )
+        if finish_reason != expected_finish_reason:
+            raise P2RHostError(
+                "fixed model bridge returned an invalid phase finish reason"
+            )
         output = ModelOutput.from_message(
             ChatMessageAssistant(
                 content=content,
@@ -482,7 +489,7 @@ class ModelMirrorBridgeAPI(ModelAPI):
                 if route_run_id
                 else None,
             ),
-            stop_reason=stop_reason,
+            stop_reason=expected_finish_reason,
         )
         output.model = P2R_MODEL_ID
         usage = value.get("usage") or {}
@@ -531,14 +538,6 @@ def _safe_int(value: object) -> int:
         return max(0, int(value))
     except (TypeError, ValueError):
         return 0
-
-
-def _stop_reason(value: object) -> str:
-    if value == "length":
-        return "max_tokens"
-    if value == "content_filter":
-        return "content_filter"
-    return "stop"
 
 
 def _text_content(content: object) -> str:
