@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-08-28",
-  "modelMirrorBaseCommit": "11d35c1d84c0a18a05779a37d60cb59ef7a25867",
+  "generatedAt": "2026-08-31",
+  "modelMirrorBaseCommit": "ae284fbbbd59831ccdf2df2b34c9cb1239a57220",
   "claimLevel": "harness_only",
   "packStatus": "fixture_only",
   "runtimes": {
@@ -30,19 +30,24 @@
   "coreBaseline": {
     "clientDistGate": {
       "mode": "same_runner_base_vs_head",
-      "baseCommit": "11d35c1d84c0a18a05779a37d60cb59ef7a25867"
+      "baseCommit": "ae284fbbbd59831ccdf2df2b34c9cb1239a57220"
     },
     "clientDistReference": {
-      "fileCount": 38,
-      "totalBytes": 18880491,
-      "aggregateSha256": "f2ffc492aa1a06299c173293eda9338383e17535029f14959a2b8a46793a13ce"
+      "fileCount": 39,
+      "totalBytes": 18996874,
+      "aggregateSha256": "fe0004c5706b5b2ba116b57051a5c87cae0a964297d21f665568f649af0df1bc"
     },
     "trackedFiles": {
+      ".github/workflows/ai-research.yml": "6d5cb9a9c508f6d6a4c86c9cf320286f55eed077d3445bb9de3a78af8ea7d5b5",
       "docker-compose.yml": "6e4eeda28a07d8a1432d0230e65ac9fff65069229bf11ef20f5cfe4d6ea1a599",
       "server/requirements.txt": "2bdcee334343bfbeed372d9173ae684d0df839c209d293b780987cfc687a92a4",
-      "server/Dockerfile": "a84a7dca3063646dee999e4c2685518eda3bdb640d7026c8dd6c878a69db4560",
+      "server/Dockerfile": "071eed6241614107affdde4f48a5279c943ff20c5c4179da1fad180cf0d1f390",
       "client/package.json": "e1a089a9661e71140315bd931993c3fa047dd73d5eb4cef58bd1fc87ad292b7e",
-      "client/package-lock.json": "0769346386c572ab84f1be52a4882315d98896d76f7e77d21223c359c7dde476"
+      "client/package-lock.json": "0769346386c572ab84f1be52a4882315d98896d76f7e77d21223c359c7dde476",
+      "extensions/ai-research/scripts/verify.ps1": "ae869e8347d096dbf4475fdc72f4895a9310aa1edd5b0a6be33ef5d02d80b42d",
+      "extensions/ai-research/scripts/verify.sh": "a0e521ca7a1287108f7dd0f28275595d7076f3ea907c8cf2369a14589d1cc107",
+      "extensions/ai-research/scripts/zero_footprint.py": "1c5ed860452c09b9ea271baf3c3bd6743f902bb8b71e643633c2ca611dc5c619",
+      "extensions/ai-research/tests/control/test_zero_footprint_base.py": "b0969305dfde39b660d549bf36790b3d27b2340a27506a5a235911c0ed119a15"
     },
     "defaultServices": [
       "browser",
@@ -117,6 +122,213 @@
       "revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
       "license": "Apache-2.0",
       "integration": "one-shot-pinned-asset-initializer"
+    },
+    {
+      "name": "Microsoft ResearchStudio IdeaSpark",
+      "repository": "https://github.com/microsoft/ResearchStudio",
+      "commit": "a785e3aca7a2f0cb9775d45a7f2b5d3bf16f076a",
+      "archive": "https://github.com/microsoft/ResearchStudio/archive/a785e3aca7a2f0cb9775d45a7f2b5d3bf16f076a.zip",
+      "archiveSha256": "89a9627486ac05fd31a126fe8d6d940cff1a958350408a6a54bf0abc7f8ace67",
+      "license": "MIT",
+      "licenseSha256": "db60a6df93f1786929a223558ca0c202ef61095600785cf7503fbcd4bac1bd02",
+      "reuseRoot": "ResearchStudio-Idea/skills/idea_spark",
+      "reuseRootFileCount": 104,
+      "reuseRootTotalBytes": 1433346,
+      "reuseRootAggregateSha256": "04ef23eda432857c5d97c68cd7bfe3956ce7d13d8455609783ce306c5a6df703",
+      "skillSha256": "5dfb79c52a00d85bd6d3e5e99408c389c4e041d824314019829c351400f1001c",
+      "hostLoopSha256": "0aec39ecb1cf0d3aa0d85694ac1da0f6ba2c39a55d96effa8cb21ca55aaff1b8",
+      "nextStepSha256": "ed33e8fcdad7e941cc86b38163d3e8e4bb4dc279a3034c880b8b7caa10f2c8cb",
+      "integration": "qualification-only-locked-source-subset",
+      "qualificationStatus": "qualification_invalid_execution_provenance",
+      "deterministicQualification": {
+        "selftestUnits": "51/51",
+        "selftestRouting": "37/37",
+        "freshNavigatorSha256": "e70fce853b0b36d36454a496138a0b05398d6c74c10b7075a5382da399ec1daf"
+      },
+      "modelQualification": {
+        "qualificationBaseCommit": "1ef7b86e4c9d5ab57b5e83fc9e0cadccff14375a",
+        "selectedModelId": "openai/gpt-5.4",
+        "bridgeProfile": {
+          "environmentVariable": "AI_RESEARCH_HYPOTHESIS_MODEL_ID",
+          "callerAuthority": {
+            "genericTokenEnvironmentVariable": "AI_RESEARCH_S2S_TOKEN",
+            "p2rTokenEnvironmentVariable": "AI_RESEARCH_P2R_S2S_TOKEN",
+            "tokensMustBeNonEmptyAndDifferent": true,
+            "genericTokenScopes": [
+              "model_discovery",
+              "literature",
+              "ordinary_hypothesis_text"
+            ],
+            "p2rTokenScope": "strict_phase_requests_only",
+            "p2rTokenExcludedFromModuleCompose": true
+          },
+          "requiredCapabilities": [
+            "chat_text",
+            "chat_tools"
+          ],
+          "toolPolicy": {
+            "default": "forbidden",
+            "coherence": "exact_single_bound_inspect_python_tool",
+            "postCoherence": "inactive"
+          },
+          "responseFormatScope": "json_object_hypothesis_only",
+          "routeMode": "scoped_current_certification",
+          "sharedStablePolicyMutated": false,
+          "singleMessageMaxChars": 128000,
+          "literatureTotalMessageMaxChars": 128000,
+          "hypothesisTotalMessageMaxChars": 512000,
+          "requestMaxBytes": 1048576
+        },
+        "phase": "phase1_contract_passed_p2r_pending",
+        "p2rPrebatch": {
+          "status": "no_go_trust_governance_and_independent_reaudit_pending",
+          "activeBridgeContractCount": 8,
+          "activeReceiptPhases": [
+            "phase0",
+            "phase1",
+            "phase2"
+          ],
+          "coherenceHostImplemented": true,
+          "postCoherenceContractCount": 19,
+          "postCoherenceContractsActivated": false,
+          "postCoherenceToolsAllowed": false,
+          "trustedExpectedFactBindingImplemented": false,
+          "freshModelCallAllowed": false,
+          "comparisonBaseGate": {
+            "hardeningCommit": "6bb9f80b6a6001f8b5e4da72859525c6b67cda87",
+            "sourceBaselineCommit": "ae284fbbbd59831ccdf2df2b34c9cb1239a57220",
+            "assetProposalCommit": "2fbc0200af178d4a22173ef8f07f783287f03f29",
+            "trustBaselineStatus": "local_candidate_pending_independent_maintainer_governance",
+            "functionalBatchQualified": false
+          },
+          "offlinePostCoherenceHostSlice": {
+            "status": "h1a_contract_implemented_pending_independent_reaudit",
+            "pathRevalidatedHandoffContract": true,
+            "originalInspectEvalBindingContract": true,
+            "originalInspectEvalBindingQualified": false,
+            "canonicalRawSelection": true,
+            "canonicalMerge": false,
+            "collisionNextAction": true,
+            "collisionNextActionDispatchAllowed": false,
+            "collisionReceiptSchemaDraft": false,
+            "collisionReceiptValidatorImplemented": false,
+            "collisionExecutionProvenance": false,
+            "collisionReceiptVerification": false,
+            "critiqueNextAction": false,
+            "critiqueExecution": false,
+            "networkAllowed": false,
+            "modelDispatchAllowed": false,
+            "subprocessAllowed": false
+          }
+        },
+        "fullChainQualification": {
+          "authority": "invalid",
+          "invalidatedBy": {
+            "code": "execution_provenance_unverified",
+            "coherenceOutputsClaimingExecuted": 3,
+            "trustedExecutionReceipts": 0,
+            "qualificationFixturePaperCount": 6,
+            "qualificationFixtureFulltextFailures": 6,
+            "attempt1BlockingSidecarAvailableToAudit": false,
+            "requiresVerifiedV01Bundle": true,
+            "requiresFreshRun": true
+          },
+          "candidateCycleCount": 3,
+          "candidateCycleCap": 3,
+          "terminalState": "phase_3_failed",
+          "terminalReason": "phase3_audit_abandoned_retry_budget_exhausted",
+          "terminalArtifactSizeBytes": 5106,
+          "terminalArtifactSha256": "01fc18012ae5e6457bcf095643d9534cc7488c2cba8d7b07daeeef31a7fd258a",
+          "auditOutputSha256": [
+            "688aed20cc66bb1ba53655fdb0b077fdff62451e7f81bca56871dc84b792efbd",
+            "e77c1c5e82f465d861a642a9ae9a3fc08ca46ad28e4179736c0ba6f4da0279e9",
+            "25f930d0fad71ceda32edcd2f8d6db880b085f9fd1cd3e92fae8b8aabe96e741"
+          ],
+          "phase2And3PromptTokens": 396002,
+          "phase2And3CompletionTokens": 55215,
+          "phase2And3TotalTokens": 451217,
+          "phase2And3ProviderReportedCostUsd": 1.647158,
+          "collisionQualification": {
+            "status": "degraded",
+            "connectorsAvailable": 2,
+            "connectorsRequiredByQualification": 4,
+            "available": [
+              "openalex",
+              "semanticscholar"
+            ],
+            "unavailable": [
+              "arxiv",
+              "openreview"
+            ],
+            "latestTruncatedHitCount": 189,
+            "semanticScholarRateLimited": true,
+            "windowsEncodingFalseGreenArchived": true,
+            "upstreamTransitiveVersionsLocked": false,
+            "redistributionQualified": false
+          },
+          "verdict": "invalid"
+        },
+        "attempts": [
+          {
+            "modelId": "openai/gpt-4.1-mini",
+            "httpStatus": 200,
+            "finishReason": "stop",
+            "outputSha256": "2689d750d8f5f099609163c73d8849fea5dbf5ac97a16db85810dbff4bb6b48d",
+            "jsonValid": true,
+            "inlinePaperIdCount": 0,
+            "fulltextDegradedPreserved": false,
+            "verdict": "failed"
+          },
+          {
+            "modelId": "openai/gpt-5.4",
+            "connectionKind": "newapi",
+            "chatCertificationId": "chatcert_7ef44619e30244a48c425c6c7f922ae4",
+            "httpStatus": 200,
+            "finishReason": "stop",
+            "rawResponseSizeBytes": 14170,
+            "rawResponseSha256": "c249ea03d809fff4807b5943f6aff293f77baad22d6de49090510533a85b7355",
+            "outputChars": 12220,
+            "outputSha256": "33dde463662dcf546e02f1dcada773e097b11f68d39491c20a669bc46853186e",
+            "jsonValid": true,
+            "inlinePaperIdCount": 4,
+            "closestAdjacentCount": 3,
+            "anchorCount": 1,
+            "fulltextDegradedPreserved": true,
+            "conditionalAnchorRulePinningPresent": true,
+            "promptTokens": 7664,
+            "completionTokens": 2503,
+            "totalTokens": 10167,
+            "providerReportedCostUsd": 0.056705,
+            "elapsedMs": 23146.747,
+            "verdict": "passed"
+          }
+        ]
+      },
+      "redistributionCandidate": false
+    },
+    {
+      "name": "NoviScl AI-Researcher experiment plan generator",
+      "repository": "https://github.com/NoviScl/AI-Researcher",
+      "commit": "e5dd05a90bcadb436c07283c2f429367c6e525d3",
+      "archive": "https://github.com/NoviScl/AI-Researcher/archive/e5dd05a90bcadb436c07283c2f429367c6e525d3.zip",
+      "archiveSha256": "91fc65714e6240fd80d1c66eb2e8dbf11627e20b14f7a89988be224744e2bf57",
+      "license": "MIT",
+      "licenseSha256": "3ed0299bfe7ddd1d39b69dd1e98bd3a5ef97fb075457456a7444284d256dc55a",
+      "reuseFiles": {
+        "ai_researcher/src/experiment_plan_gen.py": "a6500a982eff96da42adf527473f66cf6664f3daf6e883296de4b68d847ed452",
+        "prompts/experiment_plan_demo.json": "8ccdd7ac4fb8d61cee7115fa130e1fe81794ebb5788ca4ffd567db1e5c886a94",
+        "experiment_plan_examples.txt": "f0c991a7e0acb5ecef02d20a3992db091cf6ed4aba2013d3497afe25c77e71d2",
+        "experiment_plan_examples_prompting.txt": "abcdf87d0f888891cf4ab17ca543ad95471cb0daf968a94488f091bb4b6c8f56"
+      },
+      "integration": "qualification-only-locked-prompt-and-schema-assets",
+      "excludedUpstreamSurfaces": [
+        "keys.json",
+        "direct-provider-client",
+        "experiment-execution"
+      ],
+      "qualificationStatus": "model_json_contract_passed",
+      "qualificationOutputSha256": "11069ca233984b0c0dce8cdc2af15ddfeead96e8745d6d01b69595682ccdaa1b",
+      "redistributionCandidate": false
     }
   ],
   "lockedFiles": {
@@ -129,20 +341,20 @@
       "sha256": "7e1929124d79dcf618fd1e05aa0580b473365931bc47390db973d05293263863"
     },
     "requirements-test.lock": {
-      "sizeBytes": 2758,
-      "sha256": "556bfbf5e71d7e76bc4d74dbb56e332d1ffa674d7d9c875416b45a74a5605b0d"
+      "sizeBytes": 3027,
+      "sha256": "723d5c69b9e4df8b60b1b73d0a498931a41a050733136bf1f08f1896e251d423"
     },
     "worker/fixtures/offline_tasks.py": {
       "sizeBytes": 1603,
       "sha256": "c6095d8c3647eafc5287ed73cf976540c5d0de9b1da8810f12198bd779ed47ae"
     },
     "control/Dockerfile": {
-      "sizeBytes": 3410,
-      "sha256": "5f2cd526aee9e769d7bfd7b475806cc68562554daf0afcaeed0a28e2b22f6223"
+      "sizeBytes": 3445,
+      "sha256": "a5f6dfc14ae19e69762dc39873618a54301ba49e7960c18ecf03bbbd8bcb35af"
     },
     "worker/Dockerfile": {
-      "sizeBytes": 1736,
-      "sha256": "d96c0b01c7086dab159b631aaaa91b183feb6b8bf79f784a9382562cd2e14253"
+      "sizeBytes": 1807,
+      "sha256": "adf8dbb681ccfa90624327251b0678364ea5ceb7b4663b2b6fcef1eb4bfc67dc"
     },
     "scripts/client-proof.Dockerfile": {
       "sizeBytes": 362,
@@ -160,13 +372,122 @@
       "sizeBytes": 5854,
       "sha256": "da33fbc665c144afd24c7eec7eed77edda3167906a9fa5be8144bd4595902416"
     },
+    "V0_2_UPSTREAM_QUALIFICATION.md": {
+      "sizeBytes": 24540,
+      "sha256": "35963133f7058117e83da47c7030d57771d2f0e0ed3e6a5872b8a9301b2ee73e"
+    },
+    "THIRD_PARTY_NOTICES.md": {
+      "sizeBytes": 6092,
+      "sha256": "c32ed664aadf0a8a0f07fee83da6e42f74c2f8e5ae6588d8eb238c71a3d0e60b"
+    },
+    "module-boundary.json": {
+      "sizeBytes": 2658,
+      "sha256": "ff9000f52cd5f5accf1d9d43899630b49f4ea4e73aafb88203e005b4f6e9e491"
+    },
+    "scripts/validate_boundary.py": {
+      "sizeBytes": 39607,
+      "sha256": "002486ac59ba5682b25ac3ee54954d8e8d6631e2d7ce22a03f3e7fc9d1802dc7"
+    },
+    "worker/p2r-connectors-linux-x86_64.requirements.lock": {
+      "sizeBytes": 2064,
+      "sha256": "3294cf73e6cadb018775c64e11b886187dfed455501c828c7203ddca976a491b"
+    },
+    "worker/p2r-sandbox.compose.yml": {
+      "sizeBytes": 535,
+      "sha256": "23e94e772deb824fa7c0b86fa54264e10ee66e6568529c436b678cc3c04d2b98"
+    },
+    "worker/ai_research_worker/p2r_input_gate.py": {
+      "sizeBytes": 16585,
+      "sha256": "aa75e9173196c0d64156526c24e01bc2ceabc8d5513083ae79b8496655b70bef"
+    },
+    "worker/ai_research_worker/p2r_connectors.py": {
+      "sizeBytes": 24636,
+      "sha256": "5df0b6cfe64cefad916e700092bfb24b116208e5605dd715c675d6f3202ae9f7"
+    },
+    "worker/ai_research_worker/p2r_phase_contracts.py": {
+      "sizeBytes": 80848,
+      "sha256": "9568ae3ec57c65d9b4a1c1026dfae25cfba01eb2da9702ca3953600898b4023c"
+    },
+    "worker/ai_research_worker/p2r_host.py": {
+      "sizeBytes": 76737,
+      "sha256": "edf88efe4f49b1c4c96f25dabccde56abebecfdc1e87c751db50ddaad68e3942"
+    },
+    "worker/ai_research_worker/p2r_post_coherence_host.py": {
+      "sizeBytes": 10109,
+      "sha256": "6e0897dc524be436e93a641854984fd9b534cdd2ba5e15692f1989a99170e796"
+    },
+    "scripts/qualify_p2r_connectors.ps1": {
+      "sizeBytes": 13453,
+      "sha256": "8da4a04e2b769f0bbbb3c33f84be72c89a9c2c46908b110017db02d90913d93f"
+    },
+    "scripts/verify.ps1": {
+      "sizeBytes": 20007,
+      "sha256": "7bd3438bbf3fd59c2bd798b22ff8ec79146a169f9bace9220f79e9f4c3ee41f9"
+    },
+    "scripts/verify.sh": {
+      "sizeBytes": 15829,
+      "sha256": "ddb44cfe0ba76afaefe89f3e1bd450aa0444ad15e6c25db03ba162ed916c92fa"
+    },
+    "scripts/zero_footprint.py": {
+      "sizeBytes": 13448,
+      "sha256": "19195c21a73940f3679a2f778c8b99d9da3b1631cd1282c08435fdb655e7d55a"
+    },
+    "scripts/acceptance.py": {
+      "sizeBytes": 21392,
+      "sha256": "a0ec64435ed58d3bdc5caa14095792acce69068d19e078174d183e749430e830"
+    },
+    "scripts/acceptance_manifest.py": {
+      "sizeBytes": 11942,
+      "sha256": "92d4e740a368c6e43adcbedd615acb34681c3d1e6a5a0807517bf468b86b8910"
+    },
     "compose.yml": {
       "sizeBytes": 13165,
       "sha256": "6c2c4a5f71b347e528755fb1326a559288bc2ae68867ce4d73f457e420bea6d9"
+    },
+    "AGENTS.md": {
+      "sizeBytes": 7470,
+      "sha256": "4593f9db4a89f3cba0699b8518ebadfd5cee03d9eacd42a83532d081ebb0ce65"
+    },
+    "AI_RESEARCH_V0_ROADMAP.md": {
+      "sizeBytes": 47230,
+      "sha256": "1114f36bf7a6d9198ac89ab94e23663179995fc5b7078fd9796e09697bbc5c2d"
+    },
+    "G1_CLOSEOUT.md": {
+      "sizeBytes": 8778,
+      "sha256": "a352d4e3744c092da0794dc28ea358e5543a4ca4323dc02b2f8090bba0c878b7"
+    },
+    "tests/control/test_boundary_base.py": {
+      "sizeBytes": 16944,
+      "sha256": "e890bbd61bb6c1ff78cf275789539456f81c0b2cd86aeb26ad34f84586e7a75e"
+    },
+    "tests/control/test_zero_footprint_base.py": {
+      "sizeBytes": 50272,
+      "sha256": "e468e35444603bea44166753c05e87cd6f4019fb4a401ac496c331672d9201b9"
+    },
+    "tests/worker/test_p2r_connectors.py": {
+      "sizeBytes": 20574,
+      "sha256": "641258116764c2063c3cac3957793bbb6098258832b14e612095311172de0a02"
+    },
+    "tests/worker/test_p2r_host.py": {
+      "sizeBytes": 43661,
+      "sha256": "8ce97f6736814c44885e6360ca4e76b1cfe2dc94a5008e081884b4b393a44ae4"
+    },
+    "tests/worker/test_p2r_input_gate.py": {
+      "sizeBytes": 8581,
+      "sha256": "d7579194e10214c0fe5dc0bce1d28db2d1ef3ac1b1b309733b2f1417e93ce045"
+    },
+    "tests/worker/test_p2r_phase_contracts.py": {
+      "sizeBytes": 49004,
+      "sha256": "34fc582cabd8151cf5e64a9118d960815b973582cbd3abc7e9381ab387e347b5"
+    },
+    "tests/worker/test_p2r_post_coherence_host.py": {
+      "sizeBytes": 19787,
+      "sha256": "4a9f3094cffa14e55edcec30375950584a431b95fa70db9fb1fd263ddb655270"
     }
   },
   "licenseAudit": {
     "status": "passed_for_external_pull",
+    "statusScope": "localDeepResearchImage",
     "policy": "module-owned runtimes must have no unknown or denied licenses; the unmodified upstream LDR image may only be pulled by exact public digest and must not be mirrored, bundled, modified, or represented as MIT-only",
     "policySha256": "b5842c43da0a044133de3eaadde94de73e8363c57c9e51f98f8a67d444df48d8",
     "inventory": "runtime/sbom",
@@ -181,6 +502,153 @@
     "ui": {
       "packageCount": 371,
       "inventorySha256": "922b3e84ceb0ed19cc225d787b0e28891bf2362e213c0203c999ac93218582d0"
+    },
+    "p2rConnectorQualification": {
+      "status": "passed_for_local_ephemeral_qualification_only",
+      "platform": "linux/x86_64",
+      "python": "3.12.13",
+      "baseImage": "python@sha256:401f6e1a67dad31a1bd78e9ad22d0ee0a3b52154e6bd30e90be696bb6a3d7461",
+      "requirementsLockSha256": "3294cf73e6cadb018775c64e11b886187dfed455501c828c7203ddca976a491b",
+      "packageCount": 17,
+      "licenseMetadataUnknownCount": 0,
+      "licenseEvidence": "locked wheel METADATA raw License or License-Expression",
+      "licenseMetadata": [
+        {
+          "name": "certifi",
+          "version": "2026.7.22",
+          "sha256": "62f22742b58a1a33014a2b6b706588a8d7e2a88ae7bd1a6ebe8c992928483775",
+          "field": "License",
+          "rawValue": "MPL-2.0"
+        },
+        {
+          "name": "charset-normalizer",
+          "version": "3.5.1",
+          "sha256": "b9af956078716df40d985fb0dfeb2c2120c5ca92ba4ff4b388acfd01cdc14d08",
+          "field": "License",
+          "rawValue": "MIT"
+        },
+        {
+          "name": "Deprecated",
+          "version": "1.3.1",
+          "sha256": "597bfef186b6f60181535a29fbe44865ce137a5079f295b479886c82729d5f3f",
+          "field": "License",
+          "rawValue": "MIT"
+        },
+        {
+          "name": "editdistance",
+          "version": "0.8.1",
+          "sha256": "c59248eabfad603f0fba47b0c263d5dc728fb01c2b6b50fb6ca187cec547fdb3",
+          "field": "License",
+          "rawValue": "MIT"
+        },
+        {
+          "name": "feedparser",
+          "version": "6.0.14",
+          "sha256": "e35e3f760151b0c3b22cac9684155cae186a233e16c49bcbc6c49e91e3131137",
+          "field": "License",
+          "rawValue": "BSD-2-Clause"
+        },
+        {
+          "name": "feedparser-sgmllib",
+          "version": "2.1.0",
+          "sha256": "2cab2d43b95a954f920f18aebce7a4dbbb3f539780b127e2aa114f579821e01d",
+          "field": "License-Expression",
+          "rawValue": "PSF-2.0"
+        },
+        {
+          "name": "future",
+          "version": "1.0.0",
+          "sha256": "929292d34f5872e70396626ef385ec22355a1fae8ad29e1a734c3e43f9fbc216",
+          "field": "License",
+          "rawValue": "MIT"
+        },
+        {
+          "name": "idna",
+          "version": "3.19",
+          "sha256": "815e7be7a7806d54abb586dc943addc79e8b2ee16915059658cbeff4b1b43bf4",
+          "field": "License-Expression",
+          "rawValue": "BSD-3-Clause"
+        },
+        {
+          "name": "openreview-py",
+          "version": "2.5.1",
+          "sha256": "816963dfb56b39b18e324577ff60a8e0c59c850e0da2199629b32ec38fb91fbf",
+          "field": "License",
+          "rawValue": "MIT"
+        },
+        {
+          "name": "pycryptodome",
+          "version": "3.23.0",
+          "sha256": "c8987bd3307a39bc03df5c8e0e3d8be0c4c3518b7f044b0f4c15d1aa78f52575",
+          "field": "License",
+          "rawValue": "BSD, Public Domain"
+        },
+        {
+          "name": "PyJWT",
+          "version": "2.13.0",
+          "sha256": "66adcc2aff09b3f1bbd95fc1e1577df8ac8723c978552fd43304c8a290ac5728",
+          "field": "License-Expression",
+          "rawValue": "MIT"
+        },
+        {
+          "name": "pylatexenc",
+          "version": "2.11",
+          "sha256": "e78e7391d6c104f1ed150e21cfaa58016cdb50aa54406a2eecb793649ffdfdd0",
+          "field": "License",
+          "rawValue": "MIT"
+        },
+        {
+          "name": "requests",
+          "version": "2.34.2",
+          "sha256": "2a0d60c172f83ac6ab31e4554906c0f3b3588d37b5cb939b1c061f4907e278e0",
+          "field": "License",
+          "rawValue": "Apache-2.0"
+        },
+        {
+          "name": "tld",
+          "version": "0.13.2",
+          "sha256": "9b8fdbdb880e7ba65b216a4937f2c94c49a7226723783d5838fc958ac76f4e0c",
+          "field": "License-Expression",
+          "rawValue": "MPL-1.1 OR GPL-2.0-only OR LGPL-2.1-or-later"
+        },
+        {
+          "name": "tqdm",
+          "version": "4.70.0",
+          "sha256": "7f585706bfddbdebf89daac705b2dfcc16890130727d3197ca62c732b4310953",
+          "field": "License",
+          "rawValue": "MPL-2.0 AND MIT"
+        },
+        {
+          "name": "urllib3",
+          "version": "2.7.0",
+          "sha256": "9fb4c81ebbb1ce9531cce37674bbc6f1360472bc18ca9a553ede278ef7276897",
+          "field": "License-Expression",
+          "rawValue": "MIT"
+        },
+        {
+          "name": "wrapt",
+          "version": "2.3.0",
+          "sha256": "5d221a6e6ddd302b8397433184e96b59f259f50024b854db1c411a881586b6b8",
+          "field": "License-Expression",
+          "rawValue": "BSD-2-Clause"
+        }
+      ],
+      "knownCopyleftOrMultiLicensePackages": {
+        "certifi": "MPL-2.0",
+        "tld": "MPL-1.1 OR GPL-2.0-only OR LGPL-2.1-or-later",
+        "tqdm": "MPL-2.0 AND MIT"
+      },
+      "wheelExposure": "exact-hash-isolated-temporary-view",
+      "excludedFullTextExtras": [
+        "PyMuPDF"
+      ],
+      "distributionPolicy": {
+        "localEphemeralQualification": "allowed",
+        "mirror": "blocked",
+        "offlineBundle": "blocked",
+        "publish": "blocked"
+      },
+      "redistributionCandidate": false
     },
     "localDeepResearchImage": {
       "sbomUrl": "https://github.com/LearningCircuit/local-deep-research/releases/download/v1.10.6/sbom-container-amd64.spdx.json",
