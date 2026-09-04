@@ -109,17 +109,17 @@ class SQLiteRouterRepository:
         )
         self._lock = threading.RLock()
         self.storage_dir.mkdir(parents=True, exist_ok=True)
+        self._master_key = self._resolve_master_key(master_key)
+        self._fernet = Fernet(self._master_key)
+        self._initialize()
+        self._verify_or_record_master_key()
         if self.chat_completion_outbox_dir.is_symlink():
             raise RouterRepositoryError(
                 "provider_chat_completion_outbox_path_unsafe"
             )
         self.chat_completion_outbox_dir.mkdir(parents=True, exist_ok=True)
-        self._master_key = self._resolve_master_key(master_key)
-        self._fernet = Fernet(self._master_key)
-        self._initialize()
         self._reconcile_startup_chat_control_completions()
         self._recover_unresolved_chat_control_after_restart()
-        self._verify_or_record_master_key()
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path, timeout=15)
@@ -1302,9 +1302,13 @@ class SQLiteRouterRepository:
         with self._lock, self._connect() as connection:
             running_attempts = connection.execute(
                 """
-                SELECT tenant_id, id, run_id
-                FROM provider_chat_attempts
-                WHERE status = 'running'
+                SELECT attempt.tenant_id, attempt.id, attempt.run_id,
+                       run.gateway
+                FROM provider_chat_attempts AS attempt
+                JOIN provider_chat_runs AS run
+                  ON run.tenant_id = attempt.tenant_id
+                 AND run.id = attempt.run_id
+                WHERE attempt.status = 'running'
                 """
             ).fetchall()
             protected_runs: set[tuple[str, str]] = set()
@@ -1313,7 +1317,10 @@ class SQLiteRouterRepository:
                 attempt_id = str(attempt["id"])
                 run_id = str(attempt["run_id"])
                 pending_path = self._chat_completion_outbox_path(tenant_id, attempt_id)
-                if pending_path.is_symlink() or pending_path.exists():
+                if (
+                    str(attempt["gateway"]) == "ai_research_scoped"
+                    and (pending_path.is_symlink() or pending_path.exists())
+                ):
                     protected_runs.add((tenant_id, run_id))
                     continue
                 connection.execute(
@@ -3415,7 +3422,7 @@ class SQLiteRouterRepository:
         completion_tokens: int | None = None,
         total_tokens: int | None = None,
     ) -> dict[str, dict[str, object]]:
-        """Atomically terminalize a dispatched attempt, its run, and gate."""
+        """Atomically terminalize an AI Research scoped dispatch and gate."""
 
         clean_tenant = self._tenant_id(tenant_id)
         if status not in {"succeeded", "failed", "cancelled"}:
@@ -3446,6 +3453,10 @@ class SQLiteRouterRepository:
             ).fetchone()
             if run is None:
                 raise RouterRepositoryError("provider_chat_run_not_running")
+            if str(run["gateway"]) != "ai_research_scoped":
+                raise RouterRepositoryError(
+                    "provider_chat_completion_scope_invalid"
+                )
 
             if (
                 str(attempt["status"]) != "running"
@@ -3677,6 +3688,7 @@ class SQLiteRouterRepository:
             or not isinstance(payload.get("tenantId"), str)
             or not isinstance(payload.get("attemptId"), str)
             or not isinstance(payload.get("expectedRunId"), str)
+            or payload.get("gateway") != "ai_research_scoped"
             or payload.get("status") not in {"succeeded", "failed", "cancelled"}
             or not isinstance(payload.get("stagedAt"), str)
             or payload.get("payloadSha256")
@@ -3720,7 +3732,7 @@ class SQLiteRouterRepository:
         completion_tokens: int | None = None,
         total_tokens: int | None = None,
     ) -> dict[str, object]:
-        """Durably stage content-free completion facts outside router.sqlite3."""
+        """Durably stage content-free AI Research completion facts."""
 
         clean_tenant = self._tenant_id(tenant_id)
         if status not in {"succeeded", "failed", "cancelled"}:
@@ -3731,6 +3743,26 @@ class SQLiteRouterRepository:
             raise RouterRepositoryError(
                 "provider_chat_completion_run_id_invalid"
             )
+        with self._lock, self._connect() as connection:
+            scoped_run = connection.execute(
+                """
+                SELECT run.gateway
+                FROM provider_chat_attempts AS attempt
+                JOIN provider_chat_runs AS run
+                  ON run.tenant_id = attempt.tenant_id
+                 AND run.id = attempt.run_id
+                WHERE attempt.tenant_id = ? AND attempt.id = ?
+                  AND attempt.run_id = ?
+                """,
+                (clean_tenant, attempt_id, expected_run_id),
+            ).fetchone()
+        if (
+            scoped_run is None
+            or str(scoped_run["gateway"]) != "ai_research_scoped"
+        ):
+            raise RouterRepositoryError(
+                "provider_chat_completion_scope_invalid"
+            )
         clean_reasons = [
             str(item) for item in (reason_codes or []) if str(item).strip()
         ]
@@ -3739,6 +3771,7 @@ class SQLiteRouterRepository:
             "tenantId": clean_tenant,
             "attemptId": attempt_id,
             "expectedRunId": expected_run_id,
+            "gateway": "ai_research_scoped",
             "status": status,
             "resultClass": result_class,
             "errorCode": error_code,

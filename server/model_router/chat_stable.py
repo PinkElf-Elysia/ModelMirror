@@ -46,6 +46,7 @@ class ProviderChatStableDispatch:
     certification_id: str
     started_at: float
     required_certifications: tuple[ProviderChatCertificationBinding, ...]
+    gateway: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,27 +169,29 @@ class ProviderChatStableService:
             return ProviderChatStablePreflight(intercepted=False)
         policy = self.control.get_policy()
         clean_model = str(model_id or "").strip()
+        gateway = "ai_research_scoped" if scoped_certified else "default"
         if (
             policy.effective_mode == "legacy"
             or (not scoped_certified and clean_model not in policy.stable_model_ids)
         ):
             return ProviderChatStablePreflight(intercepted=False)
-        try:
-            reconciliation = self._repository_method(
-                "reconcile_chat_control_completions"
-            )(self.router_service.tenant_id)
-        except RouterRepositoryError as exc:
-            raise RouterServiceError(
-                "provider_chat_completion_reconciliation_pending",
-                "上一次模型调用的终态仍待持久化，请稍后重试。",
-                status_code=503,
-            ) from exc
-        if int(reconciliation.get("pending", 0)):
-            raise RouterServiceError(
-                "provider_chat_completion_reconciliation_pending",
-                "上一次模型调用的终态仍待持久化，请稍后重试。",
-                status_code=503,
-            )
+        if scoped_certified:
+            try:
+                reconciliation = self._repository_method(
+                    "reconcile_chat_control_completions"
+                )(self.router_service.tenant_id)
+            except RouterRepositoryError as exc:
+                raise RouterServiceError(
+                    "provider_chat_completion_reconciliation_pending",
+                    "上一次科研模型调用的终态仍待持久化，请稍后重试。",
+                    status_code=503,
+                ) from exc
+            if int(reconciliation.get("pending", 0)):
+                raise RouterServiceError(
+                    "provider_chat_completion_reconciliation_pending",
+                    "上一次科研模型调用的终态仍待持久化，请稍后重试。",
+                    status_code=503,
+                )
         runtime_allowed, runtime_error = self.control.required_runtime_allowed(policy)
         if not runtime_allowed:
             error_code = runtime_error or "provider_chat_required_gate_degraded"
@@ -200,7 +203,7 @@ class ProviderChatStableService:
                 capability=capability,
                 requested_model=clean_model,
                 strategy=policy.effective_mode,
-                gateway="ai_research_scoped" if scoped_certified else "default",
+                gateway=gateway,
                 is_real_user=True,
                 primary_newapi=True,
             )
@@ -239,7 +242,7 @@ class ProviderChatStableService:
             capability=capability,
             requested_model=clean_model,
             strategy=policy.effective_mode,
-            gateway="ai_research_scoped" if scoped_certified else "default",
+            gateway=gateway,
             epoch_id=str(epoch["id"]) if epoch is not None else None,
             is_real_user=True,
             primary_newapi=True,
@@ -366,6 +369,7 @@ class ProviderChatStableService:
                     required_certifications=tuple(
                         bindings[item] for item in required_capabilities
                     ),
+                    gateway=gateway,
                 ),
             )
 
@@ -445,6 +449,25 @@ class ProviderChatStableService:
                 "Chat 路由策略或资格已变化，请刷新设置后重试。",
                 status_code=409,
             ) from exc
+
+    def fail_undispatched(
+        self,
+        dispatch: ProviderChatStableDispatch,
+        *,
+        error_code: str,
+    ) -> bool:
+        """Fail a claimed attempt only if no provider dispatch occurred."""
+
+        return bool(
+            self._repository_method(
+                "fail_chat_control_preflight_if_undispatched"
+            )(
+                self.router_service.tenant_id,
+                dispatch.attempt_id,
+                expected_run_id=dispatch.run_id,
+                error_code=error_code,
+            )
+        )
 
     def ensure_dispatch_current(self, dispatch: ProviderChatStableDispatch) -> None:
         """Fail closed if a multi-step capability drifts between model calls."""
@@ -629,6 +652,42 @@ class ProviderChatStableService:
             completion_tokens=completion_tokens,
             total_tokens=total_tokens,
         )
+        if dispatch.gateway == "default":
+            self._repository_method("complete_chat_control_attempt")(
+                self.router_service.tenant_id,
+                dispatch.attempt_id,
+                status=status,
+                result_class=result_class,
+                error_code=error_code,
+                actual_model=actual_model,
+                ttft_ms=ttft_ms,
+                e2e_ms=e2e_ms,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+            )
+            self._repository_method("complete_chat_control_run")(
+                self.router_service.tenant_id,
+                dispatch.run_id,
+                status=status,
+                result_class=result_class,
+                reason_codes=codes,
+                actual_model=actual_model,
+                client_cancelled=client_cancelled,
+                hard_failure=hard_failure,
+                ttft_ms=ttft_ms,
+                e2e_ms=e2e_ms,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+            )
+            return True
+        if dispatch.gateway != "ai_research_scoped":
+            raise RouterServiceError(
+                "provider_chat_completion_gateway_invalid",
+                "模型调用完成范围无效。",
+                status_code=409,
+            )
         self._repository_method("stage_chat_control_completion")(
             self.router_service.tenant_id,
             dispatch.attempt_id,

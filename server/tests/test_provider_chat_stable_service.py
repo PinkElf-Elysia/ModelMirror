@@ -12,6 +12,7 @@ from server.model_router.chat_control import ProviderChatControlService
 from server.model_router.chat_stable import ProviderChatStableService
 from server.model_router.egress import ProviderEgressPolicy
 from server.model_router.repository import (
+    RouterCredentialUnavailable,
     RouterRepositoryError,
     SQLiteRouterRepository,
 )
@@ -804,15 +805,17 @@ async def test_dispatch_completion_is_tenant_scoped_and_stores_no_content(
 
 
 @pytest.mark.asyncio
-async def test_dispatch_completion_rolls_back_attempt_when_run_write_fails(
+async def test_scoped_dispatch_completion_rolls_back_attempt_when_run_write_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    service, repository, _newapi_id, _backup_id = _service(
+    service, repository, newapi_id, backup_id = _service(
         tmp_path,
         monkeypatch,
         newapi_ip="8.8.8.8",
     )
-    result = await service.begin(MODEL_ID)
+    _qualify_scoped_model(repository, newapi_id)
+    _qualify_scoped_model(repository, backup_id)
+    result = await service.begin_scoped_certified(SCOPED_MODEL_ID)
     assert result.dispatch is not None
     service.mark_dispatched(result.dispatch)
 
@@ -854,8 +857,16 @@ async def test_dispatch_completion_rolls_back_attempt_when_run_write_fails(
     pending = list(repository.chat_completion_outbox_dir.glob("*.json"))
     assert len(pending) == 1
     assert "private prompt" not in pending[0].read_text(encoding="utf-8")
+    default_result = await service.begin(MODEL_ID)
+    assert default_result.dispatch is not None
+    service.mark_dispatched(default_result.dispatch)
+    assert service.complete(
+        default_result.dispatch,
+        status="succeeded",
+        result_class="success",
+    ) is True
     with pytest.raises(RouterServiceError) as exc_info:
-        await service.begin(MODEL_ID)
+        await service.begin_scoped_certified(SCOPED_MODEL_ID)
     assert exc_info.value.code == (
         "provider_chat_completion_reconciliation_pending"
     )
@@ -872,7 +883,7 @@ async def test_dispatch_completion_rolls_back_attempt_when_run_write_fails(
         )
     )
     with pytest.raises(RouterServiceError) as exc_info:
-        await restarted.begin(MODEL_ID)
+        await restarted.begin_scoped_certified(SCOPED_MODEL_ID)
     assert exc_info.value.code == (
         "provider_chat_completion_reconciliation_pending"
     )
@@ -884,7 +895,7 @@ async def test_dispatch_completion_rolls_back_attempt_when_run_write_fails(
     )["status"] == "running"
     with sqlite3.connect(repository.database_path) as database:
         database.execute("DROP TRIGGER abort_chat_run_completion")
-    await restarted.begin(MODEL_ID)
+    await restarted.begin_scoped_certified(SCOPED_MODEL_ID)
     completed = repository.list_chat_control_receipts("local")
     attempt = next(
         item
@@ -898,6 +909,117 @@ async def test_dispatch_completion_rolls_back_attempt_when_run_write_fails(
     assert run["result_class"] == "hard_failure"
     assert run["hard_failure"] == 1
     assert list(repository.chat_completion_outbox_dir.glob("*.json")) == []
+
+
+@pytest.mark.asyncio
+async def test_default_dispatch_completion_does_not_use_scoped_outbox(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, repository, _newapi_id, _backup_id = _service(
+        tmp_path,
+        monkeypatch,
+        newapi_ip="8.8.8.8",
+    )
+    result = await service.begin(MODEL_ID)
+    assert result.dispatch is not None
+    assert result.dispatch.gateway == "default"
+    service.mark_dispatched(result.dispatch)
+
+    with pytest.raises(
+        RouterRepositoryError,
+        match="provider_chat_completion_scope_invalid",
+    ):
+        repository.stage_chat_control_completion(
+            "local",
+            result.dispatch.attempt_id,
+            expected_run_id=result.dispatch.run_id,
+            status="failed",
+            result_class="hard_failure",
+        )
+    assert service.complete(
+        result.dispatch,
+        status="uncertain",
+        result_class="uncertain",
+        error_code="provider_chat_unexpected_error",
+    ) is True
+
+    receipts = repository.list_chat_control_receipts("local")
+    attempt = next(
+        item for item in receipts["attempts"]
+        if item["id"] == result.dispatch.attempt_id
+    )
+    run = next(
+        item for item in receipts["runs"] if item["id"] == result.dispatch.run_id
+    )
+    assert attempt["status"] == "uncertain"
+    assert attempt["error_code"] == "provider_chat_unexpected_error"
+    assert run["status"] == "uncertain"
+    assert list(repository.chat_completion_outbox_dir.glob("*.json")) == []
+
+
+@pytest.mark.asyncio
+async def test_default_dispatched_run_remains_uncertain_after_restart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, repository, _newapi_id, _backup_id = _service(
+        tmp_path,
+        monkeypatch,
+        newapi_ip="8.8.8.8",
+    )
+    result = await service.begin(MODEL_ID)
+    assert result.dispatch is not None
+    service.mark_dispatched(result.dispatch)
+
+    restarted = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    receipts = restarted.list_chat_control_receipts("local")
+    attempt = next(
+        item for item in receipts["attempts"]
+        if item["id"] == result.dispatch.attempt_id
+    )
+    run = next(
+        item for item in receipts["runs"] if item["id"] == result.dispatch.run_id
+    )
+    assert attempt["status"] == "uncertain"
+    assert attempt["error_code"] == "server_restarted"
+    assert run["status"] == "uncertain"
+    assert run["reason_codes_json"] == '["server_restarted"]'
+
+
+@pytest.mark.asyncio
+async def test_scoped_undispatched_failure_cleans_up_without_outbox(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, repository, newapi_id, backup_id = _service(
+        tmp_path,
+        monkeypatch,
+        newapi_ip="8.8.8.8",
+    )
+    _qualify_scoped_model(repository, newapi_id)
+    _qualify_scoped_model(repository, backup_id)
+    result = await service.begin_scoped_certified(SCOPED_MODEL_ID)
+    assert result.dispatch is not None
+    assert result.dispatch.gateway == "ai_research_scoped"
+
+    assert service.fail_undispatched(
+        result.dispatch,
+        error_code="ai_research_bridge_transport_failed",
+    ) is True
+    receipts = repository.list_chat_control_receipts("local")
+    attempt = next(
+        item for item in receipts["attempts"]
+        if item["id"] == result.dispatch.attempt_id
+    )
+    run = next(
+        item for item in receipts["runs"] if item["id"] == result.dispatch.run_id
+    )
+    assert attempt["status"] == "failed"
+    assert attempt["result_class"] == "preflight_failure"
+    assert run["status"] == "failed"
+    assert run["result_class"] == "preflight_failure"
+    assert list(repository.chat_completion_outbox_dir.glob("*.json")) == []
+
+    retried = await service.begin_scoped_certified(SCOPED_MODEL_ID)
+    assert retried.dispatch is not None
 
 
 def test_cleanup_preserves_hard_failure_receipts_before_cutoff(
@@ -1011,17 +1133,19 @@ async def test_active_dispatch_does_not_block_an_independent_run(
 async def test_completion_reconcile_is_idempotent_after_commit_before_unlink(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    service, repository, _newapi_id, _backup_id = _service(
+    service, repository, newapi_id, backup_id = _service(
         tmp_path, monkeypatch
     )
-    result = await service.begin(MODEL_ID)
+    _qualify_scoped_model(repository, newapi_id)
+    _qualify_scoped_model(repository, backup_id)
+    result = await service.begin_scoped_certified(SCOPED_MODEL_ID)
     assert result.dispatch is not None
     service.mark_dispatched(result.dispatch)
     fields = {
         "expected_run_id": result.dispatch.run_id,
         "status": "succeeded",
         "result_class": "success",
-        "actual_model": MODEL_ID,
+        "actual_model": SCOPED_MODEL_ID,
         "reason_codes": [],
     }
     staged = repository.stage_chat_control_completion(
@@ -1059,16 +1183,74 @@ async def test_completion_reconcile_is_idempotent_after_commit_before_unlink(
 
 
 @pytest.mark.asyncio
+async def test_mismatched_master_key_fails_before_startup_reconciliation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, repository, newapi_id, backup_id = _service(
+        tmp_path, monkeypatch
+    )
+    _qualify_scoped_model(repository, newapi_id)
+    _qualify_scoped_model(repository, backup_id)
+    result = await service.begin_scoped_certified(SCOPED_MODEL_ID)
+    assert result.dispatch is not None
+    service.mark_dispatched(result.dispatch)
+    repository.stage_chat_control_completion(
+        "local",
+        result.dispatch.attempt_id,
+        expected_run_id=result.dispatch.run_id,
+        status="succeeded",
+        result_class="success",
+        actual_model=MODEL_ID,
+        reason_codes=[],
+    )
+    outbox_path = next(repository.chat_completion_outbox_dir.glob("*.json"))
+    outbox_bytes = outbox_path.read_bytes()
+
+    with pytest.raises(RouterCredentialUnavailable):
+        SQLiteRouterRepository(tmp_path, master_key=b"y" * 32)
+
+    with sqlite3.connect(repository.database_path) as database:
+        attempt_status = database.execute(
+            "SELECT status FROM provider_chat_attempts WHERE id = ?",
+            (result.dispatch.attempt_id,),
+        ).fetchone()[0]
+        run_status = database.execute(
+            "SELECT status FROM provider_chat_runs WHERE id = ?",
+            (result.dispatch.run_id,),
+        ).fetchone()[0]
+    assert attempt_status == "running"
+    assert run_status == "running"
+    assert outbox_path.is_file()
+    assert outbox_path.read_bytes() == outbox_bytes
+
+    recovered = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    receipts = recovered.list_chat_control_receipts("local")
+    assert next(
+        attempt
+        for attempt in receipts["attempts"]
+        if attempt["id"] == result.dispatch.attempt_id
+    )["status"] == "succeeded"
+    assert next(
+        run
+        for run in receipts["runs"]
+        if run["id"] == result.dispatch.run_id
+    )["status"] == "succeeded"
+    assert list(recovered.chat_completion_outbox_dir.glob("*.json")) == []
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("tampered_field", ["status", "stagedAt", "broken_symlink"])
 async def test_unsafe_completion_outbox_fails_closed_after_restart(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tampered_field: str
 ) -> None:
-    service, repository, _newapi_id, _backup_id = _service(
+    service, repository, newapi_id, backup_id = _service(
         tmp_path,
         monkeypatch,
         newapi_ip="8.8.8.8",
     )
-    result = await service.begin(MODEL_ID)
+    _qualify_scoped_model(repository, newapi_id)
+    _qualify_scoped_model(repository, backup_id)
+    result = await service.begin_scoped_certified(SCOPED_MODEL_ID)
     assert result.dispatch is not None
     service.mark_dispatched(result.dispatch)
     with sqlite3.connect(repository.database_path) as database:
@@ -1127,7 +1309,7 @@ async def test_unsafe_completion_outbox_fails_closed_after_restart(
     )
     assert retained_run["status"] == "running"
     with pytest.raises(RouterServiceError) as exc_info:
-        await restarted.begin(MODEL_ID)
+        await restarted.begin_scoped_certified(SCOPED_MODEL_ID)
     assert exc_info.value.code == (
         "provider_chat_completion_reconciliation_pending"
     )
