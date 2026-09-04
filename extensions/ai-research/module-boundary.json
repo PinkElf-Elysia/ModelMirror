@@ -11,6 +11,7 @@
     "server/main.py",
     "server/model_router/ai_research_bridge.py",
     "server/model_router/chat_control.py",
+    "server/model_router/cleanup_chat_receipts.py",
     "server/model_router/chat_stable.py",
     "server/model_router/repository.py",
     "server/tests/test_ai_research_bridge.py",
@@ -19,6 +20,7 @@
   "postTrustAllowedFiles": [
     "server/model_router/ai_research_bridge.py",
     "server/model_router/chat_control.py",
+    "server/model_router/cleanup_chat_receipts.py",
     "server/model_router/chat_stable.py",
     "server/model_router/repository.py",
     "server/tests/test_ai_research_bridge.py",

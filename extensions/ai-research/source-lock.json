@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-09-03",
+  "generatedAt": "2026-09-04",
   "modelMirrorBaseCommit": "ae284fbbbd59831ccdf2df2b34c9cb1239a57220",
   "claimLevel": "harness_only",
   "packStatus": "fixture_only",
@@ -381,8 +381,8 @@
       "sha256": "c32ed664aadf0a8a0f07fee83da6e42f74c2f8e5ae6588d8eb238c71a3d0e60b"
     },
     "module-boundary.json": {
-      "sizeBytes": 3011,
-      "sha256": "16083c8c9fff17481354e1ab8a5ffffb3d0feb0f23c58710060ad94abe2864a0"
+      "sizeBytes": 3115,
+      "sha256": "5ef8568944a446ef5e2317b0360141df187f626bb0f170292fbc1bf4a382dbfc"
     },
     "scripts/validate_boundary.py": {
       "sizeBytes": 39607,
@@ -457,8 +457,8 @@
       "sha256": "15d727d35df1fdadade79a908fbd934a3e8e1cc996252b6de378b1162952cd6d"
     },
     "G1_CLOSEOUT.md": {
-      "sizeBytes": 10827,
-      "sha256": "473fa7a6412ddad964bd8ee8be71113fa930be947ff566e1b83a15911701e041"
+      "sizeBytes": 11076,
+      "sha256": "66b770dcb22fcb99e56da79ca01e8e6e5670f2458c98fd5fac7c16a0de6fd406"
     },
     "tests/control/test_boundary_base.py": {
       "sizeBytes": 16944,

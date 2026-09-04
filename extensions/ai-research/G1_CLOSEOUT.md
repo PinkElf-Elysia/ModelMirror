@@ -2,10 +2,10 @@
 
 日期：2026-09-02。状态：**这是重新冻结前的历史记录，不是最终候选状态或 Full 回执。**
 
-## 重新冻结说明（2026-09-03）
+## 重新冻结说明（2026-09-04）
 
 - 本文主体保留 G1 修复时的原始基线、验证和停止点，不能解释为当前分支仍未提交，也不能替代新的干净 Full 证据。
-- 新集成基线固定为 `origin/main@dfca6b0ba98ce61d30eab6f6dd7047b9e64a1f80`。可信 T 是包含本说明、`source-lock.json`、`module-boundary.json` 与 `scripts/trusted_full_bootstrap.py` 的提交；最终 F 只能在其后修改 `postTrustAllowedFiles` 明列的六个 server 文件。
+- 新集成基线固定为 `origin/main@dfca6b0ba98ce61d30eab6f6dd7047b9e64a1f80`。可信 T 是包含本说明、`source-lock.json`、`module-boundary.json` 与 `scripts/trusted_full_bootstrap.py` 的提交；最终 F 只能在其后修改 `postTrustAllowedFiles` 明列的七个 server 文件。
 - Full 必须从该 T 的独立干净 detached worktree 执行可信 bootstrap。bootstrap 在运行候选 verifier 前后核对 T/候选 HEAD、全部 `lockedFiles`、文件类型、工作树清洁度和 T 后路径集合，并在候选 manifest 通过后另行生成不可覆盖的 `trusted-full-bootstrap.json`。
 - bootstrap 必须用 `python -I -B scripts/trusted_full_bootstrap.py` 启动，且 `--base` 必须解析为同一 T commit；直接运行候选 `verify.ps1` / `verify.sh` 不能作为可信 Full 证明。
 - 精确 T/F commit、tree、来源锁 hash 与候选 manifest hash 以当次 `trusted-full-bootstrap.json` 为准，避免在被哈希锁定的文档中制造自引用提交 ID。
@@ -24,16 +24,17 @@
 
 ## 后续 F 目标合同与用户影响
 
-本节冻结的是 T 之后六个 allowlist 文件必须实现并验证的目标合同；PR-T 单独合入时不表示下述父仓行为已经落地。只有后续 F 提交及绑定该 T 的可信 Full 均通过后，才能把本节解释为已实现行为。
+本节冻结的是 T 之后七个 allowlist 文件必须实现并验证的目标合同；PR-T 单独合入时不表示下述父仓行为已经落地。只有后续 F 提交及绑定该 T 的可信 Full 均通过后，才能把本节解释为已实现行为。
 
-### 科研资格终态 outbox（后续 F，3 个父仓文件）
+### 科研资格终态 outbox（后续 F，4 个父仓文件）
 
-`server/model_router/repository.py`、`chat_stable.py` 与对应 `test_provider_chat_stable_service.py`：
+`server/model_router/repository.py`、`chat_stable.py`、`cleanup_chat_receipts.py` 与对应 `test_provider_chat_stable_service.py`：
 
 - 只有 `gateway=ai_research_scoped` 的已派发资格调用，才将无正文终态先落入 Provider 控制面自己的 `chat-completion-outbox/`，再以原子事务完成 attempt、run 与资格 gate 更新。扩展不读取此目录。
 - outbox 只保存调用标识、终态、受限错误/原因、模型标识、计时、token 数和完整性 hash；不保存消息、模型输出、工具参数、凭据或 Provider URL。
 - 同一终态重复写入保留首次 `stagedAt`；hash 覆盖该时间戳。同一 attempt 的矛盾终态拒绝覆盖。
 - 数据库暂不可写时保留 outbox；仓库重载先对账，再处理没有终态证据的重启遗留调用。后续 scoped 资格调用前也会对账，未解决时返回 `provider_chat_completion_reconciliation_pending`，不派发新的 scoped 调用。
+- 维护型清理进程显式禁用启动恢复，dry-run 与 apply 都不得把另一服务进程中仍在等待 Provider 的真实在途调用误判为重启遗留；apply 仍在删除前执行 scoped outbox 对账。
 - 对账只写本地控制账本，不重发 Provider 请求；默认 `/api/chat` 不创建、不应用也不等待科研 outbox，并继续保留原有直接写入及 `uncertain/server_restarted` 语义。
 - outbox 损坏、单字节篡改及断链符号链接会失败关闭。读取/写入均限制为 64 KiB。
 - 例行 receipt 清理保留 `run.hard_failure` 与 attempt-only `result_class=hard_failure`，不丢弃历史部分落盘的失败事实。
