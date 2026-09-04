@@ -44,10 +44,10 @@
       "server/Dockerfile": "071eed6241614107affdde4f48a5279c943ff20c5c4179da1fad180cf0d1f390",
       "client/package.json": "e1a089a9661e71140315bd931993c3fa047dd73d5eb4cef58bd1fc87ad292b7e",
       "client/package-lock.json": "0769346386c572ab84f1be52a4882315d98896d76f7e77d21223c359c7dde476",
-      "extensions/ai-research/scripts/verify.ps1": "7c1677783a1c0c5b8f1418cba6b7fca468577c16fc30198aa53e24e551f1a082",
-      "extensions/ai-research/scripts/verify.sh": "090e6bef36e082006dbb9d0f15b5cbf233b753c4d99bed0627c42ed0f2c3fa33",
+      "extensions/ai-research/scripts/verify.ps1": "ae869e8347d096dbf4475fdc72f4895a9310aa1edd5b0a6be33ef5d02d80b42d",
+      "extensions/ai-research/scripts/verify.sh": "a0e521ca7a1287108f7dd0f28275595d7076f3ea907c8cf2369a14589d1cc107",
       "extensions/ai-research/scripts/zero_footprint.py": "1c5ed860452c09b9ea271baf3c3bd6743f902bb8b71e643633c2ca611dc5c619",
-      "extensions/ai-research/tests/control/test_zero_footprint_base.py": "f3cff6d355e4ac2fe287b63f7b9fa6f91380d40adb440e6dbac4e6b0dde189b4"
+      "extensions/ai-research/tests/control/test_zero_footprint_base.py": "b0969305dfde39b660d549bf36790b3d27b2340a27506a5a235911c0ed119a15"
     },
     "defaultServices": [
       "browser",
