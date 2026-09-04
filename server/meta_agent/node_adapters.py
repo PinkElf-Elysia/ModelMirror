@@ -14,11 +14,15 @@ from .schemas import (
 
 try:
     from server.workflow_native.node_contracts import (
+        ConditionPlannerConfig,
         DataAggregatePlannerConfig,
+        DataMergePlannerConfig,
         DatasetComparePlannerConfig,
         JsonDeserializePlannerConfig,
         JsonSerializePlannerConfig,
+        MultiRoutePlannerConfig,
         NODE_CONTRACT_VERSION,
+        TerminateErrorPlannerConfig,
         VariableAggregatorPlannerConfig,
         WorkflowValueSchema,
         canonical_checksum,
@@ -27,11 +31,15 @@ try:
     from server.workflow_native.schemas import NativeWorkflowNode, WorkflowPosition
 except ModuleNotFoundError:
     from workflow_native.node_contracts import (
+        ConditionPlannerConfig,
         DataAggregatePlannerConfig,
+        DataMergePlannerConfig,
         DatasetComparePlannerConfig,
         JsonDeserializePlannerConfig,
         JsonSerializePlannerConfig,
+        MultiRoutePlannerConfig,
         NODE_CONTRACT_VERSION,
+        TerminateErrorPlannerConfig,
         VariableAggregatorPlannerConfig,
         WorkflowValueSchema,
         canonical_checksum,
@@ -304,6 +312,34 @@ def _validate_dataset_compare_shape(
     _require_single_output(node, "result")
 
 
+def _validate_router_shape(
+    node: MetaPlannerIRNode | GraphIntentNodeV3,
+    _parsed: BaseModel,
+) -> None:
+    _require_single_input(node, "value")
+    if node.outputs:
+        raise ValueError(f"Node {node.ref} cannot declare data outputs.")
+
+
+def _validate_terminate_shape(
+    node: MetaPlannerIRNode | GraphIntentNodeV3,
+    _parsed: BaseModel,
+) -> None:
+    if node.inputs or node.outputs:
+        raise ValueError(f"Node {node.ref} cannot declare data ports.")
+
+
+def _validate_data_merge_shape(
+    node: MetaPlannerIRNode | GraphIntentNodeV3,
+    _parsed: BaseModel,
+) -> None:
+    _require_single_input(node, "left")
+    _require_single_input(node, "right")
+    if len(node.inputs) != 2:
+        raise ValueError(f"Node {node.ref} accepts only left and right inputs.")
+    _require_single_output(node, "result")
+
+
 def _workflow_agent_references(parsed: BaseModel) -> set[str]:
     config = MetaPlannerWorkflowAgentConfig.model_validate(parsed)
     referenced: set[str] = set()
@@ -381,6 +417,27 @@ def _dataset_compare_native_inputs(
     ]
 
 
+def _no_native_inputs(
+    _data: dict[str, Any], _parsed: BaseModel
+) -> list[tuple[str, str]]:
+    return []
+
+
+def _no_native_outputs(
+    _data: dict[str, Any], _parsed: BaseModel
+) -> dict[str, str]:
+    return {}
+
+
+def _data_merge_native_inputs(
+    data: dict[str, Any], _parsed: BaseModel
+) -> list[tuple[str, str]]:
+    return [
+        ("left", str(data.get("leftVariable") or "").strip()),
+        ("right", str(data.get("rightVariable") or "").strip()),
+    ]
+
+
 def _json_deserialize_output_schema(
     port: str,
     parsed: BaseModel,
@@ -407,6 +464,7 @@ def _base_pure_node_data(node: MetaPlannerIRNode) -> dict[str, Any]:
         "kind": node.kind,
         "title": node.title,
         "description": node.description,
+        "plannerOutcomeMapV1": {"success": ""},
         **_planner_metadata(node, kind=node.kind),
     }
 
@@ -544,6 +602,112 @@ def _compile_dataset_compare(
     )
 
 
+def _compile_condition(
+    node: MetaPlannerIRNode,
+    parsed: BaseModel,
+    context: PlannerNodeCompileContext,
+) -> NativeWorkflowNode:
+    config = ConditionPlannerConfig.model_validate(parsed)
+    source = _require_single_input(node, "value")
+    data: dict[str, Any] = {
+        **_base_pure_node_data(node),
+        "contractVersion": 2,
+        "inputVariable": source.variable,
+        "field": config.field,
+        "operator": config.operator,
+        "valueType": config.value_type,
+        "plannerOutcomeMapV1": {"matched": "true", "unmatched": "false"},
+    }
+    if config.operator != "is_null":
+        data["value"] = config.value
+    return NativeWorkflowNode(
+        id=context.node_id,
+        type="condition",
+        position=context.position,
+        data=data,
+    )
+
+
+def _compile_multi_route(
+    node: MetaPlannerIRNode,
+    parsed: BaseModel,
+    context: PlannerNodeCompileContext,
+) -> NativeWorkflowNode:
+    config = MultiRoutePlannerConfig.model_validate(parsed)
+    source = _require_single_input(node, "value")
+    routes: list[dict[str, Any]] = []
+    outcome_map: dict[str, str] = {}
+    for index, rule in enumerate(config.routes, start=1):
+        native_id = f"route_{index}"
+        outcome_map[f"case_{index}"] = native_id
+        item: dict[str, Any] = {
+            "id": native_id,
+            "label": rule.label,
+            "operator": rule.operator,
+            "valueType": rule.value_type,
+        }
+        if rule.operator != "is_null":
+            item["value"] = rule.value
+        routes.append(item)
+    outcome_map["default"] = "default"
+    return NativeWorkflowNode(
+        id=context.node_id,
+        type="multi_route",
+        position=context.position,
+        data={
+            **_base_pure_node_data(node),
+            "inputVariable": source.variable,
+            "routes": routes,
+            "plannerOutcomeMapV1": outcome_map,
+        },
+    )
+
+
+def _compile_data_merge(
+    node: MetaPlannerIRNode,
+    parsed: BaseModel,
+    context: PlannerNodeCompileContext,
+) -> NativeWorkflowNode:
+    config = DataMergePlannerConfig.model_validate(parsed)
+    left = _require_single_input(node, "left")
+    right = _require_single_input(node, "right")
+    output = _require_single_output(node, "result")
+    return NativeWorkflowNode(
+        id=context.node_id,
+        type="data_merge",
+        position=context.position,
+        data={
+            **_base_pure_node_data(node),
+            "contractVersion": 1,
+            "mergeMode": config.merge_mode,
+            "leftVariable": left.variable,
+            "rightVariable": right.variable,
+            "outputVariable": output.variable,
+            "keyFields": list(config.key_fields),
+            "plannerOutcomeMapV1": {"success": ""},
+        },
+    )
+
+
+def _compile_terminate_error(
+    node: MetaPlannerIRNode,
+    parsed: BaseModel,
+    context: PlannerNodeCompileContext,
+) -> NativeWorkflowNode:
+    config = TerminateErrorPlannerConfig.model_validate(parsed)
+    return NativeWorkflowNode(
+        id=context.node_id,
+        type="terminate_error",
+        position=context.position,
+        data={
+            **_base_pure_node_data(node),
+            "errorCode": config.error_code,
+            "message": config.message,
+            "plannerOutcomeMapV1": {},
+        },
+    )
+
+
 def _compile_workflow_agent(
     node: MetaPlannerIRNode,
     parsed: BaseModel,
@@ -582,6 +746,7 @@ def _compile_workflow_agent(
             "plannerTaskIds": list(node.task_ids),
             "plannerInputs": [item.model_dump(mode="json") for item in node.inputs],
             "plannerOutputs": [item.model_dump(mode="json") for item in node.outputs],
+            "plannerOutcomeMapV1": {"success": ""},
             **(
                 {"sourceAgentId": config.source_agent_id}
                 if config.source_agent_id
@@ -662,6 +827,50 @@ def _decompile_workflow_agent_v3(node: NativeWorkflowNode) -> GraphIntentNodeV3:
 
 
 def _pure_config_from_native(kind: str, data: dict[str, Any]) -> dict[str, Any]:
+    if kind == "condition":
+        if int(data.get("contractVersion") or 0) != 2:
+            raise ValueError("Planner condition nodes require contractVersion 2.")
+        payload: dict[str, Any] = {
+            "field": str(data.get("field") or ""),
+            "operator": str(data.get("operator") or ""),
+            "value_type": str(data.get("valueType") or "null"),
+        }
+        if payload["operator"] != "is_null":
+            if "value" not in data:
+                raise ValueError("Planner condition node is missing value.")
+            payload["value"] = data.get("value")
+        return payload
+    if kind == "multi_route":
+        routes = data.get("routes")
+        if not isinstance(routes, list):
+            raise ValueError("Planner multi route node is missing routes.")
+        restored = []
+        for index, item in enumerate(routes, start=1):
+            if not isinstance(item, dict) or item.get("id") != f"route_{index}":
+                raise ValueError("Planner multi route ids are not compiler-owned.")
+            rule: dict[str, Any] = {
+                "label": str(item.get("label") or ""),
+                "operator": str(item.get("operator") or ""),
+                "value_type": str(item.get("valueType") or "null"),
+            }
+            if rule["operator"] != "is_null":
+                if "value" not in item:
+                    raise ValueError("Planner multi route rule is missing value.")
+                rule["value"] = item.get("value")
+            restored.append(rule)
+        return {"routes": restored}
+    if kind == "data_merge":
+        if int(data.get("contractVersion") or 0) != 1:
+            raise ValueError("Planner data merge nodes require contractVersion 1.")
+        return {
+            "merge_mode": str(data.get("mergeMode") or ""),
+            "key_fields": list(data.get("keyFields") or []),
+        }
+    if kind == "terminate_error":
+        return {
+            "error_code": str(data.get("errorCode") or ""),
+            "message": str(data.get("message") or ""),
+        }
     if kind == "json_serialize":
         if int(data.get("contractVersion") or 0) != 2:
             raise ValueError("Planner JSON serialize nodes require contractVersion 2.")
@@ -779,6 +988,14 @@ _decompile_data_aggregate, _decompile_data_aggregate_v3 = _pure_decompilers(
 _decompile_dataset_compare, _decompile_dataset_compare_v3 = _pure_decompilers(
     "dataset_compare"
 )
+_decompile_condition, _decompile_condition_v3 = _pure_decompilers("condition")
+_decompile_multi_route, _decompile_multi_route_v3 = _pure_decompilers(
+    "multi_route"
+)
+_decompile_data_merge, _decompile_data_merge_v3 = _pure_decompilers("data_merge")
+_decompile_terminate_error, _decompile_terminate_error_v3 = _pure_decompilers(
+    "terminate_error"
+)
 
 
 PLANNER_NODE_ADAPTERS: dict[str, PlannerNodeAdapter] = {
@@ -850,6 +1067,50 @@ PLANNER_NODE_ADAPTERS: dict[str, PlannerNodeAdapter] = {
         native_config=lambda data: _pure_config_from_native("dataset_compare", data),
         native_inputs=_dataset_compare_native_inputs,
         native_outputs=_single_native_output("outputVariable", "result"),
+    ),
+    "condition": PlannerNodeAdapter(
+        kind="condition",
+        config_model=ConditionPlannerConfig,
+        compile_node=_compile_condition,
+        decompile_node=_decompile_condition,
+        decompile_node_v3=_decompile_condition_v3,
+        validate_node_shape=_validate_router_shape,
+        native_config=lambda data: _pure_config_from_native("condition", data),
+        native_inputs=_single_native_input("inputVariable", "value"),
+        native_outputs=_no_native_outputs,
+    ),
+    "multi_route": PlannerNodeAdapter(
+        kind="multi_route",
+        config_model=MultiRoutePlannerConfig,
+        compile_node=_compile_multi_route,
+        decompile_node=_decompile_multi_route,
+        decompile_node_v3=_decompile_multi_route_v3,
+        validate_node_shape=_validate_router_shape,
+        native_config=lambda data: _pure_config_from_native("multi_route", data),
+        native_inputs=_single_native_input("inputVariable", "value"),
+        native_outputs=_no_native_outputs,
+    ),
+    "data_merge": PlannerNodeAdapter(
+        kind="data_merge",
+        config_model=DataMergePlannerConfig,
+        compile_node=_compile_data_merge,
+        decompile_node=_decompile_data_merge,
+        decompile_node_v3=_decompile_data_merge_v3,
+        validate_node_shape=_validate_data_merge_shape,
+        native_config=lambda data: _pure_config_from_native("data_merge", data),
+        native_inputs=_data_merge_native_inputs,
+        native_outputs=_single_native_output("outputVariable", "result"),
+    ),
+    "terminate_error": PlannerNodeAdapter(
+        kind="terminate_error",
+        config_model=TerminateErrorPlannerConfig,
+        compile_node=_compile_terminate_error,
+        decompile_node=_decompile_terminate_error,
+        decompile_node_v3=_decompile_terminate_error_v3,
+        validate_node_shape=_validate_terminate_shape,
+        native_config=lambda data: _pure_config_from_native("terminate_error", data),
+        native_inputs=_no_native_inputs,
+        native_outputs=_no_native_outputs,
     ),
 }
 

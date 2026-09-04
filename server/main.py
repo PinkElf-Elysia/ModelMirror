@@ -650,6 +650,7 @@ try:
         compare_datasets,
         evaluate_typed_condition,
         execute_list_operation,
+        select_output_v2,
         select_multi_route,
         validate_terminate_error_config,
     )
@@ -819,6 +820,7 @@ except ModuleNotFoundError:
         compare_datasets,
         evaluate_typed_condition,
         execute_list_operation,
+        select_output_v2,
         select_multi_route,
         validate_terminate_error_config,
     )
@@ -10331,11 +10333,29 @@ async def _run_workflow_response(
             for value in raw_retry_resume_budget.values()
         )
     )
+    raw_retry_control_flow_trace = resume_state.get("control_flow_trace")
+    retry_control_flow_trace_valid = raw_retry_control_flow_trace is None or (
+        isinstance(raw_retry_control_flow_trace, list)
+        and len(raw_retry_control_flow_trace) <= 256
+        and all(
+            isinstance(item, str)
+            and re.fullmatch(
+                r"[a-z][a-z0-9_-]{0,63}:(?:success|matched|unmatched|case_[1-8]|default)",
+                item,
+            )
+            for item in raw_retry_control_flow_trace
+        )
+    )
+    retry_resume_keys_valid = frozenset(resume_state) in {
+        frozenset(retry_resume_allowed_keys),
+        frozenset({*retry_resume_allowed_keys, "control_flow_trace"}),
+    }
     retry_resume_envelope_invalid = bool(
         is_node_retry_resume
         and (
-            set(resume_state) != retry_resume_allowed_keys
+            not retry_resume_keys_valid
             or not retry_resume_budget_valid
+            or not retry_control_flow_trace_valid
         )
     )
     safe_resume_state = {} if retry_resume_envelope_invalid else resume_state
@@ -10556,6 +10576,12 @@ async def _run_workflow_response(
         "outgoing": outgoing,
         "order_index": order_index,
         "final_output": str(safe_resume_state.get("final_output") or ""),
+        "control_flow_trace": list(safe_resume_state.get("control_flow_trace") or []),
+        "control_flow_terminal": (
+            dict(safe_resume_state.get("control_flow_terminal") or {})
+            if isinstance(safe_resume_state.get("control_flow_terminal"), dict)
+            else None
+        ),
         "pause_event": None,
         "resume_input": None,
         "paused_node_id": None,
@@ -10722,6 +10748,81 @@ async def _run_workflow_response(
         executed: set[str] = task_state["executed"]
         final_output = ""
         scheduler_v2: WorkflowSchedulerV2 | None = None
+
+        def record_control_outcome(
+            node: WorkflowNodePayload,
+            native_handle: str,
+        ) -> None:
+            planner_ref = str(node.data.get("plannerRef") or "").strip()
+            if not planner_ref:
+                return
+            if "plannerOutcomeMapV1" not in node.data:
+                # Pre-control-flow Planner snapshots and compiler-managed nodes
+                # have refs but no semantic outcome contract.
+                return
+            raw_map = node.data.get("plannerOutcomeMapV1")
+            expected_map = {"success": ""}
+            kind = workflow_node_kind(node)
+            if kind == "condition":
+                expected_map = {"matched": "true", "unmatched": "false"}
+            elif kind == "multi_route":
+                expected_map = {
+                    f"case_{index}": str(route.get("id") or "")
+                    for index, route in enumerate(node.data.get("routes") or [], start=1)
+                }
+                expected_map["default"] = "default"
+            if (
+                not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", planner_ref)
+                or raw_map != expected_map
+            ):
+                raise WorkflowTerminationError(
+                    "PLANNER_OUTCOME_MAP_INVALID",
+                    "Planner control-flow metadata does not match the executed node.",
+                    node_id=node.id,
+                )
+            matches = [
+                str(semantic)
+                for semantic, native in raw_map.items()
+                if str(native or "") == native_handle
+            ]
+            if len(matches) != 1:
+                raise WorkflowTerminationError(
+                    "PLANNER_OUTCOME_MAP_INVALID",
+                    "Planner control-flow metadata is inconsistent.",
+                    node_id=node.id,
+                )
+            trace = task_state.setdefault("control_flow_trace", [])
+            if not isinstance(trace, list) or len(trace) >= 256:
+                raise WorkflowTerminationError(
+                    "PLANNER_PATH_TRACE_LIMIT_EXCEEDED",
+                    "Planner control-flow trace exceeded its safe limit.",
+                    node_id=node.id,
+                )
+            trace.append(f"{planner_ref}:{matches[0]}")
+
+        def terminal_planner_ref(node: WorkflowNodePayload) -> str:
+            """Return a trusted terminal ref only for compiled Planner metadata."""
+            if "plannerOutcomeMapV1" not in node.data:
+                return ""
+            planner_ref = str(node.data.get("plannerRef") or "").strip()
+            if (
+                not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", planner_ref)
+                or node.data.get("plannerOutcomeMapV1") != {}
+            ):
+                raise WorkflowTerminationError(
+                    "PLANNER_OUTCOME_MAP_INVALID",
+                    "Planner terminal metadata does not match the executed node.",
+                    node_id=node.id,
+                )
+            return planner_ref
+
+        def selected_planner_source_ref(selected_output: dict[str, str]) -> str:
+            """Bind Output V2 evidence to a source that actually recorded success."""
+            source_ref = str(selected_output.get("source_ref") or "")
+            trace = task_state.get("control_flow_trace")
+            if not isinstance(trace, list) or f"{source_ref}:success" not in trace:
+                return ""
+            return source_ref
 
         def start_managed_node_run(node_id: str) -> ManagedWorkflowNodeRun | None:
             if workflow_managed_mode == "legacy":
@@ -16870,6 +16971,7 @@ async def _run_workflow_response(
                         matched = workflow_condition_matches(actual, operator, expected)
                         condition_subject = variable_name
                     chosen_handle = "true" if matched else "false"
+                    record_control_outcome(node, chosen_handle)
                     output = f"{condition_subject} {operator} {expected} -> {'是' if matched else '否'}"
 
                 elif kind == "terminate_error":
@@ -16877,6 +16979,12 @@ async def _run_workflow_response(
                         node.data.get("errorCode"),
                         node.data.get("message"),
                     )
+                    planner_ref = terminal_planner_ref(node)
+                    task_state["control_flow_terminal"] = {
+                        "terminal": "error",
+                        "source_ref": planner_ref,
+                        "error_code": error_code,
+                    }
                     raise WorkflowTerminationError(
                         error_code,
                         safe_message,
@@ -16893,6 +17001,7 @@ async def _run_workflow_response(
                         variables[input_variable],
                         node.data.get("routes"),
                     )
+                    record_control_outcome(node, chosen_handle)
                     output = f"selected_route={chosen_handle}"
 
                 elif kind == "code":
@@ -24512,16 +24621,29 @@ async def _run_workflow_response(
                     output = final_output
 
                 elif kind == "output":
-                    output_variable = str(node.data.get("outputVariable") or "llm_output")
+                    selected_output: dict[str, str] | None = None
+                    if node.data.get("contractVersion") == 2:
+                        output_variable, output_value, selected_output = select_output_v2(
+                            node.data,
+                            variables,
+                        )
+                    else:
+                        output_variable = str(
+                            node.data.get("outputVariable") or "llm_output"
+                        )
+                        output_value = variables.get(output_variable, "")
                     if output_variable in set(
                         task_state.get("knowledge_proposal_sensitive_variable_names")
                         or set()
                     ):
                         final_output = "knowledge proposal source withheld"
                     else:
-                        final_output = workflow_value_to_text(
-                            variables.get(output_variable, "")
-                        )
+                        final_output = workflow_value_to_text(output_value)
+                    if selected_output is not None:
+                        task_state["control_flow_terminal"] = {
+                            "terminal": "success",
+                            "source_ref": selected_planner_source_ref(selected_output),
+                        }
                     task_state["final_output"] = final_output
                     output = final_output
 
@@ -24686,6 +24808,8 @@ async def _run_workflow_response(
                             edge for edge in next_edges if not edge.sourceHandle
                         ][:1]
                     next_edges = matching_edges
+                elif kind != "terminate_error":
+                    record_control_outcome(node, "")
 
                 if scheduler_v2 is not None:
                     try:
@@ -24952,6 +25076,23 @@ async def _run_workflow_response(
             if completed_execution.status == "cancelled":
                 yield sse_payload(cancellation_event())
                 return
+            control_flow_terminal = task_state.get("control_flow_terminal")
+            if isinstance(control_flow_terminal, dict):
+                await run_registry.record_checkpoint(
+                    workflow_run.run_id,
+                    event_type="workflow.control_flow.completed",
+                    title="Workflow control flow completed",
+                    summary=str(control_flow_terminal.get("terminal") or "success"),
+                    metadata={
+                        "outcomes": list(task_state.get("control_flow_trace") or []),
+                        "terminal": str(
+                            control_flow_terminal.get("terminal") or "success"
+                        ),
+                        "source_ref": str(
+                            control_flow_terminal.get("source_ref") or ""
+                        ),
+                    },
+                )
 
             handoff_event: dict[str, Any] | None = None
             raw_handoff = task_state.get("skill_creator_handoff_request")
@@ -25133,6 +25274,9 @@ async def _run_workflow_response(
                     if scheduler_v2 is not None
                     else {"version": 1}
                 ),
+                "control_flow_trace": list(
+                    task_state.get("control_flow_trace") or []
+                ),
                 "execution_budget": (
                     {
                         "steps_used": task_state["execution_budget"].steps_used,
@@ -25154,6 +25298,11 @@ async def _run_workflow_response(
                 continuation.update(
                     {
                         "final_output": final_output,
+                        "control_flow_terminal": (
+                            dict(task_state.get("control_flow_terminal") or {})
+                            if isinstance(task_state.get("control_flow_terminal"), dict)
+                            else None
+                        ),
                         "agent_state": dict(
                             interrupt.continuation.get("agent_state") or {}
                         ),
@@ -25535,7 +25684,31 @@ async def _run_workflow_response(
                     title="Workflow terminated",
                     summary=exc.code,
                     severity="error",
-                    metadata={"node_id": exc.node_id, "error_code": exc.code},
+                    metadata={
+                        "node_id": exc.node_id,
+                        "error_code": exc.code,
+                        "outcomes": list(task_state.get("control_flow_trace") or []),
+                        "terminal": str(
+                            (
+                                task_state.get("control_flow_terminal")
+                                if isinstance(
+                                    task_state.get("control_flow_terminal"), dict
+                                )
+                                else {}
+                            ).get("terminal")
+                            or "unexpected_error"
+                        ),
+                        "source_ref": str(
+                            (
+                                task_state.get("control_flow_terminal")
+                                if isinstance(
+                                    task_state.get("control_flow_terminal"), dict
+                                )
+                                else {}
+                            ).get("source_ref")
+                            or ""
+                        ),
+                    },
                 )
             except Exception:
                 logger.warning(
@@ -29849,6 +30022,62 @@ async def evaluation_tool_call_summary(runtime_run_id: str) -> list[str]:
     ][:100]
 
 
+async def evaluation_control_flow_summary(runtime_run_id: str) -> dict[str, Any]:
+    """Return only semantic Planner path evidence from internal checkpoints."""
+    unsupported = {
+        "supported": False,
+        "outcomes": [],
+        "terminal": "",
+        "source_ref": "",
+        "error_code": "",
+        "warnings": [
+            "Workflow path evidence is unavailable because Planner refs were not recorded."
+        ],
+    }
+    if not runtime_run_id:
+        return unsupported
+    try:
+        checkpoints = await run_registry.list_checkpoints(runtime_run_id, limit=500)
+    except KeyError:
+        return unsupported
+    candidates = [
+        item
+        for item in checkpoints
+        if item.event_type
+        in {"workflow.control_flow.completed", "workflow.terminated"}
+    ]
+    if not candidates:
+        return unsupported
+    checkpoint = max(
+        candidates,
+        key=lambda item: (float(item.created_at), str(item.checkpoint_id)),
+    )
+    metadata = dict(checkpoint.metadata or {})
+    outcomes = [
+        str(item)[:129]
+        for item in list(metadata.get("outcomes") or [])[:256]
+        if re.fullmatch(
+            r"[a-z][a-z0-9_-]{0,63}:(?:success|matched|unmatched|case_[1-8]|default)",
+            str(item),
+        )
+    ]
+    source_ref = str(metadata.get("source_ref") or "")[:64]
+    terminal = str(metadata.get("terminal") or "")
+    supported = bool(source_ref) and terminal in {"success", "error"}
+    return {
+        "supported": supported,
+        "outcomes": outcomes,
+        "terminal": terminal if terminal in {"success", "error"} else "",
+        "source_ref": source_ref if supported else "",
+        "error_code": (
+            str(metadata.get("error_code") or checkpoint.summary or "")[:64]
+            if terminal == "error"
+            else ""
+        ),
+        "warnings": [] if supported else unsupported["warnings"],
+    }
+
+
 async def run_xpert_evaluation_target(
     target: dict[str, Any],
     case: dict[str, Any],
@@ -29926,12 +30155,30 @@ async def run_xpert_evaluation_target(
     runtime_run_id = str(
         getattr(response, "headers", {}).get("X-ModelMirror-Runtime-Run-Id") or ""
     )
-    final_event = await consume_workflow_stream(response)
-    if final_event.get("event") != "workflow_end":
-        raise RuntimeError(
-            "Evaluation target attempted to wait for an interactive Runtime action."
-        )
-    output = str(final_event.get("final_output") or "")
+    expected_path = case.get("path")
+    expects_error_terminal = (
+        isinstance(expected_path, dict)
+        and expected_path.get("terminal") == "error"
+    )
+    try:
+        final_event = await consume_workflow_stream(response)
+    except WorkflowStreamFailure:
+        control_flow = await evaluation_control_flow_summary(runtime_run_id)
+        if (
+            not expects_error_terminal
+            or not control_flow.get("supported")
+            or control_flow.get("terminal") != "error"
+        ):
+            raise
+        final_event = {"event": "workflow_error", "variables": {}}
+        output = ""
+    else:
+        if final_event.get("event") != "workflow_end":
+            raise RuntimeError(
+                "Evaluation target attempted to wait for an interactive Runtime action."
+            )
+        output = str(final_event.get("final_output") or "")
+        control_flow = await evaluation_control_flow_summary(runtime_run_id)
     usage: dict[str, Any] = {}
     task_state = workflow_task_store.get(task_id)
     execution_budget = (
@@ -29973,6 +30220,7 @@ async def run_xpert_evaluation_target(
         "output": output,
         "citations": evaluation_citation_summary(citation_value),
         "tool_calls": await evaluation_tool_call_summary(runtime_run_id),
+        "control_flow": control_flow,
         "usage": usage,
         "runtime_run_id": runtime_run_id or None,
     }

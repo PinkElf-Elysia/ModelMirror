@@ -85,14 +85,34 @@ def validate_xpert_definition(xpert: XpertDefinition) -> XpertValidationResult:
                 message="Published Xpert requires exactly one output node.",
             )
         )
-    elif str(output_nodes[0].data.get("outputVariable") or "") != xpert.draft.output_variable:
-        issues.append(
-            ValidationIssue(
-                code="xpert_output_variable_mismatch",
-                message="Xpert output variable must match the output node outputVariable.",
-                node_id=output_nodes[0].id,
+    else:
+        output_data = output_nodes[0].data
+        if output_data.get("contractVersion") == 2:
+            sources = output_data.get("outputSources")
+            compatibility_variable = (
+                str(sources[0].get("variable") or "")
+                if isinstance(sources, list)
+                and sources
+                and isinstance(sources[0], dict)
+                else ""
             )
-        )
+        else:
+            compatibility_variable = str(
+                output_data.get("outputVariable") or ""
+            )
+        if compatibility_variable != xpert.draft.output_variable:
+            issues.append(
+                ValidationIssue(
+                    code="xpert_output_variable_mismatch",
+                    message=(
+                        "Xpert output variable must match the first declared "
+                        "output source variable."
+                        if output_data.get("contractVersion") == 2
+                        else "Xpert output variable must match the output node outputVariable."
+                    ),
+                    node_id=output_nodes[0].id,
+                )
+            )
 
     if not agent_nodes:
         issues.append(

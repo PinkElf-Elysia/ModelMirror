@@ -30,12 +30,16 @@ from server.xpert_runtime.workflow_node_registry import workflow_node_registry
 
 
 EXPECTED_PLANNER_KINDS = {
+    "condition",
     "data_aggregate",
+    "data_merge",
     "dataset_compare",
     "input",
     "json_deserialize",
     "json_serialize",
+    "multi_route",
     "output",
+    "terminate_error",
     "variable_aggregator",
     "workflow_agent",
     "external_xpert",
@@ -193,7 +197,7 @@ def test_subworkflow_call_contract_does_not_overclaim_idempotency() -> None:
     assert contract.planner.enabled is False
 
 
-def test_r16_control_data_contracts_are_complete_and_only_aggregate_is_plannable() -> None:
+def test_r16_control_data_contracts_preserve_list_operation_planner_exclusion() -> None:
     kinds = {"terminate_error", "multi_route", "list_operation", "data_aggregate"}
 
     for kind in kinds:
@@ -203,7 +207,9 @@ def test_r16_control_data_contracts_are_complete_and_only_aggregate_is_plannable
         assert contract.execution.deterministic is True
         assert contract.execution.external_io is False
         assert contract.execution.can_wait is False
-        assert contract.planner.enabled is (kind == "data_aggregate")
+        assert contract.planner.enabled is (kind != "list_operation")
+        if contract.planner.enabled:
+            assert contract.planner.task_binding == "forbidden"
         assert node_policy_service.decision(kind, "workflow").allowed
         assert node_policy_service.decision(kind, "xpert").allowed
 
@@ -243,11 +249,13 @@ def test_r23_iteration_contract_is_complete_and_not_plannable() -> None:
     assert not node_policy_service.decision("iteration", "evolution").allowed
 
 
-def test_r17_only_dataset_compare_is_plannable_among_r17_contracts() -> None:
+def test_r17_condition_and_compare_are_plannable_but_http_is_not() -> None:
     for kind in {"http_request", "condition", "dataset_compare"}:
         contract = workflow_node_contract_registry.require(kind)
         assert contract.contract_status == "complete"
-        assert contract.planner.enabled is (kind == "dataset_compare")
+        assert contract.planner.enabled is (kind != "http_request")
+        if contract.planner.enabled:
+            assert contract.planner.task_binding == "forbidden"
         assert node_policy_service.decision(kind, "workflow").allowed
         assert node_policy_service.decision(kind, "xpert").allowed
 
@@ -265,7 +273,7 @@ def test_r17_only_dataset_compare_is_plannable_among_r17_contracts() -> None:
     assert dataset.execution.external_io is False
 
 
-def test_r21_data_merge_contract_is_complete_fanin_and_not_plannable() -> None:
+def test_r21_data_merge_contract_is_complete_fanin_and_auxiliary_plannable() -> None:
     contract = workflow_node_contract_registry.require("data_merge")
 
     assert contract.contract_status == "complete"
@@ -278,7 +286,8 @@ def test_r21_data_merge_contract_is_complete_fanin_and_not_plannable() -> None:
     assert contract.execution.deterministic is True
     assert contract.execution.idempotent is True
     assert contract.execution.can_wait is False
-    assert contract.planner.enabled is False
+    assert contract.planner.enabled is True
+    assert contract.planner.task_binding == "forbidden"
     assert node_policy_service.decision("data_merge", "workflow").allowed
     assert node_policy_service.decision("data_merge", "xpert").allowed
     assert not node_policy_service.decision("data_merge", "evolution").allowed
@@ -743,7 +752,7 @@ def test_old_capability_snapshot_remains_readable() -> None:
     assert snapshot.contract_checksum == ""
 
 
-def test_registry_ui_projection_is_v5_and_contains_no_runtime_payloads() -> None:
+def test_registry_ui_projection_is_v6_and_contains_no_runtime_payloads() -> None:
     payload = workflow_node_registry.to_payload()
     serialized = str(payload).lower()
     items = [
@@ -753,7 +762,7 @@ def test_registry_ui_projection_is_v5_and_contains_no_runtime_payloads() -> None
     ] + list(payload["knowledge_pipeline"]["items"])
 
     assert len({item["kind"] for item in items}) == 51
-    assert payload["version"] == "xpert-workflow-node-registry-v5"
+    assert payload["version"] == "xpert-workflow-node-registry-v6"
     assert payload["contract_version"] == 3
     assert payload["contract_checksum"] == workflow_node_contract_registry.checksum
     assert all(item["contract"]["kind"] == item["kind"] for item in items)

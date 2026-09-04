@@ -25,6 +25,7 @@ except ModuleNotFoundError:
 from .schemas import (
     GraphIntentControlEdgeV3,
     GraphIntentFinalOutputV3,
+    GraphIntentFinalOutputSourceV3,
     GraphIntentInputBindingV3,
     GraphIntentNodeV3,
     GraphIntentOutputBindingV3,
@@ -445,8 +446,12 @@ def v2_to_graph_intent(
             middleware=blueprint.middleware,
             prompt_profile_ids=blueprint.prompt_profile_ids,
             final_output=GraphIntentFinalOutputV3(
-                node_ref=blueprint.final_output.node_ref,
-                variable=blueprint.final_output.variable,
+                sources=[
+                    GraphIntentFinalOutputSourceV3(
+                        node_ref=blueprint.final_output.node_ref,
+                        port="result",
+                    )
+                ],
             ),
         ),
         compatibility,
@@ -479,6 +484,23 @@ def _graph_intent_inputs_to_v2(
 
 
 def graph_intent_to_v2(intent: GraphIntentV3) -> MetaPlannerTypedBlueprintV2:
+    if len(intent.final_output.sources) != 1 or any(
+        edge.outcome_ref != "success" for edge in intent.control_edges
+    ):
+        raise ValueError(
+            "Graph Intent uses control-flow semantics that cannot be represented in V2."
+        )
+    final_source = intent.final_output.sources[0]
+    final_node = next(
+        (node for node in intent.nodes if node.ref == final_source.node_ref), None
+    )
+    if final_node is None:
+        raise ValueError("Graph Intent final output references an unknown node.")
+    final_binding = next(
+        (item for item in final_node.outputs if item.port == final_source.port), None
+    )
+    if final_binding is None:
+        raise ValueError("Graph Intent final output references an unknown port.")
     return MetaPlannerTypedBlueprintV2(
         name=intent.name,
         description=intent.description,
@@ -515,8 +537,8 @@ def graph_intent_to_v2(intent: GraphIntentV3) -> MetaPlannerTypedBlueprintV2:
         middleware=intent.middleware,
         prompt_profile_ids=intent.prompt_profile_ids,
         final_output=MetaPlannerIRFinalOutput(
-            node_ref=intent.final_output.node_ref,
-            variable=intent.final_output.variable,
+            node_ref=final_source.node_ref,
+            variable=final_binding.variable,
         ),
     )
 
@@ -703,19 +725,17 @@ def resolve_graph_intent(
         if get_planner_node_adapter(node.kind) is None:
             raise ValueError(f"Node kind {node.kind} has no Planner adapter.")
     known_refs = set(refs)
-    edge_keys: set[tuple[str, str]] = set()
+    edge_keys: set[tuple[str, str, str]] = set()
     for edge in intent.control_edges:
         if edge.source_ref not in known_refs or edge.target_ref not in known_refs:
             raise ValueError("Graph IR control edge references an unknown node.")
-        key = (edge.source_ref, edge.target_ref)
+        key = (edge.source_ref, edge.outcome_ref, edge.target_ref)
         if edge.source_ref == edge.target_ref or key in edge_keys:
             raise ValueError("Graph IR control edges must be unique and non-reflexive.")
         edge_keys.add(key)
-    _, parents, order, sinks = _control_graph(refs, intent.control_edges)
+    _, parents, order, _sinks = _control_graph(refs, intent.control_edges)
     if len(order) != len(refs):
         raise ValueError("Graph IR control edges must form an acyclic graph.")
-    if len(sinks) != 1 or sinks[0] != intent.final_output.node_ref:
-        raise ValueError("Graph IR requires one terminal matching final_output.")
     ancestors = _ancestors(refs, parents, order)
 
     nodes: list[ResolvedGraphNodeV3] = [
@@ -841,14 +861,16 @@ def resolve_graph_intent(
                     node_ref=target_ref,
                     node_id=resolved_by_ref[target_ref].node_id,
                 ),
-                outcome="success",
+                outcome_ref="success",
                 join="all",
             )
         )
     for edge in intent.control_edges:
         edges.append(
             ResolvedGraphEdgeV3(
-                ref=_stable_ref("control", edge.source_ref, edge.target_ref),
+                ref=_stable_ref(
+                    "control", edge.source_ref, edge.outcome_ref, edge.target_ref
+                ),
                 mode="control",
                 source=ResolvedGraphEndpointV3(
                     node_ref=edge.source_ref,
@@ -858,8 +880,8 @@ def resolve_graph_intent(
                     node_ref=edge.target_ref,
                     node_id=resolved_by_ref[edge.target_ref].node_id,
                 ),
-                outcome=edge.outcome,
-                join=edge.join,
+                outcome_ref=edge.outcome_ref,
+                join="all",
             )
         )
 
@@ -1084,14 +1106,23 @@ def resolve_graph_intent(
             )
         )
 
-    final_source = declared_outputs.get(
-        (intent.final_output.node_ref, intent.final_output.port)
-    )
-    final_node = resolved_by_ref.get(intent.final_output.node_ref)
-    if final_node is None or final_node.kind != "workflow_agent":
-        raise ValueError("Graph IR final output must come from a workflow_agent.")
-    if final_source is None or final_source[0] != intent.final_output.variable:
-        raise ValueError("Graph IR final output does not match its source port.")
+    final_sources: list[tuple[GraphIntentFinalOutputSourceV3, str, WorkflowValueSchema]] = []
+    for source in intent.final_output.sources:
+        final_node = resolved_by_ref.get(source.node_ref)
+        final_source = declared_outputs.get((source.node_ref, source.port))
+        if final_node is None or final_node.kind != "workflow_agent":
+            raise ValueError("Graph IR final outputs must come from workflow_agent nodes.")
+        if final_source is None:
+            raise ValueError("Graph IR final output does not match its source port.")
+        final_sources.append((source, final_source[0], final_source[1]))
+    output_sources = [
+        {
+            "sourceRef": source.node_ref,
+            "sourcePort": source.port,
+            "variable": variable,
+        }
+        for source, variable, _schema in final_sources
+    ]
     output_node = _resolved_node(
         ref="output",
         node_id="output",
@@ -1099,48 +1130,50 @@ def resolve_graph_intent(
         role="output",
         title="Final answer",
         config={
-            "outputVariable": intent.final_output.variable,
-            "template": f"{{{{{intent.final_output.variable}}}}}",
+            "contractVersion": 2,
+            "selectionPolicy": "exactly_one_arrived",
+            "outputSources": output_sources,
         },
     )
     nodes.append(output_node)
     resolved_by_ref["output"] = output_node
-    edges.append(
-        ResolvedGraphEdgeV3(
-            ref=_stable_ref("control", intent.final_output.node_ref, "output"),
-            mode="control",
-            source=ResolvedGraphEndpointV3(
-                node_ref=intent.final_output.node_ref,
-                node_id=resolved_by_ref[intent.final_output.node_ref].node_id,
-            ),
-            target=ResolvedGraphEndpointV3(node_ref="output", node_id="output"),
-            outcome="success",
-            join="all",
+    for source, variable, schema in final_sources:
+        edges.append(
+            ResolvedGraphEdgeV3(
+                ref=_stable_ref("control", source.node_ref, "success", "output"),
+                mode="control",
+                source=ResolvedGraphEndpointV3(
+                    node_ref=source.node_ref,
+                    node_id=resolved_by_ref[source.node_ref].node_id,
+                ),
+                target=ResolvedGraphEndpointV3(node_ref="output", node_id="output"),
+                outcome_ref="success",
+                join="all",
+            )
         )
-    )
-    edges.append(
-        ResolvedGraphEdgeV3(
-            ref=_stable_ref(
-                "data",
-                intent.final_output.node_ref,
-                intent.final_output.port,
-                "output",
-                "result",
-                intent.final_output.variable,
-            ),
-            mode="data",
-            source=ResolvedGraphEndpointV3(
-                node_ref=intent.final_output.node_ref,
-                node_id=resolved_by_ref[intent.final_output.node_ref].node_id,
-                port=intent.final_output.port,
-            ),
-            target=ResolvedGraphEndpointV3(
-                node_ref="output", node_id="output", port="result"
-            ),
-            variable=intent.final_output.variable,
-            value_schema=final_source[1],
+        edges.append(
+            ResolvedGraphEdgeV3(
+                ref=_stable_ref(
+                    "data",
+                    source.node_ref,
+                    source.port,
+                    "output",
+                    "result",
+                    variable,
+                ),
+                mode="data",
+                source=ResolvedGraphEndpointV3(
+                    node_ref=source.node_ref,
+                    node_id=resolved_by_ref[source.node_ref].node_id,
+                    port=source.port,
+                ),
+                target=ResolvedGraphEndpointV3(
+                    node_ref="output", node_id="output", port="result"
+                ),
+                variable=variable,
+                value_schema=schema,
+            )
         )
-    )
 
     prompt_lookup = {item["id"]: item for item in snapshot.prompt_profiles}
     prompt_profiles: list[ResolvedPromptProfileV3] = []
@@ -1164,6 +1197,9 @@ def resolve_graph_intent(
             )
         )
 
+    from .control_flow import analyze_control_flow
+
+    control_flow_report = analyze_control_flow(intent)
     graph = ResolvedGraphIRV3(
         name=intent.name,
         description=intent.description,
@@ -1173,6 +1209,8 @@ def resolve_graph_intent(
         edges=sorted(edges, key=lambda item: item.ref),
         prompt_profiles=prompt_profiles,
         final_output=intent.final_output,
+        control_flow_report=control_flow_report,
+        terminal_count=len(intent.final_output.sources),
         contract_version=NODE_CONTRACT_VERSION,
         capability_snapshot_version=snapshot.version,
         capability_snapshot_hash=snapshot.snapshot_hash,
@@ -1205,6 +1243,10 @@ def annotate_candidate_with_graph_ir(
             data["plannerOutputsV3"] = [
                 item.model_dump(mode="json") for item in source.outputs
             ]
+            if source.kind == "data_merge":
+                data["plannerControlInputMapV1"] = {
+                    item.port: item.source_ref for item in source.inputs
+                }
 
 
 def decompile_candidate_to_graph_intent_compat(
@@ -1300,6 +1342,9 @@ def decompile_candidate_to_graph_intent_compat(
             business_nodes.append(restored)
         else:
             legacy_nodes.append(restored)
+    business_by_ref = {
+        node.ref: node for node in business_nodes
+    } if use_v3 else {}
 
     control_edges: list[GraphIntentControlEdgeV3] = []
     resources: list[MetaPlannerIRResourceBinding] = []
@@ -1325,25 +1370,65 @@ def decompile_candidate_to_graph_intent_compat(
         target_handle = str(raw_edge.get("targetHandle") or "")
         source_kind = kind_by_id[source_id]
         target_kind = kind_by_id[target_id]
-        if not source_handle and not target_handle:
-            if source_kind == "input" and target_ref:
-                input_root_edges.append(target_ref)
-                input_root_refs.add(target_ref)
-                continue
-            if source_ref and target_ref:
-                control_edges.append(
-                    GraphIntentControlEdgeV3(
-                        source_ref=source_ref,
-                        target_ref=target_ref,
+        if source_kind == "input" and target_ref and not source_handle and not target_handle:
+            input_root_edges.append(target_ref)
+            input_root_refs.add(target_ref)
+            continue
+        if source_ref and target_kind == "output" and not source_handle and not target_handle:
+            terminal_edges.append(raw_edge)
+            continue
+        if source_ref and target_ref:
+            if not use_v3:
+                if source_handle or target_handle:
+                    raise ValueError(
+                        f"Legacy control edge {edge_id} cannot carry Handles."
                     )
+                semantic_outcome = "success"
+            else:
+                from .control_flow import native_outcome_map
+
+                source_intent = business_by_ref[source_ref]
+                expected_outcomes = native_outcome_map(source_intent)
+                raw_outcomes = (node_by_id[source_id].get("data") or {}).get(
+                    "plannerOutcomeMapV1"
                 )
-                continue
-            if source_ref and target_kind == "output":
-                terminal_edges.append(raw_edge)
-                continue
-            raise ValueError(
-                f"Compiled control edge {edge_id} is outside the recoverable Planner graph."
+                if raw_outcomes != expected_outcomes:
+                    raise ValueError(
+                        f"Compiled node {source_ref} outcome mapping has drifted."
+                    )
+                matches = [
+                    semantic
+                    for semantic, native in expected_outcomes.items()
+                    if native == source_handle
+                ]
+                if len(matches) != 1:
+                    raise ValueError(
+                        f"Compiled control edge {edge_id} has an invalid source Handle."
+                    )
+                semantic_outcome = matches[0]
+                target_intent = business_by_ref[target_ref]
+                if target_intent.kind == "data_merge":
+                    expected_inputs = (node_by_id[target_id].get("data") or {}).get(
+                        "plannerControlInputMapV1"
+                    )
+                    if not isinstance(expected_inputs, dict) or expected_inputs.get(
+                        target_handle
+                    ) != source_ref:
+                        raise ValueError(
+                            f"Compiled data merge edge {edge_id} has an invalid target Handle."
+                        )
+                elif target_handle:
+                    raise ValueError(
+                        f"Compiled control edge {edge_id} has an unexpected target Handle."
+                    )
+            control_edges.append(
+                GraphIntentControlEdgeV3(
+                    source_ref=source_ref,
+                    outcome_ref=semantic_outcome,
+                    target_ref=target_ref,
+                )
             )
+            continue
         if not target_ref:
             raise ValueError(
                 f"Compiled binding edge {edge_id} must target a Workflow Agent."
@@ -1432,9 +1517,6 @@ def decompile_candidate_to_graph_intent_compat(
         raise ValueError(
             "Compiled input edges do not match the semantic control roots."
         )
-    if len(terminal_edges) != 1:
-        raise ValueError("Compiled candidate must contain exactly one terminal edge.")
-
     output_node = next(
         (
             node
@@ -1447,14 +1529,110 @@ def decompile_candidate_to_graph_intent_compat(
     if output_node is None:
         raise ValueError("Compiled candidate has no output node.")
     output_data = output_node.get("data") or {}
-    output_variable = str(output_data.get("outputVariable") or "")
-    terminal_edge = terminal_edges[0]
-    terminal_ref = ref_by_id.get(str(terminal_edge.get("source") or ""))
-    if not terminal_ref or not output_variable:
-        raise ValueError("Compiled candidate final output metadata is incomplete.")
-    terminal_node_id = str(terminal_edge.get("source") or "")
-    if kind_by_id.get(terminal_node_id) != "workflow_agent":
-        raise ValueError("Compiled candidate final output must use a Workflow Agent.")
+    final_output_v3: GraphIntentFinalOutputV3 | None = None
+    legacy_terminal_ref = ""
+    legacy_output_variable = ""
+    if use_v3 and output_data.get("contractVersion") == 2:
+        if output_data.get("selectionPolicy") != "exactly_one_arrived":
+            raise ValueError("Compiled Output V2 selection policy has drifted.")
+        raw_output_sources = output_data.get("outputSources")
+        if not isinstance(raw_output_sources, list) or not 1 <= len(
+            raw_output_sources
+        ) <= 8:
+            raise ValueError("Compiled Output V2 must contain 1-8 output sources.")
+        restored_sources: list[GraphIntentFinalOutputSourceV3] = []
+        expected_terminal_ids: list[str] = []
+        seen_sources: set[tuple[str, str]] = set()
+        business_node_by_id = {
+            node_id: business_by_ref[ref]
+            for node_id, ref in ref_by_id.items()
+        }
+        for raw_source in raw_output_sources:
+            if not isinstance(raw_source, dict) or set(raw_source) != {
+                "sourceRef",
+                "sourcePort",
+                "variable",
+            }:
+                raise ValueError("Compiled Output V2 source metadata is invalid.")
+            source_ref = str(raw_source.get("sourceRef") or "")
+            source_port = str(raw_source.get("sourcePort") or "")
+            variable = str(raw_source.get("variable") or "")
+            source_node_id = next(
+                (node_id for node_id, ref in ref_by_id.items() if ref == source_ref),
+                "",
+            )
+            source_node = business_node_by_id.get(source_node_id)
+            if (
+                not source_node_id
+                or source_node is None
+                or source_node.kind != "workflow_agent"
+            ):
+                raise ValueError(
+                    "Compiled Output V2 sources must use Workflow Agent nodes."
+                )
+            output_binding = next(
+                (item for item in source_node.outputs if item.port == source_port),
+                None,
+            )
+            if output_binding is None or output_binding.variable != variable:
+                raise ValueError(
+                    "Compiled Output V2 source port or variable has drifted."
+                )
+            source_key = (source_ref, source_port)
+            if source_key in seen_sources:
+                raise ValueError("Compiled Output V2 sources must be unique.")
+            seen_sources.add(source_key)
+            expected_terminal_ids.append(source_node_id)
+            restored_sources.append(
+                GraphIntentFinalOutputSourceV3(
+                    node_ref=source_ref,
+                    port=source_port,
+                )
+            )
+        actual_terminal_ids = [
+            str(edge.get("source") or "") for edge in terminal_edges
+        ]
+        if sorted(actual_terminal_ids) != sorted(expected_terminal_ids):
+            raise ValueError(
+                "Compiled Output V2 terminal edges do not match its output sources."
+            )
+        final_output_v3 = GraphIntentFinalOutputV3(sources=restored_sources)
+    else:
+        if len(terminal_edges) != 1:
+            raise ValueError(
+                "Legacy compiled candidate must contain exactly one terminal edge."
+            )
+        legacy_output_variable = str(output_data.get("outputVariable") or "")
+        terminal_edge = terminal_edges[0]
+        legacy_terminal_ref = ref_by_id.get(
+            str(terminal_edge.get("source") or ""), ""
+        )
+        terminal_node_id = str(terminal_edge.get("source") or "")
+        if not legacy_terminal_ref or not legacy_output_variable:
+            raise ValueError("Compiled candidate final output metadata is incomplete.")
+        if kind_by_id.get(terminal_node_id) != "workflow_agent":
+            raise ValueError(
+                "Compiled candidate final output must use a Workflow Agent."
+            )
+        if use_v3:
+            terminal_node = business_by_ref[legacy_terminal_ref]
+            matches = [
+                item
+                for item in terminal_node.outputs
+                if item.variable == legacy_output_variable
+            ]
+            if len(matches) != 1:
+                raise ValueError(
+                    "Legacy compiled final output cannot be mapped to one Adapter port."
+                )
+            final_output_v3 = GraphIntentFinalOutputV3(
+                sources=[
+                    GraphIntentFinalOutputSourceV3(
+                        node_ref=legacy_terminal_ref,
+                        port=matches[0].port,
+                    )
+                ]
+            )
     prompt_items = [
         item
         for item in draft.get("prompt_profiles") or []
@@ -1485,15 +1663,17 @@ def decompile_candidate_to_graph_intent_compat(
             **metadata,
             nodes=sorted(business_nodes, key=lambda item: item.ref),
             control_edges=sorted(
-                control_edges, key=lambda item: (item.source_ref, item.target_ref)
+                control_edges,
+                key=lambda item: (
+                    item.source_ref,
+                    item.outcome_ref,
+                    item.target_ref,
+                ),
             ),
             resources=resources,
             middleware=middleware,
             prompt_profile_ids=prompt_ids,
-            final_output=GraphIntentFinalOutputV3(
-                node_ref=terminal_ref,
-                variable=output_variable,
-            ),
+            final_output=final_output_v3,
         )
     else:
         blueprint = MetaPlannerTypedBlueprintV2(
@@ -1513,8 +1693,8 @@ def decompile_candidate_to_graph_intent_compat(
             middleware=middleware,
             prompt_profile_ids=prompt_ids,
             final_output=MetaPlannerIRFinalOutput(
-                node_ref=terminal_ref,
-                variable=output_variable,
+                node_ref=legacy_terminal_ref,
+                variable=legacy_output_variable,
             ),
         )
         intent, compatibility = v2_to_graph_intent(blueprint)

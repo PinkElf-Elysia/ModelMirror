@@ -315,6 +315,320 @@ async def test_typed_condition_runtime_trace_names_the_selected_field(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("input_value", "selected_node", "expected_outcomes", "source_ref"),
+    [
+        ("approve", "approved", ["router:matched", "approved:success"], "approved"),
+        ("decline", "rejected", ["router:unmatched", "rejected:success"], "rejected"),
+    ],
+)
+async def test_planner_control_flow_records_semantic_success_and_output_v2_terminal(
+    client: httpx.AsyncClient,
+    input_value: str,
+    selected_node: str,
+    expected_outcomes: list[str],
+    source_ref: str,
+) -> None:
+    workflow = {
+        "id": f"planner-control-flow-{selected_node}",
+        "title": "Planner control flow runtime evidence",
+        "nodes": [
+            {
+                "id": "input",
+                "type": "input",
+                "data": {"kind": "input", "variableName": "payload"},
+            },
+            {
+                "id": "router",
+                "type": "condition",
+                "data": {
+                    "kind": "condition",
+                    "contractVersion": 2,
+                    "inputVariable": "payload",
+                    "field": "",
+                    "operator": "equals",
+                    "valueType": "text",
+                    "value": "approve",
+                    "plannerRef": "router",
+                    "plannerOutcomeMapV1": {"matched": "true", "unmatched": "false"},
+                },
+            },
+            {
+                "id": "approved",
+                "type": "json_serialize",
+                "data": {
+                    "kind": "json_serialize",
+                    "contractVersion": 2,
+                    "inputVariable": "payload",
+                    "outputVariable": "approved_json",
+                    "format": "compact",
+                    "plannerRef": "approved",
+                    "plannerOutcomeMapV1": {"success": ""},
+                },
+            },
+            {
+                "id": "rejected",
+                "type": "json_serialize",
+                "data": {
+                    "kind": "json_serialize",
+                    "contractVersion": 2,
+                    "inputVariable": "payload",
+                    "outputVariable": "rejected_json",
+                    "format": "compact",
+                    "plannerRef": "rejected",
+                    "plannerOutcomeMapV1": {"success": ""},
+                },
+            },
+            {
+                "id": "output",
+                "type": "output",
+                "data": {
+                    "kind": "output",
+                    "contractVersion": 2,
+                    "selectionPolicy": "exactly_one_arrived",
+                    "outputSources": [
+                        {
+                            "sourceRef": "approved",
+                            "sourcePort": "json",
+                            "variable": "approved_json",
+                        },
+                        {
+                            "sourceRef": "rejected",
+                            "sourcePort": "json",
+                            "variable": "rejected_json",
+                        },
+                    ],
+                },
+            },
+        ],
+        "edges": [
+            {"id": "e-input-router", "source": "input", "target": "router"},
+            {
+                "id": "e-router-approved",
+                "source": "router",
+                "sourceHandle": "true",
+                "target": "approved",
+            },
+            {
+                "id": "e-router-rejected",
+                "source": "router",
+                "sourceHandle": "false",
+                "target": "rejected",
+            },
+            {"id": "e-approved-output", "source": "approved", "target": "output"},
+            {"id": "e-rejected-output", "source": "rejected", "target": "output"},
+        ],
+    }
+
+    response = await client.post(
+        "/api/workflow/run",
+        json={"workflow": workflow, "inputs": {"payload": input_value}},
+    )
+
+    assert response.status_code == 200, response.text
+    events = parse_sse_events(response.text)
+    started = {
+        str(event.get("node_id"))
+        for event in events
+        if event.get("event") == "node_start"
+    }
+    assert selected_node in started
+    assert {"approved", "rejected"}.intersection(started) == {selected_node}
+    completed = next(event for event in events if event.get("event") == "workflow_end")
+    assert completed["final_output"] == json.dumps(input_value)
+
+    runtime_run_id = response.headers["X-ModelMirror-Runtime-Run-Id"]
+    summary = await main_module.evaluation_control_flow_summary(runtime_run_id)
+    assert summary == {
+        "supported": True,
+        "outcomes": expected_outcomes,
+        "terminal": "success",
+        "source_ref": source_ref,
+        "error_code": "",
+        "warnings": [],
+    }
+
+
+@pytest.mark.asyncio
+async def test_legacy_planner_refs_without_outcome_metadata_still_execute(
+    client: httpx.AsyncClient,
+) -> None:
+    workflow = {
+        "id": "legacy-planner-v3-json",
+        "title": "Legacy Planner V3",
+        "nodes": [
+            {"id": "input", "type": "input", "data": {
+                "kind": "input", "variableName": "user_input",
+            }},
+            {"id": "serialize", "type": "json_serialize", "data": {
+                "kind": "json_serialize", "contractVersion": 2,
+                "inputVariable": "user_input", "outputVariable": "json_text",
+                "format": "compact", "plannerRef": "serialize",
+            }},
+            {"id": "output", "type": "output", "data": {
+                "kind": "output", "outputVariable": "json_text",
+            }},
+        ],
+        "edges": [
+            {"id": "input-serialize", "source": "input", "target": "serialize"},
+            {"id": "serialize-output", "source": "serialize", "target": "output"},
+        ],
+    }
+    response = await client.post(
+        "/api/workflow/run",
+        json={"workflow": workflow, "inputs": {"user_input": "legacy"}},
+    )
+    events = parse_sse_events(response.text)
+    assert not [event for event in events if event.get("event") == "workflow_error"]
+    completed = next(event for event in events if event.get("event") == "workflow_end")
+    assert completed["final_output"] == '"legacy"'
+    evidence = await main_module.evaluation_control_flow_summary(
+        response.headers["X-ModelMirror-Runtime-Run-Id"]
+    )
+    assert evidence["supported"] is False
+    assert evidence["warnings"]
+
+
+@pytest.mark.asyncio
+async def test_manual_output_v2_cannot_forge_planner_source_evidence(
+    client: httpx.AsyncClient,
+) -> None:
+    workflow = {
+        "id": "manual-output-v2-forged-source",
+        "title": "Manual Output V2",
+        "nodes": [
+            {"id": "input", "type": "input", "data": {
+                "kind": "input", "variableName": "user_input",
+            }},
+            {"id": "serialize", "type": "json_serialize", "data": {
+                "kind": "json_serialize", "contractVersion": 2,
+                "inputVariable": "user_input", "outputVariable": "json_text",
+                "format": "compact",
+            }},
+            {"id": "output", "type": "output", "data": {
+                "kind": "output", "contractVersion": 2,
+                "selectionPolicy": "exactly_one_arrived",
+                "outputSources": [{
+                    "sourceRef": "forged_source",
+                    "sourcePort": "json",
+                    "variable": "json_text",
+                }],
+            }},
+        ],
+        "edges": [
+            {"id": "input-serialize", "source": "input", "target": "serialize"},
+            {"id": "serialize-output", "source": "serialize", "target": "output"},
+        ],
+    }
+
+    response = await client.post(
+        "/api/workflow/run",
+        json={"workflow": workflow, "inputs": {"user_input": "manual"}},
+    )
+
+    assert response.status_code == 200, response.text
+    events = parse_sse_events(response.text)
+    assert next(event for event in events if event.get("event") == "workflow_end")[
+        "final_output"
+    ] == '"manual"'
+    evidence = await main_module.evaluation_control_flow_summary(
+        response.headers["X-ModelMirror-Runtime-Run-Id"]
+    )
+    assert evidence["supported"] is False
+    assert evidence["source_ref"] == ""
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("planner_metadata", "expected_error_code", "supported"),
+    [
+        ({"plannerRef": "manual_stop"}, "EXPECTED_STOP", False),
+        (
+            {
+                "plannerRef": "manual_stop",
+                "plannerOutcomeMapV1": {"success": ""},
+            },
+            "PLANNER_OUTCOME_MAP_INVALID",
+            False,
+        ),
+        (
+            {"plannerRef": "planned_stop", "plannerOutcomeMapV1": {}},
+            "EXPECTED_STOP",
+            True,
+        ),
+    ],
+)
+async def test_terminate_error_path_evidence_requires_exact_planner_metadata(
+    client: httpx.AsyncClient,
+    planner_metadata: dict,
+    expected_error_code: str,
+    supported: bool,
+) -> None:
+    workflow = {
+        "id": "terminal-planner-metadata",
+        "title": "Terminal Planner Metadata",
+        "nodes": [
+            {"id": "input", "type": "input", "data": {
+                "kind": "input", "variableName": "user_input",
+            }},
+            {"id": "stop", "type": "terminate_error", "data": {
+                "kind": "terminate_error", "errorCode": "EXPECTED_STOP",
+                "message": "Expected safe stop.", **planner_metadata,
+            }},
+        ],
+        "edges": [{"id": "input-stop", "source": "input", "target": "stop"}],
+    }
+
+    response = await client.post(
+        "/api/workflow/run",
+        json={"workflow": workflow, "inputs": {"user_input": "stop"}},
+    )
+
+    assert response.status_code == 200, response.text
+    events = parse_sse_events(response.text)
+    error = next(event for event in events if event.get("event") == "error")
+    assert error["code"] == expected_error_code
+    evidence = await main_module.evaluation_control_flow_summary(
+        response.headers["X-ModelMirror-Runtime-Run-Id"]
+    )
+    assert evidence["supported"] is supported
+    assert evidence["source_ref"] == ("planned_stop" if supported else "")
+
+
+@pytest.mark.asyncio
+async def test_runtime_rejects_reversed_planner_outcome_map(client: httpx.AsyncClient) -> None:
+    workflow = {
+        "id": "forged-planner-outcomes", "title": "Forged outcomes",
+        "nodes": [
+            {"id": "input", "type": "input", "data": {
+                "kind": "input", "variableName": "user_input",
+            }},
+            {"id": "router", "type": "condition", "data": {
+                "kind": "condition", "contractVersion": 2,
+                "inputVariable": "user_input", "operator": "equals",
+                "valueType": "text", "value": "approve", "plannerRef": "router",
+                "plannerOutcomeMapV1": {"matched": "false", "unmatched": "true"},
+            }},
+            {"id": "output", "type": "output", "data": {
+                "kind": "output", "outputVariable": "user_input",
+            }},
+        ],
+        "edges": [
+            {"id": "input-router", "source": "input", "target": "router"},
+            {"id": "matched", "source": "router", "target": "output", "sourceHandle": "true"},
+            {"id": "unmatched", "source": "router", "target": "output", "sourceHandle": "false"},
+        ],
+    }
+    response = await client.post(
+        "/api/workflow/run",
+        json={"workflow": workflow, "inputs": {"user_input": "approve"}},
+    )
+    events = parse_sse_events(response.text)
+    assert any(event.get("code") == "PLANNER_OUTCOME_MAP_INVALID" for event in events)
+    assert not any(event.get("event") == "workflow_end" for event in events)
+
+
+@pytest.mark.asyncio
 async def test_terminate_error_fails_with_code_and_stops_other_routes(
     client: httpx.AsyncClient,
 ) -> None:

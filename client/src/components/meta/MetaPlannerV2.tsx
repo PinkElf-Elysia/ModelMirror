@@ -139,6 +139,21 @@ interface MetaPlannerResponse {
   provider_route_receipts?: ProviderRouteReceipt | null;
 }
 
+interface ControlFlowScenarioSummary {
+  id: string;
+  outcomes: string[];
+  success_sources: string[];
+  error_sources: string[];
+}
+
+interface ControlFlowReportSummary {
+  version: number;
+  router_count: number;
+  scenario_count: number;
+  final_source_count: number;
+  scenarios: ControlFlowScenarioSummary[];
+}
+
 interface AuthoringProposal {
   proposal_id: string;
   revision: number;
@@ -200,6 +215,43 @@ function readAuthoringError(payload: unknown, fallback: string) {
   );
   if (!diagnostics.length) return base;
   return `${base} ${diagnostics.map((item) => item.message).join("；")}`;
+}
+
+function controlFlowReportFrom(value: unknown): ControlFlowReportSummary | null {
+  if (typeof value !== "object" || value === null) return null;
+  const source = value as Record<string, unknown>;
+  const graph =
+    typeof source.graph_ir === "object" && source.graph_ir !== null
+      ? (source.graph_ir as Record<string, unknown>)
+      : source;
+  const raw = graph.control_flow_report;
+  if (typeof raw !== "object" || raw === null) return null;
+  const report = raw as Record<string, unknown>;
+  const scenarios = Array.isArray(report.scenarios)
+    ? report.scenarios.flatMap((item) => {
+        if (typeof item !== "object" || item === null) return [];
+        const row = item as Record<string, unknown>;
+        const strings = (field: string) =>
+          Array.isArray(row[field])
+            ? row[field].filter((entry): entry is string => typeof entry === "string")
+            : [];
+        return [{
+          id: typeof row.id === "string" ? row.id : "scenario",
+          outcomes: strings("outcomes"),
+          success_sources: strings("success_sources"),
+          error_sources: strings("error_sources"),
+        }];
+      })
+    : [];
+  const number = (field: string) =>
+    typeof report[field] === "number" ? Number(report[field]) : 0;
+  return {
+    version: number("version"),
+    router_count: number("router_count"),
+    scenario_count: number("scenario_count"),
+    final_source_count: number("final_source_count"),
+    scenarios,
+  };
 }
 
 export function candidateGenerationOutcome(
@@ -359,6 +411,8 @@ export default function MetaPlannerV2() {
   const [plan, setPlan] = useState<PlannerPlan | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [repairUsed, setRepairUsed] = useState(false);
+  const [controlFlowReport, setControlFlowReport] =
+    useState<ControlFlowReportSummary | null>(null);
   const [snapshotHash, setSnapshotHash] = useState("");
   const [routeReceipt, setRouteReceipt] = useState<ProviderRouteReceipt | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -436,6 +490,7 @@ export default function MetaPlannerV2() {
     setPlan((report.plan as PlannerPlan | undefined) ?? null);
     setWarnings(Array.isArray(report.warnings) ? (report.warnings as string[]) : []);
     setRepairUsed(Boolean(report.repair_used));
+    setControlFlowReport(controlFlowReportFrom(report));
     const snapshot = report.capability_snapshot;
     setSnapshotHash(
       String(
@@ -1179,6 +1234,27 @@ export default function MetaPlannerV2() {
                     <p className="mt-3 rounded-md border border-amber-300/20 bg-amber-300/10 px-2.5 py-2 text-xs text-amber-100">
                       已使用唯一一次模型修复机会。
                     </p>
+                  ) : null}
+                  {controlFlowReport ? (
+                    <div className="mt-3 rounded-md border border-cyan-300/15 bg-cyan-300/[0.05] p-2.5">
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                        <span className="font-semibold text-cyan-100">控制流静态证据</span>
+                        <span className="text-cyan-100/65">
+                          {controlFlowReport.router_count} 路由 · {controlFlowReport.scenario_count} 场景 · {controlFlowReport.final_source_count} 成功来源
+                        </span>
+                      </div>
+                      <div className="mt-2 max-h-28 space-y-1 overflow-y-auto text-[10px] leading-4 text-slate-400">
+                        {controlFlowReport.scenarios.slice(0, 12).map((scenario) => (
+                          <p key={scenario.id}>
+                            <span className="font-mono text-slate-300">{scenario.id}</span>
+                            {scenario.outcomes.length ? ` · ${scenario.outcomes.join(", ")}` : " · 无路由 outcome"}
+                            {scenario.success_sources.length
+                              ? ` · 成功 ${scenario.success_sources.join(", ")}`
+                              : ` · 错误 ${scenario.error_sources.join(", ")}`}
+                          </p>
+                        ))}
+                      </div>
+                    </div>
                   ) : null}
                   {issues.length ? (
                     <div className="mt-3 max-h-32 space-y-1 overflow-y-auto text-[11px] text-rose-100">

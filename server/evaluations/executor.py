@@ -163,6 +163,7 @@ class XpertEvaluationExecutor:
                             for item in list(result.get("tool_calls") or [])
                             if str(item)
                         ],
+                        control_flow=dict(result.get("control_flow") or {}),
                         judge=self.judge_runner,
                         judge_model_id=run.get("config", {}).get("judge_model_id"),
                     )
@@ -175,6 +176,7 @@ class XpertEvaluationExecutor:
                             for item in list(result.get("tool_calls") or [])[:100]
                             if str(item)
                         ],
+                        "control_flow": dict(result.get("control_flow") or {}),
                         "usage": dict(result.get("usage") or {}),
                         "latency_ms": round(
                             (time.perf_counter() - started) * 1000, 3
@@ -188,6 +190,7 @@ class XpertEvaluationExecutor:
                         "status": "failed",
                         "output": "",
                         "citations": {},
+                        "control_flow": {},
                         "usage": {},
                         "score": 0.0,
                         "metrics": [],

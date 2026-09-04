@@ -11,6 +11,7 @@ MetricKind = Literal[
     "json_schema",
     "citation_hit",
     "tool_call_match",
+    "workflow_path_match",
     "rubric_judge",
 ]
 
@@ -31,6 +32,32 @@ class EvaluationExpectation(BaseModel):
     forbidden_tools: list[str] = Field(default_factory=list, max_length=30)
     tool_order: list[str] = Field(default_factory=list, max_length=30)
     rubric: str | None = Field(default=None, max_length=4_000)
+
+
+class EvaluationPathExpectation(BaseModel):
+    required_outcomes: list[str] = Field(default_factory=list, max_length=32)
+    forbidden_outcomes: list[str] = Field(default_factory=list, max_length=32)
+    terminal: Literal["success", "error"]
+    error_code: str | None = Field(default=None, max_length=64)
+
+    @model_validator(mode="after")
+    def validate_path(self) -> "EvaluationPathExpectation":
+        outcome_pattern = r"^[a-z][a-z0-9_-]{0,63}:(?:success|matched|unmatched|case_[1-8]|default)$"
+        import re
+
+        all_outcomes = [*self.required_outcomes, *self.forbidden_outcomes]
+        if any(not re.fullmatch(outcome_pattern, item) for item in all_outcomes):
+            raise ValueError("Path outcomes must use planner_ref:semantic_outcome.")
+        if len(all_outcomes) != len(set(all_outcomes)):
+            raise ValueError("Path outcomes must be unique across required and forbidden lists.")
+        if self.terminal == "error":
+            if not self.error_code or not re.fullmatch(
+                r"^[A-Z][A-Z0-9_]{0,63}$", self.error_code
+            ):
+                raise ValueError("Expected error paths require a safe error_code.")
+        elif self.error_code is not None:
+            raise ValueError("Successful paths cannot declare an error_code.")
+        return self
 
 
 class EvaluationProfessionalEvidence(BaseModel):
@@ -74,6 +101,7 @@ class EvaluationCaseInput(BaseModel):
     messages: list[EvaluationMessage] = Field(default_factory=list, max_length=20)
     tags: list[str] = Field(default_factory=list, max_length=20)
     expected: EvaluationExpectation = Field(default_factory=EvaluationExpectation)
+    path: EvaluationPathExpectation | None = None
     weights: dict[MetricKind, float] = Field(default_factory=dict)
     targeting: EvaluationCaseTargeting | None = None
 
@@ -82,6 +110,20 @@ class EvaluationCaseInput(BaseModel):
         for key, value in self.weights.items():
             if not 0 <= float(value) <= 10:
                 raise ValueError(f"Metric weight must be between 0 and 10: {key}")
+        if self.path is not None and self.path.terminal == "error":
+            text_expectations = (
+                self.expected.exact_answer is not None
+                or bool(self.expected.contains)
+                or self.expected.json_schema is not None
+                or bool(self.expected.citation_ids)
+                or bool(self.expected.chunk_ids)
+                or bool(self.expected.document_names)
+                or bool(self.expected.rubric)
+            )
+            if text_expectations:
+                raise ValueError(
+                    "Expected error paths cannot include text-answer metrics."
+                )
         return self
 
 

@@ -104,6 +104,7 @@ async def get_capabilities() -> dict[str, Any]:
             "json_schema",
             "citation_hit",
             "tool_call_match",
+            "workflow_path_match",
             "rubric_judge",
         ],
         "dataset_limits": {"max_cases": 500, "max_cases_per_run": 100},

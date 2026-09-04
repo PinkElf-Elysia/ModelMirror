@@ -490,7 +490,8 @@ def test_capability_api_returns_stable_safe_contract():
     response = client.get("/api/meta-agent/capabilities")
     assert response.status_code == 200
     payload = response.json()
-    assert payload["version"] == "evoagentx-meta-planner-capabilities-v6"
+    assert payload["version"] == "evoagentx-meta-planner-capabilities-v7"
+    assert payload["control_flow_contract_version"] == 1
     assert payload["authoring_protocol_version"] == 1
     assert payload["authoring_limits"]["max_operations"] == 64
     assert payload["ir_version"] == 3
@@ -508,12 +509,16 @@ def test_capability_snapshot_only_exposes_compilable_node_kinds():
     kinds = {item["kind"] for item in snapshot.nodes}
 
     assert kinds == {
+        "condition",
         "data_aggregate",
+        "data_merge",
         "dataset_compare",
         "input",
         "json_deserialize",
         "json_serialize",
+        "multi_route",
         "output",
+        "terminate_error",
         "variable_aggregator",
         "workflow_agent",
         "external_xpert",
@@ -836,7 +841,7 @@ async def test_parseable_v3_repair_uses_one_typed_graph_patch(tmp_path: Path):
     graph_intent, _ = v2_to_graph_intent(_typed_blueprint())
     assert graph_intent is not None
     invalid = graph_intent.model_copy(deep=True)
-    invalid.final_output.variable = "missing_output"
+    invalid.final_output.sources[0].port = "missing_output"
     calls: list[dict[str, object]] = []
 
     async def complete(model_id, system_prompt, user_prompt, temperature, max_tokens):
@@ -857,7 +862,7 @@ async def test_parseable_v3_repair_uses_one_typed_graph_patch(tmp_path: Path):
                 "operations": [
                     {
                         "op": "set_final_output",
-                        "node_ref": graph_intent.final_output.node_ref,
+                        "node_ref": graph_intent.final_output.sources[0].node_ref,
                         "port": "result",
                     }
                 ],

@@ -23,6 +23,7 @@ from .node_adapters import get_planner_node_adapter
 from .schemas import (
     GraphIntentControlEdgeV3,
     GraphIntentFinalOutputV3,
+    GraphIntentFinalOutputSourceV3,
     GraphIntentInputBindingV3,
     GraphIntentNodeV3,
     GraphIntentOutputBindingV3,
@@ -114,12 +115,20 @@ class RemoveNodeOperation(GraphPatchModel):
 class ConnectControlOperation(GraphPatchModel):
     op: Literal["connect_control"] = "connect_control"
     source_ref: str = Field(pattern=GRAPH_PATCH_REF_PATTERN)
+    outcome_ref: str = Field(
+        default="success",
+        pattern=r"^(?:success|matched|unmatched|case_[1-8]|default)$",
+    )
     target_ref: str = Field(pattern=GRAPH_PATCH_REF_PATTERN)
 
 
 class DisconnectControlOperation(GraphPatchModel):
     op: Literal["disconnect_control"] = "disconnect_control"
     source_ref: str = Field(pattern=GRAPH_PATCH_REF_PATTERN)
+    outcome_ref: str = Field(
+        default="success",
+        pattern=r"^(?:success|matched|unmatched|case_[1-8]|default)$",
+    )
     target_ref: str = Field(pattern=GRAPH_PATCH_REF_PATTERN)
 
 
@@ -204,6 +213,17 @@ class SetFinalOutputOperation(GraphPatchModel):
     port: str = Field(default="result", pattern=GRAPH_PATCH_PORT_PATTERN)
 
 
+class FinalOutputPatchSource(GraphPatchModel):
+    node_ref: str = Field(pattern=GRAPH_PATCH_REF_PATTERN)
+    port: str = Field(default="result", pattern=GRAPH_PATCH_PORT_PATTERN)
+
+
+class SetFinalOutputsOperation(GraphPatchModel):
+    op: Literal["set_final_outputs"] = "set_final_outputs"
+    sources: list[FinalOutputPatchSource] = Field(min_length=1, max_length=8)
+    selection_policy: Literal["exactly_one_arrived"] = "exactly_one_arrived"
+
+
 class MoveNodeOperation(GraphPatchModel):
     op: Literal["move_node"] = "move_node"
     ref: str = Field(pattern=GRAPH_PATCH_REF_PATTERN)
@@ -229,6 +249,7 @@ GraphPatchOperation = Annotated[
         BindPromptProfileOperation,
         UnbindPromptProfileOperation,
         SetFinalOutputOperation,
+        SetFinalOutputsOperation,
         MoveNodeOperation,
     ],
     Field(discriminator="op"),
@@ -481,15 +502,20 @@ def apply_graph_patch(
         if isinstance(operation, ConnectControlOperation):
             _node(result, operation.source_ref)
             _node(result, operation.target_ref)
-            key = (operation.source_ref, operation.target_ref)
+            key = (
+                operation.source_ref,
+                operation.outcome_ref,
+                operation.target_ref,
+            )
             if any(
-                (edge.source_ref, edge.target_ref) == key
+                (edge.source_ref, edge.outcome_ref, edge.target_ref) == key
                 for edge in result.control_edges
             ):
                 raise ValueError("Control edge already exists.")
             result.control_edges.append(
                 GraphIntentControlEdgeV3(
                     source_ref=operation.source_ref,
+                    outcome_ref=operation.outcome_ref,
                     target_ref=operation.target_ref,
                 )
             )
@@ -500,8 +526,12 @@ def apply_graph_patch(
             result.control_edges = [
                 edge
                 for edge in result.control_edges
-                if (edge.source_ref, edge.target_ref)
-                != (operation.source_ref, operation.target_ref)
+                if (edge.source_ref, edge.outcome_ref, edge.target_ref)
+                != (
+                    operation.source_ref,
+                    operation.outcome_ref,
+                    operation.target_ref,
+                )
             ]
             if len(result.control_edges) == before:
                 raise ValueError("Control edge does not exist.")
@@ -591,13 +621,6 @@ def apply_graph_patch(
                 ]
                 updated_nodes.append(node.model_copy(update={"inputs": updated_inputs}))
             result.nodes = updated_nodes
-            if (
-                result.final_output.node_ref == operation.node_ref
-                and result.final_output.port == operation.port
-            ):
-                result.final_output = result.final_output.model_copy(
-                    update={"variable": operation.variable}
-                )
             continue
 
         if isinstance(operation, BindResourceOperation):
@@ -691,9 +714,39 @@ def apply_graph_patch(
                     f"Node {operation.node_ref} has no output port {operation.port}."
                 )
             result.final_output = GraphIntentFinalOutputV3(
-                node_ref=operation.node_ref,
-                port=operation.port,
-                variable=output.variable,
+                sources=[
+                    GraphIntentFinalOutputSourceV3(
+                        node_ref=operation.node_ref,
+                        port=operation.port,
+                    )
+                ],
+            )
+            continue
+
+        if isinstance(operation, SetFinalOutputsOperation):
+            normalized: list[GraphIntentFinalOutputSourceV3] = []
+            identities: set[tuple[str, str]] = set()
+            for source in operation.sources:
+                target = _node(result, source.node_ref)
+                if target.kind != "workflow_agent":
+                    raise ValueError("Final outputs must come from workflow_agent nodes.")
+                if not any(item.port == source.port for item in target.outputs):
+                    raise ValueError(
+                        f"Node {source.node_ref} has no output port {source.port}."
+                    )
+                identity = (source.node_ref, source.port)
+                if identity in identities:
+                    raise ValueError("Final output sources must be unique.")
+                identities.add(identity)
+                normalized.append(
+                    GraphIntentFinalOutputSourceV3(
+                        node_ref=source.node_ref,
+                        port=source.port,
+                    )
+                )
+            result.final_output = GraphIntentFinalOutputV3(
+                sources=normalized,
+                selection_policy=operation.selection_policy,
             )
             continue
 
@@ -731,7 +784,7 @@ def apply_graph_patch(
             for item in result.middleware
             if item.target_ref == ref
         )
-        if result.final_output.node_ref == ref:
+        if any(source.node_ref == ref for source in result.final_output.sources):
             incidents.append("final_output")
         if incidents:
             raise ValueError(
@@ -807,10 +860,12 @@ def diff_graph_intents(
         for binding in node.inputs
     }
     source_control = {
-        (edge.source_ref, edge.target_ref) for edge in source.control_edges
+        (edge.source_ref, edge.outcome_ref, edge.target_ref)
+        for edge in source.control_edges
     }
     target_control = {
-        (edge.source_ref, edge.target_ref) for edge in target.control_edges
+        (edge.source_ref, edge.outcome_ref, edge.target_ref)
+        for edge in target.control_edges
     }
     source_resources = {_resource_key(item): item for item in source.resources}
     target_resources = {_resource_key(item): item for item in target.resources}
@@ -826,10 +881,14 @@ def diff_graph_intents(
                 target_port=key[3],
             )
         )
-    for source_ref, target_ref in sorted(source_control - target_control):
+    for source_ref, outcome_ref, target_ref in sorted(
+        source_control - target_control
+    ):
         operations.append(
             DisconnectControlOperation(
-                source_ref=source_ref, target_ref=target_ref
+                source_ref=source_ref,
+                outcome_ref=outcome_ref,
+                target_ref=target_ref,
             )
         )
     for key in sorted(set(source_resources) - set(target_resources)):
@@ -894,9 +953,15 @@ def diff_graph_intents(
                     )
                 )
 
-    for source_ref, target_ref in sorted(target_control - source_control):
+    for source_ref, outcome_ref, target_ref in sorted(
+        target_control - source_control
+    ):
         operations.append(
-            ConnectControlOperation(source_ref=source_ref, target_ref=target_ref)
+            ConnectControlOperation(
+                source_ref=source_ref,
+                outcome_ref=outcome_ref,
+                target_ref=target_ref,
+            )
         )
     for key in sorted(target_data - source_data):
         operations.append(
@@ -951,12 +1016,26 @@ def diff_graph_intents(
     ):
         operations.append(BindPromptProfileOperation(profile_id=profile_id))
     if source.final_output != target.final_output:
-        operations.append(
-            SetFinalOutputOperation(
-                node_ref=target.final_output.node_ref,
-                port=target.final_output.port,
+        if len(target.final_output.sources) == 1:
+            operations.append(
+                SetFinalOutputOperation(
+                    node_ref=target.final_output.sources[0].node_ref,
+                    port=target.final_output.sources[0].port,
+                )
             )
-        )
+        else:
+            operations.append(
+                SetFinalOutputsOperation(
+                    sources=[
+                        FinalOutputPatchSource(
+                            node_ref=item.node_ref,
+                            port=item.port,
+                        )
+                        for item in target.final_output.sources
+                    ],
+                    selection_policy=target.final_output.selection_policy,
+                )
+            )
 
     before_layout = source_layout or {}
     after_layout = target_layout or {}

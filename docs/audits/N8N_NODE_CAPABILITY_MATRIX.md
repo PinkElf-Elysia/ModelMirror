@@ -22,7 +22,7 @@
 - R2.7 结果：新增完整合同 `rss_event_entry`，以仅公网 HTTPS、逐跳安全校验、首次无回放基线和持久条目去重提供 RSS 2.0/Atom 1.0 订阅入口；认证源、附件、WebSub、Xpert 与等待节点禁用
 - R2.8 结果：新增完整合同 `email_event_entry`，以只读 IMAPS 993、首次无回放 UID 基线和持久 UID 重读恢复提供固定 INBOX 邮件入口；OAuth2、IDLE、多文件夹、附件内容、原始 HTML、Xpert 与等待节点禁用
 - R2.9 PR2 结果：不新增节点类型；在 `http_request` V2、`data_table_query` 与 `knowledge_retrieval` V2 的结构化失败出口前增加默认关闭的持久受限重试。仅固定 GET 无正文、只读表查询及本地合格知识检索可对精确白名单瞬时故障尝试 2–3 次；恢复绑定 Scheduler V2、稳定等待 ID 和安全目标指纹。写操作、外部临时正文入口、公共 App、Evaluation、Evolution、Planner、凭据、权限、安全、配置、资源漂移、取消和未知异常不得重试
-- 当前 Registry 事实：55 Native、51 个已登记 Palette 项、默认 50 个可拖拽 Palette 项、52 个完整合同、3 个 compatibility 合同、12 个 Planner 节点
+- 当前 Registry 事实：55 Native、51 个已登记 Palette 项、默认 50 个可拖拽 Palette 项、52 个完整合同、3 个 compatibility 合同、16 个 Planner 节点
 - 默认运行功能门禁：3 个已登记项（`email_event_entry`、`knowledge_write_proposal`、`rss_event_entry`）允许编辑但执行面关闭；该口径与 Palette 是否登记、是否可拖拽相互独立
 - 参考清单：563 条节点名称/类型，其中 `.ee` 2 条仅保留名称审计
 
@@ -152,4 +152,4 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 - 前端 `WorkflowNodeKind`、后端 `NativeNodeKind`、NodeContract Registry 必须完全一致。
 - Palette 必须是 NodeContract 合法子集；每个启用项必须有默认数据和配置入口。
 - compatibility 合同不得超过 #213 冻结白名单；新节点必须直接提供完整合同。
-- Planner 只接受完整合同、匹配 checksum 且显式启用的节点；R1–R2.9 增量节点均禁止 Planner 自动生成，Planner 可生成类型仍固定为 12 类。
+- Planner 可生成类型仍固定为 16 类：只接受完整合同、匹配 checksum 且显式启用的 Adapter；由原七类、五种纯节点与四种受限控制流节点组成。R1–R2.9 中其他增量节点仍禁止 Planner 自动生成，不能用 Runtime 可执行性替代 Planner 授权。
