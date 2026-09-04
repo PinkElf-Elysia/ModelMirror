@@ -17,9 +17,9 @@ function fixture(t) {
   return root;
 }
 
-test("in-progress R21 derived state keeps the V2 completion claim closed until R25", () => {
+test("qualified R21 derived state keeps the V2 completion claim closed until R25", () => {
   assert.deepEqual(checkV2Claim({ moduleRoot }), {
-    status: "r21-derived-state-in-progress",
+    status: "r21-derived-state-qualified",
     claimAllowed: false,
     blockingRound: "R25",
   });

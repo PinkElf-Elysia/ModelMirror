@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "status": "r21-derived-state-in-progress",
+  "status": "r21-derived-state-qualified",
   "claimAllowed": false,
   "blockingRound": "R25",
   "qualificationProfile": "matrix-oasis.npc-derived-state/1"

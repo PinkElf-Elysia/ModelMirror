@@ -18,6 +18,10 @@ import {
 } from "@matrix-oasis/npc-derived-state-runtime";
 import { canonicalizeJsonValue } from "@matrix-oasis/runtime-pack-contracts";
 import {
+  applyRuntimeGameSessionAction,
+  prepareRuntimeGamePackJson,
+} from "@matrix-oasis/runtime-pack-simulator";
+import {
   createMemoryReducerState,
   finishMemoryReducerState,
   reduceMemoryLedgerEntry,
@@ -522,6 +526,73 @@ test("projection, manifests, replay and bundle are byte-identical across 20 comp
     }));
   }
   assert.equal(new Set(outputs).size, 1);
+});
+
+test("10,000 accepted entries pass full authority replay, projection and verification within 60 seconds", async () => {
+  const fixture = await prepareFixture();
+  const initial = createNpcAuthorityTimeline(fixture.authorityPrepared, {
+    timelineId: "r21-capacity",
+    stepLimit: 10_000,
+  });
+  assert.equal(initial.ok, true);
+  const runtime = await prepareRuntimeGamePackJson(runtimeGamePackJson, runtimeReceiptJson);
+  assert.equal(runtime.ok, true);
+  const ledger = JSON.parse(initial.canonicalWorldEventLedgerJson);
+  let snapshot = initial.runtimeSnapshot;
+  let previous = null;
+  // Build the bounded fixture using the frozen Runtime, never stored result states.
+  // The R21 public APIs below must independently replay every event through R19.
+  for (let index = 0; index < 10_000; index += 1) {
+    const alpha = index % 2 === 0;
+    const actorEntityId = alpha ? "actor-alpha" : "actor-beta";
+    const nodeId = alpha ? "node-alpha" : "node-beta";
+    const actionId = alpha ? "action-pass" : index === 9_999 ? "action-finish" : "action-loop";
+    const beforeSnapshotSha256 = hashCanonicalValue(snapshot);
+    const applied = applyRuntimeGameSessionAction(runtime.prepared, snapshot, actionId);
+    assert.equal(applied.ok, true);
+    const body = {
+      revision: index + 1,
+      intent: {
+        format: "matrix-oasis.npc-intent",
+        formatVersion: "0.1.0",
+        canonicalization: "matrix-oasis.canonical-json/1",
+        id: `intent-capacity-${String(index).padStart(5, "0")}`,
+        actorEntityId,
+        timelineId: ledger.timeline.id,
+        nodeId,
+        actionId,
+        observed: { revision: index, headSha256: previous, runtimeSnapshotSha256: beforeSnapshotSha256 },
+      },
+      decision: { status: "accepted", reason: "NPC_INTENT_ACCEPTED" },
+      beforeSnapshotSha256,
+      afterSnapshotSha256: hashCanonicalValue(applied.snapshot),
+      transition: applied.transition,
+      previousEntrySha256: previous,
+    };
+    const entry = { ...body, entrySha256: hashCanonicalValue(body) };
+    ledger.entries.push(entry);
+    previous = entry.entrySha256;
+    snapshot = applied.snapshot;
+  }
+  ledger.revision = ledger.entries.length;
+  ledger.headSha256 = previous;
+  fixture.ledgerJson = canonicalizeJsonValue(ledger);
+  assert(Buffer.byteLength(fixture.ledgerJson, "utf8") <= 16 * 1024 * 1024);
+  const startedAt = performance.now();
+  const projected = projectNpcDerivedState({ prepared: fixture.prepared, worldEventLedgerJson: fixture.ledgerJson });
+  assert.equal(projected.ok, true, JSON.stringify(projected.diagnostics?.slice(0, 3)));
+  const verified = verifyNpcDerivedState(verificationInput(fixture, projected));
+  assert.equal(verified.ok, true, JSON.stringify(verified.diagnostics?.slice(0, 3)));
+  const elapsedMs = performance.now() - startedAt;
+  const memory = JSON.parse(projected.canonicalNpcMemoryProjectionJson);
+  const relationship = JSON.parse(projected.canonicalNpcRelationshipProjectionJson);
+  const replay = JSON.parse(projected.canonicalWorldEventLedgerReplayReportJson);
+  assert.equal(memory.episodes.length, 10_000);
+  assert.equal(memory.episodes.filter((episode) => episode.actorEntityId === "actor-alpha").length, 5_000);
+  assert.equal(relationship.relationships.reduce((total, edge) => total + edge.contributions.length, 0), 3);
+  assert.equal(replay.finalSnapshotSha256, hashCanonicalValue(snapshot));
+  assert.equal(snapshot.status, "ended");
+  assert(elapsedMs < 60_000, `full replay, projection and verification took ${elapsedMs.toFixed(1)} ms`);
 });
 
 test("10,000-entry reducers have one ledger scan and bounded indexed rule work", () => {

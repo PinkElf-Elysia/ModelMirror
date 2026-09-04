@@ -35,6 +35,8 @@ export const ROUND_ALLOWED_MODULE_FILES = Object.freeze([
   "tests/extraction-contract.test.mjs",
   "tests/v2-claim.test.mjs",
   "tests/round-scope.test.mjs",
+  "tests/r18-sources.test.mjs",
+  "tests/r20-gate-truthfulness.test.mjs",
   "tests/r21-cli.test.mjs",
   "tests/r21-falsification.test.mjs",
   "tests/r21-projection.test.mjs",

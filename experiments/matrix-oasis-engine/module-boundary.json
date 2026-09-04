@@ -13,6 +13,7 @@
       "scripts/check-round-scope.mjs", "scripts/project-npc-derived-state.mjs", "scripts/validate-npc-derived-state.mjs", "scripts/verify-npc-derived-state.mjs", "scripts/qualify-r21.mjs", "scripts/verify-r21-references.mjs", "scripts/verify-r21.mjs",
       "scripts/lib/boundary-core.mjs", "scripts/lib/v2-claim-core.mjs", "scripts/lib/r21-cli-core.mjs", "scripts/lib/r21-projection-core.mjs", "scripts/lib/r21-qualification-core.mjs", "scripts/lib/r21-reference-core.mjs", "scripts/lib/scope-policy.mjs",
       "scripts/run-verify.mjs", "tests/extraction-contract.test.mjs", "tests/v2-claim.test.mjs", "tests/round-scope.test.mjs",
+      "tests/r18-sources.test.mjs", "tests/r20-gate-truthfulness.test.mjs",
       "tests/r21-cli.test.mjs", "tests/r21-falsification.test.mjs", "tests/r21-projection.test.mjs", "tests/r21-qualification.test.mjs", "tests/r21-real-cache.test.mjs", "tests/r21-reference.test.mjs"
     ],
     "allowedModulePrefixes": [
@@ -68,7 +69,7 @@
     "completionMarker": "MATRIX_OASIS_R16_CREATOR_MVP_READY"
   },
   "v2ClaimPolicy": {
-    "status": "r21-derived-state-in-progress",
+    "status": "r21-derived-state-qualified",
     "claimAllowed": false,
     "blockingRound": "R25",
     "machineStatus": "docs/V2_STATUS.json",

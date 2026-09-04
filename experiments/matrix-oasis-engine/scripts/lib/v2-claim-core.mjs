@@ -21,7 +21,7 @@ export function checkV2Claim({ moduleRoot }) {
   const policy = boundary.v2ClaimPolicy;
   if (
     boundary.activeRound !== "R21" ||
-    policy?.status !== "r21-derived-state-in-progress" ||
+    policy?.status !== "r21-derived-state-qualified" ||
     policy?.machineStatus !== "docs/V2_STATUS.json" ||
     policy?.qualificationProfile !== "matrix-oasis.npc-derived-state/1" ||
     policy?.blockingRound !== "R25" ||

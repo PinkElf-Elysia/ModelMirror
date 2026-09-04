@@ -20,6 +20,6 @@ R21.1只迁移治理、声明门和最小语义，不创建合同或运行时wor
 - `R21_MEMORY_DELETION_VERIFIED`
 - `R21_RELATIONSHIP_PROJECTION_DETERMINISTIC`
 
-上述标识只有合同、实现、证伪和人工验收全部完成后才能输出。当前`docs/V2_STATUS.json`为`r21-derived-state-in-progress`，`claimAllowed`继续为`false`并阻断至R25。
+合同、实现、证伪和双真实缓存资格完成后，正式资格CLI才输出上述标识。当前`docs/V2_STATUS.json`为`r21-derived-state-qualified`，但`claimAllowed`继续为`false`并阻断至R25；这不代表第二版、AI人格或语义记忆已经完成。
 
 回退：逆序revert R21提交或停用未来R21 projection profile；R16 MVP、R19 Ledger与R20实体桥保持独立可用。删除仓外派生产物不删除Ledger，也不由Git回退自动完成。
