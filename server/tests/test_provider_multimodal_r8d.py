@@ -4,6 +4,7 @@ import asyncio
 import base64
 import json
 import logging
+import sqlite3
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -19,13 +20,19 @@ from server.model_router.schemas import (
     ProviderWorkloadActivationRequest,
     ProviderWorkloadBindingUpdate,
     ProviderWorkloadCertificationRequest,
+    ProviderWorkloadCertificationSummary,
     ProviderWorkloadPolicyUpdate,
+    RouterConnection,
     RouterConnectionCreate,
 )
 from server.model_router.service import ModelRouterService, RouterServiceError
 from server.model_router.workload_control import (
     R8D_AUDIO_PARAMETER_CONTRACT_VERSION,
+    R8D_CHAT_AUDIO_INPUT_PARAMETER_CONTRACT_VERSION,
+    SYNTHETIC_CHAT_AUDIO_INPUT_PROMPT,
+    WORKLOAD_RESPONSE_CHUNK_BYTES,
     ProviderWorkloadCertificationService,
+    ProviderWorkloadCallService,
     ProviderWorkloadControlService,
     r8d_audio_certification_evidence_reason,
     r8d_audio_parameter_profile_reason,
@@ -41,6 +48,61 @@ from server.multimodal.stt import MultimodalServiceError, OpenRouterTarget
 
 MP3_FRAME = b"\xff\xfb\x90\xc0" + b"\x55" * 413
 MP3_BYTES = MP3_FRAME * 3
+
+
+class _CloseTrackingStream(httpx.AsyncByteStream):
+    def __init__(self, *chunks: bytes) -> None:
+        self.chunks = chunks
+        self.close_count = 0
+        self.yield_count = 0
+
+    async def __aiter__(self):
+        for chunk in self.chunks:
+            self.yield_count += 1
+            yield chunk
+
+    async def aclose(self) -> None:
+        self.close_count += 1
+
+
+class _ReadErrorStream(httpx.AsyncByteStream):
+    def __init__(self, prefix: bytes) -> None:
+        self.prefix = prefix
+        self.close_count = 0
+
+    async def __aiter__(self):
+        yield self.prefix
+        raise httpx.ReadError("private-read-error-marker")
+
+    async def aclose(self) -> None:
+        self.close_count += 1
+
+
+class _SlowErrorStream(httpx.AsyncByteStream):
+    def __init__(self) -> None:
+        self.close_count = 0
+
+    async def __aiter__(self):
+        await asyncio.sleep(2)
+        yield b'{"error":{"code":400}}'
+
+    async def aclose(self) -> None:
+        self.close_count += 1
+
+
+class _BlockingErrorStream(httpx.AsyncByteStream):
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+        self.close_count = 0
+
+    async def __aiter__(self):
+        self.started.set()
+        await self.release.wait()
+        yield b'{"error":{"code":400}}'
+
+    async def aclose(self) -> None:
+        self.close_count += 1
 
 
 @pytest.mark.asyncio
@@ -94,11 +156,91 @@ def _service(
     return service, connection
 
 
+def _r8d_certification_request(
+    shape: str,
+    model_id: str,
+) -> ProviderWorkloadCertificationRequest:
+    adapter = (
+        "openrouter_audio_generation_stream_v1"
+        if shape == "audio_generation_stream"
+        else "openrouter_chat_audio_v1"
+    )
+    return ProviderWorkloadCertificationRequest(
+        execution_shape=shape,  # type: ignore[arg-type]
+        model_id=model_id,
+        adapter_contract=adapter,  # type: ignore[arg-type]
+        acknowledge_billed_call=True,
+    )
+
+
+async def _run_r8d_certification_case(
+    tmp_path: Path,
+    transport: httpx.AsyncBaseTransport,
+    *,
+    shape: str,
+    model_id: str,
+    idempotency_key: str,
+) -> tuple[
+    ModelRouterService,
+    RouterConnection,
+    ProviderWorkloadCertificationService,
+    ProviderWorkloadCertificationRequest,
+    ProviderWorkloadCertificationSummary,
+]:
+    service, connection = _service(tmp_path, transport)
+    certifications = ProviderWorkloadCertificationService(
+        service,
+        client_factory=lambda: httpx.AsyncClient(
+            transport=transport,
+            follow_redirects=False,
+            trust_env=False,
+        ),
+    )
+    payload = _r8d_certification_request(shape, model_id)
+    result = await certifications.run(
+        connection.id,
+        payload,
+        idempotency_key=idempotency_key,
+    )
+    return service, connection, certifications, payload, result
+
+
+def _sse_mock_transport(
+    model_id: str,
+    content: bytes,
+) -> tuple[httpx.MockTransport, list[httpx.Request]]:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.method == "GET":
+            return httpx.Response(200, json={"data": [{"id": model_id}]})
+        return httpx.Response(200, content=content)
+
+    return httpx.MockTransport(handler), requests
+
+
+def _serialized_certification_state(
+    service: ModelRouterService,
+    result: ProviderWorkloadCertificationSummary,
+) -> str:
+    return json.dumps(
+        {
+            "result": result.model_dump(mode="json"),
+            "certifications": service.repository.list_workload_certifications("local"),
+            "sessions": service.repository.list_multimodal_certification_sessions("local"),
+        }
+    )
+
+
 def _sse_body(
     model_id: str,
     shape: str,
     *,
     input_text: str = "Okay",
+    finish_reason: object = "stop",
+    done: bool = True,
+    trailing_stop: bool = False,
 ) -> bytes:
     first_delta: dict[str, object]
     if shape == "chat_audio_input":
@@ -120,7 +262,7 @@ def _sse_body(
                 "choices": [
                     {
                         "delta": {"audio": {"data": encoded[503:]}},
-                        "finish_reason": "stop",
+                        "finish_reason": finish_reason,
                     }
                 ],
                 "usage": {
@@ -132,10 +274,18 @@ def _sse_body(
         )
     else:
         events.append(
-            {"choices": [{"delta": {}, "finish_reason": "stop"}]}
+            {"choices": [{"delta": {}, "finish_reason": finish_reason}]}
         )
+    events.extend(
+        [
+            {"choices": [], "usage": {"total_tokens": 5}},
+            {"usage": {"total_tokens": 5}},
+        ]
+    )
+    if trailing_stop:
+        events.append({"choices": [{"delta": {}, "finish_reason": "stop"}]})
     body = "".join(f"data: {json.dumps(event)}\n\n" for event in events)
-    return (body + "data: [DONE]\n\n").encode()
+    return (body + ("data: [DONE]\n\n" if done else "")).encode()
 
 
 async def _activate_audio_generation(
@@ -263,16 +413,37 @@ async def test_r8d_certification_is_shape_specific_single_post_and_qualifies_bin
         if request.method == "GET":
             return httpx.Response(200, json={"data": [{"id": model_id}]})
         assert request.url.host == "8.8.8.8"
+        assert request.url.path.endswith("/chat/completions")
+        assert request.method == "POST"
         assert request.headers["host"] == "provider.example"
         assert request.headers["authorization"] == "Bearer r8d-secret"
         assert request.headers["accept"] == "text/event-stream"
+        assert request.headers["content-type"].startswith("application/json")
         body = json.loads(request.content)
         assert body["model"] == model_id
         assert body["stream"] is True
+        assert body["max_tokens"] == (64 if shape == "chat_audio_input" else 32)
         if shape == "chat_audio_input":
-            audio = body["messages"][0]["content"][1]["input_audio"]
+            assert set(body) == {
+                "model", "stream", "temperature", "max_tokens", "messages"
+            }
+            assert len(body["messages"]) == 1
+            message = body["messages"][0]
+            assert message["role"] == "user"
+            assert [part["type"] for part in message["content"]] == [
+                "text", "input_audio"
+            ]
+            assert message["content"][0] == {
+                "type": "text",
+                "text": SYNTHETIC_CHAT_AUDIO_INPUT_PROMPT,
+            }
+            assert "okay" not in SYNTHETIC_CHAT_AUDIO_INPUT_PROMPT.casefold()
+            audio = message["content"][1]["input_audio"]
+            assert set(audio) == {"data", "format"}
             assert audio["format"] == "wav"
-            assert base64.b64decode(audio["data"], validate=True).startswith(b"RIFF")
+            assert not audio["data"].startswith("data:")
+            wav_bytes = base64.b64decode(audio["data"], validate=True)
+            assert wav_bytes.startswith(b"RIFF")
             assert "modalities" not in body
         elif shape == "chat_audio_output":
             assert body["modalities"] == ["text", "audio"]
@@ -298,12 +469,7 @@ async def test_r8d_certification_is_shape_specific_single_post_and_qualifies_bin
             trust_env=False,
         ),
     )
-    request = ProviderWorkloadCertificationRequest(
-        execution_shape=shape,  # type: ignore[arg-type]
-        model_id=model_id,
-        adapter_contract=adapter,  # type: ignore[arg-type]
-        acknowledge_billed_call=True,
-    )
+    request = _r8d_certification_request(shape, model_id)
     result = await certifications.run(
         connection.id,
         request,
@@ -332,9 +498,12 @@ async def test_r8d_certification_is_shape_specific_single_post_and_qualifies_bin
     )
     assert row is not None
     profile = json.loads(str(row["profile_json"]))
-    assert profile["audio_parameter_contract_version"] == (
-        R8D_AUDIO_PARAMETER_CONTRACT_VERSION
+    expected_contract_version = (
+        R8D_CHAT_AUDIO_INPUT_PARAMETER_CONTRACT_VERSION
+        if shape == "chat_audio_input"
+        else R8D_AUDIO_PARAMETER_CONTRACT_VERSION
     )
+    assert profile["audio_parameter_contract_version"] == expected_contract_version
     assert profile["stream"] is True
     assert r8d_audio_parameter_profile_reason(shape, profile) is None
     if shape == "chat_audio_input":
@@ -388,50 +557,1360 @@ async def test_r8d_certification_is_shape_specific_single_post_and_qualifies_bin
     assert "Generate a short neutral musical tone." not in serialized
     assert base64.b64encode(MP3_BYTES).decode("ascii") not in serialized
 
+    # Simulate an old passed record without fabricating new terminal evidence.
+    checks = json.loads(str(row["checks_json"]))
+    checks.pop("safe_terminal_verified")
+    for name in tuple(checks):
+        if name.startswith("finish_") or name in {
+            "sse_done_observed", "transcript_matches_fixture",
+        }:
+            checks.pop(name)
+    with sqlite3.connect(service.repository.database_path) as database:
+        database.execute(
+            "UPDATE provider_workload_certifications SET checks_json = ? "
+            "WHERE tenant_id = ? AND id = ?",
+            (json.dumps(checks), "local", result.certification_id),
+        )
+    restarted_repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    restarted_service = ModelRouterService(
+        restarted_repository,
+        client_factory=lambda: httpx.AsyncClient(transport=transport),
+        egress_policy=ProviderEgressPolicy(resolver=lambda _host, _port: ["8.8.8.8"]),
+    )
+    restarted_certifications = ProviderWorkloadCertificationService(
+        restarted_service,
+        client_factory=lambda: httpx.AsyncClient(transport=transport),
+    )
+    restarted_control = ProviderWorkloadControlService(restarted_service)
+    old_summary = next(
+        item for item in restarted_certifications.list().certifications
+        if item.certification_id == result.certification_id
+    )
+    replayed_old = await restarted_certifications.run(
+        connection.id,
+        request,
+        idempotency_key=f"r8d-{shape}",
+    )
+    current_policy = restarted_control.get_policy(entry_id)  # type: ignore[arg-type]
+    if shape in {"chat_audio_input", "chat_audio_output"}:
+        assert old_summary.status == "stale"
+        assert replayed_old.status == "stale"
+        assert old_summary.blocked_reason == "provider_multimodal_audio_evidence_incomplete"
+        assert current_policy.effective_status == "degraded_required"
+        assert current_policy.bindings[0].valid is False
+        assert current_policy.bindings[0].reason_code == old_summary.blocked_reason
+        with pytest.raises(RouterServiceError) as preflight:
+            ProviderWorkloadCallService(restarted_service).start_run(
+                entry_id  # type: ignore[arg-type]
+            )
+        assert preflight.value.code == "provider_workload_policy_not_active"
+    else:
+        assert old_summary.status == "passed"
+        assert replayed_old.status == "passed"
+        assert current_policy.effective_status == "managed_required"
+    assert old_summary.checks.safe_terminal_verified is False
+    assert old_summary.checks.sse_done_observed is None
+    assert old_summary.checks.finish_stop_observed is None
+    preserved = service.repository.get_workload_certification(
+        "local", str(result.certification_id)
+    )
+    assert preserved is not None and preserved["status"] == "passed"
+    assert json.loads(str(preserved["checks_json"])) == checks
+    assert [item.method for item in requests].count("POST") == 1
+
 
 @pytest.mark.asyncio
 async def test_chat_audio_input_certification_rejects_generic_text_only_reply(
     tmp_path: Path,
 ) -> None:
-    requests: list[httpx.Request] = []
     model_id = "provider/audio-r8d"
+    transport, requests = _sse_mock_transport(
+        model_id,
+        _sse_body(
+            model_id,
+            "chat_audio_input",
+            input_text="I can help with audio.",
+        ),
+    )
+
+    service, _, _, _, result = await _run_r8d_certification_case(
+        tmp_path,
+        transport,
+        shape="chat_audio_input",
+        model_id=model_id,
+        idempotency_key="r8d-chat-audio-input-generic-reply",
+    )
+
+    assert result.status == "failed"
+    assert result.error_code == "provider_multimodal_chat_audio_input_content_mismatch"
+    assert result.checks.media_format_verified is False
+    assert [request.method for request in requests].count("POST") == 1
+
+
+@pytest.mark.asyncio
+async def test_r8d_openrouter_chat_audio_400_keeps_http_error_and_only_fixed_subtype(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    model_id = "provider/audio-r8d"
+    requests: list[httpx.Request] = []
+    streams: list[_CloseTrackingStream] = []
+    private_values = (
+        "private-upstream-message",
+        "private-provider-code",
+        "gen-private-body-id",
+    )
+    body = json.dumps(
+        {
+            "id": private_values[2],
+            "error": {
+                "code": 400,
+                "message": private_values[0],
+                "metadata": {
+                    "error_type": "invalid_request",
+                    "provider_code": private_values[1],
+                },
+            },
+        }
+    ).encode()
 
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
         if request.method == "GET":
             return httpx.Response(200, json={"data": [{"id": model_id}]})
+        stream = _CloseTrackingStream(body[:11], body[11:37], body[37:])
+        streams.append(stream)
         return httpx.Response(
-            200,
-            content=_sse_body(model_id, "chat_audio_input", input_text="OK"),
-            headers={"content-type": "text/event-stream"},
+            400,
+            headers={"content-type": "application/json; charset=utf-8"},
+            stream=stream,
+        )
+
+    caplog.set_level(logging.DEBUG)
+    transport = httpx.MockTransport(handler)
+    service, connection, certifications, payload, result = (
+        await _run_r8d_certification_case(
+            tmp_path,
+            transport,
+            shape="chat_audio_input",
+            model_id=model_id,
+            idempotency_key="openrouter-error-envelope",
+        )
+    )
+    replay = await certifications.run(
+        connection.id,
+        payload,
+        idempotency_key="openrouter-error-envelope",
+    )
+
+    assert result.status == replay.status == "failed"
+    assert result.error_code == replay.error_code == "provider_workload_http_error"
+    assert result.warning_codes == replay.warning_codes == [
+        "openrouter_error_type_invalid_request"
+    ]
+    assert [request.method for request in requests].count("POST") == 1
+    assert len(streams) == 1 and streams[0].close_count == 1
+    session = service.repository.get_multimodal_certification_session(
+        "local", certification_id=str(result.certification_id)
+    )
+    assert session is not None
+    assert session["provider_dispatch_state"] == "confirmed"
+    assert session["upstream_operation_id"] is None
+    serialized = _serialized_certification_state(service, result)
+    for private_value in (
+        *private_values,
+        "r8d-secret",
+        "Transcribe the single spoken word",
+        "UklGR",
+    ):
+        assert private_value not in serialized
+        assert private_value not in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("body", "headers"),
+    [
+        pytest.param(
+            b'{"error":{"code":400,"message":"x","metadata":{"error_type":"private-secret"}}}',
+            {"content-type": "application/json"},
+            id="unknown-type",
+        ),
+        pytest.param(
+            b'{"error":{"code":true,"message":"x","metadata":{"error_type":"invalid_request"}}}',
+            {"content-type": "application/json"},
+            id="bool-code",
+        ),
+        pytest.param(
+            b'{"error":{"code":401,"message":"x","metadata":{"error_type":"invalid_request"}}}',
+            {"content-type": "application/json"},
+            id="status-mismatch",
+        ),
+        pytest.param(
+            b'{"error":{"code":400,"message":"x","metadata":{"error_type":"invalid_request","error_type":"authentication"}}}',
+            {"content-type": "application/json"},
+            id="duplicate-key",
+        ),
+        pytest.param(
+            b'["invalid_request"]',
+            {"content-type": "application/json"},
+            id="wrong-top-level",
+        ),
+        pytest.param(
+            b'{"error":\xff}',
+            {"content-type": "application/json"},
+            id="invalid-utf8",
+        ),
+        pytest.param(
+            b'{"error":',
+            {"content-type": "application/json"},
+            id="invalid-json",
+        ),
+        pytest.param(
+            b'{"error":{"code":400,"message":"x","metadata":{"error_type":"invalid_request"}}}',
+            {"content-type": "text/plain"},
+            id="non-json-content-type",
+        ),
+        pytest.param(
+            b'{"error":{"code":400,"message":"x","metadata":{"error_type":"invalid_request"}}}',
+            {"content-type": "application/json", "content-encoding": "gzip"},
+            id="compressed-content",
+        ),
+        pytest.param(
+            b'{"error":{"code":400,"message":"x","metadata":{"error_type":"invalid_request"}}}',
+            {"content-type": "application/json", "content-length": "invalid"},
+            id="invalid-content-length",
+        ),
+        pytest.param(
+            b'{"error":{"code":400,"message":"x","metadata":{"error_type":"invalid_request"}}}',
+            {"content-type": "application/json", "content-length": "16385"},
+            id="declared-too-large",
+        ),
+        pytest.param(
+            b'{"error":{"code":400,"message":"x","metadata":{"error_type":"invalid_request"}}}',
+            {"content-type": "application/json", "content-length": "9" * 5000},
+            id="integer-conversion-limit",
+        ),
+        pytest.param(
+            b"{" + b"x" * (16 * 1024) + b"}",
+            {"content-type": "application/json", "content-length": "1"},
+            id="actual-too-large-with-false-length",
+        ),
+    ],
+)
+async def test_r8d_openrouter_error_envelope_rejects_untrusted_shapes(
+    tmp_path: Path,
+    body: bytes,
+    headers: dict[str, str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    model_id = "provider/audio-r8d"
+    post_count = 0
+    streams: list[_CloseTrackingStream] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal post_count
+        if request.method == "GET":
+            return httpx.Response(200, json={"data": [{"id": model_id}]})
+        post_count += 1
+        stream = _CloseTrackingStream(body)
+        streams.append(stream)
+        return httpx.Response(400, headers=headers, stream=stream)
+
+    caplog.set_level(logging.DEBUG)
+    service, _, _, _, result = await _run_r8d_certification_case(
+        tmp_path,
+        httpx.MockTransport(handler),
+        shape="chat_audio_input",
+        model_id=model_id,
+        idempotency_key="untrusted-error-envelope",
+    )
+
+    assert result.status == "failed"
+    assert result.error_code == "provider_workload_http_error"
+    assert result.warning_codes == []
+    assert post_count == 1
+    assert len(streams) == 1 and streams[0].close_count == 1
+    serialized = _serialized_certification_state(service, result)
+    assert "private-secret" not in serialized
+    assert "private-secret" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_r8d_openrouter_error_body_read_failure_remains_determinate_http_400(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    model_id = "provider/audio-r8d"
+    post_count = 0
+    streams: list[_ReadErrorStream] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal post_count
+        if request.method == "GET":
+            return httpx.Response(200, json={"data": [{"id": model_id}]})
+        post_count += 1
+        stream = _ReadErrorStream(
+            b'{"error":{"code":400,"message":"private-upstream-message"'
+        )
+        streams.append(stream)
+        return httpx.Response(
+            400,
+            headers={"content-type": "application/json"},
+            stream=stream,
+        )
+
+    caplog.set_level(logging.DEBUG)
+    service, _, _, _, result = await _run_r8d_certification_case(
+        tmp_path,
+        httpx.MockTransport(handler),
+        shape="chat_audio_input",
+        model_id=model_id,
+        idempotency_key="error-body-read-failure",
+    )
+
+    assert result.status == "failed"
+    assert result.error_code == "provider_workload_http_error"
+    assert result.warning_codes == []
+    assert result.provider_dispatch_state == "confirmed"
+    assert result.retry_allowed is False
+    assert post_count == 1
+    assert len(streams) == 1 and streams[0].close_count == 1
+    serialized = _serialized_certification_state(service, result)
+    for private_value in (
+        "private-upstream-message",
+        "private-read-error-marker",
+    ):
+        assert private_value not in serialized
+        assert private_value not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_r8d_openrouter_error_body_timeout_remains_determinate_http_400(
+    tmp_path: Path,
+) -> None:
+    model_id = "provider/audio-r8d"
+    post_count = 0
+    streams: list[_SlowErrorStream] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal post_count
+        if request.method == "GET":
+            return httpx.Response(200, json={"data": [{"id": model_id}]})
+        post_count += 1
+        stream = _SlowErrorStream()
+        streams.append(stream)
+        return httpx.Response(
+            400,
+            headers={"content-type": "application/json"},
+            stream=stream,
+        )
+
+    _, _, _, _, result = await _run_r8d_certification_case(
+        tmp_path,
+        httpx.MockTransport(handler),
+        shape="chat_audio_input",
+        model_id=model_id,
+        idempotency_key="error-body-timeout",
+    )
+
+    assert result.status == "failed"
+    assert result.error_code == "provider_workload_http_error"
+    assert result.warning_codes == []
+    assert result.provider_dispatch_state == "confirmed"
+    assert result.retry_allowed is False
+    assert post_count == 1
+    assert len(streams) == 1 and streams[0].close_count == 1
+
+
+@pytest.mark.asyncio
+async def test_r8d_openrouter_error_body_cancellation_preserves_known_http_400(
+    tmp_path: Path,
+) -> None:
+    model_id = "provider/audio-r8d"
+    post_count = 0
+    stream = _BlockingErrorStream()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal post_count
+        if request.method == "GET":
+            return httpx.Response(200, json={"data": [{"id": model_id}]})
+        post_count += 1
+        return httpx.Response(
+            400,
+            headers={"content-type": "application/json"},
+            stream=stream,
         )
 
     transport = httpx.MockTransport(handler)
     service, connection = _service(tmp_path, transport)
-    result = await ProviderWorkloadCertificationService(
+    certifications = ProviderWorkloadCertificationService(
         service,
         client_factory=lambda: httpx.AsyncClient(
             transport=transport,
             follow_redirects=False,
             trust_env=False,
         ),
-    ).run(
-        connection.id,
-        ProviderWorkloadCertificationRequest(
-            execution_shape="chat_audio_input",
-            model_id=model_id,
-            adapter_contract="openrouter_chat_audio_v1",
-            acknowledge_billed_call=True,
-        ),
-        idempotency_key="r8d-chat-audio-input-generic-reply",
+    )
+    task = asyncio.create_task(
+        certifications.run(
+            connection.id,
+            _r8d_certification_request("chat_audio_input", model_id),
+            idempotency_key="error-body-cancelled",
+        )
+    )
+    await asyncio.wait_for(stream.started.wait(), timeout=1)
+    assert task.cancel()
+    result = await task
+
+    assert result.status == "failed"
+    assert result.error_code == "provider_workload_http_error"
+    assert result.warning_codes == []
+    assert result.provider_dispatch_state == "confirmed"
+    assert result.retry_allowed is False
+    assert post_count == 1
+    assert stream.close_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("total_bytes", "expected_warnings"),
+    [
+        (16 * 1024, ["openrouter_error_type_invalid_request"]),
+        (16 * 1024 + 1, []),
+    ],
+)
+async def test_r8d_openrouter_error_envelope_enforces_exact_decoded_size_boundary(
+    tmp_path: Path,
+    total_bytes: int,
+    expected_warnings: list[str],
+) -> None:
+    model_id = "provider/audio-r8d"
+    prefix = b'{"padding":"'
+    suffix = (
+        b'","error":{"code":400,"message":"x","metadata":'
+        b'{"error_type":"invalid_request"}}}'
+    )
+    body = prefix + b"x" * (total_bytes - len(prefix) - len(suffix)) + suffix
+    assert len(body) == total_bytes
+    post_count = 0
+    streams: list[_CloseTrackingStream] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal post_count
+        if request.method == "GET":
+            return httpx.Response(200, json={"data": [{"id": model_id}]})
+        post_count += 1
+        stream = _CloseTrackingStream(body)
+        streams.append(stream)
+        return httpx.Response(
+            400,
+            headers={
+                "content-type": "application/json",
+                "content-length": str(len(body)),
+            },
+            stream=stream,
+        )
+
+    _, _, _, _, result = await _run_r8d_certification_case(
+        tmp_path,
+        httpx.MockTransport(handler),
+        shape="chat_audio_input",
+        model_id=model_id,
+        idempotency_key="error-body-size-boundary",
     )
 
     assert result.status == "failed"
-    assert result.error_code == (
-        "provider_multimodal_chat_audio_input_content_mismatch"
+    assert result.error_code == "provider_workload_http_error"
+    assert result.warning_codes == expected_warnings
+    assert post_count == 1
+    assert len(streams) == 1 and streams[0].close_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("shape", "status_code", "expected_error"),
+    [
+        ("chat_audio_output", 400, "provider_workload_http_error"),
+        ("chat_audio_input", 401, "provider_workload_http_401"),
+        ("chat_audio_input", 429, "provider_workload_http_429"),
+        ("chat_audio_input", 503, "provider_workload_http_5xx"),
+    ],
+)
+async def test_r8d_openrouter_error_subtype_does_not_cross_shape_or_status(
+    tmp_path: Path,
+    shape: str,
+    status_code: int,
+    expected_error: str,
+) -> None:
+    model_id = "provider/audio-r8d"
+    post_count = 0
+    body = json.dumps(
+        {
+            "error": {
+                "code": status_code,
+                "message": "private-upstream-message",
+                "metadata": {"error_type": "invalid_request"},
+            }
+        }
+    ).encode()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal post_count
+        if request.method == "GET":
+            return httpx.Response(200, json={"data": [{"id": model_id}]})
+        post_count += 1
+        return httpx.Response(
+            status_code,
+            headers={"content-type": "application/json"},
+            content=body,
+        )
+
+    service, _, _, _, result = await _run_r8d_certification_case(
+        tmp_path,
+        httpx.MockTransport(handler),
+        shape=shape,
+        model_id=model_id,
+        idempotency_key="cross-shape-status",
+    )
+
+    assert result.status == "failed"
+    assert result.error_code == expected_error
+    assert result.warning_codes == []
+    assert post_count == 1
+    assert "private-upstream-message" not in _serialized_certification_state(
+        service, result
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("input_text", "expected_status"),
+    [
+        ("Okay", "passed"), ("OK", "passed"), ("O.K.", "passed"),
+        (" okay! ", "passed"), ("Okay okay", "failed"),
+        ("The word is okay", "failed"), ("unrelated-private-marker", "failed"),
+    ],
+)
+async def test_r8d_audio_transcript_accepts_only_equivalent_spellings(
+    tmp_path: Path,
+    input_text: str,
+    expected_status: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    model_id = "provider/audio-r8d"
+    post_count = 0
+    caplog.set_level(logging.DEBUG)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal post_count
+        if request.method == "GET":
+            return httpx.Response(200, json={"data": [{"id": model_id}]})
+        post_count += 1
+        assert json.loads(request.content)["max_tokens"] == 64
+        return httpx.Response(
+            200, content=_sse_body(model_id, "chat_audio_input", input_text=input_text),
+        )
+
+    transport = httpx.MockTransport(handler)
+    service, connection, certifications, payload, result = (
+        await _run_r8d_certification_case(
+            tmp_path,
+            transport,
+            shape="chat_audio_input",
+            model_id=model_id,
+            idempotency_key="spelling",
+        )
+    )
+    replay = await certifications.run(connection.id, payload, idempotency_key="spelling")
+    assert result.status == replay.status == expected_status
+    assert post_count == 1
+    assert result.checks.actual_model_verified is True
+    assert result.checks.safe_terminal_verified is True
+    assert result.checks.transcript_matches_fixture is (expected_status == "passed")
+    serialized = json.dumps(
+        {
+            "result": result.model_dump(mode="json"),
+            "certifications": service.repository.list_workload_certifications("local"),
+            "sessions": service.repository.list_multimodal_certification_sessions("local"),
+        }
+    )
+    assert input_text not in serialized
+    if "private" in input_text:
+        assert input_text not in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("shape", "finish_reason", "error_code", "diagnostic", "trailing_stop"),
+    [
+        ("chat_audio_input", "error", "provider_workload_stream_error",
+         "finish_error_observed", False),
+        ("chat_audio_input", "content_filter", "provider_workload_content_filtered",
+         "finish_filter_observed", True),
+        ("chat_audio_input", "length", "provider_workload_output_truncated",
+         "finish_length_observed", True),
+        ("chat_audio_input", "tool_calls", "provider_workload_invalid_finish_reason",
+         "finish_other_observed", True),
+        ("chat_audio_input", {"private-upstream-marker": True},
+         "provider_workload_invalid_finish_reason", "finish_other_observed", True),
+        ("chat_audio_input", False, "provider_workload_invalid_finish_reason",
+         "finish_other_observed", True),
+        ("chat_audio_output", "length", "provider_workload_output_truncated",
+         "finish_length_observed", True),
+        ("audio_generation_stream", "length", "provider_workload_output_truncated",
+         "finish_length_observed", True),
+    ],
+)
+async def test_r8d_certification_rejects_unsafe_finish_and_persists_safe_diagnostics(
+    tmp_path: Path,
+    shape: str,
+    finish_reason: object,
+    error_code: str,
+    diagnostic: str,
+    trailing_stop: bool,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    model_id = "provider/audio-r8d"
+    caplog.set_level(logging.DEBUG)
+    transport, requests = _sse_mock_transport(
+        model_id,
+        _sse_body(
+            model_id,
+            shape,
+            finish_reason=finish_reason,
+            trailing_stop=trailing_stop,
+        ),
+    )
+    service, _, _, _, result = await _run_r8d_certification_case(
+        tmp_path,
+        transport,
+        shape=shape,
+        model_id=model_id,
+        idempotency_key="unsafe-finish",
+    )
+
+    assert result.status == "failed"
+    assert result.error_code == error_code
+    assert result.checks.terminal_signal_verified is False
+    assert result.checks.safe_terminal_verified is False
+    assert result.checks.sse_done_observed is False
+    assert result.checks.finish_stop_observed is False
+    assert getattr(result.checks, diagnostic) is True
+    assert result.checks.actual_model_verified is True
+    assert [request.method for request in requests].count("POST") == 1
+    row = service.repository.get_workload_certification("local", str(result.certification_id))
+    assert row is not None
+    checks = json.loads(str(row["checks_json"]))
+    assert checks[diagnostic] is True
+    assert checks["sse_done_observed"] is False
+    serialized = _serialized_certification_state(service, result)
+    assert "private-upstream-marker" not in serialized
+    assert "private-upstream-marker" not in caplog.text
+    assert "r8d-secret" not in serialized
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("shape", "finish_reason", "done", "expected_status"),
+    [
+        ("chat_audio_input", "stop", False, "passed"),
+        ("chat_audio_input", None, True, "passed"),
+        ("chat_audio_input", None, False, "failed"),
+        ("chat_audio_output", "stop", False, "passed"),
+        ("chat_audio_output", None, False, "failed"),
+        ("audio_generation_stream", "stop", False, "failed"),
+        ("audio_generation_stream", None, True, "failed"),
+    ],
+)
+async def test_r8d_certification_preserves_shape_specific_terminal_contract(
+    tmp_path: Path,
+    shape: str,
+    finish_reason: str | None,
+    done: bool,
+    expected_status: str,
+) -> None:
+    model_id = "provider/audio-r8d"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json={"data": [{"id": model_id}]})
+        body = _sse_body(model_id, shape, finish_reason=finish_reason, done=done)
+        return httpx.Response(
+            200,
+            stream=_CloseTrackingStream(body[:17], body[17:53], body[53:]),
+        )
+
+    transport = httpx.MockTransport(handler)
+    _, _, _, _, result = await _run_r8d_certification_case(
+        tmp_path,
+        transport,
+        shape=shape,
+        model_id=model_id,
+        idempotency_key="terminal-contract",
+    )
+    terminal_verified = expected_status == "passed"
+    assert result.status == expected_status
+    if not terminal_verified:
+        assert result.error_code == "provider_workload_missing_terminal"
+    assert result.checks.safe_terminal_verified is terminal_verified
+    assert result.checks.sse_done_observed is done
+    assert result.checks.finish_stop_observed is (finish_reason == "stop")
+
+
+@pytest.mark.asyncio
+async def test_r8d_certification_closes_stream_after_early_validation_failure(
+    tmp_path: Path,
+) -> None:
+    model_id = "provider/audio-r8d"
+    streams: list[_CloseTrackingStream] = []
+    private_tail = b'data: {"private-unconsumed-tail":true}\n\n'
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json={"data": [{"id": model_id}]})
+        first_event = (
+            "data: "
+            + json.dumps(
+                {
+                    "model": "provider/unexpected-model",
+                    "choices": [{"delta": {"content": "private-transcript"}}],
+                }
+            )
+            + "\n\n"
+        ).encode()
+        first_chunk = first_event + b":" + b" " * (
+            WORKLOAD_RESPONSE_CHUNK_BYTES - len(first_event) - 1
+        )
+        stream = _CloseTrackingStream(first_chunk, private_tail)
+        streams.append(stream)
+        return httpx.Response(200, stream=stream)
+
+    transport = httpx.MockTransport(handler)
+    service, _, _, _, result = await _run_r8d_certification_case(
+        tmp_path,
+        transport,
+        shape="chat_audio_input",
+        model_id=model_id,
+        idempotency_key="early-stream-failure",
+    )
+
+    assert result.status == "failed"
+    assert result.error_code == "provider_workload_model_mismatch"
+    assert len(streams) == 1
+    assert streams[0].yield_count == 1
+    assert streams[0].close_count == 1
+    serialized = json.dumps(
+        {
+            "result": result.model_dump(mode="json"),
+            "certifications": service.repository.list_workload_certifications("local"),
+            "sessions": service.repository.list_multimodal_certification_sessions("local"),
+        }
+    )
+    assert "private-transcript" not in serialized
+    assert "private-unconsumed-tail" not in serialized
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "provider_error",
+    [
+        {"message": "private-provider-error"},
+        "private-provider-error",
+        False,
+    ],
+)
+async def test_r8d_certification_rejects_any_non_null_top_level_error(
+    tmp_path: Path,
+    provider_error: object,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    model_id = "provider/audio-r8d"
+    caplog.set_level(logging.DEBUG)
+    events = [
+        {"model": model_id, "choices": [{"index": 0, "delta": {"content": "Okay"}}]},
+        {"error": provider_error},
+        {"model": model_id, "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]},
+    ]
+    body = "".join(f"data: {json.dumps(item)}\n\n" for item in events)
+    transport, requests = _sse_mock_transport(
+        model_id, (body + "data: [DONE]\n\n").encode()
+    )
+    service, _, _, _, result = await _run_r8d_certification_case(
+        tmp_path,
+        transport,
+        shape="chat_audio_input",
+        model_id=model_id,
+        idempotency_key="top-level-error",
+    )
+    assert result.status == "failed"
+    assert result.error_code == "provider_workload_stream_error"
+    assert [request.method for request in requests].count("POST") == 1
+    serialized = _serialized_certification_state(service, result)
+    assert "private-provider-error" not in serialized
+    assert "private-provider-error" not in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "events",
+    [
+        [
+            {
+                "choices": [
+                    {"index": 0, "delta": {"content": "O"}},
+                    {"index": 1, "delta": {"content": "K"}, "finish_reason": "stop"},
+                ]
+            }
+        ],
+        [
+            {"choices": [{"index": 0, "delta": {"content": "O"}}]},
+            {
+                "choices": [
+                    {"index": 1, "delta": {"content": "K"}, "finish_reason": "stop"}
+                ]
+            },
+        ],
+        [
+            {
+                "choices": [
+                    {"index": 1, "delta": {"content": "Okay"}, "finish_reason": "stop"}
+                ]
+            }
+        ],
+        [
+            {
+                "id": "generation-r8d",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"content": "Okay"},
+                        "finish_reason": "stop",
+                    }
+                ],
+            },
+            {
+                "id": "generation-r8d",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"content": "private-tail"},
+                        "finish_reason": "stop",
+                        "native_finish_reason": "stop",
+                        "logprobs": None,
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 2,
+                    "completion_tokens": 3,
+                    "total_tokens": 5,
+                },
+            },
+        ],
+        [{"choices": {"index": 0, "delta": {"content": "Okay"}}}],
+        [{"choices": None}],
+        [{"choices": [None]}],
+        [{"choices": [{"index": 0, "delta": None}]}],
+        [{"choices": [{"index": 0, "delta": "private-delta"}]}],
+        [{"choices": [{"index": 0, "delta": ["private-delta"]}]}],
+    ],
+)
+async def test_r8d_certification_rejects_non_primary_or_ambiguous_choices(
+    tmp_path: Path,
+    events: list[dict[str, object]],
+) -> None:
+    model_id = "provider/audio-r8d"
+    post_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal post_count
+        if request.method == "GET":
+            return httpx.Response(200, json={"data": [{"id": model_id}]})
+        post_count += 1
+        body = "".join(
+            f"data: {json.dumps({'model': model_id, **item})}\n\n"
+            for item in events
+        )
+        return httpx.Response(200, content=(body + "data: [DONE]\n\n").encode())
+
+    transport = httpx.MockTransport(handler)
+    service, _, _, _, result = await _run_r8d_certification_case(
+        tmp_path,
+        transport,
+        shape="chat_audio_input",
+        model_id=model_id,
+        idempotency_key="ambiguous-choices",
+    )
+
+    assert result.status == "failed"
+    assert result.error_code == "provider_workload_invalid_sse"
+    assert post_count == 1
+    assert "private-tail" not in _serialized_certification_state(service, result)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("suffix", "done", "expected_status", "expected_usage", "expected_error"),
+    [
+        pytest.param([], True, "passed", None, None, id="no-usage"),
+        pytest.param(
+            [
+                {
+                    "choices": [],
+                    "usage": {
+                        "prompt_tokens": 90,
+                        "completion_tokens": 9,
+                        "total_tokens": 99,
+                    },
+                },
+                {
+                    "usage": {
+                        "prompt_tokens": 80,
+                        "completion_tokens": 8,
+                        "total_tokens": 88,
+                    }
+                },
+            ],
+            True,
+            "passed",
+            None,
+            None,
+            id="post-stop-metadata-is-ignored",
+        ),
+        pytest.param(
+            [
+                {
+                    "id": "generation-r8d",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"content": "", "role": "assistant"},
+                            "finish_reason": "stop",
+                            "native_finish_reason": "stop",
+                            "logprobs": None,
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": 2,
+                        "completion_tokens": 3,
+                        "total_tokens": 5,
+                    },
+                }
+            ],
+            True,
+            "passed",
+            (2, 3, 5),
+            None,
+            id="openrouter-terminal-usage-replay",
+        ),
+        pytest.param(
+            [
+                {
+                    "choices": [
+                        {"index": 0, "delta": {}, "finish_reason": "stop"}
+                    ]
+                }
+            ],
+            True,
+            "failed",
+            None,
+            "provider_workload_invalid_sse",
+            id="replay-without-usage",
+        ),
+        pytest.param(
+            [
+                {
+                    "choices": [
+                        {"index": 0, "delta": {}, "finish_reason": "stop"}
+                    ],
+                    "usage": {
+                        "prompt_tokens": True,
+                        "completion_tokens": 3,
+                        "total_tokens": 4,
+                    },
+                }
+            ],
+            True,
+            "failed",
+            None,
+            "provider_workload_invalid_sse",
+            id="terminal-usage-replay-rejects-non-integer-counter",
+        ),
+        pytest.param(
+            [
+                {
+                    "choices": [
+                        {"index": 0, "delta": {}, "finish_reason": "stop"}
+                    ],
+                    "usage": {
+                        "prompt_tokens": 2,
+                        "completion_tokens": 3,
+                        "total_tokens": 6,
+                    },
+                }
+            ],
+            True,
+            "failed",
+            None,
+            "provider_workload_invalid_sse",
+            id="terminal-usage-replay-rejects-inconsistent-total",
+        ),
+        pytest.param(
+            [
+                {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {
+                                "audio": {
+                                    "data": base64.b64encode(MP3_BYTES).decode(
+                                        "ascii"
+                                    )
+                                }
+                            },
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": 2,
+                        "completion_tokens": 3,
+                        "total_tokens": 5,
+                    },
+                }
+            ],
+            True,
+            "failed",
+            None,
+            "provider_workload_invalid_sse",
+            id="replay-with-audio",
+        ),
+        pytest.param(
+            [
+                {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {
+                                "tool_calls": [
+                                    {
+                                        "id": "call-r8d-terminal",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "noop",
+                                            "arguments": "{}",
+                                        },
+                                    }
+                                ]
+                            },
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": 2,
+                        "completion_tokens": 3,
+                        "total_tokens": 5,
+                    },
+                }
+            ],
+            True,
+            "failed",
+            None,
+            "provider_workload_invalid_sse",
+            id="replay-with-tool-call",
+        ),
+        pytest.param(
+            [
+                {
+                    "id": "generation-r8d",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"content": "", "role": "assistant"},
+                            "finish_reason": "stop",
+                            "native_finish_reason": "stop",
+                            "logprobs": None,
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": 2,
+                        "completion_tokens": 3,
+                        "total_tokens": 5,
+                    },
+                },
+                {
+                    "id": "generation-r8d",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"content": "", "role": "assistant"},
+                            "finish_reason": "stop",
+                            "native_finish_reason": "stop",
+                            "logprobs": None,
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": 2,
+                        "completion_tokens": 3,
+                        "total_tokens": 5,
+                    },
+                },
+            ],
+            True,
+            "failed",
+            None,
+            "provider_workload_invalid_sse",
+            id="second-terminal-usage-replay",
+        ),
+        pytest.param(
+            [
+                {
+                    "id": "generation-r8d",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"content": "", "role": "assistant"},
+                            "finish_reason": "stop",
+                            "native_finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": 2,
+                        "completion_tokens": 3,
+                        "total_tokens": 5,
+                    },
+                }
+            ],
+            False,
+            "failed",
+            None,
+            "provider_workload_missing_terminal",
+            id="terminal-usage-replay-requires-done",
+        ),
+        pytest.param(
+            [
+                {
+                    "id": "different-generation",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": 2,
+                        "completion_tokens": 3,
+                        "total_tokens": 5,
+                    },
+                }
+            ],
+            True,
+            "failed",
+            None,
+            "provider_workload_invalid_sse",
+            id="terminal-usage-replay-generation-mismatch",
+        ),
+    ],
+)
+async def test_r8d_certification_allows_only_one_content_free_terminal_usage_replay(
+    tmp_path: Path,
+    suffix: list[dict[str, object]],
+    done: bool,
+    expected_status: str,
+    expected_usage: tuple[int, int, int] | None,
+    expected_error: str | None,
+) -> None:
+    model_id = "provider/audio-r8d"
+    post_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal post_count
+        if request.method == "GET":
+            return httpx.Response(200, json={"data": [{"id": model_id}]})
+        post_count += 1
+        events = [
+            {
+                "id": "generation-r8d",
+                "model": model_id,
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"content": "Okay"},
+                        "finish_reason": None,
+                    }
+                ],
+            },
+            {
+                "id": "generation-r8d",
+                "model": model_id,
+                "choices": [
+                    {"index": 0, "delta": {}, "finish_reason": "stop"}
+                ],
+            },
+            *({"model": model_id, **item} for item in suffix),
+        ]
+        body = "".join(f"data: {json.dumps(item)}\n\n" for item in events)
+        done_event = "data: [DONE]\n\n" if done else ""
+        return httpx.Response(200, content=(body + done_event).encode())
+
+    transport = httpx.MockTransport(handler)
+    service, _, _, _, result = await _run_r8d_certification_case(
+        tmp_path,
+        transport,
+        shape="chat_audio_input",
+        model_id=model_id,
+        idempotency_key="terminal-usage-replay",
+    )
+
+    assert result.status == expected_status
+    assert post_count == 1
+    if expected_status == "passed":
+        assert result.error_code is None
+        assert result.checks.safe_terminal_verified is True
+        usage = (
+            result.prompt_tokens,
+            result.completion_tokens,
+            result.total_tokens,
+        )
+        expected_usage_values = expected_usage or (None, None, None)
+        assert usage == expected_usage_values
+    else:
+        assert result.error_code == expected_error
+        assert result.checks.safe_terminal_verified is False
+        assert (
+            result.prompt_tokens,
+            result.completion_tokens,
+            result.total_tokens,
+        ) == (None, None, None)
+    serialized = _serialized_certification_state(service, result)
+    assert base64.b64encode(MP3_BYTES).decode("ascii") not in serialized
+    assert "call-r8d-terminal" not in serialized
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("shape", "expected_status"),
+    [
+        ("chat_audio_output", "passed"),
+        ("audio_generation_stream", "failed"),
+    ],
+)
+async def test_r8d_terminal_usage_replay_is_scoped_to_chat_audio(
+    tmp_path: Path,
+    shape: str,
+    expected_status: str,
+) -> None:
+    model_id = "provider/audio-r8d"
+    encoded = base64.b64encode(MP3_BYTES).decode("ascii")
+    events = [
+        {
+            "id": "generation-r8d",
+            "model": model_id,
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {"audio": {"data": encoded}},
+                    "finish_reason": None,
+                }
+            ],
+        },
+        {
+            "id": "generation-r8d",
+            "model": model_id,
+            "choices": [
+                {"index": 0, "delta": {}, "finish_reason": "stop"}
+            ],
+        },
+        {
+            "id": "generation-r8d",
+            "model": model_id,
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {"content": "", "role": "assistant"},
+                    "finish_reason": "stop",
+                    "native_finish_reason": "stop",
+                    "logprobs": None,
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 2,
+                "completion_tokens": 3,
+                "total_tokens": 5,
+            },
+        },
+    ]
+    body = "".join(f"data: {json.dumps(item)}\n\n" for item in events)
+    transport, requests = _sse_mock_transport(
+        model_id,
+        (body + "data: [DONE]\n\n").encode(),
+    )
+
+    _, _, _, _, result = await _run_r8d_certification_case(
+        tmp_path,
+        transport,
+        shape=shape,
+        model_id=model_id,
+        idempotency_key="terminal-usage-replay-shape-scope",
+    )
+
+    assert result.status == expected_status
+    assert [request.method for request in requests].count("POST") == 1
+    if expected_status == "passed":
+        assert result.error_code is None
+        assert result.checks.safe_terminal_verified is True
+        assert (
+            result.prompt_tokens,
+            result.completion_tokens,
+            result.total_tokens,
+        ) == (2, 3, 5)
+    else:
+        assert result.error_code == "provider_workload_invalid_sse"
+        assert result.checks.safe_terminal_verified is False
+        assert (
+            result.prompt_tokens,
+            result.completion_tokens,
+            result.total_tokens,
+        ) == (None, None, None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("finish_reason", "done", "error_code"), [
+    ("length", True, "provider_workload_output_truncated"),
+    (None, False, "provider_workload_missing_terminal"),
+    ("stop", True, "provider_multimodal_chat_audio_input_content_mismatch"),
+])
+async def test_r8d_content_mismatch_does_not_mask_termination_failure(
+    tmp_path: Path, finish_reason: str | None, done: bool, error_code: str,
+) -> None:
+    model_id = "provider/audio-r8d"
+    transport, requests = _sse_mock_transport(
+        model_id,
+        _sse_body(
+            model_id,
+            "chat_audio_input",
+            input_text="private-content-marker",
+            finish_reason=finish_reason,
+            done=done,
+        ),
+    )
+    service, _, _, _, result = await _run_r8d_certification_case(
+        tmp_path,
+        transport,
+        shape="chat_audio_input",
+        model_id=model_id,
+        idempotency_key="termination-priority",
+    )
+    assert result.status == "failed"
+    assert result.error_code == error_code
+    assert result.checks.sse_done_observed is (finish_reason == "stop" and done)
+    assert result.checks.transcript_matches_fixture is (
+        None if finish_reason == "length" else False
     )
     assert result.checks.media_format_verified is False
     assert [request.method for request in requests].count("POST") == 1
+    serialized = _serialized_certification_state(service, result)
+    assert "private-content-marker" not in serialized
 
 
 @pytest.mark.asyncio
@@ -669,6 +2148,24 @@ async def test_r8d_audio_generation_rejects_partial_media_or_missing_terminal(
 
 
 def test_r8d_parameter_profile_rejects_cross_shape_or_stale_evidence() -> None:
+    input_profile = {
+        "audio_parameter_contract_version": (
+            R8D_CHAT_AUDIO_INPUT_PARAMETER_CONTRACT_VERSION
+        ),
+        "stream": True,
+        "certified_input_formats": ["wav"],
+    }
+    assert r8d_audio_parameter_profile_reason(
+        "chat_audio_input", input_profile
+    ) is None
+    stale_input = dict(input_profile)
+    stale_input["audio_parameter_contract_version"] = (
+        R8D_AUDIO_PARAMETER_CONTRACT_VERSION
+    )
+    assert r8d_audio_parameter_profile_reason(
+        "chat_audio_input", stale_input
+    ) == "provider_multimodal_audio_parameter_contract_stale"
+
     output_profile = {
         "audio_parameter_contract_version": R8D_AUDIO_PARAMETER_CONTRACT_VERSION,
         "stream": True,
@@ -680,6 +2177,13 @@ def test_r8d_parameter_profile_rejects_cross_shape_or_stale_evidence() -> None:
     ) is None
     assert r8d_audio_parameter_profile_reason(
         "chat_audio_input", output_profile
+    ) == "provider_multimodal_audio_parameter_contract_stale"
+    misbound_output_profile = dict(output_profile)
+    misbound_output_profile["audio_parameter_contract_version"] = (
+        R8D_CHAT_AUDIO_INPUT_PARAMETER_CONTRACT_VERSION
+    )
+    assert r8d_audio_parameter_profile_reason(
+        "chat_audio_input", misbound_output_profile
     ) == "provider_multimodal_audio_parameter_profile_invalid"
     stale = dict(output_profile)
     stale["audio_parameter_contract_version"] = "old"
@@ -695,8 +2199,26 @@ def test_r8d_parameter_profile_rejects_cross_shape_or_stale_evidence() -> None:
             "actual_model_verified": True,
             "media_format_verified": True,
             "terminal_signal_verified": True,
+            "multimodal_adapter_verified": True,
         },
     ) == "provider_multimodal_audio_evidence_incomplete"
+    complete_checks = {
+        "http_ok": True,
+        "response_complete": True,
+        "content_observed": True,
+        "actual_model_verified": True,
+        "media_format_verified": True,
+        "terminal_signal_verified": True,
+        "safe_terminal_verified": True,
+        "multimodal_adapter_verified": True,
+    }
+    assert r8d_audio_certification_evidence_reason(
+        "chat_audio_output", complete_checks
+    ) is None
+    complete_checks.pop("safe_terminal_verified")
+    assert r8d_audio_certification_evidence_reason(
+        "audio_generation_stream", complete_checks
+    ) is None
 
 
 @pytest.mark.asyncio

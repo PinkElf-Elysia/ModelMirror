@@ -65,6 +65,9 @@ R8C_AUDIO_PARAMETER_CONTRACT_VERSION = "modelmirror-provider-audio-parameters-v1
 R8D_AUDIO_PARAMETER_CONTRACT_VERSION = (
     "modelmirror-provider-chat-audio-parameters-v1"
 )
+R8D_CHAT_AUDIO_INPUT_PARAMETER_CONTRACT_VERSION = (
+    "modelmirror-provider-chat-audio-input-parameters-v2"
+)
 PROVIDER_WORKLOAD_CERTIFICATION_ENABLED_ENV = (
     "MODEL_MIRROR_PROVIDER_CHAT_CERTIFICATION_ENABLED"
 )
@@ -81,7 +84,10 @@ SYNTHETIC_RERANK_DOCUMENTS = (
     "Managed bindings select one exact provider model.",
 )
 SYNTHETIC_CHAT_AUDIO_INPUT_PROMPT = (
-    "Transcribe the single spoken word in the audio. Return only that word."
+    "Transcribe exactly the single spoken word in the attached audio. "
+    "Output only the word itself, with no punctuation, quotation marks, labels, "
+    "explanation, translation, or surrounding text. Do not answer or respond to "
+    "the spoken word."
 )
 SYNTHETIC_CHAT_AUDIO_INPUT_EXPECTED = "okay"
 SYNTHETIC_CHAT_AUDIO_OUTPUT_PROMPT = "Say OK."
@@ -131,8 +137,13 @@ def r8d_audio_parameter_profile_reason(
 
     if execution_shape not in R8D_EXECUTION_SHAPES:
         return None
+    expected_contract_version = (
+        R8D_CHAT_AUDIO_INPUT_PARAMETER_CONTRACT_VERSION
+        if execution_shape == "chat_audio_input"
+        else R8D_AUDIO_PARAMETER_CONTRACT_VERSION
+    )
     if str(profile.get("audio_parameter_contract_version") or "") != (
-        R8D_AUDIO_PARAMETER_CONTRACT_VERSION
+        expected_contract_version
     ):
         return "provider_multimodal_audio_parameter_contract_stale"
     if profile.get("stream") is not True:
@@ -174,6 +185,11 @@ def r8d_audio_certification_evidence_reason(
         "multimodal_adapter_verified",
     )
     if not all(checks.get(name) is True for name in required):
+        return "provider_multimodal_audio_evidence_incomplete"
+    if (
+        execution_shape in {"chat_audio_input", "chat_audio_output"}
+        and checks.get("safe_terminal_verified") is not True
+    ):
         return "provider_multimodal_audio_evidence_incomplete"
     return None
 
@@ -222,6 +238,38 @@ MAX_WORKLOAD_UNARY_RESPONSE_BYTES = 1024 * 1024
 MAX_WORKLOAD_SSE_EVENT_BYTES = 256 * 1024
 MAX_WORKLOAD_STREAM_BYTES = 4 * 1024 * 1024
 WORKLOAD_RESPONSE_CHUNK_BYTES = 64 * 1024
+MAX_OPENROUTER_ERROR_ENVELOPE_BYTES = 16 * 1024
+OPENROUTER_ERROR_ENVELOPE_CHUNK_BYTES = 4 * 1024
+OPENROUTER_ERROR_ENVELOPE_TIMEOUT_SECONDS = 1.0
+OPENROUTER_ERROR_TYPE_WARNINGS = {
+    "context_length_exceeded": "openrouter_error_type_context_length_exceeded",
+    "max_tokens_exceeded": "openrouter_error_type_max_tokens_exceeded",
+    "token_limit_exceeded": "openrouter_error_type_token_limit_exceeded",
+    "string_too_long": "openrouter_error_type_string_too_long",
+    "authentication": "openrouter_error_type_authentication",
+    "permission_denied": "openrouter_error_type_permission_denied",
+    "payment_required": "openrouter_error_type_payment_required",
+    "rate_limit_exceeded": "openrouter_error_type_rate_limit_exceeded",
+    "provider_overloaded": "openrouter_error_type_provider_overloaded",
+    "provider_unavailable": "openrouter_error_type_provider_unavailable",
+    "invalid_request": "openrouter_error_type_invalid_request",
+    "invalid_prompt": "openrouter_error_type_invalid_prompt",
+    "not_found": "openrouter_error_type_not_found",
+    "precondition_failed": "openrouter_error_type_precondition_failed",
+    "payload_too_large": "openrouter_error_type_payload_too_large",
+    "unprocessable": "openrouter_error_type_unprocessable",
+    "content_policy_violation": "openrouter_error_type_content_policy_violation",
+    "refusal": "openrouter_error_type_refusal",
+    "invalid_image": "openrouter_error_type_invalid_image",
+    "image_too_large": "openrouter_error_type_image_too_large",
+    "image_too_small": "openrouter_error_type_image_too_small",
+    "unsupported_image_format": "openrouter_error_type_unsupported_image_format",
+    "image_not_found": "openrouter_error_type_image_not_found",
+    "image_download_failed": "openrouter_error_type_image_download_failed",
+    "server": "openrouter_error_type_server",
+    "timeout": "openrouter_error_type_timeout",
+    "unmapped": "openrouter_error_type_unmapped",
+}
 MAX_INITIAL_BATCH_NOT_FOUND_POLLS = 5
 ENTRY_FEATURE_FLAGS: dict[ProviderWorkloadEntryId, tuple[str, ...]] = {
     "agent_shadow": ("MODEL_CONTROL_AGENT_SHADOW_ENABLED",),
@@ -1405,7 +1453,9 @@ class ProviderWorkloadCertificationService:
             profile.update(
                 {
                     "audio_parameter_contract_version": (
-                        R8D_AUDIO_PARAMETER_CONTRACT_VERSION
+                        R8D_CHAT_AUDIO_INPUT_PARAMETER_CONTRACT_VERSION
+                        if payload.execution_shape == "chat_audio_input"
+                        else R8D_AUDIO_PARAMETER_CONTRACT_VERSION
                     ),
                     "stream": True,
                 }
@@ -1834,6 +1884,17 @@ class ProviderWorkloadCertificationService:
             max_length=200,
         )
         try:
+            if (
+                response.status_code == 400
+                and connection.kind == "openrouter"
+                and payload.execution_shape == "chat_audio_input"
+                and payload.adapter_contract == "openrouter_chat_audio_v1"
+            ):
+                diagnostic = await self._read_openrouter_error_type_warning(
+                    response
+                )
+                if diagnostic is not None:
+                    evidence.warning_codes.append(diagnostic)
             self._validate_status(response.status_code)
             evidence.checks["http_ok"] = True
             stream_generation_id = await self._consume_r8d_audio_stream(
@@ -1864,6 +1925,98 @@ class ProviderWorkloadCertificationService:
         evidence.checks["multimodal_adapter_verified"] = True
 
     @staticmethod
+    async def _read_openrouter_error_type_warning(
+        response: httpx.Response,
+    ) -> str | None:
+        """Read one bounded OpenRouter error subtype without retaining its body."""
+
+        media_type = response.headers.get("content-type", "").partition(";")[0]
+        media_type = media_type.strip().lower()
+        if media_type != "application/json" and not media_type.endswith("+json"):
+            return None
+        content_encoding = response.headers.get("content-encoding")
+        if (
+            content_encoding is not None
+            and content_encoding.strip().lower() != "identity"
+        ):
+            return None
+
+        declared_length = response.headers.get("content-length")
+        if declared_length is not None:
+            if (
+                not declared_length.isascii()
+                or not declared_length.isdigit()
+                or len(declared_length)
+                > len(str(MAX_OPENROUTER_ERROR_ENVELOPE_BYTES))
+            ):
+                return None
+            parsed_length = int(declared_length)
+            if parsed_length > MAX_OPENROUTER_ERROR_ENVELOPE_BYTES:
+                return None
+
+        chunks: list[bytes] = []
+        total_bytes = 0
+        try:
+            async with asyncio.timeout(
+                OPENROUTER_ERROR_ENVELOPE_TIMEOUT_SECONDS
+            ):
+                async for chunk in response.aiter_bytes(
+                    chunk_size=OPENROUTER_ERROR_ENVELOPE_CHUNK_BYTES
+                ):
+                    total_bytes += len(chunk)
+                    if total_bytes > MAX_OPENROUTER_ERROR_ENVELOPE_BYTES:
+                        return None
+                    chunks.append(chunk)
+        except asyncio.CancelledError:
+            # The HTTP 400 is already determinate. Optional subtype collection
+            # must not downgrade it to an uncertain dispatched result.
+            return None
+        except (TimeoutError, httpx.HTTPError):
+            return None
+
+        def reject_duplicate_keys(
+            pairs: list[tuple[str, object]],
+        ) -> dict[str, object]:
+            parsed: dict[str, object] = {}
+            for key, value in pairs:
+                if key in parsed:
+                    raise ValueError("duplicate JSON object key")
+                parsed[key] = value
+            return parsed
+
+        try:
+            raw = b"".join(chunks).decode("utf-8", errors="strict")
+            payload = json.loads(raw, object_pairs_hook=reject_duplicate_keys)
+        except (
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+            RecursionError,
+            TypeError,
+            ValueError,
+        ):
+            return None
+        if not isinstance(payload, dict):
+            return None
+        error = payload.get("error")
+        if not isinstance(error, dict):
+            return None
+        status_code = error.get("code")
+        if (
+            isinstance(status_code, bool)
+            or not isinstance(status_code, int)
+            or status_code != response.status_code
+            or not isinstance(error.get("message"), str)
+        ):
+            return None
+        metadata = error.get("metadata")
+        if not isinstance(metadata, dict):
+            return None
+        error_type = metadata.get("error_type")
+        if not isinstance(error_type, str):
+            return None
+        return OPENROUTER_ERROR_TYPE_WARNINGS.get(error_type)
+
+    @staticmethod
     def _r8d_request_payload(
         payload: ProviderWorkloadCertificationRequest,
     ) -> dict[str, object]:
@@ -1871,7 +2024,9 @@ class ProviderWorkloadCertificationService:
             "model": payload.model_id,
             "stream": True,
             "temperature": 0,
-            "max_tokens": 32,
+            "max_tokens": (
+                64 if payload.execution_shape == "chat_audio_input" else 32
+            ),
         }
         if payload.execution_shape == "chat_audio_input":
             request["messages"] = [
@@ -1924,12 +2079,47 @@ class ProviderWorkloadCertificationService:
         total_bytes = 0
         saw_done = False
         finish_reason: str | None = None
+        terminal_usage_replay_seen = False
+        terminal_usage_replay_counts: tuple[int, int, int] | None = None
         encoded_audio: list[str] = []
         text_parts: list[str] = []
         generation_id: str | None = None
+        # Only bounded booleans enter persisted/API diagnostics, never provider text.
+        evidence.checks.update({
+            "safe_terminal_verified": False,
+            "sse_done_observed": False,
+            "finish_stop_observed": False,
+            "finish_length_observed": False,
+            "finish_error_observed": False,
+            "finish_filter_observed": False,
+            "finish_other_observed": False,
+        })
+
+        def terminal_usage_counts(
+            item: Mapping[str, object],
+        ) -> tuple[int, int, int] | None:
+            usage = item.get("usage")
+            if not isinstance(usage, dict):
+                return None
+            values: list[int] = []
+            for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                value = usage.get(key)
+                if (
+                    isinstance(value, bool)
+                    or not isinstance(value, int)
+                    or value < 0
+                    or value > (1 << 63) - 1
+                ):
+                    return None
+                values.append(value)
+            prompt_tokens, completion_tokens, total_tokens = values
+            if total_tokens != prompt_tokens + completion_tokens:
+                return None
+            return prompt_tokens, completion_tokens, total_tokens
 
         def consume_event(event: str) -> None:
             nonlocal saw_done, finish_reason, generation_id
+            nonlocal terminal_usage_replay_seen, terminal_usage_replay_counts
             data_lines = [
                 line[5:].lstrip()
                 for line in event.split("\n")
@@ -1944,6 +2134,7 @@ class ProviderWorkloadCertificationService:
                 )
             if data == "[DONE]":
                 saw_done = True
+                evidence.checks["sse_done_observed"] = True
                 return
             try:
                 item = json.loads(data)
@@ -1951,54 +2142,129 @@ class ProviderWorkloadCertificationService:
                 raise _WorkloadCertificationFailure(
                     "provider_workload_invalid_sse"
                 ) from exc
-            if not isinstance(item, dict) or isinstance(item.get("error"), dict):
+            if not isinstance(item, dict):
                 raise _WorkloadCertificationFailure("provider_workload_invalid_sse")
-            ProviderWorkloadCertificationService._read_usage(item, evidence)
-            generation_id = generation_id or _clean_provider_evidence_identifier(
+            if "error" in item and item.get("error") is not None:
+                raise _WorkloadCertificationFailure("provider_workload_stream_error")
+            if terminal_usage_replay_seen:
+                raise _WorkloadCertificationFailure("provider_workload_invalid_sse")
+            if finish_reason is None:
+                ProviderWorkloadCertificationService._read_usage(item, evidence)
+            item_generation_id = _clean_provider_evidence_identifier(
                 item.get("id"), max_length=200
             )
+            generation_id = generation_id or item_generation_id
             model = _clean_provider_evidence_identifier(
                 item.get("model"), max_length=512
             )
             if model is not None:
                 evidence.actual_model = model
+                evidence.checks["actual_model_verified"] = model == expected_model
                 if model != expected_model:
                     raise _WorkloadCertificationFailure(
                         "provider_workload_model_mismatch"
                     )
-            choices = item.get("choices")
-            if not isinstance(choices, list):
+            if "choices" not in item:
                 return
-            for choice in choices:
-                if not isinstance(choice, dict):
-                    continue
-                candidate_finish = choice.get("finish_reason")
-                if isinstance(candidate_finish, str) and candidate_finish:
-                    finish_reason = candidate_finish
-                delta = choice.get("delta")
-                if not isinstance(delta, dict):
-                    continue
-                content = delta.get("content")
+            choices = item["choices"]
+            if not isinstance(choices, list) or len(choices) > 1:
+                raise _WorkloadCertificationFailure("provider_workload_invalid_sse")
+            if not choices:
+                return
+            choice = choices[0]
+            if not isinstance(choice, dict):
+                raise _WorkloadCertificationFailure("provider_workload_invalid_sse")
+            choice_index = choice.get("index")
+            if choice_index is not None and (
+                isinstance(choice_index, bool)
+                or not isinstance(choice_index, int)
+                or choice_index != 0
+            ):
+                raise _WorkloadCertificationFailure("provider_workload_invalid_sse")
+            candidate_finish = choice.get("finish_reason")
+            delta = choice.get("delta")
+            if not isinstance(delta, dict):
+                raise _WorkloadCertificationFailure("provider_workload_invalid_sse")
+            if finish_reason is not None:
+                # OpenRouter emits one final usage chunk with a repeated stop
+                # choice before [DONE]. Accept only that content-free shape;
+                # any second replay or semantic payload remains fail-closed.
+                replay_usage = terminal_usage_counts(item)
                 if (
-                    execution_shape == "chat_audio_input"
-                    and isinstance(content, str)
-                    and content
+                    execution_shape not in {"chat_audio_input", "chat_audio_output"}
+                    or finish_reason != "stop"
+                    or candidate_finish != "stop"
+                    or replay_usage is None
+                    or isinstance(choice_index, bool)
+                    or not isinstance(choice_index, int)
+                    or choice_index != 0
+                    or (
+                        item_generation_id is not None
+                        and generation_id is not None
+                        and item_generation_id != generation_id
+                    )
+                    or not set(choice).issubset(
+                        {
+                            "index",
+                            "delta",
+                            "finish_reason",
+                            "native_finish_reason",
+                            "logprobs",
+                        }
+                    )
+                    or choice.get("native_finish_reason") not in (None, "stop")
+                    or choice.get("logprobs") is not None
+                    or not set(delta).issubset({"content", "role"})
+                    or delta.get("content") not in (None, "")
+                    or delta.get("role") not in (None, "assistant")
                 ):
-                    if evidence.ttft_ms is None:
-                        evidence.ttft_ms = (time.perf_counter() - started) * 1000
-                    evidence.checks["content_observed"] = True
-                    text_parts.append(content)
-                audio = delta.get("audio")
-                data_part = audio.get("data") if isinstance(audio, dict) else None
-                if (
-                    execution_shape != "chat_audio_input"
-                    and isinstance(data_part, str)
-                    and data_part
-                ):
-                    if evidence.ttft_ms is None:
-                        evidence.ttft_ms = (time.perf_counter() - started) * 1000
-                    encoded_audio.append(data_part)
-                    evidence.checks["content_observed"] = True
+                    raise _WorkloadCertificationFailure(
+                        "provider_workload_invalid_sse"
+                    )
+                terminal_usage_replay_counts = replay_usage
+                terminal_usage_replay_seen = True
+                return
+            if candidate_finish not in (None, ""):
+                finish_reason = (
+                    candidate_finish if isinstance(candidate_finish, str) else "other"
+                )
+                diagnostic = {
+                    "stop": "finish_stop_observed",
+                    "length": "finish_length_observed",
+                    "error": "finish_error_observed",
+                    "content_filter": "finish_filter_observed",
+                }.get(finish_reason, "finish_other_observed")
+                # Record the bounded category before failing; no later event may erase it.
+                evidence.checks[diagnostic] = True
+                failure_code = {
+                    "finish_error_observed": "provider_workload_stream_error",
+                    "finish_filter_observed": "provider_workload_content_filtered",
+                    "finish_length_observed": "provider_workload_output_truncated",
+                    "finish_other_observed": "provider_workload_invalid_finish_reason",
+                }.get(diagnostic)
+                if failure_code is not None:
+                    raise _WorkloadCertificationFailure(failure_code)
+            content = delta.get("content")
+            if (
+                execution_shape == "chat_audio_input"
+                and isinstance(content, str)
+                and content
+            ):
+                if evidence.ttft_ms is None:
+                    evidence.ttft_ms = (time.perf_counter() - started) * 1000
+                evidence.checks["content_observed"] = True
+                text_parts.append(content)
+            audio = delta.get("audio")
+            data_part = audio.get("data") if isinstance(audio, dict) else None
+            if (
+                execution_shape != "chat_audio_input"
+                and isinstance(data_part, str)
+                and data_part
+            ):
+                if evidence.ttft_ms is None:
+                    evidence.ttft_ms = (time.perf_counter() - started) * 1000
+                encoded_audio.append(data_part)
+                evidence.checks["content_observed"] = True
 
         try:
             async for chunk in response.aiter_bytes(
@@ -2057,21 +2323,54 @@ class ProviderWorkloadCertificationService:
 
         evidence.checks["response_complete"] = True
         if execution_shape == "chat_audio_input":
-            if not evidence.checks["content_observed"]:
-                raise _WorkloadCertificationFailure(
-                    "provider_multimodal_chat_audio_input_empty"
-                )
             normalized_transcript = "".join(
                 character
                 for character in "".join(text_parts).casefold()
                 if character.isalnum()
             )
-            if normalized_transcript != SYNTHETIC_CHAT_AUDIO_INPUT_EXPECTED:
+            evidence.checks["transcript_matches_fixture"] = (
+                normalized_transcript in {SYNTHETIC_CHAT_AUDIO_INPUT_EXPECTED, "ok"}
+            )
+
+        for diagnostic, code in (
+            ("finish_error_observed", "provider_workload_stream_error"),
+            ("finish_filter_observed", "provider_workload_content_filtered"),
+            ("finish_length_observed", "provider_workload_output_truncated"),
+            ("finish_other_observed", "provider_workload_invalid_finish_reason"),
+        ):
+            if evidence.checks[diagnostic]:
+                raise _WorkloadCertificationFailure(code)
+
+        terminal = (
+            saw_done and finish_reason == "stop"
+            if (
+                execution_shape == "audio_generation_stream"
+                or terminal_usage_replay_seen
+            )
+            else saw_done or finish_reason == "stop"
+        )
+        if not terminal and execution_shape == "chat_audio_input":
+            raise _WorkloadCertificationFailure("provider_workload_missing_terminal")
+        if terminal:
+            evidence.checks["terminal_signal_verified"] = True
+            evidence.checks["safe_terminal_verified"] = True
+            if terminal_usage_replay_counts is not None:
+                (
+                    evidence.prompt_tokens,
+                    evidence.completion_tokens,
+                    evidence.total_tokens,
+                ) = terminal_usage_replay_counts
+
+        if execution_shape == "chat_audio_input":
+            if not evidence.checks["content_observed"]:
+                raise _WorkloadCertificationFailure(
+                    "provider_multimodal_chat_audio_input_empty"
+                )
+            if not evidence.checks["transcript_matches_fixture"]:
                 raise _WorkloadCertificationFailure(
                     "provider_multimodal_chat_audio_input_content_mismatch"
                 )
             evidence.checks["media_format_verified"] = True
-            terminal = saw_done or finish_reason is not None
         else:
             if not encoded_audio:
                 raise _WorkloadCertificationFailure(
@@ -2100,14 +2399,8 @@ class ProviderWorkloadCertificationService:
                     "provider_multimodal_audio_stream_invalid"
                 )
             evidence.checks["media_format_verified"] = True
-            terminal = (
-                saw_done and finish_reason == "stop"
-                if execution_shape == "audio_generation_stream"
-                else saw_done or finish_reason is not None
-            )
         if not terminal:
             raise _WorkloadCertificationFailure("provider_workload_missing_terminal")
-        evidence.checks["terminal_signal_verified"] = True
         return generation_id
 
     def _r8c_certification_was_dispatched(
