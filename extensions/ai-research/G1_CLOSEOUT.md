@@ -7,6 +7,7 @@
 - 本文主体保留 G1 修复时的原始基线、验证和停止点，不能解释为当前分支仍未提交，也不能替代新的干净 Full 证据。
 - 新集成基线固定为 `origin/main@efa63af292aa7822ed0f414574e9d4e28c6403ce`。可信 T 是包含本说明、`source-lock.json`、`module-boundary.json` 与 `scripts/trusted_full_bootstrap.py` 的提交；最终 F 只能在其后修改 `postTrustAllowedFiles` 明列的六个 server 文件。
 - Full 必须从该 T 的独立干净 detached worktree 执行可信 bootstrap。bootstrap 在运行候选 verifier 前后核对 T/候选 HEAD、全部 `lockedFiles`、文件类型、工作树清洁度和 T 后路径集合，并在候选 manifest 通过后另行生成不可覆盖的 `trusted-full-bootstrap.json`。
+- bootstrap 必须用 `python -I -B scripts/trusted_full_bootstrap.py` 启动，且 `--base` 必须解析为同一 T commit；直接运行候选 `verify.ps1` / `verify.sh` 不能作为可信 Full 证明。
 - 精确 T/F commit、tree、来源锁 hash 与候选 manifest hash 以当次 `trusted-full-bootstrap.json` 为准，避免在被哈希锁定的文档中制造自引用提交 ID。
 - 独立只读审阅发现并促成上述 bootstrap 修复；在新 T/F 字节形成后仍须重新核对。P2R 继续 NO-GO，本说明不授权模型调用或产品激活。
 

@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+import sys
+
+if __name__ == "__main__" and (not sys.flags.isolated or not sys.dont_write_bytecode):
+    print("Run this trusted bootstrap with Python -I -B", file=sys.stderr)
+    raise SystemExit(2)
+
 import argparse
 import hashlib
 import json
@@ -9,7 +15,6 @@ import re
 import shutil
 import stat
 import subprocess
-import sys
 from datetime import UTC, datetime
 from typing import Any, Sequence
 
@@ -19,6 +24,7 @@ SOURCE_LOCK_REL = MODULE_REL / "source-lock.json"
 BOUNDARY_REL = MODULE_REL / "module-boundary.json"
 BOOTSTRAP_REL = MODULE_REL / "scripts/trusted_full_bootstrap.py"
 COMMIT_RE = re.compile(r"[0-9a-f]{40}")
+IMPORTABLE_SUFFIXES = {".py", ".pyc", ".pyo", ".pyd", ".so"}
 
 
 class BootstrapFailure(RuntimeError):
@@ -59,6 +65,37 @@ def commit_file(repo: Path, commit: str, relative: PurePosixPath) -> bytes:
 def require_clean(repo: Path) -> None:
     if git_bytes(repo, "status", "--porcelain", "--untracked-files=all"):
         raise BootstrapFailure(f"worktree must be clean: {repo}")
+
+
+def require_no_untrusted_importables(repo: Path, trust_commit: str) -> None:
+    tracked = {
+        value.decode("utf-8", errors="surrogateescape")
+        for value in git_bytes(
+            repo,
+            "ls-tree",
+            "-r",
+            "--name-only",
+            "-z",
+            trust_commit,
+            MODULE_REL.as_posix(),
+        ).split(b"\0")
+        if value
+    }
+    module_root = repo / Path(*MODULE_REL.parts)
+    for path in module_root.rglob("*"):
+        try:
+            metadata = path.lstat()
+        except OSError as exc:
+            raise BootstrapFailure(f"module path is unavailable: {path}") from exc
+        reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+        file_attributes = getattr(metadata, "st_file_attributes", 0)
+        if path.is_symlink() or (reparse_flag and file_attributes & reparse_flag):
+            raise BootstrapFailure(f"module contains a link or reparse point: {path}")
+        if not stat.S_ISREG(metadata.st_mode) or path.suffix.lower() not in IMPORTABLE_SUFFIXES:
+            continue
+        relative = path.relative_to(repo).as_posix()
+        if relative not in tracked:
+            raise BootstrapFailure(f"module contains an untrusted importable file: {relative}")
 
 
 def safe_locked_name(value: object) -> PurePosixPath:
@@ -132,6 +169,8 @@ def validate_candidate(
         raise BootstrapFailure("bootstrap must run from the exact detached trust commit")
     require_clean(trust_repo)
     require_clean(candidate_repo)
+    require_no_untrusted_importables(trust_repo, trust_commit)
+    require_no_untrusted_importables(candidate_repo, trust_commit)
     if resolve_commit(candidate_repo, "HEAD") != candidate_commit:
         raise BootstrapFailure("candidate worktree HEAD does not match candidate commit")
     ancestry = subprocess.run(
@@ -242,7 +281,19 @@ def diagnostics_directories(candidate_repo: Path) -> set[Path]:
     root = candidate_repo / Path(*MODULE_REL.parts) / "runtime/diagnostics"
     if not root.exists():
         return set()
-    return {path.resolve() for path in root.glob("verify-*") if path.is_dir()}
+    return {
+        path.resolve()
+        for pattern in ("verify-*", "verify.*")
+        for path in root.glob(pattern)
+        if path.is_dir()
+    }
+
+
+def require_trust_base(candidate_repo: Path, base_ref: str, trust_commit: str) -> str:
+    resolved = resolve_commit(candidate_repo, base_ref)
+    if resolved != trust_commit:
+        raise BootstrapFailure("Full comparison base must equal the trust commit")
+    return resolved
 
 
 def write_receipt(path: Path, payload: dict[str, Any]) -> None:
@@ -264,7 +315,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--candidate-root", required=True, type=Path)
     parser.add_argument("--trust-commit", required=True)
     parser.add_argument("--candidate-commit", default="HEAD")
-    parser.add_argument("--base", default="HEAD")
+    parser.add_argument("--base", required=True)
     parser.add_argument("--mode", choices=("quick", "full"), default="full")
     parser.add_argument(
         "--distribution-mode",
@@ -286,9 +337,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         trust_ref=args.trust_commit,
         candidate_ref=args.candidate_commit,
     )
-    resolved_base = resolve_commit(candidate_repo, args.base)
+    resolved_base = require_trust_base(candidate_repo, args.base, before["trustCommit"])
     before_dirs = diagnostics_directories(candidate_repo)
     environment = os.environ.copy()
+    for name in tuple(environment):
+        if name.upper().startswith("PYTHON"):
+            environment.pop(name, None)
+    environment["PYTHONSAFEPATH"] = "1"
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
     environment["AI_RESEARCH_TRUST_COMMIT"] = before["trustCommit"]
     environment["AI_RESEARCH_CANDIDATE_COMMIT"] = before["candidateCommit"]
     if args.candidate_python:
@@ -310,7 +366,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     if after != before:
         raise BootstrapFailure("candidate or trust snapshot changed during verification")
 
-    result: dict[str, Any] = {**after, "baseCommit": resolved_base, "mode": args.mode}
+    result: dict[str, Any] = {
+        **after,
+        "baseCommit": resolved_base,
+        "mode": args.mode,
+        "bootstrapPythonIsolated": bool(sys.flags.isolated),
+        "candidatePythonSafePath": True,
+    }
     if args.mode == "full":
         new_dirs = diagnostics_directories(candidate_repo) - before_dirs
         if len(new_dirs) != 1:

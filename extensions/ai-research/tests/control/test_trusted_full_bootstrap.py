@@ -5,6 +5,7 @@ import importlib.util
 import json
 from pathlib import Path
 import subprocess
+import sys
 
 import pytest
 
@@ -38,6 +39,7 @@ def make_repo(tmp_path: Path) -> tuple[Path, Path, str]:
     scripts = repo / "extensions/ai-research/scripts"
     scripts.mkdir(parents=True)
     (repo / "server").mkdir()
+    (repo / ".gitignore").write_text("*.py[cod]\n", encoding="utf-8")
     (scripts / "trusted_full_bootstrap.py").write_bytes(b"trusted-bootstrap\n")
     (scripts / "verify.ps1").write_bytes(b"trusted-verifier\n")
     (repo / "server/runtime.py").write_text("VALUE = 1\n", encoding="utf-8")
@@ -105,7 +107,7 @@ def test_rejects_tracked_script_shadow_after_trust(tmp_path: Path) -> None:
     shadow.write_text("raise RuntimeError('shadowed')\n", encoding="utf-8")
     commit(repo, "shadow")
 
-    with pytest.raises(bootstrap.BootstrapFailure, match="forbidden files"):
+    with pytest.raises(bootstrap.BootstrapFailure, match="untrusted importable"):
         validate(repo, trust_repo, trust)
 
 
@@ -115,3 +117,56 @@ def test_rejects_untracked_shadow_before_any_candidate_code_runs(tmp_path: Path)
 
     with pytest.raises(bootstrap.BootstrapFailure, match="worktree must be clean"):
         validate(repo, trust_repo, trust)
+
+
+def test_rejects_ignored_sourceless_shadow(tmp_path: Path) -> None:
+    repo, trust_repo, trust = make_repo(tmp_path)
+    shadow = repo / "extensions/ai-research/scripts/hashlib.pyc"
+    shadow.write_bytes(b"ignored-shadow")
+    assert not git(repo, "status", "--porcelain", "--untracked-files=all")
+
+    with pytest.raises(bootstrap.BootstrapFailure, match="untrusted importable"):
+        validate(repo, trust_repo, trust)
+
+
+def test_requires_trust_commit_as_comparison_base(tmp_path: Path) -> None:
+    repo, _trust_repo, trust = make_repo(tmp_path)
+    (repo / "server/runtime.py").write_text("VALUE = 2\n", encoding="utf-8")
+    candidate = commit(repo, "runtime")
+
+    with pytest.raises(bootstrap.BootstrapFailure, match="base must equal"):
+        bootstrap.require_trust_base(repo, candidate, trust)
+    assert bootstrap.require_trust_base(repo, trust, trust) == trust
+
+
+def test_discovers_windows_and_linux_diagnostics_names(tmp_path: Path) -> None:
+    root = tmp_path / "extensions/ai-research/runtime/diagnostics"
+    windows = root / "verify-012345"
+    linux = root / "verify.abcdef"
+    unrelated = root / "other"
+    windows.mkdir(parents=True)
+    linux.mkdir()
+    unrelated.mkdir()
+
+    assert bootstrap.diagnostics_directories(tmp_path) == {windows.resolve(), linux.resolve()}
+
+
+def test_cli_requires_isolated_no_bytecode_python() -> None:
+    rejected = subprocess.run(
+        [sys.executable, str(SCRIPT), "--help"],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    accepted = subprocess.run(
+        [sys.executable, "-I", "-B", str(SCRIPT), "--help"],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+    assert rejected.returncode == 2
+    assert "Python -I -B" in rejected.stderr
+    assert accepted.returncode == 0
