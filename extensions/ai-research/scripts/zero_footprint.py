@@ -241,6 +241,34 @@ def render_current_compose() -> tuple[list[str], list[str]]:
     return services, volumes
 
 
+def validate_current_compose(
+    source_lock: dict[str, object], services: list[str], volumes: list[str]
+) -> None:
+    baseline = source_lock.get("coreBaseline")
+    if not isinstance(baseline, dict):
+        raise BaselineFailure("source-lock coreBaseline evidence is missing or invalid")
+    expected_services = baseline.get("defaultServices")
+    expected_volumes = baseline.get("defaultVolumes")
+    if not isinstance(expected_services, list) or not all(
+        isinstance(item, str) and item for item in expected_services
+    ):
+        raise BaselineFailure("locked default Compose services are missing or invalid")
+    if not isinstance(expected_volumes, list) or not all(
+        isinstance(item, str) and item for item in expected_volumes
+    ):
+        raise BaselineFailure("locked default Compose volumes are missing or invalid")
+    if services != sorted(expected_services):
+        raise BaselineFailure(
+            "default Compose service set changed: "
+            f"expected={sorted(expected_services)} actual={services}"
+        )
+    if volumes != sorted(expected_volumes):
+        raise BaselineFailure(
+            "default Compose volume set changed: "
+            f"expected={sorted(expected_volumes)} actual={volumes}"
+        )
+
+
 def validate_current_client_proof(
     baseline_client_dist: dict[str, object], current_client_dist: dict[str, object]
 ) -> None:
@@ -287,6 +315,7 @@ def main(argv: list[str] | None = None) -> int:
     validate_current_client_proof(baseline_client_dist, current_client_dist)
 
     services, volumes = render_current_compose()
+    validate_current_compose(source_lock, services, volumes)
     print(
         json.dumps(
             {
@@ -298,6 +327,8 @@ def main(argv: list[str] | None = None) -> int:
                 "baselineClientDist": baseline_client_dist,
                 "clientDist": current_client_dist,
                 "currentBatchPaths": current_paths,
+                "currentComposeServices": services,
+                "currentComposeVolumes": volumes,
                 "currentComposeServiceCount": len(services),
                 "currentComposeVolumeCount": len(volumes),
             },

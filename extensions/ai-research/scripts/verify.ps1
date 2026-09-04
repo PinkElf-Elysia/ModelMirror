@@ -20,8 +20,9 @@ $composeProject = if ($env:AI_RESEARCH_COMPOSE_PROJECT) {
 $compose = @("compose", "-p", $composeProject, "-f", "compose.yml", "--profile", "ai-research")
 $literatureCompose = @("compose", "-p", $composeProject, "-f", "compose.yml", "--profile", "literature")
 $runtime = Join-Path $moduleRoot "runtime"
-$diagnostics = Join-Path $runtime "diagnostics"
-$sbom = Join-Path $runtime "sbom"
+$diagnostics = Join-Path $runtime ("diagnostics/verify-" + [Guid]::NewGuid().ToString("N"))
+$sbom = Join-Path $diagnostics "sbom"
+$stackStarted = $false
 
 function Invoke-Checked([string]$File, [string[]]$Arguments) {
     & $File @Arguments
@@ -123,6 +124,15 @@ if ($LASTEXITCODE -ne 0) {
 if ($LASTEXITCODE -ne 0) {
     throw "AI Research trust configuration changed in the workspace"
 }
+$verificationHead = & git -C $repoRoot rev-parse --verify "HEAD^{commit}"
+if ($LASTEXITCODE -ne 0) { throw "cannot resolve verification HEAD" }
+$verificationHead = $verificationHead.Trim()
+if ($Mode -eq "Full") {
+    $dirty = & git -C $repoRoot status --porcelain --untracked-files=all
+    if ($LASTEXITCODE -ne 0 -or $dirty) {
+        throw "Full verification requires a clean worktree; use Quick for local edits"
+    }
+}
 $pythonFile = $env:AI_RESEARCH_PYTHON
 $pythonPrefix = @()
 if (-not $pythonFile) {
@@ -195,18 +205,19 @@ try {
     )
     Set-Content -LiteralPath (Join-Path $diagnostics "image-identities.txt") -Value $imageEvidence -Encoding utf8
 
+    $stackStarted = $true
     Invoke-Checked "docker" ($compose + @("up", "-d"))
-    $state = Join-Path $runtime "acceptance-state.json"
+    $state = Join-Path $diagnostics "acceptance-state.json"
     Invoke-Python @("scripts/acceptance.py", "initial", "--state", $state)
     Invoke-Python @("scripts/acceptance.py", "inspect-view-logs", "--state", $state)
-    $viewState = Join-Path $runtime "view-degraded-state.json"
+    $viewState = Join-Path $diagnostics "view-degraded-state.json"
     try {
         Invoke-Checked "docker" ($compose + @("stop", "ai-research-inspect-view"))
         Invoke-Python @("scripts/acceptance.py", "view-degraded", "--state", $viewState)
     } finally {
         Invoke-Checked "docker" ($compose + @("start", "ai-research-inspect-view"))
     }
-    $outboxState = Join-Path $runtime "outbox-state.json"
+    $outboxState = Join-Path $diagnostics "outbox-state.json"
     Invoke-Python @("scripts/acceptance.py", "outbox-create", "--state", $outboxState)
     try {
         Invoke-Checked "docker" ($compose + @("stop", "ai-research-tracking"))
@@ -217,7 +228,7 @@ try {
     }
     Invoke-Python @("scripts/acceptance.py", "outbox-recovery", "--state", $outboxState)
 
-    $workerRestartState = Join-Path $runtime "worker-restart-state.json"
+    $workerRestartState = Join-Path $diagnostics "worker-restart-state.json"
     Invoke-Python @("scripts/acceptance.py", "worker-restart-create", "--state", $workerRestartState)
     Invoke-Checked "docker" ($compose + @("restart", "ai-research-worker"))
     Invoke-Python @("scripts/acceptance.py", "worker-restart-recovery", "--state", $workerRestartState)
@@ -226,9 +237,10 @@ try {
         Invoke-Python @("scripts/acceptance.py", "recovery", "--state", $state)
     }
 
+    $literatureState = $null
     if ($env:AI_RESEARCH_LIVE_ACCEPTANCE -eq "1") {
         Invoke-Checked "docker" ($literatureCompose + @("up", "-d", "ai-research-model-relay", "ai-research-ldr"))
-        $literatureState = Join-Path $runtime "literature-acceptance-state.json"
+        $literatureState = Join-Path $diagnostics "literature-acceptance-state.json"
         Invoke-Python @("scripts/literature_acceptance.py", "initial", "--state", $literatureState)
         for ($round = 1; $round -le 2; $round++) {
             Invoke-Checked "docker" ($literatureCompose + @("restart", "ai-research-control", "ai-research-ldr"))
@@ -239,11 +251,19 @@ try {
     }
 
     $runIds = @((Get-Content -Raw -Encoding utf8 $state | ConvertFrom-Json).runs)
+    $runIds += (Get-Content -Raw -Encoding utf8 $viewState | ConvertFrom-Json).runId
     $runIds += (Get-Content -Raw -Encoding utf8 $outboxState | ConvertFrom-Json).runId
     $runIds += (Get-Content -Raw -Encoding utf8 $workerRestartState | ConvertFrom-Json).runId
     $auditArgs = $compose + @("exec", "-T", "ai-research-control", "python", "-m", "ai_research_control.audit_runtime")
     foreach ($runId in $runIds) { $auditArgs += @("--run-id", $runId) }
-    Invoke-Checked "docker" $auditArgs
+    $runtimeAuditPath = Join-Path $diagnostics "runtime-audit.json"
+    $auditOutput = & docker @auditArgs
+    if ($LASTEXITCODE -ne 0) { throw "runtime evidence audit failed" }
+    [System.IO.File]::WriteAllText(
+        $runtimeAuditPath,
+        (($auditOutput -join "`n").Trim() + "`n"),
+        [System.Text.UTF8Encoding]::new($false)
+    )
 
     $oversizedAttack = "import json,os,socket; s=socket.socket(socket.AF_UNIX); s.settimeout(5); s.connect(os.environ['AI_RESEARCH_WORKER_SOCKET']); s.sendall(b'x'*70000+b'\n'); value=json.loads(s.makefile('rb').readline()); s.close(); assert value['ok'] is False"
     Invoke-Checked "docker" ($compose + @("exec", "-T", "ai-research-control", "python", "-c", $oversizedAttack))
@@ -287,6 +307,22 @@ if unexpected:
     if ($containerEnv -match "OPENROUTER_API_KEY|LLM_GATEWAY_KEY|DIFY_API_KEY|PROVIDER.*(KEY|TOKEN|SECRET)|sk-(or-v1-)?[A-Za-z0-9_-]{32,}|gh[pousr]_[A-Za-z0-9]{30,}|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY") {
         throw "provider credential names were exposed to module containers"
     }
+    $securityAttacksPath = Join-Path $diagnostics "security-attacks.json"
+    $securityEvidence = [ordered]@{
+        schemaVersion = 1
+        status = "passed"
+        checks = @(
+            "oversized_worker_protocol_rejected",
+            "worker_network_isolated",
+            "control_public_network_isolated",
+            "module_container_credentials_absent"
+        )
+    } | ConvertTo-Json -Compress
+    [System.IO.File]::WriteAllText(
+        $securityAttacksPath,
+        ($securityEvidence + "`n"),
+        [System.Text.UTF8Encoding]::new($false)
+    )
 
     $sourceLock = Get-Content -Raw -LiteralPath (Join-Path $moduleRoot "source-lock.json") | ConvertFrom-Json
     $clientSourceProof = Join-Path $runtime ("client-source-proof-" + [Guid]::NewGuid().ToString("N"))
@@ -329,13 +365,50 @@ if unexpected:
             "modelmirror-ai-research-client-proof:v0.1" `
             "/proof/dist/." `
             $clientCurrentProof
-        Invoke-Python @(
+        $zeroFootprintPath = Join-Path $diagnostics "zero-footprint.json"
+        $zeroFootprintArgs = @(
             "scripts/zero_footprint.py",
             "--base", $comparisonBase,
             "--source-client-dist", $clientSourceProof,
             "--baseline-client-dist", $clientBaselineProof,
             "--client-dist", $clientCurrentProof
         )
+        $zeroFootprintOutput = & $pythonFile @($pythonPrefix + $zeroFootprintArgs)
+        if ($LASTEXITCODE -ne 0) { throw "zero-footprint validation failed" }
+        [System.IO.File]::WriteAllText(
+            $zeroFootprintPath,
+            (($zeroFootprintOutput -join "`n").Trim() + "`n"),
+            [System.Text.UTF8Encoding]::new($false)
+        )
+        $manifestArgs = @(
+            "scripts/acceptance_manifest.py",
+            "--base", $comparisonBase,
+            "--expected-head", $verificationHead,
+            "--evidence-root", $diagnostics,
+            "--distribution-mode", $distributionModeValue,
+            "--output", (Join-Path $diagnostics "full-acceptance-manifest.json")
+        )
+        $jsonEvidence = @(
+            $state,
+            $viewState,
+            $outboxState,
+            $workerRestartState,
+            $runtimeAuditPath,
+            $securityAttacksPath,
+            $zeroFootprintPath
+        )
+        if ($literatureState) { $jsonEvidence += $literatureState }
+        foreach ($path in $jsonEvidence) {
+            $manifestArgs += @("--json-evidence", $path)
+        }
+        foreach ($path in @(
+            (Join-Path $diagnostics "image-identities.txt"),
+            $controlInventoryPath,
+            $workerInventoryPath,
+            $uiInventoryPath
+        )) {
+            $manifestArgs += @("--hashed-evidence", $path)
+        }
     } finally {
         foreach ($clientPath in $clientPaths) {
             if (Test-Path -LiteralPath $clientPath) {
@@ -343,8 +416,11 @@ if unexpected:
             }
         }
     }
+    Invoke-Checked "docker" ($literatureCompose + @("down"))
+    $stackStarted = $false
+    Invoke-Python $manifestArgs
 } finally {
-    & docker @literatureCompose down
+    if ($stackStarted) { & docker @literatureCompose down }
     Pop-Location
     if (Test-Path -LiteralPath $pytestBaseTemp) {
         Remove-Item -LiteralPath $pytestBaseTemp -Recurse -Force
