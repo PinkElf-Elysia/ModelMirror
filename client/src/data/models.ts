@@ -1,4 +1,4 @@
-﻿// Merged with OpenRouter model catalog on 2026-09-04T05:22:24.607Z.
+﻿// Merged with OpenRouter model catalog on 2026-09-04T06:46:21.180Z.
 // Targeted OpenRouter refresh verified on 2026-09-01 against the live all-modalities catalog.
 // Gemini 3.8 Flash, its Batch tier and Muse Spark 1.3 variants added on 2026-09-03.
 // Microsoft MAI-Transcribe 2 contract added on 2026-09-03.
@@ -1045,8 +1045,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Flash Vision Exp is an experimental vision-enabled version of [DeepSeek V4 Flash 0731](https://openrouter.ai/deepseek/deepseek-v4-flash-0731) from DeepSeek, adding image understanding while matching the base model on text capabilities including agents,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.22,
-      "output": 0.66,
+      "input": 0.44,
+      "output": 1.32,
       "time_overrides": [
         {
           "utc_start": 0,

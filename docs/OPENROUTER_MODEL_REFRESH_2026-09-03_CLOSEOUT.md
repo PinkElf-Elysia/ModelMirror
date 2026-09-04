@@ -32,20 +32,24 @@
 - 市场侧栏快照按完整市场响应重建；供应端点、分类、折扣、零数据保留、地区等
   结构字段已与同窗一致。工具成功率、Artificial Analysis 与 Design Arena
   继续作为波动观察项，不进入可执行漂移签名。
+- PR 创建后的发布前复核又捕获并收口两项新漂移：
+  `deepseek/deepseek-v4-flash-vision-exp` 基础输入/输出牌价更新为
+  `$0.44/$1.32` 每百万 Token；`deepseek/deepseek-v4-pro-0813` 的市场提供商
+  更新为 Novita、Together，并同步折扣与零数据保留标记。
 
 ## 最终冻结证据窗
 
-最终四源窗口为 `2026-09-04T05:30:41Z` 至 `05:31:32Z`
-（本地 `2026-09-03 22:30:41` 至 `22:31:32`）。四个响应均为 HTTP 200；
+最终四源窗口为 `2026-09-04T06:55:31Z` 至 `06:55:34Z`
+（本地 `2026-09-03 23:55:31` 至 `23:55:34`）。四个响应均为 HTTP 200；
 模型目录满足 `data.length = total_count = 576` 且 `links.next = null`，市场与
 通用目录的非 Batch exact ID 集合均为 505，双向差集为空。
 
 | 来源 | 条目 | SHA-256 |
 | --- | ---: | --- |
-| 通用模型目录 | 576 | `a8b24f865b426595cddbbded2c26ebafb3a388549414cedf75dbd9b1d4346264` |
+| 通用模型目录 | 576 | `6cf85397acac6dc913b2eb21f861d5024cd69569fc132ec05787462ed3a5e20b` |
 | Images 专用目录 | 48 | `bac57ac3a2439db643d83ad106ce6ef7f5b5262432966d36257ec7c83da2dc1e` |
 | Videos 专用目录 | 28 | `0439d4cea2bf84c9921c2801ef74c8179c058332bac2bd86a00d08027b538ca8` |
-| 模型市场侧栏 | 576 | `bd8ebcac0519f1e7321636a2384931478f2f9b77ac8c2b484f2c5635405573a1` |
+| 模型市场侧栏 | 576 | `162d6cd19b812c5d93b5405b1356bac52ca6dddf63414ab707d7ad6cd892de37` |
 
 最终计数：
 
@@ -60,7 +64,7 @@ Images 仍为 48 条，Videos 仍为 28 条；专用媒体目录无缺失快照�
 `openrouter/auto` 与 `openrouter/auto-beta` 的通用图片输出声明仍没有 Images
 专用目录证据，仅保留审计说明，不自动开放图片生成。
 
-## 五阶段收敛证据
+## 初次五阶段收敛证据
 
 | 阶段 | 目标 | 阶段后结果 |
 | --- | --- | --- |
@@ -70,15 +74,24 @@ Images 仍为 48 条，Videos 仍为 28 条；专用媒体目录无缺失快照�
 | 4 | 生命周期 | 不一致保持 0；73 个可能不可用与 6 个过期入口均保留 |
 | 5 | 市场侧栏快照 | 结构漂移 104 -> 0；同冻结窗总漂移为 0 |
 
-同一冻结 manifest 连续两次执行完整审计，均返回 `clean`、退出码 0，且
+初次冻结 manifest 连续两次执行完整审计，均返回 `clean`、退出码 0，且
 可执行漂移签名一致：
 
 `d0aa00ed6a9ebd51b3fc0715e0d3e5de2d01f5d3e47226953c24b9dfa412238a`
 
-随后重新抓取上述最终四源窗口。模型、Images、Videos 哈希未变；市场响应哈希
-因实时指标变化而更新。最终审计观察到 92 个纯波动市场变化、0 个结构变化，
-wrapper 按策略仍返回 `clean` 和退出码 0；可执行签名与重复审计相同。这同时
-验证了 Skill 对“结构变化需处理、纯指标波动只观察”的默认门禁。
+PR 创建前的 `05:30Z` 四源窗口曾只观察到 92 个纯波动市场变化、0 个结构变化，
+wrapper 按策略返回 `clean`。PR 创建后的 `06:40Z` 发布前复核检测到两项新变化：
+Flash Vision Exp 的基础牌价，以及 V4 Pro 的提供商、折扣和零数据保留结构字段。
+先执行 metadata-only 阶段，再重建市场侧栏快照；每阶段都以新的输出目录重跑
+完整 wrapper。在该 `06:40Z` 修复窗口上，模态、分类、readiness 三项底层审计
+均退出 0，结构与波动差异均为 0，wrapper 返回 `clean`、退出码 0。
+
+紧接发布前又抓取上表所列的 `06:55Z` 最终窗口，并对同一 manifest 连续审计
+两次：两个 wrapper 都返回 `clean`、退出码 0；市场结构差异保持 0，仅观察到
+87 个 `tool_call_success_rate` 波动，因此底层 classification 审计按约定退出 1，
+但不构成可执行漂移。两次可执行签名相同：
+
+`d0aa00ed6a9ebd51b3fc0715e0d3e5de2d01f5d3e47226953c24b9dfa412238a`
 
 MAI 小时价另以市场原始字段复核：`display_pricing` 为 `Audio Hours`、单位
 `/hour`，`pricing_json` 使用 `microsoft_stt:audio_hours = 0.1`。将同一冻结窗
@@ -96,14 +109,21 @@ MAI 小时价另以市场原始字段复核：`display_pricing` 为 `Audio Hours
 - `skill-creator` 的 `quick_validate.py`：`Skill is valid!`。
 - 变基后前端全量测试：131 个测试文件、919 个测试通过；附带的网关 Cookie 测试
   1 个通过。
+- PR 后续分类专项：模型数据、模型列表、侧栏筛选和 Chat 布局共 4 个文件、
+  66 个测试通过；updater、价格与签名保护 17 个测试通过。
 - 前端 `tsc -b && vite build`：通过；保留既有大 chunk 警告。
-- 最新四源完整审计：wrapper 退出码 0，状态 `clean`；同一 manifest 重跑的
-  可执行签名稳定。
+- 最新四源完整审计：wrapper 退出码 0，状态 `clean`；结构漂移为 0，87 个
+  工具成功率波动仅观察；同一 manifest 重跑的可执行签名稳定。
+- PR 后续漂移回归：锁定 Flash Vision Exp 的 `$0.44/$1.32` 基础牌价，以及
+  V4 Pro 的 Novita/Together、折扣与零数据保留市场字段。
 
 ## 验证边界
 
 - exact ID、缺失/陈旧、Batch、元数据、生命周期、模态、任务能力、价格口径、
   市场结构和 readiness 均由仓库脚本重新计算，不以网页卡片数量替代 API 证据。
+- 当前价格审计口径覆盖基础 input/output 牌价和既有 UTC 时钟分段价；OpenRouter
+  上游的 cache-read 单价与按星期限定的 `utc_days` 尚未进入本地数据结构，因此
+  本文不宣称这两项完整价格契约已经对齐。
 - MAI 的小时价格数值覆盖在所有 updater 阶段前都会失败关闭；完整分类审计还会
   校验市场的显示 SKU、小时单位和 `pricing_json` SKU。本轮真实冻结窗复审为
   0 差异，合成单位漂移则按预期拒绝。

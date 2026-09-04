@@ -659,7 +659,7 @@ describe("OpenRouter model refresh", () => {
       output_modalities: ["text"],
       operations: expect.arrayContaining(["analyze_image", "chat"]),
       context_length: 1_048_576,
-      pricing: { input: 0.22, output: 0.66 },
+      pricing: { input: 0.44, output: 1.32 },
       pricing_status: "fixed",
       pricing_basis: "token",
       reasoning_declared: true,
@@ -1512,6 +1512,13 @@ describe("OpenRouter model refresh", () => {
     expect(byId.get("deepseek/deepseek-v4-pro-0813")?.pricing).toEqual({
       input: 1.1154,
       output: 3.3461999999999996,
+    });
+    expect(
+      byId.get("deepseek/deepseek-v4-pro-0813")?.openrouter_market,
+    ).toMatchObject({
+      providers: ["Novita", "Together"],
+      discounted: true,
+      zero_data_retention: true,
     });
     expect(byId.get("deepseek/deepseek-v4-pro")?.pricing).toEqual({
       input: 1.04226,
