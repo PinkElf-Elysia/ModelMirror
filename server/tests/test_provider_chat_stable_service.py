@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+import sys
 import threading
 from dataclasses import replace
 from pathlib import Path
@@ -10,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from server.model_router.chat_control import ProviderChatControlService
+from server.model_router.cleanup_chat_receipts import main as cleanup_receipts_main
 from server.model_router.chat_stable import (
     ProviderChatCertificationBinding,
     ProviderChatStableService,
@@ -1295,6 +1297,124 @@ async def test_completion_reconcile_is_idempotent_after_commit_before_unlink(
 
     assert reconciled == {"applied": 1, "pending": 0}
     assert list(repository.chat_completion_outbox_dir.glob("*.json")) == []
+
+
+@pytest.mark.asyncio
+async def test_maintenance_cleanup_does_not_recover_an_active_scoped_dispatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, repository, newapi_id, backup_id = _service(tmp_path, monkeypatch)
+    _qualify_scoped_model(repository, newapi_id)
+    _qualify_scoped_model(repository, backup_id)
+    result = await service.begin_scoped_certified(SCOPED_MODEL_ID)
+    assert result.dispatch is not None
+    service.mark_dispatched(result.dispatch)
+
+    monkeypatch.setenv("MODEL_MIRROR_CREDENTIAL_MASTER_KEY", "x" * 32)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "cleanup_chat_receipts",
+            "--storage-dir",
+            str(tmp_path),
+            "--older-than-days",
+            "1",
+        ],
+    )
+    assert cleanup_receipts_main() == 0
+    active = repository.list_chat_control_receipts("local")
+    assert next(
+        item for item in active["attempts"]
+        if item["id"] == result.dispatch.attempt_id
+    )["status"] == "running"
+    assert next(
+        item for item in active["runs"]
+        if item["id"] == result.dispatch.run_id
+    )["status"] == "running"
+
+    assert service.complete(
+        result.dispatch,
+        status="succeeded",
+        result_class="success",
+        actual_model=SCOPED_MODEL_ID,
+    ) is True
+    assert list(repository.chat_completion_outbox_dir.glob("*.json")) == []
+    follow_up = await service.begin_scoped_certified(SCOPED_MODEL_ID)
+    assert follow_up.dispatch is not None
+
+
+@pytest.mark.asyncio
+async def test_concurrent_reconcilers_do_not_report_a_completed_unlink_as_pending(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, repository, newapi_id, backup_id = _service(tmp_path, monkeypatch)
+    _qualify_scoped_model(repository, newapi_id)
+    _qualify_scoped_model(repository, backup_id)
+    result = await service.begin_scoped_certified(SCOPED_MODEL_ID)
+    assert result.dispatch is not None
+    service.mark_dispatched(result.dispatch)
+    repository.stage_chat_control_completion(
+        "local",
+        result.dispatch.attempt_id,
+        expected_run_id=result.dispatch.run_id,
+        status="succeeded",
+        result_class="success",
+        actual_model=SCOPED_MODEL_ID,
+        reason_codes=[],
+    )
+    outbox_path = next(repository.chat_completion_outbox_dir.glob("*.json"))
+    first = SQLiteRouterRepository(
+        tmp_path,
+        master_key=b"x" * 32,
+        recover_chat_control_on_startup=False,
+    )
+    second = SQLiteRouterRepository(
+        tmp_path,
+        master_key=b"x" * 32,
+        recover_chat_control_on_startup=False,
+    )
+    unlink_barrier = threading.Barrier(2)
+    original_unlink = Path.unlink
+
+    def synchronized_unlink(path: Path, *args, **kwargs):
+        if path == outbox_path:
+            unlink_barrier.wait(timeout=10)
+        return original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", synchronized_unlink)
+    reconciled: list[dict[str, int]] = []
+    errors: list[BaseException] = []
+
+    def reconcile(candidate: SQLiteRouterRepository) -> None:
+        try:
+            reconciled.append(
+                candidate.reconcile_chat_control_completions("local")
+            )
+        except BaseException as exc:  # pragma: no cover - asserted below
+            errors.append(exc)
+
+    threads = [
+        threading.Thread(target=reconcile, args=(candidate,), daemon=True)
+        for candidate in (first, second)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=15)
+
+    assert all(thread.is_alive() is False for thread in threads)
+    assert errors == []
+    assert reconciled == [
+        {"applied": 1, "pending": 0},
+        {"applied": 1, "pending": 0},
+    ]
+    assert list(repository.chat_completion_outbox_dir.glob("*.json")) == []
+    completed = repository.list_chat_control_receipts("local")
+    assert next(
+        item for item in completed["attempts"]
+        if item["id"] == result.dispatch.attempt_id
+    )["status"] == "succeeded"
 
 
 @pytest.mark.asyncio

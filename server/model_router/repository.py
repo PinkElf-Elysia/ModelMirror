@@ -95,6 +95,7 @@ class SQLiteRouterRepository:
         storage_dir: str | Path | None = None,
         *,
         master_key: str | bytes | None = None,
+        recover_chat_control_on_startup: bool = True,
     ) -> None:
         package_dir = Path(__file__).resolve().parent
         self.storage_dir = Path(
@@ -118,8 +119,9 @@ class SQLiteRouterRepository:
                 "provider_chat_completion_outbox_path_unsafe"
             )
         self.chat_completion_outbox_dir.mkdir(parents=True, exist_ok=True)
-        self._reconcile_startup_chat_control_completions()
-        self._recover_unresolved_chat_control_after_restart()
+        if recover_chat_control_on_startup:
+            self._reconcile_startup_chat_control_completions()
+            self._recover_unresolved_chat_control_after_restart()
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path, timeout=15)
@@ -3878,6 +3880,8 @@ class SQLiteRouterRepository:
                 continue
             try:
                 path.unlink()
+            except FileNotFoundError:
+                pass
             except OSError:
                 pending += 1
                 continue
