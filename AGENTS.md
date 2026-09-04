@@ -353,9 +353,9 @@ npm.cmd run build
 
 - 所有 `NativeNodeKind` 必须在 `NodeContractRegistry` 中唯一登记；未知或缺失契约必须 fail-closed。
 - `contract_status=complete` 不等于 Planner、Evaluator、Evolution 或 App 可用。入口许可必须由契约显式声明。
-- Capability Snapshot 只允许完整契约、真实 Adapter、Adapter 版本和 compiler checksum 一致的节点；当前范围仍严格为既有七类。
-- NodeContract 版本与 Planner IR 版本独立。Capability Snapshot V5 声明
-  `ir_version=3` 与 `supported_ir_versions=[2,3]`，但仍只开放既有七类能力。
+- Capability Snapshot 只允许完整契约、真实 Adapter、Adapter 版本和 compiler checksum 一致的节点；当前范围严格为 16 类，不得借由画布节点存在性继续扩张。
+- NodeContract 版本与 Planner IR 版本独立。Capability Snapshot V7 声明
+  `ir_version=3`、`supported_ir_versions=[2,3]` 与 `control_flow_contract_version=1`。
 - `checksum` 覆盖完整契约，`compiler_checksum` 仅覆盖编译关键事实；标题、图标和分类不得使 Adapter 失效。
 - 前端 fallback 只能保存展示信息，不得伪造 Planner 状态、端口、安全策略或 checksum。
 - 发布、Evaluator、App 和 Evolution 的静态节点策略必须查询 `NodePolicyService`；资源、Toolset、循环和中间件领域检查不得被删除。
@@ -380,7 +380,16 @@ npm.cmd run build
 - Headless Apply 只更新 pending Proposal 一次；不得创建 Xpert 草稿、版本或运行。安全 receipt 不得保存 Prompt 正文、资源内容、工具输出或凭据。
 - Meta Planner Proposal 创建时的授权范围不得被后续整包 PATCH 扩大；Headless 请求必须遵守正文大小和 JSON 深度上限，持久化失败不得在内存中留下已递增 revision。
 - 有损 V2 转换继续走兼容读取、校验和审批路径，禁止 Headless Apply。旧整包 Proposal PATCH 必须将 Graph IR 标记为 stale。
-- 当前节点范围仍严格为既有七类；Headless Authoring 完成不等于开放 JSON、控制流、知识检索、数据库或视觉节点。
+- 当前节点范围严格为 16 类：原七类、五种纯节点和四种受限控制流节点；Headless Authoring 完成不等于开放知识检索、数据库、视觉、循环、等待或交互节点。
+
+### 8.1.4 Meta Planner 控制流护栏
+
+- 模型只能引用 Planner ref 与语义 outcome；Native handle、route ID、变量、join 和终点变量必须由 Adapter/编译器推导。
+- Condition 只允许 `matched/unmatched`，Multi Route 只允许 `case_1...case_8/default`，普通节点只允许 `success`。
+- 候选必须通过有界静态场景分析；循环、死路、影子规则、不可证明默认路径、不可达节点和路径上不保证存在的数据必须 fail-closed。
+- Output V2 只允许 1-8 个受信任来源并执行 `exactly_one_arrived`；零个或多个来源不得降级选择。
+- Evaluator 路径证据只读取内部 Planner checkpoint；不得用物理节点 ID、SSE 推断或 UI 状态替代。
+- 循环、等待、HITL、Handoff、Trigger、`question_classifier` 和表达式引擎不因本轮控制流开放而获得 Planner 权限。
 
 ### 8.2 EvoAgentX Evaluator 护栏
 

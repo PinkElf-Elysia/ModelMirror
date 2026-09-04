@@ -7,6 +7,7 @@ import {
   helpArticles,
   helpModules,
   helpSections,
+  metaPlannerControlFlowBaseline,
   modelServingReviewBaseline,
   emailReviewBaseline,
   providerMultimodalR8cBaseline,
@@ -25,7 +26,7 @@ describe("help center content catalog", () => {
   it("has five complete first-level sections and eight module groups", () => {
     expect(helpSections.map((section) => section.title)).toEqual(["第一次使用", "按目标找指南", "按模块浏览", "解决问题", "安全、费用与数据"]);
     expect(helpSections.every((section) => section.items.length >= 3)).toBe(true);
-    expect(helpSections.find((section) => section.id === "goals")?.items.map((item) => item.id)).toEqual(["one-time", "repeat-role", "repeat-process", "reuse-success", "connect-tool", "use-own-docs", "subscribe-feed", "subscribe-email", "propose-knowledge", "check-runtime"]);
+    expect(helpSections.find((section) => section.id === "goals")?.items.map((item) => item.id)).toEqual(["one-time", "repeat-role", "repeat-process", "review-planner-branch", "reuse-success", "connect-tool", "use-own-docs", "subscribe-feed", "subscribe-email", "propose-knowledge", "check-runtime"]);
     expect(helpModules.map((module) => module.title)).toEqual(["模型", "Agent", "MCP", "Skill", "提示词", "运维", "工作台与设置", "实验功能"]);
     expect(helpModules.find((module) => module.id === "agents")?.topics.some((topic) => topic.id === "expert-team" && topic.title === "专家团")).toBe(true);
     expect(helpModules.find((module) => module.id === "agents")?.topics.find((topic) => topic.id === "agent-studio")?.productRoute).toBe("/agents/studio");
@@ -42,6 +43,7 @@ describe("help center content catalog", () => {
       "choose-model-agent-workflow",
       "create-repeatable-agent",
       "build-first-workflow",
+      "review-meta-planner-branches",
       "promote-run-to-skill",
       "submit-knowledge-proposal",
       "subscribe-rss-workflow",
@@ -60,7 +62,7 @@ describe("help center content catalog", () => {
       expect(article.verifiedDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       expect(article.content).not.toMatch(/内容稍后补充|coming soon/i);
     });
-    expect(helpArticles.filter((article) => !["start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "handle-workflow-node-failure", "modules-and-terms", "check-availability-cost-data"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
+    expect(helpArticles.filter((article) => !["start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "review-meta-planner-branches", "handle-workflow-node-failure", "modules-and-terms", "check-availability-cost-data"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
     const modelServingArticle = helpArticles.find((article) => article.slug === "check-availability-cost-data");
     expect(modelServingArticle?.verifiedCommit).toBe(modelServingReviewBaseline.commit);
     expect(modelServingArticle?.verifiedDate).toBe(modelServingReviewBaseline.date);
@@ -73,6 +75,8 @@ describe("help center content catalog", () => {
     expect(helpArticles.find((article) => article.slug === "create-repeatable-agent")?.verifiedDate).toBe(agentWorkflowTutorialBaseline.date);
     expect(helpArticles.find((article) => article.slug === "build-first-workflow")?.verifiedCommit).toBe(agentWorkflowTutorialBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "build-first-workflow")?.verifiedDate).toBe(agentWorkflowTutorialBaseline.date);
+    expect(helpArticles.find((article) => article.slug === "review-meta-planner-branches")?.verifiedCommit).toBe(metaPlannerControlFlowBaseline.commit);
+    expect(helpArticles.find((article) => article.slug === "review-meta-planner-branches")?.verifiedDate).toBe(metaPlannerControlFlowBaseline.date);
     expect(helpArticles.find((article) => article.slug === "modules-and-terms")?.verifiedCommit).toBe(helpCenterCloseoutBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "recover-unavailable-feature")?.verifiedCommit).toBe(providerMultimodalR8cBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "recover-unavailable-feature")?.verifiedDate).toBe(providerMultimodalR8cBaseline.date);
@@ -138,6 +142,7 @@ describe("help center content catalog", () => {
     expect(searchHelpContent("已处理失败").some((entry) => entry.id === "handle-workflow-node-failure")).toBe(true);
     expect(searchHelpContent("发布预检").some((entry) => entry.id === "create-repeatable-agent")).toBe(true);
     expect(searchHelpContent("保存草稿").some((entry) => entry.id === "build-first-workflow")).toBe(true);
+    expect(searchHelpContent("路径评测")[0]?.id).toBe("review-meta-planner-branches");
     expect(searchHelpContent("只读刷新模型证据").some((entry) => entry.id === "recover-unavailable-feature")).toBe(true);
     expect(searchHelpContent("受限重试").some((entry) => entry.id === "handle-workflow-node-failure")).toBe(true);
     expect(searchHelpContent("等待重试").some((entry) => entry.id === "handle-workflow-node-failure")).toBe(true);

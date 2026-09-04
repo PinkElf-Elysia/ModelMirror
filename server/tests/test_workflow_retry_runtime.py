@@ -498,14 +498,22 @@ async def test_http_retry_wait_resumes_once_and_succeeds(
     main_module.request_windows.clear()
 
     transport = httpx.ASGITransport(app=main_module.app)
+    workflow = _workflow()
+    workflow["nodes"][0]["data"].update(
+        {
+            "plannerRef": "entry",
+            "plannerOutcomeMapV1": {"success": ""},
+        }
+    )
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        initial_events, task_id = await _start(client, _workflow())
+        initial_events, task_id = await _start(client, workflow)
 
     waiting = execution_store.require(task_id)
     assert waiting.status == "waiting"
     assert waiting.wait_kind == "node_retry"
     assert waiting.resume_at == 105.0
     assert "variables" not in waiting.continuation
+    assert waiting.continuation["control_flow_trace"] == ["entry:success"]
     assert calls == 1
     assert "sentinel-response-secret" not in json.dumps(initial_events)
 
@@ -566,6 +574,7 @@ async def test_retry_resume_recreates_custom_input_node_fallback(
         for event in initial_events
     )
     assert "variables" not in execution_store.require(task_id).continuation
+    execution_store.require(task_id).continuation.pop("control_flow_trace")
 
     clock["now"] = 105.0
     final_event = await main_module.resume_runtime_due_execution(task_id)
@@ -1391,6 +1400,8 @@ async def test_three_attempt_retry_uses_retry_after_then_fixed_backoff(
         (lambda continuation: continuation["retry_state"].update({"unexpected": "value"}),
          "NODE_RETRY_STATE_INVALID"),
         (lambda continuation: continuation.update({"variables": {"secret": "value"}}),
+         "NODE_RETRY_STATE_INVALID"),
+        (lambda continuation: continuation.update({"control_flow_trace": ["native:true"]}),
          "NODE_RETRY_STATE_INVALID"),
     ],
 )

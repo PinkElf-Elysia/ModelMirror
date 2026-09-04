@@ -18,6 +18,7 @@ from .control_data import (
     execute_list_operation,
     filter_array,
     sort_array,
+    select_output_v2,
     validate_aggregate_config,
     validate_comparison_rule,
     validate_dataset_compare_config,
@@ -4216,15 +4217,35 @@ def validate_node_configuration(
             )
 
     if kind == "output":
-        output_variable = str(data.get("outputVariable") or "").strip()
-        if not output_variable:
-            issues.append(
-                ValidationIssue(
-                    code="missing_output_variable",
-                    message="Output node needs data.outputVariable.",
-                    node_id=node.id,
-                )
+        if data.get("contractVersion") == 2:
+            sources = data.get("outputSources")
+            first_variable = (
+                str(sources[0].get("variable") or "")
+                if isinstance(sources, list)
+                and sources
+                and isinstance(sources[0], dict)
+                else ""
             )
+            try:
+                select_output_v2(data, {first_variable: None} if first_variable else {})
+            except WorkflowControlDataError as exc:
+                issues.append(
+                    ValidationIssue(
+                        code=exc.code.lower(),
+                        message=exc.safe_message,
+                        node_id=node.id,
+                    )
+                )
+        else:
+            output_variable = str(data.get("outputVariable") or "").strip()
+            if not output_variable:
+                issues.append(
+                    ValidationIssue(
+                        code="missing_output_variable",
+                        message="Output node needs data.outputVariable.",
+                        node_id=node.id,
+                    )
+                )
 
     if kind == "runtime_middleware":
         middleware_id = str(data.get("runtimeMiddlewareId") or "").strip()
@@ -5076,15 +5097,24 @@ def validate_variable_references(
             )
 
     if kind == "output":
-        variable = str(data.get("outputVariable") or "").strip()
-        if variable and variable not in available_variables:
-            issues.append(
-                ValidationIssue(
-                    code="missing_output_variable_reference",
-                    message=f"Output references undefined variable '{variable}'.",
-                    node_id=node.id,
+        variables = (
+            [
+                str(item.get("variable") or "").strip()
+                for item in data.get("outputSources") or []
+                if isinstance(item, dict)
+            ]
+            if data.get("contractVersion") == 2
+            else [str(data.get("outputVariable") or "").strip()]
+        )
+        for variable in variables:
+            if variable and variable not in available_variables:
+                issues.append(
+                    ValidationIssue(
+                        code="missing_output_variable_reference",
+                        message=f"Output references undefined variable '{variable}'.",
+                        node_id=node.id,
+                    )
                 )
-            )
 
     if kind == "runtime_middleware":
         middleware_id = str(data.get("runtimeMiddlewareId") or "").strip()

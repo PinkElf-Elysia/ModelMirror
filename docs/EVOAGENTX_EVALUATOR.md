@@ -43,6 +43,7 @@ Evaluator 只评价固定快照。它不会批准 Authoring Proposal、修改 Xp
 - JSON Schema。
 - Citation ID、chunk ID 或文档名。
 - 必需工具、禁止工具和稳定工具调用顺序。
+- 必需/禁止的语义控制流 outcome，以及预期成功或安全错误终点。
 - LLM Judge rubric。
 - 指标权重。
 
@@ -152,6 +153,12 @@ checkpoint 仅记录 ID、状态、数量、耗时和安全错误摘要。
 - `json_schema`
 - `citation_hit`
 - `rubric_judge`
+- `workflow_path_match`
+
+`workflow_path_match` 只读取 classic runner 写入内部 checkpoint 的 Planner ref、
+语义 outcome、终点来源和受限错误码。它不新增 Workflow SSE 事件，也不从物理节点 ID
+或 native handle 猜测路径。缺少 Planner ref 的旧手工作业返回 unsupported warning。
+预期错误终点必须同时匹配路径和安全错误码，并且不得与文本答案指标混用。
 
 LLM Judge 使用固定模型、温度 0 和严格 JSON，只保存 0–1 分数、通过状态与最多
 500 字符理由，不保存隐藏推理。
@@ -165,6 +172,7 @@ LLM Judge 使用固定模型、温度 0 和严格 JSON，只保存 0–1 分数�
 - 模型调用、工具调用和实际或估算 token。
 - 资源漂移与外部 Provider 不完全可复现 warning。
 - 逐样例截断输入、预期、最终输出和安全错误摘要。
+- 逐样例的语义 outcome、成功来源或预期错误终点证据。
 
 ## 7. API
 

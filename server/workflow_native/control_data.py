@@ -39,6 +39,7 @@ MAX_DATA_AGGREGATE_OUTPUT_BYTES = 5 * 1_024 * 1_024
 MAX_DATASET_COMPARE_OUTPUT_BYTES = 5 * 1_024 * 1_024
 VARIABLE_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 ROUTE_ID_PATTERN = re.compile(r"^route_[1-8]$")
+PLANNER_REF_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 SAFE_ERROR_CODE_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
 SENSITIVE_ERROR_MESSAGE_PATTERN = re.compile(
     r"(?:Bearer\s+\S+|sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9_]{12,}|"
@@ -799,6 +800,67 @@ def aggregate_rows(
             "Data aggregate output exceeds the workflow persistence limit.",
         )
     return output
+
+
+def select_output_v2(
+    data: dict[str, Any],
+    variables: dict[str, WorkflowValue],
+) -> tuple[str, WorkflowValue, dict[str, str]]:
+    if data.get("contractVersion") != 2 or isinstance(
+        data.get("contractVersion"), bool
+    ):
+        _fail("OUTPUT_CONTRACT_VERSION_INVALID", "Output contractVersion must be 2.")
+    if data.get("selectionPolicy") != "exactly_one_arrived":
+        _fail(
+            "OUTPUT_SELECTION_POLICY_INVALID",
+            "Output V2 requires exactly_one_arrived selection.",
+        )
+    raw_sources = data.get("outputSources")
+    if not isinstance(raw_sources, list) or not 1 <= len(raw_sources) <= 8:
+        _fail("OUTPUT_SOURCES_INVALID", "Output V2 requires one to eight sources.")
+    normalized: list[dict[str, str]] = []
+    identities: set[tuple[str, str, str]] = set()
+    for raw in raw_sources:
+        if not isinstance(raw, dict) or set(raw) != {
+            "sourceRef",
+            "sourcePort",
+            "variable",
+        }:
+            _fail(
+                "OUTPUT_SOURCE_INVALID",
+                "Output sources must contain only sourceRef, sourcePort, and variable.",
+            )
+        source_ref = str(raw.get("sourceRef") or "")
+        source_port = str(raw.get("sourcePort") or "")
+        variable = str(raw.get("variable") or "")
+        if (
+            not PLANNER_REF_PATTERN.fullmatch(source_ref)
+            or not VARIABLE_NAME_PATTERN.fullmatch(source_port)
+            or not VARIABLE_NAME_PATTERN.fullmatch(variable)
+        ):
+            _fail(
+                "OUTPUT_SOURCE_INVALID",
+                "Output source refs, ports, and variables must be safe identifiers.",
+            )
+        identity = (source_ref, source_port, variable)
+        if identity in identities:
+            _fail("OUTPUT_SOURCE_DUPLICATED", "Output sources must be unique.")
+        identities.add(identity)
+        normalized.append(
+            {
+                "source_ref": source_ref,
+                "source_port": source_port,
+                "variable": variable,
+            }
+        )
+    arrived = [item for item in normalized if item["variable"] in variables]
+    if len(arrived) != 1:
+        _fail(
+            "FINAL_OUTPUT_SELECTION_INVALID",
+            "Exactly one declared final output source must arrive.",
+        )
+    selected = arrived[0]
+    return selected["variable"], variables[selected["variable"]], selected
 
 
 def validate_terminate_error_config(error_code: object, message: object) -> tuple[str, str]:

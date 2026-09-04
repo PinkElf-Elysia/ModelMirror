@@ -271,6 +271,14 @@ def _headless_fixture(
                 data.pop("plannerIRVersion", None)
                 data.pop("plannerInputsV3", None)
                 data.pop("plannerOutputsV3", None)
+            elif data.get("kind") == "output":
+                first_source = data["outputSources"][0]
+                node["data"] = {
+                    "kind": "output",
+                    "title": data.get("title") or "Final answer",
+                    "outputVariable": first_source["variable"],
+                    "template": "{{" + first_source["variable"] + "}}",
+                }
     proposal_store = AuthoringProposalStore(tmp_path / "runtime")
     authoring = AuthoringService(
         proposal_store,
@@ -341,7 +349,8 @@ def _headless_fixture(
 def test_capability_snapshot_exposes_patch_protocol_and_pure_node_pack():
     snapshot = _snapshot()
 
-    assert snapshot.version == "evoagentx-meta-planner-capabilities-v6"
+    assert snapshot.version == "evoagentx-meta-planner-capabilities-v7"
+    assert snapshot.control_flow_contract_version == 1
     assert snapshot.authoring_protocol_version == 1
     assert snapshot.authoring_limits["max_operations"] == 64
     assert snapshot.authoring_limits["max_receipts"] == 20
@@ -352,7 +361,9 @@ def test_capability_snapshot_exposes_patch_protocol_and_pure_node_pack():
     }
     assert {item["kind"] for item in snapshot.nodes} == {
         "data_aggregate",
+        "data_merge",
         "dataset_compare",
+        "condition",
         "input",
         "json_deserialize",
         "json_serialize",
@@ -363,6 +374,8 @@ def test_capability_snapshot_exposes_patch_protocol_and_pure_node_pack():
         "toolset_resource",
         "variable_aggregator",
         "plugin_resource",
+        "multi_route",
+        "terminate_error",
     }
 
 
@@ -479,7 +492,8 @@ def test_patch_infers_data_schema_and_requires_explicit_detach():
     assert writer.inputs[0].value_schema.type == "string"
     assert writer.inputs[0].variable == "agent_output"
     assert writer.outputs[0].value_schema.type == "string"
-    assert applied.intent.final_output.variable == "writer_output"
+    assert applied.intent.final_output.sources[0].node_ref == "writer"
+    assert writer.outputs[0].variable == "writer_output"
 
     remove = GraphPatchEnvelopeV1(
         proposal_revision=1,
@@ -574,8 +588,9 @@ def test_all_graph_patch_operations_form_an_atomic_round_trip():
     )
 
     assert added.intent.description == "Edited through typed authoring."
-    assert added.intent.final_output.node_ref == "writer"
-    assert added.intent.final_output.variable == "writer_output"
+    assert added.intent.final_output.sources[0].node_ref == "writer"
+    writer = next(node for node in added.intent.nodes if node.ref == "writer")
+    assert writer.outputs[0].variable == "writer_output"
     assert added.layout["writer"] == {"x": 720.0, "y": 240.0}
     assert len(added.intent.resources) == 1
     assert len(added.intent.middleware) == 1
@@ -630,7 +645,7 @@ def test_all_graph_patch_operations_form_an_atomic_round_trip():
     assert removed.intent.resources == []
     assert removed.intent.middleware == []
     assert removed.intent.prompt_profile_ids == []
-    assert removed.intent.final_output.node_ref == "answerer"
+    assert removed.intent.final_output.sources[0].node_ref == "answerer"
     assert "writer" not in removed.layout
 
 

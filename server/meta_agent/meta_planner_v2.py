@@ -4,7 +4,7 @@ import json
 import re
 import time
 import uuid
-from collections import defaultdict, deque
+from collections import Counter, defaultdict, deque
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -44,6 +44,11 @@ except ModuleNotFoundError:
     from xperts.models import XpertDefinition, XpertDraft
 
 from .capabilities import assert_scope_is_authorized
+from .control_flow import (
+    ControlFlowAnalysisError,
+    analyze_control_flow,
+    native_outcome_map,
+)
 from .graph_ir_v3 import (
     GRAPH_IR_VERSION,
     annotate_candidate_with_graph_ir,
@@ -501,8 +506,14 @@ def _graph_intent_prompt_contract(
             "Every root workflow_agent binds user_input from source_ref input and source_port user_input to input port task.",
             "Every dependency input binds the exact ancestor result variable from source_port result to input port task.",
             "Every {{variable}} used in role_prompt or task_input has a matching explicit input binding.",
-            "Control edges represent every cross-node task dependency and form one acyclic graph with one terminal node.",
-            "final_output references the terminal workflow_agent result port and its exact output variable.",
+            "Control edges use source_ref, semantic outcome_ref, and target_ref; never emit native Handles or route IDs.",
+            "Ordinary nodes use success; condition uses matched/unmatched; multi_route uses case_1 through case_8 plus default.",
+            "Every declared router outcome must have exactly one edge, and control edges must form an acyclic graph.",
+            "A route scenario must reach exactly one final workflow_agent source or one terminate_error node.",
+            "final_output uses sources and selection_policy exactly_one_arrived; never emit variable names in final_output.",
+            "Multiple final sources are allowed only when routing proves them mutually exclusive.",
+            "data_merge may join two distinct fanout branches that are both guaranteed to arrive; never use it to merge optional values from mutually exclusive branches.",
+            "terminate_error has no outputs or outgoing control edges and accepts only a fixed safe error_code and message.",
             "Resources and middleware may target workflow_agent nodes only, never pure nodes.",
             "middleware may contain only authorized middleware_ids; when that list is empty, middleware must be empty.",
         ],
@@ -595,9 +606,13 @@ def _canonical_graph_intent_example(
         "middleware": [],
         "prompt_profile_ids": [],
         "final_output": {
-            "node_ref": "xpert_agent",
-            "port": "result",
-            "variable": "final_result",
+            "sources": [
+                {
+                    "node_ref": "xpert_agent",
+                    "port": "result",
+                }
+            ],
+            "selection_policy": "exactly_one_arrived",
         },
     }
 
@@ -880,7 +895,66 @@ def _typed_blueprint(
     blueprint: MetaPlannerBlueprint | MetaPlannerTypedBlueprintV2 | GraphIntentV3,
 ) -> MetaPlannerTypedBlueprintV2:
     if isinstance(blueprint, GraphIntentV3):
-        return graph_intent_to_v2(blueprint)
+        final_source = blueprint.final_output.sources[0]
+        final_node = next(
+            (node for node in blueprint.nodes if node.ref == final_source.node_ref),
+            None,
+        )
+        final_binding = next(
+            (
+                item
+                for item in (final_node.outputs if final_node is not None else [])
+                if item.port == final_source.port
+            ),
+            None,
+        )
+        return MetaPlannerTypedBlueprintV2(
+            name=blueprint.name,
+            description=blueprint.description,
+            tags=blueprint.tags,
+            starters=blueprint.starters,
+            nodes=[
+                MetaPlannerIRNode(
+                    ref=node.ref,
+                    kind=node.kind,
+                    title=node.title,
+                    description=node.description,
+                    task_ids=node.task_ids,
+                    inputs=[
+                        MetaPlannerIRInputBinding(
+                            port=item.port,
+                            variable=item.variable,
+                            value_type=item.value_schema.type,
+                        )
+                        for item in node.inputs
+                    ],
+                    outputs=[
+                        MetaPlannerIROutputBinding(
+                            port=item.port,
+                            variable=item.variable,
+                            value_type=item.value_schema.type,
+                        )
+                        for item in node.outputs
+                    ],
+                    config=node.config,
+                )
+                for node in blueprint.nodes
+            ],
+            control_edges=[
+                MetaPlannerIRControlEdge(
+                    source_ref=edge.source_ref,
+                    target_ref=edge.target_ref,
+                )
+                for edge in blueprint.control_edges
+            ],
+            resources=blueprint.resources,
+            middleware=blueprint.middleware,
+            prompt_profile_ids=blueprint.prompt_profile_ids,
+            final_output=MetaPlannerIRFinalOutput(
+                node_ref=final_source.node_ref,
+                variable=(final_binding.variable if final_binding is not None else "invalid"),
+            ),
+        )
     if isinstance(blueprint, MetaPlannerTypedBlueprintV2):
         return blueprint
     return legacy_blueprint_to_typed_ir(plan, blueprint)
@@ -1013,7 +1087,25 @@ def validate_blueprint_authorization(
                 issues.append(
                     f"Node {node.ref} workflow_agent result must be a string."
                 )
-        if len({item.port for item in node.inputs}) != len(node.inputs):
+        input_counts = Counter(item.port for item in node.inputs)
+        if isinstance(blueprint, GraphIntentV3):
+            contract = workflow_node_contract_registry.require(node.kind)
+            cardinality_by_port = {
+                port.name: port.cardinality
+                for port in contract.ports
+                if port.direction == "input"
+            }
+            repeated = sorted(
+                port
+                for port, count in input_counts.items()
+                if count > 1 and cardinality_by_port.get(port) != "many"
+            )
+            if repeated:
+                issues.append(
+                    f"Node {node.ref} repeats single-cardinality input ports: "
+                    + ", ".join(repeated)
+                )
+        elif any(count > 1 for count in input_counts.values()):
             issues.append(f"Node {node.ref} input ports must be unique.")
         if len({item.variable for item in node.outputs}) != len(node.outputs):
             issues.append(f"Node {node.ref} output variables must be unique.")
@@ -1056,10 +1148,19 @@ def validate_blueprint_authorization(
         if not task_nodes[task_id]:
             issues.append(f"Planned task {task_id} is not covered by any IR node.")
 
-    edge_keys: set[tuple[str, str]] = set()
+    edge_keys: set[tuple[str, ...]] = set()
     known_refs = set(node_refs)
-    for edge in typed.control_edges:
-        key = (edge.source_ref, edge.target_ref)
+    control_edges = (
+        blueprint.control_edges
+        if isinstance(blueprint, GraphIntentV3)
+        else typed.control_edges
+    )
+    for edge in control_edges:
+        key = (
+            (edge.source_ref, edge.outcome_ref, edge.target_ref)
+            if isinstance(blueprint, GraphIntentV3)
+            else (edge.source_ref, edge.target_ref)
+        )
         if edge.source_ref not in known_refs or edge.target_ref not in known_refs:
             issues.append(
                 f"Control edge {edge.source_ref}->{edge.target_ref} references "
@@ -1075,25 +1176,40 @@ def validate_blueprint_authorization(
     children, parents, order, sinks = _typed_graph(typed)
     if len(order) != len(typed.nodes):
         issues.append("Typed IR control edges must form an acyclic graph.")
-    if len(sinks) != 1:
-        issues.append(
-            "Typed IR must have exactly one terminal node; "
-            f"found {len(sinks)}."
+    if isinstance(blueprint, GraphIntentV3):
+        try:
+            analyze_control_flow(blueprint)
+        except ControlFlowAnalysisError as exc:
+            issues.extend(exc.issues)
+        graph_nodes = {node.ref: node for node in blueprint.nodes}
+        for source in blueprint.final_output.sources:
+            final_node = graph_nodes.get(source.node_ref)
+            if final_node is None:
+                issues.append("Graph IR final output references an unknown node.")
+            elif final_node.kind != "workflow_agent":
+                issues.append("Graph IR final outputs must come from workflow_agent nodes.")
+            elif source.port not in {item.port for item in final_node.outputs}:
+                issues.append("Graph IR final output references an unknown output port.")
+    else:
+        if len(sinks) != 1:
+            issues.append(
+                "Typed IR must have exactly one terminal node; "
+                f"found {len(sinks)}."
+            )
+        elif typed.final_output.node_ref != sinks[0]:
+            issues.append("Typed IR final_output must reference the terminal node.")
+        final_node = next(
+            (node for node in typed.nodes if node.ref == typed.final_output.node_ref),
+            None,
         )
-    elif typed.final_output.node_ref != sinks[0]:
-        issues.append("Typed IR final_output must reference the terminal node.")
-    final_node = next(
-        (node for node in typed.nodes if node.ref == typed.final_output.node_ref),
-        None,
-    )
-    if final_node is None:
-        issues.append("Typed IR final_output references an unknown node.")
-    elif final_node.kind != "workflow_agent":
-        issues.append("Typed IR final_output must come from a workflow_agent.")
-    elif typed.final_output.variable not in {
-        item.variable for item in final_node.outputs
-    }:
-        issues.append("Typed IR final_output variable is not produced by its node.")
+        if final_node is None:
+            issues.append("Typed IR final_output references an unknown node.")
+        elif final_node.kind != "workflow_agent":
+            issues.append("Typed IR final_output must come from a workflow_agent.")
+        elif typed.final_output.variable not in {
+            item.variable for item in final_node.outputs
+        }:
+            issues.append("Typed IR final_output variable is not produced by its node.")
 
     ancestors: dict[str, set[str]] = {ref: set() for ref in node_refs}
     for ref in order:
@@ -1604,16 +1720,15 @@ def compile_xpert_candidate(
         snapshot,
         default_agent_model_id=request.default_agent_model_id,
     )
-    typed = graph_intent_to_v2(intent)
+    typed = _typed_blueprint(plan, intent)
     task_by_id = {task.task_id: task for task in plan.tasks}
     node_by_ref = {node.ref: node for node in typed.nodes}
+    intent_node_by_ref = {node.ref: node for node in intent.nodes}
     resource_lookup = _resource_lookup(snapshot)
     middleware_lookup = _middleware_lookup(snapshot)
-    _, parents, order, sinks = _typed_graph(typed)
+    _, parents, order, _sinks = _typed_graph(typed)
     if len(order) != len(typed.nodes):
         raise ValueError("Typed IR control graph contains a cycle.")
-    if len(sinks) != 1 or sinks[0] != typed.final_output.node_ref:
-        raise ValueError("Typed IR final output does not match its terminal node.")
 
     levels: dict[str, int] = {}
     level_rows: dict[int, int] = defaultdict(int)
@@ -1672,7 +1787,7 @@ def compile_xpert_candidate(
         if adapter is None:
             raise ValueError(f"Node kind {ir_node.kind} has no compiler adapter.")
         parsed_config = adapter.validate_config(ir_node)
-        output_variable = ir_node.outputs[0].variable
+        output_variable = ir_node.outputs[0].variable if ir_node.outputs else ""
         level = levels[ref]
         row = level_rows[level]
         level_rows[level] += 1
@@ -1716,15 +1831,41 @@ def compile_xpert_candidate(
                     target=compiled_node_ids[ref],
                 )
             )
-    for edge in typed.control_edges:
+    for edge in intent.control_edges:
+        source_node = intent_node_by_ref[edge.source_ref]
+        target_node = intent_node_by_ref[edge.target_ref]
+        outcome_map = native_outcome_map(source_node)
+        if edge.outcome_ref not in outcome_map:
+            raise ValueError(
+                f"Node {edge.source_ref} has no outcome {edge.outcome_ref}."
+            )
+        source_handle = outcome_map[edge.outcome_ref] or None
+        target_handle: str | None = None
+        if target_node.kind == "data_merge":
+            matching_ports = sorted(
+                {
+                    binding.port
+                    for binding in target_node.inputs
+                    if binding.source_ref == edge.source_ref
+                }
+            )
+            if len(matching_ports) != 1 or matching_ports[0] not in {"left", "right"}:
+                raise ValueError(
+                    f"Data merge {target_node.ref} cannot derive one control input "
+                    f"Handle from source {edge.source_ref}."
+                )
+            target_handle = matching_ports[0]
         edges.append(
             NativeWorkflowEdge(
                 id=(
                     f"edge_{compiled_node_ids[edge.source_ref]}_"
+                    f"{_safe_identifier(edge.outcome_ref, 'outcome')}_"
                     f"{compiled_node_ids[edge.target_ref]}"
                 ),
                 source=compiled_node_ids[edge.source_ref],
                 target=compiled_node_ids[edge.target_ref],
+                sourceHandle=source_handle,
+                targetHandle=target_handle,
             )
         )
 
@@ -1859,31 +2000,58 @@ def compile_xpert_candidate(
             )
         )
 
-    final_node_id = compiled_node_ids[typed.final_output.node_ref]
-    final_position = next(node.position for node in nodes if node.id == final_node_id)
+    final_bindings: list[tuple[Any, str, str]] = []
+    for source in intent.final_output.sources:
+        source_node = intent_node_by_ref[source.node_ref]
+        output = next(
+            (item for item in source_node.outputs if item.port == source.port), None
+        )
+        if output is None:
+            raise ValueError(
+                f"Final source {source.node_ref}.{source.port} is unavailable."
+            )
+        final_bindings.append(
+            (source, output.variable, compiled_node_ids[source.node_ref])
+        )
+    final_positions = [
+        next(node.position for node in nodes if node.id == node_id)
+        for _source, _variable, node_id in final_bindings
+    ]
+    output_x = max(
+        (position.x if position else 300) for position in final_positions
+    ) + 360
+    output_y = sum(
+        (position.y if position else 160) for position in final_positions
+    ) / len(final_positions)
     nodes.append(
         NativeWorkflowNode(
             id="output",
             type="output",
-            position=WorkflowPosition(
-                x=(final_position.x if final_position else 300) + 360,
-                y=final_position.y if final_position else 160,
-            ),
+            position=WorkflowPosition(x=output_x, y=output_y),
             data={
                 "kind": "output",
                 "title": "Final answer",
-                "outputVariable": typed.final_output.variable,
-                "template": f"{{{{{typed.final_output.variable}}}}}",
+                "contractVersion": 2,
+                "selectionPolicy": "exactly_one_arrived",
+                "outputSources": [
+                    {
+                        "sourceRef": source.node_ref,
+                        "sourcePort": source.port,
+                        "variable": variable,
+                    }
+                    for source, variable, _node_id in final_bindings
+                ],
             },
         )
     )
-    edges.append(
-        NativeWorkflowEdge(
-            id=f"edge_{final_node_id}_output",
-            source=final_node_id,
-            target="output",
+    for _source, _variable, node_id in final_bindings:
+        edges.append(
+            NativeWorkflowEdge(
+                id=f"edge_{node_id}_success_output",
+                source=node_id,
+                target="output",
+            )
         )
-    )
 
     workflow = NativeWorkflowDefinition(
         id=f"meta_{resolved_graph.graph_checksum[:12]}",
@@ -1909,7 +2077,7 @@ def compile_xpert_candidate(
         "workflow": workflow,
         "input_variable": "user_input",
         "history_variable": "conversation_history",
-        "output_variable": typed.final_output.variable,
+        "output_variable": final_bindings[0][1],
         "prompt_profiles": prompt_bindings,
     }
     if base_draft is not None:

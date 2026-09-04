@@ -17,12 +17,51 @@ async def evaluate_case_metrics(
     output: str,
     citations: dict[str, list[str]],
     tool_calls: list[str] | None = None,
+    control_flow: dict[str, Any] | None = None,
     judge: JudgeCallback | None = None,
     judge_model_id: str | None = None,
 ) -> dict[str, Any]:
     expected = dict(case.get("expected") or {})
     weights = dict(case.get("weights") or {})
     metrics: list[dict[str, Any]] = []
+
+    path = case.get("path")
+    if isinstance(path, dict):
+        actual_path = dict(control_flow or {})
+        supported = bool(actual_path.get("supported"))
+        actual_outcomes = {
+            str(item) for item in list(actual_path.get("outcomes") or []) if str(item)
+        }
+        required = _string_set(path.get("required_outcomes"))
+        forbidden = _string_set(path.get("forbidden_outcomes"))
+        expected_terminal = str(path.get("terminal") or "")
+        actual_terminal = str(actual_path.get("terminal") or "")
+        expected_error = str(path.get("error_code") or "")
+        actual_error = str(actual_path.get("error_code") or "")
+        missing = sorted(required - actual_outcomes)
+        forbidden_hits = sorted(forbidden & actual_outcomes)
+        terminal_ok = actual_terminal == expected_terminal
+        error_ok = expected_terminal != "error" or actual_error == expected_error
+        passed = (
+            supported
+            and not missing
+            and not forbidden_hits
+            and terminal_ok
+            and error_ok
+        )
+        metrics.append(
+            _metric(
+                "workflow_path_match",
+                1.0 if passed else 0.0,
+                (
+                    f"supported={supported}, missing={missing}, "
+                    f"forbidden_hits={forbidden_hits}, "
+                    f"terminal={actual_terminal or 'unknown'}/{expected_terminal}, "
+                    f"error_code={actual_error or 'none'}/{expected_error or 'none'}"
+                ),
+                weights,
+            )
+        )
 
     exact = expected.get("exact_answer")
     if isinstance(exact, str):

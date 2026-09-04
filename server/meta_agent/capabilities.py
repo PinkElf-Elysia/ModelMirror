@@ -364,9 +364,10 @@ def build_capability_snapshot(
         agent_ids=[item["id"] for item in expert_summaries],
     )
     payload = {
-        "version": "evoagentx-meta-planner-capabilities-v6",
+        "version": "evoagentx-meta-planner-capabilities-v7",
         "ir_version": 3,
         "supported_ir_versions": [2, 3],
+        "control_flow_contract_version": 1,
         "contract_version": int(node_payload.get("contract_version") or 0),
         "contract_checksum": str(node_payload.get("contract_checksum") or ""),
         "node_registry_version": workflow_registry.version,

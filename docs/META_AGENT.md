@@ -9,7 +9,7 @@
 已经可以从实时 Registry 编译 `workflow_agent`、资源绑定、中间件和发布预检所需配置；
 旧生成器仍保留用于兼容经典工作流导入与既有 AgentTask/Handoff 操作。
 
-当前实现是 **Capability Snapshot V6 + Graph IR V3 单写、Typed IR V2 双读**。后续升级已经锁定为
+当前实现是 **Capability Snapshot V7 + Graph IR V3 单写、Typed IR V2 双读**。后续升级已经锁定为
 “V3 十轮 + V4 轮次待定”，唯一方向文档是
 [META_PLANNER_V3_V4_ROADMAP.md](./META_PLANNER_V3_V4_ROADMAP.md)。V3 先补齐
 Graph IR、无头编排、节点 Adapter、效果语义和评测，再逐类开放真实节点；V4 只有在
@@ -136,15 +136,16 @@ EvoAgentX 的来源与已交付历史见
 
 ### NodeContract V3 能力门禁
 
-Meta Planner 的节点事实统一来自 `NodeContractRegistry`。Capability Snapshot V6
+Meta Planner 的节点事实统一来自 `NodeContractRegistry`。Capability Snapshot V7
 只暴露满足以下全部条件的节点：契约状态完整、Planner 显式启用、编译模式真实存在、
 Adapter 版本一致，并且契约与 Adapter 的 compiler checksum 匹配。UI Registry 中出现
 节点不等于 Planner 可以生成该节点。
 
 当前开放范围为 `input`、`output`、`workflow_agent`、四类资源绑定，以及
 `json_serialize`、`json_deserialize`、`variable_aggregator`、`data_aggregate`、
-`dataset_compare` 五种无副作用类型化纯节点。NodeContract V3 与 Planner IR 独立演进。
-Capability Snapshot 当前为 V6，
+`dataset_compare` 五种无副作用类型化纯节点和 `condition`、`multi_route`、
+`data_merge`、`terminate_error` 四种受限控制流节点。NodeContract V3 与 Planner IR 独立演进。
+Capability Snapshot 当前为 V7，
 `ir_version=3` 且声明 `supported_ir_versions=[2,3]`。旧 V2 Snapshot 保持可读，详见
 [NODE_CONTRACT_V3.md](./NODE_CONTRACT_V3.md)。
 
@@ -181,7 +182,7 @@ Apply。操作、接口、安全 receipt 和回退边界见
 类型化输入/输出变量、控制边、资源/中间件目标和唯一最终输出。任务和 Agent 不再
 强制一一对应：一个 Agent 可以覆盖多个任务，一个任务也可以由多个节点共同完成。
 
-Capability Snapshot V6 只暴露当前存在且与 NodeContract、Adapter checksum 校验一致的
+Capability Snapshot V7 只暴露当前存在且与 NodeContract、Adapter checksum 校验一致的
 编译能力。`workflow_agent` 的 `task_binding=required`，每个计划任务仍必须由 Agent
 覆盖；五种纯节点的 `task_binding=forbidden`，只能作为 Agent 之间的确定性辅助步骤，
 不能承担任务或成为最终输出。`input/output` 由编译器管理，外部 Xpert、知识库、
@@ -193,8 +194,26 @@ Meta Planner 只生成 JSON `contractVersion=2`：Deserialize 必须携带受限
 生成或自动升级。Variable Aggregator V2、Data Aggregate 和 Dataset Compare 复用
 现有 Runtime，并由 Adapter 从 Graph IR data 边派生原生变量绑定。
 
-`variable_assign`、`list_operation`、`object_transform`、`data_merge`、Agent Table、
-知识检索、视觉理解和控制流仍无本轮 Planner Adapter，不会进入授权快照。
+控制流使用 `control_flow_contract_version=1`。模型只引用语义 outcome：普通节点为
+`success`，Condition 为 `matched/unmatched`，Multi Route 为
+`case_1...case_8/default`；Native handle、路由 ID 和变量均由 Adapter 推导。确定性分析器
+限制最多 8 个路由节点和 256 个符号场景，阻止循环、死路、不可达、影子规则、路径上
+不保证存在的数据，以及无法证明互斥的多成功终点。Output V2 从 1-8 个受信任来源中
+严格选择恰好一个到达值；零个或多个均失败。Data Merge 仅用于两个保证到达的 fanout
+分支，Terminate Error 只能携带固定安全错误码和消息。
+
+路由 witness 必须同时满足生产端口的权威类型与输入绑定类型；把输入声明放宽为
+`any` 不能制造源端口不可能产生的 null、数字或布尔值。必填对象字段会保留在
+witness 中；无法找到合法 witness 的 outcome（包括 default）继续阻断。独立的
+非终点死路和带出边的成功终点同样不可接受。
+
+旧 Planner 快照可能只有 `plannerRef` 而没有语义 outcome 映射，此类工作流继续
+执行，不补造路径证据；显式存在但损坏的 outcome 映射仍会失败。Output V1 的旧
+运行不能被当作已经验证了 Output V2 路径合同。
+
+`variable_assign`、`list_operation`、`object_transform`、Agent Table、知识检索、视觉理解、
+循环、等待、HITL、Handoff、Trigger 和 `question_classifier` 仍无 Planner Adapter，
+不会进入授权快照。
 
 旧 `MetaPlannerBlueprint` 仅用于 Expert Team Agency 等兼容入口，进入编译器前会
 转换为 Typed IR。旧计划也必须只有一个终点。更新已有 Xpert 时，如目标工作流含

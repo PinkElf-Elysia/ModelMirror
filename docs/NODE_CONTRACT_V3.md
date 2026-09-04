@@ -60,25 +60,33 @@ The first complete-contract group is:
 | Task adapter | `workflow_agent` | enabled, `task_binding=required` |
 | Resource bindings | `external_xpert`, `knowledge_base`, `toolset_resource`, `plugin_resource` | binding only |
 | Pure-data adapters | `json_serialize`, `json_deserialize`, `variable_aggregator`, `data_aggregate`, `dataset_compare` | enabled, `task_binding=forbidden` |
+| Control-flow adapters | `condition`, `multi_route`, `data_merge`, `terminate_error` | enabled, `task_binding=forbidden` |
 | Read targets | `knowledge_retrieval`, `data_table_query`, `vision_understanding` | unsupported |
 | Write targets | `data_table_insert`, `data_table_update`, `data_table_delete` | unsupported |
 | Metadata and middleware | `annotation`, `runtime_middleware` | metadata or binding contract only |
 
 All other nodes have compatibility or explicitly unsupported contracts and
 remain executable through the existing classic validator and runner when their
-legacy validation permits it. Capability Snapshot V6 exposes the previous seven
-kinds plus the five pure-data adapters. Graph IR V3 is the write format; Typed
+legacy validation permits it. Capability Snapshot V7 exposes the previous twelve
+kinds plus the four control-flow adapters. Graph IR V3 is the write format; Typed
 IR V2 is read-only compatibility input.
 
 Unversioned JSON nodes retain their historical inline-error/null behavior.
 Planner-generated JSON nodes use `contractVersion=2`, strict failure semantics,
 a 5 MiB boundary, and a trusted `WorkflowValueSchema` for Deserialize output.
 The other pure adapters keep their existing bounded Runtime contracts. Pure
-nodes cannot cover plan tasks, bind resources or middleware, or provide the
-final output. Agent Table Query remains disabled in Evaluator. Vision remains
+nodes cannot cover plan tasks or bind resources or middleware. Control-flow nodes
+also cannot cover plan tasks. Agent Table Query remains disabled in Evaluator. Vision remains
 disabled in Evaluator until evaluation datasets can carry explicit file assets.
-Condition, loop, list, assignment, object transform, and data merge contracts
-may describe current behavior, but Planner cannot compile them yet.
+
+Control-flow contract version 1 gives `condition` the semantic outcomes
+`matched/unmatched`, `multi_route` the outcomes `case_1...case_8/default`, and
+ordinary Planner nodes `success`. Native handles are compiler-owned. Output V2
+uses `exactly_one_arrived` across 1-8 trusted sources. `data_merge` is limited to
+two guaranteed fanout branches; it cannot merge optional values from mutually
+exclusive paths. `terminate_error` has no outgoing control edge. Loop, list,
+assignment, object-transform, waiting and interaction contracts may describe
+classic behavior, but Planner cannot compile them yet.
 
 ## Policy service
 
@@ -102,7 +110,7 @@ must still pass.
 ## API and frontend
 
 `GET /api/workflow/node-registry` returns registry version
-`xpert-workflow-node-registry-v5`, `contract_version=3`, the registry checksum,
+`xpert-workflow-node-registry-v6`, `contract_version=3`, the registry checksum,
 and a safe contract projection for each palette node.
 
 The frontend fallback contains presentation facts only. It has no contract or
@@ -110,10 +118,10 @@ Planner claims. If the server response is absent, incomplete, or has a checksum
 shape other than V3, contract-dependent operations stay disabled while the
 classic palette may continue to render.
 
-Meta Planner Capability Snapshot version is V6 with `ir_version=3` and
-`supported_ir_versions=[2,3]`. V6 projects the typed Headless Authoring
+Meta Planner Capability Snapshot version is V7 with `ir_version=3`,
+`supported_ir_versions=[2,3]`, and `control_flow_contract_version=1`. V7 projects the typed Headless Authoring
 operation schema, `task_binding`, versioned execution semantics, and per-kind
-authoring checksum for the twelve enabled kinds.
+authoring checksum for the sixteen enabled kinds.
 Persisted V2 snapshots without contract metadata remain readable. Contract
 drift is a warning for an existing proposal; missing or invalid resources still
 block approval.

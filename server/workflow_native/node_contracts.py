@@ -445,6 +445,114 @@ class DatasetComparePlannerConfig(BaseModel):
         return self
 
 
+class ConditionPlannerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    field: str = Field(default="", max_length=64)
+    operator: Literal[
+        "equals",
+        "not_equals",
+        "gt",
+        "gte",
+        "lt",
+        "lte",
+        "contains",
+        "in",
+        "is_null",
+    ]
+    value_type: Literal["text", "number", "boolean", "null", "json"] = "null"
+    value: Any = None
+
+    @model_validator(mode="after")
+    def validate_comparison(self) -> "ConditionPlannerConfig":
+        if self.operator != "is_null" and "value" not in self.model_fields_set:
+            raise ValueError("non-is_null condition operators require value")
+        from .control_data import validate_comparison_rule
+
+        rule: dict[str, Any] = {
+            "field": self.field,
+            "operator": self.operator,
+            "valueType": self.value_type,
+        }
+        if self.operator != "is_null":
+            rule["value"] = self.value
+        validate_comparison_rule(rule, allow_field=True)
+        return self
+
+
+class MultiRoutePlannerRule(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    label: str = Field(min_length=1, max_length=80)
+    operator: Literal[
+        "equals",
+        "not_equals",
+        "gt",
+        "gte",
+        "lt",
+        "lte",
+        "contains",
+        "in",
+        "is_null",
+    ]
+    value_type: Literal["text", "number", "boolean", "null", "json"] = "null"
+    value: Any = None
+
+    @model_validator(mode="after")
+    def validate_comparison(self) -> "MultiRoutePlannerRule":
+        if self.operator != "is_null" and "value" not in self.model_fields_set:
+            raise ValueError("non-is_null route operators require value")
+        from .control_data import validate_comparison_rule
+
+        rule: dict[str, Any] = {
+            "operator": self.operator,
+            "valueType": self.value_type,
+        }
+        if self.operator != "is_null":
+            rule["value"] = self.value
+        validate_comparison_rule(rule, allow_field=False)
+        return self
+
+
+class MultiRoutePlannerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    routes: list[MultiRoutePlannerRule] = Field(min_length=2, max_length=8)
+
+
+class DataMergePlannerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    merge_mode: Literal["append", "keyed_join"] = "append"
+    key_fields: list[str] = Field(default_factory=list, max_length=3)
+
+    @model_validator(mode="after")
+    def validate_keys(self) -> "DataMergePlannerConfig":
+        if len(self.key_fields) != len(set(self.key_fields)):
+            raise ValueError("key_fields must be unique")
+        if any(not item or len(item) > 64 for item in self.key_fields):
+            raise ValueError("key_fields must be non-empty top-level fields")
+        if self.merge_mode == "append" and self.key_fields:
+            raise ValueError("append mode does not accept key_fields")
+        if self.merge_mode == "keyed_join" and not 1 <= len(self.key_fields) <= 3:
+            raise ValueError("keyed_join requires one to three key_fields")
+        return self
+
+
+class TerminateErrorPlannerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    error_code: str = Field(pattern=r"^[A-Z][A-Z0-9_]{0,63}$")
+    message: str = Field(min_length=1, max_length=2_000)
+
+    @model_validator(mode="after")
+    def validate_safe_message(self) -> "TerminateErrorPlannerConfig":
+        from .control_data import validate_terminate_error_config
+
+        validate_terminate_error_config(self.error_code, self.message)
+        return self
+
+
 @dataclass(frozen=True, slots=True)
 class NodePolicyDecision:
     allowed: bool
@@ -1171,8 +1279,15 @@ def _complete_contracts() -> dict[str, NodeContract]:
             "field": {"type": "string", "maxLength": 64},
             **comparison_rule_properties,
         },
-        required=["contractVersion", "inputVariable", "operator", "valueType", "value"],
+        required=["contractVersion", "inputVariable", "operator"],
     )
+    condition_v2_schema["allOf"] = [
+        {
+            "if": {"properties": {"operator": {"const": "is_null"}}},
+            "then": {},
+            "else": {"required": ["valueType", "value"]},
+        }
+    ]
     contracts["condition"] = NodeContract(
         kind="condition",
         contract_status="complete",
@@ -1196,7 +1311,20 @@ def _complete_contracts() -> dict[str, NodeContract]:
             error_semantics="fail_closed",
             security_category="control",
         ),
-        planner=_planner(),
+        planner=_planner(
+            enabled=True,
+            support="full",
+            compilation_mode="adapter",
+            adapter_version=planner_adapter_version,
+            task_binding="forbidden",
+            default_data={
+                "field": "",
+                "operator": "equals",
+                "value_type": "text",
+                "value": "",
+            },
+            ir_config_schema=ConditionPlannerConfig.model_json_schema(),
+        ),
     )
     code_v2_schema = _object_schema(
         {
@@ -2318,7 +2446,18 @@ def _complete_contracts() -> dict[str, NodeContract]:
             error_semantics="fail_closed",
             security_category="control",
         ),
-        planner=_planner(),
+        planner=_planner(
+            enabled=True,
+            support="full",
+            compilation_mode="adapter",
+            adapter_version=planner_adapter_version,
+            task_binding="forbidden",
+            default_data={
+                "error_code": "WORKFLOW_TERMINATED",
+                "message": "The workflow stopped on a declared error path.",
+            },
+            ir_config_schema=TerminateErrorPlannerConfig.model_json_schema(),
+        ),
     )
     contracts["multi_route"] = NodeContract(
         kind="multi_route",
@@ -2363,7 +2502,30 @@ def _complete_contracts() -> dict[str, NodeContract]:
             error_semantics="fail_closed",
             security_category="control",
         ),
-        planner=_planner(),
+        planner=_planner(
+            enabled=True,
+            support="full",
+            compilation_mode="adapter",
+            adapter_version=planner_adapter_version,
+            task_binding="forbidden",
+            default_data={
+                "routes": [
+                    {
+                        "label": "Case 1",
+                        "operator": "equals",
+                        "value_type": "text",
+                        "value": "case_1",
+                    },
+                    {
+                        "label": "Case 2",
+                        "operator": "equals",
+                        "value_type": "text",
+                        "value": "case_2",
+                    },
+                ]
+            },
+            ir_config_schema=MultiRoutePlannerConfig.model_json_schema(),
+        ),
     )
     document_asset_schema = _object_schema(
         {
@@ -2869,7 +3031,15 @@ def _complete_contracts() -> dict[str, NodeContract]:
             error_semantics="fail_closed",
             security_category="transform",
         ),
-        planner=_planner(),
+        planner=_planner(
+            enabled=True,
+            support="full",
+            compilation_mode="adapter",
+            adapter_version=planner_adapter_version,
+            task_binding="forbidden",
+            default_data={"merge_mode": "append", "key_fields": []},
+            ir_config_schema=DataMergePlannerConfig.model_json_schema(),
+        ),
     )
     contracts["dataset_compare"] = NodeContract(
         kind="dataset_compare",
@@ -2983,15 +3153,48 @@ def _complete_contracts() -> dict[str, NodeContract]:
     contracts["output"] = NodeContract(
         kind="output",
         contract_status="complete",
-        config_schema=_object_schema(
-            {
-                "outputVariable": {"type": "string"},
-                "template": {"type": "string"},
-            }
-        ),
+        config_schema={
+            "type": "object",
+            "anyOf": [
+                _object_schema(
+                    {
+                        "outputVariable": {"type": "string"},
+                        "template": {"type": "string"},
+                    }
+                ),
+                _object_schema(
+                    {
+                        "contractVersion": {"const": 2},
+                        "selectionPolicy": {"const": "exactly_one_arrived"},
+                        "outputSources": {
+                            "type": "array",
+                            "minItems": 1,
+                            "maxItems": 8,
+                            "items": _object_schema(
+                                {
+                                    "sourceRef": {"type": "string"},
+                                    "sourcePort": {"type": "string"},
+                                    "variable": {"type": "string"},
+                                },
+                                required=["sourceRef", "sourcePort", "variable"],
+                            ),
+                        },
+                    },
+                    required=[
+                        "contractVersion",
+                        "selectionPolicy",
+                        "outputSources",
+                    ],
+                ),
+            ],
+        },
         ports=(
             NodePortContract(
-                name="result", direction="input", value_schema=any_value, required=True
+                name="result",
+                direction="input",
+                value_schema=any_value,
+                required=True,
+                cardinality="many",
             ),
         ),
         execution=NodeExecutionPolicy(

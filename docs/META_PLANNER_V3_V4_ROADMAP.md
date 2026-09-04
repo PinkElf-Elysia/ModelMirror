@@ -110,14 +110,20 @@ Graph IR V3 至少需要表达：
 
 ### Round 4：Control Flow
 
-目标包括条件、多路分支、显式 outcome edge、合流/fanout 和终止。重点不是“让模型画更多线”，而是建立：
+当前实现范围锁定为 `condition`、`multi_route`、`data_merge` 和
+`terminate_error`。重点不是“让模型画更多线”，而是建立：
 
 - 条件表达式和端口结果的类型检查。
 - 分支覆盖、不可达路径、唯一/多终点和合流规则。
 - 候选评测中的路径覆盖和错误路径证据。
 - 编译器生成 handle，模型只引用受限 outcome/ref。
 
-Iteration、等待、HITL、Handoff 和 Trigger 不进入本轮。
+本轮使用 `control_flow_contract_version=1`，最多分析 8 个路由节点和 256 个符号
+场景。互斥成功路径可声明多个 Output V2 来源，但运行时必须恰好一个到达；
+`data_merge` 只支持两个保证到达的 fanout 分支。Evaluator 通过
+`workflow_path_match` 对语义 outcome 和安全终点取证，不从物理节点推断路径。
+
+Iteration、等待、HITL、Handoff、Trigger、`question_classifier` 和表达式引擎不进入本轮。
 
 ### Round 5：Read Resources
 

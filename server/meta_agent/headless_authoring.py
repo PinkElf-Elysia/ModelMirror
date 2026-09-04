@@ -60,10 +60,12 @@ from .graph_patch import (
     diff_graph_intents,
     graph_patch_checksum,
 )
+from .control_flow import native_outcome_map
 from .meta_planner_v2 import MetaPlannerV2Service
 from .node_adapters import META_PLANNER_ADAPTER_KINDS, get_planner_node_adapter
 from .schemas import (
     GraphIntentInputBindingV3,
+    GraphIntentNodeV3,
     GraphIntentOutputBindingV3,
     GraphIntentV3,
     MetaPlannerCapabilitySnapshot,
@@ -144,6 +146,50 @@ _AUTHORABLE_PURE_NODE_DATA_FIELDS: dict[str, frozenset[str]] = {
             "outputVariable",
             "keyFields",
             "includeUnchanged",
+        }
+    ),
+    "condition": frozenset(
+        {
+            "kind",
+            "title",
+            "description",
+            "contractVersion",
+            "inputVariable",
+            "field",
+            "operator",
+            "valueType",
+            "value",
+        }
+    ),
+    "multi_route": frozenset(
+        {
+            "kind",
+            "title",
+            "description",
+            "inputVariable",
+            "routes",
+        }
+    ),
+    "data_merge": frozenset(
+        {
+            "kind",
+            "title",
+            "description",
+            "contractVersion",
+            "mergeMode",
+            "leftVariable",
+            "rightVariable",
+            "outputVariable",
+            "keyFields",
+        }
+    ),
+    "terminate_error": frozenset(
+        {
+            "kind",
+            "title",
+            "description",
+            "errorCode",
+            "message",
         }
     ),
 }
@@ -302,7 +348,20 @@ def _round_trip_candidate_projection(
     workflow.pop("version", None)
     for node in workflow.get("nodes") or []:
         data = node.get("data") or {}
-        if str(data.get("kind") or node.get("type") or "") != "workflow_agent":
+        kind = str(data.get("kind") or node.get("type") or "")
+        if kind == "output" and data.get("contractVersion") == 2:
+            sources = data.get("outputSources")
+            if isinstance(sources, list) and len(sources) == 1:
+                variable = str((sources[0] or {}).get("variable") or "")
+                if variable:
+                    node["data"] = {
+                        "kind": "output",
+                        "title": data.get("title") or "Final answer",
+                        "outputVariable": variable,
+                        "template": "{{" + variable + "}}",
+                    }
+            continue
+        if kind != "workflow_agent":
             continue
         data.pop("plannerIRVersion", None)
         data.pop("plannerInputsV3", None)
@@ -1263,11 +1322,13 @@ class HeadlessAuthoringService:
         actual_roots: set[str] = set()
         terminal_refs: list[str] = []
         for edge in definition.edges:
-            if edge.sourceHandle or edge.targetHandle:
-                continue
             if edge.target == "input" or edge.source == "output":
                 raise ValueError("Compiler-managed control edges cannot run backwards.")
             if edge.source == "input":
+                if edge.sourceHandle or edge.targetHandle:
+                    raise ValueError(
+                        "Compiler-managed input edges cannot carry Handles."
+                    )
                 target_ref = ref_by_id.get(edge.target)
                 if not target_ref:
                     raise ValueError(
@@ -1275,6 +1336,10 @@ class HeadlessAuthoringService:
                     )
                 actual_roots.add(target_ref)
             if edge.target == "output":
+                if edge.sourceHandle or edge.targetHandle:
+                    raise ValueError(
+                        "Compiler-managed output edges cannot carry Handles."
+                    )
                 source_ref = ref_by_id.get(edge.source)
                 if not source_ref or kind_by_id.get(edge.source) != "workflow_agent":
                     raise ValueError(
@@ -1285,9 +1350,12 @@ class HeadlessAuthoringService:
             raise ValueError(
                 "Compiler-managed input edges do not match the semantic root nodes."
             )
-        if terminal_refs != [intent.final_output.node_ref]:
+        expected_terminal_refs = sorted(
+            source.node_ref for source in intent.final_output.sources
+        )
+        if sorted(terminal_refs) != expected_terminal_refs:
             raise ValueError(
-                "Compiler-managed output edge does not match the semantic final output."
+                "Compiler-managed output edges do not match the semantic final outputs."
             )
 
     @staticmethod
@@ -1300,8 +1368,51 @@ class HeadlessAuthoringService:
                 raise ValueError(f"Editor edge {edge.id} has an unknown endpoint.")
             source_kind = str((source.data or {}).get("kind") or source.type or "")
             target_kind = str((target.data or {}).get("kind") or target.type or "")
-            if not edge.sourceHandle and not edge.targetHandle:
+            if source_kind in META_PLANNER_ADAPTER_KINDS and target_kind in (
+                META_PLANNER_ADAPTER_KINDS | {"output"}
+            ):
+                if target_kind == "output":
+                    if edge.sourceHandle or edge.targetHandle:
+                        raise ValueError(
+                            f"Editor edge {edge.id} injects a Handle into Output."
+                        )
+                    continue
+                allowed_source_handles: set[str]
+                if source_kind == "condition":
+                    allowed_source_handles = {"true", "false"}
+                elif source_kind == "multi_route":
+                    routes = (source.data or {}).get("routes")
+                    route_count = len(routes) if isinstance(routes, list) else 0
+                    allowed_source_handles = {
+                        *(f"route_{index}" for index in range(1, route_count + 1)),
+                        "default",
+                    }
+                elif source_kind == "terminate_error":
+                    allowed_source_handles = set()
+                else:
+                    allowed_source_handles = {""}
+                source_handle = str(edge.sourceHandle or "")
+                target_handle = str(edge.targetHandle or "")
+                if source_handle not in allowed_source_handles:
+                    raise ValueError(
+                        f"Editor edge {edge.id} injects an invalid control outcome."
+                    )
+                if target_kind == "data_merge":
+                    if target_handle not in {"left", "right"}:
+                        raise ValueError(
+                            f"Editor edge {edge.id} must target one data merge input."
+                        )
+                elif target_handle:
+                    raise ValueError(
+                        f"Editor edge {edge.id} injects an invalid target Handle."
+                    )
                 continue
+            if not edge.sourceHandle and not edge.targetHandle:
+                if source_kind in {"input"} or target_kind in {"output"}:
+                    continue
+                raise ValueError(
+                    f"Editor edge {edge.id} is not a valid Adapter control edge."
+                )
             expected = {
                 "external_xpert": ("expert-binding", "expert"),
                 "knowledge_base": ("knowledge-binding", "knowledge"),
@@ -1351,8 +1462,6 @@ class HeadlessAuthoringService:
 
         control_edges: list[tuple[str, str]] = []
         for edge in definition.edges:
-            if edge.sourceHandle or edge.targetHandle:
-                continue
             if edge.source in ref_by_id and edge.target in ref_by_id:
                 control_edges.append((ref_by_id[edge.source], ref_by_id[edge.target]))
         parents: dict[str, set[str]] = {ref: set() for ref in ref_by_id.values()}
@@ -1492,6 +1601,16 @@ class HeadlessAuthoringService:
                     }
                 )
             outputs = output_bindings_by_ref[ref]
+            intent_node = GraphIntentNodeV3(
+                ref=ref,
+                kind=kind,
+                title=str(data.get("title") or ref),
+                description=str(data.get("description") or ""),
+                task_ids=task_ids,
+                inputs=inputs,
+                outputs=outputs,
+                config=parsed.model_dump(mode="json"),
+            )
             data.update(
                 {
                     "plannerIRVersion": 3,
@@ -1512,6 +1631,60 @@ class HeadlessAuthoringService:
                         }
                         for item in outputs
                     ],
+                    "plannerOutcomeMapV1": native_outcome_map(intent_node),
                 }
             )
+            if kind == "data_merge":
+                data["plannerControlInputMapV1"] = {
+                    item.port: item.source_ref for item in inputs
+                }
             adapter.validate_authoring_config(parsed.model_dump(mode="json"))
+
+        output_node = node_by_id.get("output")
+        if output_node is None:
+            raise ValueError("Compiler-managed output node is missing.")
+        output_sources: list[dict[str, str]] = []
+        seen_output_sources: set[tuple[str, str]] = set()
+        for edge in definition.edges:
+            if edge.target != "output":
+                continue
+            source_ref = ref_by_id.get(edge.source, "")
+            if (
+                not source_ref
+                or kind_by_id.get(edge.source) != "workflow_agent"
+                or edge.sourceHandle
+                or edge.targetHandle
+            ):
+                raise ValueError(
+                    "Compiler-managed output edge must source a Workflow Agent."
+                )
+            outputs = output_bindings_by_ref[source_ref]
+            if len(outputs) != 1:
+                raise ValueError(
+                    "Editor cannot infer a unique Workflow Agent output port."
+                )
+            source = outputs[0]
+            identity = (source_ref, source.port)
+            if identity in seen_output_sources:
+                raise ValueError("Compiler-managed output sources must be unique.")
+            seen_output_sources.add(identity)
+            output_sources.append(
+                {
+                    "sourceRef": source_ref,
+                    "sourcePort": source.port,
+                    "variable": source.variable,
+                }
+            )
+        if not 1 <= len(output_sources) <= 8:
+            raise ValueError("Editor must connect 1-8 Workflow Agent output sources.")
+        output_node.data.pop("outputVariable", None)
+        output_node.data.update(
+            {
+                "contractVersion": 2,
+                "selectionPolicy": "exactly_one_arrived",
+                "outputSources": sorted(
+                    output_sources,
+                    key=lambda item: (item["sourceRef"], item["sourcePort"]),
+                ),
+            }
+        )

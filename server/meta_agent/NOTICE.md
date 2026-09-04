@@ -53,7 +53,8 @@ implementation uses its own Pydantic contracts, Workflow Node Registry,
 Runtime Middleware Registry, AuthoringProposalStore, XpertStore, workflow
 validator, and publish preflight.
 
-NodeContract V3, Graph IR V3, Headless Authoring, and the pure-node Adapter pack
+NodeContract V3, Graph IR V3, Headless Authoring, the pure-node Adapter pack,
+and the bounded control-flow Adapter/analyzer pack
 independently apply the audited parameter-schema and layered validation concepts
 to ModelMirror's own node, entrypoint-policy, compiler adapter, intent,
 resolved-graph, and typed Patch contracts. No EvoAgentX schema or runtime object

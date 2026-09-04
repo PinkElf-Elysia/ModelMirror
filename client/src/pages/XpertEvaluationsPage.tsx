@@ -45,6 +45,12 @@ interface EvaluationCase {
     forbidden_tools?: string[];
     tool_order?: string[];
   };
+  path?: {
+    required_outcomes?: string[];
+    forbidden_outcomes?: string[];
+    terminal: "success" | "error";
+    error_code?: string | null;
+  };
   weights?: Record<string, number>;
 }
 
@@ -117,6 +123,14 @@ interface EvaluationItem {
   latency_ms?: number;
   error?: string | null;
   usage?: Record<string, number | boolean>;
+  control_flow?: {
+    supported?: boolean;
+    outcomes?: string[];
+    terminal?: "success" | "error" | "";
+    source_ref?: string;
+    error_code?: string;
+    warnings?: string[];
+  };
 }
 
 interface EvaluationRun {
@@ -1015,6 +1029,39 @@ export default function XpertEvaluationsPage() {
                   </div>
                   {selectedItem.error ? <p className="mt-3 rounded border border-rose-300/20 bg-rose-300/10 p-3 text-xs text-rose-100">{selectedItem.error}</p> : null}
                   <pre className="mt-4 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md bg-black/20 p-3 text-xs leading-6 text-slate-200">{selectedItem.output || "暂无最终输出。"}</pre>
+                  {selectedItem.control_flow ? (
+                    <div className="mt-4 rounded-md border border-cyan-300/15 bg-cyan-300/[0.05] p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-xs font-semibold text-cyan-100">工作流路径证据</span>
+                        <span className="text-[11px] text-cyan-100/65">
+                          {selectedItem.control_flow.supported ? "已记录语义路径" : "不支持"}
+                        </span>
+                      </div>
+                      {selectedItem.control_flow.supported ? (
+                        <div className="mt-2 space-y-1 text-[11px] leading-5 text-slate-400">
+                          <p>
+                            Outcome：{selectedItem.control_flow.outcomes?.length
+                              ? selectedItem.control_flow.outcomes.join(" · ")
+                              : "无路由 outcome"}
+                          </p>
+                          <p>
+                            终点：{selectedItem.control_flow.terminal || "未知"}
+                            {selectedItem.control_flow.source_ref
+                              ? ` · 来源 ${selectedItem.control_flow.source_ref}`
+                              : ""}
+                            {selectedItem.control_flow.error_code
+                              ? ` · 错误码 ${selectedItem.control_flow.error_code}`
+                              : ""}
+                          </p>
+                        </div>
+                      ) : (
+                        <p className="mt-2 text-[11px] leading-5 text-amber-200/80">
+                          {selectedItem.control_flow.warnings?.[0]
+                            || "该工作流缺少 Planner ref，无法可靠推断物理节点路径。"}
+                        </p>
+                      )}
+                    </div>
+                  ) : null}
                   <div className="mt-4 space-y-2">
                     {(selectedItem.metrics ?? []).map((metricItem) => (
                       <div className="rounded-md border border-white/10 bg-white/[0.025] p-3" key={metricItem.kind}>

@@ -346,17 +346,57 @@ class GraphIntentControlEdgeV3(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     source_ref: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
+    outcome_ref: str = Field(
+        default="success",
+        pattern=r"^(?:success|matched|unmatched|case_[1-8]|default)$",
+    )
     target_ref: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
-    outcome: Literal["success"] = "success"
-    join: Literal["all"] = "all"
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_edge(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        payload = dict(value)
+        if "outcome" in payload or "join" in payload:
+            if "outcome_ref" in payload:
+                raise ValueError("control edge cannot mix outcome_ref with legacy fields")
+            outcome = payload.pop("outcome", "success")
+            join = payload.pop("join", "all")
+            if outcome != "success" or join != "all":
+                raise ValueError("only legacy outcome=success/join=all is supported")
+            payload["outcome_ref"] = "success"
+        return payload
+
+
+class GraphIntentFinalOutputSourceV3(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    node_ref: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
+    port: str = Field(default="result", pattern=r"^[A-Za-z_][A-Za-z0-9_-]{0,63}$")
 
 
 class GraphIntentFinalOutputV3(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    node_ref: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
-    port: str = Field(default="result", pattern=r"^[A-Za-z_][A-Za-z0-9_-]{0,63}$")
-    variable: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
+    sources: list[GraphIntentFinalOutputSourceV3] = Field(min_length=1, max_length=8)
+    selection_policy: Literal["exactly_one_arrived"] = "exactly_one_arrived"
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_source(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        payload = dict(value)
+        legacy_keys = {"node_ref", "port", "variable"} & set(payload)
+        if legacy_keys:
+            if "sources" in payload:
+                raise ValueError("final output cannot mix sources with legacy fields")
+            node_ref = payload.pop("node_ref", None)
+            port = payload.pop("port", "result")
+            payload.pop("variable", None)
+            payload["sources"] = [{"node_ref": node_ref, "port": port}]
+        return payload
 
 
 class GraphIntentV3(BaseModel):
@@ -430,7 +470,7 @@ class ResolvedGraphEdgeV3(BaseModel):
     target: ResolvedGraphEndpointV3
     variable: str | None = None
     value_schema: WorkflowValueSchema | None = None
-    outcome: Literal["success"] | None = None
+    outcome_ref: str | None = None
     join: Literal["all"] | None = None
 
 
@@ -450,9 +490,11 @@ class ResolvedGraphIRV3(BaseModel):
     edges: list[ResolvedGraphEdgeV3]
     prompt_profiles: list[ResolvedPromptProfileV3] = Field(default_factory=list)
     final_output: GraphIntentFinalOutputV3
+    control_flow_contract_version: Literal[1] = 1
+    control_flow_report: dict[str, Any] = Field(default_factory=dict)
     default_outcome: Literal["success"] = "success"
     join_policy: Literal["all"] = "all"
-    terminal_count: Literal[1] = 1
+    terminal_count: int = Field(default=1, ge=1, le=8)
     compensation: dict[str, Any] = Field(
         default_factory=lambda: {"enabled": False}
     )
@@ -473,6 +515,7 @@ class MetaPlannerCapabilitySnapshot(BaseModel):
     version: str
     ir_version: Literal[2, 3] = 2
     supported_ir_versions: list[Literal[2, 3]] = Field(default_factory=lambda: [2])
+    control_flow_contract_version: int = 0
     # Persisted V2 proposals did not carry NodeContract metadata. Keep them
     # readable; newly built snapshots always set the V3 values explicitly.
     contract_version: int = 2

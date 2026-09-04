@@ -6,6 +6,7 @@ import handleWorkflowNodeFailure from "./articles/handle-workflow-node-failure.m
 import modulesAndTerms from "./articles/modules-and-terms.md?raw";
 import promoteRunToSkill from "./articles/promote-run-to-skill.md?raw";
 import recoverUnavailableFeature from "./articles/recover-unavailable-feature.md?raw";
+import reviewMetaPlannerBranches from "./articles/review-meta-planner-branches.md?raw";
 import reviewRemoteMcpAuth from "./articles/review-remote-mcp-auth.md?raw";
 import subscribeEmailWorkflow from "./articles/subscribe-email-workflow.md?raw";
 import subscribeRssWorkflow from "./articles/subscribe-rss-workflow.md?raw";
@@ -96,6 +97,7 @@ export const emailReviewBaseline = { commit: "afda87ff", date: "2026-08-28" };
 export const workflowErrorRoutingBaseline = { commit: "48254740", date: "2026-09-01" };
 export const providerMultimodalR8cBaseline = { commit: "ae284fbb", date: "2026-08-31" };
 export const modelServingReviewBaseline = { commit: "07cbd6d1", date: "2026-09-03" };
+export const metaPlannerControlFlowBaseline = { commit: "efa63af2", date: "2026-09-03" };
 
 export const helpContentTypeLabels: Record<HelpContentType, string> = {
   tutorial: "入门教程",
@@ -163,6 +165,21 @@ export const helpArticles: HelpArticle[] = [
     verifiedCommit: agentWorkflowTutorialBaseline.commit,
     verifiedDate: agentWorkflowTutorialBaseline.date,
     content: buildFirstWorkflow,
+    nextSlug: "check-availability-cost-data",
+  },
+  {
+    slug: "review-meta-planner-branches",
+    title: "检查 Meta Planner 分支候选并准备路径评测",
+    summary: "核对语义分支和终点，预览并应用受控修改，再为候选准备路径评测用例。",
+    category: "按目标找指南",
+    contentType: "how-to",
+    audience: "需要审核 Meta Planner 分支候选并准备路径回归评测的用户",
+    estimatedMinutes: 6,
+    keywords: ["Meta Planner", "分支", "控制流", "路径评测", "workflow_path_match", "Proposal", "候选"],
+    relatedRoutes: ["/agents/meta-agent", "/agents/evaluations"],
+    verifiedCommit: metaPlannerControlFlowBaseline.commit,
+    verifiedDate: metaPlannerControlFlowBaseline.date,
+    content: reviewMetaPlannerBranches,
     nextSlug: "check-availability-cost-data",
   },
   {
@@ -333,7 +350,7 @@ export const helpModules: HelpModule[] = [
     topics: [
       { id: "agent-market", title: "寻找现成 Agent", summary: "按部门、专长和任务场景查找可用专家。", outcome: "从 Agent 人才市场找到适合当前任务的角色。", points: ["可按部门和关键词缩小范围", "先查看角色说明和能力标签", "进入对话前仍要选择并确认模型"], productRoute: "/agents", keywords: ["人才市场", "专家", "部门", "搜索"] },
       { id: "agent-studio", title: "Agent Studio", summary: "创建和管理自己的 Agent。", outcome: "进入正确的 Agent 管理入口。", points: ["在“我的智能体”中查看草稿、已发布和已归档项目", "创建时可配置模型、Toolset、知识和 Handoff", "发布前检查工具、知识和权限"], productRoute: "/agents/studio", keywords: ["Agent Studio", "我的智能体", "创建", "管理"] },
-      { id: "workflow-generator", title: "AI 工作流生成器", summary: "用自然语言目标生成可检查的 Agent 或工作流草稿。", outcome: "把目标转换成可继续检查和编辑的候选草稿。", points: ["先说明目标、输入和期望结果", "生成结果是提案，不会自动发布", "批准后仍要在对应工作台继续检查"], productRoute: "/agents/meta-agent", badge: "Beta", keywords: ["AI工作流生成器", "元智能体", "草稿"] },
+      { id: "workflow-generator", title: "AI 工作流生成器", summary: "用自然语言目标生成可检查的 Agent 或工作流草稿。", outcome: "把目标转换成可继续检查和编辑的候选草稿。", points: ["先说明目标、输入和期望结果", "分支候选会显示语义路径和终点证据", "生成结果是提案，不会自动发布", "批准后仍要在对应工作台继续检查"], productRoute: "/agents/meta-agent", badge: "Beta", keywords: ["AI工作流生成器", "元智能体", "草稿", "分支", "路径评测"] },
       { id: "automations", title: "自动化任务", summary: "按单次、间隔或 Cron 运行已发布 Agent。", outcome: "为固定版本 Agent 安排可追踪的定时任务。", points: ["先准备已发布的 Agent 版本", "可设置预算、重试和死信处理", "自动运行可能产生模型或工具费用"], productRoute: "/agents/automations", badge: "Beta", keywords: ["自动化", "定时", "Cron", "重试"] },
       { id: "goals", title: "长期 Goal", summary: "审核可暂停、可恢复的长期任务计划。", outcome: "查看依赖计划，并在失败时恢复或改派步骤。", points: ["计划需要用户审核后再执行", "可查看依赖、执行结果和恢复操作", "长期任务可能调用多个 Agent 和工具"], productRoute: "/agents/goals", badge: "Beta", keywords: ["长期任务", "Goal", "计划", "恢复"] },
       { id: "evaluations", title: "Agent 评测", summary: "用固定数据集比较候选、草稿或已发布版本。", outcome: "查看质量、成本和错误报告，而不改变当前 Agent。", points: ["评测使用固定目标和执行快照", "运行报告不会自动修改草稿或发布状态", "真实模型评测可能产生费用"], productRoute: "/agents/evaluations", keywords: ["评测", "基准", "数据集", "运行报告"] },
@@ -448,6 +465,7 @@ export const helpSections: HelpSection[] = [
       { id: "one-time", title: "只完成眼前这一次", summary: "问答、写作、看图或临时分析，先直接用模型。", to: "/help/modules/models", keywords: ["一次", "问答", "写作", "看图"] },
       { id: "repeat-role", title: "以后反复使用同一角色", summary: "创建 Agent 草稿，保存模型和角色要求，并完成发布预检。", to: "/help/create-repeatable-agent", keywords: ["重复", "角色", "Agent", "Agent Studio"] },
       { id: "repeat-process", title: "按固定顺序完成多步任务", summary: "使用默认三节点模板，配置处理步骤并保存经典工作流草稿。", to: "/help/build-first-workflow", keywords: ["多步", "固定顺序", "Workflow", "经典工作流"] },
+      { id: "review-planner-branch", title: "检查 AI 生成的分支流程", summary: "核对语义路径与终点，预览修改，并准备路径评测。", to: "/help/review-meta-planner-branches", keywords: ["Meta Planner", "分支", "路径评测", "候选"] },
       { id: "reuse-success", title: "把成功做法保存为 Skill", summary: "从已完成的运行中整理可复用经验，并交给 Skill Creator 继续检查。", to: "/help/promote-run-to-skill", keywords: ["成功运行", "复用", "Skill", "Creator"] },
       { id: "connect-tool", title: "让 AI 使用外部工具", summary: "需要访问外部服务时，先查看 MCP 目录与连接状态。", to: "/help/modules/mcps", keywords: ["外部工具", "MCP", "连接"] },
       { id: "use-own-docs", title: "根据自己的资料回答", summary: "需要从指定文档查找内容时，查看 RAG 知识库。", to: "/help/modules/workspace/rag", keywords: ["自己的资料", "文档", "RAG", "知识库"] },

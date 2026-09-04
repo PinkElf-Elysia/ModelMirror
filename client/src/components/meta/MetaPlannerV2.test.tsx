@@ -227,6 +227,98 @@ describe("Meta Planner managed compatibility", () => {
     });
   });
 
+  it("renders server-authored control-flow evidence without inferring native handles", async () => {
+    const jsonResponse = (body: unknown) =>
+      new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/meta-agent/capabilities") {
+          return jsonResponse({
+            version: "test-control-flow-v1",
+            snapshot_hash: "snapshot-hash",
+            generated_at: 1,
+            nodes: [],
+            middleware: [],
+            external_xperts: [],
+            knowledge_bases: [],
+            toolsets: [],
+            plugins: [],
+            prompt_profiles: [],
+            default_scope: {
+              allowed_node_kinds: [],
+              external_xpert_ids: [],
+              knowledge_base_ids: [],
+              toolset_ids: [],
+              plugin_ids: [],
+              prompt_profile_ids: [],
+              middleware_ids: [],
+            },
+          });
+        }
+        if (url.startsWith("/api/xperts?")) {
+          return jsonResponse({ items: [], total: 0 });
+        }
+        if (url.startsWith("/api/runtime/authoring-proposals?")) {
+          return jsonResponse({ items: [{ proposal_id: "proposal-control-flow" }] });
+        }
+        if (url === "/api/runtime/authoring-proposals/proposal-control-flow") {
+          return jsonResponse({
+            proposal_id: "proposal-control-flow",
+            revision: 1,
+            status: "pending",
+            kind: "xpert_create",
+            title: "Control flow candidate",
+            validation: { valid: true, stages: [] },
+            payload: {
+              name: "Control flow candidate",
+              description: "Static path evidence",
+              tags: [],
+              starters: [],
+              draft: { workflow: { id: "wf", title: "wf", nodes: [], edges: [] } },
+              meta_planner_report: {
+                validation: { valid: true, stages: [] },
+                graph_ir: {
+                  control_flow_report: {
+                    version: 1,
+                    router_count: 1,
+                    scenario_count: 2,
+                    final_source_count: 2,
+                    scenarios: [
+                      {
+                        id: "scenario-1",
+                        outcomes: ["router:matched"],
+                        success_sources: ["approved"],
+                        error_sources: [],
+                      },
+                    ],
+                  },
+                },
+                warnings: [],
+              },
+            },
+          });
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+
+    render(
+      <MemoryRouter>
+        <MetaPlannerV2 />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("控制流静态证据")).toBeInTheDocument();
+    expect(screen.getByText("1 路由 · 2 场景 · 2 成功来源")).toBeInTheDocument();
+    expect(screen.getByText(/router:matched/)).toBeInTheDocument();
+    expect(screen.queryByText(/sourceHandle/)).not.toBeInTheDocument();
+  });
+
   it("previews a V3 editor diff before applying it and never uses whole-payload PATCH", async () => {
     let revision = 1;
     let applyCalls = 0;
