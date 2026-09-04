@@ -147,7 +147,7 @@ if (-not $pythonFile) {
     }
 }
 New-Item -ItemType Directory -Force -Path $diagnostics, $sbom | Out-Null
-$pytestBaseTemp = Join-Path $runtime ("pytest-" + [Guid]::NewGuid().ToString("N"))
+$pytestBaseTemp = Join-Path ([System.IO.Path]::GetTempPath()) ("mm-ai-research-pytest-" + [Guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $pytestBaseTemp | Out-Null
 Push-Location $moduleRoot
 try {

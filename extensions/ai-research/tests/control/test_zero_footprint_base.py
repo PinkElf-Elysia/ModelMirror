@@ -1457,3 +1457,13 @@ def test_verify_scripts_build_three_proofs_and_pass_full_zero_footprint_interfac
         assert "diff --quiet --no-ext-diff $comparisonBase HEAD --" in script
         assert "diff --quiet --no-ext-diff --cached HEAD --" in script
         assert "diff --quiet --no-ext-diff -- @trustFiles" in script
+
+
+def test_windows_verifier_uses_short_system_pytest_temp_root() -> None:
+    script = (
+        zero_footprint.REPO_ROOT / "extensions/ai-research/scripts/verify.ps1"
+    ).read_text(encoding="utf-8")
+
+    assert "[System.IO.Path]::GetTempPath()" in script
+    assert '"mm-ai-research-pytest-"' in script
+    assert 'Join-Path $runtime ("pytest-"' not in script

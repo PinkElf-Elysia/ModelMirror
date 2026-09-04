@@ -421,8 +421,8 @@
       "sha256": "8da4a04e2b769f0bbbb3c33f84be72c89a9c2c46908b110017db02d90913d93f"
     },
     "scripts/verify.ps1": {
-      "sizeBytes": 20007,
-      "sha256": "7bd3438bbf3fd59c2bd798b22ff8ec79146a169f9bace9220f79e9f4c3ee41f9"
+      "sizeBytes": 20047,
+      "sha256": "fd69c8bdf937f7a67deff01cb6e872c2674ec5b8f8a387b50abdac571e940230"
     },
     "scripts/verify.sh": {
       "sizeBytes": 15829,
@@ -465,8 +465,8 @@
       "sha256": "e890bbd61bb6c1ff78cf275789539456f81c0b2cd86aeb26ad34f84586e7a75e"
     },
     "tests/control/test_zero_footprint_base.py": {
-      "sizeBytes": 50272,
-      "sha256": "e468e35444603bea44166753c05e87cd6f4019fb4a401ac496c331672d9201b9"
+      "sizeBytes": 50635,
+      "sha256": "0ab7aa2e999fa7e9d943e12c943f6a05f8d702f858bc565c434fff2a60e3938a"
     },
     "tests/control/test_trusted_full_bootstrap.py": {
       "sizeBytes": 6150,
