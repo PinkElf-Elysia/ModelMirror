@@ -1418,6 +1418,47 @@ async def test_concurrent_reconcilers_do_not_report_a_completed_unlink_as_pendin
 
 
 @pytest.mark.asyncio
+async def test_reconcile_accepts_an_unlink_error_only_after_peer_removed_envelope(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, repository, newapi_id, backup_id = _service(tmp_path, monkeypatch)
+    _qualify_scoped_model(repository, newapi_id)
+    _qualify_scoped_model(repository, backup_id)
+    result = await service.begin_scoped_certified(SCOPED_MODEL_ID)
+    assert result.dispatch is not None
+    service.mark_dispatched(result.dispatch)
+    repository.stage_chat_control_completion(
+        "local",
+        result.dispatch.attempt_id,
+        expected_run_id=result.dispatch.run_id,
+        status="succeeded",
+        result_class="success",
+        actual_model=SCOPED_MODEL_ID,
+        reason_codes=[],
+    )
+    outbox_path = next(repository.chat_completion_outbox_dir.glob("*.json"))
+    original_unlink = Path.unlink
+
+    def unlink_after_peer_removed(path: Path, *args, **kwargs) -> None:
+        if path == outbox_path:
+            original_unlink(path, *args, **kwargs)
+            raise PermissionError("simulated concurrent Windows unlink")
+        original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", unlink_after_peer_removed)
+
+    reconciled = repository.reconcile_chat_control_completions("local")
+
+    assert reconciled == {"applied": 1, "pending": 0}
+    assert outbox_path.exists() is False
+    completed = repository.list_chat_control_receipts("local")
+    assert next(
+        item for item in completed["attempts"]
+        if item["id"] == result.dispatch.attempt_id
+    )["status"] == "succeeded"
+
+
+@pytest.mark.asyncio
 async def test_cleanup_refuses_pending_completion_before_deleting_receipts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

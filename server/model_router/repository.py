@@ -3883,8 +3883,16 @@ class SQLiteRouterRepository:
             except FileNotFoundError:
                 pass
             except OSError:
-                pending += 1
-                continue
+                try:
+                    path.lstat()
+                except FileNotFoundError:
+                    pass
+                except OSError:
+                    pending += 1
+                    continue
+                else:
+                    pending += 1
+                    continue
             applied += 1
         return {"applied": applied, "pending": pending}
 
