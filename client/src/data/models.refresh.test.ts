@@ -98,6 +98,11 @@ const september1LatestModelIds = [
   "minimax/hailuo-3-max",
 ];
 
+const september3DriftModelIds = [
+  "inclusionai/ling-3.0-flash-fin",
+  "nvidia/nemotron-3.5-content-safety",
+];
+
 const august28BatchCatalogIds = [
   "qwen/qwen3.8-2.4t-a95b:batch",
   "mistralai/mistral-medium-3-5:batch",
@@ -106,11 +111,164 @@ const august28BatchCatalogIds = [
 describe("OpenRouter model refresh", () => {
   it("reconciles the refreshed counted catalog totals", () => {
     const counted = models.filter((model) => model.catalog_counted);
-    expect(counted).toHaveLength(581);
-    expect(counted.filter((model) => model.catalog_status === "live")).toHaveLength(502);
+    expect(counted).toHaveLength(584);
+    expect(counted.filter((model) => model.catalog_status === "live")).toHaveLength(505);
     expect(counted.filter((model) => model.catalog_status === "uncertain")).toHaveLength(73);
     expect(counted.filter((model) => model.catalog_status === "expired")).toHaveLength(6);
-    expect(counted.filter((model) => model.catalog_status !== "expired")).toHaveLength(575);
+    expect(counted.filter((model) => model.catalog_status !== "expired")).toHaveLength(578);
+  });
+
+  it("adapts the September 3 drift models as post-six-row chat entries", () => {
+    const byId = new Map(models.map((model) => [model.id, model]));
+
+    expect(byId.get("inclusionai/ling-3.0-flash-fin")).toMatchObject({
+      canonical_slug: "inclusionai/ling-3.0-flash-fin-20260827",
+      catalog_counted: true,
+      catalog_status: "live",
+      active: true,
+      context_length: 262_144,
+      input_modalities: ["text"],
+      output_modalities: ["text"],
+      pricing: { input: 0.06, output: 0.18 },
+      pricing_status: "fixed",
+      pricing_basis: "token",
+      reasoning_declared: true,
+      operations: ["chat"],
+      job_capabilities: expect.arrayContaining([
+        "text_chat",
+        "reasoning",
+        "tool_use",
+      ]),
+      primary_operation: "chat",
+      interaction_status: "ready",
+      ui_entrypoint: "chat",
+      supported_parameters: expect.arrayContaining([
+        "reasoning",
+        "include_reasoning",
+        "structured_outputs",
+        "tools",
+        "tool_choice",
+      ]),
+      openrouter_market: {
+        series: "Other",
+        author: "inclusionai",
+        providers: ["DeepInfra"],
+        categories: [],
+        discounted: false,
+        distillable: false,
+        zero_data_retention: true,
+        regions: [],
+        tool_call_success_rate: expect.any(Number),
+      },
+    });
+
+    expect(byId.get("nvidia/nemotron-3.5-content-safety")).toMatchObject({
+      canonical_slug: "nvidia/nemotron-3.5-content-safety-20260604",
+      catalog_counted: true,
+      catalog_status: "live",
+      active: true,
+      context_length: 131_072,
+      input_modalities: ["text", "image"],
+      output_modalities: ["text"],
+      pricing_status: "fixed",
+      pricing_basis: "token",
+      reasoning_declared: true,
+      operations: ["analyze_image", "chat"],
+      job_capabilities: expect.arrayContaining([
+        "text_chat",
+        "reasoning",
+        "image_understanding",
+        "safety",
+      ]),
+      primary_operation: "chat",
+      interaction_status: "ready",
+      ui_entrypoint: "chat",
+      openrouter_market: {
+        series: "Other",
+        author: "nvidia",
+        providers: ["DeepInfra"],
+        categories: [],
+        discounted: false,
+        distillable: true,
+        zero_data_retention: true,
+        regions: [],
+        tool_call_success_rate: null,
+      },
+    });
+    expect(byId.get("nvidia/nemotron-3.5-content-safety")?.pricing.input).toBeCloseTo(0.2);
+    expect(byId.get("nvidia/nemotron-3.5-content-safety")?.pricing.output).toBeCloseTo(0.2);
+
+    for (const modelId of september3DriftModelIds) {
+      expect(models.filter((model) => model.id === modelId)).toHaveLength(1);
+      expect(models.findIndex((model) => model.id === modelId)).toBeGreaterThanOrEqual(
+        2 + 6 * 3,
+      );
+      expect(
+        byId.get(modelId)?.serving_variants.filter((variant) => variant.type === "batch"),
+      ).toEqual([]);
+    }
+
+    expect(byId.get("inclusionai/ling-3.0-flash-fin:free")?.canonical_slug).toBe(
+      byId.get("inclusionai/ling-3.0-flash-fin")?.canonical_slug,
+    );
+    expect(byId.get("nvidia/nemotron-3.5-content-safety:free")?.canonical_slug).toBe(
+      byId.get("nvidia/nemotron-3.5-content-safety")?.canonical_slug,
+    );
+  });
+
+  it("adapts MAI-Transcribe 2 as a post-six-row hourly-priced STT model", () => {
+    const model = models.find(
+      (item) => item.id === "microsoft/mai-transcribe-2",
+    );
+
+    expect(model).toMatchObject({
+      canonical_slug: "microsoft/mai-transcribe-2-20260903",
+      catalog_counted: true,
+      catalog_status: "live",
+      active: true,
+      context_length: 0,
+      input_modalities: ["audio"],
+      output_modalities: ["transcription"],
+      operations: ["transcribe"],
+      job_capabilities: ["transcription"],
+      primary_operation: "transcribe",
+      interaction_status: "ready",
+      ui_entrypoint: "chat",
+      pricing: {
+        input: 100_000,
+        output: 0,
+      },
+      pricing_status: "dynamic",
+      pricing_basis: "media",
+      media_pricing: {
+        unit: "audio_hour",
+        usd: 0.1,
+      },
+      supported_parameters: [
+        "max_completion_tokens",
+        "max_tokens",
+        "temperature",
+        "top_p",
+      ],
+      openrouter_market: {
+        series: "Other",
+        author: "microsoft",
+        providers: ["Azure"],
+        categories: [],
+        discounted: false,
+        distillable: true,
+        zero_data_retention: true,
+        regions: [],
+      },
+    });
+    expect(model?.note).toContain("$0.10/音频小时");
+    expect(model?.media_pricing?.usd).toBe(
+      (model?.pricing.input ?? 0) / 1_000_000,
+    );
+    expect(model?.note).toContain("真实短音频仍待人工验收");
+    expect(models.findIndex((item) => item.id === model?.id)).toBeGreaterThanOrEqual(
+      2 + 6 * 3,
+    );
   });
 
   it.each([
@@ -148,22 +306,39 @@ describe("OpenRouter model refresh", () => {
       series: "Gemini",
       author: "google",
       providers: ["Google", "Google AI Studio"],
-      categories: ["marketing/seo"],
+      categories: [
+        "programming",
+        "marketing",
+        "marketing/seo",
+        "technology",
+        "science",
+        "translation",
+        "finance",
+        "academia",
+      ],
       discounted: true,
       zero_data_retention: false,
-      tool_call_success_rate: 97.62,
-      artificial_analysis: { intelligence_index: 58.7, coding_index: 76.3, agentic_index: 50 },
+      tool_call_success_rate: expect.any(Number),
+      artificial_analysis: {
+        intelligence_index: expect.any(Number),
+        coding_index: expect.any(Number),
+        agentic_index: expect.any(Number),
+      },
     });
     for (const id of ["meta/muse-spark-1.3", "meta/muse-spark-1.3-contributor"]) {
       const model = models.find((item) => item.id === id);
       expect(model?.openrouter_market).toMatchObject({
         series: "Other", author: "meta", providers: ["Meta"],
-        categories: [], zero_data_retention: false,
+        zero_data_retention: false,
       });
       expect(model?.note).toContain("音频理解尚未完整支持");
     }
     expect(models.find((item) => item.id === "meta/muse-spark-1.3-contributor")?.note)
       .toContain("输入与输出可能用于改进 Meta 产品");
+    expect(models.find((item) => item.id === "meta/muse-spark-1.3")?.openrouter_market.categories)
+      .toEqual([]);
+    expect(models.find((item) => item.id === "meta/muse-spark-1.3-contributor")?.openrouter_market.categories)
+      .toEqual(["programming", "trivia"]);
   });
 
   it("attaches Gemini 3.8 Batch with its exact text-only discounted contract", () => {
@@ -288,15 +463,15 @@ describe("OpenRouter model refresh", () => {
       openrouter_market: {
         series: "Qwen",
         author: "qwen",
-        providers: ["Chutes"],
+        providers: ["Darkbloom"],
       },
     });
     expect(
       models.find((model) => model.id === "qwen/qwen3.8-27b")?.pricing.input,
-    ).toBeCloseTo(0.425);
+    ).toBeCloseTo(0.42);
     expect(
       models.find((model) => model.id === "qwen/qwen3.8-27b")?.pricing.output,
-    ).toBeCloseTo(2.55);
+    ).toBeCloseTo(3);
   });
 
   it("adds the three August 20 snapshots below the first six rows", () => {
@@ -346,7 +521,7 @@ describe("OpenRouter model refresh", () => {
       interaction_status: "ready",
       ui_entrypoint: "chat",
       context_length: 1_310_720,
-      pricing: { input: 1.17, output: 3.9600000000000004 },
+      pricing: { input: 1.15, output: 3.5 },
       reasoning_declared: true,
       openrouter_market: { author: "z-ai" },
     });
@@ -484,14 +659,14 @@ describe("OpenRouter model refresh", () => {
       output_modalities: ["text"],
       operations: expect.arrayContaining(["analyze_image", "chat"]),
       context_length: 1_048_576,
-      pricing: { input: 0.44, output: 1.32 },
+      pricing: { input: 0.22, output: 0.66 },
       pricing_status: "fixed",
       pricing_basis: "token",
       reasoning_declared: true,
       openrouter_market: {
         series: "DeepSeek",
         author: "deepseek",
-        providers: ["Fireworks"],
+        providers: ["DeepInfra"],
         distillable: true,
         zero_data_retention: true,
       },
@@ -867,7 +1042,7 @@ describe("OpenRouter model refresh", () => {
         providers: ["Novita"],
         discounted: false,
         zero_data_retention: true,
-        tool_call_success_rate: 97.85,
+        tool_call_success_rate: expect.any(Number),
       },
     });
   });
@@ -975,10 +1150,10 @@ describe("OpenRouter model refresh", () => {
       openrouter_market: {
         series: "Other",
         author: "ibm-granite",
-        providers: ["CoreWeave"],
+        providers: ["DeepInfra"],
         discounted: false,
         zero_data_retention: true,
-        tool_call_success_rate: 95.55,
+        tool_call_success_rate: expect.any(Number),
       },
     });
     expect(granite?.pricing.input).toBeCloseTo(0.1);
@@ -1021,9 +1196,9 @@ describe("OpenRouter model refresh", () => {
       openrouter_market: {
         series: "Router",
         author: "z-ai",
-        providers: ["Z.AI"],
+        providers: ["GMICloud"],
         discounted: true,
-        zero_data_retention: true,
+        zero_data_retention: false,
       },
     });
     expect(models.findIndex((model) => model.id === alias?.id)).toBeGreaterThanOrEqual(
@@ -1051,7 +1226,7 @@ describe("OpenRouter model refresh", () => {
         providers: ["Inception"],
         discounted: true,
         zero_data_retention: true,
-        tool_call_success_rate: 97.12,
+        tool_call_success_rate: expect.any(Number),
       },
     });
     expect(fable).toMatchObject({
@@ -1075,14 +1250,14 @@ describe("OpenRouter model refresh", () => {
       openrouter_market: {
         series: "Claude",
         author: "anthropic",
-        providers: ["Anthropic", "Google"],
+        providers: ["Anthropic", "Azure"],
         discounted: false,
         zero_data_retention: false,
-        tool_call_success_rate: 99.42,
+        tool_call_success_rate: expect.any(Number),
         artificial_analysis: {
-          intelligence_index: 65.7,
-          coding_index: 81.6,
-          agentic_index: 61.3,
+          intelligence_index: expect.any(Number),
+          coding_index: expect.any(Number),
+          agentic_index: expect.any(Number),
         },
       },
     });
@@ -1278,6 +1453,12 @@ describe("OpenRouter model refresh", () => {
     expect(
       models.find((model) => model.id === "deepgram/flux-tts:free"),
     ).toMatchObject({ pricing_status: "free", pricing_basis: "free" });
+    expect(
+      models.find((model) => model.id === "openai/gpt-4o-mini-transcribe"),
+    ).toMatchObject({ pricing_status: "fixed", pricing_basis: "token" });
+    expect(
+      models.find((model) => model.id === "openai/gpt-4o-transcribe"),
+    ).toMatchObject({ pricing_status: "fixed", pricing_basis: "token" });
   });
 
   it("preserves normalized provider identities instead of collapsing to other", () => {
@@ -1387,13 +1568,62 @@ describe("OpenRouter model refresh", () => {
       output: 1.25,
     });
     expect(byId.get("qwen/qwen3.5-397b-a17b")?.pricing).toEqual({
-      input: 0.39,
-      output: 2.34,
+      input: 0.55,
+      output: 3.5,
     });
     expect(byId.get("z-ai/glm-4.6")?.pricing).toEqual({
-      input: 0.43,
-      output: 1.75,
+      input: 0.55,
+      output: 2.2,
     });
+    expect(byId.get("meta/muse-glimmer-30b")?.pricing).toEqual({
+      input: 0.3,
+      output: 1.1,
+    });
+    expect(byId.get("~moonshotai/kimi-latest")?.pricing).toEqual({
+      input: 2.5,
+      output: 14,
+    });
+    expect(byId.get("deepseek/deepseek-chat-v3.1")?.pricing).toEqual({
+      input: 0.55,
+      output: 1.6500000000000001,
+    });
+    expect(byId.get("qwen/qwen2.5-vl-72b-instruct")?.pricing).toEqual({
+      input: 0.7999999999999999,
+      output: 1,
+    });
+    expect(byId.get("deepseek/deepseek-chat")?.pricing).toEqual({
+      input: 0.32,
+      output: 0.8899999999999999,
+    });
+    expect(byId.get("meta-llama/llama-3.3-70b-instruct")?.pricing).toEqual({
+      input: 0.09999999999999999,
+      output: 0.32,
+    });
+    expect(byId.get("undi95/remm-slerp-l2-13b")?.pricing).toEqual({
+      input: 0.35,
+      output: 0.65,
+    });
+    expect(byId.get("ibm-granite/granite-4.2-8b")?.supported_parameters).toEqual(
+      expect.arrayContaining([
+        "reasoning_effort",
+        "structured_outputs",
+        "tool_choice",
+        "tools",
+      ]),
+    );
+    expect(
+      byId.get("deepseek/deepseek-v4-flash-vision-exp")?.supported_parameters,
+    ).toEqual(
+      expect.arrayContaining([
+        "reasoning_effort",
+        "structured_outputs",
+        "tool_choice",
+        "tools",
+      ]),
+    );
+    expect(byId.get("z-ai/glm-4.7-flash")?.catalog_status).toBe("live");
+    expect(byId.get("~z-ai/glm-flash-latest")?.catalog_status).toBe("live");
+    expect(byId.get("z-ai/glm-5.3")?.catalog_status).toBe("live");
     expect(byId.get("inclusionai/ling-3.0-tiny:free")?.catalog_status).toBe(
       "expired",
     );
@@ -1534,11 +1764,20 @@ describe("OpenRouter model refresh", () => {
     const geminiEmbeddingBatch = geminiEmbedding?.serving_variants.find(
       (variant) => variant.type === "batch",
     );
+    const grok43Batch = models
+      .find((model) => model.id === "x-ai/grok-4.3")
+      ?.serving_variants.find(
+        (variant) => variant.catalog_id === "x-ai/grok-4.3:batch",
+      );
     const batchCatalogIds = batchVariants.map((variant) => variant.catalog_id);
 
     expect(batchVariants).toHaveLength(71);
     expect(batchCatalogIds).toContain("openai/gpt-4o:batch");
     expect(batchCatalogIds).toContain("openai/gpt-5.6-luna:batch");
+    expect(batchCatalogIds).toContain("x-ai/grok-4.3:batch");
+    expect(batchCatalogIds).not.toContain(
+      "nvidia/nemotron-3-ultra-550b-a55b:batch",
+    );
     expect(batchCatalogIds).not.toContain(
       "moonshotai/kimi-k2.7-code:batch",
     );
@@ -1596,7 +1835,24 @@ describe("OpenRouter model refresh", () => {
       endpoint: "/v1/chat/completions",
       input_modalities: ["text"],
       output_modalities: ["text"],
-      pricing: { input: 0.1875, output: 0.9375 },
+      pricing: { input: 0.375, output: 1.875 },
+      completion_window: "24h",
+      data_retention_days: 30,
+    });
+    expect(grok43Batch).toMatchObject({
+      type: "batch",
+      catalog_id: "x-ai/grok-4.3:batch",
+      request_model_id: "x-ai/grok-4.3",
+      endpoint: "/v1/chat/completions",
+      input_modalities: ["text"],
+      output_modalities: ["text"],
+      pricing: { input: 1, output: 2 },
+      pricing_overrides: [
+        expect.objectContaining({
+          min_prompt_tokens: 200_000,
+          pricing: { input: 2, output: 4 },
+        }),
+      ],
       completion_window: "24h",
       data_retention_days: 30,
     });

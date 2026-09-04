@@ -1,6 +1,11 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { pathToFileURL } from "node:url";
+import {
+  normalizedCatalogPricePerUnit,
+  REQUIRED_AUDIO_HOUR_PRICING_OVERLAYS,
+} from "./openrouter-pricing-contracts.mjs";
 
 const CATALOG_URL =
   "https://openrouter.ai/api/v1/models?output_modalities=all&sort=newest&offset=0&limit=1000";
@@ -299,9 +304,87 @@ function normalizeModel(model, existingAuthors) {
   };
 }
 
-function preserveLocalOverlay(model, currentModel) {
-  if (!currentModel?.note) return model;
-  return { ...model, note: currentModel.note };
+export function preserveLocalOverlay(model, currentModel) {
+  const requiredAudioHourContract =
+    REQUIRED_AUDIO_HOUR_PRICING_OVERLAYS.get(model.id);
+  if (!currentModel) {
+    if (requiredAudioHourContract) {
+      throw new Error(
+        `Manual audio-hour pricing overlay required for ${model.id}`,
+      );
+    }
+    return model;
+  }
+  if (
+    requiredAudioHourContract ||
+    currentModel.media_pricing?.unit === "audio_hour"
+  ) {
+    const sourceUsdPerHour = normalizedCatalogPricePerUnit(
+      model,
+      requiredAudioHourContract ?? {
+        normalizedPricingField: "input",
+        normalizedPriceDivisor: 1_000_000,
+      },
+    );
+    const overlayValue = currentModel.media_pricing?.usd;
+    const overlayUsdPerHour =
+      overlayValue === null || overlayValue === undefined || overlayValue === ""
+        ? Number.NaN
+        : Number(overlayValue);
+    if (
+      currentModel.media_pricing?.unit !== "audio_hour" ||
+      currentModel.pricing_basis_override !== "media" ||
+      sourceUsdPerHour === null ||
+      !Number.isFinite(overlayUsdPerHour) ||
+      Math.abs(sourceUsdPerHour - overlayUsdPerHour) > 1e-12
+    ) {
+      throw new Error(
+        `Manual audio-hour pricing overlay update required for ${model.id}: source=${sourceUsdPerHour}, overlay=${overlayUsdPerHour}`,
+      );
+    }
+  }
+  return {
+    ...model,
+    ...(currentModel.note ? { note: currentModel.note } : {}),
+    ...(currentModel.pricing_basis_override
+      ? { pricing_basis_override: currentModel.pricing_basis_override }
+      : {}),
+    ...(currentModel.media_pricing
+      ? { media_pricing: currentModel.media_pricing }
+      : {}),
+  };
+}
+
+export function assertRequiredAudioHourPricingOverlays(
+  catalogModels,
+  currentModels,
+) {
+  const sourceById = new Map(catalogModels.map((model) => [model.id, model]));
+  const currentById = new Map(currentModels.map((model) => [model.id, model]));
+  for (const [id] of REQUIRED_AUDIO_HOUR_PRICING_OVERLAYS) {
+    const current = currentById.get(id);
+    if (!current) {
+      throw new Error(`Manual audio-hour pricing overlay required for ${id}`);
+    }
+    const source = sourceById.get(id);
+    if (source) {
+      preserveLocalOverlay(source, current);
+      continue;
+    }
+    const overlayValue = current.media_pricing?.usd;
+    if (
+      current.media_pricing?.unit !== "audio_hour" ||
+      current.pricing_basis_override !== "media" ||
+      overlayValue === null ||
+      overlayValue === undefined ||
+      overlayValue === "" ||
+      !Number.isFinite(Number(overlayValue))
+    ) {
+      throw new Error(
+        `Manual audio-hour pricing overlay update required for ${id}: source=unavailable, overlay=${String(current.media_pricing?.usd)}`,
+      );
+    }
+  }
 }
 
 async function main() {
@@ -325,6 +408,7 @@ async function main() {
   const catalogModels = payload.data
     .filter((model) => model && typeof model.id === "string")
     .map((model) => normalizeModel(model, existingAuthors));
+  assertRequiredAudioHourPricingOverlays(catalogModels, currentModels);
   const liveModels = catalogModels.filter(
     (model) => !model.id.endsWith(BATCH_VARIANT_SUFFIX),
   );
@@ -417,4 +501,9 @@ async function main() {
   );
 }
 
-await main();
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
+) {
+  await main();
+}

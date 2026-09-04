@@ -1,6 +1,7 @@
-﻿// Merged with OpenRouter model catalog on 2026-09-02T07:25:55.085Z.
+﻿// Merged with OpenRouter model catalog on 2026-09-04T05:22:24.607Z.
 // Targeted OpenRouter refresh verified on 2026-09-01 against the live all-modalities catalog.
 // Gemini 3.8 Flash, its Batch tier and Muse Spark 1.3 variants added on 2026-09-03.
+// Microsoft MAI-Transcribe 2 contract added on 2026-09-03.
 // Media contracts refreshed through the Hailuo 3 Max release on 2026-09-02T01:41:50.462Z.
 // Source: https://openrouter.ai/api/v1/models?output_modalities=all&sort=newest&offset=0&limit=1000
 // Full OpenRouter catalog audit refresh: 2026-08-16. Batch catalog entries are
@@ -10,7 +11,8 @@
 // Image source: https://openrouter.ai/api/v1/images/models
 // Speech source: https://openrouter.ai/api/v1/models?output_modalities=speech
 // Video source: https://openrouter.ai/api/v1/videos/models
-// Prices are stored as USD per 1M tokens and CNY per 1M tokens.
+// Consumers must honor pricing_basis: specialized media catalogue values are
+// not necessarily token prices even when OpenRouter exposes them as prompt data.
 import {
   EMPTY_OPENROUTER_MARKET_SNAPSHOT,
   type OpenRouterMarketSeries,
@@ -88,6 +90,12 @@ export type SupportedParameter = string;
 export type PricingTier = "free" | "dynamic" | "low" | "medium" | "high";
 export type PricingStatus = "fixed" | "free" | "dynamic";
 export type PricingBasis = "token" | "media" | "request" | "dynamic" | "free";
+export type MediaPricingUnit = "audio_hour";
+
+export interface MediaPricing {
+  unit: MediaPricingUnit;
+  usd: number;
+}
 export type ModelServingVariantType = "realtime" | "batch";
 export type ModelServingEndpoint =
   | "synchronous"
@@ -149,6 +157,7 @@ export interface Model {
   };
   pricing_status: PricingStatus;
   pricing_basis: PricingBasis;
+  media_pricing?: MediaPricing;
   pricing_tier: PricingTier;
   capabilities: Capability[];
   input_modalities: InputModality[];
@@ -205,10 +214,45 @@ interface RawCatalogModel {
   expiration_date: number | null;
   model_author: string;
   reasoning_declared?: boolean;
+  pricing_basis_override?: PricingBasis;
+  media_pricing?: MediaPricing;
   note?: string;
 }
 
 const rawCatalogModels: RawCatalogModel[] = [
+  {
+    "id": "microsoft/mai-transcribe-2",
+    "canonical_slug": "microsoft/mai-transcribe-2-20260903",
+    "name": "Microsoft: MAI-Transcribe 2",
+    "raw_description": "MAI-Transcribe 2 is a multilingual speech-to-text model from Microsoft AI, ranked #1 on the FLEURS multilingual benchmark. It supports 60 languages with automatic language identification, code switching for mixed-language speech,...",
+    "context_length": 0,
+    "pricing": {
+      "input": 100000,
+      "output": 0
+    },
+    "input_modalities": [
+      "audio"
+    ],
+    "output_modalities": [
+      "transcription"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "max_completion_tokens",
+      "max_tokens",
+      "temperature",
+      "top_p"
+    ],
+    "created": 1788396586,
+    "expiration_date": null,
+    "model_author": "Microsoft",
+    "note": "通过 OpenRouter /api/v1/audio/transcriptions 的 JSON Base64 契约转写；目录价为 $0.10/音频小时。支持 60 种语言、自动语言识别与混合语言；说话人分离、词级时间戳等扩展参数未在标准参数目录中暴露，本地暂不开放相应控件。契约已适配，真实短音频仍待人工验收，最终费用以上游回执为准。",
+    "pricing_basis_override": "media",
+    "media_pricing": {
+      "unit": "audio_hour",
+      "usd": 0.1
+    }
+  },
   {
     "id": "meta/muse-spark-1.3-contributor",
     "canonical_slug": "meta/muse-spark-1.3-contributor-20260902",
@@ -450,8 +494,10 @@ const rawCatalogModels: RawCatalogModel[] = [
     "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
+      "logit_bias",
       "logprobs",
       "max_tokens",
+      "min_p",
       "presence_penalty",
       "reasoning",
       "reasoning_effort",
@@ -539,6 +585,47 @@ const rawCatalogModels: RawCatalogModel[] = [
     "note": "通过 OpenRouter 异步 Video API 提交并轮询；支持 480p/720p/1080p、2–30 秒、五种画幅、首帧、同步生成音频和 seed。目录价分别为 $0.068、$0.14、$0.28/视频秒；专用目录未声明额外参考图，本地不开放参考图控件，最终费用以上游回执为准。"
   },
   {
+    "id": "inclusionai/ling-3.0-flash-fin",
+    "canonical_slug": "inclusionai/ling-3.0-flash-fin-20260827",
+    "name": "Ling 3.0 Flash Fin",
+    "raw_description": "Ling 3.0 Flash Fin is a finance-focused mixture-of-experts model from InclusionAI, built on Ling 3.0 Flash with 5.1B active parameters out of 124B total. It is designed for real-world investment...",
+    "context_length": 262144,
+    "pricing": {
+      "input": 0.06,
+      "output": 0.18
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logit_bias",
+      "max_tokens",
+      "min_p",
+      "presence_penalty",
+      "reasoning",
+      "repetition_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1787846290,
+    "expiration_date": null,
+    "model_author": "InclusionAI",
+    "reasoning_declared": true
+  },
+  {
     "id": "inclusionai/ling-3.0-flash-fin:free",
     "canonical_slug": "inclusionai/ling-3.0-flash-fin-20260827",
     "name": "Ling 3.0 Flash Fin (free)",
@@ -619,7 +706,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1787817633,
-    "expiration_date": 4070822400,
+    "expiration_date": null,
     "model_author": "Z.ai",
     "reasoning_declared": true
   },
@@ -958,8 +1045,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Flash Vision Exp is an experimental vision-enabled version of [DeepSeek V4 Flash 0731](https://openrouter.ai/deepseek/deepseek-v4-flash-0731) from DeepSeek, adding image understanding while matching the base model on text capabilities including agents,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.44,
-      "output": 1.32,
+      "input": 0.22,
+      "output": 0.66,
       "time_overrides": [
         {
           "utc_start": 0,
@@ -1007,6 +1094,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "logit_bias",
       "logprobs",
       "max_tokens",
+      "min_p",
       "presence_penalty",
       "reasoning",
       "reasoning_effort",
@@ -1157,8 +1245,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest GLM model from Z.ai.",
     "context_length": 1310720,
     "pricing": {
-      "input": 1.17,
-      "output": 3.9600000000000004
+      "input": 1.15,
+      "output": 3.5
     },
     "input_modalities": [
       "text"
@@ -1265,7 +1353,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1787086655,
-    "expiration_date": 4070822400,
+    "expiration_date": null,
     "model_author": "Z.ai",
     "reasoning_declared": true
   },
@@ -1309,8 +1397,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3.8 27B is an open-weight dense vision-language model from Qwen. It is suited for coding, professional workflows, research, multimodal interaction, and long-running agent tasks, with flexible thinking that can be...",
     "context_length": 1000000,
     "pricing": {
-      "input": 0.425,
-      "output": 2.5500000000000003
+      "input": 0.42,
+      "output": 3
     },
     "input_modalities": [
       "text",
@@ -2213,7 +2301,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 131072,
     "pricing": {
       "input": 0.3,
-      "output": 1.2
+      "output": 1.1
     },
     "input_modalities": [
       "text",
@@ -5440,6 +5528,45 @@ const rawCatalogModels: RawCatalogModel[] = [
     "model_author": "Sourceful"
   },
   {
+    "id": "nvidia/nemotron-3.5-content-safety",
+    "canonical_slug": "nvidia/nemotron-3.5-content-safety-20260604",
+    "name": "NVIDIA: Nemotron 3.5 Content Safety",
+    "raw_description": "NVIDIA Nemotron 3.5 Content Safety is a compact 4B-parameter multimodal guardrail model from NVIDIA, fine-tuned from Google Gemma-3-4B. It moderates both inputs to and responses from LLMs and VLMs, accepting...",
+    "context_length": 131072,
+    "pricing": {
+      "input": 0.19999999999999998,
+      "output": 0.19999999999999998
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logit_bias",
+      "max_tokens",
+      "min_p",
+      "presence_penalty",
+      "reasoning",
+      "repetition_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "temperature",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1780581864,
+    "expiration_date": null,
+    "model_author": "NVIDIA",
+    "reasoning_declared": true
+  },
+  {
     "id": "nvidia/nemotron-3.5-content-safety:free",
     "canonical_slug": "nvidia/nemotron-3.5-content-safety-20260604",
     "name": "NVIDIA: Nemotron 3.5 Content Safety (free)",
@@ -7317,8 +7444,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the MoonshotAI Kimi family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 2.5500000000000003,
-      "output": 12.75
+      "input": 2.5,
+      "output": 14
     },
     "input_modalities": [
       "text",
@@ -10754,8 +10881,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "The Qwen3.5 series 397B-A17B native vision-language model is built on a hybrid architecture that integrates a linear attention mechanism with a sparse mixture-of-experts model, achieving higher inference efficiency. It delivers...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.39,
-      "output": 2.34
+      "input": 0.55,
+      "output": 3.5
     },
     "input_modalities": [
       "text",
@@ -11450,7 +11577,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1768833913,
-    "expiration_date": null,
+    "expiration_date": 1788998400,
     "model_author": "Z.ai",
     "reasoning_declared": true
   },
@@ -14461,8 +14588,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Compared with GLM-4.5, this generation brings several key improvements: Longer context window: The context window has been expanded from 128K to 200K tokens, enabling the model to handle more complex...",
     "context_length": 204800,
     "pricing": {
-      "input": 0.43,
-      "output": 1.75
+      "input": 0.55,
+      "output": 2.2
     },
     "input_modalities": [
       "text"
@@ -15415,8 +15542,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek-V3.1 is a large hybrid reasoning model (671B parameters, 37B active) that supports both thinking and non-thinking modes via prompt templates. It extends the DeepSeek-V3 base with a two-phase long-context...",
     "context_length": 163840,
     "pricing": {
-      "input": 0.25,
-      "output": 0.95
+      "input": 0.55,
+      "output": 1.6500000000000001
     },
     "input_modalities": [
       "text"
@@ -18386,8 +18513,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen2.5-VL is proficient in recognizing common objects such as flowers, birds, fish, and insects. It is also highly capable of analyzing texts, charts, icons, graphics, and layouts within images.",
     "context_length": 128000,
     "pricing": {
-      "input": 0.25,
-      "output": 0.75
+      "input": 0.7999999999999999,
+      "output": 1
     },
     "input_modalities": [
       "text",
@@ -18776,8 +18903,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek-V3 is the latest model from the DeepSeek team, building upon the instruction following and coding abilities of the previous versions. Pre-trained on nearly 15 trillion tokens, the reported evaluations...",
     "context_length": 163840,
     "pricing": {
-      "input": 0.2574,
-      "output": 1.0287
+      "input": 0.32,
+      "output": 0.8899999999999999
     },
     "input_modalities": [
       "text"
@@ -18916,8 +19043,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "The Meta Llama 3.3 multilingual large language model (LLM) is a pretrained and instruction tuned generative model in 70B (text in/text out). The Llama 3.3 instruction tuned text only model...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.71,
-      "output": 0.71
+      "input": 0.09999999999999999,
+      "output": 0.32
     },
     "input_modalities": [
       "text"
@@ -20715,7 +20842,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "A recreation trial of the original MythoMax-L2-B13 but with updated models. #merge",
     "context_length": 6144,
     "pricing": {
-      "input": 0.44999999999999996,
+      "input": 0.35,
       "output": 0.65
     },
     "input_modalities": [
@@ -20990,8 +21117,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "raw_description": "Gemini 3.7 Flash is a multimodal model from Google for fast agentic workflows, coding, and complex multi-step reasoning. It is designed for tasks that require responsive performance and reliable multi-step...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.1875,
-      "output": 0.9375
+      "input": 0.375,
+      "output": 1.875
     },
     "input_modalities": [
       "text",
@@ -21752,47 +21879,6 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "reasoning_declared": true
   },
   {
-    "id": "nvidia/nemotron-3-ultra-550b-a55b:batch",
-    "canonical_slug": "nvidia/nemotron-3-ultra-550b-a55b-20260604",
-    "name": "NVIDIA: Nemotron 3 Ultra (batch)",
-    "raw_description": "NVIDIA Nemotron 3 Ultra is an open frontier-reasoning and orchestration model from NVIDIA, with 55B active parameters out of 550B total (MoE). Built on a hybrid Transformer-Mamba mixture-of-experts architecture, it...",
-    "context_length": 512288,
-    "pricing": {
-      "input": 0.6,
-      "output": 3.5999999999999996
-    },
-    "input_modalities": [
-      "text"
-    ],
-    "output_modalities": [
-      "text"
-    ],
-    "tokenizer": "Other",
-    "supported_parameters": [
-      "frequency_penalty",
-      "include_reasoning",
-      "logit_bias",
-      "max_tokens",
-      "min_p",
-      "presence_penalty",
-      "reasoning",
-      "reasoning_effort",
-      "repetition_penalty",
-      "response_format",
-      "stop",
-      "structured_outputs",
-      "temperature",
-      "tool_choice",
-      "tools",
-      "top_k",
-      "top_p"
-    ],
-    "created": 1780551208,
-    "expiration_date": null,
-    "model_author": "NVIDIA",
-    "reasoning_declared": true
-  },
-  {
     "id": "minimax/minimax-m3:batch",
     "canonical_slug": "minimax/minimax-m3-20260531",
     "name": "MiniMax: MiniMax M3 (batch)",
@@ -21983,11 +22069,57 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "reasoning_declared": true
   },
   {
+    "id": "x-ai/grok-4.3:batch",
+    "canonical_slug": "x-ai/grok-4.3-20260430",
+    "name": "SpaceXAI: Grok 4.3 (batch)",
+    "raw_description": "Grok 4.3 is a reasoning model from SpaceXAI. It accepts text and image inputs with text output, and is suited for agentic workflows, instruction-following tasks, and applications requiring high factual...",
+    "context_length": 1000000,
+    "pricing": {
+      "input": 1,
+      "output": 2,
+      "overrides": [
+        {
+          "min_prompt_tokens": 200000,
+          "input": 2,
+          "output": 4
+        }
+      ]
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Grok",
+    "supported_parameters": [
+      "include_reasoning",
+      "logprobs",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_logprobs",
+      "top_p"
+    ],
+    "created": 1777591821,
+    "expiration_date": null,
+    "model_author": "xAI",
+    "reasoning_declared": true
+  },
+  {
     "id": "mistralai/mistral-medium-3-5:batch",
     "canonical_slug": "mistralai/mistral-medium-3.5-20260430",
     "name": "Mistral: Mistral Medium 3.5 (batch)",
     "raw_description": "Mistral Medium 3.5 is a dense 128B instruction-following model from Mistral AI. It supports text and image inputs with text output, and is designed for agentic workflows, coding, and complex...",
-    "context_length": 262144,
+    "context_length": 32768,
     "pricing": {
       "input": 0.75,
       "output": 3.75
@@ -23729,6 +23861,7 @@ function pricingTimeWindows(
 
 function getPricingBasis(raw: RawCatalogModel): PricingBasis {
   if (raw.id.endsWith(":free") || raw.id === "openrouter/free") return "free";
+  if (raw.pricing_basis_override) return raw.pricing_basis_override;
   if (
     raw.output_modalities.some((modality) =>
       ["image", "video", "audio", "speech"].includes(modality),
@@ -24097,7 +24230,7 @@ function buildChineseDescription(
     pricingStatus === "free"
       ? "当前目录价格为免费，后续以平台结算为准。"
       : pricingBasis === "media"
-        ? "按图片、音频或视频规格计费，费用以专用生成接口为准。"
+        ? "按图片、音频或视频规格计费，费用以对应专用接口为准。"
         : pricingBasis === "request"
           ? "按请求或专用端点计费，费用以对应接口为准。"
           : pricingStatus === "dynamic"
@@ -24182,6 +24315,7 @@ function enrichModel(
     price_cny,
     pricing_status,
     pricing_basis,
+    media_pricing: raw.media_pricing,
     pricing_tier: getPricingTier(raw.pricing.input, pricing_status),
     capabilities,
     input_modalities: raw.input_modalities,
@@ -24481,6 +24615,9 @@ const MID_CATALOG_MODEL_IDS = [
   "inclusionai/ling-3.0-tiny:free",
 ];
 const LATEST_REFRESH_MODEL_IDS = [
+  "inclusionai/ling-3.0-flash-fin",
+  "nvidia/nemotron-3.5-content-safety",
+  "microsoft/mai-transcribe-2",
   "google/gemini-3.8-flash",
   "meta/muse-spark-1.3",
   "meta/muse-spark-1.3-contributor",
