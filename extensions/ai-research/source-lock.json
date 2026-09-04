@@ -381,8 +381,8 @@
       "sha256": "c32ed664aadf0a8a0f07fee83da6e42f74c2f8e5ae6588d8eb238c71a3d0e60b"
     },
     "module-boundary.json": {
-      "sizeBytes": 2658,
-      "sha256": "ff9000f52cd5f5accf1d9d43899630b49f4ea4e73aafb88203e005b4f6e9e491"
+      "sizeBytes": 2699,
+      "sha256": "9114507ae144233924eda30ff46fabdb32df3fdfd1b425360c90137281e524a9"
     },
     "scripts/validate_boundary.py": {
       "sizeBytes": 39607,

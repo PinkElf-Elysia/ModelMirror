@@ -7,6 +7,7 @@
   "packStatus": "fixture_only",
   "parentIntegration": "restricted-model-bridge",
   "allowedParentFiles": [
+    ".github/workflows/ai-research.yml",
     "server/main.py",
     "server/model_router/ai_research_bridge.py",
     "server/model_router/chat_control.py",
