@@ -104,11 +104,21 @@ class SQLiteRouterRepository:
         )
         self.database_path = self.storage_dir / "router.sqlite3"
         self.master_key_path = self.storage_dir / "credential-master.key"
+        self.chat_completion_outbox_dir = (
+            self.storage_dir / "chat-completion-outbox"
+        )
         self._lock = threading.RLock()
         self.storage_dir.mkdir(parents=True, exist_ok=True)
+        if self.chat_completion_outbox_dir.is_symlink():
+            raise RouterRepositoryError(
+                "provider_chat_completion_outbox_path_unsafe"
+            )
+        self.chat_completion_outbox_dir.mkdir(parents=True, exist_ok=True)
         self._master_key = self._resolve_master_key(master_key)
         self._fernet = Fernet(self._master_key)
         self._initialize()
+        self._reconcile_startup_chat_control_completions()
+        self._recover_unresolved_chat_control_after_restart()
         self._verify_or_record_master_key()
 
     def _connect(self) -> sqlite3.Connection:
@@ -1202,25 +1212,6 @@ class SQLiteRouterRepository:
             )
             connection.execute(
                 """
-                UPDATE provider_chat_attempts
-                SET status = 'uncertain', result_class = 'uncertain',
-                    error_code = 'server_restarted', updated_at = ?, completed_at = ?
-                WHERE status = 'running'
-                """,
-                (now, now),
-            )
-            connection.execute(
-                """
-                UPDATE provider_chat_runs
-                SET status = 'uncertain', result_class = 'uncertain',
-                    reason_codes_json = '["server_restarted"]',
-                    updated_at = ?, completed_at = ?
-                WHERE status = 'running'
-                """,
-                (now, now),
-            )
-            connection.execute(
-                """
                 UPDATE provider_workload_certifications
                 SET status = 'uncertain', error_code = 'server_restarted',
                     updated_at = ?, completed_at = COALESCE(completed_at, ?)
@@ -1290,6 +1281,72 @@ class SQLiteRouterRepository:
                 (now, now),
             )
             connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+
+    def _reconcile_startup_chat_control_completions(self) -> None:
+        """Apply durable terminal facts before restart recovery marks orphans."""
+
+        for path in sorted(self.chat_completion_outbox_dir.glob("*.json")):
+            try:
+                payload = self._read_chat_completion_outbox(path)
+                tenant_id = self._tenant_id(str(payload.get("tenantId") or ""))
+                self.reconcile_chat_control_completions(
+                    tenant_id,
+                    attempt_id=str(payload.get("attemptId") or ""),
+                )
+            except RouterRepositoryError:
+                # Keep invalid or uncommitted evidence for fail-closed inspection.
+                continue
+
+    def _recover_unresolved_chat_control_after_restart(self) -> None:
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            running_attempts = connection.execute(
+                """
+                SELECT tenant_id, id, run_id
+                FROM provider_chat_attempts
+                WHERE status = 'running'
+                """
+            ).fetchall()
+            protected_runs: set[tuple[str, str]] = set()
+            for attempt in running_attempts:
+                tenant_id = str(attempt["tenant_id"])
+                attempt_id = str(attempt["id"])
+                run_id = str(attempt["run_id"])
+                pending_path = self._chat_completion_outbox_path(tenant_id, attempt_id)
+                if pending_path.is_symlink() or pending_path.exists():
+                    protected_runs.add((tenant_id, run_id))
+                    continue
+                connection.execute(
+                    """
+                    UPDATE provider_chat_attempts
+                    SET status = 'uncertain', result_class = 'uncertain',
+                        error_code = 'server_restarted', updated_at = ?,
+                        completed_at = ?
+                    WHERE tenant_id = ? AND id = ? AND status = 'running'
+                    """,
+                    (now, now, tenant_id, attempt_id),
+                )
+            running_runs = connection.execute(
+                """
+                SELECT tenant_id, id FROM provider_chat_runs
+                WHERE status = 'running'
+                """
+            ).fetchall()
+            for run in running_runs:
+                tenant_id = str(run["tenant_id"])
+                run_id = str(run["id"])
+                if (tenant_id, run_id) in protected_runs:
+                    continue
+                connection.execute(
+                    """
+                    UPDATE provider_chat_runs
+                    SET status = 'uncertain', result_class = 'uncertain',
+                        reason_codes_json = '["server_restarted"]',
+                        updated_at = ?, completed_at = ?
+                    WHERE tenant_id = ? AND id = ? AND status = 'running'
+                    """,
+                    (now, now, tenant_id, run_id),
+                )
 
     def create_connection(
         self, tenant_id: str, payload: RouterConnectionCreate
@@ -3361,6 +3418,10 @@ class SQLiteRouterRepository:
         """Atomically terminalize a dispatched attempt, its run, and gate."""
 
         clean_tenant = self._tenant_id(tenant_id)
+        if status not in {"succeeded", "failed", "cancelled"}:
+            raise RouterRepositoryError(
+                "provider_chat_completion_status_invalid"
+            )
         now = utc_now()
         observed_hard_failure = (
             bool(hard_failure) or result_class == "hard_failure"
@@ -3374,12 +3435,7 @@ class SQLiteRouterRepository:
                 """,
                 (clean_tenant, attempt_id),
             ).fetchone()
-            if (
-                attempt is None
-                or str(attempt["run_id"]) != expected_run_id
-                or str(attempt["status"]) != "running"
-                or not bool(attempt["dispatched"])
-            ):
+            if attempt is None or str(attempt["run_id"]) != expected_run_id:
                 raise RouterRepositoryError("provider_chat_attempt_not_running")
             run = connection.execute(
                 """
@@ -3388,8 +3444,35 @@ class SQLiteRouterRepository:
                 """,
                 (clean_tenant, expected_run_id),
             ).fetchone()
-            if run is None or str(run["status"]) != "running":
+            if run is None:
                 raise RouterRepositoryError("provider_chat_run_not_running")
+
+            if (
+                str(attempt["status"]) != "running"
+                or str(run["status"]) != "running"
+            ):
+                if self._chat_control_completion_matches(
+                    attempt,
+                    run,
+                    status=status,
+                    result_class=result_class,
+                    error_code=error_code,
+                    reason_codes=reason_codes or [],
+                    actual_model=actual_model,
+                    client_cancelled=client_cancelled,
+                    hard_failure=observed_hard_failure,
+                    ttft_ms=ttft_ms,
+                    e2e_ms=e2e_ms,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    total_tokens=total_tokens,
+                ):
+                    return {"attempt": dict(attempt), "run": dict(run)}
+                raise RouterRepositoryError(
+                    "provider_chat_completion_conflict"
+                )
+            if not bool(attempt["dispatched"]):
+                raise RouterRepositoryError("provider_chat_attempt_not_running")
 
             attempt_cursor = connection.execute(
                 """
@@ -3495,6 +3578,277 @@ class SQLiteRouterRepository:
             "attempt": dict(completed_attempt),
             "run": dict(completed_run),
         }
+
+    @staticmethod
+    def _chat_control_completion_matches(
+        attempt: sqlite3.Row,
+        run: sqlite3.Row,
+        *,
+        status: str,
+        result_class: str | None,
+        error_code: str | None,
+        reason_codes: list[str],
+        actual_model: str | None,
+        client_cancelled: bool,
+        hard_failure: bool,
+        ttft_ms: float | None,
+        e2e_ms: float | None,
+        prompt_tokens: int | None,
+        completion_tokens: int | None,
+        total_tokens: int | None,
+    ) -> bool:
+        try:
+            stored_reasons = json.loads(str(run["reason_codes_json"]))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return False
+        return (
+            str(attempt["status"]) == status
+            and attempt["result_class"] == result_class
+            and attempt["error_code"] == error_code
+            and attempt["actual_model"] == actual_model
+            and attempt["ttft_ms"] == ttft_ms
+            and attempt["e2e_ms"] == e2e_ms
+            and attempt["prompt_tokens"] == prompt_tokens
+            and attempt["completion_tokens"] == completion_tokens
+            and attempt["total_tokens"] == total_tokens
+            and str(run["status"]) == status
+            and run["result_class"] == result_class
+            and stored_reasons == reason_codes
+            and run["actual_model"] == actual_model
+            and bool(run["client_cancelled"]) == bool(client_cancelled)
+            and bool(run["hard_failure"]) == bool(hard_failure)
+            and run["ttft_ms"] == ttft_ms
+            and run["e2e_ms"] == e2e_ms
+            and run["prompt_tokens"] == prompt_tokens
+            and run["completion_tokens"] == completion_tokens
+            and run["total_tokens"] == total_tokens
+        )
+
+    def _chat_completion_outbox_path(
+        self, tenant_id: str, attempt_id: str
+    ) -> Path:
+        if not isinstance(attempt_id, str) or not attempt_id.strip():
+            raise RouterRepositoryError(
+                "provider_chat_completion_attempt_id_invalid"
+            )
+        digest = hashlib.sha256(
+            f"{tenant_id}\0{attempt_id}".encode("utf-8")
+        ).hexdigest()
+        return self.chat_completion_outbox_dir / f"{digest}.json"
+
+    @staticmethod
+    def _chat_completion_identity(payload: dict[str, object]) -> str:
+        durable = {
+            key: value
+            for key, value in payload.items()
+            if key != "payloadSha256"
+        }
+        return hashlib.sha256(
+            json.dumps(
+                durable,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            ).encode("utf-8")
+        ).hexdigest()
+
+    def _read_chat_completion_outbox(self, path: Path) -> dict[str, object]:
+        if path.is_symlink() or path.parent != self.chat_completion_outbox_dir:
+            raise RouterRepositoryError(
+                "provider_chat_completion_outbox_path_unsafe"
+            )
+        try:
+            with path.open("rb") as handle:
+                raw = handle.read(64 * 1024 + 1)
+            if len(raw) > 64 * 1024:
+                raise RouterRepositoryError(
+                    "provider_chat_completion_outbox_oversized"
+                )
+            payload = json.loads(raw.decode("utf-8"))
+        except RouterRepositoryError:
+            raise
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise RouterRepositoryError(
+                "provider_chat_completion_outbox_invalid"
+            ) from exc
+        if (
+            not isinstance(payload, dict)
+            or payload.get("schemaVersion") != 1
+            or not isinstance(payload.get("tenantId"), str)
+            or not isinstance(payload.get("attemptId"), str)
+            or not isinstance(payload.get("expectedRunId"), str)
+            or payload.get("status") not in {"succeeded", "failed", "cancelled"}
+            or not isinstance(payload.get("stagedAt"), str)
+            or payload.get("payloadSha256")
+            != self._chat_completion_identity(payload)
+        ):
+            raise RouterRepositoryError(
+                "provider_chat_completion_outbox_invalid"
+            )
+        if self._chat_completion_outbox_path(payload["tenantId"], payload["attemptId"]) != path:
+            raise RouterRepositoryError("provider_chat_completion_outbox_path_mismatch")
+        return payload
+
+    @staticmethod
+    def _same_chat_completion_facts(
+        existing: dict[str, object], candidate: dict[str, object]
+    ) -> bool:
+        return {
+            key: value for key, value in existing.items()
+            if key not in {"stagedAt", "payloadSha256"}
+        } == {
+            key: value for key, value in candidate.items()
+            if key not in {"stagedAt", "payloadSha256"}
+        }
+
+    def stage_chat_control_completion(
+        self,
+        tenant_id: str,
+        attempt_id: str,
+        *,
+        expected_run_id: str,
+        status: str,
+        result_class: str | None = None,
+        error_code: str | None = None,
+        reason_codes: list[str] | None = None,
+        actual_model: str | None = None,
+        client_cancelled: bool = False,
+        hard_failure: bool = False,
+        ttft_ms: float | None = None,
+        e2e_ms: float | None = None,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        total_tokens: int | None = None,
+    ) -> dict[str, object]:
+        """Durably stage content-free completion facts outside router.sqlite3."""
+
+        clean_tenant = self._tenant_id(tenant_id)
+        if status not in {"succeeded", "failed", "cancelled"}:
+            raise RouterRepositoryError(
+                "provider_chat_completion_status_invalid"
+            )
+        if not isinstance(expected_run_id, str) or not expected_run_id.strip():
+            raise RouterRepositoryError(
+                "provider_chat_completion_run_id_invalid"
+            )
+        clean_reasons = [
+            str(item) for item in (reason_codes or []) if str(item).strip()
+        ]
+        payload: dict[str, object] = {
+            "schemaVersion": 1,
+            "tenantId": clean_tenant,
+            "attemptId": attempt_id,
+            "expectedRunId": expected_run_id,
+            "status": status,
+            "resultClass": result_class,
+            "errorCode": error_code,
+            "reasonCodes": clean_reasons,
+            "actualModel": actual_model,
+            "clientCancelled": bool(client_cancelled),
+            "hardFailure": bool(hard_failure) or result_class == "hard_failure",
+            "ttftMs": ttft_ms,
+            "e2eMs": e2e_ms,
+            "promptTokens": prompt_tokens,
+            "completionTokens": completion_tokens,
+            "totalTokens": total_tokens,
+            "stagedAt": utc_now(),
+        }
+        payload["payloadSha256"] = self._chat_completion_identity(payload)
+        path = self._chat_completion_outbox_path(clean_tenant, attempt_id)
+        with self._lock:
+            if path.is_symlink() or path.exists():
+                existing = self._read_chat_completion_outbox(path)
+                if not self._same_chat_completion_facts(existing, payload):
+                    raise RouterRepositoryError(
+                        "provider_chat_completion_outbox_conflict"
+                    )
+                return existing
+            temporary = self.chat_completion_outbox_dir / (
+                f".{path.stem}.{uuid.uuid4().hex}.tmp"
+            )
+            encoded = json.dumps(
+                payload,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            ).encode("utf-8")
+            if len(encoded) > 64 * 1024:
+                raise RouterRepositoryError("provider_chat_completion_outbox_oversized")
+            try:
+                with temporary.open("xb") as handle:
+                    handle.write(encoded)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                try:
+                    os.link(temporary, path)
+                except FileExistsError:
+                    existing = self._read_chat_completion_outbox(path)
+                    if not self._same_chat_completion_facts(existing, payload):
+                        raise RouterRepositoryError(
+                            "provider_chat_completion_outbox_conflict"
+                        )
+                    return existing
+            except OSError as exc:
+                raise RouterRepositoryError(
+                    "provider_chat_completion_outbox_write_failed"
+                ) from exc
+            finally:
+                try:
+                    temporary.unlink(missing_ok=True)
+                except OSError:
+                    pass
+        return payload
+
+    def reconcile_chat_control_completions(
+        self,
+        tenant_id: str,
+        *,
+        attempt_id: str | None = None,
+    ) -> dict[str, int]:
+        """Apply staged completions; retain any envelope that cannot commit."""
+
+        clean_tenant = self._tenant_id(tenant_id)
+        paths = (
+            [self._chat_completion_outbox_path(clean_tenant, attempt_id)]
+            if attempt_id is not None
+            else sorted(self.chat_completion_outbox_dir.glob("*.json"))
+        )
+        applied = 0
+        pending = 0
+        for path in paths:
+            if not path.is_symlink() and not path.exists():
+                continue
+            payload = self._read_chat_completion_outbox(path)
+            if payload.get("tenantId") != clean_tenant:
+                continue
+            try:
+                self.complete_chat_control_dispatch(
+                    clean_tenant,
+                    str(payload["attemptId"]),
+                    expected_run_id=str(payload["expectedRunId"]),
+                    status=str(payload["status"]),
+                    result_class=payload.get("resultClass"),
+                    error_code=payload.get("errorCode"),
+                    reason_codes=list(payload.get("reasonCodes") or []),
+                    actual_model=payload.get("actualModel"),
+                    client_cancelled=bool(payload.get("clientCancelled")),
+                    hard_failure=bool(payload.get("hardFailure")),
+                    ttft_ms=payload.get("ttftMs"),
+                    e2e_ms=payload.get("e2eMs"),
+                    prompt_tokens=payload.get("promptTokens"),
+                    completion_tokens=payload.get("completionTokens"),
+                    total_tokens=payload.get("totalTokens"),
+                )
+            except (RouterRepositoryError, sqlite3.Error):
+                pending += 1
+                continue
+            try:
+                path.unlink()
+            except OSError:
+                pending += 1
+                continue
+            applied += 1
+        return {"applied": applied, "pending": pending}
 
     def complete_chat_control_run(
         self,
@@ -4069,11 +4423,19 @@ class SQLiteRouterRepository:
     ) -> dict[str, int | bool | str]:
         clean_tenant = self._tenant_id(tenant_id)
         with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             run_count = int(
                 connection.execute(
                     """
                     SELECT COUNT(*) FROM provider_chat_runs
                     WHERE tenant_id = ? AND status != 'running'
+                        AND hard_failure = 0
+                        AND NOT EXISTS (
+                            SELECT 1 FROM provider_chat_attempts AS failed_attempt
+                            WHERE failed_attempt.tenant_id = provider_chat_runs.tenant_id
+                                AND failed_attempt.run_id = provider_chat_runs.id
+                                AND failed_attempt.result_class = 'hard_failure'
+                        )
                         AND COALESCE(completed_at, updated_at) < ?
                     """,
                     (clean_tenant, before),
@@ -4086,6 +4448,13 @@ class SQLiteRouterRepository:
                     WHERE tenant_id = ? AND run_id IN (
                         SELECT id FROM provider_chat_runs
                         WHERE tenant_id = ? AND status != 'running'
+                            AND hard_failure = 0
+                            AND NOT EXISTS (
+                                SELECT 1 FROM provider_chat_attempts AS failed_attempt
+                                WHERE failed_attempt.tenant_id = provider_chat_runs.tenant_id
+                                    AND failed_attempt.run_id = provider_chat_runs.id
+                                    AND failed_attempt.result_class = 'hard_failure'
+                            )
                             AND COALESCE(completed_at, updated_at) < ?
                     )
                     """,
@@ -4099,6 +4468,13 @@ class SQLiteRouterRepository:
                     WHERE tenant_id = ? AND run_id IN (
                         SELECT id FROM provider_chat_runs
                         WHERE tenant_id = ? AND status != 'running'
+                            AND hard_failure = 0
+                            AND NOT EXISTS (
+                                SELECT 1 FROM provider_chat_attempts AS failed_attempt
+                                WHERE failed_attempt.tenant_id = provider_chat_runs.tenant_id
+                                    AND failed_attempt.run_id = provider_chat_runs.id
+                                    AND failed_attempt.result_class = 'hard_failure'
+                            )
                             AND COALESCE(completed_at, updated_at) < ?
                     )
                     """,
@@ -4108,6 +4484,13 @@ class SQLiteRouterRepository:
                     """
                     DELETE FROM provider_chat_runs
                     WHERE tenant_id = ? AND status != 'running'
+                        AND hard_failure = 0
+                        AND NOT EXISTS (
+                            SELECT 1 FROM provider_chat_attempts AS failed_attempt
+                            WHERE failed_attempt.tenant_id = provider_chat_runs.tenant_id
+                                AND failed_attempt.run_id = provider_chat_runs.id
+                                AND failed_attempt.result_class = 'hard_failure'
+                        )
                         AND COALESCE(completed_at, updated_at) < ?
                     """,
                     (clean_tenant, before),

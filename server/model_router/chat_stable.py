@@ -173,6 +173,22 @@ class ProviderChatStableService:
             or (not scoped_certified and clean_model not in policy.stable_model_ids)
         ):
             return ProviderChatStablePreflight(intercepted=False)
+        try:
+            reconciliation = self._repository_method(
+                "reconcile_chat_control_completions"
+            )(self.router_service.tenant_id)
+        except RouterRepositoryError as exc:
+            raise RouterServiceError(
+                "provider_chat_completion_reconciliation_pending",
+                "上一次模型调用的终态仍待持久化，请稍后重试。",
+                status_code=503,
+            ) from exc
+        if int(reconciliation.get("pending", 0)):
+            raise RouterServiceError(
+                "provider_chat_completion_reconciliation_pending",
+                "上一次模型调用的终态仍待持久化，请稍后重试。",
+                status_code=503,
+            )
         runtime_allowed, runtime_error = self.control.required_runtime_allowed(policy)
         if not runtime_allowed:
             error_code = runtime_error or "provider_chat_required_gate_degraded"
@@ -591,16 +607,14 @@ class ProviderChatStableService:
         completion_tokens: int | None = None,
         total_tokens: int | None = None,
         reason_codes: list[str] | None = None,
-    ) -> None:
+    ) -> bool:
         codes = list(dispatch.reason_codes)
         if reason_codes:
             codes.extend(reason_codes)
         if error_code:
             codes.append(error_code)
         codes = list(dict.fromkeys(codes))
-        self._repository_method("complete_chat_control_dispatch")(
-            self.router_service.tenant_id,
-            dispatch.attempt_id,
+        fields = dict(
             expected_run_id=dispatch.run_id,
             status=status,
             result_class=result_class,
@@ -615,6 +629,18 @@ class ProviderChatStableService:
             completion_tokens=completion_tokens,
             total_tokens=total_tokens,
         )
+        self._repository_method("stage_chat_control_completion")(
+            self.router_service.tenant_id,
+            dispatch.attempt_id,
+            **fields,
+        )
+        reconciliation = self._repository_method(
+            "reconcile_chat_control_completions"
+        )(
+            self.router_service.tenant_id,
+            attempt_id=dispatch.attempt_id,
+        )
+        return int(reconciliation.get("pending", 0)) == 0
 
     @staticmethod
     def classify_http_failure(status_code: int) -> tuple[str, str, bool]:

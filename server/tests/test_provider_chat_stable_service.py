@@ -11,7 +11,10 @@ import pytest
 from server.model_router.chat_control import ProviderChatControlService
 from server.model_router.chat_stable import ProviderChatStableService
 from server.model_router.egress import ProviderEgressPolicy
-from server.model_router.repository import SQLiteRouterRepository
+from server.model_router.repository import (
+    RouterRepositoryError,
+    SQLiteRouterRepository,
+)
 from server.model_router.schemas import (
     ProviderChatControlPolicyUpdate,
     ProviderChatControlRouteUpdate,
@@ -827,14 +830,13 @@ async def test_dispatch_completion_rolls_back_attempt_when_run_write_fails(
             """
         )
 
-    with pytest.raises(sqlite3.IntegrityError, match="simulated_run_write_failure"):
-        service.complete(
-            result.dispatch,
-            status="failed",
-            result_class="hard_failure",
-            error_code="provider_chat_http_401",
-            hard_failure=True,
-        )
+    assert service.complete(
+        result.dispatch,
+        status="failed",
+        result_class="hard_failure",
+        error_code="provider_chat_http_401",
+        hard_failure=True,
+    ) is False
 
     receipts = repository.list_chat_control_receipts("local")
     attempt = next(
@@ -849,16 +851,40 @@ async def test_dispatch_completion_rolls_back_attempt_when_run_write_fails(
     assert attempt["result_class"] is None
     assert run["status"] == "running"
     assert run["hard_failure"] == 0
+    pending = list(repository.chat_completion_outbox_dir.glob("*.json"))
+    assert len(pending) == 1
+    assert "private prompt" not in pending[0].read_text(encoding="utf-8")
+    with pytest.raises(RouterServiceError) as exc_info:
+        await service.begin(MODEL_ID)
+    assert exc_info.value.code == (
+        "provider_chat_completion_reconciliation_pending"
+    )
 
+    restarted_repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    retained = restarted_repository.list_chat_control_receipts("local")["runs"]
+    assert next(run for run in retained if run["id"] == result.dispatch.run_id)["status"] == "running"
+    restarted = ProviderChatStableService(
+        ModelRouterService(
+            restarted_repository,
+            egress_policy=ProviderEgressPolicy(
+                resolver=lambda _host, _port: ["8.8.8.8"]
+            ),
+        )
+    )
+    with pytest.raises(RouterServiceError) as exc_info:
+        await restarted.begin(MODEL_ID)
+    assert exc_info.value.code == (
+        "provider_chat_completion_reconciliation_pending"
+    )
+    pending_after_restart = restarted_repository.list_chat_control_receipts("local")
+    assert next(
+        item
+        for item in pending_after_restart["attempts"]
+        if item["id"] == result.dispatch.attempt_id
+    )["status"] == "running"
     with sqlite3.connect(repository.database_path) as database:
         database.execute("DROP TRIGGER abort_chat_run_completion")
-    service.complete(
-        result.dispatch,
-        status="failed",
-        result_class="hard_failure",
-        error_code="provider_chat_http_401",
-        hard_failure=True,
-    )
+    await restarted.begin(MODEL_ID)
     completed = repository.list_chat_control_receipts("local")
     attempt = next(
         item
@@ -871,6 +897,244 @@ async def test_dispatch_completion_rolls_back_attempt_when_run_write_fails(
     assert attempt["result_class"] == "hard_failure"
     assert run["result_class"] == "hard_failure"
     assert run["hard_failure"] == 1
+    assert list(repository.chat_completion_outbox_dir.glob("*.json")) == []
+
+
+def test_cleanup_preserves_hard_failure_receipts_before_cutoff(
+    tmp_path: Path,
+) -> None:
+    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    for run_id, hard_failure, attempt_hard_failure in (
+        ("ordinary-run", False, False),
+        ("hard-failure-run", True, True),
+        ("attempt-hard-failure-run", False, True),
+    ):
+        repository.claim_chat_control_run(
+            "local",
+            run_id=run_id,
+            policy_fingerprint="policy",
+            capability="chat_text",
+            requested_model="provider/model",
+            strategy="explicit_session",
+        )
+        repository.claim_chat_control_attempt(
+            "local",
+            attempt_id=f"{run_id}-attempt",
+            run_id=run_id,
+            capability="chat_text",
+            position=0,
+            connection_id="conn-1",
+            provider_kind="newapi",
+        )
+        repository.complete_chat_control_attempt(
+            "local",
+            f"{run_id}-attempt",
+            status="failed",
+            result_class="hard_failure" if attempt_hard_failure else "transient_failure",
+            error_code=(
+                "provider_chat_http_401"
+                if attempt_hard_failure
+                else "provider_chat_http_503"
+            ),
+        )
+        repository.complete_chat_control_run(
+            "local",
+            run_id,
+            status="failed",
+            result_class="hard_failure" if hard_failure else "transient_failure",
+            hard_failure=hard_failure,
+        )
+    with sqlite3.connect(repository.database_path) as connection:
+        connection.execute(
+            """
+            UPDATE provider_chat_runs
+            SET completed_at = ?, updated_at = ?
+            """,
+            ("2020-01-01T00:00:00+00:00", "2020-01-01T00:00:00+00:00"),
+        )
+        connection.execute(
+            """
+            UPDATE provider_chat_attempts
+            SET completed_at = ?, updated_at = ?
+            """,
+            ("2020-01-01T00:00:00+00:00", "2020-01-01T00:00:00+00:00"),
+        )
+
+    dry_run = repository.cleanup_chat_control_receipts(
+        "local", before="2021-01-01T00:00:00+00:00"
+    )
+    assert dry_run["runs"] == 1
+    assert dry_run["attempts"] == 1
+    result = repository.cleanup_chat_control_receipts(
+        "local",
+        before="2021-01-01T00:00:00+00:00",
+        apply=True,
+    )
+
+    assert result == {
+        "applied": True,
+        "before": "2021-01-01T00:00:00+00:00",
+        "runs": 1,
+        "attempts": 1,
+    }
+    retained = repository.list_chat_control_receipts("local")
+    assert {item["id"] for item in retained["runs"]} == {
+        "hard-failure-run", "attempt-hard-failure-run"
+    }
+    assert {item["id"] for item in retained["attempts"]} == {
+        "hard-failure-run-attempt", "attempt-hard-failure-run-attempt"
+    }
+
+
+@pytest.mark.asyncio
+async def test_active_dispatch_does_not_block_an_independent_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, _repository, _newapi_id, _backup_id = _service(
+        tmp_path, monkeypatch, newapi_ip="8.8.8.8"
+    )
+    first = await service.begin(MODEL_ID)
+    assert first.dispatch is not None
+    service.mark_dispatched(first.dispatch)
+
+    second = await service.begin(MODEL_ID)
+    assert second.dispatch is not None
+    assert second.dispatch.run_id != first.dispatch.run_id
+    service.mark_dispatched(second.dispatch)
+    for dispatch in (first.dispatch, second.dispatch):
+        assert service.complete(
+            dispatch, status="succeeded", result_class="success"
+        ) is True
+
+
+@pytest.mark.asyncio
+async def test_completion_reconcile_is_idempotent_after_commit_before_unlink(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, repository, _newapi_id, _backup_id = _service(
+        tmp_path, monkeypatch
+    )
+    result = await service.begin(MODEL_ID)
+    assert result.dispatch is not None
+    service.mark_dispatched(result.dispatch)
+    fields = {
+        "expected_run_id": result.dispatch.run_id,
+        "status": "succeeded",
+        "result_class": "success",
+        "actual_model": MODEL_ID,
+        "reason_codes": [],
+    }
+    staged = repository.stage_chat_control_completion(
+        "local", result.dispatch.attempt_id, **fields
+    )
+    monkeypatch.setattr(
+        "server.model_router.repository.utc_now", lambda: "2099-01-01T00:00:00+00:00"
+    )
+    restaged = repository.stage_chat_control_completion(
+        "local", result.dispatch.attempt_id, **fields
+    )
+    assert restaged == staged
+    assert restaged["stagedAt"] != "2099-01-01T00:00:00+00:00"
+    repository.complete_chat_control_dispatch(
+        "local", result.dispatch.attempt_id, **fields
+    )
+    repeated = repository.complete_chat_control_dispatch(
+        "local", result.dispatch.attempt_id, **fields
+    )
+    assert repeated["attempt"]["status"] == "succeeded"
+    with pytest.raises(
+        RouterRepositoryError,
+        match="provider_chat_completion_conflict",
+    ):
+        repository.complete_chat_control_dispatch(
+            "local",
+            result.dispatch.attempt_id,
+            **{**fields, "status": "failed"},
+        )
+
+    reconciled = repository.reconcile_chat_control_completions("local")
+
+    assert reconciled == {"applied": 1, "pending": 0}
+    assert list(repository.chat_completion_outbox_dir.glob("*.json")) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tampered_field", ["status", "stagedAt", "broken_symlink"])
+async def test_unsafe_completion_outbox_fails_closed_after_restart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tampered_field: str
+) -> None:
+    service, repository, _newapi_id, _backup_id = _service(
+        tmp_path,
+        monkeypatch,
+        newapi_ip="8.8.8.8",
+    )
+    result = await service.begin(MODEL_ID)
+    assert result.dispatch is not None
+    service.mark_dispatched(result.dispatch)
+    with sqlite3.connect(repository.database_path) as database:
+        database.execute(
+            f"""
+            CREATE TRIGGER abort_chat_run_completion
+            BEFORE UPDATE OF status ON provider_chat_runs
+            WHEN OLD.tenant_id = 'local'
+              AND OLD.id = '{result.dispatch.run_id}'
+              AND NEW.status != 'running'
+            BEGIN
+                SELECT RAISE(ABORT, 'simulated_run_write_failure');
+            END
+            """
+        )
+    assert service.complete(
+        result.dispatch,
+        status="failed",
+        result_class="hard_failure",
+        error_code="provider_chat_http_401",
+        hard_failure=True,
+    ) is False
+    outbox_path = next(repository.chat_completion_outbox_dir.glob("*.json"))
+    if tampered_field == "broken_symlink":
+        outbox_path.unlink()
+        try:
+            outbox_path.symlink_to(outbox_path.with_suffix(".missing"))
+        except (OSError, NotImplementedError):
+            pytest.skip("symlink creation is unavailable")
+    else:
+        encoded = outbox_path.read_bytes()
+        marker = f'"{tampered_field}":"'.encode()
+        offset = encoded.index(marker) + len(marker)
+        altered = bytearray(encoded)
+        altered[offset] = ord("3") if tampered_field == "stagedAt" else ord("x")
+        assert sum(a != b for a, b in zip(encoded, altered)) == 1
+        outbox_path.write_bytes(altered)
+    with sqlite3.connect(repository.database_path) as database:
+        database.execute("DROP TRIGGER abort_chat_run_completion")
+
+    restarted_repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    restarted = ProviderChatStableService(
+        ModelRouterService(
+            restarted_repository,
+            egress_policy=ProviderEgressPolicy(
+                resolver=lambda _host, _port: ["8.8.8.8"]
+            ),
+        )
+    )
+    runs_before = len(
+        restarted_repository.list_chat_control_receipts("local")["runs"]
+    )
+    retained_run = next(
+        run for run in restarted_repository.list_chat_control_receipts("local")["runs"]
+        if run["id"] == result.dispatch.run_id
+    )
+    assert retained_run["status"] == "running"
+    with pytest.raises(RouterServiceError) as exc_info:
+        await restarted.begin(MODEL_ID)
+    assert exc_info.value.code == (
+        "provider_chat_completion_reconciliation_pending"
+    )
+    assert len(restarted_repository.list_chat_control_receipts("local")["runs"]) == (
+        runs_before
+    )
+    assert outbox_path.exists() or outbox_path.is_symlink()
 
 
 @pytest.mark.asyncio
