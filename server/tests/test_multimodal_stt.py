@@ -79,6 +79,18 @@ def test_august_14_stt_snapshots_are_adapted_for_manual_verification() -> None:
         assert profile.smoke_languages == ("zh", "en")
 
 
+def test_mai_transcribe_2_is_adapted_for_manual_verification() -> None:
+    model_id = "microsoft/mai-transcribe-2"
+
+    assert model_id in MANUAL_TRANSCRIPTION_PROFILES
+    assert model_id not in VERIFIED_TRANSCRIPTION_PROFILES
+    profile = MANUAL_TRANSCRIPTION_PROFILES[model_id]
+    assert {"mp3", "wav", "m4a", "webm"} <= set(
+        profile.input_formats
+    )
+    assert profile.smoke_languages == ("zh", "en")
+
+
 def test_gpt_transcribe_is_in_verified_registry() -> None:
     model_id = "openai/gpt-transcribe"
     assert model_id in VERIFIED_TRANSCRIPTION_PROFILES

@@ -293,9 +293,34 @@ export function requestTranscription({
   });
 }
 
-function costLabel(usage: TranscriptionUsage) {
-  if (usage.cost_kind === "actual" && usage.cost_usd !== null) {
-    return `$${usage.cost_usd.toFixed(6)}`;
+export function estimateTranscriptionCostUsd(
+  model: Model,
+  audioSeconds: number | null,
+) {
+  if (
+    model.media_pricing?.unit !== "audio_hour" ||
+    !Number.isFinite(model.media_pricing.usd) ||
+    model.media_pricing.usd < 0 ||
+    audioSeconds === null ||
+    !Number.isFinite(audioSeconds) ||
+    audioSeconds <= 0
+  ) {
+    return null;
+  }
+  return (audioSeconds / 3_600) * model.media_pricing.usd;
+}
+
+function costLabel(usage: TranscriptionUsage, model: Model) {
+  if (usage.cost_usd !== null) {
+    const prefix = usage.cost_kind === "estimated" ? "约 " : "";
+    return `${prefix}$${usage.cost_usd.toFixed(6)}`;
+  }
+  const localEstimate = estimateTranscriptionCostUsd(
+    model,
+    usage.audio_seconds,
+  );
+  if (localEstimate !== null) {
+    return `约 $${localEstimate.toFixed(6)}（按音频时长）`;
   }
   return "费用待网关结算";
 }
@@ -305,6 +330,9 @@ export default function TranscriptionWorkspace({
 }: TranscriptionWorkspaceProps) {
   const [file, setFile] = useState<File | null>(null);
   const [audioUrl, setAudioUrl] = useState("");
+  const [audioDurationSeconds, setAudioDurationSeconds] = useState<
+    number | null
+  >(null);
   const [language, setLanguage] = useState("auto");
   const [status, setStatus] = useState<TranscriptionStatus>("idle");
   const [progress, setProgress] = useState(0);
@@ -331,6 +359,10 @@ export default function TranscriptionWorkspace({
   const managedFormatRestricted = controlState.mode === "managed";
   const controlBlocked =
     controlState.mode === "loading" || controlState.mode === "blocked";
+  const preflightCostUsd = estimateTranscriptionCostUsd(
+    model,
+    audioDurationSeconds,
+  );
 
   useEffect(() => {
     document.title = `转录音频 · ${model.name} · 模镜`;
@@ -396,6 +428,7 @@ export default function TranscriptionWorkspace({
   }, [model.id]);
 
   useEffect(() => {
+    setAudioDurationSeconds(null);
     if (!file) {
       setAudioUrl("");
       return undefined;
@@ -664,6 +697,14 @@ export default function TranscriptionWorkspace({
                       aria-label={`预听 ${file.name}`}
                       className="w-full sm:max-w-[270px]"
                       controls
+                      onLoadedMetadata={(event) => {
+                        const duration = event.currentTarget.duration;
+                        setAudioDurationSeconds(
+                          Number.isFinite(duration) && duration > 0
+                            ? duration
+                            : null,
+                        );
+                      }}
                       preload="metadata"
                       src={audioUrl}
                     />
@@ -798,6 +839,24 @@ export default function TranscriptionWorkspace({
                   音频仅用于本次请求，不写入模镜资料库。
                 </dd>
               </div>
+              {file && model.media_pricing?.unit === "audio_hour" ? (
+                <div>
+                  <dt className="text-slate-400">预估费用</dt>
+                  <dd className="mt-1 leading-6 text-slate-200">
+                    {preflightCostUsd === null
+                      ? "读取音频时长后显示；最终以上游回执为准。"
+                      : `约 $${preflightCostUsd.toFixed(6)}（${audioDurationSeconds?.toFixed(1)} 秒）；最终以上游回执为准。`}
+                  </dd>
+                </div>
+              ) : null}
+              {model.note ? (
+                <div>
+                  <dt className="text-slate-400">契约与费用</dt>
+                  <dd className="mt-1 leading-6 text-slate-200">
+                    {model.note}
+                  </dd>
+                </div>
+              ) : null}
             </dl>
           </aside>
         </div>
@@ -808,7 +867,8 @@ export default function TranscriptionWorkspace({
               <div>
                 <h2 className="text-lg font-semibold text-white">转录结果</h2>
                 <p className="mt-1 text-xs text-slate-400">
-                  {result.actual_model} · {result.provider} · {costLabel(result.usage)}
+                  {result.actual_model} · {result.provider} ·{" "}
+                  {costLabel(result.usage, model)}
                 </p>
               </div>
               <button

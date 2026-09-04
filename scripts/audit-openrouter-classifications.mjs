@@ -2,6 +2,10 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createServer } from "../client/node_modules/vite/dist/node/index.js";
+import {
+  auditAudioHourPricingOverlays,
+  REQUIRED_AUDIO_HOUR_PRICING_OVERLAYS,
+} from "./openrouter-pricing-contracts.mjs";
 
 const OPENROUTER_MARKET_URL =
   "https://openrouter.ai/api/frontend/v1/models/find?active=true&fmt=cards";
@@ -42,6 +46,22 @@ const DESIGN_ARENA_KEYS = {
   "models-video": "video",
   "models-svg": "svg",
 };
+const MARKET_STRUCTURAL_FIELDS = [
+  "series",
+  "author",
+  "providers",
+  "categories",
+  "discounted",
+  "distillable",
+  "zero_data_retention",
+  "regions",
+  "created_at",
+];
+const MARKET_VOLATILE_FIELDS = [
+  "tool_call_success_rate",
+  "artificial_analysis",
+  "design_arena",
+];
 
 function parseArgs(argv) {
   const result = {};
@@ -490,7 +510,9 @@ async function main() {
   const mediaModelsWithZeroTokenPrice = localCatalog.filter((model) => {
     const outputs = new Set(model.output_modalities);
     return model.pricing_status === "free" &&
-      ["image", "video", "audio", "speech"].some((modality) => outputs.has(modality));
+      ["image", "video", "audio", "speech"].some(
+        (modality) => outputs.has(modality),
+      );
   });
   const nonExplicitFreeModels = localCatalog.filter(
     (model) =>
@@ -530,6 +552,11 @@ async function main() {
   const imageModelsUsingEndpointPricing = mediaModelsWithZeroTokenPrice.filter((model) =>
     imageModelIds.has(model.id),
   );
+  const audioHourPricingOverlayMismatches = auditAudioHourPricingOverlays({
+    localModels,
+    sourceModels,
+    marketModels: marketPayload.data.models,
+  });
 
   const optionValues = new Set(jobCapabilityOptions.map((option) => option.value));
   const producedJobCapabilities = new Set(localModels.flatMap((model) => model.job_capabilities));
@@ -557,10 +584,103 @@ async function main() {
   const localCountedAbsentUpstream = localModels.filter(
     (model) => model.catalog_counted && !sourceIds.has(model.id),
   );
+  const sourceModelsMissingLocally = sorted(
+    sourceModels
+      .filter((model) => !localModels.some((local) => local.id === model.id))
+      .map((model) => model.id),
+  );
+  const discreteOptionSetMatch = {
+    series: hasExactOptionSet(
+      seriesOptions.map((option) => option.value),
+      OPENROUTER_MARKET_SERIES,
+    ),
+    categories: hasExactOptionSet(
+      marketCategoryOptions.map((option) => option.value),
+      OPENROUTER_MARKET_CATEGORIES,
+    ),
+    supported_parameters: hasExactOptionSet(
+      supportedParameterOptions.map((option) => option.value),
+      OPENROUTER_SUPPORTED_PARAMETERS,
+    ),
+  };
+  const marketStructuralMismatchIds = sorted(
+    marketSnapshotMismatches
+      .filter((mismatch) =>
+        MARKET_STRUCTURAL_FIELDS.some(
+          (field) =>
+            JSON.stringify(mismatch.actual[field]) !==
+            JSON.stringify(mismatch.expected[field]),
+        ),
+      )
+      .map((mismatch) => mismatch.id),
+  );
+  const marketVolatileMismatchIds = sorted(
+    marketSnapshotMismatches
+      .filter((mismatch) =>
+        MARKET_VOLATILE_FIELDS.some(
+          (field) =>
+            JSON.stringify(mismatch.actual[field]) !==
+            JSON.stringify(mismatch.expected[field]),
+        ),
+      )
+      .map((mismatch) => mismatch.id),
+  );
+  const classifiedMarketFields = new Set([
+    ...MARKET_STRUCTURAL_FIELDS,
+    ...MARKET_VOLATILE_FIELDS,
+  ]);
+  const unclassifiedMarketMismatchIds = sorted(
+    marketSnapshotMismatches
+      .filter((mismatch) =>
+        [...new Set([
+          ...Object.keys(mismatch.actual),
+          ...Object.keys(mismatch.expected),
+        ])].some(
+          (field) =>
+            JSON.stringify(mismatch.actual[field]) !==
+              JSON.stringify(mismatch.expected[field]) &&
+            !classifiedMarketFields.has(field),
+        ),
+      )
+      .map((mismatch) => mismatch.id),
+  );
+  const actionableReasons = {
+    source_models_missing_locally: sourceModelsMissingLocally,
+    operation_mismatches: authoritativeOperationMismatches.map((item) => item.id),
+    job_capability_mismatches: authoritativeJobMismatches.map((item) => item.id),
+    structural_market_mismatches: marketStructuralMismatchIds,
+    unclassified_market_mismatches: unclassifiedMarketMismatchIds,
+    discrete_option_set_mismatches: Object.entries(discreteOptionSetMatch)
+      .filter(([, matches]) => !matches)
+      .map(([name]) => name),
+    reasoning_without_structured_api_signal:
+      reasoningWithoutStructuredSignal.map((model) => model.id),
+    translation_without_text_output:
+      translationWithoutTextOutput.map((model) => model.id),
+    coding_without_text_output: codingWithoutTextOutput.map((model) => model.id),
+    non_explicit_models_marked_free: nonExplicitFreeModels.map((model) => model.id),
+    zero_token_media_with_wrong_basis:
+      zeroTokenMediaWithWrongBasis.map((model) => model.id),
+    zero_token_request_with_wrong_basis:
+      zeroTokenRequestWithWrongBasis.map((model) => model.id),
+    audio_hour_pricing_overlay_mismatches:
+      audioHourPricingOverlayMismatches.map((item) => item.id),
+    provider_other: localProviderOther.map((model) => model.id),
+    produced_job_capabilities_missing_option:
+      producedJobCapabilitiesMissingOption,
+    options_without_any_model: optionsWithoutAnyModel,
+  };
+  const hasActionableClassificationDrift = Object.values(actionableReasons)
+    .some((items) => items.length > 0);
 
   const report = {
     schema_version: 1,
     audited_at: new Date().toISOString(),
+    actionability: {
+      actionable: hasActionableClassificationDrift,
+      reasons: actionableReasons,
+      volatile_market_observation_ids: marketVolatileMismatchIds,
+    },
     source: {
       models_url: "https://openrouter.ai/api/v1/models?output_modalities=all&sort=newest&offset=0&limit=1000",
       images_url: "https://openrouter.ai/api/v1/images/models",
@@ -577,9 +697,7 @@ async function main() {
     },
     coverage: {
       local_catalog_entries_compared: localCatalog.length,
-      source_models_missing_locally: sorted(
-        sourceModels.filter((model) => !localModels.some((local) => local.id === model.id)).map((model) => model.id),
-      ),
+      source_models_missing_locally: sourceModelsMissingLocally,
       local_counted_entries_absent_upstream: {
         count: localCountedAbsentUpstream.length,
         by_catalog_status: countBy(
@@ -655,20 +773,7 @@ async function main() {
         categories: OPENROUTER_MARKET_CATEGORIES,
         supported_parameters: OPENROUTER_SUPPORTED_PARAMETERS,
       },
-      discrete_option_set_match: {
-        series: hasExactOptionSet(
-          seriesOptions.map((option) => option.value),
-          OPENROUTER_MARKET_SERIES,
-        ),
-        categories: hasExactOptionSet(
-          marketCategoryOptions.map((option) => option.value),
-          OPENROUTER_MARKET_CATEGORIES,
-        ),
-        supported_parameters: hasExactOptionSet(
-          supportedParameterOptions.map((option) => option.value),
-          OPENROUTER_SUPPORTED_PARAMETERS,
-        ),
-      },
+      discrete_option_set_match: discreteOptionSetMatch,
       category_reference: categoryReference
           ? {
             source: "Optional singular ?category= responses",
@@ -700,6 +805,13 @@ async function main() {
       zero_token_request_with_wrong_basis: {
         count: zeroTokenRequestWithWrongBasis.length,
         model_ids: zeroTokenRequestWithWrongBasis.map((model) => model.id),
+      },
+      audio_hour_pricing_overlay_mismatches: {
+        required_model_ids: [
+          ...REQUIRED_AUDIO_HOUR_PRICING_OVERLAYS.keys(),
+        ].sort((left, right) => left.localeCompare(right)),
+        count: audioHourPricingOverlayMismatches.length,
+        models: audioHourPricingOverlayMismatches,
       },
       media_models_with_zero_token_price_marked_free: {
         count: mediaModelsWithZeroTokenPrice.length,
@@ -746,31 +858,8 @@ async function main() {
   process.stdout.write(output);
 
   if (
-    report.coverage.source_models_missing_locally.length > 0 ||
-    authoritativeOperationMismatches.length > 0 ||
-    authoritativeJobMismatches.length > 0 ||
-    marketSnapshotMismatches.length > 0 ||
-    !hasExactOptionSet(
-      seriesOptions.map((option) => option.value),
-      OPENROUTER_MARKET_SERIES,
-    ) ||
-    !hasExactOptionSet(
-      marketCategoryOptions.map((option) => option.value),
-      OPENROUTER_MARKET_CATEGORIES,
-    ) ||
-    !hasExactOptionSet(
-      supportedParameterOptions.map((option) => option.value),
-      OPENROUTER_SUPPORTED_PARAMETERS,
-    ) ||
-    reasoningWithoutStructuredSignal.length > 0 ||
-    translationWithoutTextOutput.length > 0 ||
-    codingWithoutTextOutput.length > 0 ||
-    nonExplicitFreeModels.length > 0 ||
-    zeroTokenMediaWithWrongBasis.length > 0 ||
-    zeroTokenRequestWithWrongBasis.length > 0 ||
-    localProviderOther.length > 0 ||
-    producedJobCapabilitiesMissingOption.length > 0 ||
-    optionsWithoutAnyModel.length > 0
+    hasActionableClassificationDrift ||
+    marketVolatileMismatchIds.length > 0
   ) {
     process.exitCode = 1;
   }

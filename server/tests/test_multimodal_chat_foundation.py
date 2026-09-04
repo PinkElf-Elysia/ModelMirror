@@ -118,6 +118,12 @@ def audio_catalog_payload() -> dict[str, object]:
                 "output_modalities": ["transcription"],
             },
             {
+                "id": "microsoft/mai-transcribe-2",
+                "name": "Microsoft: MAI Transcribe 2",
+                "input_modalities": ["audio"],
+                "output_modalities": ["transcription"],
+            },
+            {
                 "id": "microsoft/mai-voice-2",
                 "name": "Microsoft: MAI Voice 2",
                 "input_modalities": ["text"],
@@ -320,7 +326,7 @@ async def test_audio_catalog_only_marks_verified_interactions_ready(
 
     assert result.status == "online"
     assert result.catalog_version == (
-        "modelmirror-audio-contracts-2026-09-03-gemini-muse"
+        "modelmirror-audio-contracts-2026-09-03-mai2"
     )
     assert by_id["openai/gpt-audio"].provider == "openrouter"
     assert by_id["openai/gpt-audio"].operations == ["analyze_audio"]
@@ -361,6 +367,15 @@ async def test_audio_catalog_only_marks_verified_interactions_ready(
     assert "webm" in by_id[
         "microsoft/mai-transcribe-1.5"
     ].input_formats
+    mai2 = by_id["microsoft/mai-transcribe-2"]
+    assert mai2.operations == ["transcribe"]
+    assert mai2.chat_modes == []
+    assert mai2.interaction_status == "planned"
+    assert mai2.operation_readiness[0].verification_status == (
+        "manual_required"
+    )
+    assert "短音频人工验收" in (mai2.status_reason or "")
+    assert "webm" in mai2.input_formats
     assert by_id["microsoft/mai-voice-2"].chat_modes == [
         "synthesize_speech"
     ]
@@ -731,7 +746,7 @@ async def test_audio_catalog_endpoint_does_not_expose_credentials(
     assert response.status_code == 200
     assert response.json()["profiles"]
     assert response.json()["catalog_version"] == (
-        "modelmirror-audio-contracts-2026-09-03-gemini-muse"
+        "modelmirror-audio-contracts-2026-09-03-mai2"
     )
     assert response.json()["microphone_enabled"] is True
     assert "audio-catalog-secret" not in response.text

@@ -43,7 +43,7 @@ from .readiness import (
 
 AUDIO_CATALOG_TTL_SECONDS = 300.0
 AUDIO_CATALOG_STALE_SECONDS = 1_800.0
-AUDIO_PROFILE_REGISTRY_VERSION = "modelmirror-audio-contracts-2026-09-03-gemini-muse"
+AUDIO_PROFILE_REGISTRY_VERSION = "modelmirror-audio-contracts-2026-09-03-mai2"
 
 NATIVE_AUDIO_VOICES = (
     "alloy",

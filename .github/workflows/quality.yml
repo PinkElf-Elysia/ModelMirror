@@ -61,6 +61,13 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: server/requirements.txt
+      - name: Test OpenRouter update guards
+        run: >-
+          node --test
+          scripts/update-openrouter-models.test.mjs
+          scripts/openrouter-pricing-contracts.test.mjs
+          .agents/skills/openrouter-update/scripts/inspect-json.test.mjs
+          .agents/skills/openrouter-update/scripts/stable-signature.test.mjs
       - name: Install backend dependencies
         run: python -m pip install -r server/requirements.txt
       - name: Install Agency worker dependencies

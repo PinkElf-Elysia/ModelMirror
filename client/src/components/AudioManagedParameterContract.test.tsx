@@ -3,11 +3,24 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Model } from "../data/models";
 import SpeechWorkspace from "./SpeechWorkspace";
-import TranscriptionWorkspace from "./TranscriptionWorkspace";
+import TranscriptionWorkspace, {
+  estimateTranscriptionCostUsd,
+} from "./TranscriptionWorkspace";
 
 const model = {
   id: "openai/audio-test",
   name: "Audio Test",
+} as Model;
+
+const hourlyTranscriptionModel = {
+  ...model,
+  id: "microsoft/mai-transcribe-2",
+  name: "Microsoft: MAI-Transcribe 2",
+  media_pricing: {
+    unit: "audio_hour",
+    usd: 0.1,
+  },
+  note: "目录价为 $0.10/音频小时，真实短音频仍待人工验收。",
 } as Model;
 
 function providerRouteReceipt(
@@ -112,13 +125,19 @@ describe("Managed audio parameter contract", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
+    const modelWithContractNote = {
+      ...model,
+      note: "目录价为 $0.10/音频小时，真实短音频仍待人工验收。",
+    } as Model;
     const { container } = renderWithRouter(
-      <TranscriptionWorkspace model={model} />,
+      <TranscriptionWorkspace model={modelWithContractNote} />,
     );
 
     expect(
       await screen.findByText(/只接受本次真实资格认证通过的输入格式/),
     ).toBeVisible();
+    expect(screen.getByText("契约与费用")).toBeVisible();
+    expect(screen.getByText(/目录价为 \$0\.10\/音频小时/)).toBeVisible();
     const input = container.querySelector<HTMLInputElement>(
       'input[type="file"]',
     );
@@ -138,6 +157,52 @@ describe("Managed audio parameter contract", () => {
       await screen.findByText(/当前 Managed Provider 仅认证 WAV 音频/),
     ).toBeVisible();
     expect(screen.queryByText("recording.mp3")).not.toBeInTheDocument();
+  });
+
+  it("estimates MAI-Transcribe 2 cost from audio duration before submission", async () => {
+    stubObjectUrls();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({
+          feature_enabled: true,
+          status: "managed_required",
+          available: true,
+          reason_code: "provider_workload_available",
+          certified_input_formats: ["wav"],
+        }),
+      ),
+    );
+
+    expect(
+      estimateTranscriptionCostUsd(hourlyTranscriptionModel, 360),
+    ).toBeCloseTo(0.01);
+    expect(estimateTranscriptionCostUsd(model, 360)).toBeNull();
+
+    const { container } = renderWithRouter(
+      <TranscriptionWorkspace model={hourlyTranscriptionModel} />,
+    );
+    await screen.findByText(/只接受本次真实资格认证通过的输入格式/);
+    fireEvent.change(
+      container.querySelector<HTMLInputElement>('input[type="file"]')!,
+      {
+        target: {
+          files: [new File(["audio"], "estimate.wav", { type: "audio/wav" })],
+        },
+      },
+    );
+
+    const audio = await screen.findByLabelText("预听 estimate.wav");
+    Object.defineProperty(audio, "duration", {
+      configurable: true,
+      value: 360,
+    });
+    fireEvent.loadedMetadata(audio);
+
+    expect(
+      await screen.findByText(/约 \$0\.010000（360\.0 秒）/),
+    ).toBeVisible();
+    expect(screen.getByText(/最终以上游回执为准/)).toBeVisible();
   });
 
   it("uses certified TTS voice and external format without loading the legacy catalog", async () => {
