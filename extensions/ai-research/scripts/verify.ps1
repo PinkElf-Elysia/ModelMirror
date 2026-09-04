@@ -165,6 +165,7 @@ try {
     Invoke-Python @(
         "-m", "pytest",
         "tests/control/test_boundary_base.py",
+        "tests/control/test_trusted_full_bootstrap.py",
         "tests/control/test_zero_footprint_base.py",
         "-q", "-p", "no:cacheprovider", "--basetemp", $pytestBaseTemp
     )

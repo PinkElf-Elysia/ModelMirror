@@ -111,6 +111,7 @@ python "${BOUNDARY_ARGS[@]}"
 PYTEST_BASETEMP=$(mktemp -d "$MODULE_ROOT/runtime/pytest.XXXXXX")
 python -m pytest \
   tests/control/test_boundary_base.py \
+  tests/control/test_trusted_full_bootstrap.py \
   tests/control/test_zero_footprint_base.py \
   -q -p no:cacheprovider --basetemp "$PYTEST_BASETEMP"
 "${COMPOSE[@]}" config --quiet

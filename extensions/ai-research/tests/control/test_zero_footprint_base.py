@@ -1443,6 +1443,7 @@ def test_verify_scripts_build_three_proofs_and_pass_full_zero_footprint_interfac
     assert "baseline-client-dist" in script
     assert '"--client-dist"' in script or "--client-dist" in script
     assert '"--base"' in script or "--base" in script
+    assert "tests/control/test_trusted_full_bootstrap.py" in script
     assert "client-source" in script
     assert "client-baseline" in script
     assert "client-current" in script
