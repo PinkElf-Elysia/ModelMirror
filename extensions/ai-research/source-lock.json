@@ -44,10 +44,10 @@
       "server/Dockerfile": "071eed6241614107affdde4f48a5279c943ff20c5c4179da1fad180cf0d1f390",
       "client/package.json": "e1a089a9661e71140315bd931993c3fa047dd73d5eb4cef58bd1fc87ad292b7e",
       "client/package-lock.json": "0769346386c572ab84f1be52a4882315d98896d76f7e77d21223c359c7dde476",
-      "extensions/ai-research/scripts/verify.ps1": "8846a0a697342d25d523959650077431326c3c83fe9d89dc2a2864cba41ba7f9",
+      "extensions/ai-research/scripts/verify.ps1": "5dff8544cc1320511de8ab22c2be98e72de27619ec7e269d9ea5b750ce46d324",
       "extensions/ai-research/scripts/verify.sh": "090e6bef36e082006dbb9d0f15b5cbf233b753c4d99bed0627c42ed0f2c3fa33",
       "extensions/ai-research/scripts/zero_footprint.py": "1c5ed860452c09b9ea271baf3c3bd6743f902bb8b71e643633c2ca611dc5c619",
-      "extensions/ai-research/tests/control/test_zero_footprint_base.py": "04cfb9dd563c9ec28d294cfa573dc6b287eb5c0cdf6daea26856871450a6ef25"
+      "extensions/ai-research/tests/control/test_zero_footprint_base.py": "4da5f7c65dc3e508f4aa0d1ffa4a3c5baf9ada571ae266b1a5dd0fb5318450e7"
     },
     "defaultServices": [
       "browser",
@@ -421,8 +421,8 @@
       "sha256": "8da4a04e2b769f0bbbb3c33f84be72c89a9c2c46908b110017db02d90913d93f"
     },
     "scripts/verify.ps1": {
-      "sizeBytes": 20103,
-      "sha256": "8846a0a697342d25d523959650077431326c3c83fe9d89dc2a2864cba41ba7f9"
+      "sizeBytes": 20339,
+      "sha256": "5dff8544cc1320511de8ab22c2be98e72de27619ec7e269d9ea5b750ce46d324"
     },
     "scripts/verify.sh": {
       "sizeBytes": 15878,
@@ -465,8 +465,8 @@
       "sha256": "e890bbd61bb6c1ff78cf275789539456f81c0b2cd86aeb26ad34f84586e7a75e"
     },
     "tests/control/test_zero_footprint_base.py": {
-      "sizeBytes": 50703,
-      "sha256": "04cfb9dd563c9ec28d294cfa573dc6b287eb5c0cdf6daea26856871450a6ef25"
+      "sizeBytes": 50814,
+      "sha256": "4da5f7c65dc3e508f4aa0d1ffa4a3c5baf9ada571ae266b1a5dd0fb5318450e7"
     },
     "tests/control/test_trusted_full_bootstrap.py": {
       "sizeBytes": 6342,

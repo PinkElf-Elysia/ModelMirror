@@ -1468,3 +1468,5 @@ def test_windows_verifier_uses_short_system_pytest_temp_root() -> None:
     assert "[System.IO.Path]::GetTempPath()" in script
     assert '"mm-ai-research-pytest-"' in script
     assert 'Join-Path $runtime ("pytest-"' not in script
+    assert "[System.Security.Cryptography.SHA256]::Create()" in script
+    assert "Get-FileHash" not in script

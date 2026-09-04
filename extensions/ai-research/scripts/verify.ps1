@@ -33,6 +33,17 @@ function Invoke-Python([string[]]$Arguments) {
     Invoke-Checked $pythonFile ($pythonPrefix + $Arguments)
 }
 
+function Get-FileSha256([string]$Path) {
+    $stream = [System.IO.File]::OpenRead($Path)
+    $algorithm = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        return ([System.BitConverter]::ToString($algorithm.ComputeHash($stream))).Replace("-", "").ToLowerInvariant()
+    } finally {
+        $algorithm.Dispose()
+        $stream.Dispose()
+    }
+}
+
 function Measure-Image([string]$Image, [string]$Slug) {
     $tarPath = Join-Path $diagnostics "$Slug-image.tar"
     $gzipPath = "$tarPath.gz"
@@ -188,9 +199,9 @@ try {
     Extract-ImageFile "modelmirror-ai-research-control:v0.1" "/usr/share/doc/modelmirror-ai-research/ui-build-inventory.json" $uiInventoryPath
     Extract-ImageFile "modelmirror-ai-research-worker:v0.1" "/usr/share/doc/modelmirror-ai-research/runtime-inventory.json" $workerInventoryPath
     $sourceLock = Get-Content -Raw -Encoding utf8 source-lock.json | ConvertFrom-Json
-    $controlInventoryHash = (Get-FileHash -Algorithm SHA256 $controlInventoryPath).Hash.ToLowerInvariant()
-    $workerInventoryHash = (Get-FileHash -Algorithm SHA256 $workerInventoryPath).Hash.ToLowerInvariant()
-    $uiInventoryHash = (Get-FileHash -Algorithm SHA256 $uiInventoryPath).Hash.ToLowerInvariant()
+    $controlInventoryHash = Get-FileSha256 $controlInventoryPath
+    $workerInventoryHash = Get-FileSha256 $workerInventoryPath
+    $uiInventoryHash = Get-FileSha256 $uiInventoryPath
     if ($controlInventoryHash -ne $sourceLock.licenseAudit.control.inventorySha256) {
         throw "control runtime inventory hash disagrees with source-lock"
     }
