@@ -458,7 +458,7 @@
     },
     "G1_CLOSEOUT.md": {
       "sizeBytes": 10827,
-      "sha256": "b47d866c84b032ceddaffe0544f4acf76cbd2d32efdef638b3454025d836a280"
+      "sha256": "473fa7a6412ddad964bd8ee8be71113fa930be947ff566e1b83a15911701e041"
     },
     "tests/control/test_boundary_base.py": {
       "sizeBytes": 16944,
