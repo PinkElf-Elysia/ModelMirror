@@ -1,0 +1,29 @@
+{
+  "format": "modelmirror.ai-rpg.world-capture",
+  "formatVersion": "0.1.0",
+  "capturedDate": "2026-09-05",
+  "sourceUrl": "https://afengy.cash/zh/explore/installed/e23bbc64-4fdd-46d8-92c0-64923961e5d8",
+  "authorizationRef": "user:rpg02-skill-generalization-two-full-worlds-2026-09-05",
+  "acquisition": "visible_opening_iframe_srcdoc_bounded_window",
+  "sessionLabel": "新的对话-5",
+  "openingTitle": "无限重生系统 - 启动协议 v16.2 (Pyrite修复版)",
+  "fullOriginalHtmlStored": false,
+  "rereadMatched": true,
+  "websiteProbes": 0,
+  "modelCalls": 0,
+  "scope": "complete_selected_world_object",
+  "unavailable": [
+    "hidden worldbook",
+    "hidden style",
+    "hidden prompts"
+  ],
+  "commonTalentsScope": "separate_global_pool_not_assigned_to_this_world",
+  "name": "470.蛊真人 (Reverend Insanity)",
+  "start": 1283417,
+  "end": 1287593,
+  "sourceCharacters": 1762427,
+  "rawUtf8Bytes": 7504,
+  "rawSha256": "9f99336567d3cb331a25e82679d4a9783b25b16d3a475aae07bb8840aefa952b",
+  "dataSha256": "bf3d43063ce0a6a6bfef8a61087e80e4392a78e339e256a640b2f15bc455f80f",
+  "raw": "{\n    name: \"470.蛊真人 (Reverend Insanity)\",\n    desc: \"养蛊、炼蛊、用蛊。这是一个残酷的修仙世界，没有道德，只有利益。人是万物之灵，蛊是天地之精。在这个世界，为了永生，你可以牺牲一切。\",\n    boss: \"天庭(龙公, 紫薇仙子), 影宗(魔尊幽魂), 巨阳仙尊, 乐土亚仙尊\",\n    identities: [\n        { name: \"古月山寨的凡人奴仆\", items: \"一身粗布麻衣, 一块干硬的馒头\" },\n        { name: \"被家族流放的旁系少年\", items: \"一只一转酒虫, 几块元石\" },\n        { name: \"魔道散修的弟子\", items: \"一本残缺的血道秘籍, 一把人骨炼制的匕首\" },\n        { name: \"商队里的护卫\", items: \"一只二转铁皮蛊, 一把精钢刀\" },\n        { name: \"中洲门派的外门弟子\", items: \"一块门派令牌, 一只一转纸鹤蛊\" }\n    ],\n    talents: [\n        {name: \"春秋蝉(重生)\", color: \"SSS\", cost: 50000, desc: \"红莲魔尊的本命蛊，宙道奇蛊。当你死亡时，它能带着你的意志逆流光阴长河，回到过去。这是逆天改命、知晓未来的终极外挂，但有失败风险。\", type: \"exclusive\"},\n        {name: \"九转尊者资质\", color: \"SSS\", cost: 45000, desc: \"你拥有成就九转蛊尊的潜力。你的才情、毅力和气运都是当世顶尖，注定要无敌于天下，打破宿命。\", type: \"exclusive\"},\n        {name: \"至尊仙胎蛊\", color: \"SSS\", cost: 48000, desc: \"人祖传说中的蛊虫。一旦使用，你将获得至尊仙体，道痕互不排斥，可以兼修所有流派，且恢复力惊人，是魔尊幽魂的毕生杰作。\", type: \"exclusive\"},\n        {name: \"智慧蛊\", color: \"SS\", cost: 9500, desc: \"九转智道蛊虫。它能散发出智慧光晕，沐浴其中能让你思维无限加速，推演蛊方、杀招如喝水般简单，但需要消耗寿命。\", type: \"exclusive\"},\n        {name: \"十绝体(随机)\", color: \"SS\", cost: 8000, desc: \"你拥有十绝体之一（如北冥冰魄体、太日阳莽体）。修炼速度极快，战力远超同阶，但若无相应蛊虫压制，会因窍壁破碎而自爆。\", type: \"exclusive\"},\n        {name: \"血道宗师\", color: \"S\", cost: 2800, desc: \"你对血道有极深的领悟。血道速成且战力强，擅长以战养战，恢复力极强。但你是全天下的公敌，会被正道追杀。\", type: \"exclusive\"},\n        {name: \"炼道准无上大宗师\", color: \"SS\", cost: 9000, desc: \"你在炼蛊一道上达到了登峰造极的境界。天地万物皆可炼，你可以轻松炼制出仙蛊，甚至将人炼成蛊。\", type: \"exclusive\"},\n        {name: \"力道流派(上古)\", color: \"A\", cost: 1500, desc: \"你走的是上古力道流派。不修真元，只修肉身。一力降十会，拥有搬山填海的恐怖怪力。\", type: \"exclusive\"},\n        {name: \"智道算计\", color: \"S\", cost: 2500, desc: \"你心思深沉，擅长推演布局。在战斗前你已经算计好了对手的每一步，能以弱胜强，玩弄世人于股掌之间。\", type: \"exclusive\"},\n        {name: \"梦道先驱\", color: \"SS\", cost: 7500, desc: \"你掌握了新时代的流派——梦道。你可以进入梦境探索，提升境界，或者将敌人拉入梦境杀死。在梦道未昌盛前，你几乎无敌。\", type: \"exclusive\"},\n        {name: \"甲等空窍\", color: \"A\", cost: 1200, desc: \"你拥有九成九的真元海。修炼速度极快，真元恢复力强，是成为强者的基础资本。\", type: \"exclusive\"},\n        {name: \"酒虫(一转)\", color: \"C\", cost: 200, desc: \"珍稀蛊虫。能提纯真元，让你拥有一转巅峰的真元质量，在前期对拼中占据绝对优势。\", type: \"exclusive\"},\n        {name: \"定仙游\", color: \"SS\", cost: 8500, desc: \"六转宇道仙蛊。只要是你去过或者看到过景象的地方，无论多远，心念一动即可瞬间到达。逃跑、偷袭神技。\", type: \"exclusive\"},\n        {name: \"人如草芥\", color: \"D\", cost: 50, desc: \"你的心冷如铁。杀人对你来说就像割草一样，不会有任何心理负担。这能让你在魔道之路上走得更远。\", type: \"exclusive\"},\n        {name: \"吃苦耐劳\", color: \"C\", cost: 100, desc: \"你拥有极强的忍耐力。无论是被火烧、被虫咬还是精神折磨，你都能面不改色，坚持到反击的那一刻。\", type: \"exclusive\"},\n        {name: \"天庭卧底\", color: \"A\", cost: 1800, desc: \"你是中洲天庭埋下的棋子。虽然危险，但你可以获得天庭的资源支持，甚至借用宿命蛊的力量。\", type: \"exclusive\"},\n        {name: \"运道(鸿运齐天)\", color: \"SS\", cost: 8800, desc: \"巨阳仙尊的真传。你的运气好到逆天，走路捡仙蛊，敌人会莫名其妙倒霉。但要注意物极必反。\", type: \"exclusive\"},\n        {name: \"变化道(千变万化)\", color: \"S\", cost: 2200, desc: \"你可以变化成各种荒兽、上古荒兽甚至太古荒兽，拥有它们的身体素质和天赋神通。\", type: \"exclusive\"},\n        {name: \"剑道(波光剑影)\", color: \"A\", cost: 1600, desc: \"你的攻击犀利无比，剑气纵横。擅长远程攻击和单点爆发，是攻伐第一的流派之一。\", type: \"exclusive\"},\n        {name: \"蛊阵师\", color: \"A\", cost: 1400, desc: \"你擅长布置蛊阵。只要给你时间准备，你可以用低级蛊虫困杀高级蛊师，甚至建立坚不可摧的基地。\", type: \"exclusive\"},\n        {name: \"态度蛊\", color: \"S\", cost: 2600, desc: \"传说中的蛊虫。你可以完美伪装自己的情感和念头，连八转蛊仙都无法看穿你的真心。是影帝的必备修养。\", type: \"exclusive\"},\n        {name: \"方源的狠辣\", color: \"A\", cost: 2000, desc: \"你继承了方源的性格。为了利益，你可以没有任何底线。这种绝对的理智让你在残酷的修仙界生存率大增。\", type: \"exclusive\"},\n        {name: \"净魂仙蛊\", color: \"S\", cost: 2400, desc: \"魂道仙蛊。可以净化魂魄，提升底蕴，也能克制魂道杀招，防止被夺舍或搜魂。\", type: \"exclusive\"},\n        {name: \"逆流河护身\", color: \"SS\", cost: 9200, desc: \"天地秘境逆流河。任何攻击落入其中都会被逆流反射回去。只要你立于河上，就立于不败之地。\", type: \"exclusive\"},\n        {name: \"太丘传承\", color: \"B\", cost: 600, desc: \"你获得了太丘荒兽的认可，能够指挥兽群，或者在危险的太丘地形中如鱼得水。\", type: \"exclusive\"},\n        {name: \"白骨战车\", color: \"B\", cost: 500, desc: \"骨道杀招凝聚的战车，防御力强，移动速度快，且自带撞角，碾压低级蛊师。\", type: \"exclusive\"},\n        {name: \"星门蛊\", color: \"C\", cost: 300, desc: \"可以在夜晚借助星光开启传送门，连接两个遥远的地点。是长途跋涉和运兵的利器。\", type: \"exclusive\"},\n        {name: \"无脚鸟\", color: \"E\", cost: 20, desc: \"一种只能飞翔不能落地的鸟。象征着你在这个世界的命运，必须不断奔跑，停下就是死亡。\", type: \"exclusive\"},\n        {name: \"春秋蝉的副作用\", color: \"E\", cost: 10, desc: \"虽然能重生，但你的运气会变得极差。重生后往往面临更大的危机，需要极高的智慧化解。\", type: \"exclusive\"},\n        {name: \"坚持\", color: \"SSS\", cost: 10000, desc: \"一种精神境界。哪怕失败一万次，哪怕举世皆敌，哪怕身死道消，你也绝不放弃心中的目标。这是魔尊的潜质。\", type: \"exclusive\"}\n    ]\n}"
+}

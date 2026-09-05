@@ -1,0 +1,604 @@
+{
+  "schemaVersion": 1,
+  "round": "RPG-02",
+  "subround": "02B2",
+  "status": "selected_fragments_verified",
+  "sourceUrl": "https://afengy.cash/zh/explore/installed/e23bbc64-4fdd-46d8-92c0-64923961e5d8",
+  "acquisitionMethod": "Normal new-conversation opening iframe srcdoc; transient read only. Acorn 8.18.0 validates literal AST for unique worldDB/commonTalents declarations; select 14 records. All 18 selected raw literals re-read from the live DOM and matched. Source scripts are never evaluated.",
+  "observedSession": "新的对话-5",
+  "observedDocumentTitle": "无限重生系统 - 启动协议 v16.2 (Pyrite修复版)",
+  "candidateSnapshot": {
+    "utf16Units": 1762427,
+    "utf8Bytes": 2933186,
+    "sha256": "bb892158ce93531139409eedeb301f73bd0747a0e5714fe51feab7bec5411ce6",
+    "carriageReturns": 0,
+    "lineFeeds": 20375,
+    "persisted": false,
+    "hashMeaning": "UTF-8 encoding of the collected DOM srcdoc text, not an original server-file hash."
+  },
+  "authorizationReferences": [
+    "docs/ai-rpg-experiment/BASELINE.md",
+    "user-approved RPG-02 plan",
+    "2026-09-05 user authorization to create local storage files"
+  ],
+  "history": [
+    {
+      "kind": "limitation",
+      "code": "EDGE_CONTENT_EXPORT_UNSUPPORTED"
+    },
+    {
+      "kind": "limitation",
+      "code": "SITE_CHAT_EXPORT_EXCLUDES_STATIC_OPENING",
+      "exportedFileBytes": 3
+    },
+    {
+      "kind": "limitation",
+      "code": "VIRTUAL_CLIPBOARD_NOT_OS_CLIPBOARD",
+      "sourceFileSaved": false
+    },
+    {
+      "kind": "policy_stop",
+      "code": "BROWSER_DATA_URL_REJECTED",
+      "restriction": "Do not retry or use alternate surfaces/indirect execution to bypass the blocked URL action."
+    },
+    {
+      "kind": "user_stop",
+      "code": "PHYSICAL_ESCAPE",
+      "computerUseStopped": true
+    },
+    {
+      "kind": "authorization",
+      "code": "LOCAL_FILE_CREATION_AUTHORIZED"
+    },
+    {
+      "kind": "filesystem_stop",
+      "code": "SOURCE_CAPTURE_FS_EPERM",
+      "writeMode": "UTF-8 exclusive create (wx)",
+      "target": ".rpg02-work/sources/opening-srcdoc-capture.txt",
+      "persisted": false,
+      "restriction": "The browser execution environment denied the direct local-file write. User storage authorization does not itself alter tool sandbox permissions."
+    },
+    {
+      "kind": "authorization_revision",
+      "code": "SELECTED_FRAGMENT_EVIDENCE_ACCEPTED",
+      "note": "User allows verbatim reuse or optimization of data/text/logic obtainable through real card interaction; unseen material may be authored. Full original file copying is not authorized. Prior blocked paths remain stopped."
+    }
+  ],
+  "selectedRecords": [
+    {
+      "kind": "world",
+      "worldName": "470.蛊真人 (Reverend Insanity)",
+      "locator": "/worldDB/469",
+      "data": {
+        "name": "470.蛊真人 (Reverend Insanity)",
+        "desc": "养蛊、炼蛊、用蛊。这是一个残酷的修仙世界，没有道德，只有利益。人是万物之灵，蛊是天地之精。在这个世界，为了永生，你可以牺牲一切。",
+        "boss": "天庭(龙公, 紫薇仙子), 影宗(魔尊幽魂), 巨阳仙尊, 乐土亚仙尊"
+      },
+      "dataUtf8Bytes": 337,
+      "dataSha256": "4fcf36a7cfd793899562ee4116b9ffd0c6fc067ae48aec80dbc7a2780eb71119",
+      "fragments": [
+        {
+          "path": "/name",
+          "start": 1283429,
+          "end": 1283458,
+          "text": "\"470.蛊真人 (Reverend Insanity)\"",
+          "utf8Bytes": 35,
+          "sha256": "06c8ce69b7cd853b2e368ffb4092177790a28310180482df528fcbd5c027f8e0"
+        },
+        {
+          "path": "/desc",
+          "start": 1283470,
+          "end": 1283536,
+          "text": "\"养蛊、炼蛊、用蛊。这是一个残酷的修仙世界，没有道德，只有利益。人是万物之灵，蛊是天地之精。在这个世界，为了永生，你可以牺牲一切。\"",
+          "utf8Bytes": 194,
+          "sha256": "c2f20aacbdaa4ad2cd2e33903e5e92784e00a0372a4095719f81623f87b20fae"
+        },
+        {
+          "path": "/boss",
+          "start": 1283548,
+          "end": 1283585,
+          "text": "\"天庭(龙公, 紫薇仙子), 影宗(魔尊幽魂), 巨阳仙尊, 乐土亚仙尊\"",
+          "utf8Bytes": 83,
+          "sha256": "c41d1a35a9b31e8a1c9450db98bd0f012d5ad82c4f766ec87db2f110623a438b"
+        }
+      ]
+    },
+    {
+      "kind": "identity",
+      "worldName": "470.蛊真人 (Reverend Insanity)",
+      "locator": "/worldDB/469/identities/4",
+      "data": {
+        "name": "中洲门派的外门弟子",
+        "items": "一块门派令牌, 一只一转纸鹤蛊"
+      },
+      "dataUtf8Bytes": 90,
+      "dataSha256": "77baa9f4c3886987e8864a1fca0613a6e00d8e4d691e0529765b3835067c86db",
+      "fragments": [
+        {
+          "path": "",
+          "start": 1283838,
+          "end": 1283885,
+          "text": "{ name: \"中洲门派的外门弟子\", items: \"一块门派令牌, 一只一转纸鹤蛊\" }",
+          "utf8Bytes": 91,
+          "sha256": "40d5d4f8f25772f8672c16c55e9da14c6c9d5e4ff410f4d87d57dfe31441105f"
+        }
+      ]
+    },
+    {
+      "kind": "identity",
+      "worldName": "470.蛊真人 (Reverend Insanity)",
+      "locator": "/worldDB/469/identities/0",
+      "data": {
+        "name": "古月山寨的凡人奴仆",
+        "items": "一身粗布麻衣, 一块干硬的馒头"
+      },
+      "dataUtf8Bytes": 90,
+      "dataSha256": "61d9b50b8af0ce85f812d6712ce98f26d880622b1110bfb1b70877e6e7e80eaa",
+      "fragments": [
+        {
+          "path": "",
+          "start": 1283613,
+          "end": 1283660,
+          "text": "{ name: \"古月山寨的凡人奴仆\", items: \"一身粗布麻衣, 一块干硬的馒头\" }",
+          "utf8Bytes": 91,
+          "sha256": "8a50f4aafec7f479c000c066c04d5a406d8b6389c673a9083ebc4a617b90e7a6"
+        }
+      ]
+    },
+    {
+      "kind": "talent",
+      "worldName": "470.蛊真人 (Reverend Insanity)",
+      "locator": "/worldDB/469/talents/2",
+      "data": {
+        "name": "至尊仙胎蛊",
+        "color": "SSS",
+        "cost": 48000,
+        "desc": "人祖传说中的蛊虫。一旦使用，你将获得至尊仙体，道痕互不排斥，可以兼修所有流派，且恢复力惊人，是魔尊幽魂的毕生杰作。",
+        "type": "exclusive"
+      },
+      "dataUtf8Bytes": 253,
+      "dataSha256": "d476b66fad911df154842f0b961b1728c17b4ba82892deb3e0d5b7198680a65e",
+      "fragments": [
+        {
+          "path": "",
+          "start": 1284189,
+          "end": 1284317,
+          "text": "{name: \"至尊仙胎蛊\", color: \"SSS\", cost: 48000, desc: \"人祖传说中的蛊虫。一旦使用，你将获得至尊仙体，道痕互不排斥，可以兼修所有流派，且恢复力惊人，是魔尊幽魂的毕生杰作。\", type: \"exclusive\"}",
+          "utf8Bytes": 252,
+          "sha256": "4e5deb780e24f58088eb72e30d924cc8969a30317db25fc836331ed190409c7a"
+        }
+      ]
+    },
+    {
+      "kind": "talent",
+      "worldName": "470.蛊真人 (Reverend Insanity)",
+      "locator": "/worldDB/469/talents/29",
+      "data": {
+        "name": "坚持",
+        "color": "SSS",
+        "cost": 10000,
+        "desc": "一种精神境界。哪怕失败一万次，哪怕举世皆敌，哪怕身死道消，你也绝不放弃心中的目标。这是魔尊的潜质。",
+        "type": "exclusive"
+      },
+      "dataUtf8Bytes": 220,
+      "dataSha256": "6f97248fb025d0a79c4977d6ed9468d2c6d0daea196b40b1a11d31f07cb5687a",
+      "fragments": [
+        {
+          "path": "",
+          "start": 1287468,
+          "end": 1287585,
+          "text": "{name: \"坚持\", color: \"SSS\", cost: 10000, desc: \"一种精神境界。哪怕失败一万次，哪怕举世皆敌，哪怕身死道消，你也绝不放弃心中的目标。这是魔尊的潜质。\", type: \"exclusive\"}",
+          "utf8Bytes": 219,
+          "sha256": "33d2ff64a03a7cbd4f304ebc70c1b59f5dc48a4a675b59676b5a5651f75e176e"
+        }
+      ]
+    },
+    {
+      "kind": "talent",
+      "worldName": "470.蛊真人 (Reverend Insanity)",
+      "locator": "/worldDB/469/talents/0",
+      "data": {
+        "name": "春秋蝉(重生)",
+        "color": "SSS",
+        "cost": 50000,
+        "desc": "红莲魔尊的本命蛊，宙道奇蛊。当你死亡时，它能带着你的意志逆流光阴长河，回到过去。这是逆天改命、知晓未来的终极外挂，但有失败风险。",
+        "type": "exclusive"
+      },
+      "dataUtf8Bytes": 276,
+      "dataSha256": "d6d13df341f81f12c6f9707406afe10059bcb6983d5dac4448f0161a3d03b98a",
+      "fragments": [
+        {
+          "path": "",
+          "start": 1283916,
+          "end": 1284053,
+          "text": "{name: \"春秋蝉(重生)\", color: \"SSS\", cost: 50000, desc: \"红莲魔尊的本命蛊，宙道奇蛊。当你死亡时，它能带着你的意志逆流光阴长河，回到过去。这是逆天改命、知晓未来的终极外挂，但有失败风险。\", type: \"exclusive\"}",
+          "utf8Bytes": 275,
+          "sha256": "335c4171ebe67b3cfc9a2488d8966d0a863da1e6e6ffb995d15b3799ca8cf2c6"
+        }
+      ]
+    },
+    {
+      "kind": "talent",
+      "worldName": "470.蛊真人 (Reverend Insanity)",
+      "locator": "/worldDB/469/talents/1",
+      "data": {
+        "name": "九转尊者资质",
+        "color": "SSS",
+        "cost": 45000,
+        "desc": "你拥有成就九转蛊尊的潜力。你的才情、毅力和气运都是当世顶尖，注定要无敌于天下，打破宿命。",
+        "type": "exclusive"
+      },
+      "dataUtf8Bytes": 217,
+      "dataSha256": "c06a61eb2224ed5beee3817fba9bb6b654946a23b18c91f72b100e88cb212d3f",
+      "fragments": [
+        {
+          "path": "",
+          "start": 1284063,
+          "end": 1284179,
+          "text": "{name: \"九转尊者资质\", color: \"SSS\", cost: 45000, desc: \"你拥有成就九转蛊尊的潜力。你的才情、毅力和气运都是当世顶尖，注定要无敌于天下，打破宿命。\", type: \"exclusive\"}",
+          "utf8Bytes": 216,
+          "sha256": "31546ba605a22630d64d5e65a0ab32645ab5e68638d0f7bbdd23ba5e63e4c297"
+        }
+      ]
+    },
+    {
+      "kind": "world",
+      "worldName": "417.我的世界 (Minecraft)",
+      "locator": "/worldDB/416",
+      "data": {
+        "name": "417.我的世界 (Minecraft)",
+        "desc": "一个由方块组成的无限世界。史蒂夫和艾利克斯在这里生存。白天撸树盖房，晚上躲避僵尸苦力怕。这里有地狱、末地，还有无限的红石科技。",
+        "boss": "末影龙 (Ender Dragon), 凋灵 (Wither), 监守者 (Warden), Him(传说)"
+      },
+      "dataUtf8Bytes": 322,
+      "dataSha256": "736bba76999ba2d7db5273d53cd4eda0dc67246a175d143e98b4c6cb5798e48d",
+      "fragments": [
+        {
+          "path": "/name",
+          "start": 1096314,
+          "end": 1096336,
+          "text": "\"417.我的世界 (Minecraft)\"",
+          "utf8Bytes": 30,
+          "sha256": "e25dca7a813bd3150853f018f06942bac599a151b57302aa155259c2db2df9c3"
+        },
+        {
+          "path": "/desc",
+          "start": 1096360,
+          "end": 1096425,
+          "text": "\"一个由方块组成的无限世界。史蒂夫和艾利克斯在这里生存。白天撸树盖房，晚上躲避僵尸苦力怕。这里有地狱、末地，还有无限的红石科技。\"",
+          "utf8Bytes": 191,
+          "sha256": "41e572cb83772a42d717d27caf17404540be6e8c8c7c05d53db081cc4c0d4e19"
+        },
+        {
+          "path": "/boss",
+          "start": 1096449,
+          "end": 1096505,
+          "text": "\"末影龙 (Ender Dragon), 凋灵 (Wither), 监守者 (Warden), Him(传说)\"",
+          "utf8Bytes": 76,
+          "sha256": "062e4b21f0d355185e2b81578ea5ae55635a4bd96571672f0cfe2d9248cfd3f3"
+        }
+      ]
+    },
+    {
+      "kind": "identity",
+      "worldName": "417.我的世界 (Minecraft)",
+      "locator": "/worldDB/416/identities/3",
+      "data": {
+        "name": "被村民奸商坑骗的傻子",
+        "items": "64个绿宝石, 一个枯萎的灌木"
+      },
+      "dataUtf8Bytes": 89,
+      "dataSha256": "e3a06be55012d1355f8dd7bd1eead68a3293185a157d7c5e62ea8060bd59fdd6",
+      "fragments": [
+        {
+          "path": "",
+          "start": 1096763,
+          "end": 1096811,
+          "text": "{ name: \"被村民奸商坑骗的傻子\", items: \"64个绿宝石, 一个枯萎的灌木\" }",
+          "utf8Bytes": 90,
+          "sha256": "27e9c9ce79f85167f3329a7b0a951d0058f9be794d2fc9a1f7cb5e74d61b3a44"
+        }
+      ]
+    },
+    {
+      "kind": "identity",
+      "worldName": "417.我的世界 (Minecraft)",
+      "locator": "/worldDB/416/identities/0",
+      "data": {
+        "name": "第一天晚上的萌新",
+        "items": "三个泥土方块, 还没造好的火柴盒"
+      },
+      "dataUtf8Bytes": 90,
+      "dataSha256": "48ea577312b35f4489bee7ca4d1ac7a3c527def4a13487289b2bc2d45ee003b3",
+      "fragments": [
+        {
+          "path": "",
+          "start": 1096557,
+          "end": 1096604,
+          "text": "{ name: \"第一天晚上的萌新\", items: \"三个泥土方块, 还没造好的火柴盒\" }",
+          "utf8Bytes": 91,
+          "sha256": "5a8f9c35a08956b2eda2d923c3aa09f06fc6d8f890edecd02e222ff1b769ea5d"
+        }
+      ]
+    },
+    {
+      "kind": "talent",
+      "worldName": "417.我的世界 (Minecraft)",
+      "locator": "/worldDB/416/talents/12",
+      "data": {
+        "name": "自动钓鱼机",
+        "color": "C",
+        "cost": 180,
+        "desc": "你钓鱼时必定钓上宝藏，包括附魔书和稀有装备。",
+        "type": "exclusive"
+      },
+      "dataUtf8Bytes": 144,
+      "dataSha256": "881336e9cddcfdd1adba7cf969b3f597e59e9aeae485d805effc9bc9dbbe3a9e",
+      "fragments": [
+        {
+          "path": "",
+          "start": 1098430,
+          "end": 1098519,
+          "text": "{name: \"自动钓鱼机\", color: \"C\", cost: 180, desc: \"你钓鱼时必定钓上宝藏，包括附魔书和稀有装备。\", type: \"exclusive\"}",
+          "utf8Bytes": 143,
+          "sha256": "cfac0eb63b83ad65d93f14b4548a08363f08ba2a4fbcb41103d9743486148e90"
+        }
+      ]
+    },
+    {
+      "kind": "talent",
+      "worldName": "417.我的世界 (Minecraft)",
+      "locator": "/worldDB/416/talents/14",
+      "data": {
+        "name": "光影模组(视觉)",
+        "color": "C",
+        "cost": 100,
+        "desc": "你的世界看起来比别人更美，水面反光，树叶摇晃，但这不增加战斗力。",
+        "type": "exclusive"
+      },
+      "dataUtf8Bytes": 179,
+      "dataSha256": "fec9e75762aba4e40c87b9017d83e40f9d01d8c3958da5893dbcbac982ebca3b",
+      "fragments": [
+        {
+          "path": "",
+          "start": 1098667,
+          "end": 1098769,
+          "text": "{name: \"光影模组(视觉)\", color: \"C\", cost: 100, desc: \"你的世界看起来比别人更美，水面反光，树叶摇晃，但这不增加战斗力。\", type: \"exclusive\"}",
+          "utf8Bytes": 178,
+          "sha256": "14b9014b5d2eba552e5a2d411208b24af6d648f6ec7f3bc3806ea0e8015f900c"
+        }
+      ]
+    },
+    {
+      "kind": "talent",
+      "worldName": "417.我的世界 (Minecraft)",
+      "locator": "/worldDB/416/talents/2",
+      "data": {
+        "name": "史蒂夫的右手",
+        "color": "SS",
+        "cost": 8000,
+        "desc": "拥有无穷的力量。可以徒手撸断大树，携带几万吨重的金块还能奔跑跳跃。",
+        "type": "exclusive"
+      },
+      "dataUtf8Bytes": 182,
+      "dataSha256": "93ce3607550009be813023dc07479a87badf382bb089ab648db8fb132adf14f8",
+      "fragments": [
+        {
+          "path": "",
+          "start": 1097192,
+          "end": 1097295,
+          "text": "{name: \"史蒂夫的右手\", color: \"SS\", cost: 8000, desc: \"拥有无穷的力量。可以徒手撸断大树，携带几万吨重的金块还能奔跑跳跃。\", type: \"exclusive\"}",
+          "utf8Bytes": 181,
+          "sha256": "3986cd6b4caed416c22224a92bff5048dd4e154fae56e9b902c475319c43725f"
+        }
+      ]
+    },
+    {
+      "kind": "talent",
+      "worldName": null,
+      "locator": "/commonTalents/3",
+      "data": {
+        "name": "系统核心权限·root",
+        "color": "UR",
+        "cost": 250000,
+        "desc": "【唯一·位面级】你拿到了穿越系统自己都不该给你的权限：每个世界可以强制刷新一次系统商店（五件商品全部换成 S 级以上），并把一次读档复活改为「不掉落任何东西的原地复活」。系统会记住这次越权。",
+        "type": "common"
+      },
+      "dataUtf8Bytes": 366,
+      "dataSha256": "99d2bf65ea8092508b7fa0060d9d49db8903a1e84298b5e0523216149e1b73eb",
+      "fragments": [
+        {
+          "path": "",
+          "start": 1685401,
+          "end": 1685570,
+          "text": "{name: \"系统核心权限·root\", color: \"UR\", cost: 250000, desc: \"【唯一·位面级】你拿到了穿越系统自己都不该给你的权限：每个世界可以强制刷新一次系统商店（五件商品全部换成 S 级以上），并把一次读档复活改为「不掉落任何东西的原地复活」。系统会记住这次越权。\", type: \"common\"}",
+          "utf8Bytes": 365,
+          "sha256": "91b06be18b29656fa37f355a6ca20ab4aaa766b9a66fb2a2642497bff75778d0"
+        }
+      ]
+    }
+  ],
+  "websiteMessageProbes": 0,
+  "modelCalls": 0,
+  "excludedClaims": [
+    "Original full HTML is not persisted",
+    "No server original file hash",
+    "No hidden prompt extraction or source script execution",
+    "No runtime or economic/permission interpretation"
+  ],
+  "capturedAtUtc": "2026-09-05T08:13:11.113Z",
+  "recordPolicy": {
+    "rawRecords": "extracted",
+    "carrier": "derived",
+    "missingContent": "authored",
+    "fullOriginalHtmlStored": false
+  },
+  "stableIdMap": [
+    {
+      "id": "world.gu",
+      "kind": "world",
+      "worldScope": null,
+      "aliases": [
+        "470.蛊真人 (Reverend Insanity)"
+      ],
+      "sourceLocator": "/worldDB/469",
+      "expectedDataSha256": "4fcf36a7cfd793899562ee4116b9ffd0c6fc067ae48aec80dbc7a2780eb71119"
+    },
+    {
+      "id": "identity.gu.outer-disciple",
+      "kind": "identity",
+      "worldScope": "world.gu",
+      "aliases": [
+        "中洲门派的外门弟子"
+      ],
+      "sourceLocator": "/worldDB/469/identities/4",
+      "expectedDataSha256": "77baa9f4c3886987e8864a1fca0613a6e00d8e4d691e0529765b3835067c86db"
+    },
+    {
+      "id": "identity.gu.mortal-servant",
+      "kind": "identity",
+      "worldScope": "world.gu",
+      "aliases": [
+        "古月山寨的凡人奴仆"
+      ],
+      "sourceLocator": "/worldDB/469/identities/0",
+      "expectedDataSha256": "61d9b50b8af0ce85f812d6712ce98f26d880622b1110bfb1b70877e6e7e80eaa"
+    },
+    {
+      "id": "talent.gu.sovereign-body",
+      "kind": "talent",
+      "worldScope": "world.gu",
+      "aliases": [
+        "至尊仙胎蛊"
+      ],
+      "sourceLocator": "/worldDB/469/talents/2",
+      "expectedDataSha256": "d476b66fad911df154842f0b961b1728c17b4ba82892deb3e0d5b7198680a65e"
+    },
+    {
+      "id": "talent.gu.perseverance",
+      "kind": "talent",
+      "worldScope": "world.gu",
+      "aliases": [
+        "坚持"
+      ],
+      "sourceLocator": "/worldDB/469/talents/29",
+      "expectedDataSha256": "6f97248fb025d0a79c4977d6ed9468d2c6d0daea196b40b1a11d31f07cb5687a"
+    },
+    {
+      "id": "talent.gu.spring-autumn-cicada",
+      "kind": "talent",
+      "worldScope": "world.gu",
+      "aliases": [
+        "春秋蝉(重生)"
+      ],
+      "sourceLocator": "/worldDB/469/talents/0",
+      "expectedDataSha256": "d6d13df341f81f12c6f9707406afe10059bcb6983d5dac4448f0161a3d03b98a"
+    },
+    {
+      "id": "talent.gu.venerable-aptitude",
+      "kind": "talent",
+      "worldScope": "world.gu",
+      "aliases": [
+        "九转尊者资质"
+      ],
+      "sourceLocator": "/worldDB/469/talents/1",
+      "expectedDataSha256": "c06a61eb2224ed5beee3817fba9bb6b654946a23b18c91f72b100e88cb212d3f"
+    },
+    {
+      "id": "world.minecraft",
+      "kind": "world",
+      "worldScope": null,
+      "aliases": [
+        "417.我的世界 (Minecraft)"
+      ],
+      "sourceLocator": "/worldDB/416",
+      "expectedDataSha256": "736bba76999ba2d7db5273d53cd4eda0dc67246a175d143e98b4c6cb5798e48d"
+    },
+    {
+      "id": "identity.minecraft.villager-customer",
+      "kind": "identity",
+      "worldScope": "world.minecraft",
+      "aliases": [
+        "被村民奸商坑骗的傻子"
+      ],
+      "sourceLocator": "/worldDB/416/identities/3",
+      "expectedDataSha256": "e3a06be55012d1355f8dd7bd1eead68a3293185a157d7c5e62ea8060bd59fdd6"
+    },
+    {
+      "id": "identity.minecraft.first-night",
+      "kind": "identity",
+      "worldScope": "world.minecraft",
+      "aliases": [
+        "第一天晚上的萌新"
+      ],
+      "sourceLocator": "/worldDB/416/identities/0",
+      "expectedDataSha256": "48ea577312b35f4489bee7ca4d1ac7a3c527def4a13487289b2bc2d45ee003b3"
+    },
+    {
+      "id": "talent.minecraft.auto-fishing",
+      "kind": "talent",
+      "worldScope": "world.minecraft",
+      "aliases": [
+        "自动钓鱼机"
+      ],
+      "sourceLocator": "/worldDB/416/talents/12",
+      "expectedDataSha256": "881336e9cddcfdd1adba7cf969b3f597e59e9aeae485d805effc9bc9dbbe3a9e"
+    },
+    {
+      "id": "talent.minecraft.shaders",
+      "kind": "talent",
+      "worldScope": "world.minecraft",
+      "aliases": [
+        "光影模组(视觉)"
+      ],
+      "sourceLocator": "/worldDB/416/talents/14",
+      "expectedDataSha256": "fec9e75762aba4e40c87b9017d83e40f9d01d8c3958da5893dbcbac982ebca3b"
+    },
+    {
+      "id": "talent.minecraft.steve-hand",
+      "kind": "talent",
+      "worldScope": "world.minecraft",
+      "aliases": [
+        "史蒂夫的右手"
+      ],
+      "sourceLocator": "/worldDB/416/talents/2",
+      "expectedDataSha256": "93ce3607550009be813023dc07479a87badf382bb089ab648db8fb132adf14f8"
+    },
+    {
+      "id": "talent.common.root",
+      "kind": "talent",
+      "worldScope": null,
+      "aliases": [
+        "系统核心权限·root"
+      ],
+      "sourceLocator": "/commonTalents/3",
+      "expectedDataSha256": "99d2bf65ea8092508b7fa0060d9d49db8903a1e84298b5e0523216149e1b73eb"
+    }
+  ],
+  "selectedFragmentUtf8Bytes": 2801,
+  "liveDomFragmentsMatched": 18,
+  "authoritativeEvidence": "Per-fragment UTF-8 bytes and SHA-256 plus raw literal spelling, locator, selected record data hashes, source URL and normal interaction path. Whole-page candidate hash is non-replayable historical observation.",
+  "transport": "Selected raw literal spelling reconstructed from captured fields and compared to independently observed fragment hashes before acceptance.",
+  "derivedCarrier": {
+    "path": "selected-source.txt",
+    "kind": "derived",
+    "sourceRecordCount": 14,
+    "sha256": "f0feffb7c9fe982f6d099783a6d78d63995e958cb790eb64543c9619ed2aaf5f",
+    "utf8Bytes": 3822
+  },
+  "offlineVerification": {
+    "recordDataHashesMatched": 14,
+    "fragmentHashesMatched": 18,
+    "carrierRecordsMatched": 14,
+    "fullOriginalHtmlStored": false
+  },
+  "sourceAcquisitionAccepted": true,
+  "compilerAcceptanceIncluded": false,
+  "gates": {
+    "sourceRegressionTests": "4_passed",
+    "extractorRegressionTests": "7_passed",
+    "boundary": "RPG02_BOUNDARY_OK",
+    "originalContracts": "28_passed",
+    "diffCheck": "passed"
+  }
+}

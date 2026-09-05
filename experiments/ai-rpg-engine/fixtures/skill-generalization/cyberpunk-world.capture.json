@@ -1,0 +1,29 @@
+{
+  "format": "modelmirror.ai-rpg.world-capture",
+  "formatVersion": "0.1.0",
+  "capturedDate": "2026-09-05",
+  "sourceUrl": "https://afengy.cash/zh/explore/installed/e23bbc64-4fdd-46d8-92c0-64923961e5d8",
+  "authorizationRef": "user:rpg02-skill-generalization-two-full-worlds-2026-09-05",
+  "acquisition": "visible_opening_iframe_srcdoc_bounded_window",
+  "sessionLabel": "新的对话-5",
+  "openingTitle": "无限重生系统 - 启动协议 v16.2 (Pyrite修复版)",
+  "fullOriginalHtmlStored": false,
+  "rereadMatched": true,
+  "websiteProbes": 0,
+  "modelCalls": 0,
+  "scope": "complete_selected_world_object",
+  "unavailable": [
+    "hidden worldbook",
+    "hidden style",
+    "hidden prompts"
+  ],
+  "commonTalentsScope": "separate_global_pool_not_assigned_to_this_world",
+  "name": "383.赛博朋克2077",
+  "start": 1007599,
+  "end": 1009977,
+  "sourceCharacters": 1762427,
+  "rawUtf8Bytes": 4293,
+  "rawSha256": "17df5d126145a2993b5667c9547f77049465f8a64c72bab51fcdba615d8e30a4",
+  "dataSha256": "972e349a38460dd5ee5765049ac02918b14f4723bc6465c1ee84db512a2197ee",
+  "raw": "{\n    name: \"383.赛博朋克2077\",\n    desc: \"2077年的夜之城，高科技与低生活的结合体。巨型企业掌控一切，街头充满了赛博疯子。在这里，不仅要活下去，还要活得像个传奇。\",\n    boss: \"亚当·重锤, 荒坂三郎(意识体), 军用科技高层, 赛博精神病(完全体)\",\n    identities: [\n        { name: \"清道夫手中的肉票\", items: \"被摘除义眼的空眼眶, 冰浴缸, 一身血迹\" },\n        { name: \"流浪者家族的弃子\", items: \"一辆报废的雷霆车, 一把自制手枪, 荒野的尘土\" },\n        { name: \"公司底层的加班狗\", items: \"严重过劳的神经系统, 随时会被远程关闭的义体, 巨额债务\" },\n        { name: \"街头混混\", items: \"一把螳螂刀(劣质版), 一包合成兴奋剂, 帮派涂鸦罐\" },\n        { name: \"超梦体验剪辑师\", items: \"一台便携式超梦编辑台, 几个非法黑超梦, 严重的电子眼疲劳\" }\n    ],\n    talents: [\n        {name: \"赛博精神病(潜伏)\", color: \"E\", cost: 150, desc: \"【致命诅咒】你的义体负荷已达极限。每当情绪激动或战斗时，都有概率失去理智，无差别攻击周围一切。\", type: \"exclusive\"},\n        {name: \"排异反应\", color: \"D\", cost: 120, desc: \"你的身体对义体适应性极差。安装任何义体都会导致持续的疼痛和属性下降，且无法使用高级义体。\", type: \"exclusive\"},\n        {name: \"街头黑客\", color: \"C\", cost: 180, desc: \"掌握基础的快速破解。可以远程干扰敌人的视觉、过载他们的武器或打开简单的电子门锁。\", type: \"exclusive\"},\n        {name: \"冷血\", color: \"C\", cost: 190, desc: \"杀戮让你冷静。每击杀一名敌人，你的移动速度和护甲都会短暂提升，可叠加。\", type: \"exclusive\"},\n        {name: \"技术专家\", color: \"B\", cost: 550, desc: \"你可以制作史诗级武器和装备，并能从废料中回收高级组件。科技武器在你手中能穿墙击杀。\", type: \"exclusive\"},\n        {name: \"二段跳(强化肌腱)\", color: \"B\", cost: 600, desc: \"腿部义体改造。你可以进行空中跳跃，到达常人无法企及的高度，或在战斗中灵活走位。\", type: \"exclusive\"},\n        {name: \"螳螂刀(传说)\", color: \"A\", cost: 1200, desc: \"手臂内置的致命折叠刀刃。攻速极快，附带热能伤害，且能进行长距离的飞扑处决。\", type: \"exclusive\"},\n        {name: \"单分子线\", color: \"A\", cost: 1250, desc: \"看似细线，实则能切割分子。攻击范围极大，能悄无声息地肢解成群的敌人。\", type: \"exclusive\"},\n        {name: \"斯安威斯坦(千替4型)\", color: \"S\", cost: 2500, desc: \"脊柱植入体。激活后，你的时间感官加速至极致（子弹时间），在敌人眼中你就是一道残影。\", type: \"exclusive\"},\n        {name: \"网络接入仓(四相涟漪)\", color: \"S\", cost: 2800, desc: \"顶级的黑客设备。你可以让整个建筑的敌人瞬间自杀、义体过热或视觉重启，赛博法师的标配。\", type: \"exclusive\"},\n        {name: \"强尼·银手的记忆\", color: \"SS\", cost: 6000, desc: \"你的脑子里住着一个摇滚恐怖分子。虽然他很吵，但他能接管你的身体进行战斗，并提供关于荒坂塔的绝密情报。\", type: \"exclusive\"},\n        {name: \"Relic芯片(生物永生)\", color: \"SS\", cost: 8500, desc: \"虽然正在重写你的神经，但它也让你在受到致命伤时能够重启大脑。只要芯片不毁，你就很难彻底死亡。\", type: \"exclusive\"},\n        {name: \"亚当·重锤的义体库\", color: \"SS\", cost: 9000, desc: \"你获得了全身96%的义体化改造权限且无精神病副作用。你是一辆人形坦克，也是噩梦的具象化。\", type: \"exclusive\"},\n        {name: \"黑墙突破者\", color: \"SSS\", cost: 30000, desc: \"你能自由进出赛博空间的“黑墙”，操控那些被封印的流窜AI。你的黑客攻击附带即死效果，连荒坂的防火墙也如纸般脆弱。\", type: \"exclusive\"},\n        {name: \"夜之城传奇\", color: \"SSS\", cost: 35000, desc: \"你在这个世界拥有绝对的声望。所有帮派敬畏你，公司试图拉拢你。你的名字本身就是一种货币，甚至能改写大公司的结局。\", type: \"exclusive\"}\n    ]\n}"
+}

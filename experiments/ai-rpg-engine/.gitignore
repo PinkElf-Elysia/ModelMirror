@@ -1,0 +1,6 @@
+/node_modules/
+/.rpg02-work/
+/dist/
+/coverage/
+/logs/
+/test-reports/
