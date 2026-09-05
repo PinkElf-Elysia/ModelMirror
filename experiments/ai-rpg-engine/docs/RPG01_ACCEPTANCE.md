@@ -73,7 +73,7 @@ The manual gate for RPG-02 consumption is satisfied, but RPG-02 still requires i
 
 ## Next-round model handoff
 
-The current Sol-led task owns the complete RPG-01 closeout because only deterministic repository receipt, validation, and pull-request checks remain. Starting with RPG-02 planning, the recommended operating model is Astra as the primary agent and Sol agents for bounded, independently verifiable subtasks. Astra retains architecture decisions, exception handling, integration, final acceptance, and any stateful computer interaction. No two agents may operate the same browser page or other stateful UI concurrently.
+The current Sol-led task owns the complete RPG-01 closeout because only deterministic repository receipt, validation, and pull-request checks remain. The recommendation to use Astra for later rounds is driven by interaction risk rather than by claiming this module is among the project's most difficult modules. Live card-flow inspection and content extraction require continuous visual judgment across page changes, login state, loading failures, unexpected dialogs, and probe accounting, so Astra must retain that end-to-end computer-operation chain. Sol agents should handle bounded offline work such as normalization, structured conversion, fixtures, tests, and evidence reconciliation. No two agents may operate the same browser page or other stateful UI concurrently.
 
 Copyable transition prompt for the next Astra-led task:
 
@@ -91,14 +91,14 @@ Copyable transition prompt for the next Astra-led task:
 你的交接事项：
 1. 先读取 RPG01_STATUS.json、RPG01_ACCEPTANCE.md、研究 README、路线图、审计与 MANIFEST，并实时核验 PR #359 和工作树状态；不要把可能变化的 CI 状态当作既成事实。
 2. 以既有合同为消费边界制定 RPG-02 计划，保持“一切皆插件”、卡片市场与最小核心框架的架构方向，不把任务经济、存档、死亡复活、跨世界继承等卡片特化机制硬编码进核心。
-3. 由你负责范围判断、架构取舍、异常处理、跨子任务整合、最终门禁和向用户报告。涉及浏览器或其他有状态电脑界面时由你单独串行操作。
+3. 由你负责范围判断、架构取舍、异常处理、跨子任务整合、最终门禁和向用户报告。后续网站卡片交互链探查、内容提取、登录状态、页面变化、意外弹窗和探针计数由你从头到尾单独串行掌控；先读取探针账本，严格遵守当轮授权额度和失败计数规则。
 4. 未获得用户明确实施授权前，只完成计划和可审计材料；不要开始 RPG-02 代码、探针、模型调用、合并或部署。
 
 Sol 子智能体执行方式：
-- 只下发边界清楚、互不重叠、可独立校验的任务，例如单一 Schema/fixture、单组测试、许可证核对、文档一致性检查或只读资料归纳。
+- 只下发边界清楚、互不重叠、可独立校验的离线任务，例如单一 Schema/fixture、单组测试、许可证核对、由 Astra 已保存材料的结构化转换、文档一致性检查或只读资料归纳。
 - 每项任务写明允许路径、输入事实、禁止事项、预期产物和门禁；默认不得 Commit、Push、建 PR、调用模型、使用探针或操作共享浏览器状态。
 - 要求 Sol 只返回必要结论、证据、文件与命令结果；你必须复核其实际改动和测试，不直接把子智能体的完成声明当作验收。
-- 遇到跨模块设计、门禁漂移、异常 UI 状态、证据冲突或范围不清时，由 Sol 停止并上报，你继续判断；不要让多个智能体并发修改同一文件或操作同一页面。
+- Sol 不自行接管网站探针或与 Astra 共享同一页面状态。遇到跨模块设计、门禁漂移、异常 UI 状态、证据冲突或范围不清时，由 Sol 停止并上报，你继续判断；不要让多个智能体并发修改同一文件或操作同一页面。
 ```
 
 ## External effects and rollback
