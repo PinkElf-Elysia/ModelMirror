@@ -3,8 +3,9 @@
   "moduleId": "ai-rpg-engine",
   "moduleRoot": ".",
   "moduleRootResolution": "directory-containing-module-boundary",
-  "activeRound": "RPG-01",
-  "activeRoundBaselineSha": "06ef51ae8d58c4e33029f02ab7263e24066734b2",
+  "activeRound": "RPG-02",
+  "activeRoundBaselineSha": "a43cfa389e1785a95f04a006ba26550a5a36965e",
+  "requiredBranch": "codex/ai-rpg-rpg02-content",
   "repositoryChangePolicy": {
     "allowedPrefixes": [
       "docs/ai-rpg-experiment/",
@@ -17,7 +18,11 @@
     "moduleLocalOnly": true,
     "exactVersionsRequired": true,
     "allowedProductionDependencies": {
-      "ajv": "8.20.0"
+      "ajv": "8.20.0",
+      "parse5": "8.0.1",
+      "acorn": "8.18.0",
+      "yauzl": "3.4.0",
+      "fflate": "0.8.3"
     },
     "forbiddenProtocols": [
       "file:",
@@ -41,7 +46,8 @@
     "dist",
     "coverage",
     "logs",
-    "test-reports"
+    "test-reports",
+    ".rpg02-work"
   ],
   "forbiddenTrackedFileNames": [
     ".env",
@@ -70,7 +76,17 @@
     "moduleLicense": "UNLICENSED",
     "allowedDependencyLicenses": [
       "MIT",
-      "BSD-3-Clause"
+      "BSD-3-Clause",
+      "BSD-2-Clause"
     ]
+  },
+  "sourceLayers": {
+    "contentPrefixes": ["content/"],
+    "contentAllowedPackages": ["ajv", "ajv/dist/2020.js", "parse5", "acorn"],
+    "toolingPrefixes": ["scripts/", "tooling/", "tests/"],
+    "toolingAllowedPackages": ["ajv", "ajv/dist/2020.js", "parse5", "acorn", "yauzl", "fflate"],
+    "toolingAllowedBuiltins": ["assert", "assert/strict", "buffer", "child_process", "crypto", "fs", "fs/promises", "os", "path", "stream", "test", "url", "util", "zlib"],
+    "subprocessEntrypoints": ["scripts/check-boundary-rpg02.mjs"],
+    "frozenLegacySubprocessFiles": ["scripts/check-parent-scope.mjs", "scripts/verify-rpg01.mjs", "tests/boundary.test.mjs"]
   }
 }

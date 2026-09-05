@@ -1,8 +1,8 @@
 {
   "name": "@modelmirror/ai-rpg-contracts",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "RPG-01 data contracts for ModelMirror's isolated AI RPG experiment",
+  "description": "Isolated AI RPG contracts and offline representative content compiler",
   "type": "module",
   "license": "UNLICENSED",
   "engines": {
@@ -11,16 +11,26 @@
   },
   "packageManager": "npm@11.16.0",
   "exports": {
-    ".": "./src/index.mjs"
+    ".": "./src/index.mjs",
+    "./content": "./content/index.mjs"
   },
   "scripts": {
     "check:boundary": "node scripts/check-boundary.mjs",
     "check:parent-scope": "node scripts/check-parent-scope.mjs",
     "test:boundary": "node --test tests/boundary.test.mjs",
     "test:contracts": "node --test tests/contracts.test.mjs",
-    "verify:rpg01": "node scripts/verify-rpg01.mjs"
+    "verify:rpg01": "node scripts/verify-rpg01.mjs",
+    "test:boundary:rpg02": "node --test tests/rpg02-boundary.test.mjs",
+    "test:content": "node --test tests/content-*.test.mjs",
+    "test:archive": "node --test tests/archive-*.test.mjs",
+    "verify:rpg02": "node scripts/verify-rpg02.mjs",
+    "rpg:content": "node tooling/cli.mjs"
   },
   "dependencies": {
-    "ajv": "8.20.0"
+    "ajv": "8.20.0",
+    "parse5": "8.0.1",
+    "acorn": "8.18.0",
+    "yauzl": "3.4.0",
+    "fflate": "0.8.3"
   }
 }

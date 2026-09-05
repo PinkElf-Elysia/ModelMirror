@@ -1,0 +1,617 @@
+{
+  "format": "modelmirror.ai-rpg.compile-input",
+  "formatVersion": "0.1.0",
+  "package": {
+    "id": "card.representative-worlds",
+    "version": "0.1.0",
+    "displayName": "代表世界卡包",
+    "description": "两个代表世界与少量自主内容。",
+    "locale": "zh-CN"
+  },
+  "rights": {
+    "id": "rights.user-authorized-interaction",
+    "kind": "authorization",
+    "name": "Authorized interaction reuse",
+    "reference": "docs/ai-rpg-experiment/RPG02_PLAN.md"
+  },
+  "sources": [
+    {
+      "id": "source.real-card",
+      "kind": "derived",
+      "reference": "fixtures/rpg02/selected-source.txt derived from https://afengy.cash/zh/explore/installed/e23bbc64-4fdd-46d8-92c0-64923961e5d8",
+      "sha256": "f0feffb7c9fe982f6d099783a6d78d63995e958cb790eb64543c9619ed2aaf5f",
+      "rightsRefs": [
+        "rights.user-authorized-interaction"
+      ],
+      "hashStatus": "tooling_verified_selected_carrier",
+      "hashConvention": "exact-file-bytes"
+    },
+    {
+      "id": "source.authored-rpg02",
+      "kind": "authored",
+      "reference": "modelmirror:rpg02/authored-support-v1",
+      "sha256": "73466d2752d46db3b86a9c62d51e990e0034dc044a2cf5315f2214238eec2676",
+      "rightsRefs": [
+        "rights.user-authorized-interaction"
+      ],
+      "hashStatus": "registered_unverified",
+      "hashConvention": "JSON.stringify(input.authored) UTF-8 no trailing LF"
+    }
+  ],
+  "records": [
+    {
+      "kind": "world",
+      "worldName": "470.蛊真人 (Reverend Insanity)",
+      "locator": "/worldDB/469",
+      "data": {
+        "name": "470.蛊真人 (Reverend Insanity)",
+        "desc": "养蛊、炼蛊、用蛊。这是一个残酷的修仙世界，没有道德，只有利益。人是万物之灵，蛊是天地之精。在这个世界，为了永生，你可以牺牲一切。",
+        "boss": "天庭(龙公, 紫薇仙子), 影宗(魔尊幽魂), 巨阳仙尊, 乐土亚仙尊"
+      },
+      "dataSha256": "4fcf36a7cfd793899562ee4116b9ffd0c6fc067ae48aec80dbc7a2780eb71119",
+      "sourceRef": "source.real-card",
+      "stableId": "world.gu",
+      "aliases": [
+        "470.蛊真人 (Reverend Insanity)"
+      ]
+    },
+    {
+      "kind": "identity",
+      "worldName": "470.蛊真人 (Reverend Insanity)",
+      "locator": "/worldDB/469/identities/4",
+      "data": {
+        "name": "中洲门派的外门弟子",
+        "items": "一块门派令牌, 一只一转纸鹤蛊"
+      },
+      "dataSha256": "77baa9f4c3886987e8864a1fca0613a6e00d8e4d691e0529765b3835067c86db",
+      "sourceRef": "source.real-card",
+      "stableId": "identity.gu.outer-disciple",
+      "aliases": [
+        "中洲门派的外门弟子"
+      ]
+    },
+    {
+      "kind": "identity",
+      "worldName": "470.蛊真人 (Reverend Insanity)",
+      "locator": "/worldDB/469/identities/0",
+      "data": {
+        "name": "古月山寨的凡人奴仆",
+        "items": "一身粗布麻衣, 一块干硬的馒头"
+      },
+      "dataSha256": "61d9b50b8af0ce85f812d6712ce98f26d880622b1110bfb1b70877e6e7e80eaa",
+      "sourceRef": "source.real-card",
+      "stableId": "identity.gu.mortal-servant",
+      "aliases": [
+        "古月山寨的凡人奴仆"
+      ]
+    },
+    {
+      "kind": "talent",
+      "worldName": "470.蛊真人 (Reverend Insanity)",
+      "locator": "/worldDB/469/talents/2",
+      "data": {
+        "name": "至尊仙胎蛊",
+        "color": "SSS",
+        "cost": 48000,
+        "desc": "人祖传说中的蛊虫。一旦使用，你将获得至尊仙体，道痕互不排斥，可以兼修所有流派，且恢复力惊人，是魔尊幽魂的毕生杰作。",
+        "type": "exclusive"
+      },
+      "dataSha256": "d476b66fad911df154842f0b961b1728c17b4ba82892deb3e0d5b7198680a65e",
+      "sourceRef": "source.real-card",
+      "stableId": "talent.gu.sovereign-body",
+      "aliases": [
+        "至尊仙胎蛊"
+      ]
+    },
+    {
+      "kind": "talent",
+      "worldName": "470.蛊真人 (Reverend Insanity)",
+      "locator": "/worldDB/469/talents/29",
+      "data": {
+        "name": "坚持",
+        "color": "SSS",
+        "cost": 10000,
+        "desc": "一种精神境界。哪怕失败一万次，哪怕举世皆敌，哪怕身死道消，你也绝不放弃心中的目标。这是魔尊的潜质。",
+        "type": "exclusive"
+      },
+      "dataSha256": "6f97248fb025d0a79c4977d6ed9468d2c6d0daea196b40b1a11d31f07cb5687a",
+      "sourceRef": "source.real-card",
+      "stableId": "talent.gu.perseverance",
+      "aliases": [
+        "坚持"
+      ]
+    },
+    {
+      "kind": "talent",
+      "worldName": "470.蛊真人 (Reverend Insanity)",
+      "locator": "/worldDB/469/talents/0",
+      "data": {
+        "name": "春秋蝉(重生)",
+        "color": "SSS",
+        "cost": 50000,
+        "desc": "红莲魔尊的本命蛊，宙道奇蛊。当你死亡时，它能带着你的意志逆流光阴长河，回到过去。这是逆天改命、知晓未来的终极外挂，但有失败风险。",
+        "type": "exclusive"
+      },
+      "dataSha256": "d6d13df341f81f12c6f9707406afe10059bcb6983d5dac4448f0161a3d03b98a",
+      "sourceRef": "source.real-card",
+      "stableId": "talent.gu.spring-autumn-cicada",
+      "aliases": [
+        "春秋蝉(重生)"
+      ]
+    },
+    {
+      "kind": "talent",
+      "worldName": "470.蛊真人 (Reverend Insanity)",
+      "locator": "/worldDB/469/talents/1",
+      "data": {
+        "name": "九转尊者资质",
+        "color": "SSS",
+        "cost": 45000,
+        "desc": "你拥有成就九转蛊尊的潜力。你的才情、毅力和气运都是当世顶尖，注定要无敌于天下，打破宿命。",
+        "type": "exclusive"
+      },
+      "dataSha256": "c06a61eb2224ed5beee3817fba9bb6b654946a23b18c91f72b100e88cb212d3f",
+      "sourceRef": "source.real-card",
+      "stableId": "talent.gu.venerable-aptitude",
+      "aliases": [
+        "九转尊者资质"
+      ]
+    },
+    {
+      "kind": "world",
+      "worldName": "417.我的世界 (Minecraft)",
+      "locator": "/worldDB/416",
+      "data": {
+        "name": "417.我的世界 (Minecraft)",
+        "desc": "一个由方块组成的无限世界。史蒂夫和艾利克斯在这里生存。白天撸树盖房，晚上躲避僵尸苦力怕。这里有地狱、末地，还有无限的红石科技。",
+        "boss": "末影龙 (Ender Dragon), 凋灵 (Wither), 监守者 (Warden), Him(传说)"
+      },
+      "dataSha256": "736bba76999ba2d7db5273d53cd4eda0dc67246a175d143e98b4c6cb5798e48d",
+      "sourceRef": "source.real-card",
+      "stableId": "world.minecraft",
+      "aliases": [
+        "417.我的世界 (Minecraft)"
+      ]
+    },
+    {
+      "kind": "identity",
+      "worldName": "417.我的世界 (Minecraft)",
+      "locator": "/worldDB/416/identities/3",
+      "data": {
+        "name": "被村民奸商坑骗的傻子",
+        "items": "64个绿宝石, 一个枯萎的灌木"
+      },
+      "dataSha256": "e3a06be55012d1355f8dd7bd1eead68a3293185a157d7c5e62ea8060bd59fdd6",
+      "sourceRef": "source.real-card",
+      "stableId": "identity.minecraft.villager-customer",
+      "aliases": [
+        "被村民奸商坑骗的傻子"
+      ]
+    },
+    {
+      "kind": "identity",
+      "worldName": "417.我的世界 (Minecraft)",
+      "locator": "/worldDB/416/identities/0",
+      "data": {
+        "name": "第一天晚上的萌新",
+        "items": "三个泥土方块, 还没造好的火柴盒"
+      },
+      "dataSha256": "48ea577312b35f4489bee7ca4d1ac7a3c527def4a13487289b2bc2d45ee003b3",
+      "sourceRef": "source.real-card",
+      "stableId": "identity.minecraft.first-night",
+      "aliases": [
+        "第一天晚上的萌新"
+      ]
+    },
+    {
+      "kind": "talent",
+      "worldName": "417.我的世界 (Minecraft)",
+      "locator": "/worldDB/416/talents/12",
+      "data": {
+        "name": "自动钓鱼机",
+        "color": "C",
+        "cost": 180,
+        "desc": "你钓鱼时必定钓上宝藏，包括附魔书和稀有装备。",
+        "type": "exclusive"
+      },
+      "dataSha256": "881336e9cddcfdd1adba7cf969b3f597e59e9aeae485d805effc9bc9dbbe3a9e",
+      "sourceRef": "source.real-card",
+      "stableId": "talent.minecraft.auto-fishing",
+      "aliases": [
+        "自动钓鱼机"
+      ]
+    },
+    {
+      "kind": "talent",
+      "worldName": "417.我的世界 (Minecraft)",
+      "locator": "/worldDB/416/talents/14",
+      "data": {
+        "name": "光影模组(视觉)",
+        "color": "C",
+        "cost": 100,
+        "desc": "你的世界看起来比别人更美，水面反光，树叶摇晃，但这不增加战斗力。",
+        "type": "exclusive"
+      },
+      "dataSha256": "fec9e75762aba4e40c87b9017d83e40f9d01d8c3958da5893dbcbac982ebca3b",
+      "sourceRef": "source.real-card",
+      "stableId": "talent.minecraft.shaders",
+      "aliases": [
+        "光影模组(视觉)"
+      ]
+    },
+    {
+      "kind": "talent",
+      "worldName": "417.我的世界 (Minecraft)",
+      "locator": "/worldDB/416/talents/2",
+      "data": {
+        "name": "史蒂夫的右手",
+        "color": "SS",
+        "cost": 8000,
+        "desc": "拥有无穷的力量。可以徒手撸断大树，携带几万吨重的金块还能奔跑跳跃。",
+        "type": "exclusive"
+      },
+      "dataSha256": "93ce3607550009be813023dc07479a87badf382bb089ab648db8fb132adf14f8",
+      "sourceRef": "source.real-card",
+      "stableId": "talent.minecraft.steve-hand",
+      "aliases": [
+        "史蒂夫的右手"
+      ]
+    },
+    {
+      "kind": "talent",
+      "worldName": null,
+      "locator": "/commonTalents/3",
+      "data": {
+        "name": "系统核心权限·root",
+        "color": "UR",
+        "cost": 250000,
+        "desc": "【唯一·位面级】你拿到了穿越系统自己都不该给你的权限：每个世界可以强制刷新一次系统商店（五件商品全部换成 S 级以上），并把一次读档复活改为「不掉落任何东西的原地复活」。系统会记住这次越权。",
+        "type": "common"
+      },
+      "dataSha256": "99d2bf65ea8092508b7fa0060d9d49db8903a1e84298b5e0523216149e1b73eb",
+      "sourceRef": "source.real-card",
+      "stableId": "talent.common.root",
+      "aliases": [
+        "系统核心权限·root"
+      ]
+    }
+  ],
+  "items": [
+    {
+      "id": "item.gu.outer-disciple-kit",
+      "displayName": "外门弟子物资",
+      "description": "一块门派令牌, 一只一转纸鹤蛊",
+      "identityRef": "identity.gu.outer-disciple",
+      "sourceRef": "source.real-card"
+    },
+    {
+      "id": "item.gu.mortal-servant-kit",
+      "displayName": "凡人奴仆物资",
+      "description": "一身粗布麻衣, 一块干硬的馒头",
+      "identityRef": "identity.gu.mortal-servant",
+      "sourceRef": "source.real-card"
+    },
+    {
+      "id": "item.minecraft.villager-kit",
+      "displayName": "受骗者物资",
+      "description": "64个绿宝石, 一个枯萎的灌木",
+      "identityRef": "identity.minecraft.villager-customer",
+      "sourceRef": "source.real-card"
+    },
+    {
+      "id": "item.minecraft.first-night-kit",
+      "displayName": "萌新物资",
+      "description": "三个泥土方块, 还没造好的火柴盒",
+      "identityRef": "identity.minecraft.first-night",
+      "sourceRef": "source.real-card"
+    }
+  ],
+  "configuredRanks": [
+    {
+      "identityRef": "identity.gu.outer-disciple",
+      "rankLabel": "E",
+      "provenance": "configured"
+    },
+    {
+      "identityRef": "identity.gu.mortal-servant",
+      "rankLabel": "E",
+      "provenance": "configured"
+    },
+    {
+      "identityRef": "identity.minecraft.villager-customer",
+      "rankLabel": "E",
+      "provenance": "configured"
+    },
+    {
+      "identityRef": "identity.minecraft.first-night",
+      "rankLabel": "E",
+      "provenance": "configured"
+    }
+  ],
+  "authored": {
+    "backgrounds": [
+      {
+        "id": "background.gu.arrival",
+        "displayName": "异界来客",
+        "description": "你刚抵达此界，需要确认身份与处境。",
+        "worldRef": "world.gu"
+      },
+      {
+        "id": "background.minecraft.arrival",
+        "displayName": "方块世界来客",
+        "description": "你在方块世界醒来，需要安全度过第一夜。",
+        "worldRef": "world.minecraft"
+      }
+    ],
+    "styles": [
+      {
+        "id": "style.gu",
+        "displayName": "冷峻叙事",
+        "instruction": "使用克制清晰的中文叙述。"
+      },
+      {
+        "id": "style.minecraft",
+        "displayName": "生存冒险",
+        "instruction": "使用明快的中文冒险叙述。"
+      }
+    ],
+    "worldbookEntries": [
+      {
+        "id": "worldbook.gu",
+        "displayName": "蛊界边界",
+        "content": "只引用已声明资源，不补造隐藏规则。",
+        "tags": [
+          "边界"
+        ],
+        "visibility": "host",
+        "worldRefs": [
+          "world.gu"
+        ]
+      },
+      {
+        "id": "worldbook.minecraft",
+        "displayName": "方块边界",
+        "content": "只引用已声明资源，不补造隐藏规则。",
+        "tags": [
+          "边界"
+        ],
+        "visibility": "host",
+        "worldRefs": [
+          "world.minecraft"
+        ]
+      }
+    ],
+    "informationModules": [
+      {
+        "id": "info.start",
+        "displayName": "开局摘要",
+        "presentation": "keyValue",
+        "description": "显示开局选择。",
+        "fields": [
+          {
+            "id": "identity",
+            "label": "身份",
+            "valueType": "text"
+          },
+          {
+            "id": "talents",
+            "label": "天赋",
+            "valueType": "list"
+          },
+          {
+            "id": "items",
+            "label": "物资",
+            "valueType": "list"
+          }
+        ]
+      }
+    ],
+    "openings": [
+      {
+        "id": "opening.gu",
+        "displayName": "蛊界开局",
+        "content": "请选择一个身份；仅所选身份对应物资可进入玩家配置。",
+        "worldRef": "world.gu",
+        "identityRefs": [
+          "identity.gu.outer-disciple",
+          "identity.gu.mortal-servant"
+        ],
+        "talentRefs": [
+          "talent.gu.sovereign-body",
+          "talent.gu.perseverance",
+          "talent.gu.spring-autumn-cicada",
+          "talent.gu.venerable-aptitude",
+          "talent.common.root"
+        ],
+        "itemRefs": [],
+        "backgroundRefs": [
+          "background.gu.arrival"
+        ],
+        "styleRefs": [
+          "style.gu"
+        ],
+        "worldbookRefs": [
+          "worldbook.gu"
+        ],
+        "informationModuleRefs": [
+          "info.start"
+        ]
+      },
+      {
+        "id": "opening.minecraft",
+        "displayName": "方块世界开局",
+        "content": "请选择一个身份；仅所选身份对应物资可进入玩家配置。",
+        "worldRef": "world.minecraft",
+        "identityRefs": [
+          "identity.minecraft.villager-customer",
+          "identity.minecraft.first-night"
+        ],
+        "talentRefs": [
+          "talent.minecraft.auto-fishing",
+          "talent.minecraft.shaders",
+          "talent.minecraft.steve-hand"
+        ],
+        "itemRefs": [],
+        "backgroundRefs": [
+          "background.minecraft.arrival"
+        ],
+        "styleRefs": [
+          "style.minecraft"
+        ],
+        "worldbookRefs": [
+          "worldbook.minecraft"
+        ],
+        "informationModuleRefs": [
+          "info.start"
+        ]
+      }
+    ]
+  },
+  "defaults": {
+    "worldRef": "world.gu",
+    "openingRef": "opening.gu"
+  },
+  "stableIdMap": [
+    {
+      "id": "world.gu",
+      "kind": "world",
+      "worldScope": null,
+      "aliases": [
+        "470.蛊真人 (Reverend Insanity)"
+      ],
+      "sourceLocator": "/worldDB/469",
+      "expectedDataSha256": "4fcf36a7cfd793899562ee4116b9ffd0c6fc067ae48aec80dbc7a2780eb71119"
+    },
+    {
+      "id": "identity.gu.outer-disciple",
+      "kind": "identity",
+      "worldScope": "world.gu",
+      "aliases": [
+        "中洲门派的外门弟子"
+      ],
+      "sourceLocator": "/worldDB/469/identities/4",
+      "expectedDataSha256": "77baa9f4c3886987e8864a1fca0613a6e00d8e4d691e0529765b3835067c86db"
+    },
+    {
+      "id": "identity.gu.mortal-servant",
+      "kind": "identity",
+      "worldScope": "world.gu",
+      "aliases": [
+        "古月山寨的凡人奴仆"
+      ],
+      "sourceLocator": "/worldDB/469/identities/0",
+      "expectedDataSha256": "61d9b50b8af0ce85f812d6712ce98f26d880622b1110bfb1b70877e6e7e80eaa"
+    },
+    {
+      "id": "talent.gu.sovereign-body",
+      "kind": "talent",
+      "worldScope": "world.gu",
+      "aliases": [
+        "至尊仙胎蛊"
+      ],
+      "sourceLocator": "/worldDB/469/talents/2",
+      "expectedDataSha256": "d476b66fad911df154842f0b961b1728c17b4ba82892deb3e0d5b7198680a65e"
+    },
+    {
+      "id": "talent.gu.perseverance",
+      "kind": "talent",
+      "worldScope": "world.gu",
+      "aliases": [
+        "坚持"
+      ],
+      "sourceLocator": "/worldDB/469/talents/29",
+      "expectedDataSha256": "6f97248fb025d0a79c4977d6ed9468d2c6d0daea196b40b1a11d31f07cb5687a"
+    },
+    {
+      "id": "talent.gu.spring-autumn-cicada",
+      "kind": "talent",
+      "worldScope": "world.gu",
+      "aliases": [
+        "春秋蝉(重生)"
+      ],
+      "sourceLocator": "/worldDB/469/talents/0",
+      "expectedDataSha256": "d6d13df341f81f12c6f9707406afe10059bcb6983d5dac4448f0161a3d03b98a"
+    },
+    {
+      "id": "talent.gu.venerable-aptitude",
+      "kind": "talent",
+      "worldScope": "world.gu",
+      "aliases": [
+        "九转尊者资质"
+      ],
+      "sourceLocator": "/worldDB/469/talents/1",
+      "expectedDataSha256": "c06a61eb2224ed5beee3817fba9bb6b654946a23b18c91f72b100e88cb212d3f"
+    },
+    {
+      "id": "world.minecraft",
+      "kind": "world",
+      "worldScope": null,
+      "aliases": [
+        "417.我的世界 (Minecraft)"
+      ],
+      "sourceLocator": "/worldDB/416",
+      "expectedDataSha256": "736bba76999ba2d7db5273d53cd4eda0dc67246a175d143e98b4c6cb5798e48d"
+    },
+    {
+      "id": "identity.minecraft.villager-customer",
+      "kind": "identity",
+      "worldScope": "world.minecraft",
+      "aliases": [
+        "被村民奸商坑骗的傻子"
+      ],
+      "sourceLocator": "/worldDB/416/identities/3",
+      "expectedDataSha256": "e3a06be55012d1355f8dd7bd1eead68a3293185a157d7c5e62ea8060bd59fdd6"
+    },
+    {
+      "id": "identity.minecraft.first-night",
+      "kind": "identity",
+      "worldScope": "world.minecraft",
+      "aliases": [
+        "第一天晚上的萌新"
+      ],
+      "sourceLocator": "/worldDB/416/identities/0",
+      "expectedDataSha256": "48ea577312b35f4489bee7ca4d1ac7a3c527def4a13487289b2bc2d45ee003b3"
+    },
+    {
+      "id": "talent.minecraft.auto-fishing",
+      "kind": "talent",
+      "worldScope": "world.minecraft",
+      "aliases": [
+        "自动钓鱼机"
+      ],
+      "sourceLocator": "/worldDB/416/talents/12",
+      "expectedDataSha256": "881336e9cddcfdd1adba7cf969b3f597e59e9aeae485d805effc9bc9dbbe3a9e"
+    },
+    {
+      "id": "talent.minecraft.shaders",
+      "kind": "talent",
+      "worldScope": "world.minecraft",
+      "aliases": [
+        "光影模组(视觉)"
+      ],
+      "sourceLocator": "/worldDB/416/talents/14",
+      "expectedDataSha256": "fec9e75762aba4e40c87b9017d83e40f9d01d8c3958da5893dbcbac982ebca3b"
+    },
+    {
+      "id": "talent.minecraft.steve-hand",
+      "kind": "talent",
+      "worldScope": "world.minecraft",
+      "aliases": [
+        "史蒂夫的右手"
+      ],
+      "sourceLocator": "/worldDB/416/talents/2",
+      "expectedDataSha256": "93ce3607550009be813023dc07479a87badf382bb089ab648db8fb132adf14f8"
+    },
+    {
+      "id": "talent.common.root",
+      "kind": "talent",
+      "worldScope": null,
+      "aliases": [
+        "系统核心权限·root"
+      ],
+      "sourceLocator": "/commonTalents/3",
+      "expectedDataSha256": "99d2bf65ea8092508b7fa0060d9d49db8903a1e84298b5e0523216149e1b73eb"
+    }
+  ],
+  "recordDataHashConvention": "JSON.stringify(record.data) UTF-8 no trailing LF"
+}
