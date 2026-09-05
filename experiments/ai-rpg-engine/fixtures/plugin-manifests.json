@@ -1,0 +1,82 @@
+[
+  {
+    "format": "modelmirror.ai-rpg.plugin-manifest",
+    "formatVersion": "0.1.0",
+    "plugin": {
+      "id": "plugin.context-basic",
+      "version": "1.0.0",
+      "displayName": "基础上下文扩展样本",
+      "description": "仅用于验证插件声明和静态就绪计算，不包含可加载代码。"
+    },
+    "compatibleHostContractVersions": ["0.1.0"],
+    "capabilities": ["context.enrich"],
+    "permissions": ["card.read", "turn.read"],
+    "settings": [
+      {
+        "key": "context.limit",
+        "label": "上下文条目上限",
+        "description": "声明式设置描述；RPG-01 不解释或存储设置值。",
+        "valueType": "integer",
+        "required": false,
+        "minimum": 1,
+        "maximum": 32
+      }
+    ],
+    "dependencies": [],
+    "dataAccess": {
+      "read": ["card", "turnInput"],
+      "propose": ["context"]
+    },
+    "network": {
+      "mode": "none"
+    },
+    "lifecycle": {
+      "activation": "explicit",
+      "deactivation": "supported",
+      "failurePolicy": "isolated",
+      "uninstallData": "retain"
+    },
+    "provenance": {
+      "sourceReference": "internal-fixture/plugin.context-basic",
+      "sourceSha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "licenseName": "MIT",
+      "licenseReference": "https://opensource.org/license/mit",
+      "artifactSha256": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+    }
+  },
+  {
+    "format": "modelmirror.ai-rpg.plugin-manifest",
+    "formatVersion": "0.1.0",
+    "plugin": {
+      "id": "plugin.presentation-basic",
+      "version": "2.1.0",
+      "displayName": "基础呈现扩展样本",
+      "description": "用于验证能力匹配与显式 UI 贡献权限。"
+    },
+    "compatibleHostContractVersions": ["0.1.0"],
+    "capabilities": ["presentation.extend"],
+    "permissions": ["turn.read", "ui.contribute"],
+    "settings": [],
+    "dependencies": [],
+    "dataAccess": {
+      "read": ["turnProposal"],
+      "propose": ["informationModule"]
+    },
+    "network": {
+      "mode": "none"
+    },
+    "lifecycle": {
+      "activation": "explicit",
+      "deactivation": "supported",
+      "failurePolicy": "isolated",
+      "uninstallData": "deleteOnRequest"
+    },
+    "provenance": {
+      "sourceReference": "internal-fixture/plugin.presentation-basic",
+      "sourceSha256": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+      "licenseName": "MIT",
+      "licenseReference": "https://opensource.org/license/mit",
+      "artifactSha256": "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+    }
+  }
+]

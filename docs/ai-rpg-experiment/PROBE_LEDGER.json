@@ -1,0 +1,239 @@
+{
+  "schemaVersion": 2,
+  "auditDate": "2026-09-04",
+  "targetUrl": "https://afengy.cash/zh/explore/installed/e23bbc64-4fdd-46d8-92c0-64923961e5d8",
+  "scope": "Technical audit and roadmap preparation through visible resources, read-only authoring-page inspection, and bounded neutral message probes. No hidden prompt extraction.",
+  "sessionLabel": "新的对话-4",
+  "modelLabel": "gemini-3.1-pro-preview",
+  "modelSwitched": false,
+  "timeNote": "Submission timestamps are copied from page display; timezone not independently verified. Completion times were not measured.",
+  "costNote": "Site points only; not tokens, money, or in-game Pts.",
+  "sitePointsTotal": 11483,
+  "userSuppliedCharacterCard": {
+    "provenance": "User-declared fully fictional and desensitized sample",
+    "sentToTarget": false,
+    "countsAsProbe": false,
+    "use": "Local structural audit only"
+  },
+  "probes": [
+    {
+      "number": 1,
+      "submittedAtPage": "2026-09-04 23:43:05",
+      "status": "completed",
+      "purpose": "Opening configuration and response structure",
+      "input": "【玩家设定】\n姓名：审计员甲\n性别：男\n年龄：28\n外貌：大众脸\n性格：冷静\nXP：无\n其他：中性技术测试，所有角色成年，无色情内容。\n\n【开局模式】：全新攻略者\n\n【世界信息】\n名称：417.我的世界 (Minecraft)\n简介：一个由方块组成的无限世界。史蒂夫和艾利克斯在这里生存。白天撸树盖房，晚上躲避僵尸苦力怕。这里有地狱、末地，还有无限的红石科技。\nS级代表：末影龙 (Ender Dragon), 凋灵 (Wither), 监守者 (Warden), Him(传说)\n\n【身份设定】\n身份：被村民奸商坑骗的傻子\n等级：E\n物资：64个绿宝石, 一个枯萎的灌木\n\n【携带天赋】\n[抽取][417.我的世界 (Minecraft)] 自动钓鱼机 (C): 你钓鱼时必定钓上宝藏，包括附魔书和稀有装备。\n[抽取][417.我的世界 (Minecraft)] 光影模组(视觉) (C): 你的世界看起来比别人更美，水面反光，树叶摇晃，但这不增加战斗力。\n[抽取][244.僵尸先生(林正英系列)] 纸笔墨刀剑 (C): 随身空间自带一套无限补充的基础法器耗材，省去了去铺子买黄纸朱砂的钱。\n[抽取][242.狄仁杰系列(徐克版)] 水下闭气 (C): 由于长期在水下作业，你能在水中闭气超过十分钟，且行动自如。\n[抽取][通用] 钢铁意志 (A): 你的精神如同坚不可摧的堡垒，极大地抵抗精神控制、幻术和心灵蛊惑。想让你屈服，只能从肉体上摧毁你。",
+      "inputTranscriptionNote": "Visible text transcribed with normalized paragraph spacing; not a byte-exact request capture.",
+      "observed": {
+        "inventoryEmeralds": 64,
+        "groundEmeralds": 0,
+        "talents": 5,
+        "health": 20,
+        "maxHealth": 20,
+        "gamePts": 0,
+        "gameTime": "Day 1 18:45"
+      },
+      "result": "Opening scene, narration, player/NPC/system/world/memory sections and text action choices generated.",
+      "sitePoints": {
+        "input": 373,
+        "output": 622,
+        "total": 995
+      },
+      "id": "AU-01",
+      "budget": "originalAudit"
+    },
+    {
+      "number": 2,
+      "submittedAtPage": "2026-09-04 23:46:58",
+      "status": "completed",
+      "purpose": "Inventory transfer and state continuity",
+      "input": "我从随身携带的64颗绿宝石中取出5颗，放进水井旁脚边一个浅坑并用枯树枝作标记；其余留在背包。本回合只执行这一步，不购买、不兑换、不跳过夜晚。请保持五项天赋，分别记录背包与地面物品数量，正文简短，正常更新状态栏。",
+      "observed": {
+        "inventoryEmeralds": 59,
+        "groundEmeralds": 5,
+        "groundDeadBush": 1,
+        "talents": 5,
+        "gamePts": 0,
+        "gameTime": "Day 1 19:15"
+      },
+      "result": "Quantity conserved. Narration remained long despite brevity request; in-world time advanced 30 minutes.",
+      "sitePoints": {
+        "input": 1097,
+        "output": 594,
+        "total": 1691
+      },
+      "id": "AU-02",
+      "budget": "originalAudit"
+    },
+    {
+      "number": 3,
+      "submittedAtPage": "2026-09-04 23:48:37",
+      "status": "completed",
+      "purpose": "Native save shortcut behavior",
+      "input": "【指令：新增存档】",
+      "observed": {
+        "inventoryEmeralds": 59,
+        "groundEmeralds": 5,
+        "talents": 5,
+        "gamePts": 0,
+        "gameTime": "Day 1 19:15",
+        "saveRepresentation": "Text snapshot between SAVE DATA markers"
+      },
+      "result": "Response instructed manual addition to session worldbook with load trigger. No worldbook edit or restore performed.",
+      "restoreVerified": false,
+      "sitePoints": {
+        "input": 1606,
+        "output": 307,
+        "total": 1913
+      },
+      "id": "AU-03",
+      "budget": "originalAudit"
+    },
+    {
+      "number": 4,
+      "submittedAtPage": "2026-09-04 23:53:22",
+      "status": "completed",
+      "purpose": "Insufficient funds and player action boundaries",
+      "input": "我尝试在系统商店购买标价50 Pts的粗糙木剑。我当前系统积分为0，不允许透支，也不授权出售或兑换绿宝石。只判断这次购买是否成立；失败时不要给我木剑，不要扣除其他物品，也不要替我采取战斗或移动行动。",
+      "observed": {
+        "inventoryEmeralds": 59,
+        "groundEmeralds": 5,
+        "groundDeadBush": 1,
+        "talents": 5,
+        "gamePts": 0,
+        "woodenSwordGranted": false,
+        "health": 20,
+        "maxHealth": 20,
+        "gameTime": "Day 1 19:30"
+      },
+      "result": "Purchase rejected and assets preserved. Additional time progression, approaching enemy and player-intent narration exceeded the requested transaction-only judgment.",
+      "completionNote": "Appeared stalled before later completing on its own. Complete tail and cost display observed, input re-enabled. No cancellation, regeneration, refund, or retry executed. No upstream failure exclusion.",
+      "sitePoints": {
+        "input": 1670,
+        "output": 466,
+        "total": 2136
+      },
+      "id": "AU-04",
+      "budget": "originalAudit"
+    },
+    {
+      "id": "RP-01",
+      "number": 5,
+      "budget": "roadmapPreparation",
+      "submittedAtPage": "2026-09-05 00:07:43",
+      "status": "completed",
+      "purpose": "Native early-exit and settlement behavior",
+      "input": "【指令：离开世界】",
+      "observed": {
+        "rank": "E",
+        "importanceProgress": "1%",
+        "inventoryEmeraldsRetained": 0,
+        "talentsRetained": 5,
+        "identityRevoked": true,
+        "questTerminated": true,
+        "shopClosed": true,
+        "gamePts": 0,
+        "settlementProofGenerated": true
+      },
+      "result": "Early exit was allowed at E rank and 1% importance. The response removed carried inventory, retained all five talents, revoked identity, terminated the quest, closed the shop, and produced a text settlement proof with instructions to paste it into a new session. This is observed model behavior, not a verified backend rule or normal high-rank settlement contract.",
+      "sitePoints": {
+        "input": 1789,
+        "output": 556,
+        "total": 2345
+      }
+    },
+    {
+      "id": "RP-02",
+      "number": 6,
+      "budget": "roadmapPreparation",
+      "submittedAtPage": "2026-09-05 00:09:17",
+      "status": "completed",
+      "purpose": "Native load command after early settlement in the same conversation",
+      "input": "选择读取存档1",
+      "observed": {
+        "gameTime": "Day 1 19:15",
+        "rank": "E",
+        "importanceProgress": "1%",
+        "inventoryEmeralds": 59,
+        "groundEmeralds": 5,
+        "groundDeadBush": 1,
+        "talents": 5,
+        "health": 20,
+        "maxHealth": 20,
+        "gamePts": 0,
+        "questReopened": true,
+        "shopItemCount": 5
+      },
+      "result": "The same conversation returned to the earlier day/time and visible state. No worldbook setting was edited. This is conversational restoration behavior, not proof of durable cross-session storage, restart recovery, transactional rollback, settlement-reward revocation, or replay without a new model call.",
+      "sitePoints": {
+        "input": 1736,
+        "output": 667,
+        "total": 2403
+      }
+    }
+  ],
+  "limitations": [
+    "Six samples used one model and one Minecraft session; they do not establish long-session, cross-model, death/rebirth, normal high-rank settlement, or cross-world reliability.",
+    "Visible generated state is not proof of backend transactional state or durable storage.",
+    "RP-02 was a new model generation in the same conversation; it is not evidence of zero-call deterministic restore.",
+    "Page timestamps were copied from the UI and their timezone was not independently verified."
+  ],
+  "externalEffects": [
+    "Created one dedicated neutral test conversation and submitted six authorized messages.",
+    "Read the creator configuration UI without saving, publishing, exporting, adding entries, or calling its preview model.",
+    "Existing conversations, worldbook settings, model controls, and memory settings were not edited.",
+    "RPG-01 implementation used no target-site request and no model call; its contract fixtures were validated locally."
+  ],
+  "budgets": {
+    "originalAudit": {
+      "authorized": 5,
+      "submitted": 4,
+      "completed": 4,
+      "excludedUpstreamFailures": 0,
+      "remaining": 1
+    },
+    "roadmapPreparation": {
+      "authorized": 5,
+      "submitted": 2,
+      "completed": 2,
+      "excludedUpstreamFailures": 0,
+      "remaining": 3
+    },
+    "firstDevelopmentRound": {
+      "authorized": 20,
+      "submitted": 0,
+      "completed": 0,
+      "excludedUpstreamFailures": 0,
+      "remaining": 20,
+      "implementationStarted": true
+    }
+  },
+  "developmentActivity": {
+    "round": "RPG-01",
+    "status": "accepted",
+    "manualAcceptance": {
+      "status": "accepted",
+      "date": "2026-09-04"
+    },
+    "websiteProbes": 0,
+    "modelCalls": 0,
+    "firstDevelopmentRoundBudgetConsumed": 0,
+    "note": "Local contract implementation and offline validation do not consume probe authorization."
+  },
+  "authoringReference": {
+    "url": "https://afengy.cash/zh/app/9859d1f2-f905-4e9d-9219-9bf475fe2e7d/configuration",
+    "inspectedReadOnly": true,
+    "settingsSaved": false,
+    "published": false,
+    "previewModelCalled": false,
+    "observedCapabilities": [
+      "Metadata distinct from generation-affecting fields",
+      "Pre/main/post prompt blocks with insertion order",
+      "Worldbook keyword search, categories, user/AI triggers, AND/OR, target pre/main/post blocks",
+      "Opening/preset conversation and shortcut commands",
+      "Regex output replacement with rendering-only option",
+      "Suggested-action matching and button rendering",
+      "Separate CSS/media/Mod and default-memory controls"
+    ],
+    "evidenceBoundary": "Main configuration fields currently empty; this establishes authoring UI capabilities, not the installed target card's actual settings."
+  }
+}

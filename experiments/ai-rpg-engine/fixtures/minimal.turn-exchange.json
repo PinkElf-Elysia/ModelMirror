@@ -1,0 +1,48 @@
+{
+  "format": "modelmirror.ai-rpg.turn-exchange",
+  "formatVersion": "0.1.0",
+  "exchangeId": "turn.example.001",
+  "cardPackageRef": {
+    "id": "card.synthetic-gu-world",
+    "version": "0.1.0"
+  },
+  "input": {
+    "kind": "action",
+    "text": "观察门派入口与周围弟子的动向。"
+  },
+  "proposal": {
+    "narrative": "山门前雾气尚未散尽，纸鹤蛊在袖中轻轻振翅。你注意到值守弟子正在核对令牌。",
+    "suggestedActions": [
+      {
+        "id": "suggestion.present-token",
+        "label": "出示令牌",
+        "inputKind": "action",
+        "text": "向值守弟子出示门派令牌。"
+      },
+      {
+        "id": "suggestion.inspect-status",
+        "label": "查看状态",
+        "inputKind": "command",
+        "commandRef": "command.inspect-status",
+        "text": "查看当前角色状态。"
+      }
+    ],
+    "informationModules": [
+      {
+        "moduleRef": "info.character-status",
+        "values": [
+          {"fieldRef": "identity", "value": "中洲门派的外门弟子"},
+          {"fieldRef": "talents", "value": ["至尊仙胎蛊", "坚持", "春秋蝉(重生)", "九转尊者资质", "系统核心权限·root"]}
+        ]
+      }
+    ],
+    "stateProposals": [
+      {
+        "fieldRef": "state.scene-note",
+        "proposedValue": "抵达山门，值守弟子正在核对令牌。",
+        "rationale": "记录本回合新建立的场景事实。"
+      }
+    ],
+    "uncertainties": []
+  }
+}
