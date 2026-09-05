@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   estimateImageCost,
   GROK_IMAGINE_IMAGE_2_PRICING,
+  imageTokenPricingSummary,
+  MAI_IMAGE_TOKEN_PRICING_BY_MODEL_ID,
   MUSE_IMAGE_PRICING,
   RECRAFT_V4_STYLES_PRICING_BY_MODEL_ID,
   SEEDREAM_5_LITE_PRICING,
@@ -111,5 +113,20 @@ describe("estimateImageCost", () => {
       inputUsd: 0.005,
       exact: true,
     });
+  });
+
+  it("shows MAI token rates without fabricating a preflight total", () => {
+    const pricing =
+      MAI_IMAGE_TOKEN_PRICING_BY_MODEL_ID["microsoft/mai-image-2.6-flash"];
+
+    expect(
+      estimateImageCost(pricing, {
+        outputCount: 1,
+        referenceCount: 2,
+      }),
+    ).toBeNull();
+    expect(imageTokenPricingSummary(pricing)).toBe(
+      "文本输入 $1.75/M Token · 图片输入 $2.50/M Token · 图片输出 $19/M Token",
+    );
   });
 });

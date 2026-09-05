@@ -34,8 +34,10 @@ class ImageParameterProfile(BaseModel):
 
 
 class ImagePricingItem(BaseModel):
-    billable: Literal["input_image", "input_reference", "output_image"]
-    unit: Literal["image", "request"]
+    billable: Literal[
+        "input_text", "input_image", "input_reference", "output_image"
+    ]
+    unit: Literal["image", "request", "token"]
     cost_usd: float = Field(ge=0)
     variant: str | None = None
 
@@ -353,6 +355,9 @@ class ImageCatalogService:
                         ("input_image", "image"),
                         ("input_reference", "request"),
                         ("output_image", "image"),
+                        ("input_text", "token"),
+                        ("input_image", "token"),
+                        ("output_image", "token"),
                     }
                     or not isinstance(cost, (int, float))
                     or cost < 0

@@ -1,4 +1,4 @@
-﻿// Merged with OpenRouter model catalog on 2026-09-04T06:46:21.180Z.
+﻿// Merged with OpenRouter model catalog on 2026-09-05T02:04:27.418Z.
 // Targeted OpenRouter refresh verified on 2026-09-01 against the live all-modalities catalog.
 // Gemini 3.8 Flash, its Batch tier and Muse Spark 1.3 variants added on 2026-09-03.
 // Microsoft MAI-Transcribe 2 contract added on 2026-09-03.
@@ -220,6 +220,187 @@ interface RawCatalogModel {
 }
 
 const rawCatalogModels: RawCatalogModel[] = [
+  {
+    "id": "openai/gpt-6-astra",
+    "canonical_slug": "openai/gpt-6-astra-20260903",
+    "name": "OpenAI: GPT-6 Astra",
+    "raw_description": "GPT-6 Astra is OpenAI's flagship model for demanding end-to-end work. It is suited for advanced analysis, software engineering, deep research, scientific work, and document creation, with particular strengths in long-horizon...",
+    "context_length": 1050000,
+    "pricing": {
+      "input": 10,
+      "output": 50,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 20,
+          "output": 75
+        }
+      ]
+    },
+    "input_modalities": [
+      "file",
+      "image",
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_completion_tokens",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1788552838,
+    "expiration_date": null,
+    "model_author": "OpenAI",
+    "reasoning_declared": true
+  },
+  {
+    "id": "openai/gpt-6-astra-pro",
+    "canonical_slug": "openai/gpt-6-astra-pro-20260903",
+    "name": "OpenAI: GPT-6 Astra Pro",
+    "raw_description": "GPT-6 Astra Pro is the same underlying model as [GPT-6 Astra](https://openrouter.ai/openai/gpt-6-astra), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks.\n\nLearn more in OpenAI's docs: https://developers.openai.com/api/docs/guides/reasoning#reasoning-mode",
+    "context_length": 1050000,
+    "pricing": {
+      "input": 10,
+      "output": 50,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 20,
+          "output": 75
+        }
+      ]
+    },
+    "input_modalities": [
+      "file",
+      "image",
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_completion_tokens",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1788552835,
+    "expiration_date": null,
+    "model_author": "OpenAI",
+    "reasoning_declared": true
+  },
+  {
+    "id": "microsoft/mai-image-2.6",
+    "canonical_slug": "microsoft/mai-image-2.6-20260904",
+    "name": "Microsoft: MAI-Image-2.6",
+    "raw_description": "Microsoft's MAI-Image-2.6 is an image generation and editing model available via Azure AI Foundry. It creates images from text prompts and supports image-guided editing across multiple aspect ratios.",
+    "context_length": 4096,
+    "pricing": {
+      "input": 5,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "image"
+    ],
+    "tokenizer": "Media",
+    "supported_parameters": [
+      "aspect_ratio",
+      "n",
+      "input_references"
+    ],
+    "created": 1788550742,
+    "expiration_date": null,
+    "model_author": "Microsoft",
+    "note": "OpenRouter 专用 Images API：非流式；支持 8 种画幅、每次生成 1 张，以及最多 5 张参考图。按 Token 计费：文本输入 $5/M、图片输入 $8/M、图片输出 $38/M；生成前无法可靠预知图片 Token 数，最终费用以网关回执为准。"
+  },
+  {
+    "id": "microsoft/mai-image-2.6-flash",
+    "canonical_slug": "microsoft/mai-image-2.6-flash-20260904",
+    "name": "Microsoft: MAI-Image-2.6 Flash",
+    "raw_description": "Microsoft's MAI-Image-2.6 Flash is the lower-latency variant of MAI-Image-2.6, available via Azure AI Foundry. It supports image generation and image-guided editing across multiple aspect ratios.",
+    "context_length": 4096,
+    "pricing": {
+      "input": 1.75,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "image"
+    ],
+    "tokenizer": "Media",
+    "supported_parameters": [
+      "aspect_ratio",
+      "n",
+      "input_references"
+    ],
+    "created": 1788550735,
+    "expiration_date": null,
+    "model_author": "Microsoft",
+    "note": "OpenRouter 专用 Images API：低延迟、非流式；支持 8 种画幅、每次生成 1 张，以及最多 5 张参考图。按 Token 计费：文本输入 $1.75/M、图片输入 $2.50/M、图片输出 $19/M；生成前无法可靠预知图片 Token 数，最终费用以网关回执为准。"
+  },
+  {
+    "id": "inclusionai/ling-3.0-flash-sante:free",
+    "canonical_slug": "inclusionai/ling-3.0-flash-sante-20260904",
+    "name": "inclusionAI: Ling 3.0 Flash Sante (free)",
+    "raw_description": "Ling 3.0 Flash Sante is a health and medicine-focused mixture-of-experts model from InclusionAI, built on Ling 3.0 Flash with 5.1B active parameters out of 124B total. It is designed for...",
+    "context_length": 262144,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logprobs",
+      "max_tokens",
+      "presence_penalty",
+      "reasoning",
+      "repetition_penalty",
+      "seed",
+      "stop",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_logprobs",
+      "top_p"
+    ],
+    "created": 1788545946,
+    "expiration_date": null,
+    "model_author": "InclusionAI",
+    "reasoning_declared": true
+  },
   {
     "id": "microsoft/mai-transcribe-2",
     "canonical_slug": "microsoft/mai-transcribe-2-20260903",
@@ -587,7 +768,7 @@ const rawCatalogModels: RawCatalogModel[] = [
   {
     "id": "inclusionai/ling-3.0-flash-fin",
     "canonical_slug": "inclusionai/ling-3.0-flash-fin-20260827",
-    "name": "Ling 3.0 Flash Fin",
+    "name": "inclusionAI: Ling 3.0 Flash Fin",
     "raw_description": "Ling 3.0 Flash Fin is a finance-focused mixture-of-experts model from InclusionAI, built on Ling 3.0 Flash with 5.1B active parameters out of 124B total. It is designed for real-world investment...",
     "context_length": 262144,
     "pricing": {
@@ -628,7 +809,7 @@ const rawCatalogModels: RawCatalogModel[] = [
   {
     "id": "inclusionai/ling-3.0-flash-fin:free",
     "canonical_slug": "inclusionai/ling-3.0-flash-fin-20260827",
-    "name": "Ling 3.0 Flash Fin (free)",
+    "name": "inclusionAI: Ling 3.0 Flash Fin (free)",
     "raw_description": "Ling 3.0 Flash Fin is a finance-focused mixture-of-experts model from InclusionAI, built on Ling 3.0 Flash with 5.1B active parameters out of 124B total. It is designed for real-world investment...",
     "context_length": 262144,
     "pricing": {
@@ -1045,8 +1226,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Flash Vision Exp is an experimental vision-enabled version of [DeepSeek V4 Flash 0731](https://openrouter.ai/deepseek/deepseek-v4-flash-0731) from DeepSeek, adding image understanding while matching the base model on text capabilities including agents,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.44,
-      "output": 1.32,
+      "input": 0.22,
+      "output": 0.66,
       "time_overrides": [
         {
           "utc_start": 0,
@@ -1992,8 +2173,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Pro 0813 is a large-scale mixture-of-experts model from DeepSeek. This is the GA release of DeepSeek V4 Pro.",
     "context_length": 1048576,
     "pricing": {
-      "input": 1.1154,
-      "output": 3.3461999999999996
+      "input": 1.12068,
+      "output": 3.36204
     },
     "input_modalities": [
       "text"
@@ -2279,6 +2460,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "frequency_penalty",
       "include_reasoning",
       "max_tokens",
+      "parallel_tool_calls",
       "presence_penalty",
       "reasoning",
       "response_format",
@@ -2613,8 +2795,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek V4 Flash family.",
     "context_length": 1310720,
     "pricing": {
-      "input": 0.049999999999999996,
-      "output": 0.16
+      "input": 0.049980000000000004,
+      "output": 0.09996000000000001
     },
     "input_modalities": [
       "text"
@@ -3279,7 +3461,7 @@ const rawCatalogModels: RawCatalogModel[] = [
   {
     "id": "inclusionai/ling-3.0-flash",
     "canonical_slug": "inclusionai/ling-3.0-flash-20260723",
-    "name": "Ling-3.0-flash",
+    "name": "inclusionAI: Ling 3.0 Flash",
     "raw_description": "*Ling-3.0-flash* is a *124B-parameter Mixture-of-Experts (MoE) model*, with approximately *5.1B parameters activated per token*. The model is designed with *token efficiency and production-scale agentic inference* as key priorities, enabling developers...",
     "context_length": 262144,
     "pricing": {
@@ -7800,8 +7982,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3.6 27B is a dense 27-billion-parameter language model from the Qwen Team at Alibaba, released in April 2026. It features hybrid multimodal capabilities — accepting text, image, and video inputs...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.6,
-      "output": 3.5999999999999996
+      "input": 0.3,
+      "output": 2
     },
     "input_modalities": [
       "text",
@@ -7930,8 +8112,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Pro is a large-scale Mixture-of-Experts model from DeepSeek with 1.6T total parameters and 49B activated parameters, supporting a 1M-token context window. It is designed for advanced reasoning, coding,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 1.04226,
-      "output": 2.08452
+      "input": 0.971442,
+      "output": 1.942884
     },
     "input_modalities": [
       "text"
@@ -7975,8 +8157,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Flash is an efficiency-optimized Mixture-of-Experts model from DeepSeek with 284B total parameters and 13B activated parameters, supporting a 1M-token context window. It is designed for fast inference and...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.088606,
-      "output": 0.177212
+      "input": 0.08721999999999999,
+      "output": 0.17443999999999998
     },
     "input_modalities": [
       "text"
@@ -10395,8 +10577,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "The Qwen3.5 Series 35B-A3B is a native vision-language model designed with a hybrid architecture that integrates linear attention mechanisms and a sparse mixture-of-experts model, achieving higher inference efficiency. Its overall...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.25,
-      "output": 1.25
+      "input": 0.08,
+      "output": 0.75
     },
     "input_modalities": [
       "text",
@@ -11324,6 +11506,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "frequency_penalty",
       "include_reasoning",
       "max_tokens",
+      "parallel_tool_calls",
       "presence_penalty",
       "reasoning",
       "response_format",
@@ -16452,8 +16635,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3-235B-A22B-Instruct-2507 is a multilingual, instruction-tuned mixture-of-experts language model based on the Qwen3-235B architecture, with 22B active parameters per forward pass. It is optimized for general-purpose text generation, including instruction following,...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.0875,
-      "output": 0.35
+      "input": 0.09,
+      "output": 0.55
     },
     "input_modalities": [
       "text"
@@ -20061,7 +20244,6 @@ const rawCatalogModels: RawCatalogModel[] = [
     "supported_parameters": [
       "frequency_penalty",
       "logit_bias",
-      "logprobs",
       "max_tokens",
       "min_p",
       "presence_penalty",
@@ -20074,7 +20256,6 @@ const rawCatalogModels: RawCatalogModel[] = [
       "tool_choice",
       "tools",
       "top_k",
-      "top_logprobs",
       "top_p"
     ],
     "created": 1721692800,
@@ -20991,6 +21172,90 @@ const rawCatalogModels: RawCatalogModel[] = [
 ];
 
 const rawBatchServingVariants: RawCatalogModel[] = [
+  {
+    "id": "openai/gpt-6-astra:batch",
+    "canonical_slug": "openai/gpt-6-astra-20260903",
+    "name": "OpenAI: GPT-6 Astra (batch)",
+    "raw_description": "GPT-6 Astra is OpenAI's flagship model for demanding end-to-end work. It is suited for advanced analysis, software engineering, deep research, scientific work, and document creation, with particular strengths in long-horizon...",
+    "context_length": 1050000,
+    "pricing": {
+      "input": 5,
+      "output": 25,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 10,
+          "output": 37.5
+        }
+      ]
+    },
+    "input_modalities": [
+      "file",
+      "image",
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1788552838,
+    "expiration_date": null,
+    "model_author": "OpenAI",
+    "reasoning_declared": true
+  },
+  {
+    "id": "openai/gpt-6-astra-pro:batch",
+    "canonical_slug": "openai/gpt-6-astra-pro-20260903",
+    "name": "OpenAI: GPT-6 Astra Pro (batch)",
+    "raw_description": "GPT-6 Astra Pro is the same underlying model as [GPT-6 Astra](https://openrouter.ai/openai/gpt-6-astra), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks.\n\nLearn more in OpenAI's docs: https://developers.openai.com/api/docs/guides/reasoning#reasoning-mode",
+    "context_length": 1050000,
+    "pricing": {
+      "input": 5,
+      "output": 25,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 10,
+          "output": 37.5
+        }
+      ]
+    },
+    "input_modalities": [
+      "file",
+      "image",
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1788552835,
+    "expiration_date": null,
+    "model_author": "OpenAI",
+    "reasoning_declared": true
+  },
   {
     "id": "google/gemini-3.8-flash:batch",
     "canonical_slug": "google/gemini-3.8-flash-20260902",
@@ -23762,6 +24027,7 @@ const uncertainCatalogModelIds = new Set<string>([
   "essentialai/rnj-1-instruct",
   "google/gemini-2.5-flash-lite-preview-09-2025",
   "google/gemma-3n-e4b-it",
+  "ibm-granite/granite-4.1-8b",
   "inclusionai/ling-2.6-1t",
   "inclusionai/ling-2.6-flash",
   "inclusionai/ling-3.0-flash:free",
@@ -23940,6 +24206,7 @@ function inferCapabilities(raw: RawCatalogModel): Capability[] {
 function inferSeries(raw: RawCatalogModel): string {
   const haystack = (raw.id + " " + raw.name).toLowerCase();
   const rules: Array<[string, string]> = [
+    ["gpt-6", "GPT-6"],
     ["gpt-5.6", "GPT-5.6"],
     ["gpt-5.5", "GPT-5.5"], ["gpt-5.4", "GPT-5.4"], ["gpt-5.3", "GPT-5.3"], ["gpt-5.2", "GPT-5.2"], ["gpt-5.1", "GPT-5.1"], ["gpt-5", "GPT-5"],
     ["gpt-4.5", "GPT-4.5"], ["gpt-4o", "GPT-4o"], ["gpt-4", "GPT-4"], ["o4", "o4"], ["o3", "o3"], ["o1", "o1"],
@@ -24102,6 +24369,11 @@ const VERIFIED_VIDEO_MODEL_IDS = new Set([
   "runway/gen-4.5",
 ]);
 
+const VERIFIED_IMAGE_MODEL_IDS = new Set([
+  "microsoft/mai-image-2.6",
+  "microsoft/mai-image-2.6-flash",
+]);
+
 function inferOperations(raw: RawCatalogModel): ModelOperation[] {
   const operations = new Set<ModelOperation>();
   const inputs = new Set(raw.input_modalities);
@@ -24172,6 +24444,12 @@ function interactionForOperation(
   }
   if (operation === "embed" || operation === "rerank") {
     return { status: "ready", entrypoint: "rag" };
+  }
+  if (
+    operation === "generate_image" &&
+    VERIFIED_IMAGE_MODEL_IDS.has(modelId)
+  ) {
+    return { status: "ready", entrypoint: "multimodal" };
   }
   if (
     operation === "generate_video" &&
@@ -24390,6 +24668,7 @@ const worldModelEntry: Model = {
 };
 
 const FEATURED_MODEL_IDS = [
+  "openai/gpt-6-astra",
   "openai/gpt-5.6-sol",
   "anthropic/claude-opus-5",
   "deepseek/deepseek-v4-pro-0813",
@@ -24608,6 +24887,8 @@ const DEEPSEEK_V4_FLASH_MODEL_ID = "deepseek/deepseek-v4-flash-0731";
 const SEEDREAM_5_PRO_MODEL_ID = "bytedance-seed/seedream-5-0-pro";
 const CLAUDE_FABLE_5_1_MODEL_ID = "anthropic/claude-fable-5.1";
 const CLAUDE_OPUS_5_MODEL_ID = "anthropic/claude-opus-5";
+const GPT_6_ASTRA_MODEL_ID = "openai/gpt-6-astra";
+const GPT_5_6_SOL_MODEL_ID = "openai/gpt-5.6-sol";
 const MID_CATALOG_MODEL_IDS = [
   "sakana/sakana-namazu",
   "upstage/solar-pro4",
@@ -24615,6 +24896,10 @@ const MID_CATALOG_MODEL_IDS = [
   "inclusionai/ling-3.0-tiny:free",
 ];
 const LATEST_REFRESH_MODEL_IDS = [
+  "openai/gpt-6-astra-pro",
+  "microsoft/mai-image-2.6",
+  "microsoft/mai-image-2.6-flash",
+  "inclusionai/ling-3.0-flash-sante:free",
   "inclusionai/ling-3.0-flash-fin",
   "nvidia/nemotron-3.5-content-safety",
   "microsoft/mai-transcribe-2",
@@ -24682,6 +24967,8 @@ const reservedCatalogModelIds = new Set([
   SEEDREAM_5_PRO_MODEL_ID,
   CLAUDE_FABLE_5_1_MODEL_ID,
   CLAUDE_OPUS_5_MODEL_ID,
+  GPT_6_ASTRA_MODEL_ID,
+  GPT_5_6_SOL_MODEL_ID,
   ...MID_CATALOG_MODEL_IDS,
   ...LATEST_REFRESH_MODEL_IDS,
 ]);
@@ -24703,6 +24990,12 @@ const claudeFable51Model = sortedCatalogModels.find(
 const claudeOpus5Model = sortedCatalogModels.find(
   (model) => model.id === CLAUDE_OPUS_5_MODEL_ID,
 );
+const gpt6AstraModel = sortedCatalogModels.find(
+  (model) => model.id === GPT_6_ASTRA_MODEL_ID,
+);
+const gpt56SolModel = sortedCatalogModels.find(
+  (model) => model.id === GPT_5_6_SOL_MODEL_ID,
+);
 const midCatalogModels = MID_CATALOG_MODEL_IDS.map((modelId) =>
   sortedCatalogModels.find((model) => model.id === modelId),
 ).filter((model): model is Model => Boolean(model));
@@ -24714,22 +25007,22 @@ const normallyOrderedCatalogModels = sortedCatalogModels.filter(
 );
 
 // The list has one router card followed by two model cards in its first row.
-// Fable 5.1 occupies the flagship slot previously held by Opus 5; Opus 5 moves
-// to row 2 beside the stable V4 Flash default. Keep V4 Pro at row 3 column 1
-// and reserve row 4 column 1 for Seedream 5 Pro.
+// Fable 5.1 and Astra occupy the two flagship slots. Sol moves to row 2 beside
+// the stable V4 Flash default and Opus 5. Keep V4 Pro at row 3 column 1 and
+// reserve row 4 column 1 for Seedream 5 Pro.
 const primaryCatalogModels: Model[] = [
   ...(claudeFable51Model ? [claudeFable51Model] : []),
-  ...normallyOrderedCatalogModels.slice(0, 1),
+  ...(gpt6AstraModel ? [gpt6AstraModel] : []),
+  ...(gpt56SolModel ? [gpt56SolModel] : []),
   ...(deepseekV4FlashModel ? [deepseekV4FlashModel] : []),
   ...(claudeOpus5Model ? [claudeOpus5Model] : []),
-  ...normallyOrderedCatalogModels.slice(1, 2),
   ...(deepseekV4ProModel ? [deepseekV4ProModel] : []),
-  ...normallyOrderedCatalogModels.slice(2, 4),
+  ...normallyOrderedCatalogModels.slice(0, 2),
   ...(seedream5ProModel ? [seedream5ProModel] : []),
-  ...normallyOrderedCatalogModels.slice(4, 6),
+  ...normallyOrderedCatalogModels.slice(2, 4),
   ...(seedance25Model ? [seedance25Model] : []),
   ...DIRECT_OPENAI_AUDIO_MODELS,
-  ...normallyOrderedCatalogModels.slice(6),
+  ...normallyOrderedCatalogModels.slice(4),
 ];
 const catalogMidpoint = Math.floor(primaryCatalogModels.length / 2);
 

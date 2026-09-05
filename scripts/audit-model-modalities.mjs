@@ -21,6 +21,8 @@ const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
   "alibaba/wan-3.0-prime",
   "black-forest-labs/flux-video-upscale",
   "meta/muse-image",
+  "microsoft/mai-image-2.6",
+  "microsoft/mai-image-2.6-flash",
   "minimax/hailuo-3-max",
   "recraft/recraft-v4-styles",
   "recraft/recraft-v4-styles-pro",

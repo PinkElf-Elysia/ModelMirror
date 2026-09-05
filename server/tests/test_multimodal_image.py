@@ -654,6 +654,105 @@ async def test_muse_image_uses_prompt_only_dedicated_images_contract(
 
 
 @pytest.mark.asyncio
+async def test_mai_image_profiles_preserve_token_pricing_contract(
+    tmp_path: Path,
+) -> None:
+    model_prices = {
+        "microsoft/mai-image-2.6-flash": [
+            ("input_text", 0.00000175),
+            ("input_image", 0.0000025),
+            ("output_image", 0.000019),
+        ],
+        "microsoft/mai-image-2.6": [
+            ("input_text", 0.000005),
+            ("input_image", 0.000008),
+            ("output_image", 0.000038),
+        ],
+    }
+    aspect_ratios = ["1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3", "auto"]
+
+    def handler(request: Request) -> Response:
+        if request.url.path.endswith("/images/models"):
+            return Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "id": model_id,
+                            "name": model_id,
+                            "architecture": {
+                                "input_modalities": ["text", "image"],
+                                "output_modalities": ["image"],
+                            },
+                            "supported_parameters": {
+                                "aspect_ratio": {
+                                    "type": "enum",
+                                    "values": aspect_ratios,
+                                },
+                                "n": {"type": "range", "min": 1, "max": 1},
+                                "input_references": {
+                                    "type": "range",
+                                    "min": 0,
+                                    "max": 5,
+                                },
+                            },
+                            "supports_streaming": False,
+                        }
+                        for model_id in model_prices
+                    ]
+                },
+            )
+        if "/images/models/" in request.url.path:
+            model_id = request.url.path.split("/images/models/", 1)[1].split(
+                "/endpoints", 1
+            )[0]
+            return Response(
+                200,
+                json={
+                    "endpoints": [
+                        {
+                            "pricing": [
+                                {
+                                    "billable": billable,
+                                    "unit": "token",
+                                    "cost_usd": cost,
+                                }
+                                for billable, cost in model_prices[model_id]
+                            ],
+                            "allowed_passthrough_parameters": [
+                                "web_grounding"
+                            ],
+                        }
+                    ]
+                },
+            )
+        return Response(200, json={"data": []})
+
+    catalog = ImageCatalogService(
+        openrouter_service(tmp_path),
+        client_factory=lambda: httpx.AsyncClient(
+            transport=MockTransport(handler)
+        ),
+    )
+    result = await catalog.get_catalog()
+    profiles = {item.model_id: item for item in result.profiles}
+
+    assert set(model_prices).issubset(profiles)
+    for model_id, pricing in model_prices.items():
+        profile = profiles[model_id]
+        assert profile.supports_streaming is False
+        assert profile.supported_parameters["aspect_ratio"].values == aspect_ratios
+        assert profile.supported_parameters["n"].min == 1
+        assert profile.supported_parameters["n"].max == 1
+        assert profile.supported_parameters["input_references"].max == 5
+        assert [
+            (item.billable, item.unit, item.cost_usd)
+            for item in profile.pricing
+        ] == [(billable, "token", cost) for billable, cost in pricing]
+        assert "web_grounding" not in profile.supported_parameters
+
+
+@pytest.mark.asyncio
 async def test_recraft_v4_styles_profiles_preserve_dedicated_contract(
     tmp_path: Path,
 ) -> None:
