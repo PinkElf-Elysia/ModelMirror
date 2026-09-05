@@ -73,7 +73,7 @@ The manual gate for RPG-02 consumption is satisfied, but RPG-02 still requires i
 
 ## Next-round model handoff
 
-The current Sol-led task owns the complete RPG-01 closeout because only deterministic repository receipt, validation, and pull-request checks remain. The recommendation to use Astra for later rounds is driven by interaction risk rather than by claiming this module is among the project's most difficult modules. Live card-flow inspection and content extraction require continuous visual judgment across page changes, login state, loading failures, unexpected dialogs, and probe accounting, so Astra must retain that end-to-end computer-operation chain. Sol agents should handle bounded offline work such as normalization, structured conversion, fixtures, tests, and evidence reconciliation. No two agents may operate the same browser page or other stateful UI concurrently.
+The current Sol-led task owns the complete RPG-01 closeout because only deterministic repository receipt, validation, and pull-request checks remain. The recommendation to use Astra for later rounds is driven by interaction risk rather than by claiming this module is among the project's most difficult modules. Live card-flow inspection and content extraction require continuous visual judgment across page changes, login state, loading failures, unexpected dialogs, and probe accounting, so Astra must retain initial discovery and exception handling. Once Astra has mapped a stable path, Sol may turn it into a reviewable Skill and batch contract; only after a small golden batch passes may Luna or another lower-cost worker process non-overlapping repetitive batches. Workers must use isolated sessions or offline inputs, checkpoint every batch, preserve provenance and hashes, and stop for Astra on any page drift or validation failure. No two agents may operate the same browser page or other stateful UI concurrently.
 
 Copyable transition prompt for the next Astra-led task:
 
@@ -93,12 +93,19 @@ Copyable transition prompt for the next Astra-led task:
 2. 以既有合同为消费边界制定 RPG-02 计划，保持“一切皆插件”、卡片市场与最小核心框架的架构方向，不把任务经济、存档、死亡复活、跨世界继承等卡片特化机制硬编码进核心。
 3. 由你负责范围判断、架构取舍、异常处理、跨子任务整合、最终门禁和向用户报告。后续网站卡片交互链探查、内容提取、登录状态、页面变化、意外弹窗和探针计数由你从头到尾单独串行掌控；先读取探针账本，严格遵守当轮授权额度和失败计数规则。
 4. 未获得用户明确实施授权前，只完成计划和可审计材料；不要开始 RPG-02 代码、探针、模型调用、合并或部署。
+5. 面对海量 HTML 资源，采用“探路—固化—黄金批验证—分片批处理—异常升级”：你先完成代表性链路和异常矩阵；再让 Sol 把重复操作固化为可审计 Skill/批处理合同；小批门禁通过后才交给 Luna 等低成本 worker 执行。
 
 Sol 子智能体执行方式：
 - 只下发边界清楚、互不重叠、可独立校验的离线任务，例如单一 Schema/fixture、单组测试、许可证核对、由 Astra 已保存材料的结构化转换、文档一致性检查或只读资料归纳。
 - 每项任务写明允许路径、输入事实、禁止事项、预期产物和门禁；默认不得 Commit、Push、建 PR、调用模型、使用探针或操作共享浏览器状态。
 - 要求 Sol 只返回必要结论、证据、文件与命令结果；你必须复核其实际改动和测试，不直接把子智能体的完成声明当作验收。
 - Sol 不自行接管网站探针或与 Astra 共享同一页面状态。遇到跨模块设计、门禁漂移、异常 UI 状态、证据冲突或范围不清时，由 Sol 停止并上报，你继续判断；不要让多个智能体并发修改同一文件或操作同一页面。
+
+Luna/批处理 worker 执行方式：
+- 只有在 Astra 已冻结交互链、Sol 已固化 Skill 且黄金样本通过后才启用；worker 不负责重新发现流程或自主改变规则。
+- 每个 worker 只接收互不重叠的资源清单、明确额度、独立会话或离线输入、固定输出 Schema、来源回执、内容 hash、检查点和有限重试次数。
+- DOM/字段漂移、登录或验证码、意外弹窗、速率限制、探针计数分歧、悬空资源、hash 或 Schema 失败均为立即停批条件；保留现场证据并交回 Astra 判断。
+- Astra 对每批做抽样和跨批去重验收。没有独立浏览器状态时不得并发操作同一站点页面；可并发的应是离线转换或真正隔离的批次。
 ```
 
 ## External effects and rollback
