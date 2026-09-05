@@ -7,6 +7,7 @@ import {
   readdir,
   realpath,
   rename,
+  rmdir,
   rm,
 } from "node:fs/promises";
 import path from "node:path";
@@ -31,6 +32,7 @@ const defaultOperations = Object.freeze({
   readdir,
   realpath,
   rename,
+  rmdir,
   rm,
   randomBytes,
   processId: process.pid,
@@ -521,7 +523,7 @@ async function acquireWriterLease(root, operations, processEpochSha256) {
 
 function captureOperations(overrides) {
   const value = { ...defaultOperations, ...(overrides ?? {}) };
-  for (const name of ["lstat", "mkdir", "mkdtemp", "openFile", "readdir", "realpath", "rename", "rm", "randomBytes", "isProcessAlive"]) {
+  for (const name of ["lstat", "mkdir", "mkdtemp", "openFile", "readdir", "realpath", "rename", "rmdir", "rm", "randomBytes", "isProcessAlive"]) {
     if (typeof value[name] !== "function") fail("R22_STORE_OPERATIONS_INVALID");
   }
   if (!Number.isSafeInteger(value.processId) || value.processId < 1) fail("R22_STORE_OPERATIONS_INVALID");
@@ -953,9 +955,9 @@ export async function publishR22TurnReceipt(store, turnReceiptJson) {
       fail("R22_STORE_TURN_RECEIPT_IDENTITY_MISMATCH");
     }
     const directory = turnDirectory(state, active);
-    const names = (await state.operations.readdir(directory)).sort();
-    const allowed = new Set(["call-plan.json", "dispatch-record.json", "validated-proposal-record.json", "display-ack-record.json"]);
-    if (!names.includes("call-plan.json") || names.some((name) => !allowed.has(name))) fail("R22_STORE_TURN_DIRECTORY_INVALID");
+    const publication = await inspectReceiptPublication(directory, state.operations);
+    const names = publication.evidenceNames;
+    if (!names.includes("call-plan.json")) fail("R22_STORE_TURN_DIRECTORY_INVALID");
     const callPlanJson = await readStableText(path.join(directory, "call-plan.json"), state.operations);
     const callPlan = canonicalDocument(callPlanJson, validateNpcCognitionCallPlanJson, "R22_STORE_CALL_PLAN_INVALID");
     if (sha256Text(callPlanJson) !== active.callPlanSha256 || callPlan.turnId !== active.turnId || callPlan.turnSha256 !== active.turnSha256) {
@@ -963,7 +965,18 @@ export async function publishR22TurnReceipt(store, turnReceiptJson) {
     }
     await verifyReceiptEvidenceClosure(state, directory, callPlan, receipt, names, active);
     const target = path.join(directory, "turn-receipt.json");
-    await writeAtomic(target, turnReceiptJson, state.operations, { immutable: true });
+    if (publication.targetJson !== null && publication.targetJson !== turnReceiptJson ||
+        publication.stagedJson !== null && publication.stagedJson !== turnReceiptJson) fail("R22_STORE_IMMUTABLE_CONFLICT");
+    if (publication.stagingPath !== null) {
+      if (publication.stagedJson !== null && publication.targetJson === null) {
+        await state.operations.rename(path.join(publication.stagingPath, "turn-receipt.json"), target);
+        if (await readStableText(target, state.operations) !== turnReceiptJson) fail("R22_STORE_WRITE_FAILED");
+      }
+      if ((await state.operations.readdir(publication.stagingPath)).length !== 0) fail("R22_STORE_TURN_DIRECTORY_INVALID");
+      await state.operations.rmdir(publication.stagingPath);
+    } else if (publication.targetJson === null) {
+      await writeAtomic(target, turnReceiptJson, state.operations, { immutable: true });
+    }
     reconcileBudgetForReceipt(state, receipt);
     await persistBudget(state);
     const actor = actorUsage(state.checkpoint, active.actorEntityId);
@@ -991,15 +1004,37 @@ export async function publishR22TurnReceipt(store, turnReceiptJson) {
   });
 }
 
+async function inspectReceiptPublication(directory, operations) {
+  const names = (await operations.readdir(directory)).sort();
+  const ordinary = new Set(["call-plan.json", "dispatch-record.json", "validated-proposal-record.json", "display-ack-record.json", "turn-receipt.json"]);
+  const stages = names.filter((name) => /^\.s-[A-Za-z0-9]{6}$/u.test(name));
+  if (stages.length > 1 || names.some((name) => !ordinary.has(name) && !stages.includes(name))) fail("R22_STORE_TURN_DIRECTORY_INVALID");
+  const targetJson = names.includes("turn-receipt.json") ? await readStableText(path.join(directory, "turn-receipt.json"), operations) : null;
+  if (targetJson !== null) canonicalDocument(targetJson, validateNpcCognitionTurnReceiptJson, "R22_STORE_TURN_RECEIPT_INVALID");
+  let stagingPath = null, stagedJson = null;
+  if (stages.length === 1) {
+    stagingPath = path.join(directory, stages[0]);
+    const stageStat = await operations.lstat(stagingPath, { bigint: true }), stageIdentity = identity(stageStat);
+    if (!isPlainDirectory(stageStat) || stageIdentity === null || !samePath(await operations.realpath(stagingPath), stagingPath)) fail("R22_STORE_PATH_IDENTITY_INVALID");
+    const stagedNames = (await operations.readdir(stagingPath)).sort();
+    if (stagedNames.length === 1 && stagedNames[0] === "turn-receipt.json") {
+      stagedJson = await readStableText(path.join(stagingPath, "turn-receipt.json"), operations);
+      canonicalDocument(stagedJson, validateNpcCognitionTurnReceiptJson, "R22_STORE_TURN_RECEIPT_INVALID");
+    }
+    else if (!(stagedNames.length === 0 && targetJson !== null)) fail("R22_STORE_TURN_DIRECTORY_INVALID");
+    await assertDirectory(stagingPath, stageIdentity, operations);
+  }
+  return Object.freeze({ evidenceNames: Object.freeze(names.filter((name) => ordinary.has(name))), targetJson, stagingPath, stagedJson });
+}
+
 export async function readR22ActiveCallArtifacts(store) {
   const state = storeState(store);
   return runExclusive(state, async () => {
     const active = state.checkpoint.active;
     if (active === null) return null;
     const directory = turnDirectory(state, active);
-    const names = (await state.operations.readdir(directory)).sort();
-    const allowed = new Set(["call-plan.json", "dispatch-record.json", "validated-proposal-record.json", "display-ack-record.json", "turn-receipt.json"]);
-    if (!names.includes("call-plan.json") || names.some((name) => !allowed.has(name))) fail("R22_STORE_TURN_DIRECTORY_INVALID");
+    const publication = await inspectReceiptPublication(directory, state.operations), names = publication.evidenceNames;
+    if (!names.includes("call-plan.json")) fail("R22_STORE_TURN_DIRECTORY_INVALID");
     const readOptional = async (name) => names.includes(name) ? readStableText(path.join(directory, name), state.operations) : null;
     return Object.freeze({
       active: Object.freeze(structuredClone(active)),
@@ -1007,7 +1042,8 @@ export async function readR22ActiveCallArtifacts(store) {
       dispatchRecordJson: await readOptional("dispatch-record.json"),
       validatedProposalRecordJson: await readOptional("validated-proposal-record.json"),
       displayAckRecordJson: await readOptional("display-ack-record.json"),
-      turnReceiptJson: await readOptional("turn-receipt.json"),
+      turnReceiptJson: publication.targetJson,
+      stagedTurnReceiptJson: publication.stagedJson,
     });
   });
 }

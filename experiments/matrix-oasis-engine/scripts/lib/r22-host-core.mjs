@@ -12,6 +12,7 @@ import {
 } from "@matrix-oasis/npc-authority-contracts";
 import { canonicalizeJsonValue } from "@matrix-oasis/runtime-pack-contracts";
 import {
+  closeR22CallStore,
   computeR22DisplayAckHash,
   getR22CallStoreIdentity,
   inspectR22CallStore,
@@ -947,16 +948,39 @@ export async function recoverR22TransactionalHost(host) {
   const artifacts = await readR22ActiveCallArtifacts(state.store);
   if (artifacts === null) return deepFreeze({ ok: true, status: "idle", providerReplayRequests: 0 });
   const active = activeFromRecovery(artifacts, state.storeIdentity);
-  if (artifacts.turnReceiptJson !== null) {
-    await publishR22TurnReceipt(state.store, artifacts.turnReceiptJson);
-    return deepFreeze({ ok: true, status: "finalized", providerReplayRequests: 0, turnReceiptSha256: sha256Text(artifacts.turnReceiptJson) });
-  }
+  if (artifacts.turnReceiptJson !== null && artifacts.stagedTurnReceiptJson !== null && artifacts.turnReceiptJson !== artifacts.stagedTurnReceiptJson) operational();
+  const recoveredReceiptJson = artifacts.turnReceiptJson ?? artifacts.stagedTurnReceiptJson;
+  const finalizeRecovered = async (receipt) => {
+    if (recoveredReceiptJson !== null && recoveredReceiptJson !== receipt) operational();
+    return finalize(host, active, receipt);
+  };
   const validated = parseValidatedRecord(artifacts.validatedProposalRecordJson, active);
   if (artifacts.validatedProposalRecordJson !== null && validated === null) operational();
   const dispatch = artifacts.dispatchRecordJson === null ? null : parseDispatchRecord(artifacts.dispatchRecordJson, active);
   if (artifacts.dispatchRecordJson !== null && dispatch === null) operational();
   const displayAck = parseDisplayAckRecord(artifacts.displayAckRecordJson, validated, active, dispatch);
   if (artifacts.displayAckRecordJson !== null && displayAck === null) operational();
+  if (recoveredReceiptJson !== null) {
+    const recoveredReceipt = JSON.parse(recoveredReceiptJson);
+    if (recoveredReceipt.adjudicationResultSha256 === null) {
+      if (canonicalizeJsonValue(recoveredReceipt.ledger.before) !== canonicalizeJsonValue(active.beforeLedgerPoint) ||
+          canonicalizeJsonValue(recoveredReceipt.ledger.after) !== canonicalizeJsonValue(active.beforeLedgerPoint)) operational();
+      let lookup;
+      try {
+        lookup = await state.operations.adjudicationLookup({
+          intentId: recoveredReceipt.mappedIntentSha256 === null ? null : validated?.mappedIntentId ?? null,
+          mappedIntentSha256: recoveredReceipt.mappedIntentSha256,
+          beforeLedgerPoint: active.beforeLedgerPoint,
+          callPlanSha256: active.callPlanSha256,
+        });
+      } catch { lookup = null; }
+      if (lookup?.found !== false) operational();
+      await publishR22TurnReceipt(state.store, recoveredReceiptJson);
+      state.active = null;
+      return deepFreeze({ ok: true, status: recoveredReceipt.statusHistory.at(-2), recovered: true,
+        providerReplayRequests: 0, turnReceiptJson: recoveredReceiptJson, turnReceiptSha256: sha256Text(recoveredReceiptJson) });
+    }
+  }
   if (validated !== null) {
     const recoveredProvider = {
       returnedModel: validated.returnedModel,
@@ -977,7 +1001,7 @@ export async function recoverR22TransactionalHost(host) {
           fallbackReason: "NPC_COGNITION_FALLBACK_DISPLAY_UNCONFIRMED",
           proposalSha256: validated.proposalSha256,
         });
-        const finalized = await finalize(host, active, receipt);
+        const finalized = await finalizeRecovered(receipt);
         return deepFreeze({ ...finalized, recovered: true, providerReplayRequests: 0 });
       }
       const receipt = buildReceipt(active, {
@@ -989,7 +1013,7 @@ export async function recoverR22TransactionalHost(host) {
         fallbackReason: "NPC_COGNITION_FALLBACK_NONE",
         proposalSha256: validated.proposalSha256,
       });
-      const finalized = await finalize(host, active, receipt);
+      const finalized = await finalizeRecovered(receipt);
       return deepFreeze({ ...finalized, recovered: true, providerReplayRequests: 0 });
     }
     if (displayAck === null) {
@@ -1003,7 +1027,7 @@ export async function recoverR22TransactionalHost(host) {
         proposalSha256: validated.proposalSha256,
         actionChoiceId: validated.actionChoiceId,
       });
-      const finalized = await finalize(host, active, receipt);
+      const finalized = await finalizeRecovered(receipt);
       return deepFreeze({ ...finalized, recovered: true, providerReplayRequests: 0 });
     }
     let lookup;
@@ -1033,7 +1057,7 @@ export async function recoverR22TransactionalHost(host) {
         adjudicationResultSha256: evidence.adjudicationResultSha256,
         afterLedgerPoint: evidence.afterLedgerPoint,
       });
-      const finalized = await finalize(host, active, receipt);
+      const finalized = await finalizeRecovered(receipt);
       return deepFreeze({ ...finalized, recovered: true, providerReplayRequests: 0 });
     }
     return deepFreeze({
@@ -1058,7 +1082,7 @@ export async function recoverR22TransactionalHost(host) {
       actualMicrousd: NPC_COGNITION_LIMITS.perCallMicrousd,
       fallbackReason: "NPC_COGNITION_FALLBACK_DISPATCH_CRASH_UNCERTAIN",
     });
-    const finalized = await finalize(host, active, receipt);
+    const finalized = await finalizeRecovered(receipt);
     return deepFreeze({ ...finalized, recovered: true, providerReplayRequests: 0 });
   }
   const budget = inspectR22CallStore(state.store).hostBudget;
@@ -1068,7 +1092,7 @@ export async function recoverR22TransactionalHost(host) {
       requestCount: 0,
       fallbackReason: "NPC_COGNITION_FALLBACK_RESERVED_CRASH_RECOVERED",
     });
-    const finalized = await finalize(host, active, receipt);
+    const finalized = await finalizeRecovered(receipt);
     return deepFreeze({ ...finalized, recovered: true, providerReplayRequests: 0 });
   }
   const receipt = buildReceipt(active, {
@@ -1076,7 +1100,7 @@ export async function recoverR22TransactionalHost(host) {
     requestCount: 0,
     fallbackReason: "NPC_COGNITION_FALLBACK_APPROVAL_EXPIRED",
   });
-  const finalized = await finalize(host, active, receipt);
+  const finalized = await finalizeRecovered(receipt);
   return deepFreeze({ ...finalized, recovered: true, providerReplayRequests: 0 });
 }
 
@@ -1232,6 +1256,10 @@ function discardTransientTurnInput(record) {
   if (record) record.playerText = null;
 }
 
+function grantSingleStepCommand(state) {
+  if (state.singleStep) state.commandPermit = true;
+}
+
 function cancelDisplayDeadline(state) {
   if (typeof state.cancelDisplayDeadline === "function") state.cancelDisplayDeadline();
   state.cancelDisplayDeadline = null;
@@ -1270,6 +1298,7 @@ async function expirePendingApproval(state, expectedRecord = state.turn) {
     record.disclosure = null;
     discardTransientTurnInput(record);
     releaseSelectorGate(state.selectorGate);
+    grantSingleStepCommand(state);
     return completed;
   })();
   record.decisionPromise = expiration;
@@ -1353,16 +1382,18 @@ function armDisplayConfirmation(state, record, result, approvalTokenSha256) {
 }
 
 function captureLoopbackOperations(input) {
-  const keys = ["turnFactory", "authorityRequestHandler", "authorityStateReader"];
-  if (!exactObject(input, keys) || keys.some((key) => typeof input[key] !== "function")) operational();
+  const required = ["turnFactory", "authorityRequestHandler", "authorityStateReader"];
+  const keys = input.rotateTimelineHost === undefined ? required : [...required, "rotateTimelineHost"];
+  if (!exactObject(input, keys) || required.some((key) => typeof input[key] !== "function") ||
+      (input.rotateTimelineHost !== undefined && typeof input.rotateTimelineHost !== "function")) operational();
   return Object.freeze(Object.fromEntries(keys.map((key) => [key, input[key]])));
 }
 
-export function createR22LoopbackController({ host, selectorGate, sessionToken, turnFactory, authorityRequestHandler, authorityStateReader, displayScheduler = defaultDisplayScheduler, approvalScheduler = defaultDisplayScheduler, planningScheduler = defaultDisplayScheduler }) {
+export function createR22LoopbackController({ host, selectorGate, sessionToken, turnFactory, authorityRequestHandler, authorityStateReader, rotateTimelineHost, singleStep = false, displayScheduler = defaultDisplayScheduler, approvalScheduler = defaultDisplayScheduler, planningScheduler = defaultDisplayScheduler }) {
   stateFor(host);
   selectorStateFor(selectorGate);
-  if (!validSessionToken(sessionToken) || typeof displayScheduler !== "function" || typeof approvalScheduler !== "function" || typeof planningScheduler !== "function") operational();
-  const operations = captureLoopbackOperations({ turnFactory, authorityRequestHandler, authorityStateReader });
+  if (!validSessionToken(sessionToken) || typeof singleStep !== "boolean" || typeof displayScheduler !== "function" || typeof approvalScheduler !== "function" || typeof planningScheduler !== "function") operational();
+  const operations = captureLoopbackOperations({ turnFactory, authorityRequestHandler, authorityStateReader, ...(rotateTimelineHost === undefined ? {} : { rotateTimelineHost }) });
   const handle = Object.freeze(Object.create(null));
   loopbackStates.set(handle, {
     host,
@@ -1374,6 +1405,10 @@ export function createR22LoopbackController({ host, selectorGate, sessionToken, 
     cancelPlanning: null,
     executionPromise: null,
     authorityInFlight: false,
+    resetInFlight: false,
+    frozen: false,
+    singleStep,
+    commandPermit: false,
     transientDialogueByActor: new Map(),
     latestSequence: inspectR22CallStore(stateFor(host).store).checkpoint.latestSequence,
     displayScheduler,
@@ -1431,6 +1466,7 @@ export function restoreR22LoopbackController(controller, input) {
     expirationPromise: null,
   };
   state.latestSequence = Math.max(state.latestSequence, active.sequence);
+  grantSingleStepCommand(state);
   return deepFreeze({ ok: true, status: "queued_for_r20", providerReplayRequests: 0 });
 }
 
@@ -1563,6 +1599,7 @@ async function settleLoopbackExecution(state, record, internalApprovalHash) {
     record.disclosure = null;
     discardTransientTurnInput(record);
     releaseSelectorGate(state.selectorGate);
+    grantSingleStepCommand(state);
     return;
   }
   if (result.status === "queued_for_r20") {
@@ -1587,6 +1624,7 @@ async function settleLoopbackExecution(state, record, internalApprovalHash) {
   }
   record.disclosure = null;
   releaseSelectorGate(state.selectorGate);
+  grantSingleStepCommand(state);
 }
 
 async function declineLoopbackRecord(state, record) {
@@ -1606,6 +1644,7 @@ async function declineLoopbackRecord(state, record) {
     record.disclosure = null;
     discardTransientTurnInput(record);
     releaseSelectorGate(state.selectorGate);
+    grantSingleStepCommand(state);
     return true;
   })();
   record.decisionPromise = decision;
@@ -1647,6 +1686,7 @@ async function expirePendingDisplay(state, expectedRecord = state.turn) {
     record.disclosure = null;
     discardTransientTurnInput(record);
     releaseSelectorGate(state.selectorGate);
+    grantSingleStepCommand(state);
     record.displayExpiresAtMs = null;
   })();
   record.expirationPromise = expiration;
@@ -1686,12 +1726,14 @@ async function acknowledgeDisplayedDialogue(state, record) {
       if (acknowledged.status !== "dialogue_only" || typeof acknowledged.turnReceiptJson !== "string") operational();
       record.phase = "dialogue_only";
       releaseSelectorGate(state.selectorGate);
+      if (state.singleStep) state.commandPermit = false;
       return true;
     }
     if (!queueSelectorGate(state.selectorGate, record.actorEntityId, record.mappedIntentId, record.mappedIntentSha256)) {
       return finalizeQueuedFallback(state, record, "R22_R20_SELECTION_STALE");
     }
     record.phase = "queued";
+    grantSingleStepCommand(state);
     return true;
   })();
   let settled;
@@ -1724,6 +1766,7 @@ async function finalizeQueuedFallback(state, record, diagnosticCode) {
   record.disclosure = null;
   discardTransientTurnInput(record);
   releaseSelectorGate(state.selectorGate);
+  grantSingleStepCommand(state);
   return true;
 }
 
@@ -1851,40 +1894,83 @@ async function handleAuthorityRoute(state, request) {
     } else if (record?.phase === "dispatching" || record?.phase === "awaiting_display" || gate.mode === "held") {
       return jsonResponse(200, { status: "quiescent" });
     }
+    if (state.authorityInFlight || (state.singleStep && !state.commandPermit)) return jsonResponse(200, { status: "quiescent" });
     let delegated = await delegateAuthority(state, request);
     if (gate.mismatch && record?.phase === "queued") {
       if (!await finalizeQueuedFallback(state, record, "R22_R20_SELECTION_STALE")) return errorResponse(500, "R22_INTERNAL_ERROR");
       return jsonResponse(200, { status: "quiescent" });
     }
     const parsed = JSON.parse(delegated.body);
-    if (delegated.statusCode === 200 && parsed.status === "command") state.authorityInFlight = true;
+    if (delegated.statusCode === 200 && parsed.status === "command") {
+      state.authorityInFlight = true;
+      if (state.singleStep) state.commandPermit = false;
+    }
     if (record?.phase === "queued" && selectorStateFor(state.selectorGate).mode === "issued") record.phase = "issued";
     return delegated;
   }
   if (["approval_required", "dispatching", "awaiting_display", "queued"].includes(record?.phase) && ["/v1/reset", "/v1/verify"].includes(request.url)) {
     return errorResponse(409, "R22_CALL_IN_FLIGHT");
   }
+  const rotating = request.method === "POST" && request.url === "/v1/reset" && typeof state.operations.rotateTimelineHost === "function";
+  if (rotating) state.resetInFlight = true;
   const delegated = await delegateAuthority(state, request);
   const body = JSON.parse(delegated.body);
   if (request.url === "/v1/mirror" && delegated.statusCode === 200 && body.status === "committed") {
     state.authorityInFlight = false;
     if (record?.phase === "issued" && !await completeQueuedFromAuthority(state, record)) return errorResponse(500, "R22_R19_FAILURE");
   } else if (request.url === "/v1/reset" && delegated.statusCode === 200 && body.status === "reset") {
+    if (rotating) {
+      let candidate = null;
+      try {
+        if (!exactObject(body, ["status", "timelineId"]) || !IDENTIFIER.test(body.timelineId ?? "")) throw new Error("R22_HOST_ROTATION_FAILED");
+        const oldHostState = stateFor(state.host);
+        const oldBudget = inspectR22CallStore(oldHostState.store).hostBudget;
+        let released = false;
+        const releasePreviousHost = async () => {
+          if (released) return;
+          await closeR22CallStore(oldHostState.store);
+          released = true;
+        };
+        candidate = await state.operations.rotateTimelineHost(deepFreeze({ timelineId: body.timelineId, releasePreviousHost }));
+        const candidateState = stateFor(candidate);
+        const candidateIdentity = getR22CallStoreIdentity(candidateState.store);
+        const candidateInspection = inspectR22CallStore(candidateState.store);
+        if (!released || candidate === state.host || candidateIdentity.timelineId !== body.timelineId || candidateState.active !== null ||
+            candidateState.executionPromise !== null || candidateInspection.checkpoint.active !== null ||
+            canonicalizeJsonValue(candidateInspection.hostBudget) !== canonicalizeJsonValue(oldBudget)) {
+          throw new Error("R22_HOST_ROTATION_FAILED");
+        }
+        state.host = candidate;
+        state.latestSequence = candidateInspection.checkpoint.latestSequence;
+      } catch {
+        if (candidate && candidate !== state.host) {
+          await closeR22CallStore(stateFor(candidate).store).catch(() => {});
+        }
+        state.frozen = true;
+        state.resetInFlight = false;
+        return errorResponse(500, "R22_HOST_ROTATION_FAILED");
+      }
+    }
     state.authorityInFlight = false;
     state.transientDialogueByActor.clear();
     cancelDisplayDeadline(state);
+    cancelApprovalDeadline(state);
     state.turn = null;
+    state.commandPermit = false;
   } else if (["/v1/arrived", "/v1/mirror"].includes(request.url) && record?.phase === "issued" && delegated.statusCode !== 200) {
     const diagnostic = body.code?.includes("AUTHORITY") || body.code?.includes("RUNTIME") ? "R22_R19_FAILURE" : "R22_R20_UNAVAILABLE";
     if (!await finalizeQueuedFallback(state, record, diagnostic)) return errorResponse(500, "R22_INTERNAL_ERROR");
     state.authorityInFlight = false;
   }
+  state.resetInFlight = false;
   return delegated;
 }
 
 export async function handleR22LoopbackRequestAsync(controller, request) {
   const state = loopbackStateFor(controller);
   if (state.closed || state.closing) return errorResponse(503, "R22_HOST_CLOSED");
+  if (state.frozen) return errorResponse(503, "R22_HOST_FROZEN");
+  if (state.resetInFlight) return errorResponse(409, "R22_CALL_IN_FLIGHT");
   if (!request || normalizeLoopbackAddress(request.remoteAddress) !== R22_COGNITION_HOST) return errorResponse(403, "R22_LOOPBACK_REQUIRED");
   if (rawHeaderCount(request, "authorization") > 1 || rawHeaderCount(request, "content-type") > 1) return errorResponse(400, "R22_REQUEST_HEADERS_INVALID");
   if (!sameBearerToken(request.headers?.authorization, state.sessionToken)) return errorResponse(401, "R22_SESSION_TOKEN_INVALID");

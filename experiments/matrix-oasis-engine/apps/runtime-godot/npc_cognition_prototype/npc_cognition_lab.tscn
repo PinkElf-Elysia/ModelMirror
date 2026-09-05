@@ -1,0 +1,142 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://npc_cognition_prototype/npc_cognition_lab.gd" id="1_lab"]
+
+[node name="MatrixOasisR22NpcCognitionLab" type="Node3D"]
+script = ExtResource("1_lab")
+
+[node name="AuthorityRequest" type="HTTPRequest" parent="."]
+use_threads = false
+timeout = 30.0
+
+[node name="CognitionRequest" type="HTTPRequest" parent="."]
+use_threads = false
+timeout = 66.0
+
+[node name="CognitionHud" type="CanvasLayer" parent="."]
+layer = 100
+
+[node name="Backdrop" type="ColorRect" parent="CognitionHud"]
+visible = false
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 0
+color = Color(0.025, 0.031, 0.04, 0.96)
+
+[node name="Margin" type="MarginContainer" parent="CognitionHud/Backdrop"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 16
+theme_override_constants/margin_bottom = 12
+
+[node name="Panel" type="PanelContainer" parent="CognitionHud/Backdrop/Margin"]
+layout_mode = 2
+
+[node name="VBox" type="VBoxContainer" parent="CognitionHud/Backdrop/Margin/Panel"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Title" type="Label" parent="CognitionHud/Backdrop/Margin/Panel/VBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+text = "NPC dialogue"
+
+[node name="Status" type="Label" parent="CognitionHud/Backdrop/Margin/Panel/VBox"]
+layout_mode = 2
+text = "Plain text only"
+autowrap_mode = 2
+
+[node name="InputSection" type="VBoxContainer" parent="CognitionHud/Backdrop/Margin/Panel/VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 8
+
+[node name="PlayerText" type="TextEdit" parent="CognitionHud/Backdrop/Margin/Panel/VBox/InputSection"]
+custom_minimum_size = Vector2(0, 240)
+layout_mode = 2
+size_flags_vertical = 3
+placeholder_text = "Type what you want to say."
+wrap_mode = 1
+
+[node name="InputHelp" type="Label" parent="CognitionHud/Backdrop/Margin/Panel/VBox/InputSection"]
+layout_mode = 2
+text = "This text remains transient. The next screen shows the exact outbound request."
+autowrap_mode = 2
+
+[node name="InputActions" type="HBoxContainer" parent="CognitionHud/Backdrop/Margin/Panel/VBox/InputSection"]
+layout_mode = 2
+alignment = 2
+theme_override_constants/separation = 8
+
+[node name="Cancel" type="Button" parent="CognitionHud/Backdrop/Margin/Panel/VBox/InputSection/InputActions"]
+layout_mode = 2
+text = "Cancel (Esc)"
+
+[node name="Submit" type="Button" parent="CognitionHud/Backdrop/Margin/Panel/VBox/InputSection/InputActions"]
+layout_mode = 2
+text = "Prepare approval (Ctrl+Enter)"
+
+[node name="ApprovalSection" type="VBoxContainer" parent="CognitionHud/Backdrop/Margin/Panel/VBox"]
+visible = false
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 8
+
+[node name="DisclosureScroll" type="ScrollContainer" parent="CognitionHud/Backdrop/Margin/Panel/VBox/ApprovalSection"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+follow_focus = true
+
+[node name="Disclosure" type="Label" parent="CognitionHud/Backdrop/Margin/Panel/VBox/ApprovalSection/DisclosureScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Exact outbound request"
+autowrap_mode = 2
+selectable = true
+
+[node name="ApprovalActions" type="HBoxContainer" parent="CognitionHud/Backdrop/Margin/Panel/VBox/ApprovalSection"]
+layout_mode = 2
+alignment = 2
+theme_override_constants/separation = 8
+
+[node name="Decline" type="Button" parent="CognitionHud/Backdrop/Margin/Panel/VBox/ApprovalSection/ApprovalActions"]
+layout_mode = 2
+text = "Decline (Esc)"
+
+[node name="Approve" type="Button" parent="CognitionHud/Backdrop/Margin/Panel/VBox/ApprovalSection/ApprovalActions"]
+layout_mode = 2
+text = "Approve once (Enter)"
+
+[node name="DialogueSection" type="VBoxContainer" parent="CognitionHud/Backdrop/Margin/Panel/VBox"]
+visible = false
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 8
+
+[node name="DialogueScroll" type="ScrollContainer" parent="CognitionHud/Backdrop/Margin/Panel/VBox/DialogueSection"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+follow_focus = true
+
+[node name="Dialogue" type="Label" parent="CognitionHud/Backdrop/Margin/Panel/VBox/DialogueSection/DialogueScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Dialogue"
+autowrap_mode = 2
+selectable = true
+
+[node name="Close" type="Button" parent="CognitionHud/Backdrop/Margin/Panel/VBox/DialogueSection"]
+layout_mode = 2
+size_flags_horizontal = 8
+text = "Continue"

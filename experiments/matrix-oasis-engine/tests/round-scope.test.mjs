@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   mkdtempSync,
   mkdirSync,
@@ -160,6 +160,129 @@ test("machine boundary and code expose the same ordered R22 policy", () => {
   );
   assert.match(cli, /policy\.schemaVersion !== 22/);
   assert.doesNotMatch(cli, /policy\.schemaVersion !== 21/);
+});
+
+const R21_HISTORICAL_STEPS = Object.freeze([
+  "verify:r21-references",
+  "verify:npc-derived-state-contracts",
+  "verify:npc-derived-state",
+  "check:round-scope",
+  "check:boundary",
+  "check:v2-claim",
+]);
+const R21_HISTORICAL_DOCUMENTS = Object.freeze([
+  "docs/R21_TASK_CARD.md",
+  "docs/R21_MINIMUM_SEMANTICS.md",
+  "docs/R21_DERIVED_STATE_THREAT_MODEL.md",
+  "docs/adr/0022-r21-derived-state-governance.md",
+  "docs/R21_DERIVED_STATE.md",
+  "docs/rounds/R21_FALSIFICATION_EVIDENCE.md",
+  "docs/rounds/R21_ACCEPTANCE.md",
+]);
+
+function runHistoricalR21Verifier(t, {
+  mutateBoundary = () => {},
+  mutateClaim = () => {},
+  invalidDocument = null,
+  failingStep = null,
+} = {}) {
+  const fixture = mkdtempSync(path.join(os.tmpdir(), TEMP_PREFIX));
+  registerCleanup(t, fixture);
+  for (const relative of [
+    "scripts/verify-r21.mjs",
+    "scripts/lib/v2-claim-core.mjs",
+    "package.json",
+    ...R21_HISTORICAL_DOCUMENTS,
+  ]) {
+    write(fixture, relative, readFileSync(path.join(committedModuleRoot, relative), "utf8"));
+  }
+  const boundary = JSON.parse(readFileSync(path.join(committedModuleRoot, "module-boundary.json"), "utf8"));
+  const claim = JSON.parse(readFileSync(path.join(committedModuleRoot, "docs/V2_STATUS.json"), "utf8"));
+  mutateBoundary(boundary);
+  mutateClaim(claim);
+  write(fixture, "module-boundary.json", JSON.stringify(boundary));
+  write(fixture, "docs/V2_STATUS.json", JSON.stringify(claim));
+  if (invalidDocument !== null) write(fixture, invalidDocument, "invalid historical document\n");
+  // Only the subprocess boundary is stubbed here; the actual verifier, current
+  // claim checker and historical document checks execute from an owned copy.
+  write(fixture, "fixture-npm.mjs", [
+    'if (process.argv.length !== 4 || process.argv[2] !== "run") process.exit(91);',
+    'console.log("R21_TEST_STEP:" + process.argv[3]);',
+    `if (process.argv[3] === ${JSON.stringify(failingStep)}) process.exit(7);`,
+  ].join("\n"));
+  const result = spawnSync(process.execPath, [path.join(fixture, "scripts/verify-r21.mjs")], {
+    cwd: fixture,
+    encoding: "utf8",
+    env: { SystemRoot: process.env.SystemRoot, npm_execpath: path.join(fixture, "fixture-npm.mjs") },
+    shell: false,
+    windowsHide: true,
+    timeout: 10_000,
+    maxBuffer: 1_048_576,
+  });
+  assert.equal(result.error, undefined);
+  const steps = [...result.stdout.matchAll(/^R21_TEST_STEP:(.+)$/gmu)].map((match) => match[1].trim());
+  return { ...result, steps };
+}
+
+test("historical R21 verifier accepts active R22 governance and keeps all six steps", (t) => {
+  const result = runHistoricalR21Verifier(t);
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(result.steps, R21_HISTORICAL_STEPS);
+  assert.match(result.stdout, /^R21_AUTOMATED_GATES_OK$/mu);
+});
+
+test("historical R21 verifier rejects every changed, missing or unknown frozen policy field", (t) => {
+  const policy = JSON.parse(readFileSync(path.join(committedModuleRoot, "module-boundary.json"), "utf8")).r21DerivedStatePolicy;
+  const mutations = Object.entries(policy).map(([key, value]) => [key, (boundary) => {
+    boundary.r21DerivedStatePolicy[key] = typeof value === "boolean" ? !value : `${value}-drift`;
+  }]);
+  mutations.push(
+    ["missing-field", (boundary) => { delete boundary.r21DerivedStatePolicy.qualificationProfile; }],
+    ["unknown-field", (boundary) => { boundary.r21DerivedStatePolicy.unapprovedCapability = false; }],
+    ["missing-policy", (boundary) => { delete boundary.r21DerivedStatePolicy; }],
+  );
+  for (const [name, mutateBoundary] of mutations) {
+    const result = runHistoricalR21Verifier(t, { mutateBoundary });
+    assert.equal(result.status, 1, name);
+    assert.deepEqual(result.steps, [], name);
+    assert.match(result.stderr, /^R21_AUTOMATED_GATES_INVALID$/mu, name);
+  }
+});
+
+test("historical R21 verifier still rejects a changed current V2 claim", (t) => {
+  const result = runHistoricalR21Verifier(t, { mutateClaim: (claim) => { claim.claimAllowed = true; } });
+  assert.equal(result.status, 1);
+  assert.deepEqual(result.steps, []);
+});
+
+test("historical R21 verifier retains every frozen document check", (t) => {
+  for (const invalidDocument of R21_HISTORICAL_DOCUMENTS) {
+    const result = runHistoricalR21Verifier(t, { invalidDocument });
+    assert.equal(result.status, 1, invalidDocument);
+    assert.deepEqual(result.steps, [], invalidDocument);
+    assert.match(result.stderr, /^R21_AUTOMATED_GATES_INVALID$/mu, invalidDocument);
+  }
+});
+
+test("historical R21 verifier fails closed at each original subprocess step", (t) => {
+  for (const [index, failingStep] of R21_HISTORICAL_STEPS.entries()) {
+    const result = runHistoricalR21Verifier(t, { failingStep });
+    assert.equal(result.status, 1, failingStep);
+    assert.deepEqual(result.steps, R21_HISTORICAL_STEPS.slice(0, index + 1), failingStep);
+    assert.doesNotMatch(result.stdout, /^R21_AUTOMATED_GATES_OK$/mu);
+  }
+});
+
+test("only the approved historical R21 verifier is unfrozen, not its implementation or evidence", () => {
+  assert.equal(classifyRoundPath(`${MODULE_PREFIX}/scripts/verify-r21.mjs`), null);
+  for (const relative of [
+    "scripts/lib/r21-cli-core.mjs",
+    "packages/npc-derived-state-runtime/src/index.mjs",
+    "packages/npc-derived-state-contracts/src/index.mjs",
+    ...R21_HISTORICAL_DOCUMENTS,
+  ]) {
+    assert.equal(classifyRoundPath(`${MODULE_PREFIX}/${relative}`), "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED", relative);
+  }
 });
 
 test("accepts exact R22 files and cognition prefixes in every Git status source", (t) => {

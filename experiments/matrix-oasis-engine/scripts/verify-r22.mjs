@@ -11,6 +11,7 @@ const steps = [
   ["contracts", ["run", "verify:npc-cognition-contracts"]],
   ["runtime", ["run", "verify:npc-cognition-runtime"]],
   ["provider", ["run", "verify:npc-cognition-provider"]],
+  ["godot", ["run", "verify:npc-cognition-godot"]],
   ["round-scope", ["run", "check:round-scope"]],
   ["boundary", ["run", "check:boundary"]],
   ["v2-claim", ["run", "check:v2-claim"]],
@@ -84,6 +85,25 @@ try {
   if (scopeTests.error || scopeTests.status !== 0) {
     throw new Error("R22_VERIFY_FAILED_scope-tests");
   }
+  const liveTests = spawnSync(process.execPath, [
+    "--test",
+    "tests/r22-cli.test.mjs",
+    "tests/r22-qualification.test.mjs",
+    "tests/r22-falsification.test.mjs",
+    "tests/r22-real-cache.test.mjs",
+    "tests/r22-live-composition.test.mjs",
+    "tests/r22-live-evidence.test.mjs",
+    "tests/r22-live-preview.test.mjs",
+    "tests/r22-live-process.test.mjs",
+    "tests/r22-live-provider.test.mjs",
+    "tests/r22-live-recovery.test.mjs",
+    "tests/r22-live-recovery-process.test.mjs",
+    "tests/r22-recovered-behavior.test.mjs",
+    "tests/r22-recovered-coordinator.test.mjs",
+    "tests/r20-selector-injection.test.mjs",
+    "tests/r20-selector-enumeration.test.mjs",
+  ], { cwd: moduleRoot, stdio: "inherit", shell: false, windowsHide: true });
+  if (liveTests.error || liveTests.status !== 0) throw new Error("R22_VERIFY_FAILED_live-tests");
   for (const [id, args] of steps) {
     const result = spawnSync(process.execPath, [npmExecPath, ...args], {
       cwd: moduleRoot,

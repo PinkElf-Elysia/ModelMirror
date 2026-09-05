@@ -342,6 +342,264 @@ test("approval is bound to the exact disclosed payload, is one-time, and decline
   await closeR22CallStore(f.store);
 });
 
+test("persisted declined receipts recover byte-exactly before and after receipt rename without model replay", async (t) => {
+  for (const window of ["staged", "target"]) await t.test(window, async (child) => {
+    let crashed = false;
+    const f = await makeFixture(child, `declined-receipt-${window}`, { storeOperations: {
+      async rename(source, target) {
+        await rename(source, target);
+        if (!crashed && path.basename(target) === "turn-receipt.json") { crashed = true; throw new Error("simulated process exit after rename"); }
+      },
+    } });
+    const planned = await register(f.host);
+    const approval = issueR22CognitionApproval(f.host, { turnId: "turn-1", disclosureSha256: planned.result.disclosureSha256 });
+    assert.equal(approval.ok, true);
+    await assert.rejects(declineR22CognitionTurn(f.host, { turnId: "turn-1", disclosureSha256: planned.result.disclosureSha256 }), /NPC_COGNITION_INTERNAL_ERROR/u);
+    const target = (await allFiles(f.cognitionRunRoot)).find((file) => file.endsWith("turn-receipt.json"));
+    const expected = await readFile(target, "utf8");
+    if (window === "staged") {
+      const stage = path.join(path.dirname(target), ".s-Ab12Cd"); await mkdir(stage);
+      await rename(target, path.join(stage, "turn-receipt.json"));
+    }
+    await closeR22CallStore(f.store);
+    let lookups = 0, providers = 0;
+    const reopened = await openR22CallStore(f.config), host = createR22TransactionalHost({ store: reopened, operations: hostOperations({
+      async adjudicationLookup(input) { lookups += 1; assert.equal(input.intentId, null); assert.deepEqual(input.beforeLedgerPoint, ledgerPoint()); return { found: false }; },
+      async providerExecutor() { providers += 1; throw new Error("must not replay"); },
+    }) });
+    const recovered = await recoverR22TransactionalHost(host);
+    assert.equal(recovered.turnReceiptJson, expected);
+    assert.equal(JSON.parse(expected).fallbackReason, "NPC_COGNITION_FALLBACK_APPROVAL_DECLINED");
+    assert.equal(lookups, 1); assert.equal(providers, 0);
+    assert.equal(inspectR22CallStore(reopened).checkpoint.active, null);
+    assert.deepEqual(inspectR22CallStore(reopened).hostBudget, { chargedMicrousd: 0, reservedMicrousd: 0, limitMicrousd: NPC_COGNITION_LIMITS.perHostRunMicrousd });
+    assert.equal(await readFile(path.join(path.dirname(target), "turn-receipt.json"), "utf8"), expected);
+    await closeR22CallStore(reopened);
+  });
+});
+
+test("every persisted non-adjudicated terminal receipt recovers byte-exactly from stage and target without replay", async (t) => {
+  const scenarios = [
+    {
+      name: "provider-timeout",
+      fallbackReason: "NPC_COGNITION_FALLBACK_PROVIDER_TIMEOUT",
+      expectedCharge: NPC_COGNITION_LIMITS.perCallMicrousd,
+      async operations() {
+        return { async providerExecutor() {
+          return { ok: false, diagnosticCode: "R22_PROVIDER_TIMEOUT", requestCount: 1, costUncertain: true };
+        } };
+      },
+      async finish(f, turn) {
+        await executeApprovedR22CognitionTurn(f.host, { turnId: "turn-1", approvalHash: turn.approval.approvalHash });
+      },
+    },
+    {
+      name: "provider-refusal-with-usage",
+      fallbackReason: "NPC_COGNITION_FALLBACK_PROVIDER_REFUSED",
+      expectedCharge: 8,
+      async operations() {
+        return { async providerExecutor(input) {
+          const measured = providerSuccess(input.callPlanJson);
+          return { ...measured, ok: false, diagnosticCode: "R22_PROVIDER_REFUSED" };
+        } };
+      },
+      async finish(f, turn) {
+        await executeApprovedR22CognitionTurn(f.host, { turnId: "turn-1", approvalHash: turn.approval.approvalHash });
+      },
+    },
+    {
+      name: "validated-local-fallback",
+      fallbackReason: "NPC_COGNITION_FALLBACK_CONTEXT_STALE",
+      expectedCharge: 8,
+      async operations() {
+        return { async proposalValidator() { return { ok: false, diagnosticCode: "R22_CONTEXT_STALE" }; } };
+      },
+      async finish(f, turn) {
+        await executeApprovedR22CognitionTurn(f.host, { turnId: "turn-1", approvalHash: turn.approval.approvalHash });
+      },
+    },
+    {
+      name: "queued-action-fallback",
+      fallbackReason: "NPC_COGNITION_FALLBACK_R20_UNAVAILABLE",
+      expectedCharge: 8,
+      mappedIntentSha256: fixedSha("e"),
+      async operations(scenario) {
+        const choice = `choice-${scenario.mappedIntentSha256.slice(7)}`;
+        return {
+          async providerExecutor(input) { return providerSuccess(input.callPlanJson, { choice }); },
+          async proposalValidator({ proposalJson }) {
+            return validProposal(proposalJson, {
+              mappedIntentSha256: scenario.mappedIntentSha256,
+              command: { intentId: "intent-r20-one", opaque: true },
+            });
+          },
+        };
+      },
+      async finish(f, turn) {
+        const queued = await executeApprovedR22CognitionTurn(f.host, { turnId: "turn-1", approvalHash: turn.approval.approvalHash });
+        assert.equal(queued.status, "queued_for_r20");
+        await acknowledgeDirectDisplay(f.host, turn, queued);
+        await completeQueuedR22CognitionTurn(f.host, {
+          turnId: "turn-1", status: "fallback", afterLedgerPoint: ledgerPoint(),
+          adjudicationResultJson: null, diagnosticCode: "R22_R20_UNAVAILABLE",
+        });
+      },
+    },
+    {
+      name: "dialogue-only",
+      fallbackReason: "NPC_COGNITION_FALLBACK_NONE",
+      expectedCharge: 8,
+      async operations() { return {}; },
+      async finish(f, turn) {
+        const dialogue = await executeApprovedR22CognitionTurn(f.host, { turnId: "turn-1", approvalHash: turn.approval.approvalHash });
+        assert.equal(dialogue.status, "dialogue_only");
+        await acknowledgeDirectDisplay(f.host, turn, dialogue);
+      },
+    },
+  ];
+
+  for (const [scenarioIndex, scenario] of scenarios.entries()) for (const window of ["staged", "target"]) await t.test(`${scenario.name}-${window}`, async (child) => {
+    let crashed = false;
+    const f = await makeFixture(child, `terminal-${scenarioIndex}-${window}`, {
+      operations: await scenario.operations(scenario),
+      storeOperations: { async rename(source, target) {
+        await rename(source, target);
+        if (!crashed && path.basename(target) === "turn-receipt.json") {
+          crashed = true;
+          throw new Error("simulated process exit after receipt rename");
+        }
+      } },
+    });
+    const turn = await approved(f.host, 1, "actor-one", scenario.mappedIntentSha256 ? [scenario.mappedIntentSha256] : []);
+    await assert.rejects(scenario.finish(f, turn), /NPC_COGNITION_INTERNAL_ERROR/u);
+    const target = (await allFiles(f.cognitionRunRoot)).find((file) => file.endsWith("turn-receipt.json"));
+    assert.ok(target);
+    const expected = await readFile(target, "utf8");
+    const receipt = JSON.parse(expected);
+    assert.equal(receipt.fallbackReason, scenario.fallbackReason);
+    assert.equal(receipt.budget.actualMicrousd, scenario.expectedCharge);
+    assert.equal(receipt.adjudicationResultSha256, null);
+    assert.deepEqual(receipt.ledger.before, receipt.ledger.after);
+    if (window === "staged") {
+      const stage = path.join(path.dirname(target), ".s-Ab12Cd");
+      await mkdir(stage);
+      await rename(target, path.join(stage, "turn-receipt.json"));
+    }
+    await closeR22CallStore(f.store);
+
+    let lookups = 0;
+    let replayKeys = 0;
+    let replayProviders = 0;
+    const reopened = await openR22CallStore(f.config);
+    const host = createR22TransactionalHost({ store: reopened, operations: hostOperations({
+      async keyReader() { replayKeys += 1; throw new Error("must not reread credentials"); },
+      async providerExecutor() { replayProviders += 1; throw new Error("must not replay provider"); },
+      async adjudicationLookup(input) {
+        lookups += 1;
+        assert.equal(input.mappedIntentSha256, scenario.mappedIntentSha256 ?? null);
+        assert.equal(input.intentId, scenario.mappedIntentSha256 ? "intent-r20-one" : null);
+        assert.deepEqual(input.beforeLedgerPoint, ledgerPoint());
+        return { found: false };
+      },
+    }) });
+    const recovered = await recoverR22TransactionalHost(host);
+    assert.equal(recovered.turnReceiptJson, expected);
+    assert.equal(await readFile(path.join(path.dirname(target), "turn-receipt.json"), "utf8"), expected);
+    assert.equal(lookups, 1);
+    assert.equal(replayKeys, 0);
+    assert.equal(replayProviders, 0);
+    assert.deepEqual(inspectR22CallStore(reopened).hostBudget, {
+      chargedMicrousd: receipt.budget.actualMicrousd,
+      reservedMicrousd: 0,
+      limitMicrousd: NPC_COGNITION_LIMITS.perHostRunMicrousd,
+    });
+    assert.deepEqual(await recoverR22TransactionalHost(host), { ok: true, status: "idle", providerReplayRequests: 0 });
+    assert.equal(inspectR22CallStore(reopened).hostBudget.chargedMicrousd, receipt.budget.actualMicrousd);
+    await closeR22CallStore(reopened);
+  });
+});
+
+test("non-adjudicated receipt recovery rejects ledger drift and an already-adjudicated mapped intent", async (t) => {
+  await t.test("re-signed after ledger hash drift", async (child) => {
+    let crashed = false;
+    const f = await makeFixture(child, "forged-after", { storeOperations: { async rename(source, target) {
+      await rename(source, target);
+      if (!crashed && path.basename(target) === "turn-receipt.json") { crashed = true; throw new Error("crash after receipt rename"); }
+    } } });
+    const planned = await register(f.host);
+    const approval = issueR22CognitionApproval(f.host, { turnId: "turn-1", disclosureSha256: planned.result.disclosureSha256 });
+    await assert.rejects(declineR22CognitionTurn(f.host, { turnId: "turn-1", disclosureSha256: planned.result.disclosureSha256 }), /NPC_COGNITION_INTERNAL_ERROR/u);
+    const target = (await allFiles(f.cognitionRunRoot)).find((file) => file.endsWith("turn-receipt.json"));
+    const forged = JSON.parse(await readFile(target, "utf8"));
+    forged.ledger.after.runtimeSnapshotSha256 = fixedSha("9");
+    await writeFile(target, canonicalizeJsonValue(forged), "utf8");
+    await closeR22CallStore(f.store);
+    let lookups = 0, keys = 0, providers = 0;
+    const reopened = await openR22CallStore(f.config);
+    const host = createR22TransactionalHost({ store: reopened, operations: hostOperations({
+      async keyReader() { keys += 1; return "SECRET"; },
+      async providerExecutor() { providers += 1; throw new Error("must not replay"); },
+      async adjudicationLookup() { lookups += 1; return { found: false }; },
+    }) });
+    await assert.rejects(recoverR22TransactionalHost(host), /R22_STORE_TURN_RECEIPT_INVALID|NPC_COGNITION_INTERNAL_ERROR/u);
+    assert.equal(lookups, 0);
+    assert.equal(keys, 0);
+    assert.equal(providers, 0);
+    assert.equal(inspectR22CallStore(reopened).checkpoint.active.turnId, "turn-1");
+    await closeR22CallStore(reopened);
+  });
+
+  await t.test("mapped intent already present in the authority Ledger", async (child) => {
+    const mappedIntentSha256 = fixedSha("e");
+    const choice = `choice-${mappedIntentSha256.slice(7)}`;
+    let crashed = false;
+    const f = await makeFixture(child, "mapped-existing", {
+      operations: {
+        async providerExecutor(input) { return providerSuccess(input.callPlanJson, { choice }); },
+        async proposalValidator({ proposalJson }) {
+          return validProposal(proposalJson, { mappedIntentSha256, command: { intentId: "intent-r20-one", opaque: true } });
+        },
+      },
+      storeOperations: { async rename(source, target) {
+        await rename(source, target);
+        if (!crashed && path.basename(target) === "turn-receipt.json") { crashed = true; throw new Error("crash after receipt rename"); }
+      } },
+    });
+    const turn = await approved(f.host, 1, "actor-one", [mappedIntentSha256]);
+    const queued = await executeApprovedR22CognitionTurn(f.host, { turnId: "turn-1", approvalHash: turn.approval.approvalHash });
+    await acknowledgeDirectDisplay(f.host, turn, queued);
+    await assert.rejects(completeQueuedR22CognitionTurn(f.host, {
+      turnId: "turn-1", status: "fallback", afterLedgerPoint: ledgerPoint(),
+      adjudicationResultJson: null, diagnosticCode: "R22_R20_UNAVAILABLE",
+    }), /NPC_COGNITION_INTERNAL_ERROR/u);
+    const target = (await allFiles(f.cognitionRunRoot)).find((file) => file.endsWith("turn-receipt.json"));
+    const expected = await readFile(target, "utf8");
+    await closeR22CallStore(f.store);
+    let lookups = 0, keys = 0, providers = 0;
+    const reopened = await openR22CallStore(f.config);
+    const chargedBeforeRejectedRecovery = inspectR22CallStore(reopened).hostBudget.chargedMicrousd;
+    const host = createR22TransactionalHost({ store: reopened, operations: hostOperations({
+      async keyReader() { keys += 1; return "SECRET"; },
+      async providerExecutor() { providers += 1; throw new Error("must not replay"); },
+      async adjudicationLookup(input) {
+        lookups += 1;
+        assert.equal(input.intentId, "intent-r20-one");
+        assert.equal(input.mappedIntentSha256, mappedIntentSha256);
+        assert.deepEqual(input.beforeLedgerPoint, ledgerPoint());
+        return { found: true, canonicalWorldEventLedgerJson: canonicalizeJsonValue(authorityLedgerFixture()) };
+      },
+    }) });
+    await assert.rejects(recoverR22TransactionalHost(host), /NPC_COGNITION_INTERNAL_ERROR/u);
+    assert.equal(await readFile(target, "utf8"), expected);
+    assert.equal(lookups, 1);
+    assert.equal(keys, 0);
+    assert.equal(providers, 0);
+    assert.equal(inspectR22CallStore(reopened).checkpoint.active.turnId, "turn-1");
+    assert.equal(inspectR22CallStore(reopened).hostBudget.chargedMicrousd, chargedBeforeRejectedRecovery);
+    await closeR22CallStore(reopened);
+  });
+});
+
 test("expiry is checked before durable reservation and before reading credentials", async (t) => {
   let now = 10;
   let keys = 0;
@@ -650,7 +908,7 @@ test("validated action without a durable display acknowledgement becomes a known
   await closeR22CallStore(reopened);
 });
 
-test("a displayed queued Action rehydrates the controller and completes R20 mirror recovery without replaying the provider", async (t) => {
+test("a displayed queued Action rehydrates single-step with exactly one identity-bound R20 command", async (t) => {
   const before = { revision: 0, headSha256: null, runtimeSnapshotSha256: fixedSha("4") };
   const intentJson = canonicalizeJsonValue(authorityIntentFixture());
   const mappedIntentSha256 = shaText(intentJson);
@@ -717,6 +975,7 @@ test("a displayed queued Action rehydrates the controller and completes R20 mirr
     host: restartedHost,
     selectorGate: restartedGate,
     sessionToken: token,
+    singleStep: true,
     async turnFactory() { throw new Error("no new turn while recovered action is pending"); },
     async authorityRequestHandler(request) {
       if (request.url === "/v1/command") {
@@ -729,6 +988,24 @@ test("a displayed queued Action rehydrates the controller and completes R20 mirr
     },
     async authorityStateReader() { return { authority: { canonicalWorldEventLedgerJson: canonicalizeJsonValue(authorityLedgerFixture()) } }; },
   });
+  assert.deepEqual(JSON.parse((await handleR22LoopbackRequestAsync(restartedController, directLoopbackRequest(token, "GET", "/v1/command"))).body), { status: "quiescent" });
+  const drifted = restoreR22LoopbackController(restartedController, {
+    turnId: recovered.turnId,
+    actorEntityId: recovered.actorEntityId,
+    mappedIntentId: recovered.mappedIntentId,
+    mappedIntentSha256: fixedSha("9"),
+    displayAckSha256: recovered.displayAckSha256,
+  });
+  assert.equal(drifted.ok, false);
+  const missingAck = restoreR22LoopbackController(restartedController, {
+    turnId: recovered.turnId,
+    actorEntityId: recovered.actorEntityId,
+    mappedIntentId: recovered.mappedIntentId,
+    mappedIntentSha256: recovered.mappedIntentSha256,
+    displayAckSha256: fixedSha("8"),
+  });
+  assert.equal(missingAck.ok, false);
+  assert.deepEqual(JSON.parse((await handleR22LoopbackRequestAsync(restartedController, directLoopbackRequest(token, "GET", "/v1/command"))).body), { status: "quiescent" });
   const restored = restoreR22LoopbackController(restartedController, {
     turnId: recovered.turnId,
     actorEntityId: recovered.actorEntityId,
@@ -737,11 +1014,20 @@ test("a displayed queued Action rehydrates the controller and completes R20 mirr
     displayAckSha256: recovered.displayAckSha256,
   });
   assert.deepEqual(restored, { ok: true, status: "queued_for_r20", providerReplayRequests: 0 });
+  assert.equal(restoreR22LoopbackController(restartedController, {
+    turnId: recovered.turnId,
+    actorEntityId: recovered.actorEntityId,
+    mappedIntentId: recovered.mappedIntentId,
+    mappedIntentSha256: recovered.mappedIntentSha256,
+    displayAckSha256: recovered.displayAckSha256,
+  }).ok, false);
   const selected = JSON.parse((await handleR22LoopbackRequestAsync(restartedController, directLoopbackRequest(token, "GET", "/v1/command"))).body);
   assert.equal(selected.command.intentId, "intent-one");
   assert.deepEqual(selected.nextBehaviorState, { recovered: true });
+  assert.deepEqual(JSON.parse((await handleR22LoopbackRequestAsync(restartedController, directLoopbackRequest(token, "GET", "/v1/command"))).body), { status: "quiescent" });
   assert.equal((await handleR22LoopbackRequestAsync(restartedController, directLoopbackRequest(token, "POST", "/v1/arrived", "{}"))).statusCode, 200);
   assert.equal((await handleR22LoopbackRequestAsync(restartedController, directLoopbackRequest(token, "POST", "/v1/mirror", "{}"))).statusCode, 200);
+  assert.deepEqual(JSON.parse((await handleR22LoopbackRequestAsync(restartedController, directLoopbackRequest(token, "GET", "/v1/command"))).body), { status: "quiescent" });
   assert.equal(replayProviderRequests, 0);
   assert.equal(initialProviderRequests, 1);
   assert.equal(inspectR22CallStore(reopenedStore).checkpoint.active, null);
@@ -1079,6 +1365,170 @@ test("transient dialogue is actor-scoped, bounded to four whole exchanges, passe
   for (const forbidden of ["1".repeat(4096), "player-3", "player-6", "other-player", "player-after-reset", "TRANSIENT_MODEL_DIALOGUE"]) {
     assert.equal(durable.includes(forbidden), false, forbidden);
   }
+  await closeR22CallStore(f.store);
+});
+
+test("persisted reset rotates the cognition Host atomically onto the new authority timeline", async (t) => {
+  const f = await makeFixture(t, "reset-rotation");
+  const gate = createR22CognitionSelectorGate({
+    commandSelector() { return { ok: true, status: "quiescent" }; },
+    queuedCommandSelector() { return { ok: true, status: "quiescent" }; },
+  });
+  const rotationEntered = deferred();
+  const rotationReleased = deferred();
+  let rotatedStore;
+  let rotatedHost;
+  const sequences = [];
+  const controller = createR22LoopbackController({
+    host: f.host,
+    selectorGate: gate,
+    sessionToken: "reset-rotation-session-token-0123456789",
+    async turnFactory(input) {
+      sequences.push(input.sequence);
+      const providerRequestJson = payload(input.sequence);
+      return { turnId: `turn-${input.sequence}`, sequence: input.sequence, actorEntityId: input.actorEntityId, callPlanJson: callPlan(providerRequestJson, input.sequence), providerRequestJson, beforeLedgerPoint: ledgerPoint() };
+    },
+    async authorityRequestHandler(request) {
+      return request.url === "/v1/reset"
+        ? delegatedResponse(200, { status: "reset", timelineId: "timeline-reset" })
+        : delegatedResponse(200, { status: "quiescent" });
+    },
+    async authorityStateReader() { return null; },
+    async rotateTimelineHost({ timelineId, releasePreviousHost }) {
+      assert.equal(timelineId, "timeline-reset");
+      rotationEntered.resolve();
+      await rotationReleased.promise;
+      await releasePreviousHost();
+      rotatedStore = await openR22CallStore({ ...f.config, timelineId, authoritySessionSha256: fixedSha("c") });
+      rotatedHost = createR22TransactionalHost({ store: rotatedStore, operations: hostOperations(), clock: () => 1_000_000, randomBytesImplementation: () => new Uint8Array(32).fill(8) });
+      return rotatedHost;
+    },
+  });
+  const first = JSON.parse((await handleR22LoopbackRequestAsync(controller, directLoopbackRequest("reset-rotation-session-token-0123456789", "POST", "/v1/cognition/turn", jsonBody({ actorEntityId: "actor-one", playerText: "old" })))).body);
+  await handleR22LoopbackRequestAsync(controller, directLoopbackRequest("reset-rotation-session-token-0123456789", "POST", "/v1/cognition/decline", jsonBody({ turnId: first.turnId, approvalHash: first.approvalHash })));
+  const beforeBudget = inspectR22CallStore(f.store).hostBudget;
+  const resetPromise = handleR22LoopbackRequestAsync(controller, directLoopbackRequest("reset-rotation-session-token-0123456789", "POST", "/v1/reset", "{}"));
+  await rotationEntered.promise;
+  const concurrent = await Promise.all([
+    handleR22LoopbackRequestAsync(controller, directLoopbackRequest("reset-rotation-session-token-0123456789", "POST", "/v1/cognition/turn", jsonBody({ actorEntityId: "actor-one", playerText: "racing" }))),
+    handleR22LoopbackRequestAsync(controller, directLoopbackRequest("reset-rotation-session-token-0123456789", "POST", "/v1/cognition/approve", jsonBody({ turnId: first.turnId, approvalHash: first.approvalHash }))),
+    handleR22LoopbackRequestAsync(controller, directLoopbackRequest("reset-rotation-session-token-0123456789", "POST", "/v1/cognition/displayed", jsonBody({ turnId: first.turnId, displayAckHash: fixedSha("f") }))),
+    handleR22LoopbackRequestAsync(controller, directLoopbackRequest("reset-rotation-session-token-0123456789", "GET", `/v1/cognition/status/${first.turnId}`)),
+  ]);
+  assert.equal(concurrent.every((response) => response.statusCode === 409), true);
+  rotationReleased.resolve();
+  const reset = await resetPromise;
+  assert.deepEqual(JSON.parse(reset.body), { status: "reset", timelineId: "timeline-reset" });
+  assert.deepEqual(inspectR22CallStore(rotatedStore).hostBudget, beforeBudget);
+  assert.equal(inspectR22CallStore(rotatedStore).checkpoint.latestSequence, 0);
+  const next = await handleR22LoopbackRequestAsync(controller, directLoopbackRequest("reset-rotation-session-token-0123456789", "POST", "/v1/cognition/turn", jsonBody({ actorEntityId: "actor-one", playerText: "new" })));
+  assert.equal(next.statusCode, 200, next.body);
+  assert.deepEqual(sequences, [1, 1]);
+  assert.equal((await allFiles(f.cognitionRunRoot)).filter((file) => file.endsWith("turn-receipt.json")).length, 1);
+  await closeR22LoopbackController(controller);
+  await closeR22CallStore(rotatedStore);
+});
+
+test("a failed timeline Host rotation freezes every later operation", async (t) => {
+  const f = await makeFixture(t, "reset-rotation-failure");
+  const controller = createR22LoopbackController({
+    host: f.host,
+    selectorGate: createR22CognitionSelectorGate({ commandSelector() { return { ok: true, status: "quiescent" }; }, queuedCommandSelector() { return { ok: true, status: "quiescent" }; } }),
+    sessionToken: "reset-failure-session-token-0123456789",
+    async turnFactory() { throw new Error("must remain frozen"); },
+    async authorityRequestHandler() { return delegatedResponse(200, { status: "reset", timelineId: "timeline-reset" }); },
+    async authorityStateReader() { return null; },
+    async rotateTimelineHost({ releasePreviousHost }) { await releasePreviousHost(); throw new Error("rotation failed"); },
+  });
+  const reset = await handleR22LoopbackRequestAsync(controller, directLoopbackRequest("reset-failure-session-token-0123456789", "POST", "/v1/reset", "{}"));
+  assert.deepEqual([reset.statusCode, JSON.parse(reset.body)], [500, { code: "R22_HOST_ROTATION_FAILED" }]);
+  for (const [method, route, body] of [["GET", "/v1/command", ""], ["POST", "/v1/reset", "{}"], ["POST", "/v1/cognition/turn", jsonBody({ actorEntityId: "actor-one", playerText: "blocked" })]]) {
+    const response = await handleR22LoopbackRequestAsync(controller, directLoopbackRequest("reset-failure-session-token-0123456789", method, route, body));
+    assert.deepEqual([response.statusCode, JSON.parse(response.body)], [503, { code: "R22_HOST_FROZEN" }]);
+  }
+  await closeR22LoopbackController(controller);
+});
+
+test("single-step mode permits at most one R20 command after a completed cognition turn", async (t) => {
+  const f = await makeFixture(t, "single-step");
+  let commandCalls = 0;
+  const controller = createR22LoopbackController({
+    host: f.host,
+    selectorGate: createR22CognitionSelectorGate({ commandSelector() { return { ok: true, status: "quiescent" }; }, queuedCommandSelector() { return { ok: true, status: "quiescent" }; } }),
+    sessionToken: "single-step-session-token-012345678901",
+    singleStep: true,
+    async turnFactory(input) {
+      const providerRequestJson = payload(input.sequence);
+      return { turnId: `turn-${input.sequence}`, sequence: input.sequence, actorEntityId: input.actorEntityId, callPlanJson: callPlan(providerRequestJson, input.sequence), providerRequestJson, beforeLedgerPoint: ledgerPoint() };
+    },
+    async authorityRequestHandler(request) {
+      if (request.url === "/v1/command") {
+        commandCalls += 1;
+        return delegatedResponse(200, { status: "command", command: { sequence: commandCalls } });
+      }
+      if (request.url === "/v1/reset") return delegatedResponse(200, { status: "reset", timelineId: "timeline-one" });
+      return delegatedResponse(200, { status: "committed" });
+    },
+    async authorityStateReader() { return null; },
+  });
+  const token = "single-step-session-token-012345678901";
+  assert.deepEqual(JSON.parse((await handleR22LoopbackRequestAsync(controller, directLoopbackRequest(token, "GET", "/v1/command"))).body), { status: "quiescent" });
+  const planned = JSON.parse((await handleR22LoopbackRequestAsync(controller, directLoopbackRequest(token, "POST", "/v1/cognition/turn", jsonBody({ actorEntityId: "actor-one", playerText: "step" })))).body);
+  await handleR22LoopbackRequestAsync(controller, directLoopbackRequest(token, "POST", "/v1/cognition/decline", jsonBody({ turnId: planned.turnId, approvalHash: planned.approvalHash })));
+  assert.equal(JSON.parse((await handleR22LoopbackRequestAsync(controller, directLoopbackRequest(token, "GET", "/v1/command"))).body).status, "command");
+  assert.deepEqual(JSON.parse((await handleR22LoopbackRequestAsync(controller, directLoopbackRequest(token, "GET", "/v1/command"))).body), { status: "quiescent" });
+  assert.equal(commandCalls, 1);
+  await closeR22LoopbackController(controller);
+  await closeR22CallStore(f.store);
+});
+
+test("single-step dialogue-only acknowledgement cannot release an available fixed Action", async (t) => {
+  const f = await makeFixture(t, "single-step-dialogue-only");
+  let commandCalls = 0;
+  const controller = createR22LoopbackController({
+    host: f.host,
+    selectorGate: createR22CognitionSelectorGate({
+      commandSelector() { return { ok: true, status: "command", command: { sequence: 1 }, nextBehaviorState: {} }; },
+      queuedCommandSelector() { return { ok: true, status: "quiescent" }; },
+    }),
+    sessionToken: "single-step-dialogue-session-token-012345",
+    singleStep: true,
+    async turnFactory(input) {
+      const providerRequestJson = payload(input.sequence);
+      return { turnId: `turn-${input.sequence}`, sequence: input.sequence, actorEntityId: input.actorEntityId, callPlanJson: callPlan(providerRequestJson, input.sequence), providerRequestJson, beforeLedgerPoint: ledgerPoint() };
+    },
+    async authorityRequestHandler(request) {
+      if (request.url === "/v1/command") {
+        commandCalls += 1;
+        return delegatedResponse(200, { status: "command", command: { sequence: commandCalls } });
+      }
+      return delegatedResponse(200, { status: "quiescent" });
+    },
+    async authorityStateReader() { return null; },
+  });
+  const token = "single-step-dialogue-session-token-012345";
+  const planned = JSON.parse((await handleR22LoopbackRequestAsync(controller, directLoopbackRequest(token, "POST", "/v1/cognition/turn", jsonBody({ actorEntityId: "actor-one", playerText: "dialogue only" })))).body);
+  await handleR22LoopbackRequestAsync(controller, directLoopbackRequest(token, "POST", "/v1/cognition/approve", jsonBody({ turnId: planned.turnId, approvalHash: planned.approvalHash })));
+  let outcome;
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    outcome = JSON.parse((await handleR22LoopbackRequestAsync(controller, directLoopbackRequest(token, "GET", `/v1/cognition/status/${planned.turnId}`))).body);
+    if (outcome.status !== "dispatching") break;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.equal(outcome.status, "dialogue_only");
+  assert.equal(outcome.actionChoiceId, null);
+  const displayBody = jsonBody({ turnId: planned.turnId, displayAckHash: outcome.displayAckHash });
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const displayed = await handleR22LoopbackRequestAsync(controller, directLoopbackRequest(token, "POST", "/v1/cognition/displayed", displayBody));
+    assert.deepEqual(JSON.parse(displayed.body), { status: "acknowledged" });
+  }
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const command = await handleR22LoopbackRequestAsync(controller, directLoopbackRequest(token, "GET", "/v1/command"));
+    assert.deepEqual(JSON.parse(command.body), { status: "quiescent" });
+  }
+  assert.equal(commandCalls, 0);
+  assert.equal(inspectR22CallStore(f.store).checkpoint.providerRequests, 1);
+  await closeR22LoopbackController(controller);
   await closeR22CallStore(f.store);
 });
 

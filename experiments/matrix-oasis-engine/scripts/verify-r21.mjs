@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 import { checkV2Claim } from "./lib/v2-claim-core.mjs";
 
 const moduleRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -29,20 +30,42 @@ function requireText(relativePath, requiredFragments) {
 }
 
 try {
-  const manifest = readJson("package.json");
   const boundary = readJson("module-boundary.json");
-  const claim = checkV2Claim({ moduleRoot });
+  // Historical regression validates the frozen R21 policy, not which round is
+  // active now. Current governance remains enforced here and by the six steps.
+  checkV2Claim({ moduleRoot });
 
-  if (
-    manifest.version !== "0.21.0-r21" ||
-    boundary.schemaVersion !== 21 ||
-    boundary.activeRound !== "R21" ||
-    boundary.activeRoundBaselineSha !== "cbb50f1095a51f2c32958ab4f7dd4e34dadfc2c2" ||
-    boundary.v2ClaimPolicy?.qualificationProfile !== "matrix-oasis.npc-derived-state/1" ||
-    claim.status !== "r21-derived-state-qualified" ||
-    claim.claimAllowed !== false ||
-    claim.blockingRound !== "R25"
-  ) {
+  if (!isDeepStrictEqual(boundary.r21DerivedStatePolicy, {
+    qualificationProfile: "matrix-oasis.npc-derived-state/1",
+    canonicalization: "matrix-oasis.canonical-json/1",
+    runtimeRemainsAuthoritative: true,
+    ledgerRemainsAuthoritative: true,
+    personaTrustedStaticSeed: true,
+    personaDerivedFromLedger: false,
+    personaEvolutionAllowed: false,
+    memoryAcceptedActionsOnly: true,
+    memoryActorSelfOnly: true,
+    relationshipExactActionMappingOnly: true,
+    relationshipDirected: true,
+    relationshipBoundedIntegerDeltaOnly: true,
+    rejectedIntentRelationshipContributionAllowed: false,
+    singleTimelineOnly: true,
+    crossTimelineProjectionAllowed: false,
+    crossResetProjectionAllowed: false,
+    selectiveForgetAllowed: false,
+    correctionAllowed: false,
+    deleteAllDerivedArtifactsOnly: true,
+    ledgerByteRebuildRequired: true,
+    externalIndexAllowed: false,
+    thirdPartyProductionDependencyAllowed: false,
+    modelCallsAllowed: false,
+    embeddingAllowed: false,
+    freeTextParsingAllowed: false,
+    godotIntegrationAllowed: false,
+    creatorIntegrationAllowed: false,
+    dynamicTasksAllowed: false,
+    dynamicEventsAllowed: false,
+  })) {
     throw new Error("R21_GOVERNANCE_POLICY_INVALID");
   }
 

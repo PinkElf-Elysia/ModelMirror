@@ -1803,8 +1803,12 @@ function checkScriptNetwork(relative, content, specifiers, policy, violations) {
       specifiers.some((specifier) => !expectedModules.has(specifier)) ||
       new RegExp(`\\b(?:${FETCH_GLOBAL_NAME}|connect|createConnection|createServer|request)\\s*\\(`, "u").test(content) ||
       !/function isApprovedR20BridgeCapability\(code, source, relativePath\)/u.test(content) ||
+      !/function isApprovedR22CognitionCapability\(code, source, relativePath\)/u.test(content) ||
+      !/function isApprovedR22CognitionProbeCapability\(code, source, relativePath\)/u.test(content) ||
       !/npc_authority_prototype\/npc_authority_lab\.gd/u.test(content) ||
-      !/127\\\.0\\\.0\\\.1:43120/u.test(content)
+      !/npc_cognition_prototype\/npc_cognition_lab\.gd/u.test(content) ||
+      !/127\\\.0\\\.0\\\.1:43120/u.test(content) ||
+      !/127\\\.0\\\.0\\\.1:43122/u.test(content)
     ) {
       addViolation(
         violations,
