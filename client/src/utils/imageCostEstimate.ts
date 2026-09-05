@@ -1,6 +1,6 @@
 export interface ImagePricingItem {
-  billable: "input_image" | "input_reference" | "output_image";
-  unit: "image" | "request";
+  billable: "input_text" | "input_image" | "input_reference" | "output_image";
+  unit: "image" | "request" | "token";
   cost_usd: number;
   variant?: string | null;
 }
@@ -56,6 +56,25 @@ export const MUSE_IMAGE_PRICING: ImagePricingItem[] = [
   { billable: "output_image", unit: "image", cost_usd: 0.01 },
 ];
 
+// Verified against OpenRouter's dedicated Images endpoint profiles on
+// 2026-09-04. These models are billed per token, so the UI shows catalog rates
+// without pretending that the final image-token count is known before a run.
+export const MAI_IMAGE_TOKEN_PRICING_BY_MODEL_ID: Record<
+  string,
+  ImagePricingItem[]
+> = {
+  "microsoft/mai-image-2.6-flash": [
+    { billable: "input_text", unit: "token", cost_usd: 0.00000175 },
+    { billable: "input_image", unit: "token", cost_usd: 0.0000025 },
+    { billable: "output_image", unit: "token", cost_usd: 0.000019 },
+  ],
+  "microsoft/mai-image-2.6": [
+    { billable: "input_text", unit: "token", cost_usd: 0.000005 },
+    { billable: "input_image", unit: "token", cost_usd: 0.000008 },
+    { billable: "output_image", unit: "token", cost_usd: 0.000038 },
+  ],
+};
+
 // Verified against the four Recraft Styles endpoint profiles on 2026-08-26.
 // Style creation is billed once per request, not once per reference image.
 export const RECRAFT_V4_STYLES_PRICING_BY_MODEL_ID: Record<
@@ -84,6 +103,26 @@ function normalized(value?: string) {
   return value?.trim().toLowerCase() ?? "";
 }
 
+export function imageTokenPricingSummary(
+  pricing: ImagePricingItem[],
+): string | null {
+  const labels: Partial<Record<ImagePricingItem["billable"], string>> = {
+    input_text: "文本输入",
+    input_image: "图片输入",
+    output_image: "图片输出",
+  };
+  const items = pricing
+    .filter((item) => item.unit === "token" && labels[item.billable])
+    .map((item) => {
+      const perMillion = item.cost_usd * 1_000_000;
+      const amount = Number.isInteger(perMillion)
+        ? perMillion.toFixed(0)
+        : perMillion.toFixed(2);
+      return `${labels[item.billable]} $${amount}/M Token`;
+    });
+  return items.length ? items.join(" · ") : null;
+}
+
 export function estimateImageCost(
   pricing: ImagePricingItem[],
   input: ImageCostEstimateInput,
@@ -98,8 +137,8 @@ export function estimateImageCost(
   const inputCosts = pricing
     .filter(
       (item) =>
-        item.billable === "input_image" ||
-        item.billable === "input_reference",
+        (item.billable === "input_image" && item.unit === "image") ||
+        (item.billable === "input_reference" && item.unit === "request"),
     )
     .map((item) =>
       item.unit === "request"
@@ -108,7 +147,9 @@ export function estimateImageCost(
     )
     .filter((value) => Number.isFinite(value) && value >= 0);
   let outputRates = pricing
-    .filter((item) => item.billable === "output_image")
+    .filter(
+      (item) => item.billable === "output_image" && item.unit === "image",
+    )
     .filter((item) => {
       const variant = normalized(item.variant ?? undefined);
       if (!variant) {
@@ -128,7 +169,9 @@ export function estimateImageCost(
     outputRates = pricing
       .filter(
         (item) =>
-          item.billable === "output_image" && !normalized(item.variant ?? undefined),
+          item.billable === "output_image" &&
+          item.unit === "image" &&
+          !normalized(item.variant ?? undefined),
       )
       .map((item) => item.cost_usd)
       .filter((value) => Number.isFinite(value) && value >= 0);

@@ -10,6 +10,8 @@ import type { Model } from "../data/models";
 import {
   estimateImageCost,
   GROK_IMAGINE_IMAGE_2_PRICING,
+  imageTokenPricingSummary,
+  MAI_IMAGE_TOKEN_PRICING_BY_MODEL_ID,
   MUSE_IMAGE_PRICING,
   RECRAFT_V4_STYLES_PRICING_BY_MODEL_ID,
   SEEDREAM_5_LITE_PRICING,
@@ -154,6 +156,8 @@ export default function ImageGenerationWorkspace({
             ? SEEDREAM_5_LITE_PRICING
           : model.id === "meta/muse-image"
             ? MUSE_IMAGE_PRICING
+          : MAI_IMAGE_TOKEN_PRICING_BY_MODEL_ID[model.id]
+            ? MAI_IMAGE_TOKEN_PRICING_BY_MODEL_ID[model.id]
             : RECRAFT_V4_STYLES_PRICING_BY_MODEL_ID[model.id] ?? [];
       return estimateImageCost(pricing, {
         outputCount: Number(parameters.n || 1),
@@ -171,6 +175,13 @@ export default function ImageGenerationWorkspace({
       estimatedReferenceCount,
     ],
   );
+  const tokenPricingLabel = useMemo(() => {
+    if (!profile) return null;
+    const pricing = profile.pricing?.length
+      ? profile.pricing
+      : MAI_IMAGE_TOKEN_PRICING_BY_MODEL_ID[model.id] ?? [];
+    return imageTokenPricingSummary(pricing);
+  }, [model.id, profile]);
   const costLabel = costEstimate
     ? costEstimate.exact
       ? formatUsd(costEstimate.minUsd)
@@ -378,6 +389,23 @@ export default function ImageGenerationWorkspace({
                 </div>
                 <span className="rounded-full border border-fuchsia-300/25 px-3 py-1.5 text-xs font-semibold text-fuchsia-100">
                   目录估算
+                </span>
+              </div>
+            ) : null}
+
+            {!costEstimate && tokenPricingLabel ? (
+              <div
+                aria-live="polite"
+                className="flex flex-wrap items-center justify-between gap-3 border-y border-white/10 py-4"
+              >
+                <div>
+                  <p className="text-sm font-semibold text-white">目录费率</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-400">
+                    {tokenPricingLabel}。生成前无法可靠预知图片 Token 数，最终费用以 OpenRouter 网关结算为准。
+                  </p>
+                </div>
+                <span className="rounded-full border border-fuchsia-300/25 px-3 py-1.5 text-xs font-semibold text-fuchsia-100">
+                  按 Token 计费
                 </span>
               </div>
             ) : null}
