@@ -31,7 +31,7 @@ def _registry() -> WorkflowNodeRegistry:
 def test_workflow_node_registry_returns_workflow_and_knowledge_tabs() -> None:
     payload = _registry().to_payload()
 
-    assert payload["version"] == "xpert-workflow-node-registry-v6"
+    assert payload["version"] == "xpert-workflow-node-registry-v7"
     assert payload["contract_version"] == 3
     assert len(payload["contract_checksum"]) == 64
     assert {tab["id"] for tab in payload["tabs"]} == {"workflow", "knowledge"}
@@ -48,8 +48,9 @@ def test_workflow_node_registry_returns_workflow_and_knowledge_tabs() -> None:
     knowledge_base, retrieval, proposal, vision = knowledge_items
     assert knowledge_base["planner"]["support"] == "binding_only"
     assert knowledge_base["contracts"]["resources"][0]["kind"] == "knowledge_base"
-    assert retrieval["planner"]["enabled"] is False
-    assert retrieval["planner"]["support"] == "unsupported"
+    assert retrieval["planner"]["enabled"] is True
+    assert retrieval["planner"]["support"] == "full"
+    assert retrieval["planner"]["task_binding"] == "forbidden"
     assert retrieval["contracts"]["outputs"][0]["name"] == "result"
     assert retrieval["contracts"]["outputs"][0]["value_schema"]["type"] == "any"
     assert len(retrieval["contracts"]["outputs"][0]["value_schema"]["any_of"]) == 2
@@ -132,7 +133,7 @@ async def test_workflow_node_registry_api_returns_stable_shape(
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["version"] == "xpert-workflow-node-registry-v6"
+    assert payload["version"] == "xpert-workflow-node-registry-v7"
     assert payload["contract_version"] == 3
     assert len(payload["contract_checksum"]) == 64
     assert isinstance(payload["tabs"], list)

@@ -97,6 +97,7 @@ class MetaPlannerScope(BaseModel):
     allowed_node_kinds: list[str] = Field(default_factory=list, max_length=40)
     external_xpert_ids: list[str] = Field(default_factory=list, max_length=20)
     knowledge_base_ids: list[str] = Field(default_factory=list, max_length=20)
+    data_table_ids: list[str] = Field(default_factory=list, max_length=20)
     toolset_ids: list[str] = Field(default_factory=list, max_length=20)
     plugin_ids: list[str] = Field(default_factory=list, max_length=20)
     prompt_profile_ids: list[str] = Field(default_factory=list, max_length=20)
@@ -223,6 +224,12 @@ MetaPlannerValueType = Literal[
 ]
 
 
+class GraphIntentNodeResourceRefV3(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    resource_id: str = Field(min_length=1, max_length=200)
+
+
 class MetaPlannerIRInputBinding(BaseModel):
     port: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_-]{0,63}$")
     variable: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
@@ -245,6 +252,7 @@ class MetaPlannerIRNode(BaseModel):
     outputs: list[MetaPlannerIROutputBinding] = Field(
         default_factory=list, max_length=16
     )
+    resource_ref: GraphIntentNodeResourceRefV3 | None = None
     config: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -339,6 +347,7 @@ class GraphIntentNodeV3(BaseModel):
     outputs: list[GraphIntentOutputBindingV3] = Field(
         default_factory=list, max_length=16
     )
+    resource_ref: GraphIntentNodeResourceRefV3 | None = None
     config: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -348,7 +357,7 @@ class GraphIntentControlEdgeV3(BaseModel):
     source_ref: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
     outcome_ref: str = Field(
         default="success",
-        pattern=r"^(?:success|matched|unmatched|case_[1-8]|default)$",
+        pattern=r"^(?:success|error|matched|unmatched|case_[1-8]|default)$",
     )
     target_ref: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
 
@@ -410,6 +419,9 @@ class GraphIntentV3(BaseModel):
     _pinned_prompt_profile_versions: dict[str, int] = PrivateAttr(
         default_factory=dict
     )
+    _pinned_node_resources: dict[tuple[str, str], dict[str, Any]] = PrivateAttr(
+        default_factory=dict
+    )
 
     ir_version: Literal[3] = 3
     name: str = Field(min_length=1, max_length=120)
@@ -439,6 +451,19 @@ class ResolvedGraphPortV3(BaseModel):
     binding: Literal["variable", "literal", "resource", "none"] = "variable"
 
 
+class ResolvedNodeResourceSnapshotV3(BaseModel):
+    kind: Literal["knowledge_base", "data_table"]
+    resource_id: str
+    version_policy: Literal["active", "pinned"]
+    observed_version_id: str | None = None
+    pinned_schema_version: int | None = None
+    schema_checksum: str = ""
+    fields: dict[str, WorkflowValueSchema] = Field(default_factory=dict)
+    required_fields: tuple[str, ...] = ()
+    snapshot_checksum: str
+    warnings: list[str] = Field(default_factory=list)
+
+
 class ResolvedGraphNodeV3(BaseModel):
     ref: str
     node_id: str
@@ -454,6 +479,7 @@ class ResolvedGraphNodeV3(BaseModel):
     compiler_checksum: str
     execution: dict[str, Any] = Field(default_factory=dict)
     resource_contracts: list[dict[str, Any]] = Field(default_factory=list)
+    resource_snapshot: ResolvedNodeResourceSnapshotV3 | None = None
 
 
 class ResolvedGraphEndpointV3(BaseModel):
@@ -490,7 +516,7 @@ class ResolvedGraphIRV3(BaseModel):
     edges: list[ResolvedGraphEdgeV3]
     prompt_profiles: list[ResolvedPromptProfileV3] = Field(default_factory=list)
     final_output: GraphIntentFinalOutputV3
-    control_flow_contract_version: Literal[1] = 1
+    control_flow_contract_version: Literal[1, 2] = 2
     control_flow_report: dict[str, Any] = Field(default_factory=dict)
     default_outcome: Literal["success"] = "success"
     join_policy: Literal["all"] = "all"
@@ -527,6 +553,7 @@ class MetaPlannerCapabilitySnapshot(BaseModel):
     middleware: list[dict[str, Any]]
     external_xperts: list[dict[str, Any]]
     knowledge_bases: list[dict[str, Any]]
+    data_tables: list[dict[str, Any]] = Field(default_factory=list)
     toolsets: list[dict[str, Any]]
     plugins: list[dict[str, Any]]
     prompt_profiles: list[dict[str, Any]]

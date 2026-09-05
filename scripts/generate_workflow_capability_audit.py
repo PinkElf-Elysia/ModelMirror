@@ -903,7 +903,7 @@ R1 为单实例、原子文件持久化版本，不宣称多 Worker、HA 或多�
 - 前端 `WorkflowNodeKind`、后端 `NativeNodeKind`、NodeContract Registry 必须完全一致。
 - Palette 必须是 NodeContract 合法子集；每个启用项必须有默认数据和配置入口。
 - compatibility 合同不得超过 #213 冻结白名单；新节点必须直接提供完整合同。
-- Planner 可生成类型仍固定为 {registry_facts.planner} 类：只接受完整合同、匹配 checksum 且显式启用的 Adapter；由原七类、五种纯节点与四种受限控制流节点组成。R1–R2.9 中其他增量节点仍禁止 Planner 自动生成，不能用 Runtime 可执行性替代 Planner 授权。
+- Planner 可生成类型仍固定为 {registry_facts.planner} 类：只接受完整合同、匹配 checksum 且显式启用的 Adapter；由原七类、五种纯节点、四种受限控制流节点与两种只读资源节点组成。R1–R2.9 中其他增量节点仍禁止 Planner 自动生成，不能用 Runtime 可执行性替代 Planner 授权。
 """
     (args.output_dir / "N8N_NODE_CAPABILITY_MATRIX.md").write_text(
         markdown,

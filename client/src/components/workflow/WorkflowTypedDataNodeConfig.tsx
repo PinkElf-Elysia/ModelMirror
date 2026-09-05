@@ -668,6 +668,7 @@ export default function WorkflowTypedDataNodeConfig({
   onChange,
   onOpenVariableCenter,
   retryAvailability,
+  allowedTableIds,
 }: {
   data: WorkflowNodeData;
   node: WorkflowNode;
@@ -678,6 +679,7 @@ export default function WorkflowTypedDataNodeConfig({
   onChange: (patch: Partial<WorkflowNodeData>) => void;
   onOpenVariableCenter?: () => void;
   retryAvailability?: WorkflowRetryAvailability;
+  allowedTableIds?: string[];
 }) {
   const isDataTable = dataTableKinds.has(data.kind);
   const [tables, setTables] = useState<AgentTableDefinition[]>([]);
@@ -692,6 +694,10 @@ export default function WorkflowTypedDataNodeConfig({
     expectedSchemaValue,
   );
   const [expectedSchemaError, setExpectedSchemaError] = useState("");
+  const allowedTableIdSet = useMemo(
+    () => allowedTableIds === undefined ? null : new Set(allowedTableIds),
+    [allowedTableIds],
+  );
 
   useEffect(() => {
     setExpectedSchemaDraft(expectedSchemaValue);
@@ -721,14 +727,18 @@ export default function WorkflowTypedDataNodeConfig({
       const payload = await requestAgentTableJson<{ items: AgentTableDefinition[] }>(
         "/api/data-tables?status=published&limit=500",
       );
-      setTables(payload.items ?? []);
+      setTables(
+        (payload.items ?? []).filter(
+          (table) => allowedTableIdSet === null || allowedTableIdSet.has(table.table_id),
+        ),
+      );
       setError("");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "数据表加载失败。" );
     } finally {
       setLoading(false);
     }
-  }, [isDataTable]);
+  }, [allowedTableIdSet, isDataTable]);
 
   useEffect(() => {
     void loadTables();
@@ -737,6 +747,11 @@ export default function WorkflowTypedDataNodeConfig({
   useEffect(() => {
     if (!isDataTable || !data.tableId) {
       setDetail(null);
+      return;
+    }
+    if (allowedTableIdSet !== null && !allowedTableIdSet.has(data.tableId)) {
+      setDetail(null);
+      setError("所选数据表不在当前 Proposal 的授权范围内。");
       return;
     }
     let cancelled = false;
@@ -756,7 +771,7 @@ export default function WorkflowTypedDataNodeConfig({
     return () => {
       cancelled = true;
     };
-  }, [data.tableId, isDataTable]);
+  }, [allowedTableIdSet, data.tableId, isDataTable]);
 
   const selectedSchema = useMemo(() => {
     if (!detail) return null;

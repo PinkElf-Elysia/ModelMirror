@@ -51,7 +51,40 @@ interface EvaluationCase {
     terminal: "success" | "error";
     error_code?: string | null;
   };
+  resource_reads?: EvaluationResourceReadExpectation[];
   weights?: Record<string, number>;
+}
+
+interface EvaluationResourceReadExpectation {
+  node_ref: string;
+  kind?: "knowledge_retrieval" | "data_table_query" | string;
+  resource_id?: string;
+  version_id?: string | null;
+  schema_version?: number | null;
+  query_checksum?: string;
+  expected_count?: number;
+  record_ids?: string[];
+  citation_ids?: string[];
+}
+
+export interface SafeResourceReadEvidence {
+  node_ref: string;
+  kind?: string;
+  resource_id?: string;
+  version_id?: string;
+  schema_version?: number;
+  query_checksum?: string;
+  result_count?: number;
+  record_ids: string[];
+  citation_ids: string[];
+  outcome?: "success" | "error" | string;
+}
+
+export interface SafeResourceEvidence {
+  status: string;
+  supported?: boolean;
+  reads: SafeResourceReadEvidence[];
+  warnings: string[];
 }
 
 interface DatasetSummary {
@@ -131,6 +164,8 @@ interface EvaluationItem {
     error_code?: string;
     warnings?: string[];
   };
+  resource_evidence?: unknown;
+  resource_reads?: unknown;
 }
 
 interface EvaluationRun {
@@ -174,6 +209,7 @@ interface EvaluationRun {
       model_calls: number;
       tool_calls: number;
       estimated_tokens: number;
+      resource_evidence?: unknown;
     }>;
     comparisons?: Array<{
       target_id: string;
@@ -242,6 +278,79 @@ function formatTime(value?: number | null) {
 function percent(value?: number) {
   if (value == null || Number.isNaN(value)) return "-";
   return `${(value * 100).toFixed(1)}%`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function safeString(value: unknown) {
+  return typeof value === "string" ? value : undefined;
+}
+
+function safeNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function safeStringList(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string").slice(0, 20)
+    : [];
+}
+
+export function normalizeResourceEvidence(
+  value: unknown,
+  directReads?: unknown,
+): SafeResourceEvidence | null {
+  const fallbackReads = Array.isArray(directReads) ? directReads : [];
+  if (typeof value === "string") {
+    return normalizeResourceEvidence({ status: value, reads: fallbackReads });
+  }
+  if (!isRecord(value)) return null;
+  const rawReads = Array.isArray(value.reads)
+    ? value.reads
+    : Array.isArray(value.items)
+      ? value.items
+      : fallbackReads;
+  const reads = rawReads.flatMap((item): SafeResourceReadEvidence[] => {
+    if (!isRecord(item) || typeof item.node_ref !== "string") return [];
+    const checksum = safeString(
+      item.query_contract_checksum ?? item.query_checksum,
+    );
+    return [{
+      node_ref: item.node_ref,
+      kind: safeString(item.kind ?? item.resource_kind),
+      resource_id: safeString(item.resource_id),
+      version_id: safeString(
+        item.version_id ?? item.resolved_version_id ?? item.observed_version_id,
+      ),
+      schema_version: safeNumber(item.schema_version),
+      query_checksum: checksum ? checksum.slice(0, 12) : undefined,
+      result_count: safeNumber(item.result_count ?? item.hit_count),
+      record_ids: safeStringList(item.record_ids),
+      citation_ids: safeStringList(item.citation_ids),
+      outcome: safeString(item.outcome),
+    }];
+  });
+  return {
+    status: safeString(value.status) || (value.supported === false ? "unsupported" : "available"),
+    supported: typeof value.supported === "boolean" ? value.supported : undefined,
+    reads,
+    warnings: safeStringList(value.warnings),
+  };
+}
+
+export function resourceEvidenceSummaryLabel(value: unknown): string | null {
+  if (!isRecord(value)) return typeof value === "string" ? value : null;
+  const fields = ["verified", "failed", "missing", "not_applicable"] as const;
+  if (!fields.some((field) => safeNumber(value[field]) != null)) return null;
+  return fields
+    .map((field) => `${field} ${safeNumber(value[field]) ?? 0}`)
+    .join(" · ");
+}
+
+export function evaluationMetricLabel(kind: string) {
+  return kind === "workflow_resource_match" ? "资源读取匹配" : kind;
 }
 
 function statusTone(status: string) {
@@ -838,6 +947,19 @@ export default function XpertEvaluationsPage() {
                   calibration job: {calibrationJobId}
                 </p>
               ) : null}
+              <details className="rounded-md border border-white/10 bg-white/[0.025] p-3 text-xs text-slate-400">
+                <summary className="cursor-pointer font-semibold text-slate-200">资源读取断言（可选）</summary>
+                <p className="mt-2 leading-5">
+                  在用例中添加 <code className="text-cyan-100">resource_reads</code>，可按 Planner 节点 ref
+                  断言知识库/数据表、固定版本、结果数量、记录 ID 或 Citation ID。不要填写记录正文或查询结果。
+                </p>
+                <pre className="mt-2 overflow-x-auto rounded bg-black/20 p-2 text-[10px] leading-5 text-slate-300">{`"resource_reads": [{
+  "node_ref": "lookup",
+  "kind": "data_table_query",
+  "resource_id": "table_id",
+  "expected_count": 1
+}]`}</pre>
+              </details>
               <textarea className="min-h-[380px] w-full resize-y rounded-md border border-white/10 bg-ink-950/70 p-4 font-mono text-xs leading-6 text-slate-200 outline-none focus:border-cyan-300/40" onChange={(event) => setCasesText(event.target.value)} spellCheck={false} value={casesText} />
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="text-xs font-semibold text-slate-300">
@@ -982,11 +1104,16 @@ export default function XpertEvaluationsPage() {
                 <div className="mt-3 space-y-1">
                   {Object.entries(target.metrics).map(([name, score]) => (
                     <div className="flex items-center justify-between text-[11px]" key={name}>
-                      <span className="text-slate-400">{name}</span>
+                      <span className="text-slate-400">{evaluationMetricLabel(name)}</span>
                       <span className="font-semibold text-slate-200">{percent(score)}</span>
                     </div>
                   ))}
                 </div>
+                {resourceEvidenceSummaryLabel(target.resource_evidence) ? (
+                  <p className="mt-3 border-t border-white/10 pt-2 text-[10px] text-slate-500">
+                    资源证据：{resourceEvidenceSummaryLabel(target.resource_evidence)}
+                  </p>
+                ) : null}
               </article>
             ))}
           </div>
@@ -1062,11 +1189,67 @@ export default function XpertEvaluationsPage() {
                       )}
                     </div>
                   ) : null}
+                  {(() => {
+                    const evidence = normalizeResourceEvidence(
+                      selectedItem.resource_evidence,
+                      selectedItem.resource_reads,
+                    );
+                    if (!evidence) return null;
+                    return (
+                      <div className="mt-4 rounded-md border border-emerald-300/15 bg-emerald-300/[0.05] p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-xs font-semibold text-emerald-100">只读资源证据</span>
+                          <span className="text-[11px] text-emerald-100/65">{evidence.status}</span>
+                        </div>
+                        {evidence.reads.length ? (
+                          <div className="mt-2 space-y-2 text-[11px] leading-5 text-slate-400">
+                            {evidence.reads.map((read, index) => (
+                              <div key={`${read.node_ref}-${index}`}>
+                                <p>
+                                  <span className="font-mono text-slate-300">{read.node_ref}</span>
+                                  {read.kind ? ` · ${read.kind}` : ""}
+                                  {read.resource_id ? ` · ${read.resource_id}` : ""}
+                                  {read.outcome ? ` · ${read.outcome}` : ""}
+                                </p>
+                                <p className="text-slate-500">
+                                  {read.schema_version != null
+                                    ? `Schema v${read.schema_version}`
+                                    : read.version_id
+                                      ? `版本 ${read.version_id}`
+                                      : "版本摘要不可用"}
+                                  {read.result_count != null ? ` · ${read.result_count} 条结果` : ""}
+                                  {read.query_checksum
+                                    ? ` · 查询 ${read.query_checksum}`
+                                    : ""}
+                                </p>
+                                {read.record_ids.length || read.citation_ids.length ? (
+                                  <p className="break-all text-slate-500">
+                                    {read.record_ids.length ? `记录 ${read.record_ids.join(", ")}` : ""}
+                                    {read.record_ids.length && read.citation_ids.length ? " · " : ""}
+                                    {read.citation_ids.length ? `引用 ${read.citation_ids.join(", ")}` : ""}
+                                  </p>
+                                ) : null}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="mt-2 text-[11px] text-amber-100/80">
+                            当前报告未提供可验证的节点级资源读取记录。
+                          </p>
+                        )}
+                        {evidence.warnings.length ? (
+                          <p className="mt-2 text-[11px] leading-5 text-amber-100">
+                            {evidence.warnings.join("；")}
+                          </p>
+                        ) : null}
+                      </div>
+                    );
+                  })()}
                   <div className="mt-4 space-y-2">
                     {(selectedItem.metrics ?? []).map((metricItem) => (
                       <div className="rounded-md border border-white/10 bg-white/[0.025] p-3" key={metricItem.kind}>
                         <div className="flex items-center justify-between">
-                          <span className="text-xs font-semibold text-slate-200">{metricItem.kind}</span>
+                          <span className="text-xs font-semibold text-slate-200">{evaluationMetricLabel(metricItem.kind)}</span>
                           <span className={metricItem.passed ? "text-xs font-semibold text-emerald-200" : "text-xs font-semibold text-rose-200"}>{percent(metricItem.score)}</span>
                         </div>
                         <p className="mt-1 text-[11px] leading-5 text-slate-500">{metricItem.reason}</p>

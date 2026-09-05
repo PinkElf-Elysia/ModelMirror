@@ -45,6 +45,7 @@ from .schemas import (
     ResolvedGraphIRV3,
     ResolvedGraphNodeV3,
     ResolvedGraphPortV3,
+    ResolvedNodeResourceSnapshotV3,
     ResolvedPromptProfileV3,
 )
 
@@ -203,6 +204,19 @@ def graph_authoring_checksum(
     payload.pop("graph_checksum", None)
     payload.pop("capability_snapshot_version", None)
     payload.pop("capability_snapshot_hash", None)
+    for node in payload.get("nodes") or []:
+        resource = node.get("resource_snapshot")
+        if not isinstance(resource, dict) or resource.get("version_policy") != "active":
+            continue
+        resource["observed_version_id"] = None
+        resource["warnings"] = []
+        resource["snapshot_checksum"] = canonical_checksum(
+            {
+                "kind": resource.get("kind"),
+                "resource_id": resource.get("resource_id"),
+                "version_policy": "active",
+            }
+        )
     payload["tags"] = sorted(set(payload.get("tags") or []))
     payload["starters"] = sorted(set(payload.get("starters") or []))
     payload["nodes"] = sorted(
@@ -417,6 +431,7 @@ def v2_to_graph_intent(
                     )
                     for item in node.outputs
                 ],
+                resource_ref=node.resource_ref,
                 config=node.config,
             )
         )
@@ -522,6 +537,7 @@ def graph_intent_to_v2(intent: GraphIntentV3) -> MetaPlannerTypedBlueprintV2:
                     )
                     for item in node.outputs
                 ],
+                resource_ref=node.resource_ref,
                 config=node.config,
             )
             for node in intent.nodes
@@ -605,6 +621,7 @@ def _resolved_node(
     task_ids: list[str] | None = None,
     config: dict[str, Any] | None = None,
     execution_version: int | None = None,
+    resource_snapshot: ResolvedNodeResourceSnapshotV3 | None = None,
 ) -> ResolvedGraphNodeV3:
     contract = workflow_node_contract_registry.require(kind)
     execution_data = (
@@ -627,6 +644,7 @@ def _resolved_node(
         compiler_checksum=contract.compiler_checksum,
         execution=contract.effective_execution(execution_data).model_dump(mode="json"),
         resource_contracts=[item.model_dump(mode="json") for item in contract.resources],
+        resource_snapshot=resource_snapshot,
     )
 
 
@@ -663,6 +681,176 @@ def _resolve_immutable_resource_version(
             f"{label} drifted from pinned version {target} to {int(latest)}."
         )
     return target, canonical_checksum(resource)
+
+
+def _table_field_schema(field: dict[str, Any]) -> WorkflowValueSchema:
+    data_type = str(field.get("type") or "")
+    value_type = {
+        "string": "string",
+        "integer": "integer",
+        "number": "number",
+        "boolean": "boolean",
+        "datetime": "string",
+        "json": "any",
+    }.get(data_type)
+    if value_type is None:
+        raise ValueError(f"Agent Table field has unsupported type {data_type}.")
+    return WorkflowValueSchema(
+        type=value_type,
+        nullable=not bool(field.get("required")),
+    )
+
+
+def resolve_node_resource_snapshot(
+    node: GraphIntentNodeV3,
+    snapshot: MetaPlannerCapabilitySnapshot,
+    *,
+    pinned: dict[str, Any] | None = None,
+) -> ResolvedNodeResourceSnapshotV3 | None:
+    from .node_adapters import get_planner_node_adapter
+
+    adapter = get_planner_node_adapter(node.kind)
+    if adapter is None:
+        return None
+    if adapter.resource_kind is None:
+        if node.resource_ref is not None:
+            raise ValueError(
+                f"Node kind {node.kind} cannot carry a node resource reference."
+            )
+        return None
+    if node.resource_ref is None:
+        raise ValueError(f"Node kind {node.kind} requires a resource reference.")
+    resource_id = node.resource_ref.resource_id
+    if adapter.resource_kind == "knowledge_base":
+        resource = next(
+            (
+                item
+                for item in snapshot.knowledge_bases
+                if str(item.get("id") or "") == resource_id
+            ),
+            None,
+        )
+        if resource is None:
+            raise ValueError(f"Knowledge base {resource_id} is unavailable.")
+        observed = str(
+            (resource.get("metadata") or {}).get("active_version_id") or ""
+        ).strip()
+        if not observed:
+            raise ValueError(
+                f"Knowledge base {resource_id} has no active index version."
+            )
+        warnings: list[str] = []
+        previous = str((pinned or {}).get("observed_version_id") or "").strip()
+        if previous and previous != observed:
+            warnings.append(
+                f"Knowledge base {resource_id} active index changed from "
+                f"{previous} to {observed}."
+            )
+        checksum = canonical_checksum(
+            {
+                "kind": "knowledge_base",
+                "resource_id": resource_id,
+                "version_policy": "active",
+                "observed_version_id": observed,
+            }
+        )
+        return ResolvedNodeResourceSnapshotV3(
+            kind="knowledge_base",
+            resource_id=resource_id,
+            version_policy="active",
+            observed_version_id=observed,
+            snapshot_checksum=checksum,
+            warnings=warnings,
+        )
+    if adapter.resource_kind != "data_table":
+        raise ValueError(
+            f"Node kind {node.kind} has unsupported resource kind "
+            f"{adapter.resource_kind}."
+        )
+    resource = next(
+        (
+            item
+            for item in snapshot.data_tables
+            if str(item.get("id") or "") == resource_id
+        ),
+        None,
+    )
+    if resource is None:
+        raise ValueError(f"Agent Table {resource_id} is unavailable.")
+    expected_version = int(
+        (pinned or {}).get("pinned_schema_version")
+        or resource.get("active_schema_version")
+        or 0
+    )
+    versions = list(resource.get("schema_versions") or [])
+    version = next(
+        (
+            item
+            for item in versions
+            if isinstance(item, dict)
+            and int(item.get("version") or 0) == expected_version
+        ),
+        None,
+    )
+    if version is None and int(resource.get("active_schema_version") or 0) == expected_version:
+        version = {
+            "version": expected_version,
+            "checksum": resource.get("schema_checksum"),
+            "fields": resource.get("fields"),
+        }
+    if version is None:
+        raise ValueError(
+            f"Agent Table {resource_id} pinned SchemaVersion "
+            f"{expected_version} is unavailable."
+        )
+    schema_checksum = str(version.get("checksum") or "").strip()
+    expected_checksum = str((pinned or {}).get("schema_checksum") or "").strip()
+    if not schema_checksum or (
+        expected_checksum and expected_checksum != schema_checksum
+    ):
+        raise ValueError(
+            f"Agent Table {resource_id} SchemaVersion checksum does not match."
+        )
+    fields: dict[str, WorkflowValueSchema] = {
+        "record_id": WorkflowValueSchema(type="string"),
+        "created_at": WorkflowValueSchema(type="number"),
+        "updated_at": WorkflowValueSchema(type="number"),
+        "revision": WorkflowValueSchema(type="integer"),
+    }
+    required_fields = ["record_id", "created_at", "updated_at", "revision"]
+    for field in list(version.get("fields") or []):
+        if not isinstance(field, dict):
+            continue
+        name = str(field.get("name") or "").strip()
+        if not name or name in fields:
+            raise ValueError(
+                f"Agent Table {resource_id} has an invalid field schema."
+            )
+        fields[name] = _table_field_schema(field)
+        if bool(field.get("required")):
+            required_fields.append(name)
+    snapshot_payload = {
+        "kind": "data_table",
+        "resource_id": resource_id,
+        "version_policy": "pinned",
+        "pinned_schema_version": expected_version,
+        "schema_checksum": schema_checksum,
+        "fields": {
+            name: schema.model_dump(mode="json")
+            for name, schema in sorted(fields.items())
+        },
+    }
+    resolved = ResolvedNodeResourceSnapshotV3(
+        **snapshot_payload,
+        required_fields=tuple(required_fields),
+        snapshot_checksum=canonical_checksum(snapshot_payload),
+    )
+    expected_snapshot = str((pinned or {}).get("snapshot_checksum") or "").strip()
+    if expected_snapshot and expected_snapshot != resolved.snapshot_checksum:
+        raise ValueError(
+            f"Agent Table {resource_id} fixed resource snapshot has drifted."
+        )
+    return resolved
 
 
 def resolve_graph_intent(
@@ -744,7 +932,7 @@ def resolve_graph_intent(
             node_id="input",
             kind="input",
             role="input",
-            title="Conversation input",
+            title="对话输入",
             config={
                 "variableName": "user_input",
                 "historyVariable": "conversation_history",
@@ -781,6 +969,30 @@ def resolve_graph_intent(
         effective_node = node.model_copy(update={"config": resolved_config})
         parsed_config = adapter.validate_intent_node(effective_node)
         resolved_config = parsed_config.model_dump(mode="json")
+        resource_snapshot = resolve_node_resource_snapshot(
+            effective_node,
+            snapshot,
+            pinned=intent._pinned_node_resources.get(
+                (
+                    effective_node.ref,
+                    (
+                        effective_node.resource_ref.resource_id
+                        if effective_node.resource_ref is not None
+                        else ""
+                    ),
+                )
+            ),
+        )
+        resource_payload = (
+            resource_snapshot.model_dump(mode="json")
+            if resource_snapshot is not None
+            else None
+        )
+        adapter.validate_resolved_resource(
+            effective_node,
+            parsed_config,
+            resource_payload,
+        )
         contract = workflow_node_contract_registry.require(node.kind)
         if len(node.task_ids) != len(set(node.task_ids)):
             raise ValueError(f"Node {node.ref} task IDs must be unique.")
@@ -812,9 +1024,14 @@ def resolve_graph_intent(
             config=resolved_config,
             execution_version=(
                 2
-                if node.kind in {"json_serialize", "json_deserialize"}
+                if node.kind in {
+                    "json_serialize",
+                    "json_deserialize",
+                    "knowledge_retrieval",
+                }
                 else None
             ),
+            resource_snapshot=resource_snapshot,
         )
         contract_outputs = {
             port.name: port for port in resolved.ports if port.direction == "output"
@@ -828,10 +1045,12 @@ def resolve_graph_intent(
             authoritative_schema = adapter.authoritative_output_schema(
                 output.port,
                 parsed_config,
+                resource_payload,
             )
-            if canonical_checksum(
+            schema_matches = canonical_checksum(
                 output.value_schema.model_dump(mode="json")
-            ) != canonical_checksum(authoritative_schema.model_dump(mode="json")):
+            ) == canonical_checksum(authoritative_schema.model_dump(mode="json"))
+            if not schema_matches and adapter.resource_kind is None:
                 raise ValueError(
                     f"Node {node.ref} output {output.port} does not match its "
                     "authoritative Adapter type."
@@ -845,7 +1064,17 @@ def resolve_graph_intent(
                     f"Variable {output.variable} is produced by multiple nodes."
                 )
             producer_by_variable[output.variable] = node.ref
-            declared_outputs[key] = (output.variable, output.value_schema)
+            declared_outputs[key] = (output.variable, authoritative_schema)
+            resolved = resolved.model_copy(
+                update={
+                    "ports": [
+                        port.model_copy(update={"value_schema": authoritative_schema})
+                        if port.direction == "output" and port.name == output.port
+                        else port
+                        for port in resolved.ports
+                    ]
+                }
+            )
         nodes.append(resolved)
         resolved_by_ref[node.ref] = resolved
 
@@ -895,11 +1124,23 @@ def resolve_graph_intent(
         for binding in node.inputs:
             target_port = target_ports.get(binding.port)
             if target_port is None:
+                target_port = next(
+                    (
+                        port
+                        for name, port in target_ports.items()
+                        if binding.port.startswith(f"{name}_")
+                    ),
+                    None,
+                )
+            if target_port is None:
                 raise ValueError(
                     f"Node {node.ref} declares unknown input port {binding.port}."
                 )
-            counts[binding.port] += 1
-            if counts[binding.port] > 1 and target_port.cardinality != "many":
+            counts[target_port.name] += 1
+            if (
+                counts[target_port.name] > 1
+                and target_port.cardinality != "many"
+            ):
                 raise ValueError(
                     f"Node {node.ref} input port {binding.port} exceeds cardinality."
                 )
@@ -1128,7 +1369,7 @@ def resolve_graph_intent(
         node_id="output",
         kind="output",
         role="output",
-        title="Final answer",
+        title="最终回答",
         config={
             "contractVersion": 2,
             "selectionPolicy": "exactly_one_arrived",
@@ -1237,11 +1478,24 @@ def annotate_candidate_with_graph_ir(
         data["plannerCompilerChecksum"] = resolved.compiler_checksum
         source = intent_by_ref.get(resolved.ref)
         if source is not None:
+            resolved_outputs = {
+                port.name: port.value_schema
+                for port in resolved.ports
+                if port.direction == "output"
+            }
             data["plannerInputsV3"] = [
                 item.model_dump(mode="json") for item in source.inputs
             ]
             data["plannerOutputsV3"] = [
-                item.model_dump(mode="json") for item in source.outputs
+                item.model_copy(
+                    update={
+                        "value_schema": resolved_outputs.get(
+                            item.port,
+                            item.value_schema,
+                        )
+                    }
+                ).model_dump(mode="json")
+                for item in source.outputs
             ]
             if source.kind == "data_merge":
                 data["plannerControlInputMapV1"] = {
@@ -1329,6 +1583,7 @@ def decompile_candidate_to_graph_intent_compat(
     ref_by_id: dict[str, str] = {}
     business_nodes: list[GraphIntentNodeV3] = []
     legacy_nodes: list[MetaPlannerIRNode] = []
+    pinned_node_resources: dict[tuple[str, str], dict[str, Any]] = {}
     for raw_node in planner_nodes:
         native_node = NativeWorkflowNode.model_validate(raw_node)
         restored = (
@@ -1338,6 +1593,61 @@ def decompile_candidate_to_graph_intent_compat(
         )
         node_id = str(raw_node.get("id") or "")
         ref_by_id[node_id] = restored.ref
+        raw_data = raw_node.get("data") or {}
+        if restored.kind == "knowledge_retrieval":
+            resource_id = str(raw_data.get("knowledgeBaseId") or "").strip()
+            observed_version_id = str(
+                raw_data.get("observedActiveVersionId") or ""
+            ).strip()
+            snapshot_checksum = str(
+                raw_data.get("plannerResourceSnapshotChecksum") or ""
+            ).strip()
+            if not resource_id or not observed_version_id or not snapshot_checksum:
+                raise ValueError(
+                    "Compiled knowledge retrieval resource metadata is incomplete."
+                )
+            expected_snapshot_checksum = canonical_checksum(
+                {
+                    "kind": "knowledge_base",
+                    "resource_id": resource_id,
+                    "version_policy": "active",
+                    "observed_version_id": observed_version_id,
+                }
+            )
+            if snapshot_checksum != expected_snapshot_checksum:
+                raise ValueError(
+                    "Compiled knowledge retrieval resource metadata has drifted."
+                )
+            pinned_node_resources[(restored.ref, resource_id)] = {
+                "observed_version_id": observed_version_id,
+                "snapshot_checksum": snapshot_checksum,
+            }
+        elif restored.kind == "data_table_query":
+            resource_id = str(raw_data.get("tableId") or "").strip()
+            schema_checksum = str(
+                raw_data.get("pinnedSchemaChecksum") or ""
+            ).strip()
+            snapshot_checksum = str(
+                raw_data.get("plannerResourceSnapshotChecksum") or ""
+            ).strip()
+            try:
+                schema_version = int(raw_data.get("pinnedSchemaVersion"))
+            except (TypeError, ValueError):
+                schema_version = 0
+            if (
+                not resource_id
+                or schema_version < 1
+                or not schema_checksum
+                or not snapshot_checksum
+            ):
+                raise ValueError(
+                    "Compiled Agent Table resource metadata is incomplete."
+                )
+            pinned_node_resources[(restored.ref, resource_id)] = {
+                "pinned_schema_version": schema_version,
+                "schema_checksum": schema_checksum,
+                "snapshot_checksum": snapshot_checksum,
+            }
         if use_v3:
             business_nodes.append(restored)
         else:
@@ -1389,8 +1699,11 @@ def decompile_candidate_to_graph_intent_compat(
 
                 source_intent = business_by_ref[source_ref]
                 expected_outcomes = native_outcome_map(source_intent)
-                raw_outcomes = (node_by_id[source_id].get("data") or {}).get(
-                    "plannerOutcomeMapV1"
+                source_data = node_by_id[source_id].get("data") or {}
+                raw_outcomes = (
+                    source_data.get("plannerOutcomeMapV2")
+                    if "plannerOutcomeMapV2" in source_data
+                    else source_data.get("plannerOutcomeMapV1")
                 )
                 if raw_outcomes != expected_outcomes:
                     raise ValueError(
@@ -1702,6 +2015,7 @@ def decompile_candidate_to_graph_intent_compat(
             return None, compatibility
     intent._pinned_resource_versions = pinned_resource_versions
     intent._pinned_prompt_profile_versions = pinned_prompt_versions
+    intent._pinned_node_resources = pinned_node_resources
     return intent, compatibility
 
 

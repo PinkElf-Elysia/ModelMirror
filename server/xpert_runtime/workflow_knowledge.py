@@ -125,6 +125,7 @@ async def execute_workflow_knowledge_retrieval(
     contract_version: int,
     return_mode: str,
     version_id: str | None = None,
+    include_resource_evidence: bool = False,
 ) -> tuple[str | dict[str, Any], dict[str, Any]]:
     is_v2 = contract_version >= 2
     knowledge_base_id, compatibility_warnings = resolve_workflow_knowledge_base(
@@ -169,6 +170,17 @@ async def execute_workflow_knowledge_retrieval(
         "contract_version": contract_version,
         "return_mode": return_mode,
     }
+    if include_resource_evidence:
+        # The workflow runner removes this private field before emitting events
+        # or checkpoints. Evaluation uses it to prove which fixed resource was
+        # actually read without issuing a second retrieval.
+        metadata["_resource_evidence"] = {
+            "citation_ids": [
+                str(item.get("citation_id") or "")
+                for item in citations
+                if str(item.get("citation_id") or "")
+            ][:50],
+        }
     if not is_v2 or return_mode == "context":
         return context, metadata
     return {

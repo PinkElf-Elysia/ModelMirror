@@ -319,7 +319,7 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     assert facts.palette_draggable == 50
     assert facts.complete == 52
     assert facts.compatibility == 3
-    assert facts.planner == 16
+    assert facts.planner == 18
     planner_kinds = {
         contract.kind
         for contract in workflow_node_contract_registry.list()
@@ -329,12 +329,14 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
         "condition",
         "data_aggregate",
         "data_merge",
+        "data_table_query",
         "dataset_compare",
         "external_xpert",
         "input",
         "json_deserialize",
         "json_serialize",
         "knowledge_base",
+        "knowledge_retrieval",
         "multi_route",
         "output",
         "plugin_resource",
@@ -433,5 +435,5 @@ def test_capability_audit_tracks_baseline_and_r1_nodes() -> None:
     assert current_registry_line == (
         "当前 Registry 事实：55 Native、51 个已登记 Palette 项、"
         "默认 50 个可拖拽 Palette 项、52 个完整合同、"
-        "3 个 compatibility 合同、16 个 Planner 节点"
+        "3 个 compatibility 合同、18 个 Planner 节点"
     )

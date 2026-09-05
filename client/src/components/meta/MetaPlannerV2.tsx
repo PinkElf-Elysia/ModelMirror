@@ -10,15 +10,18 @@ import ProviderRouteReceiptSummary, {
 } from "./ProviderRouteReceiptSummary";
 import {
   authoringDiffSummary,
+  authoringOperationSummary,
   buildMetadataPatch,
   headlessStateMode,
   normalizeGraphPatchEnvelope,
   normalizeGraphPatchPreview,
   normalizeHeadlessProposalState,
+  normalizeSafeResourceSnapshots,
   normalizeAuthoringDiagnostics,
   type GraphPatchEnvelopeV1,
   type GraphPatchPreview,
   type HeadlessAuthoringProposalState,
+  type SafeResourceSnapshot,
 } from "./metaAuthoring";
 import WorkflowEditor from "../workflow/WorkflowEditor";
 
@@ -26,6 +29,7 @@ type ScopeKey =
   | "allowed_node_kinds"
   | "external_xpert_ids"
   | "knowledge_base_ids"
+  | "data_table_ids"
   | "toolset_ids"
   | "plugin_ids"
   | "prompt_profile_ids"
@@ -33,6 +37,7 @@ type ScopeKey =
 
 interface CapabilityItem {
   id?: string;
+  table_id?: string;
   kind?: string;
   title?: string;
   name?: string;
@@ -45,12 +50,27 @@ interface CapabilityItem {
   planner?: {
     task_binding?: "required" | "optional" | "forbidden";
   };
+  active_version_id?: string | null;
+  active_schema_version?: number | null;
+  schema_version?: number | null;
+  schema_checksum?: string;
+  metadata?: {
+    active_version_id?: string | null;
+  };
+  fields?: Array<{
+    name?: string;
+    label?: string;
+    data_type?: string;
+    type?: string;
+    required?: boolean;
+  }>;
 }
 
 interface MetaPlannerScope extends Record<ScopeKey, string[]> {
   allowed_node_kinds: string[];
   external_xpert_ids: string[];
   knowledge_base_ids: string[];
+  data_table_ids: string[];
   toolset_ids: string[];
   plugin_ids: string[];
   prompt_profile_ids: string[];
@@ -66,11 +86,12 @@ interface CapabilitySnapshot {
   nodes: CapabilityItem[];
   middleware: CapabilityItem[];
   external_xperts: CapabilityItem[];
-  knowledge_bases: CapabilityItem[];
+  knowledge_bases?: CapabilityItem[];
+  data_tables?: CapabilityItem[];
   toolsets: CapabilityItem[];
   plugins: CapabilityItem[];
   prompt_profiles: CapabilityItem[];
-  default_scope: MetaPlannerScope;
+  default_scope?: Partial<MetaPlannerScope>;
   authoring_protocol_version?: string | number;
   authoring_limits?: Record<string, unknown>;
 }
@@ -184,11 +205,60 @@ const emptyScope = (): MetaPlannerScope => ({
   allowed_node_kinds: [],
   external_xpert_ids: [],
   knowledge_base_ids: [],
+  data_table_ids: [],
   toolset_ids: [],
   plugin_ids: [],
   prompt_profile_ids: [],
   middleware_ids: [],
 });
+
+export function normalizeMetaPlannerScope(
+  value?: Partial<MetaPlannerScope> | null,
+): MetaPlannerScope {
+  const source = value ?? {};
+  const list = (key: ScopeKey) =>
+    Array.isArray(source[key])
+      ? source[key]!.filter((item): item is string => typeof item === "string")
+      : [];
+  return {
+    allowed_node_kinds: list("allowed_node_kinds"),
+    external_xpert_ids: list("external_xpert_ids"),
+    knowledge_base_ids: list("knowledge_base_ids"),
+    // Agent Table access always starts closed, even if an older or permissive
+    // capability payload accidentally supplies a default selection.
+    data_table_ids: [],
+    toolset_ids: list("toolset_ids"),
+    plugin_ids: list("plugin_ids"),
+    prompt_profile_ids: list("prompt_profile_ids"),
+    middleware_ids: list("middleware_ids"),
+  };
+}
+
+function capabilityItemId(item: CapabilityItem) {
+  return String(item.kind ?? item.id ?? item.table_id ?? "");
+}
+
+function capabilityItemDetail(item: CapabilityItem, group: ScopeKey) {
+  if (group === "knowledge_base_ids") {
+    const activeVersionId = item.active_version_id ?? item.metadata?.active_version_id;
+    return activeVersionId
+      ? `运行时跟随活动索引；当前观察版本 ${activeVersionId}`
+      : "当前没有活动索引，生成预检将阻断检索节点";
+  }
+  if (group === "data_table_ids") {
+    const schemaVersion = item.active_schema_version ?? item.schema_version;
+    const fields = item.fields ?? [];
+    const fieldSummary = fields
+      .slice(0, 6)
+      .map((field) => `${field.label || field.name || "field"}:${field.data_type || field.type || "unknown"}`)
+      .join(" · ");
+    return [
+      schemaVersion ? `生成时固定 Schema v${schemaVersion}` : "没有可固定的已发布 Schema",
+      fieldSummary || (fields.length ? `${fields.length} 个字段` : "字段摘要不可用"),
+    ].join("；");
+  }
+  return item.description ?? "";
+}
 
 function readError(payload: unknown, fallback: string) {
   if (typeof payload === "object" && payload !== null) {
@@ -357,6 +427,12 @@ const capabilityGroups: Array<{
     hint: "遵守运行时活动索引语义",
   },
   {
+    key: "data_table_ids",
+    source: "data_tables",
+    title: "Agent Table",
+    hint: "默认关闭；授权后固定已发布 Schema",
+  },
+  {
     key: "toolset_ids",
     source: "toolsets",
     title: "Toolset",
@@ -413,6 +489,8 @@ export default function MetaPlannerV2() {
   const [repairUsed, setRepairUsed] = useState(false);
   const [controlFlowReport, setControlFlowReport] =
     useState<ControlFlowReportSummary | null>(null);
+  const [resourceSnapshots, setResourceSnapshots] =
+    useState<SafeResourceSnapshot[]>([]);
   const [snapshotHash, setSnapshotHash] = useState("");
   const [routeReceipt, setRouteReceipt] = useState<ProviderRouteReceipt | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -446,7 +524,7 @@ export default function MetaPlannerV2() {
         };
         if (cancelled) return;
         setCapabilities(capabilityPayload);
-        setScope(capabilityPayload.default_scope);
+        setScope(normalizeMetaPlannerScope(capabilityPayload.default_scope));
         setEditableXperts(xpertResponse.items);
         const latest = proposalPayload.items?.[0];
         if (latest) {
@@ -491,6 +569,7 @@ export default function MetaPlannerV2() {
     setWarnings(Array.isArray(report.warnings) ? (report.warnings as string[]) : []);
     setRepairUsed(Boolean(report.repair_used));
     setControlFlowReport(controlFlowReportFrom(report));
+    setResourceSnapshots(normalizeSafeResourceSnapshots(report));
     const snapshot = report.capability_snapshot;
     setSnapshotHash(
       String(
@@ -663,7 +742,7 @@ export default function MetaPlannerV2() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           revision: proposal.revision,
-          title: `Meta Planner: ${nextCandidate.name}`,
+          title: `元智能体规划：${nextCandidate.name}`,
           payload: proposalPayload(nextCandidate),
           base_revision: proposal.base_revision,
         }),
@@ -1038,7 +1117,8 @@ export default function MetaPlannerV2() {
             <div className="mt-3 max-h-[520px] space-y-4 overflow-y-auto pr-1">
               {capabilities
                 ? capabilityGroups.map((group) => {
-                    const items = capabilities[group.source] as CapabilityItem[];
+                    const source = capabilities[group.source];
+                    const items = Array.isArray(source) ? source as CapabilityItem[] : [];
                     return (
                       <div key={group.key}>
                         <div className="flex items-end justify-between gap-2">
@@ -1047,14 +1127,16 @@ export default function MetaPlannerV2() {
                         </div>
                         <div className="mt-2 space-y-1.5">
                           {items.map((item) => {
-                            const value = String(item.kind ?? item.id ?? "");
+                            const value = capabilityItemId(item);
                             const checked = scope[group.key].includes(value);
+                            const detail = capabilityItemDetail(item, group.key);
                             return (
                               <label
                                 className="flex cursor-pointer items-start gap-2 rounded-md border border-white/5 bg-white/[0.025] px-2.5 py-2"
                                 key={`${group.key}-${value}`}
                               >
                                 <input
+                                  aria-label={`${group.title}：${item.title ?? item.name ?? value}`}
                                   checked={checked}
                                   className="mt-0.5 accent-cyan-300"
                                   onChange={() => toggleScope(group.key, value)}
@@ -1075,9 +1157,9 @@ export default function MetaPlannerV2() {
                                       </span>
                                     ) : null}
                                   </span>
-                                  {item.description ? (
+                                  {detail ? (
                                     <span className="mt-0.5 line-clamp-2 block text-[10px] leading-4 text-slate-500">
-                                      {item.description}
+                                      {detail}
                                     </span>
                                   ) : null}
                                 </span>
@@ -1256,6 +1338,33 @@ export default function MetaPlannerV2() {
                       </div>
                     </div>
                   ) : null}
+                  {resourceSnapshots.length ? (
+                    <div className="mt-3 rounded-md border border-emerald-300/15 bg-emerald-300/[0.05] p-2.5">
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                        <span className="font-semibold text-emerald-100">只读资源快照</span>
+                        <span className="text-emerald-100/65">{resourceSnapshots.length} 个节点级引用</span>
+                      </div>
+                      <div className="mt-2 max-h-32 space-y-1.5 overflow-y-auto text-[10px] leading-4 text-slate-400">
+                        {resourceSnapshots.map((snapshot) => (
+                          <div key={`${snapshot.node_ref}-${snapshot.resource_id}`}>
+                            <p>
+                              <span className="font-mono text-slate-300">{snapshot.node_ref}</span>
+                              {` · ${snapshot.resource_kind || snapshot.node_kind || "resource"} ${snapshot.resource_id}`}
+                            </p>
+                            <p className="text-slate-500">
+                              {snapshot.schema_version != null
+                                ? `固定 Schema v${snapshot.schema_version}`
+                                : snapshot.observed_version_id
+                                  ? `动态活动索引；观察版本 ${snapshot.observed_version_id}`
+                                  : snapshot.resolved_version_id
+                                    ? `固定版本 ${snapshot.resolved_version_id}`
+                                    : snapshot.version_policy || "等待服务端解析"}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                   {issues.length ? (
                     <div className="mt-3 max-h-32 space-y-1 overflow-y-auto text-[11px] text-rose-100">
                       {issues.map((item, index) => (
@@ -1346,6 +1455,10 @@ export default function MetaPlannerV2() {
                             authoringAvailability.state.allowed_middleware_ids,
                           allowedSourceAgentIds:
                             authoringAvailability.state.allowed_source_agent_ids,
+                          allowedKnowledgeBaseIds:
+                            authoringAvailability.state.allowed_knowledge_base_ids,
+                          allowedDataTableIds:
+                            authoringAvailability.state.allowed_data_table_ids,
                         }
                       : undefined
                   }
@@ -1427,7 +1540,7 @@ export default function MetaPlannerV2() {
                 <div className="mt-2 space-y-1 text-xs text-slate-400">
                   {pendingAuthoringPreview.patch.operations.map((operation, index) => (
                     <p key={`${operation.op}-${index}`}>
-                      {index + 1}. <span className="font-mono text-cyan-100">{operation.op}</span>
+                      {index + 1}. <span className="font-mono text-cyan-100">{authoringOperationSummary(operation)}</span>
                     </p>
                   ))}
                 </div>
@@ -1460,6 +1573,27 @@ export default function MetaPlannerV2() {
                 {pendingAuthoringPreview.preview.warnings.map((warning) => (
                   <p key={warning}>{warning}</p>
                 ))}
+              </div>
+            ) : null}
+
+            {pendingAuthoringPreview.preview.resource_snapshots.length ? (
+              <div className="mt-3 rounded-md border border-emerald-300/20 bg-emerald-300/[0.06] p-3">
+                <p className="text-xs font-semibold text-emerald-100">资源解析结果</p>
+                <div className="mt-2 space-y-1 text-xs text-slate-400">
+                  {pendingAuthoringPreview.preview.resource_snapshots.map((snapshot) => (
+                    <p key={`${snapshot.node_ref}-${snapshot.resource_id}`}>
+                      <span className="font-mono text-slate-300">{snapshot.node_ref}</span>
+                      {` · ${snapshot.resource_id}`}
+                      {snapshot.schema_version != null
+                        ? ` · Schema v${snapshot.schema_version}`
+                        : snapshot.observed_version_id
+                          ? ` · 活动索引 ${snapshot.observed_version_id}`
+                          : snapshot.resolved_version_id
+                            ? ` · 版本 ${snapshot.resolved_version_id}`
+                            : ""}
+                    </p>
+                  ))}
+                </div>
               </div>
             ) : null}
 

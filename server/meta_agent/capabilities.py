@@ -107,6 +107,7 @@ def build_capability_snapshot(
     prompt_profiles: Iterable[Any],
     model_ids: Iterable[str],
     agents: Iterable[Any] = (),
+    data_tables: Iterable[dict[str, Any]] = (),
 ) -> MetaPlannerCapabilitySnapshot:
     node_payload = workflow_registry.to_payload()
     nodes: list[dict[str, Any]] = []
@@ -267,6 +268,85 @@ def build_capability_snapshot(
         for item in knowledge_bases
         if item.get("id") or item.get("kb_id")
     ]
+    tables: list[dict[str, Any]] = []
+    for raw_table in data_tables:
+        table = dict(raw_table)
+        table_id = str(table.get("table_id") or table.get("id") or "").strip()
+        schema_version = table.get("active_schema_version")
+        if not table_id or not schema_version:
+            continue
+        raw_versions = list(table.get("schema_versions") or [])
+        if not raw_versions and table.get("schema_checksum"):
+            raw_versions = [
+                {
+                    "version": schema_version,
+                    "checksum": table.get("schema_checksum"),
+                    "fields": table.get("fields"),
+                }
+            ]
+        safe_versions: list[dict[str, Any]] = []
+        for raw_version in raw_versions:
+            version = dict(raw_version)
+            checksum = str(version.get("checksum") or "").strip()
+            try:
+                version_number = int(version.get("version"))
+            except (TypeError, ValueError):
+                continue
+            fields = []
+            for raw_field in list(version.get("fields") or []):
+                field = dict(raw_field)
+                name = str(field.get("name") or "").strip()
+                data_type = str(
+                    field.get("data_type") or field.get("type") or ""
+                ).strip()
+                if not name or data_type not in {
+                    "string",
+                    "integer",
+                    "number",
+                    "boolean",
+                    "datetime",
+                    "json",
+                }:
+                    continue
+                fields.append(
+                    {
+                        "name": name,
+                        "type": data_type,
+                        "required": bool(field.get("required")),
+                    }
+                )
+            if checksum:
+                safe_versions.append(
+                    {
+                        "version": version_number,
+                        "checksum": checksum,
+                        "fields": sorted(fields, key=lambda item: item["name"]),
+                    }
+                )
+        safe_versions.sort(key=lambda item: item["version"])
+        active = next(
+            (
+                item
+                for item in safe_versions
+                if item["version"] == int(schema_version)
+            ),
+            None,
+        )
+        if active is None:
+            continue
+        tables.append(
+            {
+                "id": table_id,
+                "name": str(table.get("name") or table_id)[:160],
+                "description": str(table.get("description") or "")[:600],
+                "status": str(table.get("status") or "published")[:40],
+                "active_schema_version": int(schema_version),
+                "schema_checksum": active["checksum"],
+                "fields": active["fields"],
+                "schema_versions": safe_versions,
+            }
+        )
+    tables.sort(key=lambda item: item["id"])
     safe_toolsets = [
         _safe_resource(
             resource_id=item.id,
@@ -357,6 +437,7 @@ def build_capability_snapshot(
         allowed_node_kinds=sorted(core_node_kinds & available_node_kinds),
         external_xpert_ids=[item["id"] for item in xperts],
         knowledge_base_ids=[item["id"] for item in kbs],
+        data_table_ids=[],
         toolset_ids=[item["id"] for item in safe_toolsets],
         plugin_ids=[item["id"] for item in safe_plugins],
         prompt_profile_ids=[item["id"] for item in prompts],
@@ -364,10 +445,10 @@ def build_capability_snapshot(
         agent_ids=[item["id"] for item in expert_summaries],
     )
     payload = {
-        "version": "evoagentx-meta-planner-capabilities-v7",
+        "version": "evoagentx-meta-planner-capabilities-v8",
         "ir_version": 3,
         "supported_ir_versions": [2, 3],
-        "control_flow_contract_version": 1,
+        "control_flow_contract_version": 2,
         "contract_version": int(node_payload.get("contract_version") or 0),
         "contract_checksum": str(node_payload.get("contract_checksum") or ""),
         "node_registry_version": workflow_registry.version,
@@ -375,6 +456,7 @@ def build_capability_snapshot(
         "middleware": middleware,
         "external_xperts": xperts,
         "knowledge_bases": kbs,
+        "data_tables": tables,
         "toolsets": safe_toolsets,
         "plugins": safe_plugins,
         "prompt_profiles": prompts,
@@ -409,6 +491,7 @@ def assert_scope_is_authorized(
         "allowed_node_kinds": {item["kind"] for item in snapshot.nodes},
         "external_xpert_ids": {item["id"] for item in snapshot.external_xperts},
         "knowledge_base_ids": {item["id"] for item in snapshot.knowledge_bases},
+        "data_table_ids": {item["id"] for item in snapshot.data_tables},
         "toolset_ids": {item["id"] for item in snapshot.toolsets},
         "plugin_ids": {item["id"] for item in snapshot.plugins},
         "prompt_profile_ids": {item["id"] for item in snapshot.prompt_profiles},

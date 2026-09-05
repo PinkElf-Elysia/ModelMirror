@@ -1,6 +1,7 @@
 import asyncio
 import ast
 import base64
+import copy
 import hashlib
 import json
 import logging
@@ -186,6 +187,7 @@ try:
         get_xpert_evaluation_executor,
         get_xpert_evaluation_service,
         get_xpert_evaluation_store,
+        render_evaluation_case_inputs,
         router as xpert_evaluations_router,
     )
 except ModuleNotFoundError:
@@ -194,6 +196,7 @@ except ModuleNotFoundError:
         get_xpert_evaluation_executor,
         get_xpert_evaluation_service,
         get_xpert_evaluation_store,
+        render_evaluation_case_inputs,
         router as xpert_evaluations_router,
     )
 
@@ -7473,11 +7476,40 @@ def build_meta_planner_capability_snapshot(
         item["active_version_id"] = active.get("version_id") if active else None
         knowledge_bases.append(item)
 
+    data_tables = []
+    for table in agent_table_store.list_tables(status="published", limit=200):
+        schema_versions = agent_table_store.list_schema_versions(table.table_id)
+        data_tables.append(
+            {
+                "table_id": table.table_id,
+                "name": table.name,
+                "description": table.description,
+                "status": table.status,
+                "active_schema_version": table.active_schema_version,
+                "schema_versions": [
+                    {
+                        "version": version.version,
+                        "checksum": version.checksum,
+                        "fields": [
+                            {
+                                "name": field.name,
+                                "data_type": field.data_type,
+                                "required": field.required,
+                            }
+                            for field in version.fields
+                        ],
+                    }
+                    for version in schema_versions
+                ],
+            }
+        )
+
     return build_capability_snapshot(
         workflow_registry=workflow_node_registry,
         middleware_registry=runtime_middleware_registry,
         external_xperts=published_xperts,
         knowledge_bases=knowledge_bases,
+        data_tables=data_tables,
         toolsets=toolset_store.list_toolsets(status="published", limit=500),
         plugins=get_plugin_store().list_plugins(status="published", limit=500),
         prompt_profiles=get_prompt_profile_store().list_profiles(
@@ -8974,7 +9006,7 @@ async def generate_meta_planner_xpert_candidate(
 
     run = await run_registry.create_run(
         "meta_planner",
-        f"Meta Planner: {payload.goal[:80]}",
+        f"元智能体规划：{payload.goal[:80]}",
         status="running",
         source_id=payload.target_xpert_id,
         metadata={
@@ -8987,7 +9019,7 @@ async def generate_meta_planner_xpert_candidate(
     await run_registry.record_checkpoint(
         run.run_id,
         event_type="meta_planner.started",
-        title="Meta Planner started",
+        title="元智能体规划已开始",
         metadata={"mode": payload.mode},
     )
 
@@ -10340,7 +10372,7 @@ async def _run_workflow_response(
         and all(
             isinstance(item, str)
             and re.fullmatch(
-                r"[a-z][a-z0-9_-]{0,63}:(?:success|matched|unmatched|case_[1-8]|default)",
+                r"[a-z][a-z0-9_-]{0,63}:(?:success|error|matched|unmatched|case_[1-8]|default)",
                 item,
             )
             for item in raw_retry_control_flow_trace
@@ -10577,6 +10609,7 @@ async def _run_workflow_response(
         "order_index": order_index,
         "final_output": str(safe_resume_state.get("final_output") or ""),
         "control_flow_trace": list(safe_resume_state.get("control_flow_trace") or []),
+        "evaluation_resource_reads": [],
         "control_flow_terminal": (
             dict(safe_resume_state.get("control_flow_terminal") or {})
             if isinstance(safe_resume_state.get("control_flow_terminal"), dict)
@@ -10771,6 +10804,11 @@ async def _run_workflow_response(
                     for index, route in enumerate(node.data.get("routes") or [], start=1)
                 }
                 expected_map["default"] = "default"
+            elif kind in {"knowledge_retrieval", "data_table_query"} and (
+                failure_action(node.data) == "error_output"
+            ):
+                expected_map = {"success": "", "error": "error"}
+                raw_map = node.data.get("plannerOutcomeMapV2")
             if (
                 not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", planner_ref)
                 or raw_map != expected_map
@@ -18010,6 +18048,48 @@ async def _run_workflow_response(
                     result_count = 0
                     affected_count = 0
                     if kind == "data_table_query":
+                        evaluation_fixture: dict[str, Any] | None = None
+                        if runtime_run_type == "xpert_evaluation":
+                            evaluation_context = dict(
+                                task_state.get("runtime_metadata") or {}
+                            )
+                            evaluation_run_id = str(
+                                evaluation_context.get("evaluation_run_id") or ""
+                            ).strip()
+                            evaluation_target_id = str(
+                                evaluation_context.get("evaluation_target_id") or ""
+                            ).strip()
+                            evaluation_case_id = str(
+                                evaluation_context.get("evaluation_case_id") or ""
+                            ).strip()
+                            if not all(
+                                (
+                                    evaluation_run_id,
+                                    evaluation_target_id,
+                                    evaluation_case_id,
+                                )
+                            ):
+                                raise WorkflowTerminationError(
+                                    "EVALUATION_RESOURCE_FIXTURE_MISSING",
+                                    "The fixed Agent Table evaluation fixture is unavailable.",
+                                    node_id=node.id,
+                                )
+                            fixture_matches = [
+                                item
+                                for item in get_xpert_evaluation_store().resource_fixtures_for_item(
+                                    evaluation_run_id,
+                                    target_id=evaluation_target_id,
+                                    case_id=evaluation_case_id,
+                                )
+                                if str(item.get("node_id") or "") == node.id
+                            ]
+                            if len(fixture_matches) != 1:
+                                raise WorkflowTerminationError(
+                                    "EVALUATION_RESOURCE_FIXTURE_MISSING",
+                                    "The fixed Agent Table evaluation fixture is unavailable.",
+                                    node_id=node.id,
+                                )
+                            evaluation_fixture = fixture_matches[0]
                         retry_attempt = require_retry_runtime(node)
                         active_retry_state = dict(retry_resume_state)
                         if retry_attempt > 1:
@@ -18047,21 +18127,90 @@ async def _run_workflow_response(
                         )
                         sort = node.data.get("sort")
                         try:
-                            if schema is None:
+                            if evaluation_fixture is not None:
+                                if (
+                                    str(evaluation_fixture.get("resource_kind") or "")
+                                    != "data_table_query"
+                                    or str(evaluation_fixture.get("table_id") or "")
+                                    != table_id
+                                ):
+                                    raise ValueError(
+                                        "Evaluation fixture resource identity does not match."
+                                    )
+                                fixture_schema_version = int(
+                                    evaluation_fixture.get("schema_version") or 0
+                                )
+                                pinned_schema_checksum = str(
+                                    node.data.get("pinnedSchemaChecksum")
+                                    or node.data.get(
+                                        "evaluationPinnedSchemaChecksum"
+                                    )
+                                    or ""
+                                ).strip()
                                 schema = agent_table_store.resolve_schema_version(
                                     table_id,
-                                    version_policy=version_policy,
-                                    pinned_version=pinned_version,
-                                    write=is_write,
+                                    version_policy="pinned",
+                                    pinned_version=fixture_schema_version,
+                                    write=False,
                                 )
-                            records = agent_table_store.query_records(
-                                table_id,
-                                schema_version=schema.version,
-                                fields=selected_fields,
-                                filter_tree=filter_tree,
-                                sort=sort if isinstance(sort, list) else None,
-                                limit=int(node.data.get("limit") or 20),
-                            )
+                                if (
+                                    str(evaluation_fixture.get("schema_checksum") or "")
+                                    != str(schema.checksum)
+                                    or (
+                                        pinned_schema_checksum
+                                        and pinned_schema_checksum
+                                        != str(schema.checksum)
+                                    )
+                                    or (
+                                        pinned_version is not None
+                                        and pinned_version != fixture_schema_version
+                                    )
+                                ):
+                                    raise ValueError(
+                                        "Evaluation fixture schema no longer matches the workflow snapshot."
+                                    )
+                                normalized_sort = (
+                                    copy.deepcopy(sort)
+                                    if isinstance(sort, list)
+                                    else None
+                                )
+                                query_contract_matches = (
+                                    evaluation_fixture.get("fields")
+                                    == selected_fields
+                                    and evaluation_fixture.get("filter")
+                                    == filter_tree
+                                    and evaluation_fixture.get("sort")
+                                    == normalized_sort
+                                    and int(evaluation_fixture.get("limit") or 0)
+                                    == int(node.data.get("limit") or 20)
+                                    and str(
+                                        evaluation_fixture.get("return_mode") or ""
+                                    )
+                                    == str(node.data.get("returnMode") or "list")
+                                )
+                                if not query_contract_matches:
+                                    raise ValueError(
+                                        "Evaluation fixture query contract no longer matches."
+                                    )
+                                records = copy.deepcopy(
+                                    list(evaluation_fixture.get("records") or [])
+                                )
+                            else:
+                                if schema is None:
+                                    schema = agent_table_store.resolve_schema_version(
+                                        table_id,
+                                        version_policy=version_policy,
+                                        pinned_version=pinned_version,
+                                        write=is_write,
+                                    )
+                                records = agent_table_store.query_records(
+                                    table_id,
+                                    schema_version=schema.version,
+                                    fields=selected_fields,
+                                    filter_tree=filter_tree,
+                                    sort=sort if isinstance(sort, list) else None,
+                                    limit=int(node.data.get("limit") or 20),
+                                )
                         except Exception as exc:
                             if cancellation_requested():
                                 yield sse_payload(cancellation_event())
@@ -18128,6 +18277,32 @@ async def _run_workflow_response(
                             else:
                                 stored_output = records
                             output = f"Agent Table query returned {result_count} record(s)."
+                            if evaluation_fixture is not None:
+                                task_state.setdefault(
+                                    "evaluation_resource_reads", []
+                                ).append(
+                                    {
+                                        "node_ref": str(
+                                            node.data.get("plannerRef") or node.id
+                                        )[:64],
+                                        "kind": "data_table_query",
+                                        "resource_id": table_id,
+                                        "schema_version": int(schema.version),
+                                        "query_checksum": str(
+                                            evaluation_fixture.get("query_checksum")
+                                            or ""
+                                        ),
+                                        "result_count": result_count,
+                                        "record_ids": [
+                                            str(item)[:200]
+                                            for item in list(
+                                                evaluation_fixture.get("record_ids")
+                                                or []
+                                            )[:200]
+                                            if str(item)
+                                        ],
+                                    }
+                                )
                         operation = "query"
                     elif kind == "data_table_insert":
                         values = resolve_data_table_values(
@@ -18636,6 +18811,16 @@ async def _run_workflow_response(
                         ).strip()
                         retry_target_fingerprint: str | None = None
                         retry_target_version_id: str | None = None
+                        if runtime_run_type == "xpert_evaluation":
+                            retry_target_version_id = str(
+                                node.data.get("evaluationPinnedVersionId") or ""
+                            ).strip()
+                            if not retry_target_version_id:
+                                raise WorkflowTerminationError(
+                                    "EVALUATION_KNOWLEDGE_VERSION_MISSING",
+                                    "The fixed knowledge evaluation version is unavailable.",
+                                    node_id=node.id,
+                                )
                         if retry_enabled(node.data):
                             try:
                                 (
@@ -18738,16 +18923,24 @@ async def _run_workflow_response(
                                 reason="resume_lease_lost",
                             )
                             raise
+                        retrieval_options: dict[str, Any] = {
+                            "configured_kb_id": configured_kb_id,
+                            "query": query_text,
+                            "top_k": top_k,
+                            "contract_version": contract_version,
+                            "return_mode": return_mode,
+                            "version_id": retry_target_version_id,
+                        }
+                        if runtime_run_type == "xpert_evaluation":
+                            retrieval_options["include_resource_evidence"] = True
                         output, retrieval_metadata = (
                             await execute_workflow_knowledge_retrieval(
                                 get_rag_service(),
-                                configured_kb_id=configured_kb_id,
-                                query=query_text,
-                                top_k=top_k,
-                                contract_version=contract_version,
-                                return_mode=return_mode,
-                                version_id=retry_target_version_id,
+                                **retrieval_options,
                             )
+                        )
+                        resource_evidence = dict(
+                            retrieval_metadata.pop("_resource_evidence", {}) or {}
                         )
                         if cancellation_requested():
                             await run_registry.cancel_run(
@@ -18765,6 +18958,33 @@ async def _run_workflow_response(
                             )
                             raise
                         variables[output_variable] = output
+                        if runtime_run_type == "xpert_evaluation":
+                            task_state.setdefault(
+                                "evaluation_resource_reads", []
+                            ).append(
+                                {
+                                    "node_ref": str(
+                                        node.data.get("plannerRef") or node.id
+                                    )[:64],
+                                    "kind": "knowledge_retrieval",
+                                    "resource_id": str(
+                                        retrieval_metadata.get("kb_id") or ""
+                                    )[:200],
+                                    "version_id": str(
+                                        retrieval_metadata.get("version_id") or ""
+                                    )[:200],
+                                    "result_count": int(
+                                        retrieval_metadata.get("hit_count") or 0
+                                    ),
+                                    "citation_ids": [
+                                        str(item)[:200]
+                                        for item in list(
+                                            resource_evidence.get("citation_ids") or []
+                                        )[:50]
+                                        if str(item)
+                                    ],
+                                }
+                            )
                         output_length = len(workflow_value_to_text(output))
                         await run_registry.update_run(
                             retrieval_run.run_id,
@@ -24808,6 +25028,13 @@ async def _run_workflow_response(
                             edge for edge in next_edges if not edge.sourceHandle
                         ][:1]
                     next_edges = matching_edges
+                elif kind in {"knowledge_retrieval", "data_table_query"} and (
+                    failure_action(node.data) == "error_output"
+                ):
+                    record_control_outcome(
+                        node,
+                        "error" if node_end_status == "handled_error" else "",
+                    )
                 elif kind != "terminate_error":
                     record_control_outcome(node, "")
 
@@ -30057,7 +30284,7 @@ async def evaluation_control_flow_summary(runtime_run_id: str) -> dict[str, Any]
         str(item)[:129]
         for item in list(metadata.get("outcomes") or [])[:256]
         if re.fullmatch(
-            r"[a-z][a-z0-9_-]{0,63}:(?:success|matched|unmatched|case_[1-8]|default)",
+            r"[a-z][a-z0-9_-]{0,63}:(?:success|error|matched|unmatched|case_[1-8]|default)",
             str(item),
         )
     ]
@@ -30085,19 +30312,7 @@ async def run_xpert_evaluation_target(
     parent_run_id: str | None,
 ) -> dict[str, Any]:
     workflow = WorkflowPayload.model_validate(target["workflow"])
-    history = [
-        {
-            "role": str(item.get("role") or "user"),
-            "content": str(item.get("content") or "")[:20_000],
-        }
-        for item in list(case.get("messages") or [])[-20:]
-        if isinstance(item, dict) and str(item.get("content") or "").strip()
-    ]
-    history_json = json.dumps(history, ensure_ascii=False)
-    message = str(case.get("message") or "")[:20_000]
-    input_template = str(target.get("input_template") or "")
-    if input_template:
-        message = re.sub(r"{{\s*args\s*}}", message, input_template)[:20_000]
+    message, history, history_json = render_evaluation_case_inputs(target, case)
     inputs = {
         str(target.get("input_variable") or "user_input"): message,
         str(target.get("history_variable") or "conversation_history"): history_json,
@@ -30136,6 +30351,8 @@ async def run_xpert_evaluation_target(
         "xpert_features": {},
         "evaluation_mode": "read_only",
         "evaluation_target_id": target.get("target_id"),
+        "evaluation_run_id": str(config.get("evaluation_run_id") or ""),
+        "evaluation_case_id": str(config.get("evaluation_case_id") or ""),
         "evaluation_resources": dict(target.get("resources") or {}),
         "evaluation_seed": int(config.get("seed") or 0),
         "memory_write_enabled": False,
@@ -30221,6 +30438,11 @@ async def run_xpert_evaluation_target(
         "citations": evaluation_citation_summary(citation_value),
         "tool_calls": await evaluation_tool_call_summary(runtime_run_id),
         "control_flow": control_flow,
+        "resource_reads": list(
+            task_state.get("evaluation_resource_reads") or []
+        )[:100]
+        if isinstance(task_state, dict)
+        else [],
         "usage": usage,
         "runtime_run_id": runtime_run_id or None,
     }
@@ -30600,6 +30822,7 @@ configure_xpert_evaluations(
     plugin_store=get_plugin_store(),
     rag_service=get_rag_service(),
     context_store=xpert_context_store,
+    agent_table_evaluation_backend=agent_table_store,
     target_runner=run_xpert_evaluation_target,
     judge_runner=run_xpert_evaluation_judge,
     run_registry=run_registry,

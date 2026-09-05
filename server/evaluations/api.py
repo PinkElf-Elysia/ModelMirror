@@ -46,6 +46,7 @@ def configure_xpert_evaluations(
     target_runner: TargetRunner,
     judge_runner: JudgeRunner | None,
     run_registry: Any,
+    agent_table_evaluation_backend: Any | None = None,
 ) -> XpertEvaluationExecutor:
     global _store, _service, _executor
     _store = XpertEvaluationStore(storage_dir)
@@ -58,6 +59,7 @@ def configure_xpert_evaluations(
         plugin_store=plugin_store,
         rag_service=rag_service,
         context_store=context_store,
+        agent_table_evaluation_backend=agent_table_evaluation_backend,
     )
     _executor = XpertEvaluationExecutor(
         _store,
@@ -105,6 +107,7 @@ async def get_capabilities() -> dict[str, Any]:
             "citation_hit",
             "tool_call_match",
             "workflow_path_match",
+            "workflow_resource_match",
             "rubric_judge",
         ],
         "dataset_limits": {"max_cases": 500, "max_cases_per_run": 100},
@@ -116,6 +119,11 @@ async def get_capabilities() -> dict[str, Any]:
             "max_tool_calls": 100,
         },
         "model_policies": ["snapshot", "override"],
+        "resource_fixture_limits": {
+            "max_rows_per_query": 200,
+            "max_fixtures_per_run": 1000,
+            "max_bytes_per_run": 16 * 1024 * 1024,
+        },
         "safe_mode": "read_only_fail_closed",
     }
 
@@ -388,6 +396,7 @@ def _parse_import(filename: str, content: bytes) -> list[dict[str, Any]]:
 
 def _sanitize_run_detail(run: dict[str, Any]) -> dict[str, Any]:
     payload = json.loads(json.dumps(run, ensure_ascii=False))
+    payload.pop("_resource_fixtures", None)
     dataset = dict(payload.get("dataset") or {})
     for case in dataset.get("cases") or []:
         case["message"] = str(case.get("message") or "")[:20_000]

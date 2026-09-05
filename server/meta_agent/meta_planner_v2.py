@@ -8,7 +8,7 @@ from collections import Counter, defaultdict, deque
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 try:
     from server.prompts.models import PromptProfileBinding
@@ -56,11 +56,22 @@ from .graph_ir_v3 import (
     graph_intent_to_v2,
     resolve_middleware_config,
     resolve_graph_intent,
+    resolve_node_resource_snapshot,
     v2_to_graph_intent,
     workflow_authoring_checksum,
     workflow_semantic_checksum,
 )
-from .graph_patch import GraphPatchEnvelopeV1, apply_graph_patch
+from .graph_patch import (
+    GRAPH_PATCH_MAX_OPERATIONS,
+    AddNodeOperation,
+    ConnectDataOperation,
+    DisconnectDataOperation,
+    GraphPatchEnvelopeV1,
+    GraphPatchOperation,
+    RemoveNodeOperation,
+    SetOutputVariableOperation,
+    apply_graph_patch,
+)
 from .node_adapters import (
     META_PLANNER_BINDING_KINDS,
     META_PLANNER_COMPILER_MANAGED_KINDS,
@@ -100,10 +111,26 @@ PreflightCallback = Callable[[XpertDefinition], Any]
 TASK_PLAN_SYSTEM_PROMPT = """\
 You are the task-planning stage of ModelMirror Meta Planner Graph IR V3.
 Return one strict JSON object only. Do not include markdown or hidden reasoning.
+The object must contain exactly the task-plan fields summary, assumptions, and tasks;
+never return a workflow, GraphIntent, status, error, or explanatory wrapper.
+Write every human-visible summary, assumption, title, objective, contract, and
+acceptance field in Simplified Chinese. Keep machine identifiers in their exact
+contract form and do not translate registered resource or schema field names.
 Create a bounded task DAG. Every task must have a stable lowercase task_id,
 explicit dependencies, an input contract, and one output contract.
 Tasks represent model-driven responsibilities. Deterministic helper-node operations
 must not become tasks; obey the supplied task_planning_contract.
+"""
+
+
+TASK_PLAN_REPAIR_SYSTEM_PROMPT = """\
+You repair one invalid ModelMirror Meta Planner task plan. Return one strict JSON
+object only with exactly summary, assumptions, and tasks. Do not include markdown,
+hidden reasoning, a workflow, GraphIntent, status, error, or an explanatory wrapper.
+Write every human-visible field in Simplified Chinese while preserving machine
+identifiers and registered resource or schema field names exactly.
+Make the smallest changes required by the structured validation issues and obey the
+supplied task-planning contract. This consumes the generation's only repair pass.
 """
 
 
@@ -117,10 +144,17 @@ Compile the task DAG into explicit typed IR nodes, control edges, resource bindi
 middleware bindings, and one explicit final output. A node may cover multiple tasks
 and every task must be covered by a workflow_agent. Auxiliary pure nodes must have an
 empty task_ids list. Bindings must target a workflow_agent node ref.
+Write all human-visible Xpert metadata, node titles/descriptions, prompts, starters,
+and user-facing error messages in Simplified Chinese. Keep refs, IDs, field names,
+variables, operators, model IDs, and fixed error codes in contract form.
 Every node input must identify its source node and source port. Use the workflow_agent
 task port for each task input; that port accepts multiple typed variables.
 Respect the supplied typed_ir_constraints, including its workflow-agent node limit.
 Never invent credentials, tools, resource IDs, node kinds, versions, or private content.
+Agent Table reads belong to data_table_query.resource_ref and knowledge reads belong
+to knowledge_retrieval.resource_ref. Never represent either as a toolset_resource or
+an Agent-bound resource. Only a read node configured with failure_action=error_output
+may emit the error outcome; workflow_agent emits success only.
 """
 
 
@@ -131,19 +165,67 @@ executable nodes; input/output and resource nodes are compiler-managed.
 Make the smallest changes required by the structured validation issues. Do not add
 capabilities outside the supplied authorized snapshot. This is the only repair pass.
 Return the complete blueprint and obey every supplied typed_ir_constraint.
+All repaired human-visible metadata, titles, descriptions, prompts, starters, and
+user-facing messages must be in Simplified Chinese; machine identifiers stay exact.
+For node-owned reads, keep the resource ID in resource_ref, never resources or config.
+Only the read node may own its error outcome; workflow_agent emits success only.
 """
 
 
 PATCH_REPAIR_SYSTEM_PROMPT = """\
-You repair one parsed ModelMirror GraphIntentV3 using GraphPatchEnvelopeV1.
+You repair one parsed ModelMirror GraphIntentV3 using typed Graph Patch operations.
 Return one strict JSON object only. Never return a complete workflow or GraphIntent.
 Use only the listed semantic refs, named ports, Adapter config, and authorized IDs.
-Do not emit native node IDs, Handles, resource versions, schemas, policies, checksums
-other than the exact expected checksums supplied in the envelope. Make the smallest
-ordered patch that addresses the validation issues. This is the only repair pass.
+Return exactly one operations array. The server owns the Patch envelope, proposal
+revision, graph checksum, and candidate checksum; never emit those fields. Do not
+emit native node IDs, Handles, resource versions, schemas, policies, status, error,
+or explanation fields. Make the smallest ordered patch that addresses the validation
+issues. If no safe operation is possible, return {"operations": []}. This is the
+only repair pass.
+Any human-visible string changed by the patch must be in Simplified Chinese; machine
+identifiers, registered resource names, and schema field names stay exact.
 The virtual refs input and output may be referenced where allowed but can never be
 added, updated, removed, or moved as nodes.
 """
+
+
+class PlannerGraphPatchRepairPayloadV1(BaseModel):
+    """Model-authored operations; trusted envelope fields stay server-owned."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operations: list[GraphPatchOperation] = Field(
+        default_factory=list,
+        max_length=GRAPH_PATCH_MAX_OPERATIONS,
+    )
+
+
+DISPLAY_LANGUAGE_CONTRACT = {
+    "locale": "zh-CN",
+    "human_visible_fields": [
+        "name",
+        "description",
+        "tags",
+        "starters",
+        "task_plan.summary",
+        "task_plan.assumptions",
+        "tasks[].title",
+        "tasks[].objective",
+        "tasks[].input_contract",
+        "tasks[].output_contract",
+        "tasks[].acceptance",
+        "nodes[].title",
+        "nodes[].description",
+        "workflow_agent.config.role_prompt",
+        "workflow_agent.config.task_input",
+        "terminate_error.config.message",
+    ],
+    "rules": [
+        "Write every human-visible field in Simplified Chinese.",
+        "Keep refs, task_ids, variables, node kinds, resource IDs, model IDs, field names, operators, and error_code values in their exact machine-readable form.",
+        "Do not translate registered resource names or schema field names when referring to them inside Chinese text.",
+    ],
+}
 
 
 def _json_payload(raw_text: str) -> dict[str, Any]:
@@ -249,6 +331,8 @@ def _task_planning_contract(
             or planner.get("task_binding") != "forbidden"
         ):
             continue
+        adapter = get_planner_node_adapter(kind)
+        assert adapter is not None
         contracts = dict(item.get("contracts") or {})
 
         def port_summary(port: Any) -> dict[str, Any]:
@@ -273,6 +357,8 @@ def _task_planning_contract(
                 "outputs": [
                     port_summary(port)
                     for port in list(contracts.get("outputs") or [])
+                    if str((port or {}).get("name") or "")
+                    not in adapter.control_only_output_ports
                 ],
             }
         )
@@ -297,6 +383,8 @@ def _task_planning_contract(
             "Pack named variables into one object.",
             "Group rows and calculate deterministic measures.",
             "Compare two datasets by stable keys.",
+            "Read authorized Agent Table rows with data_table_query.",
+            "Retrieve authorized knowledge evidence with knowledge_retrieval.",
         ],
         "expert_task_examples": [
             "Extract audit controls from unstructured evidence.",
@@ -306,11 +394,296 @@ def _task_planning_contract(
             "Plan tasks describe model-driven judgment, responsibility, or synthesis that a workflow_agent must perform.",
             "Deterministic operations represented by auxiliary_node_kinds must not become plan tasks; they are compiled later as task-free helper nodes.",
             "Do not create one expert task per requested JSON conversion, packing, aggregation, or dataset comparison step.",
+            "Do not create an expert task merely to perform an authorized Agent Table query or knowledge retrieval.",
             "Apply expert_task_test to every proposed task and omit the task unless the required answer is yes.",
             "Use auxiliary_node_contracts purpose and ports to recognize deterministic steps before emitting tasks.",
             "Keep distinct expert responsibilities separate, but do not split a single responsibility merely to name its deterministic data transforms.",
         ],
     }
+
+
+_REPAIR_REQUIRED_OUTPUT_PORTS: dict[str, tuple[str, ...]] = {
+    "knowledge_retrieval": ("result",),
+    "data_table_query": ("result",),
+}
+
+
+def _repair_output_variable(
+    node_ref: str,
+    port: str,
+    *,
+    used_variables: set[str],
+) -> str:
+    base = _safe_identifier(f"{node_ref}_{port}", "node_output")
+    if base not in used_variables and base not in {
+        "user_input",
+        "conversation_history",
+    }:
+        used_variables.add(base)
+        return base
+    suffix = canonical_checksum({"node_ref": node_ref, "port": port})[:8]
+    candidate = f"{base[:111]}_{suffix}"
+    used_variables.add(candidate)
+    return candidate
+
+
+def _normalize_repair_patch_required_outputs(
+    blueprint: GraphIntentV3,
+    patch: GraphPatchEnvelopeV1,
+) -> tuple[GraphPatchEnvelopeV1, list[str]]:
+    """Restore deterministic primary outputs before applying a model repair."""
+
+    operations = list(patch.operations)
+    removed_refs = {
+        operation.ref
+        for operation in operations
+        if isinstance(operation, RemoveNodeOperation)
+    }
+    explicit_variables = {
+        (operation.node_ref, operation.port): operation.variable
+        for operation in operations
+        if isinstance(operation, SetOutputVariableOperation)
+    }
+    used_variables = {
+        output.variable
+        for node in blueprint.nodes
+        for output in node.outputs
+    }
+    for operation in operations:
+        if isinstance(operation, AddNodeOperation):
+            used_variables.update(operation.output_variables.values())
+    used_variables.update(explicit_variables.values())
+
+    downstream_variables: dict[tuple[str, str], set[str]] = defaultdict(set)
+    for node in blueprint.nodes:
+        for binding in node.inputs:
+            downstream_variables[(binding.source_ref, binding.source_port)].add(
+                binding.variable
+            )
+
+    prepended: list[SetOutputVariableOperation] = []
+    absorbed_explicit: set[tuple[str, str]] = set()
+    normalized_refs: list[str] = []
+    for node in blueprint.nodes:
+        required_ports = _REPAIR_REQUIRED_OUTPUT_PORTS.get(node.kind, ())
+        if not required_ports or node.ref in removed_refs:
+            continue
+        existing_ports = {output.port for output in node.outputs}
+        for port in required_ports:
+            if port in existing_ports:
+                continue
+            key = (node.ref, port)
+            candidates = downstream_variables.get(key, set())
+            if len(candidates) > 1:
+                continue
+            variable = explicit_variables.get(key)
+            if variable is None and len(candidates) == 1:
+                variable = next(iter(candidates))
+                used_variables.add(variable)
+            if variable is None:
+                variable = _repair_output_variable(
+                    node.ref,
+                    port,
+                    used_variables=used_variables,
+                )
+            prepended.append(
+                SetOutputVariableOperation(
+                    node_ref=node.ref,
+                    port=port,
+                    variable=variable,
+                )
+            )
+            if key in explicit_variables:
+                absorbed_explicit.add(key)
+            normalized_refs.append(f"{node.ref}.{port}")
+
+    normalized_operations = []
+    for operation in operations:
+        if isinstance(operation, AddNodeOperation):
+            required_ports = _REPAIR_REQUIRED_OUTPUT_PORTS.get(operation.kind, ())
+            if required_ports:
+                output_variables = dict(operation.output_variables)
+                for port in required_ports:
+                    if port in output_variables:
+                        continue
+                    key = (operation.ref, port)
+                    variable = explicit_variables.get(key)
+                    if variable is None:
+                        variable = _repair_output_variable(
+                            operation.ref,
+                            port,
+                            used_variables=used_variables,
+                        )
+                    output_variables[port] = variable
+                    if key in explicit_variables:
+                        absorbed_explicit.add(key)
+                    normalized_refs.append(f"{operation.ref}.{port}")
+                operation = operation.model_copy(
+                    update={"output_variables": output_variables}
+                )
+        if (
+            isinstance(operation, SetOutputVariableOperation)
+            and (operation.node_ref, operation.port) in absorbed_explicit
+        ):
+            continue
+        normalized_operations.append(operation)
+
+    if not normalized_refs:
+        return patch, []
+    normalized = GraphPatchEnvelopeV1.model_validate(
+        {
+            **patch.model_dump(mode="json", exclude={"operations"}),
+            "operations": [
+                operation.model_dump(mode="json")
+                for operation in [*prepended, *normalized_operations]
+            ],
+        }
+    )
+    return normalized, sorted(set(normalized_refs))
+
+
+def _normalize_repair_control_only_outputs(
+    blueprint: GraphIntentV3,
+    patch: GraphPatchEnvelopeV1,
+) -> tuple[GraphIntentV3, GraphPatchEnvelopeV1, list[str]]:
+    """Keep semantic error outcomes out of GraphIntent data bindings."""
+
+    normalized_blueprint = blueprint.model_copy(deep=True)
+    normalized_refs: list[str] = []
+    for node in normalized_blueprint.nodes:
+        adapter = get_planner_node_adapter(node.kind)
+        if adapter is None or not adapter.control_only_output_ports:
+            continue
+        forbidden = set(adapter.control_only_output_ports)
+        declared = [output for output in node.outputs if output.port in forbidden]
+        if not declared:
+            continue
+        consumed = {
+            binding.source_port
+            for target in normalized_blueprint.nodes
+            for binding in target.inputs
+            if binding.source_ref == node.ref and binding.source_port in forbidden
+        }
+        if consumed:
+            continue
+        node.outputs = [
+            output for output in node.outputs if output.port not in forbidden
+        ]
+        normalized_refs.extend(f"{node.ref}.{output.port}" for output in declared)
+
+    kinds_by_ref = {node.ref: node.kind for node in normalized_blueprint.nodes}
+    for operation in patch.operations:
+        if isinstance(operation, AddNodeOperation):
+            kinds_by_ref[operation.ref] = operation.kind
+    data_reads = {
+        (operation.source_ref, operation.source_port)
+        for operation in patch.operations
+        if getattr(operation, "op", "") == "connect_data"
+    }
+    normalized_operations = []
+    for operation in patch.operations:
+        if isinstance(operation, AddNodeOperation):
+            adapter = get_planner_node_adapter(operation.kind)
+            forbidden = set(
+                adapter.control_only_output_ports if adapter is not None else ()
+            )
+            removed = sorted(set(operation.output_variables) & forbidden)
+            if removed and not any(
+                (operation.ref, port) in data_reads for port in removed
+            ):
+                operation = operation.model_copy(
+                    update={
+                        "output_variables": {
+                            port: variable
+                            for port, variable in operation.output_variables.items()
+                            if port not in forbidden
+                        }
+                    }
+                )
+                normalized_refs.extend(
+                    f"{operation.ref}.{port}" for port in removed
+                )
+        elif isinstance(operation, SetOutputVariableOperation):
+            adapter = get_planner_node_adapter(kinds_by_ref.get(operation.node_ref, ""))
+            if (
+                adapter is not None
+                and operation.port in adapter.control_only_output_ports
+                and (operation.node_ref, operation.port) not in data_reads
+            ):
+                normalized_refs.append(f"{operation.node_ref}.{operation.port}")
+                continue
+        normalized_operations.append(operation)
+
+    if normalized_operations != list(patch.operations):
+        patch = GraphPatchEnvelopeV1.model_validate(
+            {
+                **patch.model_dump(mode="json", exclude={"operations"}),
+                "operations": [
+                    operation.model_dump(mode="json")
+                    for operation in normalized_operations
+                ],
+            }
+        )
+    return normalized_blueprint, patch, sorted(set(normalized_refs))
+
+
+def _normalize_repair_duplicate_data_edges(
+    blueprint: GraphIntentV3,
+    patch: GraphPatchEnvelopeV1,
+) -> tuple[GraphPatchEnvelopeV1, list[str]]:
+    """Drop exact connect-data no-ops only for the bounded model repair."""
+
+    known_edges = {
+        (
+            binding.source_ref,
+            binding.source_port,
+            node.ref,
+            binding.port,
+        )
+        for node in blueprint.nodes
+        for binding in node.inputs
+    }
+    normalized_operations = []
+    removed: list[str] = []
+    for operation in patch.operations:
+        if isinstance(operation, DisconnectDataOperation):
+            known_edges.discard(
+                (
+                    operation.source_ref,
+                    operation.source_port,
+                    operation.target_ref,
+                    operation.target_port,
+                )
+            )
+            normalized_operations.append(operation)
+            continue
+        if isinstance(operation, ConnectDataOperation):
+            key = (
+                operation.source_ref,
+                operation.source_port,
+                operation.target_ref,
+                operation.target_port,
+            )
+            if key in known_edges:
+                removed.append(
+                    f"{operation.source_ref}.{operation.source_port}->"
+                    f"{operation.target_ref}.{operation.target_port}"
+                )
+                continue
+            known_edges.add(key)
+        normalized_operations.append(operation)
+    if not removed:
+        return patch, []
+    normalized = GraphPatchEnvelopeV1.model_validate(
+        {
+            **patch.model_dump(mode="json", exclude={"operations"}),
+            "operations": [
+                operation.model_dump(mode="json")
+                for operation in normalized_operations
+            ],
+        }
+    )
+    return normalized, sorted(set(removed))
 
 
 def _graph_patch_repair_contract(
@@ -331,6 +704,9 @@ def _graph_patch_repair_contract(
                     }
                 ),
                 "output_ports": sorted(output.port for output in node.outputs),
+                "required_output_ports": list(
+                    _REPAIR_REQUIRED_OUTPUT_PORTS.get(node.kind, ())
+                ),
             }
             for node in blueprint.nodes
         ),
@@ -339,6 +715,7 @@ def _graph_patch_repair_contract(
     workflow_agent_count = sum(
         node.kind == "workflow_agent" for node in blueprint.nodes
     )
+    nodes_by_ref = {node.ref: node for node in blueprint.nodes}
     agent_overflow = workflow_agent_count > request.max_agents
     issue_playbook: list[str] = []
     if agent_overflow or any("exceeds max_agents" in issue for issue in issues):
@@ -348,10 +725,120 @@ def _graph_patch_repair_contract(
             "control and data edges, set a retained workflow_agent as final output, "
             "then remove surplus agents; do not add workflow_agent nodes."
         )
+    for issue in issues:
+        missing_read = re.search(
+            r"Required node-owned resource read "
+            r"([a-z][a-z0-9_]*):([^ ]+) is missing",
+            issue,
+        )
+        unconsumed_read = re.search(
+            r"Required node-owned resource read "
+            r"([a-z][a-z0-9_]*):([^ ]+) is not consumed",
+            issue,
+        )
+        if missing_read is not None:
+            node_kind, resource_id = missing_read.groups()
+            issue_playbook.append(
+                f"For required read {node_kind}:{resource_id}, add one task-free "
+                f"{node_kind} node, attach exactly {resource_id} with "
+                "set_node_resource, declare its result output, route its success "
+                "control path through the required typed bridge to a retained "
+                "workflow_agent, and update that Agent task_input to consume the "
+                "bridge output. Do not bind the resource to the Agent or replace "
+                "the read with prompt text."
+            )
+        elif unconsumed_read is not None:
+            node_kind, resource_id = unconsumed_read.groups()
+            issue_playbook.append(
+                f"For unconsumed read {node_kind}:{resource_id}, connect its result "
+                "through a type-compatible deterministic bridge to a retained "
+                "workflow_agent task input and route the success control path "
+                "through the same nodes."
+            )
+    for issue in issues:
+        match = re.search(
+            r"Node ([a-z][a-z0-9_-]{0,63}) requires exactly one "
+            r"([A-Za-z_][A-Za-z0-9_-]{0,63}) output",
+            issue,
+        )
+        if match is None:
+            continue
+        node_ref, port = match.groups()
+        issue_playbook.append(
+            f"For the missing {node_ref}.{port} output, use "
+            "set_output_variable before any connect_data that reads it. "
+            f"Use a stable variable such as {node_ref}_{port}."
+        )
+    for issue in issues:
+        rejected = re.search(
+            r"Node ([a-z][a-z0-9_-]{0,63}) input port "
+            r"([A-Za-z_][A-Za-z0-9_-]{0,63}) rejects its value type",
+            issue,
+        )
+        incompatible = re.search(
+            r"Node ([a-z][a-z0-9_-]{0,63}) input "
+            r"([A-Za-z_][A-Za-z0-9_]{0,127}) has an incompatible type",
+            issue,
+        )
+        if rejected is not None:
+            target_ref, target_port = rejected.groups()
+            target = nodes_by_ref.get(target_ref)
+            bindings = [
+                binding
+                for binding in (target.inputs if target is not None else [])
+                if binding.port == target_port
+            ]
+        elif incompatible is not None:
+            target_ref, variable = incompatible.groups()
+            target = nodes_by_ref.get(target_ref)
+            bindings = [
+                binding
+                for binding in (target.inputs if target is not None else [])
+                if binding.variable == variable
+            ]
+            target_port = bindings[0].port if len(bindings) == 1 else ""
+        else:
+            continue
+        if (
+            target is None
+            or target.kind != "workflow_agent"
+            or target_port != "task"
+            or len(bindings) != 1
+        ):
+            continue
+        binding = bindings[0]
+        edge = (
+            f"{binding.source_ref}.{binding.source_port}->"
+            f"{target_ref}.{binding.port}"
+        )
+        if "json_serialize" in request.scope.allowed_node_kinds:
+            issue_playbook.append(
+                f"For typed data edge {edge}, keep workflow_agent.task as a "
+                "string boundary: disconnect that data edge, add one "
+                "json_serialize node with empty task_ids and format=compact, "
+                "connect the typed source to its value port and its json port "
+                "to the Agent task port, update the Agent task_input/role_prompt "
+                "templates to reference the serializer output variable instead "
+                "of the removed typed variable, and route the success control "
+                "path through the serializer. Preserve any separate error outcome."
+            )
+        else:
+            issue_playbook.append(
+                f"Typed data edge {edge} cannot target workflow_agent.task and "
+                "json_serialize is not authorized; do not fake the source or "
+                "binding Schema. Leave the candidate invalid if no authorized "
+                "string-producing path exists."
+            )
     return {
         "compiler_managed_refs": ["input", "output"],
         "existing_node_refs": [item["ref"] for item in existing_nodes],
         "existing_nodes": existing_nodes,
+        "existing_data_edges": sorted(
+            f"{binding.source_ref}.{binding.source_port}->"
+            f"{node.ref}.{binding.port}"
+            for node in blueprint.nodes
+            for binding in node.inputs
+        ),
         "max_workflow_agent_nodes": request.max_agents,
         "current_workflow_agent_nodes": workflow_agent_count,
         "allow_add_workflow_agent": workflow_agent_count < request.max_agents,
@@ -368,6 +855,10 @@ def _graph_patch_repair_contract(
             "update_node, remove_node, and move_node may target only existing_node_refs.",
             "Pure nodes use empty task_ids; workflow_agent nodes cover all fixed plan tasks.",
             "Do not add a workflow_agent when allow_add_workflow_agent is false.",
+            "Every added node must declare all required_output_ports in "
+            "add_node.output_variables before connect_data reads them.",
+            "Do not emit connect_data for an edge already listed in "
+            "existing_data_edges unless the patch disconnects that exact edge first.",
             "Adapter-derived output Schemas are recomputed by the server after this repair; never inject or patch output Schemas directly.",
         ],
     }
@@ -375,6 +866,7 @@ def _graph_patch_repair_contract(
 
 def _normalize_adapter_outputs_for_repair(
     intent: GraphIntentV3,
+    snapshot: MetaPlannerCapabilitySnapshot,
 ) -> tuple[GraphIntentV3, list[str]]:
     """Refresh Adapter-owned outputs and their derived data-edge schemas."""
 
@@ -389,9 +881,29 @@ def _normalize_adapter_outputs_for_repair(
             output_normalized_nodes.append(node)
             continue
         parsed = adapter.validate_intent_node(node)
+        resource_snapshot = resolve_node_resource_snapshot(
+            node,
+            snapshot,
+            pinned=intent._pinned_node_resources.get(
+                (
+                    node.ref,
+                    node.resource_ref.resource_id if node.resource_ref else "",
+                )
+            ),
+        )
+        resource_payload = (
+            resource_snapshot.model_dump(mode="json")
+            if resource_snapshot is not None
+            else None
+        )
+        adapter.validate_resolved_resource(node, parsed, resource_payload)
         outputs = []
         for output in node.outputs:
-            authoritative = adapter.authoritative_output_schema(output.port, parsed)
+            authoritative = adapter.authoritative_output_schema(
+                output.port,
+                parsed,
+                resource_payload,
+            )
             authoritative_outputs[(node.ref, output.port)] = (
                 output.variable,
                 authoritative,
@@ -449,17 +961,33 @@ def _graph_intent_prompt_contract(
         for item in snapshot.nodes
         if isinstance(item, dict)
     }
-    node_contracts = {
-        str(item.get("kind") or ""): {
+    node_contracts: dict[str, dict[str, Any]] = {}
+    for item in snapshot.nodes:
+        kind = str(item.get("kind") or "")
+        if kind not in executable_kinds:
+            continue
+        adapter = get_planner_node_adapter(kind)
+        assert adapter is not None
+        node_contracts[kind] = {
             "task_binding": dict(item.get("planner") or {}).get("task_binding"),
             "config_schema": dict(
                 (item.get("contract") or {}).get("planner") or {}
             ).get("ir_config_schema", {}),
-            "ports": list((item.get("contract") or {}).get("ports") or []),
+            "ports": [
+                port
+                for port in list((item.get("contract") or {}).get("ports") or [])
+                if not (
+                    str((port or {}).get("direction") or "") == "output"
+                    and str((port or {}).get("name") or "")
+                    in adapter.control_only_output_ports
+                )
+            ],
+            "control_outcomes": (
+                ["success", "error"]
+                if adapter.control_only_output_ports
+                else ["success"]
+            ),
         }
-        for item in snapshot.nodes
-        if str(item.get("kind") or "") in executable_kinds
-    }
 
     return {
         "required_ir_version": GRAPH_IR_VERSION,
@@ -490,6 +1018,7 @@ def _graph_intent_prompt_contract(
             "prompt_profile_ids": list(request.scope.prompt_profile_ids),
             "external_xpert_ids": list(request.scope.external_xpert_ids),
             "knowledge_base_ids": list(request.scope.knowledge_base_ids),
+            "data_table_ids": list(request.scope.data_table_ids),
             "toolset_ids": list(request.scope.toolset_ids),
             "plugin_ids": list(request.scope.plugin_ids),
         },
@@ -497,17 +1026,22 @@ def _graph_intent_prompt_contract(
             "Set ir_version to 3; never return a V2 blueprint.",
             "nodes may contain only executable_node_kinds.",
             "Never put compiler_managed_node_kinds or resource_binding_kinds in nodes.",
-            "Represent resources only in resources and target a workflow_agent ref.",
+            "Represent Agent-bound resources only in resources and target a workflow_agent ref; node-owned read resources use resource_ref only.",
             "Use snake_case workflow_agent config fields exactly as config_field_names; never emit outputVariable, taskInput, rolePrompt, or agent_id in config.",
             "Every workflow_agent declares exactly one string output on port result with a unique variable.",
             "Every workflow_agent has one or more task_ids; nodes whose task_binding is forbidden have an empty task_ids list.",
             "Pure nodes are deterministic auxiliary transforms only; do not use redundant serialize-deserialize round trips or duplicate aggregates.",
             "Pure node config, named ports, and output Schema must exactly match executable_node_contracts.",
+            "workflow_agent task inputs are string boundaries. Route object, array, number, boolean, or null values through an authorized string-producing node; use one compact json_serialize for JSON-safe typed resource results.",
+            "Never relabel a dynamic Adapter output as string to bypass type checking; the server restores its authoritative Schema.",
             "Every root workflow_agent binds user_input from source_ref input and source_port user_input to input port task.",
             "Every dependency input binds the exact ancestor result variable from source_port result to input port task.",
             "Every {{variable}} used in role_prompt or task_input has a matching explicit input binding.",
             "Control edges use source_ref, semantic outcome_ref, and target_ref; never emit native Handles or route IDs.",
             "Ordinary nodes use success; condition uses matched/unmatched; multi_route uses case_1 through case_8 plus default.",
+            "knowledge_retrieval and data_table_query use resource_ref.resource_id; never place native resource IDs, versions, Schemas, Handles, or checksums in config.",
+            "When a read node uses failure_action=error_output, connect both success and error outcomes exactly once; otherwise it only uses success.",
+            "The error outcome is control flow only; never declare it in node outputs or connect it as data.",
             "Every declared router outcome must have exactly one edge, and control edges must form an acyclic graph.",
             "A route scenario must reach exactly one final workflow_agent source or one terminate_error node.",
             "final_output uses sources and selection_policy exactly_one_arrived; never emit variable names in final_output.",
@@ -540,6 +1074,9 @@ def _planner_prompt_snapshot(
             "knowledge_bases": authorized(
                 snapshot.knowledge_bases, request.scope.knowledge_base_ids
             ),
+            "data_tables": authorized(
+                snapshot.data_tables, request.scope.data_table_ids
+            ),
             "toolsets": authorized(snapshot.toolsets, request.scope.toolset_ids),
             "plugins": authorized(snapshot.plugins, request.scope.plugin_ids),
             "prompt_profiles": authorized(
@@ -556,6 +1093,215 @@ def _planner_prompt_snapshot(
     }
 
 
+def _resource_text_matches(text: str, value: object) -> bool:
+    needle = str(value or "").strip().casefold()
+    if len(needle) < 3:
+        return False
+    haystack = text.casefold()
+    if any(character.isalnum() and not character.isascii() for character in needle):
+        return needle in haystack
+    return re.search(rf"(?<![a-z0-9_]){re.escape(needle)}(?![a-z0-9_])", haystack) is not None
+
+
+def _required_node_resource_reads(
+    request: MetaPlannerGenerateRequest,
+    snapshot: MetaPlannerCapabilitySnapshot,
+    plan: MetaPlannerTaskPlan | None = None,
+) -> list[dict[str, str]]:
+    """Derive explicit node-owned reads without treating authorization as intent."""
+
+    goal_text = request.goal
+    plan_text = (
+        json.dumps(plan.model_dump(mode="json"), ensure_ascii=False)
+        if plan is not None
+        else ""
+    )
+    requirements: list[dict[str, str]] = []
+    catalogs = (
+        (
+            "data_table_query",
+            "data_table",
+            request.scope.data_table_ids,
+            snapshot.data_tables,
+        ),
+        (
+            "knowledge_retrieval",
+            "knowledge_base",
+            request.scope.knowledge_base_ids,
+            snapshot.knowledge_bases,
+        ),
+    )
+    for node_kind, resource_kind, scoped_ids, catalog in catalogs:
+        selected = set(scoped_ids)
+        available = [
+            item for item in catalog if str(item.get("id") or "") in selected
+        ]
+        explicit_adapter_choice = node_kind.casefold() in plan_text.casefold()
+        for item in available:
+            resource_id = str(item.get("id") or "")
+            resource_name = str(item.get("name") or "")
+            goal_names_resource = any(
+                _resource_text_matches(goal_text, value)
+                for value in (resource_id, resource_name)
+            )
+            plan_names_resource = any(
+                _resource_text_matches(plan_text, value)
+                for value in (resource_id, resource_name)
+            )
+            adapter_selects_only_resource = (
+                explicit_adapter_choice and len(available) == 1
+            )
+            if not (
+                goal_names_resource
+                or plan_names_resource
+                or adapter_selects_only_resource
+            ):
+                continue
+            reasons: list[str] = []
+            if goal_names_resource:
+                reasons.append("goal_names_resource")
+            if plan_names_resource:
+                reasons.append("plan_names_resource")
+            if adapter_selects_only_resource:
+                reasons.append("plan_selects_adapter")
+            requirements.append(
+                {
+                    "node_kind": node_kind,
+                    "resource_kind": resource_kind,
+                    "resource_id": resource_id,
+                    "reason": "+".join(reasons),
+                }
+            )
+    return sorted(
+        requirements,
+        key=lambda item: (item["node_kind"], item["resource_id"]),
+    )
+
+
+def _read_resource_authoring_guide(
+    request: MetaPlannerGenerateRequest,
+    snapshot: MetaPlannerCapabilitySnapshot,
+    plan: MetaPlannerTaskPlan | None = None,
+) -> dict[str, Any]:
+    allowed_kinds = set(request.scope.allowed_node_kinds)
+    entries: list[dict[str, Any]] = []
+    if "data_table_query" in allowed_kinds and request.scope.data_table_ids:
+        available = {
+            str(item.get("id") or "")
+            for item in snapshot.data_tables
+            if item.get("id")
+        }
+        entries.append(
+            {
+                "resource_kind": "data_table",
+                "node_kind": "data_table_query",
+                "authorized_resource_ids": [
+                    resource_id
+                    for resource_id in request.scope.data_table_ids
+                    if resource_id in available
+                ],
+                "resource_location": "nodes[].resource_ref.resource_id",
+                "task_ids": [],
+                "typed_result_bridge": (
+                    "Connect data_table_query.result to json_serialize.value before "
+                    "feeding the resulting string to workflow_agent.task."
+                ),
+            }
+        )
+    if "knowledge_retrieval" in allowed_kinds and request.scope.knowledge_base_ids:
+        available = {
+            str(item.get("id") or "")
+            for item in snapshot.knowledge_bases
+            if item.get("id")
+        }
+        entries.append(
+            {
+                "resource_kind": "knowledge_base",
+                "node_kind": "knowledge_retrieval",
+                "authorized_resource_ids": [
+                    resource_id
+                    for resource_id in request.scope.knowledge_base_ids
+                    if resource_id in available
+                ],
+                "resource_location": "nodes[].resource_ref.resource_id",
+                "task_ids": [],
+                "typed_result_bridge": (
+                    "Use return_mode=context for a direct string Agent input, or "
+                    "serialize return_mode=result before workflow_agent.task."
+                ),
+            }
+        )
+    return {
+        "node_owned_resources": entries,
+        "required_reads": _required_node_resource_reads(request, snapshot, plan),
+        "rules": [
+            "Agent Table data is read only by data_table_query; never substitute workflow_agent, toolset_resource, or resources[].",
+            "Knowledge evidence is read only by knowledge_retrieval; knowledge_base in resources[] is only an Agent binding.",
+            "Put the exact authorized resource ID only in resource_ref.resource_id; never emit tableId, knowledgeBaseId, versions, schemas, Handles, or checksums.",
+            "When failure_action is error_output, success and error control edges both originate from that read node. workflow_agent has only success.",
+            "Read nodes are task-free helpers and cannot be final_output sources.",
+            "Every required_reads entry must be represented by the exact node kind and resource ID, and its result must reach a workflow_agent through typed data bindings.",
+        ],
+    }
+
+
+def _validate_required_node_resource_reads(
+    request: MetaPlannerGenerateRequest,
+    plan: MetaPlannerTaskPlan,
+    blueprint: GraphIntentV3,
+    snapshot: MetaPlannerCapabilitySnapshot,
+) -> list[str]:
+    requirements = _required_node_resource_reads(request, snapshot, plan)
+    if not requirements:
+        return []
+
+    nodes_by_ref = {node.ref: node for node in blueprint.nodes}
+    data_children: dict[str, set[str]] = defaultdict(set)
+    for target in blueprint.nodes:
+        for binding in target.inputs:
+            data_children[binding.source_ref].add(target.ref)
+
+    def reaches_agent(source_ref: str) -> bool:
+        queue = deque(sorted(data_children.get(source_ref, set())))
+        visited: set[str] = set()
+        while queue:
+            current = queue.popleft()
+            if current in visited:
+                continue
+            visited.add(current)
+            node = nodes_by_ref.get(current)
+            if node is not None and node.kind == "workflow_agent":
+                return True
+            queue.extend(sorted(data_children.get(current, set()) - visited))
+        return False
+
+    issues: list[str] = []
+    for requirement in requirements:
+        node_kind = requirement["node_kind"]
+        resource_id = requirement["resource_id"]
+        matching = [
+            node
+            for node in blueprint.nodes
+            if node.kind == node_kind
+            and node.resource_ref is not None
+            and node.resource_ref.resource_id == resource_id
+        ]
+        label = f"{node_kind}:{resource_id}"
+        if not matching:
+            issues.append(
+                f"Required node-owned resource read {label} is missing; a "
+                "workflow_agent cannot claim this read in its prompt or perform it "
+                "without the dedicated read node."
+            )
+            continue
+        if not any(reaches_agent(node.ref) for node in matching):
+            issues.append(
+                f"Required node-owned resource read {label} is not consumed by a "
+                "workflow_agent through typed data bindings."
+            )
+    return issues
+
+
 def _canonical_graph_intent_example(
     request: MetaPlannerGenerateRequest,
     plan: MetaPlannerTaskPlan,
@@ -565,16 +1311,16 @@ def _canonical_graph_intent_example(
     task_ids = [task.task_id for task in plan.tasks]
     return {
         "ir_version": GRAPH_IR_VERSION,
-        "name": "Replace with the candidate Xpert name",
-        "description": "Replace with a concise candidate description",
+        "name": "候选智能体名称",
+        "description": "候选智能体的简洁说明",
         "tags": [],
         "starters": [],
         "nodes": [
             {
                 "ref": "xpert_agent",
                 "kind": "workflow_agent",
-                "title": "Replace with the workflow agent title",
-                "description": "Replace with the workflow agent responsibility",
+                "title": "工作流智能体",
+                "description": "说明该智能体承担的职责",
                 "task_ids": task_ids,
                 "inputs": [
                     {
@@ -593,7 +1339,7 @@ def _canonical_graph_intent_example(
                     }
                 ],
                 "config": {
-                    "role_prompt": "Replace with instructions covering task_ids.",
+                    "role_prompt": "使用中文说明如何完成 task_ids 对应职责。",
                     "task_input": "{{user_input}}",
                     "model_id": request.default_agent_model_id,
                     "source_agent_id": None,
@@ -936,6 +1682,7 @@ def _typed_blueprint(
                         )
                         for item in node.outputs
                     ],
+                    resource_ref=node.resource_ref,
                     config=node.config,
                 )
                 for node in blueprint.nodes
@@ -1043,6 +1790,27 @@ def validate_blueprint_authorization(
         if isinstance(blueprint, GraphIntentV3)
         else {}
     )
+    if isinstance(blueprint, GraphIntentV3):
+        issues.extend(
+            _validate_required_node_resource_reads(
+                request,
+                plan,
+                blueprint,
+                snapshot,
+            )
+        )
+    node_resource_scope = {
+        "knowledge_base": set(request.scope.knowledge_base_ids),
+        "data_table": set(request.scope.data_table_ids),
+    }
+    node_resource_available = {
+        "knowledge_base": {
+            str(item.get("id") or "") for item in snapshot.knowledge_bases
+        },
+        "data_table": {
+            str(item.get("id") or "") for item in snapshot.data_tables
+        },
+    }
     for node in typed.nodes:
         if node.kind not in request.scope.allowed_node_kinds:
             issues.append(f"Node kind {node.kind} is not authorized.")
@@ -1064,6 +1832,47 @@ def validate_blueprint_authorization(
             )
             continue
         contract = workflow_node_contract_registry.require(node.kind)
+        expected_resource_kind = adapter.resource_kind
+        node_resource = node.resource_ref
+        if expected_resource_kind is None and node_resource is not None:
+            issues.append(f"Node {node.ref} cannot carry a node resource reference.")
+        elif expected_resource_kind is not None:
+            if node_resource is None:
+                issues.append(
+                    f"Node {node.ref} requires a {expected_resource_kind} resource."
+                )
+            else:
+                resource_id = node_resource.resource_id
+                if resource_id not in node_resource_scope[expected_resource_kind]:
+                    issues.append(
+                        f"Node resource {resource_id} is not authorized for "
+                        f"{expected_resource_kind}."
+                    )
+                if resource_id not in node_resource_available[expected_resource_kind]:
+                    issues.append(f"Node resource {resource_id} is no longer available.")
+                if isinstance(blueprint, GraphIntentV3):
+                    try:
+                        resource_snapshot = resolve_node_resource_snapshot(
+                            graph_nodes_by_ref[node.ref],
+                            snapshot,
+                            pinned=blueprint._pinned_node_resources.get(
+                                (node.ref, resource_id)
+                            ),
+                        )
+                        adapter.validate_resolved_resource(
+                            graph_nodes_by_ref[node.ref],
+                            parsed,
+                            (
+                                resource_snapshot.model_dump(mode="json")
+                                if resource_snapshot is not None
+                                else None
+                            ),
+                        )
+                    except ValueError as exc:
+                        issues.append(
+                            f"Node {node.ref} resource is invalid: "
+                            f"{_safe_exception_message(exc)}"
+                        )
         task_binding = contract.planner.task_binding
         if task_binding == "required" and not node.task_ids:
             issues.append(f"Node {node.ref} must cover at least one plan task.")
@@ -1742,7 +2551,7 @@ def compile_xpert_candidate(
             position=WorkflowPosition(x=40, y=160),
             data={
                 "kind": "input",
-                "title": "Conversation input",
+                "title": "对话输入",
                 "variableName": "user_input",
                 "historyVariable": "conversation_history",
             },
@@ -1818,6 +2627,13 @@ def compile_xpert_candidate(
                     acceptance_criteria=acceptance,
                     has_runtime_resources=bool(resources_by_ref[ref]),
                     requires_runtime_mode=requires_runtime_mode,
+                    resource_snapshot=(
+                        resolved_nodes_by_ref[ref].resource_snapshot.model_dump(
+                            mode="json"
+                        )
+                        if resolved_nodes_by_ref[ref].resource_snapshot is not None
+                        else None
+                    ),
                 ),
             )
         )
@@ -2030,7 +2846,7 @@ def compile_xpert_candidate(
             position=WorkflowPosition(x=output_x, y=output_y),
             data={
                 "kind": "output",
-                "title": "Final answer",
+                "title": "最终回答",
                 "contractVersion": 2,
                 "selectionPolicy": "exactly_one_arrived",
                 "outputSources": [
@@ -2248,6 +3064,10 @@ class MetaPlannerV2Service:
                     + ". Use create mode or wait for a dedicated compiler adapter."
                 )
 
+        repair_used = False
+        repair_protocol = "none"
+        warnings: list[str] = []
+
         plan_prompt = self._plan_prompt(request, snapshot)
         raw_plan = await self.completion(
             request.planner_model_id,
@@ -2256,17 +3076,51 @@ class MetaPlannerV2Service:
             request.temperature,
             4_096,
         )
+        plan: MetaPlannerTaskPlan | None = None
         try:
             plan = MetaPlannerTaskPlan.model_validate(_json_payload(raw_plan))
+            plan_issues = validate_task_plan(
+                plan,
+                max_agents=request.max_agents,
+                authorized_agent_ids=set(request.scope.agent_ids),
+            )
         except Exception as exc:
-            raise ValueError(_safe_exception_message(exc)) from exc
-        plan_issues = validate_task_plan(
-            plan,
-            max_agents=request.max_agents,
-            authorized_agent_ids=set(request.scope.agent_ids),
-        )
+            plan_issues = [_safe_exception_message(exc)]
         if plan_issues:
-            raise ValueError("; ".join(plan_issues))
+            repair_used = True
+            repair_protocol = "task_plan_v1"
+            repaired_raw_plan = await self.completion(
+                request.planner_model_id,
+                TASK_PLAN_REPAIR_SYSTEM_PROMPT,
+                self._plan_repair_prompt(
+                    request,
+                    snapshot,
+                    raw_plan,
+                    plan_issues,
+                ),
+                0,
+                4_096,
+            )
+            try:
+                plan = MetaPlannerTaskPlan.model_validate(
+                    _json_payload(repaired_raw_plan)
+                )
+                repaired_plan_issues = validate_task_plan(
+                    plan,
+                    max_agents=request.max_agents,
+                    authorized_agent_ids=set(request.scope.agent_ids),
+                )
+            except Exception as exc:
+                repaired_plan_issues = [_safe_exception_message(exc)]
+            if repaired_plan_issues:
+                raise ValueError(
+                    "Task-plan repair failed: " + "; ".join(repaired_plan_issues)
+                )
+            warnings.append(
+                "The single repair pass repaired the task plan before capability "
+                "compilation."
+            )
+        assert plan is not None
 
         raw_blueprint = await self.completion(
             request.planner_model_id,
@@ -2275,8 +3129,6 @@ class MetaPlannerV2Service:
             request.temperature,
             8_192,
         )
-        repair_used = False
-        warnings: list[str] = []
         (
             blueprint,
             candidate,
@@ -2291,8 +3143,7 @@ class MetaPlannerV2Service:
             snapshot=snapshot,
             target=target,
         )
-        repair_protocol = "none"
-        if issues:
+        if issues and not repair_used:
             repair_used = True
             if blueprint is not None:
                 repair_protocol = "graph_patch_v1"
@@ -2309,37 +3160,70 @@ class MetaPlannerV2Service:
                         snapshot,
                         blueprint,
                         issues,
-                        expected_graph_checksum=base_graph_checksum,
-                        expected_candidate_checksum=base_candidate_checksum,
                     ),
                     0,
                     8_192,
                 )
                 try:
-                    repair_patch = GraphPatchEnvelopeV1.model_validate(
+                    repair_payload = PlannerGraphPatchRepairPayloadV1.model_validate(
                         _json_payload(repaired_raw)
                     )
-                    if repair_patch.proposal_revision != 1:
-                        raise ValueError(
-                            "Planner repair patch must use synthetic revision 1."
+                    repair_patch = GraphPatchEnvelopeV1(
+                        proposal_revision=1,
+                        expected_graph_checksum=base_graph_checksum,
+                        expected_candidate_checksum=base_candidate_checksum,
+                        operations=repair_payload.operations,
+                    )
+                    repair_blueprint, repair_patch, removed_control_outputs = (
+                        _normalize_repair_control_only_outputs(
+                            blueprint,
+                            repair_patch,
                         )
-                    if (
-                        repair_patch.expected_graph_checksum
-                        != base_graph_checksum
-                        or repair_patch.expected_candidate_checksum
-                        != base_candidate_checksum
-                    ):
-                        raise ValueError(
-                            "Planner repair patch changed its base checksums."
+                    )
+                    if removed_control_outputs:
+                        warnings.append(
+                            "The single Graph Patch repair removed control-only "
+                            "outcomes from data outputs: "
+                            + ", ".join(removed_control_outputs)
+                            + "."
+                        )
+                    repair_patch, restored_outputs = (
+                        _normalize_repair_patch_required_outputs(
+                            repair_blueprint,
+                            repair_patch,
+                        )
+                    )
+                    if restored_outputs:
+                        warnings.append(
+                            "The single Graph Patch repair restored required "
+                            "output bindings for: "
+                            + ", ".join(restored_outputs)
+                            + "."
+                        )
+                    repair_patch, duplicate_data_edges = (
+                        _normalize_repair_duplicate_data_edges(
+                            repair_blueprint,
+                            repair_patch,
+                        )
+                    )
+                    if duplicate_data_edges:
+                        warnings.append(
+                            "The single Graph Patch repair removed exact "
+                            "duplicate data-edge no-ops: "
+                            + ", ".join(duplicate_data_edges)
+                            + "."
                         )
                     patched = apply_graph_patch(
-                        blueprint,
+                        repair_blueprint,
                         repair_patch,
                         plan_task_ids={task.task_id for task in plan.tasks},
                         allowed_node_kinds=set(request.scope.allowed_node_kinds),
                     )
                     normalized_intent, normalized_refs = (
-                        _normalize_adapter_outputs_for_repair(patched.intent)
+                        _normalize_adapter_outputs_for_repair(
+                            patched.intent,
+                            snapshot,
+                        )
                     )
                     if normalized_refs:
                         warnings.append(
@@ -2402,44 +3286,49 @@ class MetaPlannerV2Service:
                     snapshot=snapshot,
                     target=target,
                 )
-            if issues:
+        if issues:
+            if repair_protocol == "task_plan_v1":
                 warnings.append(
-                    "The single repair pass did not produce an approvable candidate."
+                    "The single repair pass was consumed by task-plan repair; "
+                    "the invalid capability compilation was not retried."
                 )
-                if not candidate:
-                    candidate, graph_ir, compatibility = self._fallback_candidate(
-                        request=request,
-                        plan=plan,
-                        snapshot=snapshot,
-                        target=target,
-                    )
-                    validation = _validation_report(
-                        candidate,
-                        target=target,
-                        preflight=self.preflight,
-                    )
-                repair_stage = {
-                    "id": "planner_repair",
-                    "valid": False,
-                    "issues": [
-                        {
-                            "code": "meta_planner_repair_failed",
-                            "message": issue[:500],
-                            "severity": "error",
-                        }
-                        for issue in issues[:20]
-                    ],
-                }
-                validation = dict(validation)
-                validation["valid"] = False
-                validation["stages"] = [
-                    repair_stage,
-                    *list(validation.get("stages") or []),
-                ]
-                validation["issues"] = [
-                    *repair_stage["issues"],
-                    *list(validation.get("issues") or []),
-                ]
+            warnings.append(
+                "The single repair pass did not produce an approvable candidate."
+            )
+            if not candidate:
+                candidate, graph_ir, compatibility = self._fallback_candidate(
+                    request=request,
+                    plan=plan,
+                    snapshot=snapshot,
+                    target=target,
+                )
+                validation = _validation_report(
+                    candidate,
+                    target=target,
+                    preflight=self.preflight,
+                )
+            repair_stage = {
+                "id": "planner_repair",
+                "valid": False,
+                "issues": [
+                    {
+                        "code": "meta_planner_repair_failed",
+                        "message": issue[:500],
+                        "severity": "error",
+                    }
+                    for issue in issues[:20]
+                ],
+            }
+            validation = dict(validation)
+            validation["valid"] = False
+            validation["stages"] = [
+                repair_stage,
+                *list(validation.get("stages") or []),
+            ]
+            validation["issues"] = [
+                *repair_stage["issues"],
+                *list(validation.get("issues") or []),
+            ]
 
         report = {
             "planner_version": "evoagentx-meta-planner-graph-ir-v3",
@@ -2482,7 +3371,7 @@ class MetaPlannerV2Service:
             payload = {**candidate, "meta_planner_report": report}
             proposal = self.authoring_service.proposal_store.create(
                 kind="xpert_create",
-                title=f"Meta Planner: {candidate['name']}",
+                title=f"元智能体规划：{candidate['name']}",
                 payload=payload,
                 source_type="meta_planner",
                 source_id=f"meta_planner:{uuid.uuid4().hex}",
@@ -2497,7 +3386,7 @@ class MetaPlannerV2Service:
             }
             proposal = self.authoring_service.proposal_store.create(
                 kind="xpert_update",
-                title=f"Meta Planner update: {candidate['name']}",
+                title=f"元智能体更新：{candidate['name']}",
                 payload=payload,
                 source_type="meta_planner",
                 source_id=f"meta_planner:{uuid.uuid4().hex}",
@@ -2601,13 +3490,13 @@ class MetaPlannerV2Service:
         target: XpertDefinition | None,
     ) -> tuple[dict[str, Any], ResolvedGraphIRV3, MetaPlannerIRCompatibility]:
         blueprint = MetaPlannerBlueprint(
-            name=(target.name if target is not None else "Unresolved Xpert candidate"),
-            description="Meta Planner repair failed. Review validation issues.",
+            name=(target.name if target is not None else "待修复的智能体候选"),
+            description="元智能体修复失败，请检查校验问题。",
             agents=[
                 MetaPlannerAgentBlueprint(
                     task_id=task.task_id,
                     name=task.title,
-                    role_prompt="Candidate requires human repair before approval.",
+                    role_prompt="该候选需要人工修复后才能批准。",
                     task_input="{{user_input}}",
                     output_variable=_safe_identifier(
                         f"{task.task_id}_output", "agent_output"
@@ -2743,6 +3632,7 @@ class MetaPlannerV2Service:
             if isinstance(required_schema.get("$defs"), dict)
             else {}
         )
+
         properties = task_schema.get("properties")
         if isinstance(properties, dict):
             for field_name in ("task_type", "interaction_prompt", "output_variable"):
@@ -2758,6 +3648,7 @@ class MetaPlannerV2Service:
         return json.dumps(
             {
                 "goal": request.goal,
+                "display_language_contract": DISPLAY_LANGUAGE_CONTRACT,
                 "mode": request.mode,
                 "max_tasks": 8,
                 "max_workflow_agents": request.max_agents,
@@ -2771,6 +3662,37 @@ class MetaPlannerV2Service:
                     "When authorized_agent_ids is empty, omit agent_id or set it to null for every task.",
                     "Never invent descriptive role names as agent_id values.",
                     "Use no more than max_workflow_agents distinct non-null agent_id values.",
+                ],
+            },
+            ensure_ascii=False,
+        )
+
+    @staticmethod
+    def _plan_repair_prompt(
+        request: MetaPlannerGenerateRequest,
+        snapshot: MetaPlannerCapabilitySnapshot,
+        raw_plan: str,
+        issues: list[str],
+    ) -> str:
+        return json.dumps(
+            {
+                "goal": request.goal,
+                "display_language_contract": DISPLAY_LANGUAGE_CONTRACT,
+                "invalid_task_plan": raw_plan[:30_000],
+                "validation_issues": issues[:20],
+                "max_tasks": 8,
+                "max_workflow_agents": request.max_agents,
+                "authorized_agent_ids": list(request.scope.agent_ids),
+                "task_planning_contract": _task_planning_contract(
+                    request, snapshot
+                ),
+                "required_schema": MetaPlannerTaskPlan.model_json_schema(),
+                "rules": [
+                    "Return the task plan object directly; do not wrap it in plan or result.",
+                    "Use exactly the top-level fields summary, assumptions, and tasks.",
+                    "Do not add deterministic helper operations as tasks.",
+                    "Do not invent agents, resources, node kinds, or private content.",
+                    "This is the only repair pass.",
                 ],
             },
             ensure_ascii=False,
@@ -2796,6 +3718,7 @@ class MetaPlannerV2Service:
         return json.dumps(
             {
                 "goal": request.goal,
+                "display_language_contract": DISPLAY_LANGUAGE_CONTRACT,
                 "task_plan": plan.model_dump(mode="json"),
                 "default_agent_model_id": request.default_agent_model_id,
                 "authorized_scope": request.scope.model_dump(mode="json"),
@@ -2803,6 +3726,9 @@ class MetaPlannerV2Service:
                 "graph_intent_contract": prompt_snapshot[
                     "graph_intent_contract"
                 ],
+                "read_resource_authoring_guide": _read_resource_authoring_guide(
+                    request, snapshot, plan
+                ),
                 "target_xpert": target_summary,
                 "required_schema": GraphIntentV3.model_json_schema(),
                 "canonical_minimal_example": _canonical_graph_intent_example(
@@ -2820,7 +3746,7 @@ class MetaPlannerV2Service:
                     "Resource and middleware bindings target workflow_agent node refs.",
                     "Reference dependency outputs in task_input using {{variable}}.",
                     "Do not include credentials, hidden reasoning, or raw private data.",
-                    "When uncertain, preserve the exact shape of canonical_minimal_example and adapt its content; never change it to V2.",
+                    "canonical_minimal_example applies only when required_reads is empty; otherwise add every required read node and its typed bridge before adapting the Agent. Never change the result to V2.",
                 ],
             },
             ensure_ascii=False,
@@ -2839,6 +3765,7 @@ class MetaPlannerV2Service:
         return json.dumps(
             {
                 "goal": request.goal,
+                "display_language_contract": DISPLAY_LANGUAGE_CONTRACT,
                 "task_plan": plan.model_dump(mode="json"),
                 "default_agent_model_id": request.default_agent_model_id,
                 "authorized_scope": request.scope.model_dump(mode="json"),
@@ -2847,6 +3774,9 @@ class MetaPlannerV2Service:
                 "graph_intent_contract": prompt_snapshot[
                     "graph_intent_contract"
                 ],
+                "read_resource_authoring_guide": _read_resource_authoring_guide(
+                    request, snapshot, plan
+                ),
                 "available_resources": {
                     **resources,
                     "middleware": prompt_snapshot["middleware"],
@@ -2869,39 +3799,43 @@ class MetaPlannerV2Service:
         snapshot: MetaPlannerCapabilitySnapshot,
         blueprint: GraphIntentV3,
         issues: list[str],
-        *,
-        expected_graph_checksum: str,
-        expected_candidate_checksum: str,
     ) -> str:
         prompt_snapshot = _planner_prompt_snapshot(request, snapshot)
         return json.dumps(
             {
                 "goal": request.goal,
+                "display_language_contract": DISPLAY_LANGUAGE_CONTRACT,
                 "task_plan": plan.model_dump(mode="json"),
                 "authorized_scope": request.scope.model_dump(mode="json"),
                 "capability_snapshot_hash": snapshot.snapshot_hash,
                 "capability_snapshot": prompt_snapshot,
+                "read_resource_authoring_guide": _read_resource_authoring_guide(
+                    request, snapshot, plan
+                ),
                 "base_graph_intent": blueprint.model_dump(mode="json"),
                 "validation_issues": issues[:30],
-                "required_schema": GraphPatchEnvelopeV1.model_json_schema(),
+                "required_schema": (
+                    PlannerGraphPatchRepairPayloadV1.model_json_schema()
+                ),
                 "typed_ir_constraints": _typed_ir_prompt_constraints(
                     request, plan
                 ),
                 "repair_contract": _graph_patch_repair_contract(
                     request, blueprint, issues
                 ),
-                "required_envelope": {
-                    "protocol_version": 1,
-                    "proposal_revision": 1,
-                    "expected_graph_checksum": expected_graph_checksum,
-                    "expected_candidate_checksum": expected_candidate_checksum,
-                },
+                "server_owned_fields": [
+                    "protocol_version",
+                    "proposal_revision",
+                    "expected_graph_checksum",
+                    "expected_candidate_checksum",
+                ],
                 "rules": [
-                    "Return GraphPatchEnvelopeV1, never a complete GraphIntent or Native Workflow.",
-                    "Copy every required_envelope value exactly.",
+                    "Return exactly one object with an operations array; never return a complete GraphIntent or Native Workflow.",
+                    "Do not emit any server_owned_fields; the server constructs and validates the trusted envelope.",
                     "Use Adapter config only; do not emit resource versions, Handles, schemas, policies, or native node IDs.",
                     "Obey repair_contract ref scopes and issue_playbook exactly.",
                     "Do not change the fixed task plan or add unauthorized capabilities.",
+                    "If no safe patch is possible, return an empty operations array instead of an error or explanation field.",
                     "This is the only repair pass.",
                 ],
             },

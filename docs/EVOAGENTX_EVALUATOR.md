@@ -98,6 +98,7 @@ reasoning 正文。可恢复的空内容、契约缺失和截断解析错误复�
 - 1–5 个已发布 XpertVersion 或固定 revision 的 Authoring Proposal 候选。
 - 完整 workflow、资源固定版本、配置 checksum 和 Proposal revision。
 - 创建时的 Knowledge 活动索引版本。
+- Agent Table 查询固定 SchemaVersion、查询契约和同一只读事务内捕获的逐用例结果夹具。
 - Data X 已发布资源及外部 Xpert 固定版本。
 - seed、模型策略、Judge 模型和预算。
 
@@ -118,6 +119,13 @@ fail-closed 预检：
 - Toolset 只允许已发布版本中 `read_only=true` 且 `sensitive=false` 的工具。
 - External Xpert 必须固定版本，并递归通过同一预检。
 - Knowledge 查询固定到运行创建时的活动索引版本。
+- Agent Table Query 仅在谓词可由运行输入、常量或确定性纯节点推导时允许；结果必须
+  在运行创建时固化，重试和重启不得回退读取活表。
+- 夹具捕获与真实运行共用同一套会话裁剪和 Prompt Profile `{{args}}` 渲染；持久化记录
+  具有规范化内容 checksum，恢复时校验失败即关闭。私有夹具会从创建、取消、列表和
+  详情响应中统一剥离。
+- 使用 `error_output` 的资源节点仅在 `success` 路径产生 `result`；错误路径引用该输出
+  会在控制流分析阶段被拒绝。
 - Plugin 只有在展开后的 Toolset、middleware 和 Skill 均为只读安全能力时才允许。
 
 评测模式不会创建会话、写记忆、生成提案或进入人工审批队列。任何
@@ -154,11 +162,18 @@ checkpoint 仅记录 ID、状态、数量、耗时和安全错误摘要。
 - `citation_hit`
 - `rubric_judge`
 - `workflow_path_match`
+- `workflow_resource_match`
 
 `workflow_path_match` 只读取 classic runner 写入内部 checkpoint 的 Planner ref、
 语义 outcome、终点来源和受限错误码。它不新增 Workflow SSE 事件，也不从物理节点 ID
 或 native handle 猜测路径。缺少 Planner ref 的旧手工作业返回 unsupported warning。
 预期错误终点必须同时匹配路径和安全错误码，并且不得与文本答案指标混用。
+
+`workflow_resource_match` 只比较受限资源证据：Planner ref、资源 ID、固定知识版本或
+SchemaVersion、查询契约 checksum、命中数以及可选 record/citation ID。Agent Table
+夹具最多 1,000 个、单查询 200 行、合计 16 MiB，只保存在私有 Evaluation Store；API、
+报告和 checkpoint 均不返回记录正文。未声明 `resource_reads` 的旧 Dataset 可继续运行，
+但只读资源目标会标记 `resource_evidence=missing`，不能据此宣称资源能力已验证。
 
 LLM Judge 使用固定模型、温度 0 和严格 JSON，只保存 0–1 分数、通过状态与最多
 500 字符理由，不保存隐藏推理。
@@ -173,6 +188,7 @@ LLM Judge 使用固定模型、温度 0 和严格 JSON，只保存 0–1 分数�
 - 资源漂移与外部 Provider 不完全可复现 warning。
 - 逐样例截断输入、预期、最终输出和安全错误摘要。
 - 逐样例的语义 outcome、成功来源或预期错误终点证据。
+- 逐样例的固定资源快照、查询契约与受限资源读取匹配结果。
 
 ## 7. API
 

@@ -61,14 +61,15 @@ The first complete-contract group is:
 | Resource bindings | `external_xpert`, `knowledge_base`, `toolset_resource`, `plugin_resource` | binding only |
 | Pure-data adapters | `json_serialize`, `json_deserialize`, `variable_aggregator`, `data_aggregate`, `dataset_compare` | enabled, `task_binding=forbidden` |
 | Control-flow adapters | `condition`, `multi_route`, `data_merge`, `terminate_error` | enabled, `task_binding=forbidden` |
-| Read targets | `knowledge_retrieval`, `data_table_query`, `vision_understanding` | unsupported |
+| Read targets | `knowledge_retrieval`, `data_table_query` | enabled, `task_binding=forbidden`, node-owned resource |
+| Attachment target | `vision_understanding` | unsupported |
 | Write targets | `data_table_insert`, `data_table_update`, `data_table_delete` | unsupported |
 | Metadata and middleware | `annotation`, `runtime_middleware` | metadata or binding contract only |
 
 All other nodes have compatibility or explicitly unsupported contracts and
 remain executable through the existing classic validator and runner when their
-legacy validation permits it. Capability Snapshot V7 exposes the previous twelve
-kinds plus the four control-flow adapters. Graph IR V3 is the write format; Typed
+legacy validation permits it. Capability Snapshot V8 exposes the previous sixteen
+kinds plus the two read-resource adapters. Graph IR V3 is the write format; Typed
 IR V2 is read-only compatibility input.
 
 Unversioned JSON nodes retain their historical inline-error/null behavior.
@@ -76,12 +77,14 @@ Planner-generated JSON nodes use `contractVersion=2`, strict failure semantics,
 a 5 MiB boundary, and a trusted `WorkflowValueSchema` for Deserialize output.
 The other pure adapters keep their existing bounded Runtime contracts. Pure
 nodes cannot cover plan tasks or bind resources or middleware. Control-flow nodes
-also cannot cover plan tasks. Agent Table Query remains disabled in Evaluator. Vision remains
-disabled in Evaluator until evaluation datasets can carry explicit file assets.
+also cannot cover plan tasks. Agent Table Query is Evaluator-conditional: its
+SchemaVersion and query contract are fixed and its results are captured into a private,
+bounded read-transaction fixture before model execution. Vision remains disabled in
+Evaluator until evaluation datasets can carry explicit file assets.
 
-Control-flow contract version 1 gives `condition` the semantic outcomes
+Control-flow contract version 2 retains `condition` outcomes
 `matched/unmatched`, `multi_route` the outcomes `case_1...case_8/default`, and
-ordinary Planner nodes `success`. Native handles are compiler-owned. Output V2
+adds `success/error` for read-resource nodes. Native handles are compiler-owned. Output V2
 uses `exactly_one_arrived` across 1-8 trusted sources. `data_merge` is limited to
 two guaranteed fanout branches; it cannot merge optional values from mutually
 exclusive paths. `terminate_error` has no outgoing control edge. Loop, list,
@@ -97,8 +100,9 @@ domain checks continue to run in their existing services.
 
 The V3 migration preserves the current policy boundary:
 
-- Evaluator rejects Handoff, Human Intervention, every Agent Table node, and
-  Vision Understanding.
+- Evaluator rejects Handoff, Human Intervention, Agent Table writes, and Vision
+  Understanding. Agent Table Query is allowed only when its fixed read fixture can
+  be prepared without Agent-derived predicates or live-table fallback.
 - public App rejects External Xpert, Plugin, Human Intervention, every Agent
   Table node, and Vision Understanding.
 - Structure Evolution can currently add only adapter-backed
@@ -110,7 +114,7 @@ must still pass.
 ## API and frontend
 
 `GET /api/workflow/node-registry` returns registry version
-`xpert-workflow-node-registry-v6`, `contract_version=3`, the registry checksum,
+`xpert-workflow-node-registry-v7`, `contract_version=3`, the registry checksum,
 and a safe contract projection for each palette node.
 
 The frontend fallback contains presentation facts only. It has no contract or
@@ -118,10 +122,12 @@ Planner claims. If the server response is absent, incomplete, or has a checksum
 shape other than V3, contract-dependent operations stay disabled while the
 classic palette may continue to render.
 
-Meta Planner Capability Snapshot version is V7 with `ir_version=3`,
-`supported_ir_versions=[2,3]`, and `control_flow_contract_version=1`. V7 projects the typed Headless Authoring
+Meta Planner Capability Snapshot version is V8 with `ir_version=3`,
+`supported_ir_versions=[2,3]`, and `control_flow_contract_version=2`. V8 projects the typed Headless Authoring
 operation schema, `task_binding`, versioned execution semantics, and per-kind
-authoring checksum for the sixteen enabled kinds.
+authoring checksum for the eighteen enabled kinds. Its Agent Table catalog exposes
+only field names, types, required flags and Schema checksums; records and defaults
+remain private.
 Persisted V2 snapshots without contract metadata remain readable. Contract
 drift is a warning for an existing proposal; missing or invalid resources still
 block approval.

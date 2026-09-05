@@ -30,6 +30,12 @@ from .store import (
     EvaluationStateError,
     XpertEvaluationStore,
 )
+from .resource_fixtures import (
+    AgentTableEvaluationBackend,
+    assert_agent_table_dependencies,
+    inspect_agent_table_node,
+    prepare_agent_table_fixtures,
+)
 
 
 UNSAFE_MIDDLEWARE_IDS = {
@@ -64,6 +70,7 @@ class XpertEvaluationService:
         plugin_store: Any,
         rag_service: Any,
         context_store: Any,
+        agent_table_evaluation_backend: AgentTableEvaluationBackend | None = None,
     ) -> None:
         self.store = store
         self.xpert_store = xpert_store
@@ -73,6 +80,7 @@ class XpertEvaluationService:
         self.plugin_store = plugin_store
         self.rag_service = rag_service
         self.context_store = context_store
+        self.agent_table_evaluation_backend = agent_table_evaluation_backend
 
     def snapshot_target(
         self,
@@ -387,13 +395,23 @@ class XpertEvaluationService:
         selected = [copy.deepcopy(item) for item in cases]
         if not selected:
             raise EvaluationStateError("No evaluation cases were selected.")
+        targets = ([baseline] if baseline else []) + list(candidates)
+        frozen_targets = [copy.deepcopy(item) for item in targets]
+        resource_fixtures = prepare_agent_table_fixtures(
+            targets=frozen_targets,
+            cases=selected,
+            backend=self.agent_table_evaluation_backend,
+        )
+        frozen_baseline = frozen_targets[0] if baseline else None
+        frozen_candidates = frozen_targets[1:] if baseline else frozen_targets
         return self.store.create_run(
             dataset_version=copy.deepcopy(dataset_version),
             cases=selected,
-            baseline=copy.deepcopy(baseline),
-            candidates=copy.deepcopy(candidates),
+            baseline=frozen_baseline,
+            candidates=frozen_candidates,
             config=copy.deepcopy(config),
             warnings=list(dict.fromkeys(warnings or [])),
+            resource_fixtures=resource_fixtures,
         )
 
     def create_run(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -433,11 +451,24 @@ class XpertEvaluationService:
             )
             candidate_snapshots.append(snapshot)
             warnings.extend(current)
+        targets = ([baseline_snapshot] if baseline_snapshot else []) + list(
+            candidate_snapshots
+        )
+        frozen_targets = [copy.deepcopy(item) for item in targets]
+        resource_fixtures = prepare_agent_table_fixtures(
+            targets=frozen_targets,
+            cases=cases,
+            backend=self.agent_table_evaluation_backend,
+        )
+        frozen_baseline = frozen_targets[0] if baseline_snapshot else None
+        frozen_candidates = (
+            frozen_targets[1:] if baseline_snapshot else frozen_targets
+        )
         return self.store.create_run(
             dataset_version=dataset,
             cases=cases,
-            baseline=baseline_snapshot,
-            candidates=candidate_snapshots,
+            baseline=frozen_baseline,
+            candidates=frozen_candidates,
             config={
                 "model_policy": model_policy,
                 "override_model_id": override_model_id,
@@ -446,6 +477,7 @@ class XpertEvaluationService:
                 "budget": copy.deepcopy(payload.get("budget") or {}),
             },
             warnings=list(dict.fromkeys(warnings)),
+            resource_fixtures=resource_fixtures,
         )
 
     def run_detail(self, run_id: str) -> dict[str, Any]:
@@ -562,9 +594,11 @@ class XpertEvaluationService:
         resources: dict[str, Any] = {
             "toolsets": [],
             "knowledge_versions": [],
+            "data_tables": [],
             "external_xperts": [],
             "plugins": [],
         }
+        table_nodes: list[Any] = []
         for node in workflow.nodes:
             data = node.data if isinstance(node.data, dict) else {}
             kind = str(data.get("kind") or node.type or "")
@@ -668,24 +702,41 @@ class XpertEvaluationService:
                             "node_id": node.id,
                         }
                     )
-            if kind == "knowledge_base":
+            if kind in {"knowledge_base", "knowledge_retrieval"}:
                 kb_id = str(data.get("knowledgeBaseId") or "").strip()
                 try:
                     active = self.rag_service.get_active_pipeline_version(kb_id)
+                    if not active and kind == "knowledge_retrieval":
+                        raise ValueError(
+                            f"Knowledge base {kb_id or '<missing>'} has no active pipeline version."
+                        )
                     if not active:
                         warnings.append(
                             f"Knowledge base {kb_id} has no active pipeline version."
                         )
-                    resources["knowledge_versions"].append(
-                        {
-                            "knowledge_base_id": kb_id,
-                            "version_id": (
-                                str(active.get("version_id") or "") if active else None
-                            ),
-                        }
-                    )
-                    data["evaluationPinnedVersionId"] = (
+                    observed_version = str(
+                        data.get("observedActiveVersionId") or ""
+                    ).strip()
+                    fixed_version = (
                         str(active.get("version_id") or "") if active else ""
+                    )
+                    if observed_version and fixed_version != observed_version:
+                        warnings.append(
+                            f"Knowledge base {kb_id} active version changed from "
+                            f"{observed_version} to {fixed_version}."
+                        )
+                    evidence = {
+                        "knowledge_base_id": kb_id,
+                        "version_id": fixed_version or None,
+                    }
+                    if kind == "knowledge_retrieval":
+                        evidence.update(
+                            {"node_id": node.id, "node_kind": kind}
+                        )
+                    if evidence not in resources["knowledge_versions"]:
+                        resources["knowledge_versions"].append(evidence)
+                    data["evaluationPinnedVersionId"] = (
+                        fixed_version
                     )
                     node.data = data
                 except Exception as exc:
@@ -694,6 +745,22 @@ class XpertEvaluationService:
                             "code": "evaluation_knowledge_invalid",
                             "message": str(exc),
                             "node_id": node.id,
+                        }
+                    )
+            if kind == "data_table_query":
+                table_nodes.append(node)
+                resource, issue = inspect_agent_table_node(
+                    node,
+                    backend=self.agent_table_evaluation_backend,
+                )
+                if issue is not None:
+                    issues.append(issue)
+                elif resource is not None:
+                    resources["data_tables"].append(
+                        {
+                            **resource,
+                            "node_id": node.id,
+                            "node_kind": kind,
                         }
                     )
             if kind == "external_xpert":
@@ -727,6 +794,8 @@ class XpertEvaluationService:
                     )
             if kind == "plugin_resource":
                 self._inspect_plugin(node, data, issues, resources)
+        if table_nodes:
+            issues.extend(assert_agent_table_dependencies(workflow, table_nodes))
         return issues, warnings, resources
 
     def _inspect_plugin(

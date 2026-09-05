@@ -7,6 +7,7 @@ from .api import (
 )
 from .executor import XpertEvaluationExecutor
 from .metrics import aggregate_evaluation_report, evaluate_case_metrics
+from .resource_fixtures import render_evaluation_case_inputs
 from .service import XpertEvaluationService
 from .store import (
     EvaluationConflictError,
@@ -28,5 +29,6 @@ __all__ = [
     "get_xpert_evaluation_executor",
     "get_xpert_evaluation_service",
     "get_xpert_evaluation_store",
+    "render_evaluation_case_inputs",
     "router",
 ]

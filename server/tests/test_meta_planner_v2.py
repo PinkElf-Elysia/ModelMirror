@@ -131,6 +131,11 @@ def test_blueprint_and_repair_prompts_expose_typed_ir_agent_constraints():
     )
 
     for prompt in (blueprint_prompt, repair_prompt):
+        assert prompt["display_language_contract"]["locale"] == "zh-CN"
+        assert any(
+            "Simplified Chinese" in rule
+            for rule in prompt["display_language_contract"]["rules"]
+        )
         constraints = prompt["typed_ir_constraints"]
         graph_contract = prompt["graph_intent_contract"]
         assert constraints["max_workflow_agent_nodes"] == request.max_agents
@@ -211,6 +216,7 @@ def test_blueprint_and_repair_prompts_expose_typed_ir_agent_constraints():
         "Typed IR exceeds max_agents=3."
     ]
     assert plan_prompt["authorized_agent_ids"] == request.scope.agent_ids
+    assert plan_prompt["display_language_contract"]["locale"] == "zh-CN"
     assert any(
         "omit agent_id or set it to null" in rule
         for rule in plan_prompt["rules"]
@@ -490,8 +496,8 @@ def test_capability_api_returns_stable_safe_contract():
     response = client.get("/api/meta-agent/capabilities")
     assert response.status_code == 200
     payload = response.json()
-    assert payload["version"] == "evoagentx-meta-planner-capabilities-v7"
-    assert payload["control_flow_contract_version"] == 1
+    assert payload["version"] == "evoagentx-meta-planner-capabilities-v8"
+    assert payload["control_flow_contract_version"] == 2
     assert payload["authoring_protocol_version"] == 1
     assert payload["authoring_limits"]["max_operations"] == 64
     assert payload["ir_version"] == 3
@@ -512,6 +518,7 @@ def test_capability_snapshot_only_exposes_compilable_node_kinds():
         "condition",
         "data_aggregate",
         "data_merge",
+        "data_table_query",
         "dataset_compare",
         "input",
         "json_deserialize",
@@ -523,6 +530,7 @@ def test_capability_snapshot_only_exposes_compilable_node_kinds():
         "workflow_agent",
         "external_xpert",
         "knowledge_base",
+        "knowledge_retrieval",
         "toolset_resource",
         "plugin_resource",
     }
@@ -553,6 +561,12 @@ def test_compiler_creates_control_and_five_binding_edge_shapes():
         target=None,
     )
     workflow = candidate["draft"]["workflow"]
+    compiler_titles = {
+        node["type"]: node["data"]["title"]
+        for node in workflow["nodes"]
+        if node["type"] in {"input", "output"}
+    }
+    assert compiler_titles == {"input": "对话输入", "output": "最终回答"}
     handles = {
         edge.get("targetHandle")
         for edge in workflow["edges"]
@@ -825,6 +839,108 @@ async def test_generation_persists_proposal_and_uses_at_most_one_repair(
 
 
 @pytest.mark.asyncio
+async def test_invalid_task_plan_uses_the_single_shared_repair_pass(
+    tmp_path: Path,
+):
+    proposal_store = AuthoringProposalStore(tmp_path / "runtime")
+    authoring = AuthoringService(
+        proposal_store,
+        XpertStore(tmp_path / "xperts"),
+        WorkspaceSkillDraftStore(tmp_path / "skills"),
+        xpert_preflight=lambda candidate: (
+            validate_xpert_definition(candidate),
+            candidate.draft.workflow,
+            [],
+        ),
+    )
+    graph_intent, _ = v2_to_graph_intent(_typed_blueprint())
+    assert graph_intent is not None
+    outputs = [
+        json.dumps({"result": "Please clarify the request."}),
+        _plan().model_dump_json(),
+        graph_intent.model_dump_json(),
+    ]
+    calls: list[dict[str, object]] = []
+
+    async def complete(model_id, system_prompt, user_prompt, temperature, max_tokens):
+        calls.append(
+            {
+                "system_prompt": system_prompt,
+                "user_prompt": user_prompt,
+                "temperature": temperature,
+            }
+        )
+        return outputs.pop(0)
+
+    response = await MetaPlannerV2Service(
+        authoring_service=authoring,
+        preflight=lambda candidate: (
+            validate_xpert_definition(candidate),
+            candidate.draft.workflow,
+            [],
+        ),
+        completion=complete,
+    ).generate(_request(), _snapshot())
+
+    assert len(calls) == 3
+    assert calls[1]["temperature"] == 0
+    assert "task plan" in str(calls[1]["system_prompt"])
+    assert response.repair_used is True
+    assert response.validation["valid"] is True
+    proposal = proposal_store.require(response.proposal_id)
+    report = proposal.payload["meta_planner_report"]
+    assert report["repair_protocol"] == "task_plan_v1"
+    assert any("repaired the task plan" in item for item in response.warnings)
+
+
+@pytest.mark.asyncio
+async def test_task_plan_repair_never_allows_a_fourth_blueprint_call(
+    tmp_path: Path,
+):
+    proposal_store = AuthoringProposalStore(tmp_path / "runtime")
+    authoring = AuthoringService(
+        proposal_store,
+        XpertStore(tmp_path / "xperts"),
+        WorkspaceSkillDraftStore(tmp_path / "skills"),
+        xpert_preflight=lambda candidate: (
+            validate_xpert_definition(candidate),
+            candidate.draft.workflow,
+            [],
+        ),
+    )
+    outputs = [
+        json.dumps({"result": "Please clarify the request."}),
+        _plan().model_dump_json(),
+        json.dumps({"name": "invalid blueprint"}),
+    ]
+    calls: list[dict[str, object]] = []
+
+    async def complete(model_id, system_prompt, user_prompt, temperature, max_tokens):
+        calls.append({"system_prompt": system_prompt, "temperature": temperature})
+        return outputs.pop(0)
+
+    response = await MetaPlannerV2Service(
+        authoring_service=authoring,
+        preflight=lambda candidate: (
+            validate_xpert_definition(candidate),
+            candidate.draft.workflow,
+            [],
+        ),
+        completion=complete,
+    ).generate(_request(), _snapshot())
+
+    assert len(calls) == 3
+    assert response.repair_used is True
+    assert response.validation["valid"] is False
+    proposal = proposal_store.require(response.proposal_id)
+    assert proposal.status == "pending"
+    assert proposal.validation["valid"] is False
+    report = proposal.payload["meta_planner_report"]
+    assert report["repair_protocol"] == "task_plan_v1"
+    assert any("was consumed by task-plan repair" in item for item in response.warnings)
+
+
+@pytest.mark.asyncio
 async def test_parseable_v3_repair_uses_one_typed_graph_patch(tmp_path: Path):
     proposal_store = AuthoringProposalStore(tmp_path / "runtime")
     xpert_store = XpertStore(tmp_path / "xperts")
@@ -856,9 +972,16 @@ async def test_parseable_v3_repair_uses_one_typed_graph_patch(tmp_path: Path):
         if len(calls) == 2:
             return invalid.model_dump_json()
         prompt = json.loads(user_prompt)
+        assert "required_envelope" not in prompt
+        assert prompt["server_owned_fields"] == [
+            "protocol_version",
+            "proposal_revision",
+            "expected_graph_checksum",
+            "expected_candidate_checksum",
+        ]
+        assert set(prompt["required_schema"]["properties"]) == {"operations"}
         return json.dumps(
             {
-                **prompt["required_envelope"],
                 "operations": [
                     {
                         "op": "set_final_output",
@@ -881,7 +1004,7 @@ async def test_parseable_v3_repair_uses_one_typed_graph_patch(tmp_path: Path):
     response = await service.generate(_request(), _snapshot())
 
     assert len(calls) == 3
-    assert "GraphPatchEnvelopeV1" in str(calls[-1]["system_prompt"])
+    assert "typed Graph Patch operations" in str(calls[-1]["system_prompt"])
     assert calls[-1]["temperature"] == 0
     assert response.repair_used is True
     assert response.validation["valid"] is True
