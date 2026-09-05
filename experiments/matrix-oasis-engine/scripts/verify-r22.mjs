@@ -10,6 +10,7 @@ const steps = [
   ["references", ["run", "verify:r22-references"]],
   ["contracts", ["run", "verify:npc-cognition-contracts"]],
   ["runtime", ["run", "verify:npc-cognition-runtime"]],
+  ["provider", ["run", "verify:npc-cognition-provider"]],
   ["round-scope", ["run", "check:round-scope"]],
   ["boundary", ["run", "check:boundary"]],
   ["v2-claim", ["run", "check:v2-claim"]],

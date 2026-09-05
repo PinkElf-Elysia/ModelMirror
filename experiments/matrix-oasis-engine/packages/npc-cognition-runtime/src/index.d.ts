@@ -16,7 +16,7 @@ export declare const NPC_COGNITION_TRUSTED_INSTRUCTIONS_SHA256: `sha256:${string
 export declare function prepareNpcCognition(input: {
   readonly runtimeGamePackJson: string; readonly runtimeReceiptJson: string; readonly authorityPolicyJson: string;
   readonly behaviorPolicyJson: string; readonly npcEntityBindingJson: string; readonly personaSeedJson: string;
-  readonly relationshipPolicyJson: string; readonly memoryProjectionJson: string; readonly relationshipProjectionJson: string;
+  readonly relationshipPolicyJson: string; readonly qualifiedWorldEventLedgerJson: string; readonly memoryProjectionJson: string; readonly relationshipProjectionJson: string;
   readonly memoryManifestJson: string; readonly relationshipManifestJson: string; readonly derivedStateBundleJson: string;
   readonly cognitionPolicyJson: string;
 }): Promise<Readonly<{ ok: true; prepared: PreparedNpcCognition }> | NpcCognitionFailure>;

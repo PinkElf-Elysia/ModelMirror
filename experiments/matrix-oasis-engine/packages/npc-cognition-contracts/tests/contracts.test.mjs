@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import * as api from "../src/index.mjs";
 import {
@@ -197,6 +198,30 @@ test("approval hash binds every call-plan field except its own hash", () => {
   );
 });
 
+test("call plan binds every opaque choice to exactly one mapped R20 Intent", () => {
+  const value = callPlan();
+  assert.equal(api.validateNpcCognitionCallPlanJson(canonical(value)).valid, true);
+
+  const hashDrift = callPlan();
+  hashDrift.candidateSha256 = sha("f");
+  hashDrift.approval.hash = api.computeNpcCognitionApprovalHash(hashDrift);
+  assert(hasCode(api.validateNpcCognitionCallPlanJson(canonical(hashDrift)), "NPC_COGNITION_CALL_PLAN_CANDIDATE_HASH_MISMATCH"));
+
+  const identityDrift = callPlan();
+  identityDrift.candidateChoices[0].choiceId = choice("2");
+  identityDrift.candidateSha256 = `sha256:${createHash("sha256").update(canonical(identityDrift.candidateChoices), "utf8").digest("hex")}`;
+  identityDrift.approval.hash = api.computeNpcCognitionApprovalHash(identityDrift);
+  assert(hasCode(api.validateNpcCognitionCallPlanJson(canonical(identityDrift)), "NPC_COGNITION_CALL_PLAN_CHOICE_INTENT_MISMATCH"));
+
+  const duplicate = callPlan();
+  duplicate.candidateChoices.push(structuredClone(duplicate.candidateChoices[0]));
+  duplicate.candidateSha256 = `sha256:${createHash("sha256").update(canonical(duplicate.candidateChoices), "utf8").digest("hex")}`;
+  duplicate.approval.hash = api.computeNpcCognitionApprovalHash(duplicate);
+  const duplicateReport = api.validateNpcCognitionCallPlanJson(canonical(duplicate));
+  assert(hasCode(duplicateReport, "NPC_COGNITION_CALL_PLAN_CHOICE_DUPLICATE"));
+  assert(hasCode(duplicateReport, "NPC_COGNITION_CALL_PLAN_INTENT_DUPLICATE"));
+});
+
 test("dialogue is byte/line bounded while markup remains inert text", () => {
   const inert = dialogueProposal();
   inert.dialogueText = "[url=file:///secret][b]text[/b][/url] <script>alert(1)</script>";
@@ -273,8 +298,22 @@ test("receipt state, request, proposal, budget and Ledger evidence stay coherent
   invalidResponseWithUsage.mappedIntentSha256 = null;
   invalidResponseWithUsage.adjudicationResultSha256 = null;
   invalidResponseWithUsage.ledger.after = structuredClone(invalidResponseWithUsage.ledger.before);
-  invalidResponseWithUsage.budget.actualMicrousd = 10000;
+  invalidResponseWithUsage.budget.actualMicrousd = 44;
   assert.equal(api.validateNpcCognitionTurnReceiptJson(canonical(invalidResponseWithUsage)).valid, true);
+  invalidResponseWithUsage.budget.actualMicrousd = 10000;
+  assert(hasCode(api.validateNpcCognitionTurnReceiptJson(canonical(invalidResponseWithUsage)), "NPC_COGNITION_TURN_RECEIPT_ACTUAL_COST_MISMATCH"));
+
+  const knownCostFallback = turnReceipt();
+  knownCostFallback.statusHistory = ["planned", "approved", "reserved", "dispatching", "validated", "fallback", "finalized"];
+  knownCostFallback.fallbackReason = "NPC_COGNITION_FALLBACK_CONTEXT_STALE";
+  knownCostFallback.actionChoiceId = null;
+  knownCostFallback.mappedIntentSha256 = null;
+  knownCostFallback.adjudicationResultSha256 = null;
+  knownCostFallback.ledger.after = structuredClone(knownCostFallback.ledger.before);
+  knownCostFallback.budget.actualMicrousd = 44;
+  assert.equal(api.validateNpcCognitionTurnReceiptJson(canonical(knownCostFallback)).valid, true);
+  knownCostFallback.budget.actualMicrousd = 0;
+  assert(hasCode(api.validateNpcCognitionTurnReceiptJson(canonical(knownCostFallback)), "NPC_COGNITION_TURN_RECEIPT_ACTUAL_COST_MISMATCH"));
 
   const impossibleReason = turnReceipt();
   impossibleReason.statusHistory = ["planned", "approved", "reserved", "dispatching", "fallback", "finalized"];
@@ -303,9 +342,11 @@ test("every fallback reason is bound to exactly one preceding stage", () => {
   const stages = {
     NPC_COGNITION_FALLBACK_APPROVAL_DECLINED: "planned",
     NPC_COGNITION_FALLBACK_APPROVAL_EXPIRED: "planned",
+    NPC_COGNITION_FALLBACK_APPROVAL_EXPIRED_PRE_REQUEST: "dispatching",
     NPC_COGNITION_FALLBACK_BUDGET_EXHAUSTED: "approved",
-    NPC_COGNITION_FALLBACK_PROVIDER_CREDENTIAL_UNAVAILABLE: "reserved",
-    NPC_COGNITION_FALLBACK_CALL_IN_FLIGHT: "planned",
+    NPC_COGNITION_FALLBACK_RESERVED_CRASH_RECOVERED: "reserved",
+    NPC_COGNITION_FALLBACK_PROVIDER_CREDENTIAL_UNAVAILABLE: "dispatching",
+    NPC_COGNITION_FALLBACK_CALL_IN_FLIGHT: "approved",
     NPC_COGNITION_FALLBACK_PROVIDER_TIMEOUT: "dispatching",
     NPC_COGNITION_FALLBACK_PROVIDER_NETWORK_AMBIGUOUS: "dispatching",
     NPC_COGNITION_FALLBACK_DISPATCH_CRASH_UNCERTAIN: "dispatching",
@@ -316,11 +357,13 @@ test("every fallback reason is bound to exactly one preceding stage", () => {
     NPC_COGNITION_FALLBACK_MODEL_MISMATCH: "dispatching",
     NPC_COGNITION_FALLBACK_USAGE_INVALID: "dispatching",
     NPC_COGNITION_FALLBACK_PROPOSAL_INVALID: "dispatching",
-    NPC_COGNITION_FALLBACK_UNTRUSTED_OUTPUT_REJECTED: "validated",
+    NPC_COGNITION_FALLBACK_UNTRUSTED_OUTPUT_REJECTED: "dispatching",
     NPC_COGNITION_FALLBACK_CONTEXT_STALE: "validated",
     NPC_COGNITION_FALLBACK_CHOICE_INVALID: "validated",
-    NPC_COGNITION_FALLBACK_ACTION_CHOICE_UNKNOWN: "validated",
+    NPC_COGNITION_FALLBACK_DISPLAY_UNCONFIRMED: "validated",
+    NPC_COGNITION_FALLBACK_ACTION_CHOICE_UNKNOWN: "dispatching",
     NPC_COGNITION_FALLBACK_R20_UNAVAILABLE: "queued_for_r20",
+    NPC_COGNITION_FALLBACK_R20_SELECTION_STALE: "queued_for_r20",
     NPC_COGNITION_FALLBACK_R19_FAILURE: "queued_for_r20",
   };
   assert.deepEqual(
@@ -339,7 +382,13 @@ test("every fallback reason is bound to exactly one preceding stage", () => {
     const value = turnReceipt();
     value.statusHistory = histories[stage];
     value.fallbackReason = reason;
-    value.requestCount = Number(["dispatching", "validated", "queued_for_r20"].includes(stage));
+    value.requestCount = Number(
+      ["dispatching", "validated", "queued_for_r20"].includes(stage)
+        && ![
+          "NPC_COGNITION_FALLBACK_PROVIDER_CREDENTIAL_UNAVAILABLE",
+          "NPC_COGNITION_FALLBACK_APPROVAL_EXPIRED_PRE_REQUEST",
+        ].includes(reason),
+    );
     value.budget.reservedMicrousd = Number(["reserved", "dispatching", "validated", "queued_for_r20"].includes(stage)) * 10000;
     value.budget.actualMicrousd = value.requestCount * value.budget.reservedMicrousd;
     value.returnedModel = ["validated", "queued_for_r20"].includes(stage) ? "gpt-5.6-luna" : null;
@@ -355,13 +404,27 @@ test("every fallback reason is bound to exactly one preceding stage", () => {
   };
   for (const [reason, stage] of Object.entries(stages)) {
     const valid = makeFallback(reason, stage);
+    if (valid.requestCount === 1 && valid.usage.totalTokens > 0) valid.budget.actualMicrousd = 44;
     assert.equal(api.validateNpcCognitionTurnReceiptJson(canonical(valid)).valid, true, reason);
     const wrong = makeFallback(reason, stage === "planned" ? "approved" : "planned");
     assert(hasCode(api.validateNpcCognitionTurnReceiptJson(canonical(wrong)), "NPC_COGNITION_TURN_RECEIPT_FALLBACK_STAGE_MISMATCH"), reason);
-    if (valid.requestCount === 1) {
+    if (valid.requestCount === 1 && valid.usage.totalTokens === 0) {
       valid.budget.actualMicrousd = 0;
       assert(hasCode(api.validateNpcCognitionTurnReceiptJson(canonical(valid)), "NPC_COGNITION_TURN_RECEIPT_DISPATCH_FALLBACK_NOT_FULLY_CHARGED"), reason);
     }
+  }
+
+  for (const reason of [
+    "NPC_COGNITION_FALLBACK_PROVIDER_REFUSED",
+    "NPC_COGNITION_FALLBACK_PROVIDER_RESPONSE_INVALID",
+    "NPC_COGNITION_FALLBACK_MODEL_MISMATCH",
+  ]) {
+    const knownUsage = makeFallback(reason, "dispatching");
+    knownUsage.usage = { inputTokens: 100, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 20, totalTokens: 120 };
+    knownUsage.budget.actualMicrousd = 44;
+    assert.equal(api.validateNpcCognitionTurnReceiptJson(canonical(knownUsage)).valid, true, `${reason} with known usage`);
+    knownUsage.budget.actualMicrousd = knownUsage.budget.reservedMicrousd;
+    assert(hasCode(api.validateNpcCognitionTurnReceiptJson(canonical(knownUsage)), "NPC_COGNITION_TURN_RECEIPT_ACTUAL_COST_MISMATCH"), `${reason} with overcharge`);
   }
 });
 

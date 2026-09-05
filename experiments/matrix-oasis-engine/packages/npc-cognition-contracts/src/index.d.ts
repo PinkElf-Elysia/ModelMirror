@@ -86,9 +86,14 @@ export interface NpcCognitionCallPlan {
   readonly format: "matrix-oasis.npc-cognition-call-plan";
   readonly formatVersion: "0.1.0";
   readonly canonicalization: "matrix-oasis.canonical-json/1";
+  readonly turnId: string;
   readonly turnSha256: Sha256;
   readonly contextSha256: Sha256;
   readonly candidateSha256: Sha256;
+  readonly candidateChoices: readonly Readonly<{
+    readonly choiceId: NpcCognitionChoiceId;
+    readonly intentSha256: Sha256;
+  }>[];
   readonly providerPayloadSha256: Sha256;
   readonly responseSchemaSha256: Sha256;
   readonly endpoint: "https://api.openai.com/v1/responses";
@@ -133,7 +138,9 @@ export type NpcCognitionFallbackReason =
   | "NPC_COGNITION_FALLBACK_NONE"
   | "NPC_COGNITION_FALLBACK_APPROVAL_DECLINED"
   | "NPC_COGNITION_FALLBACK_APPROVAL_EXPIRED"
+  | "NPC_COGNITION_FALLBACK_APPROVAL_EXPIRED_PRE_REQUEST"
   | "NPC_COGNITION_FALLBACK_BUDGET_EXHAUSTED"
+  | "NPC_COGNITION_FALLBACK_RESERVED_CRASH_RECOVERED"
   | "NPC_COGNITION_FALLBACK_PROVIDER_TIMEOUT"
   | "NPC_COGNITION_FALLBACK_PROVIDER_NETWORK_AMBIGUOUS"
   | "NPC_COGNITION_FALLBACK_DISPATCH_CRASH_UNCERTAIN"
@@ -147,10 +154,12 @@ export type NpcCognitionFallbackReason =
   | "NPC_COGNITION_FALLBACK_UNTRUSTED_OUTPUT_REJECTED"
   | "NPC_COGNITION_FALLBACK_CONTEXT_STALE"
   | "NPC_COGNITION_FALLBACK_CHOICE_INVALID"
+  | "NPC_COGNITION_FALLBACK_DISPLAY_UNCONFIRMED"
   | "NPC_COGNITION_FALLBACK_ACTION_CHOICE_UNKNOWN"
   | "NPC_COGNITION_FALLBACK_PROVIDER_CREDENTIAL_UNAVAILABLE"
   | "NPC_COGNITION_FALLBACK_CALL_IN_FLIGHT"
   | "NPC_COGNITION_FALLBACK_R20_UNAVAILABLE"
+  | "NPC_COGNITION_FALLBACK_R20_SELECTION_STALE"
   | "NPC_COGNITION_FALLBACK_R19_FAILURE";
 
 export interface NpcCognitionTurnReceipt {
@@ -264,6 +273,7 @@ export declare const NPC_COGNITION_PROFILE: "matrix-oasis.bounded-npc-cognition/
 export declare const NPC_COGNITION_ENDPOINT: "https://api.openai.com/v1/responses";
 export declare const NPC_COGNITION_MODEL: "gpt-5.6-luna";
 export declare const NPC_COGNITION_RETENTION_POLICY_VERSION: "openai-api-data-controls-2026-09-03";
+export declare const NPC_COGNITION_TRUSTED_INSTRUCTIONS: string;
 export declare const NPC_COGNITION_LIMITS: Readonly<Record<string, number>>;
 export declare const NPC_COGNITION_RECEIPT_STATUSES: readonly NpcCognitionReceiptStatus[];
 export declare const NPC_COGNITION_FALLBACK_REASONS: readonly NpcCognitionFallbackReason[];

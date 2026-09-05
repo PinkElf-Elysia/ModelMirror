@@ -119,6 +119,7 @@ const NETWORK_GLOBAL_NAMES = [
   ["send", "Beacon"].join(""),
 ];
 const FETCH_GLOBAL_NAME = NETWORK_GLOBAL_NAMES[0];
+const FETCH_TYPE_DECLARATION = ["typeof", FETCH_GLOBAL_NAME].join(" ");
 const APPROVED_CREATOR_LOOPBACK_CLIENT_SOURCE =
   "apps/creator-web/src/prototype-builder.ts";
 const NETWORK_MODULES = new Set([
@@ -160,11 +161,14 @@ const R22_CONTRACT_ENDPOINT_METADATA_SOURCES = new Map([
   ["packages/npc-cognition-contracts/src/schema.mjs", 1],
   ["packages/npc-cognition-contracts/tests/contracts.test.mjs", 1],
   ["packages/npc-cognition-contracts/tests/fixtures.mjs", 1],
+  ["packages/npc-cognition-provider-openai/src/index.d.ts", 1],
 ]);
+const R22_PROVIDER_TEST_SOURCE = "packages/npc-cognition-provider-openai/tests/provider.test.mjs";
 const APPROVED_PROVIDER_NETWORK_SOURCES = new Set([
   "packages/prototype-generator/src/openai-compatible.mjs",
   "packages/prototype-asset-pipeline/src/meshy-provider.mjs",
   "packages/prototype-environment-pipeline/src/marble-provider.mjs",
+  "packages/npc-cognition-provider-openai/src/index.mjs",
 ]);
 const STATIC_SECRET_PATTERNS = [
   /-----BEGIN(?: [A-Z0-9]+)? PRIVATE KEY-----/,
@@ -1415,7 +1419,19 @@ function checkRuntimeNetwork(relative, content, specifiers, violations) {
   if (R22_CONTRACT_ENDPOINT_METADATA_SOURCES.has(relative)) {
     const expectedEndpointOccurrences = R22_CONTRACT_ENDPOINT_METADATA_SOURCES.get(relative);
     const endpointOccurrences = content.split(R22_OPENAI_RESPONSES_ENDPOINT).length - 1;
-    const remainingContent = content.replaceAll(R22_OPENAI_RESPONSES_ENDPOINT, "");
+    let remainingContent = content.replaceAll(R22_OPENAI_RESPONSES_ENDPOINT, "");
+    if (relative === "packages/npc-cognition-provider-openai/src/index.d.ts") {
+      const fetchTypeOccurrences = remainingContent.split(FETCH_TYPE_DECLARATION).length - 1;
+      if (fetchTypeOccurrences !== 1) {
+        addViolation(
+          violations,
+          "r22-provider-type-metadata-invalid",
+          relative,
+          "The R22 provider type declaration may expose exactly one inert injected request-function type.",
+        );
+      }
+      remainingContent = remainingContent.replace(FETCH_TYPE_DECLARATION, "");
+    }
     const forbiddenCapability =
       endpointOccurrences !== expectedEndpointOccurrences ||
       NETWORK_GLOBAL_NAMES.some((name) => new RegExp(`\\b${name}\\b`).test(remainingContent)) ||
@@ -1427,7 +1443,24 @@ function checkRuntimeNetwork(relative, content, specifiers, violations) {
         violations,
         "r22-contract-endpoint-metadata-invalid",
         relative,
-        "R22 contract metadata may contain exactly one inert locked endpoint and no network capability.",
+        "R22 inert metadata may contain only its declared locked endpoint and no network capability.",
+      );
+    }
+    return;
+  }
+  if (relative === R22_PROVIDER_TEST_SOURCE) {
+    const forbiddenCapability =
+      usesNetworkModule(specifiers) ||
+      hasExternalOrProtocolRelativeUrl(content) ||
+      /\bprocess\s*\.\s*env\b/u.test(content) ||
+      new RegExp(`\\bglobalThis\\s*\\.\\s*${FETCH_GLOBAL_NAME}\\b`, "u").test(content) ||
+      new RegExp(`\\b${FETCH_GLOBAL_NAME}\\s*\\(`, "u").test(content);
+    if (forbiddenCapability) {
+      addViolation(
+        violations,
+        "r22-provider-test-network-invalid",
+        relative,
+        "R22 provider tests may inject a fake request function but may not access a real network capability.",
       );
     }
     return;
@@ -1727,6 +1760,38 @@ function checkScriptNetwork(relative, content, specifiers, policy, violations) {
           "r20-host-network-invalid",
           relative,
           "R20 NPC host literals must remain loopback-only.",
+        );
+      }
+    }
+    return;
+  }
+  if (relative === "scripts/lib/r22-host-core.mjs") {
+    const allowedModules = new Set(["http", "node:http"]);
+    if (
+      specifiers.some((specifier) => NETWORK_MODULES.has(specifier) && !allowedModules.has(specifier)) ||
+      NETWORK_GLOBAL_NAMES.some((name) => new RegExp(`\\b${name}\\b`).test(content)) ||
+      !/export const R22_COGNITION_HOST = "127\.0\.0\.1";/u.test(content) ||
+      !/export const R22_COGNITION_HOST_PORT = 43122;/u.test(content) ||
+      !/port !== R22_COGNITION_HOST_PORT/u.test(content) ||
+      !/server\.listen\(R22_COGNITION_HOST_PORT, R22_COGNITION_HOST,/u.test(content) ||
+      /\b(?:connect|createConnection|Socket)\s*\(/u.test(content) ||
+      /\bprocess\s*\.\s*env\b/u.test(content)
+    ) {
+      addViolation(
+        violations,
+        "r22-host-network-invalid",
+        relative,
+        "R22 cognition host may only listen on fixed 127.0.0.1:43122 and may not create outbound clients or read credentials.",
+      );
+    }
+    for (const match of content.matchAll(/\b(?:https?|wss?):\/\/([A-Za-z0-9.:[\]-]+)/gu)) {
+      const host = match[1].replace(/^\[/u, "").replace(/\]$/u, "").split(":", 1)[0];
+      if (!LOOPBACK_HOSTS.has(host)) {
+        addViolation(
+          violations,
+          "r22-host-network-invalid",
+          relative,
+          "R22 cognition host literals must remain loopback-only.",
         );
       }
     }

@@ -205,8 +205,24 @@ function turnRequestSemantics(value) {
   return output;
 }
 function callPlanSemantics(value) {
+  const output = [];
+  const choices = new Set();
+  const intents = new Set();
+  value.candidateChoices.forEach((candidate, index) => {
+    if (choices.has(candidate.choiceId)) output.push(diagnostic("semantic", "NPC_COGNITION_CALL_PLAN_CHOICE_DUPLICATE", `/candidateChoices/${index}/choiceId`));
+    if (intents.has(candidate.intentSha256)) output.push(diagnostic("semantic", "NPC_COGNITION_CALL_PLAN_INTENT_DUPLICATE", `/candidateChoices/${index}/intentSha256`));
+    choices.add(candidate.choiceId);
+    intents.add(candidate.intentSha256);
+    if (candidate.choiceId !== `choice-${candidate.intentSha256.slice(7)}`) {
+      output.push(diagnostic("integrity", "NPC_COGNITION_CALL_PLAN_CHOICE_INTENT_MISMATCH", `/candidateChoices/${index}`));
+    }
+  });
+  if (value.candidateSha256 !== hashCanonical(value.candidateChoices)) {
+    output.push(diagnostic("integrity", "NPC_COGNITION_CALL_PLAN_CANDIDATE_HASH_MISMATCH", "/candidateSha256"));
+  }
   const expected = computeNpcCognitionApprovalHash(value);
-  return value.approval.hash === expected ? [] : [diagnostic("integrity", "NPC_COGNITION_CALL_PLAN_APPROVAL_HASH_MISMATCH", "/approval/hash")];
+  if (value.approval.hash !== expected) output.push(diagnostic("integrity", "NPC_COGNITION_CALL_PLAN_APPROVAL_HASH_MISMATCH", "/approval/hash"));
+  return output;
 }
 function dialogueProposalSemantics(value) {
   const output = [];
@@ -231,9 +247,11 @@ const NEXT_STATUS = Object.freeze({
 const FALLBACK_STAGE_BY_REASON = Object.freeze({
   NPC_COGNITION_FALLBACK_APPROVAL_DECLINED: "planned",
   NPC_COGNITION_FALLBACK_APPROVAL_EXPIRED: "planned",
+  NPC_COGNITION_FALLBACK_APPROVAL_EXPIRED_PRE_REQUEST: "dispatching",
   NPC_COGNITION_FALLBACK_BUDGET_EXHAUSTED: "approved",
-  NPC_COGNITION_FALLBACK_PROVIDER_CREDENTIAL_UNAVAILABLE: "reserved",
-  NPC_COGNITION_FALLBACK_CALL_IN_FLIGHT: "planned",
+  NPC_COGNITION_FALLBACK_RESERVED_CRASH_RECOVERED: "reserved",
+  NPC_COGNITION_FALLBACK_PROVIDER_CREDENTIAL_UNAVAILABLE: "dispatching",
+  NPC_COGNITION_FALLBACK_CALL_IN_FLIGHT: "approved",
   NPC_COGNITION_FALLBACK_PROVIDER_TIMEOUT: "dispatching",
   NPC_COGNITION_FALLBACK_PROVIDER_NETWORK_AMBIGUOUS: "dispatching",
   NPC_COGNITION_FALLBACK_DISPATCH_CRASH_UNCERTAIN: "dispatching",
@@ -244,13 +262,16 @@ const FALLBACK_STAGE_BY_REASON = Object.freeze({
   NPC_COGNITION_FALLBACK_MODEL_MISMATCH: "dispatching",
   NPC_COGNITION_FALLBACK_USAGE_INVALID: "dispatching",
   NPC_COGNITION_FALLBACK_PROPOSAL_INVALID: "dispatching",
-  NPC_COGNITION_FALLBACK_UNTRUSTED_OUTPUT_REJECTED: "validated",
+  NPC_COGNITION_FALLBACK_UNTRUSTED_OUTPUT_REJECTED: "dispatching",
   NPC_COGNITION_FALLBACK_CONTEXT_STALE: "validated",
   NPC_COGNITION_FALLBACK_CHOICE_INVALID: "validated",
-  NPC_COGNITION_FALLBACK_ACTION_CHOICE_UNKNOWN: "validated",
+  NPC_COGNITION_FALLBACK_DISPLAY_UNCONFIRMED: "validated",
+  NPC_COGNITION_FALLBACK_ACTION_CHOICE_UNKNOWN: "dispatching",
   NPC_COGNITION_FALLBACK_R20_UNAVAILABLE: "queued_for_r20",
+  NPC_COGNITION_FALLBACK_R20_SELECTION_STALE: "queued_for_r20",
   NPC_COGNITION_FALLBACK_R19_FAILURE: "queued_for_r20",
 });
+
 function receiptSemantics(value) {
   const output = [
     ...ledgerHeadDiagnostics(value.ledger.before, "NPC_COGNITION_TURN_RECEIPT_BEFORE", "/ledger/before"),
@@ -270,7 +291,12 @@ function receiptSemantics(value) {
   const dialogueOnly = has("dialogue_only");
   const fallback = has("fallback");
   const adjudicated = has("adjudicated");
-  if (value.requestCount !== Number(dispatched)) output.push(diagnostic("semantic", "NPC_COGNITION_TURN_RECEIPT_REQUEST_COUNT_MISMATCH", "/requestCount"));
+  const preRequestFallback = fallback && [
+    "NPC_COGNITION_FALLBACK_PROVIDER_CREDENTIAL_UNAVAILABLE",
+    "NPC_COGNITION_FALLBACK_APPROVAL_EXPIRED_PRE_REQUEST",
+  ].includes(value.fallbackReason);
+  const expectedRequestCount = dispatched && !preRequestFallback ? 1 : 0;
+  if (value.requestCount !== expectedRequestCount) output.push(diagnostic("semantic", "NPC_COGNITION_TURN_RECEIPT_REQUEST_COUNT_MISMATCH", "/requestCount"));
   if (value.usage.inputTokens + value.usage.outputTokens !== value.usage.totalTokens || !Number.isSafeInteger(value.usage.inputTokens + value.usage.outputTokens)) output.push(diagnostic("semantic", "NPC_COGNITION_TURN_RECEIPT_USAGE_TOTAL_MISMATCH", "/usage/totalTokens"));
   if (value.usage.cachedInputTokens + value.usage.cacheWriteInputTokens > value.usage.inputTokens
       || !Number.isSafeInteger(value.usage.cachedInputTokens + value.usage.cacheWriteInputTokens)) {
@@ -278,7 +304,7 @@ function receiptSemantics(value) {
   }
   if (value.budget.actualMicrousd > value.budget.reservedMicrousd) output.push(diagnostic("semantic", "NPC_COGNITION_TURN_RECEIPT_BUDGET_EXCEEDED", "/budget/actualMicrousd"));
   if (value.budget.reservedMicrousd !== (reserved ? NPC_COGNITION_LIMITS.perCallMicrousd : 0)) output.push(diagnostic("semantic", "NPC_COGNITION_TURN_RECEIPT_RESERVATION_MISMATCH", "/budget/reservedMicrousd"));
-  if (!dispatched && (value.budget.actualMicrousd !== 0 || value.usage.totalTokens !== 0 || value.returnedModel !== null)) output.push(diagnostic("semantic", "NPC_COGNITION_TURN_RECEIPT_ZERO_REQUEST_EVIDENCE", "/requestCount"));
+  if (value.requestCount === 0 && (value.budget.actualMicrousd !== 0 || value.usage.totalTokens !== 0 || value.returnedModel !== null)) output.push(diagnostic("semantic", "NPC_COGNITION_TURN_RECEIPT_ZERO_REQUEST_EVIDENCE", "/requestCount"));
   if (validated && (value.proposalSha256 === null || value.returnedModel !== value.requestedModel)) output.push(diagnostic("semantic", "NPC_COGNITION_TURN_RECEIPT_VALIDATION_EVIDENCE", "/proposalSha256"));
   if (validated && value.usage.totalTokens === 0) output.push(diagnostic("semantic", "NPC_COGNITION_TURN_RECEIPT_VALIDATED_USAGE_EMPTY", "/usage/totalTokens"));
   if (!validated && value.proposalSha256 !== null) output.push(diagnostic("semantic", "NPC_COGNITION_TURN_RECEIPT_PROPOSAL_WITHOUT_VALIDATION", "/proposalSha256"));
@@ -307,13 +333,14 @@ function receiptSemantics(value) {
     if (value.ledger.after.headSha256 === null) output.push(diagnostic("semantic", "NPC_COGNITION_TURN_RECEIPT_ADJUDICATION_HEAD", "/ledger/after/headSha256"));
     if (value.ledger.after.headSha256 === value.ledger.before.headSha256) output.push(diagnostic("semantic", "NPC_COGNITION_TURN_RECEIPT_ADJUDICATION_HEAD_UNCHANGED", "/ledger/after/headSha256"));
   }
-  if (fallback && dispatched && value.budget.actualMicrousd !== value.budget.reservedMicrousd) {
+  if (fallback && value.requestCount === 1 && value.usage.totalTokens === 0 &&
+      value.budget.actualMicrousd !== value.budget.reservedMicrousd) {
     output.push(diagnostic("semantic", "NPC_COGNITION_TURN_RECEIPT_DISPATCH_FALLBACK_NOT_FULLY_CHARGED", "/budget/actualMicrousd"));
   }
-  if (fallback && !dispatched && value.budget.actualMicrousd !== 0) {
+  if (fallback && value.requestCount === 0 && value.budget.actualMicrousd !== 0) {
     output.push(diagnostic("semantic", "NPC_COGNITION_TURN_RECEIPT_PRE_DISPATCH_FALLBACK_CHARGED", "/budget/actualMicrousd"));
   }
-  if (!fallback && dispatched && value.usage.totalTokens > 0) {
+  if (dispatched && value.requestCount === 1 && value.usage.totalTokens > 0) {
     const ordinaryInputTokens = value.usage.inputTokens - value.usage.cachedInputTokens - value.usage.cacheWriteInputTokens;
     const numerator = (BigInt(ordinaryInputTokens) * BigInt(NPC_COGNITION_LIMITS.inputMicrousdPerMillionTokens))
       + (BigInt(value.usage.cachedInputTokens) * BigInt(NPC_COGNITION_LIMITS.cachedInputMicrousdPerMillionTokens))

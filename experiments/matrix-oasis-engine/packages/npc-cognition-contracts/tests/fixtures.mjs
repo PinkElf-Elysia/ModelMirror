@@ -1,9 +1,11 @@
+import { createHash } from "node:crypto";
 import { canonicalizeJsonValue } from "@matrix-oasis/runtime-pack-contracts";
 import { computeNpcCognitionApprovalHash } from "../src/index.mjs";
 
 export const sha = (digit) => `sha256:${String(digit).repeat(64).slice(0, 64)}`;
 export const choice = (digit) => `choice-${String(digit).repeat(64).slice(0, 64)}`;
 export const canonical = (value) => canonicalizeJsonValue(value);
+const hashCanonical = (value) => `sha256:${createHash("sha256").update(canonical(value), "utf8").digest("hex")}`;
 
 export const cognitionLimits = () => ({
   turnsPerTimeline: 64,
@@ -82,13 +84,16 @@ export const turnRequest = () => ({
 });
 
 export const callPlan = () => {
+  const candidateChoices = [{ choiceId: choice("1"), intentSha256: sha("1") }];
   const value = {
     format: "matrix-oasis.npc-cognition-call-plan",
     formatVersion: "0.1.0",
     canonicalization: "matrix-oasis.canonical-json/1",
+    turnId: "turn-one",
     turnSha256: sha("9"),
     contextSha256: sha("a"),
-    candidateSha256: sha("b"),
+    candidateSha256: hashCanonical(candidateChoices),
+    candidateChoices,
     providerPayloadSha256: sha("c"),
     responseSchemaSha256: sha("d"),
     endpoint: "https://api.openai.com/v1/responses",
@@ -125,7 +130,7 @@ export const dialogueProposal = () => ({
   canonicalization: "matrix-oasis.canonical-json/1",
   contextSha256: sha("a"),
   dialogueText: "I can try that.",
-  actionChoiceId: choice("e"),
+  actionChoiceId: choice("1"),
 });
 
 export const ledgerPoint = (revision, headDigit, snapshotDigit) => ({
@@ -150,7 +155,7 @@ export const turnReceipt = () => ({
   usage: { inputTokens: 100, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 20, totalTokens: 120 },
   budget: { reservedMicrousd: 10000, actualMicrousd: 44 },
   fallbackReason: "NPC_COGNITION_FALLBACK_NONE",
-  actionChoiceId: choice("e"),
+  actionChoiceId: choice("1"),
   mappedIntentSha256: sha("1"),
   adjudicationResultSha256: sha("2"),
   ledger: {

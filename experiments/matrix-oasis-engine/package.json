@@ -63,6 +63,7 @@
     "verify:r22-references": "node --test tests/r22-reference.test.mjs && node scripts/verify-r22-references.mjs",
     "verify:npc-cognition-contracts": "npm test --workspace @matrix-oasis/npc-cognition-contracts",
     "verify:npc-cognition-runtime": "npm test --workspace @matrix-oasis/npc-cognition-runtime",
+    "verify:npc-cognition-provider": "npm test --workspace @matrix-oasis/npc-cognition-provider-openai && node --test tests/r22-host.test.mjs",
     "verify:r22": "node scripts/verify-r22.mjs",
     "test:r18-sources": "node --test tests/r18-sources.test.mjs",
     "test:r18-landscape-contracts": "npm test --workspace @matrix-oasis/v2-landscape-contracts",

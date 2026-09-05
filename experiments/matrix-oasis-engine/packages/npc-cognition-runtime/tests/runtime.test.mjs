@@ -139,13 +139,13 @@ async function fixture(overrides = {}, acceptedLoops = 0) {
     id: "cognition-policy", contentVersion: "1.0.0",
     identities: { runtimePackSha256: hashDocument(runtimeGamePackJson), runtimeReceiptSha256: hashDocument(runtimeReceiptJson), authorityPolicySha256: hashDocument(authorityPolicy), behaviorPolicySha256: hashDocument(behaviorPolicyJson), entityBindingSha256: hashDocument(npcEntityBindingJson), derivedStateBundleSha256: hashDocument(derivedStateBundleJson) },
     actors: [
-      { actorEntityId: "actor-one", safeActions: [{ nodeId: "node-loop", actionId: "action-loop" }] },
+      { actorEntityId: "actor-one", safeActions: [{ nodeId: "node-loop", actionId: "action-end" }, { nodeId: "node-loop", actionId: "action-loop" }] },
       { actorEntityId: "actor-two", safeActions: [{ nodeId: "node-loop", actionId: "action-loop" }] },
     ], limits: limits(), budgets: { perCallMicrousd: NPC_COGNITION_LIMITS.perCallMicrousd, perTimelineMicrousd: NPC_COGNITION_LIMITS.perTimelineMicrousd, perHostRunMicrousd: NPC_COGNITION_LIMITS.perHostRunMicrousd },
   });
   const documents = {
     runtimeGamePackJson, runtimeReceiptJson, authorityPolicyJson: authorityPolicy, behaviorPolicyJson, npcEntityBindingJson,
-    personaSeedJson, relationshipPolicyJson, memoryProjectionJson: projection.canonicalNpcMemoryProjectionJson,
+    personaSeedJson, relationshipPolicyJson, qualifiedWorldEventLedgerJson: worldEventLedgerJson, memoryProjectionJson: projection.canonicalNpcMemoryProjectionJson,
     relationshipProjectionJson: projection.canonicalNpcRelationshipProjectionJson, memoryManifestJson: projection.canonicalMemoryDerivedProjectionManifestJson,
     relationshipManifestJson: projection.canonicalRelationshipDerivedProjectionManifestJson, derivedStateBundleJson, cognitionPolicyJson,
     ...overrides,
@@ -183,11 +183,27 @@ test("the bounded turn exposes exactly the current R20 first eligible command as
   assert.equal(new Set(outputs).size, 1);
 });
 
-test("interacting with a later actor cannot bypass R20 declared scheduling order", async () => {
+test("candidate enumeration is scoped to the explicitly visible actor", async () => {
   const f = await fixture(); const turn = makeTurn(f, "actor-two"); assert.equal(turn.ok, true, JSON.stringify(turn.diagnostics));
-  assert.deepEqual(turn.candidateActions, []);
+  assert.equal(turn.candidateActions.length, 1);
+  assert.equal(turn.candidateActions[0].actorEntityId, "actor-two");
+  assert.equal(turn.candidateActions[0].actionId, "action-loop");
   const plan = planNpcCognitionCall({ prepared: f.prepared, turn: turn.turn }); assert.equal(plan.ok, true);
-  assert.deepEqual(JSON.parse(plan.responseSchemaJson).properties.actionChoiceId, { enum: [null] });
+  assert.deepEqual(JSON.parse(plan.responseSchemaJson).properties.actionChoiceId, { enum: [null, turn.candidateActions[0].choiceId] });
+});
+
+test("a model may choose a non-first currently eligible R20 command without changing its identity or next state", async () => {
+  const f = await fixture({}, 1); const turn = makeTurn(f); assert.equal(turn.ok, true, JSON.stringify(turn.diagnostics));
+  assert.deepEqual(turn.candidateActions.map((candidate) => candidate.actionId), ["action-loop", "action-end"]);
+  const plan = planNpcCognitionCall({ prepared: f.prepared, turn: turn.turn }); assert.equal(plan.ok, true);
+  const proposal = proposalJson(turn, turn.candidateActions[1].choiceId);
+  const validated = validateNpcDialogueProposal({ prepared: f.prepared, turn: turn.turn, callPlan: plan.callPlan, npcDialogueProposalJson: proposal, ...current(f) });
+  assert.equal(validated.ok, true, JSON.stringify(validated.diagnostics));
+  const mapped = mapNpcDialogueProposalToIntent({ prepared: f.prepared, turn: turn.turn, callPlan: plan.callPlan, validatedProposal: validated.validatedProposal, ...current(f) });
+  assert.equal(mapped.ok, true);
+  assert.equal(mapped.command.actionId, "action-end");
+  assert.equal(hashDocument(mapped.npcIntentJson), turn.candidateActions[1].intentSha256);
+  assert.deepEqual(JSON.parse(plan.canonicalNpcCognitionCallPlanJson).candidateChoices, turn.candidateActions.map((candidate) => ({ choiceId: candidate.choiceId, intentSha256: candidate.intentSha256 })));
 });
 
 test("untrusted text remains inert JSON while a valid opaque choice maps to the exact R20 Intent", async () => {
@@ -223,12 +239,43 @@ test("unknown choices, changed behavior state, and a moved Ledger head fail befo
   assert.equal(stale.ok, false); assert(stale.diagnostics.some((value) => value.code === "R22_CONTEXT_STALE"));
 });
 
-test("R21 artifacts are fully rebuilt on every turn rather than trusted from a valid envelope", async () => {
+test("the qualified R21 trust root is verified before any current-ledger projection", async () => {
   const base = await fixture(); const forged = JSON.parse(base.documents.memoryProjectionJson); forged.personaSeedSha256 = sha("f");
   const prepared = await prepareNpcCognition({ ...base.documents, memoryProjectionJson: canonicalizeJsonValue(forged) });
-  assert.equal(prepared.ok, true, JSON.stringify(prepared.diagnostics));
-  const result = createNpcCognitionTurn({ prepared: prepared.prepared, timelineId: "timeline-cognition", actorEntityId: "actor-one", sequence: 1, playerText: "Check.", ...current(base) });
-  assert.equal(result.ok, false); assert(result.diagnostics.some((value) => value.code === "R22_CONTEXT_STALE"));
+  assert.equal(prepared.ok, false);
+  assert(prepared.diagnostics.some((value) => value.code === "NPC_COGNITION_QUALIFIED_DERIVED_STATE_INVALID"));
+  const unrelated = createNpcAuthorityTimeline(base.authorityPrepared, { timelineId: "timeline-unqualified-source", stepLimit: 32 });
+  const sourceDrift = await prepareNpcCognition({ ...base.documents, qualifiedWorldEventLedgerJson: unrelated.canonicalWorldEventLedgerJson });
+  assert.equal(sourceDrift.ok, false);
+  assert(sourceDrift.diagnostics.some((value) => value.code === "NPC_COGNITION_QUALIFIED_DERIVED_STATE_INVALID"));
+});
+
+test("a fresh R22 timeline derives current memory and relationships without forging a new R21 bundle", async () => {
+  const base = await fixture();
+  const fresh = createNpcAuthorityTimeline(base.authorityPrepared, { timelineId: "timeline-fresh", stepLimit: 32 });
+  assert.equal(fresh.ok, true, JSON.stringify(fresh.diagnostics));
+  const initialLedger = JSON.parse(fresh.canonicalWorldEventLedgerJson);
+  const npcIntentJson = canonicalizeJsonValue({
+    format: "matrix-oasis.npc-intent", formatVersion: "0.1.0", canonicalization: NPC_COGNITION_CANONICALIZATION,
+    id: "intent-fresh-loop", actorEntityId: "actor-one", timelineId: "timeline-fresh", nodeId: "node-loop", actionId: "action-loop",
+    observed: { revision: initialLedger.revision, headSha256: initialLedger.headSha256, runtimeSnapshotSha256: hashCanonicalValue(fresh.runtimeSnapshot) },
+  });
+  const advanced = adjudicateNpcIntent({ prepared: base.authorityPrepared, runtimeSnapshot: fresh.runtimeSnapshot, worldEventLedgerJson: fresh.canonicalWorldEventLedgerJson, npcIntentJson });
+  assert.equal(advanced.ok, true, JSON.stringify(advanced.diagnostics));
+  const replayed = replayWorldEventLedger({ prepared: base.authorityPrepared, worldEventLedgerJson: advanced.canonicalWorldEventLedgerJson });
+  assert.equal(replayed.ok, true, JSON.stringify(replayed.diagnostics));
+  const turn = createNpcCognitionTurn({
+    prepared: base.prepared, timelineId: "timeline-fresh", actorEntityId: "actor-one", sequence: 1,
+    playerText: "What changed?", runtimeSnapshot: replayed.runtimeSnapshot, runtimeInspection: replayed.inspection,
+    worldEventLedgerJson: advanced.canonicalWorldEventLedgerJson, behaviorState: base.behaviorState,
+  });
+  assert.equal(turn.ok, true, JSON.stringify(turn.diagnostics));
+  const plan = planNpcCognitionCall({ prepared: base.prepared, turn: turn.turn });
+  assert.equal(plan.ok, true, JSON.stringify(plan.diagnostics));
+  const context = JSON.parse(JSON.parse(plan.providerPayloadJson).input);
+  assert.equal(context.recentMemory.length, 1);
+  assert.equal(context.recentMemory[0].revision, 1);
+  assert.deepEqual(context.actor.relationships, [{ direction: "outgoing", otherEntityLabel: "Second observer", dimensionId: "trust", value: 5 }]);
 });
 
 test("context pressure removes whole oldest memory episodes before transient dialogue", async () => {
@@ -341,7 +388,7 @@ test("replay distinguishes a queued-but-uncommitted R20 fallback from a hidden a
   receipt.statusHistory = ["planned", "approved", "reserved", "dispatching", "validated", "queued_for_r20", "fallback", "finalized"];
   receipt.fallbackReason = "NPC_COGNITION_FALLBACK_R20_UNAVAILABLE";
   receipt.actionChoiceId = mapped.actionChoiceId; receipt.mappedIntentSha256 = hashDocument(mapped.npcIntentJson);
-  receipt.budget.actualMicrousd = NPC_COGNITION_LIMITS.perCallMicrousd;
+  receipt.budget.actualMicrousd = 8;
   const receiptText = canonicalizeJsonValue(receipt); assert.equal(validateNpcCognitionTurnReceiptJson(receiptText).valid, true);
   const trace = traceJson({ documents: f.documents, turn, plan, receipt: receiptText, worldEventLedgerJson: f.worldEventLedgerJson });
   const replayed = replayNpcCognitionEvidence({ prepared: f.prepared, worldEventLedgerJson: f.worldEventLedgerJson, cognitionTraceJson: trace, turnRecords: [{ callPlanJson: plan.canonicalNpcCognitionCallPlanJson, turnReceiptJson: receiptText }] });
