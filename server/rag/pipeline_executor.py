@@ -4,14 +4,47 @@ import asyncio
 import hashlib
 import json
 import logging
+import unicodedata
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from .chunking_receipt import (
+    CHUNKING_RECEIPT_VERSION,
+    HEADING_OVERLAP_POLICY,
+    candidate_namespace_fingerprint,
+    canonical_chunk_sequence_hash,
+    chunker_profile_fingerprint,
+    record_heading_overlap_policy,
+)
 from .embedder import EmbeddingClient, EmbeddingError
+from .content_identity import (
+    canonical_source_text_hash,
+    generated_parent_identity,
+    generated_parent_window_identity,
+    generated_segment_source_mapping,
+)
 from .lexical_store import LexicalChunk
-from .rag_service import RagService
-from .splitter import ParentChildTextSplitter, TextSplitter
-from .source_metadata import normalize_heading_path
+from .rag_service import PipelineJobStateError, RagService
+from .splitter import (
+    EstimatedTokenParentChildTextSplitter,
+    EstimatedTokenTextSplitter,
+    ParentChildTextSplitter,
+    TextChunk,
+    TextSplitter,
+    body_overlap_after_heading_prefix as _body_overlap_after_heading_prefix,
+    bounded_generated_index_text as _bounded_generated_index_text,
+    bounded_heading_prefix as _bounded_heading_prefix,
+    heading_prefix_budget as _heading_prefix_budget,
+    estimate_mixed_cjk_latin_v1_tokens as _estimate_rag_tokens,
+    with_heading_prefix as _with_heading_prefix,
+)
+from .source_metadata import (
+    heading_path_boundary,
+    heading_path_segments,
+    heading_path_source_hash,
+    heading_path_source_truncated,
+    normalize_heading_path,
+)
 from .vector_store import VectorChunk
 
 
@@ -147,8 +180,12 @@ class KnowledgePipelineExecutor:
 
     async def _execute(self, job: dict[str, Any]) -> None:
         job_id = str(job["job_id"])
-        namespace = str(job["candidate_namespace"])
+        namespace = ""
+        uses_vector = False
         try:
+            job = self._validated_execution_job(job_id)
+            namespace = str(job["candidate_namespace"])
+            uses_vector = self._job_uses_vector(job)
             await self._checkpoint(
                 job_id,
                 event_type="knowledge_pipeline.started",
@@ -156,7 +193,10 @@ class KnowledgePipelineExecutor:
                 summary=f"Processing {len(job['sources'])} source files.",
                 metadata={"attempt": job["attempt"], "source_count": len(job["sources"])},
             )
-            if self._job_uses_vector(job):
+            job = self._validated_execution_job(job_id)
+            namespace = str(job["candidate_namespace"])
+            uses_vector = self._job_uses_vector(job)
+            if uses_vector:
                 self.service.vector_store.delete_knowledge_base(namespace)
             self.service.lexical_store.delete_namespace(namespace)
 
@@ -165,9 +205,9 @@ class KnowledgePipelineExecutor:
             parsed = await self._stage(job_id, "process", self._parse_sources)
             chunks = await self._stage(job_id, "chunk", self._chunk_sources, parsed)
             embeddings = await self._stage(job_id, "embed", self._embed_chunks, chunks)
-            namespace = str(
-                self.service.get_pipeline_job(job_id)["candidate_namespace"]
-            )
+            job = self._validated_execution_job(job_id)
+            namespace = str(job["candidate_namespace"])
+            uses_vector = self._job_uses_vector(job)
             await self._stage(job_id, "store", self._store_chunks, chunks, embeddings)
 
             version = self.service.complete_pipeline_job(
@@ -195,7 +235,11 @@ class KnowledgePipelineExecutor:
                         metadata={"candidate_version_id": version["version_id"]},
                     )
         except PipelineJobCancelled:
-            cleanup_complete = self._discard_pipeline_candidate(job_id, namespace)
+            cleanup_complete = self._discard_pipeline_candidate(
+                job_id,
+                namespace,
+                uses_vector=uses_vector,
+            )
             if not cleanup_complete:
                 self.service.fail_pipeline_job(
                     job_id,
@@ -236,8 +280,20 @@ class KnowledgePipelineExecutor:
             raise
         except Exception as exc:
             logger.exception("Knowledge pipeline job failed job_id=%s", job_id)
-            self.service.fail_pipeline_job(job_id, str(exc))
-            cleanup_complete = self._discard_pipeline_candidate(job_id, namespace)
+            self.service.fail_pipeline_job(
+                job_id,
+                str(exc),
+                error_code=(
+                    "rag_pipeline_job_contract_invalid"
+                    if isinstance(exc, PipelineJobStateError)
+                    else "rag_pipeline_execution_failed"
+                ),
+            )
+            cleanup_complete = self._discard_pipeline_candidate(
+                job_id,
+                namespace,
+                uses_vector=uses_vector,
+            )
             if not cleanup_complete:
                 self.service.fail_pipeline_job(
                     job_id,
@@ -267,12 +323,18 @@ class KnowledgePipelineExecutor:
                         ),
                     )
 
-    def _discard_pipeline_candidate(self, job_id: str, namespace: str) -> bool:
+    def _discard_pipeline_candidate(
+        self,
+        job_id: str,
+        namespace: str,
+        *,
+        uses_vector: bool,
+    ) -> bool:
         try:
-            job = self.service.get_pipeline_job(job_id)
-            if self._job_uses_vector(job):
+            if namespace and uses_vector:
                 self.service.vector_store.delete_knowledge_base(namespace)
-            self.service.lexical_store.delete_namespace(namespace)
+            if namespace:
+                self.service.lexical_store.delete_namespace(namespace)
             self.service.cleanup_invalidated_pipeline_job(job_id)
         except Exception:
             logger.warning(
@@ -293,10 +355,19 @@ class KnowledgePipelineExecutor:
         snapshot = job.get("config_snapshot")
         retrieval = snapshot.get("retrieval_profile") if isinstance(snapshot, dict) else None
         return str((retrieval or {}).get("mode") or "hybrid") in {
-            "vector",
             "fulltext",
             "hybrid",
         }
+
+    def _validated_execution_job(self, job_id: str) -> dict[str, Any]:
+        validator = getattr(
+            self.service,
+            "validate_pipeline_job_execution_contract",
+            None,
+        )
+        if callable(validator):
+            return validator(job_id)
+        return self.service.get_pipeline_job(job_id)
 
     async def _stage(
         self,
@@ -315,6 +386,7 @@ class KnowledgePipelineExecutor:
             title=f"{stage_id.title()} stage started",
             metadata={"stage": stage_id},
         )
+        self._validated_execution_job(job_id)
         result = await operation(job_id, *args)
         if self.service.pipeline_job_cancel_requested(job_id):
             self.service.cancel_running_pipeline_job(job_id)
@@ -405,15 +477,20 @@ class KnowledgePipelineExecutor:
         job_id: str,
         parsed: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        job = self.service.get_pipeline_job(job_id)
+        job = self._validated_execution_job(job_id)
         snapshot = job["config_snapshot"]
         stages = snapshot.get("stages", snapshot)
         chunker = stages["stage_chunker"]
         strategy = str(chunker.get("strategy") or "recursive_character")
         if strategy == "local_recursive_character_chunks":
             strategy = "recursive_character"
+        token_strategy = strategy in {
+            "recursive_estimated_token",
+            "parent_child_estimated_token",
+        }
+        legacy_splitter: TextSplitter | ParentChildTextSplitter | None = None
         if strategy == "parent_child":
-            splitter: TextSplitter | ParentChildTextSplitter = ParentChildTextSplitter(
+            legacy_splitter = ParentChildTextSplitter(
                 parent_chunk_size=int(chunker.get("parent_chunk_size", 1500)),
                 parent_chunk_overlap=int(chunker.get("parent_chunk_overlap", 100)),
                 child_chunk_size=int(chunker.get("child_chunk_size", 400)),
@@ -429,14 +506,43 @@ class KnowledgePipelineExecutor:
                     else None
                 ),
             )
-        else:
-            splitter = TextSplitter(
+        elif strategy == "recursive_character":
+            legacy_splitter = TextSplitter(
                 chunk_size=int(chunker["chunk_size"]),
                 chunk_overlap=int(chunker["chunk_overlap"]),
                 separators=list(chunker["separators"]) if chunker.get("separators") else None,
             )
         chunks: list[dict[str, Any]] = []
-        per_source_counts: dict[str, int] = {}
+        receipt: dict[str, Any] = {
+            "receipt_version": CHUNKING_RECEIPT_VERSION,
+            "contract_version": str(
+                chunker.get("chunk_contract_version") or "legacy-character-v1"
+            ),
+            "strategy": strategy,
+            "size_unit": str(chunker.get("size_unit") or "characters"),
+            "token_estimator": (
+                str(chunker.get("token_estimator") or "") or None
+            ),
+            "chunker_profile_fingerprint": chunker_profile_fingerprint(chunker),
+            "candidate_version_id": str(job.get("candidate_version_id") or ""),
+            "candidate_namespace_fingerprint": candidate_namespace_fingerprint(
+                job.get("candidate_namespace")
+            ),
+            "raw_candidate_count": 0,
+            "heading_block_count": 0,
+            "heading_prefix_truncated_count": 0,
+            "heading_overlap_policy": HEADING_OVERLAP_POLICY,
+            "max_heading_prefix_tokens": 0,
+            "prefix_exceeds_configured_overlap_count": 0,
+            "max_effective_index_overlap_budget_tokens": 0,
+            "max_effective_context_overlap_budget_tokens": 0,
+            "generated_item_count": 0,
+            "generated_item_chunk_count": 0,
+            "generated_item_rejected_count": 0,
+            "generated_item_rejection_reasons": {},
+            "deduplicated_chunk_count": 0,
+            "final_chunk_count": 0,
+        }
         for source in parsed:
             source_id = str(source["source_id"])
             generated_items = source.get("generated_items")
@@ -449,19 +555,20 @@ class KnowledgePipelineExecutor:
                 for generated in generated_items:
                     if not isinstance(generated, dict):
                         continue
-                    source_blocks = [
-                        blocks[str(block_id)]
-                        for block_id in generated.get("source_block_ids", [])
-                        if str(block_id) in blocks
-                    ]
-                    start_char = min(
-                        (int(block.get("start_char", 0)) for block in source_blocks),
-                        default=0,
-                    )
-                    end_char = max(
-                        (int(block.get("end_char", 0)) for block in source_blocks),
-                        default=0,
-                    )
+                    receipt["generated_item_count"] += 1
+                    segment_rejection_recorded = False
+                    try:
+                        parent_chunk_id, source_block_ids_tuple = (
+                            generated_parent_identity(source_id, generated, blocks)
+                        )
+                    except ValueError:
+                        _record_chunk_rejection(
+                            receipt,
+                            "source_block_provenance_invalid",
+                        )
+                        continue
+                    source_block_ids = list(source_block_ids_tuple)
+                    source_blocks = [blocks[block_id] for block_id in source_block_ids]
                     page_numbers = {
                         int(block["page_number"])
                         for block in source_blocks
@@ -473,11 +580,20 @@ class KnowledgePipelineExecutor:
                         if isinstance(block.get("metadata"), dict)
                         and block.get("metadata", {}).get("slide") is not None
                     }
-                    heading_paths = {
-                        heading_path
+                    source_heading_paths = [
+                        heading_path_segments(block.get("heading_path"))
                         for block in source_blocks
-                        if (heading_path := normalize_heading_path(block.get("heading_path")))
-                    }
+                    ]
+                    source_heading_hashes = [
+                        str(block.get("heading_path_source_hash") or "")
+                        or heading_path_source_hash(block.get("heading_path"))
+                        for block in source_blocks
+                    ]
+                    source_heading_was_truncated = any(
+                        block.get("heading_path_source_truncated") is True
+                        or heading_path_source_truncated(block.get("heading_path"))
+                        for block in source_blocks
+                    )
                     sheets = {
                         str(block.get("metadata", {}).get("sheet"))
                         for block in source_blocks
@@ -495,44 +611,283 @@ class KnowledgePipelineExecutor:
                         for block in source_blocks
                         if str(block.get("kind") or "").startswith(("image_", "visual_"))
                     }
-                    index = per_source_counts.get(source_id, 0)
-                    per_source_counts[source_id] = index + 1
-                    chunks.append(
-                        {
-                            "source": source,
-                            "index": index,
-                            "index_text": str(generated.get("index_text") or ""),
-                            "context_text": str(generated.get("context_text") or ""),
-                            "start_char": start_char,
-                            "end_char": end_char,
-                            "chunk_type": str(generated.get("item_type") or "generated"),
-                            "parent_chunk_id": (
-                                f"{source_id}_{generated.get('item_id', index)}"
+                    source_heading_path = ()
+                    heading_path = ()
+                    if (
+                        source_heading_paths
+                        and all(source_heading_paths)
+                        and len(set(source_heading_paths)) == 1
+                        and all(source_heading_hashes)
+                        and len(set(source_heading_hashes)) == 1
+                    ):
+                        source_heading_path = source_heading_paths[0]
+                        heading_path = normalize_heading_path(source_heading_path)
+                    if token_strategy:
+                        index_budget = int(
+                            chunker.get("child_chunk_size", 400)
+                            if strategy == "parent_child_estimated_token"
+                            else chunker.get("chunk_size", 500)
+                        )
+                        context_budget = int(
+                            chunker.get("parent_chunk_size", 1500)
+                            if strategy == "parent_child_estimated_token"
+                            else chunker.get("chunk_size", 500)
+                        )
+                        index_overlap = int(
+                            chunker.get("child_chunk_overlap", 50)
+                            if strategy == "parent_child_estimated_token"
+                            else chunker.get("chunk_overlap", 50)
+                        )
+                        context_overlap = int(
+                            chunker.get("parent_chunk_overlap", 100)
+                            if strategy == "parent_child_estimated_token"
+                            else chunker.get("chunk_overlap", 50)
+                        )
+                        prefix_input = (
+                            heading_path_boundary(source_heading_path)
+                            if source_heading_was_truncated and source_heading_path
+                            else source_heading_path
+                        )
+                        prefix, budget_truncated = _bounded_heading_prefix(
+                            prefix_input,
+                            budget=_heading_prefix_budget(
+                                index_budget=index_budget,
+                                index_overlap=index_overlap,
+                                context_budget=context_budget,
+                                context_overlap=context_overlap,
                             ),
-                            "page_number": next(iter(page_numbers)) if len(page_numbers) == 1 else None,
-                            "slide": next(iter(slides)) if len(slides) == 1 else None,
-                            "heading_path": (
-                                next(iter(heading_paths))
-                                if len(heading_paths) == 1
-                                else ()
+                        )
+                        prefix_truncated = (
+                            source_heading_was_truncated or budget_truncated
+                        )
+                        if prefix_truncated:
+                            receipt["heading_prefix_truncated_count"] += 1
+                        prefix_tokens = (
+                            _estimate_rag_tokens(prefix + "\n") if prefix else 0
+                        )
+                        index_text = _with_heading_prefix(
+                            prefix,
+                            str(generated.get("index_text") or "").strip(),
+                        )
+                        if not index_text or _estimate_rag_tokens(index_text) > index_budget:
+                            _record_chunk_rejection(receipt, "index_text_over_budget")
+                            continue
+                        context_body = str(generated.get("context_text") or "")
+                        if strategy == "parent_child_estimated_token":
+                            parent_body_budget = max(1, context_budget - prefix_tokens)
+                            child_body_budget = max(1, index_budget - prefix_tokens)
+                            context_segments = EstimatedTokenParentChildTextSplitter(
+                                parent_chunk_size=parent_body_budget,
+                                parent_chunk_overlap=_body_overlap_after_heading_prefix(
+                                    configured_overlap=context_overlap,
+                                    prefix_tokens=prefix_tokens,
+                                    body_budget=parent_body_budget,
+                                ),
+                                child_chunk_size=child_body_budget,
+                                child_chunk_overlap=_body_overlap_after_heading_prefix(
+                                    configured_overlap=index_overlap,
+                                    prefix_tokens=prefix_tokens,
+                                    body_budget=child_body_budget,
+                                ),
+                                parent_separators=(
+                                    list(chunker.get("parent_separators") or []) or None
+                                ),
+                                child_separators=(
+                                    list(chunker.get("child_separators") or []) or None
+                                ),
+                            ).split_segments(context_body)
+                        else:
+                            body_budget = max(
+                                1,
+                                min(index_budget, context_budget) - prefix_tokens,
+                            )
+                            body_overlap = _body_overlap_after_heading_prefix(
+                                configured_overlap=context_overlap,
+                                prefix_tokens=prefix_tokens,
+                                body_budget=body_budget,
+                            )
+                            context_segments = EstimatedTokenTextSplitter(
+                                chunk_size=body_budget,
+                                chunk_overlap=max(0, body_overlap),
+                                separators=(
+                                    list(chunker.get("separators") or []) or None
+                                ),
+                            ).split_segments(context_body)
+                        if not context_segments:
+                            _record_chunk_rejection(receipt, "context_text_empty")
+                            continue
+                    else:
+                        index_text = str(generated.get("index_text") or "")
+                        context_segments = [
+                            TextChunk(
+                                text=str(generated.get("context_text") or ""),
+                                index=0,
+                                start_char=0,
+                                end_char=len(str(generated.get("context_text") or "")),
+                            )
+                        ]
+                        prefix = ""
+                    for context_segment in context_segments:
+                        context_text = _with_heading_prefix(
+                            prefix,
+                            context_segment.parent_text or context_segment.text,
+                        )
+                        local_parent_id = context_segment.parent_chunk_id
+                        if (
+                            not local_parent_id
+                            and token_strategy
+                            and len(context_segments) > 1
+                        ):
+                            local_parent_id = f"segment_{context_segment.index}"
+                        segment_parent_chunk_id = (
+                            generated_parent_window_identity(
+                                parent_chunk_id,
+                                local_parent_id,
+                                context_text,
+                            )
+                            if local_parent_id
+                            else parent_chunk_id
+                        )
+                        if token_strategy:
+                            segment_index_text = _bounded_generated_index_text(
+                                index_text,
+                                context_segment.text,
+                                budget=index_budget,
+                            )
+                        else:
+                            segment_index_text = index_text
+                        mapping_text = (
+                            context_segment.parent_text
+                            or context_segment.text
+                        )
+                        mapping_start = (
+                            context_segment.parent_start_char
+                            if context_segment.parent_text is not None
+                            and context_segment.parent_start_char is not None
+                            else context_segment.start_char
+                        )
+                        mapping_end = (
+                            context_segment.parent_end_char
+                            if context_segment.parent_text is not None
+                            and context_segment.parent_end_char is not None
+                            else context_segment.end_char
+                        )
+                        source_mapping = generated_segment_source_mapping(
+                            mapping_text,
+                            source_blocks,
+                            segment_start=mapping_start,
+                            segment_end=mapping_end,
+                            context_source_ranges=generated.get(
+                                "context_source_ranges"
                             ),
-                            "sheet": next(iter(sheets)) if len(sheets) == 1 else None,
-                            "row_range": (
-                                next(iter(row_ranges)) if len(row_ranges) == 1 else None
-                            ),
-                            "visual_kind": next(iter(visual_kinds)) if len(visual_kinds) == 1 else None,
-                            "source_block_id": (
-                                str(source_blocks[0].get("block_id"))
-                                if len(source_blocks) == 1
-                                else None
-                            ),
-                            "source_block_hash": (
-                                _source_block_hash(source_blocks[0].get("text"))
-                                if len(source_blocks) == 1
-                                else None
-                            ),
+                        )
+                        if (
+                            source_mapping.status == "unmapped"
+                            or not source_mapping.source_block_ids
+                        ):
+                            if not segment_rejection_recorded:
+                                _record_chunk_rejection(
+                                    receipt,
+                                    "generated_segment_source_unmapped",
+                                )
+                                segment_rejection_recorded = True
+                            continue
+                        mapped_source_blocks = [
+                            blocks[block_id]
+                            for block_id in source_mapping.source_block_ids
+                            if block_id in blocks
+                        ]
+                        mapped_page_numbers = {
+                            int(block["page_number"])
+                            for block in mapped_source_blocks
+                            if block.get("page_number") is not None
                         }
-                    )
+                        mapped_slides = {
+                            int(block.get("metadata", {}).get("slide"))
+                            for block in mapped_source_blocks
+                            if isinstance(block.get("metadata"), dict)
+                            and block.get("metadata", {}).get("slide") is not None
+                        }
+                        mapped_heading_path = heading_path
+                        mapped_sheets = {
+                            str(block.get("metadata", {}).get("sheet"))
+                            for block in mapped_source_blocks
+                            if isinstance(block.get("metadata"), dict)
+                            and block.get("metadata", {}).get("sheet")
+                        }
+                        mapped_row_ranges = {
+                            str(block.get("metadata", {}).get("row_range"))
+                            for block in mapped_source_blocks
+                            if isinstance(block.get("metadata"), dict)
+                            and block.get("metadata", {}).get("row_range")
+                        }
+                        mapped_visual_kinds = {
+                            str(block.get("kind") or "")
+                            for block in mapped_source_blocks
+                            if str(block.get("kind") or "").startswith(
+                                ("image_", "visual_")
+                            )
+                        }
+                        mapped_block = blocks.get(
+                            str(source_mapping.source_block_id or "")
+                        )
+                        if token_strategy:
+                            record_heading_overlap_policy(
+                                receipt,
+                                prefix_tokens=prefix_tokens,
+                                index_overlap=index_overlap,
+                                context_overlap=context_overlap,
+                            )
+                        chunks.append(
+                            {
+                                "source": source,
+                                "index": 0,
+                                "index_text": segment_index_text,
+                                "context_text": context_text,
+                                "start_char": source_mapping.start_char,
+                                "end_char": source_mapping.end_char,
+                                "chunk_type": str(generated.get("item_type") or "generated"),
+                                "generated_item": True,
+                                "parent_chunk_id": segment_parent_chunk_id,
+                                "page_number": (
+                                    next(iter(mapped_page_numbers))
+                                    if len(mapped_page_numbers) == 1
+                                    else None
+                                ),
+                                "slide": (
+                                    next(iter(mapped_slides))
+                                    if len(mapped_slides) == 1
+                                    else None
+                                ),
+                                "heading_path": mapped_heading_path,
+                                "sheet": (
+                                    next(iter(mapped_sheets))
+                                    if len(mapped_sheets) == 1
+                                    else None
+                                ),
+                                "row_range": (
+                                    next(iter(mapped_row_ranges))
+                                    if len(mapped_row_ranges) == 1
+                                    else None
+                                ),
+                                "visual_kind": (
+                                    next(iter(mapped_visual_kinds))
+                                    if len(mapped_visual_kinds) == 1
+                                    else None
+                                ),
+                                "source_block_id": source_mapping.source_block_id,
+                                "source_block_ids": list(
+                                    source_mapping.source_block_ids
+                                ),
+                                "source_block_hash": (
+                                    _source_block_hash(mapped_block.get("text"))
+                                    if isinstance(mapped_block, dict)
+                                    else None
+                                ),
+                                "source_block_match_status": source_mapping.status,
+                            }
+                        )
+                        receipt["raw_candidate_count"] += 1
                 continue
 
             document = source.get("processed_document")
@@ -541,25 +896,122 @@ class KnowledgePipelineExecutor:
                 if not isinstance(block, dict):
                     continue
                 raw_block_text = str(block.get("text") or "")
-                block_text = raw_block_text.strip()
-                if not block_text:
+                if not raw_block_text.strip():
                     continue
-                heading_path = list(
-                    normalize_heading_path(block.get("heading_path"))
+                if str(block.get("kind") or "") == "heading":
+                    receipt["heading_block_count"] += 1
+                    continue
+                source_heading_path = heading_path_segments(block.get("heading_path"))
+                heading_path = list(normalize_heading_path(source_heading_path))
+                source_heading_was_truncated = (
+                    block.get("heading_path_source_truncated") is True
+                    or heading_path_source_truncated(block.get("heading_path"))
                 )
                 block_metadata = (
                     block.get("metadata")
                     if isinstance(block.get("metadata"), dict)
                     else {}
                 )
-                for segment in splitter.split_segments(block_text):
-                    index = per_source_counts.get(source_id, 0)
-                    per_source_counts[source_id] = index + 1
+                if token_strategy:
+                    index_budget = int(
+                        chunker.get("child_chunk_size", 400)
+                        if strategy == "parent_child_estimated_token"
+                        else chunker.get("chunk_size", 500)
+                    )
+                    context_budget = int(
+                        chunker.get("parent_chunk_size", 1500)
+                        if strategy == "parent_child_estimated_token"
+                        else chunker.get("chunk_size", 500)
+                    )
+                    index_overlap = int(
+                        chunker.get("child_chunk_overlap", 50)
+                        if strategy == "parent_child_estimated_token"
+                        else chunker.get("chunk_overlap", 50)
+                    )
+                    context_overlap = int(
+                        chunker.get("parent_chunk_overlap", 100)
+                        if strategy == "parent_child_estimated_token"
+                        else chunker.get("chunk_overlap", 50)
+                    )
+                    prefix_input = (
+                        heading_path_boundary(source_heading_path)
+                        if source_heading_was_truncated and source_heading_path
+                        else source_heading_path
+                    )
+                    heading_prefix, budget_truncated = _bounded_heading_prefix(
+                        prefix_input,
+                        budget=_heading_prefix_budget(
+                            index_budget=index_budget,
+                            index_overlap=index_overlap,
+                            context_budget=context_budget,
+                            context_overlap=context_overlap,
+                        ),
+                    )
+                    prefix_truncated = (
+                        source_heading_was_truncated or budget_truncated
+                    )
+                    if prefix_truncated:
+                        receipt["heading_prefix_truncated_count"] += 1
+                    prefix_tokens = (
+                        _estimate_rag_tokens(heading_prefix + "\n")
+                        if heading_prefix
+                        else 0
+                    )
+                    record_heading_overlap_policy(
+                        receipt,
+                        prefix_tokens=prefix_tokens,
+                        index_overlap=index_overlap,
+                        context_overlap=context_overlap,
+                    )
+                    if strategy == "parent_child_estimated_token":
+                        splitter = EstimatedTokenParentChildTextSplitter(
+                            parent_chunk_size=max(1, context_budget - prefix_tokens),
+                            parent_chunk_overlap=_body_overlap_after_heading_prefix(
+                                configured_overlap=context_overlap,
+                                prefix_tokens=prefix_tokens,
+                                body_budget=max(1, context_budget - prefix_tokens),
+                            ),
+                            child_chunk_size=max(1, index_budget - prefix_tokens),
+                            child_chunk_overlap=_body_overlap_after_heading_prefix(
+                                configured_overlap=index_overlap,
+                                prefix_tokens=prefix_tokens,
+                                body_budget=max(1, index_budget - prefix_tokens),
+                            ),
+                            parent_separators=(
+                                list(chunker["parent_separators"])
+                                if chunker.get("parent_separators")
+                                else None
+                            ),
+                            child_separators=(
+                                list(chunker["child_separators"])
+                                if chunker.get("child_separators")
+                                else None
+                            ),
+                        )
+                    else:
+                        splitter = EstimatedTokenTextSplitter(
+                            chunk_size=max(1, index_budget - prefix_tokens),
+                            chunk_overlap=_body_overlap_after_heading_prefix(
+                                configured_overlap=index_overlap,
+                                prefix_tokens=prefix_tokens,
+                                body_budget=max(1, index_budget - prefix_tokens),
+                            ),
+                            separators=(
+                                list(chunker["separators"])
+                                if chunker.get("separators")
+                                else None
+                            ),
+                        )
+                else:
+                    splitter = legacy_splitter
                     heading_prefix = " > ".join(heading_path)
-                    index_text = (
-                        f"{heading_prefix}\n{segment.text}"
-                        if heading_prefix and heading_prefix not in segment.text
-                        else segment.text
+                if splitter is None:
+                    raise RuntimeError(f"Unsupported chunking strategy: {strategy}")
+                for segment in splitter.split_segments(raw_block_text):
+                    index_text = _with_heading_prefix(heading_prefix, segment.text)
+                    context_text = _with_heading_prefix(
+                        heading_prefix,
+                        segment.parent_text or segment.text,
                     )
                     parent_id = (
                         f"{source_id}_{block.get('block_id')}_{segment.parent_chunk_id}"
@@ -569,9 +1021,9 @@ class KnowledgePipelineExecutor:
                     chunks.append(
                         {
                             "source": source,
-                            "index": index,
+                            "index": 0,
                             "index_text": index_text,
-                            "context_text": segment.parent_text or segment.text,
+                            "context_text": context_text,
                             "start_char": int(block.get("start_char", 0))
                             + segment.start_char,
                             "end_char": int(block.get("start_char", 0))
@@ -596,9 +1048,89 @@ class KnowledgePipelineExecutor:
                             "source_block_hash": _source_block_hash(raw_block_text),
                         }
                     )
+                    receipt["raw_candidate_count"] += 1
+        deduplicated: list[dict[str, Any]] = []
+        seen_content: dict[tuple[str, str, str], int] = {}
+        for item in chunks:
+            source_id = str((item.get("source") or {}).get("source_id") or "")
+            scope_id = str(
+                item.get("source_block_id")
+                or item.get("parent_chunk_id")
+                or "document"
+            )
+            content_hash = (
+                _normalized_chunk_payload_hash(
+                    str(item.get("index_text") or ""),
+                    str(item.get("context_text") or ""),
+                )
+                if item.get("generated_item") is True
+                else _normalized_chunk_content_hash(str(item.get("index_text") or ""))
+            )
+            dedupe_key = (source_id, scope_id, content_hash)
+            existing_index = seen_content.get(dedupe_key)
+            if existing_index is not None:
+                receipt["deduplicated_chunk_count"] += 1
+                existing = deduplicated[existing_index]
+                if (
+                    item.get("generated_item") is not True
+                    and (
+                        int(item.get("start_char") or 0),
+                        int(item.get("end_char") or 0),
+                    )
+                    < (
+                        int(existing.get("start_char") or 0),
+                        int(existing.get("end_char") or 0),
+                    )
+                ):
+                    deduplicated[existing_index] = item
+                continue
+            seen_content[dedupe_key] = len(deduplicated)
+            deduplicated.append(item)
+        chunks = deduplicated
+        parent_contexts: dict[tuple[str, str], str] = {}
+        for item in chunks:
+            parent_chunk_id = str(item.get("parent_chunk_id") or "")
+            if not parent_chunk_id:
+                continue
+            source_id = str((item.get("source") or {}).get("source_id") or "")
+            context_text = str(item.get("context_text") or "")
+            parent_key = (source_id, parent_chunk_id)
+            previous_context = parent_contexts.setdefault(parent_key, context_text)
+            if previous_context != context_text:
+                raise RuntimeError(
+                    "A parent chunk identity resolved to multiple context windows."
+                )
+        receipt["generated_item_chunk_count"] = sum(
+            1 for item in chunks if item.get("generated_item") is True
+        )
+        per_source_counts: dict[str, int] = {}
+        candidate_version_id = str(job.get("candidate_version_id") or "")
+        if not candidate_version_id:
+            raise RuntimeError("Pipeline job is missing its candidate version identity.")
+        for item in chunks:
+            source_id = str((item.get("source") or {}).get("source_id") or "")
+            item["index"] = per_source_counts.get(source_id, 0)
+            item["chunk_index"] = int(item["index"])
+            item["chunk_id"] = (
+                f"{candidate_version_id}_{source_id}_chunk_{item['chunk_index']}"
+            )
+            per_source_counts[source_id] = int(item["index"]) + 1
+        receipt["final_chunk_count"] = len(chunks)
+        receipt["chunk_sequence_hash"] = canonical_chunk_sequence_hash(chunks)
+        self.service.update_pipeline_chunking_receipt(job_id, receipt)
+        self.service.update_pipeline_document_chunk_counts(job_id, per_source_counts)
         if not chunks:
             raise RuntimeError("No indexable text chunks were produced.")
-        self.service.update_pipeline_document_chunk_counts(job_id, per_source_counts)
+        expected_source_ids = {
+            str(source.get("source_id") or "")
+            for source in parsed
+            if str(source.get("source_id") or "")
+        }
+        missing_source_ids = expected_source_ids - set(per_source_counts)
+        if missing_source_ids:
+            raise RuntimeError(
+                "One or more processed sources produced no indexable text chunks."
+            )
         return chunks
 
     async def _embed_chunks(
@@ -606,7 +1138,7 @@ class KnowledgePipelineExecutor:
         job_id: str,
         chunks: list[dict[str, Any]],
     ) -> list[list[float]]:
-        job = self.service.get_pipeline_job(job_id)
+        job = self._validated_execution_job(job_id)
         if not self._job_uses_vector(job):
             return []
         snapshot = job["config_snapshot"]
@@ -675,7 +1207,7 @@ class KnowledgePipelineExecutor:
         chunks: list[dict[str, Any]],
         embeddings: list[list[float]],
     ) -> None:
-        job = self.service.get_pipeline_job(job_id)
+        job = self._validated_execution_job(job_id)
         version_id = str(job["candidate_version_id"])
         namespace = str(job["candidate_namespace"])
         vector_chunks: list[VectorChunk] = []
@@ -690,7 +1222,15 @@ class KnowledgePipelineExecutor:
             source = item["source"]
             source_id = str(source["source_id"])
             doc_id = f"{version_id}_{source_id}"
-            chunk_id = f"{doc_id}_chunk_{item['index']}"
+            chunk_index = int(item["index"])
+            chunk_id = f"{doc_id}_chunk_{chunk_index}"
+            if (
+                int(item.get("chunk_index", -1)) != chunk_index
+                or str(item.get("chunk_id") or "") != chunk_id
+            ):
+                raise RuntimeError(
+                    "Chunk identity no longer matches its receipt-bound sequence."
+                )
             common = {
                 "parent_chunk_id": item.get("parent_chunk_id"),
                 "parent_text": (
@@ -719,7 +1259,13 @@ class KnowledgePipelineExecutor:
                         document_name=str(source["filename"]),
                         text=str(item.get("index_text") or ""),
                         embedding=embeddings[position],
-                        chunk_index=int(item["index"]),
+                        chunk_index=chunk_index,
+                        source_block_ids=tuple(
+                            str(block_id)
+                            for block_id in (item.get("source_block_ids") or [])
+                            if str(block_id)
+                        ),
+                        generated_item=item.get("generated_item") is True,
                         **common,
                     )
                 )
@@ -731,7 +1277,7 @@ class KnowledgePipelineExecutor:
                         doc_id=doc_id,
                         document_name=str(source["filename"]),
                         text=str(item.get("index_text") or ""),
-                        chunk_index=int(item["index"]),
+                        chunk_index=chunk_index,
                         **common,
                     )
                 )
@@ -749,14 +1295,32 @@ class KnowledgePipelineExecutor:
 
 
 def _source_block_hash(value: Any) -> str | None:
-    text = str(value or "")
-    if not text.strip():
-        return None
-    encoded = json.dumps(
-        text,
-        allow_nan=False,
-        ensure_ascii=False,
-        separators=(",", ":"),
-        sort_keys=True,
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
+    return canonical_source_text_hash(value)
+
+
+def _normalized_chunk_content_hash(text: str) -> str:
+    normalized = " ".join(unicodedata.normalize("NFKC", text).split())
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _normalized_chunk_payload_hash(index_text: str, context_text: str) -> str:
+    payload = {
+        "index_text": " ".join(unicodedata.normalize("NFKC", index_text).split()),
+        "context_text": " ".join(unicodedata.normalize("NFKC", context_text).split()),
+    }
+    return hashlib.sha256(
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _record_chunk_rejection(receipt: dict[str, Any], reason: str) -> None:
+    receipt["generated_item_rejected_count"] = int(
+        receipt.get("generated_item_rejected_count") or 0
+    ) + 1
+    reasons = receipt.setdefault("generated_item_rejection_reasons", {})
+    reasons[reason] = int(reasons.get(reason) or 0) + 1

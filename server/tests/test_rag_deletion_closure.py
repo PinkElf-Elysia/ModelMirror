@@ -33,6 +33,30 @@ def build_service(tmp_path: Path) -> RagService:
     )
 
 
+def configure_vector_draft(service: RagService, kb_id: str) -> dict[str, object]:
+    """Keep deletion fixtures on the only buildable Round 4A retrieval path."""
+    return service.update_pipeline_draft(
+        kb_id,
+        {},
+        retrieval_profile={"mode": "vector"},
+    )
+
+
+def mark_version_as_previously_active(service: RagService, version_id: str) -> None:
+    """Model a historical active version without authorizing first activation."""
+    with service._metadata_lock:  # noqa: SLF001 - historical deletion fixture.
+        metadata = service._read_metadata_unlocked()  # noqa: SLF001
+        version = metadata["pipeline_versions"][version_id]
+        kb_id = str(version["kb_id"])
+        previous_id = metadata["pipeline_active_versions"].get(kb_id)
+        if previous_id and previous_id in metadata["pipeline_versions"]:
+            metadata["pipeline_versions"][previous_id]["status"] = "ready"
+        version["status"] = "active"
+        version["activated_at"] = 1.0
+        metadata["pipeline_active_versions"][kb_id] = version_id
+        service._write_metadata_unlocked(metadata)  # noqa: SLF001
+
+
 @pytest.mark.asyncio
 async def test_delete_purges_active_historical_and_pipeline_payloads(
     tmp_path: Path,
@@ -43,13 +67,15 @@ async def test_delete_purges_active_historical_and_pipeline_payloads(
         kb["id"],
         "secret.txt",
         b"DELETION-CANARY-7319 must disappear from every index.",
+        pipeline_only=True,
     )
     survivor = await service.upload_document(
         kb["id"],
         "survivor.txt",
         b"SURVIVOR-CANARY-4421 remains searchable.",
+        pipeline_only=True,
     )
-    draft = service.get_pipeline_draft(kb["id"])
+    draft = configure_vector_draft(service, kb["id"])
     job_payload = service.create_pipeline_job(
         kb["id"],
         draft_version=draft["version"],
@@ -59,7 +85,8 @@ async def test_delete_purges_active_historical_and_pipeline_payloads(
     assert await executor.run_once() is True
     completed = service.get_pipeline_job(job_payload["job_id"])
     version = service.get_pipeline_version(completed["candidate_version_id"])
-    service.activate_pipeline_version(version["version_id"])
+    original_receipt = json.loads(json.dumps(version["chunking_receipt"]))
+    mark_version_as_previously_active(service, version["version_id"])
 
     deleted_result = next(
         item
@@ -145,6 +172,20 @@ async def test_delete_purges_active_historical_and_pipeline_payloads(
         for item in updated_version["document_results"]
     )
     assert updated_version["document_count"] == 1
+    assert updated_version["lineage_status"] == "invalidated"
+    assert updated_version["lineage_reason_codes"] == ["source_deleted"]
+    assert updated_version["chunking_receipt"] == original_receipt
+    assert service._read_metadata()["pipeline_active_versions"][kb["id"]] == version[
+        "version_id"
+    ]
+    evidence = service.pipeline_version_evidence(version["version_id"])
+    assert evidence["lineage_status"] == "invalidated"
+    assert evidence["lineage_reason_codes"] == ["source_deleted"]
+    assert evidence["chunking_receipt_status"] == "lineage_invalidated"
+    with pytest.raises(PipelineJobStateError, match="source was deleted"):
+        service.pipeline_corpus_snapshot(version["version_id"])
+    with pytest.raises(PipelineJobStateError, match="source was deleted"):
+        service.activate_pipeline_version(version["version_id"])
     assert [item["id"] for item in service.list_documents(kb["id"])] == [
         survivor["id"]
     ]
@@ -162,6 +203,7 @@ async def test_failed_cleanup_isolated_immediately_and_retries(
         kb["id"],
         "retry.txt",
         b"RETRY-DELETE-CANARY-9137",
+        pipeline_only=True,
     )
     original_delete = service.vector_store.delete_document
     attempts = 0
@@ -200,7 +242,12 @@ async def test_concurrent_delete_has_single_cleanup_claim(
 ) -> None:
     service = build_service(tmp_path)
     kb = service.create_knowledge_base("concurrent deletion")
-    document = await service.upload_document(kb["id"], "race.txt", b"RACE-CANARY")
+    document = await service.upload_document(
+        kb["id"],
+        "race.txt",
+        b"RACE-CANARY",
+        pipeline_only=True,
+    )
     entered = threading.Event()
     release = threading.Event()
     original_purge = service._purge_document_payloads
@@ -248,8 +295,13 @@ async def test_delete_unbinds_real_asset_and_invalidates_queued_job(
         lambda: asset_service,
     )
     kb = service.create_knowledge_base("shared asset")
-    document = await service.upload_document(kb["id"], "shared.txt", b"SHARED-ASSET")
-    draft = service.get_pipeline_draft(kb["id"])
+    document = await service.upload_document(
+        kb["id"],
+        "shared.txt",
+        b"SHARED-ASSET",
+        pipeline_only=True,
+    )
+    draft = configure_vector_draft(service, kb["id"])
     job = service.create_pipeline_job(
         kb["id"],
         draft_version=draft["version"],
@@ -339,6 +391,7 @@ async def test_asset_cleanup_pending_survives_reload_until_gc_completes(
         kb["id"],
         "pending.txt",
         b"ASSET-CLEANUP-PENDING-CANARY",
+        pipeline_only=True,
     )
     with service._metadata_lock:
         metadata = service._read_metadata_unlocked()
@@ -422,8 +475,9 @@ async def test_vision_page_cache_delete_failure_stays_pending_and_retries(
         kb["id"],
         "vision.txt",
         b"VISION-PAGE-CACHE-CANARY",
+        pipeline_only=True,
     )
-    draft = service.get_pipeline_draft(kb["id"])
+    draft = configure_vector_draft(service, kb["id"])
     job_payload = service.create_pipeline_job(
         kb["id"],
         draft_version=draft["version"],
@@ -464,11 +518,17 @@ async def test_vision_page_cache_delete_failure_stays_pending_and_retries(
 @pytest.mark.asyncio
 async def test_complete_pipeline_job_rechecks_cancel_state_under_metadata_lock(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service = build_service(tmp_path)
     kb = service.create_knowledge_base("completion race")
-    document = await service.upload_document(kb["id"], "race.txt", b"RACE")
-    draft = service.get_pipeline_draft(kb["id"])
+    document = await service.upload_document(
+        kb["id"],
+        "race.txt",
+        b"RACE",
+        pipeline_only=True,
+    )
+    draft = configure_vector_draft(service, kb["id"])
     job_payload = service.create_pipeline_job(
         kb["id"],
         draft_version=draft["version"],
@@ -477,6 +537,15 @@ async def test_complete_pipeline_job_rechecks_cancel_state_under_metadata_lock(
     claimed = service.claim_next_pipeline_job()
     assert claimed is not None
     service.request_pipeline_job_cancel(job_payload["job_id"])
+
+    # Stored chunk integrity has dedicated contract coverage.  Make that earlier
+    # guard neutral so this test reaches the cancellation recheck under the
+    # metadata lock instead of weakening its original concurrency assertion.
+    monkeypatch.setattr(
+        service,
+        "_stored_vector_chunk_sequence_hash",
+        lambda **_kwargs: "",
+    )
 
     with pytest.raises(PipelineJobStateError, match="cannot publish"):
         service.complete_pipeline_job(
@@ -498,8 +567,13 @@ async def test_running_pipeline_must_ack_stop_and_strict_cleanup_before_delete(
 ) -> None:
     service = build_service(tmp_path)
     kb = service.create_knowledge_base("running pipeline handshake")
-    document = await service.upload_document(kb["id"], "running.txt", b"RUNNING")
-    draft = service.get_pipeline_draft(kb["id"])
+    document = await service.upload_document(
+        kb["id"],
+        "running.txt",
+        b"RUNNING",
+        pipeline_only=True,
+    )
+    draft = configure_vector_draft(service, kb["id"])
     job_payload = service.create_pipeline_job(
         kb["id"],
         draft_version=draft["version"],
@@ -558,8 +632,13 @@ async def test_running_pipeline_cleanup_failure_keeps_retryable_tombstone(
 ) -> None:
     service = build_service(tmp_path)
     kb = service.create_knowledge_base("running cleanup retry")
-    document = await service.upload_document(kb["id"], "retry.txt", b"RETRY")
-    draft = service.get_pipeline_draft(kb["id"])
+    document = await service.upload_document(
+        kb["id"],
+        "retry.txt",
+        b"RETRY",
+        pipeline_only=True,
+    )
+    draft = configure_vector_draft(service, kb["id"])
     job_payload = service.create_pipeline_job(
         kb["id"],
         draft_version=draft["version"],
@@ -618,8 +697,13 @@ async def test_restart_recovery_never_requeues_deletion_invalidated_job(
 ) -> None:
     service = build_service(tmp_path)
     kb = service.create_knowledge_base("restart invalidation")
-    document = await service.upload_document(kb["id"], "restart.txt", b"RESTART")
-    draft = service.get_pipeline_draft(kb["id"])
+    document = await service.upload_document(
+        kb["id"],
+        "restart.txt",
+        b"RESTART",
+        pipeline_only=True,
+    )
+    draft = configure_vector_draft(service, kb["id"])
     job_payload = service.create_pipeline_job(
         kb["id"],
         draft_version=draft["version"],
@@ -655,6 +739,7 @@ async def test_pending_deletion_get_is_tenant_and_knowledge_base_scoped(
         target_kb["id"],
         "pending-api.txt",
         b"PENDING-API-BODY-CANARY",
+        pipeline_only=True,
     )
 
     def fail_cleanup(doc_id: str) -> None:

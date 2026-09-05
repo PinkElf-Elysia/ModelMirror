@@ -8,13 +8,17 @@ from pathlib import Path
 import httpx
 import pytest
 
+from server.rag.chunking_receipt import candidate_namespace_fingerprint
 from server.rag import retrieval as retrieval_module
 from server.rag.embedder import EmbeddingClient
 from server.rag.lexical_store import LexicalChunk, SqliteLexicalStore, tokenize_for_search
 from server.rag.pipeline_executor import KnowledgePipelineExecutor
-from server.rag.rag_service import RagService
-from server.rag.rag_service import PipelineDraftValidationError
-from server.rag.rag_service import RagRetrievalContractError
+from server.rag.rag_service import (
+    PipelineDraftValidationError,
+    PipelineVersionNotFoundError,
+    RagRetrievalContractError,
+    RagService,
+)
 from server.rag.reranker import RerankDocument, RerankItem, RerankOutcome, RerankService
 from server.rag.retrieval import RetrievalCandidate, RetrievalConfig, fuse_rankings
 from server.rag.splitter import ParentChildTextSplitter, TextSplitter
@@ -184,7 +188,7 @@ def test_sqlite_fts5_migrates_old_source_schema_with_optional_defaults(
 
 
 @pytest.mark.asyncio
-async def test_v2_candidate_builds_dual_index_and_lifts_parent_context(tmp_path: Path) -> None:
+async def test_v3_vector_candidate_lifts_parent_context(tmp_path: Path) -> None:
     service = build_service(tmp_path)
     kb = service.create_knowledge_base("advanced retrieval")
     text = (
@@ -198,7 +202,7 @@ async def test_v2_candidate_builds_dual_index_and_lifts_parent_context(tmp_path:
         {
             "stage_chunker": {
                 "config": {
-                    "strategy": "parent_child",
+                    "strategy": "parent_child_estimated_token",
                     "parent_chunk_size": 500,
                     "parent_chunk_overlap": 50,
                     "child_chunk_size": 160,
@@ -208,7 +212,7 @@ async def test_v2_candidate_builds_dual_index_and_lifts_parent_context(tmp_path:
                 }
             }
         },
-        retrieval_profile={"mode": "hybrid", "top_k": 3},
+        retrieval_profile={"mode": "vector", "top_k": 3},
     )
     job = service.create_pipeline_job(
         kb["id"],
@@ -221,13 +225,13 @@ async def test_v2_candidate_builds_dual_index_and_lifts_parent_context(tmp_path:
     version = service.get_pipeline_version(completed["candidate_version_id"])
     assert version["index_schema_version"] == 3
     assert version["vector_index_ready"] is True
-    assert version["lexical_index_ready"] is True
-    assert service.lexical_store.count_namespace(version["namespace"]) == version["chunk_count"]
+    assert version["lexical_index_ready"] is False
+    assert service.lexical_store.count_namespace(version["namespace"]) == 0
 
     result = await service.query_pipeline_version(
         version["version_id"],
         "CELESTIAL-ORCA 发布口令",
-        retrieval={"mode": "hybrid", "top_k": 3},
+        retrieval={"mode": "vector", "top_k": 3},
     )
     assert result["sources"]
     source = result["sources"][0]
@@ -239,7 +243,7 @@ async def test_v2_candidate_builds_dual_index_and_lifts_parent_context(tmp_path:
     assert exact.chunk_id == source["chunk_id"]
     assert service.vector_store.get_chunk("other-namespace", source["chunk_id"]) is None
     assert result["retrieval"]["vector_candidate_count"] > 0
-    assert result["retrieval"]["fulltext_candidate_count"] > 0
+    assert result["retrieval"]["fulltext_candidate_count"] == 0
 
 
 @pytest.mark.asyncio
@@ -340,6 +344,9 @@ async def test_real_embedding_version_records_actual_dimension_and_fails_closed(
     version = service.get_pipeline_version(job["candidate_version_id"])
     assert version["embedding_profile"]["effective"]["dimension"] == 3
     assert version["embedding_profile"]["dimension"] == 3
+    assert version["chunking_receipt"]["candidate_namespace_fingerprint"] == (
+        candidate_namespace_fingerprint(version["namespace"])
+    )
     evidence_before = service.pipeline_version_evidence(version["version_id"])
 
     result = await service.query_pipeline_version(
@@ -377,6 +384,69 @@ async def test_real_embedding_version_records_actual_dimension_and_fails_closed(
             retrieval={"mode": "vector"},
             generate_answer=False,
         )
+
+
+@pytest.mark.asyncio
+async def test_embedding_dimension_discovery_cannot_reseal_a_tampered_snapshot(
+    tmp_path: Path,
+) -> None:
+    storage = tmp_path / "dimension-toctou-storage"
+    embedder = EmbeddingClient(
+        api_base="https://embedding.test/v1",
+        api_key="configured",
+        model="real-model",
+        dimension=64,
+    )
+    job_id = ""
+
+    async def tamper_then_return_embeddings(
+        texts: list[str],
+    ) -> list[list[float]]:
+        with service._metadata_lock:  # noqa: SLF001 - TOCTOU attack fixture.
+            metadata = service._read_metadata_unlocked()  # noqa: SLF001
+            snapshot = metadata["pipeline_jobs"][job_id]["config_snapshot"]
+            snapshot["retrieval_profile"]["top_k"] = 9
+            service._write_metadata_unlocked(metadata)  # noqa: SLF001
+        return [[1.0, float(len(text) % 7), 0.25] for text in texts]
+
+    embedder.embed_texts = tamper_then_return_embeddings  # type: ignore[method-assign]
+    service = RagService(
+        storage_dir=storage,
+        uploads_dir=tmp_path / "dimension-toctou-uploads",
+        embedder=embedder,
+        vector_store=LocalJsonVectorStore(storage / "vectors.json"),
+        lexical_store=SqliteLexicalStore(storage / "lexical.sqlite3"),
+        llm_enabled=False,
+    )
+    kb = service.create_knowledge_base("dimension discovery seal")
+    document = await service.upload_document(
+        kb["id"],
+        "seal.txt",
+        b"The admitted pipeline snapshot must remain immutable.",
+    )
+    draft = service.update_pipeline_draft(
+        kb["id"],
+        {},
+        embedding_profile={
+            "provider": "openai_compatible",
+            "model": "real-model",
+        },
+        retrieval_profile={"mode": "vector", "top_k": 2},
+    )
+    job = service.create_pipeline_job(
+        kb["id"],
+        draft_version=draft["version"],
+        source_document_ids=[document["id"]],
+    )
+    job_id = str(job["job_id"])
+
+    assert await KnowledgePipelineExecutor(service).run_once() is True
+    failed = service.get_pipeline_job(job_id)
+    assert failed["status"] == "failed"
+    assert failed["error_code"] == "rag_pipeline_job_contract_invalid"
+    assert "admitted fingerprint" in str(failed["error"])
+    with pytest.raises(PipelineVersionNotFoundError):
+        service.get_pipeline_version(str(job["candidate_version_id"]))
 
 
 def test_chroma_isolates_namespaces_with_different_dimensions(tmp_path: Path) -> None:
@@ -562,7 +632,7 @@ async def test_successful_rerank_top_n_does_not_restore_unranked_tail(
     draft = service.update_pipeline_draft(
         kb["id"],
         {},
-        retrieval_profile={"mode": "fulltext", "top_k": 8},
+        retrieval_profile={"mode": "vector", "top_k": 8},
     )
     job = service.create_pipeline_job(
         kb["id"],
@@ -577,7 +647,7 @@ async def test_successful_rerank_top_n_does_not_restore_unranked_tail(
         version_id,
         "ORBIT-RERANK",
         retrieval={
-            "mode": "fulltext",
+            "mode": "vector",
             "top_k": 8,
             "candidate_multiplier": 1,
             "rerank_enabled": True,
@@ -619,7 +689,7 @@ async def test_successful_rerank_top_n_does_not_restore_unranked_tail(
         version_id,
         "ORBIT-RERANK",
         retrieval={
-            "mode": "fulltext",
+            "mode": "vector",
             "top_k": 8,
             "candidate_multiplier": 1,
             "rerank_enabled": True,

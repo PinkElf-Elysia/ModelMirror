@@ -252,6 +252,30 @@ Phase B should begin only if the user accepts these four decisions:
 rule change must update its evidence classification, counterexample and local
 experiment reference before production behavior changes.
 
+### 10.1 Round 4A Router Rules V2 compatibility boundary
+
+Round 4A changes the executable chunking contract without converting the
+character-based Phase A evidence into token-budget evidence. Router Rules V2
+therefore keeps only the estimated-token chunker already configured on the
+current Pipeline Draft. It does not translate a V1 character size or overlap
+into estimated tokens, does not propose a different token budget, and does not
+restore the old character chunkers as buildable candidates.
+
+Recommendations persist the rules version that produced them. A stored Rules V1
+recommendation is `stale` under Router Rules V2 in both list and detail views and
+cannot be applied. The corpus and current Draft must be analyzed again to create
+a Rules V2 recommendation. This invalidation is intentional: preserving a V1
+recommendation would allow character-derived heuristics to write into the new
+estimated-token contract without supporting evidence.
+
+The Auto Tuner exposes the same boundary explicitly: `chunker` is absent from
+its `tunable` dimensions, appears under `deferred`, and reports
+`chunker_search_status="frozen_until_calibrated_token_budget"`. Retrieval-mode,
+Top-K, weight, threshold and bounded rerank experiments remain available under
+their existing evidence gates. Chunker search can return only after a separate
+calibrated estimated-token budget is approved; silently relabeling the old
+character grid is not an acceptable substitute.
+
 ## 11. Benchmark Auto Tuner authorization and evidence boundary
 
 Follow-up decision recorded on 2026-08-10: after Router V1 was accepted and
@@ -385,24 +409,42 @@ and retrieval profile are exactly equal to the base is marked
 `baseline_equivalent` before Holdout. It cannot become a winner because of timing
 noise, and the run must finish `no_improvement` without creating a version.
 
-Both scenarios execute the real upload, parser, pipeline job, vector/FTS build,
-query, optimization split, repeated Holdout, paired statistical gate, materialized
-pipeline job and full Evaluation Gate path. They do not monkeypatch search results
-or metrics. The fixture and capability contract are fixed as
-`rag-strategy-known-winner-v1`; changing scoring or selection logic requires the
-same fixture to pass without rewriting its Gold to match the new behavior.
+Under the Round 4A content contract, the real 03D runs currently stop at lexical
+admission: the fixture still requests the legacy lexical-v1 build path, while new
+full-text indexes require lexical-v2. The two retained `wait_for_lexical_v2`
+tests are the executable fail-closed evidence for that boundary. Round 4B must
+restore the original end-to-end proof on lexical-v2 before any 03D result can be
+claimed as runtime, Formal, materialization, or Promotion evidence.
+`RagStrategyTuner.capabilities().validation` exposes this state as
+`known_winner_validation_status="blocked_until_lexical_v2"`; the accompanying
+scenario list is only the fixture catalog and must not be interpreted as current
+known-winner validation evidence. Only the restored real lexical-v2 scenarios in
+Round 4B may change that status back to a current/passing value.
+
+Round 4A also keeps two explicitly named `synthetic_future` / `engine-only`
+controls. They exercise generated-parent diversity plus threshold recovery, and
+already-optimal plus semantic-duplicate abstention, using in-memory synthetic
+rankings only. These controls prove the bounded algorithm behavior but do not
+execute upload, parsing, FTS build, query, Holdout, Evaluation Gate,
+materialization, or activation. The fixture and capability contract remain fixed
+as `rag-strategy-known-winner-v1`; changing scoring or selection logic requires
+the same controls and, after Round 4B, the restored full-text end-to-end scenarios
+to pass without rewriting Gold to match the new behavior.
 
 ### Verified and unverified boundary
 
-Verified by 03D:
+Verified by the current engine-only 03D controls:
 
-- a real full-text threshold defect is recovered end to end;
-- hard-negative improvement survives fixed Holdout and full-set validation;
-- the winner becomes `promotion_required` and is never auto-activated;
-- an already-optimal equivalent profile cannot manufacture a latency-only win.
+- generated children sharing one stable parent cannot consume multiple diversity
+  slots before threshold calibration;
+- the synthetic score boundary recovers a safe non-zero threshold;
+- an already-optimal baseline plus a semantically duplicate candidate abstains
+  instead of manufacturing a winner.
 
 Not yet proved by this fixture:
 
+- the original real full-text end-to-end 03D path under lexical-v2, including
+  Holdout, Evaluation Gate, materialization and `promotion_required` state;
 - a known winner between Recursive and Parent-child chunking;
 - Vector or Hybrid selection with a real semantic embedding provider;
 - Rerank quality/cost selection;

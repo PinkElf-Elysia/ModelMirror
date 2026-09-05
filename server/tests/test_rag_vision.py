@@ -15,8 +15,12 @@ from server.rag.api import (
     set_rag_service_for_tests,
 )
 from server.rag.embedder import EmbeddingClient
+from server.rag.document_processor import DocumentBlock, ProcessedDocument
 from server.rag.pipeline_executor import KnowledgePipelineExecutor
-from server.rag.rag_service import RagService
+from server.rag.rag_service import (
+    PipelineJobStateError,
+    RagService,
+)
 from server.rag.vector_store import LocalJsonVectorStore
 from server.rag.vision_processor import (
     MAX_IMAGE_PIXELS,
@@ -226,6 +230,533 @@ async def test_scanned_pdf_auto_selects_and_renders_pages(
 
 
 @pytest.mark.asyncio
+async def test_completed_vision_artifact_tamper_cannot_be_reused(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A resumed job must not trust mutable visual evidence by path alone."""
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    calls = 0
+
+    def request_override(*_args) -> dict:
+        nonlocal calls
+        calls += 1
+        return _vlm_response()
+
+    vision = VisionUnderstandingService(request_override=request_override)
+    service = RagService(
+        storage_dir=tmp_path / "storage",
+        uploads_dir=tmp_path / "uploads",
+        embedder=EmbeddingClient(api_key="", dimension=128),
+        vector_store=LocalJsonVectorStore(tmp_path / "storage" / "vectors.json"),
+        llm_enabled=False,
+        vision_processor=vision,
+    )
+    kb_id = service.create_knowledge_base("vision-artifact-tamper")["id"]
+    document = await service.upload_document(kb_id, "chart.png", _png_bytes())
+    draft = service.update_pipeline_draft(
+        kb_id,
+        {
+            "stage_image_understanding": {
+                "config": {
+                    "enabled": True,
+                    "vision_model_id": "openai/gpt-4.1-mini",
+                }
+            }
+        },
+        retrieval_profile={"mode": "vector"},
+    )
+    created = service.create_pipeline_job(
+        kb_id,
+        draft_version=draft["version"],
+        source_document_ids=[document["id"]],
+    )
+    claimed = service.claim_next_pipeline_job()
+    assert claimed is not None and claimed["job_id"] == created["job_id"]
+    first = await service.process_pipeline_job_vision(created["job_id"])
+    assert first and first[0]["reused"] is False
+    assert calls == 1
+
+    stored = service.get_pipeline_job(created["job_id"])
+    result = stored["document_results"][0]
+    assert result.get("vision_artifact_hash")
+    artifact_path = service._pipeline_vision_path(  # noqa: SLF001
+        result["vision_artifact_key"]
+    )
+    artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+    artifact["page_count"] = 999
+    artifact_path.write_text(json.dumps(artifact), encoding="utf-8")
+
+    with pytest.raises(PipelineJobStateError, match="vision artifact"):
+        await service.process_pipeline_job_vision(created["job_id"])
+    with pytest.raises(PipelineJobStateError, match="vision artifact"):
+        await service.process_pipeline_job_sources(created["job_id"])
+    assert service.processor_gate_error(created["job_id"]) is None
+    assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_vision_source_change_during_provider_call_fails_before_artifact_binding(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Provider output cannot bind after its admitted source changes in flight."""
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    provider_calls = 0
+
+    def request_override(*_args) -> dict:
+        nonlocal provider_calls
+        provider_calls += 1
+        return _vlm_response()
+
+    vision = VisionUnderstandingService(request_override=request_override)
+    service = RagService(
+        storage_dir=tmp_path / "storage",
+        uploads_dir=tmp_path / "uploads",
+        embedder=EmbeddingClient(api_key="", dimension=128),
+        vector_store=LocalJsonVectorStore(tmp_path / "storage" / "vectors.json"),
+        llm_enabled=False,
+        vision_processor=vision,
+    )
+    kb_id = service.create_knowledge_base("vision-source-change-in-flight")["id"]
+    document = await service.upload_document(kb_id, "chart.png", _png_bytes())
+    draft = service.update_pipeline_draft(
+        kb_id,
+        {
+            "stage_image_understanding": {
+                "config": {
+                    "enabled": True,
+                    "vision_model_id": "openai/gpt-4.1-mini",
+                }
+            }
+        },
+        retrieval_profile={"mode": "vector"},
+    )
+    created = service.create_pipeline_job(
+        kb_id,
+        draft_version=draft["version"],
+        source_document_ids=[document["id"]],
+    )
+    claimed = service.claim_next_pipeline_job()
+    assert claimed is not None and claimed["job_id"] == created["job_id"]
+    stored = service.get_pipeline_job(created["job_id"])
+    source = stored["sources"][0]
+    source_path = service.storage_dir / source["snapshot_key"]
+    artifact_path = service._pipeline_vision_path(  # noqa: SLF001
+        stored["document_results"][0]["vision_artifact_key"]
+    )
+    original_source_bytes = source_path.read_bytes()
+    original_analyze = service.vision_processor.analyze_source
+    mutate_once = True
+
+    async def mutate_source_before_provider_returns(*args, **kwargs):
+        nonlocal mutate_once
+        result = await original_analyze(*args, **kwargs)
+        if mutate_once:
+            mutate_once = False
+            source_path.write_bytes(_png_bytes(width=81, height=41))
+        return result
+
+    monkeypatch.setattr(
+        service.vision_processor,
+        "analyze_source",
+        mutate_source_before_provider_returns,
+    )
+
+    with pytest.raises(PipelineJobStateError, match="source|hash|content"):
+        await service.process_pipeline_job_vision(created["job_id"])
+
+    assert provider_calls == 1
+    assert not artifact_path.exists()
+    page_dir = artifact_path.parent / f"{artifact_path.stem}_pages"
+    assert list(page_dir.glob("page_*.json")) == []
+    failed_binding = service.get_pipeline_job(created["job_id"])[
+        "document_results"
+    ][0]
+    assert failed_binding.get("vision_artifact_hash") in {None, ""}
+
+    source_path.write_bytes(original_source_bytes)
+    retried = await service.process_pipeline_job_vision(created["job_id"])
+
+    assert retried and retried[0]["reused"] is False
+    assert provider_calls == 2
+    assert artifact_path.is_file()
+    assert len(list(page_dir.glob("page_*.json"))) == 1
+
+
+@pytest.mark.asyncio
+async def test_vision_result_config_hash_tamper_cannot_repeat_provider_call(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A persisted result mismatch must fail before a second vision request."""
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    calls = 0
+
+    def request_override(*_args) -> dict:
+        nonlocal calls
+        calls += 1
+        return _vlm_response()
+
+    service = RagService(
+        storage_dir=tmp_path / "storage",
+        uploads_dir=tmp_path / "uploads",
+        embedder=EmbeddingClient(api_key="", dimension=128),
+        vector_store=LocalJsonVectorStore(tmp_path / "storage" / "vectors.json"),
+        llm_enabled=False,
+        vision_processor=VisionUnderstandingService(
+            request_override=request_override
+        ),
+    )
+    kb_id = service.create_knowledge_base("vision-result-config-tamper")["id"]
+    document = await service.upload_document(kb_id, "chart.png", _png_bytes())
+    draft = service.update_pipeline_draft(
+        kb_id,
+        {
+            "stage_image_understanding": {
+                "config": {
+                    "enabled": True,
+                    "vision_model_id": "openai/gpt-4.1-mini",
+                }
+            }
+        },
+        retrieval_profile={"mode": "vector"},
+    )
+    created = service.create_pipeline_job(
+        kb_id,
+        draft_version=draft["version"],
+        source_document_ids=[document["id"]],
+    )
+    assert service.claim_next_pipeline_job() is not None
+    first = await service.process_pipeline_job_vision(created["job_id"])
+    assert first and first[0]["reused"] is False
+    assert calls == 1
+
+    with service._metadata_lock:  # noqa: SLF001 - persisted lineage tamper.
+        metadata = service._read_metadata_unlocked()  # noqa: SLF001
+        metadata["pipeline_jobs"][created["job_id"]]["document_results"][0][
+            "vision_config_hash"
+        ] = "0" * 64
+        service._write_metadata_unlocked(metadata)  # noqa: SLF001
+
+    with pytest.raises(PipelineJobStateError, match="result configuration"):
+        await service.process_pipeline_job_vision(created["job_id"])
+    assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_partial_vision_page_cache_tamper_cannot_be_reused(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Durable per-page evidence must be sealed before a resumed provider run."""
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    calls = 0
+
+    def request_override(*_args) -> dict:
+        nonlocal calls
+        calls += 1
+        return _vlm_response()
+
+    service = RagService(
+        storage_dir=tmp_path / "storage",
+        uploads_dir=tmp_path / "uploads",
+        embedder=EmbeddingClient(api_key="", dimension=128),
+        vector_store=LocalJsonVectorStore(tmp_path / "storage" / "vectors.json"),
+        llm_enabled=False,
+        vision_processor=VisionUnderstandingService(
+            request_override=request_override
+        ),
+    )
+    kb_id = service.create_knowledge_base("vision-page-cache-tamper")["id"]
+    document = await service.upload_document(kb_id, "chart.png", _png_bytes())
+    draft = service.update_pipeline_draft(
+        kb_id,
+        {
+            "stage_image_understanding": {
+                "config": {
+                    "enabled": True,
+                    "vision_model_id": "openai/gpt-4.1-mini",
+                }
+            }
+        },
+        retrieval_profile={"mode": "vector"},
+    )
+    created = service.create_pipeline_job(
+        kb_id,
+        draft_version=draft["version"],
+        source_document_ids=[document["id"]],
+    )
+    assert service.claim_next_pipeline_job() is not None
+    await service.process_pipeline_job_vision(created["job_id"])
+    assert calls == 1
+
+    stored = service.get_pipeline_job(created["job_id"])
+    result = stored["document_results"][0]
+    artifact_path = service._pipeline_vision_path(  # noqa: SLF001
+        result["vision_artifact_key"]
+    )
+    cache_path = artifact_path.parent / f"{artifact_path.stem}_pages" / "page_1.json"
+    cached = json.loads(cache_path.read_text(encoding="utf-8"))
+    cached["result"]["blocks"][0]["text"] = "tampered"
+    cache_path.write_text(json.dumps(cached), encoding="utf-8")
+    with service._metadata_lock:  # noqa: SLF001 - partial recovery fixture.
+        metadata = service._read_metadata_unlocked()  # noqa: SLF001
+        metadata["pipeline_jobs"][created["job_id"]]["document_results"][0][
+            "vision_status"
+        ] = "processing"
+        service._write_metadata_unlocked(metadata)  # noqa: SLF001
+
+    with pytest.raises(PipelineJobStateError, match="page cache"):
+        await service.process_pipeline_job_vision(created["job_id"])
+    assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_vision_page_cache_cannot_be_replayed_for_another_page(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A valid cache checksum cannot authorize a different page identity."""
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    calls = 0
+
+    def request_override(*_args) -> dict:
+        nonlocal calls
+        calls += 1
+        return _vlm_response()
+
+    service = RagService(
+        storage_dir=tmp_path / "storage",
+        uploads_dir=tmp_path / "uploads",
+        embedder=EmbeddingClient(api_key="", dimension=128),
+        vector_store=LocalJsonVectorStore(tmp_path / "storage" / "vectors.json"),
+        llm_enabled=False,
+        vision_processor=VisionUnderstandingService(
+            request_override=request_override,
+            max_concurrency=1,
+        ),
+    )
+    kb_id = service.create_knowledge_base("vision-page-identity")["id"]
+    document = await service.upload_document(
+        kb_id,
+        "scan.pdf",
+        _scanned_pdf_bytes(pages=2),
+    )
+    draft = service.update_pipeline_draft(
+        kb_id,
+        {
+            "stage_image_understanding": {
+                "config": {
+                    "enabled": True,
+                    "vision_model_id": "openai/gpt-4.1-mini",
+                }
+            }
+        },
+        retrieval_profile={"mode": "vector"},
+    )
+    created = service.create_pipeline_job(
+        kb_id,
+        draft_version=draft["version"],
+        source_document_ids=[document["id"]],
+    )
+    assert service.claim_next_pipeline_job() is not None
+    await service.process_pipeline_job_vision(created["job_id"])
+    assert calls == 2
+
+    stored = service.get_pipeline_job(created["job_id"])
+    result = stored["document_results"][0]
+    artifact_path = service._pipeline_vision_path(  # noqa: SLF001
+        result["vision_artifact_key"]
+    )
+    page_dir = artifact_path.parent / f"{artifact_path.stem}_pages"
+    (page_dir / "page_2.json").write_bytes(
+        (page_dir / "page_1.json").read_bytes()
+    )
+    with service._metadata_lock:  # noqa: SLF001 - resume fixture.
+        metadata = service._read_metadata_unlocked()  # noqa: SLF001
+        metadata["pipeline_jobs"][created["job_id"]]["document_results"][0][
+            "vision_status"
+        ] = "processing"
+        service._write_metadata_unlocked(metadata)  # noqa: SLF001
+
+    with pytest.raises(PipelineJobStateError, match="page cache identity"):
+        await service.process_pipeline_job_vision(created["job_id"])
+    assert calls == 2
+
+
+@pytest.mark.asyncio
+async def test_vision_page_cache_cannot_be_replayed_for_another_source(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Equal source bytes do not make two source identities interchangeable."""
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    calls = 0
+
+    def request_override(*_args) -> dict:
+        nonlocal calls
+        calls += 1
+        return _vlm_response()
+
+    service = RagService(
+        storage_dir=tmp_path / "storage",
+        uploads_dir=tmp_path / "uploads",
+        embedder=EmbeddingClient(api_key="", dimension=128),
+        vector_store=LocalJsonVectorStore(tmp_path / "storage" / "vectors.json"),
+        llm_enabled=False,
+        vision_processor=VisionUnderstandingService(
+            request_override=request_override,
+            max_concurrency=1,
+        ),
+    )
+    kb_id = service.create_knowledge_base("vision-source-cache-identity")["id"]
+    first = await service.upload_document(kb_id, "first.png", _png_bytes())
+    second = await service.upload_document(kb_id, "second.png", _png_bytes())
+    draft = service.update_pipeline_draft(
+        kb_id,
+        {
+            "stage_image_understanding": {
+                "config": {
+                    "enabled": True,
+                    "vision_model_id": "openai/gpt-4.1-mini",
+                }
+            }
+        },
+        retrieval_profile={"mode": "vector"},
+    )
+    created = service.create_pipeline_job(
+        kb_id,
+        draft_version=draft["version"],
+        source_document_ids=[first["id"], second["id"]],
+    )
+    assert service.claim_next_pipeline_job() is not None
+    await service.process_pipeline_job_vision(created["job_id"])
+    assert calls == 2
+
+    stored = service.get_pipeline_job(created["job_id"])
+    by_source = {
+        item["source_id"]: item for item in stored["document_results"]
+    }
+    first_artifact = service._pipeline_vision_path(  # noqa: SLF001
+        by_source[first["id"]]["vision_artifact_key"]
+    )
+    second_artifact = service._pipeline_vision_path(  # noqa: SLF001
+        by_source[second["id"]]["vision_artifact_key"]
+    )
+    first_cache = first_artifact.parent / f"{first_artifact.stem}_pages" / "page_1.json"
+    second_cache = second_artifact.parent / f"{second_artifact.stem}_pages" / "page_1.json"
+    second_cache.write_bytes(first_cache.read_bytes())
+    with service._metadata_lock:  # noqa: SLF001 - cross-source replay fixture.
+        metadata = service._read_metadata_unlocked()  # noqa: SLF001
+        second_result = next(
+            item
+            for item in metadata["pipeline_jobs"][created["job_id"]][
+                "document_results"
+            ]
+            if item["source_id"] == second["id"]
+        )
+        second_result["vision_status"] = "processing"
+        service._write_metadata_unlocked(metadata)  # noqa: SLF001
+
+    with pytest.raises(PipelineJobStateError, match="page cache identity"):
+        await service.process_pipeline_job_vision(created["job_id"])
+    assert calls == 2
+
+
+@pytest.mark.asyncio
+async def test_continue_on_error_allows_processor_after_top_level_vision_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A provider orchestration failure is not artifact corruption."""
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    service = RagService(
+        storage_dir=tmp_path / "storage",
+        uploads_dir=tmp_path / "uploads",
+        embedder=EmbeddingClient(api_key="", dimension=128),
+        vector_store=LocalJsonVectorStore(tmp_path / "storage" / "vectors.json"),
+        llm_enabled=False,
+        vision_processor=VisionUnderstandingService(
+            request_override=lambda *_: _vlm_response()
+        ),
+    )
+
+    async def fail_vision(*_args, **_kwargs):
+        raise RuntimeError("synthetic vision orchestration failure")
+
+    def process_without_visuals(
+        _path: Path,
+        *,
+        filename: str,
+        source_id: str,
+        **_kwargs,
+    ) -> ProcessedDocument:
+        text = "Locally parsed fallback evidence."
+        return ProcessedDocument(
+            source_id=source_id,
+            filename=filename,
+            title=filename,
+            text=text,
+            blocks=[
+                DocumentBlock(
+                    block_id=f"block_{source_id}",
+                    kind="paragraph",
+                    text=text,
+                    start_char=0,
+                    end_char=len(text),
+                )
+            ],
+        )
+
+    monkeypatch.setattr(service.vision_processor, "analyze_source", fail_vision)
+    monkeypatch.setattr(service.document_processor, "process", process_without_visuals)
+    kb_id = service.create_knowledge_base("vision continue on error")["id"]
+    document = await service.upload_document(kb_id, "chart.png", _png_bytes())
+    draft = service.update_pipeline_draft(
+        kb_id,
+        {
+            "stage_image_understanding": {
+                "config": {
+                    "enabled": True,
+                    "vision_model_id": "openai/gpt-4.1-mini",
+                    "failure_policy": "continue_on_error",
+                }
+            },
+            "stage_processor": {
+                "config": {"failure_policy": "continue_on_error"}
+            },
+        },
+        retrieval_profile={"mode": "vector"},
+    )
+    created = service.create_pipeline_job(
+        kb_id,
+        draft_version=draft["version"],
+        source_document_ids=[document["id"]],
+    )
+
+    assert await KnowledgePipelineExecutor(service).run_once() is True
+
+    completed = service.get_pipeline_job(created["job_id"])
+    result = completed["document_results"][0]
+    assert completed["status"] == "succeeded"
+    assert result["vision_status"] == "failed"
+    assert result.get("vision_artifact_hash") in {None, ""}
+    assert result["status"] == "completed"
+    assert completed["warnings"]
+    assert service.get_pipeline_version(created["candidate_version_id"])[
+        "status"
+    ] == "ready"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("failure_policy", "expected_status"),
     [("continue_on_error", "succeeded"), ("strict", "failed")],
@@ -281,6 +812,7 @@ async def test_scanned_pdf_job_honors_visual_failure_policy(
                 }
             }
         },
+        retrieval_profile={"mode": "vector"},
     )
     job = service.create_pipeline_job(
         kb_id,
@@ -396,6 +928,7 @@ async def test_managed_rag_vision_does_not_require_legacy_gateway(
                 }
             }
         },
+        retrieval_profile={"mode": "vector"},
     )
 
     job = service.create_pipeline_job(
@@ -408,7 +941,7 @@ async def test_managed_rag_vision_does_not_require_legacy_gateway(
 
 
 @pytest.mark.asyncio
-async def test_visual_pipeline_builds_dual_index_and_returns_page_citation(
+async def test_visual_pipeline_builds_vector_index_and_returns_page_citation(
     vision_api,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -456,6 +989,7 @@ async def test_visual_pipeline_builds_dual_index_and_returns_page_citation(
                 }
             }
         },
+        retrieval_profile={"mode": "vector"},
     )
     job = service.create_pipeline_job(
         kb_id,
@@ -478,11 +1012,12 @@ async def test_visual_pipeline_builds_dual_index_and_returns_page_citation(
     version = service.get_pipeline_version(completed["candidate_version_id"])
     assert version["vision_profile"]["vision_model_id"] == "openai/gpt-4.1-mini"
     assert version["vector_index_ready"] is True
-    assert version["lexical_index_ready"] is True
+    assert version["lexical_index_ready"] is False
     preview = await service.query_pipeline_version(
         version["version_id"],
         "quarterly revenue chart",
         top_k=5,
+        retrieval={"mode": "vector"},
     )
     assert preview["sources"]
     source = preview["sources"][0]

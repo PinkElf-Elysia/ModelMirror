@@ -11,7 +11,7 @@ import {
   modelServingReviewBaseline,
   emailReviewBaseline,
   providerMultimodalR8cBaseline,
-  ragDiversityBaseline,
+  ragContentContractBaseline,
   remoteMcpReviewBaseline,
   rssReviewBaseline,
   searchHelpContent,
@@ -50,6 +50,7 @@ describe("help center content catalog", () => {
       "subscribe-email-workflow",
       "handle-workflow-node-failure",
       "modules-and-terms",
+      "understand-rag-content-contract",
       "recover-unavailable-feature",
       "review-remote-mcp-auth",
       "check-availability-cost-data",
@@ -61,8 +62,9 @@ describe("help center content catalog", () => {
       expect(article.verifiedCommit).toMatch(/^[0-9a-f]{8}$/);
       expect(article.verifiedDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       expect(article.content).not.toMatch(/内容稍后补充|coming soon/i);
+      expect(article.content, `${article.slug}: duplicate page h1`).not.toMatch(/^# /m);
     });
-    expect(helpArticles.filter((article) => !["start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "review-meta-planner-branches", "handle-workflow-node-failure", "modules-and-terms", "check-availability-cost-data"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
+    expect(helpArticles.filter((article) => !["start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "review-meta-planner-branches", "handle-workflow-node-failure", "modules-and-terms", "check-availability-cost-data", "understand-rag-content-contract"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
     const modelServingArticle = helpArticles.find((article) => article.slug === "check-availability-cost-data");
     expect(modelServingArticle?.verifiedCommit).toBe(modelServingReviewBaseline.commit);
     expect(modelServingArticle?.verifiedDate).toBe(modelServingReviewBaseline.date);
@@ -81,6 +83,8 @@ describe("help center content catalog", () => {
     expect(helpArticles.find((article) => article.slug === "recover-unavailable-feature")?.verifiedCommit).toBe(providerMultimodalR8cBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "recover-unavailable-feature")?.verifiedDate).toBe(providerMultimodalR8cBaseline.date);
     expect(helpArticles.find((article) => article.slug === "recover-unavailable-feature")?.content).toContain("只读刷新模型证据");
+    expect(helpArticles.find((article) => article.slug === "understand-rag-content-contract")?.verifiedCommit).toBe(ragContentContractBaseline.commit);
+    expect(helpArticles.find((article) => article.slug === "understand-rag-content-contract")?.verifiedDate).toBe(ragContentContractBaseline.date);
     expect(helpArticles.find((article) => article.slug === "review-remote-mcp-auth")?.verifiedCommit).toBe(remoteMcpReviewBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "subscribe-rss-workflow")?.verifiedCommit).toBe(rssReviewBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "subscribe-email-workflow")?.verifiedCommit).toBe(emailReviewBaseline.commit);
@@ -106,6 +110,28 @@ describe("help center content catalog", () => {
     });
   });
 
+  it("keeps the RAG content-contract explanation decision-complete", () => {
+    const article = helpArticles.find((item) => item.slug === "understand-rag-content-contract");
+    expect(article).toBeDefined();
+    [
+      "开始前",
+      "权限、费用与数据影响",
+      "真实范例",
+      "常见问题",
+      "限制",
+      "下一步",
+    ].forEach((heading) => {
+      expect(article?.content, heading).toContain(`## ${heading}`);
+    });
+    expect(article?.content).toContain("不构成任何真实模型质量或费用证据");
+    expect(article?.content).toContain("等待流水线处理");
+    expect(article?.content).toContain("## 预览一个诊断候选");
+    expect(article?.content).toContain("候选就绪");
+    expect(article?.content).toContain("打开流水线画布");
+    expect(article?.content).toContain(`/help-center/${ragContentContractBaseline.commit}/rag-estimated-token-budget.png`);
+    expect(article?.content).toContain(`/help-center/${ragContentContractBaseline.commit}/rag-diagnostic-candidate.png`);
+  });
+
   it("uses descriptive alt text and the latest screenshot baseline", () => {
     helpArticles.forEach((article) => {
       const images = [...article.content.matchAll(/!\[([^\]]*)\]\(([^)]+)\)/g)];
@@ -128,11 +154,14 @@ describe("help center content catalog", () => {
     expect(searchHelpContent("配置").some((entry) => entry.id === "troubleshooting")).toBe(true);
     expect(searchHelpContent("RAG").some((entry) => entry.id === "workspace/rag")).toBe(true);
     const ragTopic = helpModules.find((module) => module.id === "workspace")?.topics.find((topic) => topic.id === "rag");
-    expect(ragTopic?.verifiedCommit).toBe(ragDiversityBaseline.commit);
-    expect(ragTopic?.verifiedDate).toBe(ragDiversityBaseline.date);
+    expect(ragTopic?.verifiedCommit).toBe(ragContentContractBaseline.commit);
+    expect(ragTopic?.verifiedDate).toBe(ragContentContractBaseline.date);
     expect(ragTopic?.points).toContain("第一次进入时，先选择“新建知识库”并填写名称");
-    expect(ragTopic?.points).toContain("文档上传后，等待页面显示处理完成，再把知识库用于回答");
+    expect(ragTopic?.points).toContain("文档上传只保存来源；还需保存流水线草稿并显式执行候选，当前新候选仅供诊断，不能用于活动回答");
     expect(ragTopic?.points.join(" ")).not.toMatch(/Formal|Gold|anchor|回执|阈值/);
+    expect(ragTopic?.points).toContain("新建草稿默认使用模型无关的估算 Token 预算，标题加入索引和上下文后也计入预算");
+    expect(ragTopic?.points).toContain("4A 仅允许 vector 构建诊断候选；fulltext 和 hybrid 只能查询已有兼容索引");
+    expect(ragTopic?.points).toContain("旧字符或不完整内容合同保持历史只读；只有曾激活版本可回滚，不能首次激活或晋级");
     expect(searchHelpContent("Science").some((entry) => entry.id === "experimental/science")).toBe(true);
     expect(searchHelpContent("专家团").some((entry) => entry.id === "agents/expert-team")).toBe(true);
     expect(searchHelpContent("运行记录").some((entry) => entry.id === "runtime/run-records")).toBe(true);
@@ -146,6 +175,7 @@ describe("help center content catalog", () => {
     expect(searchHelpContent("只读刷新模型证据").some((entry) => entry.id === "recover-unavailable-feature")).toBe(true);
     expect(searchHelpContent("受限重试").some((entry) => entry.id === "handle-workflow-node-failure")).toBe(true);
     expect(searchHelpContent("等待重试").some((entry) => entry.id === "handle-workflow-node-failure")).toBe(true);
+    expect(searchHelpContent("估算 Token").some((entry) => entry.id === "understand-rag-content-contract")).toBe(true);
     const ids = getHelpSearchEntries().map((entry) => `${entry.kind}:${entry.id}`);
     expect(new Set(ids).size).toBe(ids.length);
   });

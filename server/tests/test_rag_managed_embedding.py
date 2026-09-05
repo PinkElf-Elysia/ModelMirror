@@ -37,9 +37,28 @@ from server.rag.rag_service import (
     ManagedEmbeddingRouteError,
     PipelineJobStateError,
     PipelineVersionNotFoundError,
+    RagRetrievalUnavailableError,
     RagService,
 )
 from server.rag.vector_store import LocalJsonVectorStore
+
+
+@pytest.fixture(autouse=True)
+def _managed_embedding_tests_never_use_ambient_provider_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Keep every provider dispatch pinned to the in-process MockTransport."""
+
+    for name in (
+        "EMBEDDING_API_KEY",
+        "OPENAI_API_KEY",
+        "OPENROUTER_API_KEY",
+        "LLM_GATEWAY_KEY",
+        "RAG_LLM_API_KEY",
+        "RAG_RERANK_API_KEY",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("RAG_EMBEDDING_MODE", "hash")
 
 
 def test_core_compose_passes_all_r7_feature_flags_to_server() -> None:
@@ -355,6 +374,7 @@ async def test_managed_embedding_build_and_query_use_one_pinned_space(
         kb["id"],
         "managed.txt",
         "MANAGED-SPACE-ANCHOR must remain bound to one embedding space.".encode(),
+        pipeline_only=True,
     )
     draft = service.update_pipeline_draft(
         kb["id"],
@@ -544,15 +564,14 @@ async def test_managed_embedding_build_and_query_use_one_pinned_space(
     assert sum(request.method == "POST" for request in requests) == (
         posts_before_drifted_query
     )
-    fulltext = await service.query_pipeline_version(
-        version["version_id"],
-        "MANAGED-SPACE-ANCHOR",
-        retrieval={"mode": "fulltext", "top_k": 2},
-        generate_answer=False,
-    )
-    assert fulltext["sources"]
-    assert fulltext["execution_mode"] == "local_non_model"
-    assert fulltext["provider_route_receipts"] is None
+    with pytest.raises(RagRetrievalUnavailableError) as fulltext:
+        await service.query_pipeline_version(
+            version["version_id"],
+            "MANAGED-SPACE-ANCHOR",
+            retrieval={"mode": "fulltext", "top_k": 2},
+            generate_answer=False,
+        )
+    assert fulltext.value.code == "rag_retrieval_mode_unavailable"
     assert sum(request.method == "POST" for request in requests) == (
         posts_before_drifted_query
     )
@@ -583,6 +602,7 @@ async def test_high_dimension_managed_embedding_uses_response_bounded_batches(
         kb["id"],
         "bounded.txt",
         b"Response-size bounds must be derived from certified dimensions.",
+        pipeline_only=True,
     )
     draft = service.update_pipeline_draft(
         kb["id"],
@@ -591,6 +611,7 @@ async def test_high_dimension_managed_embedding_uses_response_bounded_batches(
             "provider": "openai_compatible",
             "model": "provider/embed-v1",
         },
+        retrieval_profile={"mode": "vector"},
     )
     job = service.create_pipeline_job(
         kb["id"],
@@ -638,6 +659,7 @@ async def test_managed_embedding_rejects_legacy_index_without_space_fingerprint(
         kb["id"],
         "legacy.txt",
         b"LEGACY-SPACE-ANCHOR requires an explicit managed rebuild.",
+        pipeline_only=True,
     )
     draft = service.update_pipeline_draft(
         kb["id"],
@@ -646,7 +668,7 @@ async def test_managed_embedding_rejects_legacy_index_without_space_fingerprint(
             "provider": "openai_compatible",
             "model": "provider/embed-v1",
         },
-        retrieval_profile={"mode": "hybrid", "top_k": 2},
+        retrieval_profile={"mode": "vector", "top_k": 2},
     )
     job = service.create_pipeline_job(
         kb["id"],
@@ -675,14 +697,14 @@ async def test_managed_embedding_rejects_legacy_index_without_space_fingerprint(
 
     assert blocked.value.code == "provider_embedding_index_rebuild_required"
     assert int(runtime_state["runtime_post_count"] or 0) == posts_before_query
-    fulltext = await service.query_pipeline_version(
-        version_id,
-        "LEGACY-SPACE-ANCHOR",
-        retrieval={"mode": "fulltext", "top_k": 2},
-        generate_answer=False,
-    )
-    assert fulltext["sources"]
-    assert fulltext["execution_mode"] == "local_non_model"
+    with pytest.raises(RagRetrievalUnavailableError) as fulltext:
+        await service.query_pipeline_version(
+            version_id,
+            "LEGACY-SPACE-ANCHOR",
+            retrieval={"mode": "fulltext", "top_k": 2},
+            generate_answer=False,
+        )
+    assert fulltext.value.code == "rag_retrieval_mode_unavailable"
     assert int(runtime_state["runtime_post_count"] or 0) == posts_before_query
 
 
@@ -764,6 +786,7 @@ async def test_uncertain_managed_embedding_job_fails_restart_and_same_job_retry(
         kb["id"],
         "restart.txt",
         b"An uncertain embedding call must never be replayed.",
+        pipeline_only=True,
     )
     draft = service.update_pipeline_draft(
         kb["id"],
@@ -772,6 +795,7 @@ async def test_uncertain_managed_embedding_job_fails_restart_and_same_job_retry(
             "provider": "openai_compatible",
             "model": "provider/embed-v1",
         },
+        retrieval_profile={"mode": "vector"},
     )
     job = service.create_pipeline_job(
         kb["id"],
@@ -855,6 +879,7 @@ async def test_failed_managed_embedding_batch_is_not_retried_or_activated(
         kb["id"],
         "active.txt",
         b"The currently active index must remain queryable.",
+        pipeline_only=True,
     )
     draft = service.update_pipeline_draft(
         kb["id"],
@@ -863,6 +888,7 @@ async def test_failed_managed_embedding_batch_is_not_retried_or_activated(
             "provider": "openai_compatible",
             "model": "provider/embed-v1",
         },
+        retrieval_profile={"mode": "vector"},
     )
     first_job = service.create_pipeline_job(
         kb["id"],
@@ -870,19 +896,27 @@ async def test_failed_managed_embedding_batch_is_not_retried_or_activated(
         source_document_ids=[first_document["id"]],
     )
     assert await KnowledgePipelineExecutor(service).run_once() is True
-    active = service.activate_pipeline_version(first_job["candidate_version_id"])
+    active = service.get_pipeline_version(first_job["candidate_version_id"])
+    with service._metadata_lock:  # noqa: SLF001 - seed a previously active rollback target.
+        metadata = service._read_metadata_unlocked()  # noqa: SLF001
+        stored_active = metadata["pipeline_versions"][active["version_id"]]
+        stored_active["status"] = "active"
+        stored_active["activated_at"] = 1.0
+        metadata["pipeline_active_versions"][kb["id"]] = active["version_id"]
+        service._write_metadata_unlocked(metadata)  # noqa: SLF001
 
     second_document = await service.upload_document(
         kb["id"],
         "candidate.txt",
         ("FAILED-BATCH-MUST-NOT-REPLAY " * 80).encode(),
+        pipeline_only=True,
     )
     draft = service.update_pipeline_draft(
         kb["id"],
         {
             "stage_chunker": {
                 "config": {
-                    "strategy": "recursive_character",
+                    "strategy": "recursive_estimated_token",
                     "chunk_size": 100,
                     "chunk_overlap": 0,
                     "separators": [" "],
@@ -958,6 +992,7 @@ async def test_runtime_embedding_identity_drift_fails_candidate_without_retry(
         kb["id"],
         "drift.txt",
         b"Runtime identity drift must fail the candidate index.",
+        pipeline_only=True,
     )
     draft = service.update_pipeline_draft(
         kb["id"],
@@ -966,6 +1001,7 @@ async def test_runtime_embedding_identity_drift_fails_candidate_without_retry(
             "provider": "openai_compatible",
             "model": "provider/embed-v1",
         },
+        retrieval_profile={"mode": "vector"},
     )
     job = service.create_pipeline_job(
         kb["id"],

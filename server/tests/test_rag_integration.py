@@ -10,8 +10,12 @@ import pytest_asyncio
 from openpyxl import Workbook
 
 from server.main import app
-from server.rag.api import set_rag_service_for_tests
+from server.rag.api import (
+    set_pipeline_executor_for_tests,
+    set_rag_service_for_tests,
+)
 from server.rag.embedder import EmbeddingClient
+from server.rag.pipeline_executor import KnowledgePipelineExecutor
 from server.rag.rag_service import RagService
 from server.rag.vector_store import LocalJsonVectorStore
 
@@ -32,6 +36,28 @@ async def client(tmp_path: Path):
         base_url="http://testserver",
     ) as async_client:
         yield async_client
+    set_rag_service_for_tests(None)
+
+
+@pytest_asyncio.fixture
+async def pipeline_runtime(tmp_path: Path):
+    service = RagService(
+        storage_dir=tmp_path / "storage",
+        uploads_dir=tmp_path / "uploads",
+        embedder=EmbeddingClient(api_key="", dimension=128),
+        vector_store=LocalJsonVectorStore(tmp_path / "storage" / "vectors.json"),
+        llm_enabled=False,
+    )
+    executor = KnowledgePipelineExecutor(service, poll_interval=0.01)
+    set_rag_service_for_tests(service)
+    set_pipeline_executor_for_tests(executor)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://testserver",
+    ) as async_client:
+        yield async_client, service, executor
+    set_pipeline_executor_for_tests(None)
     set_rag_service_for_tests(None)
 
 
@@ -87,8 +113,37 @@ def _unsafe_xlsx(kind: str) -> bytes:
     return output.getvalue()
 
 
+async def _build_vector_candidate(
+    client: httpx.AsyncClient,
+    executor: KnowledgePipelineExecutor,
+    kb_id: str,
+    document_id: str,
+) -> dict:
+    configured = await client.patch(
+        f"/api/rag/pipeline/draft/{kb_id}",
+        json={"retrieval_profile": {"mode": "vector"}},
+    )
+    assert configured.status_code == 200, configured.text
+    queued = await client.post(
+        f"/api/rag/pipeline/draft/{kb_id}/execute",
+        json={
+            "draft_version": configured.json()["version"],
+            "source_document_ids": [document_id],
+        },
+    )
+    assert queued.status_code == 200, queued.text
+    assert await executor.run_once() is True
+    completed = await client.get(
+        f"/api/rag/pipeline/jobs/{queued.json()['job_id']}"
+    )
+    assert completed.status_code == 200, completed.text
+    assert completed.json()["status"] == "succeeded"
+    return completed.json()
+
+
 @pytest.mark.asyncio
-async def test_create_upload_query_and_cleanup(client: httpx.AsyncClient) -> None:
+async def test_create_upload_pipeline_query_and_cleanup(pipeline_runtime) -> None:
+    client, service, executor = pipeline_runtime
     kb_id = await create_kb(client)
 
     upload_response = await client.post(
@@ -103,17 +158,22 @@ async def test_create_upload_query_and_cleanup(client: httpx.AsyncClient) -> Non
     )
     assert upload_response.status_code == 200, upload_response.text
     document = upload_response.json()
-    assert document["chunk_count"] >= 1
+    assert document["chunk_count"] == 0
+    assert document["ingestion_status"] == "pipeline_required"
+    completed = await _build_vector_candidate(client, executor, kb_id, document["id"])
+    version_id = str(completed["candidate_version_id"])
+    version = service.get_pipeline_version(version_id)
+    assert service.get_active_pipeline_version(kb_id) is None
 
     query_response = await client.post(
-        "/api/rag/query",
-        json={"kb_id": kb_id, "question": "什么是模镜？"},
+        f"/api/rag/pipeline/versions/{version_id}/query",
+        json={"question": "什么是模镜？", "top_k": 5},
     )
     assert query_response.status_code == 200, query_response.text
     data = query_response.json()
-    assert "AI平台" in data["answer"]
     assert data["sources"]
     assert data["sources"][0]["document_name"] == "测试文档.txt"
+    assert "AI平台" in data["sources"][0]["matched_text"]
 
     delete_doc_response = await client.delete(f"/api/rag/documents/{document['id']}")
     assert delete_doc_response.status_code == 200
@@ -124,12 +184,14 @@ async def test_create_upload_query_and_cleanup(client: httpx.AsyncClient) -> Non
 
     delete_kb_response = await client.delete(f"/api/rag/knowledge_bases/{kb_id}")
     assert delete_kb_response.status_code == 200
+    assert service.vector_store.count_namespace(version["namespace"]) == 0
 
 
 @pytest.mark.asyncio
 async def test_xlsx_upload_persists_sheet_and_cell_range_in_real_index(
-    client: httpx.AsyncClient,
+    pipeline_runtime,
 ) -> None:
+    client, service, executor = pipeline_runtime
     kb_id = await create_kb(client, "XLSX 来源元数据")
     upload_response = await client.post(
         f"/api/rag/knowledge_bases/{kb_id}/documents",
@@ -143,21 +205,15 @@ async def test_xlsx_upload_persists_sheet_and_cell_range_in_real_index(
     )
     assert upload_response.status_code == 200, upload_response.text
     document = upload_response.json()
-    assert document["chunk_count"] >= 2
-
-    chunks_response = await client.get(
-        f"/api/rag/pipeline/artifacts/artifact_{document['id']}/chunks"
-    )
-    assert chunks_response.status_code == 200, chunks_response.text
-    chunks = chunks_response.json()["chunks"]
-    sales_chunks = [item for item in chunks if item["sheet"] == "销售数据"]
-    assert sales_chunks
-    assert all(item["row_range"] == "A1:B2" for item in sales_chunks)
-    assert any("上海" in item["text_preview"] for item in sales_chunks)
+    assert document["chunk_count"] == 0
+    assert document["ingestion_status"] == "pipeline_required"
+    completed = await _build_vector_candidate(client, executor, kb_id, document["id"])
+    version_id = str(completed["candidate_version_id"])
+    assert service.get_active_pipeline_version(kb_id) is None
 
     query_response = await client.post(
-        "/api/rag/query",
-        json={"kb_id": kb_id, "question": "上海的数量是多少？", "top_k": 10},
+        f"/api/rag/pipeline/versions/{version_id}/query",
+        json={"question": "上海的数量是多少？", "top_k": 10},
     )
     assert query_response.status_code == 200, query_response.text
     sources = query_response.json()["sources"]
@@ -289,4 +345,3 @@ async def test_empty_knowledge_base_query_returns_hint(client: httpx.AsyncClient
     data = response.json()
     assert data["sources"] == []
     assert "没有" in data["answer"]
-
