@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "round": "RPG-01",
+  "status": "accepted",
+  "claimAllowed": true,
+  "manualAcceptanceRequired": true,
+  "manualAcceptanceSatisfied": true,
+  "manualAcceptance": {
+    "status": "accepted",
+    "date": "2026-09-04"
+  },
+  "nextRound": "RPG-02",
+  "nextRoundAllowed": true,
+  "nextRoundRequiresSeparatePlan": true,
+  "nextRoundImplementationAuthorized": false,
+  "baseSha": "06ef51ae8d58c4e33029f02ab7263e24066734b2",
+  "branch": "codex/ai-rpg-rpg01-contracts",
+  "moduleRoot": "experiments/ai-rpg-engine",
+  "contractVersion": "0.1.0",
+  "formats": [
+    "modelmirror.ai-rpg.card-package",
+    "modelmirror.ai-rpg.player-setup",
+    "modelmirror.ai-rpg.turn-exchange",
+    "modelmirror.ai-rpg.plugin-manifest"
+  ],
+  "implemented": [
+    "strict JSON Schema exports",
+    "stable pure validation reports",
+    "card package reference integrity",
+    "complete virtual player fixture",
+    "turn proposal authority boundary",
+    "static plugin readiness",
+    "module and parent-scope gates"
+  ],
+  "excluded": [
+    "runtime",
+    "ModelMirror model integration",
+    "prompt orchestration",
+    "worldbook retrieval",
+    "resource conversion",
+    "dynamic plugin loading",
+    "UI",
+    "markets"
+  ],
+  "probes": {
+    "firstDevelopmentRound": {
+      "authorized": 20,
+      "submitted": 0,
+      "completed": 0,
+      "remaining": 20
+    }
+  },
+  "externalEffects": {
+    "recordedThrough": "pre_pr_closeout",
+    "modelCalls": 0,
+    "websiteProbes": 0,
+    "commit": false,
+    "push": false,
+    "pullRequest": false,
+    "deploy": false,
+    "publish": false
+  },
+  "closeoutAuthorization": {
+    "commit": true,
+    "push": true,
+    "pullRequest": true,
+    "merge": false,
+    "deploy": false,
+    "publish": false
+  }
+}

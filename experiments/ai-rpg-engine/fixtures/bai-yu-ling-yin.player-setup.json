@@ -1,0 +1,77 @@
+{
+  "format": "modelmirror.ai-rpg.player-setup",
+  "formatVersion": "0.1.0",
+  "setupId": "setup.bai-yu-ling-yin",
+  "cardPackageRef": {
+    "id": "card.synthetic-gu-world",
+    "version": "0.1.0"
+  },
+  "character": {
+    "name": "白羽绫音",
+    "gender": "女",
+    "age": 18,
+    "appearance": "审美中近乎完美的化身，非人的绝世容颜，银发晶莹，宛若流苏，垂至腰际。欺霜赛雪，一双淡蓝的竖眸龙瞳，容貌完美无瑕，五官极其精致，皮肤白皙晶莹，身材比例完美，气质清冷而尊贵，美得不似人间之物，令一切形容美的辞藻黯然失色，十分特别的是，额头生长着一对红珊瑚般的小巧龙角",
+    "personality": "温柔善良、单纯活泼、精灵古怪",
+    "preferences": ["百合", "SM"],
+    "notes": "全虚拟生成、已脱敏的验证角色。"
+  },
+  "opening": {
+    "mode": "全新攻略者",
+    "openingRef": "opening.new-raider"
+  },
+  "world": {
+    "source": "package",
+    "resourceRef": "world.reverend-insanity"
+  },
+  "currentIdentity": {
+    "source": "package",
+    "resourceRef": "identity.central-continent-outer-disciple"
+  },
+  "inherentBackgrounds": [
+    {
+      "source": "package",
+      "resourceRef": "background.dragon-princess"
+    }
+  ],
+  "possessions": [
+    {
+      "resource": {"source": "package", "resourceRef": "item.sect-token"},
+      "quantity": 1
+    },
+    {
+      "resource": {"source": "package", "resourceRef": "item.rank-one-paper-crane-gu"},
+      "quantity": 1
+    }
+  ],
+  "talents": [
+    {
+      "resource": {"source": "package", "resourceRef": "talent.sovereign-immortal-fetus-gu"},
+      "owned": true,
+      "active": true
+    },
+    {
+      "resource": {"source": "package", "resourceRef": "talent.perseverance"},
+      "owned": true,
+      "active": true
+    },
+    {
+      "resource": {"source": "package", "resourceRef": "talent.spring-autumn-cicada-rebirth"},
+      "owned": true,
+      "active": true
+    },
+    {
+      "resource": {"source": "package", "resourceRef": "talent.rank-nine-venerable-aptitude"},
+      "owned": true,
+      "active": true
+    },
+    {
+      "resource": {"source": "package", "resourceRef": "talent.system-core-root"},
+      "owned": true,
+      "active": true
+    }
+  ],
+  "characterPower": {
+    "status": "unspecified"
+  },
+  "runtimePermissions": []
+}

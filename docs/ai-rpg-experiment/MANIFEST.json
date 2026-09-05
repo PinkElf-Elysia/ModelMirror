@@ -1,0 +1,130 @@
+{
+  "schemaVersion": 2,
+  "snapshotDate": "2026-09-04",
+  "sourceTask": "01a06d11-845b-7511-b476-64bbe034b119",
+  "status": "rpg01_accepted",
+  "implementationStarted": true,
+  "manualAcceptance": {
+    "status": "accepted",
+    "date": "2026-09-04"
+  },
+  "initialManifestSha256": "30A35F365D06D512253A549C4E5EB58384DBE2BBD72484DF9CF21EF678160D49",
+  "initialSnapshot": {
+    "importedFiles": 13,
+    "managedFiles": 12,
+    "allManagedHashesMatched": true,
+    "manifestExcludedFromOwnHashList": true
+  },
+  "files": [
+    {
+      "path": "AUDIT.md",
+      "bytes": 22909,
+      "sha256": "43E61C8B38B98DC3BF1E60ECFFD6FF3A199DC64A2C76A859582A248B6D707A1F"
+    },
+    {
+      "path": "BASELINE.md",
+      "bytes": 12401,
+      "sha256": "A9A6D61DEE20A6ECB9B4F8CCF18775C77D35A6C03AC16EA1B931547087F49F1C"
+    },
+    {
+      "path": "BEST_PRACTICES.md",
+      "bytes": 34944,
+      "sha256": "4C282B02A11914EA4E6657E44300555C3F8C17709F85A1D05C8148A0A9EE5F2C"
+    },
+    {
+      "path": "BOUNDARY_QUADRANTS.md",
+      "bytes": 4042,
+      "sha256": "ECD41CBDA5BA477670AA73939E1C12F4EDC24E5632DA445B7CFF96323BBBD534"
+    },
+    {
+      "path": "OSS_REUSE_REGISTER.md",
+      "bytes": 17278,
+      "sha256": "67FFEFF2A3C5614EE0B121F0758C4F68420159B488A828C16F5DAB9C4F03BF01"
+    },
+    {
+      "path": "PLUGIN_CARD_MARKETS.md",
+      "bytes": 7157,
+      "sha256": "28BF7CF1598B7EBC8D0431E72FA084C01AC18153AD5AAA4F678FE646B75E8BA3"
+    },
+    {
+      "path": "PROBE_LEDGER.json",
+      "bytes": 11213,
+      "sha256": "79929F95E4D91053C85542947CBF9084ED0BB286C17B04FE3CA105CBB787A99E"
+    },
+    {
+      "path": "README.md",
+      "bytes": 5990,
+      "sha256": "E936AAA781806F7605EA172D5765C149374E79C58A3F174AF08247CEB3270AA4"
+    },
+    {
+      "path": "references/INITIAL_AUDIT_2026-09-04.md",
+      "bytes": 28530,
+      "sha256": "D53901572850B01B1AD6472B13F361C31D5E4369CBCCAA118F0EF025F728B2E6"
+    },
+    {
+      "path": "references/PLAYER_CARD_SAMPLE.md",
+      "bytes": 3086,
+      "sha256": "38FE64EC7785DEF21472C4D934625ADCDC8A89615A862F187A84B1E0EA7D56DD"
+    },
+    {
+      "path": "RESOURCE_INVENTORY.json",
+      "bytes": 2360,
+      "sha256": "0E9328942065C8961C61B9970A03610C68D46D90A1AF3F3015C58B024B2EF849"
+    },
+    {
+      "path": "ROUND_ROADMAP.md",
+      "bytes": 7987,
+      "sha256": "0BBAA8C12BA3CABE12B2E1CC6158D394B88E0D2D1E80D9CEB558F2F370736532"
+    }
+  ],
+  "sourceArtifacts": [
+    {
+      "source": "visualization/AI_RPG_TECHNICAL_AUDIT_2026-09-04.md",
+      "sha256": "D53901572850B01B1AD6472B13F361C31D5E4369CBCCAA118F0EF025F728B2E6",
+      "copiedAs": "references/INITIAL_AUDIT_2026-09-04.md"
+    },
+    {
+      "source": "visualization/AI_RPG_RESOURCE_INVENTORY.json",
+      "sha256": "0E9328942065C8961C61B9970A03610C68D46D90A1AF3F3015C58B024B2EF849",
+      "copiedAs": "RESOURCE_INVENTORY.json"
+    }
+  ],
+  "moduleDelivery": {
+    "root": "experiments/ai-rpg-engine",
+    "round": "RPG-01",
+    "contractVersion": "0.1.0",
+    "machineStatus": "experiments/ai-rpg-engine/docs/RPG01_STATUS.json",
+    "acceptanceRecord": "experiments/ai-rpg-engine/docs/RPG01_ACCEPTANCE.md",
+    "dependencyRegister": "experiments/ai-rpg-engine/docs/THIRD_PARTY.json",
+    "status": "accepted",
+    "claimAllowed": true,
+    "manualAcceptanceSatisfied": true,
+    "nextRoundImplementationAuthorized": false
+  },
+  "probeBudgets": {
+    "originalAudit": {
+      "authorized": 5,
+      "completed": 4,
+      "remaining": 1
+    },
+    "roadmapPreparation": {
+      "authorized": 5,
+      "completed": 2,
+      "remaining": 3
+    },
+    "firstDevelopmentRound": {
+      "authorized": 20,
+      "submitted": 0,
+      "completed": 0,
+      "remaining": 20
+    }
+  },
+  "notes": [
+    "The initial 13-file documentation snapshot was imported byte-for-byte before implementation and its original manifest hash is retained above.",
+    "RPG-01 implements data contracts and validation only; it is not a runtime, model integration, prompt system, converter, UI, plugin loader, or market.",
+    "Roadmap v4 retains six rounds, zero-optional-plugin acceptance, and the plugin/card market split.",
+    "MANIFEST.json remains intentionally excluded from its own file hash list.",
+    "No target-site probe or model call was used in RPG-01; first-development-round probe consumption remains zero.",
+    "The user accepted RPG-01 and authorized only its closeout Commit, Push, and pull request; Merge, Deploy, Release, and Publish remain unauthorized."
+  ]
+}

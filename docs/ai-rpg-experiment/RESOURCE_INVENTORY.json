@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "auditDate": "2026-09-04",
+  "targetUrl": "https://afengy.cash/zh/explore/installed/e23bbc64-4fdd-46d8-92c0-64923961e5d8",
+  "source": "Browser-loaded opening iframe srcdoc; statically parsed data literals. Extracted scripts were not executed.",
+  "snapshotTitle": "无限重生系统 - 启动协议 v16.2 (Pyrite修复版)",
+  "measurements": {
+    "unit": "JavaScript UTF-16 string length units; not bytes or tokens",
+    "srcdoc": 1756353,
+    "worldDBLiteral": 1644979,
+    "commonTalentsLiteral": 50448
+  },
+  "counts": {
+    "worlds": 622,
+    "identities": 3117,
+    "worldTalentEntries": 10359,
+    "commonTalentEntries": 472,
+    "totalTalentEntries": 10831,
+    "distinctTalentNames": 10568,
+    "duplicateNameGroups": 214,
+    "excessNameOccurrences": 263,
+    "negativeCostTalents": 15
+  },
+  "fields": {
+    "world": [
+      "name",
+      "desc",
+      "boss",
+      "identities",
+      "talents"
+    ],
+    "identity": [
+      "name",
+      "items"
+    ],
+    "talent": [
+      "name",
+      "color",
+      "cost",
+      "desc",
+      "type"
+    ]
+  },
+  "rarityWeights": {
+    "D": 600,
+    "C": 600,
+    "B": 300,
+    "A": 100,
+    "S": 20,
+    "SS": 5,
+    "SSS": 1,
+    "Pink": 50,
+    "UR": 0.2
+  },
+  "fallbackWeight": 100,
+  "fallbackRecordCount": 337,
+  "missingExactPityCandidatesWorldCounts": {
+    "S": 8,
+    "SS": 8,
+    "SSS": 57,
+    "UR": 618
+  },
+  "nameIdentityOperations": [
+    "selectTalent",
+    "buyTalent",
+    "refundTalent"
+  ],
+  "openingExport": "Plain text copied into chat by player, not a structured state handoff",
+  "sandboxAttribute": "allow-scripts allow-forms allow-pointer-lock",
+  "absentSourceTokens": [
+    "fetch(",
+    "XMLHttpRequest",
+    "postMessage",
+    "localStorage",
+    "sessionStorage",
+    "indexedDB"
+  ],
+  "absenceScope": "Opening HTML only; does not establish platform-wide absence.",
+  "sourceLinePointers": {
+    "rarityWeights": 350,
+    "worldDB": 351,
+    "commonTalents": 19427,
+    "selectWorld": 19961,
+    "setInitialPoints": 20035,
+    "buyTalent": 20097,
+    "refundTalent": 20106,
+    "getWeightedTalent": 20145,
+    "selectTalent": 20267,
+    "generateExportData": 20284
+  },
+  "coverageLimit": "Summary measurements only; not a full source archive, token estimate, original prompt export, worldbook archive, or correctness check of all entries."
+}

@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "ai-rpg-engine",
+  "moduleRoot": ".",
+  "moduleRootResolution": "directory-containing-module-boundary",
+  "activeRound": "RPG-01",
+  "activeRoundBaselineSha": "06ef51ae8d58c4e33029f02ab7263e24066734b2",
+  "repositoryChangePolicy": {
+    "allowedPrefixes": [
+      "docs/ai-rpg-experiment/",
+      "experiments/ai-rpg-engine/"
+    ]
+  },
+  "parentIntegration": "none",
+  "allowedParentInteractions": [],
+  "dependencyPolicy": {
+    "moduleLocalOnly": true,
+    "exactVersionsRequired": true,
+    "allowedProductionDependencies": {
+      "ajv": "8.20.0"
+    },
+    "forbiddenProtocols": [
+      "file:",
+      "link:"
+    ]
+  },
+  "pathPolicy": {
+    "forbidExternalSymlinks": true,
+    "forbidBrokenSymlinks": true,
+    "forbidAbsoluteImports": true,
+    "forbidResolvedPathsOutsideModule": true
+  },
+  "networkPolicy": {
+    "runtime": "none",
+    "verification": "none",
+    "modelCalls": "none",
+    "websiteProbes": "none"
+  },
+  "generatedPaths": [
+    "node_modules",
+    "dist",
+    "coverage",
+    "logs",
+    "test-reports"
+  ],
+  "forbiddenTrackedFileNames": [
+    ".env",
+    ".env.local",
+    ".env.development",
+    ".env.production"
+  ],
+  "forbiddenTrackedExtensions": [
+    ".log",
+    ".pem",
+    ".key",
+    ".p12",
+    ".pfx",
+    ".exe",
+    ".dll",
+    ".so",
+    ".dylib",
+    ".bin"
+  ],
+  "toolchain": {
+    "node": "24.18.0",
+    "npm": "11.16.0",
+    "git": "required"
+  },
+  "licensePolicy": {
+    "moduleLicense": "UNLICENSED",
+    "allowedDependencyLicenses": [
+      "MIT",
+      "BSD-3-Clause"
+    ]
+  }
+}

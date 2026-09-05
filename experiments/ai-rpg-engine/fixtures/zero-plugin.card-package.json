@@ -1,0 +1,206 @@
+{
+  "format": "modelmirror.ai-rpg.card-package",
+  "formatVersion": "0.1.0",
+  "package": {
+    "id": "card.synthetic-gu-world",
+    "version": "0.1.0",
+    "displayName": "合成修仙世界验证卡",
+    "description": "用于验证 RPG-01 合同的数据样本，不代表已实现运行时或最终内容。",
+    "locale": "zh-CN"
+  },
+  "provenance": {
+    "rights": [
+      {
+        "id": "rights.synthetic-audit",
+        "kind": "authorization",
+        "name": "用户提供的脱敏虚拟样本授权",
+        "reference": "docs/ai-rpg-experiment/references/PLAYER_CARD_SAMPLE.md",
+        "documentSha256": "38FE64EC7785DEF21472C4D934625ADCDC8A89615A862F187A84B1E0EA7D56DD"
+      }
+    ],
+    "sources": [
+      {
+        "id": "source.synthetic-player-card",
+        "kind": "fixture",
+        "reference": "docs/ai-rpg-experiment/references/PLAYER_CARD_SAMPLE.md",
+        "sha256": "38FE64EC7785DEF21472C4D934625ADCDC8A89615A862F187A84B1E0EA7D56DD",
+        "rightsRefs": ["rights.synthetic-audit"]
+      }
+    ]
+  },
+  "resources": {
+    "worlds": [
+      {
+        "id": "world.reverend-insanity",
+        "displayName": "470.蛊真人 (Reverend Insanity)",
+        "description": "养蛊、炼蛊、用蛊。这是一个残酷的修仙世界，没有道德，只有利益。人是万物之灵，蛊是天地之精。在这个世界，为了永生，你可以牺牲一切。S级代表：天庭(龙公, 紫薇仙子), 影宗(魔尊幽魂), 巨阳仙尊, 乐土亚仙尊。",
+        "sourceRefs": ["source.synthetic-player-card"]
+      }
+    ],
+    "identities": [
+      {
+        "id": "identity.central-continent-outer-disciple",
+        "displayName": "中洲门派的外门弟子",
+        "description": "持有门派令牌的外门弟子。",
+        "rankLabel": "E",
+        "worldRefs": ["world.reverend-insanity"],
+        "sourceRefs": ["source.synthetic-player-card"]
+      }
+    ],
+    "talents": [
+      {
+        "id": "talent.sovereign-immortal-fetus-gu",
+        "displayName": "至尊仙胎蛊",
+        "description": "人祖传说中的蛊虫。一旦使用，你将获得至尊仙体，道痕互不排斥，可以兼修所有流派，且恢复力惊人，是魔尊幽魂的毕生杰作。",
+        "tierLabel": "SSS",
+        "worldRefs": ["world.reverend-insanity"],
+        "sourceRefs": ["source.synthetic-player-card"]
+      },
+      {
+        "id": "talent.perseverance",
+        "displayName": "坚持",
+        "description": "一种精神境界。哪怕失败一万次，哪怕举世皆敌，哪怕身死道消，你也绝不放弃心中的目标。这是魔尊的潜质。",
+        "tierLabel": "SSS",
+        "worldRefs": ["world.reverend-insanity"],
+        "sourceRefs": ["source.synthetic-player-card"]
+      },
+      {
+        "id": "talent.spring-autumn-cicada-rebirth",
+        "displayName": "春秋蝉(重生)",
+        "description": "红莲魔尊的本命蛊，宙道奇蛊。当你死亡时，它能带着你的意志逆流光阴长河，回到过去。这是逆天改命、知晓未来的终极外挂，但有失败风险。",
+        "tierLabel": "SSS",
+        "worldRefs": ["world.reverend-insanity"],
+        "sourceRefs": ["source.synthetic-player-card"]
+      },
+      {
+        "id": "talent.rank-nine-venerable-aptitude",
+        "displayName": "九转尊者资质",
+        "description": "你拥有成就九转蛊尊的潜力。你的才情、毅力和气运都是当世顶尖，注定要无敌于天下，打破宿命。",
+        "tierLabel": "SSS",
+        "worldRefs": ["world.reverend-insanity"],
+        "sourceRefs": ["source.synthetic-player-card"]
+      },
+      {
+        "id": "talent.system-core-root",
+        "displayName": "系统核心权限·root",
+        "description": "【唯一·位面级】你拿到了穿越系统自己都不该给你的权限：每个世界可以强制刷新一次系统商店（五件商品全部换成 S 级以上），并把一次读档复活改为「不掉落任何东西的原地复活」。系统会记住这次越权。",
+        "tierLabel": "UR",
+        "worldRefs": [],
+        "sourceRefs": ["source.synthetic-player-card"]
+      }
+    ],
+    "items": [
+      {
+        "id": "item.sect-token",
+        "displayName": "一块门派令牌",
+        "description": "门派身份物资。",
+        "sourceRefs": ["source.synthetic-player-card"]
+      },
+      {
+        "id": "item.rank-one-paper-crane-gu",
+        "displayName": "一只一转纸鹤蛊",
+        "description": "一转纸鹤蛊。",
+        "sourceRefs": ["source.synthetic-player-card"]
+      }
+    ],
+    "backgrounds": [
+      {
+        "id": "background.dragon-princess",
+        "displayName": "龙人族公主",
+        "description": "玩家的固有人物背景，与当前门派身份分离。",
+        "sourceRefs": ["source.synthetic-player-card"]
+      }
+    ],
+    "styles": [
+      {
+        "id": "style.ruthless-cultivation",
+        "displayName": "冷峻利益叙事",
+        "instruction": "以清晰、克制的文字呈现修行世界中的利益冲突，不替玩家决定行动或台词。",
+        "sourceRefs": ["source.synthetic-player-card"]
+      }
+    ],
+    "worldbookEntries": [
+      {
+        "id": "worldbook.gu-basics",
+        "displayName": "蛊与人的基础关系",
+        "content": "人是万物之灵，蛊是天地之精。",
+        "tags": ["蛊", "世界基础"],
+        "visibility": "shared",
+        "worldRefs": ["world.reverend-insanity"],
+        "sourceRefs": ["source.synthetic-player-card"]
+      }
+    ],
+    "openings": [
+      {
+        "id": "opening.new-raider",
+        "displayName": "全新攻略者",
+        "content": "玩家以全新攻略者身份进入世界；具体场景留给后续内容编译。",
+        "worldRef": "world.reverend-insanity",
+        "identityRefs": ["identity.central-continent-outer-disciple"],
+        "talentRefs": [
+          "talent.sovereign-immortal-fetus-gu",
+          "talent.perseverance",
+          "talent.spring-autumn-cicada-rebirth",
+          "talent.rank-nine-venerable-aptitude",
+          "talent.system-core-root"
+        ],
+        "itemRefs": ["item.sect-token", "item.rank-one-paper-crane-gu"],
+        "backgroundRefs": ["background.dragon-princess"],
+        "styleRefs": ["style.ruthless-cultivation"],
+        "worldbookRefs": ["worldbook.gu-basics"],
+        "informationModuleRefs": ["info.character-status"],
+        "sourceRefs": ["source.synthetic-player-card"]
+      }
+    ],
+    "informationModules": [
+      {
+        "id": "info.character-status",
+        "displayName": "角色状态",
+        "presentation": "keyValue",
+        "description": "声明式信息模块；渲染器必须将内容视为不可信文本。",
+        "fields": [
+          {"id": "identity", "label": "当前身份", "valueType": "text"},
+          {"id": "talents", "label": "携带天赋", "valueType": "list"}
+        ],
+        "sourceRefs": ["source.synthetic-player-card"]
+      }
+    ],
+    "commands": [
+      {
+        "id": "command.inspect-status",
+        "displayName": "查看状态",
+        "description": "声明式玩家命令标识，不映射操作系统、工具或网络调用。",
+        "sourceRefs": ["source.synthetic-player-card"]
+      }
+    ]
+  },
+  "defaults": {
+    "worldRef": "world.reverend-insanity",
+    "openingRef": "opening.new-raider"
+  },
+  "stateFields": [
+    {
+      "id": "state.scene-note",
+      "displayName": "场景短记",
+      "modelMayPropose": true,
+      "valueType": "shortText",
+      "initialValue": "",
+      "maxLength": 512
+    },
+    {
+      "id": "state.player-alert",
+      "displayName": "玩家警觉",
+      "modelMayPropose": false,
+      "valueType": "boolean",
+      "initialValue": false
+    }
+  ],
+  "requiredPlugins": [],
+  "recommendedPlugins": [],
+  "extensions": {
+    "example.source-preservation": {
+      "legacyNegativePrice": -1,
+      "meaning": "仅保留来源字段，不获得核心经济语义。"
+    }
+  }
+}
