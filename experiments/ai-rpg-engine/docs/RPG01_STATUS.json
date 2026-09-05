@@ -51,14 +51,26 @@
     }
   },
   "externalEffects": {
-    "recordedThrough": "pre_pr_closeout",
+    "recordedThrough": "pull_request_created",
     "modelCalls": 0,
     "websiteProbes": 0,
-    "commit": false,
-    "push": false,
-    "pullRequest": false,
+    "commit": true,
+    "push": true,
+    "pullRequest": true,
+    "merge": false,
     "deploy": false,
     "publish": false
+  },
+  "repositoryReceipt": {
+    "implementationCommitSha": "6ebcf1b0ee9e4ad4e911aaba36b8dc2fc6b6c4ec",
+    "remoteBranch": "codex/ai-rpg-rpg01-contracts",
+    "baseBranch": "main",
+    "originMainAtPullRequestCreation": "34f804fa94d24b6ef1837248c25f5e15028aa01c",
+    "pullRequestNumber": 359,
+    "pullRequestUrl": "https://github.com/PinkElf-Elysia/ModelMirror/pull/359",
+    "pullRequestStateAtRecording": "OPEN",
+    "pullRequestDraftAtRecording": false,
+    "recordedDate": "2026-09-04"
   },
   "closeoutAuthorization": {
     "commit": true,
