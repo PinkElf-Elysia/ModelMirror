@@ -21,7 +21,7 @@
 
 ## 可见操作与结果
 
-入口：`/rag`；帮助入口：`/help/understand-rag-content-contract`。首次截图视口约为 933 × 898 CSS px；PNG 为工具输出的视口截图，不包含浏览器地址栏、凭据或其他应用。
+入口：`/rag`；帮助入口：`/help/understand-rag-content-contract`。首次截图视口约为 933 × 898 CSS px，工具返回的实际位图为 923 × 889。原输出为 JPEG/JFIF，首次保存时误用了 PNG 扩展名；下述发布后补正将真实截图的相关面板裁出并编码为 PNG，不包含浏览器地址栏、凭据或其他应用。
 
 | 操作 | 预期 | 实际结果 |
 | --- | --- | --- |
@@ -42,9 +42,18 @@
 
 - 更新 `understand-rag-content-contract`：源文件等待状态、八步可见操作、模型费用边界、标题重叠解释和候选/激活区别。
 - 更新 RAG 模块说明和独立验证基线；保留 main 的其他文章、一级导航、搜索排序和普通用户术语约束。
-- `client/public/help-center/92b7e6df/rag-estimated-token-budget.png`：43,510 bytes，SHA-256 `23e128abdf927e68853e9e6c268b6c7f58ad3c4d7bd78ff3508413ab961e5fc0`。
-- `client/public/help-center/92b7e6df/rag-diagnostic-candidate.png`：80,648 bytes，SHA-256 `c7ecd89b715aa8646f2a580049281ebe4d39c1237e8ce775b6127694fed655de`。
+- `client/public/help-center/92b7e6df/rag-estimated-token-budget.png`：真实 PNG，867 × 467，72,437 bytes，SHA-256 `8be43c438676ae223218eb79d6d4454777484ddb4741765ecfc6515786a018f3`。
+- `client/public/help-center/92b7e6df/rag-diagnostic-candidate.png`：真实 PNG，808 × 554，203,385 bytes，SHA-256 `217fdc12ea47e0f557bc5adc31ea4b6bfdf07f5627fb1bdeebb97b31d2a30aa7`。
 - 帮助新增断言先出现 `1 failed, 12 passed`，确认旧文案缺少真实等待状态；修正后随最终前端定向与全量全部通过。
+
+### PR #362 截图格式补正
+
+- 首次提交 `7531295d` 的前端 CI 测试与构建通过，但独立 `npm run verify:help-images` 稳定报 4 项错误：两张图实际为 JPEG，按 PNG 头解析又引发两个伪宽度错误。这是本批截图保存错误及漏跑图片资产检查，不是基线失败。
+- 保留原始截图及旧 SHA：预算图 `23e128abdf927e68853e9e6c268b6c7f58ad3c4d7bd78ff3508413ab961e5fc0`，候选图 `c7ecd89b715aa8646f2a580049281ebe4d39c1237e8ce775b6127694fed655de`。旧证据清单仍描述补正前快照，不覆盖补正后的资产。
+- 根据帮助规范“裁去无关界面”，只保留已实拍的配置/候选/诊断面板。预算图裁剪框为 `(24,343,891,810)`，候选图为 `(55,254,863,808)`，格式为左、上、右、下，右下边界不包含。移除空画布、任务进度和外围导航，不重绘、不缩放、不改变保留区域像素。
+- PNG 解码后的 RGB 像素与原 JPEG 解码后对应矩形逐字节相等；像素 SHA-256 分别为 `2f894afd19a4416d5b72f76282ec061be099fd2d51b4974488945fcb336a5017`、`6b1275cfd02ef07d54528325fa6ababae437043ae7e2778e33ce40cd19ff9c4b`。两张图均通过原有格式、宽度与 250KB 门禁，未放宽检查。
+- 本补正只涉及两张截图、对应替代文本和本记录，不改变产品代码、不重新运行流水线、不调用任何 Provider。
+- 补正复验：原 `verify:help-images` 全部通过；RagPage、Pipeline Canvas、Help 三文件 53 项通过；`npm run build` 通过（保留既有 large-chunk warning）。本地未因纯截图补正重跑全量前后端；新提交由原 CI 工作流重新验证，不继承旧提交的 CI 成功状态。
 
 ## 自动测试与归因
 
@@ -73,6 +82,6 @@
 
 ## 提交与回退
 
-本次授权只覆盖变基、冲突收口和隔离验证。没有新增业务提交、push、PR、merge 或部署。历史 stash 和逐文件备份保留；最终提交范围需再次显式授权并检查暂存 Diff。
+初次验收记录形成时，授权只覆盖变基、冲突收口和隔离验证，尚未提交或发布。随后用户单独授权，已提交并创建 Draft PR #362；截图格式补正由后续“快速补齐”请求授权。没有 merge 或部署，历史 stash 和逐文件备份保留；每次提交仍检查准确范围及暂存 Diff。
 
 4A 回退只撤销本 PR 代码、测试和帮助增量，不迁移旧版本、不清理共享索引、不需要生产数据回滚。
