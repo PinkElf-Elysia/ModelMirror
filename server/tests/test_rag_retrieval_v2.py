@@ -13,9 +13,12 @@ from server.rag import retrieval as retrieval_module
 from server.rag.embedder import EmbeddingClient
 from server.rag.lexical_store import LexicalChunk, SqliteLexicalStore, tokenize_for_search
 from server.rag.pipeline_executor import KnowledgePipelineExecutor
-from server.rag.rag_service import RagService
-from server.rag.rag_service import PipelineDraftValidationError
-from server.rag.rag_service import RagRetrievalContractError
+from server.rag.rag_service import (
+    PipelineDraftValidationError,
+    PipelineVersionNotFoundError,
+    RagRetrievalContractError,
+    RagService,
+)
 from server.rag.reranker import RerankDocument, RerankItem, RerankOutcome, RerankService
 from server.rag.retrieval import RetrievalCandidate, RetrievalConfig, fuse_rankings
 from server.rag.splitter import ParentChildTextSplitter, TextSplitter
@@ -381,6 +384,69 @@ async def test_real_embedding_version_records_actual_dimension_and_fails_closed(
             retrieval={"mode": "vector"},
             generate_answer=False,
         )
+
+
+@pytest.mark.asyncio
+async def test_embedding_dimension_discovery_cannot_reseal_a_tampered_snapshot(
+    tmp_path: Path,
+) -> None:
+    storage = tmp_path / "dimension-toctou-storage"
+    embedder = EmbeddingClient(
+        api_base="https://embedding.test/v1",
+        api_key="configured",
+        model="real-model",
+        dimension=64,
+    )
+    job_id = ""
+
+    async def tamper_then_return_embeddings(
+        texts: list[str],
+    ) -> list[list[float]]:
+        with service._metadata_lock:  # noqa: SLF001 - TOCTOU attack fixture.
+            metadata = service._read_metadata_unlocked()  # noqa: SLF001
+            snapshot = metadata["pipeline_jobs"][job_id]["config_snapshot"]
+            snapshot["retrieval_profile"]["top_k"] = 9
+            service._write_metadata_unlocked(metadata)  # noqa: SLF001
+        return [[1.0, float(len(text) % 7), 0.25] for text in texts]
+
+    embedder.embed_texts = tamper_then_return_embeddings  # type: ignore[method-assign]
+    service = RagService(
+        storage_dir=storage,
+        uploads_dir=tmp_path / "dimension-toctou-uploads",
+        embedder=embedder,
+        vector_store=LocalJsonVectorStore(storage / "vectors.json"),
+        lexical_store=SqliteLexicalStore(storage / "lexical.sqlite3"),
+        llm_enabled=False,
+    )
+    kb = service.create_knowledge_base("dimension discovery seal")
+    document = await service.upload_document(
+        kb["id"],
+        "seal.txt",
+        b"The admitted pipeline snapshot must remain immutable.",
+    )
+    draft = service.update_pipeline_draft(
+        kb["id"],
+        {},
+        embedding_profile={
+            "provider": "openai_compatible",
+            "model": "real-model",
+        },
+        retrieval_profile={"mode": "vector", "top_k": 2},
+    )
+    job = service.create_pipeline_job(
+        kb["id"],
+        draft_version=draft["version"],
+        source_document_ids=[document["id"]],
+    )
+    job_id = str(job["job_id"])
+
+    assert await KnowledgePipelineExecutor(service).run_once() is True
+    failed = service.get_pipeline_job(job_id)
+    assert failed["status"] == "failed"
+    assert failed["error_code"] == "rag_pipeline_job_contract_invalid"
+    assert "admitted fingerprint" in str(failed["error"])
+    with pytest.raises(PipelineVersionNotFoundError):
+        service.get_pipeline_version(str(job["candidate_version_id"]))
 
 
 def test_chroma_isolates_namespaces_with_different_dimensions(tmp_path: Path) -> None:

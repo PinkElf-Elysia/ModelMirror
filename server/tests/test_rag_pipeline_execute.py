@@ -13,6 +13,7 @@ from openpyxl import Workbook
 
 from server.main import app
 from server.rag.api import (
+    get_evaluation_store,
     set_pipeline_executor_for_tests,
     set_rag_service_for_tests,
 )
@@ -181,6 +182,7 @@ async def test_pipeline_job_and_version_preserve_replayable_chunking_receipt(
         receipt = completed["chunking_receipt"]
         assert contract["contract_version"] == "rag-content-index-contract-v1"
         assert contract["components"]["chunker"] == "current"
+        assert receipt["receipt_version"] == "rag-chunking-receipt-v2"
         assert receipt["contract_version"] == "rag-chunker-estimated-token-v1"
         assert receipt["size_unit"] == "estimated_tokens"
         assert receipt["token_estimator"] == "mixed_cjk_latin_v1"
@@ -260,7 +262,7 @@ async def test_pipeline_job_and_version_preserve_replayable_chunking_receipt(
 
 
 @pytest.mark.asyncio
-async def test_queued_legacy_chunker_job_fails_before_executor_dispatch(
+async def test_sealed_queued_chunker_downgrade_is_integrity_failure(
     pipeline_runtime,
 ) -> None:
     client, service, executor, _, _ = pipeline_runtime
@@ -296,6 +298,60 @@ async def test_queued_legacy_chunker_job_fails_before_executor_dispatch(
         chunker["size_unit"] = "characters"
         chunker["token_estimator"] = None
         chunker["chunk_contract_version"] = "rag-chunker-character-v1"
+        service._write_metadata_unlocked(metadata)  # noqa: SLF001
+
+    assert await executor.run_once() is False
+    failed = service.get_pipeline_job(job_id)
+    assert failed["status"] == "failed"
+    assert failed["error_code"] == "rag_pipeline_job_contract_invalid"
+    assert failed["attempt"] == 0
+    assert failed["chunking_receipt"] == {}
+    assert all(result["status"] == "pending" for result in failed["document_results"])
+    with pytest.raises(PipelineVersionNotFoundError):
+        service.get_pipeline_version(str(failed["candidate_version_id"]))
+
+
+@pytest.mark.asyncio
+async def test_unsealed_legacy_queued_job_fails_with_legacy_contract_code(
+    pipeline_runtime,
+) -> None:
+    client, service, executor, _, _ = pipeline_runtime
+    kb_id = await create_kb(client, "unsealed legacy chunker")
+    document_id = await upload_text(
+        client,
+        kb_id,
+        "legacy.txt",
+        "A pre-4A queued job cannot be replayed by the token-aware executor.",
+    )
+    configured = await client.patch(
+        f"/api/rag/pipeline/draft/{kb_id}",
+        json={"retrieval_profile": {"mode": "vector"}},
+    )
+    assert configured.status_code == 200, configured.text
+    draft = (await client.get(f"/api/rag/pipeline/draft?kb_id={kb_id}")).json()
+    response = await client.post(
+        f"/api/rag/pipeline/draft/{kb_id}/execute",
+        json={
+            "draft_version": draft["version"],
+            "source_document_ids": [document_id],
+            "xpert_file_refs": [],
+        },
+    )
+    assert response.status_code == 200, response.text
+    job_id = str(response.json()["job_id"])
+
+    with service._metadata_lock:  # noqa: SLF001 - pre-admission legacy fixture.
+        metadata = service._read_metadata_unlocked()  # noqa: SLF001
+        job = metadata["pipeline_jobs"][job_id]
+        chunker = job["config_snapshot"]["stages"]["stage_chunker"]
+        chunker["strategy"] = "recursive_character"
+        chunker["size_unit"] = "characters"
+        chunker["token_estimator"] = None
+        chunker["chunk_contract_version"] = "rag-chunker-character-v1"
+        job.pop("chunker_profile_fingerprint", None)
+        job.pop("config_snapshot_fingerprint", None)
+        job.pop("content_index_contract", None)
+        job["config_snapshot"].pop("content_index_contract", None)
         service._write_metadata_unlocked(metadata)  # noqa: SLF001
 
     assert await executor.run_once() is False
@@ -377,7 +433,7 @@ async def test_pipeline_corpus_snapshot_binds_artifact_and_index(
     artifact["processed_document"]["blocks"][0]["text"] = "tampered"
     artifact_path.write_text(json.dumps(artifact), encoding="utf-8")
 
-    with pytest.raises(PipelineJobStateError, match="source-block index is inconsistent"):
+    with pytest.raises(PipelineJobStateError, match="processed artifact"):
         service.pipeline_corpus_snapshot(version_id)
 
 
@@ -716,11 +772,16 @@ def test_workflow_knowledge_proposal_concurrent_pending_deduplication(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("gate_mode", ["advisory", "required"])
 async def test_legacy_candidate_stays_diagnostic_and_historical_versions_support_rollback(
     pipeline_runtime,
+    gate_mode: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     client, service, executor, registry, _ = pipeline_runtime
     kb_id = await create_kb(client)
+    evaluation_store = get_evaluation_store()
+    evaluation_store.set_gate_policy(kb_id, {"mode": gate_mode})
     alpha_id = await upload_text(
         client,
         kb_id,
@@ -744,9 +805,14 @@ async def test_legacy_candidate_stays_diagnostic_and_historical_versions_support
         f"/api/rag/pipeline/versions/{first_version['version_id']}/activate"
     )
     assert activate.status_code == 409, activate.text
-    assert activate.json()["detail"]["code"] == (
-        "rag_content_contract_legacy_read_only"
-    )
+    if gate_mode == "required":
+        assert activate.json()["detail"] == (
+            "This knowledge base requires a passing evaluation run before activation."
+        )
+    else:
+        assert activate.json()["detail"]["code"] == (
+            "rag_content_contract_legacy_read_only"
+        )
     for label, invalid_timestamp in (
         ("missing", None),
         ("none", None),
@@ -819,6 +885,24 @@ async def test_legacy_candidate_stays_diagnostic_and_historical_versions_support
     assert service.get_active_pipeline_version(kb_id)["version_id"] == (
         second_version_id
     )
+
+    # A rollback without a run may restore historical state, but an explicitly
+    # supplied failed evaluation and the dedicated promotion path remain gated.
+    monkeypatch.setattr(
+        evaluation_store,
+        "get_run",
+        lambda _run_id: {"status": "failed", "kb_id": kb_id},
+    )
+    for operation in ("activate", "promote"):
+        rejected_evaluation = await client.post(
+            f"/api/rag/pipeline/versions/{first_version['version_id']}/{operation}",
+            json={"evaluation_run_id": "ker_failed_rollback_control"},
+        )
+        assert rejected_evaluation.status_code == 409, rejected_evaluation.text
+        assert "not a successful run" in rejected_evaluation.json()["detail"]
+        assert service.get_active_pipeline_version(kb_id)["version_id"] == (
+            second_version_id
+        )
 
     rollback = await client.post(
         f"/api/rag/pipeline/versions/{first_version['version_id']}/activate"
@@ -1157,6 +1241,91 @@ async def test_legacy_lexical_contract_blocks_candidate_before_index_writes(
     assert service.list_pipeline_jobs(kb_id=kb_id) == []
     versions = service.list_pipeline_versions(kb_id)
     assert versions == []
+
+
+@pytest.mark.asyncio
+async def test_source_with_only_rejected_generated_items_fails_before_embedding(
+    pipeline_runtime,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, service, executor, _, _ = pipeline_runtime
+    kb_id = await create_kb(client, "generated source completeness")
+    rejected_document_id = await upload_text(
+        client,
+        kb_id,
+        "generated.txt",
+        "Canonical generated source evidence.",
+    )
+    normal_document_id = await upload_text(
+        client,
+        kb_id,
+        "normal.txt",
+        "A second source still produces a valid raw chunk.",
+    )
+    draft = service.update_pipeline_draft(
+        kb_id,
+        {},
+        retrieval_profile={"mode": "vector"},
+    )
+    job = service.create_pipeline_job(
+        kb_id,
+        draft_version=int(draft["version"]),
+        source_document_ids=[rejected_document_id, normal_document_id],
+    )
+    source_text = "Canonical generated source evidence."
+    parsed = [
+        {
+            "source_id": rejected_document_id,
+            "processed_document": {
+                "blocks": [{
+                    "block_id": "generated-source-block",
+                    "kind": "paragraph",
+                    "text": source_text,
+                    "start_char": 0,
+                    "end_char": len(source_text),
+                }]
+            },
+            "generated_items": [{
+                "item_id": "over-budget-generated-item",
+                "item_type": "qa",
+                "index_text": "超" * 5_000,
+                "context_text": source_text,
+                "source_block_ids": ["generated-source-block"],
+            }],
+        },
+        {
+            "source_id": normal_document_id,
+            "processed_document": {
+                "blocks": [{
+                    "block_id": "normal-source-block",
+                    "kind": "paragraph",
+                    "text": "A second source still produces a valid raw chunk.",
+                    "start_char": 0,
+                    "end_char": 49,
+                }]
+            },
+            "generated_items": [],
+        },
+    ]
+    embedding_calls = 0
+
+    async def fixed_parsed_sources(*_args, **_kwargs):
+        return parsed
+
+    async def forbidden_embedding(*_args, **_kwargs):
+        nonlocal embedding_calls
+        embedding_calls += 1
+        raise AssertionError("incomplete generated source reached embedding")
+
+    monkeypatch.setattr(executor, "_parse_sources", fixed_parsed_sources)
+    monkeypatch.setattr(executor, "_embed_chunks", forbidden_embedding)
+
+    assert await executor.run_once() is True
+    failed = service.get_pipeline_job(job["job_id"])
+    assert embedding_calls == 0
+    assert failed["status"] == "failed"
+    assert "processed sources produced no indexable" in str(failed["error"])
+    assert failed["document_results"][0]["chunk_count"] == 0
 
 
 def test_pipeline_metadata_is_atomic_and_recovers_running_jobs(tmp_path: Path) -> None:

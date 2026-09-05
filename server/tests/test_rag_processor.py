@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -13,9 +14,10 @@ from server.rag.embedder import EmbeddingClient
 from server.rag.pipeline_executor import KnowledgePipelineExecutor
 from server.rag.processor_generator import (
     GeneratedIndexItem,
+    GeneratedSourceRange,
     ProcessorGenerationService,
 )
-from server.rag.rag_service import RagService
+from server.rag.rag_service import PipelineJobStateError, RagService
 from server.rag.vector_store import LocalJsonVectorStore
 
 
@@ -42,25 +44,45 @@ class FakeGenerator:
             return []
         first = document.blocks[0]
         if mode == "qa":
+            prefix = (
+                "Question: What is the Orion approval code?\n"
+                "Answer: ORION-42\n\nSource:\n"
+            )
             return [
                 GeneratedIndexItem(
                     item_id="qa_0",
                     index_text="What is the Orion approval code?",
-                    context_text=(
-                        "Question: What is the Orion approval code?\n"
-                        "Answer: ORION-42\n\nSource:\n" + first.text
-                    ),
+                    context_text=prefix + first.text,
                     source_block_ids=[first.block_id],
                     item_type="qa",
+                    context_source_ranges=[
+                        GeneratedSourceRange(
+                            source_block_id=first.block_id,
+                            context_start=len(prefix),
+                            context_end=len(prefix) + len(first.text),
+                            source_start=first.start_char,
+                            source_end=first.end_char,
+                        )
+                    ],
                 )
             ]
+        prefix = "Summary: Orion uses ORION-42.\n\nSource:\n"
         return [
             GeneratedIndexItem(
                 item_id="summary_0",
                 index_text="Orion release approval summary",
-                context_text="Summary: Orion uses ORION-42.\n\nSource:\n" + first.text,
+                context_text=prefix + first.text,
                 source_block_ids=[first.block_id],
                 item_type="summary",
+                context_source_ranges=[
+                    GeneratedSourceRange(
+                        source_block_id=first.block_id,
+                        context_start=len(prefix),
+                        context_end=len(prefix) + len(first.text),
+                        source_start=first.start_char,
+                        source_end=first.end_char,
+                    )
+                ],
             )
         ]
 
@@ -266,6 +288,13 @@ async def test_generation_service_retries_invalid_json_and_builds_qa_context(
     assert items[0].index_text == "What is the approval code?"
     assert "Answer: ORION-42" in items[0].context_text
     assert "The approval code" in items[0].context_text
+    assert len(items[0].context_source_ranges) == 1
+    source_range = items[0].context_source_ranges[0]
+    assert source_range.source_block_id == document.blocks[0].block_id
+    assert (
+        items[0].context_text[source_range.context_start : source_range.context_end]
+        == document.text[source_range.source_start : source_range.source_end]
+    )
 
 
 @pytest.mark.asyncio
@@ -436,3 +465,105 @@ async def test_continue_on_error_builds_candidate_from_successful_documents(
         "completed",
         "failed",
     }
+
+
+@pytest.mark.asyncio
+async def test_continue_on_error_does_not_downgrade_processor_integrity_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    processor = FailingProcessor()
+    processor.fail_bad = False
+    original_process = processor.process
+    service = make_service(tmp_path, processor=processor)
+    kb = service.create_knowledge_base("integrity failure")
+    good = await service.upload_document(kb["id"], "good.txt", b"Good source text.")
+    bad = await service.upload_document(kb["id"], "bad.txt", b"Bad source text.")
+    draft = service.update_pipeline_draft(
+        kb["id"],
+        {"stage_processor": {"failure_policy": "continue_on_error"}},
+        retrieval_profile={"mode": "vector"},
+    )
+    job = service.create_pipeline_job(
+        kb["id"],
+        draft_version=draft["version"],
+        source_document_ids=[good["id"], bad["id"]],
+    )
+    namespace = str(
+        service.get_pipeline_job(job["job_id"])["candidate_namespace"]
+    )
+
+    def fail_integrity(path: Path, **kwargs: Any) -> ProcessedDocument:
+        if str(kwargs["filename"]) == "bad.txt":
+            raise PipelineJobStateError(
+                "Synthetic processed-artifact integrity failure."
+            )
+        return original_process(path, **kwargs)
+
+    monkeypatch.setattr(processor, "process", fail_integrity)
+
+    assert await KnowledgePipelineExecutor(service).run_once() is True
+
+    failed = service.get_pipeline_job(job["job_id"])
+    assert failed["status"] == "failed"
+    assert failed["error_code"] == "rag_pipeline_job_contract_invalid"
+    assert "processed-artifact integrity failure" in str(failed["error"])
+    assert service.vector_store.count_namespace(namespace) == 0
+    assert service.lexical_store.count_namespace(namespace) == 0
+    assert service.list_pipeline_versions(kb["id"]) == []
+    assert service.get_active_pipeline_version(kb["id"]) is None
+
+
+@pytest.mark.asyncio
+async def test_processed_artifact_cannot_be_rebound_to_another_source(
+    tmp_path: Path,
+) -> None:
+    processor = FailingProcessor()
+    processor.fail_bad = False
+    service = make_service(tmp_path, processor=processor)
+    kb = service.create_knowledge_base("artifact source identity")
+    first = await service.upload_document(
+        kb["id"],
+        "first.txt",
+        b"First canonical source.",
+    )
+    second = await service.upload_document(
+        kb["id"],
+        "second.txt",
+        b"Second canonical source.",
+    )
+    draft = service.update_pipeline_draft(
+        kb["id"],
+        {},
+        retrieval_profile={"mode": "vector"},
+    )
+    job = service.create_pipeline_job(
+        kb["id"],
+        draft_version=draft["version"],
+        source_document_ids=[first["id"], second["id"]],
+    )
+    assert service.claim_next_pipeline_job() is not None
+    processed = await service.process_pipeline_job_sources(job["job_id"])
+    assert len(processed) == 2
+
+    stored = service.get_pipeline_job(job["job_id"])
+    results = stored["document_results"]
+    paths = [
+        service._pipeline_processed_path(item["artifact_key"])  # noqa: SLF001
+        for item in results
+    ]
+    original_bytes = [path.read_bytes() for path in paths]
+    paths[0].write_bytes(original_bytes[1])
+    paths[1].write_bytes(original_bytes[0])
+    with service._metadata_lock:  # noqa: SLF001 - cross-source replay fixture.
+        metadata = service._read_metadata_unlocked()  # noqa: SLF001
+        stored_results = metadata["pipeline_jobs"][job["job_id"]][
+            "document_results"
+        ]
+        for result, path in zip(stored_results, paths, strict=True):
+            result["artifact_hash"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        service._write_metadata_unlocked(metadata)  # noqa: SLF001
+
+    with pytest.raises(PipelineJobStateError, match="processed artifact identity"):
+        await service.process_pipeline_job_sources(job["job_id"])
+    assert processor.calls == {"first.txt": 1, "second.txt": 1}

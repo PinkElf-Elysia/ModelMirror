@@ -14,8 +14,92 @@ import RagPage, {
   isPipelineVersionFirstActivationBlocked,
   ragUploadStatusLabel,
   readError,
+  retrievalCapabilitiesSummary,
   retrievalProfileFromEdits,
 } from "./RagPage";
+
+describe("RAG retrieval capability presentation", () => {
+  it("distinguishes historical query support from 4A candidate build support", () => {
+    const summary = retrievalCapabilitiesSummary({
+      version: "rag-retrieval-capabilities-v3",
+      index_schema_version: 3,
+      modes: ["vector", "fulltext", "hybrid"],
+      vector: {
+        available: true,
+        query_available: true,
+        candidate_build_available: true,
+        backend: "local_json",
+        configured_backend: "local",
+        effective_backend: "local_json",
+        ready: true,
+        reason_code: null,
+        distance_contract: "cosine_v1",
+      },
+      fulltext: {
+        available: true,
+        query_available: true,
+        candidate_build_available: false,
+        candidate_build_blocker: "lexical_v2_pending",
+        backend: "sqlite_fts5",
+      },
+      candidate_build_modes: ["vector"],
+      candidate_build_contract_status: "partial_round_4a",
+      embedding: {
+        provider: "hash",
+        model: "deterministic-hash-v1",
+        dimension: 8,
+        degraded: true,
+      },
+      rerank: {
+        api_configured: false,
+        llm_configured: false,
+        api_model: "",
+        llm_model: "",
+      },
+    });
+
+    expect(summary.query).toBe("查询能力：向量 可用 / 全文 可用。");
+    expect(summary.build).toBe("候选构建：仅 vector。");
+    expect(summary.blocker).toContain("全文与混合模式可查询已有索引，但不能新建候选");
+    expect(summary.blocker).toContain("lexical_v2_pending");
+    expect(summary.blocker).toContain("partial_round_4a");
+  });
+
+  it("surfaces a vector candidate-build blocker instead of implying readiness", () => {
+    const summary = retrievalCapabilitiesSummary({
+      version: "rag-retrieval-capabilities-v3",
+      index_schema_version: 3,
+      modes: ["vector"],
+      vector: {
+        available: false,
+        query_available: false,
+        candidate_build_available: false,
+        candidate_build_blocker: "vector_backend_unavailable",
+        backend: "unavailable",
+        configured_backend: "chroma",
+        effective_backend: "unavailable",
+        ready: false,
+        reason_code: "vector_backend_unavailable",
+        distance_contract: "cosine_v1",
+      },
+      fulltext: {
+        available: true,
+        query_available: true,
+        candidate_build_available: false,
+        candidate_build_blocker: "lexical_v2_pending",
+        backend: "sqlite_fts5",
+      },
+      candidate_build_modes: [],
+      candidate_build_contract_status: "blocked",
+      embedding: { provider: "unavailable", model: "", dimension: 0, degraded: true },
+      rerank: { api_configured: false, llm_configured: false, api_model: "", llm_model: "" },
+    });
+
+    expect(summary.build).toBe("候选构建：当前不可用。");
+    expect(summary.blocker).toContain("向量候选当前不可构建（vector_backend_unavailable）");
+    expect(summary.blocker).toContain("当前构建合同：blocked");
+  });
+});
 
 describe("RAG content-index activation guard", () => {
   it("blocks a new legacy aggregate candidate but permits an actual rollback", () => {
@@ -43,6 +127,18 @@ describe("RAG content-index activation guard", () => {
         activated_at: 1,
       }),
     ).toBe(false);
+    expect(
+      isPipelineVersionFirstActivationBlocked({
+        ...legacy,
+        activated_at: 0,
+      }),
+    ).toBe(true);
+    expect(
+      isPipelineVersionFirstActivationBlocked({
+        ...legacy,
+        activated_at: -1,
+      }),
+    ).toBe(true);
     expect(
       isPipelineVersionFirstActivationBlocked({
         activated_at: null,
@@ -118,6 +214,22 @@ describe("RAG draft execution disposition", () => {
         3,
       ),
     ).toMatchObject({ status: "normal", canExecute: true });
+  });
+
+  it("fails closed for malformed schema and retrieval mode evidence", () => {
+    expect(draftExecutionDisposition(contract, "vector", "3")).toMatchObject({
+      status: "blocked",
+      canExecute: false,
+    });
+    expect(draftExecutionDisposition(contract, "semantic", 3)).toEqual({
+      status: "blocked",
+      canExecute: false,
+      message: "检索模式缺失或不可识别；执行保持禁用。",
+    });
+    expect(draftExecutionDisposition(contract, undefined, 3)).toMatchObject({
+      status: "blocked",
+      canExecute: false,
+    });
   });
 });
 
@@ -233,8 +345,21 @@ function renderRagPageWithOfficeUploadError(
           version: "v1",
           index_schema_version: 1,
           modes: ["hybrid"],
-          vector: { available: true, backend: "local" },
-          fulltext: { available: true, backend: "local" },
+          vector: {
+            available: true,
+            query_available: true,
+            candidate_build_available: true,
+            backend: "local",
+          },
+          fulltext: {
+            available: true,
+            query_available: true,
+            candidate_build_available: false,
+            candidate_build_blocker: "lexical_v2_pending",
+            backend: "local",
+          },
+          candidate_build_modes: ["vector"],
+          candidate_build_contract_status: "partial_round_4a",
           embedding: {
             provider: "local",
             model: "test",

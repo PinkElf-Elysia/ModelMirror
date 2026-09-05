@@ -18,6 +18,15 @@ import {
   embeddingModelOptions,
   rerankModelOptions,
 } from "../data/modelOptions";
+import {
+  draftExecutionDisposition,
+  isPipelineVersionFirstActivationBlocked,
+} from "../utils/ragPipelineActivation";
+
+export {
+  draftExecutionDisposition,
+  isPipelineVersionFirstActivationBlocked,
+} from "../utils/ragPipelineActivation";
 
 interface KnowledgeBase {
   id: string;
@@ -215,18 +224,61 @@ interface ProcessorPreview {
   generated_items: Array<{ item_id: string; item_type: string; index_text: string; context_text: string; truncated?: boolean }>;
 }
 
-interface RetrievalCapabilities {
+export interface RetrievalCapabilities {
   version: string;
   index_schema_version: number;
   modes: string[];
-  vector: VectorBackendReadiness & { available: boolean; backend: string };
-  fulltext: { available: boolean; backend: string };
+  vector: VectorBackendReadiness & {
+    available: boolean;
+    query_available: boolean;
+    candidate_build_available: boolean;
+    candidate_build_blocker?: string | null;
+    backend: string;
+  };
+  fulltext: {
+    available: boolean;
+    query_available: boolean;
+    candidate_build_available: boolean;
+    candidate_build_blocker?: string | null;
+    backend: string;
+  };
+  candidate_build_modes: string[];
+  candidate_build_contract_status: string;
   embedding: { provider: string; model: string; dimension: number; degraded: boolean };
   rerank: {
     api_configured: boolean;
     llm_configured: boolean;
     api_model: string;
     llm_model: string;
+  };
+}
+
+export function retrievalCapabilitiesSummary(capabilities: RetrievalCapabilities) {
+  const buildModes = Array.isArray(capabilities.candidate_build_modes)
+    ? capabilities.candidate_build_modes.filter(Boolean)
+    : [];
+  const buildLabel = buildModes.length === 0
+    ? "当前不可用"
+    : buildModes.length === 1
+      ? `仅 ${buildModes[0]}`
+      : buildModes.join(" / ");
+  const fulltextBuildBlocker = capabilities.fulltext.candidate_build_available
+    ? ""
+    : capabilities.fulltext.query_available
+      ? "全文与混合模式可查询已有索引，但不能新建候选"
+      : "全文模式当前不可查询，也不能新建候选";
+  const vectorBuildBlocker = capabilities.vector.candidate_build_available
+    ? ""
+    : `向量候选当前不可构建${capabilities.vector.candidate_build_blocker ? `（${capabilities.vector.candidate_build_blocker}）` : ""}。`;
+  const blockerDetails = [vectorBuildBlocker, fulltextBuildBlocker
+    ? `${fulltextBuildBlocker}；4A 等待 4B 全文合同${capabilities.fulltext.candidate_build_blocker ? `（${capabilities.fulltext.candidate_build_blocker}）` : ""}。`
+    : ""].filter(Boolean).join(" ");
+  return {
+    query: `查询能力：向量 ${capabilities.vector.query_available ? "可用" : "不可用"} / 全文 ${capabilities.fulltext.query_available ? "可用" : "不可用"}。`,
+    build: `候选构建：${buildLabel}。`,
+    blocker: !blockerDetails
+      ? ""
+      : `${blockerDetails} 当前构建合同：${capabilities.candidate_build_contract_status}。`,
   };
 }
 
@@ -333,18 +385,6 @@ interface PipelineVersionListResponse {
   versions: PipelineVersion[];
   version_count: number;
   active_version_id: string | null;
-}
-
-export function isPipelineVersionFirstActivationBlocked(
-  version: Pick<
-    PipelineVersion,
-    "activated_at" | "content_index_contract" | "index_schema_version"
-  >,
-) {
-  return version.activated_at == null && (
-    version.content_index_contract?.status !== "current"
-    || (version.index_schema_version ?? 1) < 3
-  );
 }
 
 interface PipelineVersionQueryResponse {
@@ -483,62 +523,6 @@ export function ragUploadStatusLabel(
   if (status === "failed") return "失败";
   if (status === "cancel_requested") return "已请求取消，请刷新确认";
   return "已取消";
-}
-
-type PipelineDraftExecutionDisposition = {
-  status: "blocked" | "diagnostic_only" | "normal";
-  canExecute: boolean;
-  message: string;
-};
-
-export function draftExecutionDisposition(
-  contract: ContentIndexContract | undefined,
-  retrievalMode: unknown,
-  indexSchemaVersion: unknown,
-): PipelineDraftExecutionDisposition {
-  if (Number(indexSchemaVersion) !== 3) {
-    return {
-      status: "blocked",
-      canExecute: false,
-      message: "历史索引 schema 只读，不能新建候选。",
-    };
-  }
-  const components = contract?.components ?? {};
-  if (components.chunker !== "current") {
-    return {
-      status: "blocked",
-      canExecute: false,
-      message: "历史字符分块合同只读；请先保存估算 Token 分块预算。",
-    };
-  }
-  const mode = String(retrievalMode || "hybrid");
-  if (
-    (mode === "fulltext" || mode === "hybrid") &&
-    components.lexical !== "current"
-  ) {
-    return {
-      status: "blocked",
-      canExecute: false,
-      message: "4A 尚未提供 lexical v2；fulltext/hybrid 候选将在 4B 开放。",
-    };
-  }
-  if (
-    contract?.status === "current" &&
-    components.chunker === "current" &&
-    components.lexical === "current" &&
-    components.parser === "current"
-  ) {
-    return {
-      status: "normal",
-      canExecute: true,
-      message: "内容索引合同完整，可构建候选。",
-    };
-  }
-  return {
-    status: "diagnostic_only",
-    canExecute: true,
-    message: "当前仅允许 vector-only Diagnostic 候选；不能首次激活或晋级。",
-  };
 }
 
 export function chunkerEditsForStrategy(
@@ -1073,6 +1057,9 @@ export default function RagPage() {
     pipelineDraft?.retrieval_profile?.mode,
     pipelineDraft?.index_schema_version,
   );
+  const retrievalCapabilityCopy = retrievalCapabilities
+    ? retrievalCapabilitiesSummary(retrievalCapabilities)
+    : null;
   const ragFileSelectionDisabled = ragCapabilityDisabled || Boolean(selectedKnowledgeBase?.corpus_locked);
 
   const activePipelineVersion = useMemo(
@@ -2752,7 +2739,7 @@ export default function RagPage() {
                                   </label>
                                   <label className="block">
                                     <span className="text-xs font-medium text-slate-300">
-                                      重叠（{pipelineDraftEdits.strategy === "recursive_estimated_token" ? "估算 Token" : "字符，历史只读"}）
+                                      {pipelineDraftEdits.strategy === "recursive_estimated_token" ? "目标总重叠（估算 Token）" : "重叠（字符，历史只读）"}
                                     </span>
                                     <input
                                       className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50"
@@ -2776,7 +2763,7 @@ export default function RagPage() {
                                   <div className="grid gap-3 sm:grid-cols-2">
                                     <label className="block">
                                       <span className="text-xs font-medium text-slate-300">
-                                        父段大小 / 重叠（{pipelineDraftEdits.strategy === "parent_child_estimated_token" ? "估算 Token" : "字符，历史只读"}）
+                                        {pipelineDraftEdits.strategy === "parent_child_estimated_token" ? "父段大小 / 目标总重叠（估算 Token）" : "父段大小 / 重叠（字符，历史只读）"}
                                       </span>
                                       <div className="mt-2 grid grid-cols-2 gap-2">
                                         <input className="w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50" min={100} onChange={(event) => setPipelineDraftEdits((current) => ({ ...current, parentChunkSize: event.target.value }))} type="number" value={pipelineDraftEdits.parentChunkSize} />
@@ -2785,7 +2772,7 @@ export default function RagPage() {
                                     </label>
                                     <label className="block">
                                       <span className="text-xs font-medium text-slate-300">
-                                        子段大小 / 重叠（{pipelineDraftEdits.strategy === "parent_child_estimated_token" ? "估算 Token" : "字符，历史只读"}）
+                                        {pipelineDraftEdits.strategy === "parent_child_estimated_token" ? "子段大小 / 目标总重叠（估算 Token）" : "子段大小 / 重叠（字符，历史只读）"}
                                       </span>
                                       <div className="mt-2 grid grid-cols-2 gap-2">
                                         <input className="w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50" min={100} onChange={(event) => setPipelineDraftEdits((current) => ({ ...current, childChunkSize: event.target.value }))} type="number" value={pipelineDraftEdits.childChunkSize} />
@@ -2806,6 +2793,11 @@ export default function RagPage() {
                                   <p className="text-[11px] leading-5 text-slate-500">子段参与索引；命中后提升并返回父段上下文，同时保留子段作为引用锚点。</p>
                                 </div>
                               )}
+                              {pipelineDraftEdits.strategy === "recursive_estimated_token" || pipelineDraftEdits.strategy === "parent_child_estimated_token" ? (
+                                <p className="mt-3 text-[11px] leading-5 text-slate-500">
+                                  标题路径前缀先占用目标总重叠预算；前缀超过该预算时正文重叠为 0，标题前缀成为可审计的结构重叠下限。
+                                </p>
+                              ) : null}
                             </div>
 
                             <div className="mt-4 border-t border-white/10 pt-4">
@@ -2870,7 +2862,17 @@ export default function RagPage() {
                               ) : null}
                               <div className="mt-3 text-[11px] leading-5 text-slate-500">
                                 {retrievalCapabilities ? (
-                                  <p>向量：{retrievalCapabilities.vector.backend} · 全文：{retrievalCapabilities.fulltext.backend} · Embedding：{retrievalCapabilities.embedding.provider}{retrievalCapabilities.embedding.degraded ? "（降级模式）" : ""} · Rerank API/LLM：{retrievalCapabilities.rerank.api_configured ? "ready" : "off"}/{retrievalCapabilities.rerank.llm_configured ? "ready" : "off"}</p>
+                                  <>
+                                    <p>向量：{retrievalCapabilities.vector.backend} · 全文：{retrievalCapabilities.fulltext.backend} · Embedding：{retrievalCapabilities.embedding.provider}{retrievalCapabilities.embedding.degraded ? "（降级模式）" : ""} · Rerank API/LLM：{retrievalCapabilities.rerank.api_configured ? "ready" : "off"}/{retrievalCapabilities.rerank.llm_configured ? "ready" : "off"}</p>
+                                    <p className="mt-1">
+                                      {retrievalCapabilityCopy?.query}{retrievalCapabilityCopy?.build}
+                                    </p>
+                                    {retrievalCapabilityCopy?.blocker ? (
+                                      <p className="mt-1 text-amber-200/90">
+                                        {retrievalCapabilityCopy.blocker}
+                                      </p>
+                                    ) : null}
+                                  </>
                                 ) : (
                                   <p>{retrievalCapabilitiesError || "正在读取检索能力摘要..."}</p>
                                 )}

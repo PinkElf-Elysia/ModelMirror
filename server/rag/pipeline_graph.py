@@ -4,6 +4,17 @@ import copy
 from dataclasses import dataclass
 from typing import Any
 
+from .splitter import (
+    MAX_ESTIMATED_TOKEN_PARENT_CHILD_AMPLIFICATION,
+    MAX_ESTIMATED_TOKEN_PARENT_CHILD_RUNTIME_AMPLIFICATION,
+    MAX_ESTIMATED_TOKEN_RECURSIVE_AMPLIFICATION,
+    MAX_ESTIMATED_TOKEN_RECURSIVE_RUNTIME_AMPLIFICATION,
+    estimated_token_parent_child_amplification,
+    estimated_token_parent_child_runtime_amplification_bound,
+    estimated_token_overlap_amplification,
+    estimated_token_separator_aware_coverage_bound,
+)
+
 
 GRAPH_VERSION = "knowledge-pipeline-graph-v1"
 
@@ -246,6 +257,139 @@ def validate_pipeline_graph(graph: dict[str, Any]) -> list[GraphValidationIssue]
             issues.append(GraphValidationIssue("invalid_node_enabled", "Node enabled must be boolean.", node_id=node_id))
             continue
         spec = NODE_SPECS[kind]
+        config = raw_node.get("config")
+        strategy_is_explicit = isinstance(config, dict) and "strategy" in config
+        raw_strategy = config.get("strategy") if isinstance(config, dict) else None
+        strategy = str(raw_strategy) if raw_strategy is not None else ""
+        canonical_strategy = strategy.strip()
+        chunker_strategies = {
+            "recursive_chunker": {
+                "recursive_character",
+                "recursive_estimated_token",
+                "local_recursive_character_chunks",
+            },
+            "parent_child_chunker": {
+                "parent_child",
+                "parent_child_estimated_token",
+            },
+        }
+        allowed_chunker_strategies = chunker_strategies.get(kind)
+        if (
+            strategy_is_explicit
+            and allowed_chunker_strategies is not None
+            and (
+                not canonical_strategy
+                or strategy != canonical_strategy
+                or strategy not in allowed_chunker_strategies
+            )
+        ):
+            known_chunker_strategies = set().union(*chunker_strategies.values())
+            issues.append(
+                GraphValidationIssue(
+                    (
+                        "chunker_strategy_kind_mismatch"
+                        if strategy == canonical_strategy
+                        and strategy in known_chunker_strategies
+                        else "unsupported_chunker_strategy"
+                    ),
+                    (
+                        "Chunker node kind and explicit strategy must use the same family."
+                        if strategy == canonical_strategy
+                        and strategy in known_chunker_strategies
+                        else "Chunker strategy is unsupported."
+                    ),
+                    node_id=node_id,
+                )
+            )
+        if strategy == "recursive_estimated_token" and isinstance(config, dict):
+            chunk_size = config.get("chunk_size")
+            chunk_overlap = config.get("chunk_overlap")
+            if (
+                isinstance(chunk_size, int)
+                and not isinstance(chunk_size, bool)
+                and isinstance(chunk_overlap, int)
+                and not isinstance(chunk_overlap, bool)
+                and 100 <= chunk_size <= 4_000
+                and 0 <= chunk_overlap < chunk_size
+                and chunk_size - chunk_overlap >= 8
+                and (
+                    estimated_token_overlap_amplification(
+                        chunk_size=chunk_size,
+                        chunk_overlap=chunk_overlap,
+                    )
+                    > MAX_ESTIMATED_TOKEN_RECURSIVE_AMPLIFICATION
+                    or estimated_token_separator_aware_coverage_bound(
+                        chunk_size=chunk_size,
+                        chunk_overlap=chunk_overlap,
+                    )
+                    > MAX_ESTIMATED_TOKEN_RECURSIVE_RUNTIME_AMPLIFICATION
+                )
+            ):
+                issues.append(
+                    GraphValidationIssue(
+                        "chunker_overlap_amplification_exceeded",
+                        "Estimated-token recursive overlap amplification exceeds "
+                        "the supported resource contract.",
+                        node_id=node_id,
+                    )
+                )
+        if strategy == "parent_child_estimated_token" and isinstance(config, dict):
+            amplification_fields = (
+                "parent_chunk_size",
+                "parent_chunk_overlap",
+                "child_chunk_size",
+                "child_chunk_overlap",
+            )
+            amplification_values = tuple(
+                config.get(field) for field in amplification_fields
+            )
+            if all(
+                isinstance(value, int) and not isinstance(value, bool)
+                for value in amplification_values
+            ):
+                parent_size, parent_overlap, child_size, child_overlap = map(
+                    int,
+                    amplification_values,
+                )
+                stage_values_are_valid = (
+                    200 <= parent_size <= 8000
+                    and 100 <= child_size < parent_size
+                    and 0 <= parent_overlap < parent_size
+                    and 0 <= child_overlap < child_size
+                    and parent_size - parent_overlap >= 8
+                    and child_size - child_overlap >= 8
+                )
+                amplification = 0
+                runtime_amplification = 0
+                if stage_values_are_valid:
+                    amplification = estimated_token_parent_child_amplification(
+                        parent_chunk_size=parent_size,
+                        parent_chunk_overlap=parent_overlap,
+                        child_chunk_size=child_size,
+                        child_chunk_overlap=child_overlap,
+                    )
+                    runtime_amplification = (
+                        estimated_token_parent_child_runtime_amplification_bound(
+                            parent_chunk_size=parent_size,
+                            parent_chunk_overlap=parent_overlap,
+                            child_chunk_size=child_size,
+                            child_chunk_overlap=child_overlap,
+                        )
+                    )
+                if (
+                    amplification
+                    > MAX_ESTIMATED_TOKEN_PARENT_CHILD_AMPLIFICATION
+                    or runtime_amplification
+                    > MAX_ESTIMATED_TOKEN_PARENT_CHILD_RUNTIME_AMPLIFICATION
+                ):
+                    issues.append(
+                        GraphValidationIssue(
+                            "chunker_overlap_amplification_exceeded",
+                            "Estimated-token parent-child overlap amplification "
+                            "exceeds the supported resource contract.",
+                            node_id=node_id,
+                        )
+                    )
         if spec.get("available") is False and enabled:
             issues.append(GraphValidationIssue("node_not_available", f"{spec['title']} is a disabled placeholder and cannot execute.", node_id=node_id))
         if enabled:

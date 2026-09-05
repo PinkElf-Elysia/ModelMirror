@@ -10,9 +10,11 @@ from typing import Any
 
 from .chunking_receipt import (
     CHUNKING_RECEIPT_VERSION,
+    HEADING_OVERLAP_POLICY,
     candidate_namespace_fingerprint,
     canonical_chunk_sequence_hash,
     chunker_profile_fingerprint,
+    record_heading_overlap_policy,
 )
 from .embedder import EmbeddingClient, EmbeddingError
 from .content_identity import (
@@ -22,13 +24,14 @@ from .content_identity import (
     generated_segment_source_mapping,
 )
 from .lexical_store import LexicalChunk
-from .rag_service import RagService
+from .rag_service import PipelineJobStateError, RagService
 from .splitter import (
     EstimatedTokenParentChildTextSplitter,
     EstimatedTokenTextSplitter,
     ParentChildTextSplitter,
     TextChunk,
     TextSplitter,
+    body_overlap_after_heading_prefix as _body_overlap_after_heading_prefix,
     bounded_generated_index_text as _bounded_generated_index_text,
     bounded_heading_prefix as _bounded_heading_prefix,
     heading_prefix_budget as _heading_prefix_budget,
@@ -177,8 +180,12 @@ class KnowledgePipelineExecutor:
 
     async def _execute(self, job: dict[str, Any]) -> None:
         job_id = str(job["job_id"])
-        namespace = str(job["candidate_namespace"])
+        namespace = ""
+        uses_vector = False
         try:
+            job = self._validated_execution_job(job_id)
+            namespace = str(job["candidate_namespace"])
+            uses_vector = self._job_uses_vector(job)
             await self._checkpoint(
                 job_id,
                 event_type="knowledge_pipeline.started",
@@ -186,7 +193,10 @@ class KnowledgePipelineExecutor:
                 summary=f"Processing {len(job['sources'])} source files.",
                 metadata={"attempt": job["attempt"], "source_count": len(job["sources"])},
             )
-            if self._job_uses_vector(job):
+            job = self._validated_execution_job(job_id)
+            namespace = str(job["candidate_namespace"])
+            uses_vector = self._job_uses_vector(job)
+            if uses_vector:
                 self.service.vector_store.delete_knowledge_base(namespace)
             self.service.lexical_store.delete_namespace(namespace)
 
@@ -195,9 +205,9 @@ class KnowledgePipelineExecutor:
             parsed = await self._stage(job_id, "process", self._parse_sources)
             chunks = await self._stage(job_id, "chunk", self._chunk_sources, parsed)
             embeddings = await self._stage(job_id, "embed", self._embed_chunks, chunks)
-            namespace = str(
-                self.service.get_pipeline_job(job_id)["candidate_namespace"]
-            )
+            job = self._validated_execution_job(job_id)
+            namespace = str(job["candidate_namespace"])
+            uses_vector = self._job_uses_vector(job)
             await self._stage(job_id, "store", self._store_chunks, chunks, embeddings)
 
             version = self.service.complete_pipeline_job(
@@ -225,7 +235,11 @@ class KnowledgePipelineExecutor:
                         metadata={"candidate_version_id": version["version_id"]},
                     )
         except PipelineJobCancelled:
-            cleanup_complete = self._discard_pipeline_candidate(job_id, namespace)
+            cleanup_complete = self._discard_pipeline_candidate(
+                job_id,
+                namespace,
+                uses_vector=uses_vector,
+            )
             if not cleanup_complete:
                 self.service.fail_pipeline_job(
                     job_id,
@@ -266,8 +280,20 @@ class KnowledgePipelineExecutor:
             raise
         except Exception as exc:
             logger.exception("Knowledge pipeline job failed job_id=%s", job_id)
-            self.service.fail_pipeline_job(job_id, str(exc))
-            cleanup_complete = self._discard_pipeline_candidate(job_id, namespace)
+            self.service.fail_pipeline_job(
+                job_id,
+                str(exc),
+                error_code=(
+                    "rag_pipeline_job_contract_invalid"
+                    if isinstance(exc, PipelineJobStateError)
+                    else "rag_pipeline_execution_failed"
+                ),
+            )
+            cleanup_complete = self._discard_pipeline_candidate(
+                job_id,
+                namespace,
+                uses_vector=uses_vector,
+            )
             if not cleanup_complete:
                 self.service.fail_pipeline_job(
                     job_id,
@@ -297,12 +323,18 @@ class KnowledgePipelineExecutor:
                         ),
                     )
 
-    def _discard_pipeline_candidate(self, job_id: str, namespace: str) -> bool:
+    def _discard_pipeline_candidate(
+        self,
+        job_id: str,
+        namespace: str,
+        *,
+        uses_vector: bool,
+    ) -> bool:
         try:
-            job = self.service.get_pipeline_job(job_id)
-            if self._job_uses_vector(job):
+            if namespace and uses_vector:
                 self.service.vector_store.delete_knowledge_base(namespace)
-            self.service.lexical_store.delete_namespace(namespace)
+            if namespace:
+                self.service.lexical_store.delete_namespace(namespace)
             self.service.cleanup_invalidated_pipeline_job(job_id)
         except Exception:
             logger.warning(
@@ -327,6 +359,16 @@ class KnowledgePipelineExecutor:
             "hybrid",
         }
 
+    def _validated_execution_job(self, job_id: str) -> dict[str, Any]:
+        validator = getattr(
+            self.service,
+            "validate_pipeline_job_execution_contract",
+            None,
+        )
+        if callable(validator):
+            return validator(job_id)
+        return self.service.get_pipeline_job(job_id)
+
     async def _stage(
         self,
         job_id: str,
@@ -344,6 +386,7 @@ class KnowledgePipelineExecutor:
             title=f"{stage_id.title()} stage started",
             metadata={"stage": stage_id},
         )
+        self._validated_execution_job(job_id)
         result = await operation(job_id, *args)
         if self.service.pipeline_job_cancel_requested(job_id):
             self.service.cancel_running_pipeline_job(job_id)
@@ -434,7 +477,7 @@ class KnowledgePipelineExecutor:
         job_id: str,
         parsed: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        job = self.service.get_pipeline_job(job_id)
+        job = self._validated_execution_job(job_id)
         snapshot = job["config_snapshot"]
         stages = snapshot.get("stages", snapshot)
         chunker = stages["stage_chunker"]
@@ -488,6 +531,11 @@ class KnowledgePipelineExecutor:
             "raw_candidate_count": 0,
             "heading_block_count": 0,
             "heading_prefix_truncated_count": 0,
+            "heading_overlap_policy": HEADING_OVERLAP_POLICY,
+            "max_heading_prefix_tokens": 0,
+            "prefix_exceeds_configured_overlap_count": 0,
+            "max_effective_index_overlap_budget_tokens": 0,
+            "max_effective_context_overlap_budget_tokens": 0,
             "generated_item_count": 0,
             "generated_item_chunk_count": 0,
             "generated_item_rejected_count": 0,
@@ -508,6 +556,7 @@ class KnowledgePipelineExecutor:
                     if not isinstance(generated, dict):
                         continue
                     receipt["generated_item_count"] += 1
+                    segment_rejection_recorded = False
                     try:
                         parent_chunk_id, source_block_ids_tuple = (
                             generated_parent_identity(source_id, generated, blocks)
@@ -541,7 +590,7 @@ class KnowledgePipelineExecutor:
                         for block in source_blocks
                     ]
                     source_heading_was_truncated = any(
-                        bool(block.get("heading_path_source_truncated"))
+                        block.get("heading_path_source_truncated") is True
                         or heading_path_source_truncated(block.get("heading_path"))
                         for block in source_blocks
                     )
@@ -567,6 +616,7 @@ class KnowledgePipelineExecutor:
                     if (
                         source_heading_paths
                         and all(source_heading_paths)
+                        and len(set(source_heading_paths)) == 1
                         and all(source_heading_hashes)
                         and len(set(source_heading_hashes)) == 1
                     ):
@@ -612,6 +662,9 @@ class KnowledgePipelineExecutor:
                         )
                         if prefix_truncated:
                             receipt["heading_prefix_truncated_count"] += 1
+                        prefix_tokens = (
+                            _estimate_rag_tokens(prefix + "\n") if prefix else 0
+                        )
                         index_text = _with_heading_prefix(
                             prefix,
                             str(generated.get("index_text") or "").strip(),
@@ -620,20 +673,21 @@ class KnowledgePipelineExecutor:
                             _record_chunk_rejection(receipt, "index_text_over_budget")
                             continue
                         context_body = str(generated.get("context_text") or "")
-                        prefix_tokens = _estimate_rag_tokens(prefix + "\n") if prefix else 0
                         if strategy == "parent_child_estimated_token":
                             parent_body_budget = max(1, context_budget - prefix_tokens)
                             child_body_budget = max(1, index_budget - prefix_tokens)
                             context_segments = EstimatedTokenParentChildTextSplitter(
                                 parent_chunk_size=parent_body_budget,
-                                parent_chunk_overlap=min(
-                                    context_overlap,
-                                    parent_body_budget - 1,
+                                parent_chunk_overlap=_body_overlap_after_heading_prefix(
+                                    configured_overlap=context_overlap,
+                                    prefix_tokens=prefix_tokens,
+                                    body_budget=parent_body_budget,
                                 ),
                                 child_chunk_size=child_body_budget,
-                                child_chunk_overlap=min(
-                                    index_overlap,
-                                    child_body_budget - 1,
+                                child_chunk_overlap=_body_overlap_after_heading_prefix(
+                                    configured_overlap=index_overlap,
+                                    prefix_tokens=prefix_tokens,
+                                    body_budget=child_body_budget,
                                 ),
                                 parent_separators=(
                                     list(chunker.get("parent_separators") or []) or None
@@ -647,7 +701,11 @@ class KnowledgePipelineExecutor:
                                 1,
                                 min(index_budget, context_budget) - prefix_tokens,
                             )
-                            body_overlap = min(context_overlap, body_budget - 1)
+                            body_overlap = _body_overlap_after_heading_prefix(
+                                configured_overlap=context_overlap,
+                                prefix_tokens=prefix_tokens,
+                                body_budget=body_budget,
+                            )
                             context_segments = EstimatedTokenTextSplitter(
                                 chunk_size=body_budget,
                                 chunk_overlap=max(0, body_overlap),
@@ -723,6 +781,17 @@ class KnowledgePipelineExecutor:
                                 "context_source_ranges"
                             ),
                         )
+                        if (
+                            source_mapping.status == "unmapped"
+                            or not source_mapping.source_block_ids
+                        ):
+                            if not segment_rejection_recorded:
+                                _record_chunk_rejection(
+                                    receipt,
+                                    "generated_segment_source_unmapped",
+                                )
+                                segment_rejection_recorded = True
+                            continue
                         mapped_source_blocks = [
                             blocks[block_id]
                             for block_id in source_mapping.source_block_ids
@@ -762,6 +831,13 @@ class KnowledgePipelineExecutor:
                         mapped_block = blocks.get(
                             str(source_mapping.source_block_id or "")
                         )
+                        if token_strategy:
+                            record_heading_overlap_policy(
+                                receipt,
+                                prefix_tokens=prefix_tokens,
+                                index_overlap=index_overlap,
+                                context_overlap=context_overlap,
+                            )
                         chunks.append(
                             {
                                 "source": source,
@@ -828,7 +904,7 @@ class KnowledgePipelineExecutor:
                 source_heading_path = heading_path_segments(block.get("heading_path"))
                 heading_path = list(normalize_heading_path(source_heading_path))
                 source_heading_was_truncated = (
-                    bool(block.get("heading_path_source_truncated"))
+                    block.get("heading_path_source_truncated") is True
                     or heading_path_source_truncated(block.get("heading_path"))
                 )
                 block_metadata = (
@@ -881,12 +957,26 @@ class KnowledgePipelineExecutor:
                         if heading_prefix
                         else 0
                     )
+                    record_heading_overlap_policy(
+                        receipt,
+                        prefix_tokens=prefix_tokens,
+                        index_overlap=index_overlap,
+                        context_overlap=context_overlap,
+                    )
                     if strategy == "parent_child_estimated_token":
                         splitter = EstimatedTokenParentChildTextSplitter(
                             parent_chunk_size=max(1, context_budget - prefix_tokens),
-                            parent_chunk_overlap=context_overlap,
+                            parent_chunk_overlap=_body_overlap_after_heading_prefix(
+                                configured_overlap=context_overlap,
+                                prefix_tokens=prefix_tokens,
+                                body_budget=max(1, context_budget - prefix_tokens),
+                            ),
                             child_chunk_size=max(1, index_budget - prefix_tokens),
-                            child_chunk_overlap=index_overlap,
+                            child_chunk_overlap=_body_overlap_after_heading_prefix(
+                                configured_overlap=index_overlap,
+                                prefix_tokens=prefix_tokens,
+                                body_budget=max(1, index_budget - prefix_tokens),
+                            ),
                             parent_separators=(
                                 list(chunker["parent_separators"])
                                 if chunker.get("parent_separators")
@@ -901,7 +991,11 @@ class KnowledgePipelineExecutor:
                     else:
                         splitter = EstimatedTokenTextSplitter(
                             chunk_size=max(1, index_budget - prefix_tokens),
-                            chunk_overlap=index_overlap,
+                            chunk_overlap=_body_overlap_after_heading_prefix(
+                                configured_overlap=index_overlap,
+                                prefix_tokens=prefix_tokens,
+                                body_budget=max(1, index_budget - prefix_tokens),
+                            ),
                             separators=(
                                 list(chunker["separators"])
                                 if chunker.get("separators")
@@ -1024,9 +1118,19 @@ class KnowledgePipelineExecutor:
         receipt["final_chunk_count"] = len(chunks)
         receipt["chunk_sequence_hash"] = canonical_chunk_sequence_hash(chunks)
         self.service.update_pipeline_chunking_receipt(job_id, receipt)
+        self.service.update_pipeline_document_chunk_counts(job_id, per_source_counts)
         if not chunks:
             raise RuntimeError("No indexable text chunks were produced.")
-        self.service.update_pipeline_document_chunk_counts(job_id, per_source_counts)
+        expected_source_ids = {
+            str(source.get("source_id") or "")
+            for source in parsed
+            if str(source.get("source_id") or "")
+        }
+        missing_source_ids = expected_source_ids - set(per_source_counts)
+        if missing_source_ids:
+            raise RuntimeError(
+                "One or more processed sources produced no indexable text chunks."
+            )
         return chunks
 
     async def _embed_chunks(
@@ -1034,7 +1138,7 @@ class KnowledgePipelineExecutor:
         job_id: str,
         chunks: list[dict[str, Any]],
     ) -> list[list[float]]:
-        job = self.service.get_pipeline_job(job_id)
+        job = self._validated_execution_job(job_id)
         if not self._job_uses_vector(job):
             return []
         snapshot = job["config_snapshot"]
@@ -1103,7 +1207,7 @@ class KnowledgePipelineExecutor:
         chunks: list[dict[str, Any]],
         embeddings: list[list[float]],
     ) -> None:
-        job = self.service.get_pipeline_job(job_id)
+        job = self._validated_execution_job(job_id)
         version_id = str(job["candidate_version_id"])
         namespace = str(job["candidate_namespace"])
         vector_chunks: list[VectorChunk] = []

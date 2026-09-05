@@ -229,10 +229,13 @@ async def test_generated_item_artifact_tampering_fails_closed(
 
     with pytest.raises(
         PipelineJobStateError,
-        match="generated-item provenance|stored vector chunks",
+        match="processed artifact|generated-item provenance|stored vector chunks",
     ):
         service.pipeline_corpus_snapshot(version_id)
-    with pytest.raises(PipelineJobStateError, match="generated-item provenance"):
+    with pytest.raises(
+        PipelineJobStateError,
+        match="processed artifact|generated-item provenance",
+    ):
         service.pipeline_corpus_evidence(version_id)
 
 
@@ -272,4 +275,37 @@ async def test_forged_generated_child_parent_identity_fails_closed(
         PipelineJobStateError,
         match="generated-item provenance|stored vector chunks",
     ):
+        service.pipeline_corpus_evidence(version_id)
+
+
+@pytest.mark.asyncio
+async def test_processed_artifact_metadata_tamper_fails_before_corpus_projection(
+    tmp_path: Path,
+) -> None:
+    """Canonical metadata is covered by the admitted processed artifact hash."""
+
+    service = _service(tmp_path)
+    job, version_id, _ = await _execute_vector_version(
+        service,
+        name="processed metadata identity",
+        filename="evidence.md",
+        content="# Evidence\n\nCanonical evidence keeps its admitted metadata.",
+    )
+    assert service.pipeline_corpus_snapshot(version_id)
+    assert service.pipeline_corpus_evidence(version_id)
+    path, artifact = _artifact(service, job)
+    body = next(
+        block
+        for block in artifact["processed_document"]["blocks"]
+        if block.get("kind") != "heading"
+    )
+    original_text = body["text"]
+    body["heading_path"] = ["Forged heading"]
+    body["page_number"] = 999
+    path.write_text(json.dumps(artifact), encoding="utf-8")
+    assert body["text"] == original_text
+
+    with pytest.raises(PipelineJobStateError, match="processed artifact"):
+        service.pipeline_corpus_snapshot(version_id)
+    with pytest.raises(PipelineJobStateError, match="processed artifact"):
         service.pipeline_corpus_evidence(version_id)

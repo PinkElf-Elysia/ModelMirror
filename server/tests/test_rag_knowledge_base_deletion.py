@@ -14,7 +14,12 @@ from server.file_assets.service import FileAssetService
 from server.main import app
 from server.rag.api import set_rag_service_for_tests
 from server.rag.embedder import EmbeddingClient
-from server.rag.rag_service import KnowledgeBaseDeletionError, RagService
+from server.rag.lexical_store import LexicalChunk
+from server.rag.rag_service import (
+    KnowledgeBaseDeletionError,
+    PipelineJobStateError,
+    RagService,
+)
 from server.rag.vector_store import LocalJsonVectorStore, VectorChunk
 
 
@@ -63,6 +68,142 @@ def test_empty_legacy_knowledge_base_delete_is_restart_idempotent(
     assert metadata["knowledge_base_deletions"][kb["id"]]["status"] == "deleted"
     restarted = build_service(tmp_path)
     restarted.delete_knowledge_base(kb["id"])
+
+
+def test_delete_accepts_the_historical_v2_pipeline_namespace_contract(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = build_service(tmp_path)
+    monkeypatch.setattr(
+        "server.rag.rag_service.get_file_asset_service",
+        lambda: legacy_assets(tmp_path),
+    )
+    kb = service.create_knowledge_base("historical v2 namespace")
+    version_id = "kpv_historical_v2"
+    namespace = f"{kb['id']}::{version_id}"
+    vector_chunk_id = "legacy-v2-vector-canary"
+    lexical_chunk_id = "legacy-v2-lexical-canary"
+    service.vector_store.add_chunks(
+        [
+            VectorChunk(
+                id=vector_chunk_id,
+                kb_id=namespace,
+                doc_id="legacy-v2-document",
+                document_name="legacy-v2.txt",
+                text="legacy v2 vector deletion canary",
+                embedding=[0.0] * 128,
+                chunk_index=0,
+            )
+        ]
+    )
+    service.lexical_store.add_chunks(
+        [
+            LexicalChunk(
+                chunk_id=lexical_chunk_id,
+                namespace=namespace,
+                doc_id="legacy-v2-document",
+                document_name="legacy-v2.txt",
+                text="legacy v2 lexical deletion canary",
+                chunk_index=0,
+            )
+        ]
+    )
+    with service._metadata_lock:  # noqa: SLF001 - exact historical fixture.
+        metadata = service._read_metadata_unlocked()  # noqa: SLF001
+        metadata["pipeline_versions"][version_id] = {
+            "version_id": version_id,
+            "kb_id": kb["id"],
+            "version": 1,
+            "namespace": namespace,
+            "index_schema_version": 2,
+            "status": "ready",
+            "activated_at": 1.0,
+        }
+        service._write_metadata_unlocked(metadata)  # noqa: SLF001
+
+    assert service.vector_store.get_chunk(namespace, vector_chunk_id) is not None
+    assert service.lexical_store.count_namespace(namespace) == 1
+
+    service.delete_knowledge_base(kb["id"])
+
+    stored = service._read_metadata()
+    assert kb["id"] not in stored["knowledge_bases"]
+    assert stored["knowledge_base_deletions"][kb["id"]]["status"] == "deleted"
+    assert service.vector_store.get_chunk(namespace, vector_chunk_id) is None
+    assert service.lexical_store.count_namespace(namespace) == 0
+
+
+@pytest.mark.asyncio
+async def test_legacy_v2_unowned_namespace_cannot_read_or_delete_victim_canary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A legacy version cannot turn an unowned base namespace into authority."""
+
+    service = build_service(tmp_path)
+    monkeypatch.setattr(
+        "server.rag.rag_service.get_file_asset_service",
+        lambda: legacy_assets(tmp_path),
+    )
+    victim = service.create_knowledge_base("legacy namespace victim")
+    attacker = service.create_knowledge_base("legacy namespace attacker")
+    victim_chunk_id = "legacy_victim_canary_chunk"
+    victim_canary = "LEGACY V2 UNOWNED NAMESPACE CANARY 731904"
+    service.vector_store.add_chunks(
+        [
+            VectorChunk(
+                id=victim_chunk_id,
+                kb_id=victim["id"],
+                doc_id="legacy_victim_document",
+                document_name="victim.txt",
+                text=victim_canary,
+                embedding=[0.0] * 128,
+                chunk_index=0,
+            )
+        ]
+    )
+    attacker_version_id = "kpv_legacy_v2_unowned_namespace_attacker"
+    with service._metadata_lock:  # noqa: SLF001 - exact adversarial fixture.
+        metadata = service._read_metadata_unlocked()  # noqa: SLF001
+        metadata["pipeline_versions"][attacker_version_id] = {
+            "version_id": attacker_version_id,
+            "kb_id": attacker["id"],
+            "version": 1,
+            "namespace": victim["id"],
+            "index_schema_version": 2,
+            "status": "ready",
+            "retrieval_profile": {"mode": "vector", "top_k": 5},
+            "vector_index_ready": True,
+            "lexical_index_ready": False,
+            "activated_at": 1.0,
+        }
+        service._write_metadata_unlocked(metadata)  # noqa: SLF001
+
+    with pytest.raises(PipelineJobStateError, match="namespace|owner"):
+        await service.query_pipeline_version(
+            attacker_version_id,
+            victim_canary,
+            generate_answer=False,
+        )
+    with pytest.raises(PipelineJobStateError, match="namespace|owner"):
+        await service.search_knowledge(
+            attacker["id"],
+            victim_canary,
+            version_id=attacker_version_id,
+        )
+    with pytest.raises(PipelineJobStateError, match="namespace|owner"):
+        service.get_knowledge_chunk(
+            attacker["id"],
+            victim_chunk_id,
+            version_id=attacker_version_id,
+        )
+
+    service.delete_knowledge_base(attacker["id"])
+
+    retained = service.vector_store.get_chunk(victim["id"], victim_chunk_id)
+    assert retained is not None
+    assert retained.text == victim_canary
 
 
 @pytest.mark.asyncio

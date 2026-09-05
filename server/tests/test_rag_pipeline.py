@@ -448,6 +448,10 @@ async def test_rag_retrieval_capabilities_are_safe(client: httpx.AsyncClient) ->
     assert data["index_schema_version"] == 3
     assert data["fulltext"]["backend"] == "sqlite_fts5"
     assert data["modes"] == ["vector", "fulltext", "hybrid"]
+    assert data["candidate_build_modes"] == ["vector"]
+    assert data["fulltext"]["query_available"] is True
+    assert data["fulltext"]["candidate_build_available"] is False
+    assert data["fulltext"]["candidate_build_blocker"] == "lexical_v2_pending"
     serialized = str(data).lower()
     assert "api_key" not in serialized
     assert "sk-" not in serialized

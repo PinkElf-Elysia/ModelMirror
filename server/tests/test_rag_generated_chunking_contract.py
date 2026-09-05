@@ -229,7 +229,7 @@ def test_generated_multi_source_mapping_is_unique_or_fail_closed() -> None:
 
 
 @pytest.mark.asyncio
-async def test_generated_wrapper_without_source_range_remains_unmapped() -> None:
+async def test_generated_wrapper_without_source_range_is_not_indexed() -> None:
     source_text = "Canonical source text that is absent from the generated wrapper."
     source_block = {
         "block_id": "source-block",
@@ -247,22 +247,23 @@ async def test_generated_wrapper_without_source_range_remains_unmapped() -> None
     }
     stub = _ChunkingServiceStub(_token_chunker())
 
-    chunks = await KnowledgePipelineExecutor(stub)._chunk_sources(  # type: ignore[arg-type]  # noqa: SLF001
-        "job-generated-unmapped",
-        [
-            {
-                "source_id": "doc-generated-unmapped",
-                "processed_document": {"blocks": [source_block]},
-                "generated_items": [generated],
-            }
-        ],
-    )
+    with pytest.raises(RuntimeError, match="No indexable text chunks"):
+        await KnowledgePipelineExecutor(stub)._chunk_sources(  # type: ignore[arg-type]  # noqa: SLF001
+            "job-generated-unmapped",
+            [
+                {
+                    "source_id": "doc-generated-unmapped",
+                    "processed_document": {"blocks": [source_block]},
+                    "generated_items": [generated],
+                }
+            ],
+        )
 
-    assert len(chunks) == 1
-    assert chunks[0]["source_block_id"] is None
-    assert chunks[0]["source_block_ids"] == []
-    assert chunks[0]["source_block_match_status"] == "unmapped"
-    assert (chunks[0]["start_char"], chunks[0]["end_char"]) == (0, 0)
+    assert stub.receipt["generated_item_rejected_count"] == 1
+    assert stub.receipt["generated_item_rejection_reasons"] == {
+        "generated_segment_source_unmapped": 1
+    }
+    assert stub.receipt["final_chunk_count"] == 0
 
 
 @pytest.mark.asyncio
@@ -786,11 +787,11 @@ def test_generated_children_index_their_own_segment_without_false_anchor_span(
     assert "UNIQUE_TAIL_MARKER" in selected.items[0].matched_text
 
 
-def test_generated_text_without_exact_source_mapping_has_unknown_span(
+def test_generated_text_without_exact_source_mapping_is_rejected(
     tmp_path: Path,
 ) -> None:
     service = _service(tmp_path)
-    chunks, _ = service._preview_pipeline_chunks(  # noqa: SLF001
+    chunks, receipt = service._preview_pipeline_chunks(  # noqa: SLF001
         {
             "document_id": "doc-generated-unknown-span",
             "blocks": [
@@ -817,19 +818,88 @@ def test_generated_text_without_exact_source_mapping_has_unknown_span(
         kind="recursive_chunker",
     )
 
-    assert chunks
-    assert {(int(item["start_char"]), int(item["end_char"])) for item in chunks} == {
-        (0, 0)
+    assert chunks == []
+    assert receipt["generated_item_rejection_reasons"] == {
+        "generated_segment_source_unmapped": 1
     }
 
 
-def test_generated_repeated_exact_source_mapping_has_unknown_span(
+def test_rejected_generated_items_do_not_pollute_heading_overlap_receipt(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    long_heading = ["A structurally long heading that exceeds the configured overlap budget"]
+    chunks, receipt = service._preview_pipeline_chunks(  # noqa: SLF001
+        {
+            "document_id": "doc-generated-rejected-heading",
+            "blocks": [
+                {
+                    "block_id": "rejected-a",
+                    "kind": "paragraph",
+                    "text": "Canonical rejected source A.",
+                    "start_char": 0,
+                    "end_char": 28,
+                    "heading_path": long_heading,
+                },
+                {
+                    "block_id": "rejected-b",
+                    "kind": "paragraph",
+                    "text": "Canonical rejected source B.",
+                    "start_char": 29,
+                    "end_char": 57,
+                    "heading_path": long_heading,
+                },
+                {
+                    "block_id": "accepted",
+                    "kind": "paragraph",
+                    "text": "Stable exact evidence.",
+                    "start_char": 58,
+                    "end_char": 80,
+                    "heading_path": [],
+                },
+            ],
+            "generated_items": [
+                {
+                    "item_id": "unmapped-a",
+                    "item_type": "summary",
+                    "index_text": "Rejected A",
+                    "context_text": "Generated text absent from source A.",
+                    "source_block_ids": ["rejected-a"],
+                },
+                {
+                    "item_id": "unmapped-b",
+                    "item_type": "summary",
+                    "index_text": "Rejected B",
+                    "context_text": "Generated text absent from source B.",
+                    "source_block_ids": ["rejected-b"],
+                },
+                {
+                    "item_id": "mapped",
+                    "item_type": "summary",
+                    "index_text": "Stable evidence",
+                    "context_text": "Stable exact evidence.",
+                    "source_block_ids": ["accepted"],
+                },
+            ],
+        },
+        _token_chunker(),
+        kind="recursive_chunker",
+    )
+
+    assert len(chunks) == 1
+    assert receipt["raw_candidate_count"] == 1
+    assert receipt["generated_item_rejected_count"] == 2
+    assert receipt["prefix_exceeds_configured_overlap_count"] == 0
+    assert receipt["max_heading_prefix_tokens"] == 0
+
+
+def test_generated_repeated_exact_source_mapping_is_rejected(
     tmp_path: Path,
 ) -> None:
     service = _service(tmp_path)
     repeated = "Repeated exact evidence."
     source_text = f"{repeated} A separator. {repeated}"
-    chunks, _ = service._preview_pipeline_chunks(  # noqa: SLF001
+    chunks, receipt = service._preview_pipeline_chunks(  # noqa: SLF001
         {
             "document_id": "doc-generated-repeated-span",
             "blocks": [
@@ -856,5 +926,7 @@ def test_generated_repeated_exact_source_mapping_has_unknown_span(
         kind="recursive_chunker",
     )
 
-    assert len(chunks) == 1
-    assert (int(chunks[0]["start_char"]), int(chunks[0]["end_char"])) == (0, 0)
+    assert chunks == []
+    assert receipt["generated_item_rejection_reasons"] == {
+        "generated_segment_source_unmapped": 1
+    }

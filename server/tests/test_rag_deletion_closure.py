@@ -85,6 +85,7 @@ async def test_delete_purges_active_historical_and_pipeline_payloads(
     assert await executor.run_once() is True
     completed = service.get_pipeline_job(job_payload["job_id"])
     version = service.get_pipeline_version(completed["candidate_version_id"])
+    original_receipt = json.loads(json.dumps(version["chunking_receipt"]))
     mark_version_as_previously_active(service, version["version_id"])
 
     deleted_result = next(
@@ -171,6 +172,20 @@ async def test_delete_purges_active_historical_and_pipeline_payloads(
         for item in updated_version["document_results"]
     )
     assert updated_version["document_count"] == 1
+    assert updated_version["lineage_status"] == "invalidated"
+    assert updated_version["lineage_reason_codes"] == ["source_deleted"]
+    assert updated_version["chunking_receipt"] == original_receipt
+    assert service._read_metadata()["pipeline_active_versions"][kb["id"]] == version[
+        "version_id"
+    ]
+    evidence = service.pipeline_version_evidence(version["version_id"])
+    assert evidence["lineage_status"] == "invalidated"
+    assert evidence["lineage_reason_codes"] == ["source_deleted"]
+    assert evidence["chunking_receipt_status"] == "lineage_invalidated"
+    with pytest.raises(PipelineJobStateError, match="source was deleted"):
+        service.pipeline_corpus_snapshot(version["version_id"])
+    with pytest.raises(PipelineJobStateError, match="source was deleted"):
+        service.activate_pipeline_version(version["version_id"])
     assert [item["id"] for item in service.list_documents(kb["id"])] == [
         survivor["id"]
     ]

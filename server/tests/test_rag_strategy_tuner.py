@@ -51,6 +51,23 @@ KNOWN_WINNER_FIXTURE_PATH = (
 )
 
 
+def _synthetic_future_complete_content_index_contract() -> dict[str, object]:
+    """Test double for post-4C tuner behavior, not current readiness evidence."""
+
+    return {
+        "contract_version": "rag-content-index-contract-v1",
+        "chunker_contract_version": "rag-chunker-estimated-token-v1",
+        "lexical_contract_version": "sqlite-fts5-lexical-v2",
+        "parser_contract_version": "canonical-structured-parser-v2",
+        "status": "current",
+        "components": {
+            "chunker": "current",
+            "lexical": "current",
+            "parser": "current",
+        },
+    }
+
+
 @pytest.mark.parametrize(
     "strategy",
     ["recursive_estimated_token", "parent_child_estimated_token"],
@@ -1505,9 +1522,15 @@ def test_optimization_gate_defers_single_query_latency_to_holdout() -> None:
 @pytest.mark.asyncio
 async def test_trial_version_is_hidden_unactivatable_and_cleanup_preserves_draft(
     tuning_runtime,
+    monkeypatch,
 ) -> None:
     _, service, executor, _, _ = tuning_runtime
     kb_id, _, base_version_id = await _base_version(service, executor)
+    monkeypatch.setattr(
+        service,
+        "_content_index_contract_for_version",
+        lambda _version: _synthetic_future_complete_content_index_contract(),
+    )
     base = service.get_pipeline_version(base_version_id)
     base_job = service.get_pipeline_job(base["job_id"])
     base_chunker = base_job["config_snapshot"]["stages"]["stage_chunker"]
@@ -1533,7 +1556,10 @@ async def test_trial_version_is_hidden_unactivatable_and_cleanup_preserves_draft
         service.activate_pipeline_version(trial_version_id)
     assert service.get_pipeline_draft(kb_id) == draft_before
 
-    service.cleanup_strategy_tuning_trial_version(trial_version_id)
+    service.cleanup_strategy_tuning_trial_version(
+        trial_version_id,
+        expected_run_id="ragtune-test",
+    )
     assert trial["job_id"] not in service._read_metadata()["pipeline_jobs"]
 
 
@@ -1573,6 +1599,11 @@ async def test_tuner_materializes_ready_candidate_without_switching_active_versi
 ) -> None:
     _, service, executor, evaluation_store, tuner = tuning_runtime
     kb_id, _, base_version_id = await _base_version(service, executor)
+    monkeypatch.setattr(
+        service,
+        "_content_index_contract_for_version",
+        lambda _version: _synthetic_future_complete_content_index_contract(),
+    )
     with service._metadata_lock:  # noqa: SLF001 - model a previously active rollback target.
         metadata = service._read_metadata_unlocked()  # noqa: SLF001
         base_version = metadata["pipeline_versions"][base_version_id]
@@ -1661,6 +1692,33 @@ async def test_tuner_materializes_ready_candidate_without_switching_active_versi
     assert {
         item["version_id"] for item in service.list_pipeline_versions(kb_id)
     } == version_ids_before
+
+
+@pytest.mark.asyncio
+async def test_current_r4a_content_contract_blocks_strategy_tuning(
+    tuning_runtime,
+) -> None:
+    _, service, executor, _, _ = tuning_runtime
+    kb_id, _, base_version_id = await _base_version(service, executor)
+
+    with pytest.raises(PipelineContentContractError) as blocked:
+        service.create_strategy_tuning_pipeline_job(
+            kb_id,
+            base_version_id=base_version_id,
+            chunker_profile={
+                **service.get_pipeline_job(
+                    service.get_pipeline_version(base_version_id)["job_id"]
+                )["config_snapshot"]["stages"]["stage_chunker"],
+                "chunk_size": 500,
+                "chunk_overlap": 50,
+            },
+            retrieval_profile={"mode": "vector", "top_k": 10},
+            tuning_run_id="ragtune-r4a-contract-block",
+            trial=True,
+        )
+
+    assert blocked.value.code == "rag_content_contract_legacy_read_only"
+    assert "complete current content-index contract" in str(blocked.value)
 
 
 def test_known_winner_fixture_contract_is_versioned_and_project_owned() -> None:

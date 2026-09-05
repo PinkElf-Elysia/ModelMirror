@@ -25,8 +25,38 @@ from server.rag.splitter import (
     EstimatedTokenTextSplitter,
     bounded_heading_prefix,
     estimate_mixed_cjk_latin_v1_tokens as estimate_text_tokens,
+    estimated_token_parent_child_runtime_amplification_bound,
+    estimated_token_separator_aware_coverage_bound,
 )
 from server.rag.vector_store import LocalJsonVectorStore
+
+
+def _assert_complete_bounded_split(
+    text: str,
+    chunks: list[Any],
+    *,
+    token_budget: int,
+) -> None:
+    """Reject vacuous bounds and any non-whitespace source coverage gap."""
+
+    assert len(chunks) > 1
+    assert not text[: chunks[0].start_char].strip()
+    assert not text[chunks[-1].end_char :].strip()
+    assert all(
+        0 < estimate_text_tokens(chunk.text) <= token_budget
+        and text[chunk.start_char : chunk.end_char] == chunk.text
+        for chunk in chunks
+    )
+    assert all(
+        current.start_char < following.start_char
+        and current.end_char < following.end_char
+        for current, following in zip(chunks, chunks[1:])
+    )
+    covered_until = chunks[0].end_char
+    for following in chunks[1:]:
+        if following.start_char > covered_until:
+            assert not text[covered_until : following.start_char].strip()
+        covered_until = max(covered_until, following.end_char)
 
 
 def _service(tmp_path: Path) -> RagService:
@@ -98,20 +128,74 @@ def test_mixed_cjk_latin_estimator_and_ascii_overlap_are_contract_stable() -> No
         assert len(overlap) > 20
 
 
+@pytest.mark.parametrize(
+    "exact_payload",
+    [
+        "界" * 8,
+        "🙂" * 32,
+        ("界" * 4) + ("🙂" * 16),
+        "\t \n" + ("界" * 6) + ("🙂" * 4),
+    ],
+)
+def test_estimated_token_splitter_exact_boundaries_are_deterministic(
+    exact_payload: str,
+) -> None:
+    """Mixed whitespace/CJK/emoji cannot overflow or destabilize exact windows."""
+
+    assert estimate_text_tokens(exact_payload) == 8
+    text = exact_payload + "界"
+    splitter = EstimatedTokenTextSplitter(
+        chunk_size=8,
+        chunk_overlap=0,
+        separators=[""],
+    )
+
+    first = splitter.split_segments(text)
+    second = splitter.split_segments(text)
+
+    assert first == second
+    assert len(first) == 2
+    assert all(0 < estimate_text_tokens(chunk.text) <= 8 for chunk in first)
+    assert all(text[chunk.start_char : chunk.end_char] == chunk.text for chunk in first)
+    assert first[-1].text == "界"
+
+
+@pytest.mark.parametrize("blank_text", ["", " \t\r\n", "\u3000\n\t"])
+def test_estimated_token_splitter_never_materializes_blank_chunks(
+    blank_text: str,
+) -> None:
+    splitter = EstimatedTokenTextSplitter(
+        chunk_size=8,
+        chunk_overlap=0,
+        separators=[""],
+    )
+
+    assert splitter.split_segments(blank_text) == []
+    assert splitter.split_segments(blank_text) == []
+
+
 def test_estimated_token_splitter_measurement_work_is_bounded(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    original = splitter_module.estimate_mixed_cjk_latin_v1_tokens
+    original_factory = splitter_module._estimated_token_range_measure
     measured_lengths: list[int] = []
+    factory_calls = 0
 
-    def measured(value: str) -> int:
-        measured_lengths.append(len(value))
-        return original(value)
+    def instrumented_factory(value: str):
+        nonlocal factory_calls
+        factory_calls += 1
+        measured = original_factory(value)
+
+        def measured_range(start: int, end: int) -> int:
+            measured_lengths.append(max(0, end - start))
+            return measured(start, end)
+
+        return measured_range
 
     monkeypatch.setattr(
         splitter_module,
-        "estimate_mixed_cjk_latin_v1_tokens",
-        measured,
+        "_estimated_token_range_measure",
+        instrumented_factory,
     )
     text = "abcdefgh" * 12_500
     chunks = splitter_module.EstimatedTokenTextSplitter(
@@ -121,9 +205,425 @@ def test_estimated_token_splitter_measurement_work_is_bounded(
     ).split_segments(text)
 
     assert chunks
+    assert factory_calls == 1
     assert measured_lengths
     assert max(measured_lengths) <= 400
-    assert sum(measured_lengths) <= len(text) * 80
+    assert len(measured_lengths) <= len(chunks) * 20 + 2
+
+
+def test_estimated_token_splitter_rejects_resource_amplifying_overlap() -> None:
+    """A syntactically valid stride cannot amplify Provider input hundreds-fold."""
+
+    with pytest.raises(ValueError, match="overlap amplification"):
+        splitter_module.EstimatedTokenTextSplitter(
+            chunk_size=4_000,
+            chunk_overlap=3_992,
+            separators=[""],
+        )
+
+
+def test_recursive_estimated_token_draft_rejects_overlap_amplification(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    kb = service.create_knowledge_base("bounded recursive overlap")
+
+    with pytest.raises(PipelineDraftValidationError, match="amplification.*16"):
+        service.update_pipeline_draft(
+            str(kb["id"]),
+            {
+                "stage_chunker": {
+                    "config": {
+                        "strategy": "recursive_estimated_token",
+                        "chunk_size": 4_000,
+                        "chunk_overlap": 3_992,
+                    }
+                }
+            },
+        )
+
+
+def test_estimated_token_splitter_high_overlap_never_reuses_right_boundary() -> None:
+    """A preferred separator inside overlap cannot create nested duplicate windows."""
+
+    text = ("a" * 399) + "\n" + ("b" * 19_600)
+    splitter = EstimatedTokenTextSplitter(
+        chunk_size=100,
+        chunk_overlap=92,
+        separators=["\n", ""],
+    )
+
+    chunks = splitter.split_segments(text)
+
+    _assert_complete_bounded_split(text, chunks, token_budget=100)
+    # 5,000 estimated tokens with an 8-token minimum forward window should
+    # stay close to the theoretical upper bound instead of exploding to O(n).
+    assert len(chunks) <= 630
+
+
+def test_estimated_token_splitter_dense_separators_advance_emitted_boundary() -> None:
+    """Trimming a dense separator cannot hide a repeated emitted boundary."""
+
+    characters = list("界" * 5_000)
+    for index in range(8, len(characters), 9):
+        characters[index] = "\n"
+    text = "".join(characters)
+    chunks = EstimatedTokenTextSplitter(
+        chunk_size=100,
+        chunk_overlap=92,
+        separators=["\n", ""],
+    ).split_segments(text)
+
+    _assert_complete_bounded_split(text, chunks, token_budget=100)
+    assert len(chunks) <= 700
+
+
+def test_estimated_token_splitter_dense_separators_make_minimum_token_progress() -> None:
+    """A legal overlap cannot let preferred boundaries advance by only 1-2 tokens."""
+
+    text = "".join("\n" if (index + 1) % 10 == 0 else "界" for index in range(5_000))
+    chunks = EstimatedTokenTextSplitter(
+        chunk_size=100,
+        chunk_overlap=92,
+        separators=["\n", ""],
+    ).split_segments(text)
+
+    _assert_complete_bounded_split(text, chunks, token_budget=100)
+    assert len(chunks) <= 700
+
+
+def test_preferred_separator_preserves_half_the_nominal_forward_progress() -> None:
+    """Separator cadence cannot invalidate the resource bound implied by overlap."""
+
+    characters = ["界"] * 5_000
+    for index in range(291, len(characters), 292):
+        characters[index] = "。"
+    text = "".join(characters)
+    chunks = EstimatedTokenTextSplitter(
+        chunk_size=1_000,
+        chunk_overlap=750,
+        separators=["。", ""],
+    ).split_segments(text)
+
+    nominal_stride = 1_000 - 750
+    minimum_novel = (nominal_stride + 1) // 2
+    _assert_complete_bounded_split(text, chunks, token_budget=1_000)
+    assert all(
+        estimate_text_tokens(text[current.end_char : following.end_char])
+        >= minimum_novel
+        for current, following in zip(chunks, chunks[1:])
+        if following.end_char < len(text)
+    )
+
+
+def test_estimated_token_parent_child_keeps_unique_shifted_child_windows() -> None:
+    """Span dedup must not discard a shifted child with distinct joint evidence."""
+
+    text = "".join(chr(0x4E00 + index) for index in range(1_000))
+    chunks = EstimatedTokenParentChildTextSplitter(
+        parent_chunk_size=300,
+        parent_chunk_overlap=150,
+        child_chunk_size=100,
+        child_chunk_overlap=0,
+        parent_separators=[""],
+        child_separators=[""],
+    ).split_segments(text)
+    spans = {(chunk.start_char, chunk.end_char) for chunk in chunks}
+
+    assert len(spans) == len(chunks)
+    assert (150, 250) in spans
+    shifted = next(
+        chunk for chunk in chunks if (chunk.start_char, chunk.end_char) == (150, 250)
+    )
+    assert text[180] in shifted.text
+    assert text[220] in shifted.text
+
+
+def test_estimated_token_parent_child_keeps_same_span_for_distinct_parent_contexts() -> None:
+    """The same child span can ground different, necessary parent contexts."""
+
+    text = "".join(chr(0x4E00 + index) for index in range(500))
+    chunks = EstimatedTokenParentChildTextSplitter(
+        parent_chunk_size=300,
+        parent_chunk_overlap=200,
+        child_chunk_size=100,
+        child_chunk_overlap=0,
+        parent_separators=[""],
+        child_separators=[""],
+    ).split_segments(text)
+    matches = [
+        chunk
+        for chunk in chunks
+        if (chunk.start_char, chunk.end_char) == (100, 200)
+    ]
+
+    assert len(matches) == 2
+    assert {chunk.parent_end_char for chunk in matches} == {300, 400}
+    later_context = next(chunk for chunk in matches if chunk.parent_end_char == 400)
+    assert text[350] in (later_context.parent_text or "")
+
+
+def test_estimated_token_parent_child_rejects_unbounded_overlap_amplification() -> None:
+    with pytest.raises(ValueError, match="amplification"):
+        EstimatedTokenParentChildTextSplitter(
+            parent_chunk_size=1_000,
+            parent_chunk_overlap=992,
+            child_chunk_size=100,
+            child_chunk_overlap=92,
+            parent_separators=[""],
+            child_separators=[""],
+        )
+
+    with pytest.raises(ValueError, match="at least 8"):
+        EstimatedTokenParentChildTextSplitter(
+            parent_chunk_size=200,
+            parent_chunk_overlap=100,
+            child_chunk_size=100,
+            child_chunk_overlap=93,
+        )
+
+
+def test_separator_aware_coverage_bound_accounts_for_estimator_rounding() -> None:
+    assert estimated_token_parent_child_runtime_amplification_bound(
+        parent_chunk_size=84,
+        parent_chunk_overlap=14,
+        child_chunk_size=3,
+        child_chunk_overlap=2,
+    ) == 18
+    assert estimated_token_parent_child_runtime_amplification_bound(
+        parent_chunk_size=200,
+        parent_chunk_overlap=100,
+        child_chunk_size=128,
+        child_chunk_overlap=112,
+    ) == 68
+    assert estimated_token_parent_child_runtime_amplification_bound(
+        parent_chunk_size=1_000,
+        parent_chunk_overlap=750,
+        child_chunk_size=100,
+        child_chunk_overlap=75,
+    ) == 64
+    with pytest.raises(ValueError, match="separator-aware"):
+        EstimatedTokenParentChildTextSplitter(
+            parent_chunk_size=200,
+            parent_chunk_overlap=100,
+            child_chunk_size=128,
+            child_chunk_overlap=112,
+        )
+
+
+def test_hard_boundary_whitespace_trim_stays_inside_coverage_bound() -> None:
+    text = " A\txxxxxxxxxx！\n\n\n\n\n\n\n\n\n\n  \t界。A界A\t界界\t ！！ ！！。  \t界\t界xxxxxxxxxx！\n"
+    chunks = EstimatedTokenTextSplitter(
+        chunk_size=16,
+        chunk_overlap=8,
+        separators=[""],
+    ).split_segments(text)
+
+    assert [(item.start_char, item.end_char) for item in chunks] == [
+        (1, 43),
+        (29, 60),
+    ]
+    assert estimate_text_tokens(
+        text[chunks[0].end_char : chunks[1].end_char]
+    ) < 8
+    assert not text[: chunks[0].start_char].strip()
+    assert not text[chunks[-1].end_char :].strip()
+    events = sorted(
+        [(item.start_char, 1) for item in chunks]
+        + [(item.end_char, -1) for item in chunks]
+    )
+    coverage = 0
+    maximum_coverage = 0
+    for _, delta in events:
+        coverage += delta
+        maximum_coverage = max(maximum_coverage, coverage)
+    assert maximum_coverage <= estimated_token_separator_aware_coverage_bound(
+        chunk_size=16,
+        chunk_overlap=8,
+    ) == 3
+
+
+def test_parent_child_estimated_token_draft_rejects_overlap_amplification(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    kb = service.create_knowledge_base("bounded parent child overlap")
+
+    with pytest.raises(PipelineDraftValidationError, match="amplification.*16"):
+        service.update_pipeline_draft(
+            str(kb["id"]),
+            {
+                "stage_chunker": {
+                    "config": {
+                        "strategy": "parent_child_estimated_token",
+                        "parent_chunk_size": 1_000,
+                        "parent_chunk_overlap": 800,
+                        "child_chunk_size": 100,
+                        "child_chunk_overlap": 80,
+                    }
+                }
+            },
+        )
+
+    admitted = service.update_pipeline_draft(
+        str(kb["id"]),
+        {
+            "stage_chunker": {
+                "config": {
+                    "strategy": "parent_child_estimated_token",
+                    "parent_chunk_size": 1_000,
+                    "parent_chunk_overlap": 750,
+                    "child_chunk_size": 100,
+                    "child_chunk_overlap": 75,
+                }
+            }
+        },
+    )
+    chunker = next(
+        stage for stage in admitted["stages"] if stage["kind"] == "chunker"
+    )
+    assert chunker["config"]["parent_chunk_overlap"] == 750
+    assert chunker["config"]["child_chunk_overlap"] == 75
+
+    with pytest.raises(PipelineDraftValidationError, match="separator-aware.*64"):
+        service.update_pipeline_draft(
+            str(kb["id"]),
+            {
+                "stage_chunker": {
+                    "config": {
+                        "strategy": "parent_child_estimated_token",
+                        "parent_chunk_size": 200,
+                        "parent_chunk_overlap": 100,
+                        "child_chunk_size": 128,
+                        "child_chunk_overlap": 112,
+                    }
+                }
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    ("tampered_values", "error_fragment"),
+    [
+        ((1_000, 800, 100, 80), "amplification"),
+        ((200, 100, 128, 112), "separator-aware"),
+    ],
+)
+def test_queued_job_revalidates_parent_child_amplification_before_claim(
+    tmp_path: Path,
+    tampered_values: tuple[int, int, int, int],
+    error_fragment: str,
+) -> None:
+    service = _service(tmp_path)
+    kb = service.create_knowledge_base("queued overlap contract")
+    kb_id = str(kb["id"])
+    source = tmp_path / "queued-source.txt"
+    source.write_text("queued source evidence", encoding="utf-8")
+    with service._metadata_lock:  # noqa: SLF001 - mutable job attack fixture.
+        metadata = service._read_metadata_unlocked()  # noqa: SLF001
+        metadata["documents"]["doc-queued-overlap"] = {
+            "id": "doc-queued-overlap",
+            "kb_id": kb_id,
+            "filename": source.name,
+            "stored_path": str(source),
+            "size": source.stat().st_size,
+            "chunk_count": 0,
+            "content_type": "text/plain",
+            "ingestion_status": "pipeline_required",
+            "visual_candidate": False,
+            "warnings": [],
+            "content_hash": service._file_sha256(source),  # noqa: SLF001
+            "created_at": 1.0,
+        }
+        service._write_metadata_unlocked(metadata)  # noqa: SLF001
+    draft = service.update_pipeline_draft(
+        kb_id,
+        {
+            "stage_chunker": {
+                "config": {
+                    "strategy": "parent_child_estimated_token",
+                    "parent_chunk_size": 1_000,
+                    "parent_chunk_overlap": 750,
+                    "child_chunk_size": 100,
+                    "child_chunk_overlap": 75,
+                }
+            }
+        },
+        retrieval_profile={"mode": "vector"},
+    )
+    job = service.create_pipeline_job(
+        kb_id,
+        draft_version=int(draft["version"]),
+        source_document_ids=["doc-queued-overlap"],
+    )
+    with service._metadata_lock:  # noqa: SLF001 - simulate persisted tampering.
+        metadata = service._read_metadata_unlocked()  # noqa: SLF001
+        chunker = metadata["pipeline_jobs"][job["job_id"]]["config_snapshot"][
+            "stages"
+        ]["stage_chunker"]
+        (
+            chunker["parent_chunk_size"],
+            chunker["parent_chunk_overlap"],
+            chunker["child_chunk_size"],
+            chunker["child_chunk_overlap"],
+        ) = tampered_values
+        service._write_metadata_unlocked(metadata)  # noqa: SLF001
+
+    assert service.claim_next_pipeline_job() is None
+    failed = service.get_pipeline_job(job["job_id"])
+    assert failed["status"] == "failed"
+    assert failed["attempt"] == 0
+    assert error_fragment in str(failed["error"]).lower()
+
+
+@pytest.mark.asyncio
+async def test_high_overlap_pathology_is_bounded_before_embedding_and_in_preview(
+    tmp_path: Path,
+) -> None:
+    """Executor and preview must inherit the same bounded splitter behavior."""
+
+    text = ("a" * 399) + "\n" + ("b" * 19_600)
+    processed = {
+        "document_id": "doc-high-overlap",
+        "blocks": [
+            {
+                "block_id": "block-high-overlap",
+                "kind": "paragraph",
+                "text": text,
+                "start_char": 0,
+                "end_char": len(text),
+                "heading_path": [],
+            }
+        ],
+        "generated_items": [],
+    }
+    chunker = _token_chunker(
+        chunk_size=100,
+        chunk_overlap=92,
+        separators=["\n", ""],
+    )
+    stub = _ChunkingServiceStub(chunker)
+
+    chunks = await KnowledgePipelineExecutor(stub)._chunk_sources(  # type: ignore[arg-type]  # noqa: SLF001
+        "job-high-overlap",
+        [
+            {
+                "source_id": processed["document_id"],
+                "processed_document": processed,
+            }
+        ],
+    )
+    preview, preview_receipt = _service(tmp_path)._preview_pipeline_chunks(  # noqa: SLF001
+        processed,
+        chunker,
+        kind="recursive_chunker",
+    )
+
+    assert chunks and preview
+    assert stub.receipt["raw_candidate_count"] <= 630
+    assert preview_receipt["raw_candidate_count"] <= 630
+    assert stub.receipt["final_chunk_count"] == len(chunks)
+    assert preview_receipt["final_chunk_count"] == len(preview)
 
 
 def test_generated_parent_identity_binds_payload_order_and_block_hashes() -> None:
@@ -405,6 +905,156 @@ def test_extra_block_recomputes_malformed_heading_lineage(
     assert block.heading_path_source_truncated is False
 
 
+@pytest.mark.asyncio
+async def test_executor_and_preview_do_not_treat_string_false_as_truncated_lineage(
+    tmp_path: Path,
+) -> None:
+    """Serialized lineage must use a real boolean before it can alter headings."""
+
+    heading_path = ["Root", "Middle", "Leaf"]
+    body = "Grounded evidence remains attached to the complete heading path. " * 4
+    block = {
+        "block_id": "block-malformed-flag",
+        "kind": "paragraph",
+        "text": body,
+        "start_char": 0,
+        "end_char": len(body),
+        "heading_path": heading_path,
+        "heading_path_source_hash": heading_path_source_hash(heading_path),
+        "heading_path_source_truncated": "false",
+    }
+    processed = {
+        "document_id": "doc-malformed-flag",
+        "blocks": [block],
+        "generated_items": [],
+    }
+    chunker = _token_chunker(chunk_size=100, chunk_overlap=20)
+    service = _ChunkingServiceStub(chunker)
+    executor = KnowledgePipelineExecutor(service)  # type: ignore[arg-type]
+
+    chunks = await executor._chunk_sources(  # noqa: SLF001
+        "job-malformed-flag",
+        [
+            {
+                "source_id": processed["document_id"],
+                "processed_document": processed,
+            }
+        ],
+    )
+    preview_service = _service(tmp_path / "preview-malformed-flag")
+    preview, preview_receipt = preview_service._preview_pipeline_chunks(  # noqa: SLF001
+        processed,
+        chunker,
+        kind="recursive_chunker",
+    )
+
+    assert chunks and preview
+    assert service.receipt["heading_prefix_truncated_count"] == 0
+    assert preview_receipt["heading_prefix_truncated_count"] == 0
+    assert all(
+        chunk["index_text"].splitlines()[0] == "Root > Middle > Leaf"
+        for chunk in chunks
+    )
+    assert all(
+        item["text_preview"].splitlines()[0] == "Root > Middle > Leaf"
+        for item in preview
+    )
+
+
+@pytest.mark.asyncio
+async def test_generated_item_cannot_forge_a_shared_heading_with_inherited_hashes(
+    tmp_path: Path,
+) -> None:
+    """Different source paths stay unheaded even when their stored hashes collide."""
+
+    text_a = "Evidence from branch A."
+    text_b = "Evidence from branch B."
+    forged_hash = "f" * 64
+    blocks = [
+        {
+            "block_id": "block-a",
+            "kind": "paragraph",
+            "text": text_a,
+            "start_char": 10,
+            "end_char": 10 + len(text_a),
+            "heading_path": ["Root", "Branch A"],
+            "heading_path_source_hash": forged_hash,
+            "heading_path_source_truncated": False,
+        },
+        {
+            "block_id": "block-b",
+            "kind": "paragraph",
+            "text": text_b,
+            "start_char": 100,
+            "end_char": 100 + len(text_b),
+            "heading_path": ["Root", "Branch B"],
+            "heading_path_source_hash": forged_hash,
+            "heading_path_source_truncated": False,
+        },
+    ]
+    generated_items = [
+        {
+            "item_id": "summary-forged-heading",
+            "item_type": "summary",
+            "index_text": "Combined evidence",
+            "context_text": f"{text_a} {text_b}",
+            "source_block_ids": ["block-a", "block-b"],
+            "context_source_ranges": [
+                {
+                    "source_block_id": "block-a",
+                    "context_start": 0,
+                    "context_end": len(text_a),
+                    "source_start": 10,
+                    "source_end": 10 + len(text_a),
+                },
+                {
+                    "source_block_id": "block-b",
+                    "context_start": len(text_a) + 1,
+                    "context_end": len(text_a) + 1 + len(text_b),
+                    "source_start": 100,
+                    "source_end": 100 + len(text_b),
+                },
+            ],
+        }
+    ]
+    processed = {
+        "document_id": "doc-forged-heading",
+        "blocks": blocks,
+        "generated_items": generated_items,
+    }
+    chunker = _token_chunker(chunk_size=100, chunk_overlap=20)
+    service = _ChunkingServiceStub(chunker)
+    executor = KnowledgePipelineExecutor(service)  # type: ignore[arg-type]
+
+    chunks = await executor._chunk_sources(  # noqa: SLF001
+        "job-forged-heading",
+        [
+            {
+                "source_id": processed["document_id"],
+                "processed_document": processed,
+                "generated_items": generated_items,
+            }
+        ],
+    )
+    preview_service = _service(tmp_path / "preview-forged-heading")
+    preview, _ = preview_service._preview_pipeline_chunks(  # noqa: SLF001
+        processed,
+        chunker,
+        kind="recursive_chunker",
+    )
+
+    assert chunks and preview
+    assert all(chunk["heading_path"] == () for chunk in chunks)
+    assert all(
+        chunk["index_text"].splitlines()[0] == "Combined evidence"
+        for chunk in chunks
+    )
+    assert all(
+        item["text_preview"].splitlines()[0] == "Combined evidence"
+        for item in preview
+    )
+
+
 def test_estimated_token_parent_child_splitter_uses_independent_budgets() -> None:
     text = "证据段落。" * 240
     splitter = EstimatedTokenParentChildTextSplitter(
@@ -421,6 +1071,73 @@ def test_estimated_token_parent_child_splitter_uses_independent_budgets() -> Non
     assert all(estimate_text_tokens(chunk.text) <= 72 for chunk in chunks)
     assert all(estimate_text_tokens(chunk.parent_text or "") <= 180 for chunk in chunks)
     assert all(text[chunk.start_char : chunk.end_char] == chunk.text for chunk in chunks)
+
+
+def test_estimated_token_parent_child_maximum_amplification_is_bounded() -> None:
+    """The maximum admitted two-level amplification has a replayable bound."""
+
+    text = "界" * 2_000
+    chunks = EstimatedTokenParentChildTextSplitter(
+        parent_chunk_size=1_000,
+        parent_chunk_overlap=750,
+        child_chunk_size=100,
+        child_chunk_overlap=75,
+        parent_separators=[""],
+        child_separators=[""],
+    ).split_segments(text)
+
+    assert chunks
+    parent_stride = 1_000 - 750
+    child_stride = 100 - 75
+    parent_count_bound = 1 + ((len(text) - 1_000 + parent_stride - 1) // parent_stride)
+    first_parent_child_bound = (1_000 + child_stride - 1) // child_stride + 1
+    assert len(chunks) <= parent_count_bound * first_parent_child_bound
+    assert len({chunk.parent_chunk_id for chunk in chunks}) > 1
+    assert all(chunk.text in (chunk.parent_text or "") for chunk in chunks)
+    assert not text[: chunks[0].start_char].strip()
+    assert not text[chunks[-1].end_char :].strip()
+    for current, following in zip(chunks, chunks[1:]):
+        if following.start_char > current.end_char:
+            assert not text[current.end_char : following.start_char].strip()
+
+
+def test_parent_child_separator_coverage_stays_within_runtime_bound() -> None:
+    """A separator-heavy fixture stays below the conservative coverage bound."""
+
+    characters = ["界"] * 5_000
+    for index in range(291, len(characters), 292):
+        characters[index] = "。"
+    for index in range(13, len(characters), 14):
+        if characters[index] != "。":
+            characters[index] = "！"
+    text = "".join(characters)
+    chunks = EstimatedTokenParentChildTextSplitter(
+        parent_chunk_size=1_000,
+        parent_chunk_overlap=750,
+        child_chunk_size=100,
+        child_chunk_overlap=75,
+        parent_separators=["。", ""],
+        child_separators=["！", ""],
+    ).split_segments(text)
+
+    events: list[tuple[int, int]] = []
+    for chunk in chunks:
+        events.append((chunk.start_char, 1))
+        events.append((chunk.end_char, -1))
+    coverage = 0
+    maximum_coverage = 0
+    for _, delta in sorted(events):
+        coverage += delta
+        maximum_coverage = max(maximum_coverage, coverage)
+
+    bound = estimated_token_parent_child_runtime_amplification_bound(
+        parent_chunk_size=1_000,
+        parent_chunk_overlap=750,
+        child_chunk_size=100,
+        child_chunk_overlap=75,
+    )
+    assert chunks
+    assert maximum_coverage <= bound == 64
 
 
 def test_new_draft_declares_token_chunking_and_aggregate_content_contract(
@@ -727,12 +1444,14 @@ async def test_legacy_content_version_is_query_compatible_but_only_prior_active_
     kb = service.create_knowledge_base("legacy rollback")
     kb_id = str(kb["id"])
     profile = service._default_embedding_profile()  # noqa: SLF001
+    active_version_id = "kpv_legacy_content_active"
+    active_namespace = f"{kb_id}::{active_version_id}"
     base: dict[str, Any] = {
-        "version_id": "kpv_legacy_content_active",
+        "version_id": active_version_id,
         "kb_id": kb_id,
         "version": 1,
         "status": "ready",
-        "namespace": "legacy-content",
+        "namespace": active_namespace,
         "draft_id": f"draft_{kb_id}",
         "draft_version": 1,
         "index_schema_version": 2,
@@ -751,6 +1470,7 @@ async def test_legacy_content_version_is_query_compatible_but_only_prior_active_
     never_active = {
         **base,
         "version_id": "kpv_legacy_content_never_active",
+        "namespace": f"{kb_id}::kpv_legacy_content_never_active",
         "version": 2,
         "activated_at": None,
     }
@@ -764,7 +1484,7 @@ async def test_legacy_content_version_is_query_compatible_but_only_prior_active_
         [
             LexicalChunk(
                 chunk_id="legacy-query-chunk",
-                namespace="legacy-content",
+                namespace=active_namespace,
                 doc_id=f"{base['version_id']}_doc-legacy",
                 document_name="legacy.txt",
                 text="Historical rollback evidence remains queryable.",
@@ -1093,7 +1813,7 @@ async def test_heading_prefix_newline_cannot_exhaust_overlap_budget(
     service = _ChunkingServiceStub(chunker)
     executor = KnowledgePipelineExecutor(service)  # type: ignore[arg-type]
     heading = "a" * 28
-    body = "bounded body evidence " * 40
+    body = "".join(chr(0x4E00 + index) for index in range(5_000))
     parsed = [
         {
             "source_id": "doc-tight-overlap",
@@ -1114,7 +1834,30 @@ async def test_heading_prefix_newline_cannot_exhaust_overlap_budget(
 
     chunks = await executor._chunk_sources("job-tight-overlap", parsed)  # noqa: SLF001
 
+    plain_service = _ChunkingServiceStub(chunker)
+    plain_chunks = await KnowledgePipelineExecutor(plain_service)._chunk_sources(  # type: ignore[arg-type]  # noqa: SLF001
+        "job-tight-overlap-plain",
+        [
+            {
+                "source_id": "doc-tight-overlap-plain",
+                "processed_document": {
+                    "blocks": [
+                        {
+                            "block_id": "tight-block-plain",
+                            "kind": "paragraph",
+                            "text": body,
+                            "start_char": 0,
+                            "end_char": len(body),
+                            "heading_path": [],
+                        }
+                    ]
+                },
+            }
+        ],
+    )
+
     assert chunks
+    assert len(chunks) <= len(plain_chunks) + 1
     assert all(estimate_text_tokens(chunk["index_text"]) <= 100 for chunk in chunks)
     preview_service = _service(tmp_path / "preview")
     preview, receipt = preview_service._preview_pipeline_chunks(  # noqa: SLF001
@@ -1123,7 +1866,94 @@ async def test_heading_prefix_newline_cannot_exhaust_overlap_budget(
         kind="recursive_chunker",
     )
     assert preview
+    assert len(preview) <= len(plain_chunks) + 1
     assert receipt["final_chunk_count"] == len(preview)
+    assert all(item["estimated_index_tokens"] <= 100 for item in preview)
+
+
+@pytest.mark.asyncio
+async def test_body_repeating_heading_prefix_preserves_offsets_and_coverage() -> None:
+    heading = "Guide"
+    body = heading + "\n" + "".join(chr(0x4E00 + index) for index in range(500))
+    source_start = 100
+    service = _ChunkingServiceStub(_token_chunker(chunk_size=100, chunk_overlap=20))
+    chunks = await KnowledgePipelineExecutor(service)._chunk_sources(  # type: ignore[arg-type]  # noqa: SLF001
+        "job-repeated-heading-prefix",
+        [
+            {
+                "source_id": "doc-repeated-heading-prefix",
+                "processed_document": {
+                    "blocks": [
+                        {
+                            "block_id": "block-repeated-heading-prefix",
+                            "kind": "paragraph",
+                            "text": body,
+                            "start_char": source_start,
+                            "end_char": source_start + len(body),
+                            "heading_path": [heading],
+                        }
+                    ]
+                },
+            }
+        ],
+    )
+
+    assert chunks
+    assert not chunks[0]["index_text"].startswith("Guide\nGuide\n")
+    assert all(estimate_text_tokens(item["index_text"]) <= 100 for item in chunks)
+    spans = [
+        (item["start_char"] - source_start, item["end_char"] - source_start)
+        for item in chunks
+    ]
+    assert min(start for start, _ in spans) == 0
+    assert max(end for _, end in spans) == len(body)
+    assert all(
+        character.isspace()
+        or any(start <= position < end for start, end in spans)
+        for position, character in enumerate(body)
+    )
+
+
+@pytest.mark.asyncio
+async def test_heading_longer_than_body_overlap_is_explicit_in_receipts(
+    tmp_path: Path,
+) -> None:
+    chunker = _token_chunker(chunk_size=100, chunk_overlap=20)
+    service = _ChunkingServiceStub(chunker)
+    processed = {
+        "source_id": "doc-heading-floor",
+        "processed_document": {
+            "blocks": [
+                {
+                    "block_id": "block-heading-floor",
+                    "kind": "paragraph",
+                    "text": "证" * 500,
+                    "start_char": 0,
+                    "end_char": 500,
+                    "heading_path": ["题" * 25],
+                }
+            ]
+        },
+    }
+
+    chunks = await KnowledgePipelineExecutor(service)._chunk_sources(  # type: ignore[arg-type]  # noqa: SLF001
+        "job-heading-floor",
+        [processed],
+    )
+    preview, preview_receipt = _service(tmp_path / "preview-heading-floor")._preview_pipeline_chunks(  # noqa: SLF001
+        {"document_id": "doc-heading-floor", **processed["processed_document"]},
+        chunker,
+        kind="recursive_chunker",
+    )
+
+    for receipt in (service.receipt, preview_receipt):
+        assert receipt["heading_overlap_policy"] == "structural_prefix_floor_v1"
+        assert receipt["max_heading_prefix_tokens"] == 26
+        assert receipt["prefix_exceeds_configured_overlap_count"] == 1
+        assert receipt["max_effective_index_overlap_budget_tokens"] == 26
+        assert receipt["max_effective_context_overlap_budget_tokens"] == 26
+    assert chunks and preview
+    assert all(estimate_text_tokens(item["index_text"]) <= 100 for item in chunks)
     assert all(item["estimated_index_tokens"] <= 100 for item in preview)
 
 
@@ -1131,7 +1961,7 @@ async def test_heading_prefix_newline_cannot_exhaust_overlap_budget(
 async def test_generated_items_cannot_bypass_token_budget(tmp_path: Path) -> None:
     service = _ChunkingServiceStub(_token_chunker())
     executor = KnowledgePipelineExecutor(service)  # type: ignore[arg-type]
-    source_text = "Answer first. " + ("long source context " * 80)
+    source_text = "Answer first.\n" + ("long source context " * 80).strip()
     parsed = [
         {
             "source_id": "doc-generated",
@@ -1143,8 +1973,16 @@ async def test_generated_items_cannot_bypass_token_budget(tmp_path: Path) -> Non
                         "text": source_text,
                         "start_char": 10,
                         "end_char": 10 + len(source_text),
-                        "heading_path": ["Generated"],
-                    }
+                        "heading_path": ["Answer first."],
+                    },
+                    {
+                        "block_id": "rejected-source-block",
+                        "kind": "paragraph",
+                        "text": "must not be indexed",
+                        "start_char": 10 + len(source_text),
+                        "end_char": 10 + len(source_text) + len("must not be indexed"),
+                        "heading_path": ["题" * 25],
+                    },
                 ]
             },
             "generated_items": [
@@ -1169,7 +2007,7 @@ async def test_generated_items_cannot_bypass_token_budget(tmp_path: Path) -> Non
                     "item_type": "qa",
                     "index_text": "超" * 120,
                     "context_text": "must not be indexed",
-                    "source_block_ids": ["source-block"],
+                    "source_block_ids": ["rejected-source-block"],
                 },
             ],
         }
@@ -1201,14 +2039,27 @@ async def test_generated_items_cannot_bypass_token_budget(tmp_path: Path) -> Non
     assert all(chunk["source_block_id"] == "source-block" for chunk in chunks)
     assert all(estimate_text_tokens(chunk["index_text"]) <= 100 for chunk in chunks)
     assert all(estimate_text_tokens(chunk["context_text"]) <= 100 for chunk in chunks)
+    assert not chunks[0]["context_text"].startswith(
+        "Answer first.\nAnswer first."
+    )
+    assert min(chunk["start_char"] for chunk in chunks) == 10
+    assert max(chunk["end_char"] for chunk in chunks) == 10 + len(source_text)
     assert all("What is the stable answer?" in chunk["index_text"] for chunk in chunks)
     assert [chunk["index_text"] for chunk in chunks] == [
         item["text_preview"] for item in preview
     ]
     assert service.receipt["generated_item_rejected_count"] == 1
     assert service.receipt["generated_item_chunk_count"] == len(chunks)
+    assert service.receipt["max_heading_prefix_tokens"] < 20
+    assert service.receipt["prefix_exceeds_configured_overlap_count"] == 0
+    assert service.receipt["max_effective_index_overlap_budget_tokens"] == 20
+    assert service.receipt["max_effective_context_overlap_budget_tokens"] == 20
     assert preview_receipt["generated_item_rejected_count"] == 1
     assert preview_receipt["generated_item_chunk_count"] == len(preview)
+    assert preview_receipt["max_heading_prefix_tokens"] < 20
+    assert preview_receipt["prefix_exceeds_configured_overlap_count"] == 0
+    assert preview_receipt["max_effective_index_overlap_budget_tokens"] == 20
+    assert preview_receipt["max_effective_context_overlap_budget_tokens"] == 20
 
 
 @pytest.mark.asyncio
@@ -1493,8 +2344,17 @@ async def test_generated_item_sequence_hash_covers_index_and_context_text() -> N
                     "item_id": "qa-stable",
                     "item_type": "qa",
                     "index_text": "First grounded question?",
-                    "context_text": "The stable answer and its source context.",
+                    "context_text": "source evidence",
                     "source_block_ids": ["source-block"],
+                    "context_source_ranges": [
+                        {
+                            "source_block_id": "source-block",
+                            "context_start": 0,
+                            "context_end": 15,
+                            "source_start": 0,
+                            "source_end": 15,
+                        }
+                    ],
                 }
             ],
         }
@@ -1562,6 +2422,7 @@ def test_chunk_preview_applies_generated_item_budget_and_reports_rejections(
     tmp_path: Path,
 ) -> None:
     service = _service(tmp_path)
+    source_text = "Answer first. " + ("long source context " * 80)
     chunks, receipt = service._preview_pipeline_chunks(  # noqa: SLF001
         {
             "document_id": "doc-preview-generated",
@@ -1569,9 +2430,9 @@ def test_chunk_preview_applies_generated_item_budget_and_reports_rejections(
                 {
                     "block_id": "source-block",
                     "kind": "paragraph",
-                    "text": "source evidence",
+                    "text": source_text,
                     "start_char": 10,
-                    "end_char": 25,
+                    "end_char": 10 + len(source_text),
                     "heading_path": ["Root", "Generated evidence"],
                 }
             ],
@@ -1580,8 +2441,17 @@ def test_chunk_preview_applies_generated_item_budget_and_reports_rejections(
                     "item_id": "valid",
                     "item_type": "qa",
                     "index_text": "What is the stable answer?",
-                    "context_text": "Answer first. " + ("long source context " * 80),
+                    "context_text": source_text,
                     "source_block_ids": ["source-block"],
+                    "context_source_ranges": [
+                        {
+                            "source_block_id": "source-block",
+                            "context_start": 0,
+                            "context_end": len(source_text),
+                            "source_start": 10,
+                            "source_end": 10 + len(source_text),
+                        }
+                    ],
                 },
                 {
                     "item_id": "rejected",

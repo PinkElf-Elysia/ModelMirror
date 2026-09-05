@@ -43,10 +43,13 @@ from .document_parser import (
 )
 from .document_processor import ProcessedDocument, StructuredDocumentProcessor
 from .chunking_receipt import (
+    HEADING_OVERLAP_POLICY,
     candidate_namespace_fingerprint,
     canonical_chunk_sequence_hash,
     chunker_profile_fingerprint,
     chunking_receipt_is_valid as _chunking_receipt_is_valid,
+    legacy_chunking_receipt_is_valid as _legacy_chunking_receipt_is_valid,
+    record_heading_overlap_policy,
     safe_chunker_profile,
     safe_chunking_receipt as _safe_chunking_receipt,
 )
@@ -91,6 +94,10 @@ from .pipeline_graph import (
     validate_pipeline_graph,
 )
 from .splitter import (
+    MAX_ESTIMATED_TOKEN_PARENT_CHILD_AMPLIFICATION,
+    MAX_ESTIMATED_TOKEN_PARENT_CHILD_RUNTIME_AMPLIFICATION,
+    MAX_ESTIMATED_TOKEN_RECURSIVE_AMPLIFICATION,
+    MAX_ESTIMATED_TOKEN_RECURSIVE_RUNTIME_AMPLIFICATION,
     DEFAULT_SEPARATORS,
     ESTIMATED_TOKEN_CHUNKER_CONTRACT,
     ESTIMATED_TOKEN_ESTIMATOR,
@@ -99,10 +106,15 @@ from .splitter import (
     EstimatedTokenTextSplitter,
     ParentChildTextSplitter,
     TextSplitter,
+    body_overlap_after_heading_prefix as _body_overlap_after_heading_prefix,
     bounded_generated_index_text as _bounded_generated_index_text,
     bounded_heading_prefix as _bounded_heading_prefix,
     heading_prefix_budget as _heading_prefix_budget,
     estimate_mixed_cjk_latin_v1_tokens as _estimate_rag_tokens,
+    estimated_token_parent_child_amplification,
+    estimated_token_parent_child_runtime_amplification_bound,
+    estimated_token_overlap_amplification,
+    estimated_token_separator_aware_coverage_bound,
     with_heading_prefix as _with_heading_prefix,
 )
 from .vector_store import (
@@ -130,6 +142,7 @@ def _safe_env_int(name: str, default: int, *, minimum: int = 1) -> int:
 MAX_DOCUMENT_WARNINGS = 20
 MAX_DOCUMENT_WARNING_CHARACTERS = 500
 MAX_DOCUMENT_WARNINGS_CHARACTERS = 4_000
+FILE_ANALYSIS_DERIVED_TEXT_CONTRACT = "rag-file-analysis-derived-text-v1"
 MAX_FILE_OUTPUT_SECTION_SOURCES = 2_000
 HASH_EMBEDDING_MODEL = "deterministic-hash-v1"
 HASH_EMBEDDING_MODEL_ALIASES = {
@@ -198,6 +211,66 @@ def _bounded_document_warnings(values: Any) -> list[str]:
         if len(result) >= MAX_DOCUMENT_WARNINGS:
             break
     return result
+
+
+def _pipeline_source_manifest_is_canonical(value: Any) -> bool:
+    """Validate the immutable fields that select parser and source ownership."""
+
+    if not isinstance(value, list) or not value:
+        return False
+    source_ids: set[str] = set()
+    snapshot_keys: set[str] = set()
+    for source in value:
+        if not isinstance(source, dict):
+            return False
+        source_id = str(source.get("source_id") or "")
+        source_kind = str(source.get("source_kind") or "")
+        filename = str(source.get("filename") or "")
+        snapshot_key = str(source.get("snapshot_key") or "")
+        content_hash = str(source.get("content_hash") or "").lower()
+        content_mode = str(source.get("content_mode") or "")
+        size = source.get("size")
+        if (
+            not source_id
+            or source_id in source_ids
+            or not filename
+            or not snapshot_key
+            or snapshot_key in snapshot_keys
+            or re.fullmatch(r"[0-9a-f]{64}", content_hash) is None
+            or not isinstance(size, int)
+            or isinstance(size, bool)
+            or size < 0
+        ):
+            return False
+        if source_kind == "knowledge_document":
+            if content_mode == "document":
+                if source.get("parser_filename") or source.get(
+                    "source_derivation_contract"
+                ):
+                    return False
+            elif content_mode == "extracted_text":
+                parser_filename = str(source.get("parser_filename") or "")
+                if (
+                    str(source.get("source_derivation_contract") or "")
+                    != FILE_ANALYSIS_DERIVED_TEXT_CONTRACT
+                    or not parser_filename
+                    or Path(parser_filename).name != parser_filename
+                    or Path(parser_filename).suffix.lower() != ".txt"
+                ):
+                    return False
+            else:
+                return False
+        elif source_kind == "xpert_file":
+            if content_mode != "extracted_text" or not all(
+                str(source.get(key) or "")
+                for key in ("xpert_id", "conversation_id", "asset_id")
+            ):
+                return False
+        else:
+            return False
+        source_ids.add(source_id)
+        snapshot_keys.add(snapshot_key)
+    return True
 
 
 class RagError(RuntimeError):
@@ -762,14 +835,21 @@ class RagService:
 
     def _purge_knowledge_base_namespaces_and_uploads(self, kb_id: str) -> None:
         metadata = self._read_metadata()
-        namespaces = {
-            kb_id,
-            *(
-                str(version.get("namespace") or "")
-                for version in metadata["pipeline_versions"].values()
-                if isinstance(version, dict) and str(version.get("kb_id")) == kb_id
-            ),
-        }
+        namespaces = {kb_id}
+        for version in metadata["pipeline_versions"].values():
+            if not isinstance(version, dict) or str(version.get("kb_id")) != kb_id:
+                continue
+            try:
+                namespace = self._validated_pipeline_version_namespace(
+                    version,
+                    metadata=metadata,
+                    destructive=True,
+                )
+            except PipelineJobStateError:
+                # Stored metadata is not authority to delete an unrelated
+                # namespace. The KB-owned base namespace is still purged.
+                continue
+            namespaces.add(namespace)
         for namespace in namespaces:
             if not namespace:
                 continue
@@ -2049,6 +2129,9 @@ class RagService:
             if not document_id:
                 raise PipelineDraftValidationError("Chunker preview requires document_id.")
             compiled = validation["compiled"] or {}
+            compiled_chunker = dict(
+                (compiled.get("stage_updates") or {}).get("stage_chunker") or {}
+            )
             processor = dict(
                 (compiled.get("stage_updates") or {}).get("stage_processor") or {}
             )
@@ -2064,7 +2147,7 @@ class RagService:
             )
             chunks, chunking_receipt = self._preview_pipeline_chunks(
                 processed,
-                config,
+                compiled_chunker,
                 kind=kind,
             )
             return {
@@ -2714,17 +2797,35 @@ class RagService:
                     suffix = source_path.suffix or Path(str(document["filename"])).suffix or ".txt"
                     snapshot = source_dir / f"document_{index}{suffix.lower()}"
                     shutil.copyfile(source_path, snapshot)
-                    manifest.append(
-                        {
-                            "source_id": str(document["id"]),
-                            "source_kind": "knowledge_document",
-                            "filename": str(document["filename"]),
-                            "size": int(document.get("size", snapshot.stat().st_size)),
-                            "snapshot_key": snapshot.relative_to(self.storage_dir).as_posix(),
-                            "content_hash": self._file_sha256(snapshot),
-                            "content_mode": "document",
-                        }
-                    )
+                    source_record = {
+                        "source_id": str(document["id"]),
+                        "source_kind": "knowledge_document",
+                        "filename": str(document["filename"]),
+                        "size": int(document.get("size", snapshot.stat().st_size)),
+                        "snapshot_key": snapshot.relative_to(self.storage_dir).as_posix(),
+                        "content_hash": self._file_sha256(snapshot),
+                        "content_mode": "document",
+                    }
+                    if (
+                        str(document.get("analysis_artifact_id") or "")
+                        and isinstance(document.get("analysis_source"), dict)
+                        and str(document.get("content_type") or "").lower()
+                        == "text/plain"
+                        and source_path.suffix.lower() == ".txt"
+                    ):
+                        source_record.update(
+                            {
+                                "content_mode": "extracted_text",
+                                "parser_filename": (
+                                    f"{Path(str(document['filename'])).stem or 'analysis'}"
+                                    ".analysis.txt"
+                                ),
+                                "source_derivation_contract": (
+                                    FILE_ANALYSIS_DERIVED_TEXT_CONTRACT
+                                ),
+                            }
+                        )
+                    manifest.append(source_record)
                     seen_source_ids.add(str(document["id"]))
 
                 seen_external: set[tuple[str, str, str]] = set()
@@ -2764,6 +2865,10 @@ class RagService:
                     raise PipelineDraftValidationError(
                         "A knowledge pipeline job requires at least one document or Xpert file."
                     )
+                if not _pipeline_source_manifest_is_canonical(manifest):
+                    raise PipelineDraftValidationError(
+                        "The pipeline source manifest is not canonical."
+                    )
             except Exception:
                 shutil.rmtree(source_dir, ignore_errors=True)
                 raise
@@ -2788,6 +2893,9 @@ class RagService:
                 json.dumps(draft["stages"]["stage_image_understanding"])
             )
             vision_config_hash = self._mapping_sha256(vision_profile)
+            source_manifest_fingerprint = self._mapping_sha256(
+                {"sources": manifest}
+            )
             document_results = [
                 {
                     "source_id": str(source["source_id"]),
@@ -2815,6 +2923,7 @@ class RagService:
                     "vision_error": None,
                     "vision_execution_mode": "legacy",
                     "vision_provider_route_receipts": [],
+                    "vision_artifact_hash": None,
                     "vision_artifact_key": (
                         self.pipeline_vision_dir
                         / job_id
@@ -2825,6 +2934,7 @@ class RagService:
                         / job_id
                         / f"source_{index}.json"
                     ).relative_to(self.storage_dir).as_posix(),
+                    "artifact_hash": None,
                 }
                 for index, source in enumerate(manifest)
             ]
@@ -2836,6 +2946,20 @@ class RagService:
                 candidate_version_id,
                 index_contract,
             )
+            config_snapshot = {
+                "index_schema_version": INDEX_SCHEMA_VERSION,
+                "graph_id": str(graph["graph_id"]),
+                "graph_revision": int(graph["graph_revision"]),
+                "stages": json.loads(json.dumps(draft["stages"])),
+                "processor_profile": processor_profile,
+                "vision_profile": vision_profile,
+                "embedding_profile": json.loads(json.dumps(draft["embedding_profile"])),
+                "retrieval_profile": json.loads(json.dumps(draft["retrieval_profile"])),
+                "index_contract": json.loads(json.dumps(index_contract)),
+                "content_index_contract": json.loads(
+                    json.dumps(draft["content_index_contract"])
+                ),
+            }
             job = {
                 "job_id": job_id,
                 "kb_id": kb_id,
@@ -2843,23 +2967,17 @@ class RagService:
                 "draft_version": int(draft["version"]),
                 "graph_id": str(graph["graph_id"]),
                 "graph_revision": int(graph["graph_revision"]),
-                "config_snapshot": {
-                    "index_schema_version": INDEX_SCHEMA_VERSION,
-                    "graph_id": str(graph["graph_id"]),
-                    "graph_revision": int(graph["graph_revision"]),
-                    "stages": json.loads(json.dumps(draft["stages"])),
-                    "processor_profile": processor_profile,
-                    "vision_profile": vision_profile,
-                    "embedding_profile": json.loads(json.dumps(draft["embedding_profile"])),
-                    "retrieval_profile": json.loads(json.dumps(draft["retrieval_profile"])),
-                    "index_contract": json.loads(json.dumps(index_contract)),
-                    "content_index_contract": json.loads(
-                        json.dumps(draft["content_index_contract"])
-                    ),
-                },
+                "config_snapshot": config_snapshot,
+                "config_snapshot_fingerprint": self._mapping_sha256(
+                    config_snapshot
+                ),
+                "chunker_profile_fingerprint": chunker_profile_fingerprint(
+                    config_snapshot["stages"]["stage_chunker"]
+                ),
                 "origin": self._safe_pipeline_origin(origin),
                 "base_version_id": base_version_id,
                 "sources": manifest,
+                "source_manifest_fingerprint": source_manifest_fingerprint,
                 "document_results": document_results,
                 "status": "queued",
                 "stages": self._new_pipeline_job_stages(),
@@ -2897,6 +3015,7 @@ class RagService:
         retrieval_profile: dict[str, Any],
         tuning_run_id: str,
         trial: bool,
+        expected_base_source_manifest_fingerprint: str | None = None,
     ) -> dict[str, Any]:
         """Create an isolated tuning job from one immutable version snapshot.
 
@@ -2921,6 +3040,10 @@ class RagService:
                     "RAG strategy tuning requires an index schema v3 base version."
                 )
             base_content_contract = self._content_index_contract_for_version(base_version)
+            if str(base_content_contract.get("status") or "") != "current":
+                raise PipelineContentContractError(
+                    "Strategy tuning requires the complete current content-index contract."
+                )
             self._assert_current_chunker_build_contract(
                 (
                     (base_version.get("config_snapshot") or {}).get("stages")
@@ -2933,6 +3056,31 @@ class RagService:
             if not isinstance(base_job, dict) or not base_job.get("sources"):
                 raise PipelineJobNotFoundError(
                     "Base knowledge pipeline source snapshot is unavailable."
+                )
+            try:
+                self._assert_pipeline_job_execution_contract(
+                    base_job,
+                    verify_sources=True,
+                )
+            except PipelineJobStateError as exc:
+                raise PipelineDraftValidationError(
+                    "Base knowledge pipeline source identity is invalid."
+                ) from exc
+            admitted_base_manifest = str(
+                base_job.get("source_manifest_fingerprint") or ""
+            )
+            if expected_base_source_manifest_fingerprint is not None and (
+                re.fullmatch(
+                    r"[0-9a-f]{64}", expected_base_source_manifest_fingerprint
+                )
+                is None
+                or not hmac.compare_digest(
+                    admitted_base_manifest,
+                    expected_base_source_manifest_fingerprint,
+                )
+            ):
+                raise PipelineDraftValidationError(
+                    "Base knowledge pipeline source identity changed after tuner preflight."
                 )
 
             config_snapshot = json.loads(json.dumps(base_job.get("config_snapshot") or {}))
@@ -3024,6 +3172,10 @@ class RagService:
                     raise PipelineDraftValidationError(
                         "A strategy tuning job requires a reusable source snapshot."
                     )
+                if not _pipeline_source_manifest_is_canonical(manifest):
+                    raise PipelineDraftValidationError(
+                        "The strategy tuning source manifest is not canonical."
+                    )
             except Exception:
                 shutil.rmtree(source_dir, ignore_errors=True)
                 raise
@@ -3042,6 +3194,9 @@ class RagService:
             now = time.time()
             processor_hash = self._mapping_sha256(processor_profile)
             vision_hash = self._mapping_sha256(vision_profile)
+            source_manifest_fingerprint = self._mapping_sha256(
+                {"sources": manifest}
+            )
             document_results = [
                 {
                     "source_id": str(source["source_id"]),
@@ -3069,12 +3224,14 @@ class RagService:
                     "vision_error": None,
                     "vision_execution_mode": "legacy",
                     "vision_provider_route_receipts": [],
+                    "vision_artifact_hash": None,
                     "vision_artifact_key": (
                         self.pipeline_vision_dir / job_id / f"source_{index}.json"
                     ).relative_to(self.storage_dir).as_posix(),
                     "artifact_key": (
                         self.pipeline_processed_dir / job_id / f"source_{index}.json"
                     ).relative_to(self.storage_dir).as_posix(),
+                    "artifact_hash": None,
                 }
                 for index, source in enumerate(manifest)
             ]
@@ -3106,9 +3263,16 @@ class RagService:
                 "graph_id": str(config_snapshot.get("graph_id") or base_job.get("graph_id") or ""),
                 "graph_revision": int(config_snapshot.get("graph_revision") or base_job.get("graph_revision") or 1),
                 "config_snapshot": config_snapshot,
+                "config_snapshot_fingerprint": self._mapping_sha256(
+                    config_snapshot
+                ),
+                "chunker_profile_fingerprint": chunker_profile_fingerprint(
+                    stages["stage_chunker"]
+                ),
                 "origin": origin,
                 "base_version_id": base_version_id,
                 "sources": manifest,
+                "source_manifest_fingerprint": source_manifest_fingerprint,
                 "document_results": document_results,
                 "status": "queued",
                 "stages": self._new_pipeline_job_stages(),
@@ -3229,6 +3393,387 @@ class RagService:
         payload.setdefault("chunking_receipt", {})
         return payload
 
+    def _assert_pipeline_job_execution_contract(
+        self,
+        job: dict[str, Any],
+        *,
+        verify_sources: bool,
+    ) -> str:
+        """Re-derive mutable job identities before any index side effect."""
+
+        snapshot = (
+            job.get("config_snapshot")
+            if isinstance(job.get("config_snapshot"), dict)
+            else None
+        )
+        if snapshot is None:
+            raise PipelineJobStateError(
+                "Pipeline index contract snapshot is missing."
+            )
+        stages = (
+            snapshot.get("stages")
+            if isinstance(snapshot.get("stages"), dict)
+            else {}
+        )
+        chunker = (
+            stages.get("stage_chunker")
+            if isinstance(stages.get("stage_chunker"), dict)
+            else {}
+        )
+        chunker_strategy = str(chunker.get("strategy") or "")
+        token_strategies = {
+            "recursive_estimated_token",
+            "parent_child_estimated_token",
+        }
+        expected_chunker_fingerprint = str(
+            job.get("chunker_profile_fingerprint") or ""
+        )
+        if (
+            str(job.get("status") or "") in {"queued", "running"}
+            and not expected_chunker_fingerprint
+            and chunker_strategy not in token_strategies
+        ):
+            raise PipelineContentContractError(
+                "Legacy queued pipeline jobs cannot be replayed under the current "
+                "estimated-token execution contract."
+            )
+        must_validate_current_chunker = bool(expected_chunker_fingerprint) or str(
+            job.get("status") or ""
+        ) in {"queued", "running"} or chunker_strategy in token_strategies
+        if must_validate_current_chunker:
+            if chunker_strategy not in token_strategies:
+                raise PipelineJobStateError(
+                    "Pipeline job cannot downgrade its admitted estimated-token chunker."
+                )
+            raw_chunker_profile = safe_chunker_profile(chunker)
+            try:
+                canonical_chunker = self._validated_pipeline_stage_config(
+                    "stage_chunker",
+                    {},
+                    raw_chunker_profile,
+                )
+            except PipelineDraftValidationError as exc:
+                raise PipelineJobStateError(
+                    "Pipeline chunker profile is outside the admitted execution contract: "
+                    f"{str(exc)[:300]}"
+                ) from exc
+            canonical_chunker_profile = safe_chunker_profile(canonical_chunker)
+            if raw_chunker_profile != canonical_chunker_profile:
+                raise PipelineJobStateError(
+                    "Pipeline chunker profile is not canonical."
+                )
+            actual_chunker_fingerprint = chunker_profile_fingerprint(
+                canonical_chunker_profile
+            )
+            if (
+                re.fullmatch(r"[0-9a-f]{64}", expected_chunker_fingerprint) is None
+                or not hmac.compare_digest(
+                    expected_chunker_fingerprint,
+                    actual_chunker_fingerprint,
+                )
+            ):
+                raise PipelineJobStateError(
+                    "Pipeline chunker profile no longer matches its admitted fingerprint."
+                )
+        schema_version = snapshot.get("index_schema_version")
+        retrieval = snapshot.get("retrieval_profile")
+        embedding = snapshot.get("embedding_profile")
+        if (
+            not isinstance(schema_version, int)
+            or isinstance(schema_version, bool)
+            or schema_version != INDEX_SCHEMA_VERSION
+            or not isinstance(retrieval, dict)
+            or not isinstance(embedding, dict)
+        ):
+            raise PipelineJobStateError(
+                "Pipeline index contract cannot be re-derived."
+            )
+        try:
+            expected_contract = self._index_contract(
+                index_schema_version=schema_version,
+                retrieval_profile=retrieval,
+                embedding_profile=embedding,
+            )
+            expected_contract_hash = self._mapping_sha256(expected_contract)
+            stored_contracts = (
+                snapshot.get("index_contract"),
+                job.get("index_contract"),
+            )
+            contracts_match = all(
+                isinstance(value, dict)
+                and hmac.compare_digest(
+                    self._mapping_sha256(value),
+                    expected_contract_hash,
+                )
+                for value in stored_contracts
+            )
+        except (TypeError, ValueError):
+            contracts_match = False
+        if not contracts_match:
+            raise PipelineJobStateError(
+                "Pipeline index contract no longer matches its derived identity."
+            )
+
+        expected_snapshot_fingerprint = str(
+            job.get("config_snapshot_fingerprint") or ""
+        )
+        must_validate_snapshot = bool(expected_snapshot_fingerprint) or str(
+            job.get("status") or ""
+        ) in {"queued", "running"}
+        admitted_profile_hashes: dict[str, str] = {}
+        if must_validate_snapshot:
+            self._assert_pipeline_config_snapshot_seal(job, snapshot)
+            profile_pairs = (
+                ("processor_profile", "stage_processor"),
+                ("vision_profile", "stage_image_understanding"),
+            )
+            for profile_key, stage_key in profile_pairs:
+                top_level_profile = snapshot.get(profile_key)
+                stage_profile = stages.get(stage_key)
+                if not isinstance(top_level_profile, dict) or not isinstance(
+                    stage_profile, dict
+                ):
+                    raise PipelineJobStateError(
+                        "Pipeline processor and vision profiles no longer match their admitted stages."
+                    )
+                try:
+                    top_level_hash = self._mapping_sha256(top_level_profile)
+                    stage_hash = self._mapping_sha256(stage_profile)
+                except (TypeError, ValueError) as exc:
+                    raise PipelineJobStateError(
+                        "Pipeline processor and vision profiles are not canonical."
+                    ) from exc
+                if not hmac.compare_digest(top_level_hash, stage_hash):
+                    raise PipelineJobStateError(
+                        "Pipeline processor and vision profiles no longer match their admitted stages."
+                    )
+                admitted_profile_hashes[profile_key] = top_level_hash
+
+        kb_id = str(job.get("kb_id") or "")
+        version_id = str(job.get("candidate_version_id") or "")
+        if not kb_id or not version_id:
+            raise PipelineJobStateError(
+                "Pipeline candidate namespace identity is incomplete."
+            )
+        try:
+            expected_namespace = self._candidate_namespace(
+                kb_id,
+                version_id,
+                expected_contract,
+            )
+        except PipelineDraftValidationError as exc:
+            raise PipelineJobStateError(
+                "Pipeline candidate namespace cannot be re-derived."
+            ) from exc
+        if not hmac.compare_digest(
+            str(job.get("candidate_namespace") or ""),
+            expected_namespace,
+        ):
+            raise PipelineJobStateError(
+                "Pipeline candidate namespace provenance no longer matches its derived identity."
+            )
+
+        if verify_sources:
+            sources = job.get("sources")
+            if not isinstance(sources, list) or not sources:
+                raise PipelineJobStateError(
+                    "Pipeline source snapshot manifest is missing."
+                )
+            expected_source_manifest_fingerprint = str(
+                job.get("source_manifest_fingerprint") or ""
+            )
+            must_validate_source_manifest = bool(
+                expected_source_manifest_fingerprint
+            ) or str(job.get("status") or "") in {"queued", "running"}
+            if must_validate_source_manifest:
+                if not _pipeline_source_manifest_is_canonical(sources):
+                    raise PipelineJobStateError(
+                        "Pipeline source snapshot manifest is not canonical."
+                    )
+                try:
+                    actual_source_manifest_fingerprint = self._mapping_sha256(
+                        {"sources": sources}
+                    )
+                except (TypeError, ValueError) as exc:
+                    raise PipelineJobStateError(
+                        "Pipeline source snapshot manifest is not canonical."
+                    ) from exc
+                if (
+                    re.fullmatch(
+                        r"[0-9a-f]{64}", expected_source_manifest_fingerprint
+                    )
+                    is None
+                    or not hmac.compare_digest(
+                        expected_source_manifest_fingerprint,
+                        actual_source_manifest_fingerprint,
+                    )
+                ):
+                    raise PipelineJobStateError(
+                        "Pipeline source snapshot manifest no longer matches its admitted fingerprint."
+                    )
+            document_results = job.get("document_results")
+            if not isinstance(document_results, list):
+                raise PipelineJobStateError(
+                    "Pipeline source result lineage is missing."
+                )
+            results_by_source: dict[str, dict[str, Any]] = {}
+            for result in document_results:
+                result_source_id = (
+                    str(result.get("source_id") or "")
+                    if isinstance(result, dict)
+                    else ""
+                )
+                if not result_source_id or result_source_id in results_by_source:
+                    raise PipelineJobStateError(
+                        "Pipeline source result lineage is invalid."
+                    )
+                results_by_source[result_source_id] = result
+            if len(results_by_source) != len(sources):
+                raise PipelineJobStateError(
+                    "Pipeline source result lineage is incomplete."
+                )
+            seen_source_ids: set[str] = set()
+            seen_snapshot_keys: set[str] = set()
+            for source_index, source in enumerate(sources):
+                if not isinstance(source, dict):
+                    raise PipelineJobStateError(
+                        "Pipeline source snapshot manifest is invalid."
+                    )
+                source_id = str(source.get("source_id") or "")
+                snapshot_key = str(source.get("snapshot_key") or "")
+                expected_hash = str(source.get("content_hash") or "").lower()
+                if (
+                    not source_id
+                    or source_id in seen_source_ids
+                    or not snapshot_key
+                    or snapshot_key in seen_snapshot_keys
+                    or re.fullmatch(r"[0-9a-f]{64}", expected_hash) is None
+                ):
+                    raise PipelineJobStateError(
+                        "Pipeline source snapshot manifest is invalid."
+                    )
+                seen_source_ids.add(source_id)
+                seen_snapshot_keys.add(snapshot_key)
+                result = results_by_source.get(source_id)
+                result_hash = (
+                    str(result.get("content_hash") or "").lower()
+                    if isinstance(result, dict)
+                    else ""
+                )
+                if not result_hash or not hmac.compare_digest(
+                    result_hash,
+                    expected_hash,
+                ):
+                    raise PipelineJobStateError(
+                        "Pipeline source snapshot hash no longer matches its result lineage."
+                    )
+                if must_validate_snapshot:
+                    for result_hash_key, profile_key in (
+                        ("processor_config_hash", "processor_profile"),
+                        ("vision_config_hash", "vision_profile"),
+                    ):
+                        result_config_hash = str(
+                            result.get(result_hash_key) or ""
+                        ).lower()
+                        expected_config_hash = admitted_profile_hashes.get(
+                            profile_key, ""
+                        )
+                        if (
+                            re.fullmatch(r"[0-9a-f]{64}", result_config_hash)
+                            is None
+                            or not expected_config_hash
+                            or not hmac.compare_digest(
+                                result_config_hash,
+                                expected_config_hash,
+                            )
+                        ):
+                            raise PipelineJobStateError(
+                                "Pipeline source result configuration no longer matches its admitted profile."
+                            )
+                if must_validate_source_manifest:
+                    expected_artifact_key = (
+                        self.pipeline_processed_dir
+                        / str(job.get("job_id") or "")
+                        / f"source_{source_index}.json"
+                    ).relative_to(self.storage_dir).as_posix()
+                    expected_vision_artifact_key = (
+                        self.pipeline_vision_dir
+                        / str(job.get("job_id") or "")
+                        / f"source_{source_index}.json"
+                    ).relative_to(self.storage_dir).as_posix()
+                    static_result_matches = (
+                        str(result.get("filename") or "")
+                        == str(source.get("filename") or "")
+                        and str(result.get("artifact_key") or "")
+                        == expected_artifact_key
+                        and str(result.get("vision_artifact_key") or "")
+                        == expected_vision_artifact_key
+                    )
+                    if not static_result_matches:
+                        raise PipelineJobStateError(
+                            "Pipeline source result identity no longer matches its admitted source and artifact ownership."
+                        )
+                self._validated_pipeline_source_path(source)
+        return expected_namespace
+
+    def _validated_pipeline_source_path(self, source: dict[str, Any]) -> Path:
+        snapshot_key = str(source.get("snapshot_key") or "")
+        expected_hash = str(source.get("content_hash") or "").lower()
+        try:
+            path = self._pipeline_snapshot_path(snapshot_key)
+            actual_hash = self._file_sha256(path) if path.is_file() else ""
+        except (OSError, PipelineJobStateError) as exc:
+            raise PipelineJobStateError(
+                "Pipeline source snapshot is unavailable."
+            ) from exc
+        if (
+            re.fullmatch(r"[0-9a-f]{64}", expected_hash) is None
+            or not actual_hash
+            or not hmac.compare_digest(actual_hash, expected_hash)
+        ):
+            raise PipelineJobStateError(
+                "Pipeline source snapshot content hash no longer matches its manifest."
+            )
+        return path
+
+    def _validated_pipeline_source_bytes(
+        self,
+        source: dict[str, Any],
+    ) -> tuple[Path, bytes]:
+        """Read and verify the exact immutable bytes handed to an async consumer."""
+
+        snapshot_key = str(source.get("snapshot_key") or "")
+        expected_hash = str(source.get("content_hash") or "").lower()
+        try:
+            path = self._pipeline_snapshot_path(snapshot_key)
+            content = path.read_bytes()
+        except (OSError, PipelineJobStateError) as exc:
+            raise PipelineJobStateError(
+                "Pipeline source snapshot is unavailable."
+            ) from exc
+        actual_hash = hashlib.sha256(content).hexdigest()
+        if (
+            re.fullmatch(r"[0-9a-f]{64}", expected_hash) is None
+            or not hmac.compare_digest(actual_hash, expected_hash)
+        ):
+            raise PipelineJobStateError(
+                "Pipeline source snapshot content hash no longer matches its manifest."
+            )
+        return path, content
+
+    def validate_pipeline_job_execution_contract(
+        self,
+        job_id: str,
+        *,
+        verify_sources: bool = True,
+    ) -> dict[str, Any]:
+        job = self.get_pipeline_job(job_id)
+        self._assert_pipeline_job_execution_contract(
+            job,
+            verify_sources=verify_sources,
+        )
+        return job
+
     def claim_next_pipeline_job(self) -> dict[str, Any] | None:
         with self._metadata_lock:
             metadata = self._read_metadata_unlocked()
@@ -3268,6 +3813,10 @@ class RagService:
                     )
                 )
                 try:
+                    self._assert_pipeline_job_execution_contract(
+                        job,
+                        verify_sources=True,
+                    )
                     self._assert_buildable_content_contract(
                         stages,
                         (
@@ -3280,10 +3829,14 @@ class RagService:
                         index_contract=index_contract,
                         retrieval_mode=retrieval_mode,
                     )
-                except PipelineContentContractError as exc:
+                except PipelineJobStateError as exc:
                     now = time.time()
                     job["status"] = "failed"
-                    job["error_code"] = exc.code
+                    job["error_code"] = getattr(
+                        exc,
+                        "code",
+                        "rag_pipeline_job_contract_invalid",
+                    )
                     job["error"] = str(exc)[:500]
                     job["completed_at"] = now
                     job["updated_at"] = now
@@ -3318,7 +3871,27 @@ class RagService:
             for job in metadata["pipeline_jobs"].values():
                 if job.get("status") != "running":
                     continue
-                namespace = str(job.get("candidate_namespace") or "")
+                try:
+                    namespace = self._assert_pipeline_job_execution_contract(
+                        job,
+                        verify_sources=True,
+                    )
+                except PipelineJobStateError as exc:
+                    now = time.time()
+                    job["status"] = "failed"
+                    job["error_code"] = "rag_pipeline_job_contract_invalid"
+                    job["error"] = str(exc)[:500]
+                    job["completed_at"] = now
+                    job["updated_at"] = now
+                    for stage in job.get("stages", []):
+                        if isinstance(stage, dict) and stage.get("status") in {
+                            "pending",
+                            "running",
+                        }:
+                            stage["status"] = "failed"
+                            stage["error"] = str(exc)[:500]
+                    recovered += 1
+                    continue
                 if self._pipeline_job_uses_vector(job):
                     self.vector_store.delete_knowledge_base(namespace)
                 self.lexical_store.delete_namespace(namespace)
@@ -3384,20 +3957,6 @@ class RagService:
             if isinstance(job.get("config_snapshot"), dict)
             else {}
         )
-        index_contract = (
-            snapshot.get("index_contract")
-            if isinstance(snapshot.get("index_contract"), dict)
-            else job.get("index_contract")
-            if isinstance(job.get("index_contract"), dict)
-            else {}
-        )
-        vector_contract = (
-            index_contract.get("vector")
-            if isinstance(index_contract.get("vector"), dict)
-            else {}
-        )
-        if "required" in vector_contract:
-            return bool(vector_contract["required"])
         retrieval_profile = (
             snapshot.get("retrieval_profile")
             if isinstance(snapshot.get("retrieval_profile"), dict)
@@ -3519,7 +4078,7 @@ class RagService:
         self._update_pipeline_job(job_id, update)
 
     def load_pipeline_job_sources(self, job_id: str) -> list[dict[str, Any]]:
-        job = self.get_pipeline_job(job_id)
+        job = self.validate_pipeline_job_execution_contract(job_id)
         loaded: list[dict[str, Any]] = []
         for source in job["sources"]:
             path = self._pipeline_snapshot_path(str(source["snapshot_key"]))
@@ -3531,14 +4090,17 @@ class RagService:
         return loaded
 
     def parse_pipeline_job_sources(self, job_id: str) -> list[dict[str, Any]]:
-        job = self.get_pipeline_job(job_id)
+        job = self.validate_pipeline_job_execution_contract(job_id)
         parsed: list[dict[str, Any]] = []
         for source in job["sources"]:
-            path = self._pipeline_snapshot_path(str(source["snapshot_key"]))
+            path = self._validated_pipeline_source_path(source)
             if source.get("content_mode") == "extracted_text":
                 text = path.read_text(encoding="utf-8")
             else:
-                text = parse_document(path, str(source["filename"]))
+                text = parse_document(
+                    path,
+                    str(source.get("parser_filename") or source["filename"]),
+                )
             if text.strip():
                 parsed.append({**source, "text": text})
         if not parsed:
@@ -3548,7 +4110,7 @@ class RagService:
     async def process_pipeline_job_vision(self, job_id: str) -> list[dict[str, Any]]:
         """Run optional visual understanding with source/page-level durable reuse."""
 
-        job = self.get_pipeline_job(job_id)
+        job = self.validate_pipeline_job_execution_contract(job_id)
         snapshot = job.get("config_snapshot", {})
         profile = dict(
             snapshot.get("vision_profile")
@@ -3568,29 +4130,93 @@ class RagService:
         failed_sources: list[str] = []
         for source in job.get("sources", []):
             source_id = str(source["source_id"])
+            source_path, source_bytes = self._validated_pipeline_source_bytes(source)
             result = results_by_source.get(source_id)
             if result is None:
                 raise PipelineJobStateError(
                     f"Vision result state is missing for source: {source_id}"
                 )
+            if source.get("content_mode") == "extracted_text":
+                self._update_pipeline_document_result(
+                    job_id,
+                    source_id,
+                    {
+                        "vision_status": "skipped",
+                        "vision_attempt": 0,
+                        "vision_config_hash": config_hash,
+                        "vision_artifact_hash": None,
+                        "vision_page_count": 0,
+                        "vision_selected_page_count": 0,
+                        "vision_processed_page_count": 0,
+                        "vision_failed_page_count": 0,
+                        "vision_block_count": 0,
+                        "vision_warnings": [],
+                        "vision_error": None,
+                        "vision_execution_mode": "legacy",
+                        "vision_provider_route_receipts": [],
+                    },
+                )
+                completed.append(
+                    {
+                        **source,
+                        "status": "skipped",
+                        "page_count": 0,
+                        "selected_page_count": 0,
+                        "processed_page_count": 0,
+                        "failed_page_count": 0,
+                        "blocks": [],
+                        "warnings": [],
+                        "provider_route_receipts": [],
+                        "execution_mode": "legacy",
+                    }
+                )
+                continue
             artifact_path = self._pipeline_vision_path(str(result["vision_artifact_key"]))
-            reusable = (
+            completed_identity = (
                 result.get("vision_status") == "completed"
                 and result.get("content_hash") == source.get("content_hash")
                 and result.get("vision_config_hash") == config_hash
-                and artifact_path.is_file()
             )
+            artifact_identity_required = bool(
+                job.get("config_snapshot_fingerprint")
+            )
+            if completed_identity and artifact_identity_required:
+                expected_artifact_hash = str(
+                    result.get("vision_artifact_hash") or ""
+                ).lower()
+                actual_artifact_hash = (
+                    self._file_sha256(artifact_path)
+                    if artifact_path.is_file()
+                    else ""
+                )
+                if (
+                    re.fullmatch(r"[0-9a-f]{64}", expected_artifact_hash)
+                    is None
+                    or not actual_artifact_hash
+                    or not hmac.compare_digest(
+                        expected_artifact_hash,
+                        actual_artifact_hash,
+                    )
+                ):
+                    raise PipelineJobStateError(
+                        "Pipeline vision artifact no longer matches its admitted hash."
+                    )
+            reusable = completed_identity and artifact_path.is_file()
             if reusable:
                 try:
                     payload = json.loads(artifact_path.read_text(encoding="utf-8"))
                     completed.append({**source, **payload, "reused": True})
                     continue
                 except (OSError, json.JSONDecodeError):
+                    if artifact_identity_required:
+                        raise PipelineJobStateError(
+                            "Pipeline vision artifact is unreadable."
+                        )
                     pass
 
-            source_path = self._pipeline_snapshot_path(str(source["snapshot_key"]))
             page_dir = artifact_path.parent / f"{artifact_path.stem}_pages"
             page_dir.mkdir(parents=True, exist_ok=True)
+            pending_page_cache: dict[int, dict[str, Any]] = {}
 
             def cache_get(page_number: int) -> dict[str, Any] | None:
                 page_path = page_dir / f"page_{page_number}.json"
@@ -3599,26 +4225,69 @@ class RagService:
                 try:
                     cached = json.loads(page_path.read_text(encoding="utf-8"))
                 except (OSError, json.JSONDecodeError):
+                    if artifact_identity_required:
+                        raise PipelineJobStateError(
+                            "Pipeline vision page cache is unreadable."
+                        )
                     return None
+                expected_cache_checksum = str(
+                    cached.get("checksum") or ""
+                ).lower()
+                unsigned_cache = {
+                    key: value for key, value in cached.items() if key != "checksum"
+                }
+                cache_checksum_valid = bool(expected_cache_checksum) and bool(
+                    unsigned_cache
+                ) and hmac.compare_digest(
+                    expected_cache_checksum,
+                    self._mapping_sha256(unsigned_cache),
+                )
+                if artifact_identity_required and not cache_checksum_valid:
+                    raise PipelineJobStateError(
+                        "Pipeline vision page cache no longer matches its admitted hash."
+                    )
                 if (
                     cached.get("content_hash") != source.get("content_hash")
                     or cached.get("vision_config_hash") != config_hash
-                    or cached.get("status") != "completed"
+                    or cached.get("job_id") != job_id
+                    or cached.get("source_id") != source_id
+                    or cached.get("vision_artifact_key")
+                    != result.get("vision_artifact_key")
                 ):
+                    if artifact_identity_required:
+                        raise PipelineJobStateError(
+                            "Pipeline vision page cache identity no longer matches its source."
+                        )
                     return None
-                return dict(cached.get("result") or {})
+                if cached.get("status") != "completed":
+                    return None
+                cached_result = dict(cached.get("result") or {})
+                if int(cached_result.get("page_number") or 0) != page_number:
+                    if artifact_identity_required:
+                        raise PipelineJobStateError(
+                            "Pipeline vision page cache identity no longer matches its page."
+                        )
+                    return None
+                return cached_result
 
             def cache_set(page_number: int, page_result: dict[str, Any]) -> None:
-                page_path = page_dir / f"page_{page_number}.json"
-                self._atomic_json_write(
-                    page_path,
-                    {
-                        "content_hash": str(source.get("content_hash") or ""),
-                        "vision_config_hash": config_hash,
-                        "status": str(page_result.get("status") or "failed"),
-                        "result": page_result,
-                    },
-                )
+                if int(page_result.get("page_number") or 0) != page_number:
+                    raise PipelineJobStateError(
+                        "Pipeline vision page result identity does not match its page."
+                    )
+                page_artifact = {
+                    "job_id": job_id,
+                    "source_id": source_id,
+                    "vision_artifact_key": str(
+                        result.get("vision_artifact_key") or ""
+                    ),
+                    "content_hash": str(source.get("content_hash") or ""),
+                    "vision_config_hash": config_hash,
+                    "status": str(page_result.get("status") or "failed"),
+                    "result": page_result,
+                }
+                page_artifact["checksum"] = self._mapping_sha256(page_artifact)
+                pending_page_cache[page_number] = page_artifact
 
             self._update_pipeline_document_result(
                 job_id,
@@ -3633,15 +4302,27 @@ class RagService:
             try:
                 vision_result = await self.vision_processor.analyze_source(
                     path=source_path,
-                    filename=str(source["filename"]),
+                    filename=str(
+                        source.get("parser_filename") or source["filename"]
+                    ),
                     source_id=source_id,
                     config=profile,
                     cache_get=cache_get,
                     cache_set=cache_set,
                     cancel_check=lambda: self.pipeline_job_cancel_requested(job_id),
+                    content=source_bytes,
                 )
+                # The provider reads this path asynchronously. Re-validate the
+                # admitted bytes before binding its output to the source hash.
+                self._validated_pipeline_source_path(source)
                 payload = vision_result.payload(max_text=None)
+                for page_number in sorted(pending_page_cache):
+                    self._atomic_json_write(
+                        page_dir / f"page_{page_number}.json",
+                        pending_page_cache[page_number],
+                    )
                 self._atomic_json_write(artifact_path, payload)
+                vision_artifact_hash = self._file_sha256(artifact_path)
                 failed_pages = int(payload.get("failed_page_count", 0))
                 vision_status = "failed" if failed_pages else "completed"
                 if failed_pages:
@@ -3652,6 +4333,7 @@ class RagService:
                     {
                         "vision_status": vision_status,
                         "vision_config_hash": config_hash,
+                        "vision_artifact_hash": vision_artifact_hash,
                         "vision_page_count": int(payload.get("page_count", 0)),
                         "vision_selected_page_count": int(payload.get("selected_page_count", 0)),
                         "vision_processed_page_count": int(payload.get("processed_page_count", 0)),
@@ -3688,6 +4370,8 @@ class RagService:
                 completed.append({**source, **payload, "reused": False})
             except asyncio.CancelledError:
                 raise
+            except PipelineJobStateError:
+                raise
             except Exception as exc:
                 error = self._safe_pipeline_error(exc)
                 failed_sources.append(source_id)
@@ -3715,7 +4399,7 @@ class RagService:
     async def process_pipeline_job_sources(self, job_id: str) -> list[dict[str, Any]]:
         """Process each immutable source independently and reuse completed artifacts."""
 
-        job = self.get_pipeline_job(job_id)
+        job = self.validate_pipeline_job_execution_contract(job_id)
         snapshot = job.get("config_snapshot", {})
         profile = dict(
             snapshot.get("processor_profile")
@@ -3733,26 +4417,38 @@ class RagService:
 
         for source in job.get("sources", []):
             source_id = str(source["source_id"])
+            source_path = self._validated_pipeline_source_path(source)
             result = results_by_source.get(source_id)
             if result is None:
                 raise PipelineJobStateError(
                     f"Processor result state is missing for source: {source_id}"
                 )
             artifact_path = self._pipeline_processed_path(str(result["artifact_key"]))
-            reusable = (
+            completed_identity = (
                 result.get("status") == "completed"
                 and result.get("vision_status") in {"completed", "skipped"}
                 and result.get("content_hash") == source.get("content_hash")
                 and result.get("processor_config_hash") == config_hash
-                and artifact_path.is_file()
             )
-            if reusable:
+            artifact_identity_required = bool(
+                job.get("config_snapshot_fingerprint")
+            )
+            if completed_identity:
                 try:
-                    artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+                    artifact = self._read_verified_pipeline_processed_artifact(
+                        result,
+                        require_hash=artifact_identity_required,
+                        expected_source_id=source_id,
+                        expected_filename=str(
+                            source.get("parser_filename") or source["filename"]
+                        ),
+                    )
+                except PipelineJobStateError:
+                    if artifact_identity_required or result.get("artifact_hash"):
+                        raise
+                else:
                     completed.append({**source, **artifact, "reused": True})
                     continue
-                except (OSError, json.JSONDecodeError):
-                    reusable = False
 
             started = time.perf_counter()
             self._update_pipeline_document_result(
@@ -3766,36 +4462,127 @@ class RagService:
                 },
             )
             try:
-                source_path = self._pipeline_snapshot_path(str(source["snapshot_key"]))
                 extracted_text = (
                     source_path.read_text(encoding="utf-8")
                     if source.get("content_mode") == "extracted_text"
                     else None
                 )
                 visual_blocks: list[dict[str, Any]] = []
-                vision_artifact_key = str(result.get("vision_artifact_key") or "")
-                if vision_artifact_key:
-                    vision_path = self._pipeline_vision_path(vision_artifact_key)
-                    if vision_path.is_file():
-                        visual_payload = json.loads(vision_path.read_text(encoding="utf-8"))
+                vision_status = str(result.get("vision_status") or "")
+                if vision_status in {"completed", "failed"}:
+                    vision_artifact_key = str(
+                        result.get("vision_artifact_key") or ""
+                    )
+                    vision_path = self._pipeline_vision_path(
+                        vision_artifact_key
+                    )
+                    expected_vision_hash = str(
+                        result.get("vision_artifact_hash") or ""
+                    ).lower()
+                    vision_bytes: bytes | None = None
+                    failed_without_artifact = (
+                        vision_status == "failed"
+                        and not expected_vision_hash
+                        and not vision_path.is_file()
+                    )
+                    if failed_without_artifact:
+                        if artifact_identity_required and any(
+                            int(result.get(key) or 0) != 0
+                            for key in (
+                                "vision_page_count",
+                                "vision_selected_page_count",
+                                "vision_processed_page_count",
+                                "vision_failed_page_count",
+                                "vision_block_count",
+                            )
+                        ):
+                            raise PipelineJobStateError(
+                                "Failed pipeline vision state contains incomplete artifact evidence."
+                            )
+                        vision_bytes = None
+                    else:
+                        try:
+                            vision_bytes = vision_path.read_bytes()
+                        except OSError as exc:
+                            if artifact_identity_required:
+                                raise PipelineJobStateError(
+                                    "Pipeline vision artifact is unavailable at the processor boundary."
+                                ) from exc
+                    if vision_bytes is not None:
+                        if artifact_identity_required or expected_vision_hash:
+                            actual_vision_hash = hashlib.sha256(
+                                vision_bytes
+                            ).hexdigest()
+                            if (
+                                re.fullmatch(
+                                    r"[0-9a-f]{64}",
+                                    expected_vision_hash,
+                                )
+                                is None
+                                or not hmac.compare_digest(
+                                    expected_vision_hash,
+                                    actual_vision_hash,
+                                )
+                            ):
+                                raise PipelineJobStateError(
+                                    "Pipeline vision artifact no longer matches its admitted hash at the processor boundary."
+                                )
+                        try:
+                            visual_payload = json.loads(
+                                vision_bytes.decode("utf-8")
+                            )
+                        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                            raise PipelineJobStateError(
+                                "Pipeline vision artifact is unreadable at the processor boundary."
+                            ) from exc
+                        if not isinstance(visual_payload, dict):
+                            raise PipelineJobStateError(
+                                "Pipeline vision artifact payload is invalid at the processor boundary."
+                            )
                         visual_blocks = [
                             dict(item)
                             for item in visual_payload.get("blocks", [])
                             if isinstance(item, dict)
                         ]
+                elif vision_status == "skipped":
+                    if artifact_identity_required and (
+                        result.get("vision_artifact_hash")
+                        or any(
+                            int(result.get(key) or 0) != 0
+                            for key in (
+                                "vision_page_count",
+                                "vision_selected_page_count",
+                                "vision_processed_page_count",
+                                "vision_failed_page_count",
+                                "vision_block_count",
+                            )
+                        )
+                    ):
+                        raise PipelineJobStateError(
+                            "Skipped pipeline vision state contains unexpected artifact evidence."
+                        )
+                elif vision_status != "failed":
+                    raise PipelineJobStateError(
+                        "Pipeline vision state is incomplete at the processor boundary."
+                    )
                 document = await asyncio.to_thread(
                     self.document_processor.process,
                     source_path,
-                    filename=str(source["filename"]),
+                    filename=str(
+                        source.get("parser_filename") or source["filename"]
+                    ),
                     source_id=source_id,
                     config=profile,
                     extracted_text=extracted_text,
                     extra_blocks=visual_blocks,
                 )
+                # Bind locally parsed bytes again before any generated-item
+                # provider or downstream embedding can observe the result.
+                self._validated_pipeline_source_path(source)
                 if not isinstance(document, ProcessedDocument):
                     raise PipelineJobStateError(
                         "Structured processor returned an unsupported document payload."
-                    )
+                )
                 mode = str(profile.get("mode") or "general")
                 generation = await self._generate_processor_items(
                     document,
@@ -3820,12 +4607,14 @@ class RagService:
                     encoding="utf-8",
                 )
                 os.replace(temporary, artifact_path)
+                artifact_hash = self._file_sha256(artifact_path)
                 duration_ms = round((time.perf_counter() - started) * 1000, 2)
                 generated_count = len(generated)
                 result_values = {
                     "status": "completed",
                     "content_hash": str(source.get("content_hash") or ""),
                     "processor_config_hash": config_hash,
+                    "artifact_hash": artifact_hash,
                     "block_count": len(document.blocks),
                     "generated_count": generated_count,
                     "qa_count": generated_count if mode == "qa" else 0,
@@ -3850,6 +4639,8 @@ class RagService:
                     result_values,
                 )
                 completed.append({**source, **artifact, "reused": False})
+            except PipelineJobStateError:
+                raise
             except Exception as exc:
                 error = self._safe_pipeline_error(exc)
                 duration_ms = round((time.perf_counter() - started) * 1000, 2)
@@ -3931,6 +4722,13 @@ class RagService:
         def update(job: dict[str, Any]) -> None:
             if job.get("status") not in {"failed", "cancelled"}:
                 raise PipelineJobStateError("Only failed or cancelled jobs can be retried.")
+            if str((job.get("origin") or {}).get("kind") or "") in {
+                "rag_strategy_tuner_trial",
+                "rag_strategy_tuner",
+            }:
+                raise PipelineJobStateError(
+                    "Strategy tuner jobs are immutable; explicitly retry the tuner run."
+                )
             if not job.get("sources"):
                 raise PipelineJobStateError(
                     "This job has no remaining source documents and cannot be retried."
@@ -3960,6 +4758,7 @@ class RagService:
                     "stages": self._new_pipeline_job_stages(),
                     "cancel_requested": False,
                     "error": None,
+                    "error_code": None,
                     "started_at": None,
                     "completed_at": None,
                     "processor_error": None,
@@ -4000,8 +4799,11 @@ class RagService:
             raise PipelineJobStateError(
                 "Running pipeline jobs cannot acknowledge deletion cleanup."
             )
-        namespace = str(job.get("candidate_namespace") or "")
         try:
+            namespace = self._assert_pipeline_job_execution_contract(
+                job,
+                verify_sources=False,
+            )
             if namespace:
                 if self._pipeline_job_uses_vector(job):
                     self.vector_store.delete_knowledge_base(namespace)
@@ -4027,15 +4829,23 @@ class RagService:
 
         self._update_pipeline_job(job_id, mark_purged)
 
-    def fail_pipeline_job(self, job_id: str, error: str) -> None:
+    def fail_pipeline_job(
+        self,
+        job_id: str,
+        error: str,
+        *,
+        error_code: str = "rag_pipeline_execution_failed",
+    ) -> None:
         def update(job: dict[str, Any]) -> None:
             job["status"] = "failed"
             job["error"] = str(error)[:500]
+            job["error_code"] = str(error_code)[:160]
             job["completed_at"] = time.time()
             for stage in job["stages"]:
                 if stage["status"] == "running":
                     stage["status"] = "failed"
                     stage["error"] = str(error)[:500]
+                    stage["error_code"] = str(error_code)[:160]
                 elif stage["status"] == "pending":
                     stage["status"] = "blocked"
 
@@ -4048,14 +4858,18 @@ class RagService:
         document_count: int,
         chunk_count: int,
     ) -> dict[str, Any]:
-        version_holder: dict[str, Any] = {}
-        stored_job = self.get_pipeline_job(job_id)
+        payload_holder: dict[str, Any] = {}
+        stored_job = self.validate_pipeline_job_execution_contract(job_id)
+        stored_namespace = self._assert_pipeline_job_execution_contract(
+            stored_job,
+            verify_sources=True,
+        )
         if self._pipeline_job_uses_vector(stored_job):
             stored_receipt = _safe_chunking_receipt(
                 stored_job.get("chunking_receipt")
             )
             stored_sequence_hash = self._stored_vector_chunk_sequence_hash(
-                namespace=str(stored_job.get("candidate_namespace") or ""),
+                namespace=stored_namespace,
                 version_id=str(stored_job.get("candidate_version_id") or ""),
                 sources=stored_job.get("sources"),
             )
@@ -4069,8 +4883,11 @@ class RagService:
                 raise PipelineJobStateError(
                     "Stored vector chunks do not match the Pipeline Job chunking receipt."
                 )
-
         def update(metadata: dict[str, Any], job: dict[str, Any]) -> None:
+            expected_namespace = self._assert_pipeline_job_execution_contract(
+                job,
+                verify_sources=True,
+            )
             if (
                 job.get("status") != "running"
                 or bool(job.get("cancel_requested"))
@@ -4105,6 +4922,21 @@ class RagService:
             ):
                 raise PipelineJobStateError(
                     "Pipeline job chunking receipt is invalid; the candidate version cannot become ready."
+                )
+            completed_results = [
+                result
+                for result in job.get("document_results", [])
+                if isinstance(result, dict) and result.get("status") == "completed"
+            ]
+            if (
+                len(completed_results) != int(document_count)
+                or any(
+                    int(result.get("chunk_count") or 0) <= 0
+                    for result in completed_results
+                )
+            ):
+                raise PipelineJobStateError(
+                    "Every completed pipeline source must contribute at least one final chunk."
                 )
             now = time.time()
             processor_profile = json.loads(
@@ -4148,7 +4980,7 @@ class RagService:
             )
             vector_required = bool((index_contract.get("vector") or {}).get("required"))
             lexical_ready = self.lexical_store.count_namespace(
-                str(job["candidate_namespace"])
+                expected_namespace
             ) > 0
             retrieval_config = RetrievalConfig.from_mapping(
                 job["config_snapshot"].get("retrieval_profile")
@@ -4158,7 +4990,7 @@ class RagService:
                 "kb_id": str(job["kb_id"]),
                 "version": int(job["candidate_version"]),
                 "status": "ready",
-                "namespace": str(job["candidate_namespace"]),
+                "namespace": expected_namespace,
                 "draft_id": str(job["draft_id"]),
                 "draft_version": int(job["draft_version"]),
                 "config_snapshot": json.loads(json.dumps(job["config_snapshot"])),
@@ -4256,17 +5088,25 @@ class RagService:
             job["completed_at"] = now
             job["updated_at"] = now
             job["error"] = None
-            version_holder.update(version)
+            projected_version = self.pipeline_version_payload(
+                version,
+                metadata=metadata,
+            )
+            payload_holder.update(projected_version)
 
         self._update_pipeline_job_with_metadata(job_id, update)
-        return self.pipeline_version_payload(version_holder)
+        return payload_holder
 
     def list_pipeline_versions(self, kb_id: str) -> list[dict[str, Any]]:
         metadata = self._read_metadata()
         self._ensure_kb_exists(metadata, kb_id)
         active_id = metadata["pipeline_active_versions"].get(kb_id)
         items = [
-            self.pipeline_version_payload(item, active_id=active_id)
+            self.pipeline_version_payload(
+                item,
+                active_id=active_id,
+                metadata=metadata,
+            )
             for item in metadata["pipeline_versions"].values()
             if item.get("kb_id") == kb_id
             and str((item.get("origin") or {}).get("kind") or "")
@@ -4283,10 +5123,98 @@ class RagService:
         self._ensure_kb_exists(metadata, str(version.get("kb_id") or ""))
         return json.loads(json.dumps(version))
 
+    def _validated_pipeline_version_namespace(
+        self,
+        version: dict[str, Any],
+        *,
+        metadata: dict[str, Any] | None = None,
+        destructive: bool = False,
+    ) -> str:
+        """Resolve an index namespace from bound ownership, never stored authority."""
+
+        kb_id = str(version.get("kb_id") or "")
+        version_id = str(version.get("version_id") or "")
+        stored_namespace = str(version.get("namespace") or "")
+        schema_version = version.get("index_schema_version", 1)
+        if (
+            not kb_id
+            or not version_id
+            or not isinstance(schema_version, int)
+            or isinstance(schema_version, bool)
+        ):
+            raise PipelineJobStateError(
+                "Pipeline version namespace ownership is incomplete."
+            )
+        if schema_version < INDEX_SCHEMA_VERSION:
+            legacy_owner_namespaces = (
+                kb_id,
+                f"{kb_id}::{version_id}",
+            )
+            if (
+                not stored_namespace
+                or not any(
+                    hmac.compare_digest(stored_namespace, expected)
+                    for expected in legacy_owner_namespaces
+                )
+            ):
+                raise PipelineJobStateError(
+                    "Legacy pipeline version namespace ownership is invalid."
+                )
+            return stored_namespace
+
+        records = metadata if metadata is not None else self._read_metadata()
+        owner_id = str(version.get("index_owner_version_id") or version_id)
+        owner = records.get("pipeline_versions", {}).get(owner_id)
+        if not isinstance(owner, dict):
+            raise PipelineJobStateError(
+                "Pipeline version index owner is unavailable."
+            )
+        if (
+            str(owner.get("version_id") or "") != owner_id
+            or str(owner.get("kb_id") or "") != kb_id
+            or str(owner.get("index_owner_version_id") or owner_id) != owner_id
+            or (
+                owner_id != version_id
+                and str(version.get("base_version_id") or "") != owner_id
+            )
+        ):
+            raise PipelineJobStateError(
+                "Pipeline version index ownership is inconsistent."
+            )
+        job_id = str(owner.get("job_id") or "")
+        job = records.get("pipeline_jobs", {}).get(job_id)
+        if not isinstance(job, dict):
+            raise PipelineJobStateError(
+                "Pipeline version build job is unavailable."
+            )
+        expected_namespace = self._assert_pipeline_job_execution_contract(
+            job,
+            verify_sources=False,
+        )
+        if (
+            str(job.get("candidate_version_id") or "") != owner_id
+            or str(job.get("kb_id") or "") != kb_id
+            or not hmac.compare_digest(
+                str(owner.get("namespace") or ""),
+                expected_namespace,
+            )
+            or not hmac.compare_digest(stored_namespace, expected_namespace)
+        ):
+            raise PipelineJobStateError(
+                "Pipeline version namespace provenance no longer matches its derived owner."
+            )
+        return expected_namespace
+
     def pipeline_version_evidence(self, version_id: str) -> dict[str, Any]:
         """Return a credential-free identity receipt for one immutable index."""
 
         version = self.get_pipeline_version(version_id)
+        lineage_status = str(version.get("lineage_status") or "current")
+        lineage_reason_codes = [
+            str(item)
+            for item in version.get("lineage_reason_codes", [])
+            if str(item)
+        ]
         stored_embedding = version.get("embedding_profile")
         if (
             isinstance(stored_embedding, dict)
@@ -4397,8 +5325,15 @@ class RagService:
                 )
                 else "mismatch"
             )
-        if not chunking_receipt:
+        if lineage_status == "invalidated":
+            chunking_receipt_status = "lineage_invalidated"
+        elif not chunking_receipt:
             chunking_receipt_status = "missing"
+        elif _legacy_chunking_receipt_is_valid(
+            chunking_receipt,
+            expected_chunk_count=expected_chunk_count,
+        ):
+            chunking_receipt_status = "legacy_read_only"
         elif not _chunking_receipt_is_valid(
             chunking_receipt,
             expected_chunk_count=expected_chunk_count,
@@ -4467,6 +5402,8 @@ class RagService:
                 "index_owner_version_id": receipt_owner_id,
                 "candidate_namespace_fingerprint": namespace_fingerprint,
                 "stored_chunk_sequence_status": stored_sequence_status,
+                "lineage_status": lineage_status,
+                "lineage_reason_codes": lineage_reason_codes,
                 "document_count": int(version.get("document_count") or 0),
                 "chunk_count": int(version.get("chunk_count") or 0),
             }
@@ -4500,6 +5437,8 @@ class RagService:
             "index_owner_version_id": receipt_owner_id,
             "candidate_namespace_fingerprint": namespace_fingerprint,
             "stored_chunk_sequence_status": stored_sequence_status,
+            "lineage_status": lineage_status,
+            "lineage_reason_codes": lineage_reason_codes,
             "vector_backend_readiness": json.loads(
                 json.dumps(version.get("vector_backend_readiness") or {})
             ),
@@ -4514,6 +5453,11 @@ class RagService:
         version_id: str,
     ) -> tuple[dict[str, Any], dict[str, Any], dict[str, dict[str, Any]]]:
         version = self.get_pipeline_version(version_id)
+        if str(version.get("lineage_status") or "current") == "invalidated":
+            raise PipelineJobStateError(
+                "Pipeline version lineage was invalidated because a source was deleted."
+            )
+        validated_namespace = self._validated_pipeline_version_namespace(version)
         retrieval_mode = str(
             (version.get("retrieval_profile") or {}).get("mode") or "vector"
         )
@@ -4608,7 +5552,7 @@ class RagService:
             profile = safe_chunker_profile(stages.get("stage_chunker"))
             chunker_profiles.append(profile)
             chunker_fingerprints.append(chunker_profile_fingerprint(profile))
-        expected_namespace = str(index_owner.get("namespace") or "")
+        expected_namespace = validated_namespace
         if (
             len(set(chunker_fingerprints)) != 1
             or not _chunking_receipt_is_valid(
@@ -4830,7 +5774,7 @@ class RagService:
     def pipeline_corpus_snapshot(self, version_id: str) -> dict[str, Any]:
         """Rebuild and verify the exact source-block corpus behind an index."""
 
-        version, _, results = self._pipeline_corpus_provenance(version_id)
+        version, job, results = self._pipeline_corpus_provenance(version_id)
         documents: list[dict[str, Any]] = []
         seen_documents: set[str] = set()
         index_owner = str(version.get("index_owner_version_id") or version_id)
@@ -4860,13 +5804,14 @@ class RagService:
                 raise PipelineJobStateError(
                     "Pipeline version processed source artifact is unavailable."
                 )
-            artifact_path = self._pipeline_processed_path(artifact_key)
-            try:
-                artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError) as exc:
-                raise PipelineJobStateError(
-                    "Pipeline version processed source artifact is unavailable."
-                ) from exc
+            artifact = self._read_verified_pipeline_processed_artifact(
+                result or {},
+                require_hash=bool(job.get("config_snapshot_fingerprint")),
+                expected_source_id=document_id,
+                expected_filename=str(
+                    source.get("parser_filename") or source.get("filename") or ""
+                ),
+            )
             processed = artifact.get("processed_document")
             raw_blocks = processed.get("blocks") if isinstance(processed, dict) else None
             if not isinstance(raw_blocks, list) or not raw_blocks:
@@ -5017,7 +5962,7 @@ class RagService:
         """Return verified canonical source blocks without using child chunks as Gold."""
 
         corpus = self.pipeline_corpus_snapshot(version_id)
-        version, _, results = self._pipeline_corpus_provenance(version_id)
+        version, job, results = self._pipeline_corpus_provenance(version_id)
         manifest_by_document = {
             str(item.get("document_id") or ""): dict(item)
             for item in list(corpus.get("documents") or [])
@@ -5036,13 +5981,16 @@ class RagService:
                 raise PipelineJobStateError(
                     "Pipeline version canonical corpus evidence is inconsistent."
                 )
-            artifact_path = self._pipeline_processed_path(str(result.get("artifact_key") or ""))
-            try:
-                artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError) as exc:
-                raise PipelineJobStateError(
-                    "Pipeline version processed source artifact is unavailable."
-                ) from exc
+            artifact = self._read_verified_pipeline_processed_artifact(
+                result,
+                require_hash=bool(job.get("config_snapshot_fingerprint")),
+                expected_source_id=document_id,
+                expected_filename=str(
+                    (source or {}).get("parser_filename")
+                    or (source or {}).get("filename")
+                    or ""
+                ),
+            )
             processed = artifact.get("processed_document")
             raw_blocks = processed.get("blocks") if isinstance(processed, dict) else None
             if not isinstance(raw_blocks, list):
@@ -5168,6 +6116,7 @@ class RagService:
         version: dict[str, Any],
         *,
         active_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         payload = {
             key: json.loads(json.dumps(value))
@@ -5182,6 +6131,7 @@ class RagService:
         )
         payload.setdefault("chunking_receipt", {})
         payload.setdefault("threshold_calibration_evidence", None)
+        records = metadata if isinstance(metadata, dict) else self._read_metadata()
         payload["active"] = str(active_id or "") == str(version.get("version_id"))
         return payload
 
@@ -5202,6 +6152,10 @@ class RagService:
                 )
             kb_id = str(version["kb_id"])
             self._ensure_kb_exists(metadata, kb_id)
+            if str(version.get("lineage_status") or "current") == "invalidated":
+                raise PipelineJobStateError(
+                    "Pipeline version lineage was invalidated because a source was deleted."
+                )
             previous_id = metadata["pipeline_active_versions"].get(kb_id)
             previously_activated = has_prior_activation(version.get("activated_at"))
             if (
@@ -5230,7 +6184,9 @@ class RagService:
                 )
                 index_owner = metadata["pipeline_versions"].get(index_owner_id)
                 job = (
-                    metadata["pipeline_jobs"].get(str(version.get("job_id") or ""))
+                    metadata["pipeline_jobs"].get(
+                        str(index_owner.get("job_id") or "")
+                    )
                     if isinstance(index_owner, dict)
                     else None
                 )
@@ -5326,7 +6282,11 @@ class RagService:
             metadata["pipeline_active_versions"][kb_id] = version_id
             metadata["knowledge_bases"][kb_id]["updated_at"] = time.time()
             self._write_metadata_unlocked(metadata)
-            return self.pipeline_version_payload(version, active_id=version_id)
+            return self.pipeline_version_payload(
+                version,
+                active_id=version_id,
+                metadata=metadata,
+            )
 
     def _assert_v3_threshold_promotion_ready(
         self,
@@ -5415,24 +6375,67 @@ class RagService:
             "size_is_estimated": True,
         }
 
-    def cleanup_strategy_tuning_trial_version(self, version_id: str) -> None:
+    def cleanup_strategy_tuning_trial_version(
+        self,
+        version_id: str,
+        *,
+        expected_run_id: str,
+    ) -> None:
         """Remove an isolated tuning trial after its safe statistics are persisted."""
 
+        expected_run_id = str(expected_run_id or "")
+        if not expected_run_id:
+            raise PipelineJobStateError(
+                "A strategy tuner run identity is required for trial cleanup."
+            )
         with self._metadata_lock:
             metadata = self._read_metadata_unlocked()
             version = metadata["pipeline_versions"].get(version_id)
             if not isinstance(version, dict):
                 return
-            if str((version.get("origin") or {}).get("kind") or "") != "rag_strategy_tuner_trial":
+            version_origin = (
+                version.get("origin")
+                if isinstance(version.get("origin"), dict)
+                else {}
+            )
+            if (
+                str(version_origin.get("kind") or "")
+                != "rag_strategy_tuner_trial"
+                or str(version_origin.get("source_run_id") or "")
+                != expected_run_id
+            ):
                 raise PipelineJobStateError(
-                    "Only strategy tuning trial versions can be cleaned up here."
+                    "The strategy tuning trial version does not belong to the expected tuner run."
                 )
             if metadata["pipeline_active_versions"].get(str(version.get("kb_id") or "")) == version_id:
                 raise PipelineJobStateError("An active knowledge version cannot be cleaned up.")
             job_id = str(version.get("job_id") or "")
-            namespace = str(version.get("namespace") or "")
             job = metadata["pipeline_jobs"].get(job_id)
-            if isinstance(job, dict) and str(job.get("status") or "") not in {
+            job_origin = (
+                job.get("origin")
+                if isinstance(job, dict) and isinstance(job.get("origin"), dict)
+                else {}
+            )
+            if (
+                not isinstance(job, dict)
+                or str(job_origin.get("kind") or "")
+                != "rag_strategy_tuner_trial"
+                or str(job_origin.get("source_run_id") or "")
+                != expected_run_id
+                or str(job.get("candidate_version_id") or "") != version_id
+                or str(job.get("kb_id") or "") != str(version.get("kb_id") or "")
+                or str(job.get("base_version_id") or "")
+                != str(version.get("base_version_id") or "")
+            ):
+                raise PipelineJobStateError(
+                    "The strategy tuning trial version and job do not belong to the same tuner run."
+                )
+            namespace = self._validated_pipeline_version_namespace(
+                version,
+                metadata=metadata,
+                destructive=True,
+            )
+            if str(job.get("status") or "") not in {
                 "succeeded",
                 "failed",
                 "cancelled",
@@ -5460,17 +6463,35 @@ class RagService:
                 metadata["pipeline_jobs"].pop(job_id, None)
                 self._write_metadata_unlocked(metadata)
 
-    def cleanup_strategy_tuning_trial_job(self, job_id: str) -> None:
+    def cleanup_strategy_tuning_trial_job(
+        self,
+        job_id: str,
+        *,
+        expected_run_id: str,
+    ) -> None:
         """Remove a terminal trial job that did not publish a version."""
 
+        expected_run_id = str(expected_run_id or "")
+        if not expected_run_id:
+            raise PipelineJobStateError(
+                "A strategy tuner run identity is required for trial cleanup."
+            )
         with self._metadata_lock:
             metadata = self._read_metadata_unlocked()
             job = metadata["pipeline_jobs"].get(job_id)
             if not isinstance(job, dict):
                 return
-            if str((job.get("origin") or {}).get("kind") or "") != "rag_strategy_tuner_trial":
+            origin = (
+                job.get("origin")
+                if isinstance(job.get("origin"), dict)
+                else {}
+            )
+            if (
+                str(origin.get("kind") or "") != "rag_strategy_tuner_trial"
+                or str(origin.get("source_run_id") or "") != expected_run_id
+            ):
                 raise PipelineJobStateError(
-                    "Only strategy tuning trial jobs can be cleaned up here."
+                    "The strategy tuning trial job does not belong to the expected tuner run."
                 )
             if str(job.get("status") or "") not in {"succeeded", "failed", "cancelled"}:
                 raise PipelineJobStateError(
@@ -5480,11 +6501,17 @@ class RagService:
             if isinstance(metadata["pipeline_versions"].get(version_id), dict):
                 pass
             else:
-                namespace = str(job.get("candidate_namespace") or "")
+                namespace = self._assert_pipeline_job_execution_contract(
+                    job,
+                    verify_sources=False,
+                )
                 version_id = ""
 
         if version_id:
-            self.cleanup_strategy_tuning_trial_version(version_id)
+            self.cleanup_strategy_tuning_trial_version(
+                version_id,
+                expected_run_id=expected_run_id,
+            )
             return
         if namespace:
             self.vector_store.delete_knowledge_base(namespace)
@@ -5511,10 +6538,11 @@ class RagService:
         generate_answer: bool = True,
     ) -> dict[str, Any]:
         version = self.get_pipeline_version(version_id)
+        namespace = self._validated_pipeline_version_namespace(version)
         profile = self._retrieval_config_for_version(version, retrieval, top_k=top_k)
         result = await self._query_namespace(
             str(version["kb_id"]),
-            str(version["namespace"]),
+            namespace,
             question,
             config=profile,
             lexical_ready=bool(version.get("lexical_index_ready")),
@@ -5535,7 +6563,15 @@ class RagService:
         if not version_id:
             return None
         version = metadata["pipeline_versions"].get(version_id)
-        return self.pipeline_version_payload(version, active_id=version_id) if isinstance(version, dict) else None
+        return (
+            self.pipeline_version_payload(
+                version,
+                active_id=version_id,
+                metadata=metadata,
+            )
+            if isinstance(version, dict)
+            else None
+        )
 
     def _new_pipeline_job_stages(self) -> list[dict[str, Any]]:
         return [
@@ -5581,8 +6617,9 @@ class RagService:
                 raise PipelineJobNotFoundError("Knowledge pipeline job not found.")
             update(metadata, job)
             job["updated_at"] = time.time()
+            projected_job = json.loads(json.dumps(job))
             self._write_metadata_unlocked(metadata)
-            return json.loads(json.dumps(job))
+            return projected_job
 
     def _pipeline_snapshot_path(self, snapshot_key: str) -> Path:
         path = (self.storage_dir / snapshot_key).resolve()
@@ -5597,6 +6634,57 @@ class RagService:
         if path != root and root not in path.parents:
             raise PipelineJobStateError("Invalid pipeline processor artifact path.")
         return path
+
+    def _read_verified_pipeline_processed_artifact(
+        self,
+        result: dict[str, Any],
+        *,
+        require_hash: bool,
+        expected_source_id: str,
+        expected_filename: str,
+    ) -> dict[str, Any]:
+        artifact_key = str(result.get("artifact_key") or "")
+        if not artifact_key:
+            raise PipelineJobStateError(
+                "Pipeline processed artifact is unavailable."
+            )
+        artifact_path = self._pipeline_processed_path(artifact_key)
+        try:
+            artifact_bytes = artifact_path.read_bytes()
+        except OSError as exc:
+            raise PipelineJobStateError(
+                "Pipeline processed artifact is unavailable."
+            ) from exc
+        expected_hash = str(result.get("artifact_hash") or "").lower()
+        if require_hash or expected_hash:
+            actual_hash = hashlib.sha256(artifact_bytes).hexdigest()
+            if (
+                re.fullmatch(r"[0-9a-f]{64}", expected_hash) is None
+                or not hmac.compare_digest(expected_hash, actual_hash)
+            ):
+                raise PipelineJobStateError(
+                    "Pipeline processed artifact no longer matches its admitted hash."
+                )
+        try:
+            artifact = json.loads(artifact_bytes.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise PipelineJobStateError(
+                "Pipeline processed artifact is unreadable."
+            ) from exc
+        if not isinstance(artifact, dict):
+            raise PipelineJobStateError(
+                "Pipeline processed artifact payload is invalid."
+            )
+        processed = artifact.get("processed_document")
+        if (
+            not isinstance(processed, dict)
+            or str(processed.get("source_id") or "") != expected_source_id
+            or str(processed.get("filename") or "") != expected_filename
+        ):
+            raise PipelineJobStateError(
+                "Pipeline processed artifact identity no longer matches its source."
+            )
+        return artifact
 
     def _pipeline_vision_path(self, artifact_key: str) -> Path:
         path = (self.storage_dir / artifact_key).resolve()
@@ -5685,6 +6773,7 @@ class RagService:
             snapshot = job.get("config_snapshot")
             if not isinstance(snapshot, dict):
                 raise PipelineJobStateError("Pipeline embedding snapshot is missing.")
+            self._assert_pipeline_config_snapshot_seal(job, snapshot)
             profile = snapshot.get("embedding_profile")
             if not isinstance(profile, dict):
                 raise PipelineJobStateError("Pipeline embedding profile is missing.")
@@ -5762,6 +6851,7 @@ class RagService:
                     )
                     job["chunking_receipt"] = receipt
                 job["candidate_namespace"] = namespace
+            job["config_snapshot_fingerprint"] = self._mapping_sha256(snapshot)
 
         self._update_pipeline_job(job_id, update)
 
@@ -5770,7 +6860,7 @@ class RagService:
         job_id: str,
         texts: list[str],
     ) -> list[list[float]]:
-        job = self.get_pipeline_job(job_id)
+        job = self.validate_pipeline_job_execution_contract(job_id)
         snapshot = job.get("config_snapshot")
         profile = (
             snapshot.get("embedding_profile")
@@ -5887,6 +6977,7 @@ class RagService:
                 raise PipelineJobStateError(
                     "Pipeline embedding profile is missing."
                 )
+            self._assert_pipeline_config_snapshot_seal(job, snapshot)
             expected = str(profile.get("embedding_space_fingerprint") or "")
             actual = str(identity.get("fingerprint") or "")
             if not expected or actual != expected:
@@ -5899,6 +6990,7 @@ class RagService:
             profile["embedding_space_fingerprint"] = actual
             snapshot["embedding_profile"] = profile
             job["embedding_space_fingerprint"] = actual
+            job["config_snapshot_fingerprint"] = self._mapping_sha256(snapshot)
 
         self._update_pipeline_job(job_id, update)
 
@@ -5911,6 +7003,26 @@ class RagService:
 
     def _mapping_sha256(self, value: dict[str, Any]) -> str:
         return self._canonical_sha256(value)
+
+    def _assert_pipeline_config_snapshot_seal(
+        self,
+        job: dict[str, Any],
+        snapshot: dict[str, Any],
+    ) -> None:
+        expected = str(job.get("config_snapshot_fingerprint") or "")
+        try:
+            actual = self._mapping_sha256(snapshot)
+        except (TypeError, ValueError) as exc:
+            raise PipelineJobStateError(
+                "Pipeline configuration snapshot is not canonical."
+            ) from exc
+        if (
+            re.fullmatch(r"[0-9a-f]{64}", expected) is None
+            or not hmac.compare_digest(expected, actual)
+        ):
+            raise PipelineJobStateError(
+                "Pipeline configuration snapshot no longer matches its admitted fingerprint."
+            )
 
     def _canonical_sha256(self, value: Any) -> str:
         encoded = json.dumps(
@@ -6160,7 +7272,11 @@ class RagService:
             raise PipelineVersionNotFoundError(
                 "Fixed knowledge pipeline version was not found."
             )
-        namespace = str(version.get("namespace") or kb_id) if isinstance(version, dict) else kb_id
+        namespace = (
+            self._validated_pipeline_version_namespace(version, metadata=metadata)
+            if isinstance(version, dict)
+            else kb_id
+        )
         config = self._retrieval_config_for_version(
             version if isinstance(version, dict) else None,
             retrieval,
@@ -6209,7 +7325,11 @@ class RagService:
             raise PipelineVersionNotFoundError(
                 "Fixed knowledge pipeline version was not found."
             )
-        namespace = str(version.get("namespace") or kb_id) if isinstance(version, dict) else kb_id
+        namespace = (
+            self._validated_pipeline_version_namespace(version, metadata=metadata)
+            if isinstance(version, dict)
+            else kb_id
+        )
         chunk = self.vector_store.get_chunk(namespace, chunk_id)
         if chunk is None and isinstance(version, dict) and str(
             (version.get("retrieval_profile") or {}).get("mode") or "vector"
@@ -6632,6 +7752,7 @@ class RagService:
         metadata: dict[str, Any],
         doc_id: str,
     ) -> None:
+        invalidated_at = time.time()
         metadata["knowledge_write_proposals"] = {
             proposal_id: item
             for proposal_id, item in metadata["knowledge_write_proposals"].items()
@@ -6655,6 +7776,10 @@ class RagService:
                 for item in job.get("document_results", [])
                 if not isinstance(item, dict) or str(item.get("source_id")) != doc_id
             ]
+            if removed_results:
+                job["lineage_status"] = "invalidated"
+                job["lineage_reason_codes"] = ["source_deleted"]
+                job["lineage_invalidated_at"] = invalidated_at
             if removed_results and not job["sources"] and job.get("status") in {
                 "queued",
                 "running",
@@ -6685,6 +7810,9 @@ class RagService:
                 if not isinstance(item, dict) or str(item.get("source_id")) != doc_id
             ]
             if removed_results:
+                version["lineage_status"] = "invalidated"
+                version["lineage_reason_codes"] = ["source_deleted"]
+                version["lineage_invalidated_at"] = invalidated_at
                 version["document_count"] = max(
                     0,
                     int(version.get("document_count", 0)) - len(removed_results),
@@ -6746,7 +7874,10 @@ class RagService:
             stored_version = metadata["pipeline_versions"].get(active_version_id)
             if isinstance(stored_version, dict):
                 version = stored_version
-                namespace = str(version.get("namespace") or kb_id)
+                namespace = self._validated_pipeline_version_namespace(
+                    version,
+                    metadata=metadata,
+                )
         config = self._retrieval_config_for_version(version, retrieval, top_k=top_k)
         result = await self._query_namespace(
             kb_id,
@@ -7724,16 +8855,23 @@ class RagService:
             "index_schema_version": INDEX_SCHEMA_VERSION,
             "vector": {
                 "available": vector["ready"],
+                "query_available": vector["ready"],
+                "candidate_build_available": vector["ready"],
                 "backend": vector["effective_backend"],
                 **vector,
             },
             "fulltext": {
                 "available": True,
+                "query_available": True,
+                "candidate_build_available": False,
+                "candidate_build_blocker": "lexical_v2_pending",
                 "backend": self.lexical_store.backend,
             },
             "embedding": self._default_embedding_profile(),
             "rerank": rerank,
             "modes": ["vector", "fulltext", "hybrid"],
+            "candidate_build_modes": ["vector"] if vector["ready"] else [],
+            "candidate_build_contract_status": "partial_round_4a",
         }
 
     def _retrieval_config_for_version(
@@ -9072,6 +10210,11 @@ class RagService:
             "raw_candidate_count": 0,
             "heading_block_count": 0,
             "heading_prefix_truncated_count": 0,
+            "heading_overlap_policy": HEADING_OVERLAP_POLICY,
+            "max_heading_prefix_tokens": 0,
+            "prefix_exceeds_configured_overlap_count": 0,
+            "max_effective_index_overlap_budget_tokens": 0,
+            "max_effective_context_overlap_budget_tokens": 0,
             "generated_item_count": 0,
             "generated_item_chunk_count": 0,
             "generated_item_rejected_count": 0,
@@ -9100,6 +10243,7 @@ class RagService:
                 if not isinstance(item, dict):
                     continue
                 receipt["generated_item_count"] += 1
+                segment_rejection_recorded = False
                 try:
                     parent_chunk_id, source_block_ids_tuple = (
                         generated_parent_identity(
@@ -9123,7 +10267,7 @@ class RagService:
                     for block in source_blocks
                 ]
                 source_heading_was_truncated = any(
-                    bool(block.get("heading_path_source_truncated"))
+                    block.get("heading_path_source_truncated") is True
                     or heading_path_source_truncated(block.get("heading_path"))
                     for block in source_blocks
                 )
@@ -9132,6 +10276,7 @@ class RagService:
                 if (
                     source_heading_paths
                     and all(source_heading_paths)
+                    and len(set(source_heading_paths)) == 1
                     and all(source_heading_hashes)
                     and len(set(source_heading_hashes)) == 1
                 ):
@@ -9177,6 +10322,9 @@ class RagService:
                     prefix_truncated = source_heading_was_truncated or budget_truncated
                     if prefix_truncated:
                         receipt["heading_prefix_truncated_count"] += 1
+                    prefix_tokens = (
+                        _estimate_rag_tokens(prefix + "\n") if prefix else 0
+                    )
                     index_text = _with_heading_prefix(
                         prefix,
                         str(item.get("index_text") or "").strip(),
@@ -9185,20 +10333,21 @@ class RagService:
                         reject_generated("index_text_over_budget")
                         continue
                     context_body = str(item.get("context_text") or "")
-                    prefix_tokens = _estimate_rag_tokens(prefix + "\n") if prefix else 0
                     if strategy == "parent_child_estimated_token":
                         parent_body_budget = max(1, context_budget - prefix_tokens)
                         child_body_budget = max(1, index_budget - prefix_tokens)
                         context_segments = EstimatedTokenParentChildTextSplitter(
                             parent_chunk_size=parent_body_budget,
-                            parent_chunk_overlap=min(
-                                context_overlap,
-                                parent_body_budget - 1,
+                            parent_chunk_overlap=_body_overlap_after_heading_prefix(
+                                configured_overlap=context_overlap,
+                                prefix_tokens=prefix_tokens,
+                                body_budget=parent_body_budget,
                             ),
                             child_chunk_size=child_body_budget,
-                            child_chunk_overlap=min(
-                                index_overlap,
-                                child_body_budget - 1,
+                            child_chunk_overlap=_body_overlap_after_heading_prefix(
+                                configured_overlap=index_overlap,
+                                prefix_tokens=prefix_tokens,
+                                body_budget=child_body_budget,
                             ),
                             parent_separators=(
                                 list(config.get("parent_separators") or []) or None
@@ -9212,7 +10361,11 @@ class RagService:
                             1,
                             min(index_budget, context_budget) - prefix_tokens,
                         )
-                        body_overlap = min(context_overlap, body_budget - 1)
+                        body_overlap = _body_overlap_after_heading_prefix(
+                            configured_overlap=context_overlap,
+                            prefix_tokens=prefix_tokens,
+                            body_budget=body_budget,
+                        )
                         context_segments = EstimatedTokenTextSplitter(
                             chunk_size=body_budget,
                             chunk_overlap=max(0, body_overlap),
@@ -9277,6 +10430,16 @@ class RagService:
                             segment_end=mapping_end,
                             context_source_ranges=item.get("context_source_ranges"),
                         )
+                        if (
+                            source_mapping.status == "unmapped"
+                            or not source_mapping.source_block_ids
+                        ):
+                            if not segment_rejection_recorded:
+                                reject_generated(
+                                    "generated_segment_source_unmapped"
+                                )
+                                segment_rejection_recorded = True
+                            continue
                         start_char = source_mapping.start_char
                         end_char = source_mapping.end_char
                     else:
@@ -9295,6 +10458,13 @@ class RagService:
                                 for block in source_blocks
                             ),
                             default=0,
+                        )
+                    if token_strategy:
+                        record_heading_overlap_policy(
+                            receipt,
+                            prefix_tokens=prefix_tokens,
+                            index_overlap=index_overlap,
+                            context_overlap=context_overlap,
                         )
                     chunks.append(
                         {
@@ -9355,7 +10525,7 @@ class RagService:
                 source_heading_path = heading_path_segments(block.get("heading_path"))
                 heading_path = normalize_heading_path(source_heading_path)
                 source_heading_was_truncated = (
-                    bool(block.get("heading_path_source_truncated"))
+                    block.get("heading_path_source_truncated") is True
                     or heading_path_source_truncated(block.get("heading_path"))
                 )
                 prefix_truncated = False
@@ -9398,12 +10568,26 @@ class RagService:
                     if prefix_truncated:
                         receipt["heading_prefix_truncated_count"] += 1
                     prefix_tokens = _estimate_rag_tokens(prefix + "\n") if prefix else 0
+                    record_heading_overlap_policy(
+                        receipt,
+                        prefix_tokens=prefix_tokens,
+                        index_overlap=index_overlap,
+                        context_overlap=context_overlap,
+                    )
                     if strategy == "parent_child_estimated_token":
                         splitter = EstimatedTokenParentChildTextSplitter(
                             parent_chunk_size=max(1, context_budget - prefix_tokens),
-                            parent_chunk_overlap=context_overlap,
+                            parent_chunk_overlap=_body_overlap_after_heading_prefix(
+                                configured_overlap=context_overlap,
+                                prefix_tokens=prefix_tokens,
+                                body_budget=max(1, context_budget - prefix_tokens),
+                            ),
                             child_chunk_size=max(1, index_budget - prefix_tokens),
-                            child_chunk_overlap=index_overlap,
+                            child_chunk_overlap=_body_overlap_after_heading_prefix(
+                                configured_overlap=index_overlap,
+                                prefix_tokens=prefix_tokens,
+                                body_budget=max(1, index_budget - prefix_tokens),
+                            ),
                             parent_separators=list(
                                 config.get("parent_separators") or DEFAULT_SEPARATORS
                             ),
@@ -9414,7 +10598,11 @@ class RagService:
                     else:
                         splitter = EstimatedTokenTextSplitter(
                             chunk_size=max(1, index_budget - prefix_tokens),
-                            chunk_overlap=index_overlap,
+                            chunk_overlap=_body_overlap_after_heading_prefix(
+                                configured_overlap=index_overlap,
+                                prefix_tokens=prefix_tokens,
+                                body_budget=max(1, index_budget - prefix_tokens),
+                            ),
                             separators=list(config.get("separators") or DEFAULT_SEPARATORS),
                         )
                 else:
@@ -9753,6 +10941,61 @@ class RagService:
                     raise PipelineDraftValidationError(
                         "Estimated-token parent chunks must reserve at least 8 tokens beyond overlap."
                     )
+                if strategy == "parent_child_estimated_token":
+                    amplification = estimated_token_parent_child_amplification(
+                        parent_chunk_size=parent_size,
+                        parent_chunk_overlap=parent_overlap,
+                        child_chunk_size=child_size,
+                        child_chunk_overlap=child_overlap,
+                    )
+                    if (
+                        amplification
+                        > MAX_ESTIMATED_TOKEN_PARENT_CHILD_AMPLIFICATION
+                    ):
+                        raise PipelineDraftValidationError(
+                            "Estimated-token parent-child overlap amplification "
+                            f"must not exceed {MAX_ESTIMATED_TOKEN_PARENT_CHILD_AMPLIFICATION}."
+                        )
+                    runtime_amplification = (
+                        estimated_token_parent_child_runtime_amplification_bound(
+                            parent_chunk_size=parent_size,
+                            parent_chunk_overlap=parent_overlap,
+                            child_chunk_size=child_size,
+                            child_chunk_overlap=child_overlap,
+                        )
+                    )
+                    if runtime_amplification > (
+                        MAX_ESTIMATED_TOKEN_PARENT_CHILD_RUNTIME_AMPLIFICATION
+                    ):
+                        raise PipelineDraftValidationError(
+                            "Estimated-token parent-child separator-aware overlap "
+                            "coverage must not exceed "
+                            f"{MAX_ESTIMATED_TOKEN_PARENT_CHILD_RUNTIME_AMPLIFICATION}."
+                        )
+                else:
+                    amplification = estimated_token_overlap_amplification(
+                        chunk_size=chunk_size,
+                        chunk_overlap=chunk_overlap,
+                    )
+                    if amplification > MAX_ESTIMATED_TOKEN_RECURSIVE_AMPLIFICATION:
+                        raise PipelineDraftValidationError(
+                            "Estimated-token recursive overlap amplification "
+                            f"must not exceed {MAX_ESTIMATED_TOKEN_RECURSIVE_AMPLIFICATION}."
+                        )
+                    runtime_amplification = (
+                        estimated_token_separator_aware_coverage_bound(
+                            chunk_size=chunk_size,
+                            chunk_overlap=chunk_overlap,
+                        )
+                    )
+                    if runtime_amplification > (
+                        MAX_ESTIMATED_TOKEN_RECURSIVE_RUNTIME_AMPLIFICATION
+                    ):
+                        raise PipelineDraftValidationError(
+                            "Estimated-token recursive separator-aware overlap "
+                            "coverage must not exceed "
+                            f"{MAX_ESTIMATED_TOKEN_RECURSIVE_RUNTIME_AMPLIFICATION}."
+                        )
             config.update(
                 {
                     "strategy": strategy,

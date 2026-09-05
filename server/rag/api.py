@@ -2698,16 +2698,21 @@ async def activate_pipeline_version(
 ) -> PipelineVersionPayload:
     try:
         stored = get_rag_service().get_pipeline_version(version_id)
+        previously_activated = has_prior_activation(stored.get("activated_at"))
         first_promotion = (
             bool(stored.get("promotion_required"))
-            and not has_prior_activation(stored.get("activated_at"))
+            and not previously_activated
         )
-        get_evaluation_store().assert_promotion_allowed(
-            kb_id=str(stored["kb_id"]),
-            version_id=version_id,
-            evaluation_run_id=payload.evaluation_run_id if payload else None,
-            require_passed_run=first_promotion,
-        )
+        evaluation_run_id = payload.evaluation_run_id if payload else None
+        # Restoring a previously active snapshot is not a new promotion. Keep
+        # first activation and any explicitly supplied evaluation fully gated.
+        if not previously_activated or evaluation_run_id:
+            get_evaluation_store().assert_promotion_allowed(
+                kb_id=str(stored["kb_id"]),
+                version_id=version_id,
+                evaluation_run_id=evaluation_run_id,
+                require_passed_run=first_promotion,
+            )
         version = get_rag_service().activate_pipeline_version(
             version_id,
             promotion=first_promotion,
