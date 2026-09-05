@@ -33,6 +33,7 @@ EXPECTED_PLANNER_KINDS = {
     "condition",
     "data_aggregate",
     "data_merge",
+    "data_table_query",
     "dataset_compare",
     "input",
     "json_deserialize",
@@ -44,6 +45,7 @@ EXPECTED_PLANNER_KINDS = {
     "workflow_agent",
     "external_xpert",
     "knowledge_base",
+    "knowledge_retrieval",
     "toolset_resource",
     "plugin_resource",
 }
@@ -655,7 +657,6 @@ def test_policy_service_preserves_current_entrypoint_boundaries() -> None:
         "human_intervention",
         "mcp_tool",
         "vision_understanding",
-        "data_table_query",
         "data_table_insert",
         "data_table_update",
         "data_table_delete",
@@ -752,7 +753,7 @@ def test_old_capability_snapshot_remains_readable() -> None:
     assert snapshot.contract_checksum == ""
 
 
-def test_registry_ui_projection_is_v6_and_contains_no_runtime_payloads() -> None:
+def test_registry_ui_projection_is_v7_and_contains_no_runtime_payloads() -> None:
     payload = workflow_node_registry.to_payload()
     serialized = str(payload).lower()
     items = [
@@ -762,7 +763,7 @@ def test_registry_ui_projection_is_v6_and_contains_no_runtime_payloads() -> None
     ] + list(payload["knowledge_pipeline"]["items"])
 
     assert len({item["kind"] for item in items}) == 51
-    assert payload["version"] == "xpert-workflow-node-registry-v6"
+    assert payload["version"] == "xpert-workflow-node-registry-v7"
     assert payload["contract_version"] == 3
     assert payload["contract_checksum"] == workflow_node_contract_registry.checksum
     assert all(item["contract"]["kind"] == item["kind"] for item in items)

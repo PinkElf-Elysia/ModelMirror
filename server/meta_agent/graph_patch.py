@@ -26,6 +26,7 @@ from .schemas import (
     GraphIntentFinalOutputSourceV3,
     GraphIntentInputBindingV3,
     GraphIntentNodeV3,
+    GraphIntentNodeResourceRefV3,
     GraphIntentOutputBindingV3,
     GraphIntentV3,
     MetaPlannerIRMiddlewareBinding,
@@ -117,7 +118,7 @@ class ConnectControlOperation(GraphPatchModel):
     source_ref: str = Field(pattern=GRAPH_PATCH_REF_PATTERN)
     outcome_ref: str = Field(
         default="success",
-        pattern=r"^(?:success|matched|unmatched|case_[1-8]|default)$",
+        pattern=r"^(?:success|error|matched|unmatched|case_[1-8]|default)$",
     )
     target_ref: str = Field(pattern=GRAPH_PATCH_REF_PATTERN)
 
@@ -127,7 +128,7 @@ class DisconnectControlOperation(GraphPatchModel):
     source_ref: str = Field(pattern=GRAPH_PATCH_REF_PATTERN)
     outcome_ref: str = Field(
         default="success",
-        pattern=r"^(?:success|matched|unmatched|case_[1-8]|default)$",
+        pattern=r"^(?:success|error|matched|unmatched|case_[1-8]|default)$",
     )
     target_ref: str = Field(pattern=GRAPH_PATCH_REF_PATTERN)
 
@@ -180,6 +181,12 @@ class UnbindResourceOperation(GraphPatchModel):
         "toolset_resource",
         "plugin_resource",
     ]
+    resource_id: str = Field(min_length=1, max_length=200)
+
+
+class SetNodeResourceOperation(GraphPatchModel):
+    op: Literal["set_node_resource"] = "set_node_resource"
+    node_ref: str = Field(pattern=GRAPH_PATCH_REF_PATTERN)
     resource_id: str = Field(min_length=1, max_length=200)
 
 
@@ -244,6 +251,7 @@ GraphPatchOperation = Annotated[
         SetOutputVariableOperation,
         BindResourceOperation,
         UnbindResourceOperation,
+        SetNodeResourceOperation,
         BindMiddlewareOperation,
         UnbindMiddlewareOperation,
         BindPromptProfileOperation,
@@ -293,9 +301,20 @@ def graph_patch_checksum(patch: GraphPatchEnvelopeV1) -> str:
 
 
 def _port_schema(kind: str, port_name: str, direction: str) -> WorkflowValueSchema:
-    contract = workflow_node_contract_registry.require(kind)
-    for port in contract.ports:
-        if port.name == port_name and port.direction == direction:
+    adapter = get_planner_node_adapter(kind)
+    ports = (
+        adapter.intent_port_contracts(direction)
+        if adapter is not None
+        else tuple(
+            port
+            for port in workflow_node_contract_registry.require(kind).ports
+            if port.direction == direction
+        )
+    )
+    for port in ports:
+        if (
+            port.name == port_name or port_name.startswith(f"{port.name}_")
+        ):
             return port.value_schema
     raise ValueError(f"Node kind {kind} has no {direction} port {port_name}.")
 
@@ -391,6 +410,7 @@ def apply_graph_patch(
     result._pinned_prompt_profile_versions = dict(
         intent._pinned_prompt_profile_versions
     )
+    result._pinned_node_resources = dict(intent._pinned_node_resources)
     original_resource_pins = dict(intent._pinned_resource_versions)
     next_layout = deepcopy(layout or {})
     pending_removals: set[str] = set()
@@ -418,11 +438,9 @@ def apply_graph_patch(
             _validate_task_ids(operation.kind, operation.task_ids, plan_task_ids)
             parsed_config = adapter.validate_authoring_config(operation.config)
             parsed_model = adapter.config_model.model_validate(parsed_config)
-            contract = workflow_node_contract_registry.require(operation.kind)
             output_ports = {
                 port.name: port
-                for port in contract.ports
-                if port.direction == "output"
+                for port in adapter.intent_port_contracts("output")
             }
             unknown_ports = sorted(set(operation.output_variables) - set(output_ports))
             if unknown_ports:
@@ -661,6 +679,35 @@ def apply_graph_patch(
             )
             continue
 
+        if isinstance(operation, SetNodeResourceOperation):
+            target = _node(result, operation.node_ref)
+            adapter = get_planner_node_adapter(target.kind)
+            if adapter is None or adapter.resource_kind is None:
+                raise ValueError(
+                    f"Node kind {target.kind} does not own a dynamic resource."
+                )
+            previous_id = (
+                target.resource_ref.resource_id
+                if target.resource_ref is not None
+                else ""
+            )
+            _replace_node(
+                result,
+                target.model_copy(
+                    update={
+                        "resource_ref": GraphIntentNodeResourceRefV3(
+                            resource_id=operation.resource_id
+                        )
+                    }
+                ),
+            )
+            if previous_id != operation.resource_id:
+                result._pinned_node_resources.pop(
+                    (target.ref, previous_id),
+                    None,
+                )
+            continue
+
         if isinstance(operation, BindMiddlewareOperation):
             _node(result, operation.target_ref)
             candidate = MetaPlannerIRMiddlewareBinding(
@@ -822,6 +869,7 @@ def apply_graph_patch(
     validated._pinned_prompt_profile_versions = dict(
         result._pinned_prompt_profile_versions
     )
+    validated._pinned_node_resources = dict(result._pinned_node_resources)
     return GraphPatchResult(
         intent=validated,
         layout=next_layout,
@@ -919,6 +967,13 @@ def diff_graph_intents(
                 output_variables={item.port: item.variable for item in node.outputs},
             )
         )
+        if node.resource_ref is not None:
+            operations.append(
+                SetNodeResourceOperation(
+                    node_ref=node.ref,
+                    resource_id=node.resource_ref.resource_id,
+                )
+            )
 
     for ref in sorted(set(source_nodes) & set(target_nodes)):
         before = source_nodes[ref]
@@ -933,6 +988,17 @@ def diff_graph_intents(
                 updates[field_name] = getattr(after, field_name)
         if len(updates) > 1:
             operations.append(UpdateNodeOperation(**updates))
+        if before.resource_ref != after.resource_ref:
+            if after.resource_ref is None:
+                raise ValueError(
+                    f"Editor change for {ref} removes a required node resource."
+                )
+            operations.append(
+                SetNodeResourceOperation(
+                    node_ref=ref,
+                    resource_id=after.resource_ref.resource_id,
+                )
+            )
         before_outputs = {item.port: item for item in before.outputs}
         after_outputs = {item.port: item for item in after.outputs}
         if set(before_outputs) != set(after_outputs):

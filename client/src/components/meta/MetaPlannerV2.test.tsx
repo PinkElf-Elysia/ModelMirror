@@ -328,7 +328,7 @@ describe("Meta Planner managed compatibility", () => {
       apply_key: "apply-key",
       status: "pending",
       kind: "xpert_create",
-      title: "Meta Planner: Headless",
+      title: "元智能体规划：Headless",
       target_id: null,
       base_revision: null,
       payload: {

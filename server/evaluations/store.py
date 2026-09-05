@@ -10,6 +10,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from .models import AgentTableQueryFixture
+
 
 class EvaluationError(RuntimeError):
     pass
@@ -32,6 +34,8 @@ class XpertEvaluationStore:
 
     MAX_DATASET_CASES = 500
     MAX_RUN_CASES = 100
+    MAX_RESOURCE_FIXTURES = 1_000
+    MAX_RESOURCE_FIXTURE_BYTES = 16 * 1024 * 1024
 
     def __init__(self, storage_dir: str | Path | None = None) -> None:
         root = Path(
@@ -371,6 +375,7 @@ class XpertEvaluationStore:
         candidates: list[dict[str, Any]],
         config: dict[str, Any],
         warnings: list[str],
+        resource_fixtures: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         if not 1 <= len(cases) <= self.MAX_RUN_CASES:
             raise EvaluationStateError("A run must contain between 1 and 100 cases.")
@@ -394,6 +399,11 @@ class XpertEvaluationStore:
                             "updated_at": now,
                         }
                     )
+        private_fixtures, fixture_bytes = self._validate_resource_fixtures(
+            copy.deepcopy(resource_fixtures or []),
+            targets=targets,
+            cases=cases,
+        )
         run = {
             "run_id": f"xeval_run_{uuid.uuid4().hex}",
             "status": "queued",
@@ -404,6 +414,11 @@ class XpertEvaluationStore:
             "config": copy.deepcopy(config),
             "warnings": [str(item)[:500] for item in warnings[:50]],
             "items": items,
+            "_resource_fixtures": private_fixtures,
+            "resource_fixture_summary": {
+                "fixture_count": len(private_fixtures),
+                "stored_bytes": fixture_bytes,
+            },
             "report": {},
             "cancel_requested": False,
             "run_registry_id": None,
@@ -415,7 +430,7 @@ class XpertEvaluationStore:
         with self._lock:
             self._data["runs"][run["run_id"]] = run
             self._save_unlocked()
-        return copy.deepcopy(run)
+        return self.run_payload(run, include_detail=True)
 
     def list_runs(self, *, status: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
         with self._lock:
@@ -534,7 +549,7 @@ class XpertEvaluationStore:
         with self._lock:
             run = self._run_unlocked(run_id)
             if run.get("status") in {"completed", "failed", "cancelled"}:
-                return copy.deepcopy(run)
+                return self.run_payload(run, include_detail=True)
             run["cancel_requested"] = True
             if run.get("status") == "queued":
                 run["status"] = "cancelled"
@@ -544,7 +559,34 @@ class XpertEvaluationStore:
                     item["status"] = "cancelled"
             run["updated_at"] = time.time()
             self._save_unlocked()
-            return copy.deepcopy(run)
+            return self.run_payload(run, include_detail=True)
+
+    def resource_fixtures_for_item(
+        self,
+        run_id: str,
+        *,
+        target_id: str,
+        case_id: str,
+    ) -> list[dict[str, Any]]:
+        with self._lock:
+            run = self._run_unlocked(run_id)
+            matches = [
+                item
+                for item in list(run.get("_resource_fixtures") or [])
+                if str(item.get("target_id") or "") == target_id
+                and str(item.get("case_id") or "") == case_id
+            ]
+            try:
+                return [
+                    AgentTableQueryFixture.model_validate(item).model_dump(
+                        mode="json"
+                    )
+                    for item in matches
+                ]
+            except Exception as exc:
+                raise EvaluationStateError(
+                    "Persisted evaluation resource fixture failed integrity validation."
+                ) from exc
 
     @staticmethod
     def dataset_payload(item: dict[str, Any], *, include_cases: bool) -> dict[str, Any]:
@@ -564,6 +606,7 @@ class XpertEvaluationStore:
     @staticmethod
     def run_payload(item: dict[str, Any], *, include_detail: bool) -> dict[str, Any]:
         payload = copy.deepcopy(item)
+        payload.pop("_resource_fixtures", None)
         payload["item_count"] = len(payload.get("items") or [])
         payload["completed_item_count"] = sum(
             1
@@ -615,6 +658,10 @@ class XpertEvaluationStore:
             "expected": copy.deepcopy(case.get("expected") or {}),
             "weights": copy.deepcopy(case.get("weights") or {}),
         }
+        if isinstance(case.get("path"), dict):
+            normalized["path"] = copy.deepcopy(case["path"])
+        if isinstance(case.get("resource_reads"), list):
+            normalized["resource_reads"] = copy.deepcopy(case["resource_reads"])
         if isinstance(case.get("targeting"), dict):
             normalized["targeting"] = copy.deepcopy(case["targeting"])
         return normalized
@@ -639,6 +686,58 @@ class XpertEvaluationStore:
             "datasets": datasets,
             "runs": dict(raw.get("runs") or {}),
         }
+
+    @classmethod
+    def _validate_resource_fixtures(
+        cls,
+        fixtures: list[dict[str, Any]],
+        *,
+        targets: list[dict[str, Any]],
+        cases: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], int]:
+        if len(fixtures) > cls.MAX_RESOURCE_FIXTURES:
+            raise EvaluationStateError(
+                "Evaluation run exceeds the 1000 resource fixture limit."
+            )
+        target_ids = {str(item.get("target_id") or "") for item in targets}
+        case_ids = {str(item.get("case_id") or "") for item in cases}
+        normalized: list[dict[str, Any]] = []
+        keys: set[tuple[str, str, str]] = set()
+        for fixture in fixtures:
+            try:
+                item = AgentTableQueryFixture.model_validate(fixture).model_dump(mode="json")
+            except Exception as exc:
+                raise EvaluationStateError(
+                    "Evaluation resource fixture failed schema validation."
+                ) from exc
+            if item["target_id"] not in target_ids or item["case_id"] not in case_ids:
+                raise EvaluationStateError(
+                    "Evaluation resource fixture references a target or case outside this run."
+                )
+            key = (item["target_id"], item["case_id"], item["node_ref"])
+            if key in keys:
+                raise EvaluationStateError(
+                    "Evaluation resource fixtures must be unique per target, case, and node."
+                )
+            keys.add(key)
+            normalized.append(item)
+        try:
+            encoded = json.dumps(
+                normalized,
+                ensure_ascii=False,
+                allow_nan=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        except (TypeError, ValueError) as exc:
+            raise EvaluationStateError(
+                "Evaluation resource fixtures must be JSON-safe."
+            ) from exc
+        if len(encoded) > cls.MAX_RESOURCE_FIXTURE_BYTES:
+            raise EvaluationStateError(
+                "Evaluation run exceeds the 16 MiB resource fixture limit."
+            )
+        return normalized, len(encoded)
 
     @staticmethod
     def _metadata_payload(item: dict[str, Any]) -> dict[str, Any]:

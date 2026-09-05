@@ -3402,23 +3402,30 @@ function ResourceNodeConfig({
 
 function KnowledgeBaseSelector({
   allowLegacyEmpty = false,
+  allowedIds,
   onChange,
   onLoadStateChange,
   onSelectedOptionChange,
   value,
 }: {
   allowLegacyEmpty?: boolean;
+  allowedIds?: string[];
   onChange: (value: string) => void;
   onLoadStateChange?: (state: "loading" | "ready" | "error") => void;
   onSelectedOptionChange?: (option: WorkflowResourceOption | null) => void;
   value: string;
 }) {
   const { loadError, loading, options } = useWorkflowResourceOptions("knowledge_base");
+  const visibleOptions = useMemo(() => {
+    if (allowedIds === undefined) return options;
+    const allowed = new Set(allowedIds);
+    return options.filter((item) => allowed.has(item.id));
+  }, [allowedIds, options]);
   useEffect(() => {
     onSelectedOptionChange?.(
-      options.find((item) => item.id === value) ?? null,
+      visibleOptions.find((item) => item.id === value) ?? null,
     );
-  }, [onSelectedOptionChange, options, value]);
+  }, [onSelectedOptionChange, value, visibleOptions]);
   useEffect(() => {
     onLoadStateChange?.(loading ? "loading" : loadError ? "error" : "ready");
   }, [loadError, loading, onLoadStateChange]);
@@ -3432,7 +3439,7 @@ function KnowledgeBaseSelector({
         <option className="bg-slate-950" value="">
           {allowLegacyEmpty ? "未固定（仅单知识库旧图兼容）" : "选择知识库"}
         </option>
-        {options.map((item) => (
+        {visibleOptions.map((item) => (
           <option className="bg-slate-950" key={item.id} value={item.id}>
             {item.name} · {item.active_version_id ? "活动索引可用" : "暂无活动索引"}
           </option>
@@ -3455,6 +3462,7 @@ function KnowledgeRetrievalNodeConfig({
   update,
   onOpenVariableCenter,
   retryAvailability,
+  allowedKnowledgeBaseIds,
 }: {
   node: WorkflowNode;
   nodes: WorkflowNode[];
@@ -3465,6 +3473,7 @@ function KnowledgeRetrievalNodeConfig({
   update: (patch: Partial<WorkflowNodeData>) => void;
   onOpenVariableCenter: () => void;
   retryAvailability?: WorkflowRetryAvailability;
+  allowedKnowledgeBaseIds?: string[];
 }) {
   const isLegacy = Number(data.contractVersion ?? 1) !== 2;
   const [selectedKnowledgeBase, setSelectedKnowledgeBase] =
@@ -3499,6 +3508,7 @@ function KnowledgeRetrievalNodeConfig({
       <Field label="知识库">
         <KnowledgeBaseSelector
           allowLegacyEmpty={isLegacy}
+          allowedIds={allowedKnowledgeBaseIds}
           onChange={(value) => update({ knowledgeBaseId: value })}
           onLoadStateChange={setKnowledgeBaseLoadState}
           onSelectedOptionChange={setSelectedKnowledgeBase}
@@ -4459,6 +4469,7 @@ function NodeConfig({
         "data_table_delete",
       ].includes(data.kind) ? (
         <WorkflowTypedDataNodeConfig
+          allowedTableIds={authoringPolicy?.allowedDataTableIds}
           contract={variableContract}
           data={data}
           declarations={declarations}
@@ -5148,6 +5159,7 @@ function NodeConfig({
 
       {data.kind === "knowledge_retrieval" ? (
         <KnowledgeRetrievalNodeConfig
+          allowedKnowledgeBaseIds={authoringPolicy?.allowedKnowledgeBaseIds}
           data={data}
           declarations={declarations}
           edges={edges}
@@ -6740,6 +6752,8 @@ export interface WorkflowEditorAuthoringPolicy {
   compilerManagedNodeKinds?: WorkflowNodeKind[];
   allowedRuntimeMiddlewareIds?: string[];
   allowedSourceAgentIds?: string[];
+  allowedKnowledgeBaseIds?: string[];
+  allowedDataTableIds?: string[];
 }
 
 export const HEADLESS_WORKFLOW_AGENT_EDITABLE_FIELDS = [

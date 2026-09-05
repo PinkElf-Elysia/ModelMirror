@@ -565,11 +565,16 @@ function isSha256(value: unknown): value is string {
   return typeof value === "string" && /^[a-f0-9]{64}$/i.test(value);
 }
 
+function hasCompatibleRegistryVersion(value: string): boolean {
+  const match = /^xpert-workflow-node-registry-v([1-9]\d*)$/.exec(value);
+  return match !== null && Number(match[1]) >= 5;
+}
+
 export function hasNodeContractV3(
   registry: WorkflowNodeRegistryResponse,
 ): boolean {
   if (
-    registry.version !== "xpert-workflow-node-registry-v5" ||
+    !hasCompatibleRegistryVersion(registry.version) ||
     registry.contract_version !== 3 ||
     !isSha256(registry.contract_checksum)
   ) {

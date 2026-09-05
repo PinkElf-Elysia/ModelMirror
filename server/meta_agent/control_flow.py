@@ -23,7 +23,7 @@ except ModuleNotFoundError:
 from .schemas import GraphIntentControlEdgeV3, GraphIntentNodeV3, GraphIntentV3
 
 
-CONTROL_FLOW_CONTRACT_VERSION = 1
+CONTROL_FLOW_CONTRACT_VERSION = 2
 MAX_ROUTER_NODES = 8
 MAX_SYMBOLIC_SCENARIOS = 256
 
@@ -43,6 +43,11 @@ def semantic_outcomes(node: GraphIntentNodeV3) -> tuple[str, ...]:
         return tuple([*(f"case_{index}" for index in range(1, count + 1)), "default"])
     if node.kind == "terminate_error":
         return ()
+    if (
+        node.kind in {"knowledge_retrieval", "data_table_query"}
+        and str(node.config.get("failure_action") or "stop") == "error_output"
+    ):
+        return ("success", "error")
     return ("success",)
 
 
@@ -59,6 +64,11 @@ def native_outcome_map(node: GraphIntentNodeV3) -> dict[str, str]:
         }
     if node.kind == "terminate_error":
         return {}
+    if (
+        node.kind in {"knowledge_retrieval", "data_table_query"}
+        and str(node.config.get("failure_action") or "stop") == "error_output"
+    ):
+        return {"success": "", "error": "error"}
     return {"success": ""}
 
 
@@ -285,9 +295,7 @@ def analyze_control_flow(intent: GraphIntentV3) -> dict[str, Any]:
     if len(order) != len(nodes):
         issues.append("Control flow must be acyclic.")
 
-    routers = [
-        node for node in intent.nodes if node.kind in {"condition", "multi_route"}
-    ]
+    routers = [node for node in intent.nodes if len(semantic_outcomes(node)) > 1]
     if len(routers) > MAX_ROUTER_NODES:
         issues.append(f"Control flow supports at most {MAX_ROUTER_NODES} route nodes.")
 
@@ -305,26 +313,30 @@ def analyze_control_flow(intent: GraphIntentV3) -> dict[str, Any]:
             issues.append(f"Node {node.ref} is a nonterminal dead end.")
         if actual and node.ref in final_refs:
             issues.append(f"Final source {node.ref} must not have outgoing edges.")
-        if node.kind in {"condition", "multi_route"}:
+        if len(expected) > 1:
             if actual_set != expected or len(actual) != len(expected):
                 issues.append(
                     f"Router {node.ref} must connect exactly once for outcomes: "
                     + ", ".join(sorted(expected))
                 )
-            witnesses = (
-                _condition_witnesses(node, nodes)
-                if node.kind == "condition"
-                else _route_witnesses(node, nodes)
-            )
-            missing_witnesses = sorted(expected - set(witnesses))
-            if missing_witnesses:
-                issues.append(
-                    f"Router {node.ref} has shadowed or unproven outcomes: "
-                    + ", ".join(missing_witnesses)
+            if node.kind in {"condition", "multi_route"}:
+                witnesses = (
+                    _condition_witnesses(node, nodes)
+                    if node.kind == "condition"
+                    else _route_witnesses(node, nodes)
                 )
+                missing_witnesses = sorted(expected - set(witnesses))
+                if missing_witnesses:
+                    issues.append(
+                        f"Router {node.ref} has shadowed or unproven outcomes: "
+                        + ", ".join(missing_witnesses)
+                    )
             route_domains.append((node.ref, tuple(sorted(expected))))
-        elif actual and actual_set != {"success"}:
-            issues.append(f"Node {node.ref} only permits the success outcome.")
+        elif actual and actual_set != expected:
+            issues.append(
+                f"Node {node.ref} only permits outcomes: "
+                + ", ".join(sorted(expected))
+            )
 
     scenario_count = 1
     for _ref, outcomes in route_domains:
@@ -455,10 +467,26 @@ def analyze_control_flow(intent: GraphIntentV3) -> dict[str, Any]:
             if binding.source_ref == "input":
                 continue
             source_scenarios = reached_by_ref.get(binding.source_ref, set())
+            source_node = nodes[binding.source_ref]
+            if (
+                source_node.kind in {"knowledge_retrieval", "data_table_query"}
+                and str(source_node.config.get("failure_action") or "stop")
+                == "error_output"
+                and binding.source_port == "result"
+            ):
+                source_scenarios = {
+                    scenario_index
+                    for scenario_index in source_scenarios
+                    if scenarios[scenario_index]["choices"].get(
+                        binding.source_ref
+                    )
+                    == "success"
+                }
             if not target_scenarios.issubset(source_scenarios):
                 issues.append(
                     f"Data source {binding.source_ref}.{binding.source_port} is not "
-                    f"guaranteed for {node.ref}.{binding.port}."
+                    f"available in every scenario and is not guaranteed for "
+                    f"{node.ref}.{binding.port}."
                 )
     if issues:
         raise ControlFlowAnalysisError(issues)

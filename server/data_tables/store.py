@@ -520,6 +520,81 @@ class SQLiteAgentTableBackend:
             for row in rows
         ]
 
+    def capture_evaluation_queries(
+        self,
+        queries: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Execute a bounded fixture batch in one SQLite read snapshot."""
+
+        if len(queries) > 1_000:
+            raise AgentTableValidationError(
+                "Evaluation fixture capture supports at most 1000 queries."
+            )
+        results: list[dict[str, Any]] = []
+        with self._lock, self._connection() as connection:
+            connection.execute("PRAGMA query_only = ON")
+            connection.execute("BEGIN")
+            for query in queries:
+                fixture_key = str(query.get("fixture_key") or "").strip()
+                table_id = str(query.get("table_id") or "").strip()
+                schema_version = int(query.get("schema_version") or 0)
+                bounded_limit = int(query.get("limit") or 0)
+                if not fixture_key or not 1 <= bounded_limit <= MAX_QUERY_LIMIT:
+                    raise AgentTableValidationError(
+                        "Evaluation fixture query is missing a key or has an invalid limit."
+                    )
+                table = self._load_table(connection, table_id)
+                schema = self._load_schema_version(
+                    connection,
+                    table_id,
+                    schema_version,
+                )
+                if str(query.get("schema_checksum") or "") != schema.checksum:
+                    raise AgentTableConflictError(
+                        "Evaluation fixture schema checksum no longer matches."
+                    )
+                raw_fields = query.get("fields")
+                fields = (
+                    [str(item) for item in raw_fields]
+                    if isinstance(raw_fields, list)
+                    else None
+                )
+                selected = self._validate_selected_fields(fields, schema.fields)
+                parameters: list[Any] = []
+                where = self._compile_filter(
+                    query.get("filter"),
+                    schema.fields,
+                    parameters,
+                    allow_empty=True,
+                )
+                raw_sort = query.get("sort")
+                order_by = self._compile_sort(
+                    raw_sort if isinstance(raw_sort, list) else [],
+                    schema.fields,
+                    parameters,
+                )
+                parameters.append(bounded_limit)
+                rows = connection.execute(
+                    "SELECT * FROM agent_table_records "
+                    "WHERE table_id = ? AND (" + where + ") "
+                    + order_by
+                    + " LIMIT ?",
+                    [table.table_id, *parameters],
+                ).fetchall()
+                results.append(
+                    {
+                        "fixture_key": fixture_key,
+                        "records": [
+                            self._flatten_record(
+                                self._record_from_row(row),
+                                selected,
+                            )
+                            for row in rows
+                        ],
+                    }
+                )
+        return results
+
     def create_record_for_schema(
         self,
         table_id: str,

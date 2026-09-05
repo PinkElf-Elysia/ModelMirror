@@ -154,7 +154,7 @@ class WorkflowNodeRegistry:
     """Xpert-style metadata registry for classic workflow palette nodes."""
 
     def __init__(self) -> None:
-        self.version = "xpert-workflow-node-registry-v6"
+        self.version = "xpert-workflow-node-registry-v7"
         self.contract_registry = workflow_node_contract_registry
         self._tabs: list[WorkflowPaletteTab] = []
         self._sections: list[WorkflowPaletteSection] = []
@@ -194,7 +194,7 @@ class WorkflowNodeRegistry:
         return {
             "version": self.version,
             "contract_version": NODE_CONTRACT_VERSION,
-            "control_flow_contract_version": 1,
+            "control_flow_contract_version": 2,
             "contract_checksum": self.contract_registry.checksum,
             "tabs": [tab.to_payload() for tab in self._tabs],
             "sections": [section.to_payload() for section in self._sections],

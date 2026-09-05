@@ -349,8 +349,8 @@ def _headless_fixture(
 def test_capability_snapshot_exposes_patch_protocol_and_pure_node_pack():
     snapshot = _snapshot()
 
-    assert snapshot.version == "evoagentx-meta-planner-capabilities-v7"
-    assert snapshot.control_flow_contract_version == 1
+    assert snapshot.version == "evoagentx-meta-planner-capabilities-v8"
+    assert snapshot.control_flow_contract_version == 2
     assert snapshot.authoring_protocol_version == 1
     assert snapshot.authoring_limits["max_operations"] == 64
     assert snapshot.authoring_limits["max_receipts"] == 20
@@ -362,6 +362,7 @@ def test_capability_snapshot_exposes_patch_protocol_and_pure_node_pack():
     assert {item["kind"] for item in snapshot.nodes} == {
         "data_aggregate",
         "data_merge",
+        "data_table_query",
         "dataset_compare",
         "condition",
         "input",
@@ -371,6 +372,7 @@ def test_capability_snapshot_exposes_patch_protocol_and_pure_node_pack():
         "workflow_agent",
         "external_xpert",
         "knowledge_base",
+        "knowledge_retrieval",
         "toolset_resource",
         "variable_aggregator",
         "plugin_resource",

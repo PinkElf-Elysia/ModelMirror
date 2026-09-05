@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   authoringDiffSummary,
+  authoringOperationSummary,
   buildMetadataPatch,
   canUseTypedHeadlessAuthoring,
   headlessStateMode,
   normalizeGraphPatchEnvelope,
   normalizeGraphPatchPreview,
   normalizeHeadlessProposalState,
+  normalizeSafeResourceSnapshots,
 } from "./metaAuthoring";
 
 describe("Meta Planner headless authoring contracts", () => {
@@ -33,6 +35,8 @@ describe("Meta Planner headless authoring contracts", () => {
       compiler_managed_node_kinds: ["input", "output"],
       authorized_scope: {
         agent_ids: ["expert-reviewer"],
+        knowledge_base_ids: ["kb-allowed"],
+        data_table_ids: ["table-allowed"],
       },
       compatibility: { source_version: 3, lossy: false },
     });
@@ -52,6 +56,8 @@ describe("Meta Planner headless authoring contracts", () => {
         "dataset_compare",
       ],
       allowed_source_agent_ids: ["expert-reviewer"],
+      allowed_knowledge_base_ids: ["kb-allowed"],
+      allowed_data_table_ids: ["table-allowed"],
     });
     expect(state?.allowed_node_kinds).toContain("json_serialize");
     expect(state?.allowed_node_kinds).not.toContain("knowledge_retrieval");
@@ -161,6 +167,58 @@ describe("Meta Planner headless authoring contracts", () => {
     });
   });
 
+  it("projects node resource snapshots without leaking native config", () => {
+    const snapshots = normalizeSafeResourceSnapshots({
+      graph_ir: {
+        nodes: [
+          {
+            ref: "lookup",
+            kind: "data_table_query",
+            config: { api_key: "must-not-render", tableId: "native-injection" },
+            resource_ref: { resource_id: "table-orders" },
+            resource_snapshot: {
+              resource_id: "table-orders",
+              kind: "data_table",
+              version_policy: "pinned",
+              pinned_schema_version: 4,
+              schema_checksum: "a".repeat(64),
+              snapshot_checksum: "b".repeat(64),
+            },
+          },
+        ],
+      },
+    });
+
+    expect(snapshots).toEqual([
+      expect.objectContaining({
+        node_ref: "lookup",
+        node_kind: "data_table_query",
+        resource_id: "table-orders",
+        schema_version: 4,
+        schema_checksum: "aaaaaaaaaaaa",
+        resource_checksum: "bbbbbbbbbbbb",
+      }),
+    ]);
+    expect(JSON.stringify(snapshots)).not.toContain("must-not-render");
+    expect(JSON.stringify(snapshots)).not.toContain("native-injection");
+  });
+
+  it("summarizes resource and error-outcome patches from semantic fields only", () => {
+    expect(authoringOperationSummary({
+      op: "set_node_resource",
+      node_ref: "lookup",
+      resource_id: "table-orders",
+      config: { secret: "hidden" },
+    })).toBe("set_node_resource · lookup · resource table-orders");
+    expect(authoringOperationSummary({
+      op: "connect_control",
+      source_ref: "lookup",
+      outcome_ref: "error",
+      target_ref: "failure",
+      sourceHandle: "forged-native-handle",
+    })).toBe("connect_control · lookup:error -> failure");
+  });
+
   it("keeps failed preview diagnostics visible and non-applicable", () => {
     const preview = normalizeGraphPatchPreview({
       preview_checksum: "preview-1",
@@ -172,5 +230,6 @@ describe("Meta Planner headless authoring contracts", () => {
     expect(preview?.can_apply).toBe(false);
     expect(preview?.diagnostics[0]?.code).toBe("TYPE_MISMATCH");
     expect(authoringDiffSummary(preview?.diff ?? {})).toContain("nodes_updated: 1");
+    expect(preview?.resource_snapshots).toEqual([]);
   });
 });

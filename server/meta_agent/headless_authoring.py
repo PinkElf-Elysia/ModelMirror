@@ -48,6 +48,7 @@ from .graph_ir_v3 import (
     decompile_candidate_to_graph_intent_compat,
     graph_authoring_checksum,
     resolve_graph_intent,
+    resolve_node_resource_snapshot,
     workflow_authoring_checksum,
     workflow_semantic_checksum,
 )
@@ -66,6 +67,7 @@ from .node_adapters import META_PLANNER_ADAPTER_KINDS, get_planner_node_adapter
 from .schemas import (
     GraphIntentInputBindingV3,
     GraphIntentNodeV3,
+    GraphIntentNodeResourceRefV3,
     GraphIntentOutputBindingV3,
     GraphIntentV3,
     MetaPlannerCapabilitySnapshot,
@@ -190,6 +192,38 @@ _AUTHORABLE_PURE_NODE_DATA_FIELDS: dict[str, frozenset[str]] = {
             "description",
             "errorCode",
             "message",
+        }
+    ),
+    "knowledge_retrieval": frozenset(
+        {
+            "kind",
+            "title",
+            "description",
+            "knowledgeBaseId",
+            "queryVariable",
+            "top_k",
+            "returnMode",
+            "outputVariable",
+            "failureAction",
+            "retryMode",
+            "maxAttempts",
+        }
+    ),
+    "data_table_query": frozenset(
+        {
+            "kind",
+            "title",
+            "description",
+            "tableId",
+            "selectFields",
+            "filter",
+            "sort",
+            "limit",
+            "returnMode",
+            "outputVariable",
+            "failureAction",
+            "retryMode",
+            "maxAttempts",
         }
     ),
 }
@@ -339,9 +373,18 @@ def _round_trip_candidate_projection(
     """Normalize only fields introduced by the lossless V2-to-V3 upgrade."""
 
     projected = deepcopy(candidate)
+    workflow = (projected.get("draft") or {}).get("workflow") or {}
+    for node in workflow.get("nodes") or []:
+        data = node.get("data") if isinstance(node, dict) else None
+        if not isinstance(data, dict) or str(data.get("kind") or "") != "knowledge_retrieval":
+            continue
+        # The active knowledge pointer is dynamic by contract. These fields are
+        # provenance markers, not execution settings, so pointer drift must not
+        # be reported as a lossy editor round trip.
+        data.pop("observedActiveVersionId", None)
+        data.pop("plannerResourceSnapshotChecksum", None)
     if source_version != 2:
         return projected
-    workflow = (projected.get("draft") or {}).get("workflow") or {}
     # V2 and V3 compiler provenance use different workflow version labels.
     # The label is not an execution setting, so exclude it from the behavioral
     # losslessness proof while retaining every runtime-owned node field.
@@ -437,6 +480,7 @@ def _intersect_scope(
         "allowed_node_kinds": {str(item.get("kind") or "") for item in snapshot.nodes},
         "external_xpert_ids": {str(item.get("id") or "") for item in snapshot.external_xperts},
         "knowledge_base_ids": {str(item.get("id") or "") for item in snapshot.knowledge_bases},
+        "data_table_ids": {str(item.get("id") or "") for item in snapshot.data_tables},
         "toolset_ids": {str(item.get("id") or "") for item in snapshot.toolsets},
         "plugin_ids": {str(item.get("id") or "") for item in snapshot.plugins},
         "prompt_profile_ids": {str(item.get("id") or "") for item in snapshot.prompt_profiles},
@@ -478,6 +522,10 @@ def _validate_intent_authorization(
         "toolset_resource": set(scope.toolset_ids),
         "plugin_resource": set(scope.plugin_ids),
     }
+    allowed_node_resources = {
+        "knowledge_retrieval": set(scope.knowledge_base_ids),
+        "data_table_query": set(scope.data_table_ids),
+    }
     violations: list[str] = []
     for node in intent.nodes:
         if node.kind not in set(scope.allowed_node_kinds):
@@ -485,6 +533,16 @@ def _validate_intent_authorization(
         source_agent_id = str(node.config.get("source_agent_id") or "").strip()
         if source_agent_id and source_agent_id not in set(scope.agent_ids):
             violations.append(f"source_agent:{source_agent_id}")
+        expected = allowed_node_resources.get(node.kind)
+        if expected is None:
+            if node.resource_ref is not None:
+                violations.append(f"node_resource:{node.ref}:unexpected")
+        elif node.resource_ref is None:
+            violations.append(f"node_resource:{node.ref}:missing")
+        elif node.resource_ref.resource_id not in expected:
+            violations.append(
+                f"node_resource:{node.kind}:{node.resource_ref.resource_id}"
+            )
     for binding in intent.resources:
         if binding.resource_id not in allowed_resources[binding.kind]:
             violations.append(f"resource:{binding.kind}:{binding.resource_id}")
@@ -1389,6 +1447,13 @@ class HeadlessAuthoringService:
                     }
                 elif source_kind == "terminate_error":
                     allowed_source_handles = set()
+                elif source_kind in {"knowledge_retrieval", "data_table_query"}:
+                    allowed_source_handles = (
+                        {"", "error"}
+                        if str((source.data or {}).get("failureAction") or "stop")
+                        == "error_output"
+                        else {""}
+                    )
                 else:
                     allowed_source_handles = {""}
                 source_handle = str(edge.sourceHandle or "")
@@ -1488,6 +1553,8 @@ class HeadlessAuthoringService:
                 ancestors[ref].update(ancestors[parent])
 
         parsed_by_ref: dict[str, Any] = {}
+        resource_refs_by_ref: dict[str, GraphIntentNodeResourceRefV3] = {}
+        resource_snapshots_by_ref: dict[str, dict[str, Any]] = {}
         output_bindings_by_ref: dict[str, list[GraphIntentOutputBindingV3]] = {}
         output_by_variable: dict[
             str, list[tuple[str, str, WorkflowValueSchema]]
@@ -1506,12 +1573,58 @@ class HeadlessAuthoringService:
                     data["rolePrompt"] = role_prompt or defaults["role_prompt"]
                     data["taskInput"] = task_input or defaults["task_input"]
             parsed = adapter.authoring_config_from_native(data)
+            resource_payload: dict[str, Any] | None = None
+            if adapter.resource_kind is not None:
+                resource_field = {
+                    "knowledge_base": "knowledgeBaseId",
+                    "data_table": "tableId",
+                }[adapter.resource_kind]
+                resource_id = str(data.get(resource_field) or "").strip()
+                allowed_resource_ids = (
+                    set(state.scope.knowledge_base_ids)
+                    if adapter.resource_kind == "knowledge_base"
+                    else set(state.scope.data_table_ids)
+                )
+                if resource_id not in allowed_resource_ids:
+                    raise ValueError(
+                        f"Editor node {ref} references an unauthorized "
+                        f"{adapter.resource_kind} resource."
+                    )
+                resource_ref = GraphIntentNodeResourceRefV3(
+                    resource_id=resource_id
+                )
+                resource_node = GraphIntentNodeV3(
+                    ref=ref,
+                    kind=kind,
+                    title=str(data.get("title") or ref),
+                    config=parsed.model_dump(mode="json"),
+                    resource_ref=resource_ref,
+                )
+                resolved_resource = resolve_node_resource_snapshot(
+                    resource_node,
+                    state.snapshot,
+                    pinned=state.intent._pinned_node_resources.get(
+                        (ref, resource_id)
+                    ),
+                )
+                resource_payload = resolved_resource.model_dump(mode="json")
+                adapter.validate_resolved_resource(
+                    resource_node,
+                    parsed,
+                    resource_payload,
+                )
+                resource_refs_by_ref[ref] = resource_ref
+                resource_snapshots_by_ref[ref] = resource_payload
             output_variables = adapter.editor_output_variables(data, parsed)
             outputs = [
                 GraphIntentOutputBindingV3(
                     port=port,
                     variable=variable,
-                    value_schema=adapter.authoritative_output_schema(port, parsed),
+                    value_schema=adapter.authoritative_output_schema(
+                        port,
+                        parsed,
+                        resource_payload,
+                    ),
                 )
                 for port, variable in output_variables.items()
             ]
@@ -1609,8 +1722,10 @@ class HeadlessAuthoringService:
                 task_ids=task_ids,
                 inputs=inputs,
                 outputs=outputs,
+                resource_ref=resource_refs_by_ref.get(ref),
                 config=parsed.model_dump(mode="json"),
             )
+            outcome_map = native_outcome_map(intent_node)
             data.update(
                 {
                     "plannerIRVersion": 3,
@@ -1631,9 +1746,33 @@ class HeadlessAuthoringService:
                         }
                         for item in outputs
                     ],
-                    "plannerOutcomeMapV1": native_outcome_map(intent_node),
+                    "plannerOutcomeMapV1": {"success": ""},
+                    "plannerAdapterConfigV1": parsed.model_dump(mode="json"),
                 }
             )
+            if len(outcome_map) > 1:
+                data["plannerOutcomeMapV2"] = outcome_map
+            else:
+                data.pop("plannerOutcomeMapV2", None)
+            resource_payload = resource_snapshots_by_ref.get(ref)
+            if resource_payload is not None:
+                data["plannerResourceSnapshotChecksum"] = resource_payload[
+                    "snapshot_checksum"
+                ]
+                if kind == "knowledge_retrieval":
+                    data["knowledgeBaseId"] = resource_payload["resource_id"]
+                    data["observedActiveVersionId"] = resource_payload.get(
+                        "observed_version_id"
+                    )
+                elif kind == "data_table_query":
+                    data["tableId"] = resource_payload["resource_id"]
+                    data["versionPolicy"] = "pinned"
+                    data["pinnedSchemaVersion"] = resource_payload[
+                        "pinned_schema_version"
+                    ]
+                    data["pinnedSchemaChecksum"] = resource_payload[
+                        "schema_checksum"
+                    ]
             if kind == "data_merge":
                 data["plannerControlInputMapV1"] = {
                     item.port: item.source_ref for item in inputs

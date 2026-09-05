@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 MetricKind = Literal[
@@ -12,6 +14,7 @@ MetricKind = Literal[
     "citation_hit",
     "tool_call_match",
     "workflow_path_match",
+    "workflow_resource_match",
     "rubric_judge",
 ]
 
@@ -42,7 +45,7 @@ class EvaluationPathExpectation(BaseModel):
 
     @model_validator(mode="after")
     def validate_path(self) -> "EvaluationPathExpectation":
-        outcome_pattern = r"^[a-z][a-z0-9_-]{0,63}:(?:success|matched|unmatched|case_[1-8]|default)$"
+        outcome_pattern = r"^[a-z][a-z0-9_-]{0,63}:(?:success|error|matched|unmatched|case_[1-8]|default)$"
         import re
 
         all_outcomes = [*self.required_outcomes, *self.forbidden_outcomes]
@@ -58,6 +61,107 @@ class EvaluationPathExpectation(BaseModel):
         elif self.error_code is not None:
             raise ValueError("Successful paths cannot declare an error_code.")
         return self
+
+
+class EvaluationResourceReadExpectation(BaseModel):
+    node_ref: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
+    kind: Literal["knowledge_retrieval", "data_table_query"]
+    resource_id: str = Field(min_length=1, max_length=200)
+    version_id: str | None = Field(default=None, max_length=200)
+    schema_version: int | None = Field(default=None, ge=1)
+    query_checksum: str | None = Field(
+        default=None,
+        pattern=r"^[a-f0-9]{64}$",
+    )
+    expected_count: int | None = Field(default=None, ge=0, le=200)
+    record_ids: list[str] = Field(default_factory=list, max_length=200)
+    citation_ids: list[str] = Field(default_factory=list, max_length=200)
+
+    @model_validator(mode="after")
+    def validate_kind_fields(self) -> "EvaluationResourceReadExpectation":
+        if self.kind == "knowledge_retrieval":
+            if self.schema_version is not None or self.record_ids:
+                raise ValueError(
+                    "Knowledge resource assertions cannot declare table schema or record ids."
+                )
+        elif self.version_id is not None or self.citation_ids:
+            raise ValueError(
+                "Agent Table assertions cannot declare knowledge version or citation ids."
+            )
+        return self
+
+
+class AgentTableQueryFixture(BaseModel):
+    """Private evaluator input. API projections must never expose records."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    fixture_key: str = Field(pattern=r"^[a-f0-9]{64}$")
+    target_id: str = Field(min_length=1, max_length=240)
+    case_id: str = Field(min_length=1, max_length=120)
+    node_id: str = Field(min_length=1, max_length=200)
+    node_ref: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
+    resource_kind: Literal["data_table_query"] = "data_table_query"
+    resource_id: str = Field(min_length=1, max_length=200)
+    table_id: str = Field(min_length=1, max_length=200)
+    schema_version: int = Field(ge=1)
+    schema_checksum: str = Field(pattern=r"^[a-f0-9]{64}$")
+    query_checksum: str = Field(pattern=r"^[a-f0-9]{64}$")
+    fields: list[str] | None = Field(default=None, max_length=50)
+    filter: dict[str, Any] | None = None
+    sort: list[dict[str, Any]] | None = Field(default=None, max_length=5)
+    limit: int = Field(ge=1, le=200)
+    return_mode: Literal["list", "first"] = "list"
+    records: list[dict[str, Any]] = Field(default_factory=list, max_length=200)
+    records_checksum: str = Field(pattern=r"^[a-f0-9]{64}$")
+    result_count: int = Field(ge=0, le=200)
+    record_ids: list[str] = Field(default_factory=list, max_length=200)
+
+    @model_validator(mode="after")
+    def validate_fixture_identity(self) -> "AgentTableQueryFixture":
+        if self.resource_id != self.table_id:
+            raise ValueError("Fixture resource_id must match table_id.")
+        if self.result_count != len(self.records):
+            raise ValueError("Fixture result_count must match the stored record count.")
+        if self.records_checksum != _evaluation_checksum(self.records):
+            raise ValueError("Fixture records checksum does not match its stored records.")
+        identity = {
+            "target_id": self.target_id,
+            "case_id": self.case_id,
+            "node_id": self.node_id,
+        }
+        if self.fixture_key != _evaluation_checksum(identity):
+            raise ValueError("Fixture key does not match its target, case, and node.")
+        query_contract = {
+            "table_id": self.table_id,
+            "schema_version": self.schema_version,
+            "fields": self.fields,
+            "filter": self.filter,
+            "sort": self.sort,
+            "limit": self.limit,
+            "return_mode": self.return_mode,
+        }
+        if self.query_checksum != _evaluation_checksum(query_contract):
+            raise ValueError("Fixture query checksum does not match its contract.")
+        expected_record_ids = [
+            str(record.get("record_id"))[:200]
+            for record in self.records
+            if str(record.get("record_id") or "")
+        ][:200]
+        if self.record_ids != expected_record_ids:
+            raise ValueError("Fixture record ids do not match its stored records.")
+        return self
+
+
+def _evaluation_checksum(value: Any) -> str:
+    encoded = json.dumps(
+        value,
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 class EvaluationProfessionalEvidence(BaseModel):
@@ -102,6 +206,10 @@ class EvaluationCaseInput(BaseModel):
     tags: list[str] = Field(default_factory=list, max_length=20)
     expected: EvaluationExpectation = Field(default_factory=EvaluationExpectation)
     path: EvaluationPathExpectation | None = None
+    resource_reads: list[EvaluationResourceReadExpectation] = Field(
+        default_factory=list,
+        max_length=32,
+    )
     weights: dict[MetricKind, float] = Field(default_factory=dict)
     targeting: EvaluationCaseTargeting | None = None
 
@@ -124,6 +232,9 @@ class EvaluationCaseInput(BaseModel):
                 raise ValueError(
                     "Expected error paths cannot include text-answer metrics."
                 )
+        resource_keys = [(item.node_ref, item.kind) for item in self.resource_reads]
+        if len(resource_keys) != len(set(resource_keys)):
+            raise ValueError("Resource read assertions must be unique by node_ref and kind.")
         return self
 
 

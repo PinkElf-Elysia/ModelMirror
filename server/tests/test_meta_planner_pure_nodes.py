@@ -124,8 +124,6 @@ def test_patch_repair_prompt_has_issue_scoped_ref_and_agent_limits() -> None:
             _snapshot(),
             intent,
             ["Typed IR exceeds max_agents=1."],
-            expected_graph_checksum="a" * 64,
-            expected_candidate_checksum="b" * 64,
         )
     )
     contract = prompt["repair_contract"]
@@ -147,6 +145,8 @@ def test_patch_repair_prompt_has_issue_scoped_ref_and_agent_limits() -> None:
     assert any(
         "recomputed by the server" in rule for rule in contract["rules"]
     )
+    assert set(prompt["required_schema"]["properties"]) == {"operations"}
+    assert "required_envelope" not in prompt
 
 
 def test_repair_normalizes_only_adapter_derived_output_schema() -> None:
@@ -154,7 +154,7 @@ def test_repair_normalizes_only_adapter_derived_output_schema() -> None:
     decode = next(node for node in intent.nodes if node.ref == "decode_rows")
     decode.outputs[0].value_schema = OBJECT
 
-    normalized, refs = _normalize_adapter_outputs_for_repair(intent)
+    normalized, refs = _normalize_adapter_outputs_for_repair(intent, _snapshot())
 
     normalized_decode = next(
         node for node in normalized.nodes if node.ref == "decode_rows"
@@ -169,7 +169,7 @@ def test_repair_normalizes_only_adapter_derived_output_schema() -> None:
     )
     forged_decode.outputs[0].port = "forged"
     with pytest.raises(ValueError, match="requires exactly one value output"):
-        _normalize_adapter_outputs_for_repair(forged)
+        _normalize_adapter_outputs_for_repair(forged, _snapshot())
 
 
 @pytest.mark.asyncio
@@ -200,8 +200,7 @@ async def test_single_patch_repair_refreshes_dynamic_deserialize_schema(
             return _plan().model_dump_json()
         if len(calls) == 2:
             return invalid.model_dump_json()
-        prompt = json.loads(user_prompt)
-        return json.dumps({**prompt["required_envelope"], "operations": []})
+        return json.dumps({"operations": []})
 
     response = await MetaPlannerV2Service(
         authoring_service=authoring,
@@ -255,8 +254,7 @@ async def test_semantic_adapter_failure_preserves_intent_for_patch_repair(
             return _plan().model_dump_json()
         if len(calls) == 2:
             return invalid.model_dump_json()
-        prompt = json.loads(user_prompt)
-        return json.dumps({**prompt["required_envelope"], "operations": []})
+        return json.dumps({"operations": []})
 
     response = await MetaPlannerV2Service(
         authoring_service=authoring,

@@ -201,13 +201,17 @@ def test_retry_contract_metadata_is_limited_to_three_nodes() -> None:
     }
 
     assert supported == RETRYABLE_NODE_KINDS
+    assert {
+        kind
+        for kind in RETRYABLE_NODE_KINDS
+        if workflow_node_contract_registry.require(kind).planner.enabled
+    } == {"data_table_query", "knowledge_retrieval"}
     assert len(workflow_node_contract_registry.list()) == 55
     for kind in RETRYABLE_NODE_KINDS:
         contract = workflow_node_contract_registry.require(kind)
         assert contract.retry.modes == ("none", "transient")
         assert contract.retry.max_attempts == (2, 3)
         assert contract.retry.backoff_seconds == (5, 30)
-        assert contract.planner.enabled is False
         assert effective_can_wait({}, contract) is False
         assert effective_can_wait({"retryMode": "transient"}, contract) is True
 

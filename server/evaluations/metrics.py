@@ -18,12 +18,59 @@ async def evaluate_case_metrics(
     citations: dict[str, list[str]],
     tool_calls: list[str] | None = None,
     control_flow: dict[str, Any] | None = None,
+    resource_reads: list[dict[str, Any]] | None = None,
+    resource_evidence_required: bool = False,
     judge: JudgeCallback | None = None,
     judge_model_id: str | None = None,
 ) -> dict[str, Any]:
     expected = dict(case.get("expected") or {})
     weights = dict(case.get("weights") or {})
     metrics: list[dict[str, Any]] = []
+
+    expected_reads = [
+        dict(item)
+        for item in list(case.get("resource_reads") or [])
+        if isinstance(item, dict)
+    ]
+    resource_evidence = (
+        "missing"
+        if not expected_reads and resource_evidence_required
+        else "not_applicable"
+    )
+    if expected_reads:
+        actual_by_key = {
+            (
+                str(item.get("node_ref") or ""),
+                str(item.get("resource_kind") or item.get("kind") or ""),
+            ): item
+            for item in list(resource_reads or [])
+            if isinstance(item, dict)
+        }
+        matched = 0
+        failures: list[str] = []
+        for expected_read in expected_reads:
+            key = (
+                str(expected_read.get("node_ref") or ""),
+                str(expected_read.get("kind") or ""),
+            )
+            actual = actual_by_key.get(key)
+            checks = _resource_read_checks(expected_read, actual)
+            if checks:
+                failures.append(f"{key[0]}:{','.join(checks)}")
+            else:
+                matched += 1
+        metrics.append(
+            _metric(
+                "workflow_resource_match",
+                matched / len(expected_reads),
+                (
+                    f"Matched {matched} of {len(expected_reads)} resource reads."
+                    + (f" Failures: {'; '.join(failures[:8])}" if failures else "")
+                ),
+                weights,
+            )
+        )
+        resource_evidence = "verified" if matched == len(expected_reads) else "failed"
 
     path = case.get("path")
     if isinstance(path, dict):
@@ -201,6 +248,7 @@ async def evaluate_case_metrics(
         "score": round(total_score, 6),
         "metrics": metrics,
         "metric_count": len(metrics),
+        "resource_evidence": resource_evidence,
     }
 
 
@@ -250,6 +298,7 @@ def aggregate_evaluation_report(
                     int((item.get("usage") or {}).get("estimated_tokens") or 0)
                     for item in target_items
                 ),
+                "resource_evidence": _resource_evidence_summary(target_items),
             }
         )
     targets.sort(key=lambda item: (-float(item["score"]), item["target_id"]))
@@ -328,6 +377,40 @@ def _is_subsequence(expected: list[str], actual: list[str]) -> bool:
             if position == len(expected):
                 return True
     return False
+
+
+def _resource_read_checks(
+    expected: dict[str, Any], actual: dict[str, Any] | None
+) -> list[str]:
+    if actual is None:
+        return ["missing"]
+    failures: list[str] = []
+    if str(actual.get("resource_id") or "") != str(expected.get("resource_id") or ""):
+        failures.append("resource_id")
+    for field in ("version_id", "schema_version", "query_checksum"):
+        expected_value = expected.get(field)
+        if expected_value is not None and actual.get(field) != expected_value:
+            failures.append(field)
+    if expected.get("expected_count") is not None and int(
+        actual.get("result_count") or 0
+    ) != int(expected["expected_count"]):
+        failures.append("result_count")
+    for field in ("record_ids", "citation_ids"):
+        required = _string_set(expected.get(field))
+        observed = _string_set(actual.get(field))
+        if not required.issubset(observed):
+            failures.append(field)
+    return failures
+
+
+def _resource_evidence_summary(items: list[dict[str, Any]]) -> dict[str, int]:
+    result = {"verified": 0, "failed": 0, "missing": 0, "not_applicable": 0}
+    for item in items:
+        status = str(item.get("resource_evidence") or "not_applicable")
+        if status not in result:
+            status = "failed"
+        result[status] += 1
+    return result
 
 
 def _percentile(values: list[float], quantile: float) -> float:

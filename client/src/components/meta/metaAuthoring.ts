@@ -38,6 +38,8 @@ export interface HeadlessAuthoringProposalState {
   allowed_node_kinds: WorkflowNodeKind[];
   allowed_middleware_ids: string[];
   allowed_source_agent_ids: string[];
+  allowed_knowledge_base_ids: string[];
+  allowed_data_table_ids: string[];
   compiler_managed_node_kinds: WorkflowNodeKind[];
   compatibility: HeadlessAuthoringCompatibility;
   diagnostics: AuthoringDiagnostic[];
@@ -51,6 +53,21 @@ export interface GraphPatchPreview {
   diff: Record<string, unknown>;
   graph_ir_checksum?: string;
   candidate_checksum?: string;
+  resource_snapshots: SafeResourceSnapshot[];
+}
+
+export interface SafeResourceSnapshot {
+  node_ref: string;
+  node_kind?: string;
+  resource_id: string;
+  resource_kind?: string;
+  version_policy?: string;
+  observed_version_id?: string;
+  resolved_version_id?: string;
+  schema_version?: number;
+  resource_checksum?: string;
+  schema_checksum?: string;
+  warnings: string[];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -67,8 +84,84 @@ function numberValue(value: unknown, fallback = 0) {
 
 function stringArray(value: unknown) {
   return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === "string")
+    ? value
+        .filter((item): item is string => typeof item === "string")
+        .slice(0, 20)
     : [];
+}
+
+function optionalNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function abbreviatedChecksum(value: unknown) {
+  const checksum = stringValue(value);
+  return /^[a-f0-9]{16,}$/i.test(checksum) ? checksum.slice(0, 12) : undefined;
+}
+
+function normalizeSafeResourceSnapshot(
+  value: unknown,
+  node?: Record<string, unknown>,
+): SafeResourceSnapshot | null {
+  if (!isRecord(value)) return null;
+  const resourceRef = isRecord(node?.resource_ref) ? node?.resource_ref : {};
+  const resourceId = stringValue(
+    value.resource_id ?? value.id ?? resourceRef.resource_id,
+  );
+  const nodeRef = stringValue(
+    value.node_ref ?? value.ref ?? node?.ref,
+  );
+  if (!resourceId || !nodeRef) return null;
+  return {
+    node_ref: nodeRef.slice(0, 64),
+    node_kind: stringValue(value.node_kind ?? node?.kind).slice(0, 80) || undefined,
+    resource_id: resourceId.slice(0, 200),
+    resource_kind: stringValue(value.resource_kind ?? value.kind) || undefined,
+    version_policy:
+      stringValue(value.version_policy ?? value.resolution_policy) || undefined,
+    observed_version_id:
+      stringValue(value.observed_version_id ?? value.observed_version) || undefined,
+    resolved_version_id:
+      stringValue(value.resolved_version_id ?? value.version_id) || undefined,
+    schema_version: optionalNumber(
+      value.schema_version ?? value.pinned_schema_version,
+    ),
+    resource_checksum: abbreviatedChecksum(
+      value.resource_checksum ?? value.snapshot_checksum,
+    ),
+    schema_checksum: abbreviatedChecksum(value.schema_checksum),
+    warnings: stringArray(value.warnings),
+  };
+}
+
+export function normalizeSafeResourceSnapshots(value: unknown): SafeResourceSnapshot[] {
+  if (!isRecord(value)) return [];
+  const graph = isRecord(value.graph_ir) ? value.graph_ir : value;
+  const direct = Array.isArray(graph.resource_snapshots)
+    ? graph.resource_snapshots
+    : [];
+  const fromDirect = direct.flatMap((item) => {
+    const normalized = normalizeSafeResourceSnapshot(item);
+    return normalized ? [normalized] : [];
+  });
+  const fromNodes = Array.isArray(graph.nodes)
+    ? graph.nodes.flatMap((item) => {
+        if (!isRecord(item)) return [];
+        const snapshot = normalizeSafeResourceSnapshot(item.resource_snapshot, item);
+        if (snapshot) return [snapshot];
+        if (!isRecord(item.resource_ref)) return [];
+        const unresolved = normalizeSafeResourceSnapshot(
+          { ...item.resource_ref, node_ref: item.ref, node_kind: item.kind },
+          item,
+        );
+        return unresolved ? [unresolved] : [];
+      })
+    : [];
+  const unique = new Map<string, SafeResourceSnapshot>();
+  [...fromDirect, ...fromNodes].slice(0, 64).forEach((item) => {
+    unique.set(`${item.node_ref}:${item.resource_id}`, item);
+  });
+  return [...unique.values()];
 }
 
 export function normalizeAuthoringDiagnostics(value: unknown): AuthoringDiagnostic[] {
@@ -145,6 +238,8 @@ export function normalizeHeadlessProposalState(
     allowed_node_kinds: allowedKinds,
     allowed_middleware_ids: stringArray(authorizedScope.middleware_ids),
     allowed_source_agent_ids: stringArray(authorizedScope.agent_ids),
+    allowed_knowledge_base_ids: stringArray(authorizedScope.knowledge_base_ids),
+    allowed_data_table_ids: stringArray(authorizedScope.data_table_ids),
     compiler_managed_node_kinds: (
       stringArray(payload.compiler_managed_node_kinds).length
         ? stringArray(payload.compiler_managed_node_kinds)
@@ -250,6 +345,7 @@ export function normalizeGraphPatchPreview(payload: unknown): GraphPatchPreview 
           payload.compiled_workflow_checksum ??
           payload.compiled_candidate_checksum,
       ) || undefined,
+    resource_snapshots: normalizeSafeResourceSnapshots(payload),
   };
 }
 
@@ -284,6 +380,10 @@ export function authoringDiffSummary(diff: Record<string, unknown>): string[] {
     "edges_added",
     "edges_removed",
     "bindings_changed",
+    "node_resources_changed",
+    "resource_refs_changed",
+    "resource_snapshots_changed",
+    "error_outcomes_changed",
     "metadata_changed",
     "layout_changed",
   ];
@@ -294,13 +394,27 @@ export function authoringDiffSummary(diff: Record<string, unknown>): string[] {
     else if (typeof value === "number" && value > 0) lines.push(`${key}: ${value}`);
     else if (Array.isArray(value) && value.length > 0) lines.push(`${key}: ${value.length}`);
     else if (isRecord(value) && Object.keys(value).length > 0) {
-      lines.push(
-        `${key}: ${Object.entries(value)
-          .map(([name, count]) => `${name} ${String(count)}`)
-          .join(", ")}`,
-      );
+      lines.push(`${key}: ${Object.keys(value).length}`);
     }
     else if (value === true) lines.push(key);
   }
   return lines.length ? lines : ["服务端未返回可展示的结构差异摘要。"];
+}
+
+export function authoringOperationSummary(operation: GraphPatchOperationV1): string {
+  const op = stringValue(operation.op) || "unknown";
+  if (op === "set_node_resource" || op === "clear_node_resource") {
+    const nodeRef = stringValue(operation.node_ref ?? operation.ref);
+    const resourceId = stringValue(operation.resource_id);
+    return [op, nodeRef, resourceId ? `resource ${resourceId}` : ""]
+      .filter(Boolean)
+      .join(" · ");
+  }
+  if (op === "connect_control" || op === "disconnect_control") {
+    const source = stringValue(operation.source_ref);
+    const outcome = stringValue(operation.outcome_ref) || "success";
+    const target = stringValue(operation.target_ref);
+    return `${op} · ${source}:${outcome} -> ${target}`;
+  }
+  return op;
 }

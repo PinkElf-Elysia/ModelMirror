@@ -134,6 +134,13 @@ Iteration、等待、HITL、Handoff、Trigger、`question_classifier` 和表达�
 
 必须固定用户授权范围、知识版本或活动指针语义、Agent Table SchemaVersion、字段/操作白名单和漂移处理。Evaluator 必须固定资源快照。只有 chunk 或最终文本命中、却无法证明资源版本和查询契约正确的评测，不足以通过本轮。
 
+落地边界进一步固定为：知识检索保持运行时活动指针语义，但 Planner 记录观察版本，
+Evaluator 在运行创建时固定实际索引；Agent Table 查询在候选中固定不可变
+SchemaVersion，并在 Evaluator 中按目标、用例和节点生成私有事务夹具。两类节点通过
+节点自有资源引用授权，不能伪装成 Agent 资源绑定，也不能承担计划任务或直接作为最终
+交付来源。资源能力验收必须使用 `workflow_resource_match` 证明真实节点、资源版本和
+查询契约均匹配。
+
 ### Round 6：Vision
 
 开放 `vision_understanding`，要求：

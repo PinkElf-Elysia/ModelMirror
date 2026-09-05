@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from .metrics import aggregate_evaluation_report, evaluate_case_metrics
+from .resource_fixtures import sanitize_resource_reads
 from .store import XpertEvaluationStore
 
 
@@ -15,6 +16,15 @@ TargetRunner = Callable[
     Awaitable[dict[str, Any]],
 ]
 JudgeRunner = Callable[[str, str, str, str], Awaitable[dict[str, Any]]]
+
+
+def _target_requires_resource_evidence(target: dict[str, Any]) -> bool:
+    resources = dict(target.get("resources") or {})
+    return bool(resources.get("data_tables")) or any(
+        str(item.get("node_kind") or "") == "knowledge_retrieval"
+        for item in list(resources.get("knowledge_versions") or [])
+        if isinstance(item, dict)
+    )
 
 
 class XpertEvaluationExecutor:
@@ -136,6 +146,9 @@ class XpertEvaluationExecutor:
                     return
                 target = targets[item["target_id"]]
                 case = cases[item["case_id"]]
+                resource_evidence_required = _target_requires_resource_evidence(
+                    target
+                )
                 started = time.perf_counter()
                 try:
                     timeout = max(
@@ -148,12 +161,18 @@ class XpertEvaluationExecutor:
                             {
                                 **dict(run.get("config") or {}),
                                 "repetition": item["repetition"],
+                                "evaluation_run_id": run["run_id"],
+                                "evaluation_target_id": item["target_id"],
+                                "evaluation_case_id": item["case_id"],
                             },
                             registry_run.run_id if registry_run else None,
                         )
                     output = str(result.get("output") or "")[
                         : int(budget.get("max_output_chars") or 20_000)
                     ]
+                    resource_reads = sanitize_resource_reads(
+                        result.get("resource_reads")
+                    )
                     metrics = await evaluate_case_metrics(
                         case=case,
                         output=output,
@@ -164,6 +183,8 @@ class XpertEvaluationExecutor:
                             if str(item)
                         ],
                         control_flow=dict(result.get("control_flow") or {}),
+                        resource_reads=resource_reads,
+                        resource_evidence_required=resource_evidence_required,
                         judge=self.judge_runner,
                         judge_model_id=run.get("config", {}).get("judge_model_id"),
                     )
@@ -177,6 +198,7 @@ class XpertEvaluationExecutor:
                             if str(item)
                         ],
                         "control_flow": dict(result.get("control_flow") or {}),
+                        "resource_reads": resource_reads,
                         "usage": dict(result.get("usage") or {}),
                         "latency_ms": round(
                             (time.perf_counter() - started) * 1000, 3
@@ -186,11 +208,22 @@ class XpertEvaluationExecutor:
                         "error": None,
                     }
                 except Exception as exc:
+                    expects_resource_evidence = bool(case.get("resource_reads"))
                     payload = {
                         "status": "failed",
                         "output": "",
                         "citations": {},
                         "control_flow": {},
+                        "resource_reads": [],
+                        "resource_evidence": (
+                            "failed"
+                            if expects_resource_evidence
+                            else (
+                                "missing"
+                                if resource_evidence_required
+                                else "not_applicable"
+                            )
+                        ),
                         "usage": {},
                         "score": 0.0,
                         "metrics": [],

@@ -445,6 +445,120 @@ class DatasetComparePlannerConfig(BaseModel):
         return self
 
 
+class KnowledgeRetrievalPlannerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    top_k: int = Field(default=5, ge=1, le=10)
+    return_mode: Literal["context", "result"] = "result"
+    failure_action: Literal["stop", "error_output"] = "stop"
+    retry_mode: Literal["none", "transient"] = "none"
+    max_attempts: Literal[2, 3] = 2
+
+    @model_validator(mode="after")
+    def validate_retry(self) -> "KnowledgeRetrievalPlannerConfig":
+        if self.retry_mode == "none" and self.max_attempts != 2:
+            raise ValueError("max_attempts must remain 2 when retry_mode is none")
+        return self
+
+
+DataTableQueryOperator = Literal[
+    "eq",
+    "ne",
+    "gt",
+    "gte",
+    "lt",
+    "lte",
+    "in",
+    "contains",
+    "is_null",
+]
+
+
+class DataTableQueryPredicatePlannerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["predicate"] = "predicate"
+    ref: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,39}$")
+    field: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+    operator: DataTableQueryOperator
+    value_source: Literal["literal", "input", "none"] = "literal"
+    value: Any = None
+
+    @model_validator(mode="after")
+    def validate_value_source(self) -> "DataTableQueryPredicatePlannerConfig":
+        if self.operator == "is_null":
+            if self.value_source != "none" or self.value is not None:
+                raise ValueError("is_null predicates require value_source=none")
+            return self
+        if self.value_source == "none":
+            raise ValueError("non-is_null predicates require a value source")
+        if self.value_source == "input" and self.value is not None:
+            raise ValueError("input predicates cannot include a literal value")
+        if self.value_source == "literal" and self.value is None:
+            raise ValueError("literal predicates require a non-null value")
+        return self
+
+
+class DataTableQueryFilterPlannerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["group"] = "group"
+    logic: Literal["and", "or"] = "and"
+    items: list[
+        "DataTableQueryFilterPlannerConfig | DataTableQueryPredicatePlannerConfig"
+    ] = Field(min_length=1, max_length=20)
+
+
+class DataTableQuerySortPlannerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    field: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+    direction: Literal["asc", "desc"] = "asc"
+
+
+class DataTableQueryPlannerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    select_fields: list[str] = Field(default_factory=list, max_length=50)
+    filter: DataTableQueryFilterPlannerConfig | DataTableQueryPredicatePlannerConfig | None = None
+    sort: list[DataTableQuerySortPlannerConfig] = Field(default_factory=list, max_length=5)
+    limit: int = Field(default=20, ge=1, le=200)
+    return_mode: Literal["list", "first"] = "list"
+    failure_action: Literal["stop", "error_output"] = "stop"
+    retry_mode: Literal["none", "transient"] = "none"
+    max_attempts: Literal[2, 3] = 2
+
+    @model_validator(mode="after")
+    def validate_query(self) -> "DataTableQueryPlannerConfig":
+        field_pattern = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+        if any(not field_pattern.fullmatch(item) for item in self.select_fields):
+            raise ValueError("select_fields contains an invalid field name")
+        if len(self.select_fields) != len(set(self.select_fields)):
+            raise ValueError("select_fields must be unique")
+        if self.retry_mode == "none" and self.max_attempts != 2:
+            raise ValueError("max_attempts must remain 2 when retry_mode is none")
+        predicate_refs: list[str] = []
+
+        def visit(
+            item: DataTableQueryFilterPlannerConfig | DataTableQueryPredicatePlannerConfig,
+            depth: int,
+        ) -> None:
+            if depth > 3:
+                raise ValueError("filter depth cannot exceed 3")
+            if isinstance(item, DataTableQueryPredicatePlannerConfig):
+                predicate_refs.append(item.ref)
+                return
+            for child in item.items:
+                visit(child, depth + 1)
+
+        if self.filter is not None:
+            visit(self.filter, 1)
+        if len(predicate_refs) > 20:
+            raise ValueError("filter cannot contain more than 20 predicates")
+        if len(predicate_refs) != len(set(predicate_refs)):
+            raise ValueError("predicate refs must be unique")
+        return self
+
 class ConditionPlannerConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -3576,18 +3690,24 @@ def _complete_contracts() -> dict[str, NodeContract]:
             ),
         ),
         planner=_planner(
+            enabled=True,
+            support="full",
+            compilation_mode="adapter",
+            adapter_version=planner_adapter_version,
+            task_binding="forbidden",
             default_data={
-                "contractVersion": 2,
-                "knowledgeBaseId": "",
-                "queryVariable": "user_input",
-                "top_k": "5",
-                "returnMode": "result",
-                "outputVariable": "knowledge_result",
+                "top_k": 5,
+                "return_mode": "result",
+                "failure_action": "stop",
+                "retry_mode": "none",
+                "max_attempts": 2,
             },
             constraints={
-                "required": ["knowledgeBaseId", "queryVariable", "outputVariable"],
+                "resource_ref": "knowledge_base",
+                "required_input": "query",
                 "return_mode": ["context", "result"],
             },
+            ir_config_schema=KnowledgeRetrievalPlannerConfig.model_json_schema(),
         ),
     )
 
@@ -3705,7 +3825,12 @@ def _complete_contracts() -> dict[str, NodeContract]:
     table_specs = {
         "data_table_query": (
             "read",
-            array_object_value,
+            WorkflowValueSchema(
+                any_of=(
+                    array_object_value,
+                    WorkflowValueSchema(type="object", nullable=True),
+                )
+            ),
             {
                 "versionPolicy": "latest",
                 "selectFields": [],
@@ -3799,6 +3924,19 @@ def _complete_contracts() -> dict[str, NodeContract]:
                 required=["tableId", "outputVariable"],
             ),
             ports=(
+                *(
+                    (
+                        NodePortContract(
+                            name="predicate",
+                            direction="input",
+                            value_schema=any_value,
+                            required=False,
+                            cardinality="many",
+                        ),
+                    )
+                    if kind == "data_table_query"
+                    else ()
+                ),
                 NodePortContract(
                     name="result", direction="output", value_schema=output_schema
                 ),
@@ -3839,10 +3977,21 @@ def _complete_contracts() -> dict[str, NodeContract]:
             ),
             availability=_availability(
                 app=app_table_denied,
-                evaluation=_rule(
-                    "deny",
-                    code="evaluation_unsafe_node",
-                    message=f"Evaluation does not allow node kind: {kind}.",
+                evaluation=(
+                    _rule(
+                        "conditional",
+                        code="evaluation_data_table_fixture_required",
+                        message=(
+                            "Evaluation requires a fixed per-case Agent Table "
+                            "query fixture."
+                        ),
+                    )
+                    if kind == "data_table_query"
+                    else _rule(
+                        "deny",
+                        code="evaluation_unsafe_node",
+                        message=f"Evaluation does not allow node kind: {kind}.",
+                    )
                 ),
             ),
             resources=(
@@ -3854,7 +4003,34 @@ def _complete_contracts() -> dict[str, NodeContract]:
                     dynamic_schema=True,
                 ),
             ),
-            planner=_planner(default_data=defaults),
+            planner=(
+                _planner(
+                    enabled=True,
+                    support="full",
+                    compilation_mode="adapter",
+                    adapter_version=planner_adapter_version,
+                    task_binding="forbidden",
+                    default_data={
+                        "select_fields": [],
+                        "filter": None,
+                        "sort": [],
+                        "limit": 20,
+                        "return_mode": "list",
+                        "failure_action": "stop",
+                        "retry_mode": "none",
+                        "max_attempts": 2,
+                    },
+                    constraints={
+                        "resource_ref": "data_table",
+                        "filter_max_depth": 3,
+                        "filter_max_predicates": 20,
+                        "limit_max": 200,
+                    },
+                    ir_config_schema=DataTableQueryPlannerConfig.model_json_schema(),
+                )
+                if kind == "data_table_query"
+                else _planner(default_data=defaults)
+            ),
         )
 
     contracts["vision_understanding"] = NodeContract(

@@ -134,9 +134,14 @@ EvoAgentX 的来源与已交付历史见
 2. 能力编译：从实时 Capability Snapshot 中选择真实节点、资源和中间件。
 3. 定向修复：本地确定性门禁失败时，最多调用模型修复一次。
 
+面向用户和画布展示的候选名称、任务标题、节点标题、说明、提示词及安全错误文案
+统一使用简体中文。资源 ID、Planner ref、字段名、错误码等机器标识保持原值，避免翻译
+破坏 Schema、资源绑定或确定性 checksum。编译器管理的输入、输出节点也遵守同一展示
+语言约束。
+
 ### NodeContract V3 能力门禁
 
-Meta Planner 的节点事实统一来自 `NodeContractRegistry`。Capability Snapshot V7
+Meta Planner 的节点事实统一来自 `NodeContractRegistry`。Capability Snapshot V8
 只暴露满足以下全部条件的节点：契约状态完整、Planner 显式启用、编译模式真实存在、
 Adapter 版本一致，并且契约与 Adapter 的 compiler checksum 匹配。UI Registry 中出现
 节点不等于 Planner 可以生成该节点。
@@ -144,8 +149,9 @@ Adapter 版本一致，并且契约与 Adapter 的 compiler checksum 匹配。UI
 当前开放范围为 `input`、`output`、`workflow_agent`、四类资源绑定，以及
 `json_serialize`、`json_deserialize`、`variable_aggregator`、`data_aggregate`、
 `dataset_compare` 五种无副作用类型化纯节点和 `condition`、`multi_route`、
-`data_merge`、`terminate_error` 四种受限控制流节点。NodeContract V3 与 Planner IR 独立演进。
-Capability Snapshot 当前为 V7，
+`data_merge`、`terminate_error` 四种受限控制流节点，以及 `knowledge_retrieval`、
+`data_table_query` 两种只读动态资源节点。NodeContract V3 与 Planner IR 独立演进。
+Capability Snapshot 当前为 V8，
 `ir_version=3` 且声明 `supported_ir_versions=[2,3]`。旧 V2 Snapshot 保持可读，详见
 [NODE_CONTRACT_V3.md](./NODE_CONTRACT_V3.md)。
 
@@ -156,8 +162,9 @@ Snapshot 和资源 Store 解析为 `ResolvedGraphIRV3`。模型不能指定资�
 执行效果或安全属性。Resolved IR 显式区分 `control/data/binding/metadata` 四类边；
 data 边只表达类型化变量来源，不进入 classic runner 的拓扑或调度。
 
-外部 Xpert、Toolset、Plugin 和 Prompt Profile 在解析时固定发布版本；知识库保持
-活动版本指针语义并记录观察版本。Graph checksum 排除布局和时间戳，编译产物另有
+外部 Xpert、Toolset、Plugin 和 Prompt Profile 在解析时固定发布版本；知识检索保持
+活动版本指针语义并记录观察版本，Agent Table 查询固定不可变 SchemaVersion 与
+checksum。Graph checksum 排除布局和时间戳，编译产物另有
 独立 checksum。新 Proposal 保存完整安全 IR 和两个 checksum；人工编辑候选后 IR
 标记为 `stale`，审批仍以实际 Workflow 为权威。
 
@@ -182,7 +189,7 @@ Apply。操作、接口、安全 receipt 和回退边界见
 类型化输入/输出变量、控制边、资源/中间件目标和唯一最终输出。任务和 Agent 不再
 强制一一对应：一个 Agent 可以覆盖多个任务，一个任务也可以由多个节点共同完成。
 
-Capability Snapshot V7 只暴露当前存在且与 NodeContract、Adapter checksum 校验一致的
+Capability Snapshot V8 只暴露当前存在且与 NodeContract、Adapter checksum 校验一致的
 编译能力。`workflow_agent` 的 `task_binding=required`，每个计划任务仍必须由 Agent
 覆盖；五种纯节点的 `task_binding=forbidden`，只能作为 Agent 之间的确定性辅助步骤，
 不能承担任务或成为最终输出。`input/output` 由编译器管理，外部 Xpert、知识库、
@@ -194,7 +201,7 @@ Meta Planner 只生成 JSON `contractVersion=2`：Deserialize 必须携带受限
 生成或自动升级。Variable Aggregator V2、Data Aggregate 和 Dataset Compare 复用
 现有 Runtime，并由 Adapter 从 Graph IR data 边派生原生变量绑定。
 
-控制流使用 `control_flow_contract_version=1`。模型只引用语义 outcome：普通节点为
+控制流使用 `control_flow_contract_version=2`。模型只引用语义 outcome：普通节点为
 `success`，Condition 为 `matched/unmatched`，Multi Route 为
 `case_1...case_8/default`；Native handle、路由 ID 和变量均由 Adapter 推导。确定性分析器
 限制最多 8 个路由节点和 256 个符号场景，阻止循环、死路、不可达、影子规则、路径上
@@ -211,7 +218,13 @@ witness 中；无法找到合法 witness 的 outcome（包括 default）继续�
 执行，不补造路径证据；显式存在但损坏的 outcome 映射仍会失败。Output V1 的旧
 运行不能被当作已经验证了 Output V2 路径合同。
 
-`variable_assign`、`list_operation`、`object_transform`、Agent Table、知识检索、视觉理解、
+只读资源节点通过节点自有 `resource_ref` 授权，不能与 Agent 的 `bind_resource` 混用。
+知识检索只允许 `top_k=1..10` 和 `context/result` 输出；Agent Table 查询只接受固定
+Schema 中的字段、受限条件树、排序与 `limit=1..200`。表默认不授权，必须由用户显式
+选择；模型不能提交原生资源字段、版本、Schema、Handle 或 checksum。两类节点均可走
+`success/error`，但不能承担计划任务或直接成为最终交付来源。
+
+`variable_assign`、`list_operation`、`object_transform`、Agent Table 写入、视觉理解、
 循环、等待、HITL、Handoff、Trigger 和 `question_classifier` 仍无 Planner Adapter，
 不会进入授权快照。
 

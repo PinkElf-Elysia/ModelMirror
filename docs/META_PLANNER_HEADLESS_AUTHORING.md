@@ -26,8 +26,9 @@ Pydantic、Adapter 或 Proposal 服务前失败关闭。
 Patch 只接受 Planner ref、命名端口和 Adapter config。原生节点 ID、Handle、资源版本、
 NodeContract Schema、执行策略与 checksum 均由服务端推导，客户端或模型不能注入。
 
-支持 Xpert 元数据、Workflow Agent、五种纯数据 Adapter、控制/data 边、输出变量、
-四类资源、中间件、Prompt Profile、最终输出和布局。`input/output` 由编译器管理；
+支持 Xpert 元数据、Workflow Agent、五种纯数据 Adapter、四种控制流 Adapter、两种
+只读资源 Adapter、控制/data 边、输出变量、四类 Agent 资源、中间件、Prompt Profile、
+最终输出和布局。`input/output` 由编译器管理；
 布局不会改变 Graph checksum，但会改变 candidate checksum。纯节点配置、原生变量名、
 端口 Schema 和 binding ID 由 Adapter 推导，不能通过 Patch 注入。
 
@@ -43,6 +44,11 @@ Apply 必须携带 Preview checksum。服务端重新读取 Proposal、能力快
 - 更新目标的 draft revision 漂移。
 - 相关 NodeContract、Adapter、资源版本或动态 Schema 失效。
 - Patch 端口、类型、基数、控制图、授权或最终输出不合法。
+
+`set_node_resource` 只用于 `knowledge_retrieval` 与 `data_table_query` 的节点自有资源，
+不能替代 Agent 的 `bind_resource`。Preview/Apply 会重新解析知识库活动索引或固定的
+Agent Table SchemaVersion；知识活动指针变化给出 warning，表 Schema checksum、资源
+授权或固定版本失效则阻断。模型和客户端仍不能提交原生资源字段或版本。
 
 无关 Capability Snapshot 变化只产生 warning。Apply 成功只增加一次 Proposal revision，
 随后复用现有 Authoring validation。安全 receipt 最多保留 20 条，只记录操作类型、前后
@@ -76,9 +82,9 @@ POST /api/meta-agent/authoring/proposals/{proposal_id}/patch/preview
 POST /api/meta-agent/authoring/proposals/{proposal_id}/patch/apply
 ```
 
-Capability Snapshot V6 暴露 authoring protocol、操作 JSON Schema、Adapter authoring
-checksum、`task_binding` 和限制。Headless 编辑范围为原有七类加五种纯节点；纯节点
-不得承担任务、绑定资源/中间件或成为最终输出。
+Capability Snapshot V8 暴露 authoring protocol、操作 JSON Schema、Adapter authoring
+checksum、`task_binding` 和限制。Headless 编辑范围为十八种受支持能力；纯节点、
+控制流和只读资源节点不得承担任务，只读资源节点只能使用其 Adapter 声明的资源类型。
 
 ## 回退
 
