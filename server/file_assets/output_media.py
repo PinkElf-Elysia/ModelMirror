@@ -42,7 +42,8 @@ class ChatMediaCapture:
     def __init__(self) -> None:
         self._images: list[CapturedChatMedia] = []
         self._image_hashes: set[str] = set()
-        self._audio = bytearray()
+        self._audio_encoded_parts: list[str] = []
+        self._audio_encoded_length = 0
         self._audio_invalid = False
 
     def consume_line(self, line: str) -> None:
@@ -75,7 +76,8 @@ class ChatMediaCapture:
 
     def items(self, *, audio_format: str | None = None) -> tuple[CapturedChatMedia, ...]:
         result = list(self._images)
-        if self._audio and not self._audio_invalid and audio_format:
+        audio = self._decoded_audio()
+        if audio is not None and audio_format:
             profile = _AUDIO_FORMATS.get(str(audio_format).strip().lower())
             if profile is not None:
                 format_id, media_type, suffix = profile
@@ -85,7 +87,7 @@ class ChatMediaCapture:
                         format_id=format_id,
                         media_type=media_type,
                         filename="modelmirror-response" + suffix,
-                        content=bytes(self._audio),
+                        content=audio,
                     )
                 )
         return tuple(result[:MAX_CAPTURED_IMAGES])
@@ -118,17 +120,37 @@ class ChatMediaCapture:
     def _capture_audio_chunk(self, value: Any) -> None:
         if self._audio_invalid or not isinstance(value, str) or not value:
             return
+        self._audio_encoded_length += len(value)
+        if self._audio_encoded_length > (
+            MAX_CAPTURED_AUDIO_BYTES * 4 // 3 + 16
+        ):
+            self._audio_invalid = True
+            self._audio_encoded_parts.clear()
+            return
+        self._audio_encoded_parts.append(value)
+
+    def _decoded_audio(self) -> bytes | None:
+        if self._audio_invalid or not self._audio_encoded_parts:
+            return None
         try:
-            decoded = base64.b64decode(value, validate=True)
+            decoded = b"".join(
+                base64.b64decode(part, validate=True)
+                for part in self._audio_encoded_parts
+            )
         except (binascii.Error, ValueError):
+            try:
+                decoded = base64.b64decode(
+                    "".join(self._audio_encoded_parts), validate=True
+                )
+            except (binascii.Error, ValueError):
+                self._audio_invalid = True
+                self._audio_encoded_parts.clear()
+                return None
+        if not decoded or len(decoded) > MAX_CAPTURED_AUDIO_BYTES:
             self._audio_invalid = True
-            self._audio.clear()
-            return
-        if not decoded or len(self._audio) + len(decoded) > MAX_CAPTURED_AUDIO_BYTES:
-            self._audio_invalid = True
-            self._audio.clear()
-            return
-        self._audio.extend(decoded)
+            self._audio_encoded_parts.clear()
+            return None
+        return decoded
 
 
 def _data_image_urls(value: Any):

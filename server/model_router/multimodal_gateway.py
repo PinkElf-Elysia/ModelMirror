@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import json
 import time
 import uuid
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal, TypeVar
 
 import httpx
@@ -26,6 +28,7 @@ from .workload_control import (
     ProviderWorkloadCallService,
     ProviderWorkloadPreparedCall,
     r8c_audio_parameter_profile_reason,
+    r8d_audio_parameter_profile_reason,
 )
 
 
@@ -41,10 +44,14 @@ R8BEntryId = Literal[
     "multimodal_speech",
     "xpert_transcription",
     "xpert_speech",
+    "chat_audio_input",
+    "chat_audio_output",
+    "audio_generation",
 ]
 R8BRoutingMode = Literal["legacy", "managed_required", "degraded_required"]
 _T = TypeVar("_T")
 _MAX_IMAGE_RESPONSE_BYTES = 32 * 1024 * 1024
+_MAX_MANAGED_CHAT_AUDIO_BYTES = 25 * 1024 * 1024
 _OPENROUTER_GENERATION_METADATA_POLL_DELAYS_SECONDS = (
     0.0,
     1.0,
@@ -80,6 +87,319 @@ class ManagedMultimodalError(RuntimeError):
         self.code = code
         self.status_code = status_code
         self.receipt = receipt
+
+
+@dataclass(slots=True)
+class ManagedMultimodalChatStreamEvidence:
+    """Shape-aware evidence for a single managed multimodal Chat stream."""
+
+    execution_shape: Literal[
+        "chat_image_stream",
+        "chat_document_stream",
+        "chat_audio_input",
+        "chat_audio_output",
+    ]
+    expected_model: str
+    started_at: float
+    buffer: str = ""
+    invalid: bool = False
+    text_observed: bool = False
+    audio_observed: bool = False
+    terminal_observed: bool = False
+    done_observed: bool = False
+    actual_model: str | None = None
+    model_mismatch: bool = False
+    finish_reason: str | None = None
+    ttft_ms: float | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
+    audio_encoded_parts: list[str] = field(default_factory=list)
+    audio_encoded_length: int = 0
+    hard_error_code: str | None = None
+
+    @property
+    def model_verified(self) -> bool:
+        return bool(
+            self.actual_model == self.expected_model and not self.model_mismatch
+        )
+
+    def feed(self, value: str) -> None:
+        self.buffer += value.replace("\r\n", "\n").replace("\r", "\n")
+        while "\n\n" in self.buffer:
+            event, self.buffer = self.buffer.split("\n\n", 1)
+            self._consume_event(event)
+
+    def finish(
+        self,
+        *,
+        transport_completed: bool,
+        transport_error_code: str | None = None,
+    ) -> tuple[str, str, str | None, dict[str, bool], list[str]]:
+        if self.buffer.strip():
+            self._consume_event(self.buffer)
+            self.buffer = ""
+        audio_content = (
+            self._decoded_audio()
+            if self.execution_shape == "chat_audio_output"
+            else b""
+        )
+        if self.execution_shape == "chat_audio_output" and self.audio_observed:
+            if audio_content is None:
+                self.invalid = True
+        required_content_observed = (
+            self.audio_observed
+            if self.execution_shape == "chat_audio_output"
+            else self.text_observed
+        )
+        checks = {
+            "chat_http_ok": True,
+            "text_delta_observed": self.text_observed,
+            "audio_delta_observed": self.audio_observed,
+            "stream_completed": transport_completed,
+            "terminal_observed": self.terminal_observed,
+            "actual_model_verified": self.model_verified,
+            "media_format_verified": (
+                self.execution_shape != "chat_audio_output"
+                or (
+                    self.audio_observed
+                    and audio_content is not None
+                    and self._is_complete_mp3(audio_content)
+                )
+            ),
+        }
+        warnings: list[str] = []
+        if self.total_tokens is None:
+            warnings.append("usage_missing")
+        if self.finish_reason == "length":
+            warnings.append("finish_reason_length")
+        if self.hard_error_code is not None:
+            return (
+                "failed",
+                "hard_failure",
+                self.hard_error_code,
+                checks,
+                warnings,
+            )
+        if self.invalid:
+            return (
+                "failed",
+                "hard_failure",
+                "provider_multimodal_invalid_sse",
+                checks,
+                warnings,
+            )
+        if self.model_mismatch:
+            return (
+                "failed",
+                "hard_failure",
+                "provider_workload_model_mismatch",
+                checks,
+                warnings,
+            )
+        if transport_error_code is not None:
+            if transport_error_code == "provider_chat_client_cancelled":
+                return (
+                    "cancelled",
+                    "client_cancelled",
+                    transport_error_code,
+                    checks,
+                    warnings,
+                )
+            return (
+                "uncertain",
+                "transport_error",
+                transport_error_code,
+                checks,
+                warnings,
+            )
+        if self.actual_model is None:
+            return (
+                "failed",
+                "hard_failure",
+                "provider_multimodal_actual_model_unverified",
+                checks,
+                warnings,
+            )
+        if not required_content_observed:
+            return (
+                "failed",
+                "hard_failure",
+                (
+                    "provider_multimodal_audio_output_missing"
+                    if self.execution_shape == "chat_audio_output"
+                    else "provider_chat_empty_stream"
+                ),
+                checks,
+                warnings,
+            )
+        if (
+            self.execution_shape == "chat_audio_output"
+            and not checks["media_format_verified"]
+        ):
+            return (
+                "failed",
+                "hard_failure",
+                "provider_multimodal_audio_stream_invalid",
+                checks,
+                warnings,
+            )
+        if not self.terminal_observed:
+            return (
+                "failed",
+                "hard_failure",
+                "provider_chat_missing_terminal",
+                checks,
+                warnings,
+            )
+        return "succeeded", "success", None, checks, warnings
+
+    def _consume_event(self, event: str) -> None:
+        data_lines: list[str] = []
+        for line in event.split("\n"):
+            stripped = self._normalized_sse_field_line(line)
+            if not stripped or stripped.startswith(":"):
+                continue
+            if stripped.startswith("event:") and stripped[6:].strip():
+                self.hard_error_code = (
+                    "provider_multimodal_reserved_sse_event"
+                )
+                return
+            if stripped.startswith("data:"):
+                data_lines.append(stripped[5:].lstrip())
+        if not data_lines:
+            return
+        data = "\n".join(data_lines)
+        if data == "[DONE]":
+            if self.done_observed:
+                self.invalid = True
+            self.done_observed = True
+            self.terminal_observed = True
+            return
+        if self.done_observed:
+            self.invalid = True
+            return
+        try:
+            payload = json.loads(data)
+        except (json.JSONDecodeError, TypeError):
+            self.invalid = True
+            return
+        if not isinstance(payload, dict):
+            self.invalid = True
+            return
+        if "error" in payload:
+            self.hard_error_code = (
+                "provider_multimodal_upstream_stream_error"
+            )
+            return
+        model = payload.get("model")
+        if isinstance(model, str) and model.strip():
+            observed = model.strip()
+            if self.actual_model is not None and self.actual_model != observed:
+                self.model_mismatch = True
+            self.actual_model = observed
+            if observed != self.expected_model:
+                self.model_mismatch = True
+        usage = payload.get("usage")
+        if isinstance(usage, dict):
+            self.prompt_tokens = self._integer(usage.get("prompt_tokens"))
+            self.completion_tokens = self._integer(
+                usage.get("completion_tokens")
+            )
+            self.total_tokens = self._integer(usage.get("total_tokens"))
+        choices = payload.get("choices")
+        if not isinstance(choices, list):
+            return
+        for choice in choices:
+            if not isinstance(choice, dict):
+                continue
+            finish_reason = choice.get("finish_reason")
+            if isinstance(finish_reason, str) and finish_reason:
+                self.finish_reason = finish_reason
+                self.terminal_observed = True
+            for container_name in ("delta", "message"):
+                container = choice.get(container_name)
+                if not isinstance(container, dict):
+                    continue
+                if self._has_text(container.get("content")):
+                    self.text_observed = True
+                    self._observe_ttft()
+                audio = container.get("audio")
+                if isinstance(audio, dict):
+                    encoded = audio.get("data")
+                    if isinstance(encoded, str) and encoded:
+                        self.audio_encoded_length += len(encoded)
+                        if self.audio_encoded_length > (
+                            _MAX_MANAGED_CHAT_AUDIO_BYTES * 4 // 3 + 16
+                        ):
+                            self.invalid = True
+                        else:
+                            self.audio_encoded_parts.append(encoded)
+                            self.audio_observed = True
+                            self._observe_ttft()
+
+    def _observe_ttft(self) -> None:
+        if self.ttft_ms is None:
+            self.ttft_ms = (time.perf_counter() - self.started_at) * 1000
+
+    @staticmethod
+    def _normalized_sse_field_line(line: str) -> str:
+        """Match browser trimming for SSE field detection, including BOM."""
+
+        stripped = line.lstrip()
+        while stripped.startswith("\ufeff"):
+            stripped = stripped[1:].lstrip()
+        return stripped
+
+    @classmethod
+    def _has_text(cls, value: object) -> bool:
+        if isinstance(value, str):
+            return bool(value)
+        if isinstance(value, list):
+            return any(cls._has_text(item) for item in value)
+        if isinstance(value, dict):
+            text = value.get("text")
+            return isinstance(text, str) and bool(text)
+        return False
+
+    @staticmethod
+    def _integer(value: object) -> int | None:
+        try:
+            return int(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    def _decoded_audio(self) -> bytes | None:
+        if not self.audio_encoded_parts:
+            return None
+        try:
+            decoded_parts = [
+                base64.b64decode(part, validate=True)
+                for part in self.audio_encoded_parts
+            ]
+            decoded = b"".join(decoded_parts)
+        except (binascii.Error, ValueError):
+            try:
+                # Some OpenAI-compatible streams split one base64 value across
+                # events, while OpenRouter emits independently padded chunks.
+                decoded = base64.b64decode(
+                    "".join(self.audio_encoded_parts), validate=True
+                )
+            except (binascii.Error, ValueError):
+                return None
+        if not decoded or len(decoded) > _MAX_MANAGED_CHAT_AUDIO_BYTES:
+            return None
+        return decoded
+
+    @staticmethod
+    def _is_complete_mp3(content: bytes) -> bool:
+        # Keep the structural validator shared with the audio-generation
+        # delivery boundary so both paths reject magic-only or truncated data.
+        try:
+            from server.multimodal.audio_jobs import is_complete_mp3
+        except ModuleNotFoundError:  # pragma: no cover - direct server imports
+            from multimodal.audio_jobs import is_complete_mp3
+        return is_complete_mp3(content)
 
 
 class ManagedMultimodalGateway:
@@ -147,7 +467,13 @@ class ManagedMultimodalGateway:
         entry_id: R8BEntryId,
         *,
         certification_id: str,
-        execution_shape: Literal["audio_transcription", "audio_speech"],
+        execution_shape: Literal[
+            "audio_transcription",
+            "audio_speech",
+            "chat_audio_input",
+            "chat_audio_output",
+            "audio_generation_stream",
+        ],
     ) -> dict[str, object]:
         row = self.call_service.repository.get_workload_certification(
             self.call_service.router_service.tenant_id,
@@ -163,7 +489,11 @@ class ManagedMultimodalGateway:
         except (json.JSONDecodeError, TypeError, ValueError):
             parsed = {}
         profile = parsed if isinstance(parsed, dict) else {}
-        reason = r8c_audio_parameter_profile_reason(execution_shape, profile)
+        reason = (
+            r8c_audio_parameter_profile_reason(execution_shape, profile)
+            if execution_shape in {"audio_transcription", "audio_speech"}
+            else r8d_audio_parameter_profile_reason(execution_shape, profile)
+        )
         if reason is not None:
             raise self._blocked(entry_id, reason)
         return profile
@@ -204,9 +534,21 @@ class ManagedMultimodalGateway:
 
     async def prepare_chat_dispatch(
         self,
-        entry_id: Literal["chat_image", "chat_document_native"],
+        entry_id: Literal[
+            "chat_image",
+            "chat_document_native",
+            "chat_audio_input",
+            "chat_audio_output",
+            "audio_generation",
+        ],
         *,
-        execution_shape: Literal["chat_image_stream", "chat_document_stream"],
+        execution_shape: Literal[
+            "chat_image_stream",
+            "chat_document_stream",
+            "chat_audio_input",
+            "chat_audio_output",
+            "audio_generation_stream",
+        ],
         requested_model: str,
         parent_run_reference: str,
     ) -> "ManagedMultimodalChatDispatch":
@@ -880,6 +1222,7 @@ class ManagedMultimodalChatDispatch:
         self.run = run
         self.prepared = prepared
         self.dispatched = False
+        self.delivery_pending = False
         self.completed = False
         self.started_at: float | None = None
 
@@ -893,6 +1236,7 @@ class ManagedMultimodalChatDispatch:
         payload: Mapping[str, object],
         *,
         headers: Mapping[str, str] | None = None,
+        on_dispatched: Callable[[], None] | None = None,
     ) -> httpx.Response:
         if self.dispatched:
             raise ManagedMultimodalError(
@@ -917,9 +1261,58 @@ class ManagedMultimodalChatDispatch:
         self.run.gateway.call_service.mark_dispatched(self.prepared)
         self.dispatched = True
         self.started_at = time.perf_counter()
+        if on_dispatched is not None:
+            on_dispatched()
         return await self.run.gateway.call_service.multimodal_transport.send_authorized(
             client, request
         )
+
+    def prepare_delivery(self) -> None:
+        if self.completed or not self.dispatched or self.delivery_pending:
+            raise ManagedMultimodalError(
+                "provider_multimodal_delivery_state_invalid",
+                "多模态 Chat 派发记录不允许重复进入交付阶段。",
+                receipt=self.run.receipt_summary(),
+            )
+        self.run.gateway.call_service.mark_delivery_pending(self.prepared)
+        self.delivery_pending = True
+
+    def preview_success_receipt(
+        self,
+        *,
+        actual_model: str,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        total_tokens: int | None = None,
+    ) -> dict[str, Any]:
+        """Build the terminal receipt after the delivery-pending audit commit."""
+
+        if self.completed or not self.dispatched or not self.delivery_pending:
+            raise ManagedMultimodalError(
+                "provider_multimodal_delivery_state_invalid",
+                "多模态 Chat 尚未进入可交付状态。",
+                receipt=self.run.receipt_summary(),
+            )
+        call = WorkflowProviderCallReceipt(
+            call_sequence=1,
+            model_id=self.prepared.model_id,
+            actual_model=actual_model,
+            dispatched=True,
+            status="passed",
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+        )
+        return {
+            "contract_version": PROVIDER_WORKLOAD_CONTRACT_VERSION,
+            "entry_id": self.run.entry_id,
+            "routing_mode": "managed_required",
+            "run_reference": self.run._delegate.run_id,  # noqa: SLF001
+            "status": "passed",
+            "call_count": 1,
+            "reason_codes": [],
+            "calls": [call.as_dict()],
+        }
 
     def complete(
         self,
@@ -951,6 +1344,9 @@ class ManagedMultimodalChatDispatch:
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             total_tokens=total_tokens,
+            complete_run_id=self.run._delegate.run_id,  # noqa: SLF001
+            run_result_class=f"workflow_node_{status}",
+            run_reason_codes=[error_code] if error_code else [],
         )
         self.run._delegate.calls.append(  # noqa: SLF001 - receipt adapter
             WorkflowProviderCallReceipt(
@@ -965,6 +1361,9 @@ class ManagedMultimodalChatDispatch:
                 total_tokens=total_tokens,
             )
         )
-        self.run._delegate.finish(status, reason_code=error_code)  # noqa: SLF001
+        self.run._delegate.status = status  # noqa: SLF001
+        self.run._delegate.reason_codes = (  # noqa: SLF001
+            [error_code] if error_code else []
+        )
         self.completed = True
         return self.run.receipt_summary()

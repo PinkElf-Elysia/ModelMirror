@@ -8,7 +8,12 @@ import {
 } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { models, type Model } from "../data/models";
+import {
+  parseAudioProviderRouteReceipts,
+  type AudioProviderRouteReceipt,
+} from "../utils/speechAudio";
 import BrandLogo from "./BrandLogo";
+import ProviderRouteReceiptSummary from "./ProviderRouteReceiptSummary";
 import ResourceNav from "./ResourceNav";
 
 const MAX_PROMPT_CHARS = 4_000;
@@ -65,6 +70,16 @@ interface AudioJob {
     code: string;
     message: string;
   } | null;
+  execution_mode: "managed" | "legacy";
+  provider_route_receipts: AudioProviderRouteReceipt[];
+  provider_dispatch_state:
+    | "not_dispatched"
+    | "dispatched"
+    | "confirmed"
+    | "uncertain"
+    | null;
+  retry_allowed: boolean;
+  fallback_reason_codes: string[];
 }
 
 interface AudioJobListResponse {
@@ -128,6 +143,67 @@ async function readJson<T>(response: Response, fallback: string): Promise<T> {
     throw new Error(responseErrorMessage(payload, fallback));
   }
   return payload as T;
+}
+
+function parseAudioJob(payload: unknown): AudioJob {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("音乐任务响应格式无效，请刷新后重试。");
+  }
+  const value = payload as Record<string, unknown>;
+  if (
+    typeof value.job_id !== "string" ||
+    !value.job_id.trim() ||
+    typeof value.requested_model !== "string" ||
+    !ACTIVE_STATUSES.has(value.status as AudioJobStatus) &&
+      value.status !== "succeeded" &&
+      value.status !== "failed" &&
+      value.status !== "expired"
+  ) {
+    throw new Error("音乐任务响应格式无效，请刷新后重试。");
+  }
+  const executionMode = value.execution_mode === "managed" ? "managed" : "legacy";
+  const dispatchState = new Set([
+    "not_dispatched",
+    "dispatched",
+    "confirmed",
+    "uncertain",
+  ]).has(String(value.provider_dispatch_state))
+    ? (value.provider_dispatch_state as AudioJob["provider_dispatch_state"])
+    : null;
+  return {
+    ...(value as unknown as AudioJob),
+    generation_id:
+      executionMode === "managed"
+        ? null
+        : typeof value.generation_id === "string"
+          ? value.generation_id
+          : null,
+    execution_mode: executionMode,
+    provider_route_receipts: parseAudioProviderRouteReceipts(
+      value.provider_route_receipts,
+    ),
+    provider_dispatch_state: dispatchState,
+    retry_allowed:
+      typeof value.retry_allowed === "boolean"
+        ? value.retry_allowed
+        : executionMode === "legacy",
+    fallback_reason_codes: Array.isArray(value.fallback_reason_codes)
+      ? value.fallback_reason_codes.filter(
+          (item): item is string => typeof item === "string",
+        )
+      : [],
+  };
+}
+
+function parseAudioJobList(payload: unknown): AudioJobListResponse {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("音乐任务列表响应格式无效，请刷新后重试。");
+  }
+  const jobs = (payload as { jobs?: unknown }).jobs;
+  if (!Array.isArray(jobs)) {
+    throw new Error("音乐任务列表响应格式无效，请刷新后重试。");
+  }
+  return { jobs: jobs.map(parseAudioJob) };
 }
 
 function mergeJob(current: AudioJob[], job: AudioJob) {
@@ -226,10 +302,19 @@ export default function AudioCreationWorkspace({
   const [notice, setNotice] = useState("");
   const [pollWarnings, setPollWarnings] = useState<Record<string, string>>({});
   const [confirmDeleteId, setConfirmDeleteId] = useState("");
+  const [idempotencyAttemptRetained, setIdempotencyAttemptRetained] =
+    useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const idempotencyKeyRef = useRef("");
+  const idempotencyJobIdRef = useRef("");
   const jobsRef = useRef<AudioJob[]>([]);
+
+  const clearIdempotencyAttempt = useCallback(() => {
+    idempotencyKeyRef.current = "";
+    idempotencyJobIdRef.current = "";
+    setIdempotencyAttemptRetained(false);
+  }, []);
 
   const profile = useMemo(
     () =>
@@ -293,11 +378,11 @@ export default function AudioCreationWorkspace({
 
   const loadJobs = useCallback(async () => {
     const response = await fetch("/api/multimodal/audio/jobs");
-    const payload = await readJson<AudioJobListResponse>(
+    const payload = await readJson<unknown>(
       response,
       "暂时无法读取音乐任务，请稍后刷新。",
     );
-    setJobs(payload.jobs);
+    setJobs(parseAudioJobList(payload).jobs);
   }, []);
 
   const refreshJob = useCallback(async (jobId: string) => {
@@ -305,11 +390,19 @@ export default function AudioCreationWorkspace({
       const response = await fetch(
         `/api/multimodal/audio/jobs/${encodeURIComponent(jobId)}`,
       );
-      const job = await readJson<AudioJob>(
+      const payload = await readJson<unknown>(
         response,
         "暂时无法刷新音乐任务。",
       );
+      const job = parseAudioJob(payload);
       setJobs((current) => mergeJob(current, job));
+      if (
+        idempotencyJobIdRef.current === job.job_id &&
+        !ACTIVE_STATUSES.has(job.status) &&
+        job.retry_allowed
+      ) {
+        clearIdempotencyAttempt();
+      }
       setPollWarnings((current) => {
         if (!current[jobId]) return current;
         const next = { ...current };
@@ -327,7 +420,11 @@ export default function AudioCreationWorkspace({
       }));
       return false;
     }
-  }, []);
+  }, [clearIdempotencyAttempt]);
+
+  useEffect(() => {
+    clearIdempotencyAttempt();
+  }, [clearIdempotencyAttempt, model.id]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -423,7 +520,7 @@ export default function AudioCreationWorkspace({
   }, [model.id, refreshJob]);
 
   function markFormChanged() {
-    idempotencyKeyRef.current = "";
+    clearIdempotencyAttempt();
     setError("");
     setNotice("");
   }
@@ -452,9 +549,12 @@ export default function AudioCreationWorkspace({
       promptRef.current?.focus();
       return;
     }
-    const key =
-      idempotencyKeyRef.current ||
-      (idempotencyKeyRef.current = newIdempotencyKey());
+    let key = idempotencyKeyRef.current;
+    if (!key) {
+      key = newIdempotencyKey();
+      idempotencyKeyRef.current = key;
+      setIdempotencyAttemptRetained(true);
+    }
     const form = new FormData();
     form.append("model_id", model.id);
     form.append("prompt", cleanPrompt);
@@ -467,19 +567,25 @@ export default function AudioCreationWorkspace({
     try {
       const response = await fetch("/api/multimodal/audio/jobs", {
         method: "POST",
+        headers: { "Idempotency-Key": key },
         body: form,
       });
-      const job = await readJson<AudioJob>(
+      const payload = await readJson<unknown>(
         response,
         "音乐任务没有提交成功，请检查连接后重试。",
       );
+      const job = parseAudioJob(payload);
+      idempotencyJobIdRef.current = job.job_id;
+      setIdempotencyAttemptRetained(true);
       setJobs((current) => mergeJob(current, job));
       setNotice(
         job.status === "failed"
           ? "这次提交未被接受，请查看任务提示后重试。"
           : "任务已提交，完成后可在下方试听和下载。",
       );
-      idempotencyKeyRef.current = "";
+      if (!ACTIVE_STATUSES.has(job.status) && job.retry_allowed) {
+        clearIdempotencyAttempt();
+      }
     } catch (submitError) {
       setError(
         submitError instanceof Error
@@ -724,18 +830,33 @@ export default function AudioCreationWorkspace({
                       提交会产生费用，未知费用不会显示为零。
                     </p>
                   </div>
-                  <button
-                    className="rounded-full bg-hire-300 px-5 py-2.5 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-hire-100 focus-visible:ring-offset-2 focus-visible:ring-offset-ink-950 disabled:cursor-not-allowed disabled:opacity-45"
-                    disabled={!canSubmit}
-                    onClick={() => void submitJob()}
-                    type="button"
-                  >
-                    {submitting
-                      ? "正在提交…"
-                      : profile.price_per_generation_usd === null
-                        ? "提交生成 · 费用以网关结算为准"
-                        : `提交生成 · 预计 $${profile.price_per_generation_usd.toFixed(2)}`}
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {idempotencyAttemptRetained ? (
+                      <button
+                        className="rounded-full border border-white/15 px-4 py-2.5 text-sm font-semibold text-slate-200 transition hover:border-brand-300/40 hover:text-brand-100 disabled:cursor-not-allowed disabled:opacity-45"
+                        disabled={submitting}
+                        onClick={() => {
+                          clearIdempotencyAttempt();
+                          setNotice("已准备一个使用新幂等键的任务。");
+                        }}
+                        type="button"
+                      >
+                        开始新任务
+                      </button>
+                    ) : null}
+                    <button
+                      className="rounded-full bg-hire-300 px-5 py-2.5 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-hire-100 focus-visible:ring-offset-2 focus-visible:ring-offset-ink-950 disabled:cursor-not-allowed disabled:opacity-45"
+                      disabled={!canSubmit}
+                      onClick={() => void submitJob()}
+                      type="button"
+                    >
+                      {submitting
+                        ? "正在提交…"
+                        : profile.price_per_generation_usd === null
+                          ? "提交生成 · 费用以网关结算为准"
+                          : `提交生成 · 预计 $${profile.price_per_generation_usd.toFixed(2)}`}
+                    </button>
+                  </div>
                 </div>
               </div>
             ) : (
@@ -858,6 +979,11 @@ export default function AudioCreationWorkspace({
                               使用图片提示
                             </span>
                           ) : null}
+                          {job.execution_mode === "managed" ? (
+                            <span className="rounded-full border border-cyan-300/20 bg-cyan-300/[0.07] px-2.5 py-1 text-xs text-cyan-100">
+                              Provider 控制面
+                            </span>
+                          ) : null}
                         </div>
                         <p className="mt-3 text-sm leading-6 text-slate-300">
                           {presentation.description}
@@ -892,24 +1018,26 @@ export default function AudioCreationWorkspace({
                             刷新状态
                           </button>
                         ) : null}
-                        <button
-                          className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                            confirmDeleteId === job.job_id
-                              ? "border-rose-300/40 bg-rose-300/10 text-rose-100"
-                              : "border-white/15 text-slate-300 hover:border-rose-300/35 hover:text-rose-100"
-                          }`}
-                          onBlur={() => {
-                            if (confirmDeleteId === job.job_id) {
-                              setConfirmDeleteId("");
-                            }
-                          }}
-                          onClick={() => void removeJob(job.job_id)}
-                          type="button"
-                        >
-                          {confirmDeleteId === job.job_id
-                            ? "确认移除记录"
-                            : "移除记录"}
-                        </button>
+                        {job.execution_mode === "legacy" ? (
+                          <button
+                            className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                              confirmDeleteId === job.job_id
+                                ? "border-rose-300/40 bg-rose-300/10 text-rose-100"
+                                : "border-white/15 text-slate-300 hover:border-rose-300/35 hover:text-rose-100"
+                            }`}
+                            onBlur={() => {
+                              if (confirmDeleteId === job.job_id) {
+                                setConfirmDeleteId("");
+                              }
+                            }}
+                            onClick={() => void removeJob(job.job_id)}
+                            type="button"
+                          >
+                            {confirmDeleteId === job.job_id
+                              ? "确认移除记录"
+                              : "移除记录"}
+                          </button>
+                        ) : null}
                       </div>
                     </div>
 
@@ -930,6 +1058,29 @@ export default function AudioCreationWorkspace({
                         {job.error.message}
                       </p>
                     ) : null}
+
+                    {job.provider_dispatch_state === "uncertain" ? (
+                      <p
+                        className="mt-4 rounded-lg border border-amber-300/25 bg-amber-300/10 px-4 py-3 text-sm leading-6 text-amber-100"
+                        role="alert"
+                      >
+                        Provider 请求已派发，但结果尚未确认。系统不会自动重放同一任务；请先在供应商侧核对，再决定是否创建新任务。
+                        {job.fallback_reason_codes.length
+                          ? ` 原因：${job.fallback_reason_codes.join("、")}`
+                          : ""}
+                      </p>
+                    ) : null}
+
+                    {job.execution_mode === "managed" ? (
+                      <p className="mt-3 text-xs leading-5 text-slate-400">
+                        Managed 任务会保留脱敏幂等与审计记录，不能从此处移除。
+                      </p>
+                    ) : null}
+
+                    <ProviderRouteReceiptSummary
+                      receipts={job.provider_route_receipts}
+                      title="音乐生成控制面"
+                    />
 
                     {job.status === "succeeded" ? (
                       <div className="mt-5 rounded-lg bg-white/[0.045] p-4">
