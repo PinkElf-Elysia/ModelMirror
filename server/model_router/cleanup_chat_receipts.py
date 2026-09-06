@@ -57,7 +57,10 @@ def main() -> int:
     before = (
         datetime.now(UTC) - timedelta(days=values.older_than_days)
     ).isoformat()
-    repository = SQLiteRouterRepository(values.storage_dir)
+    repository = SQLiteRouterRepository(
+        values.storage_dir,
+        recover_chat_control_on_startup=False,
+    )
     result = cleanup_receipts(
         repository,
         values.tenant_id,
