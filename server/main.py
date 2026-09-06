@@ -3100,6 +3100,7 @@ class ChatRequest(BaseModel):
     prompt_suffix: str = Field(default="", max_length=4_000)
     gateway: Literal["default", "auto", "omniroute", "newapi_canary"] = "default"
     routing: ChatRoutingOptions | None = None
+    require_managed_route: bool = False
     compression: ChatCompressionOptions | None = None
     response_audio: ChatResponseAudioOptions | None = None
     skill_application: ChatSkillApplication | None = None
@@ -32311,6 +32312,39 @@ async def get_openrouter_batch(batch_id: str):
 
 @app.post("/api/chat")
 async def chat(payload: ChatRequest, request: Request):
+    if payload.require_managed_route:
+        managed_route_shape_supported = bool(
+            payload.gateway == "default"
+            and not is_omniroute_auto_model(payload.model_id)
+            and payload.routing is None
+            and (
+                payload.compression is None or payload.compression.mode == "off"
+            )
+            and payload.tool_mode == "none"
+            and not payload.tool_names.strip()
+            and not payload.prompt_suffix.strip()
+            and payload.skill_application is None
+            and payload.file_scope_id is None
+            and payload.output_mode == "none"
+            and payload.output_context_id is None
+            and payload.response_audio is None
+            and all(
+                isinstance(message.content, str)
+                or (
+                    isinstance(message.content, list)
+                    and all(isinstance(part, TextContentPart) for part in message.content)
+                )
+                for message in payload.messages
+            )
+        )
+        if not managed_route_shape_supported:
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "error": "强制 Managed Chat 仅支持 default 网关的纯文本请求。",
+                    "code": "provider_chat_managed_route_unsupported",
+                },
+            )
     runtime_task_id = uuid.uuid4().hex
     chat_skill_application: dict[str, str] | None = None
     chat_skill_application_recorded = False
@@ -32380,7 +32414,7 @@ async def chat(payload: ChatRequest, request: Request):
         else "chat_text"
     )
     stable_chat_shape_requested = bool(
-        stable_chat_service.control.feature_enabled()
+        (stable_chat_service.control.feature_enabled() or payload.require_managed_route)
         and payload.gateway == "default"
         and not is_omniroute_auto_model(payload.model_id)
         and payload.response_audio is None
@@ -32631,6 +32665,17 @@ async def chat(payload: ChatRequest, request: Request):
     stable_chat_started_at: float | None = None
     stable_capability_model_calls = 0
 
+    def ensure_required_managed_route_current() -> None:
+        if (
+            payload.require_managed_route
+            and not stable_chat_service.control.feature_enabled()
+        ):
+            raise RouterServiceError(
+                "provider_chat_policy_or_qualification_changed",
+                "Chat 路由控制开关已变化，请刷新设置后重试。",
+                status_code=409,
+            )
+
     async def send_stable_capability_response(
         request_client: httpx.AsyncClient,
         request_payload: dict[str, Any],
@@ -32645,8 +32690,10 @@ async def chat(payload: ChatRequest, request: Request):
         if not use_stable_chat or stable_chat_dispatch is None:
             raise RuntimeError("provider_chat_stable_dispatch_missing")
         if stable_chat_post_started:
+            ensure_required_managed_route_current()
             stable_chat_service.ensure_dispatch_current(stable_chat_dispatch)
         else:
+            ensure_required_managed_route_current()
             stable_chat_service.mark_dispatched(stable_chat_dispatch)
             stable_chat_post_started = True
             stable_chat_started_at = time.perf_counter()
@@ -33011,6 +33058,22 @@ async def chat(payload: ChatRequest, request: Request):
             use_stable_chat = True
             url = stable_chat_dispatch.target.chat_completions_url
             key = stable_chat_dispatch.target.api_key
+
+    if payload.require_managed_route and not use_stable_chat:
+        reason_code = "provider_chat_managed_route_required"
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "当前请求没有可用的 Managed Chat 路径，调用已在派发前阻断。",
+                "code": reason_code,
+                "route_receipt": stable_chat_service.route_receipt(
+                    None,
+                    requested_model=payload.model_id,
+                    reason_codes=[reason_code],
+                    strategy="managed_required_request",
+                ),
+            },
+        )
 
     if (
         payload.output_mode == "allowlisted"
@@ -34395,6 +34458,7 @@ async def chat(payload: ChatRequest, request: Request):
                     headers=request_headers,
                 )
             )
+            ensure_required_managed_route_current()
             stable_chat_service.mark_dispatched(stable_chat_dispatch)
             stable_chat_post_started = True
             stable_chat_started_at = time.perf_counter()

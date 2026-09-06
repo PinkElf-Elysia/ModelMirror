@@ -1,6 +1,8 @@
-# AI RPG 合同与离线内容编译
+# AI RPG 合同、离线内容与受控运行实验
 
-私有 ESM 包 `@modelmirror/ai-rpg-contracts@0.2.0`。RPG-02 交付两个代表世界的可核对资源、玩家文本解析、开局组合、离线编译、受限 ZIP 与转换回执。原离线交付为 `implemented_pending_manual_acceptance`、`claimAllowed=false`。用户追加的低级 worker 小批资格已通过，合格型号为 Terra，`finalAcceptanceReady=true`；用户已授权收尾后提交 PR。人工验收与后继实施授权分别处理。
+私有 ESM 包 `@modelmirror/ai-rpg-contracts@0.3.0`。RPG-01/02 已验收；RPG-03 已实现，模块 230 项、父仓 53 项及真实 Provider 验收通过，待人工验收，`claimAllowed=false`。本轮未获得提交或发布授权。RPG-02 的资源、内容工具和 worker 资格证据保持冻结，不能从本轮推断已获全量提取授权。
+
+RPG-03 新增 `/runtime` 与 `/runtime/node` 入口，默认零可选插件，调用方负责准备消息并明确提交候选回合。说明见 [运行核心](docs/RPG03_RUNTIME.md)、[持久化](docs/RPG03_PERSISTENCE.md)、[受控 HTTP](docs/RPG03_HTTP_ADAPTER.md)、[插件宿主](docs/RPG03_PLUGIN_HOST.md) 和 [开发 CLI/验证工具](docs/RPG03_HARNESS.md)。机器进度及真实/模拟证据边界见 [RPG03_STATUS.json](docs/RPG03_STATUS.json) 与 [验收记录](docs/RPG03_ACCEPTANCE.md)。以下内容编译章节继续说明 RPG-02 的已交付能力。
 
 ## 接口与兼容
 

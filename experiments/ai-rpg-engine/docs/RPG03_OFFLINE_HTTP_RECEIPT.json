@@ -1,0 +1,298 @@
+{
+  "receipt": {
+    "baseSha": "80221379cec850a2b25f5eeeb410233062f3e1ea",
+    "candidateTreeSha256": "27c0f09da409e59d77f9325c6a6916112d8e276e18a733ef0dc0248f05a4b974",
+    "cli": {
+      "commands": 5,
+      "evidenceKind": "mock",
+      "exitCode": 0,
+      "outputSha256": "8fb84628d0319121abe03c9ff5e27d4a07bf1fb42e5dfe2a3eb1c0c6ee8137d0",
+      "summaries": [
+        {
+          "operation": "create",
+          "requestId": "cli.create",
+          "revision": 0,
+          "turnCount": 0
+        },
+        {
+          "operation": "generate",
+          "requestId": "cli.generate",
+          "revision": 2,
+          "turnCount": 0
+        },
+        {
+          "operation": "commit",
+          "requestId": "cli.commit",
+          "revision": 3,
+          "turnCount": 1
+        },
+        {
+          "operation": "read",
+          "requestId": "cli.read",
+          "revision": 3,
+          "turnCount": 1
+        },
+        {
+          "operation": "resume",
+          "requestId": "cli.resume",
+          "revision": 4,
+          "turnCount": 1
+        }
+      ]
+    },
+    "evidenceKind": "mock",
+    "fakeCalls": [
+      {
+        "disconnectObserved": false,
+        "finished": true,
+        "inputSha256": "5d242683693c1ebe6eb9dc8c59799e5fbf69b74ef73419a8aab9296b5f3c05b7",
+        "kind": "normal",
+        "messageCount": 1,
+        "sequence": 1
+      },
+      {
+        "disconnectObserved": false,
+        "finished": true,
+        "inputSha256": "c8d2679181edc8e2c5af759ac17b0376804755fbaecc36b6eb034a7e6e118588",
+        "kind": "normal",
+        "messageCount": 3,
+        "sequence": 2
+      },
+      {
+        "disconnectObserved": true,
+        "finished": false,
+        "inputSha256": "80b4d29225d79ed00abbe8ccdc61bf3319a17da6906642e51cfdeb6757048db7",
+        "kind": "cancel",
+        "messageCount": 1,
+        "sequence": 3
+      },
+      {
+        "disconnectObserved": false,
+        "finished": true,
+        "inputSha256": "2149a0365308077609bda01acb60216ef996a55a8cd97c49d4a3136a1e89b4fd",
+        "kind": "normal",
+        "messageCount": 1,
+        "sequence": 4
+      }
+    ],
+    "format": "modelmirror.ai-rpg.offline-harness-receipt",
+    "formatVersion": "0.1.0",
+    "gate": "RPG03_OFFLINE_HTTP_OK",
+    "integrationReceiptSha256": "3e9c790f7090d7d983d87c7e7d4b483f5afba841ae22e5dca4eb3360fd7106c3",
+    "mainSha256": "7807228bc474ae0c3916af77040d871fb8a7cf6d6d61c30f5b19f33564bc0ace",
+    "modelId": "rpg03/fake-text-v1",
+    "moduleSourceSha256": "b577b6496b39b73d9895d6c7a9fa50e632ed7b8275a440ee0a0394f76fb940b8",
+    "nodeVersion": "24.18.0",
+    "ownedProcessesStopped": true,
+    "realProviderDispatches": 0,
+    "serverAttempts": [
+      {
+        "actual_model": "rpg03/fake-text-v1",
+        "connection_id": "conn_f19e9547e9014e49ad45da7d7590281d",
+        "dispatched": 1,
+        "id": "chatattempt_630c926dcd6d43959ac99db35f310b2a",
+        "provider_kind": "newapi",
+        "result_class": "success",
+        "run_id": "chatrun_941e2f5d11d14dcdb97541a60dbaf360",
+        "status": "succeeded"
+      },
+      {
+        "actual_model": "rpg03/fake-text-v1",
+        "connection_id": "conn_f19e9547e9014e49ad45da7d7590281d",
+        "dispatched": 1,
+        "id": "chatattempt_a722b128f8074be783959342f51793cb",
+        "provider_kind": "newapi",
+        "result_class": "success",
+        "run_id": "chatrun_d767926d4d6f44d58a1ad6b153545c33",
+        "status": "succeeded"
+      },
+      {
+        "actual_model": "rpg03/fake-text-v1",
+        "connection_id": "conn_f19e9547e9014e49ad45da7d7590281d",
+        "dispatched": 1,
+        "id": "chatattempt_7fd7b9afe5864af2a191ae0953d334a1",
+        "provider_kind": "newapi",
+        "result_class": "client_cancelled",
+        "run_id": "chatrun_1b76a9d2a4704c7fb8609a592ec34199",
+        "status": "cancelled"
+      },
+      {
+        "actual_model": "rpg03/fake-text-v1",
+        "connection_id": "conn_f19e9547e9014e49ad45da7d7590281d",
+        "dispatched": 1,
+        "id": "chatattempt_eeec2b77805c4abe98caffb2701801f4",
+        "provider_kind": "newapi",
+        "result_class": "success",
+        "run_id": "chatrun_b3b9bc8535ed4fecb68e9d6cf9b443ac",
+        "status": "succeeded"
+      }
+    ],
+    "serverRuns": [
+      {
+        "actual_model": "rpg03/fake-text-v1",
+        "client_cancelled": 0,
+        "completion_tokens": 30,
+        "hard_failure": 0,
+        "id": "chatrun_941e2f5d11d14dcdb97541a60dbaf360",
+        "policy_fingerprint": "8cf4cec5ec548c0adb2e58d18e2bf23d035d83954a005f5a6c82664c4b8acb15",
+        "prompt_tokens": 12,
+        "requested_model": "rpg03/fake-text-v1",
+        "result_class": "success",
+        "status": "succeeded",
+        "strategy": "newapi_preferred",
+        "total_tokens": 42
+      },
+      {
+        "actual_model": "rpg03/fake-text-v1",
+        "client_cancelled": 0,
+        "completion_tokens": 30,
+        "hard_failure": 0,
+        "id": "chatrun_d767926d4d6f44d58a1ad6b153545c33",
+        "policy_fingerprint": "8cf4cec5ec548c0adb2e58d18e2bf23d035d83954a005f5a6c82664c4b8acb15",
+        "prompt_tokens": 12,
+        "requested_model": "rpg03/fake-text-v1",
+        "result_class": "success",
+        "status": "succeeded",
+        "strategy": "newapi_preferred",
+        "total_tokens": 42
+      },
+      {
+        "actual_model": "rpg03/fake-text-v1",
+        "client_cancelled": 1,
+        "completion_tokens": null,
+        "hard_failure": 0,
+        "id": "chatrun_1b76a9d2a4704c7fb8609a592ec34199",
+        "policy_fingerprint": "8cf4cec5ec548c0adb2e58d18e2bf23d035d83954a005f5a6c82664c4b8acb15",
+        "prompt_tokens": null,
+        "requested_model": "rpg03/fake-text-v1",
+        "result_class": "client_cancelled",
+        "status": "cancelled",
+        "strategy": "newapi_preferred",
+        "total_tokens": null
+      },
+      {
+        "actual_model": "rpg03/fake-text-v1",
+        "client_cancelled": 0,
+        "completion_tokens": 30,
+        "hard_failure": 0,
+        "id": "chatrun_b3b9bc8535ed4fecb68e9d6cf9b443ac",
+        "policy_fingerprint": "8cf4cec5ec548c0adb2e58d18e2bf23d035d83954a005f5a6c82664c4b8acb15",
+        "prompt_tokens": 12,
+        "requested_model": "rpg03/fake-text-v1",
+        "result_class": "success",
+        "status": "succeeded",
+        "strategy": "newapi_preferred",
+        "total_tokens": 42
+      }
+    ],
+    "serviceBinding": {
+      "connectionFingerprint": "73c74af67fb127a5609fdbfbf58cb1d4e57be83cd790a006d5f9bc7c1a24db04",
+      "connectionId": "conn_f19e9547e9014e49ad45da7d7590281d",
+      "evidenceKind": "mock",
+      "modelId": "rpg03/fake-text-v1",
+      "pythonVersion": "3.12.14",
+      "qualificationSeeded": true,
+      "serviceVersion": "0.1.0",
+      "uvicornVersion": "0.32.1"
+    },
+    "websiteProbes": 0
+  },
+  "moduleFiles": [
+    {
+      "path": "package-lock.json",
+      "sha256": "77e5d972c6f77090e68b54f4b04d114f4f431f5999786d383a6ecace1edd3642"
+    },
+    {
+      "path": "package.json",
+      "sha256": "d3b74b2de0c7de8c7b55923f3e152ee8d4f9d1ec2582c9014035221a98766484"
+    },
+    {
+      "path": "runtime/contracts.mjs",
+      "sha256": "5641ac0fd8e973637a65ee32ef94ea93afd24524cdf472791a0395d12713e7c3"
+    },
+    {
+      "path": "runtime/core.mjs",
+      "sha256": "7fc2a7ce1e8a5feab55e8c1d785fe609d948b362ed52f109a833b703a684d045"
+    },
+    {
+      "path": "runtime/index.mjs",
+      "sha256": "b5e26b8000b50148d321ee200fa1ba206ae2db0107ef326c98cb272180c827b6"
+    },
+    {
+      "path": "runtime/node/http.mjs",
+      "sha256": "b6eb67b710c8cbdd94a44742c24179d2d5eb8ea4a5345becef73a2823c4c3db8"
+    },
+    {
+      "path": "runtime/node/sse.mjs",
+      "sha256": "42527e9f7eb433131cdcd534639f229d37c799df89f724326c861bc243effa7f"
+    },
+    {
+      "path": "runtime/node/store.mjs",
+      "sha256": "465e155e7facdced2044d7d6b27a37d66454df65439dab78f8bdcb3ea4e072a5"
+    },
+    {
+      "path": "runtime/node.mjs",
+      "sha256": "2823e73553fb68c0c534fb30909243e676051da6324b532d339d7b65c11ae206"
+    },
+    {
+      "path": "runtime/plugin-host.mjs",
+      "sha256": "ff871e6d69091d16f1c7861558fba81df5ee02b4aba958d421f9c93a4bf6211c"
+    },
+    {
+      "path": "runtime/recovery.mjs",
+      "sha256": "93476538882245b323b2bba6c8395ffef0e2296b44161aa5d2ce37865d489ff4"
+    },
+    {
+      "path": "scripts/rpg03-cli.mjs",
+      "sha256": "cddc6f59a98f1708ef403cc8749ecaf1838b7834a8a17e56ccd8c6fc1fc630e0"
+    },
+    {
+      "path": "scripts/rpg03-harness.py",
+      "sha256": "2c61379e35832f98302d0bb10016d478ee85512adbe90efbccb9ef1f4ac70052"
+    },
+    {
+      "path": "tests/runtime-adapter.test.mjs",
+      "sha256": "70fa845881425ae6162041f6bd668cde2b8a43328d1a24c422fa323fa51086cd"
+    },
+    {
+      "path": "tests/runtime-cli.test.mjs",
+      "sha256": "506fc2e175e3dfeb2276e983eff098c012b7bc9e448e4f7e2f52ab107239b6bf"
+    },
+    {
+      "path": "tests/runtime-contracts.test.mjs",
+      "sha256": "ca910b76d48f4016731629c423f5b3571bbe7ec92a80890b71daaec6672ae973"
+    },
+    {
+      "path": "tests/runtime-core.test.mjs",
+      "sha256": "8d9589b2adacbf6e9e00a123b4fac77ad965f91085c915566356822a878428d1"
+    },
+    {
+      "path": "tests/runtime-fixtures.mjs",
+      "sha256": "09f9346e1b77ad55c28bfccf259585c4dd8da1a108f13088524ddebf5db8956b"
+    },
+    {
+      "path": "tests/runtime-integration.test.mjs",
+      "sha256": "01f2366bdbdac536fa605235edfac4bfef610c7bf550769af80074420fc7f69f"
+    },
+    {
+      "path": "tests/runtime-plugin-host.test.mjs",
+      "sha256": "7d2f98cde9f2748b0eddd463ff744a16e1b1fce8e53b860947e31e6bcd883fd1"
+    },
+    {
+      "path": "tests/runtime-store-child.mjs",
+      "sha256": "69159657b04ab1236d405ffeecc8ba24c212432dae765ab501d8afafd2f0ed65"
+    },
+    {
+      "path": "tests/runtime-store.test.mjs",
+      "sha256": "04fce776786cbdd13ef8bab311845d63bf3c9fb3fe74b08a1f7bff0cd1b58fc7"
+    },
+    {
+      "path": "tooling/runtime-cli.mjs",
+      "sha256": "df716060a38872ea1009a0db1c0cc8f69f7066a14e6e339bc9ed0cfbcfc0ce2d"
+    }
+  ],
+  "privateReceiptSha256": "fc068cca1ca868ff2c9fde862acb1177ed264fdf740b285c76feabebd2611a67",
+  "integrationReceiptSha256": "3e9c790f7090d7d983d87c7e7d4b483f5afba841ae22e5dca4eb3360fd7106c3",
+  "logicalEvidenceRef": "h1-http-cy7w_n53",
+  "harnessSelfTests": 3
+}

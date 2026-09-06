@@ -1,8 +1,8 @@
 {
   "name": "@modelmirror/ai-rpg-contracts",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
-  "description": "Isolated AI RPG contracts and offline representative content compiler",
+  "description": "Isolated AI RPG contracts, offline content and controlled runtime",
   "type": "module",
   "license": "UNLICENSED",
   "engines": {
@@ -12,7 +12,9 @@
   "packageManager": "npm@11.16.0",
   "exports": {
     ".": "./src/index.mjs",
-    "./content": "./content/index.mjs"
+    "./content": "./content/index.mjs",
+    "./runtime": "./runtime/index.mjs",
+    "./runtime/node": "./runtime/node.mjs"
   },
   "scripts": {
     "check:boundary": "node scripts/check-boundary.mjs",
@@ -24,7 +26,12 @@
     "test:content": "node --test tests/content-*.test.mjs",
     "test:archive": "node --test tests/archive-*.test.mjs",
     "verify:rpg02": "node scripts/verify-rpg02.mjs",
-    "rpg:content": "node tooling/cli.mjs"
+    "rpg:content": "node tooling/cli.mjs",
+    "test:boundary:rpg03": "node --test tests/rpg03-boundary.test.mjs",
+    "test:runtime": "node --test tests/runtime-contracts.test.mjs tests/runtime-store.test.mjs tests/runtime-core.test.mjs",
+    "test:adapter": "node --test tests/runtime-adapter.test.mjs",
+    "test:plugin-host": "node --test tests/runtime-plugin-host.test.mjs",
+    "verify:rpg03": "node scripts/verify-rpg03.mjs"
   },
   "dependencies": {
     "ajv": "8.20.0",
