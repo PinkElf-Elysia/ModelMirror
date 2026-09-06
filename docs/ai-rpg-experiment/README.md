@@ -2,9 +2,11 @@
 
 更新日期：2026-09-05。当前路线版本 v7，保留六轮结构及“一切可选皆插件”的双市场方向。来源任务：01a06d11-845b-7511-b476-64bbe034b119。
 
-**RPG-01 已人工验收；RPG-02 离线交付和低级 worker 小批资格已通过（Terra、qualified_small_batch、finalAcceptanceReady=true），保留待人工验收与 claimAllowed=false；用户已授权收尾后提交 PR。RPG-03 至 RPG-06 尚未开始。** 当前交付不是可运行游戏；全量提取放在 RPG-06 第一版路线完成后另行授权。
+**RPG-01/02 已验收，RPG-02 的 PR #361 已合并；RPG-03 已完成实现与真实验收，待用户人工验收，claimAllowed=false。** 官方 Luna 经隔离模镜控制面完成认证、两次连续回复与提交、恢复和流式取消。用户追加后本轮总额度 5/5 全部消耗，历史失败保留。模块聚合 230 项、父仓回归 53 项通过。RPG-04 至 RPG-06 尚未开始；当前不是完整可玩游戏，全量提取仍留待 RPG-06 后另行授权。
 
-## 当前交付与边界
+RPG-03 恢复先读 [本轮计划](RPG03_PLAN.md)、[机器状态](../../experiments/ai-rpg-engine/docs/RPG03_STATUS.json)、[真实调用账本](../../experiments/ai-rpg-engine/docs/RPG03_CALL_LEDGER.json)、[最终真实回执](../../experiments/ai-rpg-engine/docs/RPG03_REAL_ACCEPTANCE.json) 与 [验收记录](../../experiments/ai-rpg-engine/docs/RPG03_ACCEPTANCE.md)。两个真实验收实例已停止，存储和证据保留；未 Commit、Push 或创建 PR。历史失败和离线修复记录不覆盖最终真实回执，也不被删除。下方 RPG-02 测试与发布前状态属于历史交付记录。
+
+## 已验收的 RPG-02 交付与边界
 
 RPG-02 固定基线为 `a43cfa389e1785a95f04a006ba26550a5a36965e`，独立工作区 `C:\tmp\modelmirror-ai-rpg-rpg02`，分支 `codex/ai-rpg-rpg02-content`。只改动 `experiments/ai-rpg-engine/**` 与本研究目录。RPG-01 四种 `0.1.0` 合同、根接口与 28 项原测试保持冻结；私有包为 `0.2.0`，新增纯 `/content` 子入口。
 

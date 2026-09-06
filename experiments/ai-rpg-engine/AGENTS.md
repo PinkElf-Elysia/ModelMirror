@@ -1,6 +1,16 @@
 # AGENTS.md — AI RPG 独立实验模块
 
-本文件适用于 `experiments/ai-rpg-engine/**`，并在父级 `AGENTS.md` 基础上收紧 RPG-01 与 RPG-02 的边界。
+本文件适用于 `experiments/ai-rpg-engine/**`，并在父级 `AGENTS.md` 基础上收紧 RPG-01 至 RPG-03 的边界。
+
+## RPG-03 03A1 强制边界
+
+1. 固定仓库基线为 `80221379cec850a2b25f5eeeb410233062f3e1ea`，固定分支为 `codex/ai-rpg-rpg03-runtime`；基线、分支或允许范围漂移时停止。
+2. 只允许 `experiments/ai-rpg-engine/**`、`docs/ai-rpg-experiment/**`，以及 `server/main.py`、`server/tests/test_provider_chat_stable_chat.py`、`docs/MODEL_PROVIDER_CONTROL_PLANE.md` 三个精确父仓文件发生变化；03A1 不修改三个父仓文件。
+3. `docs/RPG03_BASELINE.json` 的 67 个文件按基线 Git blob 和当前工作区字节双重冻结；旧合同、content、fixture、测试、门禁、资源与 Skill 不改。
+4. `runtime/**` 的纯端口层禁止 I/O、网络、环境变量、子进程、动态加载和源码执行，只可额外使用锁定的 `ajv/dist/2020.js` 校验合同，且不得反向依赖 `runtime/node*`、`tooling/`、`scripts/` 或 `tests/`；`runtime/node.mjs` 与 `runtime/node/**` 才可使用声明内建完成文件、hash、配置和可信模镜 HTTP 适配，不接受任意依赖。
+5. `tooling/runtime-*.mjs` 只做端口编排；loopback 网络与验证子进程只开放给边界声明中的精确文件。所有层禁用动态 `import()`、`eval`、`Function` 和 `vm`。静态守卫不是安全沙箱，并保守拒绝纯 runtime 的模板插值。
+6. 禁止父仓源码导入、绝对或逃逸导入、`file:`/`link:` 依赖、外部或破损符号链接、敏感数据及生成物进入版本控制。候选服务与测试临时目录只放在模块内 `.rpg03-work/`。
+7. `--bootstrap` 仅允许 03A1 暂时保留 package `0.2.0`；默认门禁要求 `0.3.0`。本批不修改 package/lock，不进入 03A2。
 
 ## RPG-02 02A1 强制边界
 

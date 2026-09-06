@@ -1,8 +1,8 @@
 {
   "schemaVersion": 2,
-  "snapshotDate": "2026-09-05",
+  "snapshotDate": "2026-09-06",
   "sourceTask": "01a06d11-845b-7511-b476-64bbe034b119",
-  "status": "rpg02_implemented_pending_manual_acceptance",
+  "status": "rpg03_implemented_pending_manual_acceptance",
   "implementationStarted": true,
   "manualAcceptance": false,
   "initialManifestSha256": "30A35F365D06D512253A549C4E5EB58384DBE2BBD72484DF9CF21EF678160D49",
@@ -15,8 +15,8 @@
   "files": [
     {
       "path": "AUDIT.md",
-      "bytes": 42816,
-      "sha256": "7893368FAEC38968332B7EEDEF77D760B4DC22BE5FC4B436E7A740FA4DFB770A"
+      "bytes": 45448,
+      "sha256": "862F879DDF1F89135D3FF2E8A0E3FA8CB9D37DE21602EE1F30BEC86B99F3BBCE"
     },
     {
       "path": "BASELINE.md",
@@ -50,8 +50,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 10724,
-      "sha256": "DA590548B0CDF6F6857BE921EA9CDA20CDC28336A4AE7ABB4CFE2F6D514A5D35"
+      "bytes": 11467,
+      "sha256": "2857CDEF0B517E0F7C835DCA224747EFA9868300018A8781B19DF33C2084E642"
     },
     {
       "path": "references/INITIAL_AUDIT_2026-09-04.md",
@@ -70,13 +70,18 @@
     },
     {
       "path": "ROUND_ROADMAP.md",
-      "bytes": 12399,
-      "sha256": "D54E32D31B157CADEBE39BEFD39B4F3D4C8B10613781344FA60F1CC095993D30"
+      "bytes": 12707,
+      "sha256": "4B1BE40E9C7A886907F09255CD85EAF22B0FCDC5DF67FEB91F2F05F368937249"
     },
     {
       "path": "RPG02_PLAN.md",
       "bytes": 17886,
       "sha256": "6718C3668701D8BB028EB5DA532BBF11E10A3315B9E575A7611E701E1CD25C34"
+    },
+    {
+      "path": "RPG03_PLAN.md",
+      "bytes": 12004,
+      "sha256": "C7E57F1668DD7F331E9870ADCA82E3D2E3268008939A8E31BB1C1B50FB83B9EB"
     }
   ],
   "sourceArtifacts": [
@@ -93,18 +98,18 @@
   ],
   "moduleDelivery": {
     "root": "experiments/ai-rpg-engine",
-    "round": "RPG-02",
-    "packageVersion": "0.2.0",
+    "round": "RPG-03",
+    "packageVersion": "0.3.0",
     "contractVersion": "0.1.0",
-    "machineStatus": "experiments/ai-rpg-engine/docs/RPG02_STATUS.json",
-    "acceptanceRecord": "experiments/ai-rpg-engine/docs/RPG02_ACCEPTANCE.md",
-    "dependencyRegister": "experiments/ai-rpg-engine/docs/RPG02_THIRD_PARTY.json",
-    "goldenReceipt": "experiments/ai-rpg-engine/docs/RPG02_GOLDEN.json",
+    "machineStatus": "experiments/ai-rpg-engine/docs/RPG03_STATUS.json",
+    "acceptanceRecord": "experiments/ai-rpg-engine/docs/RPG03_ACCEPTANCE.md",
+    "dependencyRegister": "experiments/ai-rpg-engine/docs/RPG03_THIRD_PARTY.json",
     "status": "implemented_pending_manual_acceptance",
     "claimAllowed": false,
     "manualAcceptanceSatisfied": false,
     "nextRoundImplementationAuthorized": false,
-    "finalAcceptanceReady": true
+    "finalAcceptanceReady": true,
+    "realReceipt": "experiments/ai-rpg-engine/docs/RPG03_REAL_ACCEPTANCE.json"
   },
   "probeBudgets": {
     "originalAudit": {
@@ -143,29 +148,31 @@
     "Roadmap v7 keeps the six first-edition rounds and defers full resource extraction until RPG-06 completion and separate batch authorization.",
     "Final frozen Terra recipe passed two disjoint jobs, three fresh contexts and pending-only continuation: 16 CLI successes, three worlds and 93 source records; Luna remains unqualified.",
     "User explicitly authorized qualification closeout then Commit/Push/PR. Historical publication:false snapshots remain labeled; no Merge/Deploy/Release/Publish or RPG-03 authority is inferred.",
-    "Staged whitespace checks found mixed line endings after H/G success. Token/JSON-equivalent normalization was recorded, the CLI was re-frozen, and fresh Terra I1/I2/J contexts completed the entire qualification again. Final I/J evidence binds current publication bytes; H/G and all failed jobs remain historical evidence."
+    "Staged whitespace checks found mixed line endings after H/G success. Token/JSON-equivalent normalization was recorded, the CLI was re-frozen, and fresh Terra I1/I2/J contexts completed the entire qualification again. Final I/J evidence binds current publication bytes; H/G and all failed jobs remain historical evidence.",
+    "RPG-03 implementation authorized on fixed merged PR #361; historical RPG-02 receipts retain their original pre-publication state. Website probe ledger remains byte-identical.",
+    "Historical RPG-03 preflight after 03H2 prepared candidate files without starting the server and awaited model/Provider configuration; real dispatches were 0/4. 03J and the new aggregate implementation remained unfinished.",
+    "Historical configuration checkpoint: the user selected official gpt-5.6-luna, authorized the designated OpenAI key and primary OpenRouter key, and confirmed the complete ModelMirror control-plane chain. Independent ModelMirror:18303 and fixed-image newAPI:18304 were configured with RetryTimes=0 and the OpenRouter channel disabled. Supplier keys only entered the isolated gateway through its normal admin API; real dispatches were 0/4 before certification.",
+    "Historical checkpoint: Current 03I checkpoint: official Luna certification passed, but the first runtime reply failed with RUNTIME_ADAPTER_EVENT_INVALID and no formal turn or state commit. Exactly two gateway consumption rows reconcile with certification plus one normal attempt; consumed=2/4. Both owned real instances are stopped and evidence is retained. The server's client_cancelled result is not the planned cancellation acceptance.",
+    "Historical checkpoint: The pinned gateway Usage DTO supports a source-derived offline reproduction. A bounded field/type compatibility repair passed 21 adapter tests, 10 boundary tests, 67 frozen hashes, and a new actual-local-ModelMirror plus fake-upstream HTTP replay bound to module source fde3fd7489030aea4f4ae77cf338fed759369a3b9cb38aef437b270dc2ca58a1. Original wire was not captured; no post-repair real success is claimed. Two continuous successful replies plus one cancellation still need three dispatches, while two remain: one additional dispatch authorization and fresh qualification checks are required. 03J has not started; this is only a stopped-batch recovery index update.",
+    "RPG-03 final: separately authorized fifth dispatch; real acceptance passed with certification 1, historical failure 1, normal successes 2 and cancellation 1. Consumed 5/5; all owned instances stopped. Aggregate 230 module tests and 53 parent tests passed; 67 frozen files unchanged. Pending manual acceptance; no publication or RPG-04 authority."
   ],
   "activeRound": {
-    "round": "RPG-02",
+    "round": "RPG-03",
     "status": "implemented_pending_manual_acceptance",
+    "currentSubround": "complete",
+    "machineStatus": "experiments/ai-rpg-engine/docs/RPG03_STATUS.json",
+    "preflight": "experiments/ai-rpg-engine/docs/RPG03_REAL_PREFLIGHT.json",
+    "realReceipt": "experiments/ai-rpg-engine/docs/RPG03_REAL_ACCEPTANCE.json",
+    "offlineRepairReceipt": "experiments/ai-rpg-engine/docs/RPG03_I_REPAIR_RECEIPT.json",
     "claimAllowed": false,
     "manualAcceptance": false,
-    "realMigrationAccepted": false,
-    "automatedVerified": true,
-    "automatedTests": 96,
-    "sourceRecords": 14,
-    "fragments": 18,
-    "compiledResources": 27,
-    "fullOriginalHtmlStored": false,
+    "baselineCommit": "80221379cec850a2b25f5eeeb410233062f3e1ea",
+    "providerDispatches": 5,
+    "remainingAuthorizedDispatches": 0,
+    "additionalDispatchAuthorizationNeeded": 0,
+    "ownedRealInstancesStopped": true,
     "websiteProbes": 0,
-    "externalModelCalls": 0,
-    "nextRoundImplementationAuthorized": false,
-    "machineStatus": "experiments/ai-rpg-engine/docs/RPG02_STATUS.json",
-    "acquisitionReceipt": "experiments/ai-rpg-engine/fixtures/rpg02/source-capture.json",
-    "goldenReceipt": "experiments/ai-rpg-engine/docs/RPG02_GOLDEN.json",
-    "finalAcceptanceReady": true,
-    "workerQualificationPassed": true,
-    "additionalAutomatedTests": 39
+    "nextRoundImplementationAuthorized": false
   },
   "historicalRpg01": {
     "manualAcceptance": {
@@ -186,14 +193,15 @@
     }
   },
   "documentationCloseout": {
-    "subround": "02F2",
+    "subround": "03J2",
     "status": "passed",
-    "managedFiles": 13,
+    "managedFiles": 14,
     "manifestSelfExcluded": true,
-    "aggregateCommand": "npm.cmd run verify:rpg02 -- --base a43cfa389e1785a95f04a006ba26550a5a36965e",
-    "successMarker": "RPG02_AUTOMATED_GATES_OK",
-    "tests": 96,
-    "diffCheck": "passed"
+    "aggregateCommand": "npm.cmd run verify:rpg03 -- --base 80221379cec850a2b25f5eeeb410233062f3e1ea",
+    "successMarker": "RPG03_AUTOMATED_GATES_OK",
+    "tests": 230,
+    "diffCheck": "passed",
+    "parentTests": 53
   },
   "skillGeneralization": {
     "status": "verified_pending_manual_review",
@@ -276,16 +284,75 @@
     "packagingNormalization": "requalified_on_final_bytes"
   },
   "currentPublicationAuthority": {
-    "source": "latest user: finish qualification then submit RPG-02 PR",
-    "commit": true,
-    "push": true,
-    "pr": true,
+    "commit": false,
+    "push": false,
+    "pr": false,
     "merge": false,
     "deploy": false,
     "release": false,
     "publish": false,
-    "condition": "All required local and worker qualification gates passed",
-    "executionRecord": "Actual publication after this pre-publication snapshot is recorded by Git commit, remote ref and pull request metadata"
+    "source": "RPG-03 implementation authorization excludes publication"
   },
-  "publicationSnapshotPhase": "pre_publication_historical_receipt; actual Git and PR metadata are authoritative after publication"
+  "publicationSnapshotPhase": "rpg03_local_closeout_pending_manual_acceptance",
+  "historicalRpg02": {
+    "activeRound": {
+      "round": "RPG-02",
+      "status": "implemented_pending_manual_acceptance",
+      "claimAllowed": false,
+      "manualAcceptance": false,
+      "realMigrationAccepted": false,
+      "automatedVerified": true,
+      "automatedTests": 96,
+      "sourceRecords": 14,
+      "fragments": 18,
+      "compiledResources": 27,
+      "fullOriginalHtmlStored": false,
+      "websiteProbes": 0,
+      "externalModelCalls": 0,
+      "nextRoundImplementationAuthorized": false,
+      "machineStatus": "experiments/ai-rpg-engine/docs/RPG02_STATUS.json",
+      "acquisitionReceipt": "experiments/ai-rpg-engine/fixtures/rpg02/source-capture.json",
+      "goldenReceipt": "experiments/ai-rpg-engine/docs/RPG02_GOLDEN.json",
+      "finalAcceptanceReady": true,
+      "workerQualificationPassed": true,
+      "additionalAutomatedTests": 39
+    },
+    "moduleDelivery": {
+      "root": "experiments/ai-rpg-engine",
+      "round": "RPG-02",
+      "packageVersion": "0.2.0",
+      "contractVersion": "0.1.0",
+      "machineStatus": "experiments/ai-rpg-engine/docs/RPG02_STATUS.json",
+      "acceptanceRecord": "experiments/ai-rpg-engine/docs/RPG02_ACCEPTANCE.md",
+      "dependencyRegister": "experiments/ai-rpg-engine/docs/RPG02_THIRD_PARTY.json",
+      "goldenReceipt": "experiments/ai-rpg-engine/docs/RPG02_GOLDEN.json",
+      "status": "implemented_pending_manual_acceptance",
+      "claimAllowed": false,
+      "manualAcceptanceSatisfied": false,
+      "nextRoundImplementationAuthorized": false,
+      "finalAcceptanceReady": true
+    },
+    "publicationAuthority": {
+      "source": "latest user: finish qualification then submit RPG-02 PR",
+      "commit": true,
+      "push": true,
+      "pr": true,
+      "merge": false,
+      "deploy": false,
+      "release": false,
+      "publish": false,
+      "condition": "All required local and worker qualification gates passed",
+      "executionRecord": "Actual publication after this pre-publication snapshot is recorded by Git commit, remote ref and pull request metadata"
+    },
+    "documentationCloseout": {
+      "subround": "02F2",
+      "status": "passed",
+      "managedFiles": 13,
+      "manifestSelfExcluded": true,
+      "aggregateCommand": "npm.cmd run verify:rpg02 -- --base a43cfa389e1785a95f04a006ba26550a5a36965e",
+      "successMarker": "RPG02_AUTOMATED_GATES_OK",
+      "tests": 96,
+      "diffCheck": "passed"
+    }
+  }
 }

@@ -1,0 +1,153 @@
+{
+  "schemaVersion": 1,
+  "round": "RPG-03",
+  "status": "implemented_pending_manual_acceptance",
+  "claimAllowed": false,
+  "manualAcceptance": false,
+  "baseSha": "80221379cec850a2b25f5eeeb410233062f3e1ea",
+  "branch": "codex/ai-rpg-rpg03-runtime",
+  "packageVersion": "0.3.0",
+  "contractVersion": "0.1.0",
+  "completedSubrounds": [
+    "P0",
+    "03A1",
+    "03A2",
+    "03B",
+    "03C",
+    "03D1",
+    "03D2",
+    "03E1",
+    "03E2",
+    "03F1",
+    "03F2",
+    "03F3",
+    "03G1",
+    "03G2",
+    "03G3",
+    "03H1",
+    "03H2",
+    "03I",
+    "03J1",
+    "03J2"
+  ],
+  "currentSubround": "complete",
+  "nextSubround": "manual_acceptance",
+  "requiredRemaining": [],
+  "gates": {
+    "baseline": "passed",
+    "frozenFiles": 67,
+    "boundaryTests": {
+      "passed": 10,
+      "failed": 0
+    },
+    "legacyContracts": {
+      "passed": 28,
+      "failed": 0
+    },
+    "runtimeContracts": {
+      "passed": 19,
+      "failed": 0
+    },
+    "storeRecovery": {
+      "passed": 13,
+      "failed": 0
+    },
+    "httpAdapter": {
+      "passed": 21,
+      "failed": 0
+    },
+    "offlineProtocolRepair": "passed_with_real_retest",
+    "runtimeCore": {
+      "passed": 21,
+      "failed": 0
+    },
+    "pluginHost": {
+      "passed": 9,
+      "failed": 0
+    },
+    "developerCli": {
+      "passed": 5,
+      "failed": 0
+    },
+    "harnessFailurePaths": {
+      "passed": 3,
+      "failed": 0
+    },
+    "offlineHttpIntegration": {
+      "passed": 1,
+      "failed": 0,
+      "evidenceKind": "mock",
+      "fakeDispatches": 4
+    },
+    "legacyBusinessRegression": {
+      "passed": 128,
+      "failed": 0
+    },
+    "parentStableChatServiceCanary": {
+      "passed": 53,
+      "failed": 0
+    },
+    "rpg03Aggregate": {
+      "status": "passed",
+      "marker": "RPG03_AUTOMATED_GATES_OK",
+      "moduleTests": 230,
+      "parentTests": 53,
+      "verificationTests": 4
+    },
+    "realProviderAcceptance": "passed"
+  },
+  "providerDispatches": {
+    "authorized": 5,
+    "consumed": 5,
+    "remaining": 0,
+    "maxOutputTokens": 512,
+    "furtherDispatchesPaused": true,
+    "additionalAuthorizationNeeded": 0
+  },
+  "websiteMessageProbes": 0,
+  "probeLedgerUnchanged": true,
+  "callLedger": "docs/RPG03_CALL_LEDGER.json",
+  "acceptanceRecord": "docs/RPG03_ACCEPTANCE.md",
+  "offlineHttpReceipt": "docs/RPG03_OFFLINE_HTTP_RECEIPT.json",
+  "latestOfflineRepairReceipt": "docs/RPG03_I_REPAIR_RECEIPT.json",
+  "currentModuleSourceSha256": "fde3fd7489030aea4f4ae77cf338fed759369a3b9cb38aef437b270dc2ca58a1",
+  "realPreflight": "docs/RPG03_REAL_PREFLIGHT.json",
+  "missingConfiguration": [],
+  "candidateServerStarted": false,
+  "ownedAcceptanceInstancesStopped": true,
+  "realProviderReceipt": "docs/RPG03_REAL_PROVIDER_RECEIPT.json",
+  "realAcceptanceReceipt": "docs/RPG03_REAL_ACCEPTANCE.json",
+  "parentRegressionReceipt": "docs/RPG03_PARENT_RECEIPT.json",
+  "selectedModel": {
+    "provider": "openai",
+    "modelId": "gpt-5.6-luna",
+    "managedGatewayKind": "newapi",
+    "fallbackConfiguredButDisabled": true
+  },
+  "realConfigurationGate": "RPG03_CONTROL_CONFIGURATION_OK",
+  "resumeVerification": {
+    "snapshotPhase": "historical_before_real_calls_and_usage_repair",
+    "status": "passed",
+    "researchManifestFiles": 14,
+    "offlineModuleSourceFiles": 23,
+    "candidateServerSourceFiles": 1277,
+    "primaryCheckoutStatusMatched": true,
+    "retainedHttpReceiptsMatched": true,
+    "ledgerBytesUnchanged": true,
+    "provesRealAcceptance": false
+  },
+  "publication": {
+    "commit": false,
+    "push": false,
+    "pr": false,
+    "merge": false,
+    "deploy": false,
+    "release": false,
+    "publish": false
+  },
+  "nextRound": {
+    "round": "RPG-04",
+    "implementationAuthorized": false
+  },
+  "historicalFailureCode": "RUNTIME_ADAPTER_EVENT_INVALID"
+}
