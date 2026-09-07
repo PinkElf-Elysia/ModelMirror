@@ -1,0 +1,486 @@
+{
+  "format": "modelmirror.ai-rpg.real-acceptance-receipt",
+  "formatVersion": "0.1.0",
+  "gate": "RPG03_REAL_ACCEPTANCE_OK",
+  "evidenceKind": "real",
+  "claimAllowed": false,
+  "baseSha": "80221379cec850a2b25f5eeeb410233062f3e1ea",
+  "candidateTreeSha256": "27c0f09da409e59d77f9325c6a6916112d8e276e18a733ef0dc0248f05a4b974",
+  "moduleSourceSha256": "fde3fd7489030aea4f4ae77cf338fed759369a3b9cb38aef437b270dc2ca58a1",
+  "logicalRef": "i-real-candidate-q61xxnln",
+  "modelId": "gpt-5.6-luna",
+  "providerChain": [
+    "modelmirror",
+    "newapi",
+    "official_openai"
+  ],
+  "connectionId": "conn_48ca253b64e94cf3a924a4926ca6c9dc",
+  "certification": {
+    "completedAt": "2026-09-06T05:01:56.804364+00:00",
+    "evidenceKind": "real",
+    "gate": "RPG03_REAL_CERTIFICATION_OK",
+    "httpStatus": 200,
+    "ledgerEntryId": "RPG03-CERT-01",
+    "modelId": "gpt-5.6-luna",
+    "nextDispatchAllowed": true,
+    "providerDispatchesCounted": 1,
+    "response": {
+      "actual_model": "gpt-5.6-luna",
+      "capability": "chat_text",
+      "certification_id": "chatcert_f8ce6a4493504bd6a5500ed68308f7fc",
+      "checks": {
+        "capability_verified": true,
+        "catalog_ok": true,
+        "chat_http_ok": true,
+        "file_output_contract_observed": false,
+        "model_present": true,
+        "stream_completed": true,
+        "terminal_observed": true,
+        "text_delta_observed": true,
+        "tool_call_observed": false
+      },
+      "completed_at": "2026-09-06T05:01:56.794068+00:00",
+      "completion_tokens": 4,
+      "connection_id": "conn_48ca253b64e94cf3a924a4926ca6c9dc",
+      "created_at": "2026-09-06T05:01:52.965806+00:00",
+      "e2e_ms": 3824.148999992758,
+      "error_code": null,
+      "prompt_tokens": 10,
+      "requested_model": "gpt-5.6-luna",
+      "status": "passed",
+      "total_tokens": 14,
+      "ttft_ms": 3663.768300000811,
+      "warning_codes": []
+    }
+  },
+  "qualification": {
+    "control": {
+      "available": true,
+      "capability": "chat_text",
+      "contract_version": "modelmirror-provider-chat-routing-v1",
+      "data_plane_integrated": true,
+      "effective_mode": "newapi_preferred",
+      "feature_enabled": true,
+      "model_id": "gpt-5.6-luna",
+      "reason_code": "qualified",
+      "would_block": false
+    },
+    "fallbackEnabled": false,
+    "forceFormat": true,
+    "gate": "RPG03_RESUME1_QUALIFIED",
+    "providerDispatchesAdded": 0,
+    "reasoningEffort": "none",
+    "retryTimes": 0
+  },
+  "phases": [
+    {
+      "phase": "first",
+      "entryId": "RPG03-NORMAL-02",
+      "record": {
+        "gate": "RPG03_REAL_NORMAL_OK",
+        "entryId": "RPG03-NORMAL-02",
+        "phase": "first",
+        "evidenceKind": "real",
+        "completedAt": "2026-09-06T05:50:36.896Z",
+        "sessionId": "session.real.resume1",
+        "revision": 3,
+        "formalTurns": 1,
+        "resources": {
+          "cardPackage": {
+            "id": "card.representative-worlds",
+            "version": "0.1.0",
+            "sha256": "2d3886a4f3f14bd059eefa471612c86937b93e8b74a6e114207ba1b942ff9dc9"
+          },
+          "playerSetup": {
+            "setupId": "setup.bai-yu-ling-yin",
+            "sha256": "21f0c5633575a934d061805b90c56adfced32ab222e8b5fcbb7395774351d9d0"
+          }
+        },
+        "playerTalents": 5,
+        "pluginAuthorizations": 0,
+        "pending": null,
+        "stateUnchanged": true,
+        "draftEvents": 40,
+        "generationStatus": "pending",
+        "cancelRequestOutcome": null,
+        "receipt": {
+          "format": "modelmirror.ai-rpg.generation-receipt",
+          "formatVersion": "0.1.0",
+          "sessionId": "session.real.resume1",
+          "cardPackageSha256": "2d3886a4f3f14bd059eefa471612c86937b93e8b74a6e114207ba1b942ff9dc9",
+          "playerSetupSha256": "21f0c5633575a934d061805b90c56adfced32ab222e8b5fcbb7395774351d9d0",
+          "generationId": "generation.resume1.first",
+          "exchangeId": "exchange.resume1.first",
+          "revision": 2,
+          "evidenceKind": "real",
+          "status": "succeeded",
+          "outcome": "completed",
+          "requestedModel": "gpt-5.6-luna",
+          "observedModel": "gpt-5.6-luna",
+          "serverReceipt": {
+            "actual_model": "gpt-5.6-luna",
+            "cache_hit": null,
+            "cost_kind": "unavailable",
+            "engine": "newapi",
+            "fallback_attempts": 0,
+            "latency_ms": 3540.685999993002,
+            "provider": null,
+            "reason_codes": [
+              "qualified"
+            ],
+            "request_id": null,
+            "requested_model": "gpt-5.6-luna",
+            "response_cost_usd": null,
+            "strategy": "newapi_preferred",
+            "tokens": {
+              "input": 70,
+              "output": 43,
+              "total": 113
+            },
+            "ttft_ms": 3181.6361999954097,
+            "version": "2"
+          },
+          "cancellation": {
+            "clientAborted": false,
+            "requested": false,
+            "upstreamConfirmed": null
+          },
+          "outputSha256": "14eedc29eb641b7391759fe4321e11a85f26ff88a18c23a8760e5f05227b373b",
+          "usage": {
+            "input": 70,
+            "output": 43,
+            "total": 113
+          },
+          "costUsd": null
+        },
+        "driverSha256": "b00b9b2d180667e6283061bb2322f79cda8258644f47f9e04b3c7a6be33916d7"
+      },
+      "serverRun": {
+        "actual_model": "gpt-5.6-luna",
+        "attempts": [
+          {
+            "actual_model": "gpt-5.6-luna",
+            "attempt_id": "chatattempt_2acac855499d4bc9b51432cd34ffb6c5",
+            "capability": "chat_text",
+            "completed_at": "2026-09-06T05:50:36.811623+00:00",
+            "connection_id": "conn_48ca253b64e94cf3a924a4926ca6c9dc",
+            "created_at": "2026-09-06T05:50:33.215793+00:00",
+            "dispatched": true,
+            "e2e_ms": 3540.685999993002,
+            "error_code": null,
+            "position": 0,
+            "provider_kind": "newapi",
+            "result_class": "success",
+            "run_id": "chatrun_2f7ff8098c9240f08f07528e9056824a",
+            "status": "succeeded",
+            "total_tokens": 113,
+            "ttft_ms": 3181.6361999954097
+          }
+        ],
+        "capability": "chat_text",
+        "completed_at": "2026-09-06T05:50:36.816248+00:00",
+        "created_at": "2026-09-06T05:50:33.205356+00:00",
+        "e2e_ms": 3540.685999993002,
+        "gateway": "default",
+        "policy_fingerprint": "c16d33d5625b2ccaa273f3c716afe12139f66c01aa55292ee4b21f95411209c6",
+        "reason_codes": [],
+        "requested_model": "gpt-5.6-luna",
+        "result_class": "success",
+        "run_id": "chatrun_2f7ff8098c9240f08f07528e9056824a",
+        "status": "succeeded",
+        "strategy": "newapi_preferred",
+        "total_tokens": 113,
+        "ttft_ms": 3181.6361999954097
+      },
+      "gatewayUsage": {
+        "input": 70,
+        "output": 43,
+        "total": 113
+      },
+      "gatewayRequestId": "202609060550332731298358268d9d6SMBo42ZU",
+      "receiptSha256": "aee16af4a47848a808653709b98eca21b22c6407f493c9b0491c6fc0fb8c5a14",
+      "wireSha256": "3b478bf22681dbaa65da86c621dabef9aaf897f346cf0b486f5330776e27b4c6",
+      "wireBytes": 11881,
+      "requestFileSha256": "e0c9a621a38e65c3d7abe3adcc57acb82819bf9e9a59d1ce31bd83a5909e15fc",
+      "maxTokens": 512
+    },
+    {
+      "phase": "second",
+      "entryId": "RPG03-NORMAL-03",
+      "record": {
+        "gate": "RPG03_REAL_NORMAL_OK",
+        "entryId": "RPG03-NORMAL-03",
+        "phase": "second",
+        "evidenceKind": "real",
+        "completedAt": "2026-09-06T05:51:13.535Z",
+        "sessionId": "session.real.resume1",
+        "revision": 7,
+        "formalTurns": 2,
+        "resources": {
+          "cardPackage": {
+            "id": "card.representative-worlds",
+            "sha256": "2d3886a4f3f14bd059eefa471612c86937b93e8b74a6e114207ba1b942ff9dc9",
+            "version": "0.1.0"
+          },
+          "playerSetup": {
+            "setupId": "setup.bai-yu-ling-yin",
+            "sha256": "21f0c5633575a934d061805b90c56adfced32ab222e8b5fcbb7395774351d9d0"
+          }
+        },
+        "playerTalents": 5,
+        "pluginAuthorizations": 0,
+        "pending": null,
+        "stateUnchanged": true,
+        "draftEvents": 44,
+        "generationStatus": "pending",
+        "cancelRequestOutcome": null,
+        "receipt": {
+          "format": "modelmirror.ai-rpg.generation-receipt",
+          "formatVersion": "0.1.0",
+          "sessionId": "session.real.resume1",
+          "cardPackageSha256": "2d3886a4f3f14bd059eefa471612c86937b93e8b74a6e114207ba1b942ff9dc9",
+          "playerSetupSha256": "21f0c5633575a934d061805b90c56adfced32ab222e8b5fcbb7395774351d9d0",
+          "generationId": "generation.resume1.second",
+          "exchangeId": "exchange.resume1.second",
+          "revision": 6,
+          "evidenceKind": "real",
+          "status": "succeeded",
+          "outcome": "completed",
+          "requestedModel": "gpt-5.6-luna",
+          "observedModel": "gpt-5.6-luna",
+          "serverReceipt": {
+            "actual_model": "gpt-5.6-luna",
+            "cache_hit": null,
+            "cost_kind": "unavailable",
+            "engine": "newapi",
+            "fallback_attempts": 0,
+            "latency_ms": 1684.821999981068,
+            "provider": null,
+            "reason_codes": [
+              "qualified"
+            ],
+            "request_id": null,
+            "requested_model": "gpt-5.6-luna",
+            "response_cost_usd": null,
+            "strategy": "newapi_preferred",
+            "tokens": {
+              "input": 169,
+              "output": 47,
+              "total": 216
+            },
+            "ttft_ms": 1297.7548000053503,
+            "version": "2"
+          },
+          "cancellation": {
+            "clientAborted": false,
+            "requested": false,
+            "upstreamConfirmed": null
+          },
+          "outputSha256": "82286c9578b60b3daad1b513c14004ce947870a81b143c32884cddc2b44f608e",
+          "usage": {
+            "input": 169,
+            "output": 47,
+            "total": 216
+          },
+          "costUsd": null
+        },
+        "driverSha256": "b00b9b2d180667e6283061bb2322f79cda8258644f47f9e04b3c7a6be33916d7"
+      },
+      "serverRun": {
+        "actual_model": "gpt-5.6-luna",
+        "attempts": [
+          {
+            "actual_model": "gpt-5.6-luna",
+            "attempt_id": "chatattempt_fddb799f3b724ddc88775e1cf9114afe",
+            "capability": "chat_text",
+            "completed_at": "2026-09-06T05:51:13.432055+00:00",
+            "connection_id": "conn_48ca253b64e94cf3a924a4926ca6c9dc",
+            "created_at": "2026-09-06T05:51:11.669660+00:00",
+            "dispatched": true,
+            "e2e_ms": 1684.821999981068,
+            "error_code": null,
+            "position": 0,
+            "provider_kind": "newapi",
+            "result_class": "success",
+            "run_id": "chatrun_ec936e5df7584b75a2c2abb22d1ff41c",
+            "status": "succeeded",
+            "total_tokens": 216,
+            "ttft_ms": 1297.7548000053503
+          }
+        ],
+        "capability": "chat_text",
+        "completed_at": "2026-09-06T05:51:13.436363+00:00",
+        "created_at": "2026-09-06T05:51:11.653690+00:00",
+        "e2e_ms": 1684.821999981068,
+        "gateway": "default",
+        "policy_fingerprint": "c16d33d5625b2ccaa273f3c716afe12139f66c01aa55292ee4b21f95411209c6",
+        "reason_codes": [],
+        "requested_model": "gpt-5.6-luna",
+        "result_class": "success",
+        "run_id": "chatrun_ec936e5df7584b75a2c2abb22d1ff41c",
+        "status": "succeeded",
+        "strategy": "newapi_preferred",
+        "total_tokens": 216,
+        "ttft_ms": 1297.7548000053503
+      },
+      "gatewayUsage": {
+        "input": 169,
+        "output": 47,
+        "total": 216
+      },
+      "gatewayRequestId": "202609060551117512443268268d9d6KkiELXUc",
+      "receiptSha256": "73b947d45ebb8c91bd3a64644767c8821e5d47779d7d181a207f1a2ab7819305",
+      "wireSha256": "28bdc26646abe86066564be0c2d7adfb8af37065dbb2e17695ef46ab899247c2",
+      "wireBytes": 12921,
+      "requestFileSha256": "1927768c8a35f8d679ad580abc377c4fe770b3ac73689c4cfd247060c4d1b21a",
+      "maxTokens": 512
+    },
+    {
+      "phase": "cancel",
+      "entryId": "RPG03-CANCEL-01",
+      "record": {
+        "gate": "RPG03_REAL_CANCEL_OK",
+        "entryId": "RPG03-CANCEL-01",
+        "phase": "cancel",
+        "evidenceKind": "real",
+        "completedAt": "2026-09-06T05:55:07.726Z",
+        "sessionId": "session.real.resume1",
+        "revision": 11,
+        "formalTurns": 2,
+        "resources": {
+          "cardPackage": {
+            "id": "card.representative-worlds",
+            "sha256": "2d3886a4f3f14bd059eefa471612c86937b93e8b74a6e114207ba1b942ff9dc9",
+            "version": "0.1.0"
+          },
+          "playerSetup": {
+            "setupId": "setup.bai-yu-ling-yin",
+            "sha256": "21f0c5633575a934d061805b90c56adfced32ab222e8b5fcbb7395774351d9d0"
+          }
+        },
+        "playerTalents": 5,
+        "pluginAuthorizations": 0,
+        "pending": null,
+        "stateUnchanged": true,
+        "draftEvents": 3,
+        "generationStatus": "cancelled",
+        "cancelRequestOutcome": "cancel_requested",
+        "receipt": {
+          "format": "modelmirror.ai-rpg.generation-receipt",
+          "formatVersion": "0.1.0",
+          "sessionId": "session.real.resume1",
+          "cardPackageSha256": "2d3886a4f3f14bd059eefa471612c86937b93e8b74a6e114207ba1b942ff9dc9",
+          "playerSetupSha256": "21f0c5633575a934d061805b90c56adfced32ab222e8b5fcbb7395774351d9d0",
+          "generationId": "generation.resume1.cancel",
+          "exchangeId": "exchange.resume1.cancel",
+          "revision": 11,
+          "evidenceKind": "real",
+          "status": "cancelled",
+          "outcome": "cancelled",
+          "requestedModel": "gpt-5.6-luna",
+          "observedModel": "gpt-5.6-luna",
+          "serverReceipt": null,
+          "cancellation": {
+            "clientAborted": true,
+            "requested": true,
+            "upstreamConfirmed": null
+          },
+          "outputSha256": null,
+          "usage": {
+            "input": null,
+            "output": null,
+            "total": null
+          },
+          "costUsd": null
+        },
+        "driverSha256": "b00b9b2d180667e6283061bb2322f79cda8258644f47f9e04b3c7a6be33916d7"
+      },
+      "serverRun": {
+        "actual_model": "gpt-5.6-luna",
+        "attempts": [
+          {
+            "actual_model": "gpt-5.6-luna",
+            "attempt_id": "chatattempt_94d689e47b7a419b98958b57c4b27382",
+            "capability": "chat_text",
+            "completed_at": "2026-09-06T05:55:07.680937+00:00",
+            "connection_id": "conn_48ca253b64e94cf3a924a4926ca6c9dc",
+            "created_at": "2026-09-06T05:55:03.699049+00:00",
+            "dispatched": true,
+            "e2e_ms": 3897.1378999995068,
+            "error_code": "provider_chat_client_cancelled",
+            "position": 0,
+            "provider_kind": "newapi",
+            "result_class": "client_cancelled",
+            "run_id": "chatrun_75faa270c3e04587a78925df4850d8a8",
+            "status": "cancelled",
+            "total_tokens": null,
+            "ttft_ms": 3856.2320000201
+          }
+        ],
+        "capability": "chat_text",
+        "completed_at": "2026-09-06T05:55:07.686671+00:00",
+        "created_at": "2026-09-06T05:55:03.691313+00:00",
+        "e2e_ms": 3897.1378999995068,
+        "gateway": "default",
+        "policy_fingerprint": "c16d33d5625b2ccaa273f3c716afe12139f66c01aa55292ee4b21f95411209c6",
+        "reason_codes": [
+          "provider_chat_client_cancelled"
+        ],
+        "requested_model": "gpt-5.6-luna",
+        "result_class": "client_cancelled",
+        "run_id": "chatrun_75faa270c3e04587a78925df4850d8a8",
+        "status": "cancelled",
+        "strategy": "newapi_preferred",
+        "total_tokens": null,
+        "ttft_ms": 3856.2320000201
+      },
+      "gatewayUsage": {
+        "input": 60,
+        "output": 2,
+        "total": 62
+      },
+      "gatewayRequestId": "202609060555037889744788268d9d6bMthczlA",
+      "receiptSha256": "c92ceb7dc1cc87e02c8c225fbf678cfb9a070581b0ef062e0399310231ba795c",
+      "wireSha256": "6773bf46a64275005deeac498f5858eccb9895331f07dd7873aa02bc7c5caf35",
+      "wireBytes": 1046,
+      "requestFileSha256": "48dafc174ca2c1e1cdff419f656aaa7fdc2077f94ef470d462ff9aa046a44aaf",
+      "maxTokens": 512
+    }
+  ],
+  "budget": {
+    "authorized": 5,
+    "consumed": 5,
+    "remaining": 0,
+    "certification": 1,
+    "failedNormal": 1,
+    "successfulNormal": 2,
+    "cancellation": 1,
+    "automaticRetry": false
+  },
+  "reconciliation": {
+    "serverRuns": 4,
+    "dispatchedAttempts": 4,
+    "gatewayConsumptionRows": 5,
+    "method": "isolated serial requests joined by ordered bounded dispatch, exact model, unique attempt and matching normal usage; server SSE request_id unavailable",
+    "exactCrossSystemRequestIdAvailable": false
+  },
+  "recovery": {
+    "passed": true,
+    "revision": 12,
+    "formalTurns": 2,
+    "pending": null,
+    "stateUnchanged": true,
+    "cancelledGenerationPreserved": true,
+    "providerDispatchesAdded": 0
+  },
+  "cleanup": {
+    "containerId": "e5b26f7cc22b03764f44982bf7613dc43f1a40049f2337ab19d9cba076584df4",
+    "failure": null,
+    "gate": "RPG03_RESUME1_STOPPED",
+    "ownedProcessesStopped": true,
+    "serverExitCode": 1
+  },
+  "historicalFailureReceipt": "docs/RPG03_REAL_PROVIDER_RECEIPT.json",
+  "websiteMessageProbes": 0,
+  "actualCostUsd": null
+}

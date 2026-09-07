@@ -1,0 +1,2320 @@
+{
+  "format": "modelmirror.ai-rpg.worker-qualification",
+  "formatVersion": "0.1.0",
+  "round": "RPG-02",
+  "required": true,
+  "status": "qualified_small_batch",
+  "claimAllowed": false,
+  "manualAcceptance": false,
+  "baseSha": "a43cfa389e1785a95f04a006ba26550a5a36965e",
+  "branch": "codex/ai-rpg-rpg02-content",
+  "userRequirement": "继续完成量产资格收尾后再提交本轮PR；无需全量执行，放在第一版路线完成后，但必须证明子智能体+Skill可以稳定批处理。",
+  "profile": {
+    "id": "visible-opening-world-object-v16.2",
+    "scope": "complete_selected_world_object",
+    "sourceUrl": "https://afengy.cash/zh/explore/installed/e23bbc64-4fdd-46d8-92c0-64923961e5d8",
+    "openingTitle": "无限重生系统 - 启动协议 v16.2 (Pyrite修复版)",
+    "fields": [
+      "name",
+      "desc",
+      "boss",
+      "identities",
+      "talents"
+    ],
+    "fullOriginalHtmlStored": false,
+    "commonPool": "separate_not_qualified_by_world_object_tests",
+    "hiddenContent": "unavailable_not_inferred",
+    "schedulingSystem": false
+  },
+  "requirements": [
+    {
+      "id": "frozen_recipe",
+      "description": "工具、Skill、分片输入与停批规则冻结；worker 不编写解析器、不手改来源元数据。",
+      "passed": true
+    },
+    {
+      "id": "fresh_worker_runs",
+      "description": "同一候选型号按最终冻结配方以新上下文完成两个互斥 job、三个已授权世界；不提供正文、预期数量或 hash。",
+      "passed": true
+    },
+    {
+      "id": "context_resume",
+      "description": "最终配方的双世界 job 由不同上下文依据文件检查点继续，只处理 pending；正常暂停与失败停批分开。",
+      "passed": true
+    },
+    {
+      "id": "provenance_integrity",
+      "description": "主智能体独立核对浏览器原文、raw/data hash、来源、完整数组、零损失及空权限；两次输出一致。",
+      "passed": true
+    },
+    {
+      "id": "guard_failures",
+      "description": "错误路径、覆盖/篡改、歧义、DOM变化、异常弹窗、链接、锁、遗漏回执和失败后继续被拒绝；状态真实可审计。",
+      "passed": true
+    },
+    {
+      "id": "regression_and_scope",
+      "description": "旧96项、完整世界提取14项、新增worker测试及研究hash/固定基线/范围检查通过。",
+      "passed": true
+    }
+  ],
+  "qualificationRuns": [
+    {
+      "agent": "/root/terra_safe_worker_f1",
+      "model": "gpt-5.6-terra",
+      "jobId": "worker-qualification-f-20260905",
+      "tabId": "928393785",
+      "status": "single_world_passed_planned_pause",
+      "cliSteps": [
+        [
+          "init",
+          0
+        ],
+        [
+          "status",
+          0
+        ],
+        [
+          "ingest",
+          0
+        ],
+        [
+          "status",
+          0
+        ]
+      ],
+      "completed": [
+        "genshin"
+      ],
+      "pending": [
+        "gu"
+      ],
+      "terminal": false,
+      "finalized": false,
+      "readCount": 3,
+      "failures": 0,
+      "retries": 0,
+      "transfer": "encodeWorkerTransfer + String.raw + literal here-string",
+      "answersProvided": false
+    },
+    {
+      "agent": "/root/terra_safe_worker_f2",
+      "model": "gpt-5.6-terra",
+      "jobId": "worker-qualification-f-20260905",
+      "tabId": null,
+      "status": "stopped_on_browser_tool_failure",
+      "cliSteps": [
+        [
+          "init",
+          0
+        ],
+        [
+          "status",
+          0
+        ],
+        [
+          "stop",
+          1,
+          "CUA_KERNEL_RESET"
+        ]
+      ],
+      "browserFailure": "trusted Node process exited unexpectedly; kernel reset",
+      "failureProvenance": "worker tool report",
+      "captured": false,
+      "completed": [
+        "genshin"
+      ],
+      "pending": [
+        "gu"
+      ],
+      "terminal": true,
+      "finalized": false,
+      "retries": 0,
+      "workerClaimStopNotWritten": true,
+      "primaryCorrection": "Parent audit verified event 3 type=stopped with CUA_KERNEL_RESET. stop intentionally returns exit 1 / valid false; it is not proof that event writing failed."
+    },
+    {
+      "model": "gpt-5.6-terra",
+      "allCliValid": true,
+      "diagnostics": [],
+      "terminal": false,
+      "readCount": 3,
+      "failures": 0,
+      "retries": 0,
+      "answersProvided": false,
+      "transfer": "encodeWorkerTransfer + String.raw + literal here-string",
+      "agent": "/root/terra_qualified_h1",
+      "jobId": "worker-qualification-h-20260905",
+      "tabId": "928393801",
+      "status": "passed_planned_pause",
+      "cliSteps": [
+        [
+          "init",
+          0
+        ],
+        [
+          "status",
+          0
+        ],
+        [
+          "ingest genshin",
+          0
+        ],
+        [
+          "status",
+          0
+        ]
+      ],
+      "completed": [
+        "genshin"
+      ],
+      "pending": [
+        "gu"
+      ],
+      "finalized": false
+    },
+    {
+      "model": "gpt-5.6-terra",
+      "allCliValid": true,
+      "diagnostics": [],
+      "terminal": false,
+      "readCount": 3,
+      "failures": 0,
+      "retries": 0,
+      "answersProvided": false,
+      "transfer": "encodeWorkerTransfer + String.raw + literal here-string",
+      "agent": "/root/terra_qualified_h2",
+      "jobId": "worker-qualification-h-20260905",
+      "tabId": "928393805",
+      "status": "passed_fresh_context_resume_and_finalize",
+      "cliSteps": [
+        [
+          "init",
+          0
+        ],
+        [
+          "status",
+          0
+        ],
+        [
+          "ingest gu",
+          0
+        ],
+        [
+          "status",
+          0
+        ],
+        [
+          "finalize",
+          0
+        ],
+        [
+          "audit",
+          0
+        ]
+      ],
+      "initialPending": [
+        "gu"
+      ],
+      "completed": [
+        "genshin",
+        "gu"
+      ],
+      "pending": [],
+      "finalized": true
+    },
+    {
+      "model": "gpt-5.6-terra",
+      "allCliValid": true,
+      "diagnostics": [],
+      "terminal": false,
+      "readCount": 3,
+      "failures": 0,
+      "retries": 0,
+      "answersProvided": false,
+      "transfer": "encodeWorkerTransfer + String.raw + literal here-string",
+      "agent": "/root/terra_qualified_g",
+      "jobId": "worker-qualification-g-20260905",
+      "tabId": "928393809",
+      "status": "passed_independent_shard_and_finalize",
+      "cliSteps": [
+        [
+          "init",
+          0
+        ],
+        [
+          "status",
+          0
+        ],
+        [
+          "ingest cyberpunk",
+          0
+        ],
+        [
+          "status",
+          0
+        ],
+        [
+          "finalize",
+          0
+        ],
+        [
+          "audit",
+          0
+        ]
+      ],
+      "completed": [
+        "cyberpunk"
+      ],
+      "pending": [],
+      "finalized": true
+    },
+    {
+      "model": "gpt-5.6-terra",
+      "recipePhase": "final_published_bytes",
+      "allCliValid": true,
+      "diagnostics": [],
+      "terminal": false,
+      "readCount": 3,
+      "failures": 0,
+      "retries": 0,
+      "answersProvided": false,
+      "transfer": "encodeWorkerTransfer + String.raw + literal here-string",
+      "agent": "/root/terra_final_i1",
+      "jobId": "worker-qualification-i-20260905",
+      "tabId": "928393833",
+      "status": "passed_planned_pause",
+      "cliSteps": [
+        [
+          "init",
+          0
+        ],
+        [
+          "status",
+          0
+        ],
+        [
+          "ingest genshin",
+          0
+        ],
+        [
+          "status",
+          0
+        ]
+      ],
+      "completed": [
+        "genshin"
+      ],
+      "pending": [
+        "gu"
+      ],
+      "finalized": false
+    },
+    {
+      "model": "gpt-5.6-terra",
+      "recipePhase": "final_published_bytes",
+      "allCliValid": true,
+      "diagnostics": [],
+      "terminal": false,
+      "readCount": 3,
+      "failures": 0,
+      "retries": 0,
+      "answersProvided": false,
+      "transfer": "encodeWorkerTransfer + String.raw + literal here-string",
+      "agent": "/root/terra_final_i2",
+      "jobId": "worker-qualification-i-20260905",
+      "tabId": "928393837",
+      "status": "passed_fresh_context_resume_and_finalize",
+      "cliSteps": [
+        [
+          "init",
+          0
+        ],
+        [
+          "status",
+          0
+        ],
+        [
+          "ingest gu",
+          0
+        ],
+        [
+          "status",
+          0
+        ],
+        [
+          "finalize",
+          0
+        ],
+        [
+          "audit",
+          0
+        ]
+      ],
+      "initialPending": [
+        "gu"
+      ],
+      "completed": [
+        "genshin",
+        "gu"
+      ],
+      "pending": [],
+      "finalized": true
+    },
+    {
+      "model": "gpt-5.6-terra",
+      "recipePhase": "final_published_bytes",
+      "allCliValid": true,
+      "diagnostics": [],
+      "terminal": false,
+      "readCount": 3,
+      "failures": 0,
+      "retries": 0,
+      "answersProvided": false,
+      "transfer": "encodeWorkerTransfer + String.raw + literal here-string",
+      "agent": "/root/terra_final_j",
+      "jobId": "worker-qualification-j-20260905",
+      "tabId": "928393841",
+      "status": "passed_independent_shard_and_finalize",
+      "cliSteps": [
+        [
+          "init",
+          0
+        ],
+        [
+          "status",
+          0
+        ],
+        [
+          "ingest cyberpunk",
+          0
+        ],
+        [
+          "status",
+          0
+        ],
+        [
+          "finalize",
+          0
+        ],
+        [
+          "audit",
+          0
+        ]
+      ],
+      "completed": [
+        "cyberpunk"
+      ],
+      "pending": [],
+      "finalized": true
+    }
+  ],
+  "websiteProbes": 0,
+  "externalModelCalls": 0,
+  "publication": {
+    "commit": false,
+    "push": false,
+    "pr": false,
+    "merge": false,
+    "deploy": false,
+    "release": false,
+    "publish": false
+  },
+  "limits": [
+    "资格只对应冻结的可见 worldDB 直接对象结构；通用池、新资源类别、页面漂移和隐藏内容另需验证。",
+    "Only gpt-5.6-terra completed the final small-batch gate; Luna and every other model require the same independent qualification. This is not a full-site reliability or throughput claim.",
+    "Full extraction is deferred until RPG-06 and separate batch authorization, with exclusive shards, independent pages, a matching golden batch and Astra review.",
+    "2 MiB 是校验上限，不是工具输出或命令行可无损传递该大小的承诺；完整复制、工具或系统限额失败时停批。",
+    "任一其他 worker 型号都须通过相同门槛；单次成功不代表所有模型或全站资源通用。"
+  ],
+  "priorFailureEvidence": "docs/RPG02_LUNA_TRIAL.json",
+  "priorTrialRetained": true,
+  "attemptsBeforeFinalRecipe": [
+    {
+      "agent": "/root/luna_worker_qualification_a1",
+      "model": "gpt-5.6-luna",
+      "status": "resource_pass_with_permission_setup_failures",
+      "tabId": "928393749",
+      "cliSteps": [
+        [
+          "init",
+          1,
+          "WORKER_INIT_FAILED"
+        ],
+        [
+          "status",
+          1,
+          "WORKER_PATH_UNSAFE"
+        ],
+        [
+          "init",
+          0
+        ],
+        [
+          "status",
+          0
+        ],
+        [
+          "ingest",
+          0
+        ],
+        [
+          "status",
+          0
+        ]
+      ],
+      "complete": [
+        "gu"
+      ],
+      "pending": [
+        "cyberpunk"
+      ],
+      "browserErrors": 0,
+      "browserRetries": 0,
+      "manualFilesWritten": false,
+      "preSuccessJobArtifacts": "none observed; jobs directory existed empty",
+      "publication": false
+    },
+    {
+      "agent": "/root/luna_worker_qualification_a2",
+      "model": "gpt-5.6-luna",
+      "status": "failed_closed_placeholder_payload",
+      "tabId": "928393753",
+      "cliSteps": [
+        [
+          "init",
+          null,
+          "valid true reported"
+        ],
+        [
+          "status",
+          null,
+          "WORKER_JOB_LOCKED before write escalation"
+        ],
+        [
+          "status",
+          null,
+          "valid true reported"
+        ],
+        [
+          "ingest",
+          null,
+          "placeholder attempt tool result empty"
+        ],
+        [
+          "ingest",
+          1,
+          "WORKER_BASE64_INVALID"
+        ],
+        [
+          "status",
+          null,
+          "terminal true"
+        ]
+      ],
+      "manualLockAttempt": "outside approved CLI; failed EPERM; no lock created",
+      "actualCliExitCodesMissing": true,
+      "toolPayloadTranscriptionFailed": true,
+      "siteDataDriftEvidence": false,
+      "stopCommandRun": false,
+      "complete": [
+        "gu"
+      ],
+      "pending": [
+        "cyberpunk"
+      ],
+      "terminal": true,
+      "finalized": false
+    },
+    {
+      "agent": "/root/luna_worker_qualification_c1",
+      "model": "gpt-5.6-luna",
+      "jobId": "luna-qualification-c-20260905",
+      "tabId": "928393757",
+      "status": "failed_closed_payload_transcription",
+      "cliSteps": [
+        [
+          "init",
+          0
+        ],
+        [
+          "status",
+          0
+        ],
+        [
+          "ingest",
+          1,
+          "WORKER_CAPTURE_INVALID"
+        ],
+        [
+          "stop",
+          1,
+          "WORKER_JOB_STOPPED"
+        ],
+        [
+          "status",
+          0
+        ]
+      ],
+      "completed": [],
+      "pending": [
+        "gu",
+        "cyberpunk"
+      ],
+      "terminal": true,
+      "finalized": false,
+      "reportedCause": "Worker acknowledged reconstructing the raw string through escape layers rather than exact copying.",
+      "additionalDeviation": "An out-of-scope memory lookup was rejected; no write observed."
+    },
+    {
+      "agent": "/root/terra_worker_qualification_d1",
+      "model": "gpt-5.6-terra",
+      "jobId": "worker-qualification-d-20260905",
+      "tabId": "928393764",
+      "status": "first_world_passed_planned_pause",
+      "cliSteps": [
+        [
+          "init",
+          0
+        ],
+        [
+          "status",
+          0
+        ],
+        [
+          "ingest",
+          0
+        ],
+        [
+          "status",
+          0
+        ]
+      ],
+      "completed": [
+        "gu"
+      ],
+      "pending": [
+        "cyberpunk"
+      ],
+      "failures": 0,
+      "retries": 0,
+      "readCount": 3,
+      "fixtureAnswersProvided": false
+    },
+    {
+      "agent": "/root/terra_worker_qualification_d2",
+      "model": "gpt-5.6-terra",
+      "jobId": "worker-qualification-d-20260905",
+      "tabId": "928393768",
+      "status": "context_resume_passed_prior_transport",
+      "cliSteps": [
+        [
+          "init",
+          0
+        ],
+        [
+          "status",
+          0
+        ],
+        [
+          "ingest",
+          0
+        ],
+        [
+          "status",
+          0
+        ],
+        [
+          "finalize",
+          0
+        ],
+        [
+          "audit",
+          0
+        ]
+      ],
+      "completed": [
+        "cyberpunk",
+        "gu"
+      ],
+      "pending": [],
+      "failures": 0,
+      "retries": 0,
+      "readCount": 3,
+      "finalized": true,
+      "onlyPendingProcessed": true,
+      "fixtureAnswersProvided": false
+    },
+    {
+      "agent": "/root/terra_worker_qualification_e",
+      "model": "gpt-5.6-terra",
+      "jobId": "worker-qualification-e-20260905",
+      "tabId": "928393772",
+      "status": "failed_closed_payload_transfer",
+      "cliSteps": [
+        [
+          "init",
+          0
+        ],
+        [
+          "status",
+          0
+        ],
+        [
+          "ingest",
+          1,
+          "WORKER_CAPTURE_INVALID"
+        ],
+        [
+          "stop",
+          1,
+          "WORKER_JOB_STOPPED"
+        ]
+      ],
+      "completed": [],
+      "pending": [
+        "genshin"
+      ],
+      "terminal": true,
+      "finalized": false,
+      "retries": 0,
+      "reportedMethod": "Manual transcription into a normal JavaScript double-quoted cmd string; exact differing character was not established.",
+      "siteDriftEstablished": false
+    }
+  ],
+  "calibrationEvidence": {
+    "preflightReceipt": {
+      "artifacts": [
+        {
+          "bytes": 5351,
+          "path": "envelopes/cyberpunk.json",
+          "sha256": "efa650de5179a6c698d717135e15b392d4a2e659fc8efcc7fe39e7f80daacd6b"
+        },
+        {
+          "bytes": 5622,
+          "path": "captures/cyberpunk.json",
+          "sha256": "04065347ad703781b2fb6afcf18c335a6b85cca70e60757ae0f6c6792ec0a754"
+        },
+        {
+          "bytes": 6672,
+          "path": "outputs/cyberpunk.a.json",
+          "sha256": "37e695d1289cd30cdb01e97e5c1a0dc6cb2b8ce69f4370603f92d3c1d3cdc5a2"
+        },
+        {
+          "bytes": 6672,
+          "path": "outputs/cyberpunk.b.json",
+          "sha256": "37e695d1289cd30cdb01e97e5c1a0dc6cb2b8ce69f4370603f92d3c1d3cdc5a2"
+        }
+      ],
+      "assignmentSha256": "8cf8ee694ede9e8bc318a4e87635663f93844505fa89fd02c2bf6b751e1309ae",
+      "completed": [
+        "cyberpunk"
+      ],
+      "eventHeadSha256": "90b8b6b7d1404338533f77e2849956ae20258e651748fec4fd4422117c9890f5",
+      "events": 2,
+      "format": "modelmirror.ai-rpg.worker-receipt",
+      "formatVersion": "0.1.0",
+      "jobId": "astra-json-transfer-20260905"
+    },
+    "preflightReceiptSha256": "8EB87A3FF83BBD41E302E5DB3829DEAE9CB0807FAB1CB7E963E29F5C2C371804",
+    "failedJob": {
+      "events": [
+        {
+          "format": "modelmirror.ai-rpg.worker-event",
+          "formatVersion": "0.1.0",
+          "previousEventSha256": null,
+          "requestHash": "a70d3affd086e5d2492289522df9917453a8dd114f336ebfd8dc1ed567a455c5",
+          "result": {
+            "assignmentSha256": "159775825d26056f5374525d949dbbe19e4880752667713834d5d374204c2010"
+          },
+          "sequence": 1,
+          "type": "initialized"
+        },
+        {
+          "format": "modelmirror.ai-rpg.worker-event",
+          "formatVersion": "0.1.0",
+          "previousEventSha256": "ab9c53b3c8837a637ab4cad730c96c102d4d4a4d9c0627fe2c0bc0bbec183caf",
+          "requestHash": "28979b46af485e7692b49355a6e130f8ba62839cb7ffe3104ca80dc0f9afafaf",
+          "result": {
+            "captureSha256": "495adf3f5ab6995a63c28e9fb133fb4f7e7299bd4b0bbaf29d3fcdcf0cceca3e",
+            "inventory": {
+              "identities": 5,
+              "talents": 30,
+              "total": 36,
+              "worlds": 1
+            },
+            "losses": [],
+            "outputSha256": "19d71ebf778212e1dfc05196d827ffc5ee835b31e37adbc7eab129a6490acc55",
+            "resourceKey": "gu",
+            "runtimePermissions": []
+          },
+          "sequence": 2,
+          "type": "ingest_accepted"
+        },
+        {
+          "format": "modelmirror.ai-rpg.worker-event",
+          "formatVersion": "0.1.0",
+          "previousEventSha256": "c19ddd87d89ddfa0c6ff986154c72520d2aa01f485efc04bdb731dd8ece01a4f",
+          "requestHash": "ebed4040bcb83bd87a7713dfb5d445e1393c92782851598bf29ae8e69ca69234",
+          "result": "WORKER_BASE64_INVALID",
+          "sequence": 3,
+          "type": "ingest_rejected"
+        }
+      ],
+      "files": [
+        {
+          "sha256": "A70D3AFFD086E5D2492289522DF9917453A8DD114F336EBFD8DC1ED567A455C5",
+          "bytes": 558,
+          "path": "assignment.json"
+        },
+        {
+          "sha256": "495ADF3F5AB6995A63C28E9FB133FB4F7E7299BD4B0BBAF29D3FCDCF0CCECA3E",
+          "bytes": 8982,
+          "path": "captures/gu.json"
+        },
+        {
+          "sha256": "28979B46AF485E7692B49355A6E130F8BA62839CB7FFE3104CA80DC0F9AFAFAF",
+          "bytes": 8691,
+          "path": "envelopes/gu.json"
+        },
+        {
+          "sha256": "AB9C53B3C8837A637AB4CAD730C96C102D4D4A4D9C0627FE2C0BC0BBEC183CAF",
+          "bytes": 346,
+          "path": "events/000001.json"
+        },
+        {
+          "sha256": "C19DDD87D89DDFA0C6FF986154C72520D2AA01F485EFC04BDB731DD8ECE01A4F",
+          "bytes": 677,
+          "path": "events/000002.json"
+        },
+        {
+          "sha256": "0E84F2A280F6E684CD2388874B318EEA265353CFCB6FBF256A799780C0EB674B",
+          "bytes": 339,
+          "path": "events/000003.json"
+        },
+        {
+          "sha256": "19D71EBF778212E1DFC05196D827FFC5EE835B31E37ADBC7EAB129A6490ACC55",
+          "bytes": 10724,
+          "path": "outputs/gu.a.json"
+        },
+        {
+          "sha256": "19D71EBF778212E1DFC05196D827FFC5EE835B31E37ADBC7EAB129A6490ACC55",
+          "bytes": 10724,
+          "path": "outputs/gu.b.json"
+        }
+      ]
+    }
+  },
+  "recipeRevision": "encoded-json-string-raw",
+  "frozenRecipe": [
+    {
+      "path": "experiments/ai-rpg-engine/tests/worker-batch.test.mjs",
+      "sha256": "DED5B160EB2F49637E3428B63DFECAC6B720B56C14E04F94A76F4176841EE737"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/skills/rpg02-selected-content/references/browser-capture.md",
+      "sha256": "CE45748C9968DEE4DFA7BB33B4074C2ECE45806BA517AE91B8AE6503FB4DFB34"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tests/worker-capture.test.mjs",
+      "sha256": "6623A9EA50492AE7E34EF275E0723F83142C098ABFC7AC8857A251FE1CCC9F2B"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tooling/worker-capture.mjs",
+      "sha256": "F1CC297BB190A9AFADD510880DC2402E62F95E219DF4D832E55B1DE5EF2A4ED7"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tooling/worker-batch.mjs",
+      "sha256": "19160F9CE97C5BF2B5D9B35073138EDD77F5BF2FEDF1D1B9F1C7D0240AE149B6"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/skills/rpg02-selected-content/SKILL.md",
+      "sha256": "B73529394E1A3870136A556192D90F21AE98A733FD0236AA4AB8A81E9F77C0FF"
+    }
+  ],
+  "requalificationAssignments": [
+    {
+      "format": "modelmirror.ai-rpg.worker-assignment",
+      "formatVersion": "0.1.0",
+      "jobId": "luna-qualification-c-20260905",
+      "owner": "luna-qualification-c",
+      "sourceUrl": "https://afengy.cash/zh/explore/installed/e23bbc64-4fdd-46d8-92c0-64923961e5d8",
+      "authorizationRef": "user-authorized-RPG02-low-tier-worker-qualification-visible-worlds",
+      "capturedDate": "2026-09-05",
+      "worlds": [
+        {
+          "key": "gu",
+          "name": "470.蛊真人 (Reverend Insanity)"
+        },
+        {
+          "key": "cyberpunk",
+          "name": "383.赛博朋克2077"
+        }
+      ]
+    },
+    {
+      "format": "modelmirror.ai-rpg.worker-assignment",
+      "formatVersion": "0.1.0",
+      "jobId": "luna-qualification-b-20260905",
+      "owner": "luna-qualification-b",
+      "sourceUrl": "https://afengy.cash/zh/explore/installed/e23bbc64-4fdd-46d8-92c0-64923961e5d8",
+      "authorizationRef": "user-authorized-RPG02-low-tier-worker-qualification-visible-worlds",
+      "capturedDate": "2026-09-05",
+      "worlds": [
+        {
+          "key": "genshin",
+          "name": "426.原神 (Genshin Impact)"
+        }
+      ]
+    }
+  ],
+  "automatedQualificationPassed": true,
+  "qualifiedModels": [
+    "gpt-5.6-terra"
+  ],
+  "batchSubmissionAllowed": true,
+  "massExtractionStarted": false,
+  "candidateModels": [
+    {
+      "model": "gpt-5.6-luna",
+      "qualification": "not_qualified",
+      "latestRecipeTested": false,
+      "reason": " Earlier attempts had workflow and payload transfer failures; final encoded transfer recipe has not been tested by Luna."
+    },
+    {
+      "model": "gpt-5.6-terra",
+      "qualification": "qualified_small_batch",
+      "latestRecipeTested": true,
+      "reason": "Final published-byte I/J jobs passed in three fresh contexts with pending-only continuation; prior H/G success and all failures retained.",
+      "evidence": "finalQualification"
+    }
+  ],
+  "currentStop": null,
+  "remainingGate": "No worker small-batch qualification gap for the frozen Terra profile; manual RPG-02 acceptance, other models/categories and actual mass extraction remain separate.",
+  "finalRecipeAssignments": [
+    {
+      "format": "modelmirror.ai-rpg.worker-assignment",
+      "formatVersion": "0.1.0",
+      "jobId": "worker-qualification-f-20260905",
+      "owner": "worker-qualification-f",
+      "worlds": [
+        {
+          "key": "genshin",
+          "name": "426.原神 (Genshin Impact)"
+        },
+        {
+          "key": "gu",
+          "name": "470.蛊真人 (Reverend Insanity)"
+        }
+      ],
+      "sourceUrl": "https://afengy.cash/zh/explore/installed/e23bbc64-4fdd-46d8-92c0-64923961e5d8",
+      "authorizationRef": "user-authorized-RPG02-low-tier-worker-qualification-visible-worlds",
+      "capturedDate": "2026-09-05"
+    },
+    {
+      "format": "modelmirror.ai-rpg.worker-assignment",
+      "formatVersion": "0.1.0",
+      "jobId": "worker-qualification-g-20260905",
+      "owner": "worker-qualification-g",
+      "worlds": [
+        {
+          "key": "cyberpunk",
+          "name": "383.赛博朋克2077"
+        }
+      ],
+      "sourceUrl": "https://afengy.cash/zh/explore/installed/e23bbc64-4fdd-46d8-92c0-64923961e5d8",
+      "authorizationRef": "user-authorized-RPG02-low-tier-worker-qualification-visible-worlds",
+      "capturedDate": "2026-09-05"
+    }
+  ],
+  "unstartedAssignments": [
+    "luna-qualification-b-20260905"
+  ],
+  "codingAgentCallsSeparateFromWebsiteProbes": true,
+  "qualificationInterpretation": "The same frozen profile passed two disjoint jobs and three fresh Terra contexts, including pending-only continuation. Repeatable small batches for complete worldDB objects only; no Luna, unattended SLA, full-site or general compiler claim.",
+  "terminalEvidence": {
+    "luna-qualification-c-20260905": {
+      "files": [
+        {
+          "path": "assignment.json",
+          "bytes": 558,
+          "sha256": "4FF421659D9FB91023BF0EE4E51A5EE08DAB88A34687D342E416361F6AFCBF60"
+        },
+        {
+          "path": "events/000001.json",
+          "bytes": 346,
+          "sha256": "78A5625381A3794DDFAA253A6158AC7D55DA3079AC966011DA2616FEEB11CA94"
+        },
+        {
+          "path": "events/000002.json",
+          "bytes": 340,
+          "sha256": "A1D2A851BFD0085E4BBDA12149632EB733CA5423C31F9CCBAAA6C9663E4BCF69"
+        }
+      ],
+      "events": [
+        {
+          "format": "modelmirror.ai-rpg.worker-event",
+          "formatVersion": "0.1.0",
+          "previousEventSha256": null,
+          "requestHash": "4ff421659d9fb91023bf0ee4e51a5ee08dab88a34687d342e416361f6afcbf60",
+          "result": {
+            "assignmentSha256": "376eb0ddd7a98a440d533d4549c91627082329e57653a80ecd5905d30e615609"
+          },
+          "sequence": 1,
+          "type": "initialized"
+        },
+        {
+          "format": "modelmirror.ai-rpg.worker-event",
+          "formatVersion": "0.1.0",
+          "previousEventSha256": "78a5625381a3794ddfaa253a6158ac7d55da3079ac966011da2616feeb11ca94",
+          "requestHash": "0fde1b44c08c82d2ff76c0677a40299c9bdafd2a9a961bc84b983f01965fbd6c",
+          "result": "WORKER_CAPTURE_INVALID",
+          "sequence": 2,
+          "type": "ingest_rejected"
+        }
+      ]
+    },
+    "worker-qualification-e-20260905": {
+      "files": [
+        {
+          "path": "assignment.json",
+          "bytes": 485,
+          "sha256": "BB37D5F8C6A32AC047A0DE98C71AE61415F4086BA7768A8CE1FDAAEEFF477912"
+        },
+        {
+          "path": "events/000001.json",
+          "bytes": 346,
+          "sha256": "8F9C9D38E3C026AB0AF4D50C54DBC98553EBF9090B1C3921812CE759BFDEEC29"
+        },
+        {
+          "path": "events/000002.json",
+          "bytes": 340,
+          "sha256": "BC4BAA0C0B9F8DD338D7EB5430204C462CDC54E5E14778B398344079E836ED86"
+        }
+      ],
+      "events": [
+        {
+          "format": "modelmirror.ai-rpg.worker-event",
+          "formatVersion": "0.1.0",
+          "previousEventSha256": null,
+          "requestHash": "bb37d5f8c6a32ac047a0de98c71ae61415f4086ba7768a8ce1fdaaeeff477912",
+          "result": {
+            "assignmentSha256": "bd810e2641ddbb407c984df086588576d1b135c681acc110252d70f0f8aeeb78"
+          },
+          "sequence": 1,
+          "type": "initialized"
+        },
+        {
+          "format": "modelmirror.ai-rpg.worker-event",
+          "formatVersion": "0.1.0",
+          "previousEventSha256": "8f9c9d38e3c026ab0af4d50c54dbc98553ebf9090b1c3921812ce759bfdeec29",
+          "requestHash": "9fe5e044cca77c162eb16110988191938faae99e06ceb9e79a6858a072fba3f4",
+          "result": "WORKER_CAPTURE_INVALID",
+          "sequence": 2,
+          "type": "ingest_rejected"
+        }
+      ]
+    },
+    "worker-qualification-f-20260905": {
+      "files": [
+        {
+          "path": "assignment.json",
+          "bytes": 479,
+          "sha256": "AD96025A70684A712587DE50601DFF63A1195D21E1CF124B65BAA58E37AFE24C"
+        },
+        {
+          "path": "captures/genshin.json",
+          "bytes": 8191,
+          "sha256": "91538AE6FA7D9C4F16C73B625314EF05A1E8AC380C76912982CE28014B68062F"
+        },
+        {
+          "path": "envelopes/genshin.json",
+          "bytes": 7911,
+          "sha256": "B16CCE31824A754D46B503F3B1E57232E23D54C4938CD722DD177CF081C41E58"
+        },
+        {
+          "path": "events/000001.json",
+          "bytes": 346,
+          "sha256": "F215E153DBF8EF6D4446DFE7CBE54F120353BEDAE345574F596C15EAE2FB7F0E"
+        },
+        {
+          "path": "events/000002.json",
+          "bytes": 682,
+          "sha256": "996C1342B674F4CABC371CE9D7B40D23A84215849AFF230EF3AF1AF0A0EC2881"
+        },
+        {
+          "path": "events/000003.json",
+          "bytes": 326,
+          "sha256": "011098191D24EFDA5FA9859AABD94D0812640C6AA5A5E16BEFF2A420DD0F61BE"
+        },
+        {
+          "path": "outputs/genshin.a.json",
+          "bytes": 9767,
+          "sha256": "E2FCE81596CBE3DB716099DE45B355DD6A66B3CA29F45D931D6BBC7DD89CDFE5"
+        },
+        {
+          "path": "outputs/genshin.b.json",
+          "bytes": 9767,
+          "sha256": "E2FCE81596CBE3DB716099DE45B355DD6A66B3CA29F45D931D6BBC7DD89CDFE5"
+        }
+      ],
+      "events": [
+        {
+          "format": "modelmirror.ai-rpg.worker-event",
+          "formatVersion": "0.1.0",
+          "previousEventSha256": null,
+          "requestHash": "ad96025a70684a712587de50601dff63a1195d21e1cf124b65baa58e37afe24c",
+          "result": {
+            "assignmentSha256": "3aef80e7394c148d35a4e84d890bc487c8db017a3d30ea6e9d085fecad51d91f"
+          },
+          "sequence": 1,
+          "type": "initialized"
+        },
+        {
+          "format": "modelmirror.ai-rpg.worker-event",
+          "formatVersion": "0.1.0",
+          "previousEventSha256": "f215e153dbf8ef6d4446dfe7cbe54f120353bedae345574f596c15eae2fb7f0e",
+          "requestHash": "b16cce31824a754d46b503f3b1e57232e23d54c4938cd722dd177cf081c41e58",
+          "result": {
+            "captureSha256": "91538ae6fa7d9c4f16c73b625314ef05a1e8ac380c76912982ce28014b68062f",
+            "inventory": {
+              "identities": 5,
+              "talents": 30,
+              "total": 36,
+              "worlds": 1
+            },
+            "losses": [],
+            "outputSha256": "e2fce81596cbe3db716099de45b355dd6a66b3ca29f45d931d6bbc7dd89cdfe5",
+            "resourceKey": "genshin",
+            "runtimePermissions": []
+          },
+          "sequence": 2,
+          "type": "ingest_accepted"
+        },
+        {
+          "format": "modelmirror.ai-rpg.worker-event",
+          "formatVersion": "0.1.0",
+          "previousEventSha256": "996c1342b674f4cabc371ce9d7b40d23a84215849aff230ef3af1af0a0ec2881",
+          "requestHash": "0ee5af238f1fde2892b32f2c2133ef1b1a7f1a7d78a22786e16059ef2cbe233e",
+          "result": "CUA_KERNEL_RESET",
+          "sequence": 3,
+          "type": "stopped"
+        }
+      ],
+      "source": {
+        "dataSha256": "d28bfc2828ce2d47aca9c424dbbf05c1a72762c5f52fe283d91cc93dc5f48e40",
+        "start": 1129509,
+        "rawSha256": "5c8f5c80c5bc20d81018e23678b2001b3f220f3e37c43784b9fe6a32cb51132d",
+        "rawUtf8Bytes": 6717,
+        "end": 1133528
+      },
+      "inventory": {
+        "identities": 5,
+        "talents": 30,
+        "total": 36,
+        "worlds": 1
+      },
+      "receipt": {
+        "commonTalentsScope": "separate_global_pool_not_assigned_to_this_world",
+        "fullOriginalHtmlStored": false,
+        "losses": [],
+        "modelCalls": 0,
+        "runtimePermissions": [],
+        "stableIdAssignment": "deferred_to_content_mapping",
+        "unavailable": [
+          "hidden worldbook",
+          "hidden style",
+          "hidden prompts"
+        ],
+        "websiteProbes": 0
+      },
+      "primaryAudit": {
+        "valid": true,
+        "exitCode": 0,
+        "eventCount": 3,
+        "terminal": true,
+        "finalized": false
+      }
+    }
+  },
+  "priorSuccessfulJob": {
+    "jobId": "worker-qualification-d-20260905",
+    "receiptFile": {
+      "path": "receipt.json",
+      "bytes": 1633,
+      "sha256": "199BC11253E63B836675FFD8A2472E9C7660370302234606F7C5909CDC8B09FC"
+    },
+    "receipt": {
+      "artifacts": [
+        {
+          "bytes": 5354,
+          "path": "envelopes/cyberpunk.json",
+          "sha256": "2b4f28055066f57905b599f644d5f6a171f2a6c7f03f4c0765bd95d283f429c9"
+        },
+        {
+          "bytes": 5625,
+          "path": "captures/cyberpunk.json",
+          "sha256": "611da501818055dec2630d74387767ba917669cc50888240d43c29bd920d6fd4"
+        },
+        {
+          "bytes": 6675,
+          "path": "outputs/cyberpunk.a.json",
+          "sha256": "d01cb5af864e000caf85dc239e928b60b88e80a8ea85b59b02b0f9d2d08f07b2"
+        },
+        {
+          "bytes": 6675,
+          "path": "outputs/cyberpunk.b.json",
+          "sha256": "d01cb5af864e000caf85dc239e928b60b88e80a8ea85b59b02b0f9d2d08f07b2"
+        },
+        {
+          "bytes": 8693,
+          "path": "envelopes/gu.json",
+          "sha256": "9f762d8aa3800fa96688b360e46d9a0b0957a8974a40dde388ceeb748d9433c2"
+        },
+        {
+          "bytes": 8984,
+          "path": "captures/gu.json",
+          "sha256": "fe163ece48206015fe56366137b8d32788a3bd4038199e3292362697dcd2f6d3"
+        },
+        {
+          "bytes": 10726,
+          "path": "outputs/gu.a.json",
+          "sha256": "b53bc38c80e36446cb08414724671498c6f6d87a138d1ffa685192a7cfa68fb1"
+        },
+        {
+          "bytes": 10726,
+          "path": "outputs/gu.b.json",
+          "sha256": "b53bc38c80e36446cb08414724671498c6f6d87a138d1ffa685192a7cfa68fb1"
+        }
+      ],
+      "assignmentSha256": "dd648abfdc021d5a7c69a162723551cf26555474d0de49c0d22c91f80a6b64be",
+      "completed": [
+        "cyberpunk",
+        "gu"
+      ],
+      "eventHeadSha256": "36e5265605a238c2412fc9c8101b30beef53697f09543dedaae45855d9293f5b",
+      "events": 3,
+      "format": "modelmirror.ai-rpg.worker-receipt",
+      "formatVersion": "0.1.0",
+      "jobId": "worker-qualification-d-20260905"
+    },
+    "worlds": [
+      {
+        "key": "gu",
+        "rawMatchesPriorCapture": true,
+        "start": 1283417,
+        "end": 1287593,
+        "rawUtf8Bytes": 7504,
+        "rawSha256": "9f99336567d3cb331a25e82679d4a9783b25b16d3a475aae07bb8840aefa952b",
+        "dataSha256": "bf3d43063ce0a6a6bfef8a61087e80e4392a78e339e256a640b2f15bc455f80f",
+        "inventory": {
+          "identities": 5,
+          "talents": 30,
+          "total": 36,
+          "worlds": 1
+        },
+        "receipt": {
+          "commonTalentsScope": "separate_global_pool_not_assigned_to_this_world",
+          "fullOriginalHtmlStored": false,
+          "losses": [],
+          "modelCalls": 0,
+          "runtimePermissions": [],
+          "stableIdAssignment": "deferred_to_content_mapping",
+          "unavailable": [
+            "hidden worldbook",
+            "hidden style",
+            "hidden prompts"
+          ],
+          "websiteProbes": 0
+        }
+      },
+      {
+        "key": "cyberpunk",
+        "rawMatchesPriorCapture": true,
+        "start": 1007599,
+        "end": 1009977,
+        "rawUtf8Bytes": 4293,
+        "rawSha256": "17df5d126145a2993b5667c9547f77049465f8a64c72bab51fcdba615d8e30a4",
+        "dataSha256": "972e349a38460dd5ee5765049ac02918b14f4723bc6465c1ee84db512a2197ee",
+        "inventory": {
+          "identities": 5,
+          "talents": 15,
+          "total": 21,
+          "worlds": 1
+        },
+        "receipt": {
+          "commonTalentsScope": "separate_global_pool_not_assigned_to_this_world",
+          "fullOriginalHtmlStored": false,
+          "losses": [],
+          "modelCalls": 0,
+          "runtimePermissions": [],
+          "stableIdAssignment": "deferred_to_content_mapping",
+          "unavailable": [
+            "hidden worldbook",
+            "hidden style",
+            "hidden prompts"
+          ],
+          "websiteProbes": 0
+        }
+      }
+    ],
+    "primaryAudit": {
+      "valid": true,
+      "exitCode": 0,
+      "eventCount": 4,
+      "finalized": true
+    }
+  },
+  "safeTransferPreflight": {
+    "jobId": "astra-safe-transfer-20260905",
+    "cliSteps": [
+      [
+        "init",
+        0
+      ],
+      [
+        "ingest",
+        0
+      ],
+      [
+        "finalize",
+        0
+      ],
+      [
+        "audit",
+        0
+      ]
+    ],
+    "receiptFile": {
+      "path": "receipt.json",
+      "bytes": 1001,
+      "sha256": "6EEC9C80A2F2701FA728AC2B07D9D53839E8A37B741F0E597722375DF1781B0F"
+    },
+    "receipt": {
+      "artifacts": [
+        {
+          "bytes": 7908,
+          "path": "envelopes/genshin.json",
+          "sha256": "b2f3210b25a32857800e4dc8406472f1e25be472524fd20eaeb8f6f5c47e80dd"
+        },
+        {
+          "bytes": 8188,
+          "path": "captures/genshin.json",
+          "sha256": "2ab788c805cb99d80ebddd14053c1d0ea56e6436b20921cc841d39f506dbf275"
+        },
+        {
+          "bytes": 9764,
+          "path": "outputs/genshin.a.json",
+          "sha256": "9f90ff82bd10603a5448de7aa18422079857c75ed459c9c1be8723bd12a87f2c"
+        },
+        {
+          "bytes": 9764,
+          "path": "outputs/genshin.b.json",
+          "sha256": "9f90ff82bd10603a5448de7aa18422079857c75ed459c9c1be8723bd12a87f2c"
+        }
+      ],
+      "assignmentSha256": "14d80c8ffad90092e3acdd8a30ec9104f8f10c61ac5b1252988969526f8890c6",
+      "completed": [
+        "genshin"
+      ],
+      "eventHeadSha256": "7e9613ce15f9b1854d1f5b7853b77d5de9c8f6f69bb1b8e3a4364bb33e33c5cd",
+      "events": 2,
+      "format": "modelmirror.ai-rpg.worker-receipt",
+      "formatVersion": "0.1.0",
+      "jobId": "astra-safe-transfer-20260905"
+    },
+    "liveSourceHashes": {
+      "dataSha256": "d28bfc2828ce2d47aca9c424dbbf05c1a72762c5f52fe283d91cc93dc5f48e40",
+      "start": 1129509,
+      "rawSha256": "5c8f5c80c5bc20d81018e23678b2001b3f220f3e37c43784b9fe6a32cb51132d",
+      "rawUtf8Bytes": 6717,
+      "end": 1133528
+    }
+  },
+  "validation": {
+    "originalTests": 96,
+    "fullWorldTests": 14,
+    "captureAdapterTests": 17,
+    "batchGuardTests": 8,
+    "additionalTotal": 39,
+    "totalTests": 135,
+    "failed": 0,
+    "skipped": 0,
+    "oldSuccessMarker": "RPG02_AUTOMATED_GATES_OK",
+    "oldMarkerCoversWorkerGate": false,
+    "workerCommand": "node --test --test-reporter=spec tests/worker-capture.test.mjs tests/worker-batch.test.mjs tests/world-source.test.mjs",
+    "fileSymlinkBranch": "unexercised_host_EPERM",
+    "directoryJunctionBranch": "passed_actual_Windows_junction",
+    "skillValidator": "unmodified quick_validate.py with existing real PyYAML; passed",
+    "probeLedgerUnchanged": true
+  },
+  "transferHardening": {
+    "envelopeSemanticVersionUnchanged": true,
+    "captureAlgorithmUnchanged": true,
+    "cliUnchanged": true,
+    "manualEscapingRemoved": true,
+    "templateAndShellControlTextTested": true,
+    "oversizeTransferRejected": true,
+    "localEditPreparationFailures": [
+      "JS example interpolation ReferenceError before any file write",
+      "Windows command length os error 206 before process creation",
+      "PowerShell newline literal in outer JS template SyntaxError before process creation"
+    ],
+    "resolvedBy": "Small bounded patches and validated literal-only encoded transfer; these setup errors did not change source evidence or failed jobs."
+  },
+  "previousCloseoutStop": {
+    "jobId": "worker-qualification-f-20260905",
+    "code": "CUA_KERNEL_RESET",
+    "completed": [
+      "genshin"
+    ],
+    "pending": [
+      "gu"
+    ],
+    "terminal": true,
+    "finalized": false,
+    "eventCount": 3,
+    "stopEventConfirmed": true,
+    "noSourceLossObserved": true
+  },
+  "finalQualification": {
+    "format": "modelmirror.ai-rpg.qualification-closeout",
+    "formatVersion": "0.1.0",
+    "date": "2026-09-05",
+    "status": "qualified_small_batch",
+    "qualifiedModels": [
+      "gpt-5.6-terra"
+    ],
+    "primaryTabId": "928393798",
+    "jobs": [
+      {
+        "jobId": "worker-qualification-i-20260905",
+        "root": ".rpg02-work/worker-batches/jobs/worker-qualification-i-20260905",
+        "assignment": {
+          "format": "modelmirror.ai-rpg.worker-assignment",
+          "formatVersion": "0.1.0",
+          "jobId": "worker-qualification-i-20260905",
+          "owner": "worker-qualification-i-20260905",
+          "worlds": [
+            {
+              "key": "genshin",
+              "name": "426.原神 (Genshin Impact)"
+            },
+            {
+              "key": "gu",
+              "name": "470.蛊真人 (Reverend Insanity)"
+            }
+          ],
+          "sourceUrl": "https://afengy.cash/zh/explore/installed/e23bbc64-4fdd-46d8-92c0-64923961e5d8",
+          "authorizationRef": "user-authorized-RPG02-low-tier-worker-qualification-visible-worlds",
+          "capturedDate": "2026-09-05"
+        },
+        "assignmentFileSha256": "5d94be4d9bb47e74226f1dfeb53efb8d6c173268c211ab506a0a90ccf63a5d4b",
+        "receiptPath": ".rpg02-work/worker-batches/jobs/worker-qualification-i-20260905/receipt.json",
+        "receiptBytes": 1623,
+        "receiptSha256": "e4eaed4e01716a41232c633850698c2a0cb17f6c8b952b0ca216640c13c34c99",
+        "receipt": {
+          "artifacts": [
+            {
+              "bytes": 7911,
+              "path": "envelopes/genshin.json",
+              "sha256": "9af81f76c6f6bab0e18005a3591985fee57a993d762437a2ab3af57ab7a7744b"
+            },
+            {
+              "bytes": 8191,
+              "path": "captures/genshin.json",
+              "sha256": "f1027bf2870acf840b49b231834bba4ea4085af5782c5852ef89626c4bf65893"
+            },
+            {
+              "bytes": 9767,
+              "path": "outputs/genshin.a.json",
+              "sha256": "dd6370239b8fd1b7b7300a3cb5f0793dd7bc558027fc889e1b62592b4b5cd830"
+            },
+            {
+              "bytes": 9767,
+              "path": "outputs/genshin.b.json",
+              "sha256": "dd6370239b8fd1b7b7300a3cb5f0793dd7bc558027fc889e1b62592b4b5cd830"
+            },
+            {
+              "bytes": 8693,
+              "path": "envelopes/gu.json",
+              "sha256": "df4b5e195f14c4f0c3aefe7500874dcce233e6a5ffe3df945e54672e315addc9"
+            },
+            {
+              "bytes": 8984,
+              "path": "captures/gu.json",
+              "sha256": "d298b0b2bb93189644e9db9d0718e178ec2dd47437710bdc4019f3530aefbf8c"
+            },
+            {
+              "bytes": 10726,
+              "path": "outputs/gu.a.json",
+              "sha256": "31544b8f42337b1bf2121db66a056fa92990e595ea98a26db17fa16ef66e23ef"
+            },
+            {
+              "bytes": 10726,
+              "path": "outputs/gu.b.json",
+              "sha256": "31544b8f42337b1bf2121db66a056fa92990e595ea98a26db17fa16ef66e23ef"
+            }
+          ],
+          "assignmentSha256": "f8ffd9033b780a0b772638431dc14a2681b7c978faa04eba1ad327a896236e48",
+          "completed": [
+            "genshin",
+            "gu"
+          ],
+          "eventHeadSha256": "baebcb7882535d715daaa32fc179746543adef3ac89c52ba896579a071fa721f",
+          "events": 3,
+          "format": "modelmirror.ai-rpg.worker-receipt",
+          "formatVersion": "0.1.0",
+          "jobId": "worker-qualification-i-20260905"
+        },
+        "events": [
+          {
+            "path": "events/000001.json",
+            "bytes": 346,
+            "sha256": "36ec07d72c37b30cf9d64024b08b7f53bbf5eb05de6c4a5913f8e0e329b7c6b0",
+            "event": {
+              "format": "modelmirror.ai-rpg.worker-event",
+              "formatVersion": "0.1.0",
+              "previousEventSha256": null,
+              "requestHash": "5d94be4d9bb47e74226f1dfeb53efb8d6c173268c211ab506a0a90ccf63a5d4b",
+              "result": {
+                "assignmentSha256": "f8ffd9033b780a0b772638431dc14a2681b7c978faa04eba1ad327a896236e48"
+              },
+              "sequence": 1,
+              "type": "initialized"
+            }
+          },
+          {
+            "path": "events/000002.json",
+            "bytes": 682,
+            "sha256": "035939b48e9703c77b9fae69e2203b577b17f89a2b4e9fd74873563b0466e8c8",
+            "event": {
+              "format": "modelmirror.ai-rpg.worker-event",
+              "formatVersion": "0.1.0",
+              "previousEventSha256": "36ec07d72c37b30cf9d64024b08b7f53bbf5eb05de6c4a5913f8e0e329b7c6b0",
+              "requestHash": "9af81f76c6f6bab0e18005a3591985fee57a993d762437a2ab3af57ab7a7744b",
+              "result": {
+                "captureSha256": "f1027bf2870acf840b49b231834bba4ea4085af5782c5852ef89626c4bf65893",
+                "inventory": {
+                  "identities": 5,
+                  "talents": 30,
+                  "total": 36,
+                  "worlds": 1
+                },
+                "losses": [],
+                "outputSha256": "dd6370239b8fd1b7b7300a3cb5f0793dd7bc558027fc889e1b62592b4b5cd830",
+                "resourceKey": "genshin",
+                "runtimePermissions": []
+              },
+              "sequence": 2,
+              "type": "ingest_accepted"
+            }
+          },
+          {
+            "path": "events/000003.json",
+            "bytes": 677,
+            "sha256": "baebcb7882535d715daaa32fc179746543adef3ac89c52ba896579a071fa721f",
+            "event": {
+              "format": "modelmirror.ai-rpg.worker-event",
+              "formatVersion": "0.1.0",
+              "previousEventSha256": "035939b48e9703c77b9fae69e2203b577b17f89a2b4e9fd74873563b0466e8c8",
+              "requestHash": "df4b5e195f14c4f0c3aefe7500874dcce233e6a5ffe3df945e54672e315addc9",
+              "result": {
+                "captureSha256": "d298b0b2bb93189644e9db9d0718e178ec2dd47437710bdc4019f3530aefbf8c",
+                "inventory": {
+                  "identities": 5,
+                  "talents": 30,
+                  "total": 36,
+                  "worlds": 1
+                },
+                "losses": [],
+                "outputSha256": "31544b8f42337b1bf2121db66a056fa92990e595ea98a26db17fa16ef66e23ef",
+                "resourceKey": "gu",
+                "runtimePermissions": []
+              },
+              "sequence": 3,
+              "type": "ingest_accepted"
+            }
+          },
+          {
+            "path": "events/000004.json",
+            "bytes": 320,
+            "sha256": "dc222a489d1ccb75582d94d6557fe5d537a4c0dea012ae980818becc29250f03",
+            "event": {
+              "format": "modelmirror.ai-rpg.worker-event",
+              "formatVersion": "0.1.0",
+              "previousEventSha256": "baebcb7882535d715daaa32fc179746543adef3ac89c52ba896579a071fa721f",
+              "requestHash": "e4eaed4e01716a41232c633850698c2a0cb17f6c8b952b0ca216640c13c34c99",
+              "result": "complete",
+              "sequence": 4,
+              "type": "finalized"
+            }
+          }
+        ],
+        "worlds": [
+          {
+            "key": "genshin",
+            "name": "426.原神 (Genshin Impact)",
+            "sourceUrl": "https://afengy.cash/zh/explore/installed/e23bbc64-4fdd-46d8-92c0-64923961e5d8",
+            "openingTitle": "无限重生系统 - 启动协议 v16.2 (Pyrite修复版)",
+            "sourceCharacters": 1762427,
+            "start": 1129509,
+            "end": 1133528,
+            "rawUtf8Bytes": 6717,
+            "rawSha256": "5c8f5c80c5bc20d81018e23678b2001b3f220f3e37c43784b9fe6a32cb51132d",
+            "dataSha256": "d28bfc2828ce2d47aca9c424dbbf05c1a72762c5f52fe283d91cc93dc5f48e40",
+            "readCount": 3,
+            "fixturePath": "fixtures/skill-generalization/genshin-world.capture.json",
+            "fixtureSha256": "a4cb1b3797c3e35d0122d39e6fa599d624f719f956dca399f99444ed967f231a",
+            "rawMatchesRetainedFixture": true,
+            "livePrimaryRereadMatches": true,
+            "completeDecodedWorldEqualsOutput": true,
+            "inventory": {
+              "identities": 5,
+              "talents": 30,
+              "total": 36,
+              "worlds": 1
+            },
+            "losses": [],
+            "runtimePermissions": [],
+            "outputsEqual": true,
+            "outputBytes": 9767,
+            "outputSha256": "dd6370239b8fd1b7b7300a3cb5f0793dd7bc558027fc889e1b62592b4b5cd830"
+          },
+          {
+            "key": "gu",
+            "name": "470.蛊真人 (Reverend Insanity)",
+            "sourceUrl": "https://afengy.cash/zh/explore/installed/e23bbc64-4fdd-46d8-92c0-64923961e5d8",
+            "openingTitle": "无限重生系统 - 启动协议 v16.2 (Pyrite修复版)",
+            "sourceCharacters": 1762427,
+            "start": 1283417,
+            "end": 1287593,
+            "rawUtf8Bytes": 7504,
+            "rawSha256": "9f99336567d3cb331a25e82679d4a9783b25b16d3a475aae07bb8840aefa952b",
+            "dataSha256": "bf3d43063ce0a6a6bfef8a61087e80e4392a78e339e256a640b2f15bc455f80f",
+            "readCount": 3,
+            "fixturePath": "fixtures/skill-generalization/gu-world.capture.json",
+            "fixtureSha256": "de435d1cf9d7ecd09ba385ef685dda786a7f0cdde03135b00b063873fc395495",
+            "rawMatchesRetainedFixture": true,
+            "livePrimaryRereadMatches": true,
+            "completeDecodedWorldEqualsOutput": true,
+            "inventory": {
+              "identities": 5,
+              "talents": 30,
+              "total": 36,
+              "worlds": 1
+            },
+            "losses": [],
+            "runtimePermissions": [],
+            "outputsEqual": true,
+            "outputBytes": 10726,
+            "outputSha256": "31544b8f42337b1bf2121db66a056fa92990e595ea98a26db17fa16ef66e23ef"
+          }
+        ],
+        "audit": {
+          "exitCode": 0,
+          "valid": true,
+          "pending": [],
+          "finalized": true
+        }
+      },
+      {
+        "jobId": "worker-qualification-j-20260905",
+        "root": ".rpg02-work/worker-batches/jobs/worker-qualification-j-20260905",
+        "assignment": {
+          "format": "modelmirror.ai-rpg.worker-assignment",
+          "formatVersion": "0.1.0",
+          "jobId": "worker-qualification-j-20260905",
+          "owner": "worker-qualification-j-20260905",
+          "worlds": [
+            {
+              "key": "cyberpunk",
+              "name": "383.赛博朋克2077"
+            }
+          ],
+          "sourceUrl": "https://afengy.cash/zh/explore/installed/e23bbc64-4fdd-46d8-92c0-64923961e5d8",
+          "authorizationRef": "user-authorized-RPG02-low-tier-worker-qualification-visible-worlds",
+          "capturedDate": "2026-09-05"
+        },
+        "assignmentFileSha256": "c5381e1a498f4fdc71be70e02baec7bad6d7637ef2971c6a7f722443b1b32b7d",
+        "receiptPath": ".rpg02-work/worker-batches/jobs/worker-qualification-j-20260905/receipt.json",
+        "receiptBytes": 1014,
+        "receiptSha256": "9b9dee7006d08b60cbc6d5677ddea2581815bcd17430b3f0cee7233ddc8b661d",
+        "receipt": {
+          "artifacts": [
+            {
+              "bytes": 5354,
+              "path": "envelopes/cyberpunk.json",
+              "sha256": "ad96105c28880916bba6a0b30cf36aa39208f2cad8f3640009b42a11191f6362"
+            },
+            {
+              "bytes": 5625,
+              "path": "captures/cyberpunk.json",
+              "sha256": "d066c67c868745f22cb0fe1f95f1738584b108050cd83d5eeba084ef4819495f"
+            },
+            {
+              "bytes": 6675,
+              "path": "outputs/cyberpunk.a.json",
+              "sha256": "8585b38f7b237f0c7f1592a14097eaafdc3d020c94d1c877e5004966464658d7"
+            },
+            {
+              "bytes": 6675,
+              "path": "outputs/cyberpunk.b.json",
+              "sha256": "8585b38f7b237f0c7f1592a14097eaafdc3d020c94d1c877e5004966464658d7"
+            }
+          ],
+          "assignmentSha256": "8775442d6f884fb5badd127413bea7a801229731dd4ff225355daf32017b2d35",
+          "completed": [
+            "cyberpunk"
+          ],
+          "eventHeadSha256": "c288558616f69f86960945cdf51f1d21d2529b945656af8484db5eb188d1178a",
+          "events": 2,
+          "format": "modelmirror.ai-rpg.worker-receipt",
+          "formatVersion": "0.1.0",
+          "jobId": "worker-qualification-j-20260905"
+        },
+        "events": [
+          {
+            "path": "events/000001.json",
+            "bytes": 346,
+            "sha256": "5f8c1c559d1365b5af5201f6d7c3f6ef6039629ed32f8da1baa11a9649fcada7",
+            "event": {
+              "format": "modelmirror.ai-rpg.worker-event",
+              "formatVersion": "0.1.0",
+              "previousEventSha256": null,
+              "requestHash": "c5381e1a498f4fdc71be70e02baec7bad6d7637ef2971c6a7f722443b1b32b7d",
+              "result": {
+                "assignmentSha256": "8775442d6f884fb5badd127413bea7a801229731dd4ff225355daf32017b2d35"
+              },
+              "sequence": 1,
+              "type": "initialized"
+            }
+          },
+          {
+            "path": "events/000002.json",
+            "bytes": 684,
+            "sha256": "c288558616f69f86960945cdf51f1d21d2529b945656af8484db5eb188d1178a",
+            "event": {
+              "format": "modelmirror.ai-rpg.worker-event",
+              "formatVersion": "0.1.0",
+              "previousEventSha256": "5f8c1c559d1365b5af5201f6d7c3f6ef6039629ed32f8da1baa11a9649fcada7",
+              "requestHash": "ad96105c28880916bba6a0b30cf36aa39208f2cad8f3640009b42a11191f6362",
+              "result": {
+                "captureSha256": "d066c67c868745f22cb0fe1f95f1738584b108050cd83d5eeba084ef4819495f",
+                "inventory": {
+                  "identities": 5,
+                  "talents": 15,
+                  "total": 21,
+                  "worlds": 1
+                },
+                "losses": [],
+                "outputSha256": "8585b38f7b237f0c7f1592a14097eaafdc3d020c94d1c877e5004966464658d7",
+                "resourceKey": "cyberpunk",
+                "runtimePermissions": []
+              },
+              "sequence": 2,
+              "type": "ingest_accepted"
+            }
+          },
+          {
+            "path": "events/000003.json",
+            "bytes": 320,
+            "sha256": "6ca3ff7d8dee40912af62c5a1e78b1a1a5f606ded76d7ac09d5e21096df4c0d5",
+            "event": {
+              "format": "modelmirror.ai-rpg.worker-event",
+              "formatVersion": "0.1.0",
+              "previousEventSha256": "c288558616f69f86960945cdf51f1d21d2529b945656af8484db5eb188d1178a",
+              "requestHash": "9b9dee7006d08b60cbc6d5677ddea2581815bcd17430b3f0cee7233ddc8b661d",
+              "result": "complete",
+              "sequence": 3,
+              "type": "finalized"
+            }
+          }
+        ],
+        "worlds": [
+          {
+            "key": "cyberpunk",
+            "name": "383.赛博朋克2077",
+            "sourceUrl": "https://afengy.cash/zh/explore/installed/e23bbc64-4fdd-46d8-92c0-64923961e5d8",
+            "openingTitle": "无限重生系统 - 启动协议 v16.2 (Pyrite修复版)",
+            "sourceCharacters": 1762427,
+            "start": 1007599,
+            "end": 1009977,
+            "rawUtf8Bytes": 4293,
+            "rawSha256": "17df5d126145a2993b5667c9547f77049465f8a64c72bab51fcdba615d8e30a4",
+            "dataSha256": "972e349a38460dd5ee5765049ac02918b14f4723bc6465c1ee84db512a2197ee",
+            "readCount": 3,
+            "fixturePath": "fixtures/skill-generalization/cyberpunk-world.capture.json",
+            "fixtureSha256": "1077bd06960d76f6d9787baf1d86190cad72b3f01ec1b68db68f4fb7f0a3a6de",
+            "rawMatchesRetainedFixture": true,
+            "livePrimaryRereadMatches": true,
+            "completeDecodedWorldEqualsOutput": true,
+            "inventory": {
+              "identities": 5,
+              "talents": 15,
+              "total": 21,
+              "worlds": 1
+            },
+            "losses": [],
+            "runtimePermissions": [],
+            "outputsEqual": true,
+            "outputBytes": 6675,
+            "outputSha256": "8585b38f7b237f0c7f1592a14097eaafdc3d020c94d1c877e5004966464658d7"
+          }
+        ],
+        "audit": {
+          "exitCode": 0,
+          "valid": true,
+          "pending": [],
+          "finalized": true
+        }
+      }
+    ],
+    "worlds": 3,
+    "identities": 15,
+    "talents": 75,
+    "sourceRecords": 93,
+    "workerContexts": 3,
+    "workerCliSteps": 16,
+    "workerCliFailures": 0,
+    "workerRetries": 0,
+    "independentContexts": true,
+    "answersProvided": false,
+    "sharedBrowserPage": false,
+    "massExtractionStarted": false,
+    "fullExtractionEarliest": "after_RPG06_and_separate_authorization",
+    "websiteProbes": 0,
+    "externalModelCalls": 0,
+    "primaryCheckCorrection": {
+      "historical": true,
+      "phase": "H/G evidence consolidation",
+      "initialExitCode": 1,
+      "reason": "deepStrictEqual compared AST null-prototype objects to JSON ordinary objects",
+      "resolution": "Compare complete decoded JSON values with every field and array order retained; raw and data hash checks unchanged",
+      "retryExitCode": 0,
+      "firstAttemptWroteFiles": false
+    }
+  },
+  "finalQualificationEvidenceSha256": "ce85aa5d4e96b00c52a709908836c3c3fbab126173ba68c76eb017cd2081078f",
+  "publicationSnapshotPhase": "pre_publication_historical_receipt",
+  "publicationAuthority": {
+    "source": "latest user: finish qualification then submit RPG-02 PR",
+    "commit": true,
+    "push": true,
+    "pr": true,
+    "merge": false,
+    "deploy": false,
+    "release": false,
+    "publish": false,
+    "condition": "All required local and worker qualification gates passed",
+    "executionRecord": "Actual publication after this pre-publication snapshot is recorded by Git commit, remote ref and pull request metadata"
+  },
+  "fullExtractionEarliest": "after_RPG06_and_separate_authorization",
+  "assignmentHistoryNote": "Earlier assignment arrays and stopped jobs are historical snapshots; current closed assignments and receipts are finalQualification.jobs.",
+  "closeoutPreparationCorrection": {
+    "failedBeforeWrites": true,
+    "reason": "Initial documentation writer resolved repository-relative frozen paths from module root",
+    "resolution": "Resolve the unchanged registered paths from the worktree root; no hash value, recipe or evidence changed"
+  },
+  "historicalCandidateModels": [
+    {
+      "model": "gpt-5.6-luna",
+      "qualification": "not_qualified",
+      "latestRecipeTested": false,
+      "reason": " Earlier attempts had workflow and payload transfer failures; final encoded transfer recipe has not been tested by Luna."
+    },
+    {
+      "model": "gpt-5.6-terra",
+      "qualification": "partial_not_qualified",
+      "latestRecipeTested": true,
+      "reason": "Final recipe captured and ingested Genshin; fresh-context continuation stopped on reported CUA kernel reset before Gu. No completed two-job final-recipe qualification."
+    }
+  ],
+  "historicalCandidateModelsNote": "Preserved pre-closeout candidate assessments; current model qualification is candidateModels and finalQualification.",
+  "packagingNormalization": {
+    "status": "requalified_on_final_bytes",
+    "changes": [
+      {
+        "path": "experiments/ai-rpg-engine/docs/RPG02_GOLDEN.json",
+        "beforeSha256": "703739e682d7eadd078cdb6b14b370b34420be53f38939af5195ed0b293e8c12",
+        "afterSha256": "363b99e8c84393402729da58c2d45bd1cef57b2168fface874e7a6d48deae262",
+        "change": "CRLF to LF or redundant final LF only; tokens/JSON values identical"
+      },
+      {
+        "path": "experiments/ai-rpg-engine/tests/rpg02-boundary.test.mjs",
+        "beforeSha256": "b88f0d7feba13d39b5f2045fdbf4f4924c273552ce98a0ade616b15671086da9",
+        "afterSha256": "cb53b789ec1f270171ad7ae2d0d0f507401a352274b8f332faad32d96f41c97e",
+        "change": "CRLF to LF or redundant final LF only; tokens/JSON values identical"
+      },
+      {
+        "path": "experiments/ai-rpg-engine/tooling/worker-batch.mjs",
+        "beforeSha256": "3f0a4f0af55323491de62ca1c7dc9e68735081613e32dfb97e1fe867c995d403",
+        "afterSha256": "19160f9ce97c5bf2b5d9b35073138edd77f5bf2fedf1d1b9f1c7d0240ae149b6",
+        "change": "CRLF to LF or redundant final LF only; tokens/JSON values identical"
+      }
+    ],
+    "priorFinalQualification": {
+      "format": "modelmirror.ai-rpg.qualification-closeout",
+      "formatVersion": "0.1.0",
+      "date": "2026-09-05",
+      "status": "qualified_small_batch",
+      "qualifiedModels": [
+        "gpt-5.6-terra"
+      ],
+      "primaryTabId": "928393798",
+      "jobs": [
+        {
+          "jobId": "worker-qualification-h-20260905",
+          "root": ".rpg02-work/worker-batches/jobs/worker-qualification-h-20260905",
+          "assignment": {
+            "format": "modelmirror.ai-rpg.worker-assignment",
+            "formatVersion": "0.1.0",
+            "jobId": "worker-qualification-h-20260905",
+            "owner": "worker-qualification-h",
+            "worlds": [
+              {
+                "key": "genshin",
+                "name": "426.原神 (Genshin Impact)"
+              },
+              {
+                "key": "gu",
+                "name": "470.蛊真人 (Reverend Insanity)"
+              }
+            ],
+            "sourceUrl": "https://afengy.cash/zh/explore/installed/e23bbc64-4fdd-46d8-92c0-64923961e5d8",
+            "authorizationRef": "user-authorized-RPG02-low-tier-worker-qualification-visible-worlds",
+            "capturedDate": "2026-09-05"
+          },
+          "assignmentFileSha256": "4091aa18dffa7c87195f42b8236f7657851ac9f75460ccf9bec69cce00d21029",
+          "receiptPath": ".rpg02-work/worker-batches/jobs/worker-qualification-h-20260905/receipt.json",
+          "receiptBytes": 1623,
+          "receiptSha256": "21f60aadbd41d12cf5b610e8f563b37034d4a22a59b9948a21a3aa6f10fda28f",
+          "receipt": {
+            "artifacts": [
+              {
+                "bytes": 7911,
+                "path": "envelopes/genshin.json",
+                "sha256": "3888debf91548cd76272d870b0b9e06618ab52d48e939ba38e3b4b5ef9723b8e"
+              },
+              {
+                "bytes": 8191,
+                "path": "captures/genshin.json",
+                "sha256": "c0add0729e13e98929569d0ec00506bd5cb4bc5e04b532d2397303baa6c58ae4"
+              },
+              {
+                "bytes": 9767,
+                "path": "outputs/genshin.a.json",
+                "sha256": "45555aa081e1d507f5230812aab624e10713b50f16ce09451f473f37b6b66136"
+              },
+              {
+                "bytes": 9767,
+                "path": "outputs/genshin.b.json",
+                "sha256": "45555aa081e1d507f5230812aab624e10713b50f16ce09451f473f37b6b66136"
+              },
+              {
+                "bytes": 8693,
+                "path": "envelopes/gu.json",
+                "sha256": "e62e1bb0339d2c9abc2824086d66afc7826c16b86ede4322a47a0d570f258938"
+              },
+              {
+                "bytes": 8984,
+                "path": "captures/gu.json",
+                "sha256": "b3a679ac6bd4a14fd51ba2a516f068983b13e3096c41a7b6c5f2ef90a42c3df0"
+              },
+              {
+                "bytes": 10726,
+                "path": "outputs/gu.a.json",
+                "sha256": "0a8e1b18d52fad99bcdd3d9eb8c591015d9440e25848a24920603c803d241afc"
+              },
+              {
+                "bytes": 10726,
+                "path": "outputs/gu.b.json",
+                "sha256": "0a8e1b18d52fad99bcdd3d9eb8c591015d9440e25848a24920603c803d241afc"
+              }
+            ],
+            "assignmentSha256": "f8a82e745fa43420037cf828d8529121ffa877702d3de5e927ab13e0cd8d4aae",
+            "completed": [
+              "genshin",
+              "gu"
+            ],
+            "eventHeadSha256": "c5d4e83f838938040ef0b33ec7e78dfa07fc766ecabb77f0d36677a15360e872",
+            "events": 3,
+            "format": "modelmirror.ai-rpg.worker-receipt",
+            "formatVersion": "0.1.0",
+            "jobId": "worker-qualification-h-20260905"
+          },
+          "events": [
+            {
+              "path": "events/000001.json",
+              "bytes": 346,
+              "sha256": "876a43896fc325be430880bce896ec3dbff1fdb020ceaabf6fad744bc7adb10c",
+              "event": {
+                "format": "modelmirror.ai-rpg.worker-event",
+                "formatVersion": "0.1.0",
+                "previousEventSha256": null,
+                "requestHash": "4091aa18dffa7c87195f42b8236f7657851ac9f75460ccf9bec69cce00d21029",
+                "result": {
+                  "assignmentSha256": "f8a82e745fa43420037cf828d8529121ffa877702d3de5e927ab13e0cd8d4aae"
+                },
+                "sequence": 1,
+                "type": "initialized"
+              }
+            },
+            {
+              "path": "events/000002.json",
+              "bytes": 682,
+              "sha256": "4ae00428bd3f704f6123bd2a4a2903f2644b306b217d061f5e288e9437c33940",
+              "event": {
+                "format": "modelmirror.ai-rpg.worker-event",
+                "formatVersion": "0.1.0",
+                "previousEventSha256": "876a43896fc325be430880bce896ec3dbff1fdb020ceaabf6fad744bc7adb10c",
+                "requestHash": "3888debf91548cd76272d870b0b9e06618ab52d48e939ba38e3b4b5ef9723b8e",
+                "result": {
+                  "captureSha256": "c0add0729e13e98929569d0ec00506bd5cb4bc5e04b532d2397303baa6c58ae4",
+                  "inventory": {
+                    "identities": 5,
+                    "talents": 30,
+                    "total": 36,
+                    "worlds": 1
+                  },
+                  "losses": [],
+                  "outputSha256": "45555aa081e1d507f5230812aab624e10713b50f16ce09451f473f37b6b66136",
+                  "resourceKey": "genshin",
+                  "runtimePermissions": []
+                },
+                "sequence": 2,
+                "type": "ingest_accepted"
+              }
+            },
+            {
+              "path": "events/000003.json",
+              "bytes": 677,
+              "sha256": "c5d4e83f838938040ef0b33ec7e78dfa07fc766ecabb77f0d36677a15360e872",
+              "event": {
+                "format": "modelmirror.ai-rpg.worker-event",
+                "formatVersion": "0.1.0",
+                "previousEventSha256": "4ae00428bd3f704f6123bd2a4a2903f2644b306b217d061f5e288e9437c33940",
+                "requestHash": "e62e1bb0339d2c9abc2824086d66afc7826c16b86ede4322a47a0d570f258938",
+                "result": {
+                  "captureSha256": "b3a679ac6bd4a14fd51ba2a516f068983b13e3096c41a7b6c5f2ef90a42c3df0",
+                  "inventory": {
+                    "identities": 5,
+                    "talents": 30,
+                    "total": 36,
+                    "worlds": 1
+                  },
+                  "losses": [],
+                  "outputSha256": "0a8e1b18d52fad99bcdd3d9eb8c591015d9440e25848a24920603c803d241afc",
+                  "resourceKey": "gu",
+                  "runtimePermissions": []
+                },
+                "sequence": 3,
+                "type": "ingest_accepted"
+              }
+            },
+            {
+              "path": "events/000004.json",
+              "bytes": 320,
+              "sha256": "d388e66e2994948e3cf69e6930a8797dabf7d76c70c5369eec52b7049a907795",
+              "event": {
+                "format": "modelmirror.ai-rpg.worker-event",
+                "formatVersion": "0.1.0",
+                "previousEventSha256": "c5d4e83f838938040ef0b33ec7e78dfa07fc766ecabb77f0d36677a15360e872",
+                "requestHash": "21f60aadbd41d12cf5b610e8f563b37034d4a22a59b9948a21a3aa6f10fda28f",
+                "result": "complete",
+                "sequence": 4,
+                "type": "finalized"
+              }
+            }
+          ],
+          "worlds": [
+            {
+              "key": "genshin",
+              "name": "426.原神 (Genshin Impact)",
+              "sourceUrl": "https://afengy.cash/zh/explore/installed/e23bbc64-4fdd-46d8-92c0-64923961e5d8",
+              "openingTitle": "无限重生系统 - 启动协议 v16.2 (Pyrite修复版)",
+              "sourceCharacters": 1762427,
+              "start": 1129509,
+              "end": 1133528,
+              "rawUtf8Bytes": 6717,
+              "rawSha256": "5c8f5c80c5bc20d81018e23678b2001b3f220f3e37c43784b9fe6a32cb51132d",
+              "dataSha256": "d28bfc2828ce2d47aca9c424dbbf05c1a72762c5f52fe283d91cc93dc5f48e40",
+              "readCount": 3,
+              "fixturePath": "fixtures/skill-generalization/genshin-world.capture.json",
+              "fixtureSha256": "a4cb1b3797c3e35d0122d39e6fa599d624f719f956dca399f99444ed967f231a",
+              "rawMatchesRetainedFixture": true,
+              "livePrimaryRereadMatches": true,
+              "completeDecodedWorldEqualsOutput": true,
+              "inventory": {
+                "identities": 5,
+                "talents": 30,
+                "total": 36,
+                "worlds": 1
+              },
+              "losses": [],
+              "runtimePermissions": [],
+              "outputsEqual": true,
+              "outputBytes": 9767,
+              "outputSha256": "45555aa081e1d507f5230812aab624e10713b50f16ce09451f473f37b6b66136"
+            },
+            {
+              "key": "gu",
+              "name": "470.蛊真人 (Reverend Insanity)",
+              "sourceUrl": "https://afengy.cash/zh/explore/installed/e23bbc64-4fdd-46d8-92c0-64923961e5d8",
+              "openingTitle": "无限重生系统 - 启动协议 v16.2 (Pyrite修复版)",
+              "sourceCharacters": 1762427,
+              "start": 1283417,
+              "end": 1287593,
+              "rawUtf8Bytes": 7504,
+              "rawSha256": "9f99336567d3cb331a25e82679d4a9783b25b16d3a475aae07bb8840aefa952b",
+              "dataSha256": "bf3d43063ce0a6a6bfef8a61087e80e4392a78e339e256a640b2f15bc455f80f",
+              "readCount": 3,
+              "fixturePath": "fixtures/skill-generalization/gu-world.capture.json",
+              "fixtureSha256": "de435d1cf9d7ecd09ba385ef685dda786a7f0cdde03135b00b063873fc395495",
+              "rawMatchesRetainedFixture": true,
+              "livePrimaryRereadMatches": true,
+              "completeDecodedWorldEqualsOutput": true,
+              "inventory": {
+                "identities": 5,
+                "talents": 30,
+                "total": 36,
+                "worlds": 1
+              },
+              "losses": [],
+              "runtimePermissions": [],
+              "outputsEqual": true,
+              "outputBytes": 10726,
+              "outputSha256": "0a8e1b18d52fad99bcdd3d9eb8c591015d9440e25848a24920603c803d241afc"
+            }
+          ],
+          "audit": {
+            "exitCode": 0,
+            "valid": true,
+            "pending": [],
+            "finalized": true
+          }
+        },
+        {
+          "jobId": "worker-qualification-g-20260905",
+          "root": ".rpg02-work/worker-batches/jobs/worker-qualification-g-20260905",
+          "assignment": {
+            "format": "modelmirror.ai-rpg.worker-assignment",
+            "formatVersion": "0.1.0",
+            "jobId": "worker-qualification-g-20260905",
+            "owner": "worker-qualification-g",
+            "worlds": [
+              {
+                "key": "cyberpunk",
+                "name": "383.赛博朋克2077"
+              }
+            ],
+            "sourceUrl": "https://afengy.cash/zh/explore/installed/e23bbc64-4fdd-46d8-92c0-64923961e5d8",
+            "authorizationRef": "user-authorized-RPG02-low-tier-worker-qualification-visible-worlds",
+            "capturedDate": "2026-09-05"
+          },
+          "assignmentFileSha256": "665a6c261c41bb739e06b98a78e9e514cbd55327e8265de59f80c4881a3dfaa9",
+          "receiptPath": ".rpg02-work/worker-batches/jobs/worker-qualification-g-20260905/receipt.json",
+          "receiptBytes": 1014,
+          "receiptSha256": "3737fd8c3a33caa3869dcb9d48e7b270bee80167e77ff8c4275add2556b0d581",
+          "receipt": {
+            "artifacts": [
+              {
+                "bytes": 5354,
+                "path": "envelopes/cyberpunk.json",
+                "sha256": "fe15e0953141d20e3c9d5f08d4313087afd4d33205b9649e4e723c63f11a2614"
+              },
+              {
+                "bytes": 5625,
+                "path": "captures/cyberpunk.json",
+                "sha256": "0a6513e1ffdaebdd6c8dad18b81eec9ae54eb6c463844ea331d090b3244e787d"
+              },
+              {
+                "bytes": 6675,
+                "path": "outputs/cyberpunk.a.json",
+                "sha256": "eb73cdf14fcb0aa1198da7bd8f45a566057ccc87999f70ab8db796435c5135c0"
+              },
+              {
+                "bytes": 6675,
+                "path": "outputs/cyberpunk.b.json",
+                "sha256": "eb73cdf14fcb0aa1198da7bd8f45a566057ccc87999f70ab8db796435c5135c0"
+              }
+            ],
+            "assignmentSha256": "b6bd235505f5c10988f08aad2ef17a6711cf69a1ce77e4c487cea1374ef7db93",
+            "completed": [
+              "cyberpunk"
+            ],
+            "eventHeadSha256": "5cd00381b9d4fe890deb8a5332320c2fceab28485f5bdaace807e8966aaeb20c",
+            "events": 2,
+            "format": "modelmirror.ai-rpg.worker-receipt",
+            "formatVersion": "0.1.0",
+            "jobId": "worker-qualification-g-20260905"
+          },
+          "events": [
+            {
+              "path": "events/000001.json",
+              "bytes": 346,
+              "sha256": "34a89d82b62f61fc5131e35266066bc729acb0135b6cb7e8222ee489728c6b83",
+              "event": {
+                "format": "modelmirror.ai-rpg.worker-event",
+                "formatVersion": "0.1.0",
+                "previousEventSha256": null,
+                "requestHash": "665a6c261c41bb739e06b98a78e9e514cbd55327e8265de59f80c4881a3dfaa9",
+                "result": {
+                  "assignmentSha256": "b6bd235505f5c10988f08aad2ef17a6711cf69a1ce77e4c487cea1374ef7db93"
+                },
+                "sequence": 1,
+                "type": "initialized"
+              }
+            },
+            {
+              "path": "events/000002.json",
+              "bytes": 684,
+              "sha256": "5cd00381b9d4fe890deb8a5332320c2fceab28485f5bdaace807e8966aaeb20c",
+              "event": {
+                "format": "modelmirror.ai-rpg.worker-event",
+                "formatVersion": "0.1.0",
+                "previousEventSha256": "34a89d82b62f61fc5131e35266066bc729acb0135b6cb7e8222ee489728c6b83",
+                "requestHash": "fe15e0953141d20e3c9d5f08d4313087afd4d33205b9649e4e723c63f11a2614",
+                "result": {
+                  "captureSha256": "0a6513e1ffdaebdd6c8dad18b81eec9ae54eb6c463844ea331d090b3244e787d",
+                  "inventory": {
+                    "identities": 5,
+                    "talents": 15,
+                    "total": 21,
+                    "worlds": 1
+                  },
+                  "losses": [],
+                  "outputSha256": "eb73cdf14fcb0aa1198da7bd8f45a566057ccc87999f70ab8db796435c5135c0",
+                  "resourceKey": "cyberpunk",
+                  "runtimePermissions": []
+                },
+                "sequence": 2,
+                "type": "ingest_accepted"
+              }
+            },
+            {
+              "path": "events/000003.json",
+              "bytes": 320,
+              "sha256": "d98465fd5c804ef946b4f9487ec6627aea056bd732115348e7e60370c9cbb208",
+              "event": {
+                "format": "modelmirror.ai-rpg.worker-event",
+                "formatVersion": "0.1.0",
+                "previousEventSha256": "5cd00381b9d4fe890deb8a5332320c2fceab28485f5bdaace807e8966aaeb20c",
+                "requestHash": "3737fd8c3a33caa3869dcb9d48e7b270bee80167e77ff8c4275add2556b0d581",
+                "result": "complete",
+                "sequence": 3,
+                "type": "finalized"
+              }
+            }
+          ],
+          "worlds": [
+            {
+              "key": "cyberpunk",
+              "name": "383.赛博朋克2077",
+              "sourceUrl": "https://afengy.cash/zh/explore/installed/e23bbc64-4fdd-46d8-92c0-64923961e5d8",
+              "openingTitle": "无限重生系统 - 启动协议 v16.2 (Pyrite修复版)",
+              "sourceCharacters": 1762427,
+              "start": 1007599,
+              "end": 1009977,
+              "rawUtf8Bytes": 4293,
+              "rawSha256": "17df5d126145a2993b5667c9547f77049465f8a64c72bab51fcdba615d8e30a4",
+              "dataSha256": "972e349a38460dd5ee5765049ac02918b14f4723bc6465c1ee84db512a2197ee",
+              "readCount": 3,
+              "fixturePath": "fixtures/skill-generalization/cyberpunk-world.capture.json",
+              "fixtureSha256": "1077bd06960d76f6d9787baf1d86190cad72b3f01ec1b68db68f4fb7f0a3a6de",
+              "rawMatchesRetainedFixture": true,
+              "livePrimaryRereadMatches": true,
+              "completeDecodedWorldEqualsOutput": true,
+              "inventory": {
+                "identities": 5,
+                "talents": 15,
+                "total": 21,
+                "worlds": 1
+              },
+              "losses": [],
+              "runtimePermissions": [],
+              "outputsEqual": true,
+              "outputBytes": 6675,
+              "outputSha256": "eb73cdf14fcb0aa1198da7bd8f45a566057ccc87999f70ab8db796435c5135c0"
+            }
+          ],
+          "audit": {
+            "exitCode": 0,
+            "valid": true,
+            "pending": [],
+            "finalized": true
+          }
+        }
+      ],
+      "worlds": 3,
+      "identities": 15,
+      "talents": 75,
+      "sourceRecords": 93,
+      "workerContexts": 3,
+      "workerCliSteps": 16,
+      "workerCliFailures": 0,
+      "workerRetries": 0,
+      "independentContexts": true,
+      "answersProvided": false,
+      "sharedBrowserPage": false,
+      "massExtractionStarted": false,
+      "fullExtractionEarliest": "after_RPG06_and_separate_authorization",
+      "websiteProbes": 0,
+      "externalModelCalls": 0,
+      "primaryCheckCorrection": {
+        "initialExitCode": 1,
+        "reason": "deepStrictEqual compared AST null-prototype objects to JSON ordinary objects",
+        "resolution": "Compare complete decoded JSON values with every field and array order retained; raw and data hash checks unchanged",
+        "retryExitCode": 0,
+        "firstAttemptWroteFiles": false
+      }
+    },
+    "priorFrozenRecipe": [
+      {
+        "path": "experiments/ai-rpg-engine/tests/worker-batch.test.mjs",
+        "sha256": "DED5B160EB2F49637E3428B63DFECAC6B720B56C14E04F94A76F4176841EE737"
+      },
+      {
+        "path": "experiments/ai-rpg-engine/skills/rpg02-selected-content/references/browser-capture.md",
+        "sha256": "CE45748C9968DEE4DFA7BB33B4074C2ECE45806BA517AE91B8AE6503FB4DFB34"
+      },
+      {
+        "path": "experiments/ai-rpg-engine/tests/worker-capture.test.mjs",
+        "sha256": "6623A9EA50492AE7E34EF275E0723F83142C098ABFC7AC8857A251FE1CCC9F2B"
+      },
+      {
+        "path": "experiments/ai-rpg-engine/tooling/worker-capture.mjs",
+        "sha256": "F1CC297BB190A9AFADD510880DC2402E62F95E219DF4D832E55B1DE5EF2A4ED7"
+      },
+      {
+        "path": "experiments/ai-rpg-engine/tooling/worker-batch.mjs",
+        "sha256": "3F0A4F0AF55323491DE62CA1C7DC9E68735081613E32DFB97E1FE867C995D403"
+      },
+      {
+        "path": "experiments/ai-rpg-engine/skills/rpg02-selected-content/SKILL.md",
+        "sha256": "B73529394E1A3870136A556192D90F21AE98A733FD0236AA4AB8A81E9F77C0FF"
+      }
+    ],
+    "priorCandidateModels": [
+      {
+        "model": "gpt-5.6-luna",
+        "qualification": "not_qualified",
+        "latestRecipeTested": false,
+        "reason": " Earlier attempts had workflow and payload transfer failures; final encoded transfer recipe has not been tested by Luna."
+      },
+      {
+        "model": "gpt-5.6-terra",
+        "qualification": "qualified_small_batch",
+        "latestRecipeTested": true,
+        "reason": "Final frozen recipe completed disjoint H/G jobs in three fresh contexts, including pending-only continuation; primary audit and complete source verification passed.",
+        "evidence": "finalQualification"
+      }
+    ],
+    "reason": "Staged diff --check found one CRLF in otherwise LF worker CLI; preserve successful old-byte qualification and rerun after normalization.",
+    "finalJobs": [
+      "worker-qualification-i-20260905",
+      "worker-qualification-j-20260905"
+    ],
+    "priorSuccessRetained": true
+  }
+}

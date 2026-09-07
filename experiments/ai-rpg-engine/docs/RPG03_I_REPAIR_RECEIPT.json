@@ -1,0 +1,419 @@
+{
+  "format": "modelmirror.ai-rpg.offline-protocol-repair-receipt",
+  "formatVersion": "0.1.0",
+  "round": "RPG-03",
+  "subround": "03I",
+  "gate": "RPG03_I_OFFLINE_USAGE_REPAIR_OK",
+  "evidenceKind": "mock",
+  "claimAllowed": false,
+  "realProviderRetestPassed": false,
+  "realProviderDispatchesAdded": 0,
+  "websiteMessageProbes": 0,
+  "previousRealFailureReceipt": "RPG03_REAL_PROVIDER_RECEIPT.json",
+  "sourceDerivedDiagnosis": {
+    "sourceUrl": "https://github.com/QuantumNous/new-api/blob/bc14c18f6024e79cba1c08d02cd007796e12d668/dto/openai_response.go",
+    "relevantSourceLines": [
+      205,
+      224,
+      234,
+      267
+    ],
+    "originalWireCaptured": false,
+    "conclusion": "The pinned gateway Usage DTO serializes additional fields without omitempty. The old adapter rejects that source-derived tail after stop with RUNTIME_ADAPTER_EVENT_INVALID. This matches the retained failure symptoms but is not direct proof of its exact original wire frame.",
+    "reproductionObservedBy": "Sol",
+    "originalFailureCode": "RUNTIME_ADAPTER_EVENT_INVALID"
+  },
+  "repair": {
+    "changedCodeFiles": [
+      "runtime/node/http.mjs",
+      "tests/runtime-adapter.test.mjs"
+    ],
+    "integerExtensions": [
+      "input_tokens",
+      "output_tokens",
+      "claude_cache_creation_5_m_tokens",
+      "claude_cache_creation_1_h_tokens"
+    ],
+    "inputDetailKeys": [
+      "cached_tokens",
+      "cached_creation_tokens",
+      "cache_write_tokens",
+      "text_tokens",
+      "audio_tokens",
+      "image_tokens"
+    ],
+    "outputDetailKeys": [
+      "text_tokens",
+      "audio_tokens",
+      "image_tokens",
+      "reasoning_tokens"
+    ],
+    "detailObjectsMayBeNull": true,
+    "unknownKeysRejected": true,
+    "nonIntegerOrNegativeCountsRejected": true,
+    "authoritativeUsage": [
+      "prompt_tokens",
+      "completion_tokens",
+      "total_tokens"
+    ],
+    "extensionsBecomeBillingOrState": false,
+    "unsupportedOptionalGatewayUsageFields": [
+      "prompt_cache_hit_tokens",
+      "usage_semantic",
+      "usage_source",
+      "billing_usage",
+      "cost"
+    ],
+    "supportsEveryGatewayOrProviderShape": false,
+    "preserved": [
+      "exact_model_binding",
+      "receipt_usage_agreement",
+      "finish_usage_receipt_done_order",
+      "output_limit",
+      "no_retry",
+      "no_executable_fields"
+    ]
+  },
+  "tests": {
+    "originalAdapterTestsRetained": 19,
+    "addedAdapterTests": 2,
+    "adapter": {
+      "passed": 21,
+      "failed": 0,
+      "verifiedBy": "Astra",
+      "command": "node --test tests/runtime-adapter.test.mjs",
+      "logicalRef": "i-usage-repair-astra-4175c3e0",
+      "outputSha256": "0167ec29c868c6f220ef6df829c0e1cc0b66f2426e6101b97fbfab5d76e0b8c4"
+    },
+    "nestedDetailsRed": {
+      "exitCode": 1,
+      "logicalRef": "i-usage-repair-detail-red",
+      "outputSha256": "2e5528b2b506f35d47c7d89e82e486fdbd9e0a6852fe644824014224693f9d8c"
+    },
+    "nestedDetailsGreen": {
+      "exitCode": 0,
+      "passed": 21,
+      "failed": 0,
+      "logicalRef": "i-usage-repair-detail-green",
+      "outputSha256": "26b29aefdaf57a6ab9a22a99cb30773a47d8f75b07d650a057f44c777add657a",
+      "historicalBeforeAstraNullCompatibilityPreservation": true
+    },
+    "runtimeAndPluginRegression": {
+      "passed": 62,
+      "failed": 0,
+      "verifiedBy": "Sol",
+      "runtimeTests": 53,
+      "pluginHostTests": 9
+    },
+    "boundary": {
+      "passed": 10,
+      "failed": 0,
+      "verifiedBy": "Astra",
+      "frozenFiles": 67,
+      "gate": "RPG03_BOUNDARY_OK"
+    },
+    "diffCheck": "passed"
+  },
+  "finalOfflineHttp": {
+    "logicalRef": "h1-http-zk20vnwt",
+    "receiptSha256": "D353791D68313D0DFA30FBD0D3FF62D07F7212D07D7E8E2C061377A9EA31AAB2",
+    "moduleSource": {
+      "files": [
+        {
+          "path": "package-lock.json",
+          "sha256": "77e5d972c6f77090e68b54f4b04d114f4f431f5999786d383a6ecace1edd3642"
+        },
+        {
+          "path": "package.json",
+          "sha256": "d3b74b2de0c7de8c7b55923f3e152ee8d4f9d1ec2582c9014035221a98766484"
+        },
+        {
+          "path": "runtime/contracts.mjs",
+          "sha256": "5641ac0fd8e973637a65ee32ef94ea93afd24524cdf472791a0395d12713e7c3"
+        },
+        {
+          "path": "runtime/core.mjs",
+          "sha256": "7fc2a7ce1e8a5feab55e8c1d785fe609d948b362ed52f109a833b703a684d045"
+        },
+        {
+          "path": "runtime/index.mjs",
+          "sha256": "b5e26b8000b50148d321ee200fa1ba206ae2db0107ef326c98cb272180c827b6"
+        },
+        {
+          "path": "runtime/node/http.mjs",
+          "sha256": "0a3494ec485c90e845321dae67f380d514b60307e94076899e65bed9a793c7ec"
+        },
+        {
+          "path": "runtime/node/sse.mjs",
+          "sha256": "42527e9f7eb433131cdcd534639f229d37c799df89f724326c861bc243effa7f"
+        },
+        {
+          "path": "runtime/node/store.mjs",
+          "sha256": "465e155e7facdced2044d7d6b27a37d66454df65439dab78f8bdcb3ea4e072a5"
+        },
+        {
+          "path": "runtime/node.mjs",
+          "sha256": "2823e73553fb68c0c534fb30909243e676051da6324b532d339d7b65c11ae206"
+        },
+        {
+          "path": "runtime/plugin-host.mjs",
+          "sha256": "ff871e6d69091d16f1c7861558fba81df5ee02b4aba958d421f9c93a4bf6211c"
+        },
+        {
+          "path": "runtime/recovery.mjs",
+          "sha256": "93476538882245b323b2bba6c8395ffef0e2296b44161aa5d2ce37865d489ff4"
+        },
+        {
+          "path": "scripts/rpg03-cli.mjs",
+          "sha256": "cddc6f59a98f1708ef403cc8749ecaf1838b7834a8a17e56ccd8c6fc1fc630e0"
+        },
+        {
+          "path": "scripts/rpg03-harness.py",
+          "sha256": "2c61379e35832f98302d0bb10016d478ee85512adbe90efbccb9ef1f4ac70052"
+        },
+        {
+          "path": "tests/runtime-adapter.test.mjs",
+          "sha256": "85a98e1ee015dc0b093f9473e915b8cfa951dee5b33afb79220cadc29fbad4ba"
+        },
+        {
+          "path": "tests/runtime-cli.test.mjs",
+          "sha256": "506fc2e175e3dfeb2276e983eff098c012b7bc9e448e4f7e2f52ab107239b6bf"
+        },
+        {
+          "path": "tests/runtime-contracts.test.mjs",
+          "sha256": "ca910b76d48f4016731629c423f5b3571bbe7ec92a80890b71daaec6672ae973"
+        },
+        {
+          "path": "tests/runtime-core.test.mjs",
+          "sha256": "8d9589b2adacbf6e9e00a123b4fac77ad965f91085c915566356822a878428d1"
+        },
+        {
+          "path": "tests/runtime-fixtures.mjs",
+          "sha256": "09f9346e1b77ad55c28bfccf259585c4dd8da1a108f13088524ddebf5db8956b"
+        },
+        {
+          "path": "tests/runtime-integration.test.mjs",
+          "sha256": "01f2366bdbdac536fa605235edfac4bfef610c7bf550769af80074420fc7f69f"
+        },
+        {
+          "path": "tests/runtime-plugin-host.test.mjs",
+          "sha256": "7d2f98cde9f2748b0eddd463ff744a16e1b1fce8e53b860947e31e6bcd883fd1"
+        },
+        {
+          "path": "tests/runtime-store-child.mjs",
+          "sha256": "69159657b04ab1236d405ffeecc8ba24c212432dae765ab501d8afafd2f0ed65"
+        },
+        {
+          "path": "tests/runtime-store.test.mjs",
+          "sha256": "04fce776786cbdd13ef8bab311845d63bf3c9fb3fe74b08a1f7bff0cd1b58fc7"
+        },
+        {
+          "path": "tooling/runtime-cli.mjs",
+          "sha256": "df716060a38872ea1009a0db1c0cc8f69f7066a14e6e339bc9ed0cfbcfc0ce2d"
+        }
+      ],
+      "sha256": "fde3fd7489030aea4f4ae77cf338fed759369a3b9cb38aef437b270dc2ca58a1"
+    },
+    "gate": "RPG03_OFFLINE_HTTP_OK",
+    "evidenceKind": "mock",
+    "candidateTreeSha256": "27c0f09da409e59d77f9325c6a6916112d8e276e18a733ef0dc0248f05a4b974",
+    "moduleSourceSha256": "fde3fd7489030aea4f4ae77cf338fed759369a3b9cb38aef437b270dc2ca58a1",
+    "ownedProcessesStopped": true,
+    "realProviderDispatches": 0,
+    "fakeCalls": [
+      {
+        "disconnectObserved": false,
+        "finished": true,
+        "inputSha256": "5d242683693c1ebe6eb9dc8c59799e5fbf69b74ef73419a8aab9296b5f3c05b7",
+        "kind": "normal",
+        "messageCount": 1,
+        "sequence": 1
+      },
+      {
+        "disconnectObserved": false,
+        "finished": true,
+        "inputSha256": "c8d2679181edc8e2c5af759ac17b0376804755fbaecc36b6eb034a7e6e118588",
+        "kind": "normal",
+        "messageCount": 3,
+        "sequence": 2
+      },
+      {
+        "disconnectObserved": true,
+        "finished": false,
+        "inputSha256": "80b4d29225d79ed00abbe8ccdc61bf3319a17da6906642e51cfdeb6757048db7",
+        "kind": "cancel",
+        "messageCount": 1,
+        "sequence": 3
+      },
+      {
+        "disconnectObserved": false,
+        "finished": true,
+        "inputSha256": "2149a0365308077609bda01acb60216ef996a55a8cd97c49d4a3136a1e89b4fd",
+        "kind": "normal",
+        "messageCount": 1,
+        "sequence": 4
+      }
+    ],
+    "serverRuns": [
+      {
+        "actual_model": "rpg03/fake-text-v1",
+        "client_cancelled": 0,
+        "completion_tokens": 30,
+        "hard_failure": 0,
+        "id": "chatrun_fd1356ef693e4c59a9035df0e0d2c5b0",
+        "policy_fingerprint": "24bcae81c56db472059f4c2a79d20849d4f701213635010658edcbc8c29547d1",
+        "prompt_tokens": 12,
+        "requested_model": "rpg03/fake-text-v1",
+        "result_class": "success",
+        "status": "succeeded",
+        "strategy": "newapi_preferred",
+        "total_tokens": 42
+      },
+      {
+        "actual_model": "rpg03/fake-text-v1",
+        "client_cancelled": 0,
+        "completion_tokens": 30,
+        "hard_failure": 0,
+        "id": "chatrun_9102ea2c8b594ef58644678c5877c0e2",
+        "policy_fingerprint": "24bcae81c56db472059f4c2a79d20849d4f701213635010658edcbc8c29547d1",
+        "prompt_tokens": 12,
+        "requested_model": "rpg03/fake-text-v1",
+        "result_class": "success",
+        "status": "succeeded",
+        "strategy": "newapi_preferred",
+        "total_tokens": 42
+      },
+      {
+        "actual_model": "rpg03/fake-text-v1",
+        "client_cancelled": 1,
+        "completion_tokens": null,
+        "hard_failure": 0,
+        "id": "chatrun_a459bdcd3af44e02b3df885c4668b714",
+        "policy_fingerprint": "24bcae81c56db472059f4c2a79d20849d4f701213635010658edcbc8c29547d1",
+        "prompt_tokens": null,
+        "requested_model": "rpg03/fake-text-v1",
+        "result_class": "client_cancelled",
+        "status": "cancelled",
+        "strategy": "newapi_preferred",
+        "total_tokens": null
+      },
+      {
+        "actual_model": "rpg03/fake-text-v1",
+        "client_cancelled": 0,
+        "completion_tokens": 30,
+        "hard_failure": 0,
+        "id": "chatrun_d1d8c6a2c0f5434c981fa5d85a3b28f4",
+        "policy_fingerprint": "24bcae81c56db472059f4c2a79d20849d4f701213635010658edcbc8c29547d1",
+        "prompt_tokens": 12,
+        "requested_model": "rpg03/fake-text-v1",
+        "result_class": "success",
+        "status": "succeeded",
+        "strategy": "newapi_preferred",
+        "total_tokens": 42
+      }
+    ],
+    "serverAttempts": [
+      {
+        "actual_model": "rpg03/fake-text-v1",
+        "connection_id": "conn_8af8dea98ca24831a83ae6355d1ccaaa",
+        "dispatched": 1,
+        "id": "chatattempt_be854d71ee6549899f73092ae5ac134a",
+        "provider_kind": "newapi",
+        "result_class": "success",
+        "run_id": "chatrun_fd1356ef693e4c59a9035df0e0d2c5b0",
+        "status": "succeeded"
+      },
+      {
+        "actual_model": "rpg03/fake-text-v1",
+        "connection_id": "conn_8af8dea98ca24831a83ae6355d1ccaaa",
+        "dispatched": 1,
+        "id": "chatattempt_9752d52570b14429b270db6d6c11ede8",
+        "provider_kind": "newapi",
+        "result_class": "success",
+        "run_id": "chatrun_9102ea2c8b594ef58644678c5877c0e2",
+        "status": "succeeded"
+      },
+      {
+        "actual_model": "rpg03/fake-text-v1",
+        "connection_id": "conn_8af8dea98ca24831a83ae6355d1ccaaa",
+        "dispatched": 1,
+        "id": "chatattempt_b38c01127ba4409482a7deeaed332adb",
+        "provider_kind": "newapi",
+        "result_class": "client_cancelled",
+        "run_id": "chatrun_a459bdcd3af44e02b3df885c4668b714",
+        "status": "cancelled"
+      },
+      {
+        "actual_model": "rpg03/fake-text-v1",
+        "connection_id": "conn_8af8dea98ca24831a83ae6355d1ccaaa",
+        "dispatched": 1,
+        "id": "chatattempt_30cc4c76283348d2b177729521835bc5",
+        "provider_kind": "newapi",
+        "result_class": "success",
+        "run_id": "chatrun_d1d8c6a2c0f5434c981fa5d85a3b28f4",
+        "status": "succeeded"
+      }
+    ],
+    "integrationReceiptSha256": "5e3e00dec22c1930aecffa550650a2f95c75ced2aa252ead814983a5e0c252ea",
+    "cli": {
+      "commands": 5,
+      "evidenceKind": "mock",
+      "exitCode": 0,
+      "outputSha256": "8fb84628d0319121abe03c9ff5e27d4a07bf1fb42e5dfe2a3eb1c0c6ee8137d0",
+      "summaries": [
+        {
+          "operation": "create",
+          "requestId": "cli.create",
+          "revision": 0,
+          "turnCount": 0
+        },
+        {
+          "operation": "generate",
+          "requestId": "cli.generate",
+          "revision": 2,
+          "turnCount": 0
+        },
+        {
+          "operation": "commit",
+          "requestId": "cli.commit",
+          "revision": 3,
+          "turnCount": 1
+        },
+        {
+          "operation": "read",
+          "requestId": "cli.read",
+          "revision": 3,
+          "turnCount": 1
+        },
+        {
+          "operation": "resume",
+          "requestId": "cli.resume",
+          "revision": 4,
+          "turnCount": 1
+        }
+      ]
+    }
+  },
+  "realBudget": {
+    "authorized": 4,
+    "consumed": 2,
+    "remaining": 2,
+    "paused": true,
+    "remainingRequired": {
+      "normal": 2,
+      "cancellation": 1
+    },
+    "additionalDispatchAuthorizationNeeded": 1
+  },
+  "resume": {
+    "certificationId": "chatcert_f8ce6a4493504bd6a5500ed68308f7fc",
+    "certificationDefaultTtlSeconds": 86400,
+    "qualificationMustBeRechecked": true,
+    "expiredQualificationRequiresSeparateCertificationAuthorization": true,
+    "failedSessionMustBePreserved": true,
+    "oneShotMarkersMustNotBeReused": true,
+    "upcomingDriverRequiresNewGenerationIds": true,
+    "captureBoundedSseEvidenceInPrivateVerificationLayer": true,
+    "phase03JAuthorizedToStart": false
+  }
+}

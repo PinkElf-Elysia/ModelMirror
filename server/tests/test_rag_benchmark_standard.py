@@ -7,7 +7,10 @@ import pytest
 
 from server.main import app
 from server.benchmarks.catalog import BenchmarkCatalog
-from server.benchmarks.knowledge_executor import KnowledgeBenchmarkProvisioner
+from server.benchmarks.knowledge_executor import (
+    KnowledgeBenchmarkInstantiationError,
+    KnowledgeBenchmarkProvisioner,
+)
 from server.benchmarks.store import BenchmarkJobStore
 from server.rag.embedder import EmbeddingClient
 from server.rag.evaluation import KnowledgeEvaluationStore
@@ -18,7 +21,7 @@ from server.rag.vector_store import LocalJsonVectorStore
 
 
 @pytest.mark.asyncio
-async def test_managed_rag_benchmark_builds_real_indexes_and_immutable_gold(
+async def test_managed_rag_benchmark_fails_before_writes_until_content_contract_is_current(
     tmp_path: Path,
 ) -> None:
     service = RagService(
@@ -33,9 +36,8 @@ async def test_managed_rag_benchmark_builds_real_indexes_and_immutable_gold(
         tmp_path / "rag-storage" / "evaluations.json"
     )
     job_store = BenchmarkJobStore(tmp_path / "benchmark-storage")
-    catalog = BenchmarkCatalog()
     provisioner = KnowledgeBenchmarkProvisioner(
-        catalog=catalog,
+        catalog=BenchmarkCatalog(),
         store=job_store,
         rag_service=service,
         pipeline_executor=pipeline_executor,
@@ -52,66 +54,60 @@ async def test_managed_rag_benchmark_builds_real_indexes_and_immutable_gold(
     claimed = job_store.claim_next_job()
     assert claimed is not None
 
-    pipeline_executor.start()
-    try:
+    reason_code = KnowledgeBenchmarkProvisioner.CONTENT_CONTRACT_BLOCKING_REASON
+    with pytest.raises(KnowledgeBenchmarkInstantiationError, match=reason_code):
         await provisioner.run(claimed)
-    finally:
-        await pipeline_executor.stop()
 
-    completed = job_store.require_job(created["job_id"])
-    assert completed["status"] == "completed"
-    state = completed["provisioning"]
-    assert state["phase"] == "completed"
-    assert state["uploaded_document_count"] == 12
-    assert state["resolved_case_count"] == 40
-    assert state["version_evidence"]["version_id"] == state["version_id"]
-    assert state["version_evidence"]["version_fingerprint"]
-    assert state["version_evidence"]["embedding"]["effective"]["provider"] == "none"
-    assert state["version_evidence"]["embedding"]["effective"]["model"] == ""
-
-    kb_id = str(state["kb_id"])
-    knowledge_base = next(item for item in service.list_knowledge_bases() if item["id"] == kb_id)
-    assert knowledge_base["origin"] == "benchmark_catalog"
-    assert knowledge_base["corpus_locked"] is True
-    assert knowledge_base["provisioning_status"] == "ready"
-    assert len(service.list_documents(kb_id)) == 12
-    active = service.get_active_pipeline_version(kb_id)
-    assert active is not None
-    assert active["version_id"] == state["version_id"]
-    assert active["vector_index_ready"] is False
-    assert active["lexical_index_ready"] is True
-    assert active["embedding_profile"]["provider"] == "none"
-    assert active["embedding_profile"]["effective"]["status"] == "not_applicable"
-    assert active["retrieval_profile"]["mode"] == "fulltext"
-    assert active["processor_profile"]["mode"] == "general"
-
-    evaluation_set = evaluation_store.get_set(state["eval_set_id"])
-    published = evaluation_store.get_set_version(
-        state["eval_set_id"], state["eval_set_version"]
-    )
-    assert len(evaluation_set["cases"]) == 40
-    assert len(published["cases"]) == 40
-    assert sum(bool(case["expected_no_result"]) for case in published["cases"]) == 6
-    positive = [case for case in published["cases"] if not case["expected_no_result"]]
-    assert all(case["expected_refs"] for case in positive)
+    blocked = job_store.require_job(created["job_id"])
+    assert blocked["status"] == "generating"
+    assert blocked["provisioning"]["phase"] == "blocked"
+    assert blocked["provisioning"]["blocking_reason_code"] == reason_code
+    blocked_contract = blocked["provisioning"]["content_index_contract"]
+    assert blocked_contract["status"] != "current"
+    assert set(blocked_contract["components"]) == {"chunker", "lexical", "parser"}
     assert all(
-        reference["match_mode"] == "source_block"
-        and reference["document_id"]
-        and reference["chunk_id"]
-        and reference["source_block_id"]
-        for case in positive
-        for reference in case["expected_refs"]
+        status != "current" for status in blocked_contract["components"].values()
     )
 
-    gate = evaluation_store.get_gate_policy(kb_id)
-    assert gate["mode"] == "advisory"
-    assert gate["min_recall_at_5"] == 0.70
-    assert gate["min_citation_coverage"] == 0.70
-    assert gate["min_no_result_accuracy"] == 0.80
+    # Admission runs before KB creation, document import, candidate creation or
+    # evaluation publication. A blocked attempt is therefore safe to retry in 4C.
+    assert service.list_knowledge_bases(include_provisioning=True) == []
+    assert service.list_pipeline_jobs() == []
+    metadata = service._read_metadata()
+    assert metadata["documents"] == {}
+    assert metadata["pipeline_versions"] == {}
+    assert metadata["pipeline_active_versions"] == {}
+
+
+@pytest.mark.asyncio
+async def test_existing_managed_benchmark_corpus_remains_write_locked(
+    tmp_path: Path,
+) -> None:
+    service = RagService(
+        storage_dir=tmp_path / "rag-storage",
+        uploads_dir=tmp_path / "rag-uploads",
+        embedder=EmbeddingClient(api_key="", dimension=32),
+        vector_store=LocalJsonVectorStore(tmp_path / "rag-storage" / "vectors.json"),
+        llm_enabled=False,
+    )
+    kb = service.create_knowledge_base(
+        "Existing managed benchmark",
+        origin="benchmark_catalog",
+        corpus_locked=True,
+        provisioning_status="ready",
+    )
+    document = await service.upload_document(
+        kb["id"],
+        "fixture.md",
+        b"# Locked\n\nExisting benchmark evidence.",
+        declared_media_type="text/markdown",
+        allow_locked=True,
+        pipeline_only=True,
+    )
 
     with pytest.raises(KnowledgeBaseLockedError):
         await service.upload_document(
-            kb_id,
+            kb["id"],
             "forbidden.md",
             b"locked corpus",
             declared_media_type="text/markdown",
@@ -122,14 +118,15 @@ async def test_managed_rag_benchmark_builds_real_indexes_and_immutable_gold(
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
             blocked_upload = await client.post(
-                f"/api/rag/knowledge_bases/{kb_id}/documents",
+                f"/api/rag/knowledge_bases/{kb['id']}/documents",
                 files={"file": ("forbidden.md", b"locked", "text/markdown")},
             )
             assert blocked_upload.status_code == 409
             assert blocked_upload.json()["detail"]["code"] == "rag_benchmark_corpus_locked"
 
-            document_id = service.list_documents(kb_id)[0]["id"]
-            blocked_delete = await client.delete(f"/api/rag/documents/{document_id}")
+            blocked_delete = await client.delete(
+                f"/api/rag/documents/{document['id']}"
+            )
             assert blocked_delete.status_code == 409
             assert blocked_delete.json()["detail"]["code"] == "rag_benchmark_corpus_locked"
     finally:

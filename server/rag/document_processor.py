@@ -13,13 +13,18 @@ from .document_parser import (
     parse_document,
     parse_document_structured,
 )
-from .source_metadata import normalize_heading_path
+from .source_metadata import (
+    heading_path_source_hash,
+    heading_path_source_truncated,
+    normalize_heading_path,
+)
 
 
 _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 _HEADING = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 _LIST_ITEM = re.compile(r"^\s*(?:[-+*]|\d+[.)])\s+\S")
 _TABLE_SEPARATOR = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$")
+_HEADING_SOURCE_HASH = re.compile(r"^[0-9a-f]{64}$")
 _SEMANTIC_LAYOUT_EXTENSIONS = {
     ".json",
     ".jsonl",
@@ -74,6 +79,8 @@ class DocumentBlock:
     start_char: int
     end_char: int
     heading_path: list[str] = field(default_factory=list)
+    heading_path_source_hash: str = ""
+    heading_path_source_truncated: bool = False
     page_number: int | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -223,6 +230,12 @@ class StructuredDocumentProcessor:
             parts.append(block_text)
             cursor += len(block_text)
             metadata = raw.get("metadata")
+            raw_heading_path = raw.get("heading_path")
+            source_hash, source_truncated = self._heading_lineage(
+                raw_heading_path,
+                inherited_hash=raw.get("heading_path_source_hash"),
+                inherited_truncated=raw.get("heading_path_source_truncated"),
+            )
             merged.append(
                 DocumentBlock(
                     block_id=str(raw.get("block_id") or self._stable_block_id(source_id, str(raw.get("kind") or "visual"), index)),
@@ -230,7 +243,9 @@ class StructuredDocumentProcessor:
                     text=block_text,
                     start_char=start,
                     end_char=cursor,
-                    heading_path=list(normalize_heading_path(raw.get("heading_path"))),
+                    heading_path=list(normalize_heading_path(raw_heading_path)),
+                    heading_path_source_hash=source_hash,
+                    heading_path_source_truncated=source_truncated,
                     page_number=self._optional_int(raw.get("page_number")),
                     metadata=dict(metadata) if isinstance(metadata, dict) else {},
                 )
@@ -240,6 +255,28 @@ class StructuredDocumentProcessor:
     def _stable_block_id(self, source_id: str, kind: str, index: int) -> str:
         digest = hashlib.sha256(f"{source_id}:{kind}:extra:{index}".encode("utf-8")).hexdigest()[:20]
         return f"block_{digest}"
+
+    def _heading_lineage(
+        self,
+        value: Any,
+        *,
+        inherited_hash: Any = None,
+        inherited_truncated: Any = None,
+    ) -> tuple[str, bool]:
+        computed_hash = heading_path_source_hash(value)
+        computed_truncated = heading_path_source_truncated(value)
+        if computed_truncated:
+            return computed_hash, True
+        candidate_hash = str(inherited_hash or "").strip().lower()
+        valid_inherited = (
+            _HEADING_SOURCE_HASH.fullmatch(candidate_hash) is not None
+            and type(inherited_truncated) is bool
+        )
+        if valid_inherited and (
+            inherited_truncated is True or candidate_hash == computed_hash
+        ):
+            return candidate_hash, bool(inherited_truncated)
+        return computed_hash, False
 
     def _optional_int(self, value: Any) -> int | None:
         try:
@@ -352,9 +389,11 @@ class StructuredDocumentProcessor:
         end_index: int,
         headings: list[str],
     ) -> DocumentBlock:
-        text = "".join(lines[start_index:end_index]).strip()
-        start = offsets[start_index]
-        end = start + len("".join(lines[start_index:end_index]).rstrip("\n"))
+        raw = "".join(lines[start_index:end_index])
+        text = raw.strip()
+        leading = len(raw) - len(raw.lstrip())
+        start = offsets[start_index] + leading
+        end = start + len(text)
         return self._block(source_id, kind, text, start, end, heading_path=list(headings))
 
     def _pdf_pages(self, path: Path) -> list[str]:
@@ -445,7 +484,8 @@ class StructuredDocumentProcessor:
             start = cursor
             parts.append(section.text)
             cursor += len(section.text)
-            heading_path = list(normalize_heading_path(section.heading_path))
+            source_heading_path = list(section.heading_path or [])
+            heading_path = list(normalize_heading_path(source_heading_path))
             metadata = {
                 key: value
                 for key, value in {
@@ -480,7 +520,7 @@ class StructuredDocumentProcessor:
                     section.text,
                     start,
                     cursor,
-                    heading_path=heading_path,
+                    heading_path=source_heading_path,
                     page_number=section.page,
                     metadata=metadata,
                 )
@@ -500,13 +540,18 @@ class StructuredDocumentProcessor:
         metadata: dict[str, Any] | None = None,
     ) -> DocumentBlock:
         digest = hashlib.sha256(f"{source_id}:{kind}:{start}:{end}".encode("utf-8")).hexdigest()[:20]
+        source_heading_path = list(heading_path or [])
         return DocumentBlock(
             block_id=f"block_{digest}",
             kind=kind,
             text=text,
             start_char=start,
             end_char=end,
-            heading_path=list(normalize_heading_path(heading_path)),
+            heading_path=list(normalize_heading_path(source_heading_path)),
+            heading_path_source_hash=heading_path_source_hash(source_heading_path),
+            heading_path_source_truncated=heading_path_source_truncated(
+                source_heading_path
+            ),
             page_number=page_number,
             metadata=dict(metadata or {}),
         )

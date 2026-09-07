@@ -35,6 +35,7 @@ from .rag_service import (
     KnowledgeBaseNotFoundError,
     KnowledgeWriteProposalConflictError,
     KnowledgeWriteProposalNotFoundError,
+    PipelineContentContractError,
     PipelineDraftValidationError,
     PipelineGraphRevisionError,
     PipelineJobNotFoundError,
@@ -46,6 +47,7 @@ from .rag_service import (
     ManagedRagRerankRouteError,
     RagService,
     UnsupportedDocumentError,
+    has_prior_activation,
 )
 from .document_parser import DocumentParseError
 from .embedder import EmbeddingError
@@ -247,6 +249,11 @@ class RagSourcePayload(_HeadingPathPayload):
     row_range: str | None = Field(default=None, max_length=80)
     visual_kind: str | None = None
     source_block_id: str | None = None
+    source_block_ids: list[str] = Field(default_factory=list)
+    generated_item: bool = False
+    source_block_match_status: Literal[
+        "eligible", "ambiguous_multi_source", "unmapped"
+    ] | None = None
     merged_chunk_ids: list[str] = Field(default_factory=list)
 
 
@@ -373,6 +380,7 @@ class PipelineDraftResponse(BaseModel):
     index_schema_version: int = 3
     embedding_profile: dict[str, Any] = Field(default_factory=dict)
     retrieval_profile: dict[str, Any] = Field(default_factory=dict)
+    content_index_contract: dict[str, Any] = Field(default_factory=dict)
     index_contract: dict[str, Any] = Field(default_factory=dict)
     vector_backend_readiness: dict[str, Any] = Field(default_factory=dict)
     stages: list[PipelineDraftStagePayload]
@@ -525,6 +533,7 @@ class PipelineGraphPreviewResponse(BaseModel):
     item_count: int
     items: list[dict[str, Any]] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    chunking_receipt: dict[str, Any] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
     truncated: bool = False
 
@@ -666,6 +675,8 @@ class PipelineJobPayload(BaseModel):
     embedding_space_fingerprint: str = ""
     provider_route_receipts: dict[str, Any] | None = None
     index_contract: dict[str, Any] = Field(default_factory=dict)
+    content_index_contract: dict[str, Any] = Field(default_factory=dict)
+    chunking_receipt: dict[str, Any] = Field(default_factory=dict)
     vector_backend_readiness: dict[str, Any] = Field(default_factory=dict)
     created_at: float
     updated_at: float
@@ -709,6 +720,8 @@ class PipelineVersionPayload(BaseModel):
     vector_index_ready: bool = True
     lexical_index_ready: bool = False
     index_contract: dict[str, Any] = Field(default_factory=dict)
+    content_index_contract: dict[str, Any] = Field(default_factory=dict)
+    chunking_receipt: dict[str, Any] = Field(default_factory=dict)
     vector_backend_readiness: dict[str, Any] = Field(default_factory=dict)
     vision_profile: dict[str, Any] = Field(default_factory=dict)
     vision_page_count: int = 0
@@ -1012,11 +1025,29 @@ def _resolve_evaluation_reproducibility(
             "source_manifest_fingerprint": str(
                 evidence.get("source_manifest_fingerprint") or ""
             ),
+            "chunk_count": int(evidence.get("chunk_count") or 0),
+            "chunking_receipt": dict(evidence.get("chunking_receipt") or {}),
+            "chunking_receipt_fingerprint": str(
+                evidence.get("chunking_receipt_fingerprint") or ""
+            ),
+            "chunking_receipt_status": str(
+                evidence.get("chunking_receipt_status") or ""
+            ),
+            "chunker": dict(evidence.get("chunker") or {}),
+            "index_owner_version_id": str(
+                evidence.get("index_owner_version_id") or ""
+            ),
+            "candidate_namespace_fingerprint": str(
+                evidence.get("candidate_namespace_fingerprint") or ""
+            ),
             "corpus_snapshot_hash": corpus_hash,
             "corpus_snapshot_status": corpus_snapshot_status,
             "embedding": dict((evidence.get("embedding") or {}).get("effective") or {}),
             "retrieval": dict(evidence.get("retrieval") or {}),
             "index_contract": dict(evidence.get("index_contract") or {}),
+            "content_index_contract": dict(
+                evidence.get("content_index_contract") or {}
+            ),
             "vector_backend_readiness": (
                 {"status": "not_applicable"}
                 if str((evidence.get("retrieval") or {}).get("mode") or "")
@@ -1182,6 +1213,11 @@ async def apply_strategy_router_recommendation(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except RagStrategyConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except PipelineContentContractError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
     except (RagStrategyStateError, RagStrategyValidationError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -1325,6 +1361,7 @@ async def upload_document(kb_id: str, file: UploadFile = File(...)) -> dict[str,
             filename,
             content,
             declared_media_type=declared_type or None,
+            pipeline_only=True,
         )
     except KnowledgeBaseDeletionError as exc:
         raise HTTPException(
@@ -1543,6 +1580,7 @@ async def get_pipeline_draft(kb_id: str) -> PipelineDraftResponse:
             index_schema_version=int(draft.get("index_schema_version", 3)),
             embedding_profile=dict(draft.get("embedding_profile") or {}),
             retrieval_profile=dict(draft.get("retrieval_profile") or {}),
+            content_index_contract=dict(draft.get("content_index_contract") or {}),
             index_contract=dict(draft.get("index_contract") or {}),
             vector_backend_readiness=dict(
                 draft.get("vector_backend_readiness") or {}
@@ -1583,6 +1621,11 @@ async def save_pipeline_graph(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PipelineGraphRevisionError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except PipelineContentContractError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
     except PipelineGraphValidationError as exc:
         raise HTTPException(
             status_code=400,
@@ -1669,6 +1712,11 @@ async def execute_pipeline_graph(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except DocumentNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PipelineContentContractError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
     except (PipelineJobStateError, PipelineGraphRevisionError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except RagRetrievalUnavailableError as exc:
@@ -1720,6 +1768,7 @@ async def update_pipeline_draft(
             index_schema_version=int(draft.get("index_schema_version", 3)),
             embedding_profile=dict(draft.get("embedding_profile") or {}),
             retrieval_profile=dict(draft.get("retrieval_profile") or {}),
+            content_index_contract=dict(draft.get("content_index_contract") or {}),
             index_contract=dict(draft.get("index_contract") or {}),
             vector_backend_readiness=dict(
                 draft.get("vector_backend_readiness") or {}
@@ -1828,6 +1877,11 @@ async def execute_pipeline_draft(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except DocumentNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PipelineContentContractError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
     except PipelineJobStateError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except RagRetrievalUnavailableError as exc:
@@ -2644,15 +2698,24 @@ async def activate_pipeline_version(
 ) -> PipelineVersionPayload:
     try:
         stored = get_rag_service().get_pipeline_version(version_id)
-        get_evaluation_store().assert_promotion_allowed(
-            kb_id=str(stored["kb_id"]),
-            version_id=version_id,
-            evaluation_run_id=payload.evaluation_run_id if payload else None,
-            require_passed_run=bool(stored.get("promotion_required")),
+        previously_activated = has_prior_activation(stored.get("activated_at"))
+        first_promotion = (
+            bool(stored.get("promotion_required"))
+            and not previously_activated
         )
+        evaluation_run_id = payload.evaluation_run_id if payload else None
+        # Restoring a previously active snapshot is not a new promotion. Keep
+        # first activation and any explicitly supplied evaluation fully gated.
+        if not previously_activated or evaluation_run_id:
+            get_evaluation_store().assert_promotion_allowed(
+                kb_id=str(stored["kb_id"]),
+                version_id=version_id,
+                evaluation_run_id=evaluation_run_id,
+                require_passed_run=first_promotion,
+            )
         version = get_rag_service().activate_pipeline_version(
             version_id,
-            promotion=bool(stored.get("promotion_required")),
+            promotion=first_promotion,
         )
         await get_pipeline_executor().record_job_event(
             str(stored["job_id"]),
@@ -2666,6 +2729,11 @@ async def activate_pipeline_version(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except EvaluationPromotionError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except PipelineContentContractError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
     except PipelineJobStateError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -2703,6 +2771,11 @@ async def promote_pipeline_version(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except EvaluationPromotionError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except PipelineContentContractError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
     except PipelineJobStateError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 

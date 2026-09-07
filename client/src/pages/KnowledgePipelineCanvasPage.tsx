@@ -28,6 +28,12 @@ import {
   rerankModelOptions,
 } from "../data/modelOptions";
 import { models } from "../data/models";
+import {
+  draftExecutionDisposition,
+  hasPriorPipelineActivation,
+  isPipelineVersionFirstActivationBlocked,
+  type PipelineContentIndexContractEvidence,
+} from "../utils/ragPipelineActivation";
 
 type GraphNodeKind =
   | "data_source"
@@ -85,6 +91,42 @@ interface GraphResponse {
   };
 }
 
+export interface CanvasPipelineDraftExecutionEvidence {
+  index_schema_version?: number | null;
+  retrieval_profile?: { mode?: unknown } | null;
+  content_index_contract?: PipelineContentIndexContractEvidence | null;
+  index_contract?: {
+    index_schema_version?: unknown;
+    retrieval_mode?: unknown;
+  } | null;
+}
+
+interface PipelineDraftContractResponse extends CanvasPipelineDraftExecutionEvidence {
+  kb_id: string;
+  draft_id: string;
+  version: number;
+  updated_at: number;
+}
+
+interface SavedGraphResult {
+  graph: GraphResponse;
+  draft: PipelineDraftContractResponse;
+}
+
+export function canvasDraftExecutionDisposition(
+  draft: CanvasPipelineDraftExecutionEvidence | null | undefined,
+  retrievalMode?: unknown,
+) {
+  return draftExecutionDisposition(
+    draft?.content_index_contract,
+    retrievalMode
+      ?? draft?.index_contract?.retrieval_mode
+      ?? draft?.retrieval_profile?.mode,
+    draft?.index_contract?.index_schema_version
+      ?? draft?.index_schema_version,
+  );
+}
+
 interface KnowledgeBase {
   id: string;
   name: string;
@@ -124,6 +166,9 @@ interface PipelineVersion {
   vision_processed_page_count?: number;
   vision_failed_page_count?: number;
   vision_block_count?: number;
+  activated_at?: number | null;
+  index_schema_version?: number;
+  content_index_contract?: PipelineContentIndexContractEvidence;
   created_at: number;
 }
 
@@ -134,6 +179,7 @@ interface NodePreview {
   item_count: number;
   items: Array<Record<string, unknown>>;
   metadata?: Record<string, unknown>;
+  chunking_receipt?: Record<string, unknown>;
   warnings?: string[];
   truncated?: boolean;
 }
@@ -158,7 +204,7 @@ const NODE_META: Record<
   recursive_chunker: { title: "递归分块", eyebrow: "分块器", tone: "border-amber-300/40", stage: "chunker" },
   parent_child_chunker: { title: "父子分块", eyebrow: "分块器", tone: "border-orange-300/40", stage: "chunker" },
   embedding: { title: "Embedding", eyebrow: "索引", tone: "border-cyan-300/35", stage: "embedding" },
-  dual_index: { title: "向量 + 全文", eyebrow: "双索引", tone: "border-indigo-300/35", stage: "index" },
+  dual_index: { title: "候选索引", eyebrow: "索引", tone: "border-indigo-300/35", stage: "index" },
   retrieval: { title: "混合检索", eyebrow: "检索", tone: "border-fuchsia-300/35", stage: "retrieval" },
   image_understanding: { title: "图像理解", eyebrow: "视觉预处理", tone: "border-violet-300/40", stage: "vision" },
 };
@@ -192,7 +238,7 @@ function KnowledgePipelineNode({ data, selected }: NodeProps<GraphFlowNode>) {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[10px] font-semibold uppercase text-slate-400">{meta.eyebrow}</p>
-          <h3 className="mt-1 truncate text-sm font-semibold text-white">{data.title || meta.title}</h3>
+          <h3 className="mt-1 truncate text-sm font-semibold text-white">{data.kind === "dual_index" ? meta.title : data.title || meta.title}</h3>
         </div>
         <span className={`mt-0.5 h-2.5 w-2.5 rounded-full ${data.invalid ? "bg-rose-300" : "bg-emerald-300"}`} />
       </div>
@@ -211,13 +257,19 @@ function KnowledgePipelineNode({ data, selected }: NodeProps<GraphFlowNode>) {
   );
 }
 
-function nodeSummary(data: GraphNodeData) {
+export function nodeSummary(data: GraphNodeData) {
   const config = data.config;
   if (data.kind === "structured_processor") return `${String(config.mode || "general")} · ${String(config.failure_policy || "continue_on_error")}`;
-  if (data.kind === "recursive_chunker") return `${String(config.chunk_size || 500)} / overlap ${String(config.chunk_overlap || 50)}`;
-  if (data.kind === "parent_child_chunker") return `parent ${String(config.parent_chunk_size || 1500)} · child ${String(config.child_chunk_size || 400)}`;
+  if (data.kind === "recursive_chunker") {
+    const unit = chunkBudgetUnitLabel(config.strategy);
+    return `${numericConfigValue(config.chunk_size, 500)} ${unit} · overlap ${numericConfigValue(config.chunk_overlap, 50)} ${unit}`;
+  }
+  if (data.kind === "parent_child_chunker") {
+    const unit = chunkBudgetUnitLabel(config.strategy);
+    return `parent ${numericConfigValue(config.parent_chunk_size, 1500)} ${unit} · child ${numericConfigValue(config.child_chunk_size, 400)} ${unit}`;
+  }
   if (data.kind === "embedding") return String(config.model || "default embedding");
-  if (data.kind === "dual_index") return "vector + sqlite fts5";
+  if (data.kind === "dual_index") return "按检索模式与合同构建";
   if (data.kind === "retrieval") return `${String(config.mode || "hybrid")} · top ${String(config.top_k || 5)}`;
   if (data.kind === "image_understanding") return `${String(config.vision_model_id || "选择视觉模型")} · ${String(config.pdf_page_strategy || "auto")}`;
   return "uploaded files";
@@ -295,6 +347,7 @@ export default function KnowledgePipelineCanvasPage() {
   const [documents, setDocuments] = useState<RagDocument[]>([]);
   const [graphRevision, setGraphRevision] = useState(1);
   const [draftVersion, setDraftVersion] = useState(1);
+  const [pipelineDraft, setPipelineDraft] = useState<PipelineDraftContractResponse | null>(null);
   const [issues, setIssues] = useState<GraphIssue[]>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [workbenchTab, setWorkbenchTab] = useState<"config" | "preview" | "run">("config");
@@ -312,6 +365,14 @@ export default function KnowledgePipelineCanvasPage() {
   const selectedNode = useMemo(
     () => nodes.find((node) => node.id === selectedNodeId) ?? null,
     [nodes, selectedNodeId],
+  );
+  const retrievalMode = useMemo(
+    () => nodes.find((node) => node.data.kind === "retrieval")?.data.config.mode,
+    [nodes],
+  );
+  const pipelineDraftExecution = useMemo(
+    () => canvasDraftExecutionDisposition(pipelineDraft, retrievalMode),
+    [pipelineDraft, retrievalMode],
   );
 
   const loadRuns = useCallback(async () => {
@@ -332,19 +393,24 @@ export default function KnowledgePipelineCanvasPage() {
     if (!kbId) return;
     setBusy("load");
     setError("");
+    setPipelineDraft(null);
     try {
-      const [kbResponse, documentResponse, graphResponse] = await Promise.all([
+      const [kbResponse, documentResponse, graphResponse, draftResponse] = await Promise.all([
         fetch("/api/rag/knowledge_bases"),
         fetch(`/api/rag/knowledge_bases/${encodeURIComponent(kbId)}/documents`),
         fetch(`/api/rag/pipeline/graph?kb_id=${encodeURIComponent(kbId)}`),
+        fetch(`/api/rag/pipeline/draft?kb_id=${encodeURIComponent(kbId)}`),
       ]);
       if (!graphResponse.ok) throw new Error(parseError(await graphResponse.json().catch(() => null), "知识流水线图加载失败。"));
+      if (!draftResponse.ok) throw new Error(parseError(await draftResponse.json().catch(() => null), "流水线执行合同加载失败；执行保持禁用。"));
       const graphPayload = (await graphResponse.json()) as GraphResponse;
+      const draftPayload = (await draftResponse.json()) as PipelineDraftContractResponse;
       const state = flowState(graphPayload);
       setNodes(state.nodes);
       setEdges(state.edges);
       setGraphRevision(graphPayload.graph_revision);
       setDraftVersion(graphPayload.compiled_draft_version);
+      setPipelineDraft(draftPayload);
       setIssues(graphPayload.issues || []);
       if (state.nodes.length) setSelectedNodeId(state.nodes[0].id);
       if (kbResponse.ok) {
@@ -409,10 +475,19 @@ export default function KnowledgePipelineCanvasPage() {
     const stageNode = nodes.find((node) => NODE_META[node.data.kind].stage === meta.stage);
     if (stageNode) {
       if (meta.stage === "chunker") {
+        if (kind !== "recursive_chunker" && kind !== "parent_child_chunker") return;
         setNodes((current) =>
           current.map((node) =>
             node.id === stageNode.id
-              ? { ...node, data: { ...node.data, kind, title: meta.title } }
+              ? {
+                  ...node,
+                  data: {
+                    ...node.data,
+                    kind,
+                    title: meta.title,
+                    config: chunkerConfigForKind(kind, node.data.config),
+                  },
+                }
               : node,
           ),
         );
@@ -492,7 +567,7 @@ export default function KnowledgePipelineCanvasPage() {
     setNodes((current) => current.map((node) => ({ ...node, data: { ...node.data, invalid: invalid.has(node.id) } })));
   }
 
-  async function saveGraph(): Promise<GraphResponse | null> {
+  async function saveGraph(): Promise<SavedGraphResult | null> {
     setBusy("save");
     setError("");
     setNotice("");
@@ -511,8 +586,17 @@ export default function KnowledgePipelineCanvasPage() {
       setGraphRevision(graphPayload.graph_revision);
       setDraftVersion(graphPayload.compiled_draft_version);
       setIssues(graphPayload.issues || []);
+      setPipelineDraft(null);
+      const draftResponse = await fetch(
+        `/api/rag/pipeline/draft?kb_id=${encodeURIComponent(kbId)}`,
+      ).catch(() => null);
+      if (!draftResponse?.ok) {
+        throw new Error("图已保存，但执行合同刷新失败；执行保持禁用。");
+      }
+      const draftPayload = (await draftResponse.json()) as PipelineDraftContractResponse;
+      setPipelineDraft(draftPayload);
       setNotice(`已保存图 revision ${graphPayload.graph_revision}，编译为 Draft v${graphPayload.compiled_draft_version}。`);
-      return graphPayload;
+      return { graph: graphPayload, draft: draftPayload };
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "保存失败。");
       return null;
@@ -547,15 +631,24 @@ export default function KnowledgePipelineCanvasPage() {
   }
 
   async function executeGraph() {
+    if (!pipelineDraft || !pipelineDraftExecution.canExecute) {
+      setError(pipelineDraftExecution.message);
+      return;
+    }
     const saved = await saveGraph();
     if (!saved) return;
+    const savedDisposition = canvasDraftExecutionDisposition(saved.draft);
+    if (!savedDisposition.canExecute) {
+      setError(savedDisposition.message);
+      return;
+    }
     setBusy("execute");
     setError("");
     try {
       const response = await fetch(`/api/rag/pipeline/graph/${encodeURIComponent(kbId)}/execute`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ graph_revision: saved.graph_revision, draft_version: saved.compiled_draft_version }),
+        body: JSON.stringify({ graph_revision: saved.graph.graph_revision, draft_version: saved.graph.compiled_draft_version }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(parseError(payload, "流水线启动失败。"));
@@ -596,6 +689,16 @@ export default function KnowledgePipelineCanvasPage() {
               <span className="rounded-full border border-hire-300/25 bg-hire-300/10 px-2.5 py-1 text-[11px] font-semibold text-hire-100">可执行画布 Beta</span>
             </div>
             <p className="mt-1 text-xs text-slate-400">Graph r{graphRevision} · Draft v{draftVersion} · {documents.length} 个数据源文档</p>
+            {pipelineDraft && pipelineDraftExecution.status !== "normal" ? (
+              <p
+                aria-label="4A 执行范围"
+                className={`mt-2 text-xs leading-5 ${pipelineDraftExecution.status === "blocked" ? "text-rose-200" : "text-amber-200"}`}
+                id="pipeline-execution-disposition"
+                role="status"
+              >
+                {pipelineDraftExecution.message}
+              </p>
+            ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Link className="rounded-lg border border-emerald-300/25 bg-emerald-300/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-300/15" to={`/rag/${encodeURIComponent(kbId)}/evaluation`}>质量评估</Link>
@@ -603,7 +706,16 @@ export default function KnowledgePipelineCanvasPage() {
             <button className="inline-flex items-center gap-2 rounded-lg border border-emerald-300/25 bg-emerald-300/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-300/15" onClick={() => setStrategyTunerOpen(true)} type="button"><SlidersHorizontal size={15} />评测调优</button>
             <button className="rounded-lg border border-white/10 bg-white/[0.05] px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-white/[0.09] disabled:opacity-50" disabled={Boolean(busy)} onClick={() => void validateGraph()} type="button">校验</button>
             <button className="rounded-lg border border-hire-300/25 bg-hire-300/10 px-3 py-2 text-sm font-semibold text-hire-100 hover:bg-hire-300/15 disabled:opacity-50" disabled={Boolean(busy)} onClick={() => void saveGraph()} type="button">保存草稿</button>
-            <button className="rounded-lg bg-hire-300 px-4 py-2 text-sm font-bold text-surface-950 hover:bg-hire-200 disabled:opacity-50" disabled={Boolean(busy) || documents.length === 0} onClick={() => void executeGraph()} type="button">执行流水线</button>
+            <button
+              aria-describedby={pipelineDraft && pipelineDraftExecution.status !== "normal" ? "pipeline-execution-disposition" : undefined}
+              className="rounded-lg bg-hire-300 px-4 py-2 text-sm font-bold text-surface-950 hover:bg-hire-200 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={Boolean(busy) || documents.length === 0 || !pipelineDraft || !pipelineDraftExecution.canExecute}
+              onClick={() => void executeGraph()}
+              title={!pipelineDraftExecution.canExecute ? pipelineDraftExecution.message : undefined}
+              type="button"
+            >
+              执行流水线
+            </button>
           </div>
         </header>
 
@@ -706,15 +818,97 @@ export default function KnowledgePipelineCanvasPage() {
   );
 }
 
+export function chunkBudgetUnitLabel(strategy: unknown): string {
+  return isEstimatedTokenChunkerStrategy(strategy)
+    ? "估算 Token"
+    : "字符，历史只读";
+}
+
+export function isEstimatedTokenChunkerStrategy(strategy: unknown): boolean {
+  return strategy === "recursive_estimated_token" || strategy === "parent_child_estimated_token";
+}
+
+export function chunkOverlapLabel(strategy: unknown, scope = ""): string {
+  const qualifier = isEstimatedTokenChunkerStrategy(strategy) ? "目标总重叠" : "重叠";
+  return `${scope}${qualifier}（${chunkBudgetUnitLabel(strategy)}）`;
+}
+
+export function headingOverlapReceiptSummary(
+  receipt: Record<string, unknown> | undefined,
+): string | null {
+  if (!receipt) return null;
+  const values = [
+    receipt.raw_candidate_count,
+    receipt.prefix_exceeds_configured_overlap_count,
+    receipt.max_heading_prefix_tokens,
+    receipt.max_effective_index_overlap_budget_tokens,
+    receipt.max_effective_context_overlap_budget_tokens,
+  ];
+  if (values.some((value) => !Number.isInteger(value) || Number(value) < 0)) return null;
+  const [rawCount, count, prefix, indexBudget, contextBudget] = values.map(Number);
+  if (
+    receipt.heading_overlap_policy !== "structural_prefix_floor_v1"
+    || count === 0
+    || count > rawCount
+    || indexBudget < prefix
+    || contextBudget < prefix
+  ) return null;
+  return `结构标题前缀在 ${count} 个有效内容单元中超过目标总重叠；最大前缀 ${prefix}，索引/上下文有效重叠预算 ${indexBudget}/${contextBudget} 估算 Token。`;
+}
+
+function EstimatedTokenOverlapHelp() {
+  return (
+    <p className="text-[11px] leading-5 text-slate-500">
+      标题路径前缀先占用目标总重叠预算；前缀超过该预算时正文重叠为 0，标题前缀成为可审计的结构重叠下限。
+    </p>
+  );
+}
+
+export function numericConfigValue(value: unknown, fallback: number): number {
+  if (value === null || value === undefined || value === "") return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+export function chunkerConfigForKind(
+  kind: "recursive_chunker" | "parent_child_chunker",
+  current: Record<string, unknown> = {},
+): Record<string, unknown> {
+  const leavesLegacy = current.strategy === "recursive_character"
+    || current.strategy === "parent_child";
+  return {
+    ...defaultConfig(kind),
+    ...current,
+    ...(leavesLegacy
+      ? {
+          chunk_size: 500,
+          chunk_overlap: 50,
+          parent_chunk_size: 1500,
+          parent_chunk_overlap: 100,
+          child_chunk_size: 400,
+          child_chunk_overlap: 50,
+        }
+      : {}),
+    strategy:
+      kind === "parent_child_chunker"
+        ? "parent_child_estimated_token"
+        : "recursive_estimated_token",
+    size_unit: "estimated_tokens",
+    token_estimator: "mixed_cjk_latin_v1",
+    chunk_contract_version: "rag-chunker-estimated-token-v1",
+  };
+}
+
 function NodeConfig({ node, onChange }: { node: GraphFlowNode; onChange: (patch: Record<string, unknown>) => void }) {
   const { kind, config } = node.data;
   const meta = NODE_META[kind];
   const absoluteThresholdContract = config.no_result_policy === "absolute_relevance_v1";
+  const chunkBudgetUnit = chunkBudgetUnitLabel(config.strategy);
   return (
     <div className="space-y-5">
       <div>
         <p className="text-[11px] font-semibold uppercase text-hire-100">{meta.eyebrow}</p>
-        <h2 className="mt-1 text-base font-semibold text-white">{node.data.title}</h2>
+        <h2 className="mt-1 text-base font-semibold text-white">{kind === "dual_index" ? meta.title : node.data.title}</h2>
         <p className="mt-1 font-mono text-[11px] text-slate-500">{node.id}</p>
       </div>
       {kind === "data_source" ? <ReadOnlyField label="来源模式" value="uploaded_files" /> : null}
@@ -731,19 +925,21 @@ function NodeConfig({ node, onChange }: { node: GraphFlowNode; onChange: (patch:
       ) : null}
       {kind === "recursive_chunker" ? (
         <>
-          <NumberField label="分块大小" min={100} max={4000} value={Number(config.chunk_size || 500)} onChange={(value) => onChange({ chunk_size: value })} />
-          <NumberField label="重叠字符" min={0} max={3999} value={Number(config.chunk_overlap || 50)} onChange={(value) => onChange({ chunk_overlap: value })} />
+          <NumberField label={`分块大小（${chunkBudgetUnit}）`} min={100} max={4000} value={numericConfigValue(config.chunk_size, 500)} onChange={(value) => onChange({ chunk_size: value })} />
+          <NumberField label={chunkOverlapLabel(config.strategy)} min={0} max={3999} value={numericConfigValue(config.chunk_overlap, 50)} onChange={(value) => onChange({ chunk_overlap: value })} />
           <SeparatorField label="分段标识符" value={config.separators} onChange={(value) => onChange({ separators: value })} />
+          {isEstimatedTokenChunkerStrategy(config.strategy) ? <EstimatedTokenOverlapHelp /> : null}
         </>
       ) : null}
       {kind === "parent_child_chunker" ? (
         <>
-          <NumberField label="父段大小" min={200} max={8000} value={Number(config.parent_chunk_size || 1500)} onChange={(value) => onChange({ parent_chunk_size: value })} />
-          <NumberField label="父段重叠" min={0} max={7999} value={Number(config.parent_chunk_overlap || 100)} onChange={(value) => onChange({ parent_chunk_overlap: value })} />
-          <NumberField label="子段大小" min={100} max={7999} value={Number(config.child_chunk_size || 400)} onChange={(value) => onChange({ child_chunk_size: value })} />
-          <NumberField label="子段重叠" min={0} max={3999} value={Number(config.child_chunk_overlap || 50)} onChange={(value) => onChange({ child_chunk_overlap: value })} />
+          <NumberField label={`父段大小（${chunkBudgetUnit}）`} min={200} max={8000} value={numericConfigValue(config.parent_chunk_size, 1500)} onChange={(value) => onChange({ parent_chunk_size: value })} />
+          <NumberField label={chunkOverlapLabel(config.strategy, "父段")} min={0} max={7999} value={numericConfigValue(config.parent_chunk_overlap, 100)} onChange={(value) => onChange({ parent_chunk_overlap: value })} />
+          <NumberField label={`子段大小（${chunkBudgetUnit}）`} min={100} max={7999} value={numericConfigValue(config.child_chunk_size, 400)} onChange={(value) => onChange({ child_chunk_size: value })} />
+          <NumberField label={chunkOverlapLabel(config.strategy, "子段")} min={0} max={3999} value={numericConfigValue(config.child_chunk_overlap, 50)} onChange={(value) => onChange({ child_chunk_overlap: value })} />
           <SeparatorField label="父段标识符" value={config.parent_separators} onChange={(value) => onChange({ parent_separators: value })} />
           <SeparatorField label="子段标识符" value={config.child_separators} onChange={(value) => onChange({ child_separators: value })} />
+          {isEstimatedTokenChunkerStrategy(config.strategy) ? <EstimatedTokenOverlapHelp /> : null}
         </>
       ) : null}
       {kind === "embedding" ? (
@@ -753,7 +949,7 @@ function NodeConfig({ node, onChange }: { node: GraphFlowNode; onChange: (patch:
         />
       ) : null}
       {kind === "dual_index" ? (
-        <div className="space-y-2"><ReadOnlyField label="向量索引" value="enabled" /><ReadOnlyField label="全文索引" value="SQLite FTS5 · enabled" /></div>
+        <ReadOnlyField label="索引构建" value="由检索模式与内容合同决定" />
       ) : null}
       {kind === "retrieval" ? (
         <>
@@ -786,7 +982,7 @@ function NodeConfig({ node, onChange }: { node: GraphFlowNode; onChange: (patch:
       {kind === "image_understanding" ? (
         <>
           <div className="rounded-md border border-violet-300/20 bg-violet-300/[0.06] p-3 text-xs leading-5 text-violet-100/85">
-            视觉内容先转换为 OCR、图片、表格与图表语义块，再进入同一处理器和双索引。
+            视觉内容先转换为 OCR、图片、表格与图表语义块，再进入同一处理器和候选索引。
           </div>
           <VisionModelField value={String(config.vision_model_id || "")} onChange={(value) => onChange({ vision_model_id: value })} />
           <SelectField label="PDF 页面策略" value={String(config.pdf_page_strategy || "auto")} options={["auto", "all"]} onChange={(value) => onChange({ pdf_page_strategy: value })} />
@@ -803,8 +999,8 @@ function NodeConfig({ node, onChange }: { node: GraphFlowNode; onChange: (patch:
 function defaultConfig(kind: GraphNodeKind): Record<string, unknown> {
   if (kind === "data_source") return { source_mode: "uploaded_files" };
   if (kind === "structured_processor") return { parser: "structured_local_parser", mode: "general", failure_policy: "continue_on_error", max_generated_items: 20, extract_title: true, preserve_tables: true, preserve_code_blocks: true, remove_repeated_headers_footers: true };
-  if (kind === "recursive_chunker") return { strategy: "recursive_character", chunk_size: 500, chunk_overlap: 50, separators: ["\n\n", "\n", ". ", " ", ""] };
-  if (kind === "parent_child_chunker") return { strategy: "parent_child", parent_chunk_size: 1500, parent_chunk_overlap: 100, child_chunk_size: 400, child_chunk_overlap: 50, parent_separators: ["\n\n", "\n", ". ", " ", ""], child_separators: ["\n\n", "\n", ". ", " ", ""] };
+  if (kind === "recursive_chunker") return { strategy: "recursive_estimated_token", chunk_size: 500, chunk_overlap: 50, separators: ["\n\n", "\n", ". ", " ", ""], size_unit: "estimated_tokens", token_estimator: "mixed_cjk_latin_v1", chunk_contract_version: "rag-chunker-estimated-token-v1" };
+  if (kind === "parent_child_chunker") return { strategy: "parent_child_estimated_token", parent_chunk_size: 1500, parent_chunk_overlap: 100, child_chunk_size: 400, child_chunk_overlap: 50, parent_separators: ["\n\n", "\n", ". ", " ", ""], child_separators: ["\n\n", "\n", ". ", " ", ""], size_unit: "estimated_tokens", token_estimator: "mixed_cjk_latin_v1", chunk_contract_version: "rag-chunker-estimated-token-v1" };
   if (kind === "embedding") return { model: DEFAULT_EMBEDDING_MODEL_ID };
   if (kind === "dual_index") return { vector_enabled: true, fulltext_enabled: true };
   if (kind === "retrieval") return { mode: "hybrid", vector_weight: 0.7, fulltext_weight: 0.3, top_k: 5, min_vector_similarity: null, min_lexical_confidence: null, min_rerank_score: null, no_result_policy: "absolute_relevance_v1", threshold_contract_status: "unconfigured", candidate_multiplier: 4, rerank_enabled: false, rerank_provider: "auto", rerank_model: "", rerank_top_n: 5 };
@@ -912,10 +1108,12 @@ function EmptyPanel({ text }: { text: string }) {
 }
 
 function PreviewPanel({ preview }: { preview: NodePreview }) {
+  const headingOverlapSummary = headingOverlapReceiptSummary(preview.chunking_receipt);
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between text-xs"><span className="font-semibold text-white">{preview.preview_type}</span><span className="text-slate-400">{preview.item_count} 项</span></div>
       {preview.warnings?.map((warning) => <p className="rounded-md bg-amber-300/10 px-3 py-2 text-xs text-amber-100" key={warning}>{warning}</p>)}
+      {headingOverlapSummary ? <p className="rounded-md bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100">{headingOverlapSummary}</p> : null}
       <div className="space-y-2">
         {preview.items.slice(0, 20).map((item, index) => (
           <pre className="max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-md border border-white/10 bg-surface-950 p-3 text-[11px] leading-5 text-slate-300" key={index}>{JSON.stringify(item, null, 2)}</pre>
@@ -926,7 +1124,7 @@ function PreviewPanel({ preview }: { preview: NodePreview }) {
   );
 }
 
-function RunPanel({ jobs, versions, onActivate }: { jobs: PipelineJob[]; versions: PipelineVersion[]; onActivate: (id: string) => void }) {
+export function RunPanel({ jobs, versions, onActivate }: { jobs: PipelineJob[]; versions: PipelineVersion[]; onActivate: (id: string) => void }) {
   return (
     <div className="space-y-6">
       <section>
@@ -950,12 +1148,28 @@ function RunPanel({ jobs, versions, onActivate }: { jobs: PipelineJob[]; version
       <section>
         <h2 className="text-sm font-semibold text-white">索引版本</h2>
         <div className="mt-3 space-y-2">
-          {versions.length ? versions.map((version) => (
-            <article className="flex items-center justify-between gap-3 rounded-md border border-white/10 bg-white/[0.03] p-3" key={version.version_id}>
-              <div><p className="text-xs font-semibold text-white">v{version.version} · {version.chunk_count} chunks</p>{Number(version.vision_processed_page_count || 0) > 0 ? <p className="mt-1 text-[10px] text-violet-200/80">视觉页 {version.vision_processed_page_count} · 块 {version.vision_block_count || 0} · 失败 {version.vision_failed_page_count || 0}</p> : null}<p className="mt-1 text-[10px] text-slate-500">{formatDate(version.created_at)}</p></div>
-              {version.active ? <span className="text-[11px] font-semibold text-emerald-200">活动版本</span> : <button className="rounded-md border border-white/10 px-2 py-1 text-[11px] font-semibold text-slate-200 hover:bg-white/[0.06]" onClick={() => onActivate(version.version_id)} type="button">激活</button>}
-            </article>
-          )) : <EmptyPanel text="候选执行成功后会生成索引版本。" />}
+          {versions.length ? versions.map((version) => {
+            const firstActivationBlocked = isPipelineVersionFirstActivationBlocked(version);
+            const previouslyActivated = hasPriorPipelineActivation(version.activated_at);
+            const contractStatus = version.content_index_contract?.status === "current"
+              ? "完整内容合同"
+              : "历史/未完整内容合同";
+            return (
+              <article className="rounded-md border border-white/10 bg-white/[0.03] p-3" key={version.version_id}>
+                <div className="flex items-start justify-between gap-3">
+                  <div><p className="text-xs font-semibold text-white">v{version.version} · {version.chunk_count} chunks</p>{Number(version.vision_processed_page_count || 0) > 0 ? <p className="mt-1 text-[10px] text-violet-200/80">视觉页 {version.vision_processed_page_count} · 块 {version.vision_block_count || 0} · 失败 {version.vision_failed_page_count || 0}</p> : null}<p className="mt-1 text-[10px] text-slate-500">{formatDate(version.created_at)}</p></div>
+                  {version.active ? <span className="text-[11px] font-semibold text-emerald-200">活动版本</span> : <button aria-describedby={firstActivationBlocked ? `version-contract-${version.version_id}` : undefined} className="rounded-md border border-white/10 px-2 py-1 text-[11px] font-semibold text-slate-200 hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent" disabled={firstActivationBlocked} onClick={() => onActivate(version.version_id)} type="button">{previouslyActivated ? "回滚/切换" : "激活"}</button>}
+                </div>
+                <p className={`mt-2 text-[11px] leading-5 ${firstActivationBlocked ? "text-amber-200" : "text-slate-400"}`} id={`version-contract-${version.version_id}`}>
+                  内容合同：{contractStatus}。{firstActivationBlocked
+                    ? "只能预览诊断，不能首次激活。"
+                    : previouslyActivated && version.content_index_contract?.status !== "current"
+                      ? "该版本曾激活，仅可作为回滚/切换目标。"
+                      : "可按当前版本状态切换。"}
+                </p>
+              </article>
+            );
+          }) : <EmptyPanel text="候选执行成功后会生成索引版本。" />}
         </div>
       </section>
     </div>

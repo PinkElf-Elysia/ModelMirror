@@ -1,0 +1,29 @@
+{
+  "format": "modelmirror.ai-rpg.world-capture",
+  "formatVersion": "0.1.0",
+  "capturedDate": "2026-09-05",
+  "sourceUrl": "https://afengy.cash/zh/explore/installed/e23bbc64-4fdd-46d8-92c0-64923961e5d8",
+  "authorizationRef": "user:rpg02-luna-single-world-trial-2026-09-05",
+  "acquisition": "visible_opening_iframe_srcdoc_bounded_window",
+  "sessionLabel": "新的对话-6",
+  "openingTitle": "无限重生系统 - 启动协议 v16.2 (Pyrite修复版)",
+  "fullOriginalHtmlStored": false,
+  "rereadMatched": true,
+  "websiteProbes": 0,
+  "modelCalls": 0,
+  "scope": "complete_selected_world_object",
+  "unavailable": [
+    "hidden worldbook",
+    "hidden style",
+    "hidden prompts"
+  ],
+  "commonTalentsScope": "separate_global_pool_not_assigned_to_this_world",
+  "name": "426.原神 (Genshin Impact)",
+  "start": 1129509,
+  "end": 1133528,
+  "sourceCharacters": 1762427,
+  "rawUtf8Bytes": 6717,
+  "rawSha256": "5c8f5c80c5bc20d81018e23678b2001b3f220f3e37c43784b9fe6a32cb51132d",
+  "dataSha256": "d28bfc2828ce2d47aca9c424dbbf05c1a72762c5f52fe283d91cc93dc5f48e40",
+  "raw": "{\n        name: \"426.原神 (Genshin Impact)\",\n        desc: \"提瓦特大陆，七种元素交汇之地。你作为旅行者，游历七国，寻找失散的亲人，并揭开“天理”的真相。\",\n        boss: \"天理维系者, 愚人众执行官, 深渊教团\",\n        identities: [\n            { name: \"蒙德城的冒险家\", items: \"冒险家手册, 甜甜花酿鸡\" },\n            { name: \"璃月港的矿工\", items: \"铁镐, 一块石珀\" },\n            { name: \"稻妻的反抗军武士\", items: \"打刀, 破旧的甲胄\" },\n            { name: \"须弥教令院的学生\", items: \"虚空终端, 写不完的论文\" },\n            { name: \"枫丹廷的潜水员\", items: \"潜水头盔, 异色重甲蟹能力\" }\n        ],\n        talents: [\n            {name: \"神之眼(自选元素)\", color: \"S\", cost: 5000, desc: \"被神明注视的证明。获得控制火、水、风、雷、草、冰、岩中一种元素的力量。这是强者的入场券。\", type: \"exclusive\"},\n            {name: \"邪眼(愚人众)\", color: \"A\", cost: 2000, desc: \"用魔神残渣制造的伪神之眼。力量强大但会透支生命。如果你没有神之眼，这是获得力量的捷径。\", type: \"exclusive\"},\n            {name: \"元素视野\", color: \"C\", cost: 200, desc: \"能看到周围事物的元素痕迹。找宝箱、追踪怪物、解谜都离不开它。\", type: \"exclusive\"},\n            {name: \"风之翼\", color: \"B\", cost: 500, desc: \"蒙德特产的滑翔翼。让你能从高处滑翔，是探索大世界的必备工具。注意体力消耗。\", type: \"exclusive\"},\n            {name: \"便携式营养袋\", color: \"C\", cost: 300, desc: \"能装两种食物，战斗中一键进食回血。再也不用打开背包暂停吃鸡了。\", type: \"exclusive\"},\n            {name: \"命之座(六命)\", color: \"SSS\", cost: 30000, desc: \"你的命运星图完全点亮。技能等级大幅提升，机制发生质变，获得毁天灭地的力量。\", type: \"exclusive\"},\n            {name: \"尘歌壶\", color: \"A\", cost: 1500, desc: \"仙人赠送的壶中洞天。里面有一个属于你的小世界，可以盖房、种地、养老婆。\", type: \"exclusive\"},\n            {name: \"元素爆发(Q)\", color: \"S\", cost: 2500, desc: \"积攒能量释放的终极技能。无敌帧、大范围伤害、特效拉满。这就是你的大招。\", type: \"exclusive\"},\n            {name: \"钟离的护盾\", color: \"SS\", cost: 8000, desc: \"岩王帝君同款玉璋护盾。全元素减抗，厚度惊人。有了它，你就可以忘记闪避键了。\", type: \"exclusive\"},\n            {name: \"雷电将军的奶香一刀\", color: \"SS\", cost: 9000, desc: \"无想的一刀。极致的雷元素爆发，能斩断空间。没有任何防御能挡住这一击。\", type: \"exclusive\"},\n            {name: \"纳西妲的读心术\", color: \"A\", cost: 1800, desc: \"利用草元素连接意识，能听到NPC的心声。对于收集情报和剧情理解非常有帮助。\", type: \"exclusive\"},\n            {name: \"荒星(垫脚石)\", color: \"B\", cost: 600, desc: \"召唤一个岩造物荒星。除了砸人，主要用途是垫脚爬山，或者压住机关。\", type: \"exclusive\"},\n            {name: \"莫娜的虚实流动\", color: \"B\", cost: 800, desc: \"化身为水流在地面快速移动。能过河，速度快，还带嘲讽效果。\", type: \"exclusive\"},\n            {name: \"班尼特的点赞领域\", color: \"S\", cost: 3500, desc: \"美妙旅程。在领域内大幅回血并增加巨额攻击力。唯一的缺点是你可能会变得很倒霉。\", type: \"exclusive\"},\n            {name: \"提米的朋友\", color: \"D\", cost: 50, desc: \"你不会惊吓到桥上的鸽子。但如果你当着提米的面杀鸽子，这个天赋会失效。\", type: \"exclusive\"},\n            {name: \"应急食品(派蒙)\", color: \"C\", cost: 1000, desc: \"一个会飞的小向导。虽然战斗力为零，但她能帮你接话茬，还能在关键时刻当向导（或者储备粮）。\", type: \"exclusive\"},\n            {name: \"深渊法师护盾\", color: \"A\", cost: 1200, desc: \"对应元素的护盾，如果不使用克制元素很难打破。让你体验当BOSS的感觉。\", type: \"exclusive\"},\n            {name: \"遗迹守卫导弹\", color: \"B\", cost: 900, desc: \"你的背部可以发射六枚追踪导弹。虽然准头一般，但火力覆盖很猛。\", type: \"exclusive\"},\n            {name: \"七天神像传送\", color: \"S\", cost: 4000, desc: \"你可以像旅行者一样使用传送锚点和七天神像。在这个巨大的世界里，这是神的权能。\", type: \"exclusive\"},\n            {name: \"料理精通\", color: \"C\", cost: 150, desc: \"你做出的食物有几率变成“美味的”版本，效果翻倍。甚至能做出专属特色料理。\", type: \"exclusive\"},\n            {name: \"元素反应精通\", color: \"S\", cost: 3200, desc: \"你深刻理解蒸发、融化、超载等反应机制。你的攻击能触发多重反应，伤害指数级上升。\", type: \"exclusive\"},\n            {name: \"风神巴巴托斯的摸鱼\", color: \"D\", cost: 10, desc: \"你非常擅长逃避工作和喝酒。这不会增加战斗力，但能让你心情愉悦。\", type: \"exclusive\"},\n            {name: \"若陀龙王体质\", color: \"SS\", cost: 8500, desc: \"你拥有如同山岳般的生命值和防御力。能够根据环境切换元素属性。\", type: \"exclusive\"},\n            {name: \"丝柯克的教导\", color: \"SS\", cost: 7000, desc: \"来自深渊的极意。你学会了如何运用深渊力量而不被侵蚀，战力远超普通神之眼持有者。\", type: \"exclusive\"},\n            {name: \"四方之网\", color: \"C\", cost: 250, desc: \"能捕捉大世界的小动物放入尘歌壶。对于收集癖来说是神器。\", type: \"exclusive\"},\n            {name: \"浪船\", color: \"B\", cost: 500, desc: \"一艘可以召唤的小船，配备有重炮和加速功能。出海探险必备。\", type: \"exclusive\"},\n            {name: \"圣遗物(双暴满分)\", color: \"SS\", cost: 6000, desc: \"一套全部分数加在暴击和爆伤上的极品圣遗物。这是阳寿换来的力量。\", type: \"exclusive\"},\n            {name: \"天理的维系\", color: \"SSS\", cost: 35000, desc: \"你获得了空间方块化的能力。可以封印神明，重塑地形。你是规则的制定者。\", type: \"exclusive\"},\n            {name: \"纠缠之缘\", color: \"A\", cost: 1600, desc: \"一种粉红色的石头，据说能召唤异世界的伙伴。但由于概率问题，通常只能召唤出一堆垃圾武器。\", type: \"exclusive\"},\n            {name: \"地脉之花\", color: \"B\", cost: 400, desc: \"击败敌人后，你可以消耗体力具现出地脉之花，从中获取金币或经验书。\", type: \"exclusive\"}\n        ]\n    }"
+}

@@ -3,21 +3,33 @@
   "moduleId": "ai-rpg-engine",
   "moduleRoot": ".",
   "moduleRootResolution": "directory-containing-module-boundary",
-  "activeRound": "RPG-01",
-  "activeRoundBaselineSha": "06ef51ae8d58c4e33029f02ab7263e24066734b2",
+  "activeRound": "RPG-03",
+  "activeRoundBaselineSha": "80221379cec850a2b25f5eeeb410233062f3e1ea",
+  "requiredBranch": "codex/ai-rpg-rpg03-runtime",
   "repositoryChangePolicy": {
     "allowedPrefixes": [
       "docs/ai-rpg-experiment/",
       "experiments/ai-rpg-engine/"
+    ],
+    "allowedExactPaths": [
+      "docs/MODEL_PROVIDER_CONTROL_PLANE.md",
+      "server/main.py",
+      "server/tests/test_provider_chat_stable_chat.py"
     ]
   },
-  "parentIntegration": "none",
-  "allowedParentInteractions": [],
+  "parentIntegration": "controlled-modelmirror-chat",
+  "allowedParentInteractions": [
+    "managed-chat-http"
+  ],
   "dependencyPolicy": {
     "moduleLocalOnly": true,
     "exactVersionsRequired": true,
     "allowedProductionDependencies": {
-      "ajv": "8.20.0"
+      "ajv": "8.20.0",
+      "parse5": "8.0.1",
+      "acorn": "8.18.0",
+      "yauzl": "3.4.0",
+      "fflate": "0.8.3"
     },
     "forbiddenProtocols": [
       "file:",
@@ -31,9 +43,9 @@
     "forbidResolvedPathsOutsideModule": true
   },
   "networkPolicy": {
-    "runtime": "none",
-    "verification": "none",
-    "modelCalls": "none",
+    "runtime": "trusted-modelmirror-http-only",
+    "verification": "loopback-only",
+    "modelCalls": "trusted-modelmirror-controlled-bounded-only",
     "websiteProbes": "none"
   },
   "generatedPaths": [
@@ -41,7 +53,9 @@
     "dist",
     "coverage",
     "logs",
-    "test-reports"
+    "test-reports",
+    ".rpg02-work",
+    ".rpg03-work"
   ],
   "forbiddenTrackedFileNames": [
     ".env",
@@ -70,7 +84,24 @@
     "moduleLicense": "UNLICENSED",
     "allowedDependencyLicenses": [
       "MIT",
-      "BSD-3-Clause"
+      "BSD-3-Clause",
+      "BSD-2-Clause"
     ]
+  },
+  "sourceLayers": {
+    "contentPrefixes": ["content/"],
+    "contentAllowedPackages": ["ajv", "ajv/dist/2020.js", "parse5", "acorn"],
+    "runtimeCorePrefixes": ["runtime/"],
+    "runtimeNodePrefixes": ["runtime/node.mjs", "runtime/node/"],
+    "runtimeCoreAllowedPackages": ["ajv/dist/2020.js"],
+    "runtimeNodeAllowedPackages": [],
+    "runtimeNodeAllowedBuiltins": ["buffer", "crypto", "fs", "fs/promises", "http", "https", "path", "stream", "url"],
+    "runtimeToolingPrefixes": ["tooling/runtime-"],
+    "testLoopbackNetworkFiles": ["tests/runtime-adapter.test.mjs", "tests/runtime-integration.test.mjs"],
+    "toolingPrefixes": ["scripts/", "tooling/", "tests/"],
+    "toolingAllowedPackages": ["ajv", "ajv/dist/2020.js", "parse5", "acorn", "yauzl", "fflate"],
+    "toolingAllowedBuiltins": ["assert", "assert/strict", "buffer", "child_process", "crypto", "fs", "fs/promises", "os", "path", "stream", "test", "url", "util", "zlib"],
+    "subprocessEntrypoints": ["scripts/check-boundary-rpg02.mjs", "scripts/check-boundary-rpg03.mjs", "scripts/verify-rpg03.mjs", "scripts/rpg03-harness.py", "tests/runtime-store.test.mjs"],
+    "frozenLegacySubprocessFiles": ["scripts/check-parent-scope.mjs", "scripts/verify-rpg01.mjs", "tests/boundary.test.mjs"]
   }
 }

@@ -20,6 +20,8 @@ def candidate(
     text: str,
     score: float,
     source_block_id: str | None = None,
+    parent_chunk_id: str | None = None,
+    generated_item: bool = False,
     start_char: int = 0,
     end_char: int | None = None,
     page_number: int | None = 1,
@@ -31,6 +33,8 @@ def candidate(
         matched_text=text,
         context_text=text,
         source_block_id=source_block_id,
+        parent_chunk_id=parent_chunk_id,
+        generated_item=generated_item,
         start_char=start_char,
         end_char=len(text) if end_char is None else end_char,
         page_number=page_number,
@@ -163,6 +167,135 @@ def test_normalized_text_and_source_block_duplicates_cannot_fill_top_k() -> None
         "document_limit": 2,
         "final": 2,
     }
+
+
+def test_generated_parent_siblings_cannot_fill_top_k() -> None:
+    outcome = select(
+        [
+            candidate(
+                "generated-0",
+                doc_id="doc-a",
+                text="First bounded context segment.",
+                score=0.99,
+                parent_chunk_id=f"generated_v1_{'a' * 64}",
+                generated_item=True,
+            ),
+            candidate(
+                "generated-1",
+                doc_id="doc-a",
+                text="Second bounded context segment.",
+                score=0.98,
+                parent_chunk_id=f"generated_v1_{'a' * 64}",
+                generated_item=True,
+            ),
+            candidate(
+                "independent",
+                doc_id="doc-b",
+                text="Independent evidence.",
+                score=0.97,
+                parent_chunk_id=f"generated_v1_{'b' * 64}",
+                generated_item=True,
+            ),
+        ],
+        top_k=3,
+        max_chunks_per_document=3,
+    )
+
+    assert [item.chunk_id for item in outcome.items] == [
+        "generated-0",
+        "independent",
+    ]
+    assert outcome.candidate_counts["source_block_dedup"] == 2
+
+
+def test_different_generated_parents_remain_independent() -> None:
+    outcome = select(
+        [
+            candidate(
+                "generated-a",
+                doc_id="doc-a",
+                text="Context A.",
+                score=0.99,
+                parent_chunk_id=f"generated_v1_{'a' * 64}",
+                generated_item=True,
+            ),
+            candidate(
+                "generated-b",
+                doc_id="doc-a",
+                text="Context B.",
+                score=0.98,
+                parent_chunk_id=f"generated_v1_{'b' * 64}",
+                generated_item=True,
+            ),
+        ],
+        top_k=2,
+        max_chunks_per_document=2,
+    )
+
+    assert [item.chunk_id for item in outcome.items] == [
+        "generated-a",
+        "generated-b",
+    ]
+
+
+def test_generated_parent_identity_is_scoped_to_document() -> None:
+    outcome = select(
+        [
+            candidate(
+                "doc-a-generated",
+                doc_id="doc-a",
+                text="Document A context.",
+                score=0.99,
+                parent_chunk_id=f"generated_v1_{'a' * 64}",
+                generated_item=True,
+            ),
+            candidate(
+                "doc-b-generated",
+                doc_id="doc-b",
+                text="Document B context.",
+                score=0.98,
+                parent_chunk_id=f"generated_v1_{'a' * 64}",
+                generated_item=True,
+            ),
+        ],
+        top_k=2,
+        max_chunks_per_document=2,
+    )
+
+    assert [item.chunk_id for item in outcome.items] == [
+        "doc-a-generated",
+        "doc-b-generated",
+    ]
+
+
+def test_ordinary_parent_child_candidates_without_source_block_remain_independent() -> None:
+    outcome = select(
+        [
+            candidate(
+                "ordinary-child-a",
+                doc_id="doc-a",
+                text="Distinct child A.",
+                score=0.99,
+                parent_chunk_id="legacy-parent-window",
+            ),
+            candidate(
+                "ordinary-child-b",
+                doc_id="doc-a",
+                text="Distinct child B.",
+                score=0.98,
+                parent_chunk_id="legacy-parent-window",
+                generated_item=False,
+            ),
+        ],
+        top_k=2,
+        max_chunks_per_document=2,
+    )
+
+    assert [item.chunk_id for item in outcome.items] == [
+        "ordinary-child-a",
+        "ordinary-child-b",
+    ]
+    assert outcome.candidate_counts["source_block_dedup"] == 2
 
 
 def test_document_limit_prevents_one_document_from_saturating_top_ten() -> None:

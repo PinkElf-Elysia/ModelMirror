@@ -1,0 +1,199 @@
+{
+  "schemaVersion": 1,
+  "round": "RPG-02",
+  "status": "implemented_pending_manual_acceptance",
+  "claimAllowed": false,
+  "manualAcceptance": false,
+  "baseSha": "a43cfa389e1785a95f04a006ba26550a5a36965e",
+  "branch": "codex/ai-rpg-rpg02-content",
+  "packageVersion": "0.2.0",
+  "contractVersion": "0.1.0",
+  "implementationSubrounds": [
+    "P0",
+    "02A1",
+    "02A2",
+    "02B1",
+    "02B2-R",
+    "02B2",
+    "02C1",
+    "02C2",
+    "02D1",
+    "02D2",
+    "02E",
+    "02F1"
+  ],
+  "finalizationSubround": "02F1",
+  "researchCloseoutReceipt": "docs/ai-rpg-experiment/MANIFEST.json",
+  "automatedAcceptance": {
+    "command": "npm.cmd run verify:rpg02 -- --base a43cfa389e1785a95f04a006ba26550a5a36965e",
+    "successMarker": "RPG02_AUTOMATED_GATES_OK",
+    "status": "passed",
+    "expectedTests": {
+      "contracts": 28,
+      "boundary": 7,
+      "content": 43,
+      "archive": 18,
+      "total": 96
+    },
+    "frozenContracts": true,
+    "researchManifestEntries": 13,
+    "externalSkillValidator": "unmodified quick_validate.py with genuine installed PyYAML; exit 0",
+    "observedTests": {
+      "contracts": 28,
+      "boundary": 7,
+      "content": 43,
+      "archive": 18,
+      "total": 96,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "exitCode": 0,
+    "npmCi": "passed_11_locked_packages_install_scripts_disabled",
+    "verifiedDate": "2026-09-05"
+  },
+  "realSourceEvidence": {
+    "status": "verified_selected_evidence",
+    "sourceRecords": 14,
+    "fragments": 18,
+    "selectedFragmentUtf8Bytes": 2801,
+    "compiledResources": 27,
+    "worlds": 2,
+    "identities": 4,
+    "talents": 8,
+    "openings": 2,
+    "fullOriginalHtmlStored": false,
+    "sourceCapture": "fixtures/rpg02/source-capture.json",
+    "golden": "docs/RPG02_GOLDEN.json",
+    "liveWebsiteUnchangedClaim": false,
+    "serverOriginalHashClaim": false,
+    "authoredContentQuality": "minimal_conversion_examples_not_narrative_acceptance"
+  },
+  "reviewDelivery": {
+    "path": ".rpg02-work/delivery-rpg02-20260905",
+    "tracked": false,
+    "archiveBytes": 32827,
+    "archiveSha256": "b9e4948208e91813732fe1cf8f50db2b20ee41dc05ff7bb990467b3e5d7f2b41",
+    "cliSteps": [
+      "compile",
+      "pack",
+      "verify",
+      "unpack"
+    ],
+    "playerIncluded": true
+  },
+  "websiteProbes": 0,
+  "modelCalls": 0,
+  "externalModelCalls": 0,
+  "probeLedgerUnchanged": true,
+  "publication": {
+    "commit": false,
+    "push": false,
+    "pr": false,
+    "merge": false,
+    "deploy": false,
+    "release": false,
+    "publish": false
+  },
+  "nextRound": {
+    "round": "RPG-03",
+    "implementationAuthorized": false,
+    "started": false
+  },
+  "handoff": {
+    "rpg03": [
+      "validated card package",
+      "validated player setup"
+    ],
+    "rpg04": [
+      "authored style",
+      "worldbook content and visibility",
+      "source index"
+    ],
+    "rpg05": [
+      "configuration results",
+      "stable diagnostics"
+    ],
+    "optionalCapabilities": "plugin_market",
+    "otherCards": "card_market",
+    "modelAndMemoryControl": "ModelMirror",
+    "noRuntimePermissionInference": true
+  },
+  "collaborators": {
+    "primary": "Astra",
+    "boundedOfflineWork": "Sol",
+    "lunaBatchStarted": false,
+    "lunaQualificationStarted": true,
+    "terraQualificationStarted": true,
+    "massExtractionStarted": false,
+    "skill": "skills/rpg02-selected-content/SKILL.md"
+  },
+  "primaryCheckout": {
+    "taskModifications": false,
+    "head": "2434257fa9db630ac7b247f73010457f94192f8f",
+    "preexistingStatusEntries": 78,
+    "comparison": "same quote/untracked mode; HEAD and all status entries unchanged"
+  },
+  "limitations": [
+    "Representative compiler profile only; no full-resource or general Tavern import.",
+    "Offline evidence verifies recorded fragments, not current website state or full server source.",
+    "No runtime, model adapter, prompt orchestration, retrieval, UI, media, markets, or plugin loader.",
+    "Identity ranks are explicit configuration and not extracted identity fields.",
+    "Manual acceptance and publication authority remain separate."
+  ],
+  "stoppedHistoricalPaths": [
+    "Browser data URL rejection",
+    "Browser runtime filesystem EPERM"
+  ],
+  "researchCloseoutResolution": "02F2 completion is recorded separately in docs/ai-rpg-experiment/MANIFEST.json; the aggregate verifies all current research hashes.",
+  "workerQualification": {
+    "required": true,
+    "status": "qualified_small_batch",
+    "report": "docs/RPG02_WORKER_GATE.md",
+    "machineStatus": "docs/RPG02_WORKER_GATE.json",
+    "qualifiedModels": [
+      "gpt-5.6-terra"
+    ],
+    "finalAcceptanceReady": true,
+    "batchSubmissionAllowed": true,
+    "massExtractionStarted": false,
+    "finalRecipe": "encoded-json-string-raw",
+    "completedFinalRecipeWorlds": 3,
+    "latestStop": "historical CUA_KERNEL_RESET retained; final I/J runs have no failure",
+    "remaining": "Other models and actual mass extraction require later authorization and qualification.",
+    "finalizedFinalRecipeJobs": 2,
+    "finalQualificationEvidenceSha256": "ce85aa5d4e96b00c52a709908836c3c3fbab126173ba68c76eb017cd2081078f",
+    "finalByteJobs": [
+      "worker-qualification-i-20260905",
+      "worker-qualification-j-20260905"
+    ]
+  },
+  "finalAcceptanceReady": true,
+  "currentDeliveryBoundary": "Offline RPG-02 and required worker qualification are ready for manual acceptance and authorized PR closeout; no runtime, general compiler or full-site execution claim.",
+  "additionalAutomatedAcceptance": {
+    "worldSource": 14,
+    "workerCapture": 17,
+    "workerBatch": 8,
+    "total": 39,
+    "passed": 39,
+    "failed": 0,
+    "originalTotal": 96,
+    "combinedTotal": 135,
+    "workerQualificationPassed": true
+  },
+  "publicationSnapshotPhase": "pre_publication_historical_receipt",
+  "publicationAuthority": {
+    "source": "latest user: finish qualification then submit RPG-02 PR",
+    "commit": true,
+    "push": true,
+    "pr": true,
+    "merge": false,
+    "deploy": false,
+    "release": false,
+    "publish": false,
+    "condition": "All required local and worker qualification gates passed",
+    "executionRecord": "Actual publication after this pre-publication snapshot is recorded by Git commit, remote ref and pull request metadata"
+  },
+  "fullExtractionEarliest": "after_RPG06_and_separate_authorization"
+}

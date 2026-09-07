@@ -13,6 +13,7 @@ from server.rag.api import (
 )
 from server.rag.embedder import EmbeddingClient
 from server.rag.pipeline_graph import (
+    PipelineGraphValidationError,
     compile_pipeline_graph,
     default_pipeline_graph,
     validate_pipeline_graph,
@@ -61,6 +62,228 @@ async def upload_document(client: httpx.AsyncClient, kb_id: str) -> dict:
     return response.json()
 
 
+def test_historical_graph_without_strategy_remains_legacy_read_only() -> None:
+    draft = {
+        "stages": {
+            "stage_data_source": {},
+            "stage_processor": {},
+            "stage_chunker": {"strategy": "recursive_estimated_token"},
+            "stage_image_understanding": {"enabled": False},
+        },
+        "embedding_profile": {},
+        "retrieval_profile": {},
+    }
+    graph = default_pipeline_graph("kb-legacy-graph", draft)
+    chunker = next(node for node in graph["nodes"] if node["id"] == "chunker")
+    chunker["config"].pop("strategy", None)
+
+    compiled = compile_pipeline_graph(graph)
+
+    assert compiled.stage_updates["stage_chunker"]["strategy"] == (
+        "recursive_character"
+    )
+
+
+@pytest.mark.parametrize(
+    ("kind", "strategy"),
+    [
+        ("recursive_chunker", "parent_child_estimated_token"),
+        ("parent_child_chunker", "recursive_estimated_token"),
+    ],
+)
+def test_explicit_chunker_kind_strategy_mismatch_is_not_silently_legacy(
+    kind: str,
+    strategy: str,
+) -> None:
+    draft = {
+        "stages": {
+            "stage_data_source": {},
+            "stage_processor": {},
+            "stage_chunker": {"strategy": "recursive_estimated_token"},
+            "stage_image_understanding": {"enabled": False},
+        },
+        "embedding_profile": {},
+        "retrieval_profile": {},
+    }
+    graph = default_pipeline_graph("kb-mismatched-chunker", draft)
+    chunker = next(node for node in graph["nodes"] if node["id"] == "chunker")
+    chunker["kind"] = kind
+    chunker["config"]["strategy"] = strategy
+
+    issues = validate_pipeline_graph(graph)
+
+    assert any(issue.code == "chunker_strategy_kind_mismatch" for issue in issues)
+    with pytest.raises(PipelineGraphValidationError):
+        compile_pipeline_graph(graph)
+
+
+@pytest.mark.parametrize(
+    "strategy",
+    ["typo_estimated_token", 123, None, "", "   "],
+)
+def test_unknown_explicit_chunker_strategy_is_not_silently_legacy(
+    strategy: object,
+) -> None:
+    draft = {
+        "stages": {
+            "stage_data_source": {},
+            "stage_processor": {},
+            "stage_chunker": {"strategy": "recursive_estimated_token"},
+            "stage_image_understanding": {"enabled": False},
+        },
+        "embedding_profile": {},
+        "retrieval_profile": {},
+    }
+    graph = default_pipeline_graph("kb-unknown-chunker", draft)
+    chunker = next(node for node in graph["nodes"] if node["id"] == "chunker")
+    chunker["config"]["strategy"] = strategy
+
+    issues = validate_pipeline_graph(graph)
+
+    assert any(issue.code == "unsupported_chunker_strategy" for issue in issues)
+    with pytest.raises(PipelineGraphValidationError):
+        compile_pipeline_graph(graph)
+
+
+@pytest.mark.parametrize(
+    "strategy",
+    [" recursive_estimated_token ", "\trecursive_estimated_token"],
+)
+def test_noncanonical_explicit_chunker_strategy_is_not_silently_legacy(
+    strategy: object,
+) -> None:
+    draft = {
+        "stages": {
+            "stage_data_source": {},
+            "stage_processor": {},
+            "stage_chunker": {"strategy": "recursive_estimated_token"},
+            "stage_image_understanding": {"enabled": False},
+        },
+        "embedding_profile": {},
+        "retrieval_profile": {},
+    }
+    graph = default_pipeline_graph("kb-noncanonical-chunker", draft)
+    chunker = next(node for node in graph["nodes"] if node["id"] == "chunker")
+    chunker["config"]["strategy"] = strategy
+
+    issues = validate_pipeline_graph(graph)
+
+    assert any(issue.code == "unsupported_chunker_strategy" for issue in issues)
+    with pytest.raises(PipelineGraphValidationError):
+        compile_pipeline_graph(graph)
+
+
+def test_graph_rejects_parent_child_overlap_amplification_above_contract() -> None:
+    draft = {
+        "stages": {
+            "stage_data_source": {},
+            "stage_processor": {},
+            "stage_chunker": {
+                "strategy": "parent_child_estimated_token",
+                "parent_chunk_size": 1_000,
+                "parent_chunk_overlap": 800,
+                "child_chunk_size": 100,
+                "child_chunk_overlap": 80,
+            },
+            "stage_image_understanding": {"enabled": False},
+        },
+        "embedding_profile": {},
+        "retrieval_profile": {},
+    }
+    graph = default_pipeline_graph("kb-amplification", draft)
+
+    issues = validate_pipeline_graph(graph)
+
+    assert any(
+        issue.code == "chunker_overlap_amplification_exceeded" for issue in issues
+    )
+    with pytest.raises(PipelineGraphValidationError):
+        compile_pipeline_graph(graph)
+
+
+def test_graph_rejects_recursive_overlap_amplification_above_contract() -> None:
+    draft = {
+        "stages": {
+            "stage_data_source": {},
+            "stage_processor": {},
+            "stage_chunker": {
+                "strategy": "recursive_estimated_token",
+                "chunk_size": 4_000,
+                "chunk_overlap": 3_992,
+            },
+            "stage_image_understanding": {"enabled": False},
+        },
+        "embedding_profile": {},
+        "retrieval_profile": {},
+    }
+    graph = default_pipeline_graph("kb-recursive-amplification", draft)
+
+    issues = validate_pipeline_graph(graph)
+
+    assert any(
+        issue.code == "chunker_overlap_amplification_exceeded" for issue in issues
+    )
+    with pytest.raises(PipelineGraphValidationError):
+        compile_pipeline_graph(graph)
+
+
+def test_graph_accepts_maximum_parent_child_overlap_amplification() -> None:
+    draft = {
+        "stages": {
+            "stage_data_source": {},
+            "stage_processor": {},
+            "stage_chunker": {
+                "strategy": "parent_child_estimated_token",
+                "parent_chunk_size": 1_000,
+                "parent_chunk_overlap": 750,
+                "child_chunk_size": 100,
+                "child_chunk_overlap": 75,
+            },
+            "stage_image_understanding": {"enabled": False},
+        },
+        "embedding_profile": {},
+        "retrieval_profile": {},
+    }
+    graph = default_pipeline_graph("kb-max-amplification", draft)
+
+    issues = validate_pipeline_graph(graph)
+
+    assert not any(
+        issue.code == "chunker_overlap_amplification_exceeded" for issue in issues
+    )
+    compiled = compile_pipeline_graph(graph)
+    assert compiled.stage_updates["stage_chunker"]["parent_chunk_overlap"] == 750
+    assert compiled.stage_updates["stage_chunker"]["child_chunk_overlap"] == 75
+
+
+def test_graph_rejects_separator_aware_coverage_above_contract() -> None:
+    draft = {
+        "stages": {
+            "stage_data_source": {},
+            "stage_processor": {},
+            "stage_chunker": {
+                "strategy": "parent_child_estimated_token",
+                "parent_chunk_size": 200,
+                "parent_chunk_overlap": 100,
+                "child_chunk_size": 128,
+                "child_chunk_overlap": 112,
+            },
+            "stage_image_understanding": {"enabled": False},
+        },
+        "embedding_profile": {},
+        "retrieval_profile": {},
+    }
+    graph = default_pipeline_graph("kb-runtime-amplification", draft)
+
+    issues = validate_pipeline_graph(graph)
+
+    assert any(
+        issue.code == "chunker_overlap_amplification_exceeded" for issue in issues
+    )
+    with pytest.raises(PipelineGraphValidationError):
+        compile_pipeline_graph(graph)
+
+
 @pytest.mark.asyncio
 async def test_default_draft_generates_valid_compilable_graph(client) -> None:
     http_client, _ = client
@@ -82,8 +305,39 @@ async def test_default_draft_generates_valid_compilable_graph(client) -> None:
         "retrieval",
     ]
     compiled = compile_pipeline_graph(payload["graph"])
-    assert compiled.stage_updates["stage_chunker"]["strategy"] == "recursive_character"
+    assert compiled.stage_updates["stage_chunker"]["strategy"] == "recursive_estimated_token"
     assert compiled.retrieval_profile["mode"] == draft["retrieval_profile"]["mode"]
+
+
+@pytest.mark.asyncio
+async def test_legacy_graph_save_returns_stable_conflict_without_mutation(client) -> None:
+    http_client, _ = client
+    kb_id = await create_kb(http_client, "legacy graph save")
+    current = (await http_client.get(f"/api/rag/pipeline/graph?kb_id={kb_id}")).json()
+    draft_before = (await http_client.get(f"/api/rag/pipeline/draft?kb_id={kb_id}")).json()
+    graph = current["graph"]
+    chunker = next(node for node in graph["nodes"] if node["id"] == "chunker")
+    chunker["config"]["strategy"] = "recursive_character"
+    chunker["config"].pop("size_unit", None)
+    chunker["config"].pop("token_estimator", None)
+    chunker["config"].pop("chunk_contract_version", None)
+
+    response = await http_client.put(
+        f"/api/rag/pipeline/graph/{kb_id}",
+        json={
+            "expected_revision": current["graph_revision"],
+            "graph": graph,
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == (
+        "rag_content_contract_legacy_read_only"
+    )
+    graph_after = (await http_client.get(f"/api/rag/pipeline/graph?kb_id={kb_id}")).json()
+    draft_after = (await http_client.get(f"/api/rag/pipeline/draft?kb_id={kb_id}")).json()
+    assert graph_after["graph_revision"] == current["graph_revision"]
+    assert draft_after["version"] == draft_before["version"]
 
 
 def test_graph_validation_rejects_cycles_bad_ports_missing_stages_and_orphans() -> None:
@@ -230,9 +484,11 @@ async def test_draft_form_syncs_graph_config_and_preserves_positions(client) -> 
             "stages": {
                 "stage_chunker": {
                     "config": {
-                        "strategy": "parent_child",
-                        "parent_chunk_size": 1200,
-                        "child_chunk_size": 300,
+                            "strategy": "parent_child_estimated_token",
+                            "parent_chunk_size": 1200,
+                            "parent_chunk_overlap": 120,
+                            "child_chunk_size": 300,
+                            "child_chunk_overlap": 30,
                     }
                 }
             }
@@ -261,9 +517,100 @@ async def test_node_preview_is_truncated_safe_and_does_not_create_job(client) ->
     payload = response.json()
     assert payload["preview_type"] == "chunks"
     assert len(payload["items"]) <= 20
+    assert payload["chunking_receipt"]["contract_version"] == (
+        "rag-chunker-estimated-token-v1"
+    )
+    assert payload["chunking_receipt"]["final_chunk_count"] == payload["item_count"]
+    assert all(item["estimated_index_tokens"] <= 500 for item in payload["items"])
+    assert all(item["estimated_context_tokens"] <= 500 for item in payload["items"])
     assert "stored_path" not in str(payload).lower()
     jobs = await http_client.get(f"/api/rag/pipeline/jobs?kb_id={kb_id}")
     assert jobs.json()["job_count"] == 0
+
+
+@pytest.mark.parametrize("strategy", [None, "", "   "])
+@pytest.mark.asyncio
+async def test_chunker_preview_rejects_explicit_empty_strategy_without_side_effects(
+    client,
+    strategy: object,
+) -> None:
+    http_client, _ = client
+    kb_id = await create_kb(http_client, "preview empty strategy")
+    document = await upload_document(http_client, kb_id)
+    graph = (await http_client.get(f"/api/rag/pipeline/graph?kb_id={kb_id}")).json()[
+        "graph"
+    ]
+    chunker = next(item for item in graph["nodes"] if item["id"] == "chunker")
+    chunker["config"]["strategy"] = strategy
+
+    response = await http_client.post(
+        f"/api/rag/pipeline/graph/{kb_id}/preview-node",
+        json={
+            "graph": graph,
+            "node_id": "chunker",
+            "document_id": document["id"],
+        },
+    )
+
+    assert response.status_code == 400, response.text
+    assert "unsupported_chunker_strategy" in response.text
+    jobs = await http_client.get(f"/api/rag/pipeline/jobs?kb_id={kb_id}")
+    assert jobs.json()["job_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_chunker_preview_uses_validated_compiled_budget_for_partial_node_config(
+    client,
+) -> None:
+    http_client, _ = client
+    kb_id = await create_kb(http_client, "compiled preview budget")
+    document = await http_client.post(
+        f"/api/rag/knowledge_bases/{kb_id}/documents",
+        files={
+            "file": (
+                "long-evidence.txt",
+                ("界" * 5_000).encode("utf-8"),
+                "text/plain",
+            )
+        },
+    )
+    assert document.status_code == 200, document.text
+    configured = await http_client.patch(
+        f"/api/rag/pipeline/draft/{kb_id}",
+        json={
+            "stages": {
+                "stage_chunker": {
+                    "config": {
+                        "strategy": "recursive_estimated_token",
+                        "chunk_size": 100,
+                        "chunk_overlap": 20,
+                    }
+                }
+            }
+        },
+    )
+    assert configured.status_code == 200, configured.text
+    graph = (await http_client.get(f"/api/rag/pipeline/graph?kb_id={kb_id}")).json()[
+        "graph"
+    ]
+    chunker = next(item for item in graph["nodes"] if item["id"] == "chunker")
+    chunker["config"].pop("chunk_size")
+    chunker["config"].pop("chunk_overlap")
+
+    response = await http_client.post(
+        f"/api/rag/pipeline/graph/{kb_id}/preview-node",
+        json={
+            "graph": graph,
+            "node_id": "chunker",
+            "document_id": document.json()["id"],
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["item_count"] >= 2
+    assert all(item["estimated_index_tokens"] <= 100 for item in payload["items"])
+    assert all(item["estimated_context_tokens"] <= 100 for item in payload["items"])
 
 
 @pytest.mark.asyncio
@@ -271,6 +618,11 @@ async def test_graph_execute_reuses_existing_pipeline_job_and_pins_revision(clie
     http_client, _ = client
     kb_id = await create_kb(http_client, "execute")
     await upload_document(http_client, kb_id)
+    vector_draft = await http_client.patch(
+        f"/api/rag/pipeline/draft/{kb_id}",
+        json={"retrieval_profile": {"mode": "vector"}},
+    )
+    assert vector_draft.status_code == 200, vector_draft.text
     graph = (await http_client.get(f"/api/rag/pipeline/graph?kb_id={kb_id}")).json()
 
     response = await http_client.post(

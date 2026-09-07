@@ -181,6 +181,11 @@ python -m server.model_router.migrate_credentials --storage-dir <path>
 - R5B 只接管 `gateway=default`、稳定模型白名单内的普通文本和已提取文本附件。
   `MODEL_CONTROL_CHAT_ENABLED` 默认 `false`；关闭开关、选择 `legacy` 或使用白名单外模型
   时继续走原有静态路径。
+- `/api/chat` 的可选布尔字段 `require_managed_route` 默认 `false`，保持既有调用兼容。
+  设为 `true` 时只接受精确模型、`gateway=default` 的纯文本请求（可显式关闭上下文压缩），
+  并要求该次请求由现有 Managed Chat 路径接管；开关关闭、Policy 为 `legacy`、模型不在
+  稳定白名单或派发前策略、资格、连接发生漂移时均失败关闭，不回落静态 Provider。该字段
+  不改变全局 required 晋级门槛、认证合同、Provider 顺序或派发后的重试规则。
 - `newapi_preferred` 的首选 newAPI 只有在 POST 派发前的资格、目录、凭据或 DNS/SSRF
   预检失败时才可选择显式 Managed 备用。POST 派发后不重试第二 IP，不切换备用、模型或
   legacy Provider；逻辑运行和逐 Provider 尝试均写入不含请求/回答正文的 Receipt。

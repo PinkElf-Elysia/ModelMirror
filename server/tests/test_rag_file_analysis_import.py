@@ -1,18 +1,25 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
 import pytest
+from fastapi import FastAPI
 
 from server.file_assets.analysis import FileAnalysisArtifact, FileAnalysisMode, FileAnalysisSection
-from server.main import app
 from server.rag import rag_service as rag_service_module
-from server.rag.api import set_rag_service_for_tests
+from server.rag.api import router as rag_router, set_rag_service_for_tests
 from server.rag.embedder import EmbeddingClient
-from server.rag.rag_service import RagService
+from server.rag.pipeline_executor import KnowledgePipelineExecutor
+from server.rag.rag_service import KnowledgeBaseDeletionError, RagService
 from server.rag.vector_store import LocalJsonVectorStore
+from server.rag.vision_processor import VisionUnderstandingService
+
+
+app = FastAPI()
+app.include_router(rag_router)
 
 
 class _AnalysisAssetService:
@@ -101,6 +108,8 @@ async def test_file_analysis_import_is_structured_idempotent_and_original_free(
             assert first.status_code == second.status_code == 200
             assert first.json()["id"] == second.json()["id"]
             assert first.json()["analysis_artifact_id"] == "artifact_analysis"
+            assert first.json()["ingestion_status"] == "pipeline_required"
+            assert first.json()["chunk_count"] == 0
             assert first.json()["analysis_source"] == {
                 "source_filename": "公开合成扫描样本.pdf",
                 "source_sha256": "a" * 64,
@@ -116,9 +125,27 @@ async def test_file_analysis_import_is_structured_idempotent_and_original_free(
             assert b"%PDF" not in assets.uploaded[0]
             assert "第一页图表摘要" in assets.uploaded[0].decode("utf-8")
 
-            stored = service.vector_store.list_document_chunks(first.json()["id"])
-            assert {item.page_number for item in stored} == {1, 3}
-            assert {item.source_block_id for item in stored} == {"artifact_analysis"}
+            assert service.vector_store.list_document_chunks(first.json()["id"]) == []
+            assert service.lexical_store.list_document_chunks(first.json()["id"]) == []
+
+            draft = service.update_pipeline_draft(
+                kb["id"],
+                {},
+                retrieval_profile={"mode": "vector"},
+            )
+            job = service.create_pipeline_job(
+                kb["id"],
+                draft_version=draft["version"],
+                source_document_ids=[first.json()["id"]],
+            )
+            assert await KnowledgePipelineExecutor(service).run_once() is True
+            completed = service.get_pipeline_job(job["job_id"])
+            assert completed["status"] == "succeeded", completed
+            version = service.get_pipeline_version(job["candidate_version_id"])
+            assert version["chunk_count"] > 0
+            assert completed["sources"][0]["filename"] == "公开合成扫描样本.pdf"
+            assert completed["sources"][0]["content_mode"] == "extracted_text"
+            assert completed["sources"][0]["parser_filename"].endswith(".analysis.txt")
     finally:
         set_rag_service_for_tests(None)
 
@@ -142,7 +169,7 @@ async def test_file_analysis_import_rejects_deleting_knowledge_base_before_copy(
         metadata = service._read_metadata_unlocked()  # noqa: SLF001
         metadata["knowledge_bases"][kb["id"]]["deletion_status"] = "cleanup_pending"
         service._write_metadata_unlocked(metadata)  # noqa: SLF001
-    with pytest.raises(Exception, match="isolated"):
+    with pytest.raises(KnowledgeBaseDeletionError, match="isolated"):
         await service.import_file_analysis(
             kb["id"],
             asset_id="asset_chat",
@@ -151,3 +178,96 @@ async def test_file_analysis_import_rejects_deleting_knowledge_base_before_copy(
         )
     assert assets.resolve_calls == 0
     assert assets.uploaded == []
+
+
+@pytest.mark.asyncio
+async def test_file_analysis_derived_text_skips_vision_even_when_the_stage_is_enabled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assets = _AnalysisAssetService()
+    monkeypatch.setattr(rag_service_module, "get_file_asset_service", lambda: assets)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    vision = VisionUnderstandingService(request_override=lambda *_args: {})
+    vision_calls = 0
+
+    async def forbidden_vision_call(*_args, **_kwargs):
+        nonlocal vision_calls
+        vision_calls += 1
+        raise AssertionError("derived analysis text reached the vision provider")
+
+    monkeypatch.setattr(vision, "analyze_source", forbidden_vision_call)
+    service = RagService(
+        storage_dir=tmp_path / "storage",
+        uploads_dir=tmp_path / "uploads",
+        embedder=EmbeddingClient(api_key="", dimension=32),
+        vector_store=LocalJsonVectorStore(tmp_path / "storage" / "vectors.json"),
+        llm_enabled=False,
+        vision_processor=vision,
+    )
+    kb = service.create_knowledge_base("analysis text vision bypass")
+    document = await service.import_file_analysis(
+        kb["id"],
+        asset_id="asset_chat",
+        analysis_artifact_id="artifact_analysis",
+        chat_scope_id="chat-scope",
+    )
+    draft = service.update_pipeline_draft(
+        kb["id"],
+        {
+            "stage_image_understanding": {
+                "config": {
+                    "enabled": True,
+                    "vision_model_id": "openai/gpt-4.1-mini",
+                    "failure_policy": "strict",
+                }
+            }
+        },
+        retrieval_profile={"mode": "vector"},
+    )
+    job = service.create_pipeline_job(
+        kb["id"],
+        draft_version=draft["version"],
+        source_document_ids=[document["id"]],
+    )
+    queued = service.get_pipeline_job(job["job_id"])
+    stale_marker = "STALE-VISION-ARTIFACT-MUST-NOT-BE-INDEXED"
+    vision_artifact = service._pipeline_vision_path(  # noqa: SLF001
+        queued["document_results"][0]["vision_artifact_key"]
+    )
+    vision_artifact.parent.mkdir(parents=True, exist_ok=True)
+    vision_artifact.write_text(
+        json.dumps(
+            {
+                "blocks": [
+                    {
+                        "block_id": "stale-visual-block",
+                        "kind": "visual_summary",
+                        "text": stale_marker,
+                        "start_char": 0,
+                        "end_char": len(stale_marker),
+                        "page_number": 1,
+                        "metadata": {},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert await KnowledgePipelineExecutor(service).run_once() is True
+    completed = service.get_pipeline_job(job["job_id"])
+    assert completed["status"] == "succeeded", completed
+    assert vision_calls == 0
+    result = completed["document_results"][0]
+    assert result["vision_status"] == "skipped"
+    assert result["vision_attempt"] == 0
+    assert result["vision_page_count"] == 0
+    assert result["vision_provider_route_receipts"] == []
+    version = service.get_pipeline_version(completed["candidate_version_id"])
+    stored_chunks = service.vector_store.list_document_chunks(
+        f"{version['version_id']}_{document['id']}",
+        kb_id=version["namespace"],
+    )
+    assert stored_chunks
+    assert stale_marker not in "\n".join(chunk.text for chunk in stored_chunks)

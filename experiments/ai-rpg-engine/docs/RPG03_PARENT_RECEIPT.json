@@ -1,0 +1,13 @@
+{
+  "gate":"RPG03_PARENT_REGRESSION_OK",
+  "exitCode":0,
+  "passed":53,
+  "evidenceKind":"mock",
+  "candidateTreeSha256":"27c0f09da409e59d77f9325c6a6916112d8e276e18a733ef0dc0248f05a4b974",
+  "outputSha256":"533b2d063a8682e6569b3a489d00225441aa1e223e8b8c3a04809c735d554ae6",
+  "logicalRef":"j1-parent-oh2v7xol",
+  "pythonVersion":"3.12.14",
+  "providerDispatchesAdded":0,
+  "tests":["server/tests/test_provider_chat_stable_chat.py","server/tests/test_provider_chat_stable_service.py","server/tests/test_provider_chat_canary_chat.py"],
+  "command":"python -B -m pytest <three exact test files> -q --basetemp <private isolated directory> -o cache_dir=<private isolated directory>"
+}

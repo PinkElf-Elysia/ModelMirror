@@ -1,0 +1,29 @@
+{
+  "setupId": "setup.bai-yu-ling-yin",
+  "openingRef": "opening.gu",
+  "activations": [
+    {
+      "talentRef": "talent.gu.sovereign-body",
+      "active": true
+    },
+    {
+      "talentRef": "talent.gu.perseverance",
+      "active": true
+    },
+    {
+      "talentRef": "talent.gu.spring-autumn-cicada",
+      "active": true
+    },
+    {
+      "talentRef": "talent.gu.venerable-aptitude",
+      "active": true
+    },
+    {
+      "talentRef": "talent.common.root",
+      "active": true
+    }
+  ],
+  "backgroundRefs": [
+    "background.gu.arrival"
+  ]
+}

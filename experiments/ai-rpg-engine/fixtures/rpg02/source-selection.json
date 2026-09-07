@@ -1,0 +1,34 @@
+{
+  "format": "modelmirror.ai-rpg.source-selection",
+  "formatVersion": "0.1.0",
+  "worlds": [
+    {
+      "name": "470.蛊真人 (Reverend Insanity)",
+      "identityNames": [
+        "中洲门派的外门弟子",
+        "古月山寨的凡人奴仆"
+      ],
+      "talentNames": [
+        "至尊仙胎蛊",
+        "坚持",
+        "春秋蝉(重生)",
+        "九转尊者资质"
+      ]
+    },
+    {
+      "name": "417.我的世界 (Minecraft)",
+      "identityNames": [
+        "被村民奸商坑骗的傻子",
+        "第一天晚上的萌新"
+      ],
+      "talentNames": [
+        "自动钓鱼机",
+        "光影模组(视觉)",
+        "史蒂夫的右手"
+      ]
+    }
+  ],
+  "commonTalentNames": [
+    "系统核心权限·root"
+  ]
+}

@@ -247,6 +247,10 @@ def _request() -> dict[str, object]:
     }
 
 
+def _managed_request() -> dict[str, object]:
+    return {**_request(), "require_managed_route": True}
+
+
 class _ResolvedFileService:
     def __init__(self) -> None:
         self.resolved = ResolvedChatFile(
@@ -580,6 +584,241 @@ async def test_disabled_flag_preserves_legacy_gateway_bytes_and_no_receipt(
     assert sent[0]["url"] == "https://legacy.example/v1/chat/completions"
     assert "event: route_receipt" not in response.text
     assert repository.list_chat_control_receipts("local")["runs"] == []
+
+
+@pytest.mark.asyncio
+async def test_request_managed_route_uses_preferred_managed_provider(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_service = get_model_router_service()
+    service, repository, newapi_id, _backup_id = _service(tmp_path)
+    configure_model_router(service)
+    sent: list[dict[str, Any]] = []
+    monkeypatch.setenv("MODEL_CONTROL_CHAT_ENABLED", "true")
+    _disable_runtime(monkeypatch)
+    monkeypatch.setattr(main_module.httpx, "AsyncClient", _fake_client(sent))
+    try:
+        request = _managed_request()
+        request["compression"] = {"mode": "off"}
+        response = await client.post("/api/chat", json=request)
+    finally:
+        configure_model_router(original_service)
+
+    assert response.status_code == 200, response.text
+    assert len(sent) == 1
+    receipt = next(
+        json.loads(item.split("data:", 1)[1].strip())
+        for item in response.text.split("\n\n")
+        if item.startswith("event: route_receipt")
+    )
+    assert receipt["engine"] == "newapi"
+    assert repository.list_chat_control_receipts("local")["attempts"][0][
+        "connection_id"
+    ] == newapi_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("policy_state", ["flag_disabled", "legacy", "not_stable"])
+async def test_request_managed_route_blocks_instead_of_using_legacy(
+    policy_state: str,
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_service = get_model_router_service()
+    service, repository, newapi_id, backup_id = _service(tmp_path)
+    control = ProviderChatControlService(service)
+    if policy_state == "not_stable":
+        policy = control.get_policy()
+        repository.replace_chat_control_policy(
+            "local",
+            expected_revision=policy.revision,
+            mode="newapi_preferred",
+            auto_enabled=False,
+            policy_fingerprint="test-policy-without-requested-model",
+            stable_model_ids=[],
+            routes=[
+                {
+                    "capability": "chat_text",
+                    "position": position,
+                    "connection_id": connection_id,
+                }
+                for position, connection_id in enumerate([newapi_id, backup_id])
+            ],
+            qualifications=[],
+        )
+    elif policy_state != "flag_disabled":
+        policy = control.get_policy()
+        control.update_policy(
+            ProviderChatControlPolicyUpdate(
+                expected_revision=policy.revision,
+                mode="legacy" if policy_state == "legacy" else "newapi_preferred",
+                stable_model_ids=[MODEL_ID],
+                routes=[
+                    ProviderChatControlRouteUpdate(
+                        capability="chat_text",
+                        connection_ids=[newapi_id, backup_id],
+                    )
+                ],
+            )
+        )
+    configure_model_router(service)
+    sent: list[dict[str, Any]] = []
+    monkeypatch.setenv(
+        "MODEL_CONTROL_CHAT_ENABLED",
+        "false" if policy_state == "flag_disabled" else "true",
+    )
+    _disable_runtime(monkeypatch)
+    monkeypatch.setattr(
+        main_module,
+        "get_llm_gateway_config",
+        lambda: ("https://legacy.example/v1/chat/completions", "legacy-secret"),
+    )
+    monkeypatch.setattr(main_module.httpx, "AsyncClient", _fake_client(sent))
+    try:
+        response = await client.post("/api/chat", json=_managed_request())
+    finally:
+        configure_model_router(original_service)
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "provider_chat_managed_route_required"
+    assert response.json()["route_receipt"]["engine"] == "managed_chat_blocked"
+    assert sent == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("gateway", "auto"),
+        ("model_id", "auto/balanced"),
+        ("routing", {"mode": "balanced"}),
+        ("compression", {"mode": "standard"}),
+        ("tool_mode", "mcp_tools"),
+        ("tool_names", "fetch"),
+        ("prompt_suffix", "suffix"),
+        ("skill_application", {"skill_id": "skill", "expected_content_digest": "a" * 64}),
+        ("file_scope_id", "scope-1"),
+        ("output_mode", "allowlisted"),
+        ("response_audio", {"enabled": True, "voice": "alloy", "format": "mp3"}),
+    ],
+)
+async def test_request_managed_route_rejects_bypass_shapes_before_side_effects(
+    field: str,
+    value: object,
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = _managed_request()
+    request[field] = value
+    monkeypatch.setattr(
+        main_module,
+        "get_file_asset_service",
+        lambda: (_ for _ in ()).throw(AssertionError("must not access file service")),
+    )
+    response = await client.post("/api/chat", json=request)
+    assert response.status_code == 422
+    assert response.json()["code"] == "provider_chat_managed_route_unsupported"
+
+
+@pytest.mark.asyncio
+async def test_request_managed_route_rejects_media_before_file_resolution(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = _managed_request()
+    request["messages"] = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "summarize"},
+                {
+                    "type": "input_file",
+                    "asset_id": "file_" + "a" * 32,
+                    "handling": "extract",
+                    "confirmation_revision": 1,
+                },
+            ],
+        }
+    ]
+    monkeypatch.setattr(
+        main_module,
+        "get_file_asset_service",
+        lambda: (_ for _ in ()).throw(AssertionError("must not resolve files")),
+    )
+    response = await client.post("/api/chat", json=request)
+    assert response.status_code == 422
+    assert response.json()["code"] == "provider_chat_managed_route_unsupported"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("drift", ["feature_flag", "model_list", "connection"])
+async def test_request_managed_route_blocks_begin_to_dispatch_drift(
+    drift: str,
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_service = get_model_router_service()
+    service, repository, newapi_id, backup_id = _service(tmp_path)
+    configure_model_router(service)
+    sent: list[dict[str, Any]] = []
+    monkeypatch.setenv("MODEL_CONTROL_CHAT_ENABLED", "true")
+    _disable_runtime(monkeypatch)
+    monkeypatch.setattr(main_module.httpx, "AsyncClient", _fake_client(sent))
+    original_begin = main_module.ProviderChatStableService.begin
+
+    async def begin_then_drift(self, model_id, capability="chat_text"):
+        result = await original_begin(self, model_id, capability)
+        if drift == "feature_flag":
+            monkeypatch.setenv("MODEL_CONTROL_CHAT_ENABLED", "false")
+        elif drift == "connection":
+            repository.update_connection(
+                "local",
+                newapi_id,
+                RouterConnectionUpdate(base_url="https://changed.example/v1"),
+            )
+        else:
+            policy = ProviderChatControlService(service).get_policy()
+            repository.replace_chat_control_policy(
+                "local",
+                expected_revision=policy.revision,
+                mode="newapi_preferred",
+                auto_enabled=False,
+                policy_fingerprint="test-policy-model-list-drift",
+                stable_model_ids=[],
+                routes=[
+                    {
+                        "capability": "chat_text",
+                        "position": position,
+                        "connection_id": connection_id,
+                    }
+                    for position, connection_id in enumerate([newapi_id, backup_id])
+                ],
+                qualifications=[],
+            )
+        return result
+
+    monkeypatch.setattr(main_module.ProviderChatStableService, "begin", begin_then_drift)
+    try:
+        response = await client.post("/api/chat", json=_managed_request())
+    finally:
+        configure_model_router(original_service)
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "provider_chat_policy_or_qualification_changed"
+    assert sent == []
+
+
+def test_chat_openapi_declares_managed_route_default_false() -> None:
+    schema = app.openapi()["components"]["schemas"]["ChatRequest"]
+    assert schema["properties"]["require_managed_route"] == {
+        "type": "boolean",
+        "title": "Require Managed Route",
+        "default": False,
+    }
 
 
 @pytest.mark.asyncio

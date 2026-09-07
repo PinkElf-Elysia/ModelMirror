@@ -10,6 +10,11 @@ import pytest_asyncio
 
 from server.main import app
 from server.model_router.admin_auth import reset_provider_admin_auth
+from server.rag.chunking_receipt import (
+    CHUNKING_RECEIPT_VERSION,
+    candidate_namespace_fingerprint,
+    chunker_profile_fingerprint,
+)
 from server.rag.api import (
     _resolve_evaluation_reproducibility,
     set_evaluation_executor_for_tests,
@@ -149,6 +154,13 @@ async def _execute_draft(
     document_ids: list[str],
 ) -> dict:
     draft = (await client.get(f"/api/rag/pipeline/draft?kb_id={kb_id}")).json()
+    if str((draft.get("retrieval_profile") or {}).get("mode") or "") != "vector":
+        updated = await client.patch(
+            f"/api/rag/pipeline/draft/{kb_id}",
+            json={"retrieval_profile": {"mode": "vector"}},
+        )
+        assert updated.status_code == 200, updated.text
+        draft = updated.json()
     response = await client.post(
         f"/api/rag/pipeline/draft/{kb_id}/execute",
         json={
@@ -162,6 +174,21 @@ async def _execute_draft(
     job = (await client.get(f"/api/rag/pipeline/jobs/{response.json()['job_id']}")).json()
     assert job["status"] == "succeeded", job
     return job
+
+
+def _mark_pipeline_version_as_previously_active(
+    service: RagService,
+    version_id: str,
+) -> None:
+    """Model a historical active version without authorizing first activation."""
+
+    with service._metadata_lock:  # noqa: SLF001 - compatibility fixture.
+        metadata = service._read_metadata_unlocked()  # noqa: SLF001
+        version = metadata["pipeline_versions"][version_id]
+        version["status"] = "active"
+        version["activated_at"] = 1.0
+        metadata["pipeline_active_versions"][str(version["kb_id"])] = version_id
+        service._write_metadata_unlocked(metadata)  # noqa: SLF001
 
 
 @pytest.mark.asyncio
@@ -269,7 +296,40 @@ async def test_case_review_requires_authenticated_server_evidence(
 
 
 @pytest.mark.asyncio
-async def test_formal_api_runs_only_published_reviewed_same_corpus_gold(
+async def test_4a_fulltext_formal_fixture_is_blocked_until_lexical_v2(
+    evaluation_runtime,
+) -> None:
+    client, _, _, _, _ = evaluation_runtime
+    kb_id = await _create_kb(client, "formal-lexical-v2-gate")
+    document_id = await _upload_text(
+        client,
+        kb_id,
+        "formal.txt",
+        "Fixed local evidence for the deferred fulltext Formal fixture.",
+    )
+    draft = await client.patch(
+        f"/api/rag/pipeline/draft/{kb_id}",
+        json={"retrieval_profile": {"mode": "fulltext"}},
+    )
+    assert draft.status_code == 200, draft.text
+
+    blocked = await client.post(
+        f"/api/rag/pipeline/draft/{kb_id}/execute",
+        json={
+            "draft_version": draft.json()["version"],
+            "source_document_ids": [document_id],
+            "xpert_file_refs": [],
+        },
+    )
+
+    assert blocked.status_code == 409, blocked.text
+    assert blocked.json()["detail"]["code"] == (
+        "rag_content_contract_legacy_read_only"
+    )
+
+
+@pytest.mark.asyncio
+async def test_formal_api_requires_qualified_target_identity_after_gold_checks(
     evaluation_runtime,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -328,7 +388,7 @@ async def test_formal_api_runs_only_published_reviewed_same_corpus_gold(
         chunk_by_block: dict[tuple[str, str], str] = {}
         for document_id in document_ids:
             indexed_id = f"{baseline_id}_{document_id}"
-            for chunk in service.lexical_store.list_document_chunks(indexed_id):
+            for chunk in service.vector_store.list_document_chunks(indexed_id):
                 key = (document_id, str(chunk.source_block_id or ""))
                 if key[1] and key not in chunk_by_block:
                     chunk_by_block[key] = str(chunk.chunk_id)
@@ -521,52 +581,8 @@ async def test_formal_api_runs_only_published_reviewed_same_corpus_gold(
                 "run_mode": "formal",
             },
         )
-        assert created.status_code == 200, created.text
-        assert created.json()["comparability"]["comparable"] is True
-        assert created.json()["execution_manifest"]["contract_version"] == "rag-eval-v2"
-        assert await evaluation_executor.run_once() is True
-        completed = store.get_run(created.json()["run_id"])
-        assert completed["status"] == "succeeded"
-        assert completed["run_mode"] == "formal"
-        assert completed["metric_contract_version"] == "rag-metrics-v2"
-        assert completed["paired_confidence"]["bootstrap_samples"] == 10_000
-        assert all(
-            target["metrics"]["expected_case_count"] == 42
-            for target in completed["target_results"]
-        )
-        public_run = await client.get(
-            f"/api/rag/evaluation-runs/{created.json()['run_id']}"
-        )
-        assert public_run.status_code == 200, public_run.text
-        public_payload = public_run.json()
-        assert public_payload["reproducibility_status"] == "current"
-        assert all(
-            target["execution_integrity"]["qualified"] is True
-            for target in public_payload["target_results"]
-        )
-        assert all(
-            result["execution_mode"] == "local_non_model"
-            and result["provider_route_receipts"] is None
-            and result["retrieval_receipt"]["embedding_provider"] == "none"
-            for target_results in public_payload["case_results"].values()
-            for result in target_results.values()
-        )
-
-        persisted = json.loads(store.path.read_text(encoding="utf-8"))
-        persisted["versions"][published.json()["version_id"]]["cases"][0][
-            "query"
-        ] = "tampered after publication"
-        store.path.write_text(
-            json.dumps(persisted, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-        tampered_run = await client.get(
-            f"/api/rag/evaluation-runs/{created.json()['run_id']}"
-        )
-        assert tampered_run.status_code == 200, tampered_run.text
-        assert tampered_run.json()["reproducibility_status"] == "unreproducible"
-        assert "published_gold_checksum_invalid" in tampered_run.json()[
-            "reproducibility_reasons"
-        ]
+        assert created.status_code == 400, created.text
+        assert "ready production embedding identity" in created.text
     finally:
         reset_provider_admin_auth()
 
@@ -951,11 +967,59 @@ def test_leakage_warning_approval_requires_a_human_reason(tmp_path: Path) -> Non
         )
 
 
-def test_formal_admission_requires_same_corpus_and_complete_target_identity() -> None:
+def test_synthetic_future_formal_admission_schema_requires_same_corpus_and_complete_target_identity() -> None:
+    """Exercise schema admission only; this does not qualify a runtime index."""
+
     snapshot = _formal_gold_snapshot()
     corpus_checksum = snapshot["corpus_snapshot"]["checksum"]
 
     def target(version_id: str, fingerprint: str) -> dict:
+        chunker_profile = {
+            "strategy": "recursive_estimated_token",
+            "chunk_size": 500,
+            "chunk_overlap": 50,
+            "size_unit": "estimated_tokens",
+            "token_estimator": "mixed_cjk_latin_v1",
+            "chunk_contract_version": "rag-chunker-estimated-token-v1",
+        }
+        chunking_receipt = {
+            "receipt_version": CHUNKING_RECEIPT_VERSION,
+            "contract_version": "rag-chunker-estimated-token-v1",
+            "strategy": "recursive_estimated_token",
+            "size_unit": "estimated_tokens",
+            "token_estimator": "mixed_cjk_latin_v1",
+            "chunker_profile_fingerprint": chunker_profile_fingerprint(
+                chunker_profile
+            ),
+            "candidate_version_id": version_id,
+            "candidate_namespace_fingerprint": candidate_namespace_fingerprint(
+                f"kb-formal::v3::{version_id}"
+            ),
+            "raw_candidate_count": 3,
+            "heading_block_count": 0,
+            "heading_prefix_truncated_count": 0,
+            "heading_overlap_policy": "structural_prefix_floor_v1",
+            "max_heading_prefix_tokens": 0,
+            "prefix_exceeds_configured_overlap_count": 0,
+            "max_effective_index_overlap_budget_tokens": 50,
+            "max_effective_context_overlap_budget_tokens": 50,
+            "generated_item_count": 0,
+            "generated_item_chunk_count": 0,
+            "generated_item_rejected_count": 0,
+            "generated_item_rejection_reasons": {},
+            "deduplicated_chunk_count": 0,
+            "final_chunk_count": 3,
+            "chunk_sequence_hash": "f" * 64,
+        }
+        chunking_receipt_fingerprint = hashlib.sha256(
+            json.dumps(
+                chunking_receipt,
+                allow_nan=False,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
         return {
             "target_id": version_id,
             "version_id": version_id,
@@ -965,9 +1029,23 @@ def test_formal_admission_requires_same_corpus_and_complete_target_identity() ->
                 "schema_version": "rag-version-evidence-v1",
                 "kb_id": "kb-formal",
                 "version_id": version_id,
+                "chunk_count": 3,
                 "version_fingerprint": fingerprint,
                 "configuration_fingerprint": fingerprint[::-1],
                 "source_manifest_fingerprint": "d" * 64,
+                "chunking_receipt": chunking_receipt,
+                "chunking_receipt_fingerprint": chunking_receipt_fingerprint,
+                "chunking_receipt_status": "current",
+                "chunker": {
+                    "profile": chunker_profile,
+                    "fingerprint": chunking_receipt[
+                        "chunker_profile_fingerprint"
+                    ],
+                },
+                "index_owner_version_id": version_id,
+                "candidate_namespace_fingerprint": chunking_receipt[
+                    "candidate_namespace_fingerprint"
+                ],
                 "processor": {
                     "mode": "general",
                     "vision_enabled": False,
@@ -1006,6 +1084,18 @@ def test_formal_admission_requires_same_corpus_and_complete_target_identity() ->
                     },
                     "lexical": {"required": True, "backend": "sqlite_fts5"},
                 },
+                "content_index_contract": {
+                    "contract_version": "rag-content-index-contract-v1",
+                    "chunker_contract_version": "rag-chunker-estimated-token-v1",
+                    "lexical_contract_version": "sqlite-fts5-lexical-v2",
+                    "parser_contract_version": "canonical-structured-parser-v2",
+                    "status": "current",
+                    "components": {
+                        "chunker": "current",
+                        "lexical": "current",
+                        "parser": "current",
+                    },
+                },
                 "vector_backend_readiness": {
                     "configured_backend": "chroma",
                     "effective_backend": "chroma",
@@ -1035,6 +1125,9 @@ def test_formal_admission_requires_same_corpus_and_complete_target_identity() ->
     assert len(admitted["execution_manifest"]["execution_seed"]) == 64
     assert admitted["execution_manifest"]["targets"][0]["processor"]["mode"] == "general"
     assert "rerank" in admitted["execution_manifest"]["targets"][0]
+    assert admitted["execution_manifest"]["targets"][0][
+        "content_index_contract"
+    ]["status"] == "current"
 
     candidate["retrieval"] = {"top_k": 3}
     with pytest.raises(ValueError, match="per-run retrieval overrides"):
@@ -1646,7 +1739,7 @@ def test_published_evaluation_version_remains_available_after_draft_archive(
 async def test_evaluation_api_runs_versions_and_enforces_required_gate(
     evaluation_runtime,
 ) -> None:
-    client, _, pipeline_executor, evaluation_executor, registry = evaluation_runtime
+    client, service, pipeline_executor, evaluation_executor, registry = evaluation_runtime
     kb_id = await _create_kb(client)
     baseline_doc = await _upload_text(
         client,
@@ -1656,7 +1749,7 @@ async def test_evaluation_api_runs_versions_and_enforces_required_gate(
     )
     baseline_job = await _execute_draft(client, pipeline_executor, kb_id, [baseline_doc])
     baseline_version = str(baseline_job["candidate_version_id"])
-    assert (await client.post(f"/api/rag/pipeline/versions/{baseline_version}/activate")).status_code == 200
+    _mark_pipeline_version_as_previously_active(service, baseline_version)
 
     relevant_doc = await _upload_text(
         client,

@@ -12,8 +12,10 @@ from server.rag.api import (
     set_rag_service_for_tests,
 )
 from server.rag.embedder import EmbeddingClient
+from server.rag.lexical_store import LexicalChunk
 from server.rag.pipeline_executor import KnowledgePipelineExecutor
 from server.rag.rag_service import (
+    PipelineContentContractError,
     PipelineDraftValidationError,
     PipelineJobStateError,
     RagRetrievalContractError,
@@ -117,6 +119,20 @@ async def _execute_draft(
     assert job.status_code == 200, job.text
     assert job.json()["status"] == "succeeded", job.text
     return job.json()
+
+
+async def _configure_vector_draft(
+    client: httpx.AsyncClient,
+    kb_id: str,
+) -> dict:
+    response = await client.patch(
+        f"/api/rag/pipeline/draft/{kb_id}",
+        json={"retrieval_profile": {"mode": "vector"}},
+    )
+    assert response.status_code == 200, response.text
+    draft = response.json()
+    assert draft["retrieval_profile"]["mode"] == "vector"
+    return draft
 
 
 def test_chroma_initialization_failure_is_not_silently_local(
@@ -385,7 +401,7 @@ def test_real_chroma_v3_collection_persists_cosine_contract(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
-async def test_unavailable_vector_backend_blocks_vector_but_not_fulltext_pipeline(
+async def test_unavailable_vector_backend_and_legacy_fulltext_fail_closed(
     tmp_path: Path,
 ) -> None:
     embedder = CountingEmbeddingClient()
@@ -406,7 +422,11 @@ async def test_unavailable_vector_backend_blocks_vector_but_not_fulltext_pipelin
         b"A fulltext pipeline remains independent of the vector backend.",
         pipeline_only=True,
     )
-    draft = service.get_pipeline_draft(kb["id"])
+    draft = service.update_pipeline_draft(
+        kb["id"],
+        {},
+        retrieval_profile={"mode": "vector"},
+    )
     with pytest.raises(RagRetrievalUnavailableError) as blocked:
         service.create_pipeline_job(
             kb["id"],
@@ -420,19 +440,19 @@ async def test_unavailable_vector_backend_blocks_vector_but_not_fulltext_pipelin
         {},
         retrieval_profile={"mode": "fulltext"},
     )
-    job = service.create_pipeline_job(
-        kb["id"],
-        draft_version=fulltext["version"],
-        source_document_ids=[document["id"]],
-    )
-    assert await KnowledgePipelineExecutor(service).run_once() is True
-    completed = service.get_pipeline_job(job["job_id"])
-    assert completed["status"] == "succeeded"
+    with pytest.raises(PipelineContentContractError) as legacy_blocked:
+        service.create_pipeline_job(
+            kb["id"],
+            draft_version=fulltext["version"],
+            source_document_ids=[document["id"]],
+        )
+    assert legacy_blocked.value.code == "rag_content_contract_legacy_read_only"
     assert embedder.call_count == 0
+    assert service.list_pipeline_jobs(kb_id=kb["id"]) == []
 
 
 @pytest.mark.asyncio
-async def test_fulltext_pipeline_recovery_does_not_touch_unavailable_vector_backend(
+async def test_fulltext_pipeline_recovery_is_not_created_before_lexical_v2(
     tmp_path: Path,
 ) -> None:
     service = RagService(
@@ -457,22 +477,20 @@ async def test_fulltext_pipeline_recovery_does_not_touch_unavailable_vector_back
         {},
         retrieval_profile={"mode": "fulltext"},
     )
-    job = service.create_pipeline_job(
-        kb["id"],
-        draft_version=draft["version"],
-        source_document_ids=[document["id"]],
-    )
-    service._update_pipeline_job(
-        job["job_id"],
-        lambda current: current.update({"status": "running"}),
-    )
+    with pytest.raises(PipelineContentContractError) as blocked:
+        service.create_pipeline_job(
+            kb["id"],
+            draft_version=draft["version"],
+            source_document_ids=[document["id"]],
+        )
 
-    assert service.recover_pipeline_jobs() == 1
-    assert service.get_pipeline_job(job["job_id"])["status"] == "queued"
+    assert blocked.value.code == "rag_content_contract_legacy_read_only"
+    assert service.recover_pipeline_jobs() == 0
+    assert service.embedder.call_count == 0
 
 
 @pytest.mark.asyncio
-async def test_fulltext_pipeline_cleanup_does_not_touch_unavailable_vector_backend(
+async def test_fulltext_pipeline_cleanup_has_no_partial_job_before_lexical_v2(
     tmp_path: Path,
 ) -> None:
     service = RagService(
@@ -497,26 +515,16 @@ async def test_fulltext_pipeline_cleanup_does_not_touch_unavailable_vector_backe
         {},
         retrieval_profile={"mode": "fulltext"},
     )
-    job = service.create_pipeline_job(
-        kb["id"],
-        draft_version=draft["version"],
-        source_document_ids=[document["id"]],
-    )
-    service._update_pipeline_job(
-        job["job_id"],
-        lambda current: current.update(
-            {
-                "status": "cancelled",
-                "deletion_invalidated": True,
-            }
-        ),
-    )
+    with pytest.raises(PipelineContentContractError) as blocked:
+        service.create_pipeline_job(
+            kb["id"],
+            draft_version=draft["version"],
+            source_document_ids=[document["id"]],
+        )
 
-    service.cleanup_invalidated_pipeline_job(job["job_id"])
-
-    cleaned = service.get_pipeline_job(job["job_id"])
-    assert cleaned["deletion_artifacts_purged"] is True
-    assert cleaned["deletion_cleanup_error"] is None
+    assert blocked.value.code == "rag_content_contract_legacy_read_only"
+    assert service.list_pipeline_jobs(kb_id=kb["id"]) == []
+    assert service.embedder.call_count == 0
 
 
 @pytest.mark.asyncio
@@ -543,7 +551,11 @@ async def test_vector_pipeline_does_not_publish_when_backend_drops_vectors(
         b"A ready vector version must prove that every chunk was stored.",
         pipeline_only=True,
     )
-    draft = service.get_pipeline_draft(kb["id"])
+    draft = service.update_pipeline_draft(
+        kb["id"],
+        {},
+        retrieval_profile={"mode": "vector"},
+    )
     job = service.create_pipeline_job(
         kb["id"],
         draft_version=draft["version"],
@@ -558,7 +570,7 @@ async def test_vector_pipeline_does_not_publish_when_backend_drops_vectors(
 
 
 @pytest.mark.asyncio
-async def test_fulltext_pipeline_builds_without_embedding_or_vector_namespace(
+async def test_fulltext_pipeline_build_is_blocked_before_embedding_or_vector_write(
     contract_runtime,
 ) -> None:
     client, service, executor, embedder, vector_store = contract_runtime
@@ -574,66 +586,147 @@ async def test_fulltext_pipeline_builds_without_embedding_or_vector_namespace(
     assert draft["embedding_profile"]["effective"]["status"] == "not_applicable"
     assert draft["index_contract"]["vector"]["required"] is False
 
-    job = await _execute_draft(client, executor, kb_id, document_id)
-    version_id = str(job["candidate_version_id"])
-    version = service.get_pipeline_version(version_id)
-
+    created = await client.post(
+        f"/api/rag/pipeline/draft/{kb_id}/execute",
+        json={
+            "draft_version": draft["version"],
+            "source_document_ids": [document_id],
+            "xpert_file_refs": [],
+        },
+    )
+    assert created.status_code == 409, created.text
+    assert created.json()["detail"]["code"] == "rag_content_contract_legacy_read_only"
     assert embedder.call_count == 0
-    assert all(
-        record.get("kb_id") != version["namespace"]
-        for record in vector_store._read_records()
-    )
-    assert version["index_schema_version"] == 3
-    assert version["vector_index_ready"] is False
-    assert version["lexical_index_ready"] is True
-    assert version["embedding_profile"]["effective"]["status"] == "not_applicable"
-    assert version["index_contract"]["vector"]["required"] is False
-    assert service.lexical_store.count_namespace(str(version["namespace"])) > 0
-
-    query_response = await client.post(
-        f"/api/rag/pipeline/versions/{version_id}/query",
-        json={"question": "full-text-only pipeline"},
-    )
-    assert query_response.status_code == 200, query_response.text
-    assert query_response.json()["sources"]
-    assert embedder.call_count == 0
-
-    service.activate_pipeline_version(version_id)
-    active_query = await client.post(
-        "/api/rag/query",
-        json={"kb_id": kb_id, "question": "full-text-only pipeline"},
-    )
-    assert active_query.status_code == 200, active_query.text
-    assert active_query.json()["sources"]
-    citations = await client.post(
-        "/api/rag/pipeline/citations",
-        json={"kb_id": kb_id, "question": "full-text-only pipeline"},
-    )
-    assert citations.status_code == 200, citations.text
-    assert citations.json()["citation_count"] > 0
-    assert embedder.call_count == 0
+    assert vector_store._read_records() == []
+    assert service.list_pipeline_jobs(kb_id=kb_id) == []
+    assert service.list_pipeline_versions(kb_id) == []
 
 
 @pytest.mark.asyncio
-async def test_fulltext_missing_index_fails_closed_without_embedding(
+async def test_active_v2_fulltext_remains_readable_and_missing_index_fails_closed(
     contract_runtime,
 ) -> None:
-    client, service, executor, embedder, _ = contract_runtime
+    client, service, _executor, embedder, _ = contract_runtime
     kb_id, document_id = await _create_pipeline_source(client)
     embedder.call_count = 0
-    draft_response = await client.patch(
-        f"/api/rag/pipeline/draft/{kb_id}",
-        json={"retrieval_profile": {"mode": "fulltext"}},
+    version_id = "kpv_legacy_fulltext_active"
+    namespace = kb_id
+    profile = service._default_embedding_profile()  # noqa: SLF001
+    version = {
+        "version_id": version_id,
+        "kb_id": kb_id,
+        "version": 1,
+        "status": "active",
+        "namespace": namespace,
+        "draft_id": f"draft_{kb_id}",
+        "draft_version": 1,
+        "index_schema_version": 2,
+        "embedding_profile": profile,
+        "embedding_space_fingerprint": profile["embedding_space_fingerprint"],
+        "retrieval_profile": {
+            "mode": "fulltext",
+            "top_k": 2,
+            "score_threshold": 0.0,
+            "rerank_enabled": False,
+            "rerank_provider": "none",
+        },
+        "vector_index_ready": False,
+        "lexical_index_ready": True,
+        "source_summary": [
+            {
+                "source_id": document_id,
+                "document_id": document_id,
+                "filename": "contract.txt",
+            }
+        ],
+        "document_count": 1,
+        "chunk_count": 1,
+        "job_id": "legacy-fulltext-job",
+        "created_at": 1.0,
+        "activated_at": 1.0,
+    }
+    with service._metadata_lock:  # noqa: SLF001 - historical V2 fixture.
+        metadata = service._read_metadata_unlocked()  # noqa: SLF001
+        metadata["pipeline_versions"][version_id] = version
+        metadata["pipeline_active_versions"][kb_id] = version_id
+        service._write_metadata_unlocked(metadata)  # noqa: SLF001
+    service.lexical_store.add_chunks(
+        [
+            LexicalChunk(
+                chunk_id=f"{version_id}_{document_id}_chunk_0",
+                namespace=namespace,
+                doc_id=f"{version_id}_{document_id}",
+                document_name="contract.txt",
+                text=(
+                    "A full-text-only pipeline must never dispatch an "
+                    "embedding request."
+                ),
+                chunk_index=0,
+                source_block_id="legacy-source-block",
+            )
+        ]
     )
-    assert draft_response.status_code == 200, draft_response.text
-    job = await _execute_draft(client, executor, kb_id, document_id)
-    version_id = str(job["candidate_version_id"])
-    version = service.get_pipeline_version(version_id)
-    service.lexical_store.delete_namespace(str(version["namespace"]))
 
+    readable = await service.query_pipeline_version(
+        version_id,
+        "full-text-only embedding request",
+        generate_answer=False,
+    )
+    assert readable["sources"]
+    assert embedder.call_count == 0
+
+    for requested_mode in ("vector", "hybrid"):
+        with pytest.raises(RagRetrievalUnavailableError) as unavailable:
+            await service.query_pipeline_version(
+                version_id,
+                "full-text-only embedding request",
+                retrieval={"mode": requested_mode},
+                generate_answer=False,
+            )
+        assert unavailable.value.code == "rag_retrieval_mode_unavailable"
+        assert embedder.call_count == 0
+
+    version_override = await client.post(
+        f"/api/rag/pipeline/versions/{version_id}/query",
+        json={
+            "question": "full-text-only embedding request",
+            "retrieval": {"mode": "vector"},
+        },
+    )
+    assert version_override.status_code == 409, version_override.text
+    assert version_override.json()["detail"]["code"] == (
+        "rag_retrieval_mode_unavailable"
+    )
+    active_override = await client.post(
+        "/api/rag/query",
+        json={
+            "kb_id": kb_id,
+            "question": "full-text-only embedding request",
+            "retrieval": {"mode": "hybrid"},
+        },
+    )
+    assert active_override.status_code == 409, active_override.text
+    assert active_override.json()["detail"]["code"] == (
+        "rag_retrieval_mode_unavailable"
+    )
+    assert embedder.call_count == 0
+
+    with service._metadata_lock:  # noqa: SLF001 - stale readiness compatibility fixture.
+        metadata = service._read_metadata_unlocked()  # noqa: SLF001
+        metadata["pipeline_versions"][version_id]["lexical_index_ready"] = False
+        service._write_metadata_unlocked(metadata)  # noqa: SLF001
+    empty = await service.query_pipeline_version(
+        version_id,
+        "qzv987654nomatch",
+        generate_answer=False,
+    )
+    assert empty["sources"] == []
+    assert embedder.call_count == 0
+
+    service.lexical_store.delete_namespace(namespace)
     response = await client.post(
         f"/api/rag/pipeline/versions/{version_id}/query",
-        json={"question": "What must never be dispatched?"},
+        json={"question": "full-text-only embedding request"},
     )
 
     assert response.status_code == 409, response.text
@@ -648,6 +741,7 @@ async def test_v3_vector_namespace_binds_embedding_space_and_distance(
     client, service, executor, embedder, _ = contract_runtime
     kb_id, document_id = await _create_pipeline_source(client)
     embedder.call_count = 0
+    await _configure_vector_draft(client, kb_id)
     job = await _execute_draft(client, executor, kb_id, document_id)
     version = service.get_pipeline_version(str(job["candidate_version_id"]))
     effective = version["embedding_profile"]["effective"]
@@ -666,6 +760,17 @@ async def test_v3_vector_namespace_binds_embedding_space_and_distance(
     assert f"::dim-{effective['dimension']}::" in namespace
     assert namespace.endswith("::cosine_v1")
 
+    before_override = embedder.call_count
+    with pytest.raises(RagRetrievalUnavailableError) as unavailable:
+        await service.query_pipeline_version(
+            str(job["candidate_version_id"]),
+            "contract identity",
+            retrieval={"mode": "fulltext"},
+            generate_answer=False,
+        )
+    assert unavailable.value.code == "rag_retrieval_mode_unavailable"
+    assert embedder.call_count == before_override
+
 
 @pytest.mark.asyncio
 async def test_model_endpoint_and_dimension_changes_get_distinct_namespaces(
@@ -675,6 +780,7 @@ async def test_model_endpoint_and_dimension_changes_get_distinct_namespaces(
     kb_id, document_id = await _create_pipeline_source(client)
     embedder.call_count = 0
 
+    await _configure_vector_draft(client, kb_id)
     first_job = await _execute_draft(client, executor, kb_id, document_id)
     first = service.get_pipeline_version(str(first_job["candidate_version_id"]))
 
@@ -779,6 +885,20 @@ async def test_active_v2_remains_readable_but_cannot_be_rebuilt_or_newly_activat
         metadata["pipeline_active_versions"][kb_id] = legacy_id
         service._write_metadata_unlocked(metadata)
 
+    service.vector_store.add_chunks(
+        [
+            VectorChunk(
+                id=f"{legacy_id}_chunk_0",
+                kb_id=kb_id,
+                doc_id=f"{legacy_id}_{document_id}",
+                document_name="contract.txt",
+                text="A full-text-only pipeline must never dispatch an embedding request.",
+                embedding=[1.0, *([0.0] * (service.embedder.dimension - 1))],
+                chunk_index=0,
+            )
+        ]
+    )
+
     result = await service.query_pipeline_version(
         legacy_id,
         "full-text-only pipeline",
@@ -808,7 +928,11 @@ async def test_active_v2_remains_readable_but_cannot_be_rebuilt_or_newly_activat
     assert promotion.status_code == 409, promotion.text
     assert "Legacy V2" in str(promotion.json()["detail"])
 
-    draft = service.get_pipeline_draft(kb_id)
+    draft = service.update_pipeline_draft(
+        kb_id,
+        {},
+        retrieval_profile={"mode": "vector"},
+    )
     with pytest.raises(PipelineDraftValidationError, match="read-only"):
         service.create_pipeline_job(
             kb_id,

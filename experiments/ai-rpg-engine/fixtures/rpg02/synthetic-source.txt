@@ -1,0 +1,8 @@
+<!doctype html><meta charset="utf-8"><title>synthetic RPG-02 source</title>
+<script>globalThis.syntheticUiExecuted = true;</script>
+<script>
+const worldDB = {
+  "world/~alpha": {name:"世界一",desc:"<b>仅文本</b> 😀",boss:"守门人",identities:[{name:"旅者",items:["木剑","地图"]}],talents:[{name:"逆价",color:"灰",cost:-3,desc:"负数仅保留来源含义",type:"被动"}]}
+};
+const commonTalents = [{name:"坚韧",color:"蓝",cost:2,desc:"保持镇定",type:"被动"}];
+</script>

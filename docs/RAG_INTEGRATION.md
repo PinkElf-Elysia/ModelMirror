@@ -2,12 +2,75 @@
 
 本文件说明模镜本地 RAG 模块的架构、API、扩展方式和测试方法。该模块位于 `server/rag/`，前端入口为 `/rag`，聊天页可选择知识库进行检索增强问答。
 
-最后更新日期：2026-08-28
+最后更新日期：2026-08-29
 
 > **当前状态：** `/rag` 是 ModelMirror 本地主路径。知识流水线已支持候选版本、
 > 人工激活/回滚、Processor、可选视觉理解、向量 + FTS5 双索引、检索评测和
 > Promotion Gate。下方按日期保留的段落是增量记录；较早段落中的“planned”
 > 只代表当时状态。
+
+## 2026-08-29 P1：估算 Token 分块与内容索引合同
+
+新建 Knowledge Pipeline Draft 默认使用 `recursive_estimated_token`，也可显式选择
+`parent_child_estimated_token`。两者固定声明：
+
+```text
+size_unit=estimated_tokens
+token_estimator=mixed_cjk_latin_v1
+chunk_contract_version=rag-chunker-estimated-token-v1
+```
+
+该估算器是可重放、与模型无关的预算单位：CJK 字符按 1 计，其余字符总数按每 4 个约
+1 个计。它不声称等同任何 Provider 或模型的 tokenizer。`chunk_size` 与
+`chunk_overlap` 均使用这一单位；标题前缀加入后，最终 `index_text` 和
+`context_text` 仍必须在对应预算内。分块继续保留原文字符偏移，因此相同输入和配置可在
+不同运行环境重放。
+
+Heading-only block 只保留为结构元数据，不再独立进入索引。标题路径使用有界前缀同时
+写入索引文本和返回上下文；过长时保留根标题和最近标题，并在 `chunking_receipt` 中记录
+截断数量。Processor 生成的 QA/摘要 Item 也必须经过相同预算、分块和 NFKC + 空白归一化
+去重合同；超预算的 `index_text` 会被拒绝，长 `context_text` 会继续分段，不能再绕过
+分块器直接写入索引。多 source-block Generated Item 使用绑定正文、来源 ID 和来源内容
+hash 的稳定 parent identity；任何 artifact 或来源篡改都会使 corpus evidence fail-closed。
+
+Draft、Job、Version 与 Evaluation execution manifest 现在返回聚合
+`content_index_contract`。4A 只完成 chunker 组件；在 4B 的 lexical v2 与 4C 的 parser v2
+合入前，聚合状态按设计仍为 `legacy_read_only`。本阶段仅 vector-only 的新候选可用于
+Diagnostic 构建与预览；fulltext/hybrid 仍依赖旧 lexical v1，因此在 Job 创建前即以
+HTTP 409 和 `rag_content_contract_legacy_read_only` 阻断。任何候选均不能首次激活、
+晋级或作为新的 Formal 证据。历史合同仍可查询，曾激活版本仍可用于回滚；系统不会迁移、
+重建或改写旧索引。Stored aggregate 标签不是权威，运行时会从各组件自己持有的回执重新
+计算状态，不能靠篡改标签伪造 `current`。
+
+公开上传、文件分析导入和文件输出导入现在只创建 Source/Asset 与本地受控副本，统一返回
+`ingestion_status=pipeline_required`、`chunk_count=0`；它们不会再绕过 Pipeline 直接调用
+Embedding 或写入 vector/lexical 索引。内容进入版本级诊断检索必须先执行候选 Job；只有
+通过后续显式激活的版本才能接管活动查询路径。4A 的 vector-only 候选不可激活，因此只
+允许版本级 Diagnostic 查询。
+
+旧 `RagService.upload_document` 的“上传即解析、分块并直写活动 namespace”行为只属于历史
+索引的只读兼容语义，不是新建入口。生产 API、脚本和内部调用方都必须使用 source-only
+ingress；不得借内部方法参数恢复直接索引，也不得用该旧路径创建、首次激活或晋级新版本。
+
+Strategy Router 在 4A 可以展示不改变索引合同的诊断建议，但在
+`sqlite-fts5-lexical-v2` 合入前不得应用会把 Draft 切换到 `fulltext` 或 `hybrid` 的建议；
+这类建议必须显示为当前能力不足。只有 vector-only Diagnostic 建议可以进入候选构建，且仍
+受不可激活、不可晋级约束。Strategy Tuner、阈值与 held-out 规则保持 P0 冻结状态。
+
+4B 必须恢复并重新证明两项被 4A 有意移出当前可构建路径的覆盖：
+
+- vector 与 lexical 双写期间 lexical 写入失败时的原子清理，不能留下半成品 namespace；
+- XLSX 的 sheet、row range 与 cell range 在 lexical-v2/fulltext 查询中的元数据回传；
+
+使用已发布、逐条审核且同语料 Gold 的 fulltext Formal API 端到端执行与防篡改回归属于
+4C：只有 parser v2 合入后，完整 `content_index_contract` 才能成为 `current`，Formal 才有
+完整且可重放的内容身份。
+
+4A 的 vector-only XLSX 与失败清理测试不能替代这两项 4B 验收。
+
+本批不调整检索阈值、Top-K、RRF、Rerank、Strategy Tuner 或 Formal 数值，也不调用
+Embedding、Rerank、LLM、Vision 等真实 Provider。4A 的通过只证明分块与索引输入合同
+可信，不证明模型质量；完整 content contract 要到 4C 合并后才可能成为 `current`。
 
 ## 2026-08-28 P0：rag-gold-v3 锁定集合与防泄漏合同
 
@@ -254,20 +317,25 @@ anchor quote。最终 Gold 以 `source_block` 为评分主依据并保留初始 
 
 ## 2026-08-09 增量：RAG 引擎标准 Benchmark 与版本化评测
 
-Benchmark Catalog 新增 `modelmirror-rag-foundation-bilingual-v1`。它使用 12 份
-ModelMirror 自有中英双语 Markdown 语料和 40 条固定查询，离线构建 General +
-Parent-child + hash embedding + 向量/FTS5 双索引的托管知识库。实例化任务可恢复，只有
-索引、40 条 Gold 与不可变评测 v1 全部成功后，知识库才进入正常列表并激活初始版本。
+Benchmark Catalog 提供 `modelmirror-rag-foundation-bilingual-v1`，包含 12 份 ModelMirror
+自有中英双语 Markdown 语料和 40 条固定查询。历史合同曾离线构建 General +
+Parent-child + hash embedding + FTS5 基线；这些既有结果只读保留，不是 4A 可重建路径。
+
+4A 会在真实 Provisioner 创建知识库之前检查聚合 `content_index_contract`。chunker、lexical
+和 parser 任一组件缺少实现自有的 `current` 回执时，任务以
+`rag_benchmark_content_contract_incomplete` fail-closed，不创建 KB、文档、Pipeline Job、
+Version 或 Evaluation。新的标准 Benchmark 实例化、标准候选、固定评测和首次激活要到
+4C 完成完整内容合同时才重新开放；曾经激活的历史版本仍可作为只读回滚目标。
 
 该 Pack 是检索引擎的一致性与回归基准，只能证明分块、双索引、引用、无答案处理和版本
 切换在固定合成语料上的行为。它不代表任意业务知识库的真实质量，也不应替代针对目标
 知识库、固定索引版本和实际问题分布生成并人工审核的 Gold 评测集；该能力已由上方定向
 Gold 生成闭环补齐。
 
-托管 Benchmark KB 使用 `origin=benchmark_catalog`、`corpus_locked=true`：语料上传、
-文档删除和 Knowledge Inbox 写入返回 409；流水线草稿、候选构建、固定评测、激活、回滚
-和删除整个知识库保持可用。初始 Full-text Profile 是离线可重复基线，用户可在同一锁定
-语料上构建 Recursive、Vector 或 Hybrid 候选。
+既有托管 Benchmark KB 使用 `origin=benchmark_catalog`、`corpus_locked=true`：语料上传、
+文档删除和 Knowledge Inbox 写入返回 409。4A 期间可查看历史证据，并在现有锁定库上运行
+允许的 vector-only Diagnostic；不能据此生成新的标准候选、固定评测或首次激活。整个知识库
+删除和曾激活版本回滚保持可用。
 
 Knowledge Evaluation Set 新增不可变递增版本 API：
 
@@ -380,13 +448,13 @@ GET  /api/rag/processor-capabilities
 POST /api/rag/pipeline/draft/{kb_id}/processor-preview
 ```
 
-Preview 最多返回 20 个截断结构块或生成项，不写草稿、Job 或索引。Job 按文档保存 `pending / processing / completed / failed`、尝试次数和安全计数。重试只复用 source hash 与 processor profile 均匹配的完成产物，并只重跑失败文档；随后仍从完整成功产物原子重建两类索引。
+Preview 最多返回 20 个截断结构块或生成项，不写草稿、Job 或索引。Job 按文档保存 `pending / processing / completed / failed`、尝试次数和安全计数。重试只复用 source hash 与 processor profile 均匹配的完成产物，并只重跑失败文档。此处“原子重建向量与全文两类索引”描述的是当时的历史合同；4A 新建路径仅允许 vector-only Diagnostic，双索引新建将在 4B lexical-v2 合入后恢复并重新验收。
 
 `continue_on_error` 在至少一个文档成功时允许产生带 warning 的候选；`strict` 遇到任一文档失败都阻止 ready；所有文档失败不会产生候选版本。公开响应、日志和 checkpoint 不包含正文全集、问答全文、prompt、本地路径、embedding 或密钥。
 
-## 2026-07-13 增量：Advanced RAG Retrieval V2
+## 2026-07-13 增量：Advanced RAG Retrieval V2（历史只读合同）
 
-候选知识版本现在固定分块、Embedding 与检索 profile，并原子构建向量和 SQLite FTS5 双索引。`/rag` 可以配置递归字符分块或父子分段、有序分段标识符、Embedding 模型、全文/向量/混合检索、权重、Top-K、score 阈值、候选倍数和可选 Rerank。以下 `score_threshold` 示例只描述历史 V2/legacy 合同；新 V3 草稿使用本文顶部的绝对相关性字段。
+该段记录当时的 V2 行为：候选知识版本固定分块、Embedding 与检索 profile，并原子构建向量和 SQLite FTS5 双索引。`/rag` 可以配置递归字符分块或父子分段、有序分段标识符、Embedding 模型、全文/向量/混合检索、权重、Top-K、score 阈值、候选倍数和可选 Rerank。以下 `score_threshold` 示例只描述历史 V2/legacy 合同；它可查询、可作为曾激活版本的回滚目标，但不能用于新建、首次激活或晋级。新 V3 草稿使用本文顶部的绝对相关性与 content contract。
 
 新增安全能力摘要：
 
@@ -578,7 +646,10 @@ def _read_csv(path: Path) -> str:
     return _ensure_text(text, path.name)
 ```
 
-4. 为新格式补充测试：上传对应文件，确认返回 `chunk_count > 0`，并能通过 `/api/rag/query` 检索到内容。
+4. 为新格式补充测试：先确认 source-only 上传返回
+   `ingestion_status=pipeline_required` 与 `chunk_count=0`，再显式执行允许的候选 Pipeline，
+   通过版本级查询验证解析结构、分块元数据和检索内容。不得以恢复“上传即直写索引”来让
+   旧断言通过。
 
 注意：解析函数只负责“转纯文本”，不要在 parser 层做向量化或模型调用。
 
@@ -657,10 +728,15 @@ curl -X POST http://localhost:8000/api/rag/knowledge_bases/kb_xxx/documents \
   "kb_id": "kb_xxx",
   "filename": "测试文档.txt",
   "size": 128,
-  "chunk_count": 1,
+  "chunk_count": 0,
+  "ingestion_status": "pipeline_required",
   "created_at": 1781600000.0
 }
 ```
+
+上传只保存 Source/Asset，不会直接写入活动索引。要产生版本级检索结果，必须显式运行符合
+当前内容合同的 Pipeline；在 4A 只能构建 vector-only Diagnostic，不能激活。活动查询要等
+完整 content contract 候选通过后续门禁并被人工激活。
 
 ### 列出文档
 
@@ -678,7 +754,8 @@ curl http://localhost:8000/api/rag/knowledge_bases/kb_xxx/documents
       "kb_id": "kb_xxx",
       "filename": "测试文档.txt",
       "size": 128,
-      "chunk_count": 1,
+      "chunk_count": 0,
+      "ingestion_status": "pipeline_required",
       "created_at": 1781600000.0
     }
   ]
@@ -743,6 +820,9 @@ RAG_VECTOR_STORE=chroma
 CHROMA_DB_PATH=./chroma_db
 RAG_STORAGE_DIR=server/rag/storage
 RAG_UPLOAD_DIR=server/rag/uploads
+RAG_TOKEN_CHUNK_SIZE=500
+RAG_TOKEN_CHUNK_OVERLAP=50
+# 仅供历史 recursive_character / parent_child 合同读取：
 RAG_CHUNK_SIZE=500
 RAG_CHUNK_OVERLAP=50
 ```
@@ -800,15 +880,16 @@ python -m pytest server/tests/test_rag.py -q
 新增测试建议：
 
 1. 构造一个临时知识库。
-2. 上传最小可解析文件。
-3. 查询一个能命中文档关键词的问题。
-4. 验证 `answer` 和 `sources`。
-5. 清理文档和知识库。
+2. source-only 上传最小可解析文件，并确认尚无可检索 chunk。
+3. 显式构建 vector-only Diagnostic 候选。
+4. 使用版本级查询验证 `sources`，不要把候选伪装成新 active。
+5. 如需覆盖历史活动查询，以只读夹具模拟曾激活版本，并明确标注其兼容目的。
+6. 清理文档和知识库。
 
 
-## 2026-07-08 增量：知识流水线 Beta
+## 2026-07-08 增量：知识流水线 Beta（历史记录）
 
-本地 RAG 现在额外提供一层只读 Knowledge Pipeline 元数据视图，用于对齐 Xpert 的知识产物模型。该层不会改变上传、切分、embedding、向量存储、检索测试或 `/api/rag/query` 响应协议。
+本段描述 2026-07-08 的 Beta 边界，不代表当前写入语义。当时本地 RAG 额外提供一层只读 Knowledge Pipeline 元数据视图，用于对齐 Xpert 的知识产物模型；4A 已将公开上传改为 source-only，并要求后续内容处理和索引写入全部经显式候选 Pipeline。
 
 新增模型映射：
 

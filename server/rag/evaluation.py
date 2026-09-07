@@ -24,6 +24,7 @@ except ModuleNotFoundError:
     from model_router.provider_operations import provider_operation_model_matches
     from model_router.workload_control import PROVIDER_WORKLOAD_CONTRACT_VERSION
 
+from .chunking_receipt import chunking_receipt_is_valid
 from .strategy_tuning_qualification import (
     MIN_HARD_NEGATIVES,
     MIN_POSITIVE_CASES,
@@ -82,6 +83,78 @@ DEFAULT_GATE_POLICY: dict[str, Any] = {
     "require_zero_errors": True,
 }
 RAG_ROUTE_RECEIPT_CONTRACT_VERSION = "modelmirror-provider-rag-route-receipts-v1"
+FORMAL_CONTENT_INDEX_CONTRACT = {
+    "contract_version": "rag-content-index-contract-v1",
+    "chunker_contract_version": "rag-chunker-estimated-token-v1",
+    "lexical_contract_version": "sqlite-fts5-lexical-v2",
+    "parser_contract_version": "canonical-structured-parser-v2",
+}
+def _content_index_contract_is_current(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    components = value.get("components")
+    return (
+        all(
+            str(value.get(field) or "") == expected
+            for field, expected in FORMAL_CONTENT_INDEX_CONTRACT.items()
+        )
+        and value.get("status") == "current"
+        and isinstance(components, dict)
+        and all(
+            components.get(component) == "current"
+            for component in ("chunker", "lexical", "parser")
+        )
+    )
+
+
+def _chunker_binding(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _chunker_profile_binding(value: Any) -> dict[str, Any]:
+    profile = _chunker_binding(value).get("profile")
+    return profile if isinstance(profile, dict) else {}
+
+
+def _chunking_receipt_is_current(
+    value: Any,
+    *,
+    fingerprint: Any,
+    status: Any,
+    chunk_count: Any,
+    chunker_profile: Any,
+    chunker_profile_fingerprint: Any,
+    candidate_version_id: Any,
+    candidate_namespace_fingerprint: Any,
+) -> bool:
+    if not isinstance(value, dict) or status != "current":
+        return False
+    if not isinstance(chunk_count, int) or isinstance(chunk_count, bool) or chunk_count <= 0:
+        return False
+    if not isinstance(chunker_profile, dict) or not str(candidate_version_id or ""):
+        return False
+    if any(
+        re.fullmatch(r"[0-9a-f]{64}", str(item or "")) is None
+        for item in (
+            chunker_profile_fingerprint,
+            candidate_namespace_fingerprint,
+        )
+    ):
+        return False
+    return (
+        chunking_receipt_is_valid(
+            value,
+            expected_chunk_count=chunk_count,
+            expected_chunker_profile=chunker_profile,
+            expected_chunker_profile_fingerprint=chunker_profile_fingerprint,
+            expected_candidate_version_id=candidate_version_id,
+            expected_candidate_namespace_fingerprint=(
+                candidate_namespace_fingerprint
+            ),
+        )
+        and re.fullmatch(r"[0-9a-f]{64}", str(fingerprint or "")) is not None
+        and hmac.compare_digest(str(fingerprint), _checksum(value))
+    )
 
 
 @lru_cache(maxsize=1)
@@ -93,6 +166,7 @@ def evaluation_runtime_code_fingerprint() -> str:
     rag_root = Path(__file__).parent
     model_router_root = rag_root.parent / "model_router"
     sources = (
+        ("rag/chunking_receipt.py", rag_root / "chunking_receipt.py"),
         ("rag/embedder.py", rag_root / "embedder.py"),
         ("rag/evaluation.py", Path(__file__)),
         ("rag/evaluation_executor.py", rag_root / "evaluation_executor.py"),
@@ -1360,12 +1434,30 @@ def validate_formal_run_admission(
         runtime_backend = (
             runtime_backend if isinstance(runtime_backend, dict) else {}
         )
+        chunker = evidence.get("chunker")
+        chunker = chunker if isinstance(chunker, dict) else {}
+        chunker_profile = chunker.get("profile")
+        chunker_profile = (
+            chunker_profile if isinstance(chunker_profile, dict) else {}
+        )
+        chunker_profile_fingerprint = str(
+            chunker.get("fingerprint") or ""
+        )
+        index_owner_version_id = str(
+            evidence.get("index_owner_version_id") or ""
+        )
+        namespace_fingerprint = str(
+            evidence.get("candidate_namespace_fingerprint") or ""
+        )
         mode = str(retrieval.get("mode") or "")
         required_hashes = (
             str(evidence.get("version_fingerprint") or ""),
             str(evidence.get("configuration_fingerprint") or ""),
             str(processor.get("fingerprint") or ""),
             str(evidence.get("source_manifest_fingerprint") or ""),
+            str(evidence.get("chunking_receipt_fingerprint") or ""),
+            chunker_profile_fingerprint,
+            namespace_fingerprint,
         )
         if (
             evidence.get("schema_version") != "rag-version-evidence-v1"
@@ -1374,6 +1466,7 @@ def validate_formal_run_admission(
             or str(evidence.get("version_id") or "")
             != str(target.get("version_id") or "")
             or any(re.fullmatch(r"[0-9a-f]{64}", value) is None for value in required_hashes)
+            or not index_owner_version_id
             or not str(processor.get("mode") or "")
             or mode not in {"vector", "fulltext", "hybrid"}
             or int(retrieval.get("top_k") or 0) <= 0
@@ -1452,6 +1545,29 @@ def validate_formal_run_admission(
             or rerank["top_n"] <= 0
         ):
             raise ValueError("Formal evaluation Rerank identity is incomplete.")
+        content_index_contract = evidence.get("content_index_contract")
+        if not _content_index_contract_is_current(content_index_contract):
+            raise ValueError(
+                "Formal evaluation target content-index contract is incomplete."
+            )
+        chunking_receipt = evidence.get("chunking_receipt")
+        chunking_receipt = (
+            chunking_receipt if isinstance(chunking_receipt, dict) else {}
+        )
+        chunk_count = evidence.get("chunk_count")
+        if not _chunking_receipt_is_current(
+            chunking_receipt,
+            fingerprint=required_hashes[4],
+            status=evidence.get("chunking_receipt_status"),
+            chunk_count=chunk_count,
+            chunker_profile=chunker_profile,
+            chunker_profile_fingerprint=required_hashes[5],
+            candidate_version_id=index_owner_version_id,
+            candidate_namespace_fingerprint=required_hashes[6],
+        ):
+            raise ValueError(
+                "Formal evaluation target chunking receipt is incomplete."
+            )
         manifest_targets.append(
             {
                 "kb_id": expected_kb_id,
@@ -1464,12 +1580,20 @@ def validate_formal_run_admission(
                 "version_fingerprint": required_hashes[0],
                 "configuration_fingerprint": required_hashes[1],
                 "source_manifest_fingerprint": required_hashes[3],
+                "chunk_count": int(chunk_count),
+                "chunking_receipt": _copy(chunking_receipt),
+                "chunking_receipt_fingerprint": required_hashes[4],
+                "chunking_receipt_status": "current",
+                "chunker": _copy(chunker),
+                "index_owner_version_id": index_owner_version_id,
+                "candidate_namespace_fingerprint": required_hashes[6],
                 "corpus_snapshot_hash": expected_corpus,
                 "processor": _copy(processor),
                 "embedding": _copy(effective),
                 "retrieval": _copy(retrieval),
                 "rerank": rerank,
                 "index_contract": _copy(index_contract),
+                "content_index_contract": _copy(content_index_contract),
                 "vector_backend_readiness": manifest_backend,
                 "runtime_vector_backend_readiness": manifest_runtime_backend,
             }
@@ -1580,6 +1704,31 @@ def formal_execution_preflight_reasons(run: dict[str, Any]) -> list[str]:
         or internal_target_ids != run_ids
     ):
         reasons.append("formal_target_ledger_invalid")
+    if any(
+        not _content_index_contract_is_current(
+            item.get("content_index_contract")
+        )
+        for item in raw_manifest_targets
+    ):
+        reasons.append("formal_content_index_contract_invalid")
+    if any(
+        not _chunking_receipt_is_current(
+            item.get("chunking_receipt"),
+            fingerprint=item.get("chunking_receipt_fingerprint"),
+            status=item.get("chunking_receipt_status"),
+            chunk_count=item.get("chunk_count"),
+            chunker_profile=_chunker_profile_binding(item.get("chunker")),
+            chunker_profile_fingerprint=_chunker_binding(
+                item.get("chunker")
+            ).get("fingerprint"),
+            candidate_version_id=item.get("index_owner_version_id"),
+            candidate_namespace_fingerprint=item.get(
+                "candidate_namespace_fingerprint"
+            ),
+        )
+        for item in raw_manifest_targets
+    ):
+        reasons.append("formal_chunking_receipt_invalid")
 
     corpus_hash = str(manifest.get("corpus_snapshot_hash") or "")
     comparability = run.get("comparability")
@@ -2551,6 +2700,24 @@ class KnowledgeEvaluationStore:
                         "source_manifest_fingerprint": str(
                             evidence.get("source_manifest_fingerprint") or ""
                         ),
+                        "chunk_count": int(evidence.get("chunk_count") or 0),
+                        "chunking_receipt": _copy(
+                            evidence.get("chunking_receipt") or {}
+                        ),
+                        "chunking_receipt_fingerprint": str(
+                            evidence.get("chunking_receipt_fingerprint") or ""
+                        ),
+                        "chunking_receipt_status": str(
+                            evidence.get("chunking_receipt_status") or ""
+                        ),
+                        "chunker": _copy(evidence.get("chunker") or {}),
+                        "index_owner_version_id": str(
+                            evidence.get("index_owner_version_id") or ""
+                        ),
+                        "candidate_namespace_fingerprint": str(
+                            evidence.get("candidate_namespace_fingerprint")
+                            or ""
+                        ),
                         "corpus_snapshot_hash": str(
                             target.get("corpus_snapshot_hash") or ""
                         ),
@@ -2562,6 +2729,9 @@ class KnowledgeEvaluationStore:
                         "retrieval": _copy(retrieval),
                         "index_contract": _copy(
                             evidence.get("index_contract") or {}
+                        ),
+                        "content_index_contract": _copy(
+                            evidence.get("content_index_contract") or {}
                         ),
                         "vector_backend_readiness": (
                             {"status": "not_applicable"}
@@ -3060,14 +3230,32 @@ class KnowledgeEvaluationStore:
                 if not isinstance(declared, dict):
                     continue
                 version_id = str(declared.get("version_id") or "")
+                declared_chunker = _chunker_binding(declared.get("chunker"))
+                formal_identity = (
+                    str(run.get("run_mode") or "diagnostic") == "formal"
+                )
+                required_identity_hashes = (
+                    "version_fingerprint",
+                    "configuration_fingerprint",
+                    "source_manifest_fingerprint",
+                )
+                if formal_identity:
+                    required_identity_hashes += (
+                        "candidate_namespace_fingerprint",
+                    )
                 if any(
                     re.fullmatch(r"[0-9a-f]{64}", str(declared.get(field) or ""))
                     is None
-                    for field in (
-                        "version_fingerprint",
-                        "configuration_fingerprint",
-                        "source_manifest_fingerprint",
+                    for field in required_identity_hashes
+                ):
+                    reasons.append(f"target_identity_incomplete:{version_id}")
+                if formal_identity and (
+                    not str(declared.get("index_owner_version_id") or "")
+                    or re.fullmatch(
+                        r"[0-9a-f]{64}",
+                        str(declared_chunker.get("fingerprint") or ""),
                     )
+                    is None
                 ):
                     reasons.append(f"target_identity_incomplete:{version_id}")
                 current = resolved_targets.get(version_id)
@@ -3089,9 +3277,29 @@ class KnowledgeEvaluationStore:
                     ):
                         reasons.append(f"{field}_mismatch:{version_id}")
                 for field in (
+                    "index_owner_version_id",
+                    "candidate_namespace_fingerprint",
+                ):
+                    if field in declared and str(current.get(field) or "") != str(
+                        declared.get(field) or ""
+                    ):
+                        reasons.append(f"{field}_mismatch:{version_id}")
+                for field in (
+                    "chunk_count",
+                    "chunking_receipt_fingerprint",
+                    "chunking_receipt_status",
+                ):
+                    if field in declared and str(current.get(field) or "") != str(
+                        declared.get(field) or ""
+                    ):
+                        reasons.append(f"{field}_mismatch:{version_id}")
+                for field in (
                     "embedding",
                     "retrieval",
                     "index_contract",
+                    "content_index_contract",
+                    "chunking_receipt",
+                    "chunker",
                     "vector_backend_readiness",
                     "runtime_vector_backend_readiness",
                 ):

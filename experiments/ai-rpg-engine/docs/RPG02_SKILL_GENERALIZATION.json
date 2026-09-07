@@ -1,0 +1,425 @@
+{
+  "format": "modelmirror.ai-rpg.skill-generalization-receipt",
+  "formatVersion": "0.1.0",
+  "recordedDate": "2026-09-05",
+  "status": "verified_pending_manual_review",
+  "claimAllowed": false,
+  "manualAcceptance": false,
+  "authorizationRef": "user:rpg02-skill-generalization-two-full-worlds-2026-09-05",
+  "baseSha": "a43cfa389e1785a95f04a006ba26550a5a36965e",
+  "branch": "codex/ai-rpg-rpg02-content",
+  "packageVersion": "0.2.0",
+  "contractVersion": "0.1.0",
+  "toolchain": {
+    "node": "24.18.0",
+    "npm": "11.16.0",
+    "addedDependencies": []
+  },
+  "scope": {
+    "observedFullness": "complete_selected_world_object",
+    "worldFields": [
+      "name",
+      "desc",
+      "boss",
+      "identities",
+      "talents"
+    ],
+    "identityFields": [
+      "name",
+      "items"
+    ],
+    "talentFields": [
+      "name",
+      "color",
+      "cost",
+      "desc",
+      "type"
+    ],
+    "commonTalents": "separate_global_pool_not_assigned_to_this_world",
+    "fullOriginalHtmlStored": false,
+    "serverOriginalHashClaim": false,
+    "unattendedBrowserQualified": false,
+    "unavailable": [
+      "hidden worldbook",
+      "hidden style",
+      "hidden prompts"
+    ],
+    "compilerProfile": "original_representative_profile_unchanged",
+    "rpg03Started": false,
+    "lunaStarted": false
+  },
+  "beforeImprovement": {
+    "reviewer": "independent Sol forward run",
+    "status": "failed_for_complete_world_inputs",
+    "findings": [
+      "Original Skill only described frozen fixtures/rpg02 compilation and ZIP replay.",
+      "Standalone complete world literals lack legacy worldDB/commonTalents targets: TARGET_MISSING.",
+      "Legacy compile rejected new capture format with SOURCE_CAPTURE_POLICY and produced no output.",
+      "Legacy source-selection limits identityNames to 2 and talentNames to 8; those limits were not changed."
+    ],
+    "verifiedInputHashes": true,
+    "rawInventoryCount": 57,
+    "generatedExtractionOutput": false,
+    "originalSkillSha256": "2cd17053f093f980fe3e15db967beac8904267d1a19bbf2d907ccb1532bcc75b"
+  },
+  "improvements": [
+    "Separate complete-world source extraction from representative card compilation.",
+    "Use exact-name bounded windows, strict whole-object literal AST validation and fresh DOM range rereads.",
+    "Compute complete inventories without a selected-name quota; preserve every observed field and array order.",
+    "Verify provenance, strict schemas, document limits and new-file-only deterministic output.",
+    "Document worker inputs/outputs, stop conditions, shared-pool scope and unavailable content."
+  ],
+  "batches": [
+    {
+      "id": "G0",
+      "files": [
+        "fixtures/skill-generalization/gu-world.capture.json",
+        "fixtures/skill-generalization/cyberpunk-world.capture.json"
+      ],
+      "changedVersionControlFiles": 2,
+      "gate": "capture bytes/hash/ranges reread matched; existing RPG02 96 gates passed"
+    },
+    {
+      "id": "G1",
+      "files": [
+        "tooling/source-input.mjs",
+        "tooling/world-source.mjs",
+        "tests/world-source.test.mjs",
+        "skills/rpg02-selected-content/SKILL.md",
+        "skills/rpg02-selected-content/references/browser-capture.md"
+      ],
+      "changedVersionControlFiles": 5,
+      "gate": "14 extension tests, original 96 gates, Skill validator and independent two-input forward rerun passed"
+    },
+    {
+      "id": "G2",
+      "files": [
+        "docs/RPG02_SKILL_GENERALIZATION.md",
+        "docs/RPG02_SKILL_GENERALIZATION.json",
+        "../../docs/ai-rpg-experiment/README.md",
+        "../../docs/ai-rpg-experiment/AUDIT.md",
+        "../../docs/ai-rpg-experiment/MANIFEST.json"
+      ],
+      "changedVersionControlFiles": 5,
+      "gate": "registered artifact and research hashes, unchanged baseline interfaces/fixtures, scope and diff checks"
+    }
+  ],
+  "files": [
+    {
+      "path": "fixtures/skill-generalization/gu-world.capture.json",
+      "bytes": 8914,
+      "sha256": "de435d1cf9d7ecd09ba385ef685dda786a7f0cdde03135b00b063873fc395495"
+    },
+    {
+      "path": "fixtures/skill-generalization/cyberpunk-world.capture.json",
+      "bytes": 5555,
+      "sha256": "1077bd06960d76f6d9787baf1d86190cad72b3f01ec1b68db68f4fb7f0a3a6de"
+    },
+    {
+      "path": "tooling/source-input.mjs",
+      "bytes": 11752,
+      "sha256": "1d413380b94091d94ad0c0ab488cdb7f7d9ad93c77aa901b58688a30be64e10e"
+    },
+    {
+      "path": "tooling/world-source.mjs",
+      "bytes": 11695,
+      "sha256": "83639980fb9f84708f70f552fccd943aaa99bd3e4f5e2d9cae1e250304e5eabb"
+    },
+    {
+      "path": "tests/world-source.test.mjs",
+      "bytes": 14469,
+      "sha256": "31478fa0859d8023fe85b508a61511e7553328f0a9a75efd210ade78872d55c6"
+    },
+    {
+      "path": "skills/rpg02-selected-content/SKILL.md",
+      "bytes": 5529,
+      "sha256": "95907caa4799451f349f58fcfeaca622904089cb84506f1c556ffa700a65aaa8"
+    },
+    {
+      "path": "skills/rpg02-selected-content/references/browser-capture.md",
+      "bytes": 5968,
+      "sha256": "02a42edf24606a03f5ce0e6b5bdf67cc111c4eef9f93ec26f2903d526c771a39"
+    }
+  ],
+  "independentForward": {
+    "sourceReceipt": ".rpg02-work/skill-generalization/forward-sol-20260905/run-01/forward-receipt.json",
+    "bytes": 5945,
+    "sha256": "a34a301ebefa72324cf8793fab076c577ea5c20ab7ca94dc1e2fb6b85473094a",
+    "context": "Skill and two input captures; no expected answers or test-file reads; browser access forbidden",
+    "format": "modelmirror.ai-rpg.skill-forward-receipt",
+    "formatVersion": "0.1.0",
+    "run": "forward-sol-20260905/run-01",
+    "executedOffline": true,
+    "nodeVersion": "v24.18.0",
+    "npmVersion": "11.16.0",
+    "worlds": [
+      {
+        "name": "470.蛊真人 (Reverend Insanity)",
+        "input": "fixtures/skill-generalization/gu-world.capture.json",
+        "inputFile": {
+          "bytes": 8914,
+          "sha256": "de435d1cf9d7ecd09ba385ef685dda786a7f0cdde03135b00b063873fc395495"
+        },
+        "rawLiteral": {
+          "bytes": 7504,
+          "sha256": "9f99336567d3cb331a25e82679d4a9783b25b16d3a475aae07bb8840aefa952b",
+          "matchesCapture": true
+        },
+        "outputs": [
+          {
+            "path": "gu-full-1.json",
+            "bytes": 10656,
+            "sha256": "04fc26753def4f8db052731f6d8b92f8e398f21acc9e9e90085d06e6a745e67c"
+          },
+          {
+            "path": "gu-full-2.json",
+            "bytes": 10656,
+            "sha256": "04fc26753def4f8db052731f6d8b92f8e398f21acc9e9e90085d06e6a745e67c"
+          }
+        ],
+        "repeatability": {
+          "byteIdentical": true,
+          "hashIdentical": true
+        },
+        "inventory": {
+          "worlds": 1,
+          "identities": 5,
+          "talents": 30,
+          "total": 36
+        },
+        "fieldCoverage": {
+          "world": [
+            "boss",
+            "desc",
+            "identities",
+            "name",
+            "talents"
+          ],
+          "identity": [
+            "items",
+            "name"
+          ],
+          "talent": [
+            "color",
+            "cost",
+            "desc",
+            "name",
+            "type"
+          ]
+        },
+        "scope": "separate_global_pool_not_assigned_to_this_world",
+        "losses": [],
+        "unavailable": [
+          "hidden worldbook",
+          "hidden style",
+          "hidden prompts"
+        ],
+        "runtimePermissions": [],
+        "checkpoint": "verified_offline_twice"
+      },
+      {
+        "name": "383.赛博朋克2077",
+        "input": "fixtures/skill-generalization/cyberpunk-world.capture.json",
+        "inputFile": {
+          "bytes": 5555,
+          "sha256": "1077bd06960d76f6d9787baf1d86190cad72b3f01ec1b68db68f4fb7f0a3a6de"
+        },
+        "rawLiteral": {
+          "bytes": 4293,
+          "sha256": "17df5d126145a2993b5667c9547f77049465f8a64c72bab51fcdba615d8e30a4",
+          "matchesCapture": true
+        },
+        "outputs": [
+          {
+            "path": "cyberpunk-full-1.json",
+            "bytes": 6605,
+            "sha256": "8872f60fc5e8f58a05fd5a31120423e666cac073bb231053662c66a3c8f87d3b"
+          },
+          {
+            "path": "cyberpunk-full-2.json",
+            "bytes": 6605,
+            "sha256": "8872f60fc5e8f58a05fd5a31120423e666cac073bb231053662c66a3c8f87d3b"
+          }
+        ],
+        "repeatability": {
+          "byteIdentical": true,
+          "hashIdentical": true
+        },
+        "inventory": {
+          "worlds": 1,
+          "identities": 5,
+          "talents": 15,
+          "total": 21
+        },
+        "fieldCoverage": {
+          "world": [
+            "boss",
+            "desc",
+            "identities",
+            "name",
+            "talents"
+          ],
+          "identity": [
+            "items",
+            "name"
+          ],
+          "talent": [
+            "color",
+            "cost",
+            "desc",
+            "name",
+            "type"
+          ]
+        },
+        "scope": "separate_global_pool_not_assigned_to_this_world",
+        "losses": [],
+        "unavailable": [
+          "hidden worldbook",
+          "hidden style",
+          "hidden prompts"
+        ],
+        "runtimePermissions": [],
+        "checkpoint": "verified_offline_twice"
+      }
+    ],
+    "commands": [
+      {
+        "command": "node tooling/world-source.mjs extract --capture fixtures/skill-generalization/gu-world.capture.json --out .rpg02-work/skill-generalization/forward-sol-20260905/run-01/gu-full-1.json",
+        "exitCode": 0,
+        "valid": true
+      },
+      {
+        "command": "node tooling/world-source.mjs verify --capture fixtures/skill-generalization/gu-world.capture.json --input .rpg02-work/skill-generalization/forward-sol-20260905/run-01/gu-full-1.json",
+        "exitCode": 0,
+        "valid": true
+      },
+      {
+        "command": "node tooling/world-source.mjs extract --capture fixtures/skill-generalization/gu-world.capture.json --out .rpg02-work/skill-generalization/forward-sol-20260905/run-01/gu-full-2.json",
+        "exitCode": 0,
+        "valid": true
+      },
+      {
+        "command": "node tooling/world-source.mjs verify --capture fixtures/skill-generalization/gu-world.capture.json --input .rpg02-work/skill-generalization/forward-sol-20260905/run-01/gu-full-2.json",
+        "exitCode": 0,
+        "valid": true
+      },
+      {
+        "command": "node tooling/world-source.mjs extract --capture fixtures/skill-generalization/cyberpunk-world.capture.json --out .rpg02-work/skill-generalization/forward-sol-20260905/run-01/cyberpunk-full-1.json",
+        "exitCode": 0,
+        "valid": true
+      },
+      {
+        "command": "node tooling/world-source.mjs verify --capture fixtures/skill-generalization/cyberpunk-world.capture.json --input .rpg02-work/skill-generalization/forward-sol-20260905/run-01/cyberpunk-full-1.json",
+        "exitCode": 0,
+        "valid": true
+      },
+      {
+        "command": "node tooling/world-source.mjs extract --capture fixtures/skill-generalization/cyberpunk-world.capture.json --out .rpg02-work/skill-generalization/forward-sol-20260905/run-01/cyberpunk-full-2.json",
+        "exitCode": 0,
+        "valid": true
+      },
+      {
+        "command": "node tooling/world-source.mjs verify --capture fixtures/skill-generalization/cyberpunk-world.capture.json --input .rpg02-work/skill-generalization/forward-sol-20260905/run-01/cyberpunk-full-2.json",
+        "exitCode": 0,
+        "valid": true
+      }
+    ],
+    "overall": {
+      "valid": true,
+      "totalInventory": {
+        "worlds": 2,
+        "identities": 10,
+        "talents": 45,
+        "total": 57
+      },
+      "losses": [],
+      "runtimePermissions": [],
+      "websiteProbes": 0,
+      "modelCalls": 0,
+      "currentSiteIdentityEstablished": false
+    }
+  },
+  "primaryReview": {
+    "directory": ".rpg02-work/skill-generalization/delivery-20260905",
+    "cliCommandCount": 8,
+    "allExitCodes": 0,
+    "eachInputExtractAndVerifyTwice": true,
+    "independentOutputsByteIdentical": true,
+    "outputs": [
+      {
+        "path": ".rpg02-work/skill-generalization/delivery-20260905/gu-world.first.json",
+        "bytes": 10656,
+        "sha256": "04fc26753def4f8db052731f6d8b92f8e398f21acc9e9e90085d06e6a745e67c"
+      },
+      {
+        "path": ".rpg02-work/skill-generalization/delivery-20260905/cyberpunk-world.first.json",
+        "bytes": 6605,
+        "sha256": "8872f60fc5e8f58a05fd5a31120423e666cac073bb231053662c66a3c8f87d3b"
+      }
+    ]
+  },
+  "automatedChecks": {
+    "extension": {
+      "command": "node --test --test-reporter=spec tests/world-source.test.mjs",
+      "passed": 14,
+      "failed": 0,
+      "skipped": 0,
+      "exitCode": 0
+    },
+    "original": {
+      "command": "npm.cmd run verify:rpg02 -- --base a43cfa389e1785a95f04a006ba26550a5a36965e",
+      "marker": "RPG02_AUTOMATED_GATES_OK",
+      "passed": 96,
+      "failed": 0,
+      "skipped": 0,
+      "exitCode": 0
+    },
+    "skillValidator": {
+      "command": "unmodified skill-creator quick_validate.py with genuine installed PyYAML",
+      "marker": "Skill is valid!",
+      "exitCode": 0
+    }
+  },
+  "preservedBaselineHashes": {
+    "src/index.mjs": "fa473fa0b1a76ddf9237304d92f92bd2b3b3fb02ccf9f52e94ca39470237a857",
+    "content/index.mjs": "b9120f20e24239657caf03d8b047c07ee9970b89694a26c061f34bc16c1ed4c1",
+    "content/schemas.mjs": "21f4912ef792d7a45065d986d79ce5598463edc8d12c4b00aa672eb92fab3f4a",
+    "content/compile.mjs": "af06cbfa54a1b5d3a825b439e029ef87a5d4b01d13800b04ca4cc8fa61dbddd0",
+    "package.json": "00331411b0ce9fec6047b607813accf8c8a6dddfb27034deac92b255d148143a",
+    "package-lock.json": "adf772f68716fb28b6d37d889f1786845614b4c2b26f8b921aa915f4a6af8e95",
+    "docs/RPG02_GOLDEN.json": "703739e682d7eadd078cdb6b14b370b34420be53f38939af5195ed0b293e8c12",
+    "docs/RPG02_STATUS.json": "a4ea13063f0ab7cf4ffdd35a681080cd5dfa6cd92ca6ff44b78be53b1cf57472"
+  },
+  "probeLedgerSha256": "79929f95e4d91053c85542947cbf9084ed0bb286c17b04fe3ca105cbb787a99e",
+  "primaryCheckout": {
+    "headUnchanged": true,
+    "statusUnchanged": true,
+    "statusEntries": 78,
+    "taskModifications": false
+  },
+  "websiteMessageProbes": 0,
+  "externalModelCalls": 0,
+  "publication": {
+    "commit": false,
+    "push": false,
+    "pr": false,
+    "merge": false,
+    "deploy": false,
+    "release": false,
+    "publish": false
+  },
+  "limitations": [
+    "The two observed worlds qualify this literal/field profile; arbitrary pages, larger windows and schema drift are not qualified.",
+    "Browser first capture and exceptions still require Astra; only offline replay received an independent Sol forward run.",
+    "Complete-world extraction has no stable resource IDs or card-opening mapping; it is source evidence, not a compiled playable card.",
+    "Raw source hashes authenticate recorded bytes only; visible acquisition evidence remains a separate provenance assertion."
+  ],
+  "closeoutCorrections": [
+    {
+      "batch": "G2",
+      "failedGate": "RPG02_DIFF_CHECK_FAILED",
+      "cause": "PowerShell JSON serialization inserted CRLF in MANIFEST.json",
+      "resolution": "Normalize only that authorized manifest to LF, then rerun the same aggregate and diff checks"
+    }
+  ]
+}

@@ -1,0 +1,169 @@
+{
+  "schemaVersion": 1,
+  "round": "RPG-03",
+  "baselineCommit": "80221379cec850a2b25f5eeeb410233062f3e1ea",
+  "acceptedRpg02Head": "82484ef568c784dfc6c0b03480b2049a19c18df5",
+  "requiredBranch": "codex/ai-rpg-rpg03-runtime",
+  "initialResearchManifestSha256": "086011D207369A290330EF38D2D5F7D0989C3158147C37537D585374B345B6B9",
+  "initialResearchFiles": [
+    {
+      "path": "AUDIT.md",
+      "bytes": 42816,
+      "sha256": "7893368FAEC38968332B7EEDEF77D760B4DC22BE5FC4B436E7A740FA4DFB770A"
+    },
+    {
+      "path": "BASELINE.md",
+      "bytes": 12401,
+      "sha256": "A9A6D61DEE20A6ECB9B4F8CCF18775C77D35A6C03AC16EA1B931547087F49F1C"
+    },
+    {
+      "path": "BEST_PRACTICES.md",
+      "bytes": 34944,
+      "sha256": "4C282B02A11914EA4E6657E44300555C3F8C17709F85A1D05C8148A0A9EE5F2C"
+    },
+    {
+      "path": "BOUNDARY_QUADRANTS.md",
+      "bytes": 4042,
+      "sha256": "ECD41CBDA5BA477670AA73939E1C12F4EDC24E5632DA445B7CFF96323BBBD534"
+    },
+    {
+      "path": "OSS_REUSE_REGISTER.md",
+      "bytes": 17278,
+      "sha256": "67FFEFF2A3C5614EE0B121F0758C4F68420159B488A828C16F5DAB9C4F03BF01"
+    },
+    {
+      "path": "PLUGIN_CARD_MARKETS.md",
+      "bytes": 7157,
+      "sha256": "28BF7CF1598B7EBC8D0431E72FA084C01AC18153AD5AAA4F678FE646B75E8BA3"
+    },
+    {
+      "path": "PROBE_LEDGER.json",
+      "bytes": 11213,
+      "sha256": "79929F95E4D91053C85542947CBF9084ED0BB286C17B04FE3CA105CBB787A99E"
+    },
+    {
+      "path": "README.md",
+      "bytes": 10724,
+      "sha256": "DA590548B0CDF6F6857BE921EA9CDA20CDC28336A4AE7ABB4CFE2F6D514A5D35"
+    },
+    {
+      "path": "references/INITIAL_AUDIT_2026-09-04.md",
+      "bytes": 28530,
+      "sha256": "D53901572850B01B1AD6472B13F361C31D5E4369CBCCAA118F0EF025F728B2E6"
+    },
+    {
+      "path": "references/PLAYER_CARD_SAMPLE.md",
+      "bytes": 3086,
+      "sha256": "38FE64EC7785DEF21472C4D934625ADCDC8A89615A862F187A84B1E0EA7D56DD"
+    },
+    {
+      "path": "RESOURCE_INVENTORY.json",
+      "bytes": 2360,
+      "sha256": "0E9328942065C8961C61B9970A03610C68D46D90A1AF3F3015C58B024B2EF849"
+    },
+    {
+      "path": "ROUND_ROADMAP.md",
+      "bytes": 12399,
+      "sha256": "D54E32D31B157CADEBE39BEFD39B4F3D4C8B10613781344FA60F1CC095993D30"
+    },
+    {
+      "path": "RPG02_PLAN.md",
+      "bytes": 17886,
+      "sha256": "6718C3668701D8BB028EB5DA532BBF11E10A3315B9E575A7611E701E1CD25C34"
+    }
+  ],
+  "probeLedgerSha256": "79929F95E4D91053C85542947CBF9084ED0BB286C17B04FE3CA105CBB787A99E",
+  "packageLockSha256": "ADF772F68716FB28B6D37D889F1786845614B4C2B26F8B921AA915F4A6AF8E95",
+  "parentBaselineHashes": {
+    "server/main.py": "C2F81854EA9A7947BCB6A9EAD708E7285E24FF56D9721A070358FF576D798702",
+    "server/tests/test_provider_chat_stable_chat.py": "0138A97EB003581B1E2E005C93FE5B74DFC2B30939D21DE7E118B791325619ED",
+    "docs/MODEL_PROVIDER_CONTROL_PLANE.md": "AC327BFB21FB567E710FD5611F02DC5926B0887B6D039D2D7E6E0EFEC3C12F4F"
+  },
+  "frozenFiles": {
+    "experiments/ai-rpg-engine/.npmrc": "1AC5AA1899596D43C7F938BD9E009C4A36EACC2185F2DA3DC3744C0B8EE303B7",
+    "experiments/ai-rpg-engine/content/compile.mjs": "AF06CBFA54A1B5D3A825B439E029EF87A5D4B01D13800B04CA4CC8FA61DBDDD0",
+    "experiments/ai-rpg-engine/content/extract.mjs": "AFBE94EF9EA5050A7F4FAD93DE4A1629177A8BB8FF3529A26C013B9B093D0F6A",
+    "experiments/ai-rpg-engine/content/index.mjs": "B9120F20E24239657CAF03D8B047C07EE9970B89694A26C061F34BC16C1ED4C1",
+    "experiments/ai-rpg-engine/content/player.mjs": "D284E30DF7C3D7E795B01B82F976AA48457438884C0A1493847ABC4972E69A6D",
+    "experiments/ai-rpg-engine/content/schemas.mjs": "21F4912EF792D7A45065D986D79CE5598463EDC8D12C4B00AA672EB92FAB3F4A",
+    "experiments/ai-rpg-engine/docs/CONTRACTS.md": "23F463C5FFD9C8A49E4FEB607F5C0F469585F92F025425FEB74F73506547D4DD",
+    "experiments/ai-rpg-engine/docs/RPG01_ACCEPTANCE.md": "03ACC87775DD0E49617F6797F9F048E4B16468998FCA40F51A66EF0F45CFD95C",
+    "experiments/ai-rpg-engine/docs/RPG01_STATUS.json": "692C5267AE117FE3CD89DEE18012A8F5E233C679A05C85B619021234953E4991",
+    "experiments/ai-rpg-engine/docs/RPG02_ACCEPTANCE.md": "6816F82CDEE7F00ADC1E6D18C999DAE8C51E542DFF3B4FB16E5D4E6BF4B4DDD7",
+    "experiments/ai-rpg-engine/docs/RPG02_BASELINE.json": "38727C0B54E29DB46AAC1766691AE1B19088FD927E8C1F0DC5DBC50C9E9362C9",
+    "experiments/ai-rpg-engine/docs/RPG02_GOLDEN.json": "363B99E8C84393402729DA58C2D45BD1CEF57B2168FFACE874E7A6D48DEAE262",
+    "experiments/ai-rpg-engine/docs/RPG02_LUNA_TRIAL.json": "5D376FC357FEECAD9E4FFE82FA383C56909E98A8455F71EBC8A5075C0FDF8A0E",
+    "experiments/ai-rpg-engine/docs/RPG02_LUNA_TRIAL.md": "A813EAC92266C6EFA36ACB310A7C20B703FB42F269767B02BB28147ED5AA122D",
+    "experiments/ai-rpg-engine/docs/RPG02_SKILL_GENERALIZATION.json": "393884474A6D337812477EFCFD641633535050F768B6B9CD7A417784D9B7A453",
+    "experiments/ai-rpg-engine/docs/RPG02_SKILL_GENERALIZATION.md": "3DDE63F07663B53ECD2B6F72CF3B68C91AD7AE5CCC4E2D480782FE177BC82A50",
+    "experiments/ai-rpg-engine/docs/RPG02_STATUS.json": "D1DC37E2444585DA7DED468C837C63AF8801A42D56CE983207F451ABF6342898",
+    "experiments/ai-rpg-engine/docs/RPG02_THIRD_PARTY.json": "7A219736B64AB5C9ED0468899B10EA8D8F127B8D802B14304BD06784495DAB00",
+    "experiments/ai-rpg-engine/docs/RPG02_WORKER_GATE.json": "55F64BAE10BBC5D58AFE5ED6AFA9A4E799600C6ABE7A2382959C9E40F2250FA3",
+    "experiments/ai-rpg-engine/docs/RPG02_WORKER_GATE.md": "DE0D02415A929584743DA39D9CB0CBC23F2AA97235DCB035B3D6DE5AE76CB2C6",
+    "experiments/ai-rpg-engine/docs/THIRD_PARTY.json": "912B1D7A6A139FC46D9863AB8AC312B7394CB132D758B482A193378980C45442",
+    "experiments/ai-rpg-engine/fixtures/bai-yu-ling-yin.player-setup.json": "554EDD651A2D8D290E91259B3B32C8B28B85CC2D429C444CFC854B670525EC98",
+    "experiments/ai-rpg-engine/fixtures/minimal.turn-exchange.json": "4BC51D37B795E129F582946B558EAC7AE87C555FFF4FC5578E5129139321ED53",
+    "experiments/ai-rpg-engine/fixtures/plugin-manifests.json": "40DE50990CD31EAFD1E4AD5B73B14EBFE012F419A708AE8C2C3834B7BC4A179B",
+    "experiments/ai-rpg-engine/fixtures/rpg02/compile-input.json": "3DC39B714D8F3D613C4AFA161B91FDB46410BB46BE5D610DE189B8E4A3DDE8A0",
+    "experiments/ai-rpg-engine/fixtures/rpg02/player-config.json": "113D0DECFE593CE2D2AA96B3AA76E7AB9214D29CAF1FD2D58038B761A86760B8",
+    "experiments/ai-rpg-engine/fixtures/rpg02/player-text.txt": "AC30AA4E838CEB5E73D55BE19DE71EA780189B45F37B34B4FCD5C0F3BB70159D",
+    "experiments/ai-rpg-engine/fixtures/rpg02/selected-source.txt": "F0FEFFB7C9FE982F6D099783A6D78D63995E958CB790EB64543C9619ED2AAF5F",
+    "experiments/ai-rpg-engine/fixtures/rpg02/source-capture.json": "CA5E1E55660FE3779428583F16FEB0FC1BFC26AA6E1960C8C43C089451FD6794",
+    "experiments/ai-rpg-engine/fixtures/rpg02/source-selection.json": "3AD71B1F160655CB7FB5D06B96D94EF7BFB80F2D64A7887900AF538D9AA25B58",
+    "experiments/ai-rpg-engine/fixtures/rpg02/synthetic-source.txt": "6D7B68FDCADCFFE8E5C0DFD585198097B5368DAA165875C2B5A64BD358AAEA07",
+    "experiments/ai-rpg-engine/fixtures/skill-generalization/cyberpunk-world.capture.json": "1077BD06960D76F6D9787BAF1D86190CAD72B3F01EC1B68DB68F4FB7F0A3A6DE",
+    "experiments/ai-rpg-engine/fixtures/skill-generalization/genshin-world.capture.json": "A4CB1B3797C3E35D0122D39E6FA599D624F719F956DCA399F99444ED967F231A",
+    "experiments/ai-rpg-engine/fixtures/skill-generalization/gu-world.capture.json": "DE435D1CF9D7ECD09BA385EF685DDA786A7F0CDDE03135B00B063873FC395495",
+    "experiments/ai-rpg-engine/fixtures/zero-plugin.card-package.json": "AA68535D87827D2F73BD591D5049500F27FA175E5B9F1B47D664FA6A82002A7C",
+    "experiments/ai-rpg-engine/scripts/check-boundary-rpg02.mjs": "95367DB21A786D274F9EF3ED24C9210D29E2C2064B0F4CBD4407DEE3B7641266",
+    "experiments/ai-rpg-engine/scripts/check-boundary.mjs": "9328FE66925B4998918E4F44331B55406E1974E9A83667BD6A1253FE7297481F",
+    "experiments/ai-rpg-engine/scripts/check-parent-scope.mjs": "5CDB67D242249847738CB5A8B28628648E04BCDD6C8D3437390BC1E05E9AE9B0",
+    "experiments/ai-rpg-engine/scripts/verify-rpg01.mjs": "4314BAEFE352656C0B838E25A39DD04ADF658C95E25A877D083ACC4B396450C9",
+    "experiments/ai-rpg-engine/scripts/verify-rpg02.mjs": "09CD3424C0421FE361302AAC20BC87BAB9C15304087929DD35121337EFC32AB7",
+    "experiments/ai-rpg-engine/skills/rpg02-selected-content/SKILL.md": "B73529394E1A3870136A556192D90F21AE98A733FD0236AA4AB8A81E9F77C0FF",
+    "experiments/ai-rpg-engine/skills/rpg02-selected-content/references/browser-capture.md": "CE45748C9968DEE4DFA7BB33B4074C2ECE45806BA517AE91B8AE6503FB4DFB34",
+    "experiments/ai-rpg-engine/src/index.mjs": "FA473FA0B1A76DDF9237304D92F92BD2B3B3FB02CCF9F52E94CA39470237A857",
+    "experiments/ai-rpg-engine/tests/archive-bundle.test.mjs": "F97C8D30298869C9CDF34637C5268572DBD8489E3E0619A35CBD08ED48FD2F9D",
+    "experiments/ai-rpg-engine/tests/archive-zip.test.mjs": "9FEE12AAD3F6E56CCF98227A35ECA8BC4A0DC242ABC07D172D5052A5B5DA0FBB",
+    "experiments/ai-rpg-engine/tests/boundary.test.mjs": "BFA214716AC6BF0C576EE090177B3DD5CC0F47349127AED180661EBBFE3ADA60",
+    "experiments/ai-rpg-engine/tests/content-compile.test.mjs": "A0858A55BC75655D0190AED7FF970CC623CC643755B75284F1100AA3525E2C32",
+    "experiments/ai-rpg-engine/tests/content-e2e.test.mjs": "9E7EC5B80E5CD7E3D59E4A63718B0CE98430FD7138B749DFD63B5F3363AF2432",
+    "experiments/ai-rpg-engine/tests/content-extract.test.mjs": "650379E4D9CDF9B64038037097BAF8096E29DE43B8075B68C481D61413B00B85",
+    "experiments/ai-rpg-engine/tests/content-golden.test.mjs": "0F5177594086A56595D57953883B1F384FF7B6F9191CE6AD745C052F73C5106F",
+    "experiments/ai-rpg-engine/tests/content-player.test.mjs": "0B3C4B996F9FCE733E61D10051458B74DAD786084E4D22909432AE3313FE8095",
+    "experiments/ai-rpg-engine/tests/content-provenance.test.mjs": "D4E2F5FAB8C090DCAA7A162E1D08CE0D377F90D28C453602F606FB036C5C34A9",
+    "experiments/ai-rpg-engine/tests/content-source.test.mjs": "95785B25D458893D1F0DEEF2A3D7D640B8E251E234B0501881500B921B80C088",
+    "experiments/ai-rpg-engine/tests/contracts.test.mjs": "4FBD499C076BECD0D24C36F1EE423DD849919791995B55212AABE8BDE22B5979",
+    "experiments/ai-rpg-engine/tests/rpg02-boundary.test.mjs": "CB53B789EC1F270171AD7AE2D0D0F507401A352274B8F332FAAD32D96F41C97E",
+    "experiments/ai-rpg-engine/tests/worker-batch.test.mjs": "DED5B160EB2F49637E3428B63DFECAC6B720B56C14E04F94A76F4176841EE737",
+    "experiments/ai-rpg-engine/tests/worker-capture.test.mjs": "6623A9EA50492AE7E34EF275E0723F83142C098ABFC7AC8857A251FE1CCC9F2B",
+    "experiments/ai-rpg-engine/tests/world-source.test.mjs": "31478FA0859D8023FE85B508A61511E7553328F0A9A75EFD210ADE78872D55C6",
+    "experiments/ai-rpg-engine/tooling/archive.mjs": "03DA87F26389D06A046D52B13EEE94A32F0185284A485972CABDDA62C2ED0BC3",
+    "experiments/ai-rpg-engine/tooling/bundle.mjs": "C4CA9E147A289A06EC451F2A4F9233B863D2C7442B166EB55623D253B7E367E7",
+    "experiments/ai-rpg-engine/tooling/cli.mjs": "1C2799DEB27C09F1A60A5CE4FC43A77C4F453CBDBB35C32FCA50583F19F98E04",
+    "experiments/ai-rpg-engine/tooling/directory.mjs": "41C9216951C801F2DE808C5F482B503560A8AFD4637D97BAF7E13985E028357D",
+    "experiments/ai-rpg-engine/tooling/source-input.mjs": "1D413380B94091D94AD0C0AB488CDB7F7D9AD93C77AA901B58688A30BE64E10E",
+    "experiments/ai-rpg-engine/tooling/worker-batch.mjs": "19160F9CE97C5BF2B5D9B35073138EDD77F5BF2FEDF1D1B9F1C7D0240AE149B6",
+    "experiments/ai-rpg-engine/tooling/worker-capture.mjs": "F1CC297BB190A9AFADD510880DC2402E62F95E219DF4D832E55B1DE5EF2A4ED7",
+    "experiments/ai-rpg-engine/tooling/world-source.mjs": "83639980FB9F84708F70F552FCCD943AAA99BD3E4F5E2D9CAE1E250304E5EABB",
+    "docs/ai-rpg-experiment/PROBE_LEDGER.json": "79929F95E4D91053C85542947CBF9084ED0BB286C17B04FE3CA105CBB787A99E"
+  },
+  "mutableHistoricalFiles": [
+    "experiments/ai-rpg-engine/.gitignore",
+    "experiments/ai-rpg-engine/AGENTS.md",
+    "experiments/ai-rpg-engine/README.md",
+    "experiments/ai-rpg-engine/module-boundary.json",
+    "experiments/ai-rpg-engine/package.json",
+    "experiments/ai-rpg-engine/package-lock.json"
+  ],
+  "primaryCheckout": {
+    "head": "2434257fa9db630ac7b247f73010457f94192f8f",
+    "statusSha256": "EC8B7DEE86751C3F268BD42F64E87F9FF2EFF2F9D6468378E3A5839B65E8ACF6",
+    "statusEntries": 78,
+    "modifiedByThisTask": false,
+    "verificationContext": "default read-only context; elevated context cannot enumerate one pre-existing test scratch directory"
+  },
+  "gate": "RPG03_P0_BASELINE_OK",
+  "websiteMessageProbes": 0,
+  "providerDispatches": 0
+}

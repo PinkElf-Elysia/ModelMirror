@@ -8,6 +8,11 @@ from typing import Any
 import pytest
 
 from server.model_router.workload_control import PROVIDER_WORKLOAD_CONTRACT_VERSION
+from server.rag.chunking_receipt import (
+    CHUNKING_RECEIPT_VERSION,
+    candidate_namespace_fingerprint,
+    chunker_profile_fingerprint,
+)
 from server.rag.evaluation import (
     EvaluationPromotionError,
     KnowledgeEvaluationStore,
@@ -16,12 +21,97 @@ from server.rag.evaluation import (
     qualify_formal_execution_integrity,
     seal_execution_manifest,
     validate_formal_run_admission,
+    _checksum,
     _published_gold_checksum,
 )
 from server.rag.evaluation_executor import KnowledgeEvaluationExecutor
 
 
-def _target(version_id: str, *, mode: str = "vector") -> dict[str, Any]:
+def _synthetic_future_complete_content_index_contract() -> dict[str, Any]:
+    """Synthetic post-4C test double for isolated Formal engine mechanics.
+
+    This is not evidence that the current RagService, API, or index supports
+    Formal evaluation.
+    """
+
+    return {
+        "contract_version": "rag-content-index-contract-v1",
+        "chunker_contract_version": "rag-chunker-estimated-token-v1",
+        "lexical_contract_version": "sqlite-fts5-lexical-v2",
+        "parser_contract_version": "canonical-structured-parser-v2",
+        "status": "current",
+        "components": {
+            "chunker": "current",
+            "lexical": "current",
+            "parser": "current",
+        },
+    }
+
+
+def _current_r4a_content_index_contract() -> dict[str, Any]:
+    return {
+        "contract_version": "rag-content-index-contract-v1",
+        "chunker_contract_version": "rag-chunker-estimated-token-v1",
+        "lexical_contract_version": "sqlite-fts5-lexical-v1",
+        "parser_contract_version": "structured-local-parser-v1",
+        "status": "legacy_read_only",
+        "components": {
+            "chunker": "current",
+            "lexical": "legacy_read_only",
+            "parser": "legacy_read_only",
+        },
+    }
+
+
+def _chunker_profile() -> dict[str, Any]:
+    return {
+        "strategy": "recursive_estimated_token",
+        "chunk_size": 500,
+        "chunk_overlap": 50,
+        "size_unit": "estimated_tokens",
+        "token_estimator": "mixed_cjk_latin_v1",
+        "chunk_contract_version": "rag-chunker-estimated-token-v1",
+    }
+
+
+def _chunking_receipt(version_id: str = "baseline") -> dict[str, Any]:
+    chunker_profile = _chunker_profile()
+    return {
+        "receipt_version": CHUNKING_RECEIPT_VERSION,
+        "contract_version": "rag-chunker-estimated-token-v1",
+        "strategy": "recursive_estimated_token",
+        "size_unit": "estimated_tokens",
+        "token_estimator": "mixed_cjk_latin_v1",
+        "chunker_profile_fingerprint": chunker_profile_fingerprint(
+            chunker_profile
+        ),
+        "candidate_version_id": version_id,
+        "candidate_namespace_fingerprint": candidate_namespace_fingerprint(
+            f"kb-a::v3::{version_id}"
+        ),
+        "raw_candidate_count": 3,
+        "heading_block_count": 0,
+        "heading_prefix_truncated_count": 0,
+        "heading_overlap_policy": "structural_prefix_floor_v1",
+        "max_heading_prefix_tokens": 0,
+        "prefix_exceeds_configured_overlap_count": 0,
+        "max_effective_index_overlap_budget_tokens": 50,
+        "max_effective_context_overlap_budget_tokens": 50,
+        "generated_item_count": 0,
+        "generated_item_chunk_count": 0,
+        "generated_item_rejected_count": 0,
+        "generated_item_rejection_reasons": {},
+        "deduplicated_chunk_count": 0,
+        "final_chunk_count": 3,
+        "chunk_sequence_hash": "f" * 64,
+    }
+
+
+def _synthetic_future_formal_target(
+    version_id: str,
+    *,
+    mode: str = "vector",
+) -> dict[str, Any]:
     vector_required = mode in {"vector", "hybrid"}
     embedding = {
         "provider": "openai_compatible" if vector_required else "none",
@@ -42,6 +132,10 @@ def _target(version_id: str, *, mode: str = "vector") -> dict[str, Any]:
         "rerank_model": "",
         "rerank_top_n": 0,
     }
+    chunking_receipt = _chunking_receipt(version_id)
+    namespace_fingerprint = candidate_namespace_fingerprint(
+        f"kb-a::v3::{version_id}"
+    )
     return {
         "target_id": version_id,
         "version_id": version_id,
@@ -50,9 +144,21 @@ def _target(version_id: str, *, mode: str = "vector") -> dict[str, Any]:
             "schema_version": "rag-version-evidence-v1",
             "kb_id": "kb-a",
             "version_id": version_id,
+            "chunk_count": 3,
             "version_fingerprint": ("a" if version_id == "baseline" else "b") * 64,
             "configuration_fingerprint": ("1" if version_id == "baseline" else "2") * 64,
             "source_manifest_fingerprint": "d" * 64,
+            "chunking_receipt": chunking_receipt,
+            "chunking_receipt_fingerprint": _checksum(chunking_receipt),
+            "chunking_receipt_status": "current",
+            "chunker": {
+                "profile": _chunker_profile(),
+                "fingerprint": chunker_profile_fingerprint(
+                    _chunker_profile()
+                ),
+            },
+            "index_owner_version_id": version_id,
+            "candidate_namespace_fingerprint": namespace_fingerprint,
             "processor": {"mode": "general", "fingerprint": "c" * 64},
             "embedding": {"effective": embedding},
             "retrieval": retrieval,
@@ -73,6 +179,9 @@ def _target(version_id: str, *, mode: str = "vector") -> dict[str, Any]:
                     "backend": "sqlite_fts5",
                 },
             },
+            "content_index_contract": (
+                _synthetic_future_complete_content_index_contract()
+            ),
             "vector_backend_readiness": {
                 "configured_backend": "chroma",
                 "effective_backend": "chroma",
@@ -105,7 +214,7 @@ def _gold() -> dict[str, Any]:
     return gold
 
 
-def _admission(
+def _synthetic_future_formal_admission(
     monkeypatch: pytest.MonkeyPatch,
     *,
     mode: str = "vector",
@@ -114,7 +223,10 @@ def _admission(
         "server.rag.evaluation.qualify_formal_evidence",
         lambda _snapshot: {"qualified": True, "status": "qualified"},
     )
-    targets = [_target("baseline", mode=mode), _target("candidate", mode=mode)]
+    targets = [
+        _synthetic_future_formal_target("baseline", mode=mode),
+        _synthetic_future_formal_target("candidate", mode=mode),
+    ]
     admitted = validate_formal_run_admission(
         _gold(),
         targets,
@@ -123,7 +235,7 @@ def _admission(
     return targets, admitted
 
 
-def _integrity_run(
+def _synthetic_future_formal_run(
     targets: list[dict[str, Any]],
     admitted: dict[str, Any],
     case_result: dict[str, Any],
@@ -156,7 +268,9 @@ def _integrity_run(
     }
 
 
-def _runtime_projection(admitted: dict[str, Any]) -> dict[str, Any]:
+def _synthetic_future_runtime_projection(
+    admitted: dict[str, Any],
+) -> dict[str, Any]:
     targets: dict[str, dict[str, Any]] = {}
     for declared in admitted["execution_manifest"]["targets"]:
         version_id = str(declared["version_id"])
@@ -165,11 +279,25 @@ def _runtime_projection(admitted: dict[str, Any]) -> dict[str, Any]:
             "version_fingerprint": declared["version_fingerprint"],
             "configuration_fingerprint": declared["configuration_fingerprint"],
             "source_manifest_fingerprint": declared["source_manifest_fingerprint"],
+            "chunk_count": declared["chunk_count"],
             "corpus_snapshot_hash": declared["corpus_snapshot_hash"],
             "corpus_snapshot_status": "current",
             "embedding": deepcopy(declared["embedding"]),
             "retrieval": deepcopy(declared["retrieval"]),
             "index_contract": deepcopy(declared["index_contract"]),
+            "content_index_contract": deepcopy(
+                declared["content_index_contract"]
+            ),
+            "chunking_receipt": deepcopy(declared["chunking_receipt"]),
+            "chunking_receipt_fingerprint": declared[
+                "chunking_receipt_fingerprint"
+            ],
+            "chunking_receipt_status": declared["chunking_receipt_status"],
+            "chunker": deepcopy(declared["chunker"]),
+            "index_owner_version_id": declared["index_owner_version_id"],
+            "candidate_namespace_fingerprint": declared[
+                "candidate_namespace_fingerprint"
+            ],
             "vector_backend_readiness": deepcopy(
                 declared["vector_backend_readiness"]
             ),
@@ -180,10 +308,10 @@ def _runtime_projection(admitted: dict[str, Any]) -> dict[str, Any]:
     return {"kb_exists": True, "targets": targets}
 
 
-def test_formal_admission_rejects_degraded_hash_and_identity_mismatch(
+def test_synthetic_future_formal_admission_rejects_degraded_hash_and_identity_mismatch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    targets, _ = _admission(monkeypatch)
+    targets, _ = _synthetic_future_formal_admission(monkeypatch)
 
     hash_target = deepcopy(targets)
     hash_target[1]["version_evidence"]["embedding"]["effective"]["provider"] = "hash"
@@ -227,10 +355,254 @@ def test_formal_admission_rejects_degraded_hash_and_identity_mismatch(
         )
 
 
-def test_fulltext_formal_accepts_not_applicable_embedding_and_requires_zero_calls(
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda contract: contract.pop("contract_version"),
+        lambda contract: contract.update(
+            {"chunker_contract_version": "legacy-character-v1"}
+        ),
+        lambda contract: contract.update(
+            {"lexical_contract_version": "sqlite-fts5-lexical-v1"}
+        ),
+        lambda contract: contract.update(
+            {"parser_contract_version": "structured-local-parser-v1"}
+        ),
+        lambda contract: contract.update({"components": []}),
+    ],
+)
+def test_synthetic_future_formal_admission_rejects_forged_content_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    mutate,
+) -> None:
+    monkeypatch.setattr(
+        "server.rag.evaluation.qualify_formal_evidence",
+        lambda _snapshot: {"qualified": True, "status": "qualified"},
+    )
+    targets = [
+        _synthetic_future_formal_target("baseline"),
+        _synthetic_future_formal_target("candidate"),
+    ]
+    mutate(targets[1]["version_evidence"]["content_index_contract"])
+
+    with pytest.raises(ValueError, match="content-index contract"):
+        validate_formal_run_admission(
+            _gold(),
+            targets,
+            baseline_version_id="baseline",
+        )
+
+
+def test_synthetic_future_formal_preflight_rejects_resealed_legacy_content_contract(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    targets, admitted = _admission(monkeypatch, mode="fulltext")
+    targets, admitted = _synthetic_future_formal_admission(monkeypatch)
+    run = _synthetic_future_formal_run(
+        targets,
+        admitted,
+        {
+            "status": "completed",
+            "metrics": {},
+            "latency_ms": 1.0,
+            "provider_route_receipts": {},
+        },
+    )
+    run["case_ids"] = ["case-a"]
+    run["execution_manifest"]["targets"][0]["content_index_contract"][
+        "parser_contract_version"
+    ] = "structured-local-parser-v1"
+    run["execution_manifest"] = seal_execution_manifest(
+        run["execution_manifest"]
+    )
+
+    assert "formal_content_index_contract_invalid" in (
+        formal_execution_preflight_reasons(run)
+    )
+
+
+def test_synthetic_future_formal_chunking_receipt_is_bound_to_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    targets, admitted = _synthetic_future_formal_admission(monkeypatch)
+    declared = admitted["execution_manifest"]["targets"][0]
+    assert declared["chunking_receipt"] == _chunking_receipt()
+    assert declared["chunking_receipt_fingerprint"] == _checksum(
+        _chunking_receipt()
+    )
+    assert declared["chunker"]["fingerprint"] == _chunking_receipt()[
+        "chunker_profile_fingerprint"
+    ]
+    assert declared["index_owner_version_id"] == "baseline"
+    assert declared["candidate_namespace_fingerprint"] == _chunking_receipt()[
+        "candidate_namespace_fingerprint"
+    ]
+
+    missing = deepcopy(targets)
+    missing[1]["version_evidence"].pop("chunking_receipt")
+    with pytest.raises(ValueError, match="chunking receipt"):
+        validate_formal_run_admission(
+            _gold(), missing, baseline_version_id="baseline"
+        )
+
+    tampered = deepcopy(targets)
+    tampered[1]["version_evidence"]["chunking_receipt"][
+        "chunk_sequence_hash"
+    ] = "9" * 64
+    with pytest.raises(ValueError, match="chunking receipt"):
+        validate_formal_run_admission(
+            _gold(), tampered, baseline_version_id="baseline"
+        )
+
+    foreign_receipt = deepcopy(targets)
+    foreign_receipt[1]["version_evidence"]["chunking_receipt"] = deepcopy(
+        foreign_receipt[0]["version_evidence"]["chunking_receipt"]
+    )
+    foreign_receipt[1]["version_evidence"][
+        "chunking_receipt_fingerprint"
+    ] = _checksum(
+        foreign_receipt[1]["version_evidence"]["chunking_receipt"]
+    )
+    with pytest.raises(ValueError, match="chunking receipt"):
+        validate_formal_run_admission(
+            _gold(), foreign_receipt, baseline_version_id="baseline"
+        )
+
+    foreign_namespace = deepcopy(targets)
+    foreign_namespace[1]["version_evidence"]["chunking_receipt"][
+        "candidate_namespace_fingerprint"
+    ] = "9" * 64
+    foreign_namespace[1]["version_evidence"][
+        "chunking_receipt_fingerprint"
+    ] = _checksum(
+        foreign_namespace[1]["version_evidence"]["chunking_receipt"]
+    )
+    with pytest.raises(ValueError, match="chunking receipt"):
+        validate_formal_run_admission(
+            _gold(), foreign_namespace, baseline_version_id="baseline"
+        )
+
+    foreign_chunker = deepcopy(targets)
+    foreign_chunker[1]["version_evidence"]["chunking_receipt"][
+        "chunker_profile_fingerprint"
+    ] = "8" * 64
+    foreign_chunker[1]["version_evidence"][
+        "chunking_receipt_fingerprint"
+    ] = _checksum(
+        foreign_chunker[1]["version_evidence"]["chunking_receipt"]
+    )
+    with pytest.raises(ValueError, match="chunking receipt"):
+        validate_formal_run_admission(
+            _gold(), foreign_chunker, baseline_version_id="baseline"
+        )
+
+    run = _synthetic_future_formal_run(
+        targets,
+        admitted,
+        {
+            "status": "completed",
+            "metrics": {},
+            "latency_ms": 1.0,
+            "provider_route_receipts": {},
+        },
+    )
+    run["execution_manifest"]["targets"][0]["chunking_receipt"][
+        "chunk_sequence_hash"
+    ] = "8" * 64
+    run["execution_manifest"] = seal_execution_manifest(
+        run["execution_manifest"]
+    )
+    assert "formal_chunking_receipt_invalid" in formal_execution_preflight_reasons(
+        run
+    )
+
+    foreign_run = _synthetic_future_formal_run(
+        targets,
+        admitted,
+        {
+            "status": "completed",
+            "metrics": {},
+            "latency_ms": 1.0,
+            "provider_route_receipts": {},
+        },
+    )
+    manifest_targets = foreign_run["execution_manifest"]["targets"]
+    baseline_declared = next(
+        item for item in manifest_targets if item["version_id"] == "baseline"
+    )
+    candidate_declared = next(
+        item for item in manifest_targets if item["version_id"] == "candidate"
+    )
+    candidate_declared["chunking_receipt"] = deepcopy(
+        baseline_declared["chunking_receipt"]
+    )
+    candidate_declared["chunking_receipt_fingerprint"] = _checksum(
+        candidate_declared["chunking_receipt"]
+    )
+    foreign_run["execution_manifest"] = seal_execution_manifest(
+        foreign_run["execution_manifest"]
+    )
+    assert "formal_chunking_receipt_invalid" in (
+        formal_execution_preflight_reasons(foreign_run)
+    )
+
+
+def test_synthetic_future_chunking_receipt_drift_is_unreproducible(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    targets, admitted = _synthetic_future_formal_admission(monkeypatch)
+    runtime_projection = _synthetic_future_runtime_projection(admitted)
+    store = KnowledgeEvaluationStore(
+        tmp_path / "evaluations.json",
+        reproducibility_resolver=lambda _run: deepcopy(runtime_projection),
+    )
+    evaluation_set = store.create_set("kb-a", "chunk receipt lineage")
+    evaluation_version = {
+        **_gold(),
+        "eval_set_id": evaluation_set["eval_set_id"],
+        "source_revision": evaluation_set["revision"],
+    }
+    with store._lock:  # noqa: SLF001 - immutable published fixture.
+        data = store._read_unlocked()  # noqa: SLF001
+        data["versions"][evaluation_version["version_id"]] = deepcopy(
+            evaluation_version
+        )
+        store._write_unlocked(data)  # noqa: SLF001
+    run = store.create_run(
+        evaluation_set=evaluation_set,
+        evaluation_set_version=evaluation_version,
+        targets=targets,
+        baseline_version_id="baseline",
+        ks=[5],
+        gate_policy=store.get_gate_policy("kb-a"),
+        run_mode="formal",
+        execution_manifest=admitted["execution_manifest"],
+        comparability=admitted["comparability"],
+        evidence_qualification={"qualified": True},
+    )
+
+    current = store.get_run(run["run_id"])
+    assert current["reproducibility_status"] == "current", current[
+        "reproducibility_reasons"
+    ]
+    runtime_projection["targets"]["candidate"]["chunking_receipt"][
+        "chunk_sequence_hash"
+    ] = "9" * 64
+    drifted = store.get_run(run["run_id"])
+
+    assert drifted["reproducibility_status"] == "unreproducible"
+    assert "chunking_receipt_mismatch:candidate" in drifted[
+        "reproducibility_reasons"
+    ]
+
+
+def test_synthetic_future_fulltext_formal_requires_zero_embedding_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    targets, admitted = _synthetic_future_formal_admission(
+        monkeypatch,
+        mode="fulltext",
+    )
     case_result = {
         "status": "succeeded",
         "execution_mode": "local_non_model",
@@ -248,7 +620,7 @@ def test_fulltext_formal_accepts_not_applicable_embedding_and_requires_zero_call
             "promotion_ineligibility_reasons": [],
         },
     }
-    run = _integrity_run(targets, admitted, case_result)
+    run = _synthetic_future_formal_run(targets, admitted, case_result)
 
     assert qualify_formal_execution_integrity(run)["qualified"] is True
     run["case_results"]["candidate"]["case-a"][
@@ -275,7 +647,7 @@ def test_fulltext_formal_accepts_not_applicable_embedding_and_requires_zero_call
     assert "fulltext_embedding_call_detected" in rejected["reason_codes"]
 
 
-def test_fulltext_formal_allows_verified_rerank_without_embedding(
+def test_synthetic_future_fulltext_formal_allows_verified_rerank(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
@@ -283,8 +655,8 @@ def test_fulltext_formal_allows_verified_rerank_without_embedding(
         lambda _snapshot: {"qualified": True, "status": "qualified"},
     )
     targets = [
-        _target("baseline", mode="fulltext"),
-        _target("candidate", mode="fulltext"),
+        _synthetic_future_formal_target("baseline", mode="fulltext"),
+        _synthetic_future_formal_target("candidate", mode="fulltext"),
     ]
     for target in targets:
         target["version_evidence"]["retrieval"].update(
@@ -298,7 +670,7 @@ def test_fulltext_formal_allows_verified_rerank_without_embedding(
     admitted = validate_formal_run_admission(
         _gold(), targets, baseline_version_id="baseline"
     )
-    run = _integrity_run(
+    run = _synthetic_future_formal_run(
         targets,
         admitted,
         {
@@ -341,10 +713,10 @@ def test_fulltext_formal_allows_verified_rerank_without_embedding(
     assert qualify_formal_execution_integrity(run)["qualified"] is True
 
 
-def test_vector_formal_rejects_provider_fallback_and_actual_model_tampering(
+def test_synthetic_future_vector_formal_rejects_provider_identity_drift(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    targets, admitted = _admission(monkeypatch)
+    targets, admitted = _synthetic_future_formal_admission(monkeypatch)
     version_id = "candidate"
     case_result = {
         "status": "completed",
@@ -380,7 +752,7 @@ def test_vector_formal_rejects_provider_fallback_and_actual_model_tampering(
             "promotion_ineligibility_reasons": [],
         },
     }
-    run = _integrity_run(targets, admitted, case_result)
+    run = _synthetic_future_formal_run(targets, admitted, case_result)
 
     assert qualify_formal_execution_integrity(run)["qualified"] is True
     candidate_case = run["case_results"][version_id]["case-a"]
@@ -398,10 +770,13 @@ def test_vector_formal_rejects_provider_fallback_and_actual_model_tampering(
     assert f"provider_fallback_used:{version_id}:case-a" in fallback["reason_codes"]
 
 
-def test_vector_formal_accepts_valid_openrouter_provider_local_model(
+def test_synthetic_future_vector_formal_accepts_valid_provider_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    targets = [_target("baseline"), _target("candidate")]
+    targets = [
+        _synthetic_future_formal_target("baseline"),
+        _synthetic_future_formal_target("candidate"),
+    ]
     for target in targets:
         target["version_evidence"]["embedding"]["effective"][
             "model"
@@ -446,7 +821,7 @@ def test_vector_formal_accepts_valid_openrouter_provider_local_model(
             "promotion_ineligibility_reasons": [],
         },
     }
-    run = _integrity_run(targets, admitted, case_result)
+    run = _synthetic_future_formal_run(targets, admitted, case_result)
     assert qualify_formal_execution_integrity(run)["qualified"] is True
 
 
@@ -637,7 +1012,7 @@ class _FakeService:
 
 
 @pytest.mark.asyncio
-async def test_formal_uses_version_top_k_and_persists_top_level_receipts(
+async def test_synthetic_future_formal_executor_uses_version_top_k_and_receipts(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -678,8 +1053,8 @@ async def test_formal_uses_version_top_k_and_persists_top_level_receipts(
             },
         }
     )
-    targets, admitted = _admission(monkeypatch)
-    runtime_projection = _runtime_projection(admitted)
+    targets, admitted = _synthetic_future_formal_admission(monkeypatch)
+    runtime_projection = _synthetic_future_runtime_projection(admitted)
     store = KnowledgeEvaluationStore(
         tmp_path / "evaluations.json",
         reproducibility_resolver=lambda _run: deepcopy(runtime_projection),
@@ -762,6 +1137,9 @@ def test_diagnostic_top_k_override_is_recorded_as_experimental_variable(
                 "target_id": "candidate",
                 "version_id": "candidate",
                 "retrieval": {"top_k": 2},
+                "version_evidence": {
+                    "content_index_contract": _current_r4a_content_index_contract(),
+                },
             }
         ],
         baseline_version_id=None,
@@ -775,6 +1153,9 @@ def test_diagnostic_top_k_override_is_recorded_as_experimental_variable(
             "retrieval_override": {"top_k": 2},
         }
     ]
+    assert run["execution_manifest"]["targets"][0][
+        "content_index_contract"
+    ] == _current_r4a_content_index_contract()
 
 
 @pytest.mark.asyncio
@@ -890,8 +1271,13 @@ def test_projection_recomputes_published_gold_checksum(tmp_path: Path) -> None:
     assert "published_gold_checksum_invalid" in projected["reproducibility_reasons"]
 
 
-def _fulltext_integrity_run(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
-    targets, admitted = _admission(monkeypatch, mode="fulltext")
+def _synthetic_future_fulltext_formal_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> dict[str, Any]:
+    targets, admitted = _synthetic_future_formal_admission(
+        monkeypatch,
+        mode="fulltext",
+    )
     case = {
         "status": "completed",
         "execution_mode": "local_non_model",
@@ -911,37 +1297,37 @@ def _fulltext_integrity_run(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             "promotion_ineligibility_reasons": [],
         },
     }
-    return _integrity_run(targets, admitted, case)
+    return _synthetic_future_formal_run(targets, admitted, case)
 
 
-def test_formal_no_candidates_skips_rerank_without_being_fail_open(
+def test_synthetic_future_formal_no_candidates_skips_rerank(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    run = _fulltext_integrity_run(monkeypatch)
+    run = _synthetic_future_fulltext_formal_run(monkeypatch)
     for target in run["execution_manifest"]["targets"]:
         target["rerank"] = {"enabled": True, "provider": "api", "model": "reranker", "top_n": 2}
     run["execution_manifest"] = seal_execution_manifest(run["execution_manifest"])
     assert qualify_formal_execution_integrity(run)["qualified"] is True
 
 
-def test_formal_rejects_top_k_drift_and_empty_target_ledger(
+def test_synthetic_future_formal_rejects_top_k_and_target_ledger_drift(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    run = _fulltext_integrity_run(monkeypatch)
+    run = _synthetic_future_fulltext_formal_run(monkeypatch)
     assert qualify_formal_execution_integrity(run)["qualified"] is True
     run["case_results"]["candidate"]["case-a"]["retrieval_receipt"]["top_k"] = 10
     assert qualify_formal_execution_integrity(run)["qualified"] is False
     run["targets"] = []
     assert qualify_formal_execution_integrity(run)["qualified"] is False
-    missing_results = _fulltext_integrity_run(monkeypatch)
+    missing_results = _synthetic_future_fulltext_formal_run(monkeypatch)
     missing_results["target_results"] = []
     assert qualify_formal_execution_integrity(missing_results)["qualified"] is False
 
 
-def test_formal_rejects_unconfigured_extra_rerank_call(
+def test_synthetic_future_formal_rejects_unconfigured_rerank_call(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    targets, admitted = _admission(monkeypatch)
+    targets, admitted = _synthetic_future_formal_admission(monkeypatch)
     case = {
         "status": "completed",
         "execution_mode": "managed",
@@ -985,7 +1371,7 @@ def test_formal_rejects_unconfigured_extra_rerank_call(
         },
     }
     integrity = qualify_formal_execution_integrity(
-        _integrity_run(targets, admitted, case)
+        _synthetic_future_formal_run(targets, admitted, case)
     )
     assert integrity["qualified"] is False
     assert any(
@@ -994,10 +1380,10 @@ def test_formal_rejects_unconfigured_extra_rerank_call(
     )
 
 
-def test_formal_accepts_actual_managed_rerank_protocol_receipt(
+def test_synthetic_future_formal_accepts_managed_rerank_receipt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    run = _fulltext_integrity_run(monkeypatch)
+    run = _synthetic_future_fulltext_formal_run(monkeypatch)
     for target in run["execution_manifest"]["targets"]:
         target["rerank"] = {"enabled": True, "provider": "api", "model": "reranker", "top_n": 2}
     run["execution_manifest"] = seal_execution_manifest(run["execution_manifest"])
@@ -1064,20 +1450,20 @@ def test_runtime_code_fingerprint_tracks_model_router_execution_dependencies(
     assert first != second
 
 
-def test_formal_rejects_duplicate_internal_target_ids(
+def test_synthetic_future_formal_rejects_duplicate_target_ids(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    run = _fulltext_integrity_run(monkeypatch)
+    run = _synthetic_future_fulltext_formal_run(monkeypatch)
     run["targets"][1]["target_id"] = run["targets"][0]["target_id"]
 
     assert "formal_target_ledger_invalid" in formal_execution_preflight_reasons(run)
     assert qualify_formal_execution_integrity(run)["qualified"] is False
 
 
-def test_formal_rejects_boolean_provider_call_count(
+def test_synthetic_future_formal_rejects_boolean_provider_call_count(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    run = _fulltext_integrity_run(monkeypatch)
+    run = _synthetic_future_fulltext_formal_run(monkeypatch)
     for target in run["execution_manifest"]["targets"]:
         target["rerank"] = {
             "enabled": True,
@@ -1128,10 +1514,10 @@ def test_formal_rejects_boolean_provider_call_count(
     )
 
 
-def test_fulltext_formal_rejects_fabricated_zero_call_provider_receipt(
+def test_synthetic_future_fulltext_rejects_fabricated_zero_call_receipt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    run = _fulltext_integrity_run(monkeypatch)
+    run = _synthetic_future_fulltext_formal_run(monkeypatch)
     for case_map in run["case_results"].values():
         case_map["case-a"]["provider_route_receipts"] = {
             "contract_version": "fabricated-contract",
@@ -1151,11 +1537,11 @@ def test_fulltext_formal_rejects_fabricated_zero_call_provider_receipt(
 
 
 @pytest.mark.parametrize("fabricated_receipt", [{}, "invalid-receipt"])
-def test_fulltext_formal_rejects_any_present_provider_receipt(
+def test_synthetic_future_fulltext_rejects_present_provider_receipt(
     monkeypatch: pytest.MonkeyPatch,
     fabricated_receipt: object,
 ) -> None:
-    run = _fulltext_integrity_run(monkeypatch)
+    run = _synthetic_future_fulltext_formal_run(monkeypatch)
     for case_map in run["case_results"].values():
         case_map["case-a"]["provider_route_receipts"] = fabricated_receipt
 
@@ -1167,10 +1553,10 @@ def test_fulltext_formal_rejects_any_present_provider_receipt(
     )
 
 
-def test_managed_formal_requires_reason_code_array(
+def test_synthetic_future_managed_formal_requires_reason_codes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    targets, admitted = _admission(monkeypatch)
+    targets, admitted = _synthetic_future_formal_admission(monkeypatch)
     case = {
         "status": "completed",
         "execution_mode": "managed",
@@ -1206,7 +1592,7 @@ def test_managed_formal_requires_reason_code_array(
     }
 
     integrity = qualify_formal_execution_integrity(
-        _integrity_run(targets, admitted, case)
+        _synthetic_future_formal_run(targets, admitted, case)
     )
     assert integrity["qualified"] is False
     assert any(

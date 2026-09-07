@@ -1,0 +1,139 @@
+{
+  "schemaVersion": 1,
+  "round": "RPG-03",
+  "generatedFrom": "package-lock.json",
+  "moduleVersion": "0.3.0",
+  "node": "24.18.0",
+  "npm": "11.16.0",
+  "installScriptsEnabled": false,
+  "directDependencies": {
+    "ajv": "8.20.0",
+    "parse5": "8.0.1",
+    "acorn": "8.18.0",
+    "yauzl": "3.4.0",
+    "fflate": "0.8.3"
+  },
+  "packages": [
+    {
+      "name": "acorn",
+      "lockPath": "node_modules/acorn",
+      "version": "8.18.0",
+      "license": "MIT",
+      "integrity": "sha512-lGq+9yr1/GuAWaVYIHRjvvySG5/4VfKIvC8EWxStPdcDh/Ka7FG3twP6v4d5BkravUilhIAsG4Qj83t02LWUPQ==",
+      "resolved": "https://registry.npmjs.org/acorn/-/acorn-8.18.0.tgz",
+      "licenseFile": "node_modules/acorn/LICENSE",
+      "licenseSha256": "76A876CF886FF9BE2A8B5E2E86514FED06223C8C9F0C1E9EE9606E93841E00B7"
+    },
+    {
+      "name": "ajv",
+      "lockPath": "node_modules/ajv",
+      "version": "8.20.0",
+      "license": "MIT",
+      "integrity": "sha512-Thbli+OlOj+iMPYFBVBfJ3OmCAnaSyNn4M1vz9T6Gka5Jt9ba/HIR56joy65tY6kx/FCF5VXNB819Y7/GUrBGA==",
+      "resolved": "https://registry.npmjs.org/ajv/-/ajv-8.20.0.tgz",
+      "licenseFile": "node_modules/ajv/LICENSE",
+      "licenseSha256": "A05350A88E318E4F5F2C2A1FF1E2E88DAA4DD38E6E78B71CCCAE422BDC762CC3"
+    },
+    {
+      "name": "entities",
+      "lockPath": "node_modules/entities",
+      "version": "8.0.0",
+      "license": "BSD-2-Clause",
+      "integrity": "sha512-zwfzJecQ/Uej6tusMqwAqU/6KL2XaB2VZ2Jg54Je6ahNBGNH6Ek6g3jjNCF0fG9EWQKGZNddNjU5F1ZQn/sBnA==",
+      "resolved": "https://registry.npmjs.org/entities/-/entities-8.0.0.tgz",
+      "licenseFile": "node_modules/entities/LICENSE",
+      "licenseSha256": "CB992345949CCD6E8394B2CD6C465F7B897C864F845937DBF64E8997F389E164"
+    },
+    {
+      "name": "fast-deep-equal",
+      "lockPath": "node_modules/fast-deep-equal",
+      "version": "3.1.3",
+      "license": "MIT",
+      "integrity": "sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q==",
+      "resolved": "https://registry.npmjs.org/fast-deep-equal/-/fast-deep-equal-3.1.3.tgz",
+      "licenseFile": "node_modules/fast-deep-equal/LICENSE",
+      "licenseSha256": "7BF9B2DE73A6B356761C948D0E9EEB4BE6C1270BD04C79CD489C1E400FFDFC1A"
+    },
+    {
+      "name": "fast-uri",
+      "lockPath": "node_modules/fast-uri",
+      "version": "3.1.7",
+      "license": "BSD-3-Clause",
+      "integrity": "sha512-dOvZVzjdZdz7phd9v6jCbwxrBW3fK6n8Rc0CtdmM4bumzMnxywBYhuph6J819RRw/ku+rLbelwfMunktuzVVHg==",
+      "resolved": "https://registry.npmjs.org/fast-uri/-/fast-uri-3.1.7.tgz",
+      "licenseFile": "node_modules/fast-uri/LICENSE",
+      "licenseSha256": "B010B0DFDFDB23D7396E03B82CD4621FC9BB8F95D6B0AEA70B9C24E12074C786"
+    },
+    {
+      "name": "fflate",
+      "lockPath": "node_modules/fflate",
+      "version": "0.8.3",
+      "license": "MIT",
+      "integrity": "sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA==",
+      "resolved": "https://registry.npmjs.org/fflate/-/fflate-0.8.3.tgz",
+      "licenseFile": "node_modules/fflate/LICENSE",
+      "licenseSha256": "0A1DF3A083D0C010560AA342E87959C8C1070E6FD54545741F083F22D0C8B551"
+    },
+    {
+      "name": "json-schema-traverse",
+      "lockPath": "node_modules/json-schema-traverse",
+      "version": "1.0.0",
+      "license": "MIT",
+      "integrity": "sha512-NM8/P9n3XjXhIZn1lLhkFaACTOURQXjWhV4BA/RnOv8xvgqtqpAX9IO4mRQxSx1Rlo4tqzeqb0sOlruaOy3dug==",
+      "resolved": "https://registry.npmjs.org/json-schema-traverse/-/json-schema-traverse-1.0.0.tgz",
+      "licenseFile": "node_modules/json-schema-traverse/LICENSE",
+      "licenseSha256": "7BF9B2DE73A6B356761C948D0E9EEB4BE6C1270BD04C79CD489C1E400FFDFC1A"
+    },
+    {
+      "name": "parse5",
+      "lockPath": "node_modules/parse5",
+      "version": "8.0.1",
+      "license": "MIT",
+      "integrity": "sha512-z1e/HMG90obSGeidlli3hj7cbocou0/wa5HacvI3ASx34PecNjNQeaHNo5WIZpWofN9kgkqV1q5YvXe3F0FoPw==",
+      "resolved": "https://registry.npmjs.org/parse5/-/parse5-8.0.1.tgz",
+      "licenseFile": "node_modules/parse5/LICENSE",
+      "licenseSha256": "8C535800331E1E4439835555B3F9EDC7FE9DEE2FAB0D8BBBD5A982E8B8343D4D"
+    },
+    {
+      "name": "pend",
+      "lockPath": "node_modules/pend",
+      "version": "1.2.0",
+      "license": "MIT",
+      "integrity": "sha512-F3asv42UuXchdzt+xXqfW1OGlVBe+mxa2mqI0pg5yAHZPvFmY3Y6drSf/GQ1A86WgWEN9Kzh/WrgKa6iGcHXLg==",
+      "resolved": "https://registry.npmjs.org/pend/-/pend-1.2.0.tgz",
+      "licenseFile": "node_modules/pend/LICENSE",
+      "licenseSha256": "7E64ACFFCB0D20D33F5A86949FFD4A99AE045B10C7332A9C3A58635876C16880"
+    },
+    {
+      "name": "require-from-string",
+      "lockPath": "node_modules/require-from-string",
+      "version": "2.0.2",
+      "license": "MIT",
+      "integrity": "sha512-Xf0nWe6RseziFMu+Ap9biiUbmplq6S9/p+7w7YXP/JBHhrUDDUhwa+vANyubuqfZWTveU//DYVGsDG7RKL/vEw==",
+      "resolved": "https://registry.npmjs.org/require-from-string/-/require-from-string-2.0.2.tgz",
+      "licenseFile": "node_modules/require-from-string/license",
+      "licenseSha256": "6EE0FEB1F6EF996FF5A68600F8CF98909CF412D39EF3CDCEAEFD87D636FA1B7F"
+    },
+    {
+      "name": "yauzl",
+      "lockPath": "node_modules/yauzl",
+      "version": "3.4.0",
+      "license": "MIT",
+      "integrity": "sha512-jIH9yLR9wqr0wOS0TpBvo/g/2UgZH5qePVbjgRliiF0BYvOZyaBknKsF+x9Iht0O6sqgnB93rCICdOZFecJuDw==",
+      "resolved": "https://registry.npmjs.org/yauzl/-/yauzl-3.4.0.tgz",
+      "licenseFile": "node_modules/yauzl/LICENSE",
+      "licenseSha256": "B303783D5EB7CA50B853FFA5F145E4E7998FAB339831D848F507CA6CD970577A"
+    }
+  ],
+  "notes": [
+    "Private UNLICENSED module; licenses below describe dependencies only.",
+    "Prior RPG01 dependency versions and integrity values are preserved.",
+    "Acorn prepare and package publisher build scripts are not installation authority; all lifecycle scripts disabled by module .npmrc and npm ci --ignore-scripts.",
+    "Static parsing and bounded archive tooling only; no target-site runtime or AGPL platform implementation reused.",
+    "RPG-03 preserves all 11 dependency versions, integrity values and license hashes. npm generated the lockfile offline with lifecycle scripts disabled."
+  ],
+  "lockSha256": "77E5D972C6F77090E68B54F4B04D114F4F431F5999786D383A6ECACE1EDD3642",
+  "noNewDependencies": true,
+  "installationNetworkUsed": false,
+  "runtimeNetworkAuthority": "Only the explicitly configured ModelMirror HTTP adapter; no dependency has independent Provider authority."
+}

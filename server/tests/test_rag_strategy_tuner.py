@@ -20,13 +20,19 @@ from server.rag.embedder import EmbeddingClient
 from server.rag.evaluation import KnowledgeEvaluationStore, _published_gold_checksum
 from server.rag.evaluation_executor import KnowledgeEvaluationExecutor
 from server.rag.pipeline_executor import KnowledgePipelineExecutor
-from server.rag.rag_service import PipelineJobStateError, RagService
+from server.rag.rag_service import (
+    PipelineContentContractError,
+    PipelineJobStateError,
+    RagService,
+)
+from server.rag.retrieval import RetrievalCandidate, select_v3_candidates
 from server.rag.strategy_tuner import (
     KNOWN_WINNER_FIXTURE_VERSION,
     RagStrategyTuner,
     RagStrategyTuningStore,
     apply_optimization_gate,
     calibrate_threshold,
+    chunker_candidates,
     improvement_summary,
     mark_semantic_duplicate_candidates,
     paired_statistical_validation,
@@ -43,6 +49,57 @@ from server.xpert_runtime.run_registry import RunRegistry
 KNOWN_WINNER_FIXTURE_PATH = (
     Path(__file__).parent / "fixtures" / "rag_strategy_tuner_known_winners.json"
 )
+
+
+def _synthetic_future_complete_content_index_contract() -> dict[str, object]:
+    """Test double for post-4C tuner behavior, not current readiness evidence."""
+
+    return {
+        "contract_version": "rag-content-index-contract-v1",
+        "chunker_contract_version": "rag-chunker-estimated-token-v1",
+        "lexical_contract_version": "sqlite-fts5-lexical-v2",
+        "parser_contract_version": "canonical-structured-parser-v2",
+        "status": "current",
+        "components": {
+            "chunker": "current",
+            "lexical": "current",
+            "parser": "current",
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    "strategy",
+    ["recursive_estimated_token", "parent_child_estimated_token"],
+)
+def test_tuner_does_not_search_estimated_token_chunk_budgets(strategy: str) -> None:
+    base = {
+        "strategy": strategy,
+        "chunk_size": 500,
+        "chunk_overlap": 50,
+        "parent_chunk_size": 1500,
+        "parent_chunk_overlap": 100,
+        "child_chunk_size": 400,
+        "child_chunk_overlap": 50,
+        "size_unit": "estimated_tokens",
+        "token_estimator": "mixed_cjk_latin_v1",
+        "chunk_contract_version": "rag-chunker-estimated-token-v1",
+    }
+    recommendation = {
+        "profiles": [
+            {
+                "chunker": {
+                    **base,
+                    "chunk_size": 375,
+                    "parent_chunk_size": 1125,
+                }
+            }
+        ]
+    }
+
+    assert chunker_candidates(
+        {"base_chunker": base, "router_recommendation": recommendation}
+    ) == [base]
 
 
 def test_v3_preflight_keeps_tuning_and_threshold_calibration_sets_separate(
@@ -292,7 +349,11 @@ async def _base_version(
             "# Exceptions\n\nEmergency exceptions expire after seven days.\n"
         ).encode("utf-8"),
     )
-    draft = service.get_pipeline_draft(kb["id"])
+    draft = service.update_pipeline_draft(
+        kb["id"],
+        {},
+        retrieval_profile={"mode": "vector", "top_k": 5},
+    )
     job = service.create_pipeline_job(
         kb["id"],
         draft_version=draft["version"],
@@ -375,7 +436,7 @@ async def _published_set_for_version(
         version_id,
         "control MM-2042 owner reviewer dated audit record",
         top_k=5,
-        retrieval={"mode": "fulltext", "top_k": 5},
+        retrieval={"mode": "vector", "top_k": 5},
         generate_answer=False,
     )
     source = retrieval["sources"][0]
@@ -1461,9 +1522,15 @@ def test_optimization_gate_defers_single_query_latency_to_holdout() -> None:
 @pytest.mark.asyncio
 async def test_trial_version_is_hidden_unactivatable_and_cleanup_preserves_draft(
     tuning_runtime,
+    monkeypatch,
 ) -> None:
     _, service, executor, _, _ = tuning_runtime
     kb_id, _, base_version_id = await _base_version(service, executor)
+    monkeypatch.setattr(
+        service,
+        "_content_index_contract_for_version",
+        lambda _version: _synthetic_future_complete_content_index_contract(),
+    )
     base = service.get_pipeline_version(base_version_id)
     base_job = service.get_pipeline_job(base["job_id"])
     base_chunker = base_job["config_snapshot"]["stages"]["stage_chunker"]
@@ -1473,7 +1540,7 @@ async def test_trial_version_is_hidden_unactivatable_and_cleanup_preserves_draft
         kb_id,
         base_version_id=base_version_id,
         chunker_profile=changed_chunker,
-        retrieval_profile={"mode": "fulltext", "top_k": 10},
+        retrieval_profile={"mode": "vector", "top_k": 10},
         tuning_run_id="ragtune-test",
         trial=True,
     )
@@ -1489,7 +1556,10 @@ async def test_trial_version_is_hidden_unactivatable_and_cleanup_preserves_draft
         service.activate_pipeline_version(trial_version_id)
     assert service.get_pipeline_draft(kb_id) == draft_before
 
-    service.cleanup_strategy_tuning_trial_version(trial_version_id)
+    service.cleanup_strategy_tuning_trial_version(
+        trial_version_id,
+        expected_run_id="ragtune-test",
+    )
     assert trial["job_id"] not in service._read_metadata()["pipeline_jobs"]
 
 
@@ -1529,7 +1599,18 @@ async def test_tuner_materializes_ready_candidate_without_switching_active_versi
 ) -> None:
     _, service, executor, evaluation_store, tuner = tuning_runtime
     kb_id, _, base_version_id = await _base_version(service, executor)
-    service.activate_pipeline_version(base_version_id)
+    monkeypatch.setattr(
+        service,
+        "_content_index_contract_for_version",
+        lambda _version: _synthetic_future_complete_content_index_contract(),
+    )
+    with service._metadata_lock:  # noqa: SLF001 - model a previously active rollback target.
+        metadata = service._read_metadata_unlocked()  # noqa: SLF001
+        base_version = metadata["pipeline_versions"][base_version_id]
+        base_version["status"] = "active"
+        base_version["activated_at"] = 1.0
+        metadata["pipeline_active_versions"][kb_id] = base_version_id
+        service._write_metadata_unlocked(metadata)  # noqa: SLF001
     eval_set_id, eval_version = await _published_set_for_version(
         service, evaluation_store, kb_id, base_version_id
     )
@@ -1551,7 +1632,7 @@ async def test_tuner_materializes_ready_candidate_without_switching_active_versi
         "chunker": stored["snapshot"]["base_chunker"],
         "retrieval": {
             **stored["snapshot"]["base_retrieval"],
-            "mode": "fulltext",
+            "mode": "vector",
             "top_k": 5,
             "rerank_enabled": False,
             "rerank_provider": "none",
@@ -1613,6 +1694,33 @@ async def test_tuner_materializes_ready_candidate_without_switching_active_versi
     } == version_ids_before
 
 
+@pytest.mark.asyncio
+async def test_current_r4a_content_contract_blocks_strategy_tuning(
+    tuning_runtime,
+) -> None:
+    _, service, executor, _, _ = tuning_runtime
+    kb_id, _, base_version_id = await _base_version(service, executor)
+
+    with pytest.raises(PipelineContentContractError) as blocked:
+        service.create_strategy_tuning_pipeline_job(
+            kb_id,
+            base_version_id=base_version_id,
+            chunker_profile={
+                **service.get_pipeline_job(
+                    service.get_pipeline_version(base_version_id)["job_id"]
+                )["config_snapshot"]["stages"]["stage_chunker"],
+                "chunk_size": 500,
+                "chunk_overlap": 50,
+            },
+            retrieval_profile={"mode": "vector", "top_k": 10},
+            tuning_run_id="ragtune-r4a-contract-block",
+            trial=True,
+        )
+
+    assert blocked.value.code == "rag_content_contract_legacy_read_only"
+    assert "complete current content-index contract" in str(blocked.value)
+
+
 def test_known_winner_fixture_contract_is_versioned_and_project_owned() -> None:
     payload = json.loads(KNOWN_WINNER_FIXTURE_PATH.read_text(encoding="utf-8"))
 
@@ -1625,133 +1733,212 @@ def test_known_winner_fixture_contract_is_versioned_and_project_owned() -> None:
     }
 
 
-@pytest.mark.asyncio
-async def test_known_winner_threshold_recovery_runs_real_search_and_materializes(
-    tuning_runtime,
-) -> None:
-    _, service, executor, evaluation_store, tuner = tuning_runtime
+def test_synthetic_future_engine_only_generated_parent_threshold_recovery() -> None:
+    """Algorithm control only; this is not runtime or promotion evidence."""
+
     scenario = _known_winner_fixture("threshold_recovery")
-    kb_id, _, base_version_id = await _known_winner_base_version(
-        service, executor, scenario
-    )
-    service.activate_pipeline_version(base_version_id)
-    _, negative_ceiling = await _known_winner_score_boundary(
-        service, base_version_id, scenario
-    )
-    (
-        tuning_set_id,
-        tuning_version,
-        calibration_set_id,
-        calibration_version,
-    ) = await _known_winner_evaluation_set(
-        service, evaluation_store, kb_id, base_version_id, scenario
-    )
+    generated = [
+        RetrievalCandidate(
+            chunk_id="generated-primary",
+            doc_id="policy-doc",
+            document_name="policy.md",
+            matched_text="MM-2042 owner reviewer audit",
+            context_text="MM-2042 owner reviewer audit",
+            parent_chunk_id="generated-parent",
+            generated_item=True,
+            fused_score=0.9,
+        ),
+        RetrievalCandidate(
+            chunk_id="generated-sibling",
+            doc_id="policy-doc",
+            document_name="policy.md",
+            matched_text="MM-2042 cobalt ledger quartz seal",
+            context_text="MM-2042 cobalt ledger quartz seal",
+            parent_chunk_id="generated-parent",
+            generated_item=True,
+            fused_score=0.8,
+        ),
+        RetrievalCandidate(
+            chunk_id="corpus-near-noise",
+            doc_id="noise-doc",
+            document_name="noise.md",
+            matched_text="MM-2042 unrelated neighboring control",
+            context_text="MM-2042 unrelated neighboring control",
+            source_block_id="noise-block",
+            fused_score=0.2,
+        ),
+    ]
 
-    created = tuner.create_run(
+    diversity = select_v3_candidates(
+        generated,
+        top_k=5,
+        max_chunks_per_document=2,
+    )
+    assert diversity.candidate_counts["threshold"] == 3
+    assert diversity.candidate_counts["source_block_dedup"] == 2
+    assert [item.chunk_id for item in diversity.items] == [
+        "generated-primary",
+        "corpus-near-noise",
+    ]
+
+    positive_cases = [
         {
-            "kb_id": kb_id,
-            "base_version_id": base_version_id,
-            "tuning_eval_set_id": tuning_set_id,
-            "tuning_eval_set_version": tuning_version,
-            "calibration_eval_set_id": calibration_set_id,
-            "calibration_eval_set_version": calibration_version,
-            "objective": "quality",
-            "max_chunk_indexes": 1,
-            "max_retrieval_trials": 1,
-            "max_finalists": 1,
-            "seed": 42,
+            "case_id": f"positive-{index}",
+            "expected_refs": [{"document_id": "policy-doc"}],
+            "expected_no_result": False,
         }
+        for index in range(int(scenario["positive_case_count"]))
+    ]
+    negative_cases = [
+        {
+            "case_id": f"negative-{index}",
+            "expected_refs": [],
+            "expected_no_result": True,
+        }
+        for index in range(int(scenario["hard_negative_case_count"]))
+    ]
+    ranking = [
+        {
+            "chunk_id": item.chunk_id,
+            "document_id": item.doc_id,
+            "document_name": item.document_name,
+            "fused_score": item.fused_score,
+        }
+        for item in diversity.items
+    ]
+    calibrated = calibrate_threshold(
+        {
+            "cases": [*positive_cases, *negative_cases],
+            "case_results": [
+                {
+                    "case_id": case["case_id"],
+                    "ranking": (
+                        ranking
+                        if not case["expected_no_result"]
+                        else [ranking[-1]]
+                    ),
+                    "latency_ms": 1,
+                }
+                for case in [*positive_cases, *negative_cases]
+            ],
+        },
+        {"mode": "fulltext", "top_k": 5, "score_threshold": 0},
     )
-    assert await tuner.run_once() is True
 
-    completed = tuner.store.get_run(created["run_id"])
-    assert completed["status"] == scenario["expected_outcome"], completed
-    winner = completed["winner"]
-    assert winner["retrieval"]["mode"] == "fulltext"
-    assert float(winner["retrieval"]["score_threshold"]) > negative_ceiling
-    assert winner["threshold_selection_reason"] == (
+    assert calibrated["threshold_calibration_eligible"] is True
+    assert calibrated["threshold_selection_reason"] == (
         "hard_negative_false_positive_improved"
     )
-    assert float(winner["improvement"]["no_result_accuracy_delta"]) >= float(
-        scenario["expected_winner"]["minimum_no_result_accuracy_delta"]
-    )
-    assert winner["statistical_validation"]["passed"] is True
+    assert 0.2 < calibrated["retrieval"]["score_threshold"] <= 0.9
+    assert calibrated["metrics"]["recall_at_5"] == 1.0
+    assert calibrated["metrics"]["no_result_accuracy"] == 1.0
 
-    final_version = service.get_pipeline_version(completed["final_version_id"])
-    assert final_version["status"] == "ready"
-    assert final_version["promotion_required"] is True
-    assert float(final_version["retrieval_profile"]["score_threshold"]) > 0
-    assert service.get_active_pipeline_version(kb_id)["version_id"] == base_version_id
-    evaluation = evaluation_store.get_run(completed["evaluation_run_id"])
-    assert evaluation["status"] == "succeeded"
-    candidate_result = next(
-        item
-        for item in evaluation["target_results"]
-        if item["version_id"] == final_version["version_id"]
+
+def test_synthetic_future_engine_only_already_optimal_semantic_duplicate_abstains() -> None:
+    """Algorithm control only; this is not runtime or promotion evidence."""
+
+    scenario = _known_winner_fixture("already_optimal_control")
+    assert scenario["expected_outcome"] == "no_improvement"
+    cases = [
+        {
+            "case_id": "positive",
+            "expected_refs": [{"document_id": "policy-doc"}],
+            "expected_no_result": False,
+        },
+        {
+            "case_id": "negative",
+            "expected_refs": [],
+            "expected_no_result": True,
+        },
+    ]
+    results = [
+        {
+            "case_id": "positive",
+            "ranking": [
+                {
+                    "chunk_id": "policy",
+                    "document_id": "policy-doc",
+                    "document_name": "policy.md",
+                    "fused_score": 0.9,
+                }
+            ],
+            "latency_ms": 1,
+        },
+        {
+            "case_id": "negative",
+            "ranking": [
+                {
+                    "chunk_id": "noise",
+                    "document_id": "noise-doc",
+                    "document_name": "noise.md",
+                    "fused_score": 0.2,
+                }
+            ],
+            "latency_ms": 1,
+        },
+    ]
+    safe_threshold = 0.200001
+    calibrated = calibrate_threshold(
+        {"cases": cases, "case_results": results},
+        {"mode": "fulltext", "top_k": 5, "score_threshold": safe_threshold},
     )
-    assert candidate_result["promotion_gate"]["passed"] is True
+    assert calibrated["retrieval"]["score_threshold"] == safe_threshold
+    assert calibrated["threshold_selection_reason"] == (
+        "baseline_preserved_no_safe_negative_improvement"
+    )
+
+    candidates = [
+        {
+            "candidate_id": "baseline-equivalent",
+            "retrieval": calibrated["retrieval"],
+            "realized_index_fingerprint": "fixed-index",
+            "ranking_fingerprint": "fixed-ranking",
+            "automatic_winner_eligible": False,
+            "ineligible_reason": "baseline_equivalent",
+        },
+        {
+            "candidate_id": "nominal-duplicate",
+            "retrieval": {
+                **calibrated["retrieval"],
+                "vector_weight": 0.1,
+                "fulltext_weight": 0.9,
+            },
+            "realized_index_fingerprint": "fixed-index",
+            "ranking_fingerprint": "fixed-ranking",
+            "automatic_winner_eligible": True,
+        },
+    ]
+    summary = mark_semantic_duplicate_candidates(candidates)
+
+    assert summary["unique_semantic_outcomes"] == 1
+    assert candidates[0]["ineligible_reason"] == "baseline_equivalent"
+    assert candidates[1]["automatic_winner_eligible"] is False
+    assert candidates[1]["ineligible_reason"] == "semantic_duplicate"
+    assert not [
+        item for item in candidates if item.get("automatic_winner_eligible")
+    ]
 
 
 @pytest.mark.asyncio
-async def test_known_winner_already_optimal_control_does_not_invent_winner(
+async def test_known_winner_threshold_recovery_waits_for_lexical_v2(
     tuning_runtime,
 ) -> None:
-    _, service, executor, evaluation_store, tuner = tuning_runtime
+    _, service, executor, _, _ = tuning_runtime
+    scenario = _known_winner_fixture("threshold_recovery")
+    with pytest.raises(PipelineContentContractError) as blocked:
+        await _known_winner_base_version(service, executor, scenario)
+    assert blocked.value.code == "rag_content_contract_legacy_read_only"
+
+
+@pytest.mark.asyncio
+async def test_known_winner_already_optimal_control_waits_for_lexical_v2(
+    tuning_runtime,
+) -> None:
+    _, service, executor, _, _ = tuning_runtime
     scenario = _known_winner_fixture("already_optimal_control")
-    kb_id, document_id, calibration_version_id = await _known_winner_base_version(
-        service, executor, scenario
-    )
-    _, negative_ceiling = await _known_winner_score_boundary(
-        service, calibration_version_id, scenario
-    )
-    safe_threshold = round(negative_ceiling + 0.000001, 6)
-    base_version_id = await _rebuild_known_winner_base(
-        service,
-        executor,
-        kb_id,
-        document_id,
-        score_threshold=safe_threshold,
-    )
-    service.activate_pipeline_version(base_version_id)
-    (
-        tuning_set_id,
-        tuning_version,
-        calibration_set_id,
-        calibration_version,
-    ) = await _known_winner_evaluation_set(
-        service, evaluation_store, kb_id, base_version_id, scenario
-    )
-
-    created = tuner.create_run(
-        {
-            "kb_id": kb_id,
-            "base_version_id": base_version_id,
-            "tuning_eval_set_id": tuning_set_id,
-            "tuning_eval_set_version": tuning_version,
-            "calibration_eval_set_id": calibration_set_id,
-            "calibration_eval_set_version": calibration_version,
-            "objective": "quality",
-            "max_chunk_indexes": 1,
-            "max_retrieval_trials": 1,
-            "max_finalists": 1,
-            "seed": 42,
-        }
-    )
-    assert await tuner.run_once() is True
-
-    completed = tuner.store.get_run(created["run_id"])
-    assert completed["status"] == scenario["expected_outcome"], completed
-    assert completed.get("final_version_id") is None
-    assert completed.get("winner") is None
-    assert completed["no_improvement_reason"] == "holdout_gate"
-    assert len(completed["candidates"]) == 1
-    assert completed["finalists"]
-    assert all(
-        not finalist.get("improvement", {}).get("effective")
-        or not finalist.get("promotion_gate", {}).get("passed")
-        for finalist in completed["finalists"]
-    )
-    assert service.get_active_pipeline_version(kb_id)["version_id"] == base_version_id
+    with pytest.raises(PipelineContentContractError) as blocked:
+        await _known_winner_base_version(service, executor, scenario)
+    assert blocked.value.code == "rag_content_contract_legacy_read_only"
 
 
 def test_tuner_capabilities_publish_known_winner_evidence_version(
@@ -1759,9 +1946,21 @@ def test_tuner_capabilities_publish_known_winner_evidence_version(
 ) -> None:
     _, _, _, _, tuner = tuning_runtime
 
-    validation = tuner.capabilities()["validation"]
+    capabilities = tuner.capabilities()
+    validation = capabilities["validation"]
     assert validation["known_winner_fixture_version"] == KNOWN_WINNER_FIXTURE_VERSION
+    assert (
+        validation["known_winner_validation_status"]
+        == "blocked_until_lexical_v2"
+    )
     assert validation["known_winner_scenarios"] == [
         "threshold_recovery",
         "already_optimal_control",
     ]
+    assert "chunker" not in capabilities["tunable"]
+    assert capabilities["deferred"] == ["chunker"]
+    assert (
+        capabilities["chunker_search_status"]
+        == "frozen_until_calibrated_token_budget"
+    )
+    assert "retrieval_mode" in capabilities["tunable"]

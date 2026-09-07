@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "round": "RPG-02",
+  "base": "a43cfa389e1785a95f04a006ba26550a5a36965e",
+  "acceptedRpg01Head": "dd207b4bff123538d922d571b8cfb7425020ef8c",
+  "branch": "codex/ai-rpg-rpg02-content",
+  "initialResearchManifestSha256": "059DD161F03546C1F9F78C7D4BE822316C29658BECD7D9A59AE7F41E3171DC5C",
+  "researchEntriesMatched": 12,
+  "primaryHead": "2434257fa9db630ac7b247f73010457f94192f8f",
+  "primaryStatusUnchanged": true,
+  "primaryVerification": "same non-escalated execution context as preflight",
+  "environmentNotes": [
+    "An escalated Git status check could not read an unrelated pre-existing temporary directory. Repeating the check in the original non-escalated context produced the identical status and HEAD; no primary files were modified."
+  ],
+  "node": "24.18.0",
+  "npm": "11.16.0",
+  "websiteProbes": 0,
+  "modelCalls": 0,
+  "historicalProbeBudgets": {
+    "originalAudit": {
+      "authorized": 5,
+      "completed": 4,
+      "remaining": 1
+    },
+    "roadmapPreparation": {
+      "authorized": 5,
+      "completed": 2,
+      "remaining": 3
+    },
+    "firstDevelopmentRound": {
+      "authorized": 20,
+      "submitted": 0,
+      "completed": 0,
+      "remaining": 20
+    }
+  },
+  "fileHashes": {
+    "docs/ai-rpg-experiment/references/PLAYER_CARD_SAMPLE.md": "38FE64EC7785DEF21472C4D934625ADCDC8A89615A862F187A84B1E0EA7D56DD",
+    "docs/ai-rpg-experiment/RESOURCE_INVENTORY.json": "0E9328942065C8961C61B9970A03610C68D46D90A1AF3F3015C58B024B2EF849",
+    "docs/ai-rpg-experiment/PROBE_LEDGER.json": "79929F95E4D91053C85542947CBF9084ED0BB286C17B04FE3CA105CBB787A99E",
+    "experiments/ai-rpg-engine/AGENTS.md": "C0658098678500D4D140FC2235204C789FA3757F9E2B7495040C333A9F1EA4EE",
+    "experiments/ai-rpg-engine/fixtures/minimal.turn-exchange.json": "4BC51D37B795E129F582946B558EAC7AE87C555FFF4FC5578E5129139321ED53",
+    "experiments/ai-rpg-engine/fixtures/bai-yu-ling-yin.player-setup.json": "554EDD651A2D8D290E91259B3B32C8B28B85CC2D429C444CFC854B670525EC98",
+    "docs/ai-rpg-experiment/README.md": "E936AAA781806F7605EA172D5765C149374E79C58A3F174AF08247CEB3270AA4",
+    "experiments/ai-rpg-engine/tests/boundary.test.mjs": "BFA214716AC6BF0C576EE090177B3DD5CC0F47349127AED180661EBBFE3ADA60",
+    "docs/ai-rpg-experiment/BEST_PRACTICES.md": "4C282B02A11914EA4E6657E44300555C3F8C17709F85A1D05C8148A0A9EE5F2C",
+    "experiments/ai-rpg-engine/package-lock.json": "6D6EB3BC3F3C12C9F33E31E75524D0F324378A81E6223B975C9467FA7D8D1196",
+    "docs/ai-rpg-experiment/AUDIT.md": "43E61C8B38B98DC3BF1E60ECFFD6FF3A199DC64A2C76A859582A248B6D707A1F",
+    "experiments/ai-rpg-engine/scripts/check-parent-scope.mjs": "5CDB67D242249847738CB5A8B28628648E04BCDD6C8D3437390BC1E05E9AE9B0",
+    "docs/ai-rpg-experiment/BOUNDARY_QUADRANTS.md": "ECD41CBDA5BA477670AA73939E1C12F4EDC24E5632DA445B7CFF96323BBBD534",
+    "docs/ai-rpg-experiment/OSS_REUSE_REGISTER.md": "67FFEFF2A3C5614EE0B121F0758C4F68420159B488A828C16F5DAB9C4F03BF01",
+    "experiments/ai-rpg-engine/module-boundary.json": "53BBAF4C342578583E4017AFC52250830B37D1203CAC6A2432AAADAC6686149B",
+    "experiments/ai-rpg-engine/docs/RPG01_STATUS.json": "692C5267AE117FE3CD89DEE18012A8F5E233C679A05C85B619021234953E4991",
+    "experiments/ai-rpg-engine/fixtures/plugin-manifests.json": "40DE50990CD31EAFD1E4AD5B73B14EBFE012F419A708AE8C2C3834B7BC4A179B",
+    "docs/ai-rpg-experiment/ROUND_ROADMAP.md": "0BBAA8C12BA3CABE12B2E1CC6158D394B88E0D2D1E80D9CEB558F2F370736532",
+    "experiments/ai-rpg-engine/scripts/verify-rpg01.mjs": "4314BAEFE352656C0B838E25A39DD04ADF658C95E25A877D083ACC4B396450C9",
+    "docs/ai-rpg-experiment/PLUGIN_CARD_MARKETS.md": "28BF7CF1598B7EBC8D0431E72FA084C01AC18153AD5AAA4F678FE646B75E8BA3",
+    "docs/ai-rpg-experiment/BASELINE.md": "A9A6D61DEE20A6ECB9B4F8CCF18775C77D35A6C03AC16EA1B931547087F49F1C",
+    "docs/ai-rpg-experiment/MANIFEST.json": "059DD161F03546C1F9F78C7D4BE822316C29658BECD7D9A59AE7F41E3171DC5C",
+    "experiments/ai-rpg-engine/tests/contracts.test.mjs": "4FBD499C076BECD0D24C36F1EE423DD849919791995B55212AABE8BDE22B5979",
+    "experiments/ai-rpg-engine/fixtures/zero-plugin.card-package.json": "AA68535D87827D2F73BD591D5049500F27FA175E5B9F1B47D664FA6A82002A7C",
+    "experiments/ai-rpg-engine/package.json": "A2FF25CD2271A747D180EB7ED078C790D5824B19774238EE652681741778BB1C",
+    "experiments/ai-rpg-engine/docs/CONTRACTS.md": "23F463C5FFD9C8A49E4FEB607F5C0F469585F92F025425FEB74F73506547D4DD",
+    "experiments/ai-rpg-engine/README.md": "1922685C8BE6FB1342DE78E686E964D8CFED3617F5C5F2AF8AE7160506F0364F",
+    "experiments/ai-rpg-engine/docs/THIRD_PARTY.json": "912B1D7A6A139FC46D9863AB8AC312B7394CB132D758B482A193378980C45442",
+    "experiments/ai-rpg-engine/scripts/check-boundary.mjs": "9328FE66925B4998918E4F44331B55406E1974E9A83667BD6A1253FE7297481F",
+    "docs/ai-rpg-experiment/references/INITIAL_AUDIT_2026-09-04.md": "D53901572850B01B1AD6472B13F361C31D5E4369CBCCAA118F0EF025F728B2E6",
+    "experiments/ai-rpg-engine/src/index.mjs": "FA473FA0B1A76DDF9237304D92F92BD2B3B3FB02CCF9F52E94CA39470237A857",
+    "experiments/ai-rpg-engine/docs/RPG01_ACCEPTANCE.md": "03ACC87775DD0E49617F6797F9F048E4B16468998FCA40F51A66EF0F45CFD95C"
+  },
+  "gate": "P0_OK"
+}

@@ -4,12 +4,30 @@ import asyncio
 import json
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
 
 from .document_processor import ProcessedDocument
+
+
+@dataclass(slots=True)
+class GeneratedSourceRange:
+    source_block_id: str
+    context_start: int
+    context_end: int
+    source_start: int
+    source_end: int
+
+    def payload(self) -> dict[str, Any]:
+        return {
+            "source_block_id": self.source_block_id,
+            "context_start": self.context_start,
+            "context_end": self.context_end,
+            "source_start": self.source_start,
+            "source_end": self.source_end,
+        }
 
 
 @dataclass(slots=True)
@@ -19,6 +37,7 @@ class GeneratedIndexItem:
     context_text: str
     source_block_ids: list[str]
     item_type: str
+    context_source_ranges: list[GeneratedSourceRange] = field(default_factory=list)
 
     def payload(self, *, max_text: int | None = None) -> dict[str, Any]:
         index_text = self.index_text
@@ -31,11 +50,29 @@ class GeneratedIndexItem:
             if len(context_text) > max_text:
                 context_text = context_text[:max_text] + "..."
                 truncated = True
+        source_ranges = [item.payload() for item in self.context_source_ranges]
+        if max_text is not None and len(self.context_text) > max_text:
+            clipped_ranges: list[dict[str, Any]] = []
+            for item in source_ranges:
+                context_start = int(item["context_start"])
+                context_end = min(int(item["context_end"]), max_text)
+                if context_end <= context_start or context_start >= max_text:
+                    continue
+                clipped_ranges.append(
+                    {
+                        **item,
+                        "context_end": context_end,
+                        "source_end": int(item["source_start"])
+                        + (context_end - context_start),
+                    }
+                )
+            source_ranges = clipped_ranges
         return {
             "item_id": self.item_id,
             "index_text": index_text,
             "context_text": context_text,
             "source_block_ids": list(self.source_block_ids),
+            "context_source_ranges": source_ranges,
             "item_type": self.item_type,
             "truncated": truncated,
         }
@@ -105,6 +142,17 @@ class ProcessorGenerationService:
             }
             for block in source_blocks[:100]
         ]
+        lineage_blocks = {
+            block.block_id: {
+                "block_id": block.block_id,
+                "kind": block.kind,
+                "start_char": block.start_char,
+                "end_char": block.end_char,
+                "text": block.text[:5000],
+            }
+            for block in source_blocks[:100]
+            if block.kind != "heading"
+        }
         if mode == "qa":
             batches = self._block_batches(compact)
         else:
@@ -132,7 +180,11 @@ class ProcessorGenerationService:
             generated.extend(
                 self._parse_items(
                     data,
-                    document=document,
+                    allowed_blocks=[
+                        lineage_blocks[str(block.get("block_id") or "")]
+                        for block in batch
+                        if str(block.get("block_id") or "") in lineage_blocks
+                    ],
                     mode=mode,
                     max_items=remaining,
                 )
@@ -173,6 +225,17 @@ class ProcessorGenerationService:
                 }
                 for block in source_blocks[:100]
             ]
+            lineage_blocks = {
+                block.block_id: {
+                    "block_id": block.block_id,
+                    "kind": block.kind,
+                    "start_char": block.start_char,
+                    "end_char": block.end_char,
+                    "text": block.text[:5000],
+                }
+                for block in source_blocks[:100]
+                if block.kind != "heading"
+            }
             if mode == "qa":
                 batches = self._block_batches(compact)
             else:
@@ -210,7 +273,11 @@ class ProcessorGenerationService:
                 generated.extend(
                     self._parse_items(
                         data,
-                        document=document,
+                        allowed_blocks=[
+                            lineage_blocks[str(block.get("block_id") or "")]
+                            for block in batch
+                            if str(block.get("block_id") or "") in lineage_blocks
+                        ],
                         mode=mode,
                         max_items=remaining,
                     )
@@ -345,11 +412,18 @@ class ProcessorGenerationService:
         self,
         data: dict[str, Any],
         *,
-        document: ProcessedDocument,
+        allowed_blocks: list[dict[str, Any]],
         mode: str,
         max_items: int,
     ) -> list[GeneratedIndexItem]:
-        blocks = {block.block_id: block for block in document.blocks}
+        blocks = {
+            str(block.get("block_id")): block
+            for block in allowed_blocks
+            if isinstance(block, dict)
+            and str(block.get("block_id") or "")
+            and str(block.get("kind") or "") != "heading"
+            and str(block.get("text") or "").strip()
+        }
         raw_items: list[dict[str, Any]] = []
         if mode == "qa":
             value = data.get("items")
@@ -358,10 +432,14 @@ class ProcessorGenerationService:
         else:
             document_summary = data.get("document_summary")
             if isinstance(document_summary, str) and document_summary.strip():
+                # Preserve the established Provider response contract. The
+                # request is already bounded to one source batch, so lineage
+                # can be derived locally without asking the model to echo a
+                # second, incompatible document-summary schema.
                 raw_items.append(
                     {
                         "summary": document_summary,
-                        "block_ids": list(blocks)[: min(20, len(blocks))],
+                        "block_ids": list(blocks),
                     }
                 )
             sections = data.get("sections")
@@ -371,23 +449,82 @@ class ProcessorGenerationService:
         items: list[GeneratedIndexItem] = []
         for index, raw in enumerate(raw_items[:max_items]):
             raw_ids = raw.get("block_ids")
-            block_ids = [str(item) for item in raw_ids if str(item) in blocks] if isinstance(raw_ids, list) else []
+            requested_ids = (
+                [str(item) for item in raw_ids]
+                if isinstance(raw_ids, list)
+                else []
+            )
+            if (
+                not requested_ids
+                or any(not item for item in requested_ids)
+                or len(set(requested_ids)) != len(requested_ids)
+                or any(item not in blocks for item in requested_ids)
+            ):
+                continue
+            source_parts: list[str] = []
+            source_part_ranges: list[tuple[str, int, int, int, int]] = []
+            block_ids: list[str] = []
+            remaining = 12_000
+            for block_id in requested_ids:
+                if remaining <= 0:
+                    break
+                if source_parts:
+                    if remaining <= 2:
+                        break
+                    remaining -= 2
+                part = str(blocks[block_id].get("text") or "")[:remaining]
+                if not part.strip():
+                    continue
+                context_start = sum(len(value) for value in source_parts) + 2 * len(
+                    source_parts
+                )
+                source_start = int(blocks[block_id].get("start_char") or 0)
+                source_parts.append(part)
+                block_ids.append(block_id)
+                source_part_ranges.append(
+                    (
+                        block_id,
+                        context_start,
+                        context_start + len(part),
+                        source_start,
+                        source_start + len(part),
+                    )
+                )
+                remaining -= len(part)
             if not block_ids:
                 continue
-            source_text = "\n\n".join(blocks[item].text for item in block_ids)[:12000]
+            source_text = "\n\n".join(source_parts)
             if mode == "qa":
                 question = str(raw.get("question") or "").strip()
                 answer = str(raw.get("answer") or "").strip()
                 if not question or not answer:
                     continue
                 index_text = question
-                context_text = f"Question: {question}\nAnswer: {answer}\n\nSource:\n{source_text}"
+                context_prefix = f"Question: {question}\nAnswer: {answer}\n\nSource:\n"
+                context_text = f"{context_prefix}{source_text}"
             else:
                 summary = str(raw.get("summary") or "").strip()
                 if not summary:
                     continue
                 index_text = summary
-                context_text = f"Summary: {summary}\n\nSource:\n{source_text}"
+                context_prefix = f"Summary: {summary}\n\nSource:\n"
+                context_text = f"{context_prefix}{source_text}"
+            context_source_ranges = [
+                GeneratedSourceRange(
+                    source_block_id=block_id,
+                    context_start=len(context_prefix) + context_start,
+                    context_end=len(context_prefix) + context_end,
+                    source_start=source_start,
+                    source_end=source_end,
+                )
+                for (
+                    block_id,
+                    context_start,
+                    context_end,
+                    source_start,
+                    source_end,
+                ) in source_part_ranges
+            ]
             items.append(
                 GeneratedIndexItem(
                     item_id=f"{mode}_{index}",
@@ -395,6 +532,7 @@ class ProcessorGenerationService:
                     context_text=context_text,
                     source_block_ids=block_ids,
                     item_type=mode,
+                    context_source_ranges=context_source_ranges,
                 )
             )
         if not items:

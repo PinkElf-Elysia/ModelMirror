@@ -1,0 +1,40 @@
+{
+  "format": "modelmirror.ai-rpg.golden-receipt",
+  "formatVersion": "0.1.0",
+  "status": "automated_golden_verified",
+  "compilerVersion": "0.2.0",
+  "packageRef": "card.representative-worlds",
+  "setupId": "setup.bai-yu-ling-yin",
+  "manualAcceptance": false,
+  "claimAllowed": false,
+  "fullOriginalHtmlStored": false,
+  "websiteProbes": 0,
+  "externalModelCalls": 0,
+  "evidenceBoundary": "Historical selected DOM fragments and the derived carrier are replayed offline; this receipt does not establish that the website is currently unchanged.",
+  "cliEvidence": {
+    "output": ".rpg02-work/delivery-rpg02-20260905",
+    "steps": ["compile", "pack", "verify", "unpack"],
+    "playerIncluded": true,
+    "persistedForReview": true,
+    "tracked": false
+  },
+  "counts": { "sourceRecords": 14, "fragments": 18, "resources": 27 },
+  "inputs": {
+    "compile-input.json": { "bytes": 20093, "sha256": "3dc39b714d8f3d613c4afa161b91fdb46410bb46be5d610de189b8e4a3dde8a0" },
+    "selected-source.txt": { "bytes": 3822, "sha256": "f0feffb7c9fe982f6d099783a6d78d63995e958cb790eb64543c9619ed2aaf5f" },
+    "source-selection.json": { "bytes": 759, "sha256": "3ad71b1f160655cb7fb5d06b96d94ef7bfb80f2d64a7887900af538d9aa25b58" },
+    "source-capture.json": { "bytes": 23405, "sha256": "ca5e1e55660fe3779428583f16feb0fc1bfc26aa6e1960c8c43c089451fd6794" },
+    "player-text.txt": { "bytes": 2337, "sha256": "ac30aa4e838ceb5e73d55be19de71ea780189b45f37b34b4fcd5c0f3bb70159d" },
+    "player-config.json": { "bytes": 556, "sha256": "113d0decfe593ce2d2aa96b3aa76e7ab9214d29caf1fd2d58038b761a86760b8" }
+  },
+  "members": {
+    "bundle-manifest.json": { "bytes": 1283, "sha256": "b1638d24d41bfc29afbf0a29d089c85fc05b0051c8ef11ff91d77aaeb6032cd0" },
+    "card-package.json": { "bytes": 16336, "sha256": "e46515dbba90a169aa7e57c07013938fb32c11e10a55002b688c7f0e04702d66" },
+    "content-index.json": { "bytes": 3784, "sha256": "72401f4eb9b4bb4bef5f150831c64c3622a0b9bc26198463a333e9743d46ce64" },
+    "conversion-receipt.json": { "bytes": 1813, "sha256": "f8234cdfadced9be94c8c4a2d0cbc0a2b9b52e8671251d7c49128c78c718e63f" },
+    "player-setup.json": { "bytes": 2566, "sha256": "e0d54355f155c6e6f9253fed37a63a374f173c7479481b2aa1b5d830307b0662" },
+    "sources/source.authored-rpg02.txt": { "bytes": 2357, "sha256": "73466d2752d46db3b86a9c62d51e990e0034dc044a2cf5315f2214238eec2676" },
+    "sources/source.real-card.txt": { "bytes": 3822, "sha256": "f0feffb7c9fe982f6d099783a6d78d63995e958cb790eb64543c9619ed2aaf5f" }
+  },
+  "archive": { "bytes": 32827, "sha256": "b9e4948208e91813732fe1cf8f50db2b20ee41dc05ff7bb990467b3e5d7f2b41" }
+}

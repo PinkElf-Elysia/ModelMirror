@@ -123,9 +123,10 @@ class VisionUnderstandingService(GenericVisionUnderstandingService):
         cache_get: Callable[[int], dict[str, Any] | None] | None = None,
         cache_set: Callable[[int, dict[str, Any]], None] | None = None,
         cancel_check: Callable[[], bool] | None = None,
+        content: bytes | None = None,
     ) -> VisionSourceResult:
-        result = await super().analyze_source(
-            path,
+        result = await super().analyze_bytes(
+            path.read_bytes() if content is None else content,
             filename=filename,
             source_id=source_id,
             config=config,

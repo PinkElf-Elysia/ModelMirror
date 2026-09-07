@@ -11,7 +11,7 @@ from server.file_assets.service import FileAssetServiceError
 from server.rag import rag_service as rag_service_module
 from server.rag.api import router as rag_router, set_rag_service_for_tests
 from server.rag.embedder import EmbeddingClient
-from server.rag.rag_service import RagService
+from server.rag.rag_service import KnowledgeBaseDeletionError, RagService
 from server.rag.vector_store import LocalJsonVectorStore
 
 
@@ -113,7 +113,8 @@ async def test_file_output_import_is_scoped_local_idempotent_and_independent(
             payload = first.json()
             assert payload["id"] == second.json()["id"]
             assert payload["file_output_id"] == "output_public"
-            assert payload["ingestion_status"] == "indexed_file_output"
+            assert payload["ingestion_status"] == "pipeline_required"
+            assert payload["chunk_count"] == 0
             assert payload["file_output_source"] == {
                 "source_filename": "公开报告.md",
                 "source_sha256": "1592d186ae184fcf44c1ad4a450b4658f509896f916157d966b1e170df764258",
@@ -137,7 +138,8 @@ async def test_file_output_import_is_scoped_local_idempotent_and_independent(
             }
             assert outputs.read_calls == 1
             assert assets.uploaded == [b"# Public report\n\nNo provider call is needed."]
-            assert service.vector_store.list_document_chunks(payload["id"])[0].source_block_id == "output_public"
+            assert service.vector_store.list_document_chunks(payload["id"]) == []
+            assert service.lexical_store.list_document_chunks(payload["id"]) == []
 
             wrong_scope = await client.post(
                 f"/api/rag/knowledge_bases/{kb['id']}/documents/from-file-output",
@@ -171,7 +173,7 @@ async def test_file_output_import_rejects_deleting_knowledge_base_before_read(
         metadata["knowledge_bases"][kb["id"]]["deletion_status"] = "cleanup_pending"
         service._write_metadata_unlocked(metadata)  # noqa: SLF001
 
-    with pytest.raises(Exception, match="isolated"):
+    with pytest.raises(KnowledgeBaseDeletionError, match="isolated"):
         await service.import_file_output(
             kb["id"],
             output_id="output_public",
