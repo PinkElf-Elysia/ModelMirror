@@ -6,9 +6,14 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from .metrics import aggregate_evaluation_report, evaluate_case_metrics
+from .metrics import aggregate_evaluation_report, evaluate_case_metrics, sanitize_vision_reads
 from .resource_fixtures import sanitize_resource_reads
 from .store import XpertEvaluationStore
+
+try:
+    from server.multimodal.vision_v2 import evaluation_vision_usage
+except ModuleNotFoundError:
+    from multimodal.vision_v2 import evaluation_vision_usage
 
 
 TargetRunner = Callable[
@@ -149,6 +154,7 @@ class XpertEvaluationExecutor:
                 resource_evidence_required = _target_requires_resource_evidence(
                     target
                 )
+                vision_evidence_required = bool((target.get("resources") or {}).get("vision_models"))
                 started = time.perf_counter()
                 try:
                     timeout = max(
@@ -164,6 +170,7 @@ class XpertEvaluationExecutor:
                                 "evaluation_run_id": run["run_id"],
                                 "evaluation_target_id": item["target_id"],
                                 "evaluation_case_id": item["case_id"],
+                                "evaluation_item_id": item["item_id"],
                             },
                             registry_run.run_id if registry_run else None,
                         )
@@ -173,6 +180,7 @@ class XpertEvaluationExecutor:
                     resource_reads = sanitize_resource_reads(
                         result.get("resource_reads")
                     )
+                    vision_reads = sanitize_vision_reads(result.get("vision_reads"))
                     metrics = await evaluate_case_metrics(
                         case=case,
                         output=output,
@@ -185,6 +193,8 @@ class XpertEvaluationExecutor:
                         control_flow=dict(result.get("control_flow") or {}),
                         resource_reads=resource_reads,
                         resource_evidence_required=resource_evidence_required,
+                        vision_reads=vision_reads,
+                        vision_evidence_required=vision_evidence_required,
                         judge=self.judge_runner,
                         judge_model_id=run.get("config", {}).get("judge_model_id"),
                     )
@@ -199,6 +209,7 @@ class XpertEvaluationExecutor:
                         ],
                         "control_flow": dict(result.get("control_flow") or {}),
                         "resource_reads": resource_reads,
+                        "vision_reads": vision_reads,
                         "usage": dict(result.get("usage") or {}),
                         "latency_ms": round(
                             (time.perf_counter() - started) * 1000, 3
@@ -215,6 +226,8 @@ class XpertEvaluationExecutor:
                         "citations": {},
                         "control_flow": {},
                         "resource_reads": [],
+                        "vision_reads": [],
+                        "vision_evidence": "failed" if case.get("vision") else ("missing" if vision_evidence_required else "not_applicable"),
                         "resource_evidence": (
                             "failed"
                             if expects_resource_evidence
@@ -231,7 +244,16 @@ class XpertEvaluationExecutor:
                             (time.perf_counter() - started) * 1000, 3
                         ),
                         "error": str(exc)[:500],
+                        "error_code": str(getattr(exc, "code", "") or "")[:100],
                     }
+                recorded = await asyncio.to_thread(self.store.require_run, run["run_id"])
+                recorded_item = next(entry for entry in recorded["items"] if entry["item_id"] == item["item_id"])
+                receipts = list((recorded_item.get("vision_receipts") or {}).values())
+                if receipts or recorded_item.get("vision_dispatches"):
+                    usage = payload.setdefault("usage", {})
+                    vision = evaluation_vision_usage(receipts, dispatch_count=len(recorded_item.get("vision_dispatches") or []))
+                    usage.update(vision)
+                    usage["model_calls"] = max(int(usage.get("model_calls") or 0), vision["vision_model_calls"])
                 await asyncio.to_thread(
                     self.store.record_item_result,
                     run["run_id"],

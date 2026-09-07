@@ -868,3 +868,14 @@ The Workflow Registry is a safe UI projection of these contracts. Resource
 bindings remain non-control edges. Annotation remains metadata-only. Nodes with
 `contract_status=compatibility` continue existing runtime behavior but cannot
 enter Meta Planner by default. See `docs/NODE_CONTRACT_V3.md`.
+
+## 显式附件视觉 V2
+
+Meta Planner 的当前开放事实以 NodeContract 与 Capability V9 为准，共 19 类；以上按日期
+记录的旧 Planner 限制不代表当前权限。视觉新生成节点使用 `contractVersion=2`，只连接
+编译器管理的单附件输入，模型与 Managed Binding 由服务端固定。普通画布与旧 V1 节点保持
+读取和运行兼容；不因 Planner 开放而升级旧节点。
+
+视觉仍不创建 RAG Job、分块或索引。私有运行校验附件作用域，评测读取 DatasetVersion
+固定附件；每页经过预算/并发门禁。输出维持既有类型化结果，SSE 事件不变。详细端口、
+文件上限、评测证据和回退见 [显式附件视觉契约](./META_PLANNER_VISION.md)。

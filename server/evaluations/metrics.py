@@ -20,6 +20,8 @@ async def evaluate_case_metrics(
     control_flow: dict[str, Any] | None = None,
     resource_reads: list[dict[str, Any]] | None = None,
     resource_evidence_required: bool = False,
+    vision_reads: list[dict[str, Any]] | None = None,
+    vision_evidence_required: bool = False,
     judge: JudgeCallback | None = None,
     judge_model_id: str | None = None,
 ) -> dict[str, Any]:
@@ -71,6 +73,68 @@ async def evaluate_case_metrics(
             )
         )
         resource_evidence = "verified" if matched == len(expected_reads) else "failed"
+
+    raw_vision_expectations = list(case.get("vision") or [])
+    expected_vision = [
+        dict(item) for item in raw_vision_expectations if isinstance(item, dict)
+    ]
+    vision_evidence = (
+        "missing"
+        if not raw_vision_expectations and vision_evidence_required
+        else "not_applicable"
+    )
+    if raw_vision_expectations:
+        raw_actual_reads = list(vision_reads or [])
+        actual_reads = [dict(item) for item in raw_actual_reads if isinstance(item, dict)]
+        expected_refs = [str(item.get("node_ref") or "") for item in expected_vision]
+        actual_refs = [str(item.get("node_ref") or "") for item in actual_reads]
+        duplicate_expected = _duplicate_values(expected_refs)
+        duplicate_actual = _duplicate_values(actual_refs)
+        structural_failure = len(expected_vision) != len(raw_vision_expectations)
+        failures: list[str] = []
+        if structural_failure:
+            failures.append("视觉证据期望格式无效")
+        if len(actual_reads) != len(raw_actual_reads):
+            structural_failure = True
+            failures.append("执行证据格式无效")
+        if duplicate_expected:
+            structural_failure = True
+            failures.append("期望包含重复 node_ref")
+        if duplicate_actual:
+            structural_failure = True
+            failures.append("执行证据包含重复 node_ref")
+
+        actual_by_ref = {
+            str(item.get("node_ref") or ""): item for item in actual_reads
+        }
+        matched = 0
+        if not structural_failure:
+            for expectation in expected_vision:
+                node_ref = str(expectation.get("node_ref") or "")
+                actual = actual_by_ref.get(node_ref)
+                checks = _vision_evidence_checks(expectation, actual)
+                if checks:
+                    failures.append(f"{node_ref or 'unknown'}:{','.join(checks)}")
+                    continue
+                matched += 1
+
+        score = (
+            0.0
+            if structural_failure
+            else matched / len(raw_vision_expectations)
+        )
+        metrics.append(
+            _metric(
+                "workflow_vision_match",
+                score,
+                (
+                    f"视觉证据匹配 {matched}/{len(raw_vision_expectations)}。"
+                    + (f" 失败：{'; '.join(failures[:8])}" if failures else "")
+                ),
+                weights,
+            )
+        )
+        vision_evidence = "verified" if score >= 0.999 else "failed"
 
     path = case.get("path")
     if isinstance(path, dict):
@@ -249,6 +313,7 @@ async def evaluate_case_metrics(
         "metrics": metrics,
         "metric_count": len(metrics),
         "resource_evidence": resource_evidence,
+        "vision_evidence": vision_evidence,
     }
 
 
@@ -298,6 +363,7 @@ def aggregate_evaluation_report(
                     int((item.get("usage") or {}).get("estimated_tokens") or 0)
                     for item in target_items
                 ),
+                **_aggregate_vision_usage(target_items),
                 "resource_evidence": _resource_evidence_summary(target_items),
             }
         )
@@ -379,6 +445,223 @@ def _is_subsequence(expected: list[str], actual: list[str]) -> bool:
     return False
 
 
+def _duplicate_values(values: list[str]) -> set[str]:
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for value in values:
+        if value in seen:
+            duplicates.add(value)
+        seen.add(value)
+    return duplicates
+
+
+_VISION_BLOCK_KINDS = {"ocr", "description", "table", "chart"}
+_VISION_EVIDENCE_FIELDS = {
+    "node_ref",
+    "asset_id",
+    "asset_sha256",
+    "model_id",
+    "page_count",
+    "selected_page_count",
+    "processed_page_count",
+    "failed_page_count",
+    "status",
+    "block_counts",
+    "anchor_checks",
+    "execution_summary",
+}
+_VISION_SUMMARY_FIELDS = {
+    "model_calls",
+    "known_total_tokens",
+    "unverified_token_calls",
+    "token_usage_verified",
+    "token_source",
+    "uncertain_calls",
+}
+
+
+def _vision_evidence_checks(
+    expected: dict[str, Any], actual: dict[str, Any] | None
+) -> list[str]:
+    if actual is None:
+        return ["未执行"]
+
+    failures: list[str] = []
+    actual_fields = set(actual)
+    if actual_fields != _VISION_EVIDENCE_FIELDS:
+        failures.append("安全证据字段")
+
+    node_ref = actual.get("node_ref")
+    if not isinstance(node_ref, str) or node_ref != expected.get("node_ref"):
+        failures.append("node_ref")
+    asset_id = actual.get("asset_id")
+    if (
+        not isinstance(asset_id, str)
+        or not 1 <= len(asset_id) <= 160
+        or any(
+            character
+            not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-"
+            for character in asset_id
+        )
+    ):
+        failures.append("asset_id")
+    asset_sha256 = actual.get("asset_sha256")
+    if (
+        not isinstance(asset_sha256, str)
+        or len(asset_sha256) != 64
+        or any(character not in "0123456789abcdef" for character in asset_sha256)
+    ):
+        failures.append("asset_sha256")
+    elif expected.get("asset_sha256") is not None and asset_sha256 != expected.get(
+        "asset_sha256"
+    ):
+        failures.append("asset_sha256")
+    model_id = actual.get("model_id")
+    if not isinstance(model_id, str) or not model_id or len(model_id) > 512:
+        failures.append("model_id")
+    elif expected.get("model_id") is not None and model_id != expected.get("model_id"):
+        failures.append("model_id")
+
+    page_values = {
+        field: actual.get(field)
+        for field in (
+            "page_count",
+            "selected_page_count",
+            "processed_page_count",
+            "failed_page_count",
+        )
+    }
+    pages_valid = all(type(value) is int for value in page_values.values())
+    if pages_valid:
+        page_count = page_values["page_count"]
+        selected = page_values["selected_page_count"]
+        processed = page_values["processed_page_count"]
+        failed = page_values["failed_page_count"]
+        pages_valid = (
+            1 <= page_count <= 20
+            and 1 <= selected <= page_count
+            and 1 <= processed <= selected
+            and 0 <= failed <= selected
+            and processed + failed == selected
+        )
+    if not pages_valid:
+        failures.append("页面计数")
+    elif expected.get("page_count") is not None and page_values[
+        "page_count"
+    ] != expected.get("page_count"):
+        failures.append("page_count")
+
+    status = actual.get("status")
+    if status not in {"success", "partial"}:
+        failures.append("status")
+    else:
+        if pages_valid:
+            derived_status = (
+                "partial" if page_values["failed_page_count"] else "success"
+            )
+            if status != derived_status:
+                failures.append("status")
+        if status != expected.get("status", "success"):
+            failures.append("status")
+
+    block_counts = actual.get("block_counts")
+    if (
+        not isinstance(block_counts, dict)
+        or set(block_counts) != _VISION_BLOCK_KINDS
+        or any(type(value) is not int or value < 0 for value in block_counts.values())
+    ):
+        failures.append("block_counts")
+    else:
+        missing_blocks = [
+            kind
+            for kind in list(expected.get("required_blocks") or [])
+            if block_counts.get(kind, 0) == 0
+        ]
+        if missing_blocks:
+            failures.append(f"缺少块类型 {missing_blocks}")
+
+    anchors = actual.get("anchor_checks")
+    expected_anchor_count = len(list(expected.get("content_anchors") or []))
+    anchor_results: dict[int, bool] = {}
+    anchors_valid = isinstance(anchors, list)
+    if anchors_valid:
+        for item in anchors:
+            if (
+                not isinstance(item, dict)
+                or set(item) != {"index", "matched"}
+                or type(item.get("index")) is not int
+                or type(item.get("matched")) is not bool
+                or item["index"] in anchor_results
+            ):
+                anchors_valid = False
+                break
+            anchor_results[item["index"]] = item["matched"]
+    if not anchors_valid or set(anchor_results) != set(range(expected_anchor_count)):
+        failures.append("锚点索引")
+    elif not all(anchor_results.values()):
+        failures.append("内容锚点")
+
+    summary = actual.get("execution_summary")
+    if not _valid_vision_execution_summary(summary):
+        failures.append("execution_summary")
+    return list(dict.fromkeys(failures))
+
+
+def _valid_vision_execution_summary(value: Any) -> bool:
+    if not isinstance(value, dict) or set(value) != _VISION_SUMMARY_FIELDS:
+        return False
+    integer_fields = (
+        "model_calls",
+        "known_total_tokens",
+        "unverified_token_calls",
+        "uncertain_calls",
+    )
+    if any(
+        type(value.get(field)) is not int or value[field] < 0
+        for field in integer_fields
+    ):
+        return False
+    model_calls = value["model_calls"]
+    unverified = value["unverified_token_calls"]
+    uncertain = value["uncertain_calls"]
+    return (
+        model_calls > 0
+        and unverified <= model_calls
+        and uncertain <= model_calls
+        and type(value.get("token_usage_verified")) is bool
+        and value["token_usage_verified"] is (unverified == 0)
+        and value.get("token_source") == "managed_receipt"
+    )
+
+
+def sanitize_vision_reads(value: Any) -> list[dict[str, Any]]:
+    """Reject non-evidence payloads before they can enter a persisted report."""
+    if value is None:
+        return []
+    if not isinstance(value, list) or len(value) > 20:
+        raise ValueError("视觉执行证据数量或格式无效。")
+    refs = []
+    for item in value:
+        if not isinstance(item, dict):
+            raise ValueError("视觉执行证据必须是安全摘要对象。")
+        node_ref = item.get("node_ref")
+        if not isinstance(node_ref, str) or not 1 <= len(node_ref) <= 64 or not node_ref[0].islower() or any(char not in "abcdefghijklmnopqrstuvwxyz0123456789_-" for char in node_ref):
+            raise ValueError("视觉执行证据节点引用无效。")
+        refs.append(node_ref)
+        anchors = item.get("anchor_checks")
+        if not isinstance(anchors, list) or len(anchors) > 10:
+            raise ValueError("视觉执行证据锚点数量无效。")
+        checks = _vision_evidence_checks({
+            "node_ref": node_ref, "status": item.get("status"),
+            "content_anchors": [{} for _ in anchors],
+        }, item)
+        if set(checks) - {"内容锚点"}:
+            raise ValueError("视觉执行证据包含无效或非安全字段。")
+    if len(refs) != len(set(refs)):
+        raise ValueError("视觉执行证据节点重复。")
+    return json.loads(json.dumps(value, ensure_ascii=False, allow_nan=False))
+
+
 def _resource_read_checks(
     expected: dict[str, Any], actual: dict[str, Any] | None
 ) -> list[str]:
@@ -410,6 +693,59 @@ def _resource_evidence_summary(items: list[dict[str, Any]]) -> dict[str, int]:
         if status not in result:
             status = "failed"
         result[status] += 1
+    return result
+
+
+_VISION_USAGE_COUNT_FIELDS = (
+    "vision_model_calls",
+    "vision_actual_tokens",
+    "vision_unverified_usage_calls",
+    "vision_uncertain_dispatches",
+)
+_VISION_USAGE_FIELDS = {
+    *_VISION_USAGE_COUNT_FIELDS,
+    "vision_token_usage_verified",
+    "vision_token_estimate",
+}
+
+
+def _aggregate_vision_usage(items: list[dict[str, Any]]) -> dict[str, Any]:
+    safe_usage: list[dict[str, Any]] = []
+    invalid_usage_seen = False
+    for item in items:
+        usage = item.get("usage")
+        if not isinstance(usage, dict) or not (_VISION_USAGE_FIELDS & set(usage)):
+            continue
+        valid = (
+            all(
+                type(usage.get(field)) is int and usage[field] >= 0
+                for field in _VISION_USAGE_COUNT_FIELDS
+            )
+            and type(usage.get("vision_token_usage_verified")) is bool
+            and usage.get("vision_token_estimate") is False
+        )
+        if not valid:
+            invalid_usage_seen = True
+            continue
+        safe_usage.append(usage)
+
+    result = {
+        field: sum(usage[field] for usage in safe_usage)
+        for field in _VISION_USAGE_COUNT_FIELDS
+    }
+    result.update(
+        {
+            "vision_token_usage_verified": (
+                bool(safe_usage)
+                and not invalid_usage_seen
+                and all(
+                    usage["vision_token_usage_verified"] is True
+                    for usage in safe_usage
+                )
+            ),
+            "vision_token_estimate": False,
+        }
+    )
     return result
 
 

@@ -105,6 +105,12 @@ from .schemas import (
 
 
 CompletionCallback = Callable[[str, str, str, float, int], Awaitable[str]]
+from .vision_contract import (
+    ATTACHMENT_INPUT_PORT,
+    VISION_ATTACHMENT_CONTRACT,
+    resolve_planner_vision_model,
+    validate_vision_generation_authorization,
+)
 PreflightCallback = Callable[[XpertDefinition], Any]
 
 
@@ -1052,6 +1058,16 @@ def _graph_intent_prompt_contract(
             "middleware may contain only authorized middleware_ids; when that list is empty, middleware must be empty.",
         ],
         "snapshot_node_kinds": sorted(snapshot_kinds & allowed_kinds),
+        "vision_attachment": (
+            {**VISION_ATTACHMENT_CONTRACT,
+             "fixed_model_id": request.vision_model_id,
+             "rules": [
+                 "视觉节点只能直接读取 input.selected_file_asset_id，不得从文本或其他节点获取资产 ID。",
+                 "视觉模型由用户固定，不得在节点 config 中指定模型、版本或 Binding。",
+                 "视觉结果必须通过必要的类型转换交由下游 Agent 消费，不得以提示词模拟视觉执行。",
+             ]}
+            if "vision_understanding" in allowed_kinds else None
+        ),
     }
 
 
@@ -2035,6 +2051,8 @@ def validate_blueprint_authorization(
                 )
             producer_by_variable[output.variable] = (node.ref, output.value_type)
     external_variables = {"user_input", "conversation_history"}
+    if any(node.kind == "vision_understanding" for node in typed.nodes):
+        external_variables.add(ATTACHMENT_INPUT_PORT)
     for node in typed.nodes:
         for input_binding in node.inputs:
             producer = producer_by_variable.get(input_binding.variable)
@@ -2528,6 +2546,7 @@ def compile_xpert_candidate(
         intent,
         snapshot,
         default_agent_model_id=request.default_agent_model_id,
+        vision_model_id=request.vision_model_id,
     )
     typed = _typed_blueprint(plan, intent)
     task_by_id = {task.task_id: task for task in plan.tasks}
@@ -2564,6 +2583,8 @@ def compile_xpert_candidate(
     resources_by_ref: dict[str, list[MetaPlannerIRResourceBinding]] = defaultdict(list)
     middleware_by_ref: dict[str, list[MetaPlannerIRMiddlewareBinding]] = defaultdict(list)
     resolved_nodes_by_ref = {node.ref: node for node in resolved_graph.nodes}
+    if resolved_nodes_by_ref["input"].config.get("plannerAttachmentInputV1"):
+        nodes[0].data["plannerAttachmentInputV1"] = dict(VISION_ATTACHMENT_CONTRACT)
     resolved_resource_ids: dict[tuple[str, str, str], str] = {}
     resolved_middleware_ids: dict[tuple[str, str], str] = {}
     for graph_edge in resolved_graph.edges:
@@ -2627,6 +2648,10 @@ def compile_xpert_candidate(
                     acceptance_criteria=acceptance,
                     has_runtime_resources=bool(resources_by_ref[ref]),
                     requires_runtime_mode=requires_runtime_mode,
+                    vision_model_snapshot=(
+                        resolved_nodes_by_ref[ref].vision_model_snapshot.model_dump(mode="json")
+                        if resolved_nodes_by_ref[ref].vision_model_snapshot is not None else None
+                    ),
                     resource_snapshot=(
                         resolved_nodes_by_ref[ref].resource_snapshot.model_dump(
                             mode="json"
@@ -3051,6 +3076,7 @@ class MetaPlannerV2Service:
                 update={"scope": snapshot.default_scope.model_copy(deep=True)}
             )
         assert_scope_is_authorized(request.scope, snapshot)
+        validate_vision_generation_authorization(request, snapshot, target)
         if request.mode == "update" and target is None:
             raise ValueError("Update mode requires an existing target Xpert.")
         if request.mode == "create" and target is not None:
@@ -3359,6 +3385,7 @@ class MetaPlannerV2Service:
             "generation_config": {
                 "planner_model_id": request.planner_model_id,
                 "default_agent_model_id": request.default_agent_model_id,
+                "vision_model_id": request.vision_model_id,
                 "max_agents": request.max_agents,
             },
             "validation": validation,
@@ -3430,6 +3457,7 @@ class MetaPlannerV2Service:
                 update={"scope": snapshot.default_scope.model_copy(deep=True)}
             )
         assert_scope_is_authorized(request.scope, snapshot)
+        validate_vision_generation_authorization(request, snapshot, target)
         if target is not None:
             unsupported = _unsupported_target_node_kinds(target)
             if unsupported:
@@ -3454,6 +3482,7 @@ class MetaPlannerV2Service:
             intent,
             snapshot,
             default_agent_model_id=request.default_agent_model_id,
+            vision_model_id=request.vision_model_id,
         )
         candidate = compile_xpert_candidate(
             request=request,
@@ -3512,6 +3541,7 @@ class MetaPlannerV2Service:
             intent,
             snapshot,
             default_agent_model_id=request.default_agent_model_id,
+            vision_model_id=request.vision_model_id,
         )
         candidate = compile_xpert_candidate(
             request=request,
@@ -3585,6 +3615,7 @@ class MetaPlannerV2Service:
                 blueprint,
                 snapshot,
                 default_agent_model_id=request.default_agent_model_id,
+                vision_model_id=request.vision_model_id,
             )
             candidate = compile_xpert_candidate(
                 request=request,

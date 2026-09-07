@@ -136,7 +136,7 @@ def _request(snapshot) -> MetaPlannerGenerateRequest:
         default_agent_model_id="model/agent",
         max_agents=2,
         scope=MetaPlannerScope(
-            allowed_node_kinds=[item["kind"] for item in snapshot.nodes],
+            allowed_node_kinds=[item["kind"] for item in snapshot.nodes if item["kind"] != "vision_understanding"],
             knowledge_base_ids=["kb-docs"],
             data_table_ids=["table-orders"],
         ),
@@ -318,7 +318,7 @@ def test_capability_snapshot_opens_exactly_two_reads_and_hides_table_data() -> N
     snapshot = _snapshot()
     kinds = {item["kind"] for item in snapshot.nodes}
 
-    assert len(kinds) == 18
+    assert len(kinds) == 19
     assert {"knowledge_retrieval", "data_table_query"} <= kinds
     assert snapshot.default_scope.data_table_ids == []
     assert snapshot.default_scope.knowledge_base_ids == ["kb-docs"]

@@ -15,6 +15,7 @@ MetricKind = Literal[
     "tool_call_match",
     "workflow_path_match",
     "workflow_resource_match",
+    "workflow_vision_match",
     "rubric_judge",
 ]
 
@@ -89,6 +90,80 @@ class EvaluationResourceReadExpectation(BaseModel):
                 "Agent Table assertions cannot declare knowledge version or citation ids."
             )
         return self
+
+
+VisionEvidenceBlockKind = Literal["ocr", "description", "table", "chart"]
+
+
+class _StrictVisionExpectationModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_unknown_fields(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            unknown = sorted(set(value) - set(cls.model_fields))
+            if unknown:
+                raise ValueError(
+                    f"视觉证据期望包含未知字段：{', '.join(unknown)}。"
+                )
+        return value
+
+
+class EvaluationVisionContentAnchor(_StrictVisionExpectationModel):
+    kind: VisionEvidenceBlockKind
+    text: str = Field(min_length=1, max_length=200)
+    page_number: int | None = Field(default=None, ge=1, le=20)
+
+    @model_validator(mode="after")
+    def validate_text(self) -> "EvaluationVisionContentAnchor":
+        if not self.text.strip():
+            raise ValueError("视觉内容锚点 text 不能为空。")
+        return self
+
+
+class EvaluationVisionExpectation(_StrictVisionExpectationModel):
+    node_ref: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
+    asset_sha256: str | None = Field(
+        default=None,
+        pattern=r"^[a-f0-9]{64}$",
+    )
+    model_id: str | None = Field(default=None, min_length=1, max_length=512)
+    page_count: int | None = Field(default=None, ge=1, le=20)
+    status: Literal["success", "partial"] = "success"
+    required_blocks: list[VisionEvidenceBlockKind] = Field(
+        default_factory=list,
+        max_length=4,
+    )
+    content_anchors: list[EvaluationVisionContentAnchor] = Field(
+        default_factory=list,
+        max_length=10,
+    )
+
+    @model_validator(mode="after")
+    def validate_expectation(self) -> "EvaluationVisionExpectation":
+        if self.model_id is not None and not self.model_id.strip():
+            raise ValueError("视觉证据期望的 model_id 不能为空。")
+        if len(self.required_blocks) != len(set(self.required_blocks)):
+            raise ValueError("视觉证据期望的 required_blocks 不得重复。")
+        return self
+
+
+class EvaluationAttachmentReference(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    asset_id: str = Field(pattern=r"^[A-Za-z0-9._-]{1,160}$")
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_unknown_fields(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            unknown = sorted(set(value) - {"asset_id"})
+            if unknown:
+                raise ValueError(
+                    f"评估附件引用包含未知字段：{', '.join(unknown)}。"
+                )
+        return value
 
 
 class AgentTableQueryFixture(BaseModel):
@@ -210,6 +285,11 @@ class EvaluationCaseInput(BaseModel):
         default_factory=list,
         max_length=32,
     )
+    attachment: EvaluationAttachmentReference | None = None
+    vision: list[EvaluationVisionExpectation] = Field(
+        default_factory=list,
+        max_length=20,
+    )
     weights: dict[MetricKind, float] = Field(default_factory=dict)
     targeting: EvaluationCaseTargeting | None = None
 
@@ -235,6 +315,9 @@ class EvaluationCaseInput(BaseModel):
         resource_keys = [(item.node_ref, item.kind) for item in self.resource_reads]
         if len(resource_keys) != len(set(resource_keys)):
             raise ValueError("Resource read assertions must be unique by node_ref and kind.")
+        vision_refs = [item.node_ref for item in self.vision]
+        if len(vision_refs) != len(set(vision_refs)):
+            raise ValueError("视觉证据期望的 node_ref 必须唯一。")
         return self
 
 
@@ -323,7 +406,16 @@ class EvaluationRunRequest(BaseModel):
 
 
 class EvaluationPreflightRequest(BaseModel):
+    dataset_id: str | None = Field(default=None, min_length=1, max_length=200)
+    dataset_version: int | None = Field(default=None, ge=1)
+    case_ids: list[str] = Field(default_factory=list, max_length=100)
     baseline: EvaluationTargetRequest | None = None
     candidates: list[EvaluationTargetRequest] = Field(min_length=1, max_length=5)
     model_policy: Literal["snapshot", "override"] = "snapshot"
     override_model_id: str | None = Field(default=None, max_length=300)
+
+    @model_validator(mode="after")
+    def validate_dataset_reference(self) -> "EvaluationPreflightRequest":
+        if (self.dataset_id is None) != (self.dataset_version is None):
+            raise ValueError("dataset_id 与 dataset_version 必须同时提供。")
+        return self

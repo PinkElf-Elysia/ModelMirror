@@ -8,6 +8,11 @@ from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+try:
+    from server.multimodal.vision_v2 import VisionModelBindingSnapshot
+except ModuleNotFoundError:
+    from multimodal.vision_v2 import VisionModelBindingSnapshot
+
 from .schemas import NativeNodeKind
 
 
@@ -461,6 +466,103 @@ class KnowledgeRetrievalPlannerConfig(BaseModel):
         return self
 
 
+class VisionUnderstandingPlannerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    pdf_page_strategy: Literal["all", "auto", "scanned_only"] = "all"
+    max_pages: int = Field(default=10, ge=1, le=20)
+    max_image_edge: int = Field(default=2048, ge=512, le=4096)
+    failure_policy: Literal["continue_on_error", "strict"] = "continue_on_error"
+
+
+def vision_understanding_result_schema() -> WorkflowValueSchema:
+    """Return the authoritative typed workflow payload for Vision V2."""
+
+    string_value = WorkflowValueSchema(type="string")
+    integer_value = WorkflowValueSchema(type="integer")
+    boolean_value = WorkflowValueSchema(type="boolean")
+    block_value = WorkflowValueSchema(
+        type="object",
+        properties={
+            "block_id": string_value,
+            "kind": string_value,
+            "text": string_value,
+            "page_number": WorkflowValueSchema(type="integer", nullable=True),
+            "source_block_id": string_value,
+            "truncated": boolean_value,
+        },
+        required=(
+            "block_id",
+            "kind",
+            "text",
+            "page_number",
+            "source_block_id",
+            "truncated",
+        ),
+    )
+    block_array = WorkflowValueSchema(type="array", items=block_value)
+    asset_value = WorkflowValueSchema(
+        type="object",
+        properties={
+            "asset_id": string_value,
+            "filename": string_value,
+            "format": string_value,
+            "byte_size": integer_value,
+            "sha256": string_value,
+        },
+        required=("asset_id", "filename", "format", "byte_size", "sha256"),
+    )
+    execution_summary_value = WorkflowValueSchema(
+        type="object",
+        properties={
+            "model_calls": integer_value,
+            "known_total_tokens": integer_value,
+            "unverified_token_calls": integer_value,
+            "token_usage_verified": boolean_value,
+            "token_source": string_value,
+            "uncertain_calls": integer_value,
+        },
+        required=(
+            "model_calls",
+            "known_total_tokens",
+            "unverified_token_calls",
+            "token_usage_verified",
+            "token_source",
+            "uncertain_calls",
+        ),
+    )
+    properties = {
+        "asset": asset_value,
+        "model_id": string_value,
+        "page_count": integer_value,
+        "selected_page_count": integer_value,
+        "processed_page_count": integer_value,
+        "failed_page_count": integer_value,
+        "block_count": integer_value,
+        "blocks": block_array,
+        "ocr": block_array,
+        "visual_descriptions": block_array,
+        "tables": block_array,
+        "charts": block_array,
+        "warnings": WorkflowValueSchema(type="array", items=string_value),
+        "truncated": boolean_value,
+        "provider_route_receipts": WorkflowValueSchema(
+            type="array", items=WorkflowValueSchema(type="object")
+        ),
+        "execution_mode": string_value,
+        "fallback_reason_codes": WorkflowValueSchema(
+            type="array", items=string_value
+        ),
+        "contract_version": integer_value,
+        "execution_summary": execution_summary_value,
+    }
+    return WorkflowValueSchema(
+        type="object",
+        properties=properties,
+        required=tuple(properties),
+    )
+
+
 DataTableQueryOperator = Literal[
     "eq",
     "ne",
@@ -724,7 +826,7 @@ class NodePolicyService:
     def __init__(self, registry: NodeContractRegistry) -> None:
         self.registry = registry
 
-    def decision(self, kind: str, entrypoint: str) -> NodePolicyDecision:
+    def decision(self, kind: str, entrypoint: str, *, node_data: dict[str, Any] | None = None) -> NodePolicyDecision:
         contract = self.registry.get(kind)
         if contract is None:
             return NodePolicyDecision(
@@ -741,6 +843,15 @@ class NodePolicyService:
                 code="unknown_node_entrypoint",
                 message=f"Unknown node entrypoint: {entrypoint}.",
             )
+        if kind == "vision_understanding" and entrypoint == "evaluation":
+            data = node_data or {}
+            if type(data.get("contractVersion")) is not int or data["contractVersion"] != 2:
+                return NodePolicyDecision(
+                    allowed=False,
+                    conditional=False,
+                    code="evaluation_vision_v2_required",
+                    message="附件评测仅允许视觉 V2 节点，旧节点不自动升级。",
+                )
         return NodePolicyDecision(
             allowed=rule.state != "deny",
             conditional=rule.state == "conditional",
@@ -4033,27 +4144,84 @@ def _complete_contracts() -> dict[str, NodeContract]:
             ),
         )
 
+    vision_legacy_properties = {
+        "assetIdVariable": {"type": "string"},
+        "visionModelId": {"type": "string"},
+        "pdfPageStrategy": {"enum": ["auto", "all", "scanned_only"]},
+        "maxPages": {"type": "integer", "minimum": 1, "maximum": 200},
+        "maxImageEdge": {"type": "integer", "minimum": 512, "maximum": 4096},
+        "failurePolicy": {"enum": ["continue_on_error", "strict"]},
+        "outputVariable": {"type": "string"},
+    }
+    vision_legacy_schema = _object_schema(
+        vision_legacy_properties,
+        required=["assetIdVariable", "visionModelId", "outputVariable"],
+    )
+    vision_legacy_schema["not"] = {"required": ["contractVersion"]}
+    vision_v1_schema = _object_schema(
+        {
+            **vision_legacy_properties,
+            "contractVersion": {"const": 1},
+        },
+        required=[
+            "contractVersion",
+            "assetIdVariable",
+            "visionModelId",
+            "outputVariable",
+        ],
+    )
+    vision_v2_schema = _object_schema(
+        {
+            "contractVersion": {"const": 2},
+            "assetIdVariable": {"const": "selected_file_asset_id"},
+            "visionModelId": {"type": "string", "minLength": 1},
+            "visionModelBinding": VisionModelBindingSnapshot.model_json_schema(),
+            "plannerVisionModelBindingChecksum": {
+                "type": "string",
+                "minLength": 64,
+                "maxLength": 64,
+            },
+            "pdfPageStrategy": {"enum": ["all", "auto", "scanned_only"]},
+            "maxPages": {"type": "integer", "minimum": 1, "maximum": 20},
+            "maxImageEdge": {"type": "integer", "minimum": 512, "maximum": 4096},
+            "failurePolicy": {"enum": ["continue_on_error", "strict"]},
+            "outputVariable": {"type": "string"},
+        },
+        required=[
+            "contractVersion",
+            "assetIdVariable",
+            "visionModelId",
+            "visionModelBinding",
+            "plannerVisionModelBindingChecksum",
+            "pdfPageStrategy",
+            "maxPages",
+            "maxImageEdge",
+            "failurePolicy",
+            "outputVariable",
+        ],
+    )
     contracts["vision_understanding"] = NodeContract(
         kind="vision_understanding",
         contract_status="complete",
-        config_schema=_object_schema(
-            {
-                "assetIdVariable": {"type": "string"},
-                "visionModelId": {"type": "string"},
-                "pdfPageStrategy": {"enum": ["auto", "all", "scanned_only"]},
-                "maxPages": {"type": "integer", "minimum": 1, "maximum": 200},
-                "maxImageEdge": {"type": "integer", "minimum": 512, "maximum": 4096},
-                "failurePolicy": {"enum": ["continue_on_error", "strict"]},
-                "outputVariable": {"type": "string"},
-            },
-            required=["assetIdVariable", "visionModelId", "outputVariable"],
-        ),
+        config_schema={
+            "type": "object",
+            "anyOf": [
+                vision_legacy_schema,
+                vision_v1_schema,
+                vision_v2_schema,
+            ],
+        },
         ports=(
             NodePortContract(
-                name="asset_id", direction="input", value_schema=string_value
+                name="asset_id",
+                direction="input",
+                value_schema=string_value,
+                required=True,
             ),
             NodePortContract(
-                name="result", direction="output", value_schema=object_value
+                name="result",
+                direction="output",
+                value_schema=object_value,
             ),
         ),
         execution=NodeExecutionPolicy(
@@ -4067,34 +4235,37 @@ def _complete_contracts() -> dict[str, NodeContract]:
                 "deny",
                 code="app_vision_understanding_forbidden",
                 message=(
-                    "Public Xpert Apps cannot deploy vision understanding nodes "
-                    "because public attachment upload is disabled."
+                    "公开 Xpert 应用未启用附件上传，不能部署视觉理解节点。"
                 ),
             ),
             evaluation=_rule(
-                "deny",
-                code="evaluation_unsafe_node",
+                "conditional",
+                code="evaluation_vision_v2_policy_required",
                 message=(
-                    "Evaluation does not allow vision understanding until "
-                    "evaluation datasets support explicit file assets."
+                    "评估场景需要 Vision V2 版本策略、固定附件和 Managed 视觉模型绑定。"
                 ),
             ),
         ),
-        resources=(
-            NodeResourceContract(
-                kind="file_asset", id_field="assetIdVariable", dynamic_schema=True
-            ),
-        ),
         planner=_planner(
+            enabled=True,
+            support="full",
+            compilation_mode="adapter",
+            adapter_version=planner_adapter_version,
+            task_binding="forbidden",
             default_data={
-                "assetIdVariable": "selected_file_asset_id",
-                "visionModelId": "",
-                "pdfPageStrategy": "auto",
-                "maxPages": 100,
-                "maxImageEdge": 2048,
-                "failurePolicy": "continue_on_error",
-                "outputVariable": "vision_result",
-            }
+                "pdf_page_strategy": "all",
+                "max_pages": 10,
+                "max_image_edge": 2048,
+                "failure_policy": "continue_on_error",
+            },
+            constraints={
+                "required_input": "asset_id",
+                "input_variable": "selected_file_asset_id",
+                "model_binding": "managed",
+                "control_outcomes": ["success"],
+                "final_output": "forbidden",
+            },
+            ir_config_schema=VisionUnderstandingPlannerConfig.model_json_schema(),
         ),
     )
 

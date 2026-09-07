@@ -496,7 +496,7 @@ def test_capability_api_returns_stable_safe_contract():
     response = client.get("/api/meta-agent/capabilities")
     assert response.status_code == 200
     payload = response.json()
-    assert payload["version"] == "evoagentx-meta-planner-capabilities-v8"
+    assert payload["version"] == "evoagentx-meta-planner-capabilities-v9"
     assert payload["control_flow_contract_version"] == 2
     assert payload["authoring_protocol_version"] == 1
     assert payload["authoring_limits"]["max_operations"] == 64
@@ -527,6 +527,7 @@ def test_capability_snapshot_only_exposes_compilable_node_kinds():
         "output",
         "terminate_error",
         "variable_aggregator",
+        "vision_understanding",
         "workflow_agent",
         "external_xpert",
         "knowledge_base",

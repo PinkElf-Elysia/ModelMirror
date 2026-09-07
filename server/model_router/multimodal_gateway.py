@@ -142,6 +142,39 @@ class ManagedMultimodalGateway:
             raise self._blocked(entry_id, "provider_workload_binding_missing")
         return matches[0]
 
+    def vision_binding_snapshot(
+        self, entry_id: R8BEntryId, model_id: str
+    ) -> dict[str, Any]:
+        """Content-free identity of the exact, currently qualified vision Binding."""
+        if self.routing_mode(entry_id) != "managed_required":
+            raise self._blocked(entry_id, "provider_workload_policy_not_active")
+        self.exact_model_id(entry_id, "vision_json_unary", requested_model=model_id)
+        policy = self.call_service.control.get_policy(entry_id)
+        matches = [
+            item for item in policy.bindings
+            if item.model_id == model_id and item.execution_shape == "vision_json_unary" and item.valid
+        ]
+        if len(matches) != 1:
+            raise self._blocked(entry_id, "provider_workload_binding_missing")
+        binding = matches[0]
+        payload = {
+            "entry_id": entry_id,
+            "model_id": model_id,
+            "execution_shape": "vision_json_unary",
+            "connection_id": binding.connection_id,
+            "certification_id": binding.certification_id,
+            "connection_fingerprint": binding.connection_fingerprint,
+            "qualification_fingerprint": binding.qualification_fingerprint,
+            "adapter_contract": binding.adapter_contract,
+            "protocol_version": binding.protocol_version,
+        }
+        from hashlib import sha256
+
+        payload["checksum"] = sha256(json.dumps(
+            payload, sort_keys=True, ensure_ascii=True, separators=(",", ":")
+        ).encode("utf-8")).hexdigest()
+        return payload
+
     def certified_audio_parameters(
         self,
         entry_id: R8BEntryId,
@@ -279,6 +312,7 @@ class ManagedMultimodalRun:
         model_id: str,
         messages: list[dict[str, Any]],
         max_tokens: int = 1024,
+        binding_snapshot: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         try:
             text = await self._delegate.complete_json_object_for_shape(
@@ -289,6 +323,9 @@ class ManagedMultimodalRun:
                 messages=messages,
                 temperature=0,
                 max_tokens=max_tokens,
+                **({"prepared_validator": lambda prepared: self._validate_vision_binding(
+                    prepared, model_id, binding_snapshot
+                )} if binding_snapshot is not None else {}),
             )
             parsed = json.loads(text)
             if not isinstance(parsed, dict):
@@ -307,6 +344,20 @@ class ManagedMultimodalRun:
                 status_code=status_code,
                 receipt=self._delegate.receipt_summary(),
             ) from exc
+
+    def _validate_vision_binding(self, prepared, model_id, expected):
+        current = self.gateway.vision_binding_snapshot(self.entry_id, model_id)
+        fields = (
+            "entry_id", "model_id", "execution_shape", "connection_id",
+            "certification_id", "connection_fingerprint", "adapter_contract", "protocol_version",
+        )
+        if current != expected or any(
+            getattr(prepared, name, None) != current[name] for name in fields
+        ):
+            raise ManagedWorkflowRoutingError(
+                "workflow_vision_binding_stale",
+                "固定视觉模型的 Managed Binding 已变化，未发送附件。",
+            )
 
     async def complete_image_generation(
         self,

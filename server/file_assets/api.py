@@ -686,6 +686,31 @@ def get_file_asset(
         raise _http_error(exc) from exc
 
 
+@router.get("/{asset_id}/download")
+def download_evaluation_file_asset(
+    asset_id: Annotated[str, Path(min_length=1, max_length=256)],
+    purpose: Annotated[Literal["evaluation"], Query()],
+    scope_id: Annotated[
+        str,
+        Query(min_length=1, max_length=256, pattern=r"^[A-Za-z0-9._:-]+$"),
+    ],
+    service: Annotated[FileAssetService, Depends(get_file_asset_service)],
+) -> Response:
+    try:
+        asset = service.resolve_evaluation_asset(asset_id, scope_id=scope_id)
+    except FileAssetServiceError as exc:
+        raise _http_error(exc) from exc
+    return Response(
+        content=asset.content,
+        media_type=asset.media_type,
+        headers={
+            "Content-Disposition": _content_disposition(asset.display_name),
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 @router.get("/{asset_id}/preview", response_model=ParsedDocumentPreview)
 def preview_file_asset(
     asset_id: Annotated[str, Path(min_length=1, max_length=256)],

@@ -769,6 +769,19 @@ _POLICIES = (
         retention=FileRetention.PERSISTENT,
         max_files_per_request=1,
     ),
+    _policy(
+        FilePurpose.EVALUATION,
+        FileInputKind.VISUAL_ANALYSIS,
+        ("pdf", "jpeg", "png", "webp"),
+        10,
+        FileSupportLevel.SPECIALIZED,
+        FileInteractionStatus.READY,
+        "evaluations.vision_fixture",
+        "/agents/evaluations",
+        retention=FileRetention.PERSISTENT,
+        max_files_per_request=1,
+        max_total_bytes_per_request=10 * MIB,
+    ),
 )
 
 _DEFAULT_REGISTRY = FileFormatRegistry(_FORMATS, _POLICIES)

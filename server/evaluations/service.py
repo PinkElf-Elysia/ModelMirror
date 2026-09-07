@@ -36,6 +36,7 @@ from .resource_fixtures import (
     inspect_agent_table_node,
     prepare_agent_table_fixtures,
 )
+from .vision_preflight import inspect_vision_node, validate_vision_dataset
 
 
 UNSAFE_MIDDLEWARE_IDS = {
@@ -71,6 +72,7 @@ class XpertEvaluationService:
         rag_service: Any,
         context_store: Any,
         agent_table_evaluation_backend: AgentTableEvaluationBackend | None = None,
+        vision_binding_resolver: Callable[[str, str], dict[str, Any]] | None = None,
     ) -> None:
         self.store = store
         self.xpert_store = xpert_store
@@ -81,6 +83,7 @@ class XpertEvaluationService:
         self.rag_service = rag_service
         self.context_store = context_store
         self.agent_table_evaluation_backend = agent_table_evaluation_backend
+        self.vision_binding_resolver = vision_binding_resolver
 
     def snapshot_target(
         self,
@@ -175,6 +178,8 @@ class XpertEvaluationService:
             workflow,
             recursion_path=(*recursion_path, xpert.id),
         )
+        if resources.get("vision_models") and version.features is not None and not version.features.file_upload.enabled:
+            issues.append({"code": "evaluation_vision_files_disabled", "message": "目标 Xpert 已关闭文件输入，不能进行视觉评测。"})
         validation = validate_xpert_workflow_graph(
             workflow,
             history_variable=version.history_variable,
@@ -248,6 +253,9 @@ class XpertEvaluationService:
         candidates: list[dict[str, Any]],
         model_policy: str,
         override_model_id: str | None,
+        dataset_id: str | None = None,
+        dataset_version: int | None = None,
+        case_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         snapshots: list[dict[str, Any]] = []
         warnings: list[str] = []
@@ -270,6 +278,14 @@ class XpertEvaluationService:
             candidate_snapshots.append(snapshot)
             snapshots.append(self.public_target_payload(snapshot))
             warnings.extend(target_warnings)
+        fixed_dataset = self.store.get_dataset_version(dataset_id, dataset_version) if dataset_id and dataset_version else None
+        selected = [case for case in (fixed_dataset or {}).get("cases", []) if not case_ids or case["case_id"] in case_ids]
+        if len(selected) > self.store.MAX_RUN_CASES:
+            raise EvaluationStateError("单次运行最多选择 100 条用例。")
+        warnings.extend(validate_vision_dataset(
+            ([baseline_snapshot] if baseline_snapshot else []) + candidate_snapshots,
+            selected, dataset_version=fixed_dataset, fixtures=self.store.vision_fixtures,
+        ))
         return {
             "valid": True,
             "baseline": self.public_target_payload(baseline_snapshot)
@@ -397,6 +413,8 @@ class XpertEvaluationService:
             raise EvaluationStateError("No evaluation cases were selected.")
         targets = ([baseline] if baseline else []) + list(candidates)
         frozen_targets = [copy.deepcopy(item) for item in targets]
+        if any(case.get("attachment") for case in selected) or any((target.get("resources") or {}).get("vision_models") for target in frozen_targets):
+            raise EvaluationStateError("内部优化器本轮不支持附件或视觉目标，不会扩大 Evolution 权限。")
         resource_fixtures = prepare_agent_table_fixtures(
             targets=frozen_targets,
             cases=selected,
@@ -455,6 +473,7 @@ class XpertEvaluationService:
             candidate_snapshots
         )
         frozen_targets = [copy.deepcopy(item) for item in targets]
+        warnings.extend(validate_vision_dataset(frozen_targets, cases, dataset_version=dataset, fixtures=self.store.vision_fixtures))
         resource_fixtures = prepare_agent_table_fixtures(
             targets=frozen_targets,
             cases=cases,
@@ -597,12 +616,13 @@ class XpertEvaluationService:
             "data_tables": [],
             "external_xperts": [],
             "plugins": [],
+            "vision_models": [],
         }
         table_nodes: list[Any] = []
         for node in workflow.nodes:
             data = node.data if isinstance(node.data, dict) else {}
             kind = str(data.get("kind") or node.type or "")
-            policy = node_policy_service.decision(kind, "evaluation")
+            policy = node_policy_service.decision(kind, "evaluation", node_data=data)
             if not policy.allowed:
                 issues.append(
                     {
@@ -620,6 +640,18 @@ class XpertEvaluationService:
                         "node_id": node.id,
                     }
                 )
+            if kind == "vision_understanding":
+                try:
+                    resources["vision_models"].append(inspect_vision_node(
+                        node, nested=len(recursion_path) > 1,
+                        binding_resolver=self.vision_binding_resolver,
+                    ))
+                except Exception:
+                    issues.append({
+                        "code": "evaluation_vision_contract_invalid",
+                        "message": "视觉节点必须具有固定的 V2 契约和有效 Managed Binding，且不得位于嵌套外部 Xpert。",
+                        "node_id": node.id,
+                    })
             if kind == "iteration" and is_workflow_map(data):
                 issues.append(
                     {

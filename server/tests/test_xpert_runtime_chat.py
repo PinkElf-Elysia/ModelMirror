@@ -206,6 +206,63 @@ async def test_workflow_stream_exposes_provider_token_usage(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("ending,error", [
+    ('data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n', None),
+    ('data: [DONE]\n\n', None),
+    ('data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n\ndata: [DONE]\n\n', "WORKFLOW_STREAM_LENGTH"),
+    ('data: {"error":{"message":"PRIVATE_SENTINEL"}}\n\n', "WORKFLOW_STREAM_PROVIDER_ERROR"),
+    ('', "WORKFLOW_STREAM_INCOMPLETE"),
+    ('data: {bad}\n\n', "WORKFLOW_STREAM_INVALID_JSON"),
+    ('data: {"choices":[{"finish_reason":"content_filter"}]}\n\n', "WORKFLOW_STREAM_TERMINATION_INVALID"),
+])
+async def test_workflow_stream_rejects_incomplete_answers(monkeypatch, ending, error):
+    sent = []
+    closed = []
+
+    class Response:
+        status_code = 200
+
+        async def aiter_text(self):
+            # Deliberately split frames across transport chunks.
+            wire = 'data: {"choices":[{"delta":{"content":"page 1: 42"}}]}\n\n' + ending
+            for offset in range(0, len(wire), 7):
+                yield wire[offset:offset + 7]
+
+        async def aclose(self):
+            closed.append(True)
+
+    class Client:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        def build_request(self, *args, **kwargs):
+            return kwargs
+
+        async def send(self, request, **kwargs):
+            sent.append(request)
+            return Response()
+
+    monkeypatch.setattr(main_module, "get_llm_gateway_config", lambda: ("http://mock", "key"))
+    monkeypatch.setattr(main_module.httpx, "AsyncClient", Client)
+    stream = stream_workflow_llm_messages("mock", [ChatMessage(role="user", content="test")])
+    if error:
+        with pytest.raises(RuntimeError, match=error) as raised:
+            _ = [part async for part in stream]
+        assert "PRIVATE_SENTINEL" not in str(raised.value)
+    else:
+        assert "".join([part async for part in stream]) == "page 1: 42"
+        assert stream.completion_receipt
+    assert len(sent) == 1
+    assert closed == [True]
+
+
+@pytest.mark.asyncio
 async def test_collected_completion_forwards_json_response_format(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

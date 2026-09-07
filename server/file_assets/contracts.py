@@ -23,6 +23,7 @@ class FilePurpose(str, Enum):
     DATAX = "datax"
     AGENT = "agent"
     WORKFLOW = "workflow"
+    EVALUATION = "evaluation"
 
 
 class FileInputKind(str, Enum):

@@ -190,6 +190,7 @@ try:
         render_evaluation_case_inputs,
         router as xpert_evaluations_router,
     )
+    from server.evaluations.vision_runtime import prepare_vision_input, record_vision_dispatch, record_evaluation_vision_receipt, capture_evaluation_vision, vision_usage
 except ModuleNotFoundError:
     from evaluations import (
         configure_xpert_evaluations,
@@ -199,6 +200,7 @@ except ModuleNotFoundError:
         render_evaluation_case_inputs,
         router as xpert_evaluations_router,
     )
+    from evaluations.vision_runtime import prepare_vision_input, record_vision_dispatch, record_evaluation_vision_receipt, capture_evaluation_vision, vision_usage
 
 try:
     from server.benchmarks import (
@@ -1624,6 +1626,8 @@ try:
         compose_workflow_vision_receipt,
         execute_workflow_vision,
         resolve_workflow_vision_asset,
+        validate_vision_v2_request,
+        validate_vision_v2_asset,
     )
 except ModuleNotFoundError:
     from xpert_runtime.workflow_vision import (
@@ -1631,6 +1635,8 @@ except ModuleNotFoundError:
         compose_workflow_vision_receipt,
         execute_workflow_vision,
         resolve_workflow_vision_asset,
+        validate_vision_v2_request,
+        validate_vision_v2_asset,
     )
 
 load_dotenv()
@@ -7325,6 +7331,7 @@ def sse_workflow_token_usage(event_text: str) -> dict[str, int]:
 class _WorkflowLlmTextStream:
     iterator: AsyncIterator[str]
     token_usage: dict[str, int]
+    completion_receipt: dict[str, Any]
 
     def __aiter__(self) -> "_WorkflowLlmTextStream":
         return self
@@ -7354,6 +7361,7 @@ def stream_workflow_llm_messages(
     max_tokens: int = 2048,
 ) -> _WorkflowLlmTextStream:
     token_usage: dict[str, int] = {}
+    completion_receipt: dict[str, Any] = {}
     return _WorkflowLlmTextStream(
         iterator=_stream_workflow_llm_messages(
             model_id,
@@ -7361,8 +7369,10 @@ def stream_workflow_llm_messages(
             temperature=temperature,
             max_tokens=max_tokens,
             token_usage=token_usage,
+            completion_receipt=completion_receipt,
         ),
         token_usage=token_usage,
+        completion_receipt=completion_receipt,
     )
 
 
@@ -7373,6 +7383,7 @@ async def _stream_workflow_llm_messages(
     temperature: float,
     max_tokens: int,
     token_usage: dict[str, int],
+    completion_receipt: dict[str, Any],
 ) -> AsyncIterator[str]:
     url, key = get_llm_gateway_config()
     if not url:
@@ -7418,6 +7429,31 @@ async def _stream_workflow_llm_messages(
             message, _ = parse_upstream_error(response.status_code, body)
             raise RuntimeError(message)
 
+        def inspect_event(event: str) -> None:
+            for line in event.splitlines():
+                if not line.strip().startswith("data:"):
+                    continue
+                raw = line.strip()[5:].strip()
+                if raw == "[DONE]":
+                    completion_receipt["done_observed"] = True
+                    continue
+                if not raw:
+                    continue
+                try:
+                    payload = json.loads(raw)
+                except json.JSONDecodeError:
+                    raise RuntimeError("WORKFLOW_STREAM_INVALID_JSON: 模型返回了无效的流事件。") from None
+                if not isinstance(payload, dict) or payload.get("error"):
+                    raise RuntimeError("WORKFLOW_STREAM_PROVIDER_ERROR: 模型流返回错误，未接受部分回答。")
+                choices = payload.get("choices")
+                if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+                    reason = choices[0].get("finish_reason")
+                    if reason:
+                        completion_receipt["finish_reason"] = str(reason)[:80]
+                        if reason != "stop":
+                            code = "WORKFLOW_STREAM_LENGTH" if reason == "length" else "WORKFLOW_STREAM_TERMINATION_INVALID"
+                            raise RuntimeError(f"{code}: 模型未正常完成回答，不自动重试。")
+
         buffer = ""
         try:
             async for chunk in response.aiter_text():
@@ -7427,6 +7463,7 @@ async def _stream_workflow_llm_messages(
                 events = buffer.split("\n\n")
                 buffer = events.pop() or ""
                 for event in events:
+                    inspect_event(event)
                     token_usage.update(sse_workflow_token_usage(event))
                     for text_chunk in sse_delta_text(event):
                         if text_chunk:
@@ -7435,10 +7472,13 @@ async def _stream_workflow_llm_messages(
             await response.aclose()
 
         if buffer.strip():
+            inspect_event(buffer)
             token_usage.update(sse_workflow_token_usage(buffer))
             for text_chunk in sse_delta_text(buffer):
                 if text_chunk:
                     yield text_chunk
+        if not completion_receipt.get("done_observed") and completion_receipt.get("finish_reason") != "stop":
+            raise RuntimeError("WORKFLOW_STREAM_INCOMPLETE: 模型流缺少结束标记，未接受部分回答。")
 
 
 @app.get("/api/health")
@@ -7449,6 +7489,11 @@ async def health() -> dict[str, str]:
 def build_meta_planner_capability_snapshot(
     experts: Iterable[AgentRecord] | None = None,
 ):
+    try:
+        from server.meta_agent.vision_contract import safe_planner_vision_models
+    except ModuleNotFoundError:
+        from meta_agent.vision_contract import safe_planner_vision_models
+
     xpert_store = get_xpert_store()
     published_summaries = xpert_store.list_xperts(status="published", limit=200)
     published_xperts = [
@@ -7517,12 +7562,19 @@ def build_meta_planner_capability_snapshot(
             status="published", limit=500
         ),
         model_ids=observed_model_ids,
+        vision_models=safe_planner_vision_models(
+            get_image_catalog_service().peek_catalog(), workflow_vision_service
+        ),
         agents=experts or (),
     )
 
 
 @app.get("/api/meta-agent/capabilities")
 async def get_meta_planner_capabilities():
+    try:
+        await get_image_catalog_service().get_catalog()
+    except Exception:
+        logger.warning("视觉能力目录暂不可用，仅返回当前安全快照。")
     return build_meta_planner_capability_snapshot().model_dump(mode="json")
 
 
@@ -9080,6 +9132,8 @@ async def generate_meta_planner_xpert_candidate(
         )
 
     try:
+        if payload.vision_model_id:
+            await get_image_catalog_service().get_catalog()
         snapshot = build_meta_planner_capability_snapshot()
         service = MetaPlannerV2Service(
             authoring_service=authoring_service,
@@ -9456,6 +9510,16 @@ async def prepare_published_xpert_run(
     file_owner_xpert_id = shared_file_owner_xpert_id or xpert.id
     file_conversation_id = shared_file_conversation_id or conversation_id
     file_asset_ids = list(shared_file_asset_ids or payload.file_asset_ids)
+    requires_vision_v2 = any(
+        str(node.data.get("kind") or node.type) == "vision_understanding"
+        and node.data.get("contractVersion") == 2
+        for node in version.workflow.nodes
+    )
+    if requires_vision_v2:
+        if not features.file_upload.enabled or len(file_asset_ids) != 1:
+            raise XpertContextValidationError("视觉 V2 运行要求启用文件输入并显式选择一个附件。")
+        if {"selected_file_asset_id", "selected_file_asset_ids"} & set(extra_inputs or {}):
+            raise XpertContextValidationError("额外运行变量不能覆盖可信附件槽位。")
     if file_asset_ids and not features.file_upload.enabled:
         raise XpertContextValidationError(
             "This Xpert version does not allow file input."
@@ -10026,6 +10090,31 @@ async def _run_workflow_response(
         if resume_execution is not None
         else (runtime_metadata or {})
     )
+    vision_v2_nodes = [
+        node for node in payload.workflow.nodes
+        if workflow_node_kind(node) == "vision_understanding"
+        and node.data.get("contractVersion") == 2
+    ]
+    try:
+        for vision_node in vision_v2_nodes:
+            selected_id = payload.inputs.get("selected_file_asset_id")
+            binding = validate_vision_v2_request(
+                vision_node.data, selected_asset_id=selected_id,
+                runtime_run_type=runtime_run_type, runtime_metadata=validation_metadata,
+            )
+            if workflow_vision_service.managed_binding_snapshot("xpert_vision", binding["model_id"]) != binding:
+                raise WorkflowVisionError("workflow_vision_binding_drift", "视觉模型 Binding 已变化，请重新预检。")
+            asset = await asyncio.to_thread(
+                resolve_workflow_vision_asset,
+                asset_id=selected_id, workflow_id=payload.workflow.id,
+                runtime_run_type=runtime_run_type, runtime_metadata=validation_metadata,
+                file_asset_service=get_file_asset_service(), xpert_context_store=xpert_context_store,
+            )
+            await asyncio.to_thread(validate_vision_v2_asset, asset, vision_node.data.get("maxPages", 10))
+    except WorkflowVisionError as exc:
+        return JSONResponse(status_code=422, content={"error": exc.message, "code": exc.error_code})
+    except Exception:
+        return JSONResponse(status_code=422, content={"error": "视觉 Managed 绑定预检未通过。", "code": "workflow_vision_binding_unavailable"})
     runtime_validation_input_names: set[str] = set()
     metadata_xpert_id = str(validation_metadata.get("xpert_id") or "").strip()
     metadata_xpert_version = validation_metadata.get("xpert_version")
@@ -10583,6 +10672,8 @@ async def _run_workflow_response(
                 else 0
             ),
         )
+    if vision_v2_nodes and execution_budget is None:
+        execution_budget = XpertExecutionBudget(max_concurrency=2, recursion_limit=1000)
     if is_node_retry_resume and "variables" not in safe_resume_state:
         restored_workflow_variables = initialize_retry_reconstructible_variables(
             payload.workflow,
@@ -19486,6 +19577,8 @@ async def _run_workflow_response(
 
                 elif kind == "vision_understanding":
                     try:
+                        vision_v2 = node.data.get("contractVersion") == 2
+                        vision_binding = None
                         managed_vision_entry_id = (
                             "workflow_deployment_vision"
                             if trusted_source_kind == "workflow_deployment"
@@ -19493,6 +19586,16 @@ async def _run_workflow_response(
                             if trusted_source_kind in {"xpert_chat", "xpert_app"}
                             else "workflow_interactive_vision"
                         )
+                        if vision_v2:
+                            selected_id = payload.inputs.get("selected_file_asset_id")
+                            if variables.get("selected_file_asset_id") != selected_id:
+                                raise WorkflowVisionError("workflow_vision_input_drift", "运行中附件槽位被覆盖，已拒绝视觉请求。")
+                            vision_binding = validate_vision_v2_request(
+                                node.data, selected_asset_id=selected_id,
+                                runtime_run_type=runtime_run_type,
+                                runtime_metadata=dict(task_state.get("runtime_metadata") or {}),
+                            )
+                            managed_vision_entry_id = "xpert_vision"
                         output_variable = str(
                             node.data.get("outputVariable") or "vision_result"
                         ).strip()
@@ -19533,9 +19636,11 @@ async def _run_workflow_response(
                                 "workflow_vision_model_unavailable",
                                 "The selected model is not currently available for image input.",
                             )
-                        asset_id = workflow_value_to_text(
-                            variables.get(asset_id_variable, "")
-                        ).strip()
+                        asset_id = (
+                            selected_id if vision_v2 else workflow_value_to_text(
+                                variables.get(asset_id_variable, "")
+                            ).strip()
+                        )
                         asset = await asyncio.to_thread(
                             resolve_workflow_vision_asset,
                             asset_id=asset_id,
@@ -19547,13 +19652,28 @@ async def _run_workflow_response(
                             file_asset_service=get_file_asset_service(),
                             xpert_context_store=xpert_context_store,
                         )
+                        vision_metadata = dict(task_state.get("runtime_metadata") or {})
+
+                        def vision_cancelled() -> bool:
+                            if task_state.get("cancel_requested"):
+                                return True
+                            return runtime_run_type == "xpert_evaluation" and bool(get_xpert_evaluation_store().require_run(str(vision_metadata.get("evaluation_run_id") or "")).get("cancel_requested"))
+
+                        def vision_dispatched(page_number: int) -> None:
+                            if runtime_run_type == "xpert_evaluation":
+                                record_vision_dispatch(get_xpert_evaluation_store(), vision_metadata, node_ref=str(node.data.get("plannerRef") or node.id), page_number=page_number)
+
+                        def vision_receipt(receipt: dict[str, Any]) -> None:
+                            if runtime_run_type == "xpert_evaluation":
+                                record_evaluation_vision_receipt(get_xpert_evaluation_store(), vision_metadata, node_ref=str(node.data.get("plannerRef") or node.id), receipt=receipt)
+
                         result_payload, result = await execute_workflow_vision(
                             asset=asset,
                             model_id=model_id,
                             pdf_page_strategy=str(
-                                node.data.get("pdfPageStrategy") or "auto"
+                                node.data.get("pdfPageStrategy") or ("all" if vision_v2 else "auto")
                             ),
-                            max_pages=int(node.data.get("maxPages") or 100),
+                            max_pages=int(node.data.get("maxPages") or (10 if vision_v2 else 100)),
                             max_image_edge=int(
                                 node.data.get("maxImageEdge") or 2048
                             ),
@@ -19566,7 +19686,21 @@ async def _run_workflow_response(
                             parent_run_reference=(
                                 f"{workflow_run.run_id}:{node.id}:vision"
                             ),
+                            **({
+                                "contract_version": 2,
+                                "binding_snapshot": vision_binding,
+                                "cancel_check": vision_cancelled,
+                                "dispatch_observer": vision_dispatched,
+                                "receipt_observer": vision_receipt,
+                            } if vision_v2 else {}),
                         )
+                        if vision_v2 and runtime_run_type == "xpert_evaluation":
+                            evidence = capture_evaluation_vision(
+                                get_xpert_evaluation_store(), vision_metadata,
+                                node_ref=str(node.data.get("plannerRef") or ""), node_id=node.id,
+                                payload=result_payload,
+                            )
+                            task_state.setdefault("evaluation_vision_reads", []).append(evidence)
                         variables[output_variable] = result_payload
                         node_provider_receipt = compose_workflow_vision_receipt(
                             result.provider_route_receipts
@@ -19574,7 +19708,7 @@ async def _run_workflow_response(
                         await run_registry.record_checkpoint(
                             workflow_run.run_id,
                             event_type="workflow.vision.completed",
-                            title="Vision understanding completed",
+                            title="视觉理解已完成",
                             summary=(
                                 f"asset_id={asset.asset_id}; "
                                 f"pages={result.processed_page_count}; "
@@ -19597,9 +19731,8 @@ async def _run_workflow_response(
                                 "node_title": title,
                                 "node_type": kind,
                                 "output": (
-                                    f"Visual analysis completed: "
-                                    f"{result.processed_page_count} page(s), "
-                                    f"{len(result_payload['blocks'])} block(s)."
+                                    f"视觉分析完成：{result.processed_page_count} 页，"
+                                    f"{len(result_payload['blocks'])} 个内容块。"
                                 ),
                                 "variable": output_variable,
                             }
@@ -19623,7 +19756,7 @@ async def _run_workflow_response(
                         raise WorkflowVisionFatalError(
                             node.id,
                             "workflow_vision_failed",
-                            "Vision understanding failed safely.",
+                            "视觉理解失败，未继续调用后续节点。",
                         ) from None
 
                 elif kind == "document_extractor":
@@ -22170,6 +22303,15 @@ async def _run_workflow_response(
                                             "token_usage",
                                             None,
                                         )
+                                        completion_receipt = getattr(model_stream, "completion_receipt", None)
+                                        if isinstance(completion_receipt, dict):
+                                            await run_registry.record_checkpoint(
+                                                workflow_agent_run.run_id,
+                                                event_type="workflow_agent.stream_completed",
+                                                title="模型流完整性校验通过",
+                                                summary="已验证文本流结束标记，不保存正文。",
+                                                metadata=dict(completion_receipt),
+                                            )
                                         if isinstance(stream_usage, dict) and stream_usage:
                                             observe_token_usage(stream_usage)
                                         elif (
@@ -26060,7 +26202,7 @@ async def _run_workflow_response(
                 await run_registry.record_checkpoint(
                     workflow_run.run_id,
                     event_type="workflow.vision.failed",
-                    title="Vision understanding failed",
+                    title="视觉理解失败",
                     summary=exc.error_code,
                     severity="error",
                     metadata={
@@ -30322,6 +30464,7 @@ async def run_xpert_evaluation_target(
         "xpert_file_context": "",
         "xpert_memory_context": "",
     }
+    inputs.update(prepare_vision_input(get_xpert_evaluation_store(), target, case, config))
     budget = dict(config.get("budget") or {})
     agent_config = dict(target.get("agent_config") or {})
     agent_config.update(
@@ -30354,6 +30497,7 @@ async def run_xpert_evaluation_target(
         "evaluation_target_id": target.get("target_id"),
         "evaluation_run_id": str(config.get("evaluation_run_id") or ""),
         "evaluation_case_id": str(config.get("evaluation_case_id") or ""),
+        "evaluation_item_id": str(config.get("evaluation_item_id") or ""),
         "evaluation_resources": dict(target.get("resources") or {}),
         "evaluation_seed": int(config.get("seed") or 0),
         "memory_write_enabled": False,
@@ -30406,6 +30550,9 @@ async def run_xpert_evaluation_target(
     )
     if isinstance(execution_budget, XpertExecutionBudget):
         usage.update(execution_budget.usage())
+    vision_reads = list(task_state.get("evaluation_vision_reads") or []) if isinstance(task_state, dict) else []
+    if vision_reads:
+        usage.update(vision_usage(vision_reads))
     estimated_tokens = max(
         1,
         (
@@ -30422,7 +30569,7 @@ async def run_xpert_evaluation_target(
             "token_estimate": True,
         }
     )
-    if estimated_tokens > int(budget.get("max_estimated_tokens") or 64_000):
+    if estimated_tokens + int(usage.get("vision_actual_tokens") or 0) > int(budget.get("max_estimated_tokens") or 64_000):
         raise RuntimeError(
             "Evaluation estimated-token budget was exhausted for this target case."
         )
@@ -30439,6 +30586,7 @@ async def run_xpert_evaluation_target(
         "citations": evaluation_citation_summary(citation_value),
         "tool_calls": await evaluation_tool_call_summary(runtime_run_id),
         "control_flow": control_flow,
+        "vision_reads": vision_reads,
         "resource_reads": list(
             task_state.get("evaluation_resource_reads") or []
         )[:100]
@@ -30824,6 +30972,8 @@ configure_xpert_evaluations(
     rag_service=get_rag_service(),
     context_store=xpert_context_store,
     agent_table_evaluation_backend=agent_table_store,
+    file_asset_service=get_file_asset_service(),
+    vision_binding_resolver=workflow_vision_service.managed_binding_snapshot,
     target_runner=run_xpert_evaluation_target,
     judge_runner=run_xpert_evaluation_judge,
     run_registry=run_registry,

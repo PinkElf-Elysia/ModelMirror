@@ -895,6 +895,7 @@ class ManagedWorkflowNodeRun:
         temperature: float,
         max_tokens: int,
         cancel_event: asyncio.Event | None = None,
+        prepared_validator: Callable[[ProviderWorkloadPreparedCall], None] | None = None,
     ) -> str:
         """Run a qualified JSON unary shape without weakening its exact Binding."""
 
@@ -909,6 +910,7 @@ class ManagedWorkflowNodeRun:
             response_format={"type": "json_object"},
             require_json_object=True,
             cancel_event=cancel_event,
+            prepared_validator=prepared_validator,
         )
 
     async def _complete_unary(
@@ -924,6 +926,7 @@ class ManagedWorkflowNodeRun:
         response_format: dict[str, str] | None,
         require_json_object: bool,
         cancel_event: asyncio.Event | None,
+        prepared_validator: Callable[[ProviderWorkloadPreparedCall], None] | None = None,
     ) -> str:
         prepared: ProviderWorkloadPreparedCall | None = None
         dispatched = False
@@ -937,6 +940,8 @@ class ManagedWorkflowNodeRun:
                 logical_call_key=logical_call_key,
                 call_sequence=call_sequence,
             )
+            if prepared_validator is not None:
+                prepared_validator(prepared)
             payload: dict[str, Any] = {
                 "model": model_id,
                 "messages": messages,

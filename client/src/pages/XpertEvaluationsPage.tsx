@@ -21,13 +21,18 @@ import {
 } from "lucide-react";
 import BenchmarkCatalogPanel from "../components/evaluations/BenchmarkCatalogPanel";
 import BenchmarkGeneratorPanel from "../components/evaluations/BenchmarkGeneratorPanel";
+import EvaluationVisionCases, {
+  type EvaluationAttachmentManifest,
+  type EvaluationVisionCase,
+  type EvaluationVisionExpectation,
+} from "../components/evaluations/EvaluationVisionCases";
 import PageContainer from "../components/PageContainer";
 import { models } from "../data/models";
 import { listXpertVersions, listXperts } from "../utils/xpertApi";
 
 type TargetKind = "xpert_version" | "proposal";
 
-interface EvaluationCase {
+interface EvaluationCase extends EvaluationVisionCase {
   case_id?: string;
   name?: string;
   message: string;
@@ -52,6 +57,8 @@ interface EvaluationCase {
     error_code?: string | null;
   };
   resource_reads?: EvaluationResourceReadExpectation[];
+  attachment?: EvaluationAttachmentManifest | null;
+  vision?: EvaluationVisionExpectation[];
   weights?: Record<string, number>;
 }
 
@@ -138,6 +145,15 @@ interface TargetOption {
   proposal_revision?: number;
 }
 
+interface EvaluationTargetPayload {
+  kind: TargetKind;
+  label: string;
+  xpert_id?: string;
+  version?: number;
+  proposal_id?: string;
+  proposal_revision?: number;
+}
+
 interface EvaluationItem {
   item_id: string;
   target_id: string;
@@ -166,6 +182,8 @@ interface EvaluationItem {
   };
   resource_evidence?: unknown;
   resource_reads?: unknown;
+  vision_evidence?: unknown;
+  vision_reads?: unknown;
 }
 
 interface EvaluationRun {
@@ -349,8 +367,218 @@ export function resourceEvidenceSummaryLabel(value: unknown): string | null {
     .join(" · ");
 }
 
+export function normalizeEvaluationCasesForSave(
+  cases: EvaluationCase[],
+): EvaluationCase[] {
+  return cases.map((item) => {
+    const normalized = { ...item };
+    if (item.attachment === null) {
+      delete normalized.attachment;
+    } else if (item.attachment !== undefined) {
+      const assetId = item.attachment.asset_id;
+      if (typeof assetId !== "string" || !/^[A-Za-z0-9._-]{1,160}$/.test(assetId)) {
+        throw new Error("评测附件引用缺少有效的 asset_id，请重新上传。");
+      }
+      normalized.attachment = { asset_id: assetId };
+    }
+    return normalized;
+  });
+}
+
+export function buildEvaluationPreflightRequest(payload: {
+  dataset_id: string;
+  dataset_version: number;
+  case_ids: string[];
+  baseline: EvaluationTargetPayload | null;
+  candidates: EvaluationTargetPayload[];
+  model_policy: "snapshot" | "override";
+  override_model_id: string | null;
+}) {
+  return {
+    dataset_id: payload.dataset_id,
+    dataset_version: payload.dataset_version,
+    case_ids: [...payload.case_ids],
+    baseline: payload.baseline,
+    candidates: payload.candidates,
+    model_policy: payload.model_policy,
+    override_model_id: payload.override_model_id,
+  };
+}
+
+export interface SafeVisionUsage {
+  actual_tokens?: number;
+  token_usage_verified?: boolean;
+  unverified_token_calls?: number;
+  model_calls?: number;
+  uncertain_dispatches?: number;
+}
+
+export interface SafeVisionReadEvidence {
+  node_ref: string;
+  asset_sha256?: string;
+  model_id?: string;
+  page_count?: number;
+  selected_page_count?: number;
+  processed_page_count?: number;
+  failed_page_count?: number;
+  status?: string;
+  anchors_matched?: number;
+  anchors_total?: number;
+  receipt_present: boolean;
+  usage: SafeVisionUsage;
+}
+
+export interface SafeVisionEvidence {
+  status: string;
+  reads: SafeVisionReadEvidence[];
+  usage: SafeVisionUsage;
+}
+
+function nodeRefPatternSafe(value: string) {
+  return /^[a-z][a-z0-9_-]{0,63}$/.test(value);
+}
+
+function safeNonNegativeInteger(value: unknown) {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0
+    ? value
+    : undefined;
+}
+
+function safePositiveInteger(value: unknown) {
+  const normalized = safeNonNegativeInteger(value);
+  return normalized != null && normalized > 0 ? normalized : undefined;
+}
+
+function executionSummaryUsage(value: unknown): SafeVisionUsage {
+  if (!isRecord(value)) return {};
+  const modelCalls = safeNonNegativeInteger(value.model_calls);
+  const actualTokens = safeNonNegativeInteger(value.known_total_tokens);
+  const unverifiedCalls = safeNonNegativeInteger(value.unverified_token_calls);
+  const uncertainDispatches = safeNonNegativeInteger(value.uncertain_calls);
+  return {
+    ...(modelCalls == null ? {} : { model_calls: modelCalls }),
+    ...(actualTokens == null ? {} : { actual_tokens: actualTokens }),
+    ...(unverifiedCalls == null ? {} : { unverified_token_calls: unverifiedCalls }),
+    ...(typeof value.token_usage_verified === "boolean"
+      ? { token_usage_verified: value.token_usage_verified }
+      : {}),
+    ...(uncertainDispatches == null ? {} : { uncertain_dispatches: uncertainDispatches }),
+  };
+}
+
+function aggregateVisionUsage(value: unknown): SafeVisionUsage {
+  if (!isRecord(value)) return {};
+  const modelCalls = safeNonNegativeInteger(value.vision_model_calls);
+  const actualTokens = safeNonNegativeInteger(value.vision_actual_tokens);
+  const unverifiedCalls = safeNonNegativeInteger(value.vision_unverified_usage_calls);
+  const uncertainDispatches = safeNonNegativeInteger(value.vision_uncertain_dispatches);
+  return {
+    ...(modelCalls == null ? {} : { model_calls: modelCalls }),
+    ...(actualTokens == null ? {} : { actual_tokens: actualTokens }),
+    ...(unverifiedCalls == null ? {} : { unverified_token_calls: unverifiedCalls }),
+    ...(typeof value.vision_token_usage_verified === "boolean"
+      ? { token_usage_verified: value.vision_token_usage_verified }
+      : {}),
+    ...(uncertainDispatches == null ? {} : { uncertain_dispatches: uncertainDispatches }),
+  };
+}
+
+function anchorCheckCounts(value: unknown) {
+  if (
+    !Array.isArray(value)
+    || !value.every((item) =>
+      isRecord(item)
+      && typeof item.index === "number"
+      && Number.isInteger(item.index)
+      && typeof item.matched === "boolean",
+    )
+  ) {
+    return {};
+  }
+  return {
+    anchors_matched: value.filter((item) => (item as Record<string, unknown>).matched === true).length,
+    anchors_total: value.length,
+  };
+}
+
+function normalizeVisionRead(item: unknown): SafeVisionReadEvidence | null {
+  if (!isRecord(item)) return null;
+  const nodeRef = safeString(item.node_ref) ?? "";
+  if (!nodeRefPatternSafe(nodeRef)) return null;
+  const rawHash = safeString(item.asset_sha256);
+  const assetSha256 = rawHash && /^[a-f0-9]{64}$/.test(rawHash)
+    ? rawHash
+    : undefined;
+  const modelId = safeString(item.model_id);
+  const pageCount = safePositiveInteger(item.page_count);
+  const selectedPageCount = safePositiveInteger(item.selected_page_count);
+  const processedPageCount = safePositiveInteger(item.processed_page_count);
+  const failedPageCount = safeNonNegativeInteger(item.failed_page_count);
+  const status = ["success", "partial"].includes(String(item.status))
+    ? String(item.status)
+    : undefined;
+  return {
+    node_ref: nodeRef,
+    ...(assetSha256 ? { asset_sha256: assetSha256 } : {}),
+    ...(modelId && modelId.length <= 512 ? { model_id: modelId } : {}),
+    ...(pageCount == null ? {} : { page_count: pageCount }),
+    ...(selectedPageCount == null ? {} : { selected_page_count: selectedPageCount }),
+    ...(processedPageCount == null ? {} : { processed_page_count: processedPageCount }),
+    ...(failedPageCount == null ? {} : { failed_page_count: failedPageCount }),
+    ...(status ? { status } : {}),
+    ...anchorCheckCounts(item.anchor_checks),
+    receipt_present: isRecord(item.execution_summary),
+    usage: executionSummaryUsage(item.execution_summary),
+  };
+}
+
+export function normalizeVisionEvidence(
+  value: unknown,
+  directReads?: unknown,
+  aggregateUsage?: unknown,
+): SafeVisionEvidence | null {
+  const reads = Array.isArray(directReads)
+    ? directReads.flatMap((item) => {
+        const normalized = normalizeVisionRead(item);
+        return normalized ? [normalized] : [];
+      })
+    : [];
+  const usage = aggregateVisionUsage(aggregateUsage);
+  const hasVisionActivity = [
+    usage.model_calls,
+    usage.actual_tokens,
+    usage.unverified_token_calls,
+    usage.uncertain_dispatches,
+  ].some((item) => typeof item === "number" && item > 0);
+  const status = typeof value === "string"
+    && ["verified", "failed", "missing", "not_applicable"].includes(value)
+    ? value
+    : reads.length || hasVisionActivity
+      ? "recorded"
+      : "unavailable";
+  if (!reads.length && !hasVisionActivity && ["not_applicable", "unavailable"].includes(status)) {
+    return null;
+  }
+  return {
+    status,
+    reads,
+    usage,
+  };
+}
+
 export function evaluationMetricLabel(kind: string) {
-  return kind === "workflow_resource_match" ? "资源读取匹配" : kind;
+  if (kind === "workflow_resource_match") return "资源读取匹配";
+  if (kind === "workflow_vision_match") return "视觉证据匹配";
+  return kind;
+}
+
+function visionStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    verified: "已验证", failed: "未通过", missing: "缺少断言",
+    not_applicable: "不适用", recorded: "已记录", unavailable: "不可用",
+    success: "成功", partial: "部分成功",
+  };
+  return labels[status] ?? "状态未提供";
 }
 
 function statusTone(status: string) {
@@ -398,6 +626,39 @@ export default function XpertEvaluationsPage() {
     () => run?.items?.find((item) => item.item_id === selectedItemId) ?? run?.items?.[0] ?? null,
     [run, selectedItemId],
   );
+  const editableCases = useMemo(() => {
+    try {
+      const parsed = JSON.parse(casesText) as unknown;
+      if (
+        !Array.isArray(parsed)
+        || !parsed.every((item) => {
+          if (!isRecord(item) || typeof item.message !== "string") return false;
+          if (
+            item.attachment !== undefined
+            && item.attachment !== null
+            && (!isRecord(item.attachment) || typeof item.attachment.asset_id !== "string")
+          ) {
+            return false;
+          }
+          return item.vision === undefined || (
+            Array.isArray(item.vision)
+            && item.vision.every((expectation) =>
+              isRecord(expectation)
+              && typeof expectation.node_ref === "string"
+              && ["success", "partial"].includes(String(expectation.status))
+              && Array.isArray(expectation.required_blocks)
+              && Array.isArray(expectation.content_anchors),
+            )
+          );
+        })
+      ) {
+        return null;
+      }
+      return parsed as EvaluationCase[];
+    } catch {
+      return null;
+    }
+  }, [casesText]);
 
   useEffect(() => {
     document.title = "模镜 - 智能体评测";
@@ -487,6 +748,7 @@ export default function XpertEvaluationsPage() {
       ),
     ]);
     setDataset(detail);
+    setDatasets((current) => current.map((item) => item.dataset_id === detail.dataset_id ? detail : item));
     setDatasetVersions(versions.items ?? []);
     setCasesText(JSON.stringify(detail.cases ?? [], null, 2));
     const preferred = detail.published_version ?? versions.items?.[0]?.version ?? 0;
@@ -553,9 +815,10 @@ export default function XpertEvaluationsPage() {
       if (!Array.isArray(parsed) || parsed.length === 0) {
         throw new Error("用例 JSON 必须是非空数组。");
       }
+      const normalized = normalizeEvaluationCasesForSave(parsed);
       const updated = await requestJson<DatasetDetail>(
         `/api/xpert-evaluations/datasets/${dataset.dataset_id}/cases`,
-        jsonInit("POST", { revision: dataset.revision, cases: parsed, replace: true }),
+        jsonInit("POST", { revision: dataset.revision, cases: normalized, replace: true }),
       );
       setDataset(updated);
       setDatasets((current) =>
@@ -643,7 +906,7 @@ export default function XpertEvaluationsPage() {
     }
   }
 
-  function targetPayload(key: string) {
+  function targetPayload(key: string): EvaluationTargetPayload {
     const option = targetOptions.find((item) => item.key === key);
     if (!option) throw new Error(`目标已失效：${key}`);
     return option.kind === "proposal"
@@ -695,12 +958,7 @@ export default function XpertEvaluationsPage() {
       };
       const preflight = await requestJson<{ valid: boolean; issues?: Array<{ message: string }> }>(
         "/api/xpert-evaluations/preflight",
-        jsonInit("POST", {
-          baseline: payload.baseline,
-          candidates: payload.candidates,
-          model_policy: payload.model_policy,
-          override_model_id: payload.override_model_id,
-        }),
+        jsonInit("POST", buildEvaluationPreflightRequest(payload)),
       );
       if (!preflight.valid) {
         throw new Error(preflight.issues?.map((item) => item.message).join("；") || "只读安全预检未通过。");
@@ -947,6 +1205,21 @@ export default function XpertEvaluationsPage() {
                   calibration job: {calibrationJobId}
                 </p>
               ) : null}
+              <EvaluationVisionCases
+                cases={editableCases}
+                datasetId={dataset.dataset_id}
+                disabled={Boolean(busy)}
+                key={dataset.dataset_id}
+                onChange={(nextCases) => setCasesText(JSON.stringify(nextCases, null, 2))}
+                onError={(message) => {
+                  setError(message);
+                  if (message) setNotice("");
+                }}
+                onNotice={(message) => {
+                  setNotice(message);
+                  setError("");
+                }}
+              />
               <details className="rounded-md border border-white/10 bg-white/[0.025] p-3 text-xs text-slate-400">
                 <summary className="cursor-pointer font-semibold text-slate-200">资源读取断言（可选）</summary>
                 <p className="mt-2 leading-5">
@@ -960,7 +1233,13 @@ export default function XpertEvaluationsPage() {
   "expected_count": 1
 }]`}</pre>
               </details>
-              <textarea className="min-h-[380px] w-full resize-y rounded-md border border-white/10 bg-ink-950/70 p-4 font-mono text-xs leading-6 text-slate-200 outline-none focus:border-cyan-300/40" onChange={(event) => setCasesText(event.target.value)} spellCheck={false} value={casesText} />
+              <details className="rounded-md border border-white/10 bg-white/[0.02] p-3">
+                <summary className="cursor-pointer text-xs font-semibold text-slate-200">完整用例 JSON（高级）</summary>
+                <p className="mt-2 text-[11px] leading-5 text-slate-500">
+                  文本答案、历史消息、路径与资源断言继续在此编辑。附件只接受 asset_id；URL 或物理路径不会被读取。
+                </p>
+                <textarea aria-label="完整用例 JSON" className="mt-3 min-h-[380px] w-full resize-y rounded-md border border-white/10 bg-ink-950/70 p-4 font-mono text-xs leading-6 text-slate-200 outline-none focus:border-cyan-300/40" onChange={(event) => setCasesText(event.target.value)} spellCheck={false} value={casesText} />
+              </details>
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="text-xs font-semibold text-slate-300">
                   固定数据集版本
@@ -1241,6 +1520,76 @@ export default function XpertEvaluationsPage() {
                           <p className="mt-2 text-[11px] leading-5 text-amber-100">
                             {evidence.warnings.join("；")}
                           </p>
+                        ) : null}
+                      </div>
+                    );
+                  })()}
+                  {(() => {
+                    const evidence = normalizeVisionEvidence(
+                      selectedItem.vision_evidence,
+                      selectedItem.vision_reads,
+                      selectedItem.usage,
+                    );
+                    if (!evidence) return null;
+                    const usage = evidence.usage;
+                    return (
+                      <div className="mt-4 rounded-md border border-violet-300/15 bg-violet-300/[0.05] p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-xs font-semibold text-violet-100">视觉执行证据</span>
+                          <span className="text-[11px] text-violet-100/65">{visionStatusLabel(evidence.status)}</span>
+                        </div>
+                        {evidence.reads.length ? (
+                          <div className="mt-3 divide-y divide-white/10 text-[11px] leading-5 text-slate-400">
+                            {evidence.reads.map((read) => (
+                              <div className="py-2 first:pt-0 last:pb-0" key={read.node_ref}>
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <span className="font-mono font-semibold text-slate-200">{read.node_ref}</span>
+                                  <span className="text-slate-500">
+                                    {visionStatusLabel(read.status ?? "")}
+                                    {read.receipt_present ? " · 安全回执已记录" : ""}
+                                  </span>
+                                </div>
+                                <p className="mt-1 break-all">
+                                  {read.asset_sha256 ? `SHA-256 ${read.asset_sha256}` : "附件 hash 未提供"}
+                                </p>
+                                <p className="text-slate-500">
+                                  {read.model_id ? `模型 ${read.model_id}` : "模型未提供"}
+                                  {read.page_count != null ? ` · 总页数 ${read.page_count}` : " · 总页数未提供"}
+                                  {read.selected_page_count != null ? ` · 选中 ${read.selected_page_count}` : ""}
+                                  {read.processed_page_count != null ? ` · 完成 ${read.processed_page_count}` : ""}
+                                  {read.failed_page_count != null ? ` · 失败 ${read.failed_page_count}` : ""}
+                                  {read.anchors_total != null
+                                    ? ` · 锚点 ${read.anchors_matched ?? 0}/${read.anchors_total} 匹配`
+                                    : " · 锚点结果未提供"}
+                                </p>
+                                {Object.keys(read.usage).length ? (
+                                  <p className="text-slate-500">
+                                    {read.usage.token_usage_verified === true
+                                      ? `实际 Token ${read.usage.actual_tokens ?? 0}`
+                                      : `视觉 Token 不可验证${read.usage.unverified_token_calls ? `（${read.usage.unverified_token_calls} 次调用）` : ""}`}
+                                    {read.usage.uncertain_dispatches
+                                      ? ` · 不确定派发 ${read.usage.uncertain_dispatches}`
+                                      : ""}
+                                  </p>
+                                ) : null}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="mt-2 text-[11px] leading-5 text-amber-100/80">
+                            当前报告未提供可验证的节点级视觉读取记录。
+                          </p>
+                        )}
+                        {Object.keys(usage).length ? (
+                          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 border-t border-white/10 pt-2 text-[11px] text-slate-400">
+                            <span>视觉模型调用 {usage.model_calls ?? 0}</span>
+                            <span>
+                              {usage.token_usage_verified === true
+                                ? `实际 Token ${usage.actual_tokens ?? 0}`
+                                : `视觉 Token 不可验证${usage.unverified_token_calls ? `（${usage.unverified_token_calls} 次）` : ""}`}
+                            </span>
+                            <span>不确定派发 {usage.uncertain_dispatches ?? 0}</span>
+                          </div>
                         ) : null}
                       </div>
                     );

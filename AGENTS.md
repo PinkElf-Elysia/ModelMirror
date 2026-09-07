@@ -353,9 +353,9 @@ npm.cmd run build
 
 - 所有 `NativeNodeKind` 必须在 `NodeContractRegistry` 中唯一登记；未知或缺失契约必须 fail-closed。
 - `contract_status=complete` 不等于 Planner、Evaluator、Evolution 或 App 可用。入口许可必须由契约显式声明。
-- Capability Snapshot 只允许完整契约、真实 Adapter、Adapter 版本和 compiler checksum 一致的节点；当前范围严格为 16 类，不得借由画布节点存在性继续扩张。
-- NodeContract 版本与 Planner IR 版本独立。Capability Snapshot V7 声明
-  `ir_version=3`、`supported_ir_versions=[2,3]` 与 `control_flow_contract_version=1`。
+- Capability Snapshot 只允许完整契约、真实 Adapter、Adapter 版本和 compiler checksum 一致的节点；当前范围严格为 19 类，不得借由画布节点存在性继续扩张。
+- NodeContract 版本与 Planner IR 版本独立。Capability Snapshot V9 声明
+  `ir_version=3`、`supported_ir_versions=[2,3]` 与 `control_flow_contract_version=2`。
 - `checksum` 覆盖完整契约，`compiler_checksum` 仅覆盖编译关键事实；标题、图标和分类不得使 Adapter 失效。
 - 前端 fallback 只能保存展示信息，不得伪造 Planner 状态、端口、安全策略或 checksum。
 - 发布、Evaluator、App 和 Evolution 的静态节点策略必须查询 `NodePolicyService`；资源、Toolset、循环和中间件领域检查不得被删除。
@@ -380,7 +380,7 @@ npm.cmd run build
 - Headless Apply 只更新 pending Proposal 一次；不得创建 Xpert 草稿、版本或运行。安全 receipt 不得保存 Prompt 正文、资源内容、工具输出或凭据。
 - Meta Planner Proposal 创建时的授权范围不得被后续整包 PATCH 扩大；Headless 请求必须遵守正文大小和 JSON 深度上限，持久化失败不得在内存中留下已递增 revision。
 - 有损 V2 转换继续走兼容读取、校验和审批路径，禁止 Headless Apply。旧整包 Proposal PATCH 必须将 Graph IR 标记为 stale。
-- 当前节点范围严格为 16 类：原七类、五种纯节点和四种受限控制流节点；Headless Authoring 完成不等于开放知识检索、数据库、视觉、循环、等待或交互节点。
+- 当前节点范围严格为 19 类：原七类、五种纯节点、四种受限控制流、两种只读资源和显式附件视觉 V2；写入、循环、等待或交互节点继续禁用。
 
 ### 8.1.4 Meta Planner 控制流护栏
 
@@ -392,6 +392,12 @@ npm.cmd run build
 - 循环、等待、HITL、Handoff、Trigger、`question_classifier` 和表达式引擎不因本轮控制流开放而获得 Planner 权限。
 
 ### 8.2 EvoAgentX Evaluator 护栏
+
+- Vision V2 只能消费编译器管理的单附件输入，单独固定用户授权的视觉模型及有效 Managed Binding；不得回退、自动替换模型或从文本/Agent 构造资产 ID。
+- 附件评测复用 FileAsset，DatasetVersion 保留版本绑定，Run 固定原件 hash 并在执行前复核。草稿解除引用不得删除已发布版本使用的原件。
+- 视觉评测必须保留 `xpert_evaluation` 身份；旧视觉、嵌套附件传播和公共 App 继续拒绝。文本 override 不修改视觉模型。
+- 每页视觉调用进入统一预算与并发控制；回执缺失 token 时标记不可验证，不得按文本长度估算图片费用。
+- 已派发视觉请求的结果不确定时禁止恢复自动重发，保留安全回执与费用不确定性。最终答案正确但没有真实视觉证据不能通过 `workflow_vision_match`。
 
 - Dataset 草稿必须使用 revision，Evaluation Run 只能引用不可变 DatasetVersion。
 - 基线和候选必须在创建 run 时固定 XpertVersion 或 Authoring Proposal revision、

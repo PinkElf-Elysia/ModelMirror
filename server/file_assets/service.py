@@ -8,13 +8,18 @@ import re
 import threading
 import time
 import uuid
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, BinaryIO, Iterator, Literal, Sequence
 
-from .blob_store import BlobValidationError, BlobWriteReceipt, FileBlobStore
+from .blob_store import (
+    BlobValidationError,
+    BlobWriteReceipt,
+    FileBlobStore,
+    FileBlobStoreError,
+)
 from .analysis import (
     FileAnalysisArtifact,
     FileAnalysisConfirmRequest,
@@ -54,7 +59,13 @@ from .repository import (
     FileAssetRepositoryError,
     SQLiteFileAssetRepository,
 )
-from .validation import FileUploadValidator, FileValidationError, ValidatedFile
+from .validation import (
+    FileUploadValidator,
+    FileValidationError,
+    ValidatedFile,
+    _safe_extension,
+    _validated_media_type,
+)
 
 
 _UPLOAD_CHUNK_BYTES = 1024 * 1024
@@ -68,12 +79,15 @@ _PARSED_DOCUMENT_ARTIFACT_KIND = "chat_parsed_document_v1"
 _ANALYSIS_ARTIFACT_KIND = "chat_visual_analysis_v1"
 _ANALYSIS_CONFIRMATION_TTL_SECONDS = 5 * 60
 _ANALYSIS_EXECUTION_CONCURRENCY = 2
+_EVALUATION_MAX_PDF_PAGES = 20
+_EVALUATION_FORMAT_IDS = frozenset({"pdf", "jpeg", "png", "webp"})
 _PURPOSE_INPUT_KIND = {
     FilePurpose.CHAT: FileInputKind.DOCUMENT,
     FilePurpose.RAG: FileInputKind.DOCUMENT,
     FilePurpose.AGENT: FileInputKind.DOCUMENT,
     FilePurpose.DATAX: FileInputKind.DATA_SOURCE,
     FilePurpose.WORKFLOW: FileInputKind.DOCUMENT,
+    FilePurpose.EVALUATION: FileInputKind.VISUAL_ANALYSIS,
 }
 
 
@@ -122,6 +136,22 @@ class ResolvedWorkflowVisualAsset:
     content: bytes
 
 
+@dataclass(frozen=True, slots=True)
+class ResolvedEvaluationAsset:
+    """Integrity-checked internal attachment; never serialize this object to an API."""
+
+    asset_id: str
+    scope_id: str
+    origin_scope_id: str
+    display_name: str
+    format_id: str
+    media_type: str
+    byte_size: int
+    sha256: str
+    page_count: int
+    content: bytes
+
+
 class FileAssetService:
     def __init__(
         self,
@@ -144,6 +174,10 @@ class FileAssetService:
         self._repository = repository
         self._blob_store = blob_store
         self._validator = validator or FileUploadValidator(self.registry)
+        self._evaluation_validator = FileUploadValidator(
+            self.registry,
+            max_pdf_pages=_EVALUATION_MAX_PDF_PAGES,
+        )
         self._analysis_target_resolver = (
             analysis_target_resolver or FileAnalysisTargetResolver()
         )
@@ -200,6 +234,8 @@ class FileAssetService:
         self._run_maintenance_if_due()
         clean_purpose = FilePurpose(purpose)
         clean_scope = _identifier(scope_id, "scope_id")
+        if clean_purpose == FilePurpose.EVALUATION:
+            _require_evaluation_scope(clean_scope, allowed_kinds={"draft"})
         input_kind, max_bytes = self._ready_upload_policy(
             clean_purpose, input_kind=input_kind
         )
@@ -214,13 +250,21 @@ class FileAssetService:
                 max_bytes=max_bytes,
             )
             blob_path = self.blob_store.storage_dir / receipt.storage_key
-            validated = self._validator.validate_path(
-                blob_path,
-                purpose=clean_purpose,
-                input_kind=input_kind,
-                filename=filename,
-                declared_media_type=declared_media_type,
-            )
+            if clean_purpose == FilePurpose.EVALUATION:
+                validated = self._validate_evaluation_upload(
+                    blob_path,
+                    byte_size=receipt.byte_size,
+                    filename=filename,
+                    declared_media_type=declared_media_type,
+                )
+            else:
+                validated = self._validator.validate_path(
+                    blob_path,
+                    purpose=clean_purpose,
+                    input_kind=input_kind,
+                    filename=filename,
+                    declared_media_type=declared_media_type,
+                )
             record = self.repository.create_asset(
                 self.tenant_id,
                 purpose=clean_purpose,
@@ -1358,15 +1402,17 @@ class FileAssetService:
         """Remove the requested binding and report whether physical GC is pending."""
 
         clean_asset = _identifier(asset_id, "asset_id")
+        clean_purpose = FilePurpose(purpose)
+        clean_scope = _identifier(scope_id, "scope_id")
+        if clean_purpose == FilePurpose.EVALUATION:
+            _require_evaluation_scope(clean_scope, allowed_kinds={"draft"})
         with self._claim_asset_delete(clean_asset):
             record = self._scoped_record(
                 clean_asset,
-                purpose=purpose,
-                scope_id=scope_id,
+                purpose=clean_purpose,
+                scope_id=clean_scope,
                 allow_expired=True,
             )
-            clean_purpose = FilePurpose(purpose)
-            clean_scope = _identifier(scope_id, "scope_id")
             removed = self.repository.remove_binding(
                 self.tenant_id,
                 record.id,
@@ -1514,6 +1560,255 @@ class FileAssetService:
         scope_id: str,
     ) -> None:
         self.get_asset(asset_id, purpose=purpose, scope_id=scope_id)
+
+    def resolve_evaluation_asset(
+        self,
+        asset_id: str,
+        *,
+        scope_id: str,
+    ) -> ResolvedEvaluationAsset:
+        """Resolve one evaluation binding and verify its persisted bytes again."""
+
+        self._ready_upload_policy(
+            FilePurpose.EVALUATION,
+            input_kind=FileInputKind.VISUAL_ANALYSIS,
+        )
+        clean_asset = _identifier(asset_id, "asset_id")
+        clean_scope = _identifier(scope_id, "scope_id")
+        scope_kind, scope_owner, _scope_version = _require_evaluation_scope(
+            clean_scope,
+            allowed_kinds={"draft", "version", "run"},
+        )
+        with self._claim_asset_read(clean_asset):
+            record = self._scoped_record(
+                clean_asset,
+                purpose=FilePurpose.EVALUATION,
+                scope_id=clean_scope,
+            )
+            self._validate_evaluation_record(
+                record,
+                scope_kind=scope_kind,
+                scope_owner=scope_owner,
+            )
+            if record.status != "ready":
+                raise FileAssetServiceError(
+                    409,
+                    "evaluation_asset_state_conflict",
+                    "评测附件当前尚未就绪，请刷新后重试。",
+                )
+            try:
+                content = self.blob_store.read_bytes(record.storage_key)
+            except (FileNotFoundError, OSError, FileBlobStoreError) as exc:
+                raise FileAssetServiceError(
+                    409,
+                    "evaluation_asset_integrity_failed",
+                    "评测附件原件无法安全读取，请重新上传。",
+                ) from exc
+
+            actual_sha256 = hashlib.sha256(content).hexdigest()
+            if len(content) != record.byte_size or actual_sha256 != record.sha256:
+                raise FileAssetServiceError(
+                    409,
+                    "evaluation_asset_integrity_failed",
+                    "评测附件完整性校验失败，请重新上传。",
+                )
+            try:
+                page_count, _selected_pages = inspect_analysis_source(
+                    content,
+                    format_id=record.format_id,
+                    selected_pages=(),
+                )
+            except FileAnalysisError as exc:
+                raise FileAssetServiceError(
+                    422,
+                    "evaluation_asset_validation_failed",
+                    "评测附件格式已损坏、与声明不符或超过 20 页限制。",
+                ) from exc
+
+            return ResolvedEvaluationAsset(
+                asset_id=record.id,
+                scope_id=clean_scope,
+                origin_scope_id=record.scope_id,
+                display_name=record.display_name,
+                format_id=record.format_id,
+                media_type=record.media_type,
+                byte_size=record.byte_size,
+                sha256=actual_sha256,
+                page_count=page_count,
+                content=content,
+            )
+
+    def bind_evaluation_asset(
+        self,
+        asset_id: str,
+        *,
+        source_scope_id: str,
+        target_scope_id: str,
+    ) -> bool:
+        """Create only the internal draft-to-version or version-to-run binding."""
+
+        clean_asset = _identifier(asset_id, "asset_id")
+        source_kind, source_owner, _source_version = _require_evaluation_scope(
+            source_scope_id,
+            allowed_kinds={"draft", "version"},
+        )
+        target_kind, target_owner, _target_version = _require_evaluation_scope(
+            target_scope_id,
+            allowed_kinds={"version", "run"},
+        )
+        valid_transition = (
+            source_kind == "draft"
+            and target_kind == "version"
+            and source_owner == target_owner
+        ) or (source_kind == "version" and target_kind == "run")
+        if not valid_transition:
+            raise FileAssetServiceError(
+                422,
+                "evaluation_binding_transition_invalid",
+                "评测附件只能从同一数据集草稿保留到版本，再固定到运行。",
+            )
+
+        with self._claim_asset_read(clean_asset):
+            record = self._scoped_record(
+                clean_asset,
+                purpose=FilePurpose.EVALUATION,
+                scope_id=source_scope_id,
+            )
+            self._validate_evaluation_record(
+                record,
+                scope_kind=source_kind,
+                scope_owner=source_owner,
+            )
+            try:
+                return self.repository.add_binding(
+                    self.tenant_id,
+                    clean_asset,
+                    purpose=FilePurpose.EVALUATION,
+                    scope_id=target_scope_id,
+                )
+            except FileAssetRepositoryError as exc:
+                raise FileAssetServiceError(
+                    409,
+                    "evaluation_binding_failed",
+                    "评测附件引用未能安全保留，请重试。",
+                ) from exc
+
+    def remove_evaluation_binding(self, asset_id: str, *, scope_id: str) -> bool:
+        """Remove exactly one internal evaluation binding for rollback."""
+
+        clean_asset = _identifier(asset_id, "asset_id")
+        clean_scope = _identifier(scope_id, "scope_id")
+        _require_evaluation_scope(
+            clean_scope,
+            allowed_kinds={"draft", "version", "run"},
+        )
+        with self._claim_asset_delete(clean_asset):
+            removed = self.repository.remove_binding(
+                self.tenant_id,
+                clean_asset,
+                purpose=FilePurpose.EVALUATION,
+                scope_id=clean_scope,
+                expire_if_unreferenced=True,
+            )
+        if removed:
+            self._run_maintenance_if_due(force=True)
+        return removed
+
+    def list_evaluation_asset_ids(self, *, scope_id: str) -> tuple[str, ...]:
+        """List opaque IDs for one exact internal evaluation scope."""
+
+        clean_scope = _identifier(scope_id, "scope_id")
+        scope_kind, scope_owner, _scope_version = _require_evaluation_scope(
+            clean_scope,
+            allowed_kinds={"draft", "version", "run"},
+        )
+        records = self.repository.list_bound_assets(
+            self.tenant_id,
+            purpose=FilePurpose.EVALUATION,
+            scope_id=clean_scope,
+        )
+        for record in records:
+            self._validate_evaluation_record(
+                record,
+                scope_kind=scope_kind,
+                scope_owner=scope_owner,
+            )
+        return tuple(sorted(record.id for record in records))
+
+    def release_evaluation_scope(self, *, scope_id: str) -> tuple[str, ...]:
+        """Atomically detach one exact draft, version, or run scope."""
+
+        clean_scope = _identifier(scope_id, "scope_id")
+        scope_kind, scope_owner, _scope_version = _require_evaluation_scope(
+            clean_scope,
+            allowed_kinds={"draft", "version", "run"},
+        )
+        records = self.repository.list_bound_assets(
+            self.tenant_id,
+            purpose=FilePurpose.EVALUATION,
+            scope_id=clean_scope,
+        )
+        for record in records:
+            self._validate_evaluation_record(
+                record,
+                scope_kind=scope_kind,
+                scope_owner=scope_owner,
+            )
+        with ExitStack() as claims:
+            for record in records:
+                claims.enter_context(self._claim_asset_delete(record.id))
+            affected = self.repository.remove_scope_bindings(
+                self.tenant_id,
+                purpose=FilePurpose.EVALUATION,
+                scope_id=clean_scope,
+                expire_if_unreferenced=True,
+            )
+        self._run_maintenance_if_due(force=True)
+        return tuple(sorted(affected))
+
+    def _validate_evaluation_record(
+        self,
+        record: FileAssetRecord,
+        *,
+        scope_kind: str,
+        scope_owner: str,
+    ) -> None:
+        if record.purpose != FilePurpose.EVALUATION.value:
+            raise FileAssetServiceError(
+                404,
+                "file_asset_not_found",
+                "未找到当前评测作用域中的附件。",
+            )
+        origin_kind, origin_owner, _origin_version = _require_evaluation_scope(
+            record.scope_id,
+            allowed_kinds={"draft"},
+        )
+        if origin_kind != "draft" or (
+            scope_kind in {"draft", "version"} and origin_owner != scope_owner
+        ):
+            raise FileAssetServiceError(
+                409,
+                "evaluation_asset_scope_mismatch",
+                "评测附件不属于当前数据集作用域。",
+            )
+        capability = self.registry.by_extension(
+            FilePurpose.EVALUATION,
+            FileInputKind.VISUAL_ANALYSIS,
+            record.display_name,
+            ready_only=False,
+        )
+        if (
+            capability is None
+            or capability.format_id != record.format_id
+            or record.format_id not in _EVALUATION_FORMAT_IDS
+            or record.media_type not in capability.media_types
+            or record.byte_size > 10 * 1024 * 1024
+        ):
+            raise FileAssetServiceError(
+                409,
+                "evaluation_asset_metadata_invalid",
+                "评测附件元数据不完整或与允许格式不一致。",
+            )
 
     def resolve_workflow_document(
         self,
@@ -1772,6 +2067,48 @@ class FileAssetService:
         except Exception:
             pass
 
+    def _validate_evaluation_upload(
+        self,
+        path: Path,
+        *,
+        byte_size: int,
+        filename: str,
+        declared_media_type: str | None,
+    ) -> ValidatedFile:
+        """Apply the shared format validators without another surface's runtime gate."""
+
+        extension = _safe_extension(filename)
+        capability = self.registry.by_extension(
+            FilePurpose.EVALUATION,
+            FileInputKind.VISUAL_ANALYSIS,
+            extension,
+            ready_only=True,
+        )
+        if capability is None or capability.format_id not in _EVALUATION_FORMAT_IDS:
+            raise FileValidationError(
+                "unsupported_file_format",
+                415,
+                "评测附件仅支持 PNG、JPEG、WebP 或 PDF。",
+            )
+        media_type = _validated_media_type(
+            declared_media_type,
+            capability.media_types,
+        )
+        with path.open("rb") as stream:
+            self._evaluation_validator._validate_content(  # noqa: SLF001
+                capability.format_id,
+                stream,
+                byte_size,
+            )
+        return ValidatedFile(
+            purpose=FilePurpose.EVALUATION,
+            input_kind=FileInputKind.VISUAL_ANALYSIS,
+            format_id=capability.format_id,
+            extension=extension,
+            media_type=media_type,
+            byte_size=byte_size,
+        )
+
     def _ready_upload_policy(
         self,
         purpose: FilePurpose,
@@ -1796,7 +2133,12 @@ class FileAssetService:
         )
         if input_kind is not None and not (
             requested_input_kind == FileInputKind.VISUAL_ANALYSIS
-            and purpose in {FilePurpose.CHAT, FilePurpose.WORKFLOW}
+            and purpose
+            in {
+                FilePurpose.CHAT,
+                FilePurpose.WORKFLOW,
+                FilePurpose.EVALUATION,
+            }
         ):
             raise FileAssetServiceError(
                 422,
@@ -2096,3 +2438,37 @@ def _identifier(value: object, field: str) -> str:
             "scope_id 仅可包含字母、数字、点、下划线、冒号和连字符。",
         )
     return clean
+
+
+def _require_evaluation_scope(
+    value: object,
+    *,
+    allowed_kinds: set[str],
+) -> tuple[str, str, int | None]:
+    clean = _identifier(value, "scope_id")
+    draft = re.fullmatch(r"evaluation:([A-Za-z0-9._-]{1,160})", clean)
+    if draft is not None:
+        parsed: tuple[str, str, int | None] = ("draft", draft.group(1), None)
+    else:
+        version = re.fullmatch(
+            r"evaluation-version:([A-Za-z0-9._-]{1,160}):([1-9][0-9]{0,9})",
+            clean,
+        )
+        if version is not None:
+            parsed = ("version", version.group(1), int(version.group(2)))
+        else:
+            run = re.fullmatch(r"evaluation-run:([A-Za-z0-9._-]{1,160})", clean)
+            if run is None:
+                raise FileAssetServiceError(
+                    422,
+                    "invalid_evaluation_scope",
+                    "评测附件作用域格式无效。",
+                )
+            parsed = ("run", run.group(1), None)
+    if parsed[0] not in allowed_kinds:
+        raise FileAssetServiceError(
+            403,
+            "evaluation_scope_protected",
+            "评测版本和运行附件只能由内部固定流程管理。",
+        )
+    return parsed

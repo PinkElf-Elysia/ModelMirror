@@ -865,6 +865,37 @@ describe("WorkflowEditor Xpert entry repair", () => {
     ).not.toBeInTheDocument();
   });
 
+  it.each([1, 2])("keeps Vision V%i configuration within its own contract", async (version) => {
+    const definition = ordinaryWorkflow();
+    definition.nodes.push({
+      id: "vision", type: "workflowNode", position: { x: 100, y: 300 },
+      data: {
+        kind: "vision_understanding", title: "视觉理解", description: "合成配置测试",
+        ...(version === 2 ? { contractVersion: 2 } : {}),
+        assetIdVariable: "selected_file_asset_id", visionModelId: "managed/vision",
+        outputVariable: "vision_result",
+      },
+    });
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(<MemoryRouter><WorkflowEditor initialDefinition={definition} onSave={onSave} saveLabel="保存测试草稿" workflowId="vision-config" /></MemoryRouter>);
+    fireEvent.click(await screen.findByTestId("rf__node-vision"));
+    const maxPages = await screen.findByRole("spinbutton", { name: "最大页数" });
+    expect(maxPages).toHaveAttribute("max", version === 2 ? "20" : "200");
+    expect(maxPages).toHaveValue(version === 2 ? 10 : 100);
+    if (version === 2) {
+      expect(screen.getByRole("textbox", { name: "固定附件资产变量" })).toHaveAttribute("readonly");
+      expect(screen.getByRole("textbox", { name: "固定视觉模型" })).toHaveValue("managed/vision");
+      expect(screen.getByRole("textbox", { name: "固定视觉模型" })).toHaveAttribute("readonly");
+      expect(screen.queryByRole("combobox", { name: "视觉模型" })).not.toBeInTheDocument();
+    } else {
+      expect(screen.getByRole("combobox", { name: "视觉模型" })).toBeEnabled();
+    }
+    fireEvent.change(maxPages, { target: { value: "12" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存测试草稿" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+    expect((onSave.mock.calls[0][0] as WorkflowDefinition).nodes.find((node) => node.id === "vision")?.data.maxPages).toBe(version === 2 ? 12 : "12");
+  });
+
   it("edits required Skills as removable tags and keeps discovery advanced", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     render(

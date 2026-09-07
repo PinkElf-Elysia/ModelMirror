@@ -3,12 +3,14 @@ import {
   activateChatFileScope,
   createChatFileScopeId,
   deriveFileSurfaceSummary,
+  evaluationDatasetScopeId,
   forgetChatFileScope,
   getOrCreateChatFileScopeId,
   parseFileCapabilities,
   parseDocumentPreview,
   purgeChatFileScope,
   rotateChatFileScope,
+  uploadEvaluationFile,
 } from "./fileCapabilities";
 import { buildChatFileHistoryContext } from "../components/ChatFileComposer";
 
@@ -227,6 +229,84 @@ describe("file capability truth", () => {
       "extract",
       "native",
     ]);
+  });
+
+  it("accepts the evaluation visual-analysis capability", () => {
+    const evaluation = {
+      ...capability("agent", "ready"),
+      purpose: "evaluation",
+      input_kind: "visual_analysis",
+      families: ["document", "image"],
+      parser_id: "evaluations.vision_fixture",
+      ui_entrypoint: "/agents/evaluations",
+      support_level: "specialized",
+      formats: [
+        {
+          format_id: "pdf",
+          family: "document",
+          extensions: [".pdf"],
+          media_types: ["application/pdf"],
+          interaction_status: "ready",
+          status_reason: null,
+        },
+        {
+          format_id: "png",
+          family: "image",
+          extensions: [".png"],
+          media_types: ["image/png"],
+          interaction_status: "ready",
+          status_reason: null,
+        },
+      ],
+    };
+    const parsed = parseFileCapabilities({
+      version: "modelmirror-file-capabilities-v2",
+      registry_version: "modelmirror-file-formats-v5",
+      requested_purpose: "evaluation",
+      requested_model_id: null,
+      model_specific: false,
+      capabilities: [evaluation],
+    });
+
+    expect(parsed?.requested_purpose).toBe("evaluation");
+    expect(parsed?.capabilities[0]).toMatchObject({
+      purpose: "evaluation",
+      input_kind: "visual_analysis",
+    });
+  });
+
+  it("uploads an evaluation fixture to the dataset draft scope", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      asset_id: "file_fixture_1",
+      purpose: "evaluation",
+      scope_id: "evaluation:xeval_dataset_1",
+      display_name: "chart.png",
+      format: "png",
+      media_type: "image/png",
+      byte_size: 4,
+      status: "ready",
+      expires_at: null,
+      created_at: "2026-09-05T00:00:00Z",
+      updated_at: "2026-09-05T00:00:00Z",
+    }), { status: 201, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await uploadEvaluationFile(
+      new File(["test"], "chart.png", { type: "image/png" }),
+      "xeval_dataset_1",
+    );
+
+    expect(result.asset_id).toBe("file_fixture_1");
+    expect(evaluationDatasetScopeId("xeval_dataset_1")).toBe("evaluation:xeval_dataset_1");
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/files");
+    expect(init.method).toBe("POST");
+    const body = init.body as FormData;
+    expect(body.get("purpose")).toBe("evaluation");
+    expect(body.get("scope_id")).toBe("evaluation:xeval_dataset_1");
+    expect(body.get("input_kind")).toBe("visual_analysis");
+    expect((body.get("file") as File).name).toBe("chart.png");
+    vi.unstubAllGlobals();
   });
 
   it("keeps reusable file context as untrusted text without an asset id", () => {

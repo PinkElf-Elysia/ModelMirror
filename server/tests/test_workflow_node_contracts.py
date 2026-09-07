@@ -42,6 +42,7 @@ EXPECTED_PLANNER_KINDS = {
     "output",
     "terminate_error",
     "variable_aggregator",
+    "vision_understanding",
     "workflow_agent",
     "external_xpert",
     "knowledge_base",
@@ -763,7 +764,7 @@ def test_registry_ui_projection_is_v7_and_contains_no_runtime_payloads() -> None
     ] + list(payload["knowledge_pipeline"]["items"])
 
     assert len({item["kind"] for item in items}) == 51
-    assert payload["version"] == "xpert-workflow-node-registry-v7"
+    assert payload["version"] == "xpert-workflow-node-registry-v8"
     assert payload["contract_version"] == 3
     assert payload["contract_checksum"] == workflow_node_contract_registry.checksum
     assert all(item["contract"]["kind"] == item["kind"] for item in items)
