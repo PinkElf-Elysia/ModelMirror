@@ -25,6 +25,7 @@ from .store import (
     EvaluationStateError,
     XpertEvaluationStore,
 )
+from .vision_fixtures import EvaluationVisionFixtureService, FileAssetServiceError
 
 
 router = APIRouter(prefix="/api/xpert-evaluations", tags=["xpert-evaluations"])
@@ -47,9 +48,11 @@ def configure_xpert_evaluations(
     judge_runner: JudgeRunner | None,
     run_registry: Any,
     agent_table_evaluation_backend: Any | None = None,
+    file_asset_service: Any | None = None,
+    vision_binding_resolver: Any | None = None,
 ) -> XpertEvaluationExecutor:
     global _store, _service, _executor
-    _store = XpertEvaluationStore(storage_dir)
+    _store = XpertEvaluationStore(storage_dir, vision_fixtures=EvaluationVisionFixtureService(file_asset_service) if file_asset_service is not None else None)
     _service = XpertEvaluationService(
         _store,
         xpert_store=xpert_store,
@@ -60,6 +63,7 @@ def configure_xpert_evaluations(
         rag_service=rag_service,
         context_store=context_store,
         agent_table_evaluation_backend=agent_table_evaluation_backend,
+        vision_binding_resolver=vision_binding_resolver,
     )
     _executor = XpertEvaluationExecutor(
         _store,
@@ -108,6 +112,7 @@ async def get_capabilities() -> dict[str, Any]:
             "tool_call_match",
             "workflow_path_match",
             "workflow_resource_match",
+            "workflow_vision_match",
             "rubric_judge",
         ],
         "dataset_limits": {"max_cases": 500, "max_cases_per_run": 100},
@@ -123,6 +128,17 @@ async def get_capabilities() -> dict[str, Any]:
             "max_rows_per_query": 200,
             "max_fixtures_per_run": 1000,
             "max_bytes_per_run": 16 * 1024 * 1024,
+        },
+        "vision": {
+            "contract_version": 2,
+            "purpose": "evaluation",
+            "scope_prefix": "evaluation:",
+            "formats": ["png", "jpeg", "webp", "pdf"],
+            "max_files_per_case": 1,
+            "max_file_bytes": 10 * 1024 * 1024,
+            "max_pages": 20,
+            "max_run_original_bytes": 100 * 1024 * 1024,
+            "managed_binding_required": True,
         },
         "safe_mode": "read_only_fail_closed",
     }
@@ -158,7 +174,7 @@ async def update_dataset(
     payload: DatasetUpdateRequest,
 ) -> dict[str, Any]:
     try:
-        return await _to_thread(
+        item = await _to_thread(
             _require_store().update_dataset,
             dataset_id,
             revision=payload.revision,
@@ -166,6 +182,7 @@ async def update_dataset(
             description=payload.description,
             status=payload.status,
         )
+        return _require_store().dataset_payload(item, include_cases=True)
     except EvaluationConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except (EvaluationNotFoundError, EvaluationStateError) as exc:
@@ -178,13 +195,14 @@ async def put_dataset_cases(
     payload: DatasetCasesRequest,
 ) -> dict[str, Any]:
     try:
-        return await _to_thread(
+        item = await _to_thread(
             _require_store().put_cases,
             dataset_id,
             revision=payload.revision,
             cases=[item.model_dump(mode="json") for item in payload.cases],
             replace=payload.replace,
         )
+        return _require_store().dataset_payload(item, include_cases=True)
     except EvaluationConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except (EvaluationNotFoundError, EvaluationStateError) as exc:
@@ -202,12 +220,13 @@ async def import_dataset_cases(
         raise HTTPException(status_code=413, detail="Evaluation import exceeds 5 MB.")
     try:
         cases = _parse_import(file.filename or "", content)
-        return await _to_thread(
+        item = await _to_thread(
             _require_store().put_cases,
             dataset_id,
             revision=revision,
             cases=cases,
         )
+        return _require_store().dataset_payload(item, include_cases=True)
     except EvaluationConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except (ValueError, EvaluationNotFoundError, EvaluationStateError) as exc:
@@ -220,7 +239,7 @@ async def import_conversations(
     payload: ConversationImportRequest,
 ) -> dict[str, Any]:
     try:
-        return await _to_thread(
+        item = await _to_thread(
             _require_service().import_conversations,
             dataset_id,
             revision=payload.revision,
@@ -228,6 +247,7 @@ async def import_conversations(
                 item.model_dump(mode="json") for item in payload.selections
             ],
         )
+        return _require_store().dataset_payload(item, include_cases=True)
     except EvaluationConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except (EvaluationNotFoundError, EvaluationStateError, ValueError) as exc:
@@ -292,6 +312,9 @@ async def preflight(payload: EvaluationPreflightRequest) -> dict[str, Any]:
             ],
             model_policy=payload.model_policy,
             override_model_id=payload.override_model_id,
+            dataset_id=payload.dataset_id,
+            dataset_version=payload.dataset_version,
+            case_ids=payload.case_ids,
         )
     except (EvaluationConflictError, EvaluationStateError, ValueError) as exc:
         return {
@@ -351,7 +374,10 @@ async def cancel_run(run_id: str) -> dict[str, Any]:
 async def _to_thread(function: Any, *args: Any, **kwargs: Any) -> Any:
     import asyncio
 
-    return await asyncio.to_thread(function, *args, **kwargs)
+    try:
+        return await asyncio.to_thread(function, *args, **kwargs)
+    except FileAssetServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail={"code": exc.error_code, "message": exc.message}) from exc
 
 
 def _parse_import(filename: str, content: bytes) -> list[dict[str, Any]]:
@@ -366,6 +392,8 @@ def _parse_import(filename: str, content: bytes) -> list[dict[str, Any]]:
     if suffix == ".csv":
         result: list[dict[str, Any]] = []
         for row in csv.DictReader(io.StringIO(text)):
+            if any(row.get(key) for key in ("attachment_url", "attachment_path", "url", "path")):
+                raise ValueError("评测导入不接受附件 URL 或物理路径，请先显式上传文件。")
             expected: dict[str, Any] = {}
             if row.get("exact_answer"):
                 expected["exact_answer"] = row["exact_answer"]
@@ -388,6 +416,7 @@ def _parse_import(filename: str, content: bytes) -> list[dict[str, Any]]:
                         if item.strip()
                     ],
                     "expected": expected,
+                    **({"attachment": {"asset_id": row["attachment_asset_id"]}} if row.get("attachment_asset_id") else {}),
                 }
             )
         return result
@@ -397,6 +426,7 @@ def _parse_import(filename: str, content: bytes) -> list[dict[str, Any]]:
 def _sanitize_run_detail(run: dict[str, Any]) -> dict[str, Any]:
     payload = json.loads(json.dumps(run, ensure_ascii=False))
     payload.pop("_resource_fixtures", None)
+    payload.pop("_vision_fixtures", None)
     dataset = dict(payload.get("dataset") or {})
     for case in dataset.get("cases") or []:
         case["message"] = str(case.get("message") or "")[:20_000]

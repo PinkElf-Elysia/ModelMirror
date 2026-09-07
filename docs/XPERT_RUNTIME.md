@@ -270,6 +270,11 @@ Ralph Loop performs bounded continuation and strict verification before the Agen
 
 ## Xpert Evaluation Runtime
 
+Vision V2 通过编译器单附件输入与固定 Managed Binding 执行，每页纳入统一并发和调用
+预算。普通 Xpert 必须明确共享唯一附件；评测保持 `xpert_evaluation` 身份，按执行项解析
+固定 FileAsset，不借用会话或其他活文件。已派发未完成项重启后不自动重发，安全回执保留
+已知 usage 与不可验证标记。V1/RAG 视觉行为不迁移，详见 `docs/META_PLANNER_VISION.md`。
+
 `XpertEvaluationExecutor` reuses the classic workflow runner in an internal capture mode and
 creates a `xpert_evaluation` RunRegistry parent. Every run fixes its DatasetVersion,
 XpertVersion or Authoring Proposal revision, workflow checksum, resource versions, model

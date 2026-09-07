@@ -151,6 +151,13 @@ SchemaVersion，并在 Evaluator 中按目标、用例和节点生成私有事�
 - 新增附件型 Dataset/Evaluator 夹具，验证页数、视觉块、失败策略和跨作用域拒绝。
 - 公共 App 继续保持拒绝，除非另立安全审计。
 
+本轮实施进一步锁定为单附件槽位与独立固定视觉模型，Capability V9 共 19 类；新生成节点
+只用 Vision V2 和有效 Managed Binding，禁止回退。DatasetVersion 保留原件 hash 与版本
+引用，Evaluator 必须真实执行视觉并核验安全证据；已派发而结果不确定的请求不自动重发。
+文本 override 不替换视觉模型，也不开放嵌套附件传播。详见
+[META_PLANNER_VISION.md](./META_PLANNER_VISION.md)；实施和验收状态见
+[任务记录](./tasks/META_PLANNER_VISION_09.md)，不以契约文档代替真实 Provider 验收。
+
 ### Round 7：Controlled Writes
 
 只开放 Agent Table 的 insert/update/delete，不开放任意 SQL、HTTP、Sandbox、Browser 或 Client Tools 写入。必须具备：

@@ -133,9 +133,14 @@ fail-closed 预检：
 
 ## 5. 执行预算与恢复
 
+Vision V2 只在 DatasetVersion 固定单附件且 Managed Binding 有效时开放。发布保留
+FileAsset 版本引用，运行固定原件 SHA-256、格式、大小、页数，执行前再校验。原件去重
+总量最多 100 MiB。旧视觉、嵌套视觉和无法证明作用域的目标继续拒绝；文本模型 override
+不替换固定视觉模型。详见 [视觉契约](./META_PLANNER_VISION.md)。
+
 `XpertEvaluationExecutor` 是单进程文件型后台执行器。每个 run 按
-用例、目标和 repetition 保存工作项状态；容器重启后只重置未完成项，已完成项
-不会重复执行。
+用例、目标和 repetition 保存工作项状态；已完成项不重复执行。视觉请求已派发但结果
+不确定时标记失败并保留回执，不在重启后自动重发；未派发项才可继续。
 
 预算范围：
 
@@ -148,6 +153,8 @@ fail-closed 预检：
 模型和工具调用继续通过 `execution_operation` 计数。网关提供 usage 时优先使用；
 否则报告明确使用保守 token 估算。单个样例失败、超时或耗尽预算时计 0 分，不影响
 其他工作项。
+视觉 token 不使用文本长度估算：仅采纳 Managed usage，缺失时标记不可验证，并单列
+已知视觉 token 和不确定派发。响应后预算拒绝不能撤销已产生的费用。
 
 RunRegistry 根类型为 `xpert_evaluation`，目标 Xpert 和节点 run 继续挂在其下。
 checkpoint 仅记录 ID、状态、数量、耗时和安全错误摘要。
@@ -163,6 +170,7 @@ checkpoint 仅记录 ID、状态、数量、耗时和安全错误摘要。
 - `rubric_judge`
 - `workflow_path_match`
 - `workflow_resource_match`
+- `workflow_vision_match`
 
 `workflow_path_match` 只读取 classic runner 写入内部 checkpoint 的 Planner ref、
 语义 outcome、终点来源和受限错误码。它不新增 Workflow SSE 事件，也不从物理节点 ID
@@ -177,6 +185,10 @@ SchemaVersion、查询契约 checksum、命中数以及可选 record/citation ID
 
 LLM Judge 使用固定模型、温度 0 和严格 JSON，只保存 0–1 分数、通过状态与最多
 500 字符理由，不保存隐藏推理。
+
+视觉指标只读取真实执行形成的安全摘要：节点 ref、附件 hash、模型、页数、处理状态、
+块计数和内容锚点是否匹配。报告不接收完整 OCR 或视觉描述。跳过视觉但答对、零选中页
+均不能通过视觉能力验证；未声明 `vision` 断言标记证据缺失。
 
 报告包含：
 

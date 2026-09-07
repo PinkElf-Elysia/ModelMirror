@@ -1,25 +1,33 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from contextlib import asynccontextmanager
+import hashlib
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 try:
     from server.file_assets.service import FileAssetService, FileAssetServiceError
+    from server.file_assets.analysis import inspect_analysis_source
     from server.multimodal.vision_understanding import (
         VisionProcessingError,
         VisionSourceResult,
         VisionUnderstandingService,
     )
     from server.xperts.context import XpertContextError, XpertContextStore
+    from server.multimodal.vision_v2 import VisionExecutionRejected, VisionModelBindingSnapshot, vision_usage_summary
+    from server.xpert_runtime.execution_budget import XpertExecutionBudgetExceeded, execution_operation
 except ModuleNotFoundError:
     from file_assets.service import FileAssetService, FileAssetServiceError
+    from file_assets.analysis import inspect_analysis_source
     from multimodal.vision_understanding import (
         VisionProcessingError,
         VisionSourceResult,
         VisionUnderstandingService,
     )
     from xperts.context import XpertContextError, XpertContextStore
+    from multimodal.vision_v2 import VisionExecutionRejected, VisionModelBindingSnapshot, vision_usage_summary
+    from xpert_runtime.execution_budget import XpertExecutionBudgetExceeded, execution_operation
 
 
 WORKFLOW_VISION_OUTPUT_CHAR_LIMIT = 30_000
@@ -52,6 +60,52 @@ class WorkflowVisionAsset:
     content: bytes
 
 
+def validate_vision_v2_request(
+    data: dict[str, Any],
+    *,
+    selected_asset_id: Any,
+    runtime_run_type: str,
+    runtime_metadata: dict[str, Any],
+) -> dict[str, Any]:
+    if runtime_run_type not in {"workflow", "xpert", "xpert_evaluation"}:
+        raise WorkflowVisionError("workflow_vision_runtime_forbidden", "当前入口不允许执行视觉 V2。")
+    if (
+        data.get("assetIdVariable") != "selected_file_asset_id"
+        or not isinstance(selected_asset_id, str)
+        or not selected_asset_id.strip()
+    ):
+        raise WorkflowVisionError("workflow_vision_input_untrusted", "视觉 V2 必须读取运行时显式选择的单附件槽位。")
+    if runtime_run_type == "xpert":
+        ids = runtime_metadata.get("file_asset_ids")
+        features = runtime_metadata.get("xpert_features") or {}
+        if (features.get("file_upload") or {}).get("enabled") is False:
+            raise WorkflowVisionError("workflow_vision_files_disabled", "当前 Xpert 已关闭文件输入。")
+        if not isinstance(ids, list) or ids != [selected_asset_id]:
+            raise WorkflowVisionError("workflow_vision_single_asset_required", "视觉 V2 每次运行必须显式共享且仅共享一个附件。")
+    if data.get("retryMode") not in {None, "", "none"} or data.get("failureAction") not in {None, "", "stop"}:
+        raise WorkflowVisionError("workflow_vision_policy_invalid", "视觉 V2 本轮不支持节点重试或新错误分支。")
+    try:
+        binding = VisionModelBindingSnapshot.model_validate(data.get("visionModelBinding"))
+    except ValueError as exc:
+        raise WorkflowVisionError("workflow_vision_binding_invalid", "视觉节点缺少有效的固定 Managed Binding。") from exc
+    if binding.entry_id != "xpert_vision" or binding.model_id != data.get("visionModelId"):
+        raise WorkflowVisionError("workflow_vision_binding_invalid", "视觉模型与固定 Managed 入口不一致。")
+    return binding.model_dump(mode="json")
+
+
+def validate_vision_v2_asset(asset: WorkflowVisionAsset, max_pages: Any) -> None:
+    if type(max_pages) is not int or not 1 <= max_pages <= 20:
+        raise WorkflowVisionError("workflow_vision_pages_invalid", "视觉 V2 页数上限必须为 1 至 20。")
+    if len(asset.content) > 10 * 1024 * 1024 or asset.byte_size != len(asset.content):
+        raise WorkflowVisionError("workflow_vision_size_invalid", "视觉附件大小不一致或超过 10 MiB。")
+    try:
+        page_count, _ = inspect_analysis_source(asset.content, format_id=asset.format_id, selected_pages=())
+    except Exception as exc:
+        raise WorkflowVisionError("workflow_vision_source_invalid", "视觉附件格式、像素或页数未通过安全校验。") from exc
+    if page_count > max_pages:
+        raise WorkflowVisionError("workflow_vision_pages_exceeded", "附件页数超过节点上限，未截取或发送任何页面。")
+
+
 def resolve_workflow_vision_asset(
     *,
     asset_id: str,
@@ -81,6 +135,30 @@ def resolve_workflow_vision_asset(
             format_id=asset.format_id,
             byte_size=asset.byte_size,
             content=asset.content,
+        )
+
+    if runtime_run_type == "xpert_evaluation":
+        try:
+            try:
+                from server.evaluations.api import get_xpert_evaluation_store
+            except ModuleNotFoundError:
+                from evaluations.api import get_xpert_evaluation_store
+            store = get_xpert_evaluation_store()
+            run_id = str(runtime_metadata.get("evaluation_run_id") or "")
+            fixture = store.vision_fixture_for_item(
+                run_id,
+                target_id=str(runtime_metadata.get("evaluation_target_id") or ""),
+                case_id=str(runtime_metadata.get("evaluation_case_id") or ""),
+                item_id=str(runtime_metadata.get("evaluation_item_id") or ""),
+            )
+            if fixture["asset_id"] != clean_asset_id:
+                raise ValueError("asset mismatch")
+            resolved = store.vision_fixtures.resolve_run_asset(run_id, fixture)
+        except Exception as exc:
+            raise WorkflowVisionError("evaluation_vision_fixture_invalid", "固定评测附件缺失、内容变化或执行项不匹配，禁止读取其他文件。") from exc
+        return WorkflowVisionAsset(
+            asset_id=resolved.asset_id, filename=resolved.display_name,
+            format_id=resolved.format_id, byte_size=resolved.byte_size, content=resolved.content,
         )
 
     if runtime_run_type not in _PRIVATE_XPERT_RUN_TYPES:
@@ -142,6 +220,15 @@ def resolve_workflow_vision_asset(
     )
 
 
+@asynccontextmanager
+async def _vision_execution_operation():
+    try:
+        async with execution_operation("model_call"):
+            yield
+    except XpertExecutionBudgetExceeded as exc:
+        raise VisionExecutionRejected("视觉请求超过当前运行的模型调用预算。", code="workflow_vision_model_budget_exhausted") from exc
+
+
 async def execute_workflow_vision(
     *,
     asset: WorkflowVisionAsset,
@@ -153,6 +240,11 @@ async def execute_workflow_vision(
     service: VisionUnderstandingService,
     managed_entry_id: str | None = None,
     parent_run_reference: str | None = None,
+    contract_version: int = 1,
+    cancel_check: Callable[[], bool] | None = None,
+    dispatch_observer: Callable[[int], Any] | None = None,
+    receipt_observer: Callable[[dict[str, Any]], Any] | None = None,
+    binding_snapshot: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], VisionSourceResult]:
     try:
         result = await service.analyze_bytes(
@@ -160,6 +252,7 @@ async def execute_workflow_vision(
             filename=asset.filename,
             source_id=asset.asset_id,
             config={
+                "contract_version": contract_version,
                 "vision_model_id": model_id,
                 "pdf_page_strategy": pdf_page_strategy,
                 "render_dpi": 144,
@@ -169,7 +262,16 @@ async def execute_workflow_vision(
             },
             managed_entry_id=managed_entry_id,  # type: ignore[arg-type]
             parent_run_reference=parent_run_reference,
+            **({
+                "request_operation": _vision_execution_operation,
+                "cancel_check": cancel_check,
+                "dispatch_observer": dispatch_observer,
+                "receipt_observer": receipt_observer,
+                "binding_snapshot": binding_snapshot,
+            } if contract_version == 2 else {}),
         )
+    except VisionExecutionRejected as exc:
+        raise WorkflowVisionError(exc.code, str(exc), provider_route_receipts=[exc.receipt] if isinstance(exc.receipt, dict) else []) from exc
     except VisionProcessingError as exc:
         raise WorkflowVisionError(
             "workflow_vision_processing_failed",
@@ -193,7 +295,22 @@ async def execute_workflow_vision(
             "所有选中页面均未能完成视觉理解。",
             provider_route_receipts=result.provider_route_receipts,
         )
-    return _workflow_payload(asset, model_id, result), result
+    payload = _workflow_payload(asset, model_id, result)
+    if contract_version == 2:
+        payload["asset"]["sha256"] = hashlib.sha256(asset.content).hexdigest()
+        payload["execution_summary"] = vision_usage_summary(result.provider_route_receipts)
+        payload["contract_version"] = 2
+        payload["warnings"] = [
+            f"第 {item.page_number} 页视觉处理失败。"
+            for item in result.page_results if item.status == "failed"
+        ]
+        if payload["truncated"]:
+            payload["warnings"].append("视觉输出已按工作流安全上限截断。")
+        if not result.selected_page_count:
+            payload["warnings"].append("未选中页面，不能证明已执行视觉理解。")
+        if not payload["execution_summary"]["token_usage_verified"]:
+            payload["warnings"].append("视觉 Token 用量不可验证，未使用文本长度代替估算。")
+    return payload, result
 
 
 def compose_workflow_vision_receipt(

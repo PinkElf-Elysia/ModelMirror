@@ -143,7 +143,7 @@ def _snapshot(
 
 def _scope(snapshot) -> MetaPlannerScope:
     return MetaPlannerScope(
-        allowed_node_kinds=[item["kind"] for item in snapshot.nodes],
+        allowed_node_kinds=[item["kind"] for item in snapshot.nodes if item["kind"] != "vision_understanding"],
         external_xpert_ids=[item["id"] for item in snapshot.external_xperts],
         knowledge_base_ids=[item["id"] for item in snapshot.knowledge_bases],
         toolset_ids=[item["id"] for item in snapshot.toolsets],
@@ -227,6 +227,7 @@ def _headless_fixture(
     all_resources: bool = False,
     exclude_plugin_from_scope: bool = False,
     exclude_toolset_from_scope: bool = False,
+    with_vision: bool = False,
 ):
     snapshot = _snapshot(
         toolset_version=2 if with_toolset else None,
@@ -239,6 +240,11 @@ def _headless_fixture(
         request.scope.toolset_ids = []
     plan = _plan()
     intent = _intent()
+    if with_vision:
+        from server.tests.test_meta_planner_vision_graph import vision_snapshot, vision_request, vision_intent
+        snapshot = vision_snapshot()
+        request = vision_request(snapshot)
+        intent = vision_intent()
     if with_toolset:
         intent.resources.append(
             MetaPlannerIRResourceBinding(
@@ -254,7 +260,8 @@ def _headless_fixture(
         else None
     )
     graph = resolve_graph_intent(
-        intent, snapshot, default_agent_model_id=request.default_agent_model_id
+        intent, snapshot, default_agent_model_id=request.default_agent_model_id,
+        vision_model_id=request.vision_model_id,
     )
     candidate = compile_xpert_candidate(
         request=request,
@@ -314,6 +321,7 @@ def _headless_fixture(
             "planner_model_id": request.planner_model_id,
             "default_agent_model_id": request.default_agent_model_id,
             "max_agents": request.max_agents,
+            "vision_model_id": request.vision_model_id,
         },
         "validation": {"valid": True, "issues": []},
         "human_modified": False,
@@ -349,7 +357,7 @@ def _headless_fixture(
 def test_capability_snapshot_exposes_patch_protocol_and_pure_node_pack():
     snapshot = _snapshot()
 
-    assert snapshot.version == "evoagentx-meta-planner-capabilities-v8"
+    assert snapshot.version == "evoagentx-meta-planner-capabilities-v9"
     assert snapshot.control_flow_contract_version == 2
     assert snapshot.authoring_protocol_version == 1
     assert snapshot.authoring_limits["max_operations"] == 64
@@ -375,6 +383,7 @@ def test_capability_snapshot_exposes_patch_protocol_and_pure_node_pack():
         "knowledge_retrieval",
         "toolset_resource",
         "variable_aggregator",
+        "vision_understanding",
         "plugin_resource",
         "multi_route",
         "terminate_error",

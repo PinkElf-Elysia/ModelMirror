@@ -13,6 +13,7 @@ import {
   authoringOperationSummary,
   buildMetadataPatch,
   headlessStateMode,
+  isSafeVisionModelId,
   normalizeGraphPatchEnvelope,
   normalizeGraphPatchPreview,
   normalizeHeadlessProposalState,
@@ -22,6 +23,7 @@ import {
   type GraphPatchPreview,
   type HeadlessAuthoringProposalState,
   type SafeResourceSnapshot,
+  type VisionAttachmentState,
 } from "./metaAuthoring";
 import WorkflowEditor from "../workflow/WorkflowEditor";
 
@@ -91,9 +93,17 @@ interface CapabilitySnapshot {
   toolsets: CapabilityItem[];
   plugins: CapabilityItem[];
   prompt_profiles: CapabilityItem[];
+  vision_models?: unknown;
   default_scope?: Partial<MetaPlannerScope>;
   authoring_protocol_version?: string | number;
   authoring_limits?: Record<string, unknown>;
+}
+
+export interface VisionModelOption {
+  id: string;
+  label: string;
+  safe: true;
+  binding: Record<string, unknown>;
 }
 
 const DEFAULT_META_PLANNER_MODEL_ID = models.some(
@@ -221,7 +231,10 @@ export function normalizeMetaPlannerScope(
       ? source[key]!.filter((item): item is string => typeof item === "string")
       : [];
   return {
-    allowed_node_kinds: list("allowed_node_kinds"),
+    // Visual understanding always requires a fresh explicit user authorization.
+    allowed_node_kinds: list("allowed_node_kinds").filter(
+      (kind) => kind !== "vision_understanding",
+    ),
     external_xpert_ids: list("external_xpert_ids"),
     knowledge_base_ids: list("knowledge_base_ids"),
     // Agent Table access always starts closed, even if an older or permissive
@@ -232,6 +245,89 @@ export function normalizeMetaPlannerScope(
     prompt_profile_ids: list("prompt_profile_ids"),
     middleware_ids: list("middleware_ids"),
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function normalizeVisionModelOptions(
+  snapshot: Pick<CapabilitySnapshot, "version" | "vision_models"> | null,
+): VisionModelOption[] {
+  if (
+    snapshot?.version !== "evoagentx-meta-planner-capabilities-v9" ||
+    !Array.isArray(snapshot.vision_models)
+  ) {
+    return [];
+  }
+  const options = new Map<string, VisionModelOption>();
+  const conflicts = new Set<string>();
+  for (const item of snapshot.vision_models) {
+    if (!isRecord(item)) continue;
+    const id = typeof item.id === "string" ? item.id : "";
+    const label = typeof item.label === "string" ? item.label.trim() : "";
+    const binding = isRecord(item.binding) ? item.binding : null;
+    if (
+      item.safe !== true ||
+      !isSafeVisionModelId(id) ||
+      !label ||
+      label.length > 200 ||
+      !binding ||
+      binding.entry_id !== "xpert_vision" ||
+      binding.model_id !== id
+    ) {
+      continue;
+    }
+    if (options.has(id)) {
+      options.delete(id);
+      conflicts.add(id);
+      continue;
+    }
+    if (!conflicts.has(id)) {
+      options.set(id, { id, label, safe: true, binding });
+    }
+  }
+  return [...options.values()].sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function VisionAttachmentSummary({
+  attachment,
+  models: visionModels,
+}: {
+  attachment: VisionAttachmentState;
+  models: VisionModelOption[];
+}) {
+  const modelLabel =
+    visionModels.find((item) => item.id === attachment.model_id)?.label ??
+    attachment.model_id;
+  return (
+    <div className="border-t border-white/10 pt-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-semibold text-slate-200">视觉附件约束</p>
+        <span className="rounded border border-emerald-300/25 bg-emerald-300/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-100">
+          已纳管
+        </span>
+      </div>
+      <dl className="mt-2 grid gap-x-4 gap-y-1 text-[11px] leading-5 text-slate-400 sm:grid-cols-2">
+        <div>
+          <dt className="inline text-slate-500">附件：</dt>
+          <dd className="inline">单附件，{attachment.formats.map((item) => item.toUpperCase()).join(" / ")}</dd>
+        </div>
+        <div>
+          <dt className="inline text-slate-500">大小：</dt>
+          <dd className="inline">最多 {attachment.max_bytes / (1024 * 1024)} MiB，PDF 最多 {attachment.max_pages} 页</dd>
+        </div>
+        <div className="sm:col-span-2">
+          <dt className="inline text-slate-500">固定模型：</dt>
+          <dd className="inline">{modelLabel}（{attachment.model_id}）</dd>
+        </div>
+        <div className="sm:col-span-2">
+          <dt className="inline text-slate-500">调用上界：</dt>
+          <dd className="inline">最多 {attachment.max_model_calls} 次视觉模型调用</dd>
+        </div>
+      </dl>
+    </div>
+  );
 }
 
 function capabilityItemId(item: CapabilityItem) {
@@ -473,6 +569,7 @@ export default function MetaPlannerV2() {
   const [agentModelId, setAgentModelId] = useState(
     DEFAULT_META_PLANNER_MODEL_ID,
   );
+  const [visionModelId, setVisionModelId] = useState("");
   const [temperature, setTemperature] = useState(0.2);
   const [maxAgents, setMaxAgents] = useState(5);
   const [proposal, setProposal] = useState<AuthoringProposal | null>(null);
@@ -498,6 +595,14 @@ export default function MetaPlannerV2() {
   const [isSaving, setIsSaving] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const visionModels = useMemo(
+    () => normalizeVisionModelOptions(capabilities),
+    [capabilities],
+  );
+  const visionEnabled = scope.allowed_node_kinds.includes("vision_understanding");
+  const selectedVisionModel = visionModels.find(
+    (item) => item.id === visionModelId,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -525,6 +630,7 @@ export default function MetaPlannerV2() {
         if (cancelled) return;
         setCapabilities(capabilityPayload);
         setScope(normalizeMetaPlannerScope(capabilityPayload.default_scope));
+        setVisionModelId("");
         setEditableXperts(xpertResponse.items);
         const latest = proposalPayload.items?.[0];
         if (latest) {
@@ -635,6 +741,13 @@ export default function MetaPlannerV2() {
   }
 
   function toggleScope(key: ScopeKey, value: string) {
+    if (key === "allowed_node_kinds" && value === "vision_understanding") {
+      if (!visionEnabled && visionModels.length === 0) {
+        setError("当前没有可用的已纳管视觉模型，无法授权视觉理解。");
+        return;
+      }
+      if (visionEnabled) setVisionModelId("");
+    }
     setScope((current) => {
       const values = new Set(current[key]);
       if (values.has(value)) values.delete(value);
@@ -653,6 +766,10 @@ export default function MetaPlannerV2() {
       setError("更新模式必须选择目标智能体。");
       return;
     }
+    if (visionEnabled && !selectedVisionModel) {
+      setError("已授权视觉理解，请单独选择当前可用的已纳管视觉模型。");
+      return;
+    }
     setIsGenerating(true);
     setError("");
     setNotice("");
@@ -667,6 +784,7 @@ export default function MetaPlannerV2() {
           target_xpert_id: mode === "update" ? targetXpertId : null,
           planner_model_id: plannerModelId,
           default_agent_model_id: agentModelId,
+          vision_model_id: visionEnabled ? selectedVisionModel?.id ?? null : null,
           temperature,
           max_agents: maxAgents,
           scope,
@@ -967,6 +1085,10 @@ export default function MetaPlannerV2() {
 
   const issues = proposal ? validationIssues(proposal.validation) : [];
   const workflow = candidate ? toWorkflowDefinition(candidate) : null;
+  const headlessVisionAttachment =
+    authoringAvailability.mode === "headless"
+      ? authoringAvailability.state.vision_attachment
+      : null;
 
   return (
     <section className="mb-6 overflow-hidden rounded-lg border border-cyan-300/20 bg-slate-950/75 shadow-prism">
@@ -1102,7 +1224,12 @@ export default function MetaPlannerV2() {
 
             <button
               className="mt-4 w-full rounded-md bg-cyan-300 px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500"
-              disabled={isGenerating || isLoading || !goal.trim()}
+              disabled={
+                isGenerating ||
+                isLoading ||
+                !goal.trim() ||
+                (visionEnabled && !selectedVisionModel)
+              }
               onClick={() => void generateCandidate()}
               type="button"
             >
@@ -1130,15 +1257,24 @@ export default function MetaPlannerV2() {
                             const value = capabilityItemId(item);
                             const checked = scope[group.key].includes(value);
                             const detail = capabilityItemDetail(item, group.key);
+                            const visionUnavailable =
+                              group.key === "allowed_node_kinds" &&
+                              value === "vision_understanding" &&
+                              visionModels.length === 0;
                             return (
                               <label
-                                className="flex cursor-pointer items-start gap-2 rounded-md border border-white/5 bg-white/[0.025] px-2.5 py-2"
+                                className={`flex items-start gap-2 rounded-md border border-white/5 bg-white/[0.025] px-2.5 py-2 ${
+                                  visionUnavailable
+                                    ? "cursor-not-allowed opacity-55"
+                                    : "cursor-pointer"
+                                }`}
                                 key={`${group.key}-${value}`}
                               >
                                 <input
                                   aria-label={`${group.title}：${item.title ?? item.name ?? value}`}
                                   checked={checked}
                                   className="mt-0.5 accent-cyan-300"
+                                  disabled={visionUnavailable}
                                   onChange={() => toggleScope(group.key, value)}
                                   type="checkbox"
                                 />
@@ -1174,6 +1310,47 @@ export default function MetaPlannerV2() {
                     );
                   })
                 : null}
+              {capabilities ? (
+                <div className="border-t border-white/10 pt-3">
+                  <div className="flex items-end justify-between gap-2">
+                    <label
+                      className="text-xs font-semibold text-slate-200"
+                      htmlFor="meta-planner-vision-model"
+                    >
+                      视觉模型
+                    </label>
+                    <span className="text-[10px] text-slate-500">
+                      独立固定，使用已纳管绑定
+                    </span>
+                  </div>
+                  <select
+                    aria-label="视觉模型"
+                    className="modelmirror-form-control mt-2 h-10 w-full rounded-md border border-white/10 bg-slate-950 px-3 text-sm text-white disabled:cursor-not-allowed disabled:text-slate-500"
+                    disabled={!visionEnabled || visionModels.length === 0}
+                    id="meta-planner-vision-model"
+                    onChange={(event) => setVisionModelId(event.target.value)}
+                    value={visionModelId}
+                  >
+                    <option value="">
+                      {visionModels.length
+                        ? "请选择已纳管视觉模型"
+                        : "当前没有可用视觉模型"}
+                    </option>
+                    {visionModels.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.label} · 已纳管
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1.5 text-[10px] leading-4 text-slate-500">
+                    {visionModels.length === 0
+                      ? "当前没有可用的已纳管视觉模型，视觉理解保持关闭。"
+                      : visionEnabled
+                        ? "必须选择一个固定模型后才能生成候选。"
+                        : "先显式勾选视觉理解，再选择固定模型。"}
+                  </p>
+                </div>
+              ) : null}
             </div>
           </details>
         </div>
@@ -1297,6 +1474,14 @@ export default function MetaPlannerV2() {
                   <p className="mt-2 text-xs leading-5 text-slate-400">
                     {plan?.summary ?? "候选来自已持久化 Proposal。"}
                   </p>
+                  {headlessVisionAttachment ? (
+                    <div className="mt-3">
+                      <VisionAttachmentSummary
+                        attachment={headlessVisionAttachment}
+                        models={visionModels}
+                      />
+                    </div>
+                  ) : null}
                   <div className="mt-3 max-h-44 space-y-2 overflow-y-auto">
                     {plan?.tasks.map((task) => (
                       <div
@@ -1533,6 +1718,15 @@ export default function MetaPlannerV2() {
                 ×
               </button>
             </div>
+
+            {pendingAuthoringPreview.preview.vision_attachment ? (
+              <div className="mt-4">
+                <VisionAttachmentSummary
+                  attachment={pendingAuthoringPreview.preview.vision_attachment}
+                  models={visionModels}
+                />
+              </div>
+            ) : null}
 
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <div className="rounded-md border border-white/10 bg-white/[0.035] p-3">

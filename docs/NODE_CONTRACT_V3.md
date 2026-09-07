@@ -62,14 +62,14 @@ The first complete-contract group is:
 | Pure-data adapters | `json_serialize`, `json_deserialize`, `variable_aggregator`, `data_aggregate`, `dataset_compare` | enabled, `task_binding=forbidden` |
 | Control-flow adapters | `condition`, `multi_route`, `data_merge`, `terminate_error` | enabled, `task_binding=forbidden` |
 | Read targets | `knowledge_retrieval`, `data_table_query` | enabled, `task_binding=forbidden`, node-owned resource |
-| Attachment target | `vision_understanding` | unsupported |
+| 显式附件 | `vision_understanding` | V2，显式授权，`task_binding=forbidden` |
 | Write targets | `data_table_insert`, `data_table_update`, `data_table_delete` | unsupported |
 | Metadata and middleware | `annotation`, `runtime_middleware` | metadata or binding contract only |
 
 All other nodes have compatibility or explicitly unsupported contracts and
 remain executable through the existing classic validator and runner when their
-legacy validation permits it. Capability Snapshot V8 exposes the previous sixteen
-kinds plus the two read-resource adapters. Graph IR V3 is the write format; Typed
+legacy validation permits it. Capability Snapshot V9 exposes nineteen kinds,
+including the two read-resource adapters and explicitly authorized Vision V2. Graph IR V3 is the write format; Typed
 IR V2 is read-only compatibility input.
 
 Unversioned JSON nodes retain their historical inline-error/null behavior.
@@ -79,8 +79,9 @@ The other pure adapters keep their existing bounded Runtime contracts. Pure
 nodes cannot cover plan tasks or bind resources or middleware. Control-flow nodes
 also cannot cover plan tasks. Agent Table Query is Evaluator-conditional: its
 SchemaVersion and query contract are fixed and its results are captured into a private,
-bounded read-transaction fixture before model execution. Vision remains disabled in
-Evaluator until evaluation datasets can carry explicit file assets.
+bounded read-transaction fixture before model execution.
+视觉评测只对 V2、固定 DatasetVersion 附件和有效 Managed Binding 有条件开放；旧视觉
+节点没有获得此权限。配置解析必须保留 V1 的运行兼容，不自动升级。
 
 Control-flow contract version 2 retains `condition` outcomes
 `matched/unmatched`, `multi_route` the outcomes `case_1...case_8/default`, and
@@ -100,8 +101,8 @@ domain checks continue to run in their existing services.
 
 The V3 migration preserves the current policy boundary:
 
-- Evaluator rejects Handoff, Human Intervention, Agent Table writes, and Vision
-  Understanding. Agent Table Query is allowed only when its fixed read fixture can
+- Evaluator rejects Handoff, Human Intervention, Agent Table writes, and legacy Vision.
+  Vision V2 additionally requires fixed attachments and a valid Managed Binding. Agent Table Query is allowed only when its fixed read fixture can
   be prepared without Agent-derived predicates or live-table fallback.
 - public App rejects External Xpert, Plugin, Human Intervention, every Agent
   Table node, and Vision Understanding.
@@ -114,7 +115,7 @@ must still pass.
 ## API and frontend
 
 `GET /api/workflow/node-registry` returns registry version
-`xpert-workflow-node-registry-v7`, `contract_version=3`, the registry checksum,
+`xpert-workflow-node-registry-v8`, `contract_version=3`, the registry checksum,
 and a safe contract projection for each palette node.
 
 The frontend fallback contains presentation facts only. It has no contract or
@@ -122,12 +123,14 @@ Planner claims. If the server response is absent, incomplete, or has a checksum
 shape other than V3, contract-dependent operations stay disabled while the
 classic palette may continue to render.
 
-Meta Planner Capability Snapshot version is V8 with `ir_version=3`,
-`supported_ir_versions=[2,3]`, and `control_flow_contract_version=2`. V8 projects the typed Headless Authoring
+Meta Planner Capability Snapshot version is V9 with `ir_version=3`,
+`supported_ir_versions=[2,3]`, and `control_flow_contract_version=2`. V9 projects the typed Headless Authoring
 operation schema, `task_binding`, versioned execution semantics, and per-kind
-authoring checksum for the eighteen enabled kinds. Its Agent Table catalog exposes
+authoring checksum for the nineteen enabled kinds. Its Agent Table catalog exposes
 only field names, types, required flags and Schema checksums; records and defaults
 remain private.
+视觉目录只含安全模型信息和固定 Binding 摘要，默认不授权；可信单附件输入、完整结果
+端口和版本化错误策略见 [视觉契约](./META_PLANNER_VISION.md)。
 Persisted V2 snapshots without contract metadata remain readable. Contract
 drift is a warning for an existing proposal; missing or invalid resources still
 block approval.

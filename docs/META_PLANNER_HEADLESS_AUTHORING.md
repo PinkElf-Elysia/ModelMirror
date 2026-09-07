@@ -1,7 +1,7 @@
 # Meta Planner Headless Authoring
 
 最后更新日期：2026-08-31
-状态：V3 Round 3 实现契约
+状态：V3 Round 6 实施契约，验收证据见对应任务记录
 
 ## 目标
 
@@ -82,9 +82,16 @@ POST /api/meta-agent/authoring/proposals/{proposal_id}/patch/preview
 POST /api/meta-agent/authoring/proposals/{proposal_id}/patch/apply
 ```
 
-Capability Snapshot V8 暴露 authoring protocol、操作 JSON Schema、Adapter authoring
-checksum、`task_binding` 和限制。Headless 编辑范围为十八种受支持能力；纯节点、
-控制流和只读资源节点不得承担任务，只读资源节点只能使用其 Adapter 声明的资源类型。
+Capability Snapshot V9 暴露 authoring protocol、操作 JSON Schema、Adapter authoring
+checksum、`task_binding` 和限制。Headless 编辑范围为十九种受支持能力；纯节点、
+控制流、只读资源和视觉节点不得承担任务，只读资源节点只能使用其 Adapter 声明的资源类型。
+
+## 视觉附件
+
+视觉 V2 编辑仅允许页面策略、页数、边长和页面失败策略。固定模型、Binding、附件输入
+变量和执行版本不能通过 Patch 或整包 editor-diff 替换。`vision_attachment` 返回单附件
+需求、固定模型、Managed 要求和调用上界；Apply 再次检查 Binding，沿用现有 revision 与
+checksum 门禁。详见 [显式附件视觉契约](./META_PLANNER_VISION.md)。
 
 ## 回退
 

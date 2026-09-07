@@ -13,11 +13,13 @@ from pydantic import (
 )
 
 try:
+    from server.multimodal.vision_v2 import VisionModelBindingSnapshot
     from server.workflow_native.node_contracts import (
         WorkflowAgentPlannerConfig,
         WorkflowValueSchema,
     )
 except ModuleNotFoundError:
+    from multimodal.vision_v2 import VisionModelBindingSnapshot
     from workflow_native.node_contracts import (
         WorkflowAgentPlannerConfig,
         WorkflowValueSchema,
@@ -106,6 +108,7 @@ class MetaPlannerScope(BaseModel):
 
 
 class MetaPlannerGenerateRequest(BaseModel):
+    vision_model_id: str | None = Field(default=None, min_length=1, max_length=512)
     goal: str = Field(min_length=10, max_length=20_000)
     mode: Literal["create", "update"] = "create"
     target_xpert_id: str | None = Field(default=None, max_length=160)
@@ -409,6 +412,7 @@ class GraphIntentFinalOutputV3(BaseModel):
 
 
 class GraphIntentV3(BaseModel):
+    _pinned_vision_model: dict[str, Any] | None = PrivateAttr(default=None)
     model_config = ConfigDict(extra="forbid")
 
     # Trusted decompilation constraints are deliberately absent from the JSON
@@ -480,6 +484,7 @@ class ResolvedGraphNodeV3(BaseModel):
     execution: dict[str, Any] = Field(default_factory=dict)
     resource_contracts: list[dict[str, Any]] = Field(default_factory=list)
     resource_snapshot: ResolvedNodeResourceSnapshotV3 | None = None
+    vision_model_snapshot: VisionModelBindingSnapshot | None = None
 
 
 class ResolvedGraphEndpointV3(BaseModel):
@@ -558,6 +563,7 @@ class MetaPlannerCapabilitySnapshot(BaseModel):
     plugins: list[dict[str, Any]]
     prompt_profiles: list[dict[str, Any]]
     models: list[dict[str, Any]]
+    vision_models: list[dict[str, Any]] = Field(default_factory=list)
     agents: list[dict[str, Any]] = Field(default_factory=list)
     default_scope: MetaPlannerScope
     authoring_protocol_version: int = 0

@@ -4,6 +4,7 @@ import chooseModelAgentWorkflow from "./articles/choose-model-agent-workflow.md?
 import createRepeatableAgent from "./articles/create-repeatable-agent.md?raw";
 import handleWorkflowNodeFailure from "./articles/handle-workflow-node-failure.md?raw";
 import modulesAndTerms from "./articles/modules-and-terms.md?raw";
+import prepareVisionEvaluation from "./articles/prepare-vision-evaluation.md?raw";
 import promoteRunToSkill from "./articles/promote-run-to-skill.md?raw";
 import recoverUnavailableFeature from "./articles/recover-unavailable-feature.md?raw";
 import reviewMetaPlannerBranches from "./articles/review-meta-planner-branches.md?raw";
@@ -98,6 +99,7 @@ export const workflowErrorRoutingBaseline = { commit: "48254740", date: "2026-09
 export const providerMultimodalR8cBaseline = { commit: "ae284fbb", date: "2026-08-31" };
 export const modelServingReviewBaseline = { commit: "07cbd6d1", date: "2026-09-03" };
 export const metaPlannerControlFlowBaseline = { commit: "efa63af2", date: "2026-09-03" };
+export const metaPlannerVisionBaseline = { commit: "64880801", date: "2026-09-06" };
 
 export const helpContentTypeLabels: Record<HelpContentType, string> = {
   tutorial: "入门教程",
@@ -180,6 +182,21 @@ export const helpArticles: HelpArticle[] = [
     verifiedCommit: metaPlannerControlFlowBaseline.commit,
     verifiedDate: metaPlannerControlFlowBaseline.date,
     content: reviewMetaPlannerBranches,
+    nextSlug: "check-availability-cost-data",
+  },
+  {
+    slug: "prepare-vision-evaluation",
+    title: "为图片或扫描 PDF 准备视觉评测",
+    summary: "关联逐例附件，检查视觉节点、页数与内容锚点，并发布固定评测集版本。",
+    category: "按目标找指南",
+    contentType: "how-to",
+    audience: "需要验证 Agent 是否真正读取图片或扫描文档的用户",
+    estimatedMinutes: 8,
+    keywords: ["视觉评测", "附件", "扫描 PDF", "图片", "Managed Binding", "workflow_vision_match"],
+    relatedRoutes: ["/agents/evaluations", "/agents/meta-agent"],
+    verifiedCommit: metaPlannerVisionBaseline.commit,
+    verifiedDate: metaPlannerVisionBaseline.date,
+    content: prepareVisionEvaluation,
     nextSlug: "check-availability-cost-data",
   },
   {
@@ -466,6 +483,7 @@ export const helpSections: HelpSection[] = [
       { id: "repeat-role", title: "以后反复使用同一角色", summary: "创建 Agent 草稿，保存模型和角色要求，并完成发布预检。", to: "/help/create-repeatable-agent", keywords: ["重复", "角色", "Agent", "Agent Studio"] },
       { id: "repeat-process", title: "按固定顺序完成多步任务", summary: "使用默认三节点模板，配置处理步骤并保存经典工作流草稿。", to: "/help/build-first-workflow", keywords: ["多步", "固定顺序", "Workflow", "经典工作流"] },
       { id: "review-planner-branch", title: "检查 AI 生成的分支流程", summary: "核对语义路径与终点，预览修改，并准备路径评测。", to: "/help/review-meta-planner-branches", keywords: ["Meta Planner", "分支", "路径评测", "候选"] },
+      { id: "prepare-vision", title: "验证 AI 是否真正读取图片", summary: "为用例关联图片或扫描 PDF，并设置视觉证据断言。", to: "/help/prepare-vision-evaluation", keywords: ["视觉评测", "附件", "扫描 PDF", "图片"] },
       { id: "reuse-success", title: "把成功做法保存为 Skill", summary: "从已完成的运行中整理可复用经验，并交给 Skill Creator 继续检查。", to: "/help/promote-run-to-skill", keywords: ["成功运行", "复用", "Skill", "Creator"] },
       { id: "connect-tool", title: "让 AI 使用外部工具", summary: "需要访问外部服务时，先查看 MCP 目录与连接状态。", to: "/help/modules/mcps", keywords: ["外部工具", "MCP", "连接"] },
       { id: "use-own-docs", title: "根据自己的资料回答", summary: "需要从指定文档查找内容时，查看 RAG 知识库。", to: "/help/modules/workspace/rag", keywords: ["自己的资料", "文档", "RAG", "知识库"] },

@@ -9,7 +9,7 @@
 已经可以从实时 Registry 编译 `workflow_agent`、资源绑定、中间件和发布预检所需配置；
 旧生成器仍保留用于兼容经典工作流导入与既有 AgentTask/Handoff 操作。
 
-当前实现是 **Capability Snapshot V7 + Graph IR V3 单写、Typed IR V2 双读**。后续升级已经锁定为
+当前实现是 **Capability Snapshot V9 + Graph IR V3 单写、Typed IR V2 双读**。后续升级已经锁定为
 “V3 十轮 + V4 轮次待定”，唯一方向文档是
 [META_PLANNER_V3_V4_ROADMAP.md](./META_PLANNER_V3_V4_ROADMAP.md)。V3 先补齐
 Graph IR、无头编排、节点 Adapter、效果语义和评测，再逐类开放真实节点；V4 只有在
@@ -141,7 +141,7 @@ EvoAgentX 的来源与已交付历史见
 
 ### NodeContract V3 能力门禁
 
-Meta Planner 的节点事实统一来自 `NodeContractRegistry`。Capability Snapshot V8
+Meta Planner 的节点事实统一来自 `NodeContractRegistry`。Capability Snapshot V9
 只暴露满足以下全部条件的节点：契约状态完整、Planner 显式启用、编译模式真实存在、
 Adapter 版本一致，并且契约与 Adapter 的 compiler checksum 匹配。UI Registry 中出现
 节点不等于 Planner 可以生成该节点。
@@ -150,8 +150,8 @@ Adapter 版本一致，并且契约与 Adapter 的 compiler checksum 匹配。UI
 `json_serialize`、`json_deserialize`、`variable_aggregator`、`data_aggregate`、
 `dataset_compare` 五种无副作用类型化纯节点和 `condition`、`multi_route`、
 `data_merge`、`terminate_error` 四种受限控制流节点，以及 `knowledge_retrieval`、
-`data_table_query` 两种只读动态资源节点。NodeContract V3 与 Planner IR 独立演进。
-Capability Snapshot 当前为 V8，
+`data_table_query` 两种只读动态资源节点，以及显式附件 `vision_understanding` V2，共 19 类。
+NodeContract V3 与 Planner IR 独立演进。Capability Snapshot 当前为 V9，
 `ir_version=3` 且声明 `supported_ir_versions=[2,3]`。旧 V2 Snapshot 保持可读，详见
 [NODE_CONTRACT_V3.md](./NODE_CONTRACT_V3.md)。
 
@@ -189,7 +189,7 @@ Apply。操作、接口、安全 receipt 和回退边界见
 类型化输入/输出变量、控制边、资源/中间件目标和唯一最终输出。任务和 Agent 不再
 强制一一对应：一个 Agent 可以覆盖多个任务，一个任务也可以由多个节点共同完成。
 
-Capability Snapshot V8 只暴露当前存在且与 NodeContract、Adapter checksum 校验一致的
+Capability Snapshot V9 只暴露当前存在且与 NodeContract、Adapter checksum 校验一致的
 编译能力。`workflow_agent` 的 `task_binding=required`，每个计划任务仍必须由 Agent
 覆盖；五种纯节点的 `task_binding=forbidden`，只能作为 Agent 之间的确定性辅助步骤，
 不能承担任务或成为最终输出。`input/output` 由编译器管理，外部 Xpert、知识库、
@@ -224,7 +224,12 @@ Schema 中的字段、受限条件树、排序与 `limit=1..200`。表默认不�
 选择；模型不能提交原生资源字段、版本、Schema、Handle 或 checksum。两类节点均可走
 `success/error`，但不能承担计划任务或直接成为最终交付来源。
 
-`variable_assign`、`list_operation`、`object_transform`、Agent Table 写入、视觉理解、
+视觉节点默认不授权，必须单独固定 `vision_model_id` 及有效 Managed Binding。输入只允许
+编译器管理的单附件端口，Planner 不接收实际文件。视觉结果必须被下游 Agent 消费；
+Binding 漂移、目标关闭文件输入或非唯一附件在外发前阻断。详见
+[显式附件视觉契约](./META_PLANNER_VISION.md)。
+
+`variable_assign`、`list_operation`、`object_transform`、Agent Table 写入、
 循环、等待、HITL、Handoff、Trigger 和 `question_classifier` 仍无 Planner Adapter，
 不会进入授权快照。
 

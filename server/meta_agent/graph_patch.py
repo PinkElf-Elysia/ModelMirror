@@ -339,6 +339,12 @@ def _source_output(
                 ),
             ),
         }
+        if any(node.kind == "vision_understanding" for node in intent.nodes):
+            inputs["selected_file_asset_id"] = GraphIntentOutputBindingV3(
+                port="selected_file_asset_id",
+                variable="selected_file_asset_id",
+                value_schema=WorkflowValueSchema(type="string"),
+            )
         binding = inputs.get(source_port)
         if binding is None:
             raise ValueError(f"Input has no output port {source_port}.")
@@ -411,6 +417,7 @@ def apply_graph_patch(
         intent._pinned_prompt_profile_versions
     )
     result._pinned_node_resources = dict(intent._pinned_node_resources)
+    result._pinned_vision_model = deepcopy(intent._pinned_vision_model)
     original_resource_pins = dict(intent._pinned_resource_versions)
     next_layout = deepcopy(layout or {})
     pending_removals: set[str] = set()
@@ -870,6 +877,7 @@ def apply_graph_patch(
         result._pinned_prompt_profile_versions
     )
     validated._pinned_node_resources = dict(result._pinned_node_resources)
+    validated._pinned_vision_model = deepcopy(result._pinned_vision_model)
     return GraphPatchResult(
         intent=validated,
         layout=next_layout,

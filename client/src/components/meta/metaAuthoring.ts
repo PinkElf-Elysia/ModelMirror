@@ -27,6 +27,19 @@ export interface HeadlessAuthoringCompatibility {
   warnings?: string[];
 }
 
+export interface VisionAttachmentState {
+  port: "selected_file_asset_id";
+  source_ref: "input";
+  cardinality: "one";
+  formats: Array<"png" | "jpeg" | "webp" | "pdf">;
+  max_bytes: number;
+  max_pages: 20;
+  trusted_runtime_input: true;
+  model_id: string;
+  managed_required: true;
+  max_model_calls: number;
+}
+
 export interface HeadlessAuthoringProposalState {
   proposal_id: string;
   proposal_revision: number;
@@ -41,6 +54,7 @@ export interface HeadlessAuthoringProposalState {
   allowed_knowledge_base_ids: string[];
   allowed_data_table_ids: string[];
   compiler_managed_node_kinds: WorkflowNodeKind[];
+  vision_attachment: VisionAttachmentState | null;
   compatibility: HeadlessAuthoringCompatibility;
   diagnostics: AuthoringDiagnostic[];
 }
@@ -54,6 +68,7 @@ export interface GraphPatchPreview {
   graph_ir_checksum?: string;
   candidate_checksum?: string;
   resource_snapshots: SafeResourceSnapshot[];
+  vision_attachment: VisionAttachmentState | null;
 }
 
 export interface SafeResourceSnapshot {
@@ -92,6 +107,21 @@ function stringArray(value: unknown) {
 
 function optionalNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function positiveInteger(value: unknown) {
+  return typeof value === "number" && Number.isInteger(value) && value > 0
+    ? value
+    : 0;
+}
+
+export function isSafeVisionModelId(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.trim().length > 0 &&
+    Array.from(value).length <= 512 &&
+    !/[\u0000-\u001f\u007f-\u009f]/.test(value)
+  );
 }
 
 function abbreviatedChecksum(value: unknown) {
@@ -181,6 +211,45 @@ export function normalizeAuthoringDiagnostics(value: unknown): AuthoringDiagnost
   });
 }
 
+export function normalizeVisionAttachment(
+  value: unknown,
+): VisionAttachmentState | null {
+  if (!isRecord(value)) return null;
+  const formats = stringArray(value.formats).map((item) => item.toLowerCase());
+  const expectedFormats = ["png", "jpeg", "webp", "pdf"] as const;
+  const maxBytes = positiveInteger(value.max_bytes);
+  const maxPages = positiveInteger(value.max_pages);
+  const modelId = value.model_id;
+  const maxModelCalls = positiveInteger(value.max_model_calls);
+  if (
+    value.port !== "selected_file_asset_id" ||
+    value.source_ref !== "input" ||
+    value.cardinality !== "one" ||
+    formats.length !== expectedFormats.length ||
+    expectedFormats.some((format) => !formats.includes(format)) ||
+    maxBytes !== 10 * 1024 * 1024 ||
+    maxPages !== 20 ||
+    value.trusted_runtime_input !== true ||
+    !isSafeVisionModelId(modelId) ||
+    value.managed_required !== true ||
+    maxModelCalls < 1
+  ) {
+    return null;
+  }
+  return {
+    port: "selected_file_asset_id",
+    source_ref: "input",
+    cardinality: "one",
+    formats: [...expectedFormats],
+    max_bytes: maxBytes,
+    max_pages: 20,
+    trusted_runtime_input: true,
+    model_id: modelId,
+    managed_required: true,
+    max_model_calls: maxModelCalls,
+  };
+}
+
 export function normalizeHeadlessProposalState(
   payload: unknown,
 ): HeadlessAuthoringProposalState | null {
@@ -215,6 +284,8 @@ export function normalizeHeadlessProposalState(
   const explicitCanAuthor =
     payload.can_author ?? payload.can_edit ?? payload.can_apply ?? payload.headless_apply_allowed;
   const protocol = payload.authoring_protocol_version ?? payload.protocol_version;
+  const hasVisionAttachment = payload.vision_attachment != null;
+  const visionAttachment = normalizeVisionAttachment(payload.vision_attachment);
   if (
     typeof payload.proposal_id !== "string" ||
     proposalRevision < 1 ||
@@ -231,8 +302,8 @@ export function normalizeHeadlessProposalState(
     ir_version: irVersion,
     can_author:
       typeof explicitCanAuthor === "boolean"
-        ? explicitCanAuthor
-        : irVersion === 3 && !lossy,
+        ? explicitCanAuthor && (!hasVisionAttachment || visionAttachment !== null)
+        : irVersion === 3 && !lossy && (!hasVisionAttachment || visionAttachment !== null),
     graph_checksum: graphChecksum,
     candidate_checksum: candidateChecksum,
     allowed_node_kinds: allowedKinds,
@@ -245,6 +316,7 @@ export function normalizeHeadlessProposalState(
         ? stringArray(payload.compiler_managed_node_kinds)
         : ["input", "output"]
     ) as WorkflowNodeKind[],
+    vision_attachment: visionAttachment,
     compatibility: {
       source_version:
         compatibility.source_version === 2 || compatibility.source_version === 3
@@ -331,9 +403,12 @@ export function headlessStateMode(
 
 export function normalizeGraphPatchPreview(payload: unknown): GraphPatchPreview | null {
   if (!isRecord(payload) || typeof payload.preview_checksum !== "string") return null;
+  const hasVisionAttachment = payload.vision_attachment != null;
+  const visionAttachment = normalizeVisionAttachment(payload.vision_attachment);
   return {
     preview_checksum: payload.preview_checksum,
-    can_apply: payload.can_apply === true,
+    can_apply:
+      payload.can_apply === true && (!hasVisionAttachment || visionAttachment !== null),
     diagnostics: normalizeAuthoringDiagnostics(payload.diagnostics),
     warnings: stringArray(payload.warnings),
     diff: isRecord(payload.diff) ? payload.diff : {},
@@ -346,6 +421,7 @@ export function normalizeGraphPatchPreview(payload: unknown): GraphPatchPreview 
           payload.compiled_candidate_checksum,
       ) || undefined,
     resource_snapshots: normalizeSafeResourceSnapshots(payload),
+    vision_attachment: visionAttachment,
   };
 }
 

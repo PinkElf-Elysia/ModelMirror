@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from .schemas import (
     GraphIntentNodeV3,
@@ -28,8 +28,11 @@ try:
         NODE_CONTRACT_VERSION,
         TerminateErrorPlannerConfig,
         VariableAggregatorPlannerConfig,
+        VisionModelBindingSnapshot,
+        VisionUnderstandingPlannerConfig,
         WorkflowValueSchema,
         canonical_checksum,
+        vision_understanding_result_schema,
         workflow_node_contract_registry,
     )
     from server.workflow_native.schemas import NativeWorkflowNode, WorkflowPosition
@@ -49,8 +52,11 @@ except ModuleNotFoundError:
         NODE_CONTRACT_VERSION,
         TerminateErrorPlannerConfig,
         VariableAggregatorPlannerConfig,
+        VisionModelBindingSnapshot,
+        VisionUnderstandingPlannerConfig,
         WorkflowValueSchema,
         canonical_checksum,
+        vision_understanding_result_schema,
         workflow_node_contract_registry,
     )
     from workflow_native.schemas import NativeWorkflowNode, WorkflowPosition
@@ -79,6 +85,7 @@ class PlannerNodeCompileContext:
     has_runtime_resources: bool
     requires_runtime_mode: bool
     resource_snapshot: dict[str, Any] | None = None
+    vision_model_snapshot: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -402,6 +409,31 @@ def _validate_knowledge_retrieval_shape(
     _require_single_output(node, "result")
 
 
+def _validate_vision_understanding_shape(
+    node: MetaPlannerIRNode | GraphIntentNodeV3,
+    _parsed: BaseModel,
+) -> None:
+    if node.task_ids:
+        raise ValueError(f"节点 {node.ref} 不得绑定规划任务。")
+    if node.resource_ref is not None:
+        raise ValueError(
+            f"节点 {node.ref} 使用运行时文件输入，不得携带资源引用。"
+        )
+    if (
+        len(node.inputs) != 1
+        or node.inputs[0].port != "asset_id"
+        or node.inputs[0].variable != "selected_file_asset_id"
+    ):
+        raise ValueError(
+            f"节点 {node.ref} 必须且只能绑定变量 selected_file_asset_id 的 asset_id 输入。"
+        )
+    if (
+        len(node.outputs) != 1
+        or node.outputs[0].port != "result"
+    ):
+        raise ValueError(f"节点 {node.ref} 必须且只能声明一个 result 输出。")
+
+
 def _table_predicates(
     item: DataTableQueryFilterPlannerConfig
     | DataTableQueryPredicatePlannerConfig
@@ -561,6 +593,16 @@ def _knowledge_output_schema(
             "warnings",
         ),
     )
+
+
+def _vision_understanding_output_schema(
+    port: str,
+    _parsed: BaseModel,
+    _resource_snapshot: dict[str, Any] | None,
+) -> WorkflowValueSchema:
+    if port != "result":
+        raise ValueError(f"视觉理解节点没有输出端口 {port}。")
+    return vision_understanding_result_schema()
 
 
 def _data_table_output_schema(
@@ -1091,6 +1133,54 @@ def _compile_knowledge_retrieval(
     )
 
 
+def _vision_model_compile_snapshot(
+    context: PlannerNodeCompileContext,
+) -> dict[str, Any]:
+    snapshot = context.vision_model_snapshot
+    if not isinstance(snapshot, dict):
+        raise ValueError("Planner 编译器需要可信的视觉模型 Managed Binding 快照。")
+    try:
+        binding = VisionModelBindingSnapshot.model_validate(snapshot)
+    except ValidationError as exc:
+        raise ValueError("视觉模型 Managed Binding 快照不符合严格契约。") from exc
+    if binding.entry_id != "xpert_vision":
+        raise ValueError("视觉模型 Managed Binding 必须属于 xpert_vision 入口。")
+    if binding.execution_shape != "vision_json_unary":
+        raise ValueError("视觉模型 Managed Binding 必须使用 vision_json_unary 执行形态。")
+    return binding.model_dump(mode="json")
+
+
+def _compile_vision_understanding(
+    node: MetaPlannerIRNode,
+    parsed: BaseModel,
+    context: PlannerNodeCompileContext,
+) -> NativeWorkflowNode:
+    config = VisionUnderstandingPlannerConfig.model_validate(parsed)
+    source = _require_single_input(node, "asset_id")
+    output = _require_single_output(node, "result")
+    model_binding = _vision_model_compile_snapshot(context)
+    model_id = str(model_binding["model_id"])
+    return NativeWorkflowNode(
+        id=context.node_id,
+        type="vision_understanding",
+        position=context.position,
+        data={
+            **_base_pure_node_data(node),
+            "plannerAdapterConfigV1": config.model_dump(mode="json"),
+            "plannerVisionModelBindingChecksum": canonical_checksum(model_binding),
+            "contractVersion": 2,
+            "visionModelId": model_id,
+            "visionModelBinding": model_binding,
+            "assetIdVariable": source.variable,
+            "pdfPageStrategy": config.pdf_page_strategy,
+            "maxPages": config.max_pages,
+            "maxImageEdge": config.max_image_edge,
+            "failurePolicy": config.failure_policy,
+            "outputVariable": output.variable,
+        },
+    )
+
+
 def _compile_data_table_filter(
     item: DataTableQueryFilterPlannerConfig | DataTableQueryPredicatePlannerConfig,
     node: MetaPlannerIRNode,
@@ -1323,6 +1413,51 @@ def _knowledge_editor_config_from_native(data: dict[str, Any]) -> dict[str, Any]
     }
 
 
+def _vision_editor_config_from_native(data: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "pdf_page_strategy": data.get("pdfPageStrategy"),
+        "max_pages": data.get("maxPages"),
+        "max_image_edge": data.get("maxImageEdge"),
+        "failure_policy": data.get("failurePolicy"),
+    }
+
+
+def _vision_config_from_native(data: dict[str, Any]) -> dict[str, Any]:
+    if data.get("contractVersion") != 2:
+        raise ValueError("Planner 视觉理解节点必须使用 contractVersion 2。")
+    payload = data.get("plannerAdapterConfigV1")
+    if not isinstance(payload, dict):
+        raise ValueError("Planner 视觉理解节点缺少 Adapter 配置。")
+    config = VisionUnderstandingPlannerConfig.model_validate(payload)
+    expected = _vision_editor_config_from_native(data)
+    if config.model_dump(mode="json") != expected:
+        raise ValueError("Planner 视觉理解节点的原生配置已发生漂移。")
+
+    raw_binding = data.get("visionModelBinding")
+    if not isinstance(raw_binding, dict):
+        raise ValueError("Planner 视觉理解节点缺少视觉模型 Managed Binding。")
+    try:
+        binding = VisionModelBindingSnapshot.model_validate(raw_binding)
+    except ValidationError as exc:
+        raise ValueError("Planner 视觉模型 Managed Binding 不符合严格契约。") from exc
+    if binding.entry_id != "xpert_vision":
+        raise ValueError("Planner 视觉模型 Managed Binding 不属于 xpert_vision 入口。")
+    if binding.execution_shape != "vision_json_unary":
+        raise ValueError(
+            "Planner 视觉模型 Managed Binding 不是 vision_json_unary 执行形态。"
+        )
+    binding_payload = binding.model_dump(mode="json")
+    if raw_binding != binding_payload:
+        raise ValueError("Planner 视觉模型 Managed Binding 不是完整标准快照。")
+    native_model_id = data.get("visionModelId")
+    if native_model_id != binding.model_id:
+        raise ValueError("Planner 视觉模型与 visionModelId 已发生漂移。")
+    expected_binding_checksum = canonical_checksum(raw_binding)
+    if data.get("plannerVisionModelBindingChecksum") != expected_binding_checksum:
+        raise ValueError("Planner 视觉模型 Managed Binding 摘要已发生漂移。")
+    return config.model_dump(mode="json")
+
+
 def _table_editor_filter_from_native(
     raw: Any,
     *,
@@ -1385,6 +1520,8 @@ def _data_table_editor_config_from_native(data: dict[str, Any]) -> dict[str, Any
 
 
 def _pure_config_from_native(kind: str, data: dict[str, Any]) -> dict[str, Any]:
+    if kind == "vision_understanding":
+        return _vision_config_from_native(data)
     if kind == "knowledge_retrieval":
         payload = data.get("plannerAdapterConfigV1")
         if not isinstance(payload, dict):
@@ -1523,6 +1660,32 @@ def _resource_ref_from_native(kind: str, data: dict[str, Any]) -> dict[str, str]
     return {"resource_id": resource_id}
 
 
+def _validate_vision_round_trip(
+    restored: MetaPlannerIRNode | GraphIntentNodeV3,
+    data: dict[str, Any],
+) -> None:
+    parsed = VisionUnderstandingPlannerConfig.model_validate(restored.config)
+    _validate_vision_understanding_shape(restored, parsed)
+    source = restored.inputs[0]
+    output = restored.outputs[0]
+    if data.get("assetIdVariable") != source.variable:
+        raise ValueError("Planner 视觉节点的附件变量元数据已发生漂移。")
+    if data.get("outputVariable") != output.variable:
+        raise ValueError("Planner 视觉节点的输出变量元数据已发生漂移。")
+    if isinstance(restored, GraphIntentNodeV3):
+        expected_input_schema = WorkflowValueSchema(type="string")
+        if canonical_checksum(source.value_schema) != canonical_checksum(
+            expected_input_schema
+        ):
+            raise ValueError("Planner 视觉节点的输入类型元数据已发生漂移。")
+        if canonical_checksum(output.value_schema) != canonical_checksum(
+            vision_understanding_result_schema()
+        ):
+            raise ValueError("Planner 视觉节点的输出类型元数据已发生漂移。")
+    elif source.value_type != "string" or output.value_type != "object":
+        raise ValueError("Planner 视觉节点的旧版端口类型元数据已发生漂移。")
+
+
 def _decompile_pure_node(
     node: NativeWorkflowNode,
     *,
@@ -1531,6 +1694,8 @@ def _decompile_pure_node(
 ) -> MetaPlannerIRNode | GraphIntentNodeV3:
     data = node.data if isinstance(node.data, dict) else {}
     contract = workflow_node_contract_registry.require(kind)
+    if kind == "vision_understanding" and node.type != kind:
+        raise ValueError("Planner 视觉节点的原生节点类型已发生漂移。")
     if int(data.get("plannerContractVersion") or 0) != NODE_CONTRACT_VERSION:
         raise ValueError(f"{kind} does not carry a NodeContract V3 marker.")
     if str(data.get("plannerCompilerChecksum") or "") != contract.compiler_checksum:
@@ -1560,7 +1725,10 @@ def _decompile_pure_node(
     model: type[MetaPlannerIRNode] | type[GraphIntentNodeV3] = (
         GraphIntentNodeV3 if graph_ir_v3 else MetaPlannerIRNode
     )
-    return model.model_validate(payload)
+    restored = model.model_validate(payload)
+    if kind == "vision_understanding":
+        _validate_vision_round_trip(restored, data)
+    return restored
 
 
 def _pure_decompilers(
@@ -1611,6 +1779,9 @@ _decompile_knowledge_retrieval, _decompile_knowledge_retrieval_v3 = (
 _decompile_data_table_query, _decompile_data_table_query_v3 = _pure_decompilers(
     "data_table_query"
 )
+_decompile_vision_understanding, _decompile_vision_understanding_v3 = (
+    _pure_decompilers("vision_understanding")
+)
 
 
 PLANNER_NODE_ADAPTERS: dict[str, PlannerNodeAdapter] = {
@@ -1623,6 +1794,21 @@ PLANNER_NODE_ADAPTERS: dict[str, PlannerNodeAdapter] = {
         referenced_variables=_workflow_agent_references,
         native_config=_workflow_agent_config_from_native,
         native_inputs=_workflow_agent_native_inputs,
+        native_outputs=_single_native_output("outputVariable", "result"),
+    ),
+    "vision_understanding": PlannerNodeAdapter(
+        kind="vision_understanding",
+        config_model=VisionUnderstandingPlannerConfig,
+        compile_node=_compile_vision_understanding,
+        decompile_node=_decompile_vision_understanding,
+        decompile_node_v3=_decompile_vision_understanding_v3,
+        output_schema=_vision_understanding_output_schema,
+        validate_node_shape=_validate_vision_understanding_shape,
+        native_config=lambda data: _pure_config_from_native(
+            "vision_understanding", data
+        ),
+        editor_config_projector=_vision_editor_config_from_native,
+        native_inputs=_single_native_input("assetIdVariable", "asset_id"),
         native_outputs=_single_native_output("outputVariable", "result"),
     ),
     "knowledge_retrieval": PlannerNodeAdapter(

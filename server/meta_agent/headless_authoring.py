@@ -64,6 +64,11 @@ from .graph_patch import (
 from .control_flow import native_outcome_map
 from .meta_planner_v2 import MetaPlannerV2Service
 from .node_adapters import META_PLANNER_ADAPTER_KINDS, get_planner_node_adapter
+from .vision_contract import (
+    ATTACHMENT_INPUT_PORT,
+    VISION_ATTACHMENT_CONTRACT,
+    resolve_planner_vision_model,
+)
 from .schemas import (
     GraphIntentInputBindingV3,
     GraphIntentNodeV3,
@@ -95,6 +100,10 @@ _AUTHORABLE_WORKFLOW_AGENT_DATA_FIELDS = frozenset(
     }
 )
 _AUTHORABLE_PURE_NODE_DATA_FIELDS: dict[str, frozenset[str]] = {
+    "vision_understanding": frozenset({
+        "kind", "title", "description", "pdfPageStrategy", "maxPages",
+        "maxImageEdge", "failurePolicy", "outputVariable",
+    }),
     "json_serialize": frozenset(
         {
             "kind",
@@ -839,13 +848,18 @@ class HeadlessAuthoringService:
                 else "headless-authoring"
             ),
             default_agent_model_id=default_model,
+            vision_model_id=(
+                generation.get("vision_model_id")
+                if isinstance(generation, dict) else None
+            ),
             temperature=0,
             max_agents=min(8, max_agents),
             scope=scope,
         )
         try:
             graph_ir = resolve_graph_intent(
-                intent, snapshot, default_agent_model_id=default_model
+                intent, snapshot, default_agent_model_id=default_model,
+                vision_model_id=request.vision_model_id,
             )
         except Exception as exc:
             message = safe_headless_error_message(exc)
@@ -1075,6 +1089,7 @@ class HeadlessAuthoringService:
             "graph_ir": graph_payload,
             "graph_checksum": next_graph_checksum,
             "candidate_checksum": next_candidate_checksum,
+            "vision_attachment": self._vision_attachment_payload(patched.intent, state.request.vision_model_id),
             "validation": deepcopy(preview.validation),
             "warnings": list(dict.fromkeys([*state.warnings, *preview.warnings])),
             "diagnostics": diagnostics,
@@ -1113,6 +1128,7 @@ class HeadlessAuthoringService:
             "authorized_scope": state.scope.model_dump(mode="json"),
             "allowed_node_kinds": list(state.scope.allowed_node_kinds),
             "compiler_managed_node_kinds": ["input", "output"],
+            "vision_attachment": self._vision_attachment_payload(state.intent, state.request.vision_model_id),
             "can_edit": (
                 state.proposal.status == "pending" and not state.target_conflict
             ),
@@ -1127,6 +1143,18 @@ class HeadlessAuthoringService:
                     state.report.get("authoring_patch_receipts")
                 )
             ),
+        }
+
+    @staticmethod
+    def _vision_attachment_payload(intent: GraphIntentV3, model_id: str | None) -> dict[str, Any] | None:
+        nodes = [node for node in intent.nodes if node.kind == "vision_understanding"]
+        if not nodes:
+            return None
+        return {
+            **VISION_ATTACHMENT_CONTRACT,
+            "model_id": model_id,
+            "managed_required": True,
+            "max_model_calls": sum(int(node.config.get("max_pages", 10)) for node in nodes),
         }
 
     def _editor_intent(
@@ -1572,6 +1600,19 @@ class HeadlessAuthoringService:
                     defaults = adapter.default_intent_config()
                     data["rolePrompt"] = role_prompt or defaults["role_prompt"]
                     data["taskInput"] = task_input or defaults["task_input"]
+            if kind == "vision_understanding":
+                binding = resolve_planner_vision_model(
+                    state.request.vision_model_id,
+                    state.snapshot.vision_models,
+                    pinned=state.intent._pinned_vision_model,
+                ).model_dump(mode="json")
+                data.update({
+                    "contractVersion": 2,
+                    "assetIdVariable": ATTACHMENT_INPUT_PORT,
+                    "visionModelId": binding["model_id"],
+                    "visionModelBinding": binding,
+                    "plannerVisionModelBindingChecksum": canonical_checksum(binding),
+                })
             parsed = adapter.authoring_config_from_native(data)
             resource_payload: dict[str, Any] | None = None
             if adapter.resource_kind is not None:
@@ -1664,12 +1705,14 @@ class HeadlessAuthoringService:
                 task_ids = []
             inputs: list[GraphIntentInputBindingV3] = []
             for port, variable in adapter.editor_input_variables(data, parsed):
-                if variable in {"user_input", "conversation_history"}:
+                if variable in {"user_input", "conversation_history", ATTACHMENT_INPUT_PORT}:
+                    if variable == ATTACHMENT_INPUT_PORT and kind != "vision_understanding":
+                        raise ValueError("附件槽位只能由视觉理解节点直接读取。")
                     source_ref = "input"
                     source_port = variable
                     schema = (
                         WorkflowValueSchema(type="string")
-                        if variable == "user_input"
+                        if variable != "conversation_history"
                         else WorkflowValueSchema(
                             type="array", items=WorkflowValueSchema(type="object")
                         )
@@ -1779,6 +1822,13 @@ class HeadlessAuthoringService:
                 }
             adapter.validate_authoring_config(parsed.model_dump(mode="json"))
 
+        input_node = node_by_id.get("input")
+        if input_node is None:
+            raise ValueError("编译器管理的输入节点缺失。")
+        if "vision_understanding" in kind_by_id.values():
+            input_node.data["plannerAttachmentInputV1"] = dict(VISION_ATTACHMENT_CONTRACT)
+        else:
+            input_node.data.pop("plannerAttachmentInputV1", None)
         output_node = node_by_id.get("output")
         if output_node is None:
             raise ValueError("Compiler-managed output node is missing.")

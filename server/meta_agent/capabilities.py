@@ -18,6 +18,7 @@ from .graph_patch import (
     graph_patch_schema,
 )
 from .schemas import MetaPlannerCapabilitySnapshot, MetaPlannerScope
+from .vision_contract import project_vision_model_rows
 
 
 HIGH_RISK_SECURITY_CATEGORIES = {
@@ -108,6 +109,7 @@ def build_capability_snapshot(
     model_ids: Iterable[str],
     agents: Iterable[Any] = (),
     data_tables: Iterable[dict[str, Any]] = (),
+    vision_models: Iterable[dict[str, Any]] = (),
 ) -> MetaPlannerCapabilitySnapshot:
     node_payload = workflow_registry.to_payload()
     nodes: list[dict[str, Any]] = []
@@ -434,7 +436,7 @@ def build_capability_snapshot(
     core_node_kinds = set(META_PLANNER_COMPILABLE_NODE_KINDS)
     available_node_kinds = {item["kind"] for item in nodes}
     default_scope = MetaPlannerScope(
-        allowed_node_kinds=sorted(core_node_kinds & available_node_kinds),
+        allowed_node_kinds=sorted((core_node_kinds & available_node_kinds) - {"vision_understanding"}),
         external_xpert_ids=[item["id"] for item in xperts],
         knowledge_base_ids=[item["id"] for item in kbs],
         data_table_ids=[],
@@ -445,7 +447,7 @@ def build_capability_snapshot(
         agent_ids=[item["id"] for item in expert_summaries],
     )
     payload = {
-        "version": "evoagentx-meta-planner-capabilities-v8",
+        "version": "evoagentx-meta-planner-capabilities-v9",
         "ir_version": 3,
         "supported_ir_versions": [2, 3],
         "control_flow_contract_version": 2,
@@ -461,6 +463,7 @@ def build_capability_snapshot(
         "plugins": safe_plugins,
         "prompt_profiles": prompts,
         "models": models,
+        "vision_models": project_vision_model_rows(vision_models),
         "agents": expert_summaries,
         "default_scope": default_scope.model_dump(mode="json"),
         "authoring_protocol_version": GRAPH_PATCH_PROTOCOL_VERSION,

@@ -8,6 +8,7 @@ import {
   helpModules,
   helpSections,
   metaPlannerControlFlowBaseline,
+  metaPlannerVisionBaseline,
   modelServingReviewBaseline,
   emailReviewBaseline,
   providerMultimodalR8cBaseline,
@@ -26,7 +27,7 @@ describe("help center content catalog", () => {
   it("has five complete first-level sections and eight module groups", () => {
     expect(helpSections.map((section) => section.title)).toEqual(["第一次使用", "按目标找指南", "按模块浏览", "解决问题", "安全、费用与数据"]);
     expect(helpSections.every((section) => section.items.length >= 3)).toBe(true);
-    expect(helpSections.find((section) => section.id === "goals")?.items.map((item) => item.id)).toEqual(["one-time", "repeat-role", "repeat-process", "review-planner-branch", "reuse-success", "connect-tool", "use-own-docs", "subscribe-feed", "subscribe-email", "propose-knowledge", "check-runtime"]);
+    expect(helpSections.find((section) => section.id === "goals")?.items.map((item) => item.id)).toEqual(["one-time", "repeat-role", "repeat-process", "review-planner-branch", "prepare-vision", "reuse-success", "connect-tool", "use-own-docs", "subscribe-feed", "subscribe-email", "propose-knowledge", "check-runtime"]);
     expect(helpModules.map((module) => module.title)).toEqual(["模型", "Agent", "MCP", "Skill", "提示词", "运维", "工作台与设置", "实验功能"]);
     expect(helpModules.find((module) => module.id === "agents")?.topics.some((topic) => topic.id === "expert-team" && topic.title === "专家团")).toBe(true);
     expect(helpModules.find((module) => module.id === "agents")?.topics.find((topic) => topic.id === "agent-studio")?.productRoute).toBe("/agents/studio");
@@ -44,6 +45,7 @@ describe("help center content catalog", () => {
       "create-repeatable-agent",
       "build-first-workflow",
       "review-meta-planner-branches",
+      "prepare-vision-evaluation",
       "promote-run-to-skill",
       "submit-knowledge-proposal",
       "subscribe-rss-workflow",
@@ -62,7 +64,7 @@ describe("help center content catalog", () => {
       expect(article.verifiedDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       expect(article.content).not.toMatch(/内容稍后补充|coming soon/i);
     });
-    expect(helpArticles.filter((article) => !["start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "review-meta-planner-branches", "handle-workflow-node-failure", "modules-and-terms", "check-availability-cost-data"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
+    expect(helpArticles.filter((article) => !["start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "review-meta-planner-branches", "prepare-vision-evaluation", "handle-workflow-node-failure", "modules-and-terms", "check-availability-cost-data"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
     const modelServingArticle = helpArticles.find((article) => article.slug === "check-availability-cost-data");
     expect(modelServingArticle?.verifiedCommit).toBe(modelServingReviewBaseline.commit);
     expect(modelServingArticle?.verifiedDate).toBe(modelServingReviewBaseline.date);
@@ -95,6 +97,16 @@ describe("help center content catalog", () => {
     helpArticles.forEach((article) => {
       expect(indexedPaths, article.slug).toContain(`/help/${article.slug}`);
     });
+  });
+
+  it("separates attachment preparation from real vision acceptance", () => {
+    const article = helpArticles.find((item) => item.slug === "prepare-vision-evaluation");
+    expect(article?.verifiedCommit).toBe(metaPlannerVisionBaseline.commit);
+    expect(article?.verifiedDate).toBe(metaPlannerVisionBaseline.date);
+    expect(article?.content).toContain("真实模型生成、视觉调用和完整评测仍需单独验证");
+    expect(article?.content).toContain("不会在重启后自动重发");
+    expect(article?.content).toContain("手工评测集不要求生成校准");
+    expect(searchHelpContent("视觉评测").some((item) => item.id === article?.slug)).toBe(true);
   });
 
   it("keeps operational articles within the required structure and step count", () => {

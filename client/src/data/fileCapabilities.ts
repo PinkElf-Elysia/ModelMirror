@@ -4,6 +4,7 @@ export const filePurposes = [
   "datax",
   "agent",
   "workflow",
+  "evaluation",
 ] as const;
 
 export const FILE_CAPABILITIES_VERSION =
@@ -699,6 +700,46 @@ export async function uploadChatAnalysisFile(
       "视觉/OCR 文件服务返回了无法识别的数据，请重试。",
       502,
       "invalid_file_asset_response",
+    );
+  }
+  return asset;
+}
+
+export function evaluationDatasetScopeId(datasetId: string) {
+  const clean = datasetId.trim();
+  if (!/^[A-Za-z0-9._-]{1,160}$/.test(clean)) {
+    throw new FileAssetApiError(
+      "评测数据集标识无效，请刷新后重试。",
+      422,
+      "invalid_dataset_id",
+    );
+  }
+  return `evaluation:${clean}`;
+}
+
+export async function uploadEvaluationFile(
+  file: File,
+  datasetId: string,
+  signal?: AbortSignal,
+): Promise<FileAssetResponse> {
+  const scopeId = evaluationDatasetScopeId(datasetId);
+  const form = new FormData();
+  form.append("purpose", "evaluation");
+  form.append("scope_id", scopeId);
+  form.append("input_kind", "visual_analysis");
+  form.append("file", file);
+  const response = await fetch("/api/files", {
+    method: "POST",
+    body: form,
+    signal,
+  });
+  if (!response.ok) throw await apiError(response);
+  const asset = parseFileAsset(await response.json());
+  if (!asset || asset.purpose !== "evaluation" || asset.scope_id !== scopeId) {
+    throw new FileAssetApiError(
+      "评测附件服务返回了无法识别的数据，请重试。",
+      502,
+      "invalid_evaluation_file_response",
     );
   }
   return asset;

@@ -173,6 +173,9 @@ def graph_ir_checksum(graph_ir: ResolvedGraphIRV3 | dict[str, Any]) -> str:
         else deepcopy(graph_ir)
     )
     payload.pop("graph_checksum", None)
+    for node in payload.get("nodes") or []:
+        if node.get("vision_model_snapshot") is None:
+            node.pop("vision_model_snapshot", None)
     payload["tags"] = sorted(set(payload.get("tags") or []))
     payload["starters"] = sorted(set(payload.get("starters") or []))
     payload["nodes"] = sorted(
@@ -205,6 +208,8 @@ def graph_authoring_checksum(
     payload.pop("capability_snapshot_version", None)
     payload.pop("capability_snapshot_hash", None)
     for node in payload.get("nodes") or []:
+        if node.get("vision_model_snapshot") is None:
+            node.pop("vision_model_snapshot", None)
         resource = node.get("resource_snapshot")
         if not isinstance(resource, dict) or resource.get("version_policy") != "active":
             continue
@@ -858,7 +863,26 @@ def resolve_graph_intent(
     snapshot: MetaPlannerCapabilitySnapshot,
     *,
     default_agent_model_id: str | None = None,
+    vision_model_id: str | None = None,
 ) -> ResolvedGraphIRV3:
+    from .vision_contract import ATTACHMENT_INPUT_PORT, VISION_ATTACHMENT_CONTRACT, resolve_planner_vision_model, vision_result_is_consumed
+
+    vision_nodes = [node for node in intent.nodes if node.kind == "vision_understanding"]
+    vision_binding = None
+    if vision_nodes:
+        vision_binding = resolve_planner_vision_model(
+            vision_model_id or (intent._pinned_vision_model or {}).get("model_id"),
+            snapshot.vision_models, pinned=intent._pinned_vision_model,
+        )
+        for vision_node in vision_nodes:
+            if len(vision_node.inputs) != 1 or any(
+                item.port != "asset_id" or item.source_ref != "input"
+                or item.source_port != ATTACHMENT_INPUT_PORT or item.variable != ATTACHMENT_INPUT_PORT
+                for item in vision_node.inputs
+            ):
+                raise ValueError("视觉节点只能直接消费编译器管理的单附件端口。")
+            if not vision_result_is_consumed(vision_node.ref, intent.nodes):
+                raise ValueError("视觉结果必须由下游工作流智能体实际消费。")
     refs = [node.ref for node in intent.nodes]
     if len(refs) != len(set(refs)):
         raise ValueError("Graph IR node refs must be unique.")
@@ -940,6 +964,17 @@ def resolve_graph_intent(
         )
     ]
     resolved_by_ref = {"input": nodes[0]}
+    if vision_nodes:
+        attachment_port = ResolvedGraphPortV3(
+            name=ATTACHMENT_INPUT_PORT, direction="output",
+            value_schema=WorkflowValueSchema(type="string"),
+            required=True, cardinality="one", binding="variable",
+        )
+        nodes[0] = nodes[0].model_copy(update={
+            "ports": [*nodes[0].ports, attachment_port],
+            "config": {**nodes[0].config, "plannerAttachmentInputV1": dict(VISION_ATTACHMENT_CONTRACT)},
+        })
+        resolved_by_ref["input"] = nodes[0]
     declared_outputs: dict[tuple[str, str], tuple[str, WorkflowValueSchema]] = {
         ("input", "user_input"): (
             "user_input",
@@ -956,6 +991,11 @@ def resolve_graph_intent(
         "user_input": "input",
         "conversation_history": "input",
     }
+    if vision_nodes:
+        declared_outputs[("input", ATTACHMENT_INPUT_PORT)] = (
+            ATTACHMENT_INPUT_PORT, WorkflowValueSchema(type="string")
+        )
+        producer_by_variable[ATTACHMENT_INPUT_PORT] = "input"
     for node in intent.nodes:
         resolved_config = dict(node.config)
         if (
@@ -1028,11 +1068,14 @@ def resolve_graph_intent(
                     "json_serialize",
                     "json_deserialize",
                     "knowledge_retrieval",
+                    "vision_understanding",
                 }
                 else None
             ),
             resource_snapshot=resource_snapshot,
         )
+        if node.kind == "vision_understanding":
+            resolved = resolved.model_copy(update={"vision_model_snapshot": vision_binding})
         contract_outputs = {
             port.name: port for port in resolved.ports if port.direction == "output"
         }
@@ -1122,6 +1165,8 @@ def resolve_graph_intent(
         }
         counts: dict[str, int] = defaultdict(int)
         for binding in node.inputs:
+            if binding.source_ref == "input" and binding.source_port == ATTACHMENT_INPUT_PORT and node.kind != "vision_understanding":
+                raise ValueError("附件资产标识不得作为普通文本或纯节点输入。")
             target_port = target_ports.get(binding.port)
             if target_port is None:
                 target_port = next(
@@ -1584,6 +1629,7 @@ def decompile_candidate_to_graph_intent_compat(
     business_nodes: list[GraphIntentNodeV3] = []
     legacy_nodes: list[MetaPlannerIRNode] = []
     pinned_node_resources: dict[tuple[str, str], dict[str, Any]] = {}
+    pinned_vision_model = None
     for raw_node in planner_nodes:
         native_node = NativeWorkflowNode.model_validate(raw_node)
         restored = (
@@ -1594,6 +1640,16 @@ def decompile_candidate_to_graph_intent_compat(
         node_id = str(raw_node.get("id") or "")
         ref_by_id[node_id] = restored.ref
         raw_data = raw_node.get("data") or {}
+        if restored.kind == "vision_understanding":
+            from .schemas import VisionModelBindingSnapshot
+
+            binding = VisionModelBindingSnapshot.model_validate(raw_data.get("visionModelBinding"))
+            if binding.model_id != raw_data.get("visionModelId"):
+                raise ValueError("视觉节点的模型与固定 Binding 不一致。")
+            payload = binding.model_dump(mode="json")
+            if pinned_vision_model is not None and pinned_vision_model != payload:
+                raise ValueError("同一候选只能使用用户固定的一个视觉模型。")
+            pinned_vision_model = payload
         if restored.kind == "knowledge_retrieval":
             resource_id = str(raw_data.get("knowledgeBaseId") or "").strip()
             observed_version_id = str(
@@ -2016,6 +2072,15 @@ def decompile_candidate_to_graph_intent_compat(
     intent._pinned_resource_versions = pinned_resource_versions
     intent._pinned_prompt_profile_versions = pinned_prompt_versions
     intent._pinned_node_resources = pinned_node_resources
+    intent._pinned_vision_model = pinned_vision_model
+    from .vision_contract import VISION_ATTACHMENT_CONTRACT
+
+    attachment_input = (node_by_id["input"].get("data") or {}).get("plannerAttachmentInputV1")
+    if pinned_vision_model is not None:
+        if attachment_input != VISION_ATTACHMENT_CONTRACT:
+            raise ValueError("编译器管理的附件槽位契约缺失或已变化。")
+    elif attachment_input is not None:
+        raise ValueError("无视觉节点的候选不能声明附件输入。")
     return intent, compatibility
 
 
@@ -2036,6 +2101,9 @@ def resolved_behavior_projection(graph_ir: ResolvedGraphIRV3) -> dict[str, Any]:
                 "kind": node.kind,
                 "role": node.role,
                 "config": node.config,
+                **({
+                    "vision_model_snapshot": node.vision_model_snapshot.model_dump(mode="json")
+                } if node.vision_model_snapshot is not None else {}),
             }
             for node in graph_ir.nodes
         ],

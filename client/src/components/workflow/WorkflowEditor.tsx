@@ -4086,6 +4086,7 @@ function NodeConfig({
   }
 
   const data = node.data;
+  const visionV2 = data.kind === "vision_understanding" && data.contractVersion === 2;
   const update = (patch: Partial<WorkflowNodeData>) => onChange(node.id, patch);
   const selectedRegistryTool = data.kind === "mcp_tool"
     ? registryTools.find(
@@ -5408,6 +5409,9 @@ function NodeConfig({
             运行前为附件变量选择图片或 PDF。节点只读取当前私有运行显式共享的附件，不会创建知识索引。
           </div>
           <Field label="附件资产变量">
+            {visionV2 ? (
+              <input className={textInputClass()} readOnly value="selected_file_asset_id" aria-label="固定附件资产变量" />
+            ) : (
             <WorkflowVariableField
               contract={variableContract}
               edges={edges}
@@ -5417,6 +5421,7 @@ function NodeConfig({
               onChange={(value) => update({ assetIdVariable: value })}
               value={data.assetIdVariable ?? ""}
             />
+            )}
           </Field>
           <div>
             <button
@@ -5435,6 +5440,9 @@ function NodeConfig({
             </p>
           </div>
           <Field label="视觉模型">
+            {visionV2 ? (
+              <input className={textInputClass()} readOnly value={String(data.visionModelId ?? "")} aria-label="固定视觉模型" />
+            ) : (
             <select
               className={textInputClass()}
               onChange={(event) => update({ visionModelId: event.target.value })}
@@ -5447,7 +5455,9 @@ function NodeConfig({
                 </option>
               ))}
             </select>
+            )}
           </Field>
+          {visionV2 ? <p className="text-xs text-cyan-100">单附件输入和视觉模型已固定；执行前重新核验 Managed Binding。</p> : null}
           {visionCapabilityError ? (
             <p className="text-xs leading-5 text-amber-200">
               {visionCapabilityError}
@@ -5464,7 +5474,7 @@ function NodeConfig({
                     | "scanned_only",
                 })
               }
-              value={data.pdfPageStrategy ?? "auto"}
+              value={data.pdfPageStrategy ?? (visionV2 ? "all" : "auto")}
             >
               <option value="auto">自动选择</option>
               <option value="scanned_only">仅扫描页</option>
@@ -5475,11 +5485,11 @@ function NodeConfig({
             <Field label="最大页数">
               <input
                 className={textInputClass()}
-                max={200}
+                max={visionV2 ? 20 : 200}
                 min={1}
-                onChange={(event) => update({ maxPages: event.target.value })}
+                onChange={(event) => update({ maxPages: visionV2 ? Number(event.target.value) : event.target.value })}
                 type="number"
-                value={data.maxPages ?? 100}
+                value={data.maxPages ?? (visionV2 ? 10 : 100)}
               />
             </Field>
             <Field label="最大图像边长">
@@ -5487,7 +5497,7 @@ function NodeConfig({
                 className={textInputClass()}
                 max={4096}
                 min={512}
-                onChange={(event) => update({ maxImageEdge: event.target.value })}
+                onChange={(event) => update({ maxImageEdge: visionV2 ? Number(event.target.value) : event.target.value })}
                 step={128}
                 type="number"
                 value={data.maxImageEdge ?? 2048}

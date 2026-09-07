@@ -12,6 +12,11 @@ from typing import Any
 
 from .models import AgentTableQueryFixture
 
+try:
+    from server.multimodal.vision_v2 import evaluation_vision_usage
+except ModuleNotFoundError:
+    from multimodal.vision_v2 import evaluation_vision_usage
+
 
 class EvaluationError(RuntimeError):
     pass
@@ -37,7 +42,7 @@ class XpertEvaluationStore:
     MAX_RESOURCE_FIXTURES = 1_000
     MAX_RESOURCE_FIXTURE_BYTES = 16 * 1024 * 1024
 
-    def __init__(self, storage_dir: str | Path | None = None) -> None:
+    def __init__(self, storage_dir: str | Path | None = None, *, vision_fixtures: Any | None = None) -> None:
         root = Path(
             storage_dir
             or os.getenv("XPERT_EVALUATION_STORAGE_DIR", "").strip()
@@ -47,6 +52,7 @@ class XpertEvaluationStore:
         self.storage_dir = root
         self.path = root / "xpert_evaluations.json"
         self._lock = threading.RLock()
+        self.vision_fixtures = vision_fixtures
         self._data = self._load()
 
     def create_dataset(
@@ -250,6 +256,13 @@ class XpertEvaluationStore:
             self._check_revision(item, revision)
             if item.get("status") == "archived":
                 raise EvaluationStateError("Archived datasets cannot be edited.")
+            for case in normalized:
+                if case.get("attachment"):
+                    if self.vision_fixtures is None:
+                        raise EvaluationStateError("评测附件存储尚未配置。")
+                    case["attachment"] = self.vision_fixtures.describe_draft_asset(
+                        dataset_id, case["attachment"]["asset_id"]
+                    )
             existing = [] if replace else list(item.get("cases") or [])
             by_id = {str(case["case_id"]): case for case in existing}
             for case in normalized:
@@ -329,6 +342,17 @@ class XpertEvaluationStore:
                     )
             version_number = len(item.get("versions") or []) + 1
             cases = copy.deepcopy(item["cases"])
+            attachments = [case["attachment"] for case in cases if case.get("attachment")]
+            if any(case.get("vision") and not case.get("attachment") for case in cases):
+                raise EvaluationStateError("包含视觉断言的用例必须先选择附件。")
+            if attachments:
+                if self.vision_fixtures is None:
+                    raise EvaluationStateError("评测附件存储尚未配置。")
+                fixed = self.vision_fixtures.retain_dataset_version(dataset_id, version_number, attachments)
+                fixed_by_id = {entry["asset_id"]: entry for entry in fixed}
+                for case in cases:
+                    if case.get("attachment"):
+                        case["attachment"] = copy.deepcopy(fixed_by_id[case["attachment"]["asset_id"]])
             version = {
                 "dataset_id": dataset_id,
                 "version": version_number,
@@ -342,10 +366,17 @@ class XpertEvaluationStore:
                 **self._metadata_payload(item),
                 "published_at": time.time(),
             }
-            item.setdefault("versions", []).append(version)
-            item["published_version"] = version_number
-            self._touch(item)
-            self._save_unlocked()
+            before = copy.deepcopy(item)
+            try:
+                item.setdefault("versions", []).append(version)
+                item["published_version"] = version_number
+                self._touch(item)
+                self._save_unlocked()
+            except Exception:
+                self._data["datasets"][dataset_id] = before
+                if attachments:
+                    self.vision_fixtures.release_dataset_version(dataset_id, version_number)
+                raise
             return copy.deepcopy(version)
 
     def list_dataset_versions(self, dataset_id: str) -> list[dict[str, Any]]:
@@ -404,8 +435,24 @@ class XpertEvaluationStore:
             targets=targets,
             cases=cases,
         )
+        run_id = f"xeval_run_{uuid.uuid4().hex}"
+        attachment_cases = [case for case in cases if case.get("attachment")]
+        vision_fixtures: dict[str, Any] = {}
+        if attachment_cases:
+            if self.vision_fixtures is None:
+                raise EvaluationStateError("评测附件存储尚未配置。")
+            authoritative = self.get_dataset_version(dataset_version["dataset_id"], dataset_version["version"])
+            if authoritative["checksum"] != dataset_version.get("checksum"):
+                raise EvaluationStateError("固定评测版本摘要不一致。")
+            version_cases = {case["case_id"]: case for case in authoritative["cases"]}
+            for case in attachment_cases:
+                if case.get("attachment") != version_cases.get(case["case_id"], {}).get("attachment"):
+                    raise EvaluationStateError("用例附件与已发布版本不一致。")
+            pinned = self.vision_fixtures.pin_run(run_id, dataset_version["dataset_id"], dataset_version["version"], [case["attachment"] for case in attachment_cases])
+            by_asset = {entry["asset_id"]: entry for entry in pinned}
+            vision_fixtures = {case["case_id"]: by_asset[case["attachment"]["asset_id"]] for case in attachment_cases}
         run = {
-            "run_id": f"xeval_run_{uuid.uuid4().hex}",
+            "run_id": run_id,
             "status": "queued",
             "dataset": copy.deepcopy(dataset_version),
             "selected_case_ids": [case["case_id"] for case in cases],
@@ -415,6 +462,8 @@ class XpertEvaluationStore:
             "warnings": [str(item)[:500] for item in warnings[:50]],
             "items": items,
             "_resource_fixtures": private_fixtures,
+            "_vision_fixtures": vision_fixtures,
+            "vision_fixture_summary": {"case_count": len(vision_fixtures), "original_count": len({entry["sha256"] for entry in vision_fixtures.values()})},
             "resource_fixture_summary": {
                 "fixture_count": len(private_fixtures),
                 "stored_bytes": fixture_bytes,
@@ -428,8 +477,14 @@ class XpertEvaluationStore:
             "completed_at": None,
         }
         with self._lock:
-            self._data["runs"][run["run_id"]] = run
-            self._save_unlocked()
+            try:
+                self._data["runs"][run["run_id"]] = run
+                self._save_unlocked()
+            except Exception:
+                self._data["runs"].pop(run_id, None)
+                if vision_fixtures:
+                    self.vision_fixtures.release_run(run_id)
+                raise
         return self.run_payload(run, include_detail=True)
 
     def list_runs(self, *, status: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
@@ -471,7 +526,16 @@ class XpertEvaluationStore:
                     run["updated_at"] = time.time()
                     for item in run.get("items") or []:
                         if item.get("status") == "running":
-                            item["status"] = "pending"
+                            if item.get("vision_dispatches"):
+                                item.update({"status": "failed", "score": 0.0, "metrics": [], "vision_evidence": "failed", "error": "视觉请求已派发但结果未持久化，禁止自动重发。", "error_code": "EVALUATION_VISION_DISPATCH_UNCERTAIN"})
+                                usage = evaluation_vision_usage(
+                                    list((item.get("vision_receipts") or {}).values()),
+                                    dispatch_count=len(item["vision_dispatches"]),
+                                )
+                                item["usage"] = {**dict(item.get("usage") or {}), **usage}
+                                item["usage"]["model_calls"] = max(int(item["usage"].get("model_calls") or 0), usage["vision_model_calls"])
+                            else:
+                                item["status"] = "pending"
                             item["updated_at"] = time.time()
                     recovered += 1
             if recovered:
@@ -522,6 +586,64 @@ class XpertEvaluationStore:
             item["updated_at"] = time.time()
             run["updated_at"] = time.time()
             self._save_unlocked()
+
+    def mark_vision_dispatch(self, run_id: str, item_id: str, *, node_ref: str, page_number: int) -> None:
+        with self._lock:
+            run = self._run_unlocked(run_id)
+            item = self._item_unlocked(run, item_id)
+            if run.get("cancel_requested") or item.get("status") != "running":
+                raise EvaluationStateError("当前评测已取消或用例不在执行中，不能派发视觉请求。")
+            if type(page_number) is not int or not 1 <= page_number <= 20:
+                raise EvaluationStateError("视觉请求页号无效。")
+            dispatches = item.setdefault("vision_dispatches", [])
+            if any(entry["node_ref"] == node_ref and entry["page_number"] == page_number for entry in dispatches):
+                raise EvaluationStateError("同一评测用例的视觉页面不得重复派发。")
+            entry = {"node_ref": node_ref, "page_number": page_number, "dispatched_at": time.time()}
+            dispatches.append(entry)
+            try:
+                self._save_unlocked()
+            except Exception:
+                dispatches.remove(entry)
+                raise
+
+    def vision_fixture_for_item(self, run_id: str, *, target_id: str, case_id: str, item_id: str | None = None) -> dict[str, Any]:
+        with self._lock:
+            run = self._run_unlocked(run_id)
+            if target_id not in {target["target_id"] for target in run["targets"]} or case_id not in run["selected_case_ids"]:
+                raise EvaluationStateError("附件夹具不属于当前目标或用例。")
+            if item_id is not None:
+                item = self._item_unlocked(run, item_id)
+                if item["target_id"] != target_id or item["case_id"] != case_id or item["status"] != "running":
+                    raise EvaluationStateError("视觉附件与当前执行项不一致。")
+            entry = (run.get("_vision_fixtures") or {}).get(case_id)
+            if not isinstance(entry, dict) or self.vision_fixtures is None:
+                raise EvaluationStateError("固定评测附件夹具缺失，禁止回退其他文件。")
+            self.vision_fixtures.resolve_run_asset(run_id, entry)
+            return copy.deepcopy(entry)
+
+    def record_vision_receipt(self, run_id: str, item_id: str, *, node_ref: str, receipt: dict[str, Any]) -> int:
+        try:
+            from server.multimodal.vision_v2 import safe_vision_receipt
+        except ModuleNotFoundError:
+            from multimodal.vision_v2 import safe_vision_receipt
+        with self._lock:
+            run = self._run_unlocked(run_id)
+            item = self._item_unlocked(run, item_id)
+            receipts = item.setdefault("vision_receipts", {})
+            if node_ref not in receipts and len(receipts) >= 20:
+                raise EvaluationStateError("视觉节点回执数量超过上限。")
+            safe = safe_vision_receipt(receipt)
+            old = receipts.get(node_ref)
+            receipts[node_ref] = safe
+            try:
+                self._save_unlocked()
+            except Exception:
+                if old is None:
+                    receipts.pop(node_ref, None)
+                else:
+                    receipts[node_ref] = old
+                raise
+            return sum(entry["usage"]["known_total_tokens"] for entry in receipts.values())
 
     def complete_run(self, run_id: str, report: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
@@ -607,6 +729,7 @@ class XpertEvaluationStore:
     def run_payload(item: dict[str, Any], *, include_detail: bool) -> dict[str, Any]:
         payload = copy.deepcopy(item)
         payload.pop("_resource_fixtures", None)
+        payload.pop("_vision_fixtures", None)
         payload["item_count"] = len(payload.get("items") or [])
         payload["completed_item_count"] = sum(
             1
@@ -664,6 +787,17 @@ class XpertEvaluationStore:
             normalized["resource_reads"] = copy.deepcopy(case["resource_reads"])
         if isinstance(case.get("targeting"), dict):
             normalized["targeting"] = copy.deepcopy(case["targeting"])
+        if case.get("attachment") is not None:
+            from .models import EvaluationAttachmentReference
+            normalized["attachment"] = EvaluationAttachmentReference.model_validate(case["attachment"]).model_dump(mode="json")
+        if case.get("vision"):
+            from .models import EvaluationVisionExpectation
+            if not isinstance(case["vision"], list) or len(case["vision"]) > 20:
+                raise EvaluationStateError("每条用例最多配置 20 个视觉节点断言。")
+            normalized["vision"] = [EvaluationVisionExpectation.model_validate(item).model_dump(mode="json") for item in case["vision"]]
+            refs = [item["node_ref"] for item in normalized["vision"]]
+            if len(refs) != len(set(refs)):
+                raise EvaluationStateError("同一视觉节点不能重复配置断言。")
         return normalized
 
     def _load(self) -> dict[str, Any]:
