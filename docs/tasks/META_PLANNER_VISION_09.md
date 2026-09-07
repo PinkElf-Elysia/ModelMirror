@@ -59,6 +59,15 @@ Astra 负责契约、作用域、计量、集成和验收。Sol 分别在独立 
 
 ## 最终验证命令
 
+提交前最终验证（2026-09-07）：
+
+- 已整合 `origin/main@1b280ed2`，测试源码提交 `a791881f`。帮助中心清单冲突保留视觉与 RAG 两篇文章；没有覆盖其他任务修改。
+- Linux r6 全量：`6149 passed, 29 skipped, 7 warnings`，921.27 秒，exit 0。此前 r5 为整合主线主动中断，保留回执，不计通过。
+- 合并后前端生产构建通过，保留既有大 bundle warning；视觉、工作流转换、附件能力、评测页和帮助中心 5 组共 59 条测试通过。
+- 16 篇已注册帮助文章截图校验通过；最终 Diff 与提交范围检查排除 Runtime、SQLite、凭据、调用账本和构建产物。
+- Sol 独立补充审查因额度限制中止，不计为通过的独立审查；已完成的主智能体审查与测试证据不以此替代。
+- 最终回执：`.tmp-vision-linux/receipt-r6-final.json` 和 `output-r6-final.log`，完整源码归档 `final-r6.tar`；后续收尾仅修改本记录，不改变已测生产源码。
+
 ```text
 python -m pytest -p pytest_asyncio.plugin -p anyio.pytest_plugin -p no:cacheprovider server/tests/ -q --tb=short -o faulthandler_timeout=180 --basetemp /workspace-r4/.pytest-full
 npm.cmd run build
