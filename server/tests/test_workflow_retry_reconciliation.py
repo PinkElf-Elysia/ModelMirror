@@ -303,7 +303,7 @@ async def test_invalid_due_wait_is_failed_then_reconciled_in_same_poll(
         continuation={"retry_state": {"version": 1}},
     )
     with execution_store._lock:
-        execution_store._items["task-invalid-wait"].resume_at = float("inf")
+        execution_store._items["task-invalid-wait"].wait_id = ""
         execution_store._persist_unlocked()
 
     await _run_reconciliation_coordinator(

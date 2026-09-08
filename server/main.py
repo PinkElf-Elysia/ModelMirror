@@ -37,6 +37,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, ValidationError, model_validator
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from orchestration_worker import (
     AGENCY_UPSTREAM_REVISION,
@@ -1420,6 +1421,17 @@ except ModuleNotFoundError:
     )
 
 try:
+    from server.xpert_runtime.execution_store import (
+        UnavailableWorkflowExecutionStore,
+        WorkflowExecutionStorageError,
+    )
+except ModuleNotFoundError:
+    from xpert_runtime.execution_store import (
+        UnavailableWorkflowExecutionStore,
+        WorkflowExecutionStorageError,
+    )
+
+try:
     from server.xpert_runtime.authoring_store import AuthoringProposalValidationError
 except ModuleNotFoundError:
     from xpert_runtime.authoring_store import AuthoringProposalValidationError
@@ -1824,6 +1836,86 @@ BLOCKED_KEYWORDS = (
 
 app = FastAPI(title="ModelMirror Chat Proxy")
 
+
+def execution_store_unavailable_response() -> JSONResponse:
+    return JSONResponse(
+        status_code=503,
+        content={
+            "error": "Workflow execution storage is unavailable.",
+            "code": "workflow_execution_store_unavailable",
+        },
+    )
+
+
+def request_requires_workflow_execution_store(method: str, path: str) -> bool:
+    clean_method = str(method or "").upper()
+    clean_path = str(path or "")
+    if clean_path.startswith((
+        "/api/workflow/run",
+        "/api/workflow-hooks/",
+        "/api/expert-team/dag-runs",
+        "/api/runtime/client-hosts",
+        "/api/runtime/runs",
+    )):
+        return True
+    if (
+        clean_method == "POST"
+        and clean_path.startswith("/api/workflow-forms/")
+        and clean_path.endswith("/submissions")
+    ):
+        return True
+    if (
+        clean_method == "POST"
+        and clean_path.startswith("/api/workflows/")
+        and clean_path.endswith("/activate")
+    ):
+        return True
+    if (
+        clean_method == "POST"
+        and clean_path.startswith("/api/xperts/")
+        and clean_path.endswith("/run")
+    ):
+        return True
+    if (
+        clean_method == "POST"
+        and clean_path.startswith("/api/v1/xpert-apps/")
+        and clean_path.endswith("/chat/completions")
+    ):
+        return True
+    if clean_path.startswith("/api/runtime/") and clean_method != "GET":
+        return True
+    return False
+
+
+class WorkflowExecutionAvailabilityMiddleware:
+    """Block execution when storage is untrusted, without wrapping healthy streams."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if (
+            scope["type"] == "http"
+            and not workflow_execution_store.available
+            and request_requires_workflow_execution_store(
+                scope["method"], scope["path"]
+            )
+        ):
+            await execution_store_unavailable_response()(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(WorkflowExecutionAvailabilityMiddleware)
+
+
+@app.exception_handler(WorkflowExecutionStorageError)
+async def workflow_execution_storage_unavailable(
+    _request: Request,
+    _exc: WorkflowExecutionStorageError,
+) -> JSONResponse:
+    return execution_store_unavailable_response()
+
 allowed_origins = [
     origin.strip()
     for origin in os.getenv(
@@ -2141,8 +2233,20 @@ agent_task_store = AgentTaskStore(
 )
 goal_store = GoalStore(storage_dir=AGENT_TASK_STORAGE_DIR or None)
 run_registry = RunRegistry()
-workflow_execution_store = WorkflowExecutionStore(
-    storage_dir=AGENT_TASK_STORAGE_DIR or None
+
+
+def load_workflow_execution_store(storage_dir: str | Path | None = None):
+    try:
+        return WorkflowExecutionStore(storage_dir=storage_dir)
+    except WorkflowExecutionStorageError:
+        logger.critical(
+            "Workflow execution storage is unavailable; workflow execution services are disabled."
+        )
+        return UnavailableWorkflowExecutionStore(storage_dir=storage_dir)
+
+
+workflow_execution_store = load_workflow_execution_store(
+    AGENT_TASK_STORAGE_DIR or None
 )
 
 
@@ -7482,7 +7586,16 @@ async def _stream_workflow_llm_messages(
 
 
 @app.get("/api/health")
-async def health() -> dict[str, str]:
+async def health():
+    if not workflow_execution_store.available:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "degraded",
+                "code": "workflow_execution_store_unavailable",
+                "components": {"workflow_execution_store": "unavailable"},
+            },
+        )
     return {"status": "ok"}
 
 
@@ -10070,6 +10183,8 @@ async def _run_workflow_response(
     runtime_trigger_event: dict[str, Any] | None = None,
     runtime_task_id: str | None = None,
 ):
+    if not workflow_execution_store.available:
+        return execution_store_unavailable_response()
     explicit_creator_handoff_node_ids = _skill_creator_handoff_node_ids(
         payload.workflow
     )
@@ -26369,7 +26484,13 @@ async def _run_workflow_response(
                 logger.warning("Failed to persist content policy failure", exc_info=True)
             yield sse_payload(error_event)
         except Exception as exc:
-            assert_resume_lease()
+            storage_error = isinstance(exc, WorkflowExecutionStorageError)
+            if not storage_error:
+                try:
+                    assert_resume_lease()
+                except WorkflowExecutionStorageError as store_exc:
+                    exc = store_exc
+                    storage_error = True
             managed_error = (
                 exc if isinstance(exc, ManagedWorkflowRoutingError) else None
             )
@@ -26383,7 +26504,12 @@ async def _run_workflow_response(
                 and current_kind
                 in {"http_request", "data_table_query", "knowledge_retrieval"}
             )
-            if managed_error is not None:
+            if storage_error:
+                logger.error(
+                    "Workflow execution storage became unavailable workflow=%s",
+                    payload.workflow.id,
+                )
+            elif managed_error is not None:
                 logger.warning(
                     "Managed Workflow run failed workflow=%s code=%s",
                     payload.workflow.id,
@@ -26407,7 +26533,9 @@ async def _run_workflow_response(
                     "Workflow run failed workflow=%s", payload.workflow.id
                 )
             public_error = (
-                managed_error.public_message
+                "Workflow execution storage is unavailable."
+                if storage_error
+                else managed_error.public_message
                 if managed_error is not None
                 else iteration_error.safe_message
                 if iteration_error is not None
@@ -26416,7 +26544,9 @@ async def _run_workflow_response(
                 else str(exc)
             )
             durable_error = (
-                f"{iteration_error.code}: {iteration_error.safe_message}"
+                "WORKFLOW_EXECUTION_STORE_UNAVAILABLE: Workflow execution storage is unavailable."
+                if storage_error
+                else f"{iteration_error.code}: {iteration_error.safe_message}"
                 if iteration_error is not None
                 else "WORKFLOW_NODE_FAILED: Workflow node failed."
                 if restricted_node_error
@@ -26440,34 +26570,35 @@ async def _run_workflow_response(
                 )
             except Exception:
                 logger.warning("Failed to update workflow run status", exc_info=True)
-            try:
-                workflow_execution_store.fail(
-                    task_id,
-                    error=durable_error,
-                    **execution_store_lease_kwargs(),
-                )
-                error_event = {
-                    "event": "error",
-                    "terminal": True,
-                    "task_id": task_id,
-                    "run_id": workflow_run.run_id,
-                    "node_id": failed_node_id,
-                    "node_title": failed_node_title,
-                    "message": public_error,
-                }
-                if managed_error is not None:
-                    error_event["code"] = managed_error.code
-                elif iteration_error is not None:
-                    error_event["code"] = iteration_error.code
-                elif restricted_node_error:
-                    error_event["code"] = "WORKFLOW_NODE_FAILED"
-                if isinstance(provider_receipt, dict):
-                    error_event["provider_route_receipts"] = provider_receipt
-                workflow_execution_store.append_event(task_id, error_event)
-            except WorkflowExecutionConflictError:
-                raise
-            except Exception:
-                logger.warning("Failed to persist workflow failure", exc_info=True)
+            if not storage_error:
+                try:
+                    workflow_execution_store.fail(
+                        task_id,
+                        error=durable_error,
+                        **execution_store_lease_kwargs(),
+                    )
+                    error_event = {
+                        "event": "error",
+                        "terminal": True,
+                        "task_id": task_id,
+                        "run_id": workflow_run.run_id,
+                        "node_id": failed_node_id,
+                        "node_title": failed_node_title,
+                        "message": public_error,
+                    }
+                    if managed_error is not None:
+                        error_event["code"] = managed_error.code
+                    elif iteration_error is not None:
+                        error_event["code"] = iteration_error.code
+                    elif restricted_node_error:
+                        error_event["code"] = "WORKFLOW_NODE_FAILED"
+                    if isinstance(provider_receipt, dict):
+                        error_event["provider_route_receipts"] = provider_receipt
+                    workflow_execution_store.append_event(task_id, error_event)
+                except WorkflowExecutionConflictError:
+                    raise
+                except Exception:
+                    logger.warning("Failed to persist workflow failure", exc_info=True)
             error_event = {
                 "event": "error",
                 "terminal": True,
@@ -26477,7 +26608,9 @@ async def _run_workflow_response(
                 "node_title": failed_node_title,
                 "message": public_error,
             }
-            if managed_error is not None:
+            if storage_error:
+                error_event["code"] = "WORKFLOW_EXECUTION_STORE_UNAVAILABLE"
+            elif managed_error is not None:
                 error_event["code"] = managed_error.code
             elif iteration_error is not None:
                 error_event["code"] = iteration_error.code
@@ -26487,7 +26620,10 @@ async def _run_workflow_response(
                 error_event["provider_route_receipts"] = provider_receipt
             yield sse_payload(error_event)
         finally:
-            durable_execution = workflow_execution_store.get(task_id)
+            try:
+                durable_execution = workflow_execution_store.get(task_id)
+            except WorkflowExecutionStorageError:
+                durable_execution = None
             if durable_execution is None or durable_execution.status != "waiting":
                 task_state["completed_at"] = time.monotonic()
 
@@ -31062,17 +31198,11 @@ configure_xpert_evolutions(
 )
 
 
-@app.on_event("startup")
-async def start_mcp_ttl_cleanup() -> None:
+runtime_services_started = False
+
+
+async def _start_independent_runtime_services() -> None:
     await asyncio.to_thread(datax_service.recover_import_jobs)
-    interrupted_agency_runs = await asyncio.to_thread(
-        agency_execution_coordinator.recover_interrupted
-    )
-    if interrupted_agency_runs:
-        logger.warning(
-            "Marked %s interrupted Expert Team Agency runs as failed.",
-            interrupted_agency_runs,
-        )
     mcp_manager.start_ttl_cleanup(on_cleanup=cleanup_mcp_session_state)
     await mcp_hub_service.start()
     await mcp_hub_review_service.start()
@@ -31097,6 +31227,22 @@ async def start_mcp_ttl_cleanup() -> None:
         except Exception as exc:
             logger.warning("Skill Creator resource build recovery is unavailable: %s", exc)
     get_xpert_evolution_executor().start()
+
+
+async def _start_workflow_execution_services() -> bool:
+    if not workflow_execution_store.available:
+        logger.critical(
+            "Workflow execution background services skipped because storage is unavailable."
+        )
+        return False
+    interrupted_agency_runs = await asyncio.to_thread(
+        agency_execution_coordinator.recover_interrupted
+    )
+    if interrupted_agency_runs:
+        logger.warning(
+            "Marked %s interrupted Expert Team Agency runs as failed.",
+            interrupted_agency_runs,
+        )
     get_handoff_executor().start()
     get_goal_coordinator().start()
     get_approval_coordinator().start()
@@ -31105,41 +31251,79 @@ async def start_mcp_ttl_cleanup() -> None:
     get_automation_coordinator().start()
     if workflow_trigger_coordinator_enabled():
         await workflow_trigger_coordinator.start()
+    return True
+
+
+@app.on_event("startup")
+async def start_mcp_ttl_cleanup() -> None:
+    global runtime_services_started
+    # Cleanup must still run if storage becomes unavailable after startup.
+    # Mark before starting services so partial startup can also be cleaned up.
+    runtime_services_started = True
+    await _start_independent_runtime_services()
+    await _start_workflow_execution_services()
+
+
+async def _stop_runtime_service_steps(
+    steps: list[tuple[str, Callable[[], Awaitable[Any]]]],
+) -> None:
+    failures = 0
+    for label, stop in steps:
+        try:
+            await stop()
+        except Exception:
+            failures += 1
+            logger.error("Runtime service shutdown failed service=%s", label)
+    if failures:
+        raise RuntimeError("One or more runtime services failed to stop.") from None
 
 
 @app.on_event("shutdown")
 async def shutdown_mcp_sessions() -> None:
-    await stop_provider_batch_recovery()
-    await close_shared_llm_client()
-    await get_pipeline_executor().stop()
-    await get_evaluation_executor().stop()
-    await get_strategy_tuner().stop()
-    await get_benchmark_job_executor().stop()
-    await get_xpert_evolution_executor().stop()
-    await get_xpert_evaluation_executor().stop()
-    await skill_evaluation_executor.stop()
+    global runtime_services_started
+    if not runtime_services_started:
+        return
+    steps: list[tuple[str, Callable[[], Awaitable[Any]]]] = [
+        ("provider_batch", stop_provider_batch_recovery),
+        ("shared_llm", close_shared_llm_client),
+        ("pipeline", lambda: get_pipeline_executor().stop()),
+        ("evaluation", lambda: get_evaluation_executor().stop()),
+        ("strategy_tuner", lambda: get_strategy_tuner().stop()),
+        ("benchmark", lambda: get_benchmark_job_executor().stop()),
+        ("xpert_evolution", lambda: get_xpert_evolution_executor().stop()),
+        ("xpert_evaluation", lambda: get_xpert_evaluation_executor().stop()),
+        ("skill_evaluation", skill_evaluation_executor.stop),
+    ]
     if goal_coordinator is not None:
-        await goal_coordinator.stop()
+        steps.append(("goal", goal_coordinator.stop))
     if handoff_executor is not None:
-        await handoff_executor.stop()
+        steps.append(("handoff", handoff_executor.stop))
     if approval_coordinator is not None:
-        await approval_coordinator.stop()
+        steps.append(("approval", approval_coordinator.stop))
     if client_tool_coordinator is not None:
-        await client_tool_coordinator.stop()
+        steps.append(("client_tool", client_tool_coordinator.stop))
     if workflow_handoff_coordinator is not None:
-        await workflow_handoff_coordinator.stop()
+        steps.append(("workflow_handoff", workflow_handoff_coordinator.stop))
     if automation_coordinator is not None:
-        await automation_coordinator.stop()
-    await workflow_trigger_coordinator.stop()
-    await mcp_hub_trusted_service.close()
-    await mcp_remote_review_service.close()
-    await mcp_hub_review_service.close()
-    await mcp_hub_service.close()
-    await mcp_catalog_service.clear_sessions()
-    await toolset_service.close()
-    await mcp_manager.stop_ttl_cleanup()
-    await mcp_manager.close_all()
-    await tool_registry.clear()
+        steps.append(("automation", automation_coordinator.stop))
+    steps.extend(
+        [
+            ("workflow_trigger", workflow_trigger_coordinator.stop),
+            ("mcp_hub_trusted", mcp_hub_trusted_service.close),
+            ("mcp_remote_review", mcp_remote_review_service.close),
+            ("mcp_hub_review", mcp_hub_review_service.close),
+            ("mcp_hub", mcp_hub_service.close),
+            ("mcp_catalog", mcp_catalog_service.clear_sessions),
+            ("toolset", toolset_service.close),
+            ("mcp_ttl", mcp_manager.stop_ttl_cleanup),
+            ("mcp_sessions", mcp_manager.close_all),
+            ("tool_registry", tool_registry.clear),
+        ]
+    )
+    try:
+        await _stop_runtime_service_steps(steps)
+    finally:
+        runtime_services_started = False
 
 
 @app.post("/api/mcp/connect", response_model=MCPConnectResponse)
