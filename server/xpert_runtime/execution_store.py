@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import copy
+import errno
 import json
 import math
 import os
+import stat
 import threading
 import time
 import uuid
@@ -30,6 +32,7 @@ WorkflowExecutionSourceKind = Literal[
 ]
 _MAX_RUN_ID_HISTORY = 64
 _DUE_WAIT_KINDS = frozenset({"timer", "node_retry"})
+_WAIT_KINDS = frozenset({"approval", "agent_handoff", "client_tool", *_DUE_WAIT_KINDS})
 _IDEMPOTENT_ATTEMPT_EVENTS = frozenset(
     {
         "node_retry_scheduled",
@@ -38,6 +41,26 @@ _IDEMPOTENT_ATTEMPT_EVENTS = frozenset(
         "workflow_cancelled",
     }
 )
+
+
+def _reject_json_constant(_value: str) -> None:
+    raise ValueError("non-finite JSON number")
+
+
+def _finite_json_float(value: str) -> float:
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise ValueError("non-finite JSON number")
+    return parsed
+
+
+def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON object key")
+        result[key] = value
+    return result
 
 
 class WorkflowExecutionError(Exception):
@@ -50,6 +73,28 @@ class WorkflowExecutionNotFoundError(WorkflowExecutionError):
 
 class WorkflowExecutionConflictError(WorkflowExecutionError):
     """Raised when a lease or revision check fails."""
+
+
+class WorkflowExecutionStorageError(WorkflowExecutionError):
+    """Raised when durable execution state cannot be trusted."""
+
+
+def _snapshot_path_state(path: Path) -> Literal["missing", "regular"]:
+    """Classify a snapshot path without following links or hiding I/O failures."""
+
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError:
+        return "missing"
+    except OSError:
+        raise WorkflowExecutionStorageError(
+            "Workflow execution snapshot could not be inspected."
+        ) from None
+    if not stat.S_ISREG(metadata.st_mode):
+        raise WorkflowExecutionStorageError(
+            "Workflow execution snapshot path is not a regular file."
+        )
+    return "regular"
 
 
 @dataclass(slots=True)
@@ -92,6 +137,8 @@ class WorkflowExecutionStore:
             or package_dir / "storage"
         )
         self.snapshot_path = self.storage_dir / "workflow_executions.json"
+        self.backup_path = self.storage_dir / "workflow_executions.bak.json"
+        self.available = True
         self._lock = threading.RLock()
         self._items: dict[str, WorkflowExecution] = {}
         self._load()
@@ -108,6 +155,7 @@ class WorkflowExecutionStore:
         runtime_metadata: dict[str, Any] | None = None,
     ) -> WorkflowExecution:
         with self._lock:
+            self._require_available_unlocked()
             existing = self._items.get(task_id)
             if existing is not None:
                 return existing
@@ -217,6 +265,7 @@ class WorkflowExecutionStore:
 
     def get(self, task_id: str) -> WorkflowExecution | None:
         with self._lock:
+            self._require_available_unlocked()
             return self._items.get(task_id)
 
     def require(self, task_id: str) -> WorkflowExecution:
@@ -227,9 +276,10 @@ class WorkflowExecutionStore:
 
     def find_by_run_id(self, run_id: str) -> WorkflowExecution | None:
         clean_run_id = str(run_id or "").strip()
-        if not clean_run_id:
-            return None
         with self._lock:
+            self._require_available_unlocked()
+            if not clean_run_id:
+                return None
             matches = [
                 item
                 for item in self._items.values()
@@ -248,6 +298,7 @@ class WorkflowExecutionStore:
         limit: int = 200,
     ) -> list[WorkflowExecution]:
         with self._lock:
+            self._require_available_unlocked()
             items = list(self._items.values())
         if status:
             items = [item for item in items if item.status == status]
@@ -262,6 +313,7 @@ class WorkflowExecutionStore:
         """Return terminal durable tasks that still have a deployment projection."""
 
         with self._lock:
+            self._require_available_unlocked()
             items = [
                 copy.deepcopy(item)
                 for item in self._items.values()
@@ -402,6 +454,7 @@ class WorkflowExecutionStore:
         if not allowed_kinds or not allowed_kinds.issubset(_DUE_WAIT_KINDS):
             raise WorkflowExecutionConflictError("Due wait kind is invalid.")
         with self._lock:
+            self._require_available_unlocked()
             items: list[WorkflowExecution] = []
             invalidated = False
             for item in self._items.values():
@@ -1179,10 +1232,17 @@ class WorkflowExecutionStore:
         )
 
     def _require_unlocked(self, task_id: str) -> WorkflowExecution:
+        self._require_available_unlocked()
         item = self._items.get(task_id)
         if item is None:
             raise WorkflowExecutionNotFoundError("Workflow execution not found.")
         return item
+
+    def _require_available_unlocked(self) -> None:
+        if not self.available:
+            raise WorkflowExecutionStorageError(
+                "Workflow execution storage is unavailable."
+            )
 
     @staticmethod
     def _require_optional_lease_unlocked(
@@ -1277,74 +1337,320 @@ class WorkflowExecutionStore:
         return clean  # type: ignore[return-value]
 
     def _persist_unlocked(self) -> None:
-        self.snapshot_path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "version": "workflow-executions-v1",
-            "items": [asdict(item) for item in self._items.values()],
-        }
-        temporary = self.snapshot_path.with_suffix(".tmp")
-        temporary.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2),
-            encoding="utf-8",
+        self._require_available_unlocked()
+        temporary = self.snapshot_path.with_name(
+            f"{self.snapshot_path.name}.{uuid.uuid4().hex}.tmp"
         )
-        os.replace(temporary, self.snapshot_path)
+        backup_temporary = self.backup_path.with_name(
+            f"{self.backup_path.name}.{uuid.uuid4().hex}.tmp"
+        )
+        try:
+            self.snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+            primary_state = _snapshot_path_state(self.snapshot_path)
+            _snapshot_path_state(self.backup_path)
+            payload = {
+                "version": "workflow-executions-v1",
+                "items": [asdict(item) for item in self._items.values()],
+            }
+            payload_bytes = (
+                json.dumps(
+                    payload,
+                    ensure_ascii=False,
+                    indent=2,
+                    allow_nan=False,
+                )
+                + "\n"
+            ).encode("utf-8")
+            self.inspect_snapshot_bytes(payload_bytes)
+            self._write_fsynced(temporary, payload_bytes)
+            if temporary.read_bytes() != payload_bytes:
+                raise WorkflowExecutionStorageError(
+                    "Workflow execution replacement could not be verified."
+                )
+            if primary_state == "regular":
+                primary_bytes = self.snapshot_path.read_bytes()
+                self.inspect_snapshot_bytes(primary_bytes)
+                self._write_fsynced(backup_temporary, primary_bytes)
+                if backup_temporary.read_bytes() != primary_bytes:
+                    raise WorkflowExecutionStorageError(
+                        "Workflow execution backup could not be verified."
+                    )
+                os.replace(backup_temporary, self.backup_path)
+            os.replace(temporary, self.snapshot_path)
+            self._fsync_directory(self.snapshot_path.parent)
+        except WorkflowExecutionStorageError:
+            self.available = False
+            raise
+        except Exception:
+            self.available = False
+            raise WorkflowExecutionStorageError(
+                "Workflow execution snapshot could not be persisted."
+            ) from None
+        finally:
+            for candidate in (temporary, backup_temporary):
+                try:
+                    candidate.unlink(missing_ok=True)
+                except OSError:
+                    pass
 
     def _load(self) -> None:
-        if not self.snapshot_path.exists():
+        primary_state = _snapshot_path_state(self.snapshot_path)
+        backup_state = _snapshot_path_state(self.backup_path)
+        if primary_state == "missing":
+            if backup_state == "regular":
+                raise WorkflowExecutionStorageError(
+                    "Workflow execution primary snapshot is missing."
+                )
             return
         try:
-            payload = json.loads(self.snapshot_path.read_text(encoding="utf-8"))
+            payload = json.loads(
+                self.snapshot_path.read_bytes().decode("utf-8"),
+                parse_constant=_reject_json_constant,
+                parse_float=_finite_json_float,
+                object_pairs_hook=_unique_json_object,
+            )
+            loaded_items = self._deserialize_snapshot_payload(payload)
+        except WorkflowExecutionStorageError:
+            raise
         except Exception:
-            self._items = {}
-            return
-        raw_items = payload.get("items", []) if isinstance(payload, dict) else []
-        if not isinstance(raw_items, list):
-            return
+            raise WorkflowExecutionStorageError(
+                "Workflow execution snapshot is invalid."
+            ) from None
+        self._items = loaded_items
         repaired = False
-        for raw_value in raw_items:
-            if not isinstance(raw_value, dict):
+        for item in self._items.values():
+            if (
+                item.wait_kind in _DUE_WAIT_KINDS
+                and item.status in {"waiting", "ready", "running"}
+                and not self._valid_due_wait_target(item)
+            ):
+                self._invalidate_due_wait_unlocked(item)
                 repaired = True
-                continue
-            raw = dict(raw_value)
-            try:
-                raw["source_kind"] = self._validated_source_kind(
+            if item.status == "running" and item.source_kind != "expert_team_agency":
+                item.status = "ready" if item.wait_id is None else "waiting"
+                item.lease_owner = None
+                item.lease_token = None
+                item.lease_expires_at = 0.0
+                repaired = True
+        if repaired:
+            self._persist_unlocked()
+
+    @classmethod
+    def inspect_snapshot_bytes(cls, raw_bytes: bytes) -> dict[str, Any]:
+        """Validate a snapshot and return only content-free operator metadata."""
+
+        try:
+            payload = json.loads(
+                raw_bytes.decode("utf-8"),
+                parse_constant=_reject_json_constant,
+                parse_float=_finite_json_float,
+                object_pairs_hook=_unique_json_object,
+            )
+            items = cls._deserialize_snapshot_payload(payload)
+        except WorkflowExecutionStorageError:
+            raise
+        except Exception:
+            raise WorkflowExecutionStorageError(
+                "Workflow execution snapshot is invalid."
+            ) from None
+        status_counts: dict[str, int] = {}
+        for item in items.values():
+            status_counts[item.status] = status_counts.get(item.status, 0) + 1
+        return {
+            "version": "workflow-executions-v1",
+            "item_count": len(items),
+            "status_counts": dict(sorted(status_counts.items())),
+        }
+
+    @classmethod
+    def _deserialize_snapshot_payload(
+        cls,
+        payload: Any,
+    ) -> dict[str, WorkflowExecution]:
+        if not isinstance(payload, dict):
+            raise WorkflowExecutionStorageError(
+                "Workflow execution snapshot is invalid."
+            )
+        if set(payload) != {"version", "items"}:
+            raise WorkflowExecutionStorageError(
+                "Workflow execution snapshot is invalid."
+            )
+        if payload.get("version") != "workflow-executions-v1":
+            raise WorkflowExecutionStorageError(
+                "Workflow execution snapshot version is invalid."
+            )
+        raw_items = payload.get("items")
+        if not isinstance(raw_items, list):
+            raise WorkflowExecutionStorageError(
+                "Workflow execution snapshot is invalid."
+            )
+        items: dict[str, WorkflowExecution] = {}
+        try:
+            for raw_value in raw_items:
+                if not isinstance(raw_value, dict):
+                    raise TypeError("invalid execution record")
+                raw = dict(raw_value)
+                run_type = cls._required_text(raw.get("run_type"))
+                if raw.get("source_kind") is not None and not isinstance(
+                    raw["source_kind"], str
+                ):
+                    raise TypeError("invalid execution source kind")
+                raw["source_kind"] = cls._validated_source_kind(
                     raw.get("source_kind"),
-                    run_type=str(raw.get("run_type") or ""),
-                    strict=False,
+                    run_type=run_type,
+                    strict=True,
                 )
-                history = raw.get("previous_run_ids") or []
-                if not isinstance(history, list):
-                    history = []
-                clean_history: list[str] = []
-                for value in history[-_MAX_RUN_ID_HISTORY:]:
-                    clean_value = str(value or "").strip()
-                    if (
-                        clean_value
-                        and len(clean_value) <= 200
-                        and clean_value != str(raw.get("run_id") or "")
-                        and clean_value not in clean_history
-                    ):
-                        clean_history.append(clean_value)
+                history = raw.get("previous_run_ids", [])
+                if not isinstance(history, list) or any(
+                    not isinstance(value, str) for value in history
+                ):
+                    raise TypeError("invalid run history")
+                if len(history) > _MAX_RUN_ID_HISTORY:
+                    raise TypeError("run history is too large")
+                clean_history = [value.strip() for value in history]
+                if any(
+                    not value
+                    or len(value) > 200
+                    or value == str(raw.get("run_id") or "")
+                    for value in clean_history
+                ) or len(clean_history) != len(set(clean_history)):
+                    raise TypeError("invalid run history")
                 raw["previous_run_ids"] = clean_history
                 if not raw.get("wait_kind") and raw.get("approval_id"):
                     raw["wait_kind"] = "approval"
                     raw["wait_id"] = raw.get("approval_id")
                 item = WorkflowExecution(**raw)
-                if (
-                    item.wait_kind in _DUE_WAIT_KINDS
-                    and item.status in {"waiting", "ready", "running"}
-                    and not self._valid_due_wait_target(item)
-                ):
-                    self._invalidate_due_wait_unlocked(item)
-                    repaired = True
-                if item.status == "running" and item.source_kind != "expert_team_agency":
-                    item.status = "ready" if item.wait_id is None else "waiting"
-                    item.lease_owner = None
-                    item.lease_token = None
-                    item.lease_expires_at = 0.0
-                self._items[item.task_id] = item
-            except Exception:
-                repaired = True
-                continue
-        if repaired:
-            self._persist_unlocked()
+                cls._validate_loaded_item(item)
+                if item.task_id in items:
+                    raise ValueError("duplicate execution id")
+                items[item.task_id] = item
+        except WorkflowExecutionStorageError:
+            raise
+        except Exception:
+            raise WorkflowExecutionStorageError(
+                "Workflow execution snapshot contains an invalid record."
+            ) from None
+        return items
+
+    @classmethod
+    def _validate_loaded_item(cls, item: WorkflowExecution) -> None:
+        item.task_id = cls._required_text(item.task_id)
+        item.run_id = cls._required_text(item.run_id)
+        item.run_type = cls._required_text(item.run_type)
+        if item.status not in {
+            "running",
+            "waiting",
+            "ready",
+            "completed",
+            "failed",
+            "cancelled",
+            "rejected",
+        }:
+            raise TypeError("invalid execution status")
+        for value in (
+            item.workflow,
+            item.inputs,
+            item.runtime_metadata,
+            item.continuation,
+        ):
+            if not isinstance(value, dict):
+                raise TypeError("invalid execution object")
+        if not isinstance(item.previous_run_ids, list) or any(
+            not isinstance(value, str) for value in item.previous_run_ids
+        ):
+            raise TypeError("invalid run history")
+        if not isinstance(item.events, list) or any(
+            not isinstance(value, dict) for value in item.events
+        ):
+            raise TypeError("invalid execution events")
+        for value in (
+            item.wait_kind,
+            item.wait_id,
+            item.approval_id,
+            item.result,
+            item.error,
+            item.lease_owner,
+            item.lease_token,
+        ):
+            if value is not None and not isinstance(value, str):
+                raise TypeError("invalid execution text")
+        if item.wait_kind is not None and item.wait_kind not in _WAIT_KINDS:
+            raise TypeError("invalid wait kind")
+        for value in (item.resume_at, item.completed_at):
+            if value is not None:
+                cls._require_finite_number(value)
+        for value in (item.lease_expires_at, item.created_at, item.updated_at):
+            cls._require_finite_number(value)
+        if (
+            not isinstance(item.revision, int)
+            or isinstance(item.revision, bool)
+            or item.revision < 1
+            or not isinstance(item.sequence, int)
+            or isinstance(item.sequence, bool)
+            or item.sequence < 0
+        ):
+            raise TypeError("invalid execution revision")
+
+    @staticmethod
+    def _required_text(value: Any) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise TypeError("invalid required text")
+        return value
+
+    @staticmethod
+    def _require_finite_number(value: Any) -> None:
+        if (
+            not isinstance(value, (int, float))
+            or isinstance(value, bool)
+            or not math.isfinite(float(value))
+        ):
+            raise TypeError("invalid execution number")
+
+    @staticmethod
+    def _write_fsynced(path: Path, content: bytes) -> None:
+        with path.open("xb") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+
+    @staticmethod
+    def _fsync_directory(path: Path) -> None:
+        if os.name == "nt":
+            return
+        descriptor: int | None = None
+        try:
+            descriptor = os.open(path, os.O_RDONLY)
+            os.fsync(descriptor)
+        except OSError as exc:
+            # Some filesystems cannot fsync directories. Real I/O failures must
+            # still disable writes instead of acknowledging durable success.
+            if exc.errno not in {errno.EINVAL, errno.ENOTSUP}:
+                raise
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
+
+
+class UnavailableWorkflowExecutionStore:
+    """Fail-closed facade used when the durable execution snapshot is untrusted."""
+
+    available = False
+
+    def __init__(self, storage_dir: str | Path | None = None) -> None:
+        package_dir = Path(__file__).resolve().parent
+        self.storage_dir = Path(
+            storage_dir
+            or os.getenv("AGENT_TASK_STORAGE_DIR", "").strip()
+            or package_dir / "storage"
+        )
+        self.snapshot_path = self.storage_dir / "workflow_executions.json"
+        self.backup_path = self.storage_dir / "workflow_executions.bak.json"
+
+    @staticmethod
+    def _unavailable(*_args: Any, **_kwargs: Any) -> Any:
+        raise WorkflowExecutionStorageError(
+            "Workflow execution storage is unavailable."
+        )
+
+    def __getattr__(self, _name: str) -> Any:
+        return self._unavailable
