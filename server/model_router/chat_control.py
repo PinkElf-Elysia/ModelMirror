@@ -761,6 +761,7 @@ class ProviderChatControlService:
         connection_id: str,
         model_id: str,
         capability: str,
+        require_exact_model: bool = False,
     ) -> tuple[dict[str, object] | None, str]:
         connection = self.repository.get_connection(
             self.router_service.tenant_id, connection_id
@@ -843,7 +844,9 @@ class ProviderChatControlService:
         if time_reason is not None:
             return None, time_reason
         actual_model = certification.get("actual_model")
-        if actual_model and str(actual_model) != model_id:
+        if require_exact_model and actual_model is None:
+            return None, "provider_chat_certification_model_identity_required"
+        if actual_model is not None and str(actual_model) != model_id:
             return None, "provider_chat_certification_model_mismatch"
         return (
             {
@@ -855,6 +858,23 @@ class ProviderChatControlService:
                 "contract_version": PROVIDER_CHAT_CONTRACT_VERSION,
             },
             "qualified",
+        )
+
+    def current_qualification(
+        self,
+        *,
+        connection_id: str,
+        model_id: str,
+        capability: str,
+        require_exact_model: bool = False,
+    ) -> tuple[dict[str, object] | None, str]:
+        """Return current certification evidence for one explicit route target."""
+
+        return self._current_qualification(
+            connection_id=connection_id,
+            model_id=model_id,
+            capability=capability,
+            require_exact_model=require_exact_model,
         )
 
     def _validate_route_connection(self, connection) -> None:
