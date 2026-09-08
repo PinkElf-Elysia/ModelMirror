@@ -332,6 +332,18 @@
     }
   ],
   "lockedFiles": {
+    "scripts/trust_review.py": {
+      "sizeBytes": 54155,
+      "sha256": "3b06e0e611c4c254af9a82047d155f6bd8ae9ac3ce86ae29711e82262863586e"
+    },
+    "tests/control/test_trust_review.py": {
+      "sizeBytes": 35366,
+      "sha256": "c9785a3d13e049a9508775648911170dded2b3f969a922d929e3fe24608e3277"
+    },
+    "TRUST_PROMOTION.md": {
+      "sizeBytes": 9158,
+      "sha256": "38a28a2d45c05b66cbfc4bc9d1e3050b8ecd1b542b7b03f07d78098e1e04c9bb"
+    },
     "control/requirements.lock": {
       "sizeBytes": 185467,
       "sha256": "3fe3300729847d8e26d47fb3293f1834bda53349cf3aaf169db479fc50def9d2"
