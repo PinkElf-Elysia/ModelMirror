@@ -180,9 +180,13 @@ async def test_strategy_router_is_deterministic_and_hash_safe(
         first_payload["recommendation_checksum"]
         == second_payload["recommendation_checksum"]
     )
-    assert first_payload["state"] == "insufficient_data"
-    assert first_payload["profiles"] == []
-    assert "lexical-v2" in " ".join(first_payload["insufficient_reasons"])
+    assert first_payload["state"] == "ready"
+    assert first_payload["insufficient_reasons"] == []
+    assert first_payload["profiles"]
+    primary = first_payload["profiles"][0]
+    assert primary["retrieval"]["mode"] == "fulltext"
+    assert primary["retrieval"]["score_threshold"] == 0
+    assert primary["retrieval"]["rerank_enabled"] is False
 
     semantic_only = await client.post(
         "/api/rag/strategy-router/recommendations",
@@ -203,9 +207,15 @@ async def test_strategy_router_is_deterministic_and_hash_safe(
 async def test_strategy_router_does_not_recommend_unbuildable_lexical_v1_profile(
     router_client,
 ) -> None:
-    client, _ = router_client
+    client, service = router_client
     kb_id = await _create_kb(client, "lexical contract gate")
     await _upload_text(client, kb_id, _long_policy_text())
+    with service._metadata_lock:  # noqa: SLF001 - frozen legacy fixture.
+        metadata = service._read_metadata_unlocked()  # noqa: SLF001
+        historical = service._pipeline_draft_record(metadata, kb_id)  # noqa: SLF001
+        historical.pop("lexical_profile", None)
+        metadata["pipeline_drafts"][kb_id] = historical
+        service._write_metadata_unlocked(metadata)  # noqa: SLF001
 
     response = await client.post(
         "/api/rag/strategy-router/recommendations",
@@ -364,7 +374,7 @@ async def test_strategy_router_rejects_stale_draft_and_hides_sensitive_data(
 async def test_strategy_router_preserves_chunker_in_blocked_lexical_recommendation(
     router_client,
 ) -> None:
-    client, _ = router_client
+    client, service = router_client
     kb_id = await _create_kb(client, "short structured strategy")
     await _upload_text(
         client,
@@ -379,6 +389,12 @@ async def test_strategy_router_preserves_chunker_in_blocked_lexical_recommendati
         for stage in draft.json()["stages"]
         if stage["id"] == "stage_chunker"
     )["config"]
+    with service._metadata_lock:  # noqa: SLF001 - frozen legacy fixture.
+        metadata = service._read_metadata_unlocked()  # noqa: SLF001
+        historical = service._pipeline_draft_record(metadata, kb_id)  # noqa: SLF001
+        historical.pop("lexical_profile", None)
+        metadata["pipeline_drafts"][kb_id] = historical
+        service._write_metadata_unlocked(metadata)  # noqa: SLF001
 
     response = await client.post(
         "/api/rag/strategy-router/recommendations",
@@ -392,6 +408,7 @@ async def test_strategy_router_preserves_chunker_in_blocked_lexical_recommendati
     assert response.status_code == 200, response.text
     payload = response.json()
     assert payload["state"] == "insufficient_data"
+    assert "lexical-v2" in " ".join(payload["insufficient_reasons"])
     chunker = payload["current_profile"]["chunker"]
     assert chunker == original
     assert "config" not in chunker

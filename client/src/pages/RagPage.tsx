@@ -1,6 +1,7 @@
 import { type DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import PageContainer from "../components/PageContainer";
+import RagLexicalReceipt from "../components/RagLexicalReceipt";
 import {
   RagExecutionNotice,
   type RagExecutionMode,
@@ -271,7 +272,7 @@ export function retrievalCapabilitiesSummary(capabilities: RetrievalCapabilities
     ? ""
     : `向量候选当前不可构建${capabilities.vector.candidate_build_blocker ? `（${capabilities.vector.candidate_build_blocker}）` : ""}。`;
   const blockerDetails = [vectorBuildBlocker, fulltextBuildBlocker
-    ? `${fulltextBuildBlocker}；4A 等待 4B 全文合同${capabilities.fulltext.candidate_build_blocker ? `（${capabilities.fulltext.candidate_build_blocker}）` : ""}。`
+    ? `${fulltextBuildBlocker}${capabilities.fulltext.candidate_build_blocker ? `（${capabilities.fulltext.candidate_build_blocker}）` : ""}。`
     : ""].filter(Boolean).join(" ");
   return {
     query: `查询能力：向量 ${capabilities.vector.query_available ? "可用" : "不可用"} / 全文 ${capabilities.fulltext.query_available ? "可用" : "不可用"}。`,
@@ -322,6 +323,7 @@ interface PipelineJob {
   warnings: string[];
   content_index_contract?: ContentIndexContract;
   chunking_receipt?: Record<string, unknown>;
+  lexical_index_receipt?: Record<string, unknown>;
   document_results: Array<{
     source_id: string;
     filename: string;
@@ -376,6 +378,7 @@ interface PipelineVersion {
   index_contract?: Record<string, unknown>;
   content_index_contract?: ContentIndexContract;
   chunking_receipt?: Record<string, unknown>;
+  lexical_index_receipt?: Record<string, unknown>;
   vector_backend_readiness?: VectorBackendReadiness;
   created_at: number;
   activated_at: number | null;
@@ -2180,7 +2183,7 @@ export default function RagPage() {
               {selectedKnowledgeBase.corpus_locked ? (
                 <div className="mt-5 rounded-lg border border-amber-300/25 bg-amber-300/10 px-4 py-3 text-sm text-amber-100">
                   <strong>RAG 引擎标准基准语料已锁定。</strong>
-                  <span className="ml-2 text-amber-100/80">该语料只用于检索一致性与回归验证，不代表业务知识库质量。4A 期间不能新建标准 Benchmark 实例；现有锁定库仅可查看历史证据或运行 vector-only Diagnostic。新的标准 content-contract 候选、固定评测和首次激活须等到 4C；曾激活版本仍可回滚。</span>
+                  <span className="ml-2 text-amber-100/80">该语料只用于检索一致性与回归验证，不代表业务知识库质量。4B 期间不能新建标准 Benchmark 实例；现有锁定库可查看历史证据或构建可用模式的 Diagnostic 候选。新的标准 content-contract 候选、固定评测和首次激活须等到 4C；曾激活版本仍可回滚。</span>
                 </div>
               ) : null}
 
@@ -2232,7 +2235,7 @@ export default function RagPage() {
                   {selectedKnowledgeBase.corpus_locked ? "此 Benchmark 知识库的标准语料不可变更" : isUploading ? "正在按队列上传源文件..." : "拖拽一批文档到这里，或点击上传"}
                 </p>
                 <p className="mt-2 text-xs text-slate-400">
-                  {selectedKnowledgeBase.corpus_locked ? "可查看历史证据；4A 只允许 vector-only Diagnostic，标准基准重建和固定评测等待 4C。" : ragFormatHint}
+                  {selectedKnowledgeBase.corpus_locked ? "可查看历史证据或运行 Diagnostic；标准基准重建和固定评测等待 4C。" : ragFormatHint}
                 </p>
                 <button
                   className="mt-4 rounded-full bg-white/[0.08] px-4 py-2 text-sm font-semibold text-slate-100 transition hover:bg-white/[0.12] disabled:cursor-not-allowed disabled:opacity-50"
@@ -2362,7 +2365,7 @@ export default function RagPage() {
                       <>
                         <div className="rounded-lg border border-hire-300/20 bg-hire-300/10 p-3 text-xs leading-5 text-hire-50">
                           <span className="font-semibold">使用须知：</span>
-                          保存草稿不会改变检索。4A 仅允许 vector-only Diagnostic 候选；完整内容合同合入前不能首次激活或晋级。曾激活旧版本仍可回滚。
+                          保存草稿不会改变活动检索。4B 可构建页面所列可用模式的 Diagnostic 候选；解析合同完成前不能首次激活或晋级。曾激活旧版本仍可回滚。
                         </div>
 
                         <div className="mt-3 flex flex-col gap-3 rounded-lg border border-white/10 bg-ink-950/35 p-3 sm:flex-row sm:items-center sm:justify-between">
@@ -3145,6 +3148,9 @@ export default function RagPage() {
                                         content {versionItem.content_index_contract?.chunker_contract_version || "legacy"}
                                         {versionItem.content_index_contract?.status === "current" ? " · current" : " · read-only / diagnostic"}
                                       </p>
+                                      {versionItem.lexical_index_receipt?.contract_version === "sqlite-fts5-lexical-v2" ? (
+                                        <p className="mt-1 text-[11px] text-slate-300">全文索引合同：sqlite-fts5-lexical-v2 · 规则 minimum_should_match_auto_v1</p>
+                                      ) : null}
                                       {pipelineIndexUsesVector(versionItem.index_contract) !== false && versionItem.vector_backend_readiness ? (
                                         <p className="mt-1 text-[10px] text-slate-500">
                                           backend {versionItem.vector_backend_readiness.configured_backend} → {versionItem.vector_backend_readiness.effective_backend} · {versionItem.vector_backend_readiness.distance_contract}
@@ -3198,6 +3204,7 @@ export default function RagPage() {
                                 </div>
                                 <div className="mt-2">
                                   <RagExecutionNotice executionMode={pipelinePreview.execution_mode} />
+                                  <RagLexicalReceipt receipt={pipelinePreview.retrieval.lexical_receipt} />
                                   <p className="line-clamp-5 text-xs leading-5 text-slate-200">{pipelinePreview.answer}</p>
                                 </div>
                                 {pipelinePreview.warnings.length > 0 ? (

@@ -691,7 +691,7 @@ export default function KnowledgePipelineCanvasPage() {
             <p className="mt-1 text-xs text-slate-400">Graph r{graphRevision} · Draft v{draftVersion} · {documents.length} 个数据源文档</p>
             {pipelineDraft && pipelineDraftExecution.status !== "normal" ? (
               <p
-                aria-label="4A 执行范围"
+                aria-label="流水线执行范围"
                 className={`mt-2 text-xs leading-5 ${pipelineDraftExecution.status === "blocked" ? "text-rose-200" : "text-amber-200"}`}
                 id="pipeline-execution-disposition"
                 role="status"

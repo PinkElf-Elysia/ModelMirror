@@ -171,6 +171,18 @@ describe("RAG draft execution disposition", () => {
     },
   };
 
+  it.each(["vector", "fulltext", "hybrid"])("describes the selected 4B %s diagnostic mode accurately", (mode) => {
+    const disposition = draftExecutionDisposition({
+      ...contract,
+      lexical_contract_version: "sqlite-fts5-lexical-v2",
+      components: { ...contract.components, lexical: "current" },
+    }, mode, 3);
+    expect(disposition).toMatchObject({ status: "diagnostic_only", canExecute: true });
+    expect(disposition.message).toContain(`${mode} diagnostic`);
+    expect(disposition.message).toContain("解析合同待完成");
+    expect(disposition.message).toContain("不能首次激活或晋级");
+  });
+
   it("allows only vector Diagnostic builds while lexical v2 is absent", () => {
     expect(draftExecutionDisposition(contract, "vector", 3)).toMatchObject({
       status: "diagnostic_only",
@@ -762,7 +774,7 @@ describe("RAG knowledge-base cascade deletion", () => {
 });
 
 describe("RAG structured source labels", () => {
-  it("states the 4A managed Benchmark admission boundary for locked corpora", async () => {
+  it("states the 4B managed Benchmark admission boundary for locked corpora", async () => {
     const lockedKnowledgeBases = {
       knowledge_bases: [
         {
@@ -778,7 +790,7 @@ describe("RAG structured source labels", () => {
     });
 
     expect(
-      await screen.findByText(/4A 期间不能新建标准 Benchmark 实例/),
+      await screen.findByText(/4B 期间不能新建标准 Benchmark 实例/),
     ).toBeVisible();
     expect(
       screen.getByText(/新的标准 content-contract 候选、固定评测和首次激活须等到 4C/),

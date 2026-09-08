@@ -11,7 +11,11 @@ import pytest
 from server.rag.chunking_receipt import candidate_namespace_fingerprint
 from server.rag import retrieval as retrieval_module
 from server.rag.embedder import EmbeddingClient
-from server.rag.lexical_store import LexicalChunk, SqliteLexicalStore, tokenize_for_search
+from server.rag.lexical_store import (
+    LexicalChunk,
+    SqliteLexicalStore,
+    tokenize_for_search_v2,
+)
 from server.rag.pipeline_executor import KnowledgePipelineExecutor
 from server.rag.rag_service import (
     PipelineDraftValidationError,
@@ -23,6 +27,11 @@ from server.rag.reranker import RerankDocument, RerankItem, RerankOutcome, Reran
 from server.rag.retrieval import RetrievalCandidate, RetrievalConfig, fuse_rankings
 from server.rag.splitter import ParentChildTextSplitter, TextSplitter
 from server.rag.vector_store import ChromaVectorStore, LocalJsonVectorStore, VectorChunk
+from server.tests.rag_legacy_lexical_fixture import (
+    LEGACY_RAG_CHUNKS_DDL,
+    LegacyLexicalRow,
+    create_legacy_lexical_fixture,
+)
 
 
 def build_service(tmp_path: Path, *, reranker=None) -> RagService:
@@ -80,11 +89,12 @@ def test_short_english_segments_are_not_fragmented_by_large_overlap() -> None:
 
 def test_sqlite_fts5_indexes_mixed_chinese_and_english(tmp_path: Path) -> None:
     store = SqliteLexicalStore(tmp_path / "lexical.sqlite3")
+    namespace = "kb::v3::kpv_mixed::fulltext"
     store.add_chunks(
         [
             LexicalChunk(
                 chunk_id="c1",
-                namespace="kb-v2",
+                namespace=namespace,
                 doc_id="d1",
                 document_name="guide.txt",
                 text="蓝鲸计划 uses manual approval before production deployment.",
@@ -94,12 +104,13 @@ def test_sqlite_fts5_indexes_mixed_chinese_and_english(tmp_path: Path) -> None:
             )
         ]
     )
-    assert "蓝鲸" in tokenize_for_search("蓝鲸计划")
-    result = store.query("kb-v2", "蓝鲸", 5)[0]
+    assert "蓝鲸" in tokenize_for_search_v2("蓝鲸计划")
+    result = store.query(namespace, "蓝鲸", 5)[0]
     assert result.chunk_id == "c1"
     assert result.sheet == "发布计划"
     assert result.row_range == "A1:B4"
-    assert store.query("kb-v2", "production deployment", 5)[0].document_name == "guide.txt"
+    assert store.get_chunk(namespace, "c1").row_range == "A1:B4"
+    assert store.query(namespace, "production deployment", 5)[0].document_name == "guide.txt"
     assert store.query("other", "蓝鲸", 5) == []
 
 
@@ -107,11 +118,12 @@ def test_sqlite_fts5_uses_query_confidence_without_reordering_bm25(
     tmp_path: Path,
 ) -> None:
     store = SqliteLexicalStore(tmp_path / "lexical-confidence.sqlite3")
+    namespace = "kb::v3::kpv_confidence::fulltext"
     store.add_chunks(
         [
             LexicalChunk(
                 chunk_id="exact",
-                namespace="kb-v2",
+                namespace=namespace,
                 doc_id="d1",
                 document_name="warranty.md",
                 text="ZEP-91 quantum battery warranty lasts eighteen months.",
@@ -119,7 +131,7 @@ def test_sqlite_fts5_uses_query_confidence_without_reordering_bm25(
             ),
             LexicalChunk(
                 chunk_id="generic",
-                namespace="kb-v2",
+                namespace=namespace,
                 doc_id="d2",
                 document_name="policy.md",
                 text="The policy defines a standard warranty period.",
@@ -128,63 +140,58 @@ def test_sqlite_fts5_uses_query_confidence_without_reordering_bm25(
         ]
     )
 
-    exact = store.query("kb-v2", "ZEP-91 quantum battery warranty", 5)
-    weak = store.query("kb-v2", "VTX-88 satellite warranty window", 5)
+    exact = store.query(namespace, "ZEP-91 quantum battery warranty", 5)
+    weak = store.query(namespace, "VTX-88 satellite warranty window", 5)
 
     assert exact[0].chunk_id == "exact"
-    assert exact[0].score > weak[0].score
-    assert weak[0].score < 1.0
+    assert exact[0].score == 1.0
+    assert weak == []
 
 
-def test_sqlite_fts5_migrates_old_source_schema_with_optional_defaults(
+def test_sqlite_fts5_reads_old_source_schema_without_mutating_it(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "legacy-lexical.sqlite3"
-    with sqlite3.connect(path) as connection:
-        connection.execute(
-            """
-            CREATE TABLE rag_chunks (
-                chunk_id TEXT PRIMARY KEY,
-                namespace TEXT NOT NULL,
-                doc_id TEXT NOT NULL,
-                document_name TEXT NOT NULL,
-                text TEXT NOT NULL,
-                chunk_index INTEGER NOT NULL,
-                parent_chunk_id TEXT,
-                parent_text TEXT,
-                chunk_type TEXT NOT NULL,
-                start_char INTEGER NOT NULL,
-                end_char INTEGER NOT NULL,
-                page_number INTEGER,
-                visual_kind TEXT,
-                source_block_id TEXT
-            )
-            """
-        )
-
-    store = SqliteLexicalStore(path)
-    with sqlite3.connect(path) as connection:
-        columns = {
-            str(row[1])
-            for row in connection.execute("PRAGMA table_info(rag_chunks)")
-        }
-    assert {"sheet", "row_range"}.issubset(columns)
-
-    store.add_chunks(
+    create_legacy_lexical_fixture(
+        path,
         [
-            LexicalChunk(
+            LegacyLexicalRow(
                 chunk_id="legacy-compatible",
                 namespace="legacy",
                 doc_id="doc",
                 document_name="legacy.txt",
                 text="legacy metadata remains queryable",
-                chunk_index=0,
             )
-        ]
+        ],
     )
+
+    store = SqliteLexicalStore(path)
+    with sqlite3.connect(path) as connection:
+        stored_ddl = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'rag_chunks'"
+        ).fetchone()[0]
+        stored_fts_ddl = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'rag_chunks_fts'"
+        ).fetchone()[0]
+        columns = [
+            str(row[1]) for row in connection.execute("PRAGMA table_info(rag_chunks)")
+        ]
+    expected_columns = [
+        "chunk_id", "namespace", "doc_id", "document_name", "text", "chunk_index",
+        "parent_chunk_id", "parent_text", "chunk_type", "start_char", "end_char",
+    ]
+    assert columns == expected_columns
+    assert " ".join(stored_ddl.split()) == " ".join(LEGACY_RAG_CHUNKS_DDL.split())
+    assert "USING fts5(chunk_id UNINDEXED, namespace UNINDEXED, tokens" in " ".join(
+        stored_fts_ddl.split()
+    )
+
     result = store.query("legacy", "metadata", 1)[0]
     assert result.sheet is None
     assert result.row_range is None
+    assert store.get_chunk("legacy", "legacy-compatible").row_range is None
+    assert result.slide is None
+    assert result.heading_path == ()
 
 
 @pytest.mark.asyncio

@@ -42,6 +42,11 @@ from server.rag.source_metadata import (
     normalize_heading_path,
 )
 from server.rag.vector_store import ChromaVectorStore, LocalJsonVectorStore, VectorChunk
+from server.tests.rag_legacy_lexical_fixture import (
+    LEGACY_RAG_CHUNKS_DDL,
+    LegacyLexicalRow,
+    create_legacy_lexical_fixture,
+)
 
 
 def _pptx_document(*, slide: int = 3) -> ParsedDocument:
@@ -472,37 +477,53 @@ async def test_pipeline_propagates_slide_to_vector_and_api_source(
     assert source.heading_path == ["发布摘要"]
 
 
-def test_lexical_store_migrates_slide_without_breaking_legacy_rows(tmp_path: Path) -> None:
+def test_lexical_store_keeps_legacy_schema_read_only_and_writes_office_metadata_to_v2(
+    tmp_path: Path,
+) -> None:
     path = tmp_path / "legacy.sqlite3"
-    with sqlite3.connect(path) as connection:
-        connection.execute(
-            """
-            CREATE TABLE rag_chunks (
-                chunk_id TEXT PRIMARY KEY,
-                namespace TEXT NOT NULL,
-                doc_id TEXT NOT NULL,
-                document_name TEXT NOT NULL,
-                text TEXT NOT NULL,
-                chunk_index INTEGER NOT NULL,
-                parent_chunk_id TEXT,
-                parent_text TEXT,
-                chunk_type TEXT NOT NULL,
-                start_char INTEGER NOT NULL,
-                end_char INTEGER NOT NULL
+    create_legacy_lexical_fixture(
+        path,
+        [
+            LegacyLexicalRow(
+                chunk_id="legacy-compatible",
+                namespace="office-legacy",
+                doc_id="legacy-doc",
+                document_name="legacy-review.pptx",
+                text="历史索引仍然可以读取。",
             )
-            """
-        )
+        ],
+    )
 
     store = SqliteLexicalStore(path)
     with sqlite3.connect(path) as connection:
-        columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(rag_chunks)")}
-    assert {"slide", "heading_path_json"}.issubset(columns)
+        stored_ddl = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'rag_chunks'"
+        ).fetchone()[0]
+        stored_fts_ddl = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'rag_chunks_fts'"
+        ).fetchone()[0]
+        columns = [str(row[1]) for row in connection.execute("PRAGMA table_info(rag_chunks)")]
+    assert columns == [
+        "chunk_id", "namespace", "doc_id", "document_name", "text", "chunk_index",
+        "parent_chunk_id", "parent_text", "chunk_type", "start_char", "end_char",
+    ]
+    assert " ".join(stored_ddl.split()) == " ".join(LEGACY_RAG_CHUNKS_DDL.split())
+    assert "USING fts5(chunk_id UNINDEXED, namespace UNINDEXED, tokens" in " ".join(
+        stored_fts_ddl.split()
+    )
 
+    legacy = store.query("office-legacy", "历史索引", 1)[0]
+    assert legacy.slide is None
+    assert legacy.page_number is None
+    assert legacy.heading_path == ()
+    assert legacy.row_range is None
+
+    namespace = "kb::v3::kpv_office::fulltext"
     store.add_chunks(
         [
             LexicalChunk(
-                chunk_id="legacy-compatible",
-                namespace="office",
+                chunk_id="v2-office",
+                namespace=namespace,
                 doc_id="doc",
                 document_name="review.pptx",
                 text="历史索引兼容，新片段来自第五张幻灯片。",
@@ -512,7 +533,7 @@ def test_lexical_store_migrates_slide_without_breaking_legacy_rows(tmp_path: Pat
             )
         ]
     )
-    result = store.query("office", "第五张幻灯片", 1)[0]
+    result = store.query(namespace, "第五张幻灯片", 1)[0]
     assert result.slide == 5
     assert result.page_number is None
     assert result.heading_path == ("季度", "发布")

@@ -95,7 +95,7 @@ export const ragDiversityBaseline = { commit: "f0150fb5", date: "2026-08-27" };
 export const rssReviewBaseline = { commit: "821067a7", date: "2026-08-27" };
 export const ragFormalIntegrityBaseline = { commit: "be056e99", date: "2026-08-28" };
 // 验证的是该实现基线与随本 PR 审查的增量，不声称它包含未来的文档提交。
-export const ragContentContractBaseline = { commit: "92b7e6df", date: "2026-09-05" };
+export const ragContentContractBaseline = { commit: "436d2453", date: "2026-09-07" };
 export const skillExperienceBaseline = { commit: "bf486f25", date: "2026-08-27" };
 export const emailReviewBaseline = { commit: "afda87ff", date: "2026-08-28" };
 export const workflowErrorRoutingBaseline = { commit: "48254740", date: "2026-09-01" };
@@ -459,7 +459,7 @@ export const helpModules: HelpModule[] = [
     homeTopicIds: ["rag", "coding"],
     topics: [
       { id: "workflow", title: "经典工作流", summary: "在稳定画布中编排并试运行多步骤任务。", outcome: "把固定顺序、条件分支和资源调用组织成可重复流程。", points: ["经典画布是当前稳定工作流入口", "草稿可本地保存并通过后端试运行", "需要把确定性文本交给知识管理员时，可使用“知识写入提议”进入 Knowledge Inbox"], productRoute: "/workflow", keywords: ["工作流", "经典画布", "流程", "分支", "知识写入提议", "Knowledge Inbox"] },
-      { id: "rag", title: "RAG 知识库", summary: "创建资料库、上传文档，并查看已有资料的检索与引用。", outcome: "区分上传资料、构建诊断候选和使用已有索引。", points: ["RAG 可以理解为先从指定资料中查找内容，再让模型回答", "第一次进入时，先选择“新建知识库”并填写名称", "上传前确认资料允许使用，且不包含密钥或未获授权的隐私信息", "文档上传只保存来源；还需保存流水线草稿并显式执行候选，当前新候选仅供诊断，不能用于活动回答", "新建草稿默认使用模型无关的估算 Token 预算，标题加入索引和上下文后也计入预算", "4A 仅允许 vector 构建诊断候选；fulltext 和 hybrid 只能查询已有兼容索引", "旧字符或不完整内容合同保持历史只读；只有曾激活版本可回滚，不能首次激活或晋级", "需要核对答案时，查看页面是否给出引用；没有引用时不要猜测答案来自哪份资料"], productRoute: "/rag", keywords: ["RAG", "知识库", "资料", "文档", "引用", "上传", "估算 Token", "内容合同", "历史只读", "回滚"], verifiedCommit: ragContentContractBaseline.commit, verifiedDate: ragContentContractBaseline.date },
+      { id: "rag", title: "RAG 知识库", summary: "创建资料库、上传文档，并查看已有资料的检索与引用。", outcome: "区分上传资料、构建诊断候选和使用已有索引。", points: ["RAG 可以理解为先从指定资料中查找内容，再让模型回答", "第一次进入时，先选择“新建知识库”并填写名称", "上传前确认资料允许使用，且不包含密钥或未获授权的隐私信息", "文档上传只保存来源；还需保存流水线草稿并显式执行候选，当前新候选仅供诊断，不能用于活动回答", "新建草稿默认使用模型无关的估算 Token 预算，标题加入索引和上下文后也计入预算", "可按页面能力构建 vector、fulltext 或 hybrid 诊断候选；解析合同完成前不能首次激活或晋级", "旧字符或不完整内容合同保持历史只读；只有曾激活版本可回滚，不能首次激活或晋级", "需要核对答案时，查看页面是否给出引用；没有引用时不要猜测答案来自哪份资料"], productRoute: "/rag", keywords: ["RAG", "知识库", "资料", "文档", "引用", "上传", "估算 Token", "内容合同", "历史只读", "回滚"], verifiedCommit: ragContentContractBaseline.commit, verifiedDate: ragContentContractBaseline.date },
       { id: "data-tables", title: "本地数据表", summary: "为私有工作流维护有固定字段的业务记录。", outcome: "创建数据表、发布 Schema，并管理本地记录。", points: ["数据表用于类型化业务记录", "Schema 以不可变版本发布", "字段和记录操作属于数据表内部条目，本轮不展开"], productRoute: "/data-tables", keywords: ["数据表", "Schema", "业务记录", "数据库"] },
       { id: "coding", title: "Coding", summary: "在只读实验工作台中查看项目并询问代码问题。", outcome: "理解当前入口的只读边界和启用状态。", points: ["当前页面说明只能读取项目并回答问题", "不能修改文件或运行命令", "页面显示“代码助手暂时不可用”时，应等待管理员启用"], productRoute: "/coding", keywords: ["Coding", "代码", "只读实验", "暂时不可用"] },
       { id: "settings", title: "系统设置", summary: "由授权人员管理 Provider、路由实验和其他服务连接。", outcome: "知道哪些设置需要交给有配置权限的人处理。", points: ["未配置时页面会明确提示", "Provider 管理和其他集成分区显示", "设置变更可能影响其他用户或产生外部费用"], productRoute: "/settings", badge: "管理员", keywords: ["设置", "Provider", "连接", "权限", "路由实验"] },

@@ -1,0 +1,464 @@
+{
+  "schema_version": "rag-r4b-closeout-evidence-v1",
+  "status": "local_contract_checks_passed_with_baseline_failures_awaiting_user_review",
+  "worktree": "C:/tmp/modelmirror-rag-r4b-lexical-v2",
+  "branch": "codex/rag-p1-r4b-lexical-v2",
+  "base_commit": "436d24535c6f0ad80b3a4f18830fb834f90a7b95",
+  "base_semantics": "Frozen origin/main, not the final SHA of these uncommitted changes.",
+  "previous_pr": {
+    "number": 362,
+    "state": "MERGED",
+    "merge_commit": "ea6222900fe1534ac553e9f0a65935cc30ba757c"
+  },
+  "baseline_archive_sha256": "583a8c4cfb97fcfbc782f1399018f4947256e6a009432d0a5fa31471b588783e",
+  "runtime": {
+    "container": "modelmirror-rag-r4b-gate-20260907",
+    "id": "660b4871cb15fba1be24e754a2a3aa7d7a467a4e7a77469d89a99dc9707275d5",
+    "image": "sha256:03518a43f2f1a5aa47f1d47b583924b12a00539467dc604fa86e0fa26cb68608",
+    "network": "none",
+    "mount_count": 0,
+    "sqlite": "3.46.1",
+    "pytest": "9.1.0",
+    "sources": "Tracked baseline archive with explicit source/test overlays; no primary-checkout data or secrets.",
+    "removed": true
+  },
+  "tests": [
+    {
+      "phase": "core_red_on_frozen_base",
+      "passed": 3,
+      "failed": 17,
+      "receipt": "C:/tmp/rag-r4b-20260907/lexical-red.xml",
+      "sha256": "9f00219fbc6c39240d95009eeb1ec6689d06a7d8afa419f01fa5d1c00ad6ddf3"
+    },
+    {
+      "phase": "pipeline_red_after_core_before_wiring",
+      "passed": 1,
+      "failed": 3,
+      "receipt": "C:/tmp/rag-r4b-20260907/pipeline-red.xml",
+      "sha256": "07419e6702de8cefee3beede2531f34d37e3c05ae70e3ddf5312f14270de2353"
+    },
+    {
+      "phase": "additional_code_identifiers_red",
+      "passed": 0,
+      "failed": 6,
+      "deselected": 20,
+      "receipt": "C:/tmp/rag-r4b-20260907/code-identifiers-red.xml",
+      "sha256": "b1fd64fff78bf430d170bcbb9d548e7ff80fe823f4bc1da581f3621c48079efa"
+    },
+    {
+      "phase": "intermediate_fixture_defects_before_user_approved_correction",
+      "passed": 215,
+      "failed": 3,
+      "new_contract_tests_passed": 33,
+      "receipt": "C:/tmp/rag-r4b-20260907/current-targeted.xml",
+      "sha256": "9f5196b76c692f85cc65d30a1cbe6c0908ca6a9d97d555c97750bbf2c7e92ab2",
+      "files": [
+        "test_rag_lexical_contract.py",
+        "test_rag_lexical_pipeline_contract.py",
+        "test_rag_chunking_contract.py",
+        "test_rag_embedding_contract.py",
+        "test_rag_retrieval_scoring.py",
+        "test_rag_retrieval_diversity.py",
+        "test_rag_pipeline_execute.py",
+        "test_rag_retrieval_v2.py",
+        "test_rag_office_metadata.py"
+      ]
+    },
+    {
+      "phase": "corrected_nine_file_matrix",
+      "passed": 218,
+      "failed": 0,
+      "receipt": "C:/tmp/rag-r4b-20260907/corrected-targeted.xml",
+      "sha256": "d5e42d5afde491d28d0feb8b30655b9bb42e23fad0ab8c8f157dec04cfc830b9"
+    },
+    {
+      "phase": "receipt_identity_and_malformed_status_red",
+      "passed": 0,
+      "failed": 8,
+      "receipt": "C:/tmp/rag-r4b-20260907/r4b-final-receipt-red.xml",
+      "sha256": "d93c120d39d639c29b98e26b5ae3fd26b3bf2d5de1cafdc0861916011794ee47"
+    },
+    {
+      "phase": "receipt_identity_green",
+      "passed": 129,
+      "failed": 0,
+      "receipt": "C:/tmp/rag-r4b-20260907/r4b-final-receipt-green.xml",
+      "sha256": "0144b62f44b6f80644b5f671e2ec590943d6c86b0f3936a4f6cb0758eb2c26df"
+    },
+    {
+      "phase": "empty_preview_receipt_red",
+      "passed": 0,
+      "failed": 3,
+      "receipt": "C:/tmp/rag-r4b-20260907/r4b-empty-preview-red.xml",
+      "sha256": "7c875a11e379e6104303ceac7a74ca5bb8329a06dba5ab0dbc5477e3dfaf9749"
+    },
+    {
+      "phase": "empty_preview_receipt_green",
+      "passed": 104,
+      "failed": 0,
+      "receipt": "C:/tmp/rag-r4b-20260907/r4b-empty-preview-green.xml",
+      "sha256": "dba25cee380d891eb0d4c86b08757e6e1390df6bb47194ff500aad26c7273db5"
+    },
+    {
+      "phase": "ordinary_prefix_misclassified_as_identifier_red",
+      "passed": 0,
+      "failed": 3,
+      "receipt": "C:/tmp/rag-r4b-20260907/r4b-identifier-prefix-red.xml",
+      "sha256": "75ad05a78b99462bf3975bb5dcb1504b957a471ae4aff70011c3b6332d9aaf83"
+    },
+    {
+      "phase": "ordinary_prefix_fix_narrow_green",
+      "passed": 107,
+      "failed": 0,
+      "receipt": "C:/tmp/rag-r4b-20260907/r4b-identifier-prefix-green.xml",
+      "sha256": "f91c2b7daa1961f1ff60f0b6d22f15b627f45addf0e02c3d03e1e88e27a2aaba"
+    },
+    {
+      "phase": "final_52_file_area_matrix",
+      "passed": 918,
+      "failed": 0,
+      "skipped": 1,
+      "file_count": 52,
+      "skip_reason": "Existing test_file_asset_office_sidecar::test_real_socket_landlock_bridge_for_docx_pptx_and_cleanup requires a dedicated network-free mcp-files sidecar; not exercised in this runtime.",
+      "receipt": "C:/tmp/rag-r4b-20260907/r4b-52-matrix-final.xml",
+      "sha256": "3a744a2af3854cce0436734bb4568ab508ed1aa4d242736e709a15b18652ebe5"
+    },
+    {
+      "phase": "full_backend_before_last_prefix_fix",
+      "passed": 6196,
+      "failed": 21,
+      "skipped": 29,
+      "receipt": "C:/tmp/rag-r4b-20260907/r4b-backend-before-final-review.xml",
+      "sha256": "7618a61d1da661aeda2b607d5031f8ae3a01a8387ab531b1c8fd29a371deb63c"
+    },
+    {
+      "phase": "frozen_base_21_failed_nodeids_only",
+      "passed": 1,
+      "failed": 20,
+      "full_suite": false,
+      "receipt": "C:/tmp/rag-r4b-20260907/r4b-baseline-failures.xml",
+      "sha256": "9efcd21b5694cf7ec2d2773859f6c893c051a06aedb55601b656f9c61882c29d"
+    },
+    {
+      "phase": "frontend_full_before_editorial_help_label_cleanup",
+      "passed": 977,
+      "failed": 2,
+      "file_count": 135,
+      "receipt": "C:/tmp/rag-r4b-20260907/frontend-final.json",
+      "sha256": "ee25ea64e66e80dd43b2fef8d91fe4e1bee9702ebddc92895c9853f725966fca"
+    },
+    {
+      "phase": "final_frontend_rag_canvas_receipt_help",
+      "passed": 61,
+      "failed": 0,
+      "file_count": 4,
+      "receipt": "C:/tmp/rag-r4b-20260907/frontend-targeted-final.json",
+      "sha256": "8eb2ddeb037a149eafef63ffa99143e7baad0c48e5aace92d657f1a35e0d18c1"
+    },
+    {
+      "phase": "final_full_backend_after_all_code_fixes",
+      "passed": 6200,
+      "failed": 20,
+      "skipped": 29,
+      "errors": 0,
+      "elapsed_seconds": 1287.53,
+      "receipt": "C:/tmp/rag-r4b-20260907/r4b-backend-final.xml",
+      "sha256": "36ec5c859482b464ebc3f3b75ff6d0bd0ddc7033e32a08498116b4a0abc45624"
+    }
+  ],
+  "failure_classification": {
+    "fixed_current_round": [
+      "Three invented cell_range fixture assertions corrected to the existing row_range contract after explicit user permission; all 218 targeted tests passed.",
+      "Receipt admission and query identity defects, empty-result receipt omission, and internal-prefix word misclassification reproduced red before minimal fixes."
+    ],
+    "backend_baseline": [
+      "19 failures reproduce deterministic missing worker build / TypeScript runtime environment causes.",
+      "Cancellation TimeoutError also reproduces, but remains timing-sensitive.",
+      "The earlier 12.724 ms performance failure was not reproduced on the frozen base and passed in the final full backend run. No performance patch or assertion change was made."
+    ],
+    "frontend_baseline": [
+      "Both model catalog assertions reproduce on frozen 436d2453: live 507 vs expected 509; two additional inactive nex-agi models."
+    ],
+    "environment": [
+      "An earlier PDF worker shutdown ValueError was intermittent; focused 20-parameter and subsequent full area runs passed. No parser production patch.",
+      "First frontend JSON report write was denied although tests completed. The authorized repeat successfully wrote frontend-final.json.",
+      "One overly broad formal red batch included a fixture mistake; it is not counted as a genuine product defect."
+    ],
+    "baseline_comparison_evidence": [
+      "C:/tmp/rag-r4b-20260907/R4B_BACKEND_BASELINE_COMPARISON.md",
+      "C:/tmp/rag-r4b-20260907/baseline-client/BASELINE_TEST_EVIDENCE.md"
+    ],
+    "final_backend": {
+      "failed": 20,
+      "unexpected_failure_nodeids_vs_frozen_baseline": [],
+      "same_deterministic_environment_cause": 19,
+      "same_timing_sensitive_cancellation_timeout": 1
+    }
+  },
+  "verified": [
+    "Term frequency affects BM25, not unique-term weighted confidence",
+    "Ordered phrases; complete hashed identifiers including C++, C# and std::vector",
+    "CJK bigrams; fixed minimum-should-match boundaries and bounded candidate receipts",
+    "Per-namespace v2 FTS tables; v1 schema/rows unchanged and queryable",
+    "New explicit lexical profile sealed into Job; missing legacy profile does not default to v2",
+    "Fulltext build/query and recovery with zero embedding, including unavailable vector backend",
+    "Hybrid partial second-index failure cleans both namespaces",
+    "Lexical indexed-token and chunk-sequence receipt binding; token tampering prevents publication",
+    "XLSX sheet and exact cell-coordinate roundtrip",
+    "Parser remains legacy; first activation and promotion remain blocked",
+    "Production py_compile, diff-check and secret-pattern scan passed",
+    "Legacy 4A sealed vector Job survives claim/recovery and fake actual-dimension rebinding without silently upgrading lexical identity",
+    "Formal admission/preflight/read projection/promotion reject missing or inconsistent lexical evidence; synthetic future parser fixtures are not real Formal qualification",
+    "Empty fulltext preview carries the same rejection receipt as successful preview",
+    "Ordinary tokens retain source classification rather than being inferred from an internal sentinel prefix"
+  ],
+  "bounded_pool_decision": "Keep min(top_k*8,500), based on requested version top_k, before MSM. Do not multiply by candidate_multiplier or tune the budget. Eligible rows outside this bounded BM25 pool can be missed; candidate_pool_saturated is exposed. Empty retrieval is not proof of full-corpus answer absence.",
+  "pending_gates": [
+    "User review of 4B implementation, offline evidence and explicitly classified baseline/environment failures",
+    "Separate Commit, Push and Draft PR authorization; refresh upstream and inspect intersections before publication; rebase only if authorized",
+    "CI not run for this unpublished branch; no 4C worktree before the 4B PR is merged"
+  ],
+  "boundaries": {
+    "real_provider_calls": 0,
+    "shared_data_changed": false,
+    "active_index_changed": false,
+    "primary_checkout_changed": false,
+    "commit": false,
+    "push": false,
+    "pr": false,
+    "merge": false,
+    "deploy": false,
+    "entered_4c": false
+  },
+  "rollback": "Only uncommitted files in this dedicated 4B tree. No user data/index rollback. Do not reset unrelated work. Test runtime and evidence are task-owned.",
+  "intermediate_fixture_failed_cases": [
+    "test_rag_retrieval_v2.py::test_sqlite_fts5_indexes_mixed_chinese_and_english",
+    "test_rag_retrieval_v2.py::test_sqlite_fts5_reads_old_source_schema_without_mutating_it",
+    "test_rag_office_metadata.py::test_lexical_store_keeps_legacy_schema_read_only_and_writes_office_metadata_to_v2"
+  ],
+  "backend_source_hashes": [
+    {
+      "path": "server/rag/api.py",
+      "sha256": "0d244bf24821c1a04ffa3931a4389af46aa1e6841935c59804ae665f09104c1a",
+      "gate_source_matches": true
+    },
+    {
+      "path": "server/rag/evaluation.py",
+      "sha256": "b6f2cb356228773b60e058c7c51215509d276a0fce9acf90ace7977b7c73f718",
+      "gate_source_matches": true
+    },
+    {
+      "path": "server/rag/lexical_contract.py",
+      "sha256": "6343ce68e96a6408f4e12ad9a2c9e6617f3a3aec29960b1a678078312278fa4b",
+      "gate_source_matches": true
+    },
+    {
+      "path": "server/rag/lexical_store.py",
+      "sha256": "5614ec0b0c6ecf1a1765ba98d44a2cc76f98f76febaa837f6abfe4778c4acdb5",
+      "gate_source_matches": true
+    },
+    {
+      "path": "server/rag/lexical_v2_store.py",
+      "sha256": "a200b2fc352ecd38b09b858d65d392ad955479825354c18d516cb68731cfdd79",
+      "gate_source_matches": true
+    },
+    {
+      "path": "server/rag/pipeline_executor.py",
+      "sha256": "050e83e5eaf2c53078ccdd0fa0022d3c13f847a7d122a292bebbd5e507a25c67",
+      "gate_source_matches": true
+    },
+    {
+      "path": "server/rag/rag_service.py",
+      "sha256": "f2afda691d0f42ae6145ee66907b5acdc80899d297d4b40b31f87de07684e634",
+      "gate_source_matches": true
+    },
+    {
+      "path": "server/rag/strategy_tuner.py",
+      "sha256": "20c7ed9dc110bf08679b400ef6a5472c603b5856bbcfe4152f5da5f501e2ea31",
+      "gate_source_matches": true
+    },
+    {
+      "path": "server/tests/rag_legacy_lexical_fixture.py",
+      "sha256": "8890cd9373cfc83a3042c0aa4bd58bc344d3c438d34ebfd2a9cb43c10386c80a",
+      "gate_source_matches": true
+    },
+    {
+      "path": "server/tests/test_rag_chunking_contract.py",
+      "sha256": "0cc0c70360fa5d8d3bdd3315820300ba4636d55e3501fde1c9fd9234bae27ec4",
+      "gate_source_matches": true
+    },
+    {
+      "path": "server/tests/test_rag_embedding_contract.py",
+      "sha256": "ee9a70f6dea5e8b8d68ba584ed4ecaedc4461b4fe5166b8b3716445ecd4cac09",
+      "gate_source_matches": true
+    },
+    {
+      "path": "server/tests/test_rag_evaluation_integrity.py",
+      "sha256": "b43451317a53f5a15ded815f17dd9046e47980e086152c06740ab00658a91806",
+      "gate_source_matches": true
+    },
+    {
+      "path": "server/tests/test_rag_evaluation.py",
+      "sha256": "9ead615dcc4521a2872acc2c86c71777c14bb80521503b1491b9e1e10f86145b",
+      "gate_source_matches": true
+    },
+    {
+      "path": "server/tests/test_rag_lexical_contract.py",
+      "sha256": "917e266b6099f7f8bb96d2c5de980748090514a787e90b1be5646a0161afc93c",
+      "gate_source_matches": true
+    },
+    {
+      "path": "server/tests/test_rag_lexical_legacy_replay.py",
+      "sha256": "5e617e21a3bd26d279bd7ebc067f939b546c0129de69ce0459235958117bc500",
+      "gate_source_matches": true
+    },
+    {
+      "path": "server/tests/test_rag_lexical_pipeline_contract.py",
+      "sha256": "1f36383194b4ccc8e1bb6840ad104654e7b88472e0155a1c903e5eee3016ebf5",
+      "gate_source_matches": true
+    },
+    {
+      "path": "server/tests/test_rag_office_metadata.py",
+      "sha256": "2f7d93f5149e775d5483d9d6a16b36be186acaf9d63e158a42d52dba0df469c6",
+      "gate_source_matches": true
+    },
+    {
+      "path": "server/tests/test_rag_pipeline_execute.py",
+      "sha256": "e7c560d8b31c2e73734e4acd2cae2991fc9050fa9f3d43e29051f0ab94944801",
+      "gate_source_matches": true
+    },
+    {
+      "path": "server/tests/test_rag_pipeline.py",
+      "sha256": "fc6cdcdc0896c29d8941bd897157555296f2340562e030124510c826954a60c6",
+      "gate_source_matches": true
+    },
+    {
+      "path": "server/tests/test_rag_retrieval_scoring.py",
+      "sha256": "a6624ba52da8aaa7bff5ec2f228e690fefa8d297de57da4213f717d1c4e6afee",
+      "gate_source_matches": true
+    },
+    {
+      "path": "server/tests/test_rag_retrieval_v2.py",
+      "sha256": "47e0e43d80743afea03c21dec2277dc0e5a661ce9d4f2dbb1b92a2f8c7c0955e",
+      "gate_source_matches": true
+    },
+    {
+      "path": "server/tests/test_rag_strategy_router.py",
+      "sha256": "67cc18eca2a1e0fcc712db010440261f72b346dadcd6c37e6f8aa205abd90462",
+      "gate_source_matches": true
+    },
+    {
+      "path": "server/tests/test_rag_strategy_tuner.py",
+      "sha256": "cfd658e378c0cedcf83ce40c14fe39965846e66dd5a7ec9f9a177a16d695841c",
+      "gate_source_matches": true
+    }
+  ],
+  "static_checks": {
+    "py_compile": {
+      "passed": true,
+      "files": 23
+    },
+    "diff_check": {
+      "passed": true
+    },
+    "secret_pattern_scan": {
+      "passed": true,
+      "text_files": 36,
+      "matches": 0,
+      "scope": "Intended code/tests/docs only; no .env, storage or credential files"
+    },
+    "staged_files": [],
+    "production_build": {
+      "passed": true,
+      "modules": 3177,
+      "existing_warning": "MainApplication bundle exceeds 4500 kB advisory"
+    },
+    "node_server_headers": {
+      "passed": 1,
+      "failed": 0
+    },
+    "help_image_check": {
+      "passed": true,
+      "registered_articles": 16
+    },
+    "receipt_count_and_sha256_validation": {
+      "passed": true,
+      "receipt_records_verified": 17,
+      "scope": "All archived XML records listed here verified against recorded counts and SHA-256; frontend JSON exists and reports 977/2 and 61/0."
+    }
+  },
+  "ui_evidence": {
+    "document": "docs/help-center/evidence/rag-lexical-v2-436d2453.md",
+    "entry": "http://127.0.0.1:15164/rag",
+    "article_route": "/help/understand-rag-content-contract",
+    "first_capture_viewport": [
+      923,
+      889
+    ],
+    "replay_final_viewport": [
+      1433,
+      898
+    ],
+    "replay_started_from_new_empty_kb": true,
+    "tutorial_steps_passed": 8,
+    "kb_id": "kb_3df246d589824d0d8eccf25aca1303d4",
+    "job_id": "kpjob_651d2a0598f542a09dc3243cbfa53443",
+    "version_id": "kpv_19a9dadb7826448187a2fa3946304e30",
+    "candidate_status": "ready",
+    "active": false,
+    "active_version_id": null,
+    "attempt": 1,
+    "chunk_count": 4,
+    "embedding_status": "not_applicable",
+    "first_run_extra_checks": [
+      "Ordered phrase excludes reversed phrase",
+      "CJK 2 initial candidates, MSM 4/6, 1 accepted"
+    ],
+    "replay_checks": [
+      "Exact ID resolves correct source",
+      "Missing ID returns empty with counts",
+      "Canvas reload retains Draft v2, fulltext Top-5, 500/50 budgets",
+      "Both published help images loaded"
+    ],
+    "preview_runtime": {
+      "container": "modelmirror-rag-r4b-preview-20260907",
+      "id": "912e1c3bf52028a39a6d85d82bff8aa06945adc4b7c957c34dbd0fdeb82d9f02",
+      "network": "modelmirror-rag-r4b-preview-net-20260907",
+      "internal": true,
+      "mount_count": 0,
+      "real_provider_calls": 0,
+      "removed": true
+    },
+    "remaining_generation_notice": "Existing local_non_model notice still says Managed Provider did not succeed even with generation disabled. Documented as a 5B wording boundary, not proof that a Provider was called."
+  },
+  "cleanup": {
+    "completed": true,
+    "removed_task_containers": 2,
+    "removed_internal_network": true,
+    "temporary_browser_tab_closed": true,
+    "vite_and_loopback_relay_stopped": true,
+    "task_ports": [
+      15164,
+      18164
+    ],
+    "listening_task_ports_after_cleanup": [],
+    "preview_archive": "C:/tmp/rag-r4b-20260907/preview-runtime-archive",
+    "preview_archive_files": 8,
+    "preview_archive_bytes": 201822,
+    "shared_resources_touched": false,
+    "images_retired": [
+      "client/public/help-center/92b7e6df/rag-estimated-token-budget.png",
+      "client/public/help-center/92b7e6df/rag-diagnostic-candidate.png"
+    ],
+    "images_recovery": "Tracked baseline in Git"
+  },
+  "review": {
+    "primary_full_production_and_test_diff_review": "completed",
+    "bounded_sol_baseline_and_canvas_work": "reviewed by primary",
+    "final_independent_wiring_review": "tool unavailable; not counted as completed",
+    "new_production_dependencies": 0,
+    "production_threshold_or_top_k_changes": false,
+    "enters_4c": false,
+    "whole_repository_green": false
+  }
+}

@@ -12,7 +12,6 @@ from server.rag.api import (
     set_rag_service_for_tests,
 )
 from server.rag.embedder import EmbeddingClient
-from server.rag.lexical_store import LexicalChunk
 from server.rag.pipeline_executor import KnowledgePipelineExecutor
 from server.rag.rag_service import (
     PipelineContentContractError,
@@ -30,6 +29,10 @@ from server.rag.vector_store import (
     VectorStoreContractError,
     VectorStoreUnavailableError,
     create_vector_store,
+)
+from server.tests.rag_legacy_lexical_fixture import (
+    LegacyLexicalRow,
+    create_legacy_lexical_fixture,
 )
 
 
@@ -401,7 +404,7 @@ def test_real_chroma_v3_collection_persists_cosine_contract(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
-async def test_unavailable_vector_backend_and_legacy_fulltext_fail_closed(
+async def test_unavailable_vector_backend_still_allows_fulltext_v2_without_embedding(
     tmp_path: Path,
 ) -> None:
     embedder = CountingEmbeddingClient()
@@ -440,19 +443,33 @@ async def test_unavailable_vector_backend_and_legacy_fulltext_fail_closed(
         {},
         retrieval_profile={"mode": "fulltext"},
     )
-    with pytest.raises(PipelineContentContractError) as legacy_blocked:
-        service.create_pipeline_job(
-            kb["id"],
-            draft_version=fulltext["version"],
-            source_document_ids=[document["id"]],
-        )
-    assert legacy_blocked.value.code == "rag_content_contract_legacy_read_only"
+    job = service.create_pipeline_job(
+        kb["id"],
+        draft_version=fulltext["version"],
+        source_document_ids=[document["id"]],
+    )
+    assert await KnowledgePipelineExecutor(service).run_once() is True
+    completed = service.get_pipeline_job(job["job_id"])
+    assert completed["status"] == "succeeded"
+    version_id = str(completed["candidate_version_id"])
+    version = service.get_pipeline_version(version_id)
+    assert version["lexical_index_ready"] is True
+    assert version["vector_index_ready"] is False
+    result = await service.query_pipeline_version(
+        version_id,
+        "fulltext pipeline vector backend",
+        generate_answer=False,
+    )
+    assert result["sources"]
     assert embedder.call_count == 0
-    assert service.list_pipeline_jobs(kb_id=kb["id"]) == []
+    with pytest.raises(PipelineContentContractError):
+        service.activate_pipeline_version(version_id)
+    with pytest.raises(PipelineContentContractError):
+        service.activate_pipeline_version(version_id, promotion=True)
 
 
 @pytest.mark.asyncio
-async def test_fulltext_pipeline_recovery_is_not_created_before_lexical_v2(
+async def test_fulltext_v2_pipeline_recovers_and_builds_without_embedding(
     tmp_path: Path,
 ) -> None:
     service = RagService(
@@ -477,21 +494,27 @@ async def test_fulltext_pipeline_recovery_is_not_created_before_lexical_v2(
         {},
         retrieval_profile={"mode": "fulltext"},
     )
-    with pytest.raises(PipelineContentContractError) as blocked:
-        service.create_pipeline_job(
-            kb["id"],
-            draft_version=draft["version"],
-            source_document_ids=[document["id"]],
-        )
-
-    assert blocked.value.code == "rag_content_contract_legacy_read_only"
-    assert service.recover_pipeline_jobs() == 0
+    job = service.create_pipeline_job(
+        kb["id"],
+        draft_version=draft["version"],
+        source_document_ids=[document["id"]],
+    )
+    claimed = service.claim_next_pipeline_job()
+    assert claimed is not None and claimed["status"] == "running"
+    assert service.recover_pipeline_jobs() == 1
+    assert service.get_pipeline_job(job["job_id"])["status"] == "queued"
+    assert await KnowledgePipelineExecutor(service).run_once() is True
+    completed = service.get_pipeline_job(job["job_id"])
+    assert completed["status"] == "succeeded"
+    version = service.get_pipeline_version(str(completed["candidate_version_id"]))
+    assert service.lexical_store.count_namespace(version["namespace"]) == version["chunk_count"]
     assert service.embedder.call_count == 0
 
 
 @pytest.mark.asyncio
-async def test_fulltext_pipeline_cleanup_has_no_partial_job_before_lexical_v2(
+async def test_fulltext_v2_pipeline_failure_cleans_partial_lexical_namespace(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service = RagService(
         storage_dir=tmp_path / "storage",
@@ -515,15 +538,25 @@ async def test_fulltext_pipeline_cleanup_has_no_partial_job_before_lexical_v2(
         {},
         retrieval_profile={"mode": "fulltext"},
     )
-    with pytest.raises(PipelineContentContractError) as blocked:
-        service.create_pipeline_job(
-            kb["id"],
-            draft_version=draft["version"],
-            source_document_ids=[document["id"]],
-        )
+    job = service.create_pipeline_job(
+        kb["id"],
+        draft_version=draft["version"],
+        source_document_ids=[document["id"]],
+    )
+    namespace = str(service.validate_pipeline_job_execution_contract(job["job_id"])["candidate_namespace"])
+    original_add_chunks = service.lexical_store.add_chunks
 
-    assert blocked.value.code == "rag_content_contract_legacy_read_only"
-    assert service.list_pipeline_jobs(kb_id=kb["id"]) == []
+    def fail_after_partial_write(chunks):
+        original_add_chunks(chunks)
+        assert service.lexical_store.count_namespace(namespace) > 0
+        raise RuntimeError("synthetic lexical write failure")
+
+    monkeypatch.setattr(service.lexical_store, "add_chunks", fail_after_partial_write)
+    assert await KnowledgePipelineExecutor(service).run_once() is True
+    completed = service.get_pipeline_job(job["job_id"])
+    assert completed["status"] == "failed"
+    assert service.lexical_store.count_namespace(namespace) == 0
+    assert service.list_pipeline_versions(kb["id"]) == []
     assert service.embedder.call_count == 0
 
 
@@ -570,7 +603,7 @@ async def test_vector_pipeline_does_not_publish_when_backend_drops_vectors(
 
 
 @pytest.mark.asyncio
-async def test_fulltext_pipeline_build_is_blocked_before_embedding_or_vector_write(
+async def test_fulltext_v2_pipeline_builds_and_queries_without_embedding_or_vector_write(
     contract_runtime,
 ) -> None:
     client, service, executor, embedder, vector_store = contract_runtime
@@ -594,12 +627,26 @@ async def test_fulltext_pipeline_build_is_blocked_before_embedding_or_vector_wri
             "xpert_file_refs": [],
         },
     )
-    assert created.status_code == 409, created.text
-    assert created.json()["detail"]["code"] == "rag_content_contract_legacy_read_only"
+    assert created.status_code == 200, created.text
+    assert await executor.run_once() is True
+    completed = service.get_pipeline_job(created.json()["job_id"])
+    assert completed["status"] == "succeeded"
+    version_id = str(completed["candidate_version_id"])
+    version = service.get_pipeline_version(version_id)
+    assert version["lexical_index_ready"] is True
+    assert version["vector_index_ready"] is False
+    queried = await client.post(
+        f"/api/rag/pipeline/versions/{version_id}/query",
+        json={"question": "full-text-only pipeline embedding request"},
+    )
+    assert queried.status_code == 200, queried.text
+    assert queried.json()["sources"]
     assert embedder.call_count == 0
     assert vector_store._read_records() == []
-    assert service.list_pipeline_jobs(kb_id=kb_id) == []
-    assert service.list_pipeline_versions(kb_id) == []
+    with pytest.raises(PipelineContentContractError):
+        service.activate_pipeline_version(version_id)
+    with pytest.raises(PipelineContentContractError):
+        service.activate_pipeline_version(version_id, promotion=True)
 
 
 @pytest.mark.asyncio
@@ -650,9 +697,10 @@ async def test_active_v2_fulltext_remains_readable_and_missing_index_fails_close
         metadata["pipeline_versions"][version_id] = version
         metadata["pipeline_active_versions"][kb_id] = version_id
         service._write_metadata_unlocked(metadata)  # noqa: SLF001
-    service.lexical_store.add_chunks(
+    create_legacy_lexical_fixture(
+        service.lexical_store.path,
         [
-            LexicalChunk(
+            LegacyLexicalRow(
                 chunk_id=f"{version_id}_{document_id}_chunk_0",
                 namespace=namespace,
                 doc_id=f"{version_id}_{document_id}",
@@ -662,9 +710,8 @@ async def test_active_v2_fulltext_remains_readable_and_missing_index_fails_close
                     "embedding request."
                 ),
                 chunk_index=0,
-                source_block_id="legacy-source-block",
             )
-        ]
+        ],
     )
 
     readable = await service.query_pipeline_version(

@@ -1113,7 +1113,7 @@ class RagStrategyTuner:
                 "max_quality_regression": VALIDATION_MAX_REGRESSION,
                 "latency_aggregation": "median_per_case_then_p95",
                 "known_winner_fixture_version": KNOWN_WINNER_FIXTURE_VERSION,
-                "known_winner_validation_status": "blocked_until_lexical_v2",
+                "known_winner_validation_status": "blocked_until_complete_content_contract",
                 "known_winner_scenarios": [
                     "threshold_recovery",
                     "already_optimal_control",

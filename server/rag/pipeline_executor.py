@@ -1249,6 +1249,8 @@ class KnowledgePipelineExecutor:
                 "visual_kind": item.get("visual_kind"),
                 "source_block_id": item.get("source_block_id"),
                 "source_block_hash": item.get("source_block_hash"),
+                "source_block_ids": tuple(str(block_id) for block_id in (item.get("source_block_ids") or []) if str(block_id)),
+                "generated_item": item.get("generated_item") is True,
             }
             if uses_vector:
                 vector_chunks.append(
@@ -1260,12 +1262,6 @@ class KnowledgePipelineExecutor:
                         text=str(item.get("index_text") or ""),
                         embedding=embeddings[position],
                         chunk_index=chunk_index,
-                        source_block_ids=tuple(
-                            str(block_id)
-                            for block_id in (item.get("source_block_ids") or [])
-                            if str(block_id)
-                        ),
-                        generated_item=item.get("generated_item") is True,
                         **common,
                     )
                 )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from copy import deepcopy
 from pathlib import Path
@@ -23,6 +24,7 @@ from server.rag.evaluation import (
     validate_formal_run_admission,
     _checksum,
     _published_gold_checksum,
+    _run_execution_integrity_checksum,
 )
 from server.rag.evaluation_executor import KnowledgeEvaluationExecutor
 
@@ -107,6 +109,88 @@ def _chunking_receipt(version_id: str = "baseline") -> dict[str, Any]:
     }
 
 
+def _lexical_index_receipt(
+    owner_version_id: str,
+    namespace_fingerprint: str,
+) -> dict[str, Any]:
+    return {
+        "receipt_version": "rag-lexical-index-receipt-v2",
+        "contract_version": "sqlite-fts5-lexical-v2",
+        "query_policy": "minimum_should_match_auto_v1",
+        "tokenizer_contract": "ordered_nfkc_cjk_bigram_identifier_v2",
+        "chunk_count": 3,
+        "candidate_version_id": owner_version_id,
+        "indexed_tokens_hash": "7" * 64,
+        "chunk_sequence_hash": "f" * 64,
+        "candidate_namespace_fingerprint": namespace_fingerprint,
+    }
+
+
+def _lexical_query_receipt() -> dict[str, Any]:
+    return {
+        "contract_version": "sqlite-fts5-lexical-v2",
+        "query_policy": "minimum_should_match_auto_v1",
+        "tokenizer_contract": "ordered_nfkc_cjk_bigram_identifier_v2",
+        "query_fingerprint": hashlib.sha256(b"alpha").hexdigest(),
+        "candidate_limit": 24,
+        "initial_candidate_count": 1,
+        "minimum_should_match_count": 1,
+        "final_count": 1,
+        "effective_term_count": 1,
+        "required_term_count": 1,
+        "mandatory_identifier_count": 0,
+        "mandatory_phrase_count": 0,
+        "rejection_reason": None,
+        "candidates": [
+            {"matched_term_count": 1, "required_term_count": 1, "accepted": True}
+        ],
+    }
+
+
+def _valid_formal_case_result(mode: str) -> dict[str, Any]:
+    vector_required = mode in {"vector", "hybrid"}
+    provider_receipts = None
+    execution_mode = "local_non_model"
+    if vector_required:
+        execution_mode = "managed"
+        provider_receipts = {
+            "contract_version": PROVIDER_WORKLOAD_CONTRACT_VERSION,
+            "routing_mode": "managed_required",
+            "status": "passed",
+            "call_count": 1,
+            "reason_codes": [],
+            "calls": [
+                {
+                    "operation": "embedding_vectors",
+                    "model_id": "bge-m3",
+                    "provider_kind": "openai_compatible",
+                    "actual_model": "bge-m3",
+                    "status": "passed",
+                    "dispatched": True,
+                }
+            ],
+        }
+    return {
+        "status": "completed",
+        "execution_mode": execution_mode,
+        "provider_route_receipts": provider_receipts,
+        "fallback_reason_codes": [],
+        "source_count": 1,
+        "ranking": [{"chunk_id": "chunk-a"}],
+        "retrieval_receipt": {
+            "mode": mode,
+            "top_k": 3,
+            "embedding_provider": "openai_compatible" if vector_required else "none",
+            "embedding_model": "bge-m3" if vector_required else "",
+            "embedding_dimension": 1024 if vector_required else 0,
+            "embedding_space_fingerprint": "e" * 64 if vector_required else "",
+            "rerank_applied": False,
+            "promotion_eligible": True,
+            "promotion_ineligibility_reasons": [],
+        },
+    }
+
+
 def _synthetic_future_formal_target(
     version_id: str,
     *,
@@ -132,10 +216,14 @@ def _synthetic_future_formal_target(
         "rerank_model": "",
         "rerank_top_n": 0,
     }
-    chunking_receipt = _chunking_receipt(version_id)
+    # Synthetic post-4C identity only: this does not claim parser-v2 exists in
+    # the current product. Index ownership remains independent of target IDs.
+    owner_version_id = f"kpv_{version_id}"
+    chunking_receipt = _chunking_receipt(owner_version_id)
     namespace_fingerprint = candidate_namespace_fingerprint(
-        f"kb-a::v3::{version_id}"
+        f"kb-a::v3::{owner_version_id}"
     )
+    lexical_required = mode in {"fulltext", "hybrid"}
     return {
         "target_id": version_id,
         "version_id": version_id,
@@ -157,7 +245,7 @@ def _synthetic_future_formal_target(
                     _chunker_profile()
                 ),
             },
-            "index_owner_version_id": version_id,
+            "index_owner_version_id": owner_version_id,
             "candidate_namespace_fingerprint": namespace_fingerprint,
             "processor": {"mode": "general", "fingerprint": "c" * 64},
             "embedding": {"effective": embedding},
@@ -175,8 +263,19 @@ def _synthetic_future_formal_target(
                     "distance_contract": "cosine_v1" if vector_required else "not_applicable",
                 },
                 "lexical": {
-                    "required": mode in {"fulltext", "hybrid"},
+                    "required": lexical_required,
                     "backend": "sqlite_fts5",
+                    **(
+                        {
+                            "contract_version": "sqlite-fts5-lexical-v2",
+                            "query_policy": "minimum_should_match_auto_v1",
+                            "tokenizer_contract": (
+                                "ordered_nfkc_cjk_bigram_identifier_v2"
+                            ),
+                        }
+                        if lexical_required
+                        else {}
+                    ),
                 },
             },
             "content_index_contract": (
@@ -196,6 +295,14 @@ def _synthetic_future_formal_target(
                 "reason_code": None,
                 "distance_contract": "cosine_v1",
             },
+            "lexical_index_receipt": (
+                _lexical_index_receipt(owner_version_id, namespace_fingerprint)
+                if lexical_required
+                else {}
+            ),
+            "lexical_index_receipt_status": (
+                "current" if lexical_required else "not_applicable"
+            ),
         },
     }
 
@@ -207,7 +314,7 @@ def _gold() -> dict[str, Any]:
         "version": 1,
         "benchmark_contract_version": "rag-gold-v3",
         "benchmark_role": "held_out_qualification",
-        "cases": [{"case_id": "case-a", "query": "q", "expected_refs": []}],
+        "cases": [{"case_id": "case-a", "query": "alpha", "expected_refs": []}],
         "corpus_snapshot": {"checksum": "c" * 64},
     }
     gold["checksum"] = _published_gold_checksum(gold)
@@ -240,6 +347,18 @@ def _synthetic_future_formal_run(
     admitted: dict[str, Any],
     case_result: dict[str, Any],
 ) -> dict[str, Any]:
+    case_results: dict[str, dict[str, Any]] = {}
+    for target in targets:
+        result = deepcopy(case_result)
+        mode = str(
+            (target.get("version_evidence") or {}).get("retrieval", {}).get("mode")
+            or ""
+        )
+        if mode in {"fulltext", "hybrid"}:
+            result.setdefault("retrieval_receipt", {}).setdefault(
+                "lexical_receipt", _lexical_query_receipt()
+            )
+        case_results[target["target_id"]] = {"case-a": result}
     return {
         "run_id": "run-a",
         "kb_id": "kb-a",
@@ -254,10 +373,7 @@ def _synthetic_future_formal_run(
         "eval_set_snapshot": _gold(),
         "case_ids": ["case-a"],
         "comparability": admitted["comparability"],
-        "case_results": {
-            target["target_id"]: {"case-a": deepcopy(case_result)}
-            for target in targets
-        },
+        "case_results": case_results,
         "target_results": [
             {
                 "version_id": target["version_id"],
@@ -288,6 +404,12 @@ def _synthetic_future_runtime_projection(
             "content_index_contract": deepcopy(
                 declared["content_index_contract"]
             ),
+            "lexical_index_receipt": deepcopy(
+                declared.get("lexical_index_receipt") or {}
+            ),
+            "lexical_index_receipt_status": declared.get(
+                "lexical_index_receipt_status", "not_applicable"
+            ),
             "chunking_receipt": deepcopy(declared["chunking_receipt"]),
             "chunking_receipt_fingerprint": declared[
                 "chunking_receipt_fingerprint"
@@ -306,6 +428,256 @@ def _synthetic_future_runtime_projection(
             ),
         }
     return {"kb_exists": True, "targets": targets}
+
+
+@pytest.mark.parametrize("mode", ["fulltext", "hybrid"])
+@pytest.mark.parametrize(
+    "mutation",
+    ["missing", "mismatch", "owner", "namespace", "chunk_sequence"],
+)
+def test_r4b_lexical_receipt_formal_admission_requires_current_index_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+    mutation: str,
+) -> None:
+    monkeypatch.setattr(
+        "server.rag.evaluation.qualify_formal_evidence",
+        lambda _snapshot: {"qualified": True, "status": "qualified"},
+    )
+    targets = [
+        _synthetic_future_formal_target("baseline", mode=mode),
+        _synthetic_future_formal_target("candidate", mode=mode),
+    ]
+    evidence = targets[1]["version_evidence"]
+    if mutation == "missing":
+        evidence.pop("lexical_index_receipt")
+    elif mutation == "mismatch":
+        evidence["lexical_index_receipt_status"] = "mismatch"
+    elif mutation == "owner":
+        evidence["lexical_index_receipt"]["candidate_version_id"] = "kpv_foreign"
+    elif mutation == "namespace":
+        evidence["lexical_index_receipt"][
+            "candidate_namespace_fingerprint"
+        ] = "9" * 64
+    else:
+        evidence["lexical_index_receipt"]["chunk_sequence_hash"] = "9" * 64
+
+    with pytest.raises(ValueError, match="[Ll]exical"):
+        validate_formal_run_admission(
+            _gold(), targets, baseline_version_id="baseline"
+        )
+
+
+def test_r4b_lexical_receipt_vector_formal_keeps_receipt_not_applicable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, admitted = _synthetic_future_formal_admission(monkeypatch, mode="vector")
+
+    assert all(
+        target["lexical_index_receipt"] == {}
+        and target["lexical_index_receipt_status"] == "not_applicable"
+        for target in admitted["execution_manifest"]["targets"]
+    )
+
+
+@pytest.mark.parametrize("invalid_status", [[], {}])
+@pytest.mark.parametrize("boundary", ["admission", "preflight"])
+def test_r4b_lexical_receipt_malformed_vector_status_fails_closed(
+    monkeypatch: pytest.MonkeyPatch, invalid_status: Any, boundary: str,
+) -> None:
+    targets, admitted = _synthetic_future_formal_admission(monkeypatch, mode="vector")
+    run = _synthetic_future_formal_run(targets, admitted, _valid_formal_case_result("vector"))
+    assert formal_execution_preflight_reasons(run) == []
+    if boundary == "admission":
+        targets[0]["version_evidence"]["lexical_index_receipt_status"] = invalid_status
+        with pytest.raises(ValueError, match="[Ll]exical"):
+            validate_formal_run_admission(_gold(), targets, baseline_version_id="baseline")
+    else:
+        run["execution_manifest"]["targets"][0]["lexical_index_receipt_status"] = invalid_status
+        run["execution_manifest"] = seal_execution_manifest(run["execution_manifest"])
+        assert "formal_lexical_index_receipt_invalid:baseline" in formal_execution_preflight_reasons(run)
+
+
+@pytest.mark.parametrize("mutation", ["foreign_query", "missing_fingerprint", "identifier_count", "phrase_count"])
+def test_r4b_lexical_receipt_query_identity_cannot_be_resealed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mutation: str,
+) -> None:
+    from server.rag.lexical_store import LexicalChunk, SqliteLexicalStore
+
+    lexical = SqliteLexicalStore(tmp_path / "queries.sqlite3")
+    lexical.add_chunks([LexicalChunk("chunk-a", "ns", "doc-a", "fixture.md", "alpha beta", 0)])
+    targets, admitted = _synthetic_future_formal_admission(monkeypatch, mode="fulltext")
+    run = _synthetic_future_formal_run(targets, admitted, _valid_formal_case_result("fulltext"))
+    for results in run["case_results"].values():
+        results["case-a"]["retrieval_receipt"]["lexical_receipt"] = lexical.query_with_receipt("ns", "alpha", 3).receipt
+    run["status"] = "succeeded"
+    run["execution_integrity_checksum"] = _run_execution_integrity_checksum(run)
+    good = qualify_formal_execution_integrity(run)
+    assert good["qualified"], good["reason_codes"]
+    retrieval = run["case_results"]["candidate"]["case-a"]["retrieval_receipt"]
+    if mutation == "foreign_query":
+        # Same counts, same returned chunk, different query: shape alone cannot bind it.
+        retrieval["lexical_receipt"] = lexical.query_with_receipt("ns", "beta", 3).receipt
+    elif mutation == "missing_fingerprint":
+        retrieval["lexical_receipt"].pop("query_fingerprint", None)
+    elif mutation == "identifier_count":
+        retrieval["lexical_receipt"]["mandatory_identifier_count"] = 1
+    else:
+        retrieval["lexical_receipt"]["mandatory_phrase_count"] = 1
+    run["execution_integrity_checksum"] = _run_execution_integrity_checksum(run)
+    failed = qualify_formal_execution_integrity(run)
+    assert not failed["qualified"]
+    assert "lexical_query_receipt_invalid:candidate:case-a" in failed["reason_codes"]
+
+
+@pytest.mark.parametrize("mode", ["fulltext", "hybrid"])
+def test_r4b_lexical_receipt_formal_preflight_rejects_resealed_drift(
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+) -> None:
+    _, admitted = _synthetic_future_formal_admission(monkeypatch, mode=mode)
+    targets = [
+        _synthetic_future_formal_target("baseline", mode=mode),
+        _synthetic_future_formal_target("candidate", mode=mode),
+    ]
+    run = _synthetic_future_formal_run(
+        targets, admitted, _valid_formal_case_result(mode)
+    )
+    assert formal_execution_preflight_reasons(run) == []
+    run["execution_manifest"]["targets"][0]["lexical_index_receipt_status"] = (
+        "mismatch"
+    )
+    run["execution_manifest"] = seal_execution_manifest(run["execution_manifest"])
+
+    assert any(
+        "lexical" in reason for reason in formal_execution_preflight_reasons(run)
+    )
+
+
+@pytest.mark.parametrize("mode", ["fulltext", "hybrid"])
+@pytest.mark.parametrize("mutation", ["missing", "legacy", "wrong_policy"])
+def test_r4b_lexical_receipt_formal_integrity_requires_query_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+    mutation: str,
+) -> None:
+    targets, admitted = _synthetic_future_formal_admission(monkeypatch, mode=mode)
+    run = _synthetic_future_formal_run(
+        targets, admitted, _valid_formal_case_result(mode)
+    )
+    good = qualify_formal_execution_integrity(run)
+    assert good["qualified"] is True, good["reason_codes"]
+    receipt = run["case_results"]["candidate"]["case-a"]["retrieval_receipt"]
+    if mutation == "missing":
+        receipt.pop("lexical_receipt")
+    elif mutation == "legacy":
+        receipt["lexical_receipt"] = {
+            "contract_version": "sqlite-fts5-lexical-v1",
+            "query_policy": "legacy_or_v1",
+            "status": "legacy_read_only",
+        }
+    else:
+        receipt["lexical_receipt"]["query_policy"] = "legacy_or_v1"
+
+    result = qualify_formal_execution_integrity(run)
+    assert result["qualified"] is False
+    assert any("lexical" in reason for reason in result["reason_codes"])
+
+
+def test_r4b_lexical_receipt_resealed_manifest_drift_is_unreproducible(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    targets, admitted = _synthetic_future_formal_admission(
+        monkeypatch, mode="fulltext"
+    )
+    runtime_projection = _synthetic_future_runtime_projection(admitted)
+    store = KnowledgeEvaluationStore(
+        tmp_path / "evaluations.json",
+        reproducibility_resolver=lambda _run: deepcopy(runtime_projection),
+    )
+    evaluation_set = store.create_set("kb-a", "lexical receipt drift")
+    evaluation_version = {
+        **_gold(),
+        "eval_set_id": evaluation_set["eval_set_id"],
+        "source_revision": evaluation_set["revision"],
+    }
+    with store._lock:  # noqa: SLF001 - immutable synthetic published fixture.
+        data = store._read_unlocked()  # noqa: SLF001
+        data["versions"][evaluation_version["version_id"]] = deepcopy(
+            evaluation_version
+        )
+        store._write_unlocked(data)  # noqa: SLF001
+    created = store.create_run(
+        evaluation_set=evaluation_set,
+        evaluation_set_version=evaluation_version,
+        targets=targets,
+        baseline_version_id="baseline",
+        ks=[5],
+        gate_policy=store.get_gate_policy("kb-a"),
+        run_mode="formal",
+        execution_manifest=admitted["execution_manifest"],
+        comparability=admitted["comparability"],
+        evidence_qualification={"qualified": True},
+    )
+    with store._lock:  # noqa: SLF001 - simulate a resealed persisted manifest.
+        data = store._read_unlocked()  # noqa: SLF001
+        manifest = data["runs"][created["run_id"]]["execution_manifest"]
+        manifest["targets"][0]["lexical_index_receipt"][
+            "indexed_tokens_hash"
+        ] = "8" * 64
+        data["runs"][created["run_id"]]["execution_manifest"] = (
+            seal_execution_manifest(manifest)
+        )
+        store._write_unlocked(data)  # noqa: SLF001
+
+    projected = store.get_run(created["run_id"])
+    assert projected["reproducibility_status"] == "unreproducible"
+    assert any("lexical" in reason for reason in projected["reproducibility_reasons"])
+
+
+def test_r4b_lexical_receipt_promotion_rejects_missing_query_receipt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    targets, admitted = _synthetic_future_formal_admission(
+        monkeypatch, mode="fulltext"
+    )
+    run = _synthetic_future_formal_run(
+        targets, admitted, _valid_formal_case_result("fulltext")
+    )
+    run["status"] = "succeeded"
+    run["eval_set_version"] = 1
+    run["reproducibility_status"] = "current"
+    run["target_results"][1]["promotion_gate"] = {"passed": True}
+    run["execution_integrity_checksum"] = _run_execution_integrity_checksum(run)
+    store = KnowledgeEvaluationStore(tmp_path / "promotion.json")
+    monkeypatch.setattr(store, "get_run", lambda _run_id: deepcopy(run))
+
+    good = qualify_formal_execution_integrity(run)
+    assert good["qualified"] is True, good["reason_codes"]
+    assert store.assert_promotion_allowed(
+        kb_id="kb-a",
+        version_id="candidate",
+        evaluation_run_id="run-a",
+        require_passed_run=True,
+    )["version_id"] == "candidate"
+
+    run["case_results"]["candidate"]["case-a"]["retrieval_receipt"].pop(
+        "lexical_receipt"
+    )
+    run["execution_integrity_checksum"] = _run_execution_integrity_checksum(run)
+    rejected = qualify_formal_execution_integrity(run)
+    assert rejected["qualified"] is False
+    assert any("lexical" in reason for reason in rejected["reason_codes"])
+
+    with pytest.raises(EvaluationPromotionError, match="execution receipts"):
+        store.assert_promotion_allowed(
+            kb_id="kb-a",
+            version_id="candidate",
+            evaluation_run_id="run-a",
+            require_passed_run=True,
+        )
 
 
 def test_synthetic_future_formal_admission_rejects_degraded_hash_and_identity_mismatch(
@@ -425,15 +797,15 @@ def test_synthetic_future_formal_chunking_receipt_is_bound_to_target(
 ) -> None:
     targets, admitted = _synthetic_future_formal_admission(monkeypatch)
     declared = admitted["execution_manifest"]["targets"][0]
-    assert declared["chunking_receipt"] == _chunking_receipt()
+    assert declared["chunking_receipt"] == _chunking_receipt("kpv_baseline")
     assert declared["chunking_receipt_fingerprint"] == _checksum(
-        _chunking_receipt()
+        _chunking_receipt("kpv_baseline")
     )
     assert declared["chunker"]["fingerprint"] == _chunking_receipt()[
         "chunker_profile_fingerprint"
     ]
-    assert declared["index_owner_version_id"] == "baseline"
-    assert declared["candidate_namespace_fingerprint"] == _chunking_receipt()[
+    assert declared["index_owner_version_id"] == "kpv_baseline"
+    assert declared["candidate_namespace_fingerprint"] == _chunking_receipt("kpv_baseline")[
         "candidate_namespace_fingerprint"
     ]
 

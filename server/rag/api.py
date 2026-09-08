@@ -677,6 +677,7 @@ class PipelineJobPayload(BaseModel):
     index_contract: dict[str, Any] = Field(default_factory=dict)
     content_index_contract: dict[str, Any] = Field(default_factory=dict)
     chunking_receipt: dict[str, Any] = Field(default_factory=dict)
+    lexical_index_receipt: dict[str, Any] = Field(default_factory=dict)
     vector_backend_readiness: dict[str, Any] = Field(default_factory=dict)
     created_at: float
     updated_at: float
@@ -722,6 +723,7 @@ class PipelineVersionPayload(BaseModel):
     index_contract: dict[str, Any] = Field(default_factory=dict)
     content_index_contract: dict[str, Any] = Field(default_factory=dict)
     chunking_receipt: dict[str, Any] = Field(default_factory=dict)
+    lexical_index_receipt: dict[str, Any] = Field(default_factory=dict)
     vector_backend_readiness: dict[str, Any] = Field(default_factory=dict)
     vision_profile: dict[str, Any] = Field(default_factory=dict)
     vision_page_count: int = 0
@@ -1048,6 +1050,8 @@ def _resolve_evaluation_reproducibility(
             "content_index_contract": dict(
                 evidence.get("content_index_contract") or {}
             ),
+            "lexical_index_receipt": dict(evidence.get("lexical_index_receipt") or {}),
+            "lexical_index_receipt_status": str(evidence.get("lexical_index_receipt_status") or "legacy_read_only"),
             "vector_backend_readiness": (
                 {"status": "not_applicable"}
                 if str((evidence.get("retrieval") or {}).get("mode") or "")

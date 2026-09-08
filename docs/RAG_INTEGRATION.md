@@ -2,14 +2,68 @@
 
 本文件说明模镜本地 RAG 模块的架构、API、扩展方式和测试方法。该模块位于 `server/rag/`，前端入口为 `/rag`，聊天页可选择知识库进行检索增强问答。
 
-最后更新日期：2026-08-29
+最后更新日期：2026-09-07
 
 > **当前状态：** `/rag` 是 ModelMirror 本地主路径。知识流水线已支持候选版本、
 > 人工激活/回滚、Processor、可选视觉理解、向量 + FTS5 双索引、检索评测和
 > Promotion Gate。下方按日期保留的段落是增量记录；较早段落中的“planned”
 > 只代表当时状态。
 
+## 2026-09-07 P1 4B：全文检索 V2（Diagnostic）
+
+本节更新下方 4A 的候选构建边界，不改变解析合同、生产阈值或在线排序策略。
+新 Draft/显式保存的 Draft 声明 `sqlite-fts5-lexical-v2`、
+`minimum_should_match_auto_v1` 和 `ordered_nfkc_cjk_bigram_identifier_v2`。
+可用后端支持的 vector/fulltext/hybrid 可构建独立 Diagnostic 候选；parser 仍为历史合同，
+因此不能首次激活、promotion、Formal 或启动需要完整内容合同的 Tuner trial。
+
+### 匹配与分数边界
+
+- NFKC、小写和有序 Token 流保留重复词频，供 FTS5/BM25 排序；中文长串只生成有序重叠 bigram。
+- 完整字母数字/稳定分隔符标识符使用 FTS-safe SHA-256 哨兵（含 C++、C#、std::vector），
+  引号短语使用有序相邻 phrase clause，两类均为必选条件，不按拆开的部件匹配。
+- 普通词 OR 仅召回有界候选池：`min(version.top_k * 8, 500)`，在 MSM **之前**截取。
+  不乘 `candidate_multiplier`，也不会为补齐结果自动扩大池。
+- MSM：1 个有效普通词要求 1；2–4 个要求 2；至少 5 个要求 `ceil(0.6 * n)`。
+  单个常见中文字符不独立提供绝对相关性证据；64 Token 以上或未闭合引号明确拒绝。
+- absolute lexical confidence 保留命名空间内 IDF 加权唯一查询词覆盖率；TF 只影响 BM25。
+  截取/增加返回尾部不改变现有候选的置信度。**改变语料文档频率**仍可改变 IDF，不承诺跨语料分数不变。
+  P0 绝对通道阈值、融合、Rerank 与多样性顺序不变。
+
+### 身份、回执与兼容
+
+每个新 namespace 使用独立 FTS 表，避免其他 namespace 的词频、长度污染 BM25。
+V2 元数据与 FTS 只做附加式创建，不 ALTER/重建旧 V1 表。旧版本继续按原 tokenizer 查询；
+已封存且无 lexical-v2 profile 的 4A Job 在恢复时保留原身份，不默认补成新合同。
+
+`lexical_index_receipt` 将 Token 流哈希、Chunk 序列哈希、namespace fingerprint 和真实 index owner
+绑定到 Job、Version、配置指纹和执行清单；读证据时复核实际索引，不信任复制的 `current` 标签。
+`lexical_receipt` 在命中和空结果分支均返回合同、候选预算、各阶段数量及拒绝原因。
+其中 `final_count` 是**送入后续通道过滤/排序的候选数**，不是最终 Top-K；合法情况下可大于 Top-K。
+`candidate_pool_saturated` 表明有界召回可能遗漏池外匹配项；空检索绝不能替代 Benchmark 的全库无答案审核。
+
+评测安全投影只保留白名单字段，不记录原始查询、精确 ID 明文或文档正文。查询 SHA-256
+用于绑定已锁定 case，Formal 校验同时重放 query plan 的普通词、标识符和短语计数。
+这类无密钥哈希是完整性标识，**不是匿名化、秘密或抵抗特权存储篡改的认证签名**；
+低熵查询仍可能被猜测。历史缺回执运行可读，但不能取得新的 Formal/promotion 资格。
+
+全文章节与 XLSX 结构继续使用既有 `sheet` / `row_range`（例如 `A1:B4`）字段，
+未新增虚构的 `cell_range`，也不把此传递测试当作 4C 解析能力已完成。
+
+### 离线验证与回滚
+
+先运行 `test_rag_lexical_contract.py`、`test_rag_lexical_pipeline_contract.py`、
+`test_rag_lexical_legacy_replay.py` 和 `test_rag_evaluation_integrity.py`，再做完整 RAG/Knowledge/
+Benchmark/File Asset 回归、全量后端及相关前端和构建检查。Help 教程与截图来自
+`436d2453` 基线加本批受审增量，不是声称文档包含未来自身提交 SHA。
+
+隔离 UI 验收使用 General、本地全文、关闭 Vision/Rerank/模型答案生成；不访问共享网关、索引或持久化数据。
+回滚仅撤销本 PR 代码，不删除、迁移或覆盖历史数据；新 V2 namespace 不被旧代码当作 V1 解读。
+独立临时预览的转接耗时不能用于延迟基准。最终数字与未运行门禁记录于本批 checkpoint。
+
 ## 2026-08-29 P1：估算 Token 分块与内容索引合同
+
+以下为 4A 历史记录；全文候选的现行边界以上方 4B 节为准。
 
 新建 Knowledge Pipeline Draft 默认使用 `recursive_estimated_token`，也可显式选择
 `parent_child_estimated_token`。两者固定声明：

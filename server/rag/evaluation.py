@@ -25,6 +25,14 @@ except ModuleNotFoundError:
     from model_router.workload_control import PROVIDER_WORKLOAD_CONTRACT_VERSION
 
 from .chunking_receipt import chunking_receipt_is_valid
+from .lexical_contract import (
+    lexical_profile,
+    minimum_should_match,
+    plan_query,
+    query_fingerprint,
+    safe_index_receipt as safe_lexical_index_receipt,
+    safe_query_receipt as safe_lexical_query_receipt,
+)
 from .strategy_tuning_qualification import (
     MIN_HARD_NEGATIVES,
     MIN_POSITIVE_CASES,
@@ -171,6 +179,8 @@ def evaluation_runtime_code_fingerprint() -> str:
         ("rag/evaluation.py", Path(__file__)),
         ("rag/evaluation_executor.py", rag_root / "evaluation_executor.py"),
         ("rag/lexical_store.py", rag_root / "lexical_store.py"),
+        ("rag/lexical_contract.py", rag_root / "lexical_contract.py"),
+        ("rag/lexical_v2_store.py", rag_root / "lexical_v2_store.py"),
         ("rag/rag_service.py", rag_root / "rag_service.py"),
         ("rag/reranker.py", rag_root / "reranker.py"),
         ("rag/retrieval.py", rag_root / "retrieval.py"),
@@ -1381,6 +1391,74 @@ def qualify_formal_evidence(snapshot: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _lexical_index_receipt_is_current(target: dict[str, Any]) -> bool:
+    """Bind lexical evidence to its actual index owner, not the target label."""
+    retrieval = target.get("retrieval")
+    index = target.get("index_contract")
+    if not isinstance(retrieval, dict) or not isinstance(index, dict):
+        return False
+    lexical = index.get("lexical")
+    if not isinstance(lexical, dict):
+        return False
+    mode = retrieval.get("mode")
+    if mode == "vector":
+        return (
+            lexical.get("required") is False
+            and not target.get("lexical_index_receipt")
+            and target.get("lexical_index_receipt_status") in (None, "not_applicable")
+        )
+    if mode not in {"fulltext", "hybrid"}:
+        return False
+    receipt = safe_lexical_index_receipt(target.get("lexical_index_receipt"))
+    chunking = target.get("chunking_receipt")
+    return bool(
+        receipt and isinstance(chunking, dict)
+        and lexical.get("required") is True
+        and lexical.get("backend") == "sqlite_fts5"
+        and all(lexical.get(key) == expected for key, expected in lexical_profile().items())
+        and target.get("lexical_index_receipt_status") == "current"
+        and receipt["chunk_count"] == target.get("chunk_count")
+        and receipt["candidate_version_id"] == target.get("index_owner_version_id")
+        and receipt["candidate_namespace_fingerprint"] == target.get("candidate_namespace_fingerprint")
+        and receipt["chunk_sequence_hash"] == chunking.get("chunk_sequence_hash")
+    )
+
+
+def _lexical_query_receipt_is_current(value: Any, top_k: Any, query: Any) -> bool:
+    receipt = safe_lexical_query_receipt(value)
+    if not receipt or any(receipt.get(key) != expected for key, expected in lexical_profile().items()):
+        return False
+    if type(top_k) is not int or top_k <= 0 or not isinstance(query, str):
+        return False
+    plan = plan_query(query.strip())
+    initial = receipt["initial_candidate_count"]
+    passed = receipt["minimum_should_match_count"]
+    terms = receipt["effective_term_count"]
+    required = receipt["required_term_count"]
+    candidates = receipt["candidates"]
+    return (
+        receipt["candidate_limit"] == min(top_k * 8, 500)
+        and receipt["query_fingerprint"] == query_fingerprint(query)
+        and plan.rejection_reason is None
+        and terms == len(plan.ordinary_terms)
+        and receipt["mandatory_identifier_count"] == plan.identifier_count
+        and receipt["mandatory_phrase_count"] == plan.phrase_count
+        and 0 <= receipt["final_count"] <= passed <= initial <= receipt["candidate_limit"]
+        and 0 <= terms <= 64 and required == minimum_should_match(terms)
+        and len(candidates) == initial
+        and sum(item["accepted"] for item in candidates) == passed
+        and all(
+            item["required_term_count"] == required
+            and item["matched_term_count"] <= terms
+            and item["accepted"] == (item["matched_term_count"] >= required)
+            for item in candidates
+        )
+        and receipt["rejection_reason"] in {
+            None, "minimum_should_match_not_met", "mandatory_or_terms_not_matched",
+        }
+    )
+
+
 def validate_formal_run_admission(
     evaluation_version: dict[str, Any],
     targets: list[dict[str, Any]],
@@ -1568,6 +1646,8 @@ def validate_formal_run_admission(
             raise ValueError(
                 "Formal evaluation target chunking receipt is incomplete."
             )
+        if not _lexical_index_receipt_is_current(evidence):
+            raise ValueError("Formal evaluation target lexical index receipt is incomplete or inconsistent.")
         manifest_targets.append(
             {
                 "kb_id": expected_kb_id,
@@ -1594,6 +1674,8 @@ def validate_formal_run_admission(
                 "rerank": rerank,
                 "index_contract": _copy(index_contract),
                 "content_index_contract": _copy(content_index_contract),
+                "lexical_index_receipt": safe_lexical_index_receipt(evidence.get("lexical_index_receipt")),
+                "lexical_index_receipt_status": str(evidence.get("lexical_index_receipt_status") or "legacy_read_only"),
                 "vector_backend_readiness": manifest_backend,
                 "runtime_vector_backend_readiness": manifest_runtime_backend,
             }
@@ -1730,6 +1812,10 @@ def formal_execution_preflight_reasons(run: dict[str, Any]) -> list[str]:
     ):
         reasons.append("formal_chunking_receipt_invalid")
 
+    for target in raw_manifest_targets:
+        if not _lexical_index_receipt_is_current(target):
+            reasons.append(f"formal_lexical_index_receipt_invalid:{target.get('version_id', '')}")
+
     corpus_hash = str(manifest.get("corpus_snapshot_hash") or "")
     comparability = run.get("comparability")
     comparability = comparability if isinstance(comparability, dict) else {}
@@ -1812,11 +1898,12 @@ def qualify_formal_execution_integrity(
         for item in raw_run_targets
         if str(item.get("version_id") or item.get("target_id") or "")
     }
-    expected_case_ids = {
-        str(case.get("case_id") or "")
+    expected_cases = {
+        str(case.get("case_id") or ""): case
         for case in (run.get("eval_set_snapshot") or {}).get("cases", [])
         if isinstance(case, dict) and str(case.get("case_id") or "")
     }
+    expected_case_ids = set(expected_cases)
     if (
         not run_target_ids
         or not manifest_targets
@@ -1934,6 +2021,11 @@ def qualify_formal_execution_integrity(
                 or retrieval_receipt.get("top_k") != retrieval.get("top_k")
             ):
                 reasons.append(f"retrieval_execution_identity_mismatch:{version_id}:{case_id}")
+            if mode in {"fulltext", "hybrid"} and not _lexical_query_receipt_is_current(
+                retrieval_receipt.get("lexical_receipt"), retrieval.get("top_k"),
+                expected_cases.get(case_id, {}).get("query"),
+            ):
+                reasons.append(f"lexical_query_receipt_invalid:{version_id}:{case_id}")
             # Absolute channel filtering may legitimately leave no work for
             # Rerank. This is not a failed Provider call or a fail-open path.
             rerank_skipped_empty = (
@@ -2733,6 +2825,8 @@ class KnowledgeEvaluationStore:
                         "content_index_contract": _copy(
                             evidence.get("content_index_contract") or {}
                         ),
+                        "lexical_index_receipt": safe_lexical_index_receipt(evidence.get("lexical_index_receipt")),
+                        "lexical_index_receipt_status": str(evidence.get("lexical_index_receipt_status") or "legacy_read_only"),
                         "vector_backend_readiness": (
                             {"status": "not_applicable"}
                             if fulltext
@@ -3265,6 +3359,11 @@ class KnowledgeEvaluationStore:
                     continue
                 if current.get("corpus_snapshot_status") == "unreproducible":
                     reasons.append(f"corpus_snapshot_unreproducible:{version_id}")
+                if formal_identity and not (
+                    _lexical_index_receipt_is_current(declared)
+                    and _lexical_index_receipt_is_current(current)
+                ):
+                    reasons.append(f"formal_lexical_index_receipt_invalid:{version_id}")
                 for field in (
                     "kb_id",
                     "version_fingerprint",
@@ -3288,6 +3387,7 @@ class KnowledgeEvaluationStore:
                     "chunk_count",
                     "chunking_receipt_fingerprint",
                     "chunking_receipt_status",
+                    "lexical_index_receipt_status",
                 ):
                     if field in declared and str(current.get(field) or "") != str(
                         declared.get(field) or ""
@@ -3299,6 +3399,7 @@ class KnowledgeEvaluationStore:
                     "index_contract",
                     "content_index_contract",
                     "chunking_receipt",
+                    "lexical_index_receipt",
                     "chunker",
                     "vector_backend_readiness",
                     "runtime_vector_backend_readiness",
@@ -3826,6 +3927,8 @@ def _safe_retrieval_receipt(value: dict[str, Any] | None) -> dict[str, Any]:
         receipt["rerank_attempted_targets"] = [
             str(item)[:160] for item in attempted_targets[:10] if str(item)
         ]
+    if "lexical_receipt" in value:
+        receipt["lexical_receipt"] = safe_lexical_query_receipt(value.get("lexical_receipt"))
     return receipt
 
 

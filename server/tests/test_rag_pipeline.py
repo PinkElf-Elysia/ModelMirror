@@ -448,10 +448,13 @@ async def test_rag_retrieval_capabilities_are_safe(client: httpx.AsyncClient) ->
     assert data["index_schema_version"] == 3
     assert data["fulltext"]["backend"] == "sqlite_fts5"
     assert data["modes"] == ["vector", "fulltext", "hybrid"]
-    assert data["candidate_build_modes"] == ["vector"]
+    assert data["vector"]["candidate_build_available"] is True
+    assert data["candidate_build_modes"] == ["vector", "fulltext", "hybrid"]
     assert data["fulltext"]["query_available"] is True
-    assert data["fulltext"]["candidate_build_available"] is False
-    assert data["fulltext"]["candidate_build_blocker"] == "lexical_v2_pending"
+    assert data["fulltext"]["candidate_build_available"] is True
+    assert data["fulltext"]["candidate_build_blocker"] is None
+    assert data["fulltext"]["contract_version"] == "sqlite-fts5-lexical-v2"
+    assert data["candidate_build_contract_status"] == "partial_round_4b"
     serialized = str(data).lower()
     assert "api_key" not in serialized
     assert "sk-" not in serialized
@@ -613,11 +616,11 @@ async def test_rag_pipeline_draft_preflight_empty_and_with_document(
     response = await client.post(f"/api/rag/pipeline/draft/{kb_id}/preflight")
     assert response.status_code == 200, response.text
     populated = response.json()
-    assert populated["ready"] is False
+    assert populated["ready"] is True
     assert populated["document_count"] == 1
     assert populated["artifact_count"] == 1
     assert populated["chunk_count"] == 0
-    assert any("lexical-v1" in warning for warning in populated["warnings"])
+    assert not any("lexical-v1" in warning for warning in populated["warnings"])
 
     draft = (await client.get(f"/api/rag/pipeline/draft?kb_id={kb_id}")).json()
     configured = await client.patch(
