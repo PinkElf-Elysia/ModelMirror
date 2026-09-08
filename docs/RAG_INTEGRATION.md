@@ -2,14 +2,64 @@
 
 本文件说明模镜本地 RAG 模块的架构、API、扩展方式和测试方法。该模块位于 `server/rag/`，前端入口为 `/rag`，聊天页可选择知识库进行检索增强问答。
 
-最后更新日期：2026-09-07
+最后更新日期：2026-09-08
 
 > **当前状态：** `/rag` 是 ModelMirror 本地主路径。知识流水线已支持候选版本、
 > 人工激活/回滚、Processor、可选视觉理解、向量 + FTS5 双索引、检索评测和
 > Promotion Gate。下方按日期保留的段落是增量记录；较早段落中的“planned”
 > 只代表当时状态。
 
-## 2026-09-07 P1 4B：全文检索 V2（Diagnostic）
+## 2026-09-08 P1 4C：统一解析与转换回执
+
+新草稿声明 `canonical-structured-parser-v2` 与
+`rag-document-transform-receipt-v1`；旧草稿缺少这些字段时仍按历史合同读取，
+必须显式保存当前解析配置后才能构建新候选。既有版本不迁移，曾激活的旧版本仍可回滚。
+
+### 结构、资源与失败边界
+
+- RAG PDF 复用 File Asset 的 spawn/超时/资源受限 Worker。共享 Chat 入口默认保留原解析分支，
+  不静默改写历史语义；本批没有新增生产依赖。
+- PDF 仅将可证明分离的双栏按列排序；完整规则网格才能输出结构化表格。
+  跨栏对象、重叠文字或无法证明的布局返回 `rag_layout_degraded`，保留诊断文本而不宣称正确阅读顺序。
+  不承诺通用复杂排版、任意表格重建或 OCR 准确率。
+- 重复页边清理记录 `remove_repeated_page_edge`、页码、删除数和归一化行 SHA-256，
+  不保存被删除原文；已证明的表格内容不参与页边删除。
+- Markdown 保留 heading path、代码和表格；XLSX 保留 sheet、A1 row range、坐标和值。
+  XLSX 的可选或低报 dimension 不再隐藏实际行；实际流式扫描仍受既有行、列和单元格上限约束。
+- 空/损坏/部分页面失败不会成为“空但成功”。无文本层 PDF 且 OCR 关闭时返回
+  `scanned_pdf_requires_ocr`；混合文档的缺失页、截断及布局不明保留明确降级原因。
+  `continue_on_error` 可以保留其他文档的诊断结果，但不能赋予残缺候选首次激活或晋级资格。
+
+### 身份与资格接线
+
+每份新处理产物携带源文件哈希、source identity、规范 Block 结构哈希、页码和脱敏操作回执。
+Job、Version、API 处理预览及画布预览均保留回执和错误码。Chunk/citation metadata 继续传递
+page、heading path、sheet 和 row range；PDF 几何 table bbox 保存在结构化处理产物中。
+本批不改变引用选择或生成逻辑。
+
+版本查询重新投影 parser receipt 状态；首次激活、promotion 和 Formal 证据读取还校验实际
+源文件与处理 artifact。仅复制 `current` 标签、遗漏回执、文档失败或降级均不能获得新资格。
+处理回执的指纹进入配置/版本证据和执行清单；旧 Formal 记录可读，但缺失当前内容回执时
+不能授权新 promotion。无密钥哈希用于完整性绑定，不是匿名化或认证签名。
+
+完整内容合同只是构建与后续资格检查的必要条件。独立 calibration/Gold、真实 Provider 身份、
+绝对阈值和评测门禁仍按 P0 规则执行；本批不调整它们，也不证明模型质量或 Tuner 收益。
+
+### 验证与回滚
+
+固定自有 fixtures 及来源/checksum 清单位于 `server/tests/fixtures/rag_parser_v2/manifest.json`。
+先执行 `test_rag_parser_contract.py`、`test_rag_parser_pipeline_contract.py`，再运行
+RAG/Knowledge/Benchmark/File Asset 定向、全量后端、前端定向/全量及 build。
+测试使用断网容器和严格 Fake Vision；预览使用新建独立 Compose、临时存储和纯全文，
+后端同时配置无凭据、internal 网络与出站 HTTP 拦截，不访问真实 Provider。
+
+本批验收不激活候选，旧活动索引和共享数据保持不变。完整第四轮的最终隔离验收留待 4C 合并，
+不得将单 PR 预览替代该退出门。仅撤销本 PR 源码即可回滚，不涉及数据迁移或索引删除。
+确切红/绿测、基线失败和未完成事项记录于 `docs/tasks/RAG_R4C_PARSER_CONTRACT.md`。
+
+## 2026-09-07 P1 4B：全文检索 V2（历史阶段记录）
+
+以下保留 4B 当时的 Diagnostic 边界；当前 parser 与构建条件以上方 4C 节为准。
 
 本节更新下方 4A 的候选构建边界，不改变解析合同、生产阈值或在线排序策略。
 新 Draft/显式保存的 Draft 声明 `sqlite-fts5-lexical-v2`、

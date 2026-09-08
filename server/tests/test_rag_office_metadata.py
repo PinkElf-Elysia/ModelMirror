@@ -405,27 +405,15 @@ async def test_rag_pipeline_surfaces_office_parser_failure_after_source_only_upl
 class _OfficePipelineProcessor:
     def process(self, path: Path, **kwargs: Any) -> ProcessedDocument:
         text = "发布摘要\n代号 AURORA-42 已批准。"
-        block = DocumentBlock(
-            block_id="block-slide-4",
-            kind="paragraph",
-            text=text,
-            start_char=0,
-            end_char=len(text),
-            heading_path=["发布摘要"],
-            page_number=None,
-            metadata={
-                "slide": 4,
-                "heading_path": ["发布摘要"],
-                "line_range": "1-2",
-            },
-        )
-        return ProcessedDocument(
-            source_id=str(kwargs["source_id"]),
-            filename=str(kwargs["filename"]),
-            title="发布摘要",
-            text=text,
-            blocks=[block],
-        )
+        processor = StructuredDocumentProcessor()
+        # Source parsing is the fixture boundary; use the actual block/receipt
+        # construction and source hash rather than forging a current receipt.
+        from unittest.mock import patch
+        parsed = ParsedDocument(format="pptx", title="发布摘要", sections=(ParsedSection(
+            text=text, slide=4, heading_path=("发布摘要",), line_range="1-2",
+        ),), extracted_chars=len(text))
+        with patch.object(processor_module, "parse_document_structured", return_value=parsed):
+            return processor.process(path, **kwargs)
 
 
 @pytest.mark.asyncio

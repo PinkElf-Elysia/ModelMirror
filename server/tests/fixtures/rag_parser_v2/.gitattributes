@@ -1,0 +1,3 @@
+# Frozen document fixtures require exact binary bytes, including PDF xref spaces.
+*.pdf binary
+*.xlsx binary

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import math
 import re
 import unicodedata
 from dataclasses import asdict, dataclass, field
@@ -17,6 +16,12 @@ from .source_metadata import (
     heading_path_source_hash,
     heading_path_source_truncated,
     normalize_heading_path,
+)
+from .processing_receipt import (
+    LEGACY_PARSER_CONTRACT_VERSION,
+    PARSER_CONTRACT_VERSION,
+    PROCESSING_RECEIPT_VERSION,
+    structure_hash,
 )
 
 
@@ -102,6 +107,9 @@ class ProcessedDocument:
     text: str
     blocks: list[DocumentBlock]
     warnings: list[str] = field(default_factory=list)
+    parser_contract_version: str = LEGACY_PARSER_CONTRACT_VERSION
+    processing_receipt: dict[str, Any] = field(default_factory=dict)
+    error_code: str | None = None
 
     @property
     def block_counts(self) -> dict[str, int]:
@@ -124,6 +132,9 @@ class ProcessedDocument:
             "block_count": len(self.blocks),
             "block_counts": self.block_counts,
             "warnings": list(self.warnings),
+            "parser_contract_version": self.parser_contract_version,
+            "processing_receipt": self.processing_receipt,
+            "error_code": self.error_code,
             "blocks": [block.payload(max_text=max_block_text) for block in self.blocks],
         }
         if include_text:
@@ -146,6 +157,9 @@ class StructuredDocumentProcessor:
     ) -> ProcessedDocument:
         options = dict(config or {})
         extension = Path(filename).suffix.lower()
+        parsed = None
+        operations: list[dict[str, Any]] = []
+        degradation_reasons: list[str] = []
         if extension in {".png", ".jpg", ".jpeg", ".webp"} and extra_blocks:
             text = ""
             blocks = []
@@ -164,12 +178,18 @@ class StructuredDocumentProcessor:
             )
             warnings = []
         elif extension == ".pdf":
-            pages = self._pdf_pages(path)
-            pages, warnings = self._clean_pdf_pages(
-                pages,
-                remove_repeated=bool(options.get("remove_repeated_headers_footers", True)),
+            parsed = parse_document_structured(
+                path, filename,
+                remove_repeated_pdf_edges=bool(options.get("remove_repeated_headers_footers", True)),
+                preserve_pdf_tables=bool(options.get("preserve_tables", True)),
             )
-            text, blocks = self._page_blocks(pages, source_id)
+            text, blocks = self._shared_section_blocks(parsed, source_id)
+            warnings = list(parsed.warnings)
+            operations = [dict(item) for item in parsed.operations]
+            if operations:
+                warnings.append("Removed repeated PDF page edges; see hashed transform receipt.")
+            if not blocks and not extra_blocks:
+                raise DocumentParseError("PDF has no text layer; OCR is required.", error_code="scanned_pdf_requires_ocr")
         elif extension in _SHARED_SECTION_EXTENSIONS:
             parsed = parse_document_structured(path, filename)
             text, blocks = self._shared_section_blocks(parsed, source_id)
@@ -187,6 +207,37 @@ class StructuredDocumentProcessor:
         )
         if not blocks:
             raise DocumentParseError(f"Document produced no structured blocks: {filename}")
+        layout_status = parsed.layout_status if parsed is not None else "not_applicable"
+        if parsed is not None and parsed.truncated:
+            degradation_reasons.append("rag_document_truncated")
+        if layout_status == "degraded":
+            degradation_reasons.append("rag_layout_degraded")
+        if extension == ".pdf" and parsed is not None:
+            vision_pages = sorted({
+                block.page_number for block in blocks
+                if block.kind.startswith(("image_", "visual_")) and block.page_number is not None
+            })
+            missing_pages = sorted(set(parsed.empty_pages) - set(vision_pages))
+            if missing_pages:
+                degradation_reasons.append("scanned_pdf_requires_ocr")
+            if any(page < 1 or page > parsed.page_count for page in vision_pages):
+                degradation_reasons.append("rag_vision_page_identity_invalid")
+            if vision_pages:
+                operations.append({"code": "vision_page_text", "pages": vision_pages, "count": len(vision_pages)})
+        processed_pages = sorted({block.page_number for block in blocks if block.page_number is not None})
+        with path.open("rb") as source:
+            source_content_hash = hashlib.file_digest(source, "sha256").hexdigest()
+        processing_receipt = {
+            "receipt_version": PROCESSING_RECEIPT_VERSION,
+            "parser_contract_version": PARSER_CONTRACT_VERSION,
+            "source_id": source_id, "source_content_hash": source_content_hash,
+            "status": "degraded" if degradation_reasons else "complete",
+            "layout_status": layout_status, "page_count": parsed.page_count if parsed is not None else 0,
+            "processed_pages": processed_pages, "empty_pages": list(parsed.empty_pages) if parsed is not None else [],
+            "degraded_pages": list(parsed.degraded_pages) if parsed is not None else [],
+            "degradation_reasons": degradation_reasons, "operations": operations,
+            "block_count": len(blocks), "structure_hash": structure_hash([asdict(block) for block in blocks]),
+        }
         title = Path(filename).stem
         if bool(options.get("extract_title", True)):
             heading = next((block.text for block in blocks if block.kind == "heading"), "")
@@ -199,6 +250,9 @@ class StructuredDocumentProcessor:
             text=text,
             blocks=blocks,
             warnings=warnings,
+            parser_contract_version=PARSER_CONTRACT_VERSION,
+            processing_receipt=processing_receipt,
+            error_code=degradation_reasons[0] if degradation_reasons else None,
         )
 
     def _merge_extra_blocks(
@@ -396,77 +450,6 @@ class StructuredDocumentProcessor:
         end = start + len(text)
         return self._block(source_id, kind, text, start, end, heading_path=list(headings))
 
-    def _pdf_pages(self, path: Path) -> list[str]:
-        try:
-            import pdfplumber  # type: ignore[import-not-found]
-
-            with pdfplumber.open(path) as pdf:
-                return [page.extract_text() or "" for page in pdf.pages]
-        except ImportError:
-            pass
-        except Exception as exc:  # pragma: no cover - parser-specific failure.
-            raise DocumentParseError(f"PDF parsing failed: {path.name}") from exc
-        try:
-            import PyPDF2  # type: ignore[import-not-found]
-
-            with path.open("rb") as handle:
-                reader = PyPDF2.PdfReader(handle)
-                return [page.extract_text() or "" for page in reader.pages]
-        except Exception as exc:  # pragma: no cover - dependency/parser-specific failure.
-            raise DocumentParseError(f"PDF parsing failed: {path.name}") from exc
-
-    def _clean_pdf_pages(self, pages: list[str], *, remove_repeated: bool) -> tuple[list[str], list[str]]:
-        cleaned = [self._clean_text(page) for page in pages]
-        if not remove_repeated or len(cleaned) < 2:
-            return cleaned, []
-        edge_counts: dict[str, int] = {}
-        page_edges: list[tuple[str, str]] = []
-        for page in cleaned:
-            lines = [line.strip() for line in page.splitlines() if line.strip()]
-            edges = (lines[0] if lines else "", lines[-1] if lines else "")
-            page_edges.append(edges)
-            for value in set(edges):
-                if 2 <= len(value) <= 200:
-                    edge_counts[value] = edge_counts.get(value, 0) + 1
-        threshold = max(2, math.ceil(len(cleaned) * 0.6))
-        repeated = {value for value, count in edge_counts.items() if count >= threshold}
-        if not repeated:
-            return cleaned, []
-        output: list[str] = []
-        for page in cleaned:
-            lines = page.splitlines()
-            while lines and lines[0].strip() in repeated:
-                lines.pop(0)
-            while lines and lines[-1].strip() in repeated:
-                lines.pop()
-            output.append(self._clean_text("\n".join(lines)))
-        return output, [f"Removed {len(repeated)} repeated PDF header/footer lines."]
-
-    def _page_blocks(self, pages: list[str], source_id: str) -> tuple[str, list[DocumentBlock]]:
-        blocks: list[DocumentBlock] = []
-        parts: list[str] = []
-        cursor = 0
-        for page_number, page in enumerate(pages, start=1):
-            if not page.strip():
-                continue
-            if parts:
-                parts.append("\n\n")
-                cursor += 2
-            start = cursor
-            parts.append(page)
-            cursor += len(page)
-            blocks.append(
-                self._block(
-                    source_id,
-                    "page",
-                    page,
-                    start,
-                    cursor,
-                    page_number=page_number,
-                )
-            )
-        return "".join(parts), blocks
-
     def _shared_section_blocks(
         self,
         parsed: Any,
@@ -496,10 +479,15 @@ class StructuredDocumentProcessor:
                     "row_range": section.row_range,
                     "time_range": section.time_range,
                     "heading_path": heading_path or None,
+                    "column": section.column,
+                    "table_bbox": list(section.table_bbox) if section.table_bbox else None,
+                    "layout_status": section.layout_status if parsed.format == "pdf" else None,
                 }.items()
                 if value is not None
             }
-            if parsed.format in {"csv", "tsv", "xlsx"}:
+            if section.kind in {"table", "page"}:
+                kind = section.kind
+            elif parsed.format in {"csv", "tsv", "xlsx"}:
                 kind = "table"
             elif parsed.format in {"srt", "vtt"}:
                 kind = "subtitle"

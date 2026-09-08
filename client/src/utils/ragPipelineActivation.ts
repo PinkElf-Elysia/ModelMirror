@@ -69,10 +69,17 @@ export function draftExecutionDisposition(
       message: "内容索引合同完整，可构建候选。",
     };
   }
+  if (components.parser !== "current") {
+    return {
+      status: "blocked",
+      canExecute: false,
+      message: "历史解析合同只读；请明确采用解析 V2 合同并保存草稿后再构建候选。",
+    };
+  }
   return {
     status: "diagnostic_only",
     canExecute: true,
-    message: `当前可构建 ${mode} diagnostic 候选；解析合同待完成，不能首次激活或晋级。`,
+    message: `当前仅可构建 ${mode} diagnostic 候选；聚合内容合同尚不完整，不能首次激活或晋级。`,
   };
 }
 

@@ -149,6 +149,8 @@ interface PipelineJob {
   error?: string | null;
   stages: Array<{ id: string; title: string; status: string; progress: number }>;
   document_results?: Array<{
+    error_code?: string | null;
+    processing_receipt?: { status?: string };
     vision_status?: string;
     vision_processed_page_count?: number;
     vision_failed_page_count?: number;
@@ -914,6 +916,12 @@ function NodeConfig({ node, onChange }: { node: GraphFlowNode; onChange: (patch:
       {kind === "data_source" ? <ReadOnlyField label="来源模式" value="uploaded_files" /> : null}
       {kind === "structured_processor" ? (
         <>
+          <ReadOnlyField label="解析合同" value={config.parser_contract_version === "canonical-structured-parser-v2" && config.processing_receipt_version === "rag-document-transform-receipt-v1" ? "解析 V2 · 转换回执 V1" : "历史解析合同（只读）"} />
+          {config.parser_contract_version !== "canonical-structured-parser-v2" || config.processing_receipt_version !== "rag-document-transform-receipt-v1" ? (
+            <button className="rounded border border-white/15 px-3 py-2 text-xs text-slate-200" type="button" onClick={() => onChange({ parser_contract_version: "canonical-structured-parser-v2", processing_receipt_version: "rag-document-transform-receipt-v1" })}>
+              采用解析 V2 合同（保存后仅影响新候选）
+            </button>
+          ) : null}
           <SelectField label="处理模式" value={String(config.mode || "general")} options={["general", "qa", "summary"]} onChange={(value) => onChange({ mode: value })} />
           <TextField label="模型 ID" value={String(config.model_id || "")} onChange={(value) => onChange({ model_id: value })} />
           <SelectField label="失败策略" value={String(config.failure_policy || "continue_on_error")} options={["continue_on_error", "strict"]} onChange={(value) => onChange({ failure_policy: value })} />
@@ -998,7 +1006,7 @@ function NodeConfig({ node, onChange }: { node: GraphFlowNode; onChange: (patch:
 
 function defaultConfig(kind: GraphNodeKind): Record<string, unknown> {
   if (kind === "data_source") return { source_mode: "uploaded_files" };
-  if (kind === "structured_processor") return { parser: "structured_local_parser", mode: "general", failure_policy: "continue_on_error", max_generated_items: 20, extract_title: true, preserve_tables: true, preserve_code_blocks: true, remove_repeated_headers_footers: true };
+  if (kind === "structured_processor") return { parser: "structured_local_parser", parser_contract_version: "canonical-structured-parser-v2", processing_receipt_version: "rag-document-transform-receipt-v1", mode: "general", failure_policy: "continue_on_error", max_generated_items: 20, extract_title: true, preserve_tables: true, preserve_code_blocks: true, remove_repeated_headers_footers: true };
   if (kind === "recursive_chunker") return { strategy: "recursive_estimated_token", chunk_size: 500, chunk_overlap: 50, separators: ["\n\n", "\n", ". ", " ", ""], size_unit: "estimated_tokens", token_estimator: "mixed_cjk_latin_v1", chunk_contract_version: "rag-chunker-estimated-token-v1" };
   if (kind === "parent_child_chunker") return { strategy: "parent_child_estimated_token", parent_chunk_size: 1500, parent_chunk_overlap: 100, child_chunk_size: 400, child_chunk_overlap: 50, parent_separators: ["\n\n", "\n", ". ", " ", ""], child_separators: ["\n\n", "\n", ". ", " ", ""], size_unit: "estimated_tokens", token_estimator: "mixed_cjk_latin_v1", chunk_contract_version: "rag-chunker-estimated-token-v1" };
   if (kind === "embedding") return { model: DEFAULT_EMBEDDING_MODEL_ID };
@@ -1141,6 +1149,12 @@ export function RunPanel({ jobs, versions, onActivate }: { jobs: PipelineJob[]; 
                 </p>
               ) : null}
               {job.error ? <p className="mt-2 text-xs text-rose-200">{job.error}</p> : null}
+              {job.document_results?.some((item) => item.processing_receipt?.status === "degraded" || item.error_code) ? (
+                <p className="mt-2 text-xs leading-5 text-amber-200" role="status">
+                  解析降级，仅供诊断，不能首次激活或晋级。
+                  {[...new Set(job.document_results.flatMap((item) => item.error_code ? [item.error_code] : []))].join(" · ")}
+                </p>
+              ) : null}
             </article>
           )) : <EmptyPanel text="还没有流水线任务。" />}
         </div>

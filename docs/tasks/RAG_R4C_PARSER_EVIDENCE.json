@@ -1,0 +1,293 @@
+{
+  "schema_version": "rag-r4c-parser-acceptance-v1",
+  "evidence_snapshot_phase": "pre-publication validation; later authorized commit/push/PR status is recorded by Git and the PR, not retroactively changed here",
+  "source": {
+    "baseline_sha": "f67f4013ad081ad27c31ab385dd6f5e1a3627edc",
+    "remote_main_sha_last_verified": "f67f4013ad081ad27c31ab385dd6f5e1a3627edc",
+    "branch": "codex/rag-p1-r4c-parser-fixtures",
+    "source_state": "baseline plus uncommitted reviewed 4C changes",
+    "self_final_commit_sha_claimed": false,
+    "backend_worktree_byte_hashes": [
+      {
+        "path": "server/file_assets/document_parser.py",
+        "sha256": "6e94c18d19d532b270d7f2f551d7ab22310bbf5516b82a9be49c0085c07581c5"
+      },
+      {
+        "path": "server/file_assets/pdf_layout.py",
+        "sha256": "68a0e10ed5c921dcaa3832ef62e4cc7e0e53aa89adceb70396304ce832216988"
+      },
+      {
+        "path": "server/rag/api.py",
+        "sha256": "877b880577b0b86c2f90796cce3a2a606fe41fe058f609f10becb76f86a448d9"
+      },
+      {
+        "path": "server/rag/document_parser.py",
+        "sha256": "34f37a7b4165638dfa918849971752dbd2df5ba7247a0f671ba365bafa902a32"
+      },
+      {
+        "path": "server/rag/document_processor.py",
+        "sha256": "915b2b055d531ec13ea3e06bd2f6be688044f9ea2c7fc3fefec049975d2f53bb"
+      },
+      {
+        "path": "server/rag/evaluation.py",
+        "sha256": "fbad641fe37af9caa1c75b153506ac0e275a5eb113eab0c75d77d240c93bcd30"
+      },
+      {
+        "path": "server/rag/processing_receipt.py",
+        "sha256": "6315ea7fc91a6d321f28891b222d49d2faefebe317f22d8c38519c714e519b5a"
+      },
+      {
+        "path": "server/rag/rag_service.py",
+        "sha256": "295d3029de0b485c7a4c8dd1d8cde40c4482c5bd23bd5f020b257f748a1bf5c3"
+      }
+    ],
+    "preview_source_bytes_match": true
+  },
+  "boundary": {
+    "real_provider_calls": 0,
+    "shared_data_changed": false,
+    "old_active_index_changed": false,
+    "new_preview_active_versions": 0,
+    "production_dependencies_added": 0,
+    "retrieval_or_quality_gate_numbers_changed": false,
+    "commit": false,
+    "push": false,
+    "pull_request": false,
+    "merge": false,
+    "deploy": false
+  },
+  "environment": {
+    "test_container": "modelmirror-rag-r4c-tests-20260908",
+    "test_container_removed_after_report_archive": true,
+    "test_network": "none",
+    "image_id": "sha256:03518a43f2f1a5aa47f1d47b583924b12a00539467dc604fa86e0fa26cb68608",
+    "compose_project": "modelmirror-rag-r4c-preview-20260908",
+    "preview_url": "http://127.0.0.1:15174/rag",
+    "backend_network": "internal only",
+    "ingress": "fixed local API proxy; no model code or credentials",
+    "preview_data": "new container-local /tmp/r4c-data; no shared mounts",
+    "outbound_http_guard": {
+      "policy": "deny",
+      "blocked_requests": 0
+    },
+    "private_junit_directory": "C:/tmp/rag-r4c-20260908/evidence",
+    "tool_network_retry": "read-only remote-main lookup succeeded outside filesystem/network sandbox; no provider payload"
+  },
+  "tests": [
+    {
+      "name": "initial parser red",
+      "passed": 2,
+      "failed": 11,
+      "junit": "r4c-parser-red.xml",
+      "sha256": "96e294dc23a297600b489d19abc1d6b734e39c409f951cafe3c6e025156d852d"
+    },
+    {
+      "name": "corrected pipeline red",
+      "passed": 1,
+      "failed": 9,
+      "junit": "r4c-pipeline-red-corrected.xml",
+      "sha256": "0007ff027eaf262e7b44e29ca78666f4d9e43372ee56eaa5f4b1eb44b93fe9dc"
+    },
+    {
+      "name": "parser and pipeline green",
+      "passed": 38,
+      "failed": 0,
+      "junit": "r4c-parser-preview-green.xml",
+      "sha256": "d1303eee16d8e81b0a494f0090336ed0c3ce9a6a1cf94511ec3262855c3448b2"
+    },
+    {
+      "name": "50-file area matrix",
+      "passed": 934,
+      "skipped": 1,
+      "failed": 0,
+      "junit": "r4c-area-third.xml",
+      "sha256": "94b5b5586ebf575fc3206ad39b308d02f1e69a3c21d3df5f45ec45e1103d8324"
+    },
+    {
+      "name": "full backend",
+      "passed": 6373,
+      "skipped": 29,
+      "failed": 21,
+      "junit": "r4c-backend-full.xml",
+      "sha256": "591dc898db96734df69a599c8530af82fc5505f66b761b230c9809285e02de0f"
+    },
+    {
+      "name": "original baseline failure comparison, five files",
+      "passed": 76,
+      "failed": 21,
+      "failure_node_id_difference": [],
+      "junit": "r4c-parent-failures.xml",
+      "sha256": "2fc89286b9bd190887151c1f26778b22bcbf10007f25165b6e94ad74f0d74e84"
+    },
+    {
+      "name": "post-full-run additional Formal coverage and regression",
+      "passed": 114,
+      "failed": 0,
+      "junit": "r4c-formal-final-area.xml",
+      "sha256": "54f3b8b46f8985d2a49287942bd1fcce835fc82f94b4b18645f9116bc4b721d3"
+    },
+    {
+      "name": "frontend area",
+      "passed": 64,
+      "failed": 0,
+      "junit": "frontend-area-green.xml",
+      "sha256": "f6ba8c147ab85c3f139c43997915587aadf34b099d0a96182b61363d9fe1cd95"
+    },
+    {
+      "name": "full frontend",
+      "passed": 982,
+      "failed": 2,
+      "junit": "frontend-full.xml",
+      "sha256": "2d5f0479ba0adf93696a2ca3700823869ed36bd69b31078cc586e954de00f59a"
+    },
+    {
+      "name": "original baseline model catalog comparison",
+      "passed": 52,
+      "failed": 2,
+      "junit": "frontend-parent-model-catalog.xml",
+      "sha256": "c8e6aaef0cfc33dfb158098ecceff7e84864e5f4073b3b9cf9d11b2e72704278"
+    },
+    {
+      "name": "production build including screenshots",
+      "status": "passed",
+      "log": "frontend-build-final.log",
+      "publication_rerun_log": "frontend-build-publication.log",
+      "publication_rerun_status": "passed after PNG export and historical screenshot archive",
+      "warning": "existing bundle-size warning; not a new dependency"
+    }
+  ],
+  "baseline_failures": [
+    {
+      "group": "Agency Worker missing build output",
+      "count": 14
+    },
+    {
+      "group": "Expert Team Worker missing build output",
+      "count": 3
+    },
+    {
+      "group": "Skill Node/TypeScript environment",
+      "count": 3
+    },
+    {
+      "group": "model router performance",
+      "count": 1,
+      "threshold_ms": 10,
+      "current_ms": 16.0980410000775,
+      "parent_ms": 14.310318998468574,
+      "equivalence_proven": false
+    },
+    {
+      "group": "frontend model catalog",
+      "count": 2,
+      "live_count": {
+        "expected": 509,
+        "actual": 507
+      },
+      "inactive_count": {
+        "expected": 6,
+        "actual": 8
+      }
+    }
+  ],
+  "fulltext_formal_integration": {
+    "fixture_only": true,
+    "business_gold": false,
+    "real_provider_calls": 0,
+    "targets": 2,
+    "cases_per_target": 42,
+    "actual_local_retrieval_executions": 84,
+    "embedding_dispatch_forbidden_by_test": true,
+    "execution_integrity_qualified": true,
+    "result_tamper_reprojection": "unreproducible; stored evaluation bytes unchanged",
+    "quality_promotion_claimed": false,
+    "old_vector_hash_rejection_preserved": true,
+    "note": "The previous helper forced vector mode. A red assertion proved this coverage gap; explicit test mode now exercises fulltext without production or gate changes."
+  },
+  "preview": [
+    {
+      "kb_id": "kb_1f1bd4ee6a9f46a3a74eeee3b5a2407f",
+      "version_id": "kpv_987914c848694e4c8035d1c0ed02b373",
+      "job_id": "kpjob_5a77539d95114418a45c9c4e81a72651",
+      "sources": 5,
+      "blocks": 18,
+      "chunks": 14,
+      "parser_contract": "canonical-structured-parser-v2",
+      "content_status": "current",
+      "vector": "not_applicable",
+      "lexical": "sqlite-fts5-lexical-v2",
+      "status": "ready",
+      "active": false,
+      "repeated_page_edge_operations": 2,
+      "known_fixture_identifier": "matching source and heading observed",
+      "absent_fixture_identifier": "zero lexical candidates and no sources"
+    },
+    {
+      "kb_id": "kb_1e8f0af5becc42cabc128cfb53be8f26",
+      "version_id": "kpv_de0fae73d38c4cfda51a96ac3f598279",
+      "job_id": "kpjob_6da8a48b45c14380b38406ed1a8d8643",
+      "sources": 2,
+      "chunks": 1,
+      "status": "ready",
+      "active": false,
+      "content_status": "legacy_read_only",
+      "error_codes": [
+        "rag_layout_degraded",
+        "scanned_pdf_requires_ocr"
+      ],
+      "first_activation_ui": "disabled after reload"
+    }
+  ],
+  "static_checks": {
+    "diff_check": "passed",
+    "python_syntax": "passed",
+    "secret_scan": {
+      "findings": 0,
+      "scope": "changed text files, credential and private-key signatures; not an authentication proof"
+    },
+    "fixture_manifest": "server/tests/fixtures/rag_parser_v2/manifest.json",
+    "fixture_git_attributes": "Scoped PDF/XLSX binary attributes preserve exact fixture bytes and override host astextplain diff treatment; no fixture checksum or source whitespace check is changed.",
+    "screenshots": [
+      {
+        "path": "client/public/help-center/f67f4013/rag-diagnostic-candidate.png",
+        "sha256": "d29809830d6bbdbf0fa0a1117c368973790d45439341c215cad3f62ca5a3e986",
+        "original_capture_sha256": "60aeb6b6d84c8cef4d4be77f872c14e660082b99be23be8f073c19bb934128f2",
+        "crop": {"x": 60, "y": 350, "width": 800, "height": 455}
+      },
+      {
+        "path": "client/public/help-center/f67f4013/rag-estimated-token-budget.png",
+        "sha256": "141c120b6bc834da5f018164e0ec245c4daadb76629e9aab18d0a6c4eed4f5f5",
+        "original_capture_sha256": "7a6335dd0fc4ef07e340c32809b6ad1ae716cb677aa6ef7de101dba73c19ae57",
+        "crop": {"x": 60, "y": 200, "width": 800, "height": 610}
+      },
+      {
+        "path": "client/public/help-center/f67f4013/rag-parser-degraded.png",
+        "sha256": "7a8d0c9ae08dbe409daa54d7d05089d697978a1265adcb068dc78b8d8877d14b",
+        "original_capture_sha256": "ab125ac6625d8996b33db65eec588815fc1ec42fe50b8ed998d6f598e69632b9",
+        "crop": {"x": 60, "y": 76, "width": 800, "height": 540}
+      }
+    ],
+    "publication_asset_check": {
+      "command": "npm.cmd run verify:help-images",
+      "initial_findings": 8,
+      "root_cause": "Three actual JPEG captures had PNG extensions; two replaced historical screenshots remained in the public directory.",
+      "repair": "Crop unrelated margins and encode genuine PNG without synthesis, resampling or color changes. Archive two previous screenshots byte-for-byte under docs/help-center/evidence/screenshots/436d2453.",
+      "final_status": "passed",
+      "typecheck": "passed; initial isolated-path tsbuildinfo EPERM was rerun with authorized worktree write permissions",
+      "help_content_test": {"command": "npm.cmd run test -- --run --maxWorkers=1 src/content/help-center/helpContent.test.ts", "passed": 14, "failed": 0},
+      "original_captures_preserved_privately": true,
+      "width_px": 800,
+      "max_file_bytes": 187438,
+      "production_code_changed": false
+    },
+    "help_images_loaded": 3
+  },
+  "limitations": [
+    "Simple provable geometry only, not general PDF layout recovery.",
+    "Hashes bind content integrity, not authentication or anonymization.",
+    "Fake Vision is wiring/page-identity evidence, not real OCR accuracy.",
+    "Full backend collected before the final test-only parameter addition; later 114-test run is reported separately, not added as another full run.",
+    "All-green full-suite requirement is not claimed because baseline/environment failures remain.",
+    "CI was not run at this pre-publication snapshot; subsequent authorized publication and CI status are recorded in the PR. Final Round 4 isolated acceptance awaits 4C merge."
+  ]
+}

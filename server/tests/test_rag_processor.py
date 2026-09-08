@@ -215,18 +215,10 @@ def test_pdf_processor_removes_repeated_page_edges(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    source = tmp_path / "manual.pdf"
-    source.write_bytes(b"placeholder")
+    # Exercise the canonical worker with actual margin coordinates. The removed
+    # private _pdf_pages stub could not distinguish body lines from page edges.
+    source = Path(__file__).parent / "fixtures" / "rag_parser_v2" / "page_edges.pdf"
     processor = StructuredDocumentProcessor()
-    monkeypatch.setattr(
-        processor,
-        "_pdf_pages",
-        lambda _: [
-            "Company Manual\nFirst page body\nConfidential",
-            "Company Manual\nSecond page body\nConfidential",
-            "Company Manual\nThird page body\nConfidential",
-        ],
-    )
 
     result = processor.process(
         source,
@@ -235,9 +227,9 @@ def test_pdf_processor_removes_repeated_page_edges(
     )
 
     assert [block.page_number for block in result.blocks] == [1, 2, 3]
-    assert "Company Manual" not in result.text
-    assert "Confidential" not in result.text
-    assert "Second page body" in result.text
+    assert "INTERNAL HEADER 42" not in result.text
+    assert "PRIVATE FOOTER 42" not in result.text
+    assert "Page 2 approved body" in result.text
     assert result.warnings
 
 

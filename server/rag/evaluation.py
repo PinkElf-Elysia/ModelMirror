@@ -97,6 +97,15 @@ FORMAL_CONTENT_INDEX_CONTRACT = {
     "lexical_contract_version": "sqlite-fts5-lexical-v2",
     "parser_contract_version": "canonical-structured-parser-v2",
 }
+def _processor_receipt_is_current(value: Any) -> bool:
+    return (
+        isinstance(value, dict)
+        and value.get("receipt_status") == "current"
+        and isinstance(value.get("receipt_fingerprint"), str)
+        and re.fullmatch(r"[0-9a-f]{64}", value["receipt_fingerprint"]) is not None
+    )
+
+
 def _content_index_contract_is_current(value: Any) -> bool:
     if not isinstance(value, dict):
         return False
@@ -1648,6 +1657,8 @@ def validate_formal_run_admission(
             )
         if not _lexical_index_receipt_is_current(evidence):
             raise ValueError("Formal evaluation target lexical index receipt is incomplete or inconsistent.")
+        if not _processor_receipt_is_current(processor):
+            raise ValueError("Formal evaluation target processing receipt is incomplete or degraded.")
         manifest_targets.append(
             {
                 "kb_id": expected_kb_id,
@@ -1793,6 +1804,8 @@ def formal_execution_preflight_reasons(run: dict[str, Any]) -> list[str]:
         for item in raw_manifest_targets
     ):
         reasons.append("formal_content_index_contract_invalid")
+    if any(not _processor_receipt_is_current(item.get("processor")) for item in raw_manifest_targets):
+        reasons.append("formal_processor_receipt_invalid")
     if any(
         not _chunking_receipt_is_current(
             item.get("chunking_receipt"),

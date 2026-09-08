@@ -43,6 +43,12 @@ from .document_parser import (
     supported_extensions,
 )
 from .document_processor import ProcessedDocument, StructuredDocumentProcessor
+from .processing_receipt import (
+    PROCESSING_RECEIPT_VERSION,
+    parser_profile_is_current,
+    processing_receipt_matches_document,
+    safe_processing_receipt,
+)
 from .chunking_receipt import (
     HEADING_OVERLAP_POLICY,
     candidate_namespace_fingerprint,
@@ -2126,6 +2132,11 @@ class RagService:
                 "node_id": node_id,
                 "kind": kind,
                 "preview_type": "processor",
+                "metadata": {
+                    "parser_contract_version": result.get("parser_contract_version"),
+                    "processing_receipt": safe_processing_receipt(result.get("processing_receipt")),
+                    "error_code": result.get("error_code"),
+                },
                 "item_count": int(result["generated_count"] or result["block_count"]),
                 "items": list(result["generated_items"] or result["blocks"])[:20],
                 "warnings": list(result["warnings"]),
@@ -2160,6 +2171,12 @@ class RagService:
                 "node_id": node_id,
                 "kind": kind,
                 "preview_type": "chunks",
+                "metadata": {
+                    "parser_contract_version": processed.get("parser_contract_version"),
+                    "processing_receipt": safe_processing_receipt(processed.get("processing_receipt")),
+                    "error_code": processed.get("error_code"),
+                },
+                "warnings": list(processed.get("warnings") or []),
                 "item_count": len(chunks),
                 "items": chunks[:20],
                 "chunking_receipt": chunking_receipt,
@@ -2374,6 +2391,8 @@ class RagService:
             warnings.append("当前没有 KnowledgeChunk；执行候选 Job 前不会产生引用片段。")
         if content_components.get("chunker") != "current":
             block("历史字符分块合同只读；保存估算 Token 分块预算后才能执行。")
+        if content_components.get("parser") != "current":
+            block("历史解析合同只读；显式保存 canonical parser-v2 配置后才能执行。")
         if (
             retrieval_mode in {"fulltext", "hybrid"}
             and content_components.get("lexical") != "current"
@@ -2490,6 +2509,8 @@ class RagService:
         return {
             "version": "rag-processor-capabilities-v1",
             "parser": "structured_local_parser",
+            "parser_contract_version": CURRENT_PARSER_CONTRACT,
+            "processing_receipt_version": PROCESSING_RECEIPT_VERSION,
             "modes": ["general", "qa", "summary"],
             "failure_policies": ["continue_on_error", "strict"],
             "supported_extensions": sorted(supported_extensions()),
@@ -2652,6 +2673,9 @@ class RagService:
             "character_count": len(processed.text),
             "block_count": len(processed.blocks),
             "block_counts": processed.block_counts,
+            "parser_contract_version": processed.parser_contract_version,
+            "processing_receipt": safe_processing_receipt(processed.processing_receipt),
+            "error_code": processed.error_code,
             "generated_count": len(generated),
             "warnings": list(processed.warnings),
             "blocks": [
@@ -4597,7 +4621,14 @@ class RagService:
                 if not isinstance(document, ProcessedDocument):
                     raise PipelineJobStateError(
                         "Structured processor returned an unsupported document payload."
-                )
+                    )
+                if not document.blocks or not document.text.strip():
+                    raise DocumentParseError("Document produced no structured blocks.", error_code="rag_document_empty")
+                if parser_profile_is_current(profile) and not processing_receipt_matches_document(
+                    document.processing_receipt, document.payload(include_text=True, max_block_text=None),
+                    source_id=source_id, source_content_hash=str(source.get("content_hash") or ""),
+                ):
+                    raise PipelineJobStateError("Current parser returned incomplete or inconsistent transform evidence.")
                 mode = str(profile.get("mode") or "general")
                 generation = await self._generate_processor_items(
                     document,
@@ -4636,6 +4667,9 @@ class RagService:
                     "summary_count": generated_count if mode == "summary" else 0,
                     "warnings": _bounded_document_warnings(document.warnings),
                     "error": None,
+                    "error_code": document.error_code,
+                    "parser_contract_version": document.parser_contract_version,
+                    "processing_receipt": safe_processing_receipt(document.processing_receipt),
                     "duration_ms": duration_ms,
                 }
                 if (
@@ -4665,6 +4699,10 @@ class RagService:
                     {
                         "status": "failed",
                         "error": error,
+                        "error_code": (
+                            str(exc.error_code) if isinstance(exc, DocumentParseError)
+                            else "document_parse_failed"
+                        ),
                         "duration_ms": duration_ms,
                         "execution_mode": (
                             "managed"
@@ -5424,6 +5462,10 @@ class RagService:
             }
         )
         content_index_contract = self._content_index_contract_for_version(version)
+        processing_evidence = self._processing_receipt_evidence(version, verify_artifacts=True)
+        if processing_evidence["status"] != "current":
+            content_index_contract["components"]["parser"] = "legacy_read_only"
+            content_index_contract["status"] = "legacy_read_only"
         lexical_receipt = safe_lexical_index_receipt(version.get("lexical_index_receipt"))
         lexical_receipt_status = "not_applicable"
         if (version.get("index_contract", {}).get("lexical") or {}).get("required"):
@@ -5463,6 +5505,8 @@ class RagService:
                 "version": int(version.get("version") or 0),
                 "source_manifest_fingerprint": source_manifest_fingerprint,
                 "configuration_fingerprint": configuration_fingerprint,
+                "processing_receipt_fingerprint": processing_evidence["fingerprint"],
+                "processing_receipt_status": processing_evidence["status"],
                 "chunking_receipt_fingerprint": chunking_receipt_fingerprint,
                 "chunking_receipt_status": chunking_receipt_status,
                 "chunker_profile_fingerprint": chunker_fingerprint,
@@ -5487,7 +5531,11 @@ class RagService:
                 "mode": str(processor_profile.get("mode") or ""),
                 "vision_enabled": bool(vision_profile.get("enabled")),
                 "fingerprint": processor_fingerprint,
+                "receipt_status": processing_evidence["status"],
+                "receipt_fingerprint": processing_evidence["fingerprint"],
             },
+            "processing_receipt_status": processing_evidence["status"],
+            "processing_receipt_fingerprint": processing_evidence["fingerprint"],
             "chunker": {
                 "profile": chunker_profile,
                 "fingerprint": chunker_fingerprint,
@@ -6236,6 +6284,10 @@ class RagService:
                     "Legacy V2 indexes remain readable but cannot be newly activated or promoted."
                 )
             content_contract = self._content_index_contract_for_version(version)
+            if (promotion or not previously_activated) and self._processing_receipt_evidence(
+                version, verify_artifacts=True
+            )["status"] != "current":
+                raise PipelineContentContractError("Incomplete, failed or degraded parser evidence blocks first activation and promotion.")
             if content_contract.get("status") != "current" and (
                 promotion or not previously_activated
             ):
@@ -6755,6 +6807,12 @@ class RagService:
             raise PipelineJobStateError(
                 "Pipeline processed artifact identity no longer matches its source."
             )
+        if processed.get("parser_contract_version") == CURRENT_PARSER_CONTRACT or result.get("processing_receipt"):
+            if not processing_receipt_matches_document(
+                result.get("processing_receipt"), processed, source_id=expected_source_id,
+                source_content_hash=str(result.get("content_hash") or ""),
+            ):
+                raise PipelineJobStateError("Pipeline processed artifact transform receipt is inconsistent.")
         return artifact
 
     def _pipeline_vision_path(self, artifact_key: str) -> Path:
@@ -8969,7 +9027,7 @@ class RagService:
             "rerank": rerank,
             "modes": ["vector", "fulltext", "hybrid"],
             "candidate_build_modes": ["vector", "fulltext", "hybrid"] if vector["ready"] else ["fulltext"],
-            "candidate_build_contract_status": "partial_round_4b",
+            "candidate_build_contract_status": "content_contract_v1",
         }
 
     def _retrieval_config_for_version(
@@ -9849,6 +9907,76 @@ class RagService:
             "before creating a pipeline job."
         )
 
+    def _processing_receipt_evidence(
+        self, version: dict[str, Any], *, verify_artifacts: bool,
+    ) -> dict[str, Any]:
+        """Read-only parser provenance. Listing checks receipts; gates verify bytes."""
+        profile = version.get("processor_profile")
+        if not parser_profile_is_current(profile):
+            return {"status": "legacy_read_only", "fingerprint": None}
+        mismatch = {"status": "mismatch", "fingerprint": None}
+        metadata = self._read_metadata()
+        owner_id = str(version.get("index_owner_version_id") or version.get("version_id") or "")
+        owner = metadata["pipeline_versions"].get(owner_id)
+        if not isinstance(owner, dict):
+            return mismatch
+        job = metadata["pipeline_jobs"].get(str(owner.get("job_id") or ""))
+        if not isinstance(job, dict) or job.get("status") != "succeeded":
+            return mismatch
+        build_profile = (job.get("config_snapshot") or {}).get("processor_profile")
+        if build_profile != profile or owner.get("processor_profile") != profile:
+            return mismatch
+        records = [job.get("document_results"), owner.get("document_results"), version.get("document_results")]
+        sources = job.get("sources")
+        if not isinstance(sources, list) or not sources or not all(isinstance(rows, list) for rows in records):
+            return mismatch
+        source_ids = [str(source.get("source_id") or "") for source in sources if isinstance(source, dict)]
+        if len(source_ids) != len(sources) or len(set(source_ids)) != len(sources) or not all(source_ids):
+            return mismatch
+        by_source = []
+        for rows in records:
+            if (len(rows) != len(sources) or not all(isinstance(row, dict) and isinstance(row.get("source_id"), str) for row in rows)
+                    or {row.get("source_id") for row in rows} != set(source_ids)):
+                return mismatch
+            by_source.append({row["source_id"]: row for row in rows})
+        summary = []
+        degraded = False
+        for source in sources:
+            source_id = str(source["source_id"])
+            rows = [group[source_id] for group in by_source]
+            statuses = [row.get("status") for row in rows]
+            if statuses == ["failed"] * 3:
+                codes = [row.get("error_code") for row in rows]
+                if not all(isinstance(code, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,99}", code) for code in codes) or len(set(codes)) != 1:
+                    return mismatch
+                degraded = True
+                summary.append({"source_id": source_id, "status": "failed", "error_code": codes[0]})
+                continue
+            if statuses != ["completed"] * 3:
+                return mismatch
+            receipts = [safe_processing_receipt(row.get("processing_receipt")) for row in rows]
+            hashes = [row.get("artifact_hash") for row in rows]
+            if (not all(receipts) or receipts[0] != receipts[1] or receipts[0] != receipts[2]
+                    or not all(isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) for value in hashes)
+                    or len(set(hashes)) != 1):
+                return mismatch
+            receipt = receipts[0]
+            if (receipt["source_id"] != source_id or receipt["source_content_hash"] != source.get("content_hash")
+                    or any(row.get("block_count") != receipt["block_count"] for row in rows)):
+                return mismatch
+            if verify_artifacts:
+                try:
+                    self._validated_pipeline_source_path(source)
+                    self._read_verified_pipeline_processed_artifact(
+                        rows[0], require_hash=True, expected_source_id=source_id,
+                        expected_filename=str(source.get("parser_filename") or source.get("filename") or ""),
+                    )
+                except (PipelineJobStateError, OSError, ValueError):
+                    return mismatch
+            degraded = degraded or receipt["status"] != "complete"
+            summary.append({"source_id": source_id, "receipt": receipt, "artifact_hash": hashes[0]})
+        return {"status": "degraded" if degraded else "current", "fingerprint": self._mapping_sha256({"documents": summary})}
+
     def _content_index_contract(
         self,
         stages: dict[str, Any] | None,
@@ -9881,8 +10009,8 @@ class RagService:
             if all(lexical.get(key) == value for key, value in current_lexical_profile().items())
             else LEGACY_LEXICAL_CONTRACT
         )
-        # Parser-v2 is a separate 4C gate. Lexical-v2 never grants promotion.
-        parser_contract = LEGACY_PARSER_CONTRACT
+        processor = stages.get("stage_processor") if isinstance(stages, dict) else None
+        parser_contract = CURRENT_PARSER_CONTRACT if parser_profile_is_current(processor) else LEGACY_PARSER_CONTRACT
         components = {
             "chunker": "current" if chunker_current else "legacy_read_only",
             "lexical": (
@@ -9956,6 +10084,11 @@ class RagService:
             ):
                 contract["components"]["lexical"] = "legacy_read_only"
                 contract["status"] = "legacy_read_only"
+        if contract["components"]["parser"] == "current" and self._processing_receipt_evidence(
+            version, verify_artifacts=False
+        )["status"] != "current":
+            contract["components"]["parser"] = "legacy_read_only"
+            contract["status"] = "legacy_read_only"
         return contract
 
     def _assert_current_chunker_build_contract(
@@ -9988,6 +10121,8 @@ class RagService:
                 "Legacy character chunking remains readable but must be explicitly "
                 "upgraded before creating or rebuilding a knowledge index."
             )
+        if (contract.get("components") or {}).get("parser") != "current":
+            raise PipelineContentContractError("Legacy parser contracts are read-only; explicitly select parser-v2 before building.")
         if (
             retrieval_mode in {"fulltext", "hybrid"}
             and (contract.get("components") or {}).get("lexical") != "current"
@@ -10005,6 +10140,8 @@ class RagService:
             },
             "stage_processor": {
                 "parser": "structured_local_parser",
+                "parser_contract_version": CURRENT_PARSER_CONTRACT,
+                "processing_receipt_version": PROCESSING_RECEIPT_VERSION,
                 "mode": "general",
                 "model_id": self.processor_generator.default_model(),
                 "failure_policy": "continue_on_error",
@@ -10104,6 +10241,10 @@ class RagService:
                     continue
                 seen_stage_ids.add(stage_id)
                 current_config = stages[stage_id]
+                if stage_id == "stage_processor" and not parser_profile_is_current(raw_config):
+                    current_config = {**current_config, "parser_contract_version": LEGACY_PARSER_CONTRACT,
+                                      "processing_receipt_version": None}
+                    stages[stage_id] = current_config
                 if (
                     stage_id == "stage_chunker"
                     and not self._stored_chunker_contract_is_explicit_current(
@@ -10137,6 +10278,8 @@ class RagService:
                         )
                         stages[stage_id] = invalid
                     continue
+        if "stage_processor" not in seen_stage_ids:
+            stages["stage_processor"].update(parser_contract_version=LEGACY_PARSER_CONTRACT, processing_receipt_version=None)
         if isinstance(raw_stages, dict) and "stage_chunker" not in seen_stage_ids:
             invalid = dict(defaults["stage_chunker"])
             invalid.update(
@@ -10865,6 +11008,15 @@ class RagService:
             return config
 
         if stage_id == "stage_processor":
+            for field, allowed in (
+                ("parser_contract_version", {CURRENT_PARSER_CONTRACT, LEGACY_PARSER_CONTRACT}),
+                ("processing_receipt_version", {PROCESSING_RECEIPT_VERSION, None}),
+            ):
+                value = patch.get(field, config.get(field))
+                if field in patch and (not isinstance(value, (str, type(None))) or value not in allowed):
+                    raise PipelineDraftValidationError(f"processor.{field} is invalid.")
+                if field in patch:
+                    config[field] = value
             parser = str(
                 patch.get("parser", config.get("parser", "structured_local_parser"))
             )

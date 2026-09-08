@@ -171,22 +171,20 @@ describe("RAG draft execution disposition", () => {
     },
   };
 
-  it.each(["vector", "fulltext", "hybrid"])("describes the selected 4B %s diagnostic mode accurately", (mode) => {
+  it.each(["vector", "fulltext", "hybrid"])("blocks a stored 4B %s legacy parser draft", (mode) => {
     const disposition = draftExecutionDisposition({
       ...contract,
       lexical_contract_version: "sqlite-fts5-lexical-v2",
       components: { ...contract.components, lexical: "current" },
     }, mode, 3);
-    expect(disposition).toMatchObject({ status: "diagnostic_only", canExecute: true });
-    expect(disposition.message).toContain(`${mode} diagnostic`);
-    expect(disposition.message).toContain("解析合同待完成");
-    expect(disposition.message).toContain("不能首次激活或晋级");
+    expect(disposition).toMatchObject({ status: "blocked", canExecute: false });
+    expect(disposition.message).toContain("历史解析合同只读");
   });
 
-  it("allows only vector Diagnostic builds while lexical v2 is absent", () => {
+  it("blocks every mode while the stored parser contract is absent", () => {
     expect(draftExecutionDisposition(contract, "vector", 3)).toMatchObject({
-      status: "diagnostic_only",
-      canExecute: true,
+      status: "blocked",
+      canExecute: false,
     });
     expect(draftExecutionDisposition(contract, "hybrid", 3)).toMatchObject({
       status: "blocked",
@@ -790,10 +788,10 @@ describe("RAG structured source labels", () => {
     });
 
     expect(
-      await screen.findByText(/4B 期间不能新建标准 Benchmark 实例/),
+      await screen.findByText(/新候选需完整内容合同与可校验的解析回执/),
     ).toBeVisible();
     expect(
-      screen.getByText(/新的标准 content-contract 候选、固定评测和首次激活须等到 4C/),
+      screen.getByText(/固定评测与首次激活仍需通过各自门禁/),
     ).toBeVisible();
     expect(screen.getByText(/曾激活版本仍可回滚/)).toBeVisible();
     expect(

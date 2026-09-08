@@ -142,6 +142,10 @@ describe("help center content catalog", () => {
     expect(article?.content).toContain("打开流水线画布");
     expect(article?.content).toContain(`/help-center/${ragContentContractBaseline.commit}/rag-estimated-token-budget.png`);
     expect(article?.content).toContain(`/help-center/${ragContentContractBaseline.commit}/rag-diagnostic-candidate.png`);
+    expect(article?.content).toContain(`/help-center/${ragContentContractBaseline.commit}/rag-parser-degraded.png`);
+    expect(article?.content).toContain("rag_layout_degraded");
+    expect(article?.content).toContain("scanned_pdf_requires_ocr");
+    expect(article?.content).not.toContain("解析合同尚未完成");
   });
 
   it("uses descriptive alt text and the latest screenshot baseline", () => {

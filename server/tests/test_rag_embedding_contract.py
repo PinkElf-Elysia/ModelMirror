@@ -462,9 +462,9 @@ async def test_unavailable_vector_backend_still_allows_fulltext_v2_without_embed
     )
     assert result["sources"]
     assert embedder.call_count == 0
-    with pytest.raises(PipelineContentContractError):
-        service.activate_pipeline_version(version_id)
-    with pytest.raises(PipelineContentContractError):
+    assert version["content_index_contract"]["status"] == "current"
+    assert service.get_active_pipeline_version(version["kb_id"]) is None
+    with pytest.raises(PipelineJobStateError, match="threshold"):
         service.activate_pipeline_version(version_id, promotion=True)
 
 
@@ -643,9 +643,9 @@ async def test_fulltext_v2_pipeline_builds_and_queries_without_embedding_or_vect
     assert queried.json()["sources"]
     assert embedder.call_count == 0
     assert vector_store._read_records() == []
-    with pytest.raises(PipelineContentContractError):
-        service.activate_pipeline_version(version_id)
-    with pytest.raises(PipelineContentContractError):
+    assert version["content_index_contract"]["status"] == "current"
+    assert service.get_active_pipeline_version(version["kb_id"]) is None
+    with pytest.raises(PipelineJobStateError, match="threshold"):
         service.activate_pipeline_version(version_id, promotion=True)
 
 

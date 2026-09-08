@@ -55,6 +55,7 @@ from .pipeline_graph import PipelineGraphValidationError
 from .pipeline_executor import KnowledgePipelineExecutor
 from .source_metadata import MAX_HEADING_PATH_LEVELS, normalize_heading_path
 from .processor_generator import ProcessorGenerationError
+from .processing_receipt import safe_processing_receipt
 from .evaluation import (
     EvaluationPromotionError,
     EvaluationRevisionError,
@@ -549,7 +550,18 @@ class ProcessorPreviewRequest(BaseModel):
     processor: dict[str, Any] | None = None
 
 
-class ProcessorPreviewResponse(BaseModel):
+class DocumentProcessingEvidencePayload(BaseModel):
+    parser_contract_version: str | None = None
+    processing_receipt: dict[str, Any] = Field(default_factory=dict)
+    error_code: str | None = None
+
+    @field_validator("processing_receipt", mode="before")
+    @classmethod
+    def sanitize_processing_receipt(cls, value: Any) -> dict[str, Any]:
+        return safe_processing_receipt(value)
+
+
+class ProcessorPreviewResponse(DocumentProcessingEvidencePayload):
     kb_id: str
     document_id: str
     filename: str
@@ -621,7 +633,7 @@ class PipelineJobSourcePayload(BaseModel):
     asset_id: str | None = None
 
 
-class PipelineDocumentResultPayload(BaseModel):
+class PipelineDocumentResultPayload(DocumentProcessingEvidencePayload):
     source_id: str
     filename: str
     status: str

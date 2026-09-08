@@ -221,6 +221,9 @@ interface ProcessorPreview {
   block_counts: Record<string, number>;
   generated_count: number;
   warnings: string[];
+  parser_contract_version?: string | null;
+  processing_receipt?: { status?: string; page_count?: number; operations?: unknown[] };
+  error_code?: string | null;
   blocks: Array<{ block_id: string; kind: string; text: string; page_number?: number | null; truncated?: boolean; metadata?: Record<string, unknown> }>;
   generated_items: Array<{ item_id: string; item_type: string; index_text: string; context_text: string; truncated?: boolean }>;
 }
@@ -333,6 +336,9 @@ interface PipelineJob {
     generated_count: number;
     chunk_count: number;
     error: string | null;
+    error_code?: string | null;
+    parser_contract_version?: string | null;
+    processing_receipt?: { status?: string; page_count?: number; operations?: unknown[] };
     duration_ms: number | null;
   }>;
   created_at: number;
@@ -785,6 +791,8 @@ export function draftEditsFromResponse(draft: PipelineDraftResponse): PipelineDr
 function processorConfigFromEdits(edits: PipelineDraftEdits) {
   return {
     parser: "structured_local_parser",
+    parser_contract_version: "canonical-structured-parser-v2",
+    processing_receipt_version: "rag-document-transform-receipt-v1",
     mode: edits.processorMode,
     model_id: edits.processorModelId.trim(),
     failure_policy: edits.processorFailurePolicy,
@@ -2183,7 +2191,7 @@ export default function RagPage() {
               {selectedKnowledgeBase.corpus_locked ? (
                 <div className="mt-5 rounded-lg border border-amber-300/25 bg-amber-300/10 px-4 py-3 text-sm text-amber-100">
                   <strong>RAG 引擎标准基准语料已锁定。</strong>
-                  <span className="ml-2 text-amber-100/80">该语料只用于检索一致性与回归验证，不代表业务知识库质量。4B 期间不能新建标准 Benchmark 实例；现有锁定库可查看历史证据或构建可用模式的 Diagnostic 候选。新的标准 content-contract 候选、固定评测和首次激活须等到 4C；曾激活版本仍可回滚。</span>
+                  <span className="ml-2 text-amber-100/80">该语料只用于检索一致性与回归验证，不代表业务知识库质量。新候选需完整内容合同与可校验的解析回执；解析失败或布局降级不能晋级，固定评测与首次激活仍需通过各自门禁。历史证据可查看，曾激活版本仍可回滚。</span>
                 </div>
               ) : null}
 
@@ -2235,7 +2243,7 @@ export default function RagPage() {
                   {selectedKnowledgeBase.corpus_locked ? "此 Benchmark 知识库的标准语料不可变更" : isUploading ? "正在按队列上传源文件..." : "拖拽一批文档到这里，或点击上传"}
                 </p>
                 <p className="mt-2 text-xs text-slate-400">
-                  {selectedKnowledgeBase.corpus_locked ? "可查看历史证据或运行 Diagnostic；标准基准重建和固定评测等待 4C。" : ragFormatHint}
+                  {selectedKnowledgeBase.corpus_locked ? "可查看历史证据；新建候选与固定评测须分别通过内容合同和评测门禁。" : ragFormatHint}
                 </p>
                 <button
                   className="mt-4 rounded-full bg-white/[0.08] px-4 py-2 text-sm font-semibold text-slate-100 transition hover:bg-white/[0.12] disabled:cursor-not-allowed disabled:opacity-50"
@@ -2365,7 +2373,7 @@ export default function RagPage() {
                       <>
                         <div className="rounded-lg border border-hire-300/20 bg-hire-300/10 p-3 text-xs leading-5 text-hire-50">
                           <span className="font-semibold">使用须知：</span>
-                          保存草稿不会改变活动检索。4B 可构建页面所列可用模式的 Diagnostic 候选；解析合同完成前不能首次激活或晋级。曾激活旧版本仍可回滚。
+                          保存草稿将明确采用解析 V2 合同，不会改变活动检索或重写旧索引。解析失败或布局降级的候选仅供诊断，不能首次激活或晋级；曾激活旧版本仍可回滚。
                         </div>
 
                         <div className="mt-3 flex flex-col gap-3 rounded-lg border border-white/10 bg-ink-950/35 p-3 sm:flex-row sm:items-center sm:justify-between">
@@ -2620,6 +2628,10 @@ export default function RagPage() {
                                     </div>
                                     <span className="text-[10px] text-sky-100">只读预览，不写入索引</span>
                                   </div>
+                                  {processorPreview.error_code ? <p className="px-3 pt-2 text-xs leading-5 text-amber-100" role="status">
+                                    解析降级，仅供诊断，不能首次激活或晋级。{processorPreview.error_code}
+                                  </p> : null}
+                                  {processorPreview.warnings.length > 0 ? <p className="px-3 pt-2 text-[11px] leading-5 text-amber-100">{processorPreview.warnings.join(" · ")}</p> : null}
                                   <div className="max-h-64 space-y-2 overflow-y-auto p-3">
                                     {(processorPreview.generated_items.length > 0
                                       ? processorPreview.generated_items.map((item) => ({ id: item.item_id, kind: item.item_type, text: item.index_text, detail: item.context_text }))
@@ -3053,17 +3065,23 @@ export default function RagPage() {
                                         <div className="flex flex-wrap items-center justify-between gap-2">
                                           <span className="min-w-0 truncate text-[11px] font-medium text-slate-200">{result.filename}</span>
                                           <span className={`rounded border px-1.5 py-0.5 text-[10px] ${
-                                            result.status === "completed"
+                                            result.processing_receipt?.status === "degraded"
+                                              ? "border-amber-300/20 text-amber-100"
+                                              : result.status === "completed"
                                               ? "border-emerald-300/20 text-emerald-100"
                                               : result.status === "failed"
                                                 ? "border-rose-300/20 text-rose-100"
                                                 : "border-white/10 text-slate-400"
-                                          }`}>{result.status}</span>
+                                          }`}>{result.processing_receipt?.status === "degraded" ? "解析降级，仅诊断" : result.status}</span>
                                         </div>
                                         <p className="mt-1 text-[10px] text-slate-500">
                                           attempt {result.attempt} · {result.block_count} blocks · {result.generated_count} generated · {result.chunk_count} chunks
                                           {result.duration_ms != null ? ` · ${Math.round(result.duration_ms)} ms` : ""}
                                         </p>
+                                        {result.parser_contract_version ? <p className="mt-1 text-[10px] text-slate-400">
+                                          {result.parser_contract_version} · {result.processing_receipt?.page_count ?? 0} 页 · {result.processing_receipt?.operations?.length ?? 0} 项转换回执
+                                        </p> : null}
+                                        {result.error_code ? <p className="mt-1 text-[10px] leading-4 text-amber-100">{result.error_code} · 请检查原文件、解析回执及 OCR 配置，修正后创建新候选。</p> : null}
                                         {result.error ? <p className="mt-1 text-[10px] leading-4 text-rose-200">{result.error}</p> : null}
                                       </div>
                                     ))}

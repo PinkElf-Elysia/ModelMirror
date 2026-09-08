@@ -12,7 +12,7 @@ from server.tests.test_rag_chunking_contract import _service
 
 
 @pytest.mark.asyncio
-async def test_fulltext_v2_build_query_are_local_and_diagnostic(tmp_path, monkeypatch):
+async def test_fulltext_v2_build_query_are_local_with_current_parser(tmp_path, monkeypatch):
     service = _service(tmp_path)
 
     async def forbidden(*args, **kwargs):
@@ -30,7 +30,7 @@ async def test_fulltext_v2_build_query_are_local_and_diagnostic(tmp_path, monkey
     assert completed["status"] == "succeeded", completed.get("error")
     version = service.get_pipeline_version(completed["candidate_version_id"])
     assert version["content_index_contract"]["components"]["lexical"] == "current"
-    assert version["content_index_contract"]["components"]["parser"] == "legacy_read_only"
+    assert version["content_index_contract"]["components"]["parser"] == "current"
     assert version["lexical_index_receipt"]["chunk_sequence_hash"] == version["chunking_receipt"]["chunk_sequence_hash"]
     evidence = service.pipeline_version_evidence(version["version_id"])
     assert evidence["lexical_index_receipt_status"] == "current"
@@ -40,8 +40,9 @@ async def test_fulltext_v2_build_query_are_local_and_diagnostic(tmp_path, monkey
     assert result["sources"]
     assert result["retrieval"]["lexical_receipt"]["contract_version"] == "sqlite-fts5-lexical-v2"
     assert result["retrieval"]["lexical_receipt"]["candidate_limit"] == min(version["retrieval_profile"]["top_k"] * 8, 500)
-    with pytest.raises(PipelineContentContractError):
-        service.activate_pipeline_version(version["version_id"])
+    assert service.get_active_pipeline_version(kb["id"]) is None
+    with pytest.raises(PipelineJobStateError, match="threshold"):
+        service.activate_pipeline_version(version["version_id"], promotion=True)
 
 
 @pytest.mark.asyncio

@@ -95,7 +95,7 @@ export const ragDiversityBaseline = { commit: "f0150fb5", date: "2026-08-27" };
 export const rssReviewBaseline = { commit: "821067a7", date: "2026-08-27" };
 export const ragFormalIntegrityBaseline = { commit: "be056e99", date: "2026-08-28" };
 // 验证的是该实现基线与随本 PR 审查的增量，不声称它包含未来的文档提交。
-export const ragContentContractBaseline = { commit: "436d2453", date: "2026-09-07" };
+export const ragContentContractBaseline = { commit: "f67f4013", date: "2026-09-08" };
 export const skillExperienceBaseline = { commit: "bf486f25", date: "2026-08-27" };
 export const emailReviewBaseline = { commit: "afda87ff", date: "2026-08-28" };
 export const workflowErrorRoutingBaseline = { commit: "48254740", date: "2026-09-01" };
@@ -299,7 +299,7 @@ export const helpArticles: HelpArticle[] = [
     contentType: "explanation",
     audience: "创建或审核 RAG 流水线与候选版本的用户",
     estimatedMinutes: 4,
-    keywords: ["RAG", "内容合同", "估算 Token", "分块", "vector", "全文", "历史只读", "回滚", "激活", "晋级"],
+    keywords: ["RAG", "内容合同", "估算 Token", "分块", "解析", "PDF", "OCR", "XLSX", "降级", "vector", "全文", "历史只读", "回滚", "激活", "晋级"],
     relatedRoutes: ["/rag", "/rag/:kbId/pipeline"],
     verifiedCommit: ragContentContractBaseline.commit,
     verifiedDate: ragContentContractBaseline.date,

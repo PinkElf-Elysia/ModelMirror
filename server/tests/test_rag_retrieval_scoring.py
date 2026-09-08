@@ -678,7 +678,8 @@ def test_v3_promotion_requires_configured_thresholds_and_independent_calibration
         service._write_metadata_unlocked(metadata)
 
     assert_threshold_promotion_ready()
-    with pytest.raises(PipelineJobStateError, match="Legacy content-index contracts"):
+    # This synthetic threshold fixture has no actual parser artifact receipts.
+    with pytest.raises(PipelineJobStateError, match="parser evidence"):
         service.activate_pipeline_version(version_id, promotion=True)
 
 
