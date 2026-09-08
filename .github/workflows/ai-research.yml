@@ -10,6 +10,22 @@ on:
       - "server/model_router/ai_research_bridge.py"
       - "server/model_router/chat_control.py"
       - "server/model_router/chat_stable.py"
+      - "server/model_router/cleanup_chat_receipts.py"
+      - "server/model_router/repository.py"
+      - "server/tests/test_ai_research_bridge.py"
+      - "server/tests/test_provider_chat_stable_service.py"
+  # This event uses the BASE workflow. Its job never checks out or executes HEAD.
+  pull_request_target:
+    branches: [main]
+    paths:
+      - "extensions/ai-research/**"
+      - ".github/workflows/ai-research.yml"
+      - ".dockerignore"
+      - "server/main.py"
+      - "server/model_router/ai_research_bridge.py"
+      - "server/model_router/chat_control.py"
+      - "server/model_router/chat_stable.py"
+      - "server/model_router/cleanup_chat_receipts.py"
       - "server/model_router/repository.py"
       - "server/tests/test_ai_research_bridge.py"
       - "server/tests/test_provider_chat_stable_service.py"
@@ -23,6 +39,7 @@ on:
       - "server/model_router/ai_research_bridge.py"
       - "server/model_router/chat_control.py"
       - "server/model_router/chat_stable.py"
+      - "server/model_router/cleanup_chat_receipts.py"
       - "server/model_router/repository.py"
       - "server/tests/test_ai_research_bridge.py"
       - "server/tests/test_provider_chat_stable_service.py"
@@ -31,18 +48,55 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  classify:
+    name: Candidate routing (not trust authority)
+    if: github.event_name != 'pull_request_target'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      kind: ${{ steps.scope.outputs.kind }}
+      base: ${{ steps.scope.outputs.base }}
+      candidate: ${{ steps.scope.outputs.candidate }}
+    steps:
+      - name: Check out exact candidate for ordinary CI
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Route using the base reviewer without a candidate fallback
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          CANDIDATE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ && ! "$BASE_SHA" =~ ^0+$ ]]
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          reviewer="$RUNNER_TEMP/base-trust-review.py"
+          if ! git --no-replace-objects show "$BASE_SHA:extensions/ai-research/scripts/trust_review.py" > "$reviewer"; then
+            echo "bootstrap_required: base_reviewer_missing; maintainer governance review required" >&2
+            exit 1
+          fi
+          python3 -I -S -B "$reviewer" scope --repo "$GITHUB_WORKSPACE" --base "$BASE_SHA" --candidate "$CANDIDATE_SHA" --output "$RUNNER_TEMP/scope.json"
+          python3 -I -S -c 'import json,sys; print("kind=" + json.load(open(sys.argv[1]))["kind"])' "$RUNNER_TEMP/scope.json" >> "$GITHUB_OUTPUT"
+          echo "base=$BASE_SHA" >> "$GITHUB_OUTPUT"
+          echo "candidate=$CANDIDATE_SHA" >> "$GITHUB_OUTPUT"
+
   verify:
     name: Boundary, literature contracts, images, and fixture smoke
+    needs: classify
+    if: github.event_name != 'pull_request_target' && needs.classify.outputs.kind == 'functional'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          ref: ${{ needs.classify.outputs.candidate }}
           fetch-depth: 0
           persist-credentials: false
       - name: Resolve comparison base and enforce trusted scope
@@ -220,3 +274,133 @@ jobs:
         if: always()
         working-directory: extensions/ai-research
         run: docker compose -f compose.yml --profile literature down
+
+  trust-tests:
+    name: Trust candidate tests (${{ matrix.platform }}, not promotion)
+    needs: classify
+    if: github.event_name != 'pull_request_target' && (needs.classify.outputs.kind == 'path_order' || needs.classify.outputs.kind == 'diagnostics')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+          - os: ubuntu-latest
+            platform: linux
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out exact candidate for observational tests only
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.classify.outputs.candidate }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Python for observational tests
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12.13"
+      - name: Load test dependencies and recorder from base Git blobs
+        env:
+          BASE_SHA: ${{ needs.classify.outputs.base }}
+        run: |
+          python -I -S -B -c 'import os,pathlib,re,subprocess; b=os.environ["BASE_SHA"]; assert re.fullmatch("[0-9a-f]{40}",b); p=pathlib.Path(os.environ["RUNNER_TEMP"]); [(p / name).write_bytes(subprocess.run(["git","--no-replace-objects","show",b+":extensions/ai-research/"+src],check=True,capture_output=True).stdout) for name,src in [("base-test.lock","requirements-test.lock"),("base-trust-review.py","scripts/trust_review.py")]]'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -I -m pip install --require-hashes -r (Join-Path $env:RUNNER_TEMP 'base-test.lock')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run narrow tests and bind their untrusted observation
+        id: tests
+        working-directory: extensions/ai-research
+        env:
+          BASE_SHA: ${{ needs.classify.outputs.base }}
+          CANDIDATE_SHA: ${{ needs.classify.outputs.candidate }}
+          TEST_PLATFORM: ${{ matrix.platform }}
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+        run: |
+          $evidence = Join-Path $env:RUNNER_TEMP 'trust-tests'
+          New-Item -ItemType Directory -Path $evidence -ErrorAction Stop | Out-Null
+          $junit = Join-Path $evidence 'result.xml'
+          $shortRoot = if ($IsWindows) { 'C:\' } else { $env:RUNNER_TEMP }
+          $testRoot = Join-Path $shortRoot ("atr-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
+          python -I -B -m pytest tests/control/test_zero_footprint_base.py tests/control/test_trusted_full_bootstrap.py tests/control/test_boundary_base.py tests/control/test_trust_review.py -q -rs -p no:cacheprovider --basetemp $testRoot --junitxml $junit 2>&1 | Tee-Object -FilePath (Join-Path $evidence 'pytest.log')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -I -S -B (Join-Path $env:RUNNER_TEMP 'base-trust-review.py') record-tests --repo $env:GITHUB_WORKSPACE --base $env:BASE_SHA --candidate $env:CANDIDATE_SHA --platform $env:TEST_PLATFORM --junit $junit --output (Join-Path $evidence 'metadata.json')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Preserve candidate test observations (never consumed by trusted event)
+        if: always() && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure')
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ai-research-trust-tests-${{ matrix.platform }}
+          path: |
+            ${{ runner.temp }}/trust-tests/result.xml
+            ${{ runner.temp }}/trust-tests/metadata.json
+          if-no-files-found: error
+          retention-days: 7
+
+  base-trust-review:
+    name: Base-owned route and trust scope (not promotion)
+    if: github.event_name == 'pull_request_target'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      CANDIDATE_SHA: ${{ github.event.pull_request.head.sha }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+    steps:
+      - name: Check out base only
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up isolated reviewer Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12.13"
+      - name: Inspect head as Git objects without checking it out
+        id: scope
+        run: |
+          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
+          [[ "$(git rev-parse HEAD)" == "$BASE_SHA" ]]
+          git --no-replace-objects fetch --no-tags origin "refs/pull/$PR_NUMBER/head"
+          [[ "$(git --no-replace-objects rev-parse FETCH_HEAD)" == "$CANDIDATE_SHA" ]]
+          reviewer="$RUNNER_TEMP/base-trust-review.py"
+          if ! git --no-replace-objects show "$BASE_SHA:extensions/ai-research/scripts/trust_review.py" > "$reviewer"; then
+            echo "bootstrap_required: base_reviewer_missing; maintainer governance review required" >&2
+            exit 1
+          fi
+          mkdir "$RUNNER_TEMP/trusted-evidence"
+          python3 -I -S -B "$reviewer" scope --repo "$GITHUB_WORKSPACE" --base "$BASE_SHA" --candidate "$CANDIDATE_SHA" --output "$RUNNER_TEMP/trusted-evidence/scope.json"
+          python3 -I -S -c 'import json,sys; r=json.load(open(sys.argv[1])); print("kind="+r["kind"]); print("source="+r["lockedSourceCommit"])' "$RUNNER_TEMP/trusted-evidence/scope.json" >> "$GITHUB_OUTPUT"
+      - name: Build only the base-locked historical source, never candidate code
+        if: steps.scope.outputs.kind == 'path_order' || steps.scope.outputs.kind == 'diagnostics'
+        env:
+          LOCKED_SOURCE: ${{ steps.scope.outputs.source }}
+        run: |
+          [[ "$LOCKED_SOURCE" =~ ^[0-9a-f]{40}$ ]]
+          context=$(mktemp -d "$RUNNER_TEMP/trust-source.XXXXXXXX")
+          git --no-replace-objects archive --format=tar "$LOCKED_SOURCE" client > "$context/source.tar"
+          tar -xf "$context/source.tar" -C "$context"
+          git --no-replace-objects show "$BASE_SHA:extensions/ai-research/scripts/client-proof.Dockerfile" > "$context/Dockerfile"
+          image="mmar-trust-source:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          docker build --platform linux/amd64 --no-cache --target proof -t "$image" "$context"
+          cid=$(docker create --network none "$image")
+          trap 'docker rm "$cid" >/dev/null' EXIT
+          mkdir "$RUNNER_TEMP/source-dist"
+          docker cp "$cid:/proof/dist/." "$RUNNER_TEMP/source-dist"
+          python3 -I -S -B "$RUNNER_TEMP/base-trust-review.py" source-proof --repo "$GITHUB_WORKSPACE" --base "$BASE_SHA" --candidate "$CANDIDATE_SHA" --source-client-dist "$RUNNER_TEMP/source-dist" --output "$RUNNER_TEMP/trusted-evidence/source-proof.json"
+      - name: Preserve base-owned evidence, without candidate artifacts or caches
+        if: always() && steps.scope.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ai-research-base-owned-scope-and-source
+          path: ${{ runner.temp }}/trusted-evidence
+          if-no-files-found: error
+          retention-days: 7
