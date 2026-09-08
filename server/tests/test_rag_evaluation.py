@@ -39,7 +39,7 @@ from server.rag.evaluation import (
 )
 from server.rag.evaluation_executor import KnowledgeEvaluationExecutor, _execution_slots
 from server.rag.pipeline_executor import KnowledgePipelineExecutor
-from server.rag.rag_service import RagService
+from server.rag.rag_service import PipelineContentContractError, RagService
 from server.rag.vector_store import LocalJsonVectorStore
 from server.xpert_runtime.run_registry import RunRegistry
 
@@ -296,10 +296,10 @@ async def test_case_review_requires_authenticated_server_evidence(
 
 
 @pytest.mark.asyncio
-async def test_4a_fulltext_formal_fixture_is_blocked_until_lexical_v2(
+async def test_4b_fulltext_fixture_builds_for_diagnostics_but_cannot_activate(
     evaluation_runtime,
 ) -> None:
-    client, _, _, _, _ = evaluation_runtime
+    client, service, pipeline_executor, _, _ = evaluation_runtime
     kb_id = await _create_kb(client, "formal-lexical-v2-gate")
     document_id = await _upload_text(
         client,
@@ -313,7 +313,7 @@ async def test_4a_fulltext_formal_fixture_is_blocked_until_lexical_v2(
     )
     assert draft.status_code == 200, draft.text
 
-    blocked = await client.post(
+    queued = await client.post(
         f"/api/rag/pipeline/draft/{kb_id}/execute",
         json={
             "draft_version": draft.json()["version"],
@@ -322,10 +322,64 @@ async def test_4a_fulltext_formal_fixture_is_blocked_until_lexical_v2(
         },
     )
 
-    assert blocked.status_code == 409, blocked.text
-    assert blocked.json()["detail"]["code"] == (
-        "rag_content_contract_legacy_read_only"
+    assert queued.status_code == 200, queued.text
+    assert await pipeline_executor.run_once() is True
+    completed = service.get_pipeline_job(queued.json()["job_id"])
+    assert completed["status"] == "succeeded"
+    version_id = str(completed["candidate_version_id"])
+    version = service.get_pipeline_version(version_id)
+    assert version["content_index_contract"]["components"] == {
+        "chunker": "current",
+        "lexical": "current",
+        "parser": "legacy_read_only",
+    }
+
+    diagnostic = await client.post(
+        f"/api/rag/pipeline/versions/{version_id}/query",
+        json={"question": "deferred fulltext Formal fixture"},
     )
+    assert diagnostic.status_code == 200, diagnostic.text
+    assert diagnostic.json()["sources"]
+    with pytest.raises(PipelineContentContractError):
+        service.activate_pipeline_version(version_id)
+    with pytest.raises(PipelineContentContractError):
+        service.activate_pipeline_version(version_id, promotion=True)
+
+
+@pytest.mark.asyncio
+async def test_legacy_fulltext_fixture_remains_read_only(
+    evaluation_runtime,
+) -> None:
+    client, service, _, _, _ = evaluation_runtime
+    kb_id = await _create_kb(client, "formal-legacy-lexical-gate")
+    document_id = await _upload_text(
+        client,
+        kb_id,
+        "formal-legacy.txt",
+        "Fixed local evidence for the legacy fulltext fixture.",
+    )
+    draft = await client.patch(
+        f"/api/rag/pipeline/draft/{kb_id}",
+        json={"retrieval_profile": {"mode": "fulltext"}},
+    )
+    assert draft.status_code == 200, draft.text
+    with service._metadata_lock:  # noqa: SLF001 - frozen legacy fixture.
+        metadata = service._read_metadata_unlocked()  # noqa: SLF001
+        historical = service._pipeline_draft_record(metadata, kb_id)  # noqa: SLF001
+        historical.pop("lexical_profile", None)
+        metadata["pipeline_drafts"][kb_id] = historical
+        service._write_metadata_unlocked(metadata)  # noqa: SLF001
+
+    blocked = await client.post(
+        f"/api/rag/pipeline/draft/{kb_id}/execute",
+        json={
+            "draft_version": draft.json()["version"],
+            "source_document_ids": [document_id],
+            "xpert_file_refs": [],
+        },
+    )
+    assert blocked.status_code == 409, blocked.text
+    assert blocked.json()["detail"]["code"] == "rag_content_contract_legacy_read_only"
 
 
 @pytest.mark.asyncio
@@ -974,6 +1028,7 @@ def test_synthetic_future_formal_admission_schema_requires_same_corpus_and_compl
     corpus_checksum = snapshot["corpus_snapshot"]["checksum"]
 
     def target(version_id: str, fingerprint: str) -> dict:
+        owner_version_id = "kpv_" + version_id.replace("-", "_")
         chunker_profile = {
             "strategy": "recursive_estimated_token",
             "chunk_size": 500,
@@ -991,9 +1046,9 @@ def test_synthetic_future_formal_admission_schema_requires_same_corpus_and_compl
             "chunker_profile_fingerprint": chunker_profile_fingerprint(
                 chunker_profile
             ),
-            "candidate_version_id": version_id,
+            "candidate_version_id": owner_version_id,
             "candidate_namespace_fingerprint": candidate_namespace_fingerprint(
-                f"kb-formal::v3::{version_id}"
+                f"kb-formal::v3::{owner_version_id}"
             ),
             "raw_candidate_count": 3,
             "heading_block_count": 0,
@@ -1036,13 +1091,25 @@ def test_synthetic_future_formal_admission_schema_requires_same_corpus_and_compl
                 "chunking_receipt": chunking_receipt,
                 "chunking_receipt_fingerprint": chunking_receipt_fingerprint,
                 "chunking_receipt_status": "current",
+                "lexical_index_receipt": {
+                    "receipt_version": "rag-lexical-index-receipt-v2",
+                    "contract_version": "sqlite-fts5-lexical-v2",
+                    "query_policy": "minimum_should_match_auto_v1",
+                    "tokenizer_contract": "ordered_nfkc_cjk_bigram_identifier_v2",
+                    "chunk_count": 3,
+                    "candidate_version_id": owner_version_id,
+                    "candidate_namespace_fingerprint": chunking_receipt["candidate_namespace_fingerprint"],
+                    "chunk_sequence_hash": chunking_receipt["chunk_sequence_hash"],
+                    "indexed_tokens_hash": "7" * 64,
+                },
+                "lexical_index_receipt_status": "current",
                 "chunker": {
                     "profile": chunker_profile,
                     "fingerprint": chunking_receipt[
                         "chunker_profile_fingerprint"
                     ],
                 },
-                "index_owner_version_id": version_id,
+                "index_owner_version_id": owner_version_id,
                 "candidate_namespace_fingerprint": chunking_receipt[
                     "candidate_namespace_fingerprint"
                 ],
@@ -1082,7 +1149,12 @@ def test_synthetic_future_formal_admission_schema_requires_same_corpus_and_compl
                         "dimension": 1024,
                         "distance_contract": "cosine_v1",
                     },
-                    "lexical": {"required": True, "backend": "sqlite_fts5"},
+                    "lexical": {
+                        "required": True, "backend": "sqlite_fts5",
+                        "contract_version": "sqlite-fts5-lexical-v2",
+                        "query_policy": "minimum_should_match_auto_v1",
+                        "tokenizer_contract": "ordered_nfkc_cjk_bigram_identifier_v2",
+                    },
                 },
                 "content_index_contract": {
                     "contract_version": "rag-content-index-contract-v1",

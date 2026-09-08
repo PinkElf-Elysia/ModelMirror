@@ -29,6 +29,7 @@ from server.rag.splitter import (
     estimated_token_separator_aware_coverage_bound,
 )
 from server.rag.vector_store import LocalJsonVectorStore
+from server.tests.rag_legacy_lexical_fixture import LegacyLexicalRow, create_legacy_lexical_fixture
 
 
 def _assert_complete_bounded_split(
@@ -1158,12 +1159,12 @@ def test_new_draft_declares_token_chunking_and_aggregate_content_contract(
     assert draft["content_index_contract"] == {
         "contract_version": "rag-content-index-contract-v1",
         "chunker_contract_version": "rag-chunker-estimated-token-v1",
-        "lexical_contract_version": "sqlite-fts5-lexical-v1",
+        "lexical_contract_version": "sqlite-fts5-lexical-v2",
         "parser_contract_version": "structured-local-parser-v1",
         "status": "legacy_read_only",
         "components": {
             "chunker": "current",
-            "lexical": "legacy_read_only",
+            "lexical": "current",
             "parser": "legacy_read_only",
         },
     }
@@ -1221,6 +1222,11 @@ def test_legacy_lexical_contract_cannot_create_new_fulltext_or_hybrid_job(
             {},
             retrieval_profile={"mode": mode},
         )
+        # A persisted pre-4B draft has no v2 identity. New 4B drafts do.
+        with service._metadata_lock:
+            metadata = service._read_metadata_unlocked()
+            metadata["pipeline_drafts"][kb_id].pop("lexical_profile", None)
+            service._write_metadata_unlocked(metadata)
         with pytest.raises(PipelineContentContractError) as blocked:
             service.create_pipeline_job(
                 kb_id,
@@ -1480,9 +1486,10 @@ async def test_legacy_content_version_is_query_compatible_but_only_prior_active_
         metadata["pipeline_versions"][never_active["version_id"]] = never_active
         service._write_metadata_unlocked(metadata)  # noqa: SLF001
 
-    service.lexical_store.add_chunks(
+    create_legacy_lexical_fixture(
+        service.lexical_store.path,
         [
-            LexicalChunk(
+            LegacyLexicalRow(
                 chunk_id="legacy-query-chunk",
                 namespace=active_namespace,
                 doc_id=f"{base['version_id']}_doc-legacy",

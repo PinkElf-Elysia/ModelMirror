@@ -172,7 +172,7 @@ describe("help center content catalog", () => {
     expect(ragTopic?.points).toContain("文档上传只保存来源；还需保存流水线草稿并显式执行候选，当前新候选仅供诊断，不能用于活动回答");
     expect(ragTopic?.points.join(" ")).not.toMatch(/Formal|Gold|anchor|回执|阈值/);
     expect(ragTopic?.points).toContain("新建草稿默认使用模型无关的估算 Token 预算，标题加入索引和上下文后也计入预算");
-    expect(ragTopic?.points).toContain("4A 仅允许 vector 构建诊断候选；fulltext 和 hybrid 只能查询已有兼容索引");
+    expect(ragTopic?.points).toContain("可按页面能力构建 vector、fulltext 或 hybrid 诊断候选；解析合同完成前不能首次激活或晋级");
     expect(ragTopic?.points).toContain("旧字符或不完整内容合同保持历史只读；只有曾激活版本可回滚，不能首次激活或晋级");
     expect(searchHelpContent("Science").some((entry) => entry.id === "experimental/science")).toBe(true);
     expect(searchHelpContent("专家团").some((entry) => entry.id === "agents/expert-team")).toBe(true);

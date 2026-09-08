@@ -25,7 +25,7 @@ function jsonResponse(payload: unknown, status = 200) {
   });
 }
 
-describe("KnowledgePipelineCanvasPage 4A execution gate", () => {
+describe("KnowledgePipelineCanvasPage content execution gate", () => {
   const draft = {
     index_schema_version: 3,
     retrieval_profile: { mode: "hybrid" },
@@ -50,8 +50,24 @@ describe("KnowledgePipelineCanvasPage 4A execution gate", () => {
       retrieval_mode: "vector",
     },
   };
+  const lexicalV2Draft = (mode: "fulltext" | "hybrid") => ({
+    ...draft,
+    retrieval_profile: { mode },
+    index_contract: {
+      index_schema_version: 3,
+      retrieval_mode: mode,
+    },
+    content_index_contract: {
+      status: "legacy_read_only",
+      components: {
+        chunker: "current",
+        lexical: "current",
+        parser: "legacy_read_only",
+      },
+    },
+  });
 
-  function graphPayload(mode: "hybrid" | "vector", revision = 1) {
+  function graphPayload(mode: "fulltext" | "hybrid" | "vector", revision = 1) {
     return {
       kb_id: "kb-default",
       graph_id: "graph-default",
@@ -66,7 +82,7 @@ describe("KnowledgePipelineCanvasPage 4A execution gate", () => {
         nodes: [{
           id: "retrieval",
           kind: "retrieval",
-          title: mode === "vector" ? "向量检索" : "混合检索",
+          title: mode === "vector" ? "向量检索" : mode === "fulltext" ? "全文检索" : "混合检索",
           position: { x: 0, y: 0 },
           config: { mode, top_k: 5 },
           enabled: true,
@@ -97,11 +113,11 @@ describe("KnowledgePipelineCanvasPage 4A execution gate", () => {
     ));
   }
 
-  it("blocks the default hybrid graph before the 4B fulltext contract", () => {
+  it("blocks a historical hybrid graph without the v2 fulltext contract", () => {
     expect(canvasDraftExecutionDisposition(draft)).toEqual({
       status: "blocked",
       canExecute: false,
-      message: "4A 仅 vector diagnostic 可执行；全文合同待4B。",
+      message: "历史全文合同只读；请保存草稿以使用全文 V2 合同后再构建候选。",
     });
   });
 
@@ -111,12 +127,12 @@ describe("KnowledgePipelineCanvasPage 4A execution gate", () => {
     expect(disposition).toEqual({
       status: "diagnostic_only",
       canExecute: true,
-      message: "当前仅允许 vector diagnostic 候选；不能首次激活或晋级。",
+      message: "当前可构建 vector diagnostic 候选；解析合同待完成，不能首次激活或晋级。",
     });
     expect(disposition.message).not.toMatch(/双索引|全文/);
   });
 
-  it("keeps the default hybrid execute button disabled without sending an execute POST", async () => {
+  it("keeps the legacy hybrid execute button disabled without sending an execute POST", async () => {
     class TestResizeObserver {
       observe() {}
       unobserve() {}
@@ -186,14 +202,14 @@ describe("KnowledgePipelineCanvasPage 4A execution gate", () => {
       ),
     ));
 
-    const status = await screen.findByRole("status", { name: "4A 执行范围" });
-    expect(status).toHaveTextContent("4A 仅 vector diagnostic 可执行；全文合同待4B。");
+    const status = await screen.findByRole("status", { name: "流水线执行范围" });
+    expect(status).toHaveTextContent("历史全文合同只读；请保存草稿以使用全文 V2 合同后再构建候选。");
     const executeButton = screen.getByRole("button", { name: "执行流水线" });
     await waitFor(() => {
       expect(executeButton).toBeDisabled();
       expect(executeButton).toHaveAttribute(
         "title",
-        "4A 仅 vector diagnostic 可执行；全文合同待4B。",
+        "历史全文合同只读；请保存草稿以使用全文 V2 合同后再构建候选。",
       );
     });
 
@@ -203,6 +219,64 @@ describe("KnowledgePipelineCanvasPage 4A execution gate", () => {
       && (init as RequestInit | undefined)?.method === "POST"
     ))).toHaveLength(0);
   });
+
+  it.each(["fulltext", "hybrid"] as const)(
+    "enables %s lexical-v2 diagnostic execution without claiming activation or promotion",
+    async (mode) => {
+      const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
+        if (input === "/api/rag/knowledge_bases") {
+          return jsonResponse({ knowledge_bases: [{ id: "kb-default", name: "默认库", document_count: 1 }] });
+        }
+        if (input.endsWith("/knowledge_bases/kb-default/documents")) {
+          return jsonResponse({ documents: [{ id: "doc-1", filename: "source.md", size: 10 }] });
+        }
+        if (input.includes("/pipeline/graph?kb_id=kb-default")) {
+          return jsonResponse(graphPayload(mode));
+        }
+        if (input.endsWith("/pipeline/graph/kb-default") && init?.method === "PUT") {
+          return jsonResponse(graphPayload(mode, 2));
+        }
+        if (input.includes("/pipeline/draft?kb_id=kb-default")) {
+          return jsonResponse({
+            kb_id: "kb-default",
+            draft_id: "draft-kb-default",
+            version: 2,
+            updated_at: 2,
+            ...lexicalV2Draft(mode),
+          });
+        }
+        if (input.endsWith("/pipeline/graph/kb-default/execute") && init?.method === "POST") {
+          return jsonResponse({ candidate_version: 2 });
+        }
+        if (input.includes("/pipeline/jobs?kb_id=kb-default")) {
+          return jsonResponse({ jobs: [] });
+        }
+        if (input.includes("/pipeline/versions?kb_id=kb-default")) {
+          return jsonResponse({ versions: [] });
+        }
+        return jsonResponse({ detail: "unexpected request" }, 404);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      renderCanvasPage();
+
+      const status = await screen.findByRole("status", { name: "流水线执行范围" });
+      expect(status).toHaveTextContent(
+        `当前可构建 ${mode} diagnostic 候选；解析合同待完成，不能首次激活或晋级。`,
+      );
+      const executeButton = screen.getByRole("button", { name: "执行流水线" });
+      await waitFor(() => expect(executeButton).toBeEnabled());
+      fireEvent.click(executeButton);
+      await screen.findByText("候选版本 v2 已进入执行队列。");
+
+      expect(fetchMock.mock.calls.filter(([url, init]) => (
+        String(url).endsWith("/pipeline/graph/kb-default/execute")
+        && (init as RequestInit | undefined)?.method === "POST"
+      ))).toHaveLength(1);
+      expect(fetchMock.mock.calls.some(([url]) => (
+        String(url).includes("/activate") || String(url).includes("/promot")
+      ))).toBe(false);
+    },
+  );
 
   it("saves and refreshes a vector contract before sending the execute POST", async () => {
     const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {

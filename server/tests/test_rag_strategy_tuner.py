@@ -1919,26 +1919,34 @@ def test_synthetic_future_engine_only_already_optimal_semantic_duplicate_abstain
     ]
 
 
+@pytest.mark.parametrize("scenario_id", ["threshold_recovery", "already_optimal_control"])
 @pytest.mark.asyncio
-async def test_known_winner_threshold_recovery_waits_for_lexical_v2(
+async def test_known_winner_diagnostic_index_builds_but_tuning_waits_for_complete_content(
     tuning_runtime,
+    scenario_id: str,
 ) -> None:
+    # The locked quality controls above remain unchanged. 4B permits the local
+    # base index, not a tuning trial that bypasses the still-legacy parser.
     _, service, executor, _, _ = tuning_runtime
-    scenario = _known_winner_fixture("threshold_recovery")
+    scenario = _known_winner_fixture(scenario_id)
+    kb_id, _, version_id = await _known_winner_base_version(service, executor, scenario)
+    version = service.get_pipeline_version(version_id)
+    assert version["lexical_index_ready"] is True
+    assert version["content_index_contract"]["components"] == {
+        "chunker": "current", "lexical": "current", "parser": "legacy_read_only",
+    }
+    versions_before = service.list_pipeline_versions(kb_id)
     with pytest.raises(PipelineContentContractError) as blocked:
-        await _known_winner_base_version(service, executor, scenario)
+        service.create_strategy_tuning_pipeline_job(
+            kb_id, base_version_id=version_id,
+            chunker_profile=service.get_pipeline_job(version["job_id"])["config_snapshot"]["stages"]["stage_chunker"],
+            retrieval_profile=version["retrieval_profile"],
+            tuning_run_id=f"ragtune-r4b-{scenario_id}", trial=True,
+        )
     assert blocked.value.code == "rag_content_contract_legacy_read_only"
-
-
-@pytest.mark.asyncio
-async def test_known_winner_already_optimal_control_waits_for_lexical_v2(
-    tuning_runtime,
-) -> None:
-    _, service, executor, _, _ = tuning_runtime
-    scenario = _known_winner_fixture("already_optimal_control")
-    with pytest.raises(PipelineContentContractError) as blocked:
-        await _known_winner_base_version(service, executor, scenario)
-    assert blocked.value.code == "rag_content_contract_legacy_read_only"
+    assert "complete current content-index contract" in str(blocked.value)
+    assert service.list_pipeline_versions(kb_id) == versions_before
+    assert service.get_active_pipeline_version(kb_id) is None
 
 
 def test_tuner_capabilities_publish_known_winner_evidence_version(
@@ -1951,7 +1959,7 @@ def test_tuner_capabilities_publish_known_winner_evidence_version(
     assert validation["known_winner_fixture_version"] == KNOWN_WINNER_FIXTURE_VERSION
     assert (
         validation["known_winner_validation_status"]
-        == "blocked_until_lexical_v2"
+        == "blocked_until_complete_content_contract"
     )
     assert validation["known_winner_scenarios"] == [
         "threshold_recovery",

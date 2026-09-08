@@ -54,7 +54,7 @@ export function draftExecutionDisposition(
     return {
       status: "blocked",
       canExecute: false,
-      message: "4A 仅 vector diagnostic 可执行；全文合同待4B。",
+      message: "历史全文合同只读；请保存草稿以使用全文 V2 合同后再构建候选。",
     };
   }
   if (
@@ -72,7 +72,7 @@ export function draftExecutionDisposition(
   return {
     status: "diagnostic_only",
     canExecute: true,
-    message: "当前仅允许 vector diagnostic 候选；不能首次激活或晋级。",
+    message: `当前可构建 ${mode} diagnostic 候选；解析合同待完成，不能首次激活或晋级。`,
   };
 }
 

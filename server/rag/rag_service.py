@@ -9,6 +9,7 @@ import math
 import mimetypes
 import os
 import re
+import sqlite3
 import shutil
 import threading
 import time
@@ -62,6 +63,8 @@ from .content_identity import (
 )
 from .embedder import EmbeddingClient, EmbeddingError
 from .lexical_store import LexicalChunk, LexicalSearchResult, SqliteLexicalStore
+from .lexical_contract import lexical_profile as current_lexical_profile
+from .lexical_contract import safe_index_receipt as safe_lexical_index_receipt
 from .reranker import RerankDocument, RerankItem, RerankOutcome, RerankService
 from .retrieval import (
     ABSOLUTE_NO_RESULT_POLICY,
@@ -1892,6 +1895,7 @@ class RagService:
                 ),
                 retrieval_profile=draft["retrieval_profile"],
                 embedding_profile=draft["embedding_profile"],
+                lexical_profile=draft.get("lexical_profile"),
             ),
             "vector_backend_readiness": self._vector_backend_readiness(),
             "stages": [
@@ -2036,10 +2040,12 @@ class RagService:
                     compiled.retrieval_profile,
                 ),
                 "retrieval_profile": json.loads(json.dumps(compiled.retrieval_profile)),
+                "lexical_profile": current_lexical_profile(),
                 "stages": json.loads(json.dumps(compiled.stage_updates)),
                 "content_index_contract": self._content_index_contract(
                     compiled.stage_updates,
                     draft.get("content_index_contract"),
+                    index_contract={"lexical": current_lexical_profile()},
                 ),
             }
             metadata["pipeline_graphs"][kb_id] = {
@@ -2283,10 +2289,12 @@ class RagService:
                 "index_schema_version": INDEX_SCHEMA_VERSION,
                 "embedding_profile": next_embedding,
                 "retrieval_profile": next_retrieval,
+                "lexical_profile": current_lexical_profile(),
                 "stages": configs,
                 "content_index_contract": self._content_index_contract(
                     configs,
                     current.get("content_index_contract"),
+                    index_contract={"lexical": current_lexical_profile()},
                 ),
             }
             latest["pipeline_drafts"][kb_id] = next_draft
@@ -2707,6 +2715,7 @@ class RagService:
                 index_schema_version=INDEX_SCHEMA_VERSION,
                 retrieval_profile=draft["retrieval_profile"],
                 embedding_profile=draft["embedding_profile"],
+                lexical_profile=draft.get("lexical_profile"),
             )
             self._assert_buildable_content_contract(
                 compiled.stage_updates,
@@ -2955,6 +2964,7 @@ class RagService:
                 "vision_profile": vision_profile,
                 "embedding_profile": json.loads(json.dumps(draft["embedding_profile"])),
                 "retrieval_profile": json.loads(json.dumps(draft["retrieval_profile"])),
+                "lexical_profile": json.loads(json.dumps(draft.get("lexical_profile"))),
                 "index_contract": json.loads(json.dumps(index_contract)),
                 "content_index_contract": json.loads(
                     json.dumps(draft["content_index_contract"])
@@ -3132,6 +3142,7 @@ class RagService:
                 index_schema_version=INDEX_SCHEMA_VERSION,
                 retrieval_profile=config_snapshot["retrieval_profile"],
                 embedding_profile=config_snapshot["embedding_profile"],
+                lexical_profile=config_snapshot.get("lexical_profile"),
             )
             self._assert_buildable_content_contract(
                 stages,
@@ -3391,6 +3402,7 @@ class RagService:
             ),
         )
         payload.setdefault("chunking_receipt", {})
+        payload["lexical_index_receipt"] = safe_lexical_index_receipt(job.get("lexical_index_receipt"))
         return payload
 
     def _assert_pipeline_job_execution_contract(
@@ -3493,6 +3505,7 @@ class RagService:
                 index_schema_version=schema_version,
                 retrieval_profile=retrieval,
                 embedding_profile=embedding,
+                lexical_profile=snapshot.get("lexical_profile"),
             )
             expected_contract_hash = self._mapping_sha256(expected_contract)
             stored_contracts = (
@@ -3973,8 +3986,9 @@ class RagService:
         namespace: str,
         version_id: str,
         sources: Any,
+        lexical: bool = False,
     ) -> str | None:
-        """Rebuild the receipt hash from the authoritative stored vector index."""
+        """Rebuild the same chunk receipt from either authoritative index."""
 
         if not namespace or not version_id or not isinstance(sources, list):
             return None
@@ -3989,11 +4003,11 @@ class RagService:
                     return None
                 seen_source_ids.add(source_id)
                 doc_id = f"{version_id}_{source_id}"
-                stored_chunks = self.vector_store.list_document_chunks(
-                    doc_id,
-                    kb_id=namespace,
+                stored_chunks = (
+                    self.lexical_store.list_document_chunks(doc_id, namespace=namespace)
+                    if lexical else self.vector_store.list_document_chunks(doc_id, kb_id=namespace)
                 )
-                if any(str(chunk.kb_id) != namespace for chunk in stored_chunks):
+                if any(str(chunk.namespace if lexical else chunk.kb_id) != namespace for chunk in stored_chunks):
                     return None
                 ordered = sorted(
                     stored_chunks,
@@ -4032,7 +4046,8 @@ class RagService:
                             "generated_item": bool(chunk.generated_item),
                         }
                     )
-            if int(self.vector_store.count_namespace(namespace)) != len(sequence):
+            store = self.lexical_store if lexical else self.vector_store
+            if int(store.count_namespace(namespace)) != len(sequence):
                 return None
         except Exception:
             return None
@@ -4864,6 +4879,29 @@ class RagService:
             stored_job,
             verify_sources=True,
         )
+        lexical_receipt: dict[str, Any] = {}
+        if bool((stored_job.get("index_contract", {}).get("lexical") or {}).get("required")):
+            try:
+                lexical_receipt = self.lexical_store.index_receipt(stored_namespace)
+                sequence_hash = self._stored_vector_chunk_sequence_hash(
+                    namespace=stored_namespace,
+                    version_id=str(stored_job.get("candidate_version_id") or ""),
+                    sources=stored_job.get("sources"),
+                    lexical=True,
+                )
+                if (
+                    sequence_hash is None
+                    or sequence_hash != (stored_job.get("chunking_receipt") or {}).get("chunk_sequence_hash")
+                    or lexical_receipt["chunk_count"] != chunk_count
+                ):
+                    raise ValueError("rag_lexical_index_content_mismatch")
+                lexical_receipt.update({
+                    "chunk_sequence_hash": sequence_hash,
+                    "candidate_version_id": str(stored_job["candidate_version_id"]),
+                    "candidate_namespace_fingerprint": candidate_namespace_fingerprint(stored_namespace),
+                })
+            except (ValueError, sqlite3.Error) as exc:
+                raise PipelineJobStateError("Stored lexical chunks do not match the Pipeline Job content contract.") from exc
         if self._pipeline_job_uses_vector(stored_job):
             stored_receipt = _safe_chunking_receipt(
                 stored_job.get("chunking_receipt")
@@ -4976,6 +5014,7 @@ class RagService:
                     embedding_profile=dict(
                         job["config_snapshot"].get("embedding_profile") or {}
                     ),
+                    lexical_profile=job["config_snapshot"].get("lexical_profile"),
                 )
             )
             vector_required = bool((index_contract.get("vector") or {}).get("required"))
@@ -5032,6 +5071,7 @@ class RagService:
                 ),
                 "vector_index_ready": vector_required,
                 "lexical_index_ready": lexical_ready,
+                "lexical_index_receipt": lexical_receipt,
                 "source_summary": [
                     {
                         key: value
@@ -5084,6 +5124,7 @@ class RagService:
                 "activated_at": None,
             }
             metadata["pipeline_versions"][version["version_id"]] = version
+            job["lexical_index_receipt"] = json.loads(json.dumps(lexical_receipt))
             job["status"] = "succeeded"
             job["completed_at"] = now
             job["updated_at"] = now
@@ -5310,11 +5351,15 @@ class RagService:
         job_receipt = _safe_chunking_receipt(build_job.get("chunking_receipt"))
         stored_sequence_hash: str | None = None
         stored_sequence_status = "not_applicable"
-        if build_job and self._pipeline_job_uses_vector(build_job):
+        if build_job and (
+            self._pipeline_job_uses_vector(build_job)
+            or self._lexical_contract_for_version(version) == CURRENT_LEXICAL_CONTRACT
+        ):
             stored_sequence_hash = self._stored_vector_chunk_sequence_hash(
                 namespace=str(version.get("namespace") or ""),
                 version_id=receipt_owner_id,
                 sources=build_job.get("sources"),
+                lexical=not self._pipeline_job_uses_vector(build_job),
             )
             stored_sequence_status = (
                 "current"
@@ -5379,10 +5424,32 @@ class RagService:
             }
         )
         content_index_contract = self._content_index_contract_for_version(version)
+        lexical_receipt = safe_lexical_index_receipt(version.get("lexical_index_receipt"))
+        lexical_receipt_status = "not_applicable"
+        if (version.get("index_contract", {}).get("lexical") or {}).get("required"):
+            lexical_receipt_status = "legacy_read_only"
+            if self._lexical_contract_for_version(version) == CURRENT_LEXICAL_CONTRACT:
+                lexical_receipt_status = "mismatch"
+                try:
+                    actual = self.lexical_store.index_receipt(str(version.get("namespace") or ""))
+                    actual.update({
+                        "chunk_sequence_hash": self._stored_vector_chunk_sequence_hash(
+                            namespace=str(version.get("namespace") or ""),
+                            version_id=receipt_owner_id, sources=build_job.get("sources"), lexical=True,
+                        ),
+                        "candidate_version_id": receipt_owner_id,
+                        "candidate_namespace_fingerprint": namespace_fingerprint,
+                    })
+                    if lexical_receipt and actual == lexical_receipt == safe_lexical_index_receipt(build_job.get("lexical_index_receipt")):
+                        lexical_receipt_status = "current"
+                except (ValueError, sqlite3.Error):
+                    pass
         configuration_fingerprint = self._mapping_sha256(
             {
                 "index_schema_version": int(version.get("index_schema_version") or 1),
                 "content_index_contract": content_index_contract,
+                **({"lexical_index_receipt": lexical_receipt, "lexical_index_receipt_status": lexical_receipt_status}
+                   if self._lexical_contract_for_version(version) == CURRENT_LEXICAL_CONTRACT else {}),
                 "embedding": safe_embedding,
                 "retrieval": retrieval,
                 "chunker": chunker_profile,
@@ -5431,6 +5498,8 @@ class RagService:
                 json.dumps(version.get("index_contract") or {})
             ),
             "content_index_contract": content_index_contract,
+            "lexical_index_receipt": lexical_receipt,
+            "lexical_index_receipt_status": lexical_receipt_status,
             "chunking_receipt": chunking_receipt,
             "chunking_receipt_fingerprint": chunking_receipt_fingerprint,
             "chunking_receipt_status": chunking_receipt_status,
@@ -6131,6 +6200,7 @@ class RagService:
         )
         payload.setdefault("chunking_receipt", {})
         payload.setdefault("threshold_calibration_evidence", None)
+        payload["lexical_index_receipt"] = safe_lexical_index_receipt(version.get("lexical_index_receipt"))
         records = metadata if isinstance(metadata, dict) else self._read_metadata()
         payload["active"] = str(active_id or "") == str(version.get("version_id"))
         return payload
@@ -6546,6 +6616,7 @@ class RagService:
             question,
             config=profile,
             lexical_ready=bool(version.get("lexical_index_ready")),
+            lexical_contract_version=self._lexical_contract_for_version(version),
             embedding_profile=version.get("embedding_profile"),
             generate_answer=generate_answer,
         )
@@ -6818,6 +6889,7 @@ class RagService:
                     index_schema_version=INDEX_SCHEMA_VERSION,
                     retrieval_profile=dict(snapshot.get("retrieval_profile") or {}),
                     embedding_profile=profile,
+                    lexical_profile=snapshot.get("lexical_profile"),
                 )
                 namespace = self._candidate_namespace(
                     str(job.get("kb_id") or ""),
@@ -7288,6 +7360,7 @@ class RagService:
             question,
             config=config,
             lexical_ready=bool(isinstance(version, dict) and version.get("lexical_index_ready")),
+            lexical_contract_version=self._lexical_contract_for_version(version),
             embedding_profile=(
                 version.get("embedding_profile") if isinstance(version, dict) else None
             ),
@@ -7885,6 +7958,7 @@ class RagService:
             question,
             config=config,
             lexical_ready=bool(version and version.get("lexical_index_ready")),
+            lexical_contract_version=self._lexical_contract_for_version(version),
             embedding_profile=version.get("embedding_profile") if version else None,
         )
         return self._with_source_document_ids(
@@ -7900,6 +7974,7 @@ class RagService:
         *,
         config: RetrievalConfig,
         lexical_ready: bool,
+        lexical_contract_version: str | None = None,
         embedding_profile: dict[str, Any] | None = None,
         generate_answer: bool = True,
     ) -> dict[str, Any]:
@@ -7952,11 +8027,14 @@ class RagService:
                         "rag_vector_index_unavailable",
                         "The required vector index is unavailable.",
                     )
-        lexical_count = (
-            self.lexical_store.count_namespace(namespace)
-            if config.mode in {"fulltext", "hybrid"}
-            else 0
-        )
+        lexical_receipt: dict[str, Any] = {}
+        try:
+            lexical_count = (
+                self.lexical_store.count_namespace(namespace)
+                if config.mode in {"fulltext", "hybrid"} else 0
+            )
+        except (ValueError, sqlite3.Error) as exc:
+            raise RagRetrievalContractError("rag_lexical_contract_mismatch", "The full-text index contract is unavailable or inconsistent.") from exc
         # A persisted readiness flag is not proof that the lexical namespace is
         # still present. Missing indexes fail closed for both legacy and V3;
         # fulltext/hybrid must never silently become vector-only retrieval.
@@ -7966,6 +8044,19 @@ class RagService:
                 "rag_fulltext_index_unavailable",
                 "The required full-text index is unavailable.",
             )
+
+        # Validate the pinned lexical identity before any hybrid Provider call.
+        if config.mode in {"fulltext", "hybrid"}:
+            try:
+                outcome = self.lexical_store.query_with_receipt(
+                    namespace, clean_question, candidate_count,
+                    expected_contract=lexical_contract_version,
+                    candidate_top_k=config.top_k,
+                )
+            except (ValueError, sqlite3.Error) as exc:
+                raise RagRetrievalContractError("rag_lexical_contract_mismatch", "The full-text index does not match the version's lexical contract.") from exc
+            lexical_results = outcome.results
+            lexical_receipt = outcome.receipt
 
         async def query_vector_candidates() -> list[SearchResult]:
             nonlocal provider_route_receipts, execution_mode
@@ -7984,12 +8075,6 @@ class RagService:
 
         if config.mode in {"vector", "hybrid"}:
             vector_results = await query_vector_candidates()
-        if config.mode in {"fulltext", "hybrid"}:
-            lexical_results = self.lexical_store.query(
-                namespace,
-                clean_question,
-                candidate_count,
-            )
 
         deleted_document_ids = self._deleted_document_ids()
         if deleted_document_ids:
@@ -8029,6 +8114,8 @@ class RagService:
             rejection_diagnostics,
         ) = config.filter_absolute_channels(vector_candidates, lexical_candidates)
         promotion_ineligibility_reasons: list[str] = []
+        if str(lexical_receipt.get("rejection_reason") or "").startswith("query_"):
+            promotion_ineligibility_reasons.append("lexical_query_unqualified")
         if not is_v3:
             promotion_ineligibility_reasons.append("legacy_index_schema")
         elif not config.uses_absolute_relevance:
@@ -8223,7 +8310,7 @@ class RagService:
                     promotion_ineligibility_reasons=promotion_ineligibility_reasons,
                     candidate_stage_counts=candidate_stage_counts,
                     overlap_merged_chunk_count=overlap_merged_chunk_count,
-                ),
+                ) | {"lexical_receipt": lexical_receipt},
             }
 
         if generate_answer:
@@ -8308,7 +8395,7 @@ class RagService:
                 promotion_ineligibility_reasons=promotion_ineligibility_reasons,
                 candidate_stage_counts=candidate_stage_counts,
                 overlap_merged_chunk_count=overlap_merged_chunk_count,
-            ),
+            ) | {"lexical_receipt": lexical_receipt},
         }
 
     async def _rerank_with_control(
@@ -8745,15 +8832,24 @@ class RagService:
         return json.loads(json.dumps(profile))
 
     @staticmethod
+    def _lexical_contract_for_version(version: dict[str, Any] | None) -> str:
+        snapshot = (version or {}).get("config_snapshot") or {}
+        index_contract = snapshot.get("index_contract") or (version or {}).get("index_contract") or {}
+        return str((index_contract.get("lexical") or {}).get("contract_version") or LEGACY_LEXICAL_CONTRACT)
+
+    @staticmethod
     def _index_contract(
         *,
         index_schema_version: int,
         retrieval_profile: dict[str, Any],
         embedding_profile: dict[str, Any],
+        lexical_profile: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         mode = str(retrieval_profile.get("mode") or "hybrid")
         vector_required = mode in {"vector", "hybrid"}
         effective = dict(embedding_profile.get("effective") or {})
+        if lexical_profile is not None and lexical_profile != current_lexical_profile():
+            raise ValueError("rag_lexical_contract_mismatch")
         return {
             "contract_version": (
                 "rag-index-contract-v3"
@@ -8777,6 +8873,7 @@ class RagService:
             "lexical": {
                 "required": mode in {"fulltext", "hybrid"},
                 "backend": "sqlite_fts5",
+                **(lexical_profile or {}),
             },
         }
 
@@ -8863,15 +8960,16 @@ class RagService:
             "fulltext": {
                 "available": True,
                 "query_available": True,
-                "candidate_build_available": False,
-                "candidate_build_blocker": "lexical_v2_pending",
+                "candidate_build_available": True,
+                "candidate_build_blocker": None,
                 "backend": self.lexical_store.backend,
+                **current_lexical_profile(),
             },
             "embedding": self._default_embedding_profile(),
             "rerank": rerank,
             "modes": ["vector", "fulltext", "hybrid"],
-            "candidate_build_modes": ["vector"] if vector["ready"] else [],
-            "candidate_build_contract_status": "partial_round_4a",
+            "candidate_build_modes": ["vector", "fulltext", "hybrid"] if vector["ready"] else ["fulltext"],
+            "candidate_build_contract_status": "partial_round_4b",
         }
 
     def _retrieval_config_for_version(
@@ -9037,6 +9135,8 @@ class RagService:
                 or item.score_contract == "weighted_term_coverage_v1"
                 else None
             ),
+            source_block_ids=tuple(item.source_block_ids),
+            generated_item=bool(item.generated_item),
         )
 
     def _retrieval_diagnostics(
@@ -9772,11 +9872,16 @@ class RagService:
             and str(chunker.get("token_estimator") or "")
             == ESTIMATED_TOKEN_ESTIMATOR
         )
-        # Stored aggregate or nested labels are projections, never authority.
-        # Round 4A has no lexical-v2 or parser-v2 implementation receipt, so a
-        # forward-declared version string must not make either component current.
-        # Rounds 4B/4C replace these constants with receipt-backed validators.
-        lexical_contract = LEGACY_LEXICAL_CONTRACT
+        # Stored aggregate labels are projections, never authority. New builds
+        # bind a complete lexical profile in the admitted index contract; old
+        # snapshots missing it retain their exact legacy identity.
+        lexical = (index_contract or {}).get("lexical") or {}
+        lexical_contract = (
+            CURRENT_LEXICAL_CONTRACT
+            if all(lexical.get(key) == value for key, value in current_lexical_profile().items())
+            else LEGACY_LEXICAL_CONTRACT
+        )
+        # Parser-v2 is a separate 4C gate. Lexical-v2 never grants promotion.
         parser_contract = LEGACY_PARSER_CONTRACT
         components = {
             "chunker": "current" if chunker_current else "legacy_read_only",
@@ -9827,7 +9932,7 @@ class RagService:
             if isinstance(version.get("content_index_contract"), dict)
             else config_snapshot.get("content_index_contract")
         )
-        return self._content_index_contract(
+        contract = self._content_index_contract(
             stages,
             stored if isinstance(stored, dict) else None,
             index_contract=(
@@ -9840,6 +9945,18 @@ class RagService:
                 )
             ),
         )
+        lexical_required = bool(((config_snapshot.get("index_contract") or version.get("index_contract") or {}).get("lexical") or {}).get("required"))
+        if lexical_required and contract["components"]["lexical"] == "current":
+            receipt = safe_lexical_index_receipt(version.get("lexical_index_receipt"))
+            if (
+                not receipt or receipt["chunk_count"] != version.get("chunk_count")
+                or receipt["chunk_sequence_hash"] != (version.get("chunking_receipt") or {}).get("chunk_sequence_hash")
+                or receipt["candidate_namespace_fingerprint"] != candidate_namespace_fingerprint(version.get("namespace"))
+                or receipt["candidate_version_id"] != str(version.get("index_owner_version_id") or version.get("version_id") or "")
+            ):
+                contract["components"]["lexical"] = "legacy_read_only"
+                contract["status"] = "legacy_read_only"
+        return contract
 
     def _assert_current_chunker_build_contract(
         self,
@@ -9969,8 +10086,9 @@ class RagService:
                     retrieval_profile,
                 ),
                 "retrieval_profile": retrieval_profile,
+                "lexical_profile": current_lexical_profile(),
                 "stages": defaults,
-                "content_index_contract": self._content_index_contract(defaults),
+                "content_index_contract": self._content_index_contract(defaults, index_contract={"lexical": current_lexical_profile()}),
             }
 
         stages = {
@@ -10053,6 +10171,7 @@ class RagService:
                 retrieval_profile,
             ),
             "retrieval_profile": retrieval_profile,
+            "lexical_profile": json.loads(json.dumps(draft.get("lexical_profile"))),
             "stages": stages,
             "content_index_contract": self._content_index_contract(
                 stages,
@@ -10061,6 +10180,7 @@ class RagService:
                     if isinstance(draft.get("content_index_contract"), dict)
                     else None
                 ),
+                index_contract={"lexical": draft.get("lexical_profile") or {}},
             ),
         }
 

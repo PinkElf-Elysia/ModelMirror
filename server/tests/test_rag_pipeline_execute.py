@@ -1229,6 +1229,13 @@ async def test_legacy_lexical_contract_blocks_candidate_before_index_writes(
         "Vector and full-text indexes must become ready together.",
     )
     draft = (await client.get(f"/api/rag/pipeline/draft?kb_id={kb_id}")).json()
+    # Preserve the pre-4B draft identity while testing legacy build rejection.
+    with service._metadata_lock:
+        metadata = service._read_metadata_unlocked()
+        historical = service._pipeline_draft_record(metadata, kb_id)
+        historical.pop("lexical_profile", None)
+        metadata["pipeline_drafts"][kb_id] = historical
+        service._write_metadata_unlocked(metadata)
     queued = await client.post(
         f"/api/rag/pipeline/draft/{kb_id}/execute",
         json={"draft_version": draft["version"], "source_document_ids": [document_id]},

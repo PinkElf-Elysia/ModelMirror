@@ -13,6 +13,7 @@ from server.rag.chunking_receipt import (
 )
 from server.rag.embedder import EmbeddingClient
 from server.rag.lexical_store import LexicalChunk, SqliteLexicalStore
+from server.tests.rag_legacy_lexical_fixture import LegacyLexicalRow, create_legacy_lexical_fixture
 from server.rag.rag_service import PipelineDraftValidationError, PipelineJobStateError, RagService
 from server.rag.reranker import RerankItem, RerankOutcome
 from server.rag.retrieval import RetrievalCandidate, RetrievalConfig
@@ -303,9 +304,10 @@ async def test_v3_fulltext_does_not_treat_rank_fallback_as_absolute_confidence(
     service = build_service(tmp_path)
     kb = service.create_knowledge_base("lexical rank fallback")
     namespace = f"{kb['id']}::v3::fulltext"
-    service.lexical_store.add_chunks(
+    create_legacy_lexical_fixture(
+        service.lexical_store.path,
         [
-            LexicalChunk(
+            LegacyLexicalRow(
                 chunk_id="rank-one",
                 namespace=namespace,
                 doc_id="doc-rank-one",
