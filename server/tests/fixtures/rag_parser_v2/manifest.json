@@ -1,0 +1,29 @@
+{
+  "fixture_contract_version": "rag-parser-golden-fixtures-v1",
+  "source": "ModelMirror project-owned, synthetic test material",
+  "external_documents": false,
+  "real_provider_calls": 0,
+  "checksum_policy": "SHA-256; exact binary bytes; UTF-8 text normalized to LF",
+  "builders": {
+    "pdf": "build_pdf_fixtures.py; reportlab/Pillow authoring only, not production dependencies",
+    "xlsx": "build_xlsx_fixture.mjs; bundled artifact-tool authoring only, not a production dependency",
+    "markdown": "Authored directly for this repository"
+  },
+  "fixtures": [
+    {"path": "structured.md", "sha256": "9f7be1c566e42589139af6049f61dda0539c0d5d68fea11e5736bead73e6c199", "expected": "heading path, fenced code, original Markdown table"},
+    {"path": "page_edges.pdf", "sha256": "232bfbd2f704e976f700bce87e17a14d9d64772bb7ee03dd0362faa473388535", "expected": "three pages; repeated edge removal with hashed receipt"},
+    {"path": "two_columns.pdf", "sha256": "b4447ca1a258c246f96140b60884ac8c5d5474a3f67eca5c5ea29f935cb16b31", "expected": "left column before right column"},
+    {"path": "ambiguous_columns.pdf", "sha256": "98a8a0b15fe54f8142bb934f47eb523ef3ed45bc4df0288abc8faf937335617f", "expected": "cross-gutter object: rag_layout_degraded"},
+    {"path": "ruled_table.pdf", "sha256": "2b54ea9fba928d7a678a771f61b6dfe918e7c22f6427f2480987093215abec35", "expected": "proved rectangular A1:B3 table and page metadata"},
+    {"path": "scanned.pdf", "sha256": "0b846b2ca6aca9751ba7cd303e2363b704527bdc47e70b5a73cc1e3d80f99a61", "expected": "scanned_pdf_requires_ocr without OCR; strict Fake Vision test only"},
+    {"path": "multiple_sheets.xlsx", "sha256": "a820d1a78ff9e41edc6eacf2da02b205566f71e08618b1542e149f3c1ec54365", "expected": "Inventory A1:C4, History A1:B3; absent optional dimensions, empty cells, zero, booleans"},
+    {"path": "empty.txt", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "expected": "explicit document failure"},
+    {"path": "corrupt.pdf", "sha256": "ff0b475473a3f5487f9e84d05c282e58b386dc9dcfa6f9ee248f98363f0827a9", "expected": "explicit PDF failure"}
+  ],
+  "fault_injection": [
+    "A page extraction failure is injected inside the shared worker; no partial-success artifact may escape",
+    "The XLSX dimension is understated in a temporary copy to prove rows cannot be silently omitted",
+    "Synthetic word coordinates exercise overlap, table-edge cleanup and aggregate rendered-page budgets"
+  ],
+  "scope": "Fixture correctness and bounded parser behavior only; not OCR accuracy or general PDF layout recovery"
+}

@@ -10,14 +10,18 @@ from collections.abc import Callable
 from datetime import date, datetime, time, timedelta
 from html.parser import HTMLParser
 from itertools import zip_longest
+from functools import partial
 from multiprocessing.connection import Connection
 from pathlib import Path
 from typing import Any
+from typing import Literal
 
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.utils.exceptions import InvalidFileException
 from pydantic import BaseModel, ConfigDict, Field
+
+from .pdf_layout import PdfOutputLimit, structured_pdf_payload
 
 
 MAX_EXTRACTED_CHARACTERS = 500_000
@@ -62,6 +66,11 @@ class ParsedSection(BaseModel):
     row_range: str | None = None
     heading_path: tuple[str, ...] | None = None
     time_range: str | None = None
+    kind: str | None = None
+    column: int | None = Field(default=None, ge=1, le=2)
+    bbox: tuple[float, float, float, float] | None = None
+    table_bbox: tuple[float, float, float, float] | None = None
+    layout_status: Literal["verified", "degraded"] = "verified"
 
 
 class ParsedDocument(BaseModel):
@@ -73,6 +82,11 @@ class ParsedDocument(BaseModel):
     warnings: tuple[str, ...] = ()
     extracted_chars: int = Field(ge=0)
     truncated: bool = False
+    page_count: int = Field(default=0, ge=0, le=1000)
+    empty_pages: tuple[int, ...] = ()
+    degraded_pages: tuple[int, ...] = ()
+    layout_status: Literal["not_applicable", "verified", "degraded"] = "not_applicable"
+    operations: tuple[dict[str, Any], ...] = ()
 
 
 class ParsedDocumentPreview(ParsedDocument):
@@ -87,6 +101,9 @@ def parse_chat_document(
     format_id: str,
     title: str | None,
     office_parser: Any | None = None,
+    structured_pdf: bool = False,
+    remove_repeated_pdf_edges: bool = True,
+    preserve_pdf_tables: bool = True,
 ) -> ParsedDocument:
     """Parse a registry-backed local document without calling a provider."""
 
@@ -132,6 +149,12 @@ def parse_chat_document(
                 status_code=exc.status_code,
             ) from exc
     if format_id == "pdf":
+        if structured_pdf:
+            return _parse_text_pdf(
+                path, title=title, structured=True,
+                remove_repeated=remove_repeated_pdf_edges,
+                preserve_tables=preserve_pdf_tables,
+            )
         return _parse_text_pdf(path, title=title)
     raise LocalDocumentParseError(
         "file_parse_not_supported",
@@ -388,6 +411,18 @@ def _parse_xlsx_workbook(path: Path, *, title: str | None) -> ParsedDocument:
                     "xlsx_cell_limit_exceeded",
                     "XLSX 的有效单元格或行跨度超过 100,000，请拆分工作簿或改用 Data X 分析。",
                 )
+            # The optional OOXML dimension can be absent OR underreported.
+            # Discover the actual footprint with a bounded streaming pass;
+            # never allow metadata to silently hide the remainder of a sheet.
+            formula_sheet.reset_dimensions()
+            max_row = max_column = 0
+            for row_number, row in enumerate(formula_sheet.iter_rows(), 1):
+                if row_number > MAX_XLSX_ROW_SPAN:
+                    raise LocalDocumentParseError("xlsx_cell_limit_exceeded", "XLSX 行跨度超过安全上限。")
+                if len(row) > MAX_XLSX_COLUMNS:
+                    raise LocalDocumentParseError("xlsx_column_limit_exceeded", "XLSX 列跨度超过安全上限。")
+                max_row = row_number
+                max_column = max(max_column, len(row))
             if max_column < 1 or max_row < 1:
                 continue
 
@@ -802,12 +837,18 @@ def _parse_text_pdf(
     title: str | None,
     timeout_seconds: float = PDF_PARSE_TIMEOUT_SECONDS,
     worker_target: PdfWorkerTarget | None = None,
+    structured: bool = False,
+    remove_repeated: bool = True,
+    preserve_tables: bool = True,
 ) -> ParsedDocument:
     """Extract PDF text in a killable process with bounded output."""
 
     if timeout_seconds <= 0:
         raise ValueError("timeout_seconds must be positive")
-    target = worker_target or _pdf_text_worker
+    target = worker_target or (
+        partial(_pdf_text_worker, structured=True, remove_repeated=remove_repeated, preserve_tables=preserve_tables)
+        if structured else _pdf_text_worker
+    )
     context = multiprocessing.get_context("spawn")
     receiver, sender = context.Pipe(duplex=False)
     worker = context.Process(
@@ -916,10 +957,26 @@ def _pdf_text_worker(
     max_page_characters: int,
     max_total_characters: int,
     timeout_seconds: float,
+    *,
+    structured: bool = False,
+    remove_repeated: bool = True,
+    preserve_tables: bool = True,
 ) -> None:
     """Child-process worker; only returns bounded primitive data."""
 
     try:
+        if structured:
+            import pdfplumber
+
+            _apply_pdf_worker_resource_limits(timeout_seconds)
+            with pdfplumber.open(path) as pdf:
+                payload = structured_pdf_payload(
+                    pdf, max_page_characters=max_page_characters,
+                    max_total_characters=max_total_characters,
+                    remove_repeated=remove_repeated, preserve_tables=preserve_tables,
+                )
+            sender.send(("ok", payload))
+            return
         import PyPDF2  # type: ignore[import-not-found]
 
         # Import the parser before lowering the address-space ceiling. Spawned
@@ -987,7 +1044,7 @@ def _pdf_text_worker(
                 },
             )
         )
-    except MemoryError:
+    except (MemoryError, PdfOutputLimit):
         _send_pdf_worker_error(
             sender,
             "pdf_parse_resource_limit",

@@ -59,7 +59,8 @@ def parse_document(path: Path, original_filename: str | None = None) -> str:
     text = "\n\n".join(section.text for section in parsed.sections)
     if not text.strip():
         raise DocumentParseError(
-            f"文档没有可读取的文本内容：{original_filename or path.name}"
+            f"文档没有可读取的文本内容：{original_filename or path.name}",
+            error_code="scanned_pdf_requires_ocr" if parsed.format == "pdf" else "file_has_no_readable_text",
         )
     return text
 
@@ -67,6 +68,9 @@ def parse_document(path: Path, original_filename: str | None = None) -> str:
 def parse_document_structured(
     path: Path,
     original_filename: str | None = None,
+    *,
+    remove_repeated_pdf_edges: bool = True,
+    preserve_pdf_tables: bool = True,
 ) -> ParsedDocument:
     """Validate and parse RAG/Agent inputs through the canonical file kernel."""
 
@@ -79,10 +83,16 @@ def parse_document_structured(
             filename=display_name,
             declared_media_type=None,
         )
+        pdf_options = {
+            "structured_pdf": True,
+            "remove_repeated_pdf_edges": remove_repeated_pdf_edges,
+            "preserve_pdf_tables": preserve_pdf_tables,
+        } if validated.format_id == "pdf" else {}
         return parse_chat_document(
             path,
             format_id=validated.format_id,
             title=display_name,
+            **pdf_options,
         )
     except (FileValidationError, LocalDocumentParseError) as exc:
         message = getattr(exc, "message", None) or str(exc)
@@ -91,4 +101,3 @@ def parse_document_structured(
             error_code=getattr(exc, "error_code", "document_parse_failed"),
             status_code=getattr(exc, "status_code", 422),
         ) from exc
-

@@ -43,6 +43,7 @@ from server.rag.strategy_tuner import (
     summarize_repeated_case_results,
 )
 from server.rag.vector_store import LocalJsonVectorStore
+from server.tests.rag_legacy_parser_fixture import mark_version_as_legacy_parser
 from server.xpert_runtime.run_registry import RunRegistry
 
 
@@ -1695,12 +1696,12 @@ async def test_tuner_materializes_ready_candidate_without_switching_active_versi
 
 
 @pytest.mark.asyncio
-async def test_current_r4a_content_contract_blocks_strategy_tuning(
+async def test_stored_legacy_parser_content_contract_blocks_strategy_tuning(
     tuning_runtime,
 ) -> None:
     _, service, executor, _, _ = tuning_runtime
     kb_id, _, base_version_id = await _base_version(service, executor)
-
+    mark_version_as_legacy_parser(service, base_version_id)
     with pytest.raises(PipelineContentContractError) as blocked:
         service.create_strategy_tuning_pipeline_job(
             kb_id,
@@ -1925,14 +1926,15 @@ async def test_known_winner_diagnostic_index_builds_but_tuning_waits_for_complet
     tuning_runtime,
     scenario_id: str,
 ) -> None:
-    # The locked quality controls above remain unchanged. 4B permits the local
-    # base index, not a tuning trial that bypasses the still-legacy parser.
+    # Keep the locked quality controls unchanged. Model a stored pre-4C index;
+    # historical parser evidence must not authorize a new tuning trial.
     _, service, executor, _, _ = tuning_runtime
     scenario = _known_winner_fixture(scenario_id)
     kb_id, _, version_id = await _known_winner_base_version(service, executor, scenario)
+    mark_version_as_legacy_parser(service, version_id)
     version = service.get_pipeline_version(version_id)
     assert version["lexical_index_ready"] is True
-    assert version["content_index_contract"]["components"] == {
+    assert service.pipeline_version_payload(version)["content_index_contract"]["components"] == {
         "chunker": "current", "lexical": "current", "parser": "legacy_read_only",
     }
     versions_before = service.list_pipeline_versions(kb_id)

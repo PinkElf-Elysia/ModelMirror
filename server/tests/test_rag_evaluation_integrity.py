@@ -247,7 +247,10 @@ def _synthetic_future_formal_target(
             },
             "index_owner_version_id": owner_version_id,
             "candidate_namespace_fingerprint": namespace_fingerprint,
-            "processor": {"mode": "general", "fingerprint": "c" * 64},
+            "processor": {
+                "mode": "general", "fingerprint": "c" * 64,
+                "receipt_status": "current", "receipt_fingerprint": "b" * 64,
+            },
             "embedding": {"effective": embedding},
             "retrieval": retrieval,
             "index_contract": {

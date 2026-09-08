@@ -699,21 +699,12 @@ async def test_continue_on_error_allows_processor_after_top_level_vision_failure
         source_id: str,
         **_kwargs,
     ) -> ProcessedDocument:
-        text = "Locally parsed fallback evidence."
-        return ProcessedDocument(
-            source_id=source_id,
-            filename=filename,
-            title=filename,
-            text=text,
-            blocks=[
-                DocumentBlock(
-                    block_id=f"block_{source_id}",
-                    kind="paragraph",
-                    text=text,
-                    start_char=0,
-                    end_char=len(text),
-                )
-            ],
+        from server.rag.document_processor import StructuredDocumentProcessor
+        # Inject only the local extractor output; let the real processor bind
+        # the fixture's source bytes and blocks into a valid 4C receipt.
+        return StructuredDocumentProcessor().process(
+            _path, source_id=source_id, filename=filename,
+            extracted_text="Locally parsed fallback evidence.",
         )
 
     monkeypatch.setattr(service.vision_processor, "analyze_source", fail_vision)

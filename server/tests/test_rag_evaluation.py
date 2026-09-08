@@ -152,12 +152,14 @@ async def _execute_draft(
     executor: KnowledgePipelineExecutor,
     kb_id: str,
     document_ids: list[str],
+    *,
+    retrieval_mode: str = "vector",
 ) -> dict:
     draft = (await client.get(f"/api/rag/pipeline/draft?kb_id={kb_id}")).json()
-    if str((draft.get("retrieval_profile") or {}).get("mode") or "") != "vector":
+    if str((draft.get("retrieval_profile") or {}).get("mode") or "") != retrieval_mode:
         updated = await client.patch(
             f"/api/rag/pipeline/draft/{kb_id}",
-            json={"retrieval_profile": {"mode": "vector"}},
+            json={"retrieval_profile": {"mode": retrieval_mode}},
         )
         assert updated.status_code == 200, updated.text
         draft = updated.json()
@@ -296,7 +298,7 @@ async def test_case_review_requires_authenticated_server_evidence(
 
 
 @pytest.mark.asyncio
-async def test_4b_fulltext_fixture_builds_for_diagnostics_but_cannot_activate(
+async def test_current_fulltext_fixture_needs_threshold_evidence_before_promotion(
     evaluation_runtime,
 ) -> None:
     client, service, pipeline_executor, _, _ = evaluation_runtime
@@ -331,7 +333,7 @@ async def test_4b_fulltext_fixture_builds_for_diagnostics_but_cannot_activate(
     assert version["content_index_contract"]["components"] == {
         "chunker": "current",
         "lexical": "current",
-        "parser": "legacy_read_only",
+        "parser": "current",
     }
 
     diagnostic = await client.post(
@@ -340,9 +342,9 @@ async def test_4b_fulltext_fixture_builds_for_diagnostics_but_cannot_activate(
     )
     assert diagnostic.status_code == 200, diagnostic.text
     assert diagnostic.json()["sources"]
-    with pytest.raises(PipelineContentContractError):
-        service.activate_pipeline_version(version_id)
-    with pytest.raises(PipelineContentContractError):
+    assert service.get_active_pipeline_version(version["kb_id"]) is None
+    from server.rag.rag_service import PipelineJobStateError
+    with pytest.raises(PipelineJobStateError, match="threshold"):
         service.activate_pipeline_version(version_id, promotion=True)
 
 
@@ -383,11 +385,17 @@ async def test_legacy_fulltext_fixture_remains_read_only(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("retrieval_mode", ["vector", "fulltext"])
 async def test_formal_api_requires_qualified_target_identity_after_gold_checks(
     evaluation_runtime,
     monkeypatch: pytest.MonkeyPatch,
+    retrieval_mode: str,
 ) -> None:
     client, service, pipeline_executor, evaluation_executor, _ = evaluation_runtime
+    if retrieval_mode == "fulltext":
+        async def forbidden_embedding(*args, **kwargs):
+            pytest.fail("Formal fulltext build/query must never dispatch embedding")
+        monkeypatch.setattr(EmbeddingClient, "embed_texts", forbidden_embedding)
     pairing_secret = "formal-api-test-secret-at-least-32-characters"
     monkeypatch.setenv(
         "MODEL_MIRROR_PROVIDER_ADMIN_PAIRING_SECRET", pairing_secret
@@ -424,13 +432,17 @@ async def test_formal_api_requires_qualified_target_identity_after_gold_checks(
         )
         assert fulltext_draft.status_code == 200, fulltext_draft.text
         baseline_job = await _execute_draft(
-            client, pipeline_executor, kb_id, document_ids
+            client, pipeline_executor, kb_id, document_ids, retrieval_mode=retrieval_mode
         )
         candidate_job = await _execute_draft(
-            client, pipeline_executor, kb_id, document_ids
+            client, pipeline_executor, kb_id, document_ids, retrieval_mode=retrieval_mode
         )
         baseline_id = str(baseline_job["candidate_version_id"])
         candidate_id = str(candidate_job["candidate_version_id"])
+        if retrieval_mode == "fulltext":
+            for version_id in (baseline_id, candidate_id):
+                actual = service.pipeline_version_evidence(version_id)
+                assert actual["retrieval"]["mode"] == "fulltext"
         corpus = service.pipeline_corpus_snapshot(baseline_id)
         corpus_evidence = service.pipeline_corpus_evidence(baseline_id)
         blocks_by_document = {
@@ -442,7 +454,8 @@ async def test_formal_api_requires_qualified_target_identity_after_gold_checks(
         chunk_by_block: dict[tuple[str, str], str] = {}
         for document_id in document_ids:
             indexed_id = f"{baseline_id}_{document_id}"
-            for chunk in service.vector_store.list_document_chunks(indexed_id):
+            index = service.lexical_store if retrieval_mode == "fulltext" else service.vector_store
+            for chunk in index.list_document_chunks(indexed_id):
                 key = (document_id, str(chunk.source_block_id or ""))
                 if key[1] and key not in chunk_by_block:
                     chunk_by_block[key] = str(chunk.chunk_id)
@@ -635,8 +648,37 @@ async def test_formal_api_requires_qualified_target_identity_after_gold_checks(
                 "run_mode": "formal",
             },
         )
-        assert created.status_code == 400, created.text
-        assert "ready production embedding identity" in created.text
+        if retrieval_mode == "vector":
+            assert created.status_code == 400, created.text
+            assert "ready production embedding identity" in created.text
+        else:
+            assert created.status_code == 200, created.text
+            assert await evaluation_executor.run_once() is True
+            run_id = created.json()["run_id"]
+            completed = (await client.get(f"/api/rag/evaluation-runs/{run_id}")).json()
+            assert completed["status"] == "succeeded", completed
+            assert completed["reproducibility_status"] == "current", completed
+            from server.rag.evaluation import qualify_formal_execution_integrity
+            assert qualify_formal_execution_integrity(store.get_run(run_id))["qualified"] is True
+            assert len(completed["target_results"]) == 2
+            for target in completed["target_results"]:
+                assert target["metrics"]["error_count"] == 0
+                assert len(target["case_results"]) == 42
+                assert target["version_evidence"]["processing_receipt_status"] == "current"
+                for result in target["case_results"]:
+                    assert result["retrieval_receipt"]["embedding_provider"] == "none"
+                    assert result["retrieval_receipt"]["embedding_dimension"] == 0
+                    assert result["retrieval_receipt"]["mode"] == "fulltext"
+            assert service.get_active_pipeline_version(kb_id) is None
+            # Read-time tamper detection must revoke a completed run without
+            # rewriting its stored quality metrics or executing any case again.
+            before = store.path.read_bytes()
+            metadata = service._read_metadata()
+            metadata["pipeline_versions"][candidate_id]["document_results"][0]["processing_receipt"]["structure_hash"] = "0" * 64
+            service._write_metadata(metadata)
+            invalid = (await client.get(f"/api/rag/evaluation-runs/{run_id}")).json()
+            assert invalid["reproducibility_status"] == "unreproducible"
+            assert store.path.read_bytes() == before
     finally:
         reset_provider_admin_auth()
 
@@ -1117,6 +1159,8 @@ def test_synthetic_future_formal_admission_schema_requires_same_corpus_and_compl
                     "mode": "general",
                     "vision_enabled": False,
                     "fingerprint": "c" * 64,
+                    "receipt_status": "current",
+                    "receipt_fingerprint": "b" * 64,
                 },
                 "embedding": {
                     "effective": {

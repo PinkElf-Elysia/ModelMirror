@@ -739,6 +739,7 @@ async def test_short_deep_heading_records_source_truncation_in_executor_and_prev
     heading_path = [f"H{index}" for index in range(13)]
     body = "Stable evidence body. " * 8
     chunker = _token_chunker(chunk_size=100, chunk_overlap=20)
+    (tmp_path / "short-deep-heading.png").write_bytes(b"test-owned visual source identity")
     processed = StructuredDocumentProcessor().process(
         tmp_path / "short-deep-heading.png",
         filename="short-deep-heading.png",
@@ -857,6 +858,8 @@ def test_extra_document_block_round_trip_preserves_heading_lineage(
     )
     extra = original.payload(max_text=None) if serialized else original
 
+    (tmp_path / f"lineage-round-trip-{serialized}.png").write_bytes(b"test-owned visual source identity")
+
     processed = processor.process(
         tmp_path / f"lineage-round-trip-{serialized}.png",
         filename=f"lineage-round-trip-{serialized}.png",
@@ -885,6 +888,7 @@ def test_extra_block_recomputes_malformed_heading_lineage(
     inherited_truncated: object,
 ) -> None:
     heading_path = ["Root", "Leaf"]
+    (tmp_path / "malformed-lineage.png").write_bytes(b"test-owned visual source identity")
     processed = StructuredDocumentProcessor().process(
         tmp_path / "malformed-lineage.png",
         filename="malformed-lineage.png",
@@ -1160,12 +1164,12 @@ def test_new_draft_declares_token_chunking_and_aggregate_content_contract(
         "contract_version": "rag-content-index-contract-v1",
         "chunker_contract_version": "rag-chunker-estimated-token-v1",
         "lexical_contract_version": "sqlite-fts5-lexical-v2",
-        "parser_contract_version": "structured-local-parser-v1",
-        "status": "legacy_read_only",
+        "parser_contract_version": "canonical-structured-parser-v2",
+        "status": "current",
         "components": {
             "chunker": "current",
             "lexical": "current",
-            "parser": "legacy_read_only",
+            "parser": "current",
         },
     }
 
@@ -2075,6 +2079,7 @@ async def test_generated_item_records_short_deep_heading_source_truncation(
 ) -> None:
     heading_path = [f"H{index}" for index in range(13)]
     source_text = "Grounded generated evidence. " * 4
+    (tmp_path / "generated-deep-heading.png").write_bytes(b"test-owned visual source identity")
     processed = StructuredDocumentProcessor().process(
         tmp_path / "generated-deep-heading.png",
         filename="generated-deep-heading.png",
@@ -2168,6 +2173,7 @@ async def test_multi_block_generated_identity_preserves_lineage_without_false_he
     ]
     source_blocks[0].block_id = "block-a"
     source_blocks[1].block_id = "block-b"
+    (tmp_path / "multi-source-heading.png").write_bytes(b"test-owned visual source identity")
     processed = processor.process(
         tmp_path / "multi-source-heading.png",
         filename="multi-source-heading.png",

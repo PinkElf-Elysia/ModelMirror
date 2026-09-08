@@ -27,6 +27,7 @@ from server.rag.rag_service import (
     RagService,
 )
 from server.rag.vector_store import LocalJsonVectorStore
+from server.tests.rag_legacy_parser_fixture import mark_version_as_legacy_parser
 from server.xpert_runtime.run_registry import RunRegistry
 from server.xperts.api import set_xpert_context_store_for_tests
 from server.xperts.context import XpertContextStore
@@ -384,7 +385,7 @@ async def test_aggregate_legacy_candidate_activation_api_fails_closed(
         source_document_ids=[document_id],
     )
     version_id = str(job["candidate_version_id"])
-
+    mark_version_as_legacy_parser(service, version_id)
     response = await client.post(
         f"/api/rag/pipeline/versions/{version_id}/activate"
     )
@@ -797,6 +798,7 @@ async def test_legacy_candidate_stays_diagnostic_and_historical_versions_support
     )
     versions = (await client.get(f"/api/rag/pipeline/versions?kb_id={kb_id}")).json()
     first_version = versions["versions"][0]
+    mark_version_as_legacy_parser(service, first_version["version_id"])
     assert first_version["status"] == "ready"
     assert first_version["active"] is False
     assert service.get_active_pipeline_version(kb_id) is None
@@ -872,6 +874,7 @@ async def test_legacy_candidate_stays_diagnostic_and_historical_versions_support
     assert active_still_first is not None
     assert active_still_first["version_id"] == first_version["version_id"]
 
+    mark_version_as_legacy_parser(service, second_version_id)
     blocked_second = await client.post(
         f"/api/rag/pipeline/versions/{second_version_id}/activate"
     )
@@ -978,11 +981,9 @@ async def test_knowledge_write_approval_inherits_active_snapshot_and_requires_pr
     activated = await client.post(
         f"/api/rag/pipeline/versions/{baseline_version_id}/activate"
     )
-    assert activated.status_code == 409, activated.text
-    assert activated.json()["detail"]["code"] == (
-        "rag_content_contract_legacy_read_only"
-    )
-    _mark_pipeline_version_as_previously_active(service, baseline_version_id)
+    # New 4C content can be explicitly activated under this fixture's advisory
+    # policy; the knowledge-write candidate below still requires promotion.
+    assert activated.status_code == 200, activated.text
 
     proposal = service.create_knowledge_write_proposal(
         kb_id,
@@ -1182,9 +1183,8 @@ async def test_cancelled_and_failed_jobs_do_not_change_active_version(
         source_document_ids=[document_id],
     )
     version_id = str(completed["candidate_version_id"])
-    blocked = await client.post(f"/api/rag/pipeline/versions/{version_id}/activate")
-    assert blocked.status_code == 409, blocked.text
-    _mark_pipeline_version_as_previously_active(service, version_id)
+    activated = await client.post(f"/api/rag/pipeline/versions/{version_id}/activate")
+    assert activated.status_code == 200, activated.text
 
     draft = (await client.get(f"/api/rag/pipeline/draft?kb_id={kb_id}")).json()
     queued = await client.post(

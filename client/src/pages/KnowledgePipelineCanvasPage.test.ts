@@ -26,6 +26,16 @@ function jsonResponse(payload: unknown, status = 200) {
 }
 
 describe("KnowledgePipelineCanvasPage content execution gate", () => {
+  it("shows a successful diagnostic job's parser degradation instead of implying clean evidence", () => {
+    render(createElement(RunPanel, {
+      jobs: [{ job_id: "job-degraded", status: "succeeded", candidate_version: 1, created_at: 1,
+        stages: [], document_results: [{ error_code: "rag_layout_degraded", processing_receipt: { status: "degraded" } }],
+      }], versions: [], onActivate: vi.fn(),
+    }));
+    expect(screen.getByText(/解析降级，仅供诊断/)).toBeVisible();
+    expect(screen.getByText(/rag_layout_degraded/)).toBeVisible();
+  });
+
   const draft = {
     index_schema_version: 3,
     retrieval_profile: { mode: "hybrid" },
@@ -44,6 +54,10 @@ describe("KnowledgePipelineCanvasPage content execution gate", () => {
   };
   const vectorDraft = {
     ...draft,
+    content_index_contract: {
+      status: "current",
+      components: { chunker: "current", lexical: "current", parser: "current" },
+    },
     retrieval_profile: { mode: "vector" },
     index_contract: {
       index_schema_version: 3,
@@ -58,11 +72,11 @@ describe("KnowledgePipelineCanvasPage content execution gate", () => {
       retrieval_mode: mode,
     },
     content_index_contract: {
-      status: "legacy_read_only",
+      status: "current",
       components: {
         chunker: "current",
         lexical: "current",
-        parser: "legacy_read_only",
+        parser: "current",
       },
     },
   });
@@ -121,13 +135,13 @@ describe("KnowledgePipelineCanvasPage content execution gate", () => {
     });
   });
 
-  it("allows vector diagnostic execution without claiming a dual index", () => {
+  it("blocks legacy parser vector execution without claiming a dual index", () => {
     const disposition = canvasDraftExecutionDisposition(draft, "vector");
 
     expect(disposition).toEqual({
-      status: "diagnostic_only",
-      canExecute: true,
-      message: "当前可构建 vector diagnostic 候选；解析合同待完成，不能首次激活或晋级。",
+      status: "blocked",
+      canExecute: false,
+      message: "历史解析合同只读；请明确采用解析 V2 合同并保存草稿后再构建候选。",
     });
     expect(disposition.message).not.toMatch(/双索引|全文/);
   });
@@ -259,12 +273,11 @@ describe("KnowledgePipelineCanvasPage content execution gate", () => {
       vi.stubGlobal("fetch", fetchMock);
       renderCanvasPage();
 
-      const status = await screen.findByRole("status", { name: "流水线执行范围" });
-      expect(status).toHaveTextContent(
-        `当前可构建 ${mode} diagnostic 候选；解析合同待完成，不能首次激活或晋级。`,
-      );
-      const executeButton = screen.getByRole("button", { name: "执行流水线" });
+      const executeButton = await screen.findByRole("button", { name: "执行流水线" });
       await waitFor(() => expect(executeButton).toBeEnabled());
+      expect(canvasDraftExecutionDisposition(lexicalV2Draft(mode))).toEqual({
+        status: "normal", canExecute: true, message: "内容索引合同完整，可构建候选。",
+      });
       fireEvent.click(executeButton);
       await screen.findByText("候选版本 v2 已进入执行队列。");
 
