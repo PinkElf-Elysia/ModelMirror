@@ -1,0 +1,66 @@
+{
+  "round": "RPG-04",
+  "status": "single_retest_passed_pending_quality_review",
+  "claimAllowed": false,
+  "entryId": "RPG04-RETEST-01",
+  "totalConsumed": 3,
+  "totalRemaining": 5,
+  "explicitRetestRemaining": 0,
+  "model": "gpt-5.6-luna",
+  "usage": {
+    "input": 10140,
+    "output": 1728,
+    "total": 11868
+  },
+  "routeReceipt": {
+    "requested_model": "gpt-5.6-luna",
+    "actual_model": "gpt-5.6-luna",
+    "provider": null,
+    "strategy": "newapi_preferred",
+    "engine": "newapi",
+    "reason_codes": [
+      "qualified"
+    ],
+    "latency_ms": 17770.644600037485,
+    "ttft_ms": 2556.9429000024684,
+    "tokens": {
+      "input": 10140,
+      "output": 1728,
+      "total": 11868
+    },
+    "response_cost_usd": null,
+    "cost_kind": "unavailable",
+    "fallback_attempts": 0,
+    "cache_hit": null,
+    "request_id": null,
+    "version": "2"
+  },
+  "rawSha256": "6f34155d02e90d424a626aceff3d3b4db33a9096ce4601bef29cffbfa797d665",
+  "originalMessagesAndSettingsEqual": true,
+  "committedTurns": 1,
+  "acceptedStateFields": [],
+  "rawResponseRetainedPrivately": true,
+  "previousFailureRootCause": "unknown: previous raw response was not retained",
+  "deterministicReliabilityProven": false,
+  "qualityFindings": [
+    {
+      "code": "UNPROMPTED_ADULT_CATEGORY_SUGGESTION",
+      "description": "Neutral observation turn still produced an adult/desire-labelled suggestion inherited from the card template. Needs user quality review; no prompt modification applied.",
+      "reviewStage": "round_end_audit"
+    },
+    {
+      "code": "UNCHOSEN_STATE_PROPOSAL",
+      "description": "A memory proposal was returned but not accepted; committed structured state remains unchanged."
+    }
+  ],
+  "sixTurnAcceptanceComplete": false,
+  "additionalDispatches": 0,
+  "lengthReview": {
+    "approvedChangeId": "P22",
+    "defaultReference": "800-1200 characters; brief interactions may be shorter",
+    "actualNarrativeCharacters": 302,
+    "actualOutputTokens": 1728,
+    "maxTokens": 2048,
+    "forcedTruncationObserved": false
+  }
+}

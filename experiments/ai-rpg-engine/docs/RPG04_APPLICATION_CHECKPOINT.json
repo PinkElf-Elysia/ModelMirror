@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "round": "RPG-04",
+  "status": "offline_gates_passed_at_application_audit",
+  "baseline": "1b280ed257a45672c4a3dc03745fcb585685faf9",
+  "branch": "codex/ai-rpg-rpg04-context",
+  "batches": [
+    {
+      "id": "04B2-approved-content-mapping",
+      "files": [
+        "fixtures/rpg04/approved-content.json",
+        "tooling/context-approved-card.mjs",
+        "tests/context-approved-card.test.mjs"
+      ],
+      "owner": "Sol with Root review corrections"
+    },
+    {
+      "id": "04B2-approved-host-candidate",
+      "files": [
+        "context/approved-host.mjs",
+        "tooling/context-host.mjs",
+        "tests/context-host.test.mjs",
+        "docs/RPG04_HOST_APPLICATION.json"
+      ],
+      "owner": "Sol with Root review corrections"
+    },
+    {
+      "id": "04C1-selector",
+      "files": [
+        "context/selection.mjs",
+        "tests/context-selection.test.mjs",
+        "docs/RPG04_SELECTION.md"
+      ],
+      "owner": "Sol with Root review corrections"
+    },
+    {
+      "id": "04B2-approved-residual-mapping",
+      "files": [
+        "fixtures/rpg04/approved-content.json",
+        "tooling/context-approved-card.mjs",
+        "tests/context-approved-card.test.mjs",
+        "docs/RPG04_HOST_APPLICATION.json"
+      ],
+      "owner": "Root; three already-approved passages, no new wording"
+    }
+  ],
+  "files": {
+    "context/selection.mjs": "4d5a85d6aa3fb5cd084fa219ae946f3f7b5314c5c9e338e6a68afd041d0ef9a3",
+    "tests/context-selection.test.mjs": "61ff1d61d47da4345bf05f6d0535c9014cd89c2df036fa41a2a287ff378622fc",
+    "docs/RPG04_SELECTION.md": "997c653c222c1cbec5bfd691546362e45f080b7f682bca7ad99a2a43a4f7a146",
+    "context/approved-host.mjs": "9f5e37b022cf8a3fe687c8ad1562e7c76366e4788dbf01a45e39fb0da381b5ee",
+    "tooling/context-host.mjs": "b2d1cb69e204ba8047d1b04c7336e11148a9d7738a2a2ddb879f81772ea48f62",
+    "tests/context-host.test.mjs": "c85457483a2a3abf11cca0f151bd6fcb9d2136a0a955ce846d288c3ccbbc5784",
+    "docs/RPG04_HOST_APPLICATION.json": "ea72d90c0d66af04ca36cc44f7c27713ad327e962441e553ec13fc27d93f8539",
+    "fixtures/rpg04/approved-content.json": "0bb3e4d3eef38094a8a7894e7530d3b7f02b31f64f24079d81b8a8a4bd81cc39",
+    "tooling/context-approved-card.mjs": "37166ff0da8a2cc3d17bcae227b001622fc0455cf43d460965d9c3d25259af96",
+    "tests/context-approved-card.test.mjs": "510b4a65e819dce4d028b393460e9d58371c22d68f146a5b2d51b2f85b0671b5"
+  },
+  "validation": {
+    "command": "node --test tests/context-approved-card.test.mjs tests/context-card.test.mjs tests/context-host.test.mjs tests/context-protocol.test.mjs tests/context-selection.test.mjs",
+    "passed": 48,
+    "failed": 0,
+    "boundary": "RPG04_BOUNDARY_OK mode=complete frozen=baseline-blobs",
+    "sourceEvidence": "RPG04_APPROVED_SOURCES_AND_PROTOCOL_FREEZE_OK",
+    "diffCheck": "passed",
+    "originalApprovalSourcesAndLedger": "RPG04_APPROVAL_SOURCES_AND_LEDGER_UNCHANGED",
+    "stagingArea": "empty"
+  },
+  "auditDocument": "docs/RPG04_APPLICATION_AUDIT.md",
+  "modelCalls": 0,
+  "websiteMessages": 0,
+  "publicationActions": 0,
+  "completePromptActivation": false,
+  "contextCompilerImplemented": false,
+  "memoryCommitIntegrationTested": false,
+  "newAstraIndependentReviewComplete": false,
+  "claimAllowed": false,
+  "auditDocumentSha256": "0bc9a8003a4910d5f1ec05ab3c09681eb8c3aafb6657bd069d8a035448301750"
+}

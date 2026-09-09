@@ -1,0 +1,573 @@
+{
+  "schemaVersion": 1,
+  "round": "RPG-04",
+  "documentKind": "reference_only_research_receipt",
+  "runtimeContract": false,
+  "newSchema": false,
+  "applied": false,
+  "sourceAuthorization": {
+    "providedDirectlyByUser": true,
+    "repeatedSameUrlCountsAsOneSourceAuthorization": true,
+    "url": "https://afengy.cash/zh/explore/installed/5dab2efe-0bf7-4790-8087-c8e7a06a3d54",
+    "cardId": "5dab2efe-0bf7-4790-8087-c8e7a06a3d54",
+    "title": "💕斗罗大陆(开放大世界/自定义武魂)",
+    "conversation": "新的对话-10"
+  },
+  "pageContext": {
+    "modelLabel": "deepseek-v4-flash",
+    "providerIdentityIndependentlyVerified": false,
+    "pageTimestampTimezoneVerified": false,
+    "visibleReplyCountInBothSnapshots": 5,
+    "replyTypesObserved": [
+      {
+        "id": "S6-O01",
+        "replySequence": 1,
+        "time": "2026-09-09 12:25:14",
+        "kind": "model_critique",
+        "note": "批评无限制条款和年龄换算；分析结论不作为作者原文认证。"
+      },
+      {
+        "id": "S6-O02",
+        "replySequence": 2,
+        "time": "2026-09-09 12:25:36",
+        "kind": "model_optimized_variant",
+        "note": "返回明确标优化版，战斗部分仍为同上/保留的占位，不能归为完整原版。"
+      },
+      {
+        "id": "S6-O03",
+        "replySequence": 3,
+        "time": "2026-09-09 12:26:40",
+        "kind": "model_claimed_original_summary_with_optimized_comparison",
+        "note": "包含声称原始版、优化版差异及统合建议；战斗与时间线出现略。"
+      },
+      {
+        "id": "S6-O04",
+        "replySequence": 4,
+        "time": "2026-09-09 12:27:52",
+        "kind": "model_claimed_original_continuation",
+        "note": "补角色行为、武魂/等级/魂环/魂骨/魂技、战斗分镜总则和时间线，仍未给出状态栏模板；角色逻辑最高优先与用户剧情指令大于一切并存。"
+      },
+      {
+        "id": "S6-O05",
+        "replySequence": 5,
+        "time": "2026-09-09 12:29:45",
+        "kind": "model_claimed_original_continuation_after_user_cued_feature_list",
+        "note": "在用户列出功能列表后，补功能区模板、折叠状态面板与条件规则；名单诱导与既有回复并非独立来源。剧情辅助只有开关或清单引用，未观察到独立规则段。"
+      }
+    ]
+  },
+  "snapshots": [
+    {
+      "snapshotId": "S6-V1",
+      "sourceInput": {
+        "path": "experiments/ai-rpg-engine/.rpg04-work/sixth_card_reference_input.json",
+        "utf8Bytes": 6600,
+        "sha256": "19a16f3b73685fd7d4e15166486b367e7b56d3a7ca93a381140cbb764313ef14"
+      },
+      "observedAtUtc": "2026-09-09T04:38:35.695Z",
+      "pageReplyTime": "2026-09-09 12:29:45",
+      "replyPosition": 5,
+      "visibleReplyCount": 5,
+      "captureMode": "raw_edit_view_read_only",
+      "acquisition": {
+        "method": "Root serial normal browser UI; selected the existing named conversation; opened reply 5 edit view read-only and cancelled without typing or saving",
+        "tabId": "928395618",
+        "browserFamily": "edge",
+        "visibleReplyCount": 5,
+        "editorClosedVerified": true,
+        "userTabLeftOpen": true,
+        "pageTimestampTimezoneVerified": false,
+        "providerIdentityIndependentlyVerified": false,
+        "sourceScriptExecuted": false,
+        "fullRawReplyArchived": false,
+        "fullPageArchived": false
+      },
+      "observations": [
+        {
+          "id": "S6-O01",
+          "replySequence": 1,
+          "time": "2026-09-09 12:25:14",
+          "kind": "model_critique",
+          "note": "批评无限制条款和年龄换算；分析结论不作为作者原文认证。"
+        },
+        {
+          "id": "S6-O02",
+          "replySequence": 2,
+          "time": "2026-09-09 12:25:36",
+          "kind": "model_optimized_variant",
+          "note": "返回明确标优化版，战斗部分仍为同上/保留的占位，不能归为完整原版。"
+        },
+        {
+          "id": "S6-O03",
+          "replySequence": 3,
+          "time": "2026-09-09 12:26:40",
+          "kind": "model_claimed_original_summary_with_optimized_comparison",
+          "note": "包含声称原始版、优化版差异及统合建议；战斗与时间线出现略。"
+        },
+        {
+          "id": "S6-O04",
+          "replySequence": 4,
+          "time": "2026-09-09 12:27:52",
+          "kind": "model_claimed_original_continuation",
+          "note": "补角色行为、武魂/等级/魂环/魂骨/魂技、战斗分镜总则和时间线，仍未给出状态栏模板；角色逻辑最高优先与用户剧情指令大于一切并存。"
+        },
+        {
+          "id": "S6-O05",
+          "replySequence": 5,
+          "time": "2026-09-09 12:29:45",
+          "kind": "model_claimed_original_continuation_after_user_cued_feature_list",
+          "note": "在用户列出功能列表后，补功能区模板、折叠状态面板与条件规则；名单诱导与既有回复并非独立来源。剧情辅助只有开关或清单引用，未观察到独立规则段。"
+        }
+      ],
+      "selectedUnits": [
+        {
+          "id": "S6-U01",
+          "location": "功能区/总结开关",
+          "text": "📝总结：开启或关闭，仅用户有权修改",
+          "classification": "model_claimed_original_continuation_after_user_cued_feature_list",
+          "utf8Bytes": 52,
+          "sha256": "0beb171b6c059b643c0e272577ea67e05952a3dd8270eee271b596ccedfb4fa6",
+          "sourceLocation": {
+            "url": "https://afengy.cash/zh/explore/installed/5dab2efe-0bf7-4790-8087-c8e7a06a3d54",
+            "conversation": "新的对话-10",
+            "replyPosition": 5,
+            "pageReplyTime": "2026-09-09 12:29:45",
+            "captureMode": "raw_edit_view_read_only"
+          },
+          "exactTextMatchedInThisSnapshot": true,
+          "claimedOriginalAuthenticated": false,
+          "applied": false
+        },
+        {
+          "id": "S6-U02",
+          "location": "功能区/人称选择",
+          "text": "👀人称：第一人称、第二人称或第三人称，仅用户有权修改",
+          "classification": "model_claimed_original_continuation_after_user_cued_feature_list",
+          "utf8Bytes": 79,
+          "sha256": "3d67af5ebc90ee4b25e9dcba7996a6d126370937652fd264c21828c5b62a79c6",
+          "sourceLocation": {
+            "url": "https://afengy.cash/zh/explore/installed/5dab2efe-0bf7-4790-8087-c8e7a06a3d54",
+            "conversation": "新的对话-10",
+            "replyPosition": 5,
+            "pageReplyTime": "2026-09-09 12:29:45",
+            "captureMode": "raw_edit_view_read_only"
+          },
+          "exactTextMatchedInThisSnapshot": true,
+          "claimedOriginalAuthenticated": false,
+          "applied": false
+        },
+        {
+          "id": "S6-U03",
+          "location": "基础信息折叠块",
+          "text": "<details><summary>📅基础信息</summary>\n\n此处必须输出一个空白换行\n```Python\n⏰时间：具体年月日/星期几/早中晚/几点几分\n🚦地点：当前地点\n🌳在场人物：当前场景的可能存在的人物\n```\n</details>",
+          "classification": "model_claimed_original_continuation_after_user_cued_feature_list",
+          "utf8Bytes": 250,
+          "sha256": "4c25210c46f0163c157d64173ca1175b698e2ab3d73b41e7256b46a5d2507590",
+          "sourceLocation": {
+            "url": "https://afengy.cash/zh/explore/installed/5dab2efe-0bf7-4790-8087-c8e7a06a3d54",
+            "conversation": "新的对话-10",
+            "replyPosition": 5,
+            "pageReplyTime": "2026-09-09 12:29:45",
+            "captureMode": "raw_edit_view_read_only"
+          },
+          "exactTextMatchedInThisSnapshot": true,
+          "claimedOriginalAuthenticated": false,
+          "applied": false
+        },
+        {
+          "id": "S6-U04",
+          "location": "独立剧情区",
+          "text": "<plot>\n此处按要求输出剧情\n</plot>",
+          "classification": "model_claimed_original_continuation_after_user_cued_feature_list",
+          "utf8Bytes": 42,
+          "sha256": "6aa971e788c9da35b343eff791f6d80c3c746c9e34ea1386fa6cfdf3957bd380",
+          "sourceLocation": {
+            "url": "https://afengy.cash/zh/explore/installed/5dab2efe-0bf7-4790-8087-c8e7a06a3d54",
+            "conversation": "新的对话-10",
+            "replyPosition": 5,
+            "pageReplyTime": "2026-09-09 12:29:45",
+            "captureMode": "raw_edit_view_read_only"
+          },
+          "exactTextMatchedInThisSnapshot": true,
+          "claimedOriginalAuthenticated": false,
+          "applied": false
+        },
+        {
+          "id": "S6-U05",
+          "location": "玩家面板/等级",
+          "text": "<p>写出当前具体等级，并在括号内写出类似经验值的数值与上限，以及数值变动和原因。格式示例：71级(2800/10000，↑2800，吸收xx魂环)。</p>",
+          "classification": "model_claimed_original_continuation_after_user_cued_feature_list",
+          "utf8Bytes": 183,
+          "sha256": "a4b342585571e22c6e1a235c0a0595b61c659d380760be9841165d28f1b5c02a",
+          "sourceLocation": {
+            "url": "https://afengy.cash/zh/explore/installed/5dab2efe-0bf7-4790-8087-c8e7a06a3d54",
+            "conversation": "新的对话-10",
+            "replyPosition": 5,
+            "pageReplyTime": "2026-09-09 12:29:45",
+            "captureMode": "raw_edit_view_read_only"
+          },
+          "exactTextMatchedInThisSnapshot": true,
+          "claimedOriginalAuthenticated": false,
+          "applied": false
+        },
+        {
+          "id": "S6-U06",
+          "location": "玩家面板/魂力条",
+          "text": "<div class=\"soul-power-bar\">\n<div class=\"soul-power-fill\" style=\"width: 此处仅写百分比;\"></div>\n<span class=\"soul-power-text\">写出当前魂力百分比，格式示例：70%</span>\n</div>",
+          "classification": "model_claimed_original_continuation_after_user_cued_feature_list",
+          "utf8Bytes": 195,
+          "sha256": "92f4f504f0d00877376243fc89d8c54f902e519ba70efa557b2483364a52e900",
+          "sourceLocation": {
+            "url": "https://afengy.cash/zh/explore/installed/5dab2efe-0bf7-4790-8087-c8e7a06a3d54",
+            "conversation": "新的对话-10",
+            "replyPosition": 5,
+            "pageReplyTime": "2026-09-09 12:29:45",
+            "captureMode": "raw_edit_view_read_only"
+          },
+          "exactTextMatchedInThisSnapshot": true,
+          "claimedOriginalAuthenticated": false,
+          "applied": false
+        },
+        {
+          "id": "S6-U07",
+          "location": "在场人物/情绪",
+          "text": "<h4>💕 情绪</h4>\n<p>写出当前情绪，并在小括号内给出原因</p>",
+          "classification": "model_claimed_original_continuation_after_user_cued_feature_list",
+          "utf8Bytes": 79,
+          "sha256": "f2eb129ffa5f98a1af33ab69e3af156fb23278654bdff777542c962e9f5ac0e4",
+          "sourceLocation": {
+            "url": "https://afengy.cash/zh/explore/installed/5dab2efe-0bf7-4790-8087-c8e7a06a3d54",
+            "conversation": "新的对话-10",
+            "replyPosition": 5,
+            "pageReplyTime": "2026-09-09 12:29:45",
+            "captureMode": "raw_edit_view_read_only"
+          },
+          "exactTextMatchedInThisSnapshot": true,
+          "claimedOriginalAuthenticated": false,
+          "applied": false
+        },
+        {
+          "id": "S6-U08",
+          "location": "在场人物/数量上限",
+          "text": "若在场有更多人物，则继续按在场人物的状态栏格式进行输出，但单次回复最高不能生成超过四个在场人物状态栏。",
+          "classification": "model_claimed_original_continuation_after_user_cued_feature_list",
+          "utf8Bytes": 153,
+          "sha256": "12a9dddfe11530aed58cfa7580a36eb7221739d295a0da4c129f2aeef66a08c6",
+          "sourceLocation": {
+            "url": "https://afengy.cash/zh/explore/installed/5dab2efe-0bf7-4790-8087-c8e7a06a3d54",
+            "conversation": "新的对话-10",
+            "replyPosition": 5,
+            "pageReplyTime": "2026-09-09 12:29:45",
+            "captureMode": "raw_edit_view_read_only"
+          },
+          "exactTextMatchedInThisSnapshot": true,
+          "claimedOriginalAuthenticated": false,
+          "applied": false
+        },
+        {
+          "id": "S6-U09",
+          "location": "玩家面板/未知值反例",
+          "text": "<p>写出具体已有魂骨，若无则写\"无\"，禁止写\"未知\"，其他属性同理。</p>",
+          "classification": "model_claimed_original_continuation_after_user_cued_feature_list",
+          "utf8Bytes": 95,
+          "sha256": "8658109d9448485d73fd33cd23937ce616159efec5286615fb2e70074bd017b8",
+          "sourceLocation": {
+            "url": "https://afengy.cash/zh/explore/installed/5dab2efe-0bf7-4790-8087-c8e7a06a3d54",
+            "conversation": "新的对话-10",
+            "replyPosition": 5,
+            "pageReplyTime": "2026-09-09 12:29:45",
+            "captureMode": "raw_edit_view_read_only"
+          },
+          "exactTextMatchedInThisSnapshot": true,
+          "claimedOriginalAuthenticated": false,
+          "applied": false
+        },
+        {
+          "id": "S6-U10",
+          "location": "小说模式/代演反例",
+          "text": "**\"小说模式\"开启时**，以网络小说模式进行创作，重点描述场景中各个人物的动作和语言，主动拓展剧情，描写用户未提及的新剧情，允许代替用户扮演的角色说话、行动和做出反应。",
+          "classification": "model_claimed_original_continuation_after_user_cued_feature_list",
+          "utf8Bytes": 243,
+          "sha256": "1a76622960389ee9546e329de64cb166def10a49d9260cb878d65027914d301a",
+          "sourceLocation": {
+            "url": "https://afengy.cash/zh/explore/installed/5dab2efe-0bf7-4790-8087-c8e7a06a3d54",
+            "conversation": "新的对话-10",
+            "replyPosition": 5,
+            "pageReplyTime": "2026-09-09 12:29:45",
+            "captureMode": "raw_edit_view_read_only"
+          },
+          "exactTextMatchedInThisSnapshot": true,
+          "claimedOriginalAuthenticated": false,
+          "applied": false
+        },
+        {
+          "id": "S6-U11",
+          "location": "回复长度",
+          "text": "**回复长度**：当用户发送类似\"回复长度中等\"，或功能区里的\"回复长度\"为\"中等\"时，则本次回复的`<plot></plot>`标签之间的剧情字数必须在**700字到1200字**之间，无需参考前文字数。",
+          "classification": "model_claimed_original_continuation_after_user_cued_feature_list",
+          "utf8Bytes": 237,
+          "sha256": "f4dbeaf3123c583b952fec7e695de32098b2d1fde01663ce4301eacb5d98e702",
+          "sourceLocation": {
+            "url": "https://afengy.cash/zh/explore/installed/5dab2efe-0bf7-4790-8087-c8e7a06a3d54",
+            "conversation": "新的对话-10",
+            "replyPosition": 5,
+            "pageReplyTime": "2026-09-09 12:29:45",
+            "captureMode": "raw_edit_view_read_only"
+          },
+          "exactTextMatchedInThisSnapshot": true,
+          "claimedOriginalAuthenticated": false,
+          "applied": false
+        },
+        {
+          "id": "S6-U12",
+          "location": "总结/折叠展示",
+          "text": "<details><summary>📝剧情总结</summary>\n\n此处必须输出一个空白换行\n```Python\n短期总结区：\n```\n---\n```Python\n长期总结区：\n```\n</details>",
+          "classification": "model_claimed_original_continuation_after_user_cued_feature_list",
+          "utf8Bytes": 163,
+          "sha256": "193765a285b95baeb01128111db1303708de937a46787b6239e2c581af3038fc",
+          "sourceLocation": {
+            "url": "https://afengy.cash/zh/explore/installed/5dab2efe-0bf7-4790-8087-c8e7a06a3d54",
+            "conversation": "新的对话-10",
+            "replyPosition": 5,
+            "pageReplyTime": "2026-09-09 12:29:45",
+            "captureMode": "raw_edit_view_read_only"
+          },
+          "exactTextMatchedInThisSnapshot": true,
+          "claimedOriginalAuthenticated": false,
+          "applied": false
+        },
+        {
+          "id": "S6-U13",
+          "location": "美化/覆盖格式反例",
+          "text": "**\"UI美化\"开启时**，本次回复必须无视先前回复格式，严格按以下结构进行输出：",
+          "classification": "model_claimed_original_continuation_after_user_cued_feature_list",
+          "utf8Bytes": 107,
+          "sha256": "602bc4ffc554e105647c2cdd2ae0cb6c9d90c9754bbfb3b3a6546438a620da06",
+          "sourceLocation": {
+            "url": "https://afengy.cash/zh/explore/installed/5dab2efe-0bf7-4790-8087-c8e7a06a3d54",
+            "conversation": "新的对话-10",
+            "replyPosition": 5,
+            "pageReplyTime": "2026-09-09 12:29:45",
+            "captureMode": "raw_edit_view_read_only"
+          },
+          "exactTextMatchedInThisSnapshot": true,
+          "claimedOriginalAuthenticated": false,
+          "applied": false
+        }
+      ],
+      "exactMatches": 13
+    },
+    {
+      "snapshotId": "S6-V2",
+      "sourceInput": {
+        "path": "experiments/ai-rpg-engine/.rpg04-work/sixth_card_recheck_input.json",
+        "utf8Bytes": 3391,
+        "sha256": "130d01dfc0b7d5a04e5add555206cae6e99c49733519796d0d8b4bbe6942c2c3"
+      },
+      "observedAtUtc": "2026-09-09T04:46:00.560Z",
+      "pageReplyTime": "2026-09-09 12:41:18",
+      "replyPosition": 5,
+      "visibleReplyCount": 5,
+      "captureMode": "visible_reply_accessibility_text",
+      "oldSnapshotReplyTimeNoLongerVisible": true,
+      "changeType": "visible_reply_replacement_or_branch_not_independently_determined",
+      "observations": [
+        "用户要求作为可靠中立AI核对遗漏，不进入剧情；模型返回同一页最后一条的新核对结果。",
+        "新的剧情辅助给出六类建议及每项100字上限；未在本轮将其当作选项采用、玩家选择或自动行动。",
+        "三个长度档位为不多于500字、700至1200字、不少于1200字的模型声称卡片规则；其中冗长实际说1200字以上，不等同token预算，也未在实模型执行验证。",
+        "首次快照缺乏独立剧情辅助规则的观察只对V1成立；V2已观察到该段，不能继续笼统称没取得。",
+        "UI美化、人物地点等仍使用同前，原完整UI片段当前页不再显示；V1归档13段保留，V2不覆盖V1。",
+        "弹幕存在无空白与先空白的文字冲突；color: random由模型替换和marquee为源输出设计，未选择为我们的渲染技术。",
+        "同一会话反复自述及用户提示后的核对不是独立交叉验证；未证明本卡反误拒答或反误截断效果。"
+      ],
+      "selectedUnits": [
+        {
+          "id": "S6-V2-U01",
+          "location": "直播弹幕规则/叙事隔离",
+          "text": "直播间的弹幕内容是来自高维世界观众对当前剧情的吐槽、调侃、评论，不会对剧情产生影响，也不会被角色所发现。",
+          "classification": "model_recheck_visible_excerpt",
+          "utf8Bytes": 156,
+          "sha256": "d425910ee113b8338f1705de7503696ffd9de09dbcbd5c19c1ef944873308f83",
+          "sourceLocation": {
+            "url": "https://afengy.cash/zh/explore/installed/5dab2efe-0bf7-4790-8087-c8e7a06a3d54",
+            "conversation": "新的对话-10",
+            "replyPosition": 5,
+            "pageReplyTime": "2026-09-09 12:41:18",
+            "captureMode": "visible_reply_accessibility_text"
+          },
+          "exactTextMatchedInThisSnapshot": true,
+          "claimedOriginalAuthenticated": false,
+          "applied": false
+        },
+        {
+          "id": "S6-V2-U02",
+          "location": "人称切换/第一人称",
+          "text": "当功能区里的“人称”为“第一人称”时，则必须无视前面回复的人称描述，本次回复必须改用“我”来指代用户。",
+          "classification": "model_recheck_visible_excerpt",
+          "utf8Bytes": 153,
+          "sha256": "ca365fb19085e68285c26546b007aa2b29486881c5b419d5bc076b1667e7053c",
+          "sourceLocation": {
+            "url": "https://afengy.cash/zh/explore/installed/5dab2efe-0bf7-4790-8087-c8e7a06a3d54",
+            "conversation": "新的对话-10",
+            "replyPosition": 5,
+            "pageReplyTime": "2026-09-09 12:41:18",
+            "captureMode": "visible_reply_accessibility_text"
+          },
+          "exactTextMatchedInThisSnapshot": true,
+          "claimedOriginalAuthenticated": false,
+          "applied": false
+        },
+        {
+          "id": "S6-V2-U03",
+          "location": "人称切换/第三人称",
+          "text": "当功能区里的“人称”为“第三人称”时，则必须无视前面回复的人称描述，本次回复必须改用“他/她/姓名”来指代用户。",
+          "classification": "model_recheck_visible_excerpt",
+          "utf8Bytes": 164,
+          "sha256": "7ea788c39ca88c0e516316f03226a9b140f40ca62cda01bb49cfb45e0c13366b",
+          "sourceLocation": {
+            "url": "https://afengy.cash/zh/explore/installed/5dab2efe-0bf7-4790-8087-c8e7a06a3d54",
+            "conversation": "新的对话-10",
+            "replyPosition": 5,
+            "pageReplyTime": "2026-09-09 12:41:18",
+            "captureMode": "visible_reply_accessibility_text"
+          },
+          "exactTextMatchedInThisSnapshot": true,
+          "claimedOriginalAuthenticated": false,
+          "applied": false
+        },
+        {
+          "id": "S6-V2-U04",
+          "location": "短期总结/粒度",
+          "text": "每轮回复的剧情总结成不超过30字的“仅一句话”。",
+          "classification": "model_recheck_visible_excerpt",
+          "utf8Bytes": 68,
+          "sha256": "8cc1b68ff950ed668ae5129cb47d9e2274d19e8afe4e27c3804c2f94f0f565a2",
+          "sourceLocation": {
+            "url": "https://afengy.cash/zh/explore/installed/5dab2efe-0bf7-4790-8087-c8e7a06a3d54",
+            "conversation": "新的对话-10",
+            "replyPosition": 5,
+            "pageReplyTime": "2026-09-09 12:41:18",
+            "captureMode": "visible_reply_accessibility_text"
+          },
+          "exactTextMatchedInThisSnapshot": true,
+          "claimedOriginalAuthenticated": false,
+          "applied": false
+        },
+        {
+          "id": "S6-V2-U05",
+          "location": "长期总结/粒度",
+          "text": "将短期总结区内7条已总结的句子概括成100个字左右的一条新句子。",
+          "classification": "model_recheck_visible_excerpt",
+          "utf8Bytes": 88,
+          "sha256": "78b78f81b51fadd6a6333c170770eb9ae8e9b78fb7e16a8bfa742c969be9f83c",
+          "sourceLocation": {
+            "url": "https://afengy.cash/zh/explore/installed/5dab2efe-0bf7-4790-8087-c8e7a06a3d54",
+            "conversation": "新的对话-10",
+            "replyPosition": 5,
+            "pageReplyTime": "2026-09-09 12:41:18",
+            "captureMode": "visible_reply_accessibility_text"
+          },
+          "exactTextMatchedInThisSnapshot": true,
+          "claimedOriginalAuthenticated": false,
+          "applied": false
+        },
+        {
+          "id": "S6-V2-U06",
+          "location": "剧情辅助/建议输出",
+          "text": "当用户发送类似“开启剧情辅助”，或功能区里的“剧情辅助”为“开启”时，则在回复的底端按以下格式输出对于剧情推进的建议，每项不能超过100字：",
+          "classification": "model_recheck_visible_excerpt",
+          "utf8Bytes": 204,
+          "sha256": "0cbf097193a1c652ccb0a2f3c2be8a554c4719cfcd9a58888d2f8331aeb52c0f",
+          "sourceLocation": {
+            "url": "https://afengy.cash/zh/explore/installed/5dab2efe-0bf7-4790-8087-c8e7a06a3d54",
+            "conversation": "新的对话-10",
+            "replyPosition": 5,
+            "pageReplyTime": "2026-09-09 12:41:18",
+            "captureMode": "visible_reply_accessibility_text"
+          },
+          "exactTextMatchedInThisSnapshot": true,
+          "claimedOriginalAuthenticated": false,
+          "applied": false
+        },
+        {
+          "id": "S6-V2-U07",
+          "location": "美化模板/仍指代前文",
+          "text": "具体格式及状态栏完整字段（用户信息、在场人物）已在前文完整输出，此处不重复。（同前已补全）",
+          "classification": "model_recheck_visible_excerpt",
+          "utf8Bytes": 135,
+          "sha256": "cccc7591e4a93bc4c5c33a5373ff32a6fd193161b326d238a266dea9b1fb571f",
+          "sourceLocation": {
+            "url": "https://afengy.cash/zh/explore/installed/5dab2efe-0bf7-4790-8087-c8e7a06a3d54",
+            "conversation": "新的对话-10",
+            "replyPosition": 5,
+            "pageReplyTime": "2026-09-09 12:41:18",
+            "captureMode": "visible_reply_accessibility_text"
+          },
+          "exactTextMatchedInThisSnapshot": true,
+          "claimedOriginalAuthenticated": false,
+          "applied": false
+        },
+        {
+          "id": "S6-V2-U08",
+          "location": "完整性声明/实际合并方式",
+          "text": "对于我已确认无误的部分，我会以“（同前）”指代，不再重复输出；对于本次新补全的部分，我会完整输出。",
+          "classification": "model_recheck_visible_excerpt",
+          "utf8Bytes": 147,
+          "sha256": "fab469ae6ce33eea5d2842ca8accd9198fc59be7b900f2a61c231ee2bb41fc59",
+          "sourceLocation": {
+            "url": "https://afengy.cash/zh/explore/installed/5dab2efe-0bf7-4790-8087-c8e7a06a3d54",
+            "conversation": "新的对话-10",
+            "replyPosition": 5,
+            "pageReplyTime": "2026-09-09 12:41:18",
+            "captureMode": "visible_reply_accessibility_text"
+          },
+          "exactTextMatchedInThisSnapshot": true,
+          "claimedOriginalAuthenticated": false,
+          "applied": false
+        }
+      ],
+      "exactMatches": 8
+    }
+  ],
+  "snapshotRelationship": {
+    "v1UnitsRetained": true,
+    "v2OverwritesV1": false,
+    "bothSnapshotsVisibleReplyCount": 5,
+    "v1LastReplyTime": "2026-09-09 12:29:45",
+    "v2LastReplyTime": "2026-09-09 12:41:18",
+    "newSixthReplyClaimed": false,
+    "visibleReplacementOrBranch": "not_independently_determined",
+    "userDeletedHistoryClaimed": false
+  },
+  "evidenceBoundary": {
+    "selectedExcerptCount": 21,
+    "v1RawEditViewExcerptCount": 13,
+    "v2VisibleAccessibilityExcerptCount": 8,
+    "allExcerptsAreOriginalPromptText": false,
+    "claimedOriginalAuthenticated": false,
+    "originalCompletenessVerified": false,
+    "antiFalseRefusalEffectVerified": false,
+    "fullReplyArchived": false,
+    "fullPageArchived": false,
+    "serverSourceFileHash": null,
+    "hashMeaning": "Each unit hash covers only the exact selected UTF-8 text, not the full reply, page, original prompt, media, or server-side source file.",
+    "newMessagesSent": 0,
+    "providerDispatches": 0,
+    "applied": false
+  },
+  "archiveExclusions": [
+    "full page and account information",
+    "full reply bodies beyond selected units",
+    "minor age-redefinition passages and coercive sexual-content templates",
+    "hidden full-reasoning clauses",
+    "media resource content"
+  ],
+  "cautionObservations": [
+    "原版声称段、优化版、概述、受用户提示后的补述混在同一会话；完整性及原作者实际提示词均未认证。",
+    "UI侧含隐藏完整推理的HTML注释要求；注释不能作为保密机制，不采纳公开完整推理。",
+    "原文含年龄重定义及强制性内容细分面板，当前只记录不适用原因，不归档其正文或用作通用模板。",
+    "源六选项与本卡原有分类配额不同；不据此覆盖既有P12。原七条短期总结压缩只是模型维护提示，不证明长期记忆能力。",
+    "小说代演、属性不得未知及无视先前格式，与已批准P03/P06/P08/P15/P19/P21/P22等有待解决差异；未批准吸收。"
+  ],
+  "relatedReview": "docs/RPG04_SIXTH_CARD_REVIEW.md"
+}

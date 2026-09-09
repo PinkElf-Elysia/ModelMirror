@@ -1,6 +1,16 @@
 # AGENTS.md — AI RPG 独立实验模块
 
-本文件适用于 `experiments/ai-rpg-engine/**`，并在父级 `AGENTS.md` 基础上收紧 RPG-01 至 RPG-03 的边界。
+本文件适用于 `experiments/ai-rpg-engine/**`，并在父级 `AGENTS.md` 基础上收紧当前 RPG-04 边界。下列 RPG-01 至 RPG-03 规则作为历史门禁原样保留，不构成 RPG-04 的父仓例外。
+
+## RPG-04 04A1a 强制边界
+
+1. 固定仓库基线为 `1b280ed257a45672c4a3dc03745fcb585685faf9`，固定分支为 `codex/ai-rpg-rpg04-context`；基线、分支或允许范围漂移时停止。
+2. 只允许 `experiments/ai-rpg-engine/**` 与 `docs/ai-rpg-experiment/**` 发生变化；RPG-04 没有父仓精确路径例外，也不导入父仓源码。
+3. 基线已有 `src/**`、`content/**`、`fixtures/**`、`tests/**`、历史脚本与 `tooling/**`、`skills/**`、RPG-01/02/03 回执及 `PROBE_LEDGER.json` 均按固定基线 Git blob、Git index 与当前工作区字节三方冻结。既有文件只允许明确的元数据、README、package/lock，以及未来 `runtime/node/http.mjs` 输出预算扩展发生变化；不得放开整个 `runtime/**`。
+4. 新 `context/**` 核心必须是同步纯函数：禁止文件、网络、环境变量、子进程、动态加载和源码执行；仅可依赖 `ajv/dist/2020.js`、本层文件及冻结的 `runtime/contracts.mjs`、`src/index.mjs`。文件、hash 与网络只可进入边界声明的精确适配器或工具入口；网站访问仍是人工串行探针授权，不开放给模块代码。
+5. 禁止绝对或逃逸导入、`file:`/`link:` 依赖、外部或破损符号链接、敏感数据及生成物进入版本控制。候选输出和测试临时数据只放在模块内 `.rpg04-work/`。
+6. 保留 RPG-01/02/03 旧门禁常量与文件原样；新 RPG-04 检查器独立固定本轮基线和分支。`--bootstrap` 仅允许现有 package `0.3.0`，完整门禁要求 `0.4.0`。
+7. 04A1a 仅建立护栏，不修改 package、lock、P0 五文件或冻结业务文件，不进入 04A1b。
 
 ## RPG-03 03A1 强制边界
 

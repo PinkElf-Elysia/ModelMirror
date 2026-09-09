@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "probeId": "RPG04-WEB-06",
+  "userConfirmedConcurrentOperation": true,
+  "userPausedFurtherOperation": true,
+  "observations": [
+    "After refresh global header displayed GLM-5.3-FLASH.",
+    "Two conversation-11 entries persisted: one contains the same submitted question and GLM refusal; another displays no messages after reload.",
+    "No further assistant send or regeneration was performed during reconciliation."
+  ],
+  "resolution": "Concurrent user operations contaminated model/conversation attribution. No pending UI generation observed. Preserve one assistant submission charged conservatively; do not use observed GLM response as authenticated outcome of a controlled DeepSeek experiment.",
+  "observedReplyAttribution": "uncertain_concurrent_user_or_agent",
+  "accounting": {
+    "assistantSubmissions": 1,
+    "conservativelyChargedSuccessfulRequests": 1,
+    "automaticRetries": 0,
+    "newProviderCalls": 0
+  },
+  "nextControl": "User has paused; create a fresh uniquely distinguishable conversation, choose model after creation and verify terminal reply label."
+}

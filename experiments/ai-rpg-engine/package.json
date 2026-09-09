@@ -1,6 +1,6 @@
 {
   "name": "@modelmirror/ai-rpg-contracts",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Isolated AI RPG contracts, offline content and controlled runtime",
   "type": "module",
@@ -14,7 +14,8 @@
     ".": "./src/index.mjs",
     "./content": "./content/index.mjs",
     "./runtime": "./runtime/index.mjs",
-    "./runtime/node": "./runtime/node.mjs"
+    "./runtime/node": "./runtime/node.mjs",
+    "./context": "./context/index.mjs"
   },
   "scripts": {
     "check:boundary": "node scripts/check-boundary.mjs",
@@ -31,7 +32,12 @@
     "test:runtime": "node --test tests/runtime-contracts.test.mjs tests/runtime-store.test.mjs tests/runtime-core.test.mjs",
     "test:adapter": "node --test tests/runtime-adapter.test.mjs",
     "test:plugin-host": "node --test tests/runtime-plugin-host.test.mjs",
-    "verify:rpg03": "node scripts/verify-rpg03.mjs"
+    "verify:rpg03": "node scripts/verify-rpg03.mjs",
+    "test:boundary:rpg04": "node --test tests/rpg04-boundary.test.mjs",
+    "test:context": "node --test tests/context-schema.test.mjs tests/context-contracts.test.mjs tests/context-card.test.mjs tests/context-approved-card.test.mjs tests/context-host.test.mjs tests/context-protocol.test.mjs tests/context-selection.test.mjs tests/context-compiler.test.mjs tests/context-state-compat.test.mjs tests/context-test-input.test.mjs tests/rpg04-content.test.mjs",
+    "test:context-runtime": "node --test tests/context-runtime.test.mjs tests/context-output-budget.test.mjs tests/context-cli.test.mjs tests/context-cli-files.test.mjs",
+    "rpg:context": "node scripts/context-cli.mjs",
+    "verify:rpg04": "node scripts/verify-rpg04.mjs"
   },
   "dependencies": {
     "ajv": "8.20.0",

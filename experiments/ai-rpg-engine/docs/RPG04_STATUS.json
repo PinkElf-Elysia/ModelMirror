@@ -1,0 +1,165 @@
+{
+  "schemaVersion": 2,
+  "round": "RPG-04",
+  "status": "local_closeout_verified_pr_authorized",
+  "claimAllowed": false,
+  "manualAcceptance": false,
+  "baseSha": "1b280ed257a45672c4a3dc03745fcb585685faf9",
+  "branch": "codex/ai-rpg-rpg04-context",
+  "packageVersion": "0.4.0",
+  "contractVersion": "0.1.0",
+  "historicalStatus": {
+    "path": "docs/RPG04_STATUS_BEFORE_CLOSEOUT.json",
+    "sha256": "754ad4eb94161994b4fa15eb47a4f7a06c272ec03eb69c56728d49574e79aab2",
+    "interpretation": "Historical checkpoints only; never rewritten as current evidence"
+  },
+  "completedImplementationBatches": [
+    "04A1",
+    "04A2",
+    "04B1",
+    "04B2",
+    "04C1",
+    "04C2",
+    "04D1",
+    "04D2",
+    "04E1",
+    "04E2"
+  ],
+  "independentAudit": {
+    "status": "completed_user_confirmed",
+    "source": "Current user: 由于三个独立agent工作区导致原记录滞后，按已经完成审计测试、仅收尾执行",
+    "rerunThisSession": false
+  },
+  "provider": {
+    "authorized": 10,
+    "consumed": 10,
+    "remaining": 0,
+    "newDispatchesThisSession": 0,
+    "guTurns": 3,
+    "minecraftTurns": 3,
+    "structuralSixTurnCoverageComplete": true,
+    "mixedHostVersions": true,
+    "stateProposalsAccepted": 0
+  },
+  "manual": {
+    "existingOutputApprovalRecord": "docs/RPG04_USER_REVIEW_RESULTS.json#/userApprovalRecord",
+    "handoffConflict": "Initial prompt says pending; local record says approved. Preserve both; final round acceptance remains pending.",
+    "roundAcceptance": "pending"
+  },
+  "verification": {
+    "status": "passed",
+    "command": "npm.cmd run verify:rpg04 -- --base 1b280ed257a45672c4a3dc03745fcb585685faf9",
+    "attempts": [
+      {
+        "attempt": 1,
+        "result": "failed",
+        "code": "RPG04_LOCK_ROOT",
+        "classification": "introduced_aggregate_object_key_order_comparison",
+        "resolution": "Fixed semantic dependency-set comparison; lock unchanged"
+      },
+      {
+        "attempt": 2,
+        "result": "failed",
+        "code": "RPG04_HOST_BINDING",
+        "detail": "RPG04_PROTOCOL_HASH_MISMATCH",
+        "classification": "existing_protocol_and_approved_loader_bytes_disagree",
+        "resolution": "User confirmed audit-agent protocol change and explicitly authorized updating loader hash; old failure retained"
+      },
+      {
+        "attempt": 3,
+        "result": "passed",
+        "gate": "RPG04_AUTOMATED_GATES_OK",
+        "passed": 341,
+        "failed": 0,
+        "skipped": 0
+      }
+    ],
+    "currentProtocolSha256": "1a2a24fe757cd240802dcf4a1a4307e8846cc31022bca21be8487347b0998382",
+    "approvedLoaderProtocolSha256": "1a2a24fe757cd240802dcf4a1a4307e8846cc31022bca21be8487347b0998382",
+    "matchesRealPreparedProtocol": false,
+    "newAggregateUnitTests": {
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0
+    },
+    "legacy216ThisSession": "passed",
+    "currentContextSuiteThisSession": "passed 125 current tests; standalone HTTP harness historical",
+    "boundary": "passed before aggregate; both aggregate attempts passed boundary before later blockers",
+    "historicalMockHttp": "RPG04_OFFLINE_HTTP_OK; not rerun",
+    "independent": "user_confirmed_complete_not_reaudited",
+    "manifestHashes": {
+      "research": 15,
+      "module": 236,
+      "passed": true
+    },
+    "finalResult": {
+      "gate": "RPG04_AUTOMATED_GATES_OK",
+      "evidenceKind": "offline",
+      "legacyTests": 216,
+      "currentTests": 125,
+      "passed": 341,
+      "failed": 0,
+      "skipped": 0,
+      "researchFiles": 15,
+      "moduleFiles": 236,
+      "dependencyLicenseHashes": 11,
+      "existingRealTurns": 6,
+      "additionalProviderDispatches": 0,
+      "manualAcceptance": false,
+      "claimAllowed": false,
+      "httpIntegration": "historical_separate_receipt_not_rerun",
+      "realEvidence": "local_artifact_integrity_not_fresh_provider_execution"
+    }
+  },
+  "cleanup": {
+    "ownedRunningContainers": 0,
+    "listeningOwnedPorts": [],
+    "newInstancesStarted": 0,
+    "sharedServicesTouched": false
+  },
+  "remaining": [
+    "commit_push_pr",
+    "manual_merge_review"
+  ],
+  "nextRound": {
+    "plan": "Deferred until merge; user will open Plan mode",
+    "implementationAuthorized": false,
+    "providerBudget": 0
+  },
+  "publication": {
+    "commit": false,
+    "push": false,
+    "pr": false,
+    "merge": false,
+    "deploy": false,
+    "release": false,
+    "publish": false
+  },
+  "report": "docs/RPG04_CLOSEOUT.md",
+  "publicationAuthorization": {
+    "commit": true,
+    "push": true,
+    "pr": true,
+    "merge": false,
+    "deploy": false,
+    "release": false,
+    "publish": false,
+    "source": "Latest user explicitly requested minimal closeout then PR"
+  },
+  "currentSubround": "04G-complete",
+  "publicationIntent": {
+    "kind": "pr_after_passing_closeout",
+    "mergeAuthorized": false
+  },
+  "protocolBindingAmendment": {
+    "approved": true,
+    "source": "Latest user: 已人工核对，是审计agent进行了修改，授权更新加载器哈希并解除阻断，但合并依旧需要我人工审核",
+    "previousApprovedHash": "1250d858cca52778309164981fc333f960b8607c56bc41a683b47085a5fe6734",
+    "currentApprovedHash": "1a2a24fe757cd240802dcf4a1a4307e8846cc31022bca21be8487347b0998382",
+    "loaderUpdated": true,
+    "protocolBodyChangedThisSession": false,
+    "newProviderCalls": 0,
+    "historicalRealEvidenceUsesPreviousProtocol": true
+  },
+  "publicationSnapshotPhase": "precommit; actual commit and PR recorded by Git and GitHub"
+}

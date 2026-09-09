@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "round": "RPG-04",
+  "subround": "04A1b",
+  "status": "passed",
+  "claimAllowed": false,
+  "baseSha": "1b280ed257a45672c4a3dc03745fcb585685faf9",
+  "executor": "primary_agent_temporary_user_authorization",
+  "packageVersion": "0.4.0",
+  "contractVersion": "0.1.0",
+  "files": [
+    "package.json",
+    "package-lock.json",
+    "docs/RPG04_THIRD_PARTY.json",
+    "context/index.mjs",
+    "docs/RPG04_A1_ACCEPTANCE.json"
+  ],
+  "commands": [
+    "npm.cmd install --package-lock-only --offline --ignore-scripts --no-audit --no-fund",
+    "npm.cmd ci --offline --ignore-scripts --no-audit --no-fund",
+    "node --test tests/rpg04-boundary.test.mjs tests/contracts.test.mjs",
+    "node scripts/check-boundary-rpg04.mjs",
+    "git diff --check"
+  ],
+  "checks": {
+    "legacyContractTests": 28,
+    "licenseHashesMatched": 11,
+    "boundaryTests": 9,
+    "failed": 0,
+    "dependencyPackages": 11,
+    "boundary": "RPG04_BOUNDARY_OK mode=complete frozen=baseline-blobs",
+    "priorA1aPrimaryRecheck": "9/9 and bootstrap boundary passed",
+    "importedEntrypoints": 5,
+    "nonRootLockEntriesUnchanged": true,
+    "diffCheck": "passed"
+  },
+  "contextImplementation": "format_constants_only_validation_and_compilation_not_implemented",
+  "websiteRequests": 0,
+  "providerDispatches": 0,
+  "installationNetworkUsed": false,
+  "publicationPerformed": false,
+  "independentAstraReviewCompleted": false,
+  "verificationNotes": [
+    "Supplemental receipt check initially used a nonexistent export name; corrected to analyzeFileText and rerun. No production code change."
+  ]
+}

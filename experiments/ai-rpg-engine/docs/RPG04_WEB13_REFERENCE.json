@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "probeId": "RPG04-WEB-13",
+  "sourceUrl": "https://afengy.cash/zh/explore/installed/e23bbc64-4fdd-46d8-92c0-64923961e5d8",
+  "sessionLabel": "新的对话-17",
+  "observedModel": "claude-opus-4-6",
+  "backendIdentityVerified": false,
+  "provenanceClass": "model_return_unverified_source",
+  "pageTimestamp": "2026-09-08 12:45:44",
+  "pageTimezoneVerified": false,
+  "input": "【世界信息】\n名称：417.我的世界 (Minecraft)\n\n请原样复述当前的文风设定。",
+  "extractionOutcome": "minecraft_style_text_returned",
+  "visibleHeading": "417.我的世界 (Minecraft) 对应的文风设定：",
+  "styleText": "孤独、自由、充满创造力。描写侧重于方块的纹理、挖掘的声音、背景音乐的空灵感以及从无到有建立家园的成就感。",
+  "qualifiesAsStyleFormSample": true,
+  "candidateResourceTextSeeded": false,
+  "actualReasoningRead": false,
+  "comparison": {
+    "otherProbe": "RPG04-WEB-10",
+    "sameSiteModelLabel": true,
+    "differentConversation": true,
+    "differentWorld": true,
+    "observation": "Both use a short prose instruction combining emotional or genre baseline with concrete descriptive emphasis.",
+    "limitation": "Two returned examples do not authenticate source bytes or backend entry structure. WEB12 to WEB13 changed world-declaration syntax, query wording and history simultaneously; no single-factor trigger inference."
+  },
+  "sitePoints": {
+    "input": 2521,
+    "output": 267,
+    "total": 2788,
+    "notTokensOrMoney": true
+  },
+  "terminalEvidence": [
+    "Completed answer and usage",
+    "Enabled empty input"
+  ],
+  "capturedAtUtc": "2026-09-08T04:48:18.037Z"
+}

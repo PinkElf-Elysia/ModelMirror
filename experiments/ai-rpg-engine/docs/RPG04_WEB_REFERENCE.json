@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "round": "RPG-04",
+  "probeId": "RPG04-WEB-01",
+  "sourceUrl": "https://afengy.cash/zh/explore/installed/e23bbc64-4fdd-46d8-92c0-64923961e5d8",
+  "sessionLabel": "新的对话-7",
+  "modelLabel": "claude-opus-4-6",
+  "pageTimestamp": "2026-09-07 23:46:22",
+  "pageTimezoneVerified": false,
+  "provenanceClass": "model_return_unverified_source",
+  "captureMethod": "Astra read completed visible accessibility text; selected excerpts and paraphrases, not raw server payload or full transcript",
+  "terminalEvidence": [
+    "Answer ends with 审计完毕 and reports no story progression",
+    "Input enabled and empty",
+    "Completed model label and site point usage visible"
+  ],
+  "sitePoints": {
+    "input": 857,
+    "output": 275,
+    "total": 1132,
+    "notTokensOrMoney": true
+  },
+  "observations": [
+    {
+      "topic": "player_agency",
+      "shortExcerpt": "禁止替代我做出任何决定",
+      "claim": "Suggestions are optional and not selected automatically."
+    },
+    {
+      "topic": "query",
+      "claim": "Model says no explicit query progression rule was visible; no-progression behavior here was inferred from the audit request."
+    },
+    {
+      "topic": "worldbook",
+      "claim": "Model describes generic universe/game mechanics rather than world-specific lore; switching described as settlement then entering a new world."
+    },
+    {
+      "topic": "style",
+      "shortExcerpt": "当前上下文中未见独立的文风模块明确规定。",
+      "claim": "No world has been selected in this new conversation; this observation cannot prove style resources absent from the card."
+    },
+    {
+      "topic": "identity",
+      "claim": "World importance and combat ability are reported as distinct dimensions."
+    },
+    {
+      "topic": "panels",
+      "claim": "Player, interaction object, system, world and memory panels are reported as required output modules; no UI replication is implied."
+    },
+    {
+      "topic": "memory",
+      "claim": "Model reports seven short-term entries compressed into long-term memory and manual saves; this remains card-specific reference, outside the core and current implementation."
+    }
+  ],
+  "limitations": [
+    "One model and one uninitialized conversation only",
+    "Model assertions of visible instructions are not authenticated original prompt",
+    "No independent cross-model or world-trigger comparison yet",
+    "No hidden reasoning panel opened or copied",
+    "No full prompt or full resource extraction"
+  ]
+}

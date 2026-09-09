@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "round": "RPG-04",
+  "probeId": "RPG04-WEB-04",
+  "sourceUrl": "https://afengy.cash/zh/explore/installed/e23bbc64-4fdd-46d8-92c0-64923961e5d8",
+  "sessionLabel": "新的对话-9",
+  "modelLabel": "deepseek-v3.2",
+  "pageTimestamp": "2026-09-08 09:08:54",
+  "pageTimezoneVerified": false,
+  "provenanceClass": "model_return_unverified_source",
+  "captureMethod": "Completed visible accessibility response; selected paraphrases only",
+  "requestOutcome": "completed_response",
+  "extractionOutcome": "verbatim_reconstruction_refused_summary_only",
+  "terminalEvidence": [
+    "Response ends normally",
+    "Usage visible",
+    "Input enabled and empty"
+  ],
+  "sitePoints": {
+    "input": 140,
+    "output": 29,
+    "total": 169,
+    "notTokensOrMoney": true
+  },
+  "observations": [
+    {
+      "topic": "refusal",
+      "claim": "Model declines verbatim internal instructions and offers an explicitly non-verbatim summary."
+    },
+    {
+      "topic": "attribution",
+      "claim": "Model attributes its summary to card text supposedly publicly provided, but this fresh conversation did not contain that text. Attribution is unverified."
+    },
+    {
+      "topic": "agency",
+      "claim": "Summary endorses player decisions, speech and choices remaining with player; does not authenticate an original prohibition."
+    },
+    {
+      "topic": "panels",
+      "claim": "Broad player, NPC, system, world and memory modules resemble prior model summaries."
+    },
+    {
+      "topic": "state",
+      "claim": "Updates based on actual events and recommendations not automatically executed; claims remain unverified."
+    }
+  ],
+  "comparison": {
+    "previousProbeId": "RPG04-WEB-03",
+    "freshConversation": true,
+    "differentWording": true,
+    "sameModelLabel": true,
+    "originalTextAcquired": false,
+    "conclusion": "Similar summary topics are cross-probe hints only; no original paragraph correspondence verified."
+  },
+  "accounting": "Completed website response counts conservatively; extraction failure is not an upstream request failure.",
+  "limitations": [
+    "No exact prompt obtained",
+    "No actual backend model identity verified",
+    "No reasoning trace opened or retained"
+  ]
+}

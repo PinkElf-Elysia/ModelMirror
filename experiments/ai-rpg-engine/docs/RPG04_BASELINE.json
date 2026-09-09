@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "round": "RPG-04",
+  "capturedAt": "2026-09-07",
+  "baselineCommit": "1b280ed257a45672c4a3dc03745fcb585685faf9",
+  "acceptedRpg03Head": "a106c6b8a61fa216f6dadd7b3a17b7503984e182",
+  "requiredBranch": "codex/ai-rpg-rpg04-context",
+  "worktree": "C:\\tmp\\modelmirror-ai-rpg-rpg04",
+  "acceptedDirectoryComparison": {
+    "paths": ["experiments/ai-rpg-engine", "docs/ai-rpg-experiment"],
+    "result": "identical",
+    "method": "git diff --quiet baseline acceptedHead -- paths"
+  },
+  "baselineTrees": {
+    "experiments/ai-rpg-engine": "a7fe77e3fb73f6d5300c4a8e3f7fce17f52cf02c",
+    "docs/ai-rpg-experiment": "7a36ddb092d133139c94d834661151561ceb6a97"
+  },
+  "baselineTrackedFilesInAllowedPaths": 130,
+  "researchManifest": {
+    "path": "docs/ai-rpg-experiment/MANIFEST.json",
+    "sha256": "C4D2844B7F1098BA3A03ED07E44DB97D3985F4801C6A4C3D24F0360C867268A5",
+    "registeredFiles": 14,
+    "matched": 14,
+    "mismatched": 0,
+    "selfExcluded": true,
+    "newRpg04PlanRegistered": false,
+    "registrationBoundary": "A later documentation subbatch must register new or changed research files; P0 does not rewrite prior hashes."
+  },
+  "probeLedger": {
+    "path": "docs/ai-rpg-experiment/PROBE_LEDGER.json",
+    "sha256": "79929F95E4D91053C85542947CBF9084ED0BB286C17B04FE3CA105CBB787A99E",
+    "historicalFirstDevelopmentRound": {"authorized": 20, "completed": 0, "remaining": 20},
+    "changedByP0": false
+  },
+  "module": {
+    "packageVersion": "0.3.0",
+    "targetPackageVersion": "0.4.0",
+    "contractVersion": "0.1.0",
+    "packageLockSha256": "77E5D972C6F77090E68B54F4B04D114F4F431F5999786D383A6ECACE1EDD3642",
+    "node": "24.18.0",
+    "npm": "11.16.0",
+    "directDependencies": {"ajv":"8.20.0","parse5":"8.0.1","acorn":"8.18.0","yauzl":"3.4.0","fflate":"0.8.3"},
+    "registeredPackages": 11,
+    "newDependenciesAllowed": false,
+    "frozenExports": [".", "./content", "./runtime", "./runtime/node"],
+    "plannedExport": "./context",
+    "frozenDataFormats": [
+      "modelmirror.ai-rpg.card-package/0.1.0",
+      "modelmirror.ai-rpg.player-setup/0.1.0",
+      "modelmirror.ai-rpg.turn-exchange/0.1.0",
+      "modelmirror.ai-rpg.plugin-manifest/0.1.0"
+    ],
+    "runtimeLimits": {"messages":80,"messageCharacters":65536,"totalMessageCharacters":262144,"defaultMaxOutputTokens":512,"legacyRejectedMaxOutputTokens":513},
+    "historicalBusinessTests": 216
+  },
+  "allowedChanges": ["experiments/ai-rpg-engine/**", "docs/ai-rpg-experiment/**"],
+  "parentExceptions": [],
+  "primaryCheckout": {
+    "head": "2434257fa9db630ac7b247f73010457f94192f8f",
+    "statusEntries": 78,
+    "statusSha256Utf8Lf": "EC8B7DEE86751C3F268BD42F64E87F9FF2EFF2F9D6468378E3A5839B65E8ACF6",
+    "modifiedByThisTask": false,
+    "note": "This is a read-only current snapshot. Pre-existing changes are user-owned and are not attributed to RPG-04."
+  },
+  "gate": "RPG04_P0_BASELINE_OK",
+  "websiteSuccessfulRequests": 0,
+  "providerDispatches": 0
+}

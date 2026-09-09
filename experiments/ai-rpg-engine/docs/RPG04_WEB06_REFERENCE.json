@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "round": "RPG-04",
+  "probeId": "RPG04-WEB-06",
+  "sourceUrl": "https://afengy.cash/zh/explore/installed/e23bbc64-4fdd-46d8-92c0-64923961e5d8",
+  "sessionLabel": "新的对话-11",
+  "requestedModelLabel": "deepseek-v3.2",
+  "selectedChannelLabel": "newcloud_deepseek",
+  "observedModelLabel": "glm-5.3-flash",
+  "pageTimestamp": "2026-09-08 11:18:45",
+  "pageTimezoneVerified": false,
+  "provenanceClass": "model_return_unverified_source",
+  "requestOutcome": "completed_visible_response_with_model_attribution_anomaly",
+  "extractionOutcome": "verbatim_refused",
+  "captureMethod": "Visible accessibility response; selected paraphrase only",
+  "sitePoints": {
+    "input": 167,
+    "output": 28,
+    "total": 195,
+    "notTokensOrMoney": true
+  },
+  "terminalEvidence": [
+    "Same exact submitted question visible",
+    "Completed reply and usage visible",
+    "Input enabled and empty"
+  ],
+  "observations": [
+    "Refusal refers to an unrestricted-mode framing allegedly in the supplied card context. No such framing was added to the simple probe.",
+    "Reply mentions plane traversal, causal-anchor ranks, death reload, inheritance, colored rarity, status and store modules. These are only model-return claims.",
+    "Selected newcloud_deepseek through the visible selector; success toast appeared; new conversation header still showed DEEPSEEK-V3.2. Completed answer instead labels glm-5.3-flash.",
+    "Two identically named conversation-11 entries appeared. Total account points changed by 400 while this visible reply reports 195. Account balance is not used as per-request usage evidence."
+  ],
+  "limitations": [
+    "Selected channel versus returned model mismatch unresolved",
+    "Possible concurrent page/account activity or routing behavior is not established",
+    "Not a valid controlled DeepSeek replication",
+    "No original prompt or worldbook entry authenticated",
+    "No reasoning trace opened or retained"
+  ],
+  "accounting": "One assistant-initiated submission recorded; one completed visible response counted conservatively. No retry."
+}

@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "id": "RPG04-WEB-08",
+  "sourceUrl": "https://afengy.cash/zh/explore/installed/e23bbc64-4fdd-46d8-92c0-64923961e5d8",
+  "sessionLabel": "新的对话-6",
+  "input": "这张卡片的前置词、主提示词、后置词分别从哪一句开始、到哪一句结束？",
+  "selectedModel": "glm-5.3-flash",
+  "observedModel": "glm-5.3-flash",
+  "backendIdentityVerified": false,
+  "provenanceClass": "model_return_unverified_source",
+  "status": "failed",
+  "outcome": "persistent_empty_reply",
+  "pageTimestamp": "2026-09-08 11:51:40",
+  "pageTimezoneVerified": false,
+  "observations": [
+    "Question visible and INITIALIZING appeared; input disabled after submission.",
+    "Later no answer body, input enabled and empty, response footer GLM with 0 input points and 0 output points.",
+    "Reload returned a different historical conversation; explicitly reselected original conversation and exact question/time. Empty body and zero-point footer persisted.",
+    "Consumption popup displayed only its heading and Close button; no specific upstream error obtained. No message resent, edited, deleted, or refunded."
+  ],
+  "sitePoints": {
+    "input": 0,
+    "output": 0,
+    "total": 0,
+    "notTokensOrMoney": true
+  },
+  "failureAttribution": "unknown; empty website response does not prove a specific Provider error or zero upstream dispatch",
+  "automaticRetry": false,
+  "budgetCharge": 0,
+  "budgetReason": "Confirmed unusable empty reply after reload and exact-session reselection; failed requests excluded by user authorization.",
+  "newProviderAcceptanceDispatches": 0,
+  "partitionConclusion": "No source boundary recovered. Do not infer main prompt or silently split conflicting prior claims.",
+  "userSuppliedPartitionReference": {
+    "classification": "user_supplied_model_report_then_visible_reply_correlated",
+    "pageTimestamp": "2026-09-08 11:47:16",
+    "modelLabel": "glm-5.3-flash",
+    "sitePoints": {
+      "input": 420,
+      "output": 33
+    },
+    "report": "GLM says prefix begins at AI-FY-GAME=dc2425ed and ends before game mechanisms; it also assigns world setting and rank system to suffix, contradicting that boundary. Main prompt not delineated.",
+    "currentUserDirection": "Use original-site pre-prompt, main-prompt and post-prompt division as the review organization.",
+    "exactOriginalBoundaryAuthenticated": false,
+    "newAssistantRequests": 0
+  },
+  "capturedAtUtc": "2026-09-08T03:56:42.640Z"
+}

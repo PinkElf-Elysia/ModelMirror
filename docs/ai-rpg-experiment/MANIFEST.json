@@ -1,8 +1,8 @@
 {
-  "schemaVersion": 2,
-  "snapshotDate": "2026-09-06",
+  "schemaVersion": 3,
+  "snapshotDate": "2026-09-09",
   "sourceTask": "01a06d11-845b-7511-b476-64bbe034b119",
-  "status": "rpg03_implemented_pending_manual_acceptance",
+  "status": "rpg04_local_closeout_verified_pr_authorized",
   "implementationStarted": true,
   "manualAcceptance": false,
   "initialManifestSha256": "30A35F365D06D512253A549C4E5EB58384DBE2BBD72484DF9CF21EF678160D49",
@@ -15,73 +15,78 @@
   "files": [
     {
       "path": "AUDIT.md",
-      "bytes": 45448,
-      "sha256": "862F879DDF1F89135D3FF2E8A0E3FA8CB9D37DE21602EE1F30BEC86B99F3BBCE"
+      "bytes": 46110,
+      "sha256": "f0b1b6ca0d9c26130303fa7e8db59389826e18cddf3699c3e15c9b6c394e8a1f"
     },
     {
       "path": "BASELINE.md",
       "bytes": 12401,
-      "sha256": "A9A6D61DEE20A6ECB9B4F8CCF18775C77D35A6C03AC16EA1B931547087F49F1C"
+      "sha256": "a9a6d61dee20a6ecb9b4f8ccf18775c77d35a6c03ac16ea1b931547087f49f1c"
     },
     {
       "path": "BEST_PRACTICES.md",
       "bytes": 34944,
-      "sha256": "4C282B02A11914EA4E6657E44300555C3F8C17709F85A1D05C8148A0A9EE5F2C"
+      "sha256": "4c282b02a11914ea4e6657e44300555c3f8c17709f85a1d05c8148a0a9ee5f2c"
     },
     {
       "path": "BOUNDARY_QUADRANTS.md",
       "bytes": 4042,
-      "sha256": "ECD41CBDA5BA477670AA73939E1C12F4EDC24E5632DA445B7CFF96323BBBD534"
+      "sha256": "ecd41cbda5ba477670aa73939e1c12f4edc24e5632da445b7cff96323bbbd534"
     },
     {
       "path": "OSS_REUSE_REGISTER.md",
       "bytes": 17278,
-      "sha256": "67FFEFF2A3C5614EE0B121F0758C4F68420159B488A828C16F5DAB9C4F03BF01"
+      "sha256": "67ffeff2a3c5614ee0b121f0758c4f68420159b488a828c16f5dab9c4f03bf01"
     },
     {
       "path": "PLUGIN_CARD_MARKETS.md",
       "bytes": 7157,
-      "sha256": "28BF7CF1598B7EBC8D0431E72FA084C01AC18153AD5AAA4F678FE646B75E8BA3"
+      "sha256": "28bf7cf1598b7ebc8d0431e72fa084c01ac18153ad5aaa4f678fe646b75e8ba3"
     },
     {
       "path": "PROBE_LEDGER.json",
       "bytes": 11213,
-      "sha256": "79929F95E4D91053C85542947CBF9084ED0BB286C17B04FE3CA105CBB787A99E"
+      "sha256": "79929f95e4d91053c85542947cbf9084ed0bb286c17b04fe3ca105cbb787a99e"
     },
     {
       "path": "README.md",
-      "bytes": 11467,
-      "sha256": "2857CDEF0B517E0F7C835DCA224747EFA9868300018A8781B19DF33C2084E642"
-    },
-    {
-      "path": "references/INITIAL_AUDIT_2026-09-04.md",
-      "bytes": 28530,
-      "sha256": "D53901572850B01B1AD6472B13F361C31D5E4369CBCCAA118F0EF025F728B2E6"
-    },
-    {
-      "path": "references/PLAYER_CARD_SAMPLE.md",
-      "bytes": 3086,
-      "sha256": "38FE64EC7785DEF21472C4D934625ADCDC8A89615A862F187A84B1E0EA7D56DD"
+      "bytes": 12066,
+      "sha256": "13d1da249d265152dde3cb3496cfcc9ef58b495b8ac8d35ac0395a4e649f28e2"
     },
     {
       "path": "RESOURCE_INVENTORY.json",
       "bytes": 2360,
-      "sha256": "0E9328942065C8961C61B9970A03610C68D46D90A1AF3F3015C58B024B2EF849"
+      "sha256": "0e9328942065c8961c61b9970a03610c68d46d90a1af3f3015c58b024b2ef849"
     },
     {
       "path": "ROUND_ROADMAP.md",
-      "bytes": 12707,
-      "sha256": "4B1BE40E9C7A886907F09255CD85EAF22B0FCDC5DF67FEB91F2F05F368937249"
+      "bytes": 13278,
+      "sha256": "ff58d128282c5307f7deeb2ee4015b4d13582c0f2a7d95e6f1fc4591d22b7214"
     },
     {
       "path": "RPG02_PLAN.md",
       "bytes": 17886,
-      "sha256": "6718C3668701D8BB028EB5DA532BBF11E10A3315B9E575A7611E701E1CD25C34"
+      "sha256": "6718c3668701d8bb028eb5da532bbf11e10a3315b9e575a7611e701e1cd25c34"
     },
     {
       "path": "RPG03_PLAN.md",
       "bytes": 12004,
-      "sha256": "C7E57F1668DD7F331E9870ADCA82E3D2E3268008939A8E31BB1C1B50FB83B9EB"
+      "sha256": "c7e57f1668dd7f331e9870adca82e3d2e3268008939a8e31bb1c1b50fb83b9eb"
+    },
+    {
+      "path": "RPG04_PLAN.md",
+      "bytes": 11403,
+      "sha256": "829d886d992f365ee0b01dcc334dd3c3c66f50e3fb98eec6b1c65a3b540accd9"
+    },
+    {
+      "path": "references/INITIAL_AUDIT_2026-09-04.md",
+      "bytes": 28530,
+      "sha256": "d53901572850b01b1ad6472b13f361c31d5e4369cbccaa118f0ef025f728b2e6"
+    },
+    {
+      "path": "references/PLAYER_CARD_SAMPLE.md",
+      "bytes": 3086,
+      "sha256": "38fe64ec7785def21472c4d934625adcdc8a89615a862f187a84b1e0ea7d56dd"
     }
   ],
   "sourceArtifacts": [
@@ -98,18 +103,14 @@
   ],
   "moduleDelivery": {
     "root": "experiments/ai-rpg-engine",
-    "round": "RPG-03",
-    "packageVersion": "0.3.0",
+    "round": "RPG-04",
+    "packageVersion": "0.4.0",
     "contractVersion": "0.1.0",
-    "machineStatus": "experiments/ai-rpg-engine/docs/RPG03_STATUS.json",
-    "acceptanceRecord": "experiments/ai-rpg-engine/docs/RPG03_ACCEPTANCE.md",
-    "dependencyRegister": "experiments/ai-rpg-engine/docs/RPG03_THIRD_PARTY.json",
-    "status": "implemented_pending_manual_acceptance",
+    "machineStatus": "experiments/ai-rpg-engine/docs/RPG04_STATUS.json",
+    "acceptanceRecord": "experiments/ai-rpg-engine/docs/RPG04_CLOSEOUT.md",
+    "dependencyRegister": "experiments/ai-rpg-engine/docs/RPG04_THIRD_PARTY.json",
     "claimAllowed": false,
-    "manualAcceptanceSatisfied": false,
-    "nextRoundImplementationAuthorized": false,
-    "finalAcceptanceReady": true,
-    "realReceipt": "experiments/ai-rpg-engine/docs/RPG03_REAL_ACCEPTANCE.json"
+    "status": "local_closeout_verified_pr_authorized"
   },
   "probeBudgets": {
     "originalAudit": {
@@ -154,24 +155,18 @@
     "Historical configuration checkpoint: the user selected official gpt-5.6-luna, authorized the designated OpenAI key and primary OpenRouter key, and confirmed the complete ModelMirror control-plane chain. Independent ModelMirror:18303 and fixed-image newAPI:18304 were configured with RetryTimes=0 and the OpenRouter channel disabled. Supplier keys only entered the isolated gateway through its normal admin API; real dispatches were 0/4 before certification.",
     "Historical checkpoint: Current 03I checkpoint: official Luna certification passed, but the first runtime reply failed with RUNTIME_ADAPTER_EVENT_INVALID and no formal turn or state commit. Exactly two gateway consumption rows reconcile with certification plus one normal attempt; consumed=2/4. Both owned real instances are stopped and evidence is retained. The server's client_cancelled result is not the planned cancellation acceptance.",
     "Historical checkpoint: The pinned gateway Usage DTO supports a source-derived offline reproduction. A bounded field/type compatibility repair passed 21 adapter tests, 10 boundary tests, 67 frozen hashes, and a new actual-local-ModelMirror plus fake-upstream HTTP replay bound to module source fde3fd7489030aea4f4ae77cf338fed759369a3b9cb38aef437b270dc2ca58a1. Original wire was not captured; no post-repair real success is claimed. Two continuous successful replies plus one cancellation still need three dispatches, while two remain: one additional dispatch authorization and fresh qualification checks are required. 03J has not started; this is only a stopped-batch recovery index update.",
-    "RPG-03 final: separately authorized fifth dispatch; real acceptance passed with certification 1, historical failure 1, normal successes 2 and cancellation 1. Consumed 5/5; all owned instances stopped. Aggregate 230 module tests and 53 parent tests passed; 67 frozen files unchanged. Pending manual acceptance; no publication or RPG-04 authority."
+    "RPG-03 final: separately authorized fifth dispatch; real acceptance passed with certification 1, historical failure 1, normal successes 2 and cancellation 1. Consumed 5/5; all owned instances stopped. Aggregate 230 module tests and 53 parent tests passed; 67 frozen files unchanged. Pending manual acceptance; no publication or RPG-04 authority.",
+    "RPG04 current hashes are separate from historicalRpg03Closeout.files; private real evidence remains local. Original ledger, approval and failure snapshots unchanged. RPG05 planning excluded."
   ],
   "activeRound": {
-    "round": "RPG-03",
-    "status": "implemented_pending_manual_acceptance",
-    "currentSubround": "complete",
-    "machineStatus": "experiments/ai-rpg-engine/docs/RPG03_STATUS.json",
-    "preflight": "experiments/ai-rpg-engine/docs/RPG03_REAL_PREFLIGHT.json",
-    "realReceipt": "experiments/ai-rpg-engine/docs/RPG03_REAL_ACCEPTANCE.json",
-    "offlineRepairReceipt": "experiments/ai-rpg-engine/docs/RPG03_I_REPAIR_RECEIPT.json",
+    "round": "RPG-04",
+    "status": "local_closeout_verified_pr_authorized",
+    "machineStatus": "experiments/ai-rpg-engine/docs/RPG04_STATUS.json",
+    "baselineCommit": "1b280ed257a45672c4a3dc03745fcb585685faf9",
+    "providerDispatches": 10,
+    "remainingAuthorizedDispatches": 0,
     "claimAllowed": false,
     "manualAcceptance": false,
-    "baselineCommit": "80221379cec850a2b25f5eeeb410233062f3e1ea",
-    "providerDispatches": 5,
-    "remainingAuthorizedDispatches": 0,
-    "additionalDispatchAuthorizationNeeded": 0,
-    "ownedRealInstancesStopped": true,
-    "websiteProbes": 0,
     "nextRoundImplementationAuthorized": false
   },
   "historicalRpg01": {
@@ -193,15 +188,29 @@
     }
   },
   "documentationCloseout": {
-    "subround": "03J2",
     "status": "passed",
-    "managedFiles": 14,
+    "aggregateCommand": "npm.cmd run verify:rpg04 -- --base 1b280ed257a45672c4a3dc03745fcb585685faf9",
     "manifestSelfExcluded": true,
-    "aggregateCommand": "npm.cmd run verify:rpg03 -- --base 80221379cec850a2b25f5eeeb410233062f3e1ea",
-    "successMarker": "RPG03_AUTOMATED_GATES_OK",
-    "tests": 230,
-    "diffCheck": "passed",
-    "parentTests": 53
+    "draftPrOnly": false,
+    "historicalFailure": "RPG04_HOST_BINDING / RPG04_PROTOCOL_HASH_MISMATCH",
+    "result": {
+      "gate": "RPG04_AUTOMATED_GATES_OK",
+      "evidenceKind": "offline",
+      "legacyTests": 216,
+      "currentTests": 125,
+      "passed": 341,
+      "failed": 0,
+      "skipped": 0,
+      "researchFiles": 15,
+      "moduleFiles": 236,
+      "dependencyLicenseHashes": 11,
+      "existingRealTurns": 6,
+      "additionalProviderDispatches": 0,
+      "manualAcceptance": false,
+      "claimAllowed": false,
+      "httpIntegration": "historical_separate_receipt_not_rerun",
+      "realEvidence": "local_artifact_integrity_not_fresh_provider_execution"
+    }
   },
   "skillGeneralization": {
     "status": "verified_pending_manual_review",
@@ -284,16 +293,16 @@
     "packagingNormalization": "requalified_on_final_bytes"
   },
   "currentPublicationAuthority": {
-    "commit": false,
-    "push": false,
-    "pr": false,
+    "commit": true,
+    "push": true,
+    "pr": true,
     "merge": false,
     "deploy": false,
     "release": false,
     "publish": false,
-    "source": "RPG-03 implementation authorization excludes publication"
+    "source": "Latest user: minimal closeout then PR; no runtime prompt changes or real testing; RPG05 planning after merge"
   },
-  "publicationSnapshotPhase": "rpg03_local_closeout_pending_manual_acceptance",
+  "publicationSnapshotPhase": "rpg04_precommit",
   "historicalRpg02": {
     "activeRound": {
       "round": "RPG-02",
@@ -354,5 +363,1317 @@
       "tests": 96,
       "diffCheck": "passed"
     }
-  }
+  },
+  "historicalRpg03Closeout": {
+    "manifestSha256": "c4d2844b7f1098ba3a03ed07e44db97d3985f4801c6a4c3d24f0360c867268a5",
+    "files": [
+      {
+        "path": "AUDIT.md",
+        "bytes": 45448,
+        "sha256": "862F879DDF1F89135D3FF2E8A0E3FA8CB9D37DE21602EE1F30BEC86B99F3BBCE"
+      },
+      {
+        "path": "BASELINE.md",
+        "bytes": 12401,
+        "sha256": "A9A6D61DEE20A6ECB9B4F8CCF18775C77D35A6C03AC16EA1B931547087F49F1C"
+      },
+      {
+        "path": "BEST_PRACTICES.md",
+        "bytes": 34944,
+        "sha256": "4C282B02A11914EA4E6657E44300555C3F8C17709F85A1D05C8148A0A9EE5F2C"
+      },
+      {
+        "path": "BOUNDARY_QUADRANTS.md",
+        "bytes": 4042,
+        "sha256": "ECD41CBDA5BA477670AA73939E1C12F4EDC24E5632DA445B7CFF96323BBBD534"
+      },
+      {
+        "path": "OSS_REUSE_REGISTER.md",
+        "bytes": 17278,
+        "sha256": "67FFEFF2A3C5614EE0B121F0758C4F68420159B488A828C16F5DAB9C4F03BF01"
+      },
+      {
+        "path": "PLUGIN_CARD_MARKETS.md",
+        "bytes": 7157,
+        "sha256": "28BF7CF1598B7EBC8D0431E72FA084C01AC18153AD5AAA4F678FE646B75E8BA3"
+      },
+      {
+        "path": "PROBE_LEDGER.json",
+        "bytes": 11213,
+        "sha256": "79929F95E4D91053C85542947CBF9084ED0BB286C17B04FE3CA105CBB787A99E"
+      },
+      {
+        "path": "README.md",
+        "bytes": 11467,
+        "sha256": "2857CDEF0B517E0F7C835DCA224747EFA9868300018A8781B19DF33C2084E642"
+      },
+      {
+        "path": "references/INITIAL_AUDIT_2026-09-04.md",
+        "bytes": 28530,
+        "sha256": "D53901572850B01B1AD6472B13F361C31D5E4369CBCCAA118F0EF025F728B2E6"
+      },
+      {
+        "path": "references/PLAYER_CARD_SAMPLE.md",
+        "bytes": 3086,
+        "sha256": "38FE64EC7785DEF21472C4D934625ADCDC8A89615A862F187A84B1E0EA7D56DD"
+      },
+      {
+        "path": "RESOURCE_INVENTORY.json",
+        "bytes": 2360,
+        "sha256": "0E9328942065C8961C61B9970A03610C68D46D90A1AF3F3015C58B024B2EF849"
+      },
+      {
+        "path": "ROUND_ROADMAP.md",
+        "bytes": 12707,
+        "sha256": "4B1BE40E9C7A886907F09255CD85EAF22B0FCDC5DF67FEB91F2F05F368937249"
+      },
+      {
+        "path": "RPG02_PLAN.md",
+        "bytes": 17886,
+        "sha256": "6718C3668701D8BB028EB5DA532BBF11E10A3315B9E575A7611E701E1CD25C34"
+      },
+      {
+        "path": "RPG03_PLAN.md",
+        "bytes": 12004,
+        "sha256": "C7E57F1668DD7F331E9870ADCA82E3D2E3268008939A8E31BB1C1B50FB83B9EB"
+      }
+    ],
+    "moduleDelivery": {
+      "root": "experiments/ai-rpg-engine",
+      "round": "RPG-03",
+      "packageVersion": "0.3.0",
+      "contractVersion": "0.1.0",
+      "machineStatus": "experiments/ai-rpg-engine/docs/RPG03_STATUS.json",
+      "acceptanceRecord": "experiments/ai-rpg-engine/docs/RPG03_ACCEPTANCE.md",
+      "dependencyRegister": "experiments/ai-rpg-engine/docs/RPG03_THIRD_PARTY.json",
+      "status": "implemented_pending_manual_acceptance",
+      "claimAllowed": false,
+      "manualAcceptanceSatisfied": false,
+      "nextRoundImplementationAuthorized": false,
+      "finalAcceptanceReady": true,
+      "realReceipt": "experiments/ai-rpg-engine/docs/RPG03_REAL_ACCEPTANCE.json"
+    },
+    "activeRound": {
+      "round": "RPG-03",
+      "status": "implemented_pending_manual_acceptance",
+      "currentSubround": "complete",
+      "machineStatus": "experiments/ai-rpg-engine/docs/RPG03_STATUS.json",
+      "preflight": "experiments/ai-rpg-engine/docs/RPG03_REAL_PREFLIGHT.json",
+      "realReceipt": "experiments/ai-rpg-engine/docs/RPG03_REAL_ACCEPTANCE.json",
+      "offlineRepairReceipt": "experiments/ai-rpg-engine/docs/RPG03_I_REPAIR_RECEIPT.json",
+      "claimAllowed": false,
+      "manualAcceptance": false,
+      "baselineCommit": "80221379cec850a2b25f5eeeb410233062f3e1ea",
+      "providerDispatches": 5,
+      "remainingAuthorizedDispatches": 0,
+      "additionalDispatchAuthorizationNeeded": 0,
+      "ownedRealInstancesStopped": true,
+      "websiteProbes": 0,
+      "nextRoundImplementationAuthorized": false
+    },
+    "documentationCloseout": {
+      "subround": "03J2",
+      "status": "passed",
+      "managedFiles": 14,
+      "manifestSelfExcluded": true,
+      "aggregateCommand": "npm.cmd run verify:rpg03 -- --base 80221379cec850a2b25f5eeeb410233062f3e1ea",
+      "successMarker": "RPG03_AUTOMATED_GATES_OK",
+      "tests": 230,
+      "diffCheck": "passed",
+      "parentTests": 53
+    },
+    "publicationAuthority": {
+      "commit": false,
+      "push": false,
+      "pr": false,
+      "merge": false,
+      "deploy": false,
+      "release": false,
+      "publish": false,
+      "source": "RPG-03 implementation authorization excludes publication"
+    },
+    "interpretation": "Preserved pre-RPG04 snapshot; hashes describe original bytes"
+  },
+  "rpg04ModuleFiles": [
+    {
+      "path": ".gitignore",
+      "bytes": 97,
+      "sha256": "ea2d53203b76d1cd5dd1967ee596720cb6a959919569fb5afed198f6799e707b"
+    },
+    {
+      "path": ".npmrc",
+      "bytes": 65,
+      "sha256": "1ac5aa1899596d43c7f938bd9e009c4a36eacc2185f2da3dc3744c0b8ee303b7"
+    },
+    {
+      "path": "AGENTS.md",
+      "bytes": 6810,
+      "sha256": "634970d34b6d907e7de6ee595ea36b8d0f96db6c1310bf502554bdc8fe1004b0"
+    },
+    {
+      "path": "README.md",
+      "bytes": 10807,
+      "sha256": "126c0f5c822340d1eba1c2bf263138441c41ce89d1bf67218039116b0e0bd2e5"
+    },
+    {
+      "path": "content/compile.mjs",
+      "bytes": 18178,
+      "sha256": "af06cbfa54a1b5d3a825b439e029ef87a5d4b01d13800b04ca4cc8fa61dbddd0"
+    },
+    {
+      "path": "content/extract.mjs",
+      "bytes": 13397,
+      "sha256": "afbe94ef9ea5050a7f4fad93de4a1629177a8bb8ff3529a26c013b9b093d0f6a"
+    },
+    {
+      "path": "content/index.mjs",
+      "bytes": 329,
+      "sha256": "b9120f20e24239657caf03d8b047c07ee9970b89694a26c061f34bc16c1ed4c1"
+    },
+    {
+      "path": "content/player.mjs",
+      "bytes": 5597,
+      "sha256": "d284e30df7c3d7e795b01b82f976aa48457438884c0a1493847abc4972e69a6d"
+    },
+    {
+      "path": "content/schemas.mjs",
+      "bytes": 13845,
+      "sha256": "21f4912ef792d7a45065d986d79ce5598463edc8d12c4b00aa672eb92fab3f4a"
+    },
+    {
+      "path": "context/approved-host.mjs",
+      "bytes": 5915,
+      "sha256": "ce81bf42152c79f7a4dbfade118cc6df32386b443b2fcdbe158c61cdb213b99f"
+    },
+    {
+      "path": "context/compiler.mjs",
+      "bytes": 8736,
+      "sha256": "8fde4c594a51485895b462cd6456ee72bf988e05dd1a97873e706e45daadcc24"
+    },
+    {
+      "path": "context/contracts.mjs",
+      "bytes": 11746,
+      "sha256": "826b0277b59d8dd75dec6899af2740c51cbb56be0e8e1ce5149e0c3eb45375a5"
+    },
+    {
+      "path": "context/host-template.mjs",
+      "bytes": 4160,
+      "sha256": "1ec049a342fc2e3cc3ec138ef3c5e8b904c8f6672f65752bbe5206c9b1a3705a"
+    },
+    {
+      "path": "context/index.mjs",
+      "bytes": 436,
+      "sha256": "fa5bb1edc0dded739d07dfdb1bc1759a3a266f92a5a67362691379bb5fcab9c9"
+    },
+    {
+      "path": "context/schemas.mjs",
+      "bytes": 6212,
+      "sha256": "dd373ed5811495307e1a49a43f282c10e68a614d4eee94f93221a222c1e58e04"
+    },
+    {
+      "path": "context/selection.mjs",
+      "bytes": 7662,
+      "sha256": "4d5a85d6aa3fb5cd084fa219ae946f3f7b5314c5c9e338e6a68afd041d0ef9a3"
+    },
+    {
+      "path": "docs/CONTRACTS.md",
+      "bytes": 5072,
+      "sha256": "23f463c5ffd9c8a49e4feb607f5c0f469585f92f025425feb74f73506547d4dd"
+    },
+    {
+      "path": "docs/RPG01_ACCEPTANCE.md",
+      "bytes": 12026,
+      "sha256": "03acc87775dd0e49617f6797f9f048e4b16468998fca40f51a66ef0f45cfd95c"
+    },
+    {
+      "path": "docs/RPG01_STATUS.json",
+      "bytes": 2277,
+      "sha256": "692c5267ae117fe3cd89dee18012a8f5e233c679a05c85b619021234953e4991"
+    },
+    {
+      "path": "docs/RPG02_ACCEPTANCE.md",
+      "bytes": 12138,
+      "sha256": "6816f82cdee7f00adc1e6d18c999dae8c51e542dff3b4fb16e5d4e6bf4b4ddd7"
+    },
+    {
+      "path": "docs/RPG02_BASELINE.json",
+      "bytes": 5165,
+      "sha256": "38727c0b54e29db46aac1766691ae1b19088fd927e8c1f0dc5dbc50c9e9362c9"
+    },
+    {
+      "path": "docs/RPG02_GOLDEN.json",
+      "bytes": 2614,
+      "sha256": "363b99e8c84393402729da58c2d45bd1cef57b2168fface874e7a6d48deae262"
+    },
+    {
+      "path": "docs/RPG02_LUNA_TRIAL.json",
+      "bytes": 15496,
+      "sha256": "5d376fc357feecad9e4ffe82fa383c56909e98a8455f71ebc8a5075c0fdf8a0e"
+    },
+    {
+      "path": "docs/RPG02_LUNA_TRIAL.md",
+      "bytes": 7105,
+      "sha256": "a813eac92266c6efa36acb310a7c20b703fb42f269767b02bb28147ed5aa122d"
+    },
+    {
+      "path": "docs/RPG02_SKILL_GENERALIZATION.json",
+      "bytes": 15185,
+      "sha256": "393884474a6d337812477efcfd641633535050f768b6b9cd7a417784d9b7a453"
+    },
+    {
+      "path": "docs/RPG02_SKILL_GENERALIZATION.md",
+      "bytes": 7128,
+      "sha256": "3dde63f07663b53ecd2b6f72cf3b68c91ad7ae5ccc4e2d480782fe177bc82a50"
+    },
+    {
+      "path": "docs/RPG02_STATUS.json",
+      "bytes": 6373,
+      "sha256": "d1dc37e2444585da7ded468c837c63af8801a42d56ce983207f451abf6342898"
+    },
+    {
+      "path": "docs/RPG02_THIRD_PARTY.json",
+      "bytes": 6074,
+      "sha256": "7a219736b64ab5c9ed0468899b10ea8d8f127b8d802b14304bd06784495dab00"
+    },
+    {
+      "path": "docs/RPG02_WORKER_GATE.json",
+      "bytes": 80811,
+      "sha256": "55f64bae10bbc5d58afe5ed6afa9a4e799600c6abe7a2382959c9e40f2250fa3"
+    },
+    {
+      "path": "docs/RPG02_WORKER_GATE.md",
+      "bytes": 10108,
+      "sha256": "de0d02415a929584743da39d9cb0cbc23f2aa97235dcb035b3d6de5ae76cb2c6"
+    },
+    {
+      "path": "docs/RPG03_ACCEPTANCE.md",
+      "bytes": 21023,
+      "sha256": "18d8e5ba2bf18aeb141b00fd4bf934f0fa481c183eb71c52f081f77b1d49fe3e"
+    },
+    {
+      "path": "docs/RPG03_BASELINE.json",
+      "bytes": 12403,
+      "sha256": "145788334820cdb421c2ebb370813075d2b1734cf4a1fb6e41e3ac4e50798336"
+    },
+    {
+      "path": "docs/RPG03_CALL_LEDGER.json",
+      "bytes": 4505,
+      "sha256": "3b775b42c3ffacdb3523d66fd3eb953000ea307c5be74f7469135ded9a83b195"
+    },
+    {
+      "path": "docs/RPG03_HARNESS.md",
+      "bytes": 4931,
+      "sha256": "290303901042a34229f5bd48de0b57f56da3cea038343894b1259dcf261c5c09"
+    },
+    {
+      "path": "docs/RPG03_HTTP_ADAPTER.md",
+      "bytes": 5908,
+      "sha256": "66660a316e72d0b794251e0e8eb8b1a6eeb5ae9dc70c11b1aab823449ab5da2b"
+    },
+    {
+      "path": "docs/RPG03_I_REPAIR_RECEIPT.json",
+      "bytes": 14120,
+      "sha256": "a7279b5a34391628f7a01783a7c36bc1165cb4d2a116d3e688e63f0cf8385302"
+    },
+    {
+      "path": "docs/RPG03_OFFLINE_HTTP_RECEIPT.json",
+      "bytes": 10212,
+      "sha256": "2c98f9d46bf40e45f1dfbc491a400d85a645e68ed8be373d6c4776ad2f1ef5bd"
+    },
+    {
+      "path": "docs/RPG03_PARENT_RECEIPT.json",
+      "bytes": 680,
+      "sha256": "51e2ff5bb984f6cd6f0709c208a1ea73f2b40751d98cc6308b3b99f17e4a1571"
+    },
+    {
+      "path": "docs/RPG03_PERSISTENCE.md",
+      "bytes": 4538,
+      "sha256": "9ce99fe45809fb5ba73bc46c8c5f18bd64ef523d33fb5541b45bb11b00abe2c7"
+    },
+    {
+      "path": "docs/RPG03_PLUGIN_HOST.md",
+      "bytes": 4347,
+      "sha256": "733ec02f5d4f1e1445629a970e147ac481da906bfce3776fc25df3324133c8db"
+    },
+    {
+      "path": "docs/RPG03_PUBLICATION.md",
+      "bytes": 1665,
+      "sha256": "a42a511adb47a7212fc1fc02654ee61d8a67def924a9e63263005e16311b2d6b"
+    },
+    {
+      "path": "docs/RPG03_REAL_ACCEPTANCE.json",
+      "bytes": 17599,
+      "sha256": "9b5908f029f15b2213f4bec5603c522a12b84a5bff49d3311f6a69cc6f108703"
+    },
+    {
+      "path": "docs/RPG03_REAL_PREFLIGHT.json",
+      "bytes": 4224,
+      "sha256": "2a753d92b8a7624b554fa133ac7c67b7d9a17da1b98b45afaae3111d3e380839"
+    },
+    {
+      "path": "docs/RPG03_REAL_PROVIDER_RECEIPT.json",
+      "bytes": 3905,
+      "sha256": "c8d326b1299e519f1ae47fa19091f851e7b44711529edb2c7e4ed8e9153648fd"
+    },
+    {
+      "path": "docs/RPG03_RUNTIME.md",
+      "bytes": 5871,
+      "sha256": "9a4019e7499be9a61f52806c6a68ccfbae2566d2a28343731cfd3713863c98af"
+    },
+    {
+      "path": "docs/RPG03_RUNTIME_CONTRACTS.md",
+      "bytes": 7375,
+      "sha256": "f270bedfff8cbf37c3487f7aab5c8d13c2f6a6767218389a4b14376a36d6c377"
+    },
+    {
+      "path": "docs/RPG03_STATUS.json",
+      "bytes": 3778,
+      "sha256": "32afa8852215955b28d17163c026a29d488a1ec5b15bc0b1a03785dbffa775b4"
+    },
+    {
+      "path": "docs/RPG03_THIRD_PARTY.json",
+      "bytes": 6519,
+      "sha256": "bcc840161121b7f68a913a96f5a4a28345623e064a002a6116f7bd125d103e8a"
+    },
+    {
+      "path": "docs/RPG04_A1_ACCEPTANCE.json",
+      "bytes": 1592,
+      "sha256": "208685f7ed06eefc8bc2ab3ffbe8d8a48482172142c193311faab894ca0b446e"
+    },
+    {
+      "path": "docs/RPG04_ADDITIONAL_CARD_REVIEW.md",
+      "bytes": 6089,
+      "sha256": "dd2c3fcc49fb32aa634432e7ecd79950cc8f4d58e7902c4e5586072f19f39ab8"
+    },
+    {
+      "path": "docs/RPG04_ADDITIONAL_CARD_SOURCES.json",
+      "bytes": 17845,
+      "sha256": "3732091d02b801ff2d90ed32aae50ef35bcf7d0825f7dc2b6f8b19008356044f"
+    },
+    {
+      "path": "docs/RPG04_APPLICATION_AUDIT.md",
+      "bytes": 3996,
+      "sha256": "16b25bc63cf168a6aadc7806719811597ebc1f868eea17c4f5a4c430366ac54a"
+    },
+    {
+      "path": "docs/RPG04_APPLICATION_CHECKPOINT.json",
+      "bytes": 3356,
+      "sha256": "5c9491df9fffab5fa18c1fa9342a3c707921fa6747656f7c031849879a3ef97d"
+    },
+    {
+      "path": "docs/RPG04_AUTHORED_CONTENT.md",
+      "bytes": 3064,
+      "sha256": "a67ae4373748b3c3c51cead050bc98373f753aa7c62e9f3107619a2873a7f06c"
+    },
+    {
+      "path": "docs/RPG04_BASELINE.json",
+      "bytes": 2966,
+      "sha256": "be87d8a6a44a8d2c09ff2206ab078f9c61f80dfdadac3b40e13b6f9bb3328f8c"
+    },
+    {
+      "path": "docs/RPG04_BUDGET_RETEST_RESULT.json",
+      "bytes": 976,
+      "sha256": "bba6648d183db33a653dde93f01f704fcd21eb29669d2c13a3cdae4edc80dbaa"
+    },
+    {
+      "path": "docs/RPG04_CALL_LEDGER.json",
+      "bytes": 32326,
+      "sha256": "64aae34aef9b1ec3e014c5fff5630ccb9934c912f840c95e6566b15a1af8eae2"
+    },
+    {
+      "path": "docs/RPG04_CLI.md",
+      "bytes": 2623,
+      "sha256": "e7791436365c3fbdb571d03bf446542c469b6d8e1310c428aa49dfd875c704d2"
+    },
+    {
+      "path": "docs/RPG04_CLOSEOUT.md",
+      "bytes": 7723,
+      "sha256": "efd741a2ab0067718c111b6835f64ccda06b18a3adff5a7e0c53c0def3bd195a"
+    },
+    {
+      "path": "docs/RPG04_CLOSEOUT_PLANNING_HANDOFF.md",
+      "bytes": 3919,
+      "sha256": "6dcaaf324786014223cbd196fe368bbce6331740007feb6142aee0afb43e7f62"
+    },
+    {
+      "path": "docs/RPG04_COMPILER.md",
+      "bytes": 2743,
+      "sha256": "a6e4fd741b03e235db953fecdb9c3b8d2ee6050c10df5de31cdf893a8b6fe21b"
+    },
+    {
+      "path": "docs/RPG04_COMPLETE_PROTOCOL_CANDIDATE.json",
+      "bytes": 18617,
+      "sha256": "131785cf00cecd8597b1e6f43193520632f8edfe6fe33eb189b121f2ab7a80eb"
+    },
+    {
+      "path": "docs/RPG04_COMPLETE_PROTOCOL_CANDIDATE.md",
+      "bytes": 13716,
+      "sha256": "cf39de377e79cd767a73fbd74775bac37c095ca34697f41e74158e1f1c996f33"
+    },
+    {
+      "path": "docs/RPG04_CONTEXT_CARD.md",
+      "bytes": 2000,
+      "sha256": "3d7accd140911090a2d344c2a4a9461a3008114e1ae66d3906287cfbd616a076"
+    },
+    {
+      "path": "docs/RPG04_CONTEXT_CONTRACT.md",
+      "bytes": 5815,
+      "sha256": "27232f655ea754b79fc391468b3f20cb8f21bdc91d2241a2d129e72fccac6619"
+    },
+    {
+      "path": "docs/RPG04_CONTINUATION_RESULT.json",
+      "bytes": 884,
+      "sha256": "c863f9f754ebbacb64bcb4df86f08208d530ff95ac06b5561716c091bdc9068b"
+    },
+    {
+      "path": "docs/RPG04_CONTROL_PLANE_CALL_PATH.md",
+      "bytes": 7538,
+      "sha256": "3f5700fb8195dfcc3810d930c388c35ca86416f24fc54e0a8882c9c24718b127"
+    },
+    {
+      "path": "docs/RPG04_CREATOR_UI_REFERENCE.json",
+      "bytes": 1679,
+      "sha256": "ca2df74496ed700fff9c241914f1df638fb9b6d9e3c937739e934cd39abe95c6"
+    },
+    {
+      "path": "docs/RPG04_DEEPSEEK_ORIGINAL_TRANSCRIPT.json",
+      "bytes": 17588,
+      "sha256": "80752c072e71b90a424e99dc1e2c03d9ead9ef7a27fcacb7daa67183bf823ee0"
+    },
+    {
+      "path": "docs/RPG04_EXECUTION.md",
+      "bytes": 100508,
+      "sha256": "ca91dde1a29635e978b6695611525d4df7c6d0b86b3e6bfe4a5f8e666f903096"
+    },
+    {
+      "path": "docs/RPG04_GLM_OPTIMIZATION_REVIEW.md",
+      "bytes": 3771,
+      "sha256": "1d2064adbf799aea579a59c560381f7b3f76b224f7e1af4c464bb2f5e57cbcf0"
+    },
+    {
+      "path": "docs/RPG04_GLM_USER_REFERENCE.json",
+      "bytes": 4338,
+      "sha256": "d9ddd83b6352c2b067e3f5fc657429e716e3deea13fb15d391dd0a93f3036599"
+    },
+    {
+      "path": "docs/RPG04_HANDOFF_INDEX.md",
+      "bytes": 27358,
+      "sha256": "2ac96a082ce55d7e0d6ed84680e1960eb30cca9968fd9ca7fffb3b8f815fb231"
+    },
+    {
+      "path": "docs/RPG04_HANDOFF_VALIDATION.json",
+      "bytes": 2191,
+      "sha256": "0d55a76f9daff5ca627570a59ab34b4f99a76cb81ebf60e691cba8f94f9abf9d"
+    },
+    {
+      "path": "docs/RPG04_HIDDEN_RESOURCE_FINDINGS.md",
+      "bytes": 5340,
+      "sha256": "c50c048482d088a980a77feee37926b3f612da6c21a78c93f74a9d880969b826"
+    },
+    {
+      "path": "docs/RPG04_HOST_APPLICATION.json",
+      "bytes": 7628,
+      "sha256": "8a19ef4f3333b15c90726deb57b66430e8cb466821de2eb8a4de318aec210434"
+    },
+    {
+      "path": "docs/RPG04_INDEPENDENT_AUDIT_HANDOFF.md",
+      "bytes": 4948,
+      "sha256": "1269f1637da338e8c4000014d8fa6010e3814d550f8a6d82e430ffe271da3618"
+    },
+    {
+      "path": "docs/RPG04_INTEGRATED_REVIEW.md",
+      "bytes": 26188,
+      "sha256": "4254496914a555a7bcca3a0594d1e45153df3c85fcf61b5add73580f2fc7f01f"
+    },
+    {
+      "path": "docs/RPG04_INTEGRATION_MAP.json",
+      "bytes": 42208,
+      "sha256": "52bc912ffa4432433056ac9ff98f7fab2e1cc5b0f5aae652f15196a48e0c7827"
+    },
+    {
+      "path": "docs/RPG04_LORE_NARRATIVE_RESEARCH.md",
+      "bytes": 9317,
+      "sha256": "4e7f5d5b4ee2bdbc7c4975b62cbf7c639957eb27140d086d333790cfba19d4e5"
+    },
+    {
+      "path": "docs/RPG04_OPTIMIZATION_APPROVAL.json",
+      "bytes": 104916,
+      "sha256": "3794d5ddcd4b14f01ceb798762b1ec84c672461ae2d4e1e5076b391c3cf90d70"
+    },
+    {
+      "path": "docs/RPG04_ORIGINAL_PROMPT_RECONSTRUCTION.md",
+      "bytes": 14095,
+      "sha256": "4d266ca4b7fcc3e77711ac2b4d1bb38d1a22b347b357d83a3379e8d34f872177"
+    },
+    {
+      "path": "docs/RPG04_ORIGINAL_PROMPT_SOURCE_MAP.json",
+      "bytes": 8537,
+      "sha256": "3abc113c4d82f676f180b44df4e254afa6da684f810da74f0ea6db2ef1a03aa7"
+    },
+    {
+      "path": "docs/RPG04_OUTPUT_BUDGET.md",
+      "bytes": 1448,
+      "sha256": "fc9b8c1a4aeba459cb9fdd27474c5da1106da6831201d422f52e4a7a21b48014"
+    },
+    {
+      "path": "docs/RPG04_PRIMARY_PROTOCOL_REVIEW.json",
+      "bytes": 15283,
+      "sha256": "21a25375f694771b6e0d05dc3fc9aad0838f022cfde9e90d052b442fadf0e53c"
+    },
+    {
+      "path": "docs/RPG04_PRIMARY_PROTOCOL_REVIEW.md",
+      "bytes": 7830,
+      "sha256": "d0b380f11890fb36e31e672b332efc87f69bfb400f168815ae55e520318862b8"
+    },
+    {
+      "path": "docs/RPG04_PROMPT_BLUEPRINT.md",
+      "bytes": 5203,
+      "sha256": "3e58babbad41f9251b67146da1fd23cdd5eec6b5fde82d54683a4298772d17af"
+    },
+    {
+      "path": "docs/RPG04_PROMPT_CHANGE_PROPOSALS.md",
+      "bytes": 79494,
+      "sha256": "0d5acdc2c88f3c6f72caa593df08714fd166185d058ab26a8c39f1bb1f4d0176"
+    },
+    {
+      "path": "docs/RPG04_PROMPT_DUAL_VERSION.md",
+      "bytes": 2786,
+      "sha256": "921ecad64558c4053ae09ea7584d6ed41a3fdbb146ba18bf9b0336f9b6bf4f52"
+    },
+    {
+      "path": "docs/RPG04_PROMPT_VENDOR_RESEARCH.md",
+      "bytes": 8600,
+      "sha256": "512d27df3964f253ac3199c4e7832870131862a0b8f69fd3f0a7a59c918ee4a1"
+    },
+    {
+      "path": "docs/RPG04_PROTOCOL_AUDIT.md",
+      "bytes": 7706,
+      "sha256": "b239035ef2094b83e2df67e18218ff2149569ff23aa7d84fc54309261089ee55"
+    },
+    {
+      "path": "docs/RPG04_PROTOCOL_DUAL_REVIEW.json",
+      "bytes": 52760,
+      "sha256": "c21cb69f76906ed34bbf376748f2b29900b9759060a3c4000ad344404e6e9864"
+    },
+    {
+      "path": "docs/RPG04_PROTOCOL_INTEGRATION_SOURCE.json",
+      "bytes": 18077,
+      "sha256": "dc0942def9f5d1946129b7ba4f754e36dba8a74eefe5bd6c003bd9402c5ad16b"
+    },
+    {
+      "path": "docs/RPG04_PROTOCOL_LOADER.md",
+      "bytes": 1469,
+      "sha256": "15fc4e04dd83a24ad3db1fb7b8e2a078c4d3e4138b84da1385868963954872cf"
+    },
+    {
+      "path": "docs/RPG04_PROTOCOL_REFERENCE_INVENTORY.json",
+      "bytes": 26775,
+      "sha256": "89947058f0f6d43e0fdc62dc041cf964a8e9096c2b1e25735f124697a0581bc9"
+    },
+    {
+      "path": "docs/RPG04_PROTOCOL_REUSE_REVIEW.md",
+      "bytes": 12098,
+      "sha256": "a0badb3e1df36a3a1bc093546458fb2b49f465be84ba1188ae51b2b3c989932d"
+    },
+    {
+      "path": "docs/RPG04_PROTOCOL_RUNTIME.txt",
+      "bytes": 9494,
+      "sha256": "1a2a24fe757cd240802dcf4a1a4307e8846cc31022bca21be8487347b0998382"
+    },
+    {
+      "path": "docs/RPG04_PROTOCOL_SELECTION.md",
+      "bytes": 9265,
+      "sha256": "4bc8512df91be5e241f3f2c830000fe230a6bba9b7d9e311f3555c9645452d88"
+    },
+    {
+      "path": "docs/RPG04_REAL_CERTIFICATION.json",
+      "bytes": 881,
+      "sha256": "cd1fb5dce2164b585d27c87cd94276833818e7884407cd6f1f77734de37494cf"
+    },
+    {
+      "path": "docs/RPG04_REAL_TEST_CHECKPOINT.json",
+      "bytes": 1240,
+      "sha256": "aa7179ce2d05c6d9292a74ae7d68ff9d051b1a13437f643de88257d83b61f28d"
+    },
+    {
+      "path": "docs/RPG04_REFERENCE_CLOSEOUT.json",
+      "bytes": 7664,
+      "sha256": "ff1cb8582c088992b02723a80d328c6dd54389fa681d22dd24729979610ce1a0"
+    },
+    {
+      "path": "docs/RPG04_REFERENCE_CLOSEOUT.md",
+      "bytes": 13284,
+      "sha256": "bb9ebee237abccdabaa5238aafb773d94378288e9ef9a94c29a694ab75961715"
+    },
+    {
+      "path": "docs/RPG04_RESOURCE_FORMAT_PROPOSALS.md",
+      "bytes": 14434,
+      "sha256": "b6039bb21110ba233f4e9c9979f7476c050ce5bc67fb0d6ea9a567f4fd029c9b"
+    },
+    {
+      "path": "docs/RPG04_RETEST_RESULT.json",
+      "bytes": 2045,
+      "sha256": "25eff64b36386452db5b5f3091d017d9b1eb027650e00d54d32a79ea9882976c"
+    },
+    {
+      "path": "docs/RPG04_REVIEW_PACKET.md",
+      "bytes": 11389,
+      "sha256": "76359444cdb5a84bbc69e248e13f475aa7700be1e992b9368ae6ea3714967302"
+    },
+    {
+      "path": "docs/RPG04_RUNTIME_BRIDGE.md",
+      "bytes": 2258,
+      "sha256": "a127c935308ddafd0b86bffdfb2766e1d5c8a01f91d80fafb3d33b6bd8ff4237"
+    },
+    {
+      "path": "docs/RPG04_SELECTION.md",
+      "bytes": 1971,
+      "sha256": "997c653c222c1cbec5bfd691546362e45f080b7f682bca7ad99a2a43a4f7a146"
+    },
+    {
+      "path": "docs/RPG04_SIXTH_CARD_REVIEW.md",
+      "bytes": 4831,
+      "sha256": "c5e48674ccc2c4e3b1d78cf38c7ae17d2044d49d3d909f1c68f458793547e37d"
+    },
+    {
+      "path": "docs/RPG04_SIXTH_CARD_SOURCE.json",
+      "bytes": 28319,
+      "sha256": "3893558d4b3af645b7750dc40da3898fdb508ed2e8976eb31e86c924dd2a1c3b"
+    },
+    {
+      "path": "docs/RPG04_STATUS.json",
+      "bytes": 5491,
+      "sha256": "75c8083a7e344006808acf452da777c548af4a70b3213f7856a68fa91f37203a"
+    },
+    {
+      "path": "docs/RPG04_STATUS_BEFORE_CLOSEOUT.json",
+      "bytes": 46533,
+      "sha256": "754ad4eb94161994b4fa15eb47a4f7a06c272ec03eb69c56728d49574e79aab2"
+    },
+    {
+      "path": "docs/RPG04_SUPPLEMENTAL_REVIEW.md",
+      "bytes": 15743,
+      "sha256": "fbe8eeaccfc1392ceb5194cccbeadc54e5619cf4d130abc8c6394aa3e9eb4393"
+    },
+    {
+      "path": "docs/RPG04_TEST_INPUT.md",
+      "bytes": 1635,
+      "sha256": "97a12848d61a93f8dfdb4dc401d2e252fdc67cb4ec1cb872572e85a3dcc0f8f0"
+    },
+    {
+      "path": "docs/RPG04_THIRD_PARTY.json",
+      "bytes": 6652,
+      "sha256": "32242499b609f0937cdde50414ec14dba5a559ad9791046521cffade2c1367d3"
+    },
+    {
+      "path": "docs/RPG04_USER_REFERENCE.json",
+      "bytes": 3176,
+      "sha256": "a8ece45f93fcc9b8b2e293f75582ed9c05d242a2cbde146a095f69c15a9d907d"
+    },
+    {
+      "path": "docs/RPG04_USER_REVIEW_RESULTS.json",
+      "bytes": 3943,
+      "sha256": "5dbef84a8a55e8265e7c49cc9ed1803f75ea44be9c01c81ce9d3ff638190b196"
+    },
+    {
+      "path": "docs/RPG04_WEB02_REFERENCE.json",
+      "bytes": 2506,
+      "sha256": "b05312d582fb107e73402754d26a839cf3d0caec1bd1735f499d0154454113a8"
+    },
+    {
+      "path": "docs/RPG04_WEB03_REFERENCE.json",
+      "bytes": 2670,
+      "sha256": "dabed01da680701df7a7518a880c7593f52ad4fa1609d951924b6f115df2ccc8"
+    },
+    {
+      "path": "docs/RPG04_WEB04_REFERENCE.json",
+      "bytes": 2230,
+      "sha256": "c1841f0043c8bd0d8889e6aede2a3448e521929791c2dddc1fcf355aa12e99a6"
+    },
+    {
+      "path": "docs/RPG04_WEB05_REFERENCE.json",
+      "bytes": 1518,
+      "sha256": "19043cd90d94ddfe1dc8ffa78891ff410e2d6a4b197ac182e0de2353561b4d66"
+    },
+    {
+      "path": "docs/RPG04_WEB06_RECONCILIATION.json",
+      "bytes": 1109,
+      "sha256": "93e970af978e98367ccb60b31dd137cdd3e64fc900817479c6f2029bb46f4f3c"
+    },
+    {
+      "path": "docs/RPG04_WEB06_REFERENCE.json",
+      "bytes": 2096,
+      "sha256": "6555cc373e9e136f97ce1617522f8fe741299336f96a60a8a01af7c5cef9d538"
+    },
+    {
+      "path": "docs/RPG04_WEB07_REFERENCE.json",
+      "bytes": 1745,
+      "sha256": "30ad7391664b78370426f3271d7209baea42b15e4584d2d462ba5365590c46f6"
+    },
+    {
+      "path": "docs/RPG04_WEB08_REFERENCE.json",
+      "bytes": 2464,
+      "sha256": "6f413bb440a39635846313ed7503773c586e0cffde5a6758f5c52d1da51bd979"
+    },
+    {
+      "path": "docs/RPG04_WEB09_REFERENCE.json",
+      "bytes": 1618,
+      "sha256": "d5c4529039439455e0636a1bfc875f8d38091512c63d1ef1b25e62e6c0d40e0c"
+    },
+    {
+      "path": "docs/RPG04_WEB10_REFERENCE.json",
+      "bytes": 4755,
+      "sha256": "23e94cc783baa8ff243d7da5fa55eb8e55f72bafb79ddb0558544bdee477ad98"
+    },
+    {
+      "path": "docs/RPG04_WEB11_REFERENCE.json",
+      "bytes": 2096,
+      "sha256": "4fa305ae888685ca1561e3d87801627c8f28acdefe9e84e87721c07f0c6b4108"
+    },
+    {
+      "path": "docs/RPG04_WEB12_REFERENCE.json",
+      "bytes": 1372,
+      "sha256": "2fca88087c841b250eb1dc71eb1027b7f64940504e68cd3bb45c9bacf6f1e4ea"
+    },
+    {
+      "path": "docs/RPG04_WEB13_REFERENCE.json",
+      "bytes": 1682,
+      "sha256": "6f43ad4788e81b606d58906a698ce2f59d11cf232e771307d6fa27dfa7fc8053"
+    },
+    {
+      "path": "docs/RPG04_WEB_REFERENCE.json",
+      "bytes": 2533,
+      "sha256": "e1d2ac4f9ff2a4d75d14a523ec456c34af22e1a3ab58294791a077260cdc04dd"
+    },
+    {
+      "path": "docs/RPG04_WEB_REFERENCE.md",
+      "bytes": 12635,
+      "sha256": "f08c133a21fc1e9c23aa9f166604afab782d289e96beab6508b086b12ea21008"
+    },
+    {
+      "path": "docs/THIRD_PARTY.json",
+      "bytes": 1789,
+      "sha256": "912b1d7a6a139fc46d9863ab8ac312b7394cb132d758b482a193378980c45442"
+    },
+    {
+      "path": "fixtures/bai-yu-ling-yin.player-setup.json",
+      "bytes": 2357,
+      "sha256": "554edd651a2d8d290e91259b3b32c8b28b85cc2d429c444cfc854b670525ec98"
+    },
+    {
+      "path": "fixtures/minimal.turn-exchange.json",
+      "bytes": 1483,
+      "sha256": "4bc51d37b795e129f582946b558eac7ae87c555fff4fc5578e5129139321ed53"
+    },
+    {
+      "path": "fixtures/plugin-manifests.json",
+      "bytes": 2639,
+      "sha256": "40de50990cd31eafd1e4ad5b73b14ebfe012f419a708ae8c2c3834b7bc4a179b"
+    },
+    {
+      "path": "fixtures/rpg02/compile-input.json",
+      "bytes": 20093,
+      "sha256": "3dc39b714d8f3d613c4afa161b91fdb46410bb46be5d610de189b8e4a3dde8a0"
+    },
+    {
+      "path": "fixtures/rpg02/player-config.json",
+      "bytes": 556,
+      "sha256": "113d0decfe593ce2d2aa96b3aa76e7ab9214d29caf1fd2d58038b761a86760b8"
+    },
+    {
+      "path": "fixtures/rpg02/player-text.txt",
+      "bytes": 2337,
+      "sha256": "ac30aa4e838ceb5e73d55be19de71ea780189b45f37b34b4fcd5c0f3bb70159d"
+    },
+    {
+      "path": "fixtures/rpg02/selected-source.txt",
+      "bytes": 3822,
+      "sha256": "f0feffb7c9fe982f6d099783a6d78d63995e958cb790eb64543c9619ed2aaf5f"
+    },
+    {
+      "path": "fixtures/rpg02/source-capture.json",
+      "bytes": 23405,
+      "sha256": "ca5e1e55660fe3779428583f16feb0fc1bfc26aa6e1960c8c43c089451fd6794"
+    },
+    {
+      "path": "fixtures/rpg02/source-selection.json",
+      "bytes": 759,
+      "sha256": "3ad71b1f160655cb7fb5d06b96d94ef7bfb80f2d64a7887900af538d9aa25b58"
+    },
+    {
+      "path": "fixtures/rpg02/synthetic-source.txt",
+      "bytes": 499,
+      "sha256": "6d7b68fdcadcffe8e5c0dfd585198097b5368daa165875c2b5a64bd358aaea07"
+    },
+    {
+      "path": "fixtures/rpg04/approved-content.json",
+      "bytes": 24742,
+      "sha256": "0bb3e4d3eef38094a8a7894e7530d3b7f02b31f64f24079d81b8a8a4bd81cc39"
+    },
+    {
+      "path": "fixtures/rpg04/authored-resources.json",
+      "bytes": 8816,
+      "sha256": "b395447f2cb1ce80763fb470b49b5801df110cfc8462d16e09678f9b8d4f8692"
+    },
+    {
+      "path": "fixtures/skill-generalization/cyberpunk-world.capture.json",
+      "bytes": 5555,
+      "sha256": "1077bd06960d76f6d9787baf1d86190cad72b3f01ec1b68db68f4fb7f0a3a6de"
+    },
+    {
+      "path": "fixtures/skill-generalization/genshin-world.capture.json",
+      "bytes": 8108,
+      "sha256": "a4cb1b3797c3e35d0122d39e6fa599d624f719f956dca399f99444ed967f231a"
+    },
+    {
+      "path": "fixtures/skill-generalization/gu-world.capture.json",
+      "bytes": 8914,
+      "sha256": "de435d1cf9d7ecd09ba385ef685dda786a7f0cdde03135b00b063873fc395495"
+    },
+    {
+      "path": "fixtures/zero-plugin.card-package.json",
+      "bytes": 8009,
+      "sha256": "aa68535d87827d2f73bd591d5049500f27fa175e5b9f1b47d664fa6a82002a7c"
+    },
+    {
+      "path": "module-boundary.json",
+      "bytes": 4117,
+      "sha256": "300b672ebcf93f31e062e102909f8d7058c77fac5287b20d6f945d18609184c1"
+    },
+    {
+      "path": "package-lock.json",
+      "bytes": 4786,
+      "sha256": "760710601ee46ff226727a1390019842af7bb1d461dc984c00646b9129688239"
+    },
+    {
+      "path": "package.json",
+      "bytes": 2414,
+      "sha256": "42d1ccfc089111c936b7c5f98529caa8a212fd135e05656729732838c576e424"
+    },
+    {
+      "path": "runtime/contracts.mjs",
+      "bytes": 33088,
+      "sha256": "5641ac0fd8e973637a65ee32ef94ea93afd24524cdf472791a0395d12713e7c3"
+    },
+    {
+      "path": "runtime/core.mjs",
+      "bytes": 24001,
+      "sha256": "7fc2a7ce1e8a5feab55e8c1d785fe609d948b362ed52f109a833b703a684d045"
+    },
+    {
+      "path": "runtime/index.mjs",
+      "bytes": 131,
+      "sha256": "b5e26b8000b50148d321ee200fa1ba206ae2db0107ef326c98cb272180c827b6"
+    },
+    {
+      "path": "runtime/node.mjs",
+      "bytes": 174,
+      "sha256": "2823e73553fb68c0c534fb30909243e676051da6324b532d339d7b65c11ae206"
+    },
+    {
+      "path": "runtime/node/http.mjs",
+      "bytes": 17764,
+      "sha256": "1920367f7f7d2aa0d1281b75416866ab148dc2cb0dbb2458a90aad30433ae8b2"
+    },
+    {
+      "path": "runtime/node/sse.mjs",
+      "bytes": 3181,
+      "sha256": "42527e9f7eb433131cdcd534639f229d37c799df89f724326c861bc243effa7f"
+    },
+    {
+      "path": "runtime/node/store.mjs",
+      "bytes": 13014,
+      "sha256": "465e155e7facdced2044d7d6b27a37d66454df65439dab78f8bdcb3ea4e072a5"
+    },
+    {
+      "path": "runtime/plugin-host.mjs",
+      "bytes": 21655,
+      "sha256": "ff871e6d69091d16f1c7861558fba81df5ee02b4aba958d421f9c93a4bf6211c"
+    },
+    {
+      "path": "runtime/recovery.mjs",
+      "bytes": 2297,
+      "sha256": "93476538882245b323b2bba6c8395ffef0e2296b44161aa5d2ce37865d489ff4"
+    },
+    {
+      "path": "scripts/check-boundary-rpg02.mjs",
+      "bytes": 18701,
+      "sha256": "95367db21a786d274f9ef3ed24c9210d29e2c2064b0f4cbd4407dee3b7641266"
+    },
+    {
+      "path": "scripts/check-boundary-rpg03.mjs",
+      "bytes": 18312,
+      "sha256": "562fc4eb9ad49f36d725f35e4677a7c4af43224e6bccd034ac6d1ef18dbe68a8"
+    },
+    {
+      "path": "scripts/check-boundary-rpg04.mjs",
+      "bytes": 21023,
+      "sha256": "ff144f1e80c065d76afa4cb73a7e42248d5b72c28b6db4cd973b41a208df6712"
+    },
+    {
+      "path": "scripts/check-boundary.mjs",
+      "bytes": 12079,
+      "sha256": "9328fe66925b4998918e4f44331b55406e1974e9a83667bd6a1253fe7297481f"
+    },
+    {
+      "path": "scripts/check-parent-scope.mjs",
+      "bytes": 4425,
+      "sha256": "5cdb67d242249847738cb5a8b28628648e04bcdd6c8d3437390bc1e05e9ae9b0"
+    },
+    {
+      "path": "scripts/context-cli.mjs",
+      "bytes": 7136,
+      "sha256": "8127a0ad6e78159a11329341cce8ab82e8d79c420f4456c5e0b9198d17d1fd06"
+    },
+    {
+      "path": "scripts/rpg03-cli.mjs",
+      "bytes": 6021,
+      "sha256": "cddc6f59a98f1708ef403cc8749ecaf1838b7834a8a17e56ccd8c6fc1fc630e0"
+    },
+    {
+      "path": "scripts/rpg03-harness.py",
+      "bytes": 26548,
+      "sha256": "2c61379e35832f98302d0bb10016d478ee85512adbe90efbccb9ef1f4ac70052"
+    },
+    {
+      "path": "scripts/rpg04-harness.py",
+      "bytes": 15166,
+      "sha256": "7b4c90e4bdc80995ebc62ba9296cc950164df4c2f9af46dbe7d86bea6a1c4df7"
+    },
+    {
+      "path": "scripts/verify-rpg01.mjs",
+      "bytes": 8387,
+      "sha256": "4314baefe352656c0b838e25a39dd04adf658c95e25a877d083acc4b396450c9"
+    },
+    {
+      "path": "scripts/verify-rpg02.mjs",
+      "bytes": 11842,
+      "sha256": "09cd3424c0421fe361302aac20bc87bab9c15304087929dd35121337efc32ab7"
+    },
+    {
+      "path": "scripts/verify-rpg03.mjs",
+      "bytes": 11432,
+      "sha256": "e8cd2cbf06308c9800779d81ec865b96c7c1011ecabca3ab4f92ddeca1f4e3ef"
+    },
+    {
+      "path": "scripts/verify-rpg04.mjs",
+      "bytes": 7928,
+      "sha256": "0e4cd3c4c368b613ffd6f3c945a3a40f8443823720cba251a5a3e68dd16f4317"
+    },
+    {
+      "path": "skills/rpg02-selected-content/SKILL.md",
+      "bytes": 8598,
+      "sha256": "b73529394e1a3870136a556192d90f21ae98a733fd0236aa4ab8a81e9f77c0ff"
+    },
+    {
+      "path": "skills/rpg02-selected-content/references/browser-capture.md",
+      "bytes": 10509,
+      "sha256": "ce45748c9968dee4dfa7bb33b4074c2ece45806ba517ae91b8ae6503fb4dfb34"
+    },
+    {
+      "path": "src/index.mjs",
+      "bytes": 58156,
+      "sha256": "fa473fa0b1a76ddf9237304d92f92bd2b3b3fb02ccf9f52e94ca39470237a857"
+    },
+    {
+      "path": "tests/archive-bundle.test.mjs",
+      "bytes": 12116,
+      "sha256": "f97c8d30298869c9cdf34637c5268572dbd8489e3e0619a35cbd08ed48fd2f9d"
+    },
+    {
+      "path": "tests/archive-zip.test.mjs",
+      "bytes": 7920,
+      "sha256": "9fee12aad3f6e56ccf98227a35eca8bc4a0dc242abc07d172d5052a5b5da0fbb"
+    },
+    {
+      "path": "tests/boundary.test.mjs",
+      "bytes": 6792,
+      "sha256": "bfa214716ac6bf0c576ee090177b3dd5cc0f47349127aed180661ebbfe3ada60"
+    },
+    {
+      "path": "tests/content-compile.test.mjs",
+      "bytes": 8964,
+      "sha256": "a0858a55bc75655d0190aed7ff970cc623cc643755b75284f1100aa3525e2c32"
+    },
+    {
+      "path": "tests/content-e2e.test.mjs",
+      "bytes": 7533,
+      "sha256": "9e7ec5b80e5cd7e3d59e4a63718b0ce98430fd7138b749dfd63b5f3363af2432"
+    },
+    {
+      "path": "tests/content-extract.test.mjs",
+      "bytes": 6485,
+      "sha256": "650379e4d9cdf9b64038037097baf8096e29de43b8075b68c481d61413b00b85"
+    },
+    {
+      "path": "tests/content-golden.test.mjs",
+      "bytes": 3368,
+      "sha256": "0f5177594086a56595d57953883b1f384ff7b6f9191ce6ad745c052f73c5106f"
+    },
+    {
+      "path": "tests/content-player.test.mjs",
+      "bytes": 8776,
+      "sha256": "0b3c4b996f9fce733e61d10051458b74dad786084e4d22909432ae3313fe8095"
+    },
+    {
+      "path": "tests/content-provenance.test.mjs",
+      "bytes": 6365,
+      "sha256": "d4e2f5fab8c090dcaa7a162e1d08ce0d377f90d28c453602f606fb036c5c34a9"
+    },
+    {
+      "path": "tests/content-source.test.mjs",
+      "bytes": 5639,
+      "sha256": "95785b25d458893d1f0deef2a3d7d640b8e251e234b0501881500b921b80c088"
+    },
+    {
+      "path": "tests/context-approved-card.test.mjs",
+      "bytes": 11866,
+      "sha256": "510b4a65e819dce4d028b393460e9d58371c22d68f146a5b2d51b2f85b0671b5"
+    },
+    {
+      "path": "tests/context-card.test.mjs",
+      "bytes": 5209,
+      "sha256": "ac7c271019556101db3409f5177d11ec5675b8128e0bb0a20ab6c77635010464"
+    },
+    {
+      "path": "tests/context-cli-files.test.mjs",
+      "bytes": 4539,
+      "sha256": "0631751ce325c04940ca933900af39b210e5a38cf92ab001c7754576bb2200e1"
+    },
+    {
+      "path": "tests/context-cli.test.mjs",
+      "bytes": 6096,
+      "sha256": "11e2f63a2d66215a0b81357e8fb6845386896e011d18a5ce9de7b60f71ae48a8"
+    },
+    {
+      "path": "tests/context-compiler.test.mjs",
+      "bytes": 10030,
+      "sha256": "1305b60400fe48f9cd8cbe23c8fee542bf9045dd06a369710b77fb50e07480f2"
+    },
+    {
+      "path": "tests/context-contracts.test.mjs",
+      "bytes": 9211,
+      "sha256": "8cc00d8faf9b443904d4aec71643e8a2424a7cfec1abd9176f15911360f1dfa9"
+    },
+    {
+      "path": "tests/context-host.test.mjs",
+      "bytes": 4161,
+      "sha256": "3392668b2b7939de4d8f8155f4f7d54d247d54a08bce6b9ed4f627dfc778b33d"
+    },
+    {
+      "path": "tests/context-http-integration.test.mjs",
+      "bytes": 6088,
+      "sha256": "fe6b40ddefd6cafe35b9a0620309ab58a906d139b0b77feaa14591f9d60e072c"
+    },
+    {
+      "path": "tests/context-output-budget.test.mjs",
+      "bytes": 4922,
+      "sha256": "075b8e8a790a471dafdafe10674a16f68bb7732a6caa898dce0bdfeaa939ba08"
+    },
+    {
+      "path": "tests/context-protocol.test.mjs",
+      "bytes": 5577,
+      "sha256": "acb02aa12fbb2c23a81dd81f0be22efc3b36bd527e3241aa2083287239fda88c"
+    },
+    {
+      "path": "tests/context-runtime.test.mjs",
+      "bytes": 7447,
+      "sha256": "d3670593fc3809193cf4ea423b059cc8eb4fd4c9ee45ffc3ac5de698f6a2eb8c"
+    },
+    {
+      "path": "tests/context-schema.test.mjs",
+      "bytes": 7739,
+      "sha256": "76b3d606163212c21b3a04ddcba483daf46bc905374184ad567e350e7879877f"
+    },
+    {
+      "path": "tests/context-selection.test.mjs",
+      "bytes": 10026,
+      "sha256": "61ff1d61d47da4345bf05f6d0535c9014cd89c2df036fa41a2a287ff378622fc"
+    },
+    {
+      "path": "tests/context-state-compat.test.mjs",
+      "bytes": 4103,
+      "sha256": "ec9436bf5dbe7b106928fd7fba795b6f0ae96983c1126abdecd73d350f0da309"
+    },
+    {
+      "path": "tests/context-test-input.test.mjs",
+      "bytes": 4813,
+      "sha256": "14611ceac0bb4258528cf99de79800e5058fa039253db345e9a9961ee6de9ced"
+    },
+    {
+      "path": "tests/contracts.test.mjs",
+      "bytes": 28145,
+      "sha256": "4fbd499c076becd0d24c36f1ee423dd849919791995b55212aabe8bde22b5979"
+    },
+    {
+      "path": "tests/rpg02-boundary.test.mjs",
+      "bytes": 3965,
+      "sha256": "cb53b789ec1f270171ad7ae2d0d0f507401a352274b8f332faad32d96f41c97e"
+    },
+    {
+      "path": "tests/rpg03-boundary.test.mjs",
+      "bytes": 6103,
+      "sha256": "bc810883b20d1087af606ad1fa948703f1769f6ff92e2f796a904c1af268b757"
+    },
+    {
+      "path": "tests/rpg03-verification.test.mjs",
+      "bytes": 1882,
+      "sha256": "5671e2630179150df8af4b4909fca514ac2bc21d9b8f2e3dc64020b7055e7ae9"
+    },
+    {
+      "path": "tests/rpg04-boundary.test.mjs",
+      "bytes": 5873,
+      "sha256": "dfe7063353a5e1600feac0ba19b3e10943bb8a083655e96b8a50185b91afe03b"
+    },
+    {
+      "path": "tests/rpg04-content.test.mjs",
+      "bytes": 6675,
+      "sha256": "20e6c0577ee72f53c3b162a8aec3ef1fb4f1e7eb702608ebbd646b5ee69687e8"
+    },
+    {
+      "path": "tests/rpg04-verification.test.mjs",
+      "bytes": 1153,
+      "sha256": "75d1cb311c092585a874b6a2e7b55095810fd2bbf71cf6a462076f0c447e581e"
+    },
+    {
+      "path": "tests/runtime-adapter.test.mjs",
+      "bytes": 24330,
+      "sha256": "85a98e1ee015dc0b093f9473e915b8cfa951dee5b33afb79220cadc29fbad4ba"
+    },
+    {
+      "path": "tests/runtime-cli.test.mjs",
+      "bytes": 6934,
+      "sha256": "506fc2e175e3dfeb2276e983eff098c012b7bc9e448e4f7e2f52ab107239b6bf"
+    },
+    {
+      "path": "tests/runtime-contracts.test.mjs",
+      "bytes": 16980,
+      "sha256": "ca910b76d48f4016731629c423f5b3571bbe7ec92a80890b71daaec6672ae973"
+    },
+    {
+      "path": "tests/runtime-core.test.mjs",
+      "bytes": 39646,
+      "sha256": "8d9589b2adacbf6e9e00a123b4fac77ad965f91085c915566356822a878428d1"
+    },
+    {
+      "path": "tests/runtime-fixtures.mjs",
+      "bytes": 2934,
+      "sha256": "09f9346e1b77ad55c28bfccf259585c4dd8da1a108f13088524ddebf5db8956b"
+    },
+    {
+      "path": "tests/runtime-integration.test.mjs",
+      "bytes": 7129,
+      "sha256": "01f2366bdbdac536fa605235edfac4bfef610c7bf550769af80074420fc7f69f"
+    },
+    {
+      "path": "tests/runtime-plugin-host.test.mjs",
+      "bytes": 13024,
+      "sha256": "7d2f98cde9f2748b0eddd463ff744a16e1b1fce8e53b860947e31e6bcd883fd1"
+    },
+    {
+      "path": "tests/runtime-store-child.mjs",
+      "bytes": 3505,
+      "sha256": "69159657b04ab1236d405ffeecc8ba24c212432dae765ab501d8afafd2f0ed65"
+    },
+    {
+      "path": "tests/runtime-store.test.mjs",
+      "bytes": 15585,
+      "sha256": "04fce776786cbdd13ef8bab311845d63bf3c9fb3fe74b08a1f7bff0cd1b58fc7"
+    },
+    {
+      "path": "tests/worker-batch.test.mjs",
+      "bytes": 12691,
+      "sha256": "ded5b160eb2f49637e3428b63dfecac6b720b56c14e04f94a76f4176841ee737"
+    },
+    {
+      "path": "tests/worker-capture.test.mjs",
+      "bytes": 13382,
+      "sha256": "6623a9ea50492ae7e34ef275e0723f83142c098abfc7ac8857a251fe1ccc9f2b"
+    },
+    {
+      "path": "tests/world-source.test.mjs",
+      "bytes": 14469,
+      "sha256": "31478fa0859d8023fe85b508a61511e7553328f0a9a75efd210ade78872d55c6"
+    },
+    {
+      "path": "tooling/archive.mjs",
+      "bytes": 7656,
+      "sha256": "03da87f26389d06a046d52b13eee94a32f0185284a485972cabdda62c2ed0bc3"
+    },
+    {
+      "path": "tooling/bundle.mjs",
+      "bytes": 15652,
+      "sha256": "c4ca9e147a289a06ec451f2a4f9233b863d2c7442b166eb55623d253b7e367e7"
+    },
+    {
+      "path": "tooling/cli.mjs",
+      "bytes": 8044,
+      "sha256": "1c2799deb27c09f1a60a5ce4fc43a77c4f453cbdbb35c32fca50583f19f98e04"
+    },
+    {
+      "path": "tooling/context-approved-card.mjs",
+      "bytes": 10701,
+      "sha256": "37166ff0da8a2cc3d17bcae227b001622fc0455cf43d460965d9c3d25259af96"
+    },
+    {
+      "path": "tooling/context-card.mjs",
+      "bytes": 8407,
+      "sha256": "ff5fadc6bbb95ff76650d3fc9984e8b7fb241f161975e50766f38337b6e9e1e1"
+    },
+    {
+      "path": "tooling/context-cli.mjs",
+      "bytes": 5924,
+      "sha256": "71a1765886acbe3f2a8f4b95df7458ed94d90dd93d0fa23c29e522bc030e86ef"
+    },
+    {
+      "path": "tooling/context-host.mjs",
+      "bytes": 2310,
+      "sha256": "c5f091516dc3c69a6fafe1128c3da1b6ec124b47508162751673d47ec93f784f"
+    },
+    {
+      "path": "tooling/context-protocol.mjs",
+      "bytes": 3493,
+      "sha256": "a9b5682fa845e0f308fae992aa7f6f64ef67285bdeb4b21391af0668a0d25245"
+    },
+    {
+      "path": "tooling/context-runtime.mjs",
+      "bytes": 7321,
+      "sha256": "16d5cbdad6ac37efca529dd93a2a9a0aaa905446f35afe58a2c9f143f349ec04"
+    },
+    {
+      "path": "tooling/context-test-input.mjs",
+      "bytes": 5172,
+      "sha256": "b1d8ce9c5f2316defdbf763c1d51116213b87bcba60bd2b78405a4c0b5dbac7d"
+    },
+    {
+      "path": "tooling/directory.mjs",
+      "bytes": 6675,
+      "sha256": "41c9216951c801f2de808c5f482b503560a8afd4637d97baf7e13985e028357d"
+    },
+    {
+      "path": "tooling/runtime-cli.mjs",
+      "bytes": 6426,
+      "sha256": "df716060a38872ea1009a0db1c0cc8f69f7066a14e6e339bc9ed0cfbcfc0ce2d"
+    },
+    {
+      "path": "tooling/source-input.mjs",
+      "bytes": 11752,
+      "sha256": "1d413380b94091d94ad0c0ab488cdb7f7d9ad93c77aa901b58688a30be64e10e"
+    },
+    {
+      "path": "tooling/worker-batch.mjs",
+      "bytes": 25638,
+      "sha256": "19160f9ce97c5bf2b5d9b35073138edd77f5bf2fedf1d1b9f1c7d0240ae149b6"
+    },
+    {
+      "path": "tooling/worker-capture.mjs",
+      "bytes": 17946,
+      "sha256": "f1cc297bb190a9afadd510880dc2402e62f95e219df4d832e55b1de5ef2a4ed7"
+    },
+    {
+      "path": "tooling/world-source.mjs",
+      "bytes": 11695,
+      "sha256": "83639980fb9f84708f70f552fccd943aaa99bd3e4f5e2d9cae1e250304e5eabb"
+    }
+  ]
 }

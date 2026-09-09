@@ -1,0 +1,40 @@
+{
+  "round": "RPG-04",
+  "status": "4096_retest_failed_field_types",
+  "claimAllowed": false,
+  "consumed": 5,
+  "remaining": 3,
+  "entryId": "RPG04-BUDGET-RETEST-01",
+  "approvedOutputLimit": 4096,
+  "adapterSucceeded": true,
+  "completeJson": true,
+  "usage": {
+    "input": 10509,
+    "output": 1195,
+    "total": 11704
+  },
+  "errors": [
+    {
+      "fieldRef": "field.rpg04.memory.ltm",
+      "expected": "list",
+      "actual": "string",
+      "actualValue": "（空）"
+    },
+    {
+      "fieldRef": "field.rpg04.memory.saves",
+      "expected": "list",
+      "actual": "string",
+      "actualValue": "（空）"
+    }
+  ],
+  "code": "TURN_EXCHANGE_INFORMATION_VALUE_TYPE",
+  "committedThisAttempt": false,
+  "automaticRepair": false,
+  "automaticRetry": false,
+  "promptUnchanged": true,
+  "offlineTests": {
+    "passed": 49,
+    "failed": 0
+  },
+  "nextAction": "Review explicit field-type guidance or separate approved normalization policy; no further dispatch."
+}

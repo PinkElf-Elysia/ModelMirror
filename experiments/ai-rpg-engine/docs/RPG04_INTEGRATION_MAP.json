@@ -1,0 +1,1047 @@
+{
+  "schemaVersion": 1,
+  "round": "RPG-04",
+  "documentKind": "non_runtime_integration_review_receipt",
+  "runtimeContract": false,
+  "applied": false,
+  "baseSha": "1b280ed257a45672c4a3dc03745fcb585685faf9",
+  "sourceDocuments": {
+    "approval": {
+      "path": "docs/RPG04_OPTIMIZATION_APPROVAL.json",
+      "sha256": "3794d5ddcd4b14f01ceb798762b1ec84c672461ae2d4e1e5076b391c3cf90d70",
+      "hashRole": "current approval document after P28 ordinary approval and P29 wording-only approval; prior 27-item approved subset snapshot retained",
+      "approvedItemRecordsSubset": {
+        "itemIds": [
+          "P01",
+          "P02",
+          "P03",
+          "P04",
+          "P05",
+          "P06",
+          "P07",
+          "P08",
+          "P09",
+          "P10",
+          "P11",
+          "P12",
+          "P14",
+          "P15",
+          "P16",
+          "P18",
+          "P19",
+          "P20",
+          "P21",
+          "P22",
+          "P23",
+          "S01",
+          "S02",
+          "L01",
+          "L02",
+          "P26",
+          "P27",
+          "P28"
+        ],
+        "sha256": "94d04974ad71a21d363a6a9ca37133672d4f5fad62edd7f80df1c704eed60858",
+        "hashConvention": "UTF-8 JSON array in approvedChangeIds order; ensure_ascii=false, sort_keys=true, separators=(',', ':')"
+      },
+      "integrationSnapshotSha256": "384adaf8ea666f03c2025aaf2c67f8d1937a060c83bcce51e949c2d704977dba",
+      "prior25ItemRecordsSubset": {
+        "itemIds": [
+          "P01",
+          "P02",
+          "P03",
+          "P04",
+          "P05",
+          "P06",
+          "P07",
+          "P08",
+          "P09",
+          "P10",
+          "P11",
+          "P12",
+          "P14",
+          "P15",
+          "P16",
+          "P18",
+          "P19",
+          "P20",
+          "P21",
+          "P22",
+          "P23",
+          "S01",
+          "S02",
+          "L01",
+          "L02"
+        ],
+        "sha256": "6d56a05aab6756d6dd81d032e5e9dd29a7096d3a3e3e524304234b4a797713b4",
+        "hashConvention": "UTF-8 JSON array in approvedChangeIds order; ensure_ascii=false, sort_keys=true, separators=(',', ':')"
+      },
+      "prior27ItemRecordsSubset": {
+        "itemIds": [
+          "P01",
+          "P02",
+          "P03",
+          "P04",
+          "P05",
+          "P06",
+          "P07",
+          "P08",
+          "P09",
+          "P10",
+          "P11",
+          "P12",
+          "P14",
+          "P15",
+          "P16",
+          "P18",
+          "P19",
+          "P20",
+          "P21",
+          "P22",
+          "P23",
+          "S01",
+          "S02",
+          "L01",
+          "L02",
+          "P26",
+          "P27"
+        ],
+        "sha256": "4807211f61fd9840efffa67891a4a466ebd3c9a8b31ba2248b81a002719635a3",
+        "hashConvention": "UTF-8 JSON array in approvedChangeIds order; ensure_ascii=false, sort_keys=true, separators=(',', ':')"
+      }
+    },
+    "promptProposals": {
+      "path": "docs/RPG04_PROMPT_CHANGE_PROPOSALS.md",
+      "sha256": "0d5acdc2c88f3c6f72caa593df08714fd166185d058ab26a8c39f1bb1f4d0176"
+    },
+    "resourceProposals": {
+      "path": "docs/RPG04_RESOURCE_FORMAT_PROPOSALS.md",
+      "sha256": "b6039bb21110ba233f4e9c9979f7476c050ce5bc67fb0d6ea9a567f4fd029c9b"
+    },
+    "originalPrompt": {
+      "path": "docs/RPG04_ORIGINAL_PROMPT_RECONSTRUCTION.md",
+      "sha256": "4d266ca4b7fcc3e77711ac2b4d1bb38d1a22b347b357d83a3379e8d34f872177"
+    },
+    "protocolSelection": {
+      "path": "docs/RPG04_PROTOCOL_SELECTION.md",
+      "sha256": "4bc8512df91be5e241f3f2c830000fe230a6bba9b7d9e311f3555c9645452d88"
+    }
+  },
+  "integratedReview": {
+    "path": "docs/RPG04_INTEGRATED_REVIEW.md",
+    "sha256": "4254496914a555a7bcca3a0594d1e45153df3c85fcf61b5add73580f2fc7f01f"
+  },
+  "counts": {
+    "approvedItems": 28,
+    "approvedPromptItems": 24,
+    "approvedResourceItems": 4,
+    "appliedItems": 0
+  },
+  "itemMappings": [
+    {
+      "itemId": "P01",
+      "category": "prompt",
+      "status": "approved_pending_application",
+      "applied": false,
+      "sourceDocument": "docs/RPG04_PROMPT_CHANGE_PROPOSALS.md",
+      "sourceDocumentSha256": "0d5acdc2c88f3c6f72caa593df08714fd166185d058ab26a8c39f1bb1f4d0176",
+      "sourceSection": {
+        "lineStart": 7,
+        "lineEnd": 18,
+        "currentSectionSha256": "b78ac711901cc4f6bdb801b681f326549d265a5baf872fcf727ceb992c59d4c8",
+        "approvalTimeSectionSha256": "dd143a9b9073cbb17c8b83fcfa1f3b2c2235604fa5b9b21170ac514d67125742",
+        "hashConvention": "prompt section slice through before next H2, trailing CR/LF trimmed and exactly one LF appended"
+      },
+      "scopeRef": "exact source scopes and proposed wording in this section",
+      "requiredApprovalIds": [],
+      "exactApprovedBodyFragments": [],
+      "integrationLocation": "一、主持职责、玩家自主与资料边界",
+      "runtimeApplied": false
+    },
+    {
+      "itemId": "P02",
+      "category": "prompt",
+      "status": "approved_pending_application",
+      "applied": false,
+      "sourceDocument": "docs/RPG04_PROMPT_CHANGE_PROPOSALS.md",
+      "sourceDocumentSha256": "0d5acdc2c88f3c6f72caa593df08714fd166185d058ab26a8c39f1bb1f4d0176",
+      "sourceSection": {
+        "lineStart": 19,
+        "lineEnd": 28,
+        "currentSectionSha256": "4384619827ae70403d0252df0585b6152284827e6a2925c9b55080c4348acdaa",
+        "approvalTimeSectionSha256": "37bc5d4fa6c1920e4dafb860b05e55a34e006c1975aaedae1830b60a19471619",
+        "hashConvention": "prompt section slice through before next H2, trailing CR/LF trimmed and exactly one LF appended"
+      },
+      "scopeRef": "exact source scopes and proposed wording in this section",
+      "requiredApprovalIds": [],
+      "exactApprovedBodyFragments": [
+        {
+          "kind": "replacement",
+          "utf8Bytes": 277,
+          "sha256": "01018675c71126461c0d1c5326bf98ccdedafac27c17fc40f2892e84345cb583"
+        }
+      ],
+      "integrationLocation": "一、主持职责、玩家自主与资料边界",
+      "runtimeApplied": false
+    },
+    {
+      "itemId": "P03",
+      "category": "prompt",
+      "status": "approved_pending_application",
+      "applied": false,
+      "sourceDocument": "docs/RPG04_PROMPT_CHANGE_PROPOSALS.md",
+      "sourceDocumentSha256": "0d5acdc2c88f3c6f72caa593df08714fd166185d058ab26a8c39f1bb1f4d0176",
+      "sourceSection": {
+        "lineStart": 29,
+        "lineEnd": 38,
+        "currentSectionSha256": "b0e3808dcdc4d1ce6414c801993b08fab4121a1ba88366a4ebccbef5993135cb",
+        "approvalTimeSectionSha256": "96ae0456a8aa3095fea44a0b44bf3e27c8ba3176453172bc54c34c8685475837",
+        "hashConvention": "prompt section slice through before next H2, trailing CR/LF trimmed and exactly one LF appended"
+      },
+      "scopeRef": "exact source scopes and proposed wording in this section",
+      "requiredApprovalIds": [],
+      "exactApprovedBodyFragments": [
+        {
+          "kind": "replacement",
+          "utf8Bytes": 207,
+          "sha256": "607609b2bcb069fc2b56cc949ea590bf540f405aeb319e122b684c78b89f1bb8"
+        }
+      ],
+      "integrationLocation": "一、主持职责、玩家自主与资料边界",
+      "runtimeApplied": false
+    },
+    {
+      "itemId": "P04",
+      "category": "prompt",
+      "status": "approved_pending_application",
+      "applied": false,
+      "sourceDocument": "docs/RPG04_PROMPT_CHANGE_PROPOSALS.md",
+      "sourceDocumentSha256": "0d5acdc2c88f3c6f72caa593df08714fd166185d058ab26a8c39f1bb1f4d0176",
+      "sourceSection": {
+        "lineStart": 39,
+        "lineEnd": 48,
+        "currentSectionSha256": "b241121de5e0ef17aa7b99085cddad418757231307bf9b122c1be902a8cb74de",
+        "approvalTimeSectionSha256": "6b9226d6ae12c488c5ef575098a5169c1271a6a73541d201b096841d368eceb2",
+        "hashConvention": "prompt section slice through before next H2, trailing CR/LF trimmed and exactly one LF appended"
+      },
+      "scopeRef": "exact source scopes and proposed wording in this section",
+      "requiredApprovalIds": [
+        "P03",
+        "P11"
+      ],
+      "exactApprovedBodyFragments": [
+        {
+          "kind": "replacement",
+          "utf8Bytes": 342,
+          "sha256": "0a34733775222b0987f30aa95bdbec4d9b8b2d82acfe1e17bb5a2d7e6496d6be"
+        }
+      ],
+      "integrationLocation": "一、主持职责、玩家自主与资料边界",
+      "runtimeApplied": false
+    },
+    {
+      "itemId": "P05",
+      "category": "prompt",
+      "status": "approved_pending_application",
+      "applied": false,
+      "sourceDocument": "docs/RPG04_PROMPT_CHANGE_PROPOSALS.md",
+      "sourceDocumentSha256": "0d5acdc2c88f3c6f72caa593df08714fd166185d058ab26a8c39f1bb1f4d0176",
+      "sourceSection": {
+        "lineStart": 49,
+        "lineEnd": 57,
+        "currentSectionSha256": "76a04c4637d45e398d383d297baf3fdfc8c25c986c7a53462c4e5a0cc4f09954",
+        "approvalTimeSectionSha256": "c16ec43d114316a088fcdcc6ac6af2cbda989f20f394f2333c07eafd0783fefd",
+        "hashConvention": "prompt section slice through before next H2, trailing CR/LF trimmed and exactly one LF appended"
+      },
+      "scopeRef": "exact source scopes and proposed wording in this section",
+      "requiredApprovalIds": [],
+      "exactApprovedBodyFragments": [
+        {
+          "kind": "addition",
+          "utf8Bytes": 337,
+          "sha256": "85380e959f5102828f2dcc95f1a4018f909ed240829a3c33a732ce69e80f84dc"
+        }
+      ],
+      "integrationLocation": "一、主持职责、玩家自主与资料边界",
+      "runtimeApplied": false
+    },
+    {
+      "itemId": "P06",
+      "category": "prompt",
+      "status": "approved_pending_application",
+      "applied": false,
+      "sourceDocument": "docs/RPG04_PROMPT_CHANGE_PROPOSALS.md",
+      "sourceDocumentSha256": "0d5acdc2c88f3c6f72caa593df08714fd166185d058ab26a8c39f1bb1f4d0176",
+      "sourceSection": {
+        "lineStart": 58,
+        "lineEnd": 66,
+        "currentSectionSha256": "0cde115fdff822b082c59e2779859d4f965b1f1b64613a07255024695a9b3762",
+        "approvalTimeSectionSha256": "fc5d84b4a8d4624fce771f33a0580b5675b44216916a6444476af3091b8a40bb",
+        "hashConvention": "prompt section slice through before next H2, trailing CR/LF trimmed and exactly one LF appended"
+      },
+      "scopeRef": "exact source scopes and proposed wording in this section",
+      "requiredApprovalIds": [],
+      "exactApprovedBodyFragments": [
+        {
+          "kind": "addition",
+          "utf8Bytes": 317,
+          "sha256": "2269bd24eff81cd860224fb82d189d4d0a7230eabc76fcb0f2b04eaf78463336"
+        }
+      ],
+      "integrationLocation": "一、主持职责、玩家自主与资料边界",
+      "runtimeApplied": false
+    },
+    {
+      "itemId": "P07",
+      "category": "prompt",
+      "status": "approved_pending_application",
+      "applied": false,
+      "sourceDocument": "docs/RPG04_PROMPT_CHANGE_PROPOSALS.md",
+      "sourceDocumentSha256": "0d5acdc2c88f3c6f72caa593df08714fd166185d058ab26a8c39f1bb1f4d0176",
+      "sourceSection": {
+        "lineStart": 67,
+        "lineEnd": 79,
+        "currentSectionSha256": "6257178c69b1f71452467edad301257a8522f215e0cd204ee0cb1e5d7542c2f8",
+        "approvalTimeSectionSha256": "67439376247f8de38ab1c3d56e7bfd18e1d3d86b5f96b8e5dd1495b64b0ef1b6",
+        "hashConvention": "prompt section slice through before next H2, trailing CR/LF trimmed and exactly one LF appended"
+      },
+      "scopeRef": "exact source scopes and proposed wording in this section",
+      "requiredApprovalIds": [],
+      "exactApprovedBodyFragments": [
+        {
+          "kind": "replacement",
+          "utf8Bytes": 234,
+          "sha256": "97e3ebe49a5132561ec3420476005e30f59dd10b31c3b4fdd6a0ed483e3cf2f2"
+        }
+      ],
+      "integrationLocation": "一、主持职责、玩家自主与资料边界；八、整合顺序",
+      "runtimeApplied": false
+    },
+    {
+      "itemId": "P08",
+      "category": "prompt",
+      "status": "approved_pending_application",
+      "applied": false,
+      "sourceDocument": "docs/RPG04_PROMPT_CHANGE_PROPOSALS.md",
+      "sourceDocumentSha256": "0d5acdc2c88f3c6f72caa593df08714fd166185d058ab26a8c39f1bb1f4d0176",
+      "sourceSection": {
+        "lineStart": 80,
+        "lineEnd": 100,
+        "currentSectionSha256": "ce52f936b9b48b8789ce4fda04f1d1630dc05652ac57f417dc750b2c4b301877",
+        "approvalTimeSectionSha256": "ba5e3ffb1ef09d783bb11bcf6a239477e878ae6a00bbae39566e592ec169cabb",
+        "hashConvention": "prompt section slice through before next H2, trailing CR/LF trimmed and exactly one LF appended"
+      },
+      "scopeRef": "exact source scopes and proposed wording in this section",
+      "requiredApprovalIds": [],
+      "exactApprovedBodyFragments": [
+        {
+          "kind": "replacement",
+          "utf8Bytes": 552,
+          "sha256": "f4efca3e0123a704e47717c5afba3ccc2792d5d9e074cc881d2d6dfdb490810e"
+        }
+      ],
+      "integrationLocation": "三、输出内容与格式；动态信息字段待映射",
+      "runtimeApplied": false
+    },
+    {
+      "itemId": "P09",
+      "category": "prompt",
+      "status": "approved_pending_application",
+      "applied": false,
+      "sourceDocument": "docs/RPG04_PROMPT_CHANGE_PROPOSALS.md",
+      "sourceDocumentSha256": "0d5acdc2c88f3c6f72caa593df08714fd166185d058ab26a8c39f1bb1f4d0176",
+      "sourceSection": {
+        "lineStart": 101,
+        "lineEnd": 114,
+        "currentSectionSha256": "a868ef24904892733be4062be350d5c48f1f4ae967e9b49323d6f2ce13863cb2",
+        "approvalTimeSectionSha256": "53914b0f41631de2a3e28af1ee190856fa811e9a9513b58f91613f6f00467dd7",
+        "hashConvention": "prompt section slice through before next H2, trailing CR/LF trimmed and exactly one LF appended"
+      },
+      "scopeRef": "exact source scopes and proposed wording in this section",
+      "requiredApprovalIds": [],
+      "exactApprovedBodyFragments": [
+        {
+          "kind": "replacement",
+          "utf8Bytes": 42,
+          "sha256": "7ff9fdc08c5d817bdbb4c8f321e26aa6257ff4dc398c130115b2105b4231180a"
+        },
+        {
+          "kind": "replacement",
+          "utf8Bytes": 652,
+          "sha256": "b9fe34a15b7f60218ee85441a7b4d991cd4d539447b3327b4299ec0220f24139"
+        }
+      ],
+      "integrationLocation": "三、输出内容与格式；动态信息字段待映射",
+      "runtimeApplied": false
+    },
+    {
+      "itemId": "P10",
+      "category": "prompt",
+      "status": "approved_pending_application",
+      "applied": false,
+      "sourceDocument": "docs/RPG04_PROMPT_CHANGE_PROPOSALS.md",
+      "sourceDocumentSha256": "0d5acdc2c88f3c6f72caa593df08714fd166185d058ab26a8c39f1bb1f4d0176",
+      "sourceSection": {
+        "lineStart": 115,
+        "lineEnd": 126,
+        "currentSectionSha256": "e1b29ccac939bc7a31a5bec5aafcf72de227958438b120d326fea29868389aac",
+        "approvalTimeSectionSha256": "e890ea2ffa32e0dda56b77a237804975e88656ec6abbd328de086e2bc3be76d5",
+        "hashConvention": "prompt section slice through before next H2, trailing CR/LF trimmed and exactly one LF appended"
+      },
+      "scopeRef": "exact source scopes and proposed wording in this section",
+      "requiredApprovalIds": [],
+      "exactApprovedBodyFragments": [
+        {
+          "kind": "addition",
+          "utf8Bytes": 552,
+          "sha256": "c768a099e41d0dac8ac2ceeb615f77d392c1ea06e68ed9d3a7abdcb54d0ea999"
+        }
+      ],
+      "integrationLocation": "二、本卡玩法与建议；八、整合顺序",
+      "runtimeApplied": false
+    },
+    {
+      "itemId": "P11",
+      "category": "prompt",
+      "status": "approved_pending_application",
+      "applied": false,
+      "sourceDocument": "docs/RPG04_PROMPT_CHANGE_PROPOSALS.md",
+      "sourceDocumentSha256": "0d5acdc2c88f3c6f72caa593df08714fd166185d058ab26a8c39f1bb1f4d0176",
+      "sourceSection": {
+        "lineStart": 127,
+        "lineEnd": 138,
+        "currentSectionSha256": "bf59784e1125508eac52ebb50ca83871d76469ec2241906c11e4ae54f11eb65e",
+        "approvalTimeSectionSha256": "9faed2c53b11f5ecb0411eabf775d681845bd9be20076b1622c24cfd9b9dd10c",
+        "hashConvention": "prompt section slice through before next H2, trailing CR/LF trimmed and exactly one LF appended"
+      },
+      "scopeRef": "exact source scopes and proposed wording in this section",
+      "requiredApprovalIds": [],
+      "exactApprovedBodyFragments": [
+        {
+          "kind": "addition",
+          "utf8Bytes": 583,
+          "sha256": "e796480b70fd6a866773946416508d14e9620e8a1922becf1ee4dee2af8b9271"
+        }
+      ],
+      "integrationLocation": "一、主持职责、玩家自主与资料边界",
+      "runtimeApplied": false
+    },
+    {
+      "itemId": "P12",
+      "category": "prompt",
+      "status": "approved_pending_application",
+      "applied": false,
+      "sourceDocument": "docs/RPG04_PROMPT_CHANGE_PROPOSALS.md",
+      "sourceDocumentSha256": "0d5acdc2c88f3c6f72caa593df08714fd166185d058ab26a8c39f1bb1f4d0176",
+      "sourceSection": {
+        "lineStart": 139,
+        "lineEnd": 149,
+        "currentSectionSha256": "2707797a2297498ce35f75ae8dbebca0673c6ab29cd7f06f9bc9100236520da0",
+        "approvalTimeSectionSha256": "17af2ba1c584d751a27ab1a5281979b3e4d112501478dd4a1801cdfe52941bb1",
+        "hashConvention": "prompt section slice through before next H2, trailing CR/LF trimmed and exactly one LF appended"
+      },
+      "scopeRef": "exact source scopes and proposed wording in this section",
+      "requiredApprovalIds": [],
+      "exactApprovedBodyFragments": [
+        {
+          "kind": "addition",
+          "utf8Bytes": 486,
+          "sha256": "12ad5b099575e606179e6758bd8bd3bbc0ad1aafc0cbe8c6ef423ab681ce5d82"
+        }
+      ],
+      "integrationLocation": "五、文风与世界书资源",
+      "runtimeApplied": false
+    },
+    {
+      "itemId": "P14",
+      "category": "prompt",
+      "status": "approved_pending_application",
+      "applied": false,
+      "sourceDocument": "docs/RPG04_PROMPT_CHANGE_PROPOSALS.md",
+      "sourceDocumentSha256": "0d5acdc2c88f3c6f72caa593df08714fd166185d058ab26a8c39f1bb1f4d0176",
+      "sourceSection": {
+        "lineStart": 172,
+        "lineEnd": 182,
+        "currentSectionSha256": "2c372e56055901887e728569fc80d6ff878a3814dde29d8c483cfee0a3799205",
+        "approvalTimeSectionSha256": "20377754a0cdcf89580ddf3e27e83bf0339acc148c593041095a4d44b4ab97cb",
+        "hashConvention": "prompt section slice through before next H2, trailing CR/LF trimmed and exactly one LF appended"
+      },
+      "scopeRef": "exact source scopes and proposed wording in this section",
+      "requiredApprovalIds": [],
+      "exactApprovedBodyFragments": [
+        {
+          "kind": "addition",
+          "utf8Bytes": 324,
+          "sha256": "322fa551430a046cd6da8c90906183c4be31d022ac43c5fd239922cf7ec745b3"
+        }
+      ],
+      "integrationLocation": "二、本卡玩法与建议",
+      "runtimeApplied": false
+    },
+    {
+      "itemId": "P15",
+      "category": "prompt",
+      "status": "approved_pending_application",
+      "applied": false,
+      "sourceDocument": "docs/RPG04_PROMPT_CHANGE_PROPOSALS.md",
+      "sourceDocumentSha256": "0d5acdc2c88f3c6f72caa593df08714fd166185d058ab26a8c39f1bb1f4d0176",
+      "sourceSection": {
+        "lineStart": 183,
+        "lineEnd": 192,
+        "currentSectionSha256": "f05db47cb6856c285e125f0c35aa98f81178fd146be78c3584ea811f4162916a",
+        "approvalTimeSectionSha256": "6b7e0c87bb4b3d55d131a11e5ba9c1b89779194c00e01e4f6083a2a8b34f68f4",
+        "hashConvention": "prompt section slice through before next H2, trailing CR/LF trimmed and exactly one LF appended"
+      },
+      "scopeRef": "exact source scopes and proposed wording in this section",
+      "requiredApprovalIds": [],
+      "exactApprovedBodyFragments": [
+        {
+          "kind": "addition",
+          "utf8Bytes": 489,
+          "sha256": "1c4b055558913854a8c84a14aa9d1ad0ec22138e60c7cf13064c9f0e84e98f9e"
+        }
+      ],
+      "integrationLocation": "一、主持职责、玩家自主与资料边界",
+      "runtimeApplied": false
+    },
+    {
+      "itemId": "P16",
+      "category": "prompt",
+      "status": "approved_pending_application",
+      "applied": false,
+      "sourceDocument": "docs/RPG04_PROMPT_CHANGE_PROPOSALS.md",
+      "sourceDocumentSha256": "0d5acdc2c88f3c6f72caa593df08714fd166185d058ab26a8c39f1bb1f4d0176",
+      "sourceSection": {
+        "lineStart": 193,
+        "lineEnd": 203,
+        "currentSectionSha256": "80edeef3f7eb909820854560723b491e2d42443218e7d7a0d47bb875175fbace",
+        "approvalTimeSectionSha256": "c3b76704f28000a0fd31cf1464fd4e923e37750472b7dd3c9acb945fc386fb31",
+        "hashConvention": "prompt section slice through before next H2, trailing CR/LF trimmed and exactly one LF appended"
+      },
+      "scopeRef": "exact source scopes and proposed wording in this section",
+      "requiredApprovalIds": [],
+      "exactApprovedBodyFragments": [
+        {
+          "kind": "addition",
+          "utf8Bytes": 369,
+          "sha256": "4a1b9e2d1d8a34e5e4d775eeef998623fa1403e40e7fda37aea486220c1415b1"
+        }
+      ],
+      "integrationLocation": "二、本卡玩法与建议；八、整合顺序",
+      "runtimeApplied": false
+    },
+    {
+      "itemId": "P18",
+      "category": "prompt",
+      "status": "approved_pending_application",
+      "applied": false,
+      "sourceDocument": "docs/RPG04_PROMPT_CHANGE_PROPOSALS.md",
+      "sourceDocumentSha256": "0d5acdc2c88f3c6f72caa593df08714fd166185d058ab26a8c39f1bb1f4d0176",
+      "sourceSection": {
+        "lineStart": 217,
+        "lineEnd": 229,
+        "currentSectionSha256": "65d3b2060eb9c36220318f4b7670880035906daa41538ce0401099064d670d8f",
+        "approvalTimeSectionSha256": "47a2d83bb7956ba4f230c3a33ba5cc53bab56039470ba61485f77cb0a9ad1978",
+        "hashConvention": "prompt section slice through before next H2, trailing CR/LF trimmed and exactly one LF appended"
+      },
+      "scopeRef": "exact source scopes and proposed wording in this section",
+      "requiredApprovalIds": [],
+      "exactApprovedBodyFragments": [
+        {
+          "kind": "replacement",
+          "utf8Bytes": 738,
+          "sha256": "97ea58b679f3ded304959bd2a7e7f41c4bd79044501b902bd8933b503032757f"
+        },
+        {
+          "kind": "replacement",
+          "utf8Bytes": 232,
+          "sha256": "e468a1cd42efe79b074cdfd6fc9789a54afc9ac946492bcda40832ff7a77fff0"
+        }
+      ],
+      "integrationLocation": "一、主持职责、玩家自主与资料边界；八、整合顺序",
+      "runtimeApplied": false
+    },
+    {
+      "itemId": "P19",
+      "category": "prompt",
+      "status": "approved_pending_application",
+      "applied": false,
+      "sourceDocument": "docs/RPG04_PROMPT_CHANGE_PROPOSALS.md",
+      "sourceDocumentSha256": "0d5acdc2c88f3c6f72caa593df08714fd166185d058ab26a8c39f1bb1f4d0176",
+      "sourceSection": {
+        "lineStart": 230,
+        "lineEnd": 238,
+        "currentSectionSha256": "010e94a3bbeeb90b62fbacf13843f819fcad7ded7d435aa3ef4977f019a65590",
+        "approvalTimeSectionSha256": "cc5ac3ebe18b6dcd7e7852a9c254b3ddb5c6e93063176d47a234cd0c4a5a1461",
+        "hashConvention": "prompt section slice through before next H2, trailing CR/LF trimmed and exactly one LF appended"
+      },
+      "scopeRef": "exact source scopes and proposed wording in this section",
+      "requiredApprovalIds": [],
+      "exactApprovedBodyFragments": [],
+      "integrationLocation": "三、输出内容与格式",
+      "runtimeApplied": false
+    },
+    {
+      "itemId": "P20",
+      "category": "prompt",
+      "status": "approved_pending_application",
+      "applied": false,
+      "sourceDocument": "docs/RPG04_PROMPT_CHANGE_PROPOSALS.md",
+      "sourceDocumentSha256": "0d5acdc2c88f3c6f72caa593df08714fd166185d058ab26a8c39f1bb1f4d0176",
+      "sourceSection": {
+        "lineStart": 239,
+        "lineEnd": 250,
+        "currentSectionSha256": "c1a9625237b19d09ccf7c81db112b4d59ee174a553ae6807d7d66c232628a735",
+        "approvalTimeSectionSha256": "37e95f3c334f34eca800846313c985abf8489d1ba2653e356a6b9986f5a2ae5b",
+        "hashConvention": "prompt section slice through before next H2, trailing CR/LF trimmed and exactly one LF appended"
+      },
+      "scopeRef": "exact source scopes and proposed wording in this section",
+      "requiredApprovalIds": [],
+      "exactApprovedBodyFragments": [
+        {
+          "kind": "replacement",
+          "utf8Bytes": 397,
+          "sha256": "a1f63eda60ef020fa31da30dc29a6ae1d8618d7652edff6d6d45faa26a70fdb7"
+        }
+      ],
+      "integrationLocation": "二、本卡玩法与建议；八、整合顺序",
+      "runtimeApplied": false
+    },
+    {
+      "itemId": "P21",
+      "category": "prompt",
+      "status": "approved_pending_application",
+      "applied": false,
+      "sourceDocument": "docs/RPG04_PROMPT_CHANGE_PROPOSALS.md",
+      "sourceDocumentSha256": "0d5acdc2c88f3c6f72caa593df08714fd166185d058ab26a8c39f1bb1f4d0176",
+      "sourceSection": {
+        "lineStart": 251,
+        "lineEnd": 259,
+        "currentSectionSha256": "28a8d0cc645f995de0082c29e1657a1ef18a70bf91d3dde53165a636da357d38",
+        "approvalTimeSectionSha256": "f36cbf7b73fe092685684f43bcdd35e601afe7dd01db7dcfd15c1de059521ac5",
+        "hashConvention": "prompt section slice through before next H2, trailing CR/LF trimmed and exactly one LF appended"
+      },
+      "scopeRef": "exact source scopes and proposed wording in this section",
+      "requiredApprovalIds": [],
+      "exactApprovedBodyFragments": [],
+      "integrationLocation": "三、输出内容与格式；八、整合顺序",
+      "runtimeApplied": false
+    },
+    {
+      "itemId": "P22",
+      "category": "prompt",
+      "status": "approved_pending_application",
+      "applied": false,
+      "sourceDocument": "docs/RPG04_PROMPT_CHANGE_PROPOSALS.md",
+      "sourceDocumentSha256": "0d5acdc2c88f3c6f72caa593df08714fd166185d058ab26a8c39f1bb1f4d0176",
+      "sourceSection": {
+        "lineStart": 260,
+        "lineEnd": 270,
+        "currentSectionSha256": "fdd1a5f2d927f6c64c99947a246b5682ad4b4b7c4c1deb8d908461b4178c8e8d",
+        "approvalTimeSectionSha256": "15b3b71f55efff3da5c5f28891515422ed40e2363f142babed47a935f3deea70",
+        "hashConvention": "prompt section slice through before next H2, trailing CR/LF trimmed and exactly one LF appended"
+      },
+      "scopeRef": "exact source scopes and proposed wording in this section",
+      "requiredApprovalIds": [],
+      "exactApprovedBodyFragments": [
+        {
+          "kind": "replacement",
+          "utf8Bytes": 431,
+          "sha256": "e1deeaf4f3cbb806a790457d31b7f4decf1193196b854f6c93d8ced4a19c3076"
+        }
+      ],
+      "integrationLocation": "三、输出内容与格式；八、整合顺序",
+      "runtimeApplied": false
+    },
+    {
+      "itemId": "P23",
+      "category": "prompt",
+      "status": "approved_pending_application",
+      "applied": false,
+      "sourceDocument": "docs/RPG04_PROMPT_CHANGE_PROPOSALS.md",
+      "sourceDocumentSha256": "0d5acdc2c88f3c6f72caa593df08714fd166185d058ab26a8c39f1bb1f4d0176",
+      "sourceSection": {
+        "lineStart": 271,
+        "lineEnd": 280,
+        "currentSectionSha256": "4ec7d83e123b01d29948483734abeb5c7981057a7516218cf7be25988b0152dc",
+        "approvalTimeSectionSha256": "f7a4817852e76f84d3e1d8e9bb7e1139bdb369547f89028abaae495231b65118",
+        "hashConvention": "prompt section slice through before next H2, trailing CR/LF trimmed and exactly one LF appended"
+      },
+      "scopeRef": "exact source scopes and proposed wording in this section",
+      "requiredApprovalIds": [],
+      "exactApprovedBodyFragments": [
+        {
+          "kind": "replacement",
+          "utf8Bytes": 47,
+          "sha256": "5dfeb17897a42a38fa7f7b416413529ffdd6816620ea5ee4f268b035e48509fa"
+        }
+      ],
+      "integrationLocation": "一、主持职责、玩家自主与资料边界",
+      "runtimeApplied": false
+    },
+    {
+      "itemId": "S01",
+      "category": "resource",
+      "status": "approved_pending_application",
+      "applied": false,
+      "sourceDocument": "docs/RPG04_RESOURCE_FORMAT_PROPOSALS.md",
+      "sourceDocumentSha256": "b6039bb21110ba233f4e9c9979f7476c050ce5bc67fb0d6ea9a567f4fd029c9b",
+      "sourceSection": {
+        "lineStart": 18,
+        "lineEnd": 45,
+        "currentSectionSha256": "984eb0a0c93754b3e9b22dd7bd8f31f73b90db8950126dad968796619d8dc19d",
+        "approvalTimeSectionSha256": "9e8ec55ccb5dafe2ad3af50423ea125c6361b0855143d0e34164008377d354ba",
+        "hashConvention": "resource section slice retained as-is through before next H2, including its existing trailing LF; no trimming, no synthetic extra LF"
+      },
+      "scopeRef": "exact source scopes and proposed wording in this section",
+      "requiredApprovalIds": [],
+      "exactApprovedBodyFragments": [
+        {
+          "kind": "approved_resource_body",
+          "utf8Bytes": 799,
+          "sha256": "8c1c10d6911ae5d5734dbe91f7905a61fb3e88429892c66d0042dc50b5122e2d"
+        }
+      ],
+      "integrationLocation": "五、文风与世界书资源/S01",
+      "runtimeApplied": false
+    },
+    {
+      "itemId": "S02",
+      "category": "resource",
+      "status": "approved_pending_application",
+      "applied": false,
+      "sourceDocument": "docs/RPG04_RESOURCE_FORMAT_PROPOSALS.md",
+      "sourceDocumentSha256": "b6039bb21110ba233f4e9c9979f7476c050ce5bc67fb0d6ea9a567f4fd029c9b",
+      "sourceSection": {
+        "lineStart": 46,
+        "lineEnd": 63,
+        "currentSectionSha256": "a8f59c361484efba4e113264de88534dd802e200e16d9f075ea38e39eef885d8",
+        "approvalTimeSectionSha256": "810e7f18393971cab004c3384642c78c59a5a90e98fbf3dd84fcf616f2b55718",
+        "hashConvention": "resource section slice retained as-is through before next H2, including its existing trailing LF; no trimming, no synthetic extra LF"
+      },
+      "scopeRef": "exact source scopes and proposed wording in this section",
+      "requiredApprovalIds": [],
+      "exactApprovedBodyFragments": [
+        {
+          "kind": "approved_resource_body",
+          "utf8Bytes": 860,
+          "sha256": "64000f81d4a9601c4441a0de885283736a45974204f40b18a111aa936f730fd9"
+        }
+      ],
+      "integrationLocation": "五、文风与世界书资源/S02",
+      "runtimeApplied": false
+    },
+    {
+      "itemId": "L01",
+      "category": "resource",
+      "status": "approved_pending_application",
+      "applied": false,
+      "sourceDocument": "docs/RPG04_RESOURCE_FORMAT_PROPOSALS.md",
+      "sourceDocumentSha256": "b6039bb21110ba233f4e9c9979f7476c050ce5bc67fb0d6ea9a567f4fd029c9b",
+      "sourceSection": {
+        "lineStart": 64,
+        "lineEnd": 112,
+        "currentSectionSha256": "183649d0effec27e2e062d0e88dcfbe228a6d71f9c918cbf0a1575d99e4e2982",
+        "approvalTimeSectionSha256": "9fe164a2bc2d0e9c6485cf3b4defffa56b4125d54d7b571e5d97bdfb7a56eea2",
+        "hashConvention": "resource section slice retained as-is through before next H2, including its existing trailing LF; no trimming, no synthetic extra LF"
+      },
+      "scopeRef": "exact source scopes and proposed wording in this section",
+      "requiredApprovalIds": [],
+      "exactApprovedBodyFragments": [
+        {
+          "kind": "approved_resource_body",
+          "utf8Bytes": 1473,
+          "sha256": "e7f6f7d2ea88b73cab12f60f9a4d694b49f1669105578c080b2dbcbd5ac59fa8"
+        }
+      ],
+      "integrationLocation": "五、文风与世界书资源/L01",
+      "runtimeApplied": false
+    },
+    {
+      "itemId": "L02",
+      "category": "resource",
+      "status": "approved_pending_application",
+      "applied": false,
+      "sourceDocument": "docs/RPG04_RESOURCE_FORMAT_PROPOSALS.md",
+      "sourceDocumentSha256": "b6039bb21110ba233f4e9c9979f7476c050ce5bc67fb0d6ea9a567f4fd029c9b",
+      "sourceSection": {
+        "lineStart": 113,
+        "lineEnd": 163,
+        "currentSectionSha256": "b0694948ff841acd9bf33c66665469a65276c91dc9d5df8c6da478536e1a04ab",
+        "approvalTimeSectionSha256": "3dba21342ee29d8e2964d655fa15e8361604ed02d9b6211ff574503f81855e02",
+        "hashConvention": "resource section slice retained as-is through before next H2, including its existing trailing LF; no trimming, no synthetic extra LF"
+      },
+      "scopeRef": "exact source scopes and proposed wording in this section",
+      "requiredApprovalIds": [],
+      "exactApprovedBodyFragments": [
+        {
+          "kind": "approved_resource_body",
+          "utf8Bytes": 1547,
+          "sha256": "06d8572680363c1bfc3443eb0c4ed000769d5e7b040977908388ad8ea0bb5067"
+        }
+      ],
+      "integrationLocation": "五、文风与世界书资源/L02",
+      "runtimeApplied": false
+    },
+    {
+      "itemId": "P26",
+      "category": "prompt",
+      "status": "approved_pending_application",
+      "applied": false,
+      "sourceDocument": "docs/RPG04_PROTOCOL_SELECTION.md",
+      "sourceDocumentSha256": "4bc8512df91be5e241f3f2c830000fe230a6bba9b7d9e311f3555c9645452d88",
+      "sourceSection": {
+        "lineStart": 42,
+        "lineEnd": 55,
+        "currentSectionSha256": "039ba79a3a65e9a3464158ed37a4eadbbf374a18e7a0f0d174d947538c40983c",
+        "approvalTimeSectionSha256": "d8c6f273d421efaa79e3b61c494ead3f7c4eedbf1dbc1f573f0e4952c37a9739",
+        "approvalTimeDocumentSha256": "2c614a757dc94820032c2e5af88295a3f079c53da66db71ca52a09e3621d2252",
+        "hashConvention": "prompt section slice through before next H2, trailing CR/LF trimmed and exactly one LF appended"
+      },
+      "scopeRef": "proposal.narrative only; existing information modules, memory tables, suggestions and JSON layout retained",
+      "requiredApprovalIds": [
+        "P22"
+      ],
+      "exactApprovedBodyFragments": [
+        {
+          "kind": "approved_addition",
+          "utf8Bytes": 153,
+          "sha256": "8653b0ad262ce4dedf99963799c7533b1a10eb7a85f7e62b4fc0d7437066a5b7"
+        }
+      ],
+      "integrationLocation": "### P26 · 剧情衔接与减少重复",
+      "insertAfterApprovedItemId": "P22",
+      "sourceUnit": {
+        "document": "docs/RPG04_PROTOCOL_INTEGRATION_SOURCE.json",
+        "documentSha256": "dc0942def9f5d1946129b7ba4f754e36dba8a74eefe5bd6c003bd9402c5ad16b",
+        "unitId": "simulator-12",
+        "unitSha256": "3737b4274628dfb6377d199b51a53613d793f4e9896af6073068fa6ff07bcd55",
+        "sourceTextAlteration": "remove source list number and its following space only"
+      },
+      "runtimeApplied": false
+    },
+    {
+      "itemId": "P27",
+      "category": "prompt",
+      "status": "approved_pending_application",
+      "applied": false,
+      "sourceDocument": "docs/RPG04_PROTOCOL_SELECTION.md",
+      "sourceDocumentSha256": "4bc8512df91be5e241f3f2c830000fe230a6bba9b7d9e311f3555c9645452d88",
+      "sourceSection": {
+        "lineStart": 56,
+        "lineEnd": 69,
+        "currentSectionSha256": "e9695e860a134e577a30cbeb454837ed5adef9b625939c9b10f3ce2efaa04c37",
+        "approvalTimeSectionSha256": "965ef02a19c1d9bd9c22b9882df865ca9a634955bc0350ee7616057c2e53f8cf",
+        "approvalTimeDocumentSha256": "2c614a757dc94820032c2e5af88295a3f079c53da66db71ca52a09e3621d2252",
+        "hashConvention": "prompt section slice through before next H2, trailing CR/LF trimmed and exactly one LF appended"
+      },
+      "scopeRef": "character knowledge in dialogue, inner voice and behavior; existing input-kind, visibility and uncertainty rules retained",
+      "requiredApprovalIds": [
+        "P12"
+      ],
+      "exactApprovedBodyFragments": [
+        {
+          "kind": "approved_addition",
+          "utf8Bytes": 404,
+          "sha256": "851136248271969e76f5a389c1ddece395bf0b0c97c8e6cf0f90847906babf80"
+        }
+      ],
+      "integrationLocation": "### P27 · 角色知识与信息渠道",
+      "insertAfterApprovedItemId": "P12",
+      "sourceUnit": {
+        "document": "docs/RPG04_PROTOCOL_INTEGRATION_SOURCE.json",
+        "documentSha256": "dc0942def9f5d1946129b7ba4f754e36dba8a74eefe5bd6c003bd9402c5ad16b",
+        "unitId": "ai-task-06-character",
+        "unitSha256": "851136248271969e76f5a389c1ddece395bf0b0c97c8e6cf0f90847906babf80",
+        "sourceTextAlteration": "none"
+      },
+      "runtimeApplied": false
+    },
+    {
+      "itemId": "P28",
+      "category": "prompt",
+      "status": "approved_pending_application",
+      "applied": false,
+      "sourceDocument": "docs/RPG04_REFERENCE_CLOSEOUT.md",
+      "sourceDocumentSha256": "bb9ebee237abccdabaa5238aafb773d94378288e9ef9a94c29a694ab75961715",
+      "sourceSection": {
+        "lineStart": 62,
+        "lineEnd": 72,
+        "currentSectionSha256": "6059f29ac69d224bfd5b1d2b7e64e5b43a5b2d54039c5b7efe186c6d33c40ac4",
+        "approvalTimeSectionSha256": "6059f29ac69d224bfd5b1d2b7e64e5b43a5b2d54039c5b7efe186c6d33c40ac4",
+        "approvalTimeDocumentSha256": "bb9ebee237abccdabaa5238aafb773d94378288e9ef9a94c29a694ab75961715",
+        "hashConvention": "prompt section slice through before next H2, trailing CR/LF trimmed and exactly one LF appended"
+      },
+      "scopeRef": "narrative ending for narrative action/speech only; explicit summaries, query/command, memory, information modules, uncertainties and five suggestions excluded",
+      "requiredApprovalIds": [
+        "P26"
+      ],
+      "exactApprovedBodyFragments": [
+        {
+          "kind": "approved_addition",
+          "utf8Bytes": 69,
+          "sha256": "9969621c1de28d2fa1feff380a4e4ca6a870611956b98890dfdd5922c00f0c9f"
+        }
+      ],
+      "integrationLocation": "### P28 · 正文结尾保持在故事中",
+      "insertAfterApprovedItemId": "P26",
+      "sourceUnit": {
+        "document": "docs/RPG04_PROTOCOL_INTEGRATION_SOURCE.json",
+        "documentSha256": "dc0942def9f5d1946129b7ba4f754e36dba8a74eefe5bd6c003bd9402c5ad16b",
+        "unitId": "reminder-ending",
+        "unitSha256": "9969621c1de28d2fa1feff380a4e4ca6a870611956b98890dfdd5922c00f0c9f",
+        "sourceTextAlteration": "none"
+      },
+      "runtimeApplied": false
+    }
+  ],
+  "preservedDecisions": {
+    "P13": "deferred_pending_empirical_validation; original STM/LTM semantics retained",
+    "P17": "withdrawn_not_applied",
+    "P24": "rejected_by_user",
+    "P25": "rejected_by_user"
+  },
+  "overlapOrder": [
+    {
+      "items": [
+        "P07",
+        "P21"
+      ],
+      "rule": "remove reasoning-specific wrapper before remaining format discipline"
+    },
+    {
+      "items": [
+        "P16",
+        "P20",
+        "P08"
+      ],
+      "rule": "preserve five-item shop semantics, remove color HTML only, then map display data"
+    },
+    {
+      "items": [
+        "P22",
+        "P08"
+      ],
+      "rule": "replace length clause before placing narrative in proposal.narrative"
+    },
+    {
+      "items": [
+        "P03",
+        "P18"
+      ],
+      "rule": "P03 changes original line 100 only; P18 preserves line 99 and changes 103-106 plus line 107 reaction parenthetical"
+    },
+    {
+      "items": [
+        "P10"
+      ],
+      "rule": "original lines 250-255 and A-E five items remain"
+    }
+  ],
+  "retainedOriginalRanges": [
+    {
+      "lines": "30-37,39-51,58-71",
+      "reason": "P14 card-specific gameplay retained until mapped and assembled"
+    },
+    {
+      "lines": "63-66,110-113,226-248",
+      "reason": "P13 deletion deferred; STM/LTM semantics retained"
+    },
+    {
+      "lines": "99",
+      "reason": "P03 does not change it and P18 preserves it"
+    },
+    {
+      "lines": "250-255",
+      "reason": "P10 preserves original A-E five-item template"
+    }
+  ],
+  "mappingGaps": [
+    {
+      "category": "NPC and relationships",
+      "missing": "exact moduleRef/fieldRef and current/change/reason mapping"
+    },
+    {
+      "category": "items, talents and levels",
+      "missing": "exact declared fields for names, levels, color meaning, effects and changes"
+    },
+    {
+      "category": "tasks and plot",
+      "missing": "exact status, condition, progress, provenance and committed-state fields"
+    },
+    {
+      "category": "shop",
+      "missing": "exact slots, prices, effects, refresh conditions and purchase proposal fields"
+    },
+    {
+      "category": "STM/LTM",
+      "missing": "exact current entries, summary trigger, memory operation, long-term entries and persistence mapping"
+    }
+  ],
+  "currentlyDeclaredInformationFields": {
+    "info.start": [
+      "identity/text",
+      "talents/list",
+      "items/list"
+    ],
+    "info.rpg04.scene": [
+      "field.rpg04.scene.location/text",
+      "field.rpg04.scene.observed/text",
+      "field.rpg04.scene.unknown/list"
+    ],
+    "coversAllOriginalPanels": false
+  },
+  "implementationClaims": {
+    "compilerImplemented": false,
+    "persistenceImplemented": false,
+    "uiImplemented": false,
+    "persistenceScope": "full original-card information-panel continuity; RPG03 minimal file-session storage already exists"
+  },
+  "protocolTemplate": {
+    "status": "P28_integrated_P29_wording_approved_pending_P01_evidence",
+    "selected": false,
+    "unapprovedProtocolApplied": false,
+    "selectionReview": "docs/RPG04_REFERENCE_CLOSEOUT.md",
+    "selectionReviewSha256": "bb9ebee237abccdabaa5238aafb773d94378288e9ef9a94c29a694ab75961715",
+    "newItemsExcludedFromIntegratedApprovedBody": [
+      "P29"
+    ],
+    "approvedItemIds": [
+      "P26",
+      "P27",
+      "P28"
+    ],
+    "wholeProtocolApproved": false,
+    "approvedItemsIncludedInIntegratedReview": [
+      "P26",
+      "P27",
+      "P28"
+    ],
+    "pendingItemIds": [],
+    "closeoutReceipt": {
+      "path": "docs/RPG04_REFERENCE_CLOSEOUT.json",
+      "sha256": "ff1cb8582c088992b02723a80d328c6dd54389fa681d22dd24729979610ce1a0"
+    },
+    "wordingApprovedPendingEmpiricalValidationItemIds": [
+      "P29"
+    ]
+  },
+  "unknownFieldsMustNotBeInvented": true,
+  "currentApprovalState": {
+    "approvedItems": 28,
+    "rejectedItems": 2,
+    "deferredItems": 1,
+    "withdrawnItems": 1,
+    "pendingItems": 0,
+    "appliedItems": 0,
+    "approvedItemIdsNotYetInIntegratedBody": [],
+    "bodyLocation": "docs/RPG04_INTEGRATED_REVIEW.md",
+    "bodyDocumentSha256": "4254496914a555a7bcca3a0594d1e45153df3c85fcf61b5add73580f2fc7f01f",
+    "nextAction": "existing_P01_evidence_requirement_and_RPG04_information_mapping",
+    "wholeProtocolApproved": false,
+    "pendingItemIds": [],
+    "wordingApprovedPendingEmpiricalValidationItemIds": [
+      "P29"
+    ]
+  }
+}

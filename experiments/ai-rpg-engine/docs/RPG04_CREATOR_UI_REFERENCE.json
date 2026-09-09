@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "sourceType": "user_supplied_creator_ui_screenshot",
+  "sourceRef": "user-attachment/codex-clipboard-6dc22fba-955e-4b62-95ae-32da6143102a.png",
+  "sourceSha256": "4e3f6fb52c9f3280abef8854d2a267f0b03050bc3a0c0f9336ac7093e10e4e39",
+  "observedFields": {
+    "enabled": true,
+    "triggerRegions": {
+      "user": true,
+      "ai": false
+    },
+    "keywordCombination": "OR",
+    "regexSwitchVisible": true,
+    "keywords": [],
+    "influenceTargets": {
+      "prompt": true,
+      "prefix": false,
+      "suffix": false
+    },
+    "experimentalSettings": {
+      "label": "仅适用于体验新功能页面",
+      "insertionOrder": 0,
+      "scanDepth": 0,
+      "triggerProbability": 100
+    },
+    "contentMode": "probability",
+    "weightedContents": [
+      {
+        "label": "内容1",
+        "weight": 100,
+        "bodyEmpty": true
+      }
+    ],
+    "normalizeActionVisible": true
+  },
+  "helperText": [
+    "影响范围是前后置词的世界书会最先拼接，并可被视作用户触发影响范围是提示词的世界书",
+    "当这条世界书被触发时，会从下面的加权列表里只选中一条内容注入到提示词中。"
+  ],
+  "evidenceLimit": "An example editor configuration, not the original card entry or proof of its configured values. UI wording is recorded as observation; backend behavior is not tested.",
+  "userDirection": "After at least five unsuccessful targeted worldbook extraction attempts, authored resources may use the creator interface as structural reference; styles can be probed with varied models and wording.",
+  "runtimeFeaturesAdopted": [],
+  "capturedAtUtc": "2026-09-08T04:38:04.927Z"
+}
