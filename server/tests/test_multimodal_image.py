@@ -753,6 +753,133 @@ async def test_mai_image_profiles_preserve_token_pricing_contract(
 
 
 @pytest.mark.asyncio
+async def test_gpt_image_2_5_profiles_preserve_dedicated_contract(
+    tmp_path: Path,
+) -> None:
+    model_ids = {
+        "openai/gpt-image-2.5-flare",
+        "openai/gpt-image-2.5-sunburst",
+    }
+    aspect_ratios = [
+        "1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16", "21:9", "auto"
+    ]
+
+    def handler(request: Request) -> Response:
+        if request.url.path.endswith("/images/models"):
+            return Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "id": model_id,
+                            "name": model_id,
+                            "architecture": {
+                                "input_modalities": ["text", "image"],
+                                "output_modalities": ["image"],
+                            },
+                            "supported_parameters": {
+                                "aspect_ratio": {"type": "enum", "values": aspect_ratios},
+                                "quality": {
+                                    "type": "enum",
+                                    "values": ["auto", "low", "medium", "high", "xhigh", "max"],
+                                },
+                                "background": {"type": "enum", "values": ["auto", "opaque"]},
+                                "n": {"type": "range", "min": 1, "max": 10},
+                                "input_references": {"type": "range", "min": 0, "max": 16},
+                                "output_compression": {"type": "range", "min": 0, "max": 100},
+                            },
+                            "supports_streaming": True,
+                        }
+                        for model_id in model_ids
+                    ]
+                },
+            )
+        if "/images/models/" in request.url.path:
+            return Response(
+                200,
+                json={
+                    "endpoints": [
+                        {
+                            "pricing": [
+                                {"billable": "input_image", "unit": "token", "cost_usd": 0.000008},
+                                {"billable": "input_text", "unit": "token", "cost_usd": 0.000005},
+                                {"billable": "output_image", "unit": "token", "cost_usd": 0.00003},
+                            ],
+                            "allowed_passthrough_parameters": ["moderation"],
+                        }
+                    ]
+                },
+            )
+        return Response(200, json={"data": []})
+
+    catalog = ImageCatalogService(
+        openrouter_service(tmp_path),
+        client_factory=lambda: httpx.AsyncClient(transport=MockTransport(handler)),
+    )
+    result = await catalog.get_catalog()
+    profiles = {item.model_id: item for item in result.profiles}
+
+    assert model_ids.issubset(profiles)
+    for model_id in model_ids:
+        profile = profiles[model_id]
+        assert profile.supports_streaming is True
+        assert profile.supported_parameters["aspect_ratio"].values == aspect_ratios
+        assert profile.supported_parameters["quality"].values[-2:] == ["xhigh", "max"]
+        assert profile.supported_parameters["n"].max == 10
+        assert profile.supported_parameters["input_references"].max == 16
+        assert profile.supported_parameters["output_compression"].max == 100
+        assert [(item.billable, item.unit, item.cost_usd) for item in profile.pricing] == [
+            ("input_image", "token", 0.000008),
+            ("input_text", "token", 0.000005),
+            ("output_image", "token", 0.00003),
+        ]
+        assert "moderation" not in profile.supported_parameters
+
+    submitted: list[dict[str, object]] = []
+
+    def generation_handler(request: Request) -> Response:
+        submitted.append(httpx.Response(200, content=request.content).json())
+        return Response(
+            200,
+            json={
+                "model": "openai/gpt-image-2.5-flare",
+                "data": [{"b64_json": base64.b64encode(PNG_BYTES).decode()}],
+            },
+        )
+
+    service = ImageGenerationService(
+        catalog,
+        client_factory=lambda: httpx.AsyncClient(
+            transport=MockTransport(generation_handler)
+        ),
+    )
+    await service.generate(
+        model_id="openai/gpt-image-2.5-flare",
+        prompt="压缩输出验证",
+        n=2,
+        aspect_ratio="16:9",
+        quality="max",
+        background="opaque",
+        output_compression=75,
+        reference_filenames=[],
+        reference_content_types=[],
+        reference_contents=[],
+    )
+
+    assert submitted == [
+        {
+            "model": "openai/gpt-image-2.5-flare",
+            "prompt": "压缩输出验证",
+            "n": 2,
+            "aspect_ratio": "16:9",
+            "quality": "max",
+            "background": "opaque",
+            "output_compression": 75,
+        }
+    ]
+
+
+@pytest.mark.asyncio
 async def test_recraft_v4_styles_profiles_preserve_dedicated_contract(
     tmp_path: Path,
 ) -> None:

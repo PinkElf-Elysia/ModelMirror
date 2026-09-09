@@ -105,6 +105,7 @@ class ImageGenerationService:
         quality: str | None = None,
         output_format: str | None = None,
         background: str | None = None,
+        output_compression: int | None = None,
         seed: int | None = None,
         reference_filenames: list[str],
         reference_content_types: list[str | None],
@@ -132,6 +133,7 @@ class ImageGenerationService:
         self._validate_value(profile, "quality", quality)
         self._validate_value(profile, "output_format", output_format)
         self._validate_value(profile, "background", background)
+        self._validate_value(profile, "output_compression", output_compression)
         self._validate_value(profile, "seed", seed)
         references = self._references(
             profile,
@@ -151,6 +153,7 @@ class ImageGenerationService:
             ("quality", quality),
             ("output_format", output_format),
             ("background", background),
+            ("output_compression", output_compression),
             ("seed", seed),
         ):
             if value is not None:

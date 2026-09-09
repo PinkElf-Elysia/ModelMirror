@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   estimateImageCost,
   GROK_IMAGINE_IMAGE_2_PRICING,
+  GPT_IMAGE_2_5_TOKEN_PRICING_BY_MODEL_ID,
   imageTokenPricingSummary,
   MAI_IMAGE_TOKEN_PRICING_BY_MODEL_ID,
   MUSE_IMAGE_PRICING,
@@ -127,6 +128,17 @@ describe("estimateImageCost", () => {
     ).toBeNull();
     expect(imageTokenPricingSummary(pricing)).toBe(
       "文本输入 $1.75/M Token · 图片输入 $2.50/M Token · 图片输出 $19/M Token",
+    );
+  });
+
+  it("shows GPT Image 2.5 token rates without fabricating a total", () => {
+    const pricing =
+      GPT_IMAGE_2_5_TOKEN_PRICING_BY_MODEL_ID["openai/gpt-image-2.5-sunburst"];
+    expect(
+      estimateImageCost(pricing, { outputCount: 10, referenceCount: 16 }),
+    ).toBeNull();
+    expect(imageTokenPricingSummary(pricing)).toBe(
+      "文本输入 $5/M Token · 图片输入 $8/M Token · 图片输出 $30/M Token",
     );
   });
 });

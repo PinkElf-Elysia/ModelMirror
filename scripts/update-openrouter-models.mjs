@@ -35,6 +35,8 @@ const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
   "alibaba/wan-3.0-prime",
   "black-forest-labs/flux-video-upscale",
   "meta/muse-image",
+  "openai/gpt-image-2.5-flare",
+  "openai/gpt-image-2.5-sunburst",
   "microsoft/mai-image-2.6",
   "microsoft/mai-image-2.6-flash",
   "minimax/hailuo-3-max",

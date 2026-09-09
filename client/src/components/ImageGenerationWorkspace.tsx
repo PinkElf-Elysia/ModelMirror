@@ -10,6 +10,7 @@ import type { Model } from "../data/models";
 import {
   estimateImageCost,
   GROK_IMAGINE_IMAGE_2_PRICING,
+  GPT_IMAGE_2_5_TOKEN_PRICING_BY_MODEL_ID,
   imageTokenPricingSummary,
   MAI_IMAGE_TOKEN_PRICING_BY_MODEL_ID,
   MUSE_IMAGE_PRICING,
@@ -158,6 +159,8 @@ export default function ImageGenerationWorkspace({
             ? MUSE_IMAGE_PRICING
           : MAI_IMAGE_TOKEN_PRICING_BY_MODEL_ID[model.id]
             ? MAI_IMAGE_TOKEN_PRICING_BY_MODEL_ID[model.id]
+          : GPT_IMAGE_2_5_TOKEN_PRICING_BY_MODEL_ID[model.id]
+            ? GPT_IMAGE_2_5_TOKEN_PRICING_BY_MODEL_ID[model.id]
             : RECRAFT_V4_STYLES_PRICING_BY_MODEL_ID[model.id] ?? [];
       return estimateImageCost(pricing, {
         outputCount: Number(parameters.n || 1),
@@ -177,10 +180,13 @@ export default function ImageGenerationWorkspace({
   );
   const tokenPricingLabel = useMemo(() => {
     if (!profile) return null;
-    const pricing = profile.pricing?.length
-      ? profile.pricing
-      : MAI_IMAGE_TOKEN_PRICING_BY_MODEL_ID[model.id] ?? [];
-    return imageTokenPricingSummary(pricing);
+    const fallbackPricing =
+      MAI_IMAGE_TOKEN_PRICING_BY_MODEL_ID[model.id] ??
+      GPT_IMAGE_2_5_TOKEN_PRICING_BY_MODEL_ID[model.id] ??
+      [];
+    return imageTokenPricingSummary(
+      profile.pricing?.length ? profile.pricing : fallbackPricing,
+    );
   }, [model.id, profile]);
   const costLabel = costEstimate
     ? costEstimate.exact
@@ -329,6 +335,21 @@ export default function ImageGenerationWorkspace({
                     step={1}
                     type="number"
                     value={parameters.seed ?? ""}
+                  />
+                </label>
+              ) : null}
+              {supported.output_compression ? (
+                <label className="block">
+                  <span className="text-xs font-semibold text-slate-300">输出压缩</span>
+                  <input
+                    className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2.5 text-sm"
+                    max={supported.output_compression.max ?? 100}
+                    min={supported.output_compression.min ?? 0}
+                    onChange={(event) => selectValue("output_compression", event.target.value)}
+                    placeholder="模型默认"
+                    step={1}
+                    type="number"
+                    value={parameters.output_compression ?? ""}
                   />
                 </label>
               ) : null}
