@@ -75,6 +75,24 @@ export const MAI_IMAGE_TOKEN_PRICING_BY_MODEL_ID: Record<
   ],
 };
 
+// Verified against OpenRouter's dedicated Images endpoint profiles on
+// 2026-09-08. Both tiers currently publish the same token rates.
+export const GPT_IMAGE_2_5_TOKEN_PRICING_BY_MODEL_ID: Record<
+  string,
+  ImagePricingItem[]
+> = Object.fromEntries(
+  ["openai/gpt-image-2.5-flare", "openai/gpt-image-2.5-sunburst"].map(
+    (modelId) => [
+      modelId,
+      [
+        { billable: "input_text", unit: "token", cost_usd: 0.000005 },
+        { billable: "input_image", unit: "token", cost_usd: 0.000008 },
+        { billable: "output_image", unit: "token", cost_usd: 0.00003 },
+      ] satisfies ImagePricingItem[],
+    ],
+  ),
+);
+
 // Verified against the four Recraft Styles endpoint profiles on 2026-08-26.
 // Style creation is billed once per request, not once per reference image.
 export const RECRAFT_V4_STYLES_PRICING_BY_MODEL_ID: Record<

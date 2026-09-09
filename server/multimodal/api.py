@@ -391,16 +391,17 @@ async def generate_image(
     quality: str | None = Form(default=None),
     output_format: str | None = Form(default=None),
     background: str | None = Form(default=None),
+    output_compression: int | None = Form(default=None),
     seed: int | None = Form(default=None),
     reference_images: list[UploadFile] | None = File(default=None),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> ImageGenerationResult:
     references = reference_images or []
     try:
-        if len(references) > 10:
+        if len(references) > 16:
             raise MultimodalServiceError(
                 "too_many_image_references",
-                "参考图最多上传 10 张，实际数量以模型能力为准。",
+                "参考图最多上传 16 张，实际数量以模型能力为准。",
                 status_code=422,
             )
         contents = [
@@ -416,6 +417,7 @@ async def generate_image(
             quality=quality,
             output_format=output_format,
             background=background,
+            output_compression=output_compression,
             seed=seed,
             reference_filenames=[
                 image.filename or "reference" for image in references
