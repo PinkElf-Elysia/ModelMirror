@@ -1,0 +1,208 @@
+{
+  "schemaVersion": 1,
+  "round": "RPG-04",
+  "documentKind": "source_documents_and_selection_review",
+  "runtimeContract": false,
+  "applied": false,
+  "effectivenessVerified": false,
+  "reviewDocument": {
+    "path": "docs/RPG04_REFERENCE_CLOSEOUT.md",
+    "sha256": "bb9ebee237abccdabaa5238aafb773d94378288e9ef9a94c29a694ab75961715",
+    "exactlyCopiedFromInput": true
+  },
+  "sourceDocuments": [
+    {
+      "path": "docs/RPG04_ADDITIONAL_CARD_SOURCES.json",
+      "sha256": "3732091d02b801ff2d90ed32aae50ef35bcf7d0825f7dc2b6f8b19008356044f",
+      "role": "reference source only"
+    },
+    {
+      "path": "docs/RPG04_PROTOCOL_REFERENCE_INVENTORY.json",
+      "sha256": "89947058f0f6d43e0fdc62dc041cf964a8e9096c2b1e25735f124697a0581bc9",
+      "role": "reference source only"
+    },
+    {
+      "path": "docs/RPG04_PROTOCOL_INTEGRATION_SOURCE.json",
+      "sha256": "dc0942def9f5d1946129b7ba4f754e36dba8a74eefe5bd6c003bd9402c5ad16b",
+      "role": "reference source only"
+    },
+    {
+      "path": "docs/RPG04_SIXTH_CARD_SOURCE.json",
+      "sha256": "3893558d4b3af645b7750dc40da3898fdb508ed2e8976eb31e86c924dd2a1c3b",
+      "role": "reference source only"
+    }
+  ],
+  "sourceUnitChecks": [
+    {
+      "document": "docs/RPG04_PROTOCOL_INTEGRATION_SOURCE.json",
+      "unitId": "reminder-ending",
+      "textSha256": "9969621c1de28d2fa1feff380a4e4ca6a870611956b98890dfdd5922c00f0c9f",
+      "utf8Bytes": 69,
+      "exactMatchVerified": true
+    },
+    {
+      "document": "docs/RPG04_PROTOCOL_REFERENCE_INVENTORY.json",
+      "unitId": "R01",
+      "textSha256": "9969621c1de28d2fa1feff380a4e4ca6a870611956b98890dfdd5922c00f0c9f",
+      "utf8Bytes": 69,
+      "exactMatchVerified": true
+    },
+    {
+      "document": "docs/RPG04_PROTOCOL_INTEGRATION_SOURCE.json",
+      "unitId": "simulator-13",
+      "textSha256": "ffb901089727f509b6aff0afa03c3b56aa057513fa8e3a8881a30042cc150aa3",
+      "utf8Bytes": 121,
+      "exactMatchVerified": true
+    },
+    {
+      "document": "docs/RPG04_PROTOCOL_REFERENCE_INVENTORY.json",
+      "unitId": "R03",
+      "textSha256": "61b37a104ff07d7e6dcda62da871e0f419474f32a84742256b7a587d0b0cc79f",
+      "utf8Bytes": 117,
+      "exactMatchVerified": true
+    }
+  ],
+  "externalResearch": [
+    {
+      "url": "https://help.aidungeon.com/faq/ai-instructions",
+      "role": "continuation, repetition and summarization design; model-specific experimentation",
+      "reviewedOn": "2026-09-09",
+      "evidenceBoundary": "design reference only; not RPG effectiveness evidence"
+    },
+    {
+      "url": "https://docs.novelai.net/en/text/lorebook/",
+      "role": "separate supplemental world/character data from general instructions",
+      "reviewedOn": "2026-09-09",
+      "evidenceBoundary": "design reference only; not RPG effectiveness evidence"
+    },
+    {
+      "url": "https://ai.google.dev/responsible/docs/design",
+      "role": "use-case-specific boundaries; layered controls and evaluation",
+      "reviewedOn": "2026-09-09",
+      "evidenceBoundary": "design reference only; not RPG effectiveness evidence"
+    }
+  ],
+  "items": [
+    {
+      "id": "P28",
+      "title": "正文结尾保持在故事中",
+      "category": "prompt",
+      "before": null,
+      "after": "禁止在正文结尾处使用总结性语言和“三段式反问”",
+      "unitId": "reminder-ending",
+      "sourceTextAlteration": "none",
+      "scopeRef": "narrative ending for narrative action/speech only; explicit summaries, query/command, memory, information modules, uncertainties and five suggestions excluded",
+      "insertAfterApprovedItemId": "P26",
+      "approvalMode": "ordinary_individual_change",
+      "effectGate": null,
+      "status": "pending_user_decision",
+      "approved": false,
+      "applied": false,
+      "document": "docs/RPG04_REFERENCE_CLOSEOUT.md",
+      "documentSha256": "bb9ebee237abccdabaa5238aafb773d94378288e9ef9a94c29a694ab75961715",
+      "section": {
+        "lineStart": 62,
+        "lineEnd": 72,
+        "currentSha256": "6059f29ac69d224bfd5b1d2b7e64e5b43a5b2d54039c5b7efe186c6d33c40ac4",
+        "hashConvention": "heading through line before next level-2 heading, trailing LF normalized to exactly one"
+      },
+      "afterUtf8Bytes": 69,
+      "afterSha256": "9969621c1de28d2fa1feff380a4e4ca6a870611956b98890dfdd5922c00f0c9f",
+      "source": {
+        "document": "docs/RPG04_PROTOCOL_INTEGRATION_SOURCE.json",
+        "documentSha256": "dc0942def9f5d1946129b7ba4f754e36dba8a74eefe5bd6c003bd9402c5ad16b",
+        "unitId": "reminder-ending",
+        "unitSha256": "9969621c1de28d2fa1feff380a4e4ca6a870611956b98890dfdd5922c00f0c9f",
+        "sourceTextAlteration": "none"
+      },
+      "crossReference": {
+        "document": "docs/RPG04_PROTOCOL_REFERENCE_INVENTORY.json",
+        "unitId": "R01",
+        "exactAfterMatch": true
+      }
+    },
+    {
+      "id": "P29",
+      "title": "采用模拟器⑬作为连续性主条款",
+      "category": "prompt",
+      "before": null,
+      "after": "情节禁止产生回避、淡化、重复或防御性反馈，确保内容连贯性与细节不因主题而波动。",
+      "unitId": "simulator-13",
+      "sourceTextAlteration": "remove source list number and its following space only",
+      "scopeRef": "normal fictional RPG action/speech narrative continuity only; no override of existing content boundaries, contracts, input kind or provider terminal evidence",
+      "insertAfterApprovedItemId": "P26",
+      "approvalMode": "wording_only_pending_existing_P01_evidence",
+      "effectGate": "docs/RPG04_OPTIMIZATION_APPROVAL.json#/approvalPolicy/futureReplacementRequirement",
+      "status": "pending_user_decision",
+      "approved": false,
+      "applied": false,
+      "document": "docs/RPG04_REFERENCE_CLOSEOUT.md",
+      "documentSha256": "bb9ebee237abccdabaa5238aafb773d94378288e9ef9a94c29a694ab75961715",
+      "section": {
+        "lineStart": 73,
+        "lineEnd": 86,
+        "currentSha256": "8a6ba853abd5e2482b0a79fde7207a32140fcc7403c22a73c489c3c3cfe9bc8b",
+        "hashConvention": "heading through line before next level-2 heading, trailing LF normalized to exactly one"
+      },
+      "afterUtf8Bytes": 117,
+      "afterSha256": "61b37a104ff07d7e6dcda62da871e0f419474f32a84742256b7a587d0b0cc79f",
+      "source": {
+        "document": "docs/RPG04_PROTOCOL_INTEGRATION_SOURCE.json",
+        "documentSha256": "dc0942def9f5d1946129b7ba4f754e36dba8a74eefe5bd6c003bd9402c5ad16b",
+        "unitId": "simulator-13",
+        "unitSha256": "ffb901089727f509b6aff0afa03c3b56aa057513fa8e3a8881a30042cc150aa3",
+        "sourceTextAlteration": "remove source list number and its following space only"
+      },
+      "crossReference": {
+        "document": "docs/RPG04_PROTOCOL_REFERENCE_INVENTORY.json",
+        "unitId": "R03",
+        "exactAfterMatch": true
+      }
+    }
+  ],
+  "protocolSelection": {
+    "primaryCount": 1,
+    "family": "开放世界模拟器",
+    "primaryUnits": [
+      "P26",
+      "P29"
+    ],
+    "supplement": [
+      "P28"
+    ],
+    "approved": false,
+    "finalAdoptionApproved": false,
+    "effectivenessVerified": false,
+    "recommendedBy": "Astra",
+    "decisionAuthority": "user"
+  },
+  "decisionBoundary": {
+    "wholeProtocolApproved": false,
+    "P29ExactWordingOnlyIfApproved": true,
+    "P01EvidenceGateRetained": true,
+    "newRuntimeAuthorization": false
+  },
+  "referenceCoverageIds": [
+    "P03",
+    "P04",
+    "P06",
+    "P08",
+    "P09",
+    "P10",
+    "P11",
+    "P12",
+    "P13",
+    "P14",
+    "P15",
+    "P16",
+    "P18",
+    "P20",
+    "P21",
+    "P22",
+    "P26",
+    "P27"
+  ],
+  "retainedDecisionRefs": {
+    "P13": "deferred_pending_empirical_validation"
+  }
+}

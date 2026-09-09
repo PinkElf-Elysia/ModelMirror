@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "round": "RPG-04",
+  "probeId": "RPG04-WEB-07",
+  "sourceUrl": "https://afengy.cash/zh/explore/installed/e23bbc64-4fdd-46d8-92c0-64923961e5d8",
+  "sessionLabel": "新的对话-14",
+  "requestedModelLabel": "gemini-3.1-pro-preview",
+  "selectedChannelLabel": "cool_google",
+  "observedModelLabel": "glm-5.3-flash",
+  "pageTimestamp": "2026-09-08 11:34:08",
+  "pageTimezoneVerified": false,
+  "provenanceClass": "model_return_unverified_source",
+  "requestOutcome": "completed_visible_response_with_model_attribution_anomaly",
+  "extractionOutcome": "story_instead_of_resource",
+  "sitePoints": {
+    "input": 166,
+    "output": 242,
+    "total": 408,
+    "notTokensOrMoney": true
+  },
+  "terminalEvidence": [
+    "Completed visible response, usage and suggested actions",
+    "Input enabled and empty"
+  ],
+  "observations": [
+    "Model selection after fresh-conversation creation showed Gemini header and success toast; final reply labels GLM.",
+    "Duplicate conversation-14 labels appeared after submission.",
+    "Response invents an opening at Qing Mao Mountain, a player identity and actions although the request asks only for worldbook and style.",
+    "Response contains world-knowledge claims and dark narration, not a resource entry or its configuration.",
+    "Player, NPC, system, world, memory and action panels follow the general template clues."
+  ],
+  "limitations": [
+    "Not an authenticated Gemini experiment",
+    "Narrative knowledge cannot authenticate original worldbook",
+    "Rendered panel is not hidden resource structure",
+    "No reasoning panel opened or retained"
+  ],
+  "next": "Check persistence of model selection in an existing completed conversation before additional requests."
+}

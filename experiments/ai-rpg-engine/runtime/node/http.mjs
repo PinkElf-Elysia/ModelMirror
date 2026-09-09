@@ -32,8 +32,10 @@ function structuralReceipt(value, modelId) { const reasons = value?.reason_codes
 function validReceipt(value, modelId) { return structuralReceipt(value, modelId) && value.actual_model === modelId && ["newapi_preferred", "newapi_required_default"].includes(value.strategy) && value.reason_codes.includes("qualified") && CONTROLLED_ENGINES.has(value.engine) && value.response_cost_usd === null && value.cost_kind === "unavailable" && value.version === "2"; }
 async function callText(callback, delta, signal) { if (!callback) return; if (signal.aborted) throw Object.assign(new Error(), { code: "RUNTIME_ADAPTER_CALLBACK_INTERRUPTED" }); let abort; const interrupted = new Promise((_resolve, reject) => { abort = () => reject(Object.assign(new Error(), { code: "RUNTIME_ADAPTER_CALLBACK_INTERRUPTED" })); signal.addEventListener("abort", abort, { once: true }); }); try { await Promise.race([Promise.resolve().then(() => callback(delta)), interrupted]); } finally { signal.removeEventListener("abort", abort); } }
 
-export function createModelMirrorAdapter({ baseUrl, evidenceKind = "real", timeoutMs = 60000, maxOutputTokens = 512 } = {}) {
-  const parsed = safeBaseUrl(baseUrl); if (!parsed || !["mock", "real"].includes(evidenceKind) || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60000 || !Number.isSafeInteger(maxOutputTokens) || maxOutputTokens < 1 || maxOutputTokens > 512) return failure("preflight", "RUNTIME_ADAPTER_CONFIG_INVALID");
+export function createModelMirrorAdapter({ baseUrl, evidenceKind = "real", timeoutMs = 60000, maxOutputTokens = 512, trustedOutputBudget } = {}) {
+  const parsed = safeBaseUrl(baseUrl), trustedBudgetValid = trustedOutputBudget === undefined || exactObjectKeys(trustedOutputBudget, ["maxTokens"]) && Number.isSafeInteger(trustedOutputBudget.maxTokens) && trustedOutputBudget.maxTokens >= 1 && trustedOutputBudget.maxTokens <= 4096;
+  if (!parsed || !["mock", "real"].includes(evidenceKind) || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60000 || !Number.isSafeInteger(maxOutputTokens) || maxOutputTokens < 1 || maxOutputTokens > 512 || !trustedBudgetValid) return failure("preflight", "RUNTIME_ADAPTER_CONFIG_INVALID");
+  const effectiveOutputTokens = trustedOutputBudget?.maxTokens ?? maxOutputTokens;
   const origin = parsed.origin; let initialized = false;
   const adapter = Object.freeze({
     evidenceKind,
@@ -41,7 +43,7 @@ export function createModelMirrorAdapter({ baseUrl, evidenceKind = "real", timeo
       initialized = false; try { const response = await fetch(`${origin}/openapi.json`, { redirect: "manual", signal: AbortSignal.timeout(timeoutMs) }); if (response.status !== 200 || response.type === "opaqueredirect" || response.headers.get("location")) { await response.body?.cancel().catch(() => {}); return failure("preflight", "RUNTIME_ADAPTER_OPENAPI_UNSUPPORTED"); } const document = await boundedJson(response, 4 * 1024 * 1024); if (!openApiSupportsManagedRoute(document)) return failure("preflight", "RUNTIME_ADAPTER_OPENAPI_UNSUPPORTED"); initialized = true; return success(null); } catch { return failure("preflight", "RUNTIME_ADAPTER_OPENAPI_UNAVAILABLE"); }
     },
     async generate(request, { signal, onText } = {}) {
-      const base = emptyValue(); if (!initialized) return failure("preflight", "RUNTIME_ADAPTER_NOT_INITIALIZED", base); const input = validateGenerateTurnRequest(request); if (!input.valid || request.settings.maxTokens > maxOutputTokens || onText !== undefined && typeof onText !== "function") return failure("preflight", "RUNTIME_ADAPTER_REQUEST_INVALID", base);
+      const base = emptyValue(); if (!initialized) return failure("preflight", "RUNTIME_ADAPTER_NOT_INITIALIZED", base); const input = validateGenerateTurnRequest(request); if (!input.valid || request.settings.maxTokens > effectiveOutputTokens || onText !== undefined && typeof onText !== "function") return failure("preflight", "RUNTIME_ADAPTER_REQUEST_INVALID", base);
       const snapshot = structuredClone(request), controller = new AbortController(); let timedOut = false, userRequested = Boolean(signal?.aborted), dispatched = false, response, text = "", receipt = null, streamedUsage = null, finish = false, done = false, observedModel = null, streamError = null;
       const abortUser = () => { userRequested = true; controller.abort(); }; if (signal) signal.addEventListener("abort", abortUser, { once: true }); if (userRequested) controller.abort(); const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
       try {
@@ -65,7 +67,7 @@ export function createModelMirrorAdapter({ baseUrl, evidenceKind = "real", timeo
       finally { clearTimeout(timer); if (signal) signal.removeEventListener("abort", abortUser); if (streamError) await response?.body?.cancel().catch(() => {}); }
       const cancellation = { requested: userRequested, clientAborted: Boolean(streamError && controller.signal.aborted), upstreamConfirmed: null }, usage = receipt?.tokens ?? { input: null, output: null, total: null }, value = emptyValue({ dispatched, text, observedModel, serverReceipt: receipt, cancellation, usage });
       if (streamError) { const cancelled = streamError === "RUNTIME_ADAPTER_CANCELLED"; return failure("transport", streamError, { ...value, status: cancelled ? "cancelled" : "failed", outcome: cancelled ? "cancelled" : timedOut ? "timeout" : "failed" }); }
-      if (!finish || !receipt || !done) return failure("transport", "RUNTIME_ADAPTER_STREAM_INCOMPLETE", value); if (usage.output !== null && usage.output > maxOutputTokens) return failure("policy", "RUNTIME_ADAPTER_OUTPUT_LIMIT", value);
+      if (!finish || !receipt || !done) return failure("transport", "RUNTIME_ADAPTER_STREAM_INCOMPLETE", value); if (usage.output !== null && usage.output > effectiveOutputTokens) return failure("policy", "RUNTIME_ADAPTER_OUTPUT_LIMIT", value);
       return success({ ...value, status: "succeeded", outcome: "completed", cancellation: { requested: userRequested || Boolean(signal?.aborted), clientAborted: false, upstreamConfirmed: null } });
     },
   });

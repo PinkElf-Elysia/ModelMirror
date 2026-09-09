@@ -1,3 +1,9 @@
+# RPG04 当前恢复入口（2026-09-09）
+
+RPG04实现和前置审计测试已按本次用户确认完成，正在做最小收尾并提交PR。包0.4.0，新增/context、prepared runtime桥和开发CLI；真实调用10/10，Gu3+Minecraft3，首个Gu为pre-P30，其余五个P30。无新实测或提示词修改。见[收尾报告](../../experiments/ai-rpg-engine/docs/RPG04_CLOSEOUT.md)和[机器状态](../../experiments/ai-rpg-engine/docs/RPG04_STATUS.json)。RPG05计划等待合并后用户开启计划模式；不在本轮制定。以下为历史恢复快照，不覆盖当前状态。
+
+---
+
 # AI RPG 实验线：恢复入口
 
 更新日期：2026-09-05。当前路线版本 v7，保留六轮结构及“一切可选皆插件”的双市场方向。来源任务：01a06d11-845b-7511-b476-64bbe034b119。

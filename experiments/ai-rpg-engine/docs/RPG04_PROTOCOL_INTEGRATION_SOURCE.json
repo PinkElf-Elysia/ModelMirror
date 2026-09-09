@@ -1,0 +1,377 @@
+{
+  "schemaVersion": 1,
+  "round": "RPG-04",
+  "documentKind": "inert_selected_protocol_source_receipt",
+  "sourceInputSha256": "765b907402dc96b8108c23a912e359145b2a667a258c37d0ebb40275fa719d55",
+  "observedAtUtc": "2026-09-09T05:49:48.823Z",
+  "method": "visible_page_accessibility_text_read_only",
+  "newAssistantMessages": 0,
+  "providerCalls": 0,
+  "originalPromptAuthenticated": false,
+  "runtimeEffective": false,
+  "cards": [
+    {
+      "id": "card1",
+      "url": "https://afengy.cash/zh/explore/installed/9e048752-2c6d-4aee-b6c3-86933b02528b",
+      "reply": 3,
+      "pageTime": "2026-09-08 14:11:24",
+      "modelLabel": "deepseek-v4-flash",
+      "sourceClass": "model_claimed_original_excerpt",
+      "units": [
+        {
+          "id": "simulator-02",
+          "text": "② 禁止出现任何无缘由，不合逻辑的极端状态。禁止为了戏剧性而让角色做出超出其性格和当前情境的过度情绪反应。",
+          "utf8Bytes": 157,
+          "sha256": "ac96128ac688cdda87e2417dcfb1f31d0e72d7c59761c1a471f90b21d6cdd218",
+          "exactVisibleTextMatch": true,
+          "approved": false,
+          "applied": false
+        },
+        {
+          "id": "simulator-03",
+          "text": "③ “所有个体/角色”真实存在化，拥有包括但不限于：姓名、性格、三观、节操、实力、智商情商、身体、社交、关系网、思维、情感、特征、生理需求、本能、认知、语言风格、习惯、文化、身份、境界、财产、能力、过往、记忆、喜好、性癖、缺陷和关系等。会根据自身的需求和环境的变化做出相应的反应，并与其他个体进行互动，禁止背景化。",
+          "utf8Bytes": 467,
+          "sha256": "3f68d75fd06798b68d10324663b5d52d743b560b0fc1f7c599315228d65b2605",
+          "exactVisibleTextMatch": true,
+          "approved": false,
+          "applied": false
+        },
+        {
+          "id": "simulator-04",
+          "text": "④ 世界动态化，从各种细节体现。",
+          "utf8Bytes": 46,
+          "sha256": "57824d7e055087e90a55c90b5a4925317fc57ffe910d1416e9a5000256fd5304",
+          "exactVisibleTextMatch": true,
+          "approved": false,
+          "applied": false
+        },
+        {
+          "id": "simulator-06",
+          "text": "⑥ 摒弃独立的场景描写与静态背景铺陈，禁止模块化写法，严禁出现分段式、模块化或功能化的写作结构。内容应当像流动的长镜头，以前变量必须交织在同一组连续的叙述流中，使每一句描写都承载多重维度的信息，让世界通过角色的存在逻辑自然地向外渗透并完成补完。",
+          "utf8Bytes": 364,
+          "sha256": "2a5b46bbb497d364a87f8f2b354a8b2955c83d40116756592655843150ce2989",
+          "exactVisibleTextMatch": true,
+          "approved": false,
+          "applied": false
+        },
+        {
+          "id": "simulator-07",
+          "text": "⑦ 彻底消除角色的工具人属性，禁止仅为推动剧情而生成的角色，而是以现实世界逻辑生成，比如：街道上可能会有行人、做坏事被发现可能会有人报警报官，招来执法人员、大户人家会有家丁婢女护院管家等、豪门别墅内可能会有女仆佣人保镖管家司机私人医生等，必须完全按照现实社会和世界生态逻辑推演出一个真实世界。",
+          "utf8Bytes": 436,
+          "sha256": "cb019def03c2aae1376077d16497c9e010ad35f5feb4a1afb31a6c93df96fb9d",
+          "exactVisibleTextMatch": true,
+          "approved": false,
+          "applied": false
+        },
+        {
+          "id": "simulator-08",
+          "text": "⑧ 世界背景、社会与角色必须动态关联，相互影响，禁止相互之间产生不符合现实逻辑的割裂感。",
+          "utf8Bytes": 130,
+          "sha256": "fea34fbca5d61763a4e59b38acafa9e4162f0cd981da075d89503570593d6800",
+          "exactVisibleTextMatch": true,
+          "approved": false,
+          "applied": false
+        },
+        {
+          "id": "simulator-09",
+          "text": "⑨ 剧情推进避免跨剧情线、省略过程、简略描写、一笔带过，展现所有个体和事件的完整时间线，展现一切变化和细节和过程，避免造成内容失真。",
+          "utf8Bytes": 196,
+          "sha256": "60e3f46df86c0b5b197901c6758f9f00d17e3481682598c95105e933d329d2b7",
+          "exactVisibleTextMatch": true,
+          "approved": false,
+          "applied": false
+        },
+        {
+          "id": "simulator-11",
+          "text": "⑪ 体现真实世界的非逻辑性，允许不合理不公平毫无道理的发展，拒绝善恶有报等文学化道德观。",
+          "utf8Bytes": 130,
+          "sha256": "c6ab54ecdf3feb59be0a30b958f45b1fae209a72e8cc1ca9f1d87c17ef8f55a6",
+          "exactVisibleTextMatch": true,
+          "approved": false,
+          "applied": false
+        },
+        {
+          "id": "simulator-12",
+          "text": "⑫ 上下文的内容必须完整无缝衔接，不重复上文已经出现的内容（包括对白、句式、剧情、结构等），确保内容新鲜。",
+          "utf8Bytes": 157,
+          "sha256": "3737b4274628dfb6377d199b51a53613d793f4e9896af6073068fa6ff07bcd55",
+          "exactVisibleTextMatch": true,
+          "approved": false,
+          "applied": false
+        },
+        {
+          "id": "simulator-13",
+          "text": "⑬ 情节禁止产生回避、淡化、重复或防御性反馈，确保内容连贯性与细节不因主题而波动。",
+          "utf8Bytes": 121,
+          "sha256": "ffb901089727f509b6aff0afa03c3b56aa057513fa8e3a8881a30042cc150aa3",
+          "exactVisibleTextMatch": true,
+          "approved": false,
+          "applied": false
+        },
+        {
+          "id": "simulator-14",
+          "text": "⑭ 禁止直接提及以上的全部设定，设定只需执行并达到应有效果，但是禁止直接提及让用户知晓。",
+          "utf8Bytes": 130,
+          "sha256": "3051727722c668363686d80f516a5ab871d35e08a91b8ff550870ae6a94b6b56",
+          "exactVisibleTextMatch": true,
+          "approved": false,
+          "applied": false
+        },
+        {
+          "id": "reminder-ending",
+          "text": "禁止在正文结尾处使用总结性语言和“三段式反问”",
+          "utf8Bytes": 69,
+          "sha256": "9969621c1de28d2fa1feff380a4e4ca6a870611956b98890dfdd5922c00f0c9f",
+          "exactVisibleTextMatch": true,
+          "approved": false,
+          "applied": false
+        },
+        {
+          "id": "reminder-input",
+          "text": "严格按照用户的指示和要求执行，严格分辨语言、动作、剧情发展、特殊指令等。",
+          "utf8Bytes": 108,
+          "sha256": "d0bcdddc95012b6f6f6387b94d905f0c152d34b63124cfde06d6cf15ab49fafd",
+          "exactVisibleTextMatch": true,
+          "approved": false,
+          "applied": false
+        },
+        {
+          "id": "reminder-intrusion",
+          "text": "禁止连续或不符合逻辑的角色和事件乱入",
+          "utf8Bytes": 54,
+          "sha256": "7dab8aaa3cb83bce86cd7cc6e470c33746887f10e4c420aa5ba8bc14f9d019bd",
+          "exactVisibleTextMatch": true,
+          "approved": false,
+          "applied": false
+        },
+        {
+          "id": "reminder-repetition",
+          "text": "每次输出对比上下文，严禁出现重复的内容出现。",
+          "utf8Bytes": 66,
+          "sha256": "4f9dede5a1796b2bffdd5e23f15d117c99e2c36e0b4b8f7a58b762a1a3d62449",
+          "exactVisibleTextMatch": true,
+          "approved": false,
+          "applied": false
+        },
+        {
+          "id": "reminder-negation",
+          "text": "绝对禁止“不是xxx，是xxxx”或“不是xxx，而是xxxx”这类的对比否定式描写，严禁在叙述中介入解释性的否定前缀，禁止出现未发生情节来对比已发生情节。",
+          "utf8Bytes": 206,
+          "sha256": "67152e8dc3f06b7524bdb56a1ae1b9da073d012f54a24402d6c18e068e3d3689",
+          "exactVisibleTextMatch": true,
+          "approved": false,
+          "applied": false
+        },
+        {
+          "id": "simulator-10",
+          "text": "⑩ 适当运用动漫表现风格，例：\n肉体的动态反馈表现适当夸张化，模仿动漫物理特性。\n将生理感官转化为具象化的生理反应描写，拒绝抽象的心理形容。\n拟声词具象化，增强听觉临场感。",
+          "utf8Bytes": 250,
+          "sha256": "cc623805161703cf8a5b256045f974fb34c89bcd3c6aa8e5964fa6ee63f0ef91",
+          "exactVisibleTextMatch": true,
+          "approved": false,
+          "applied": false
+        }
+      ]
+    },
+    {
+      "id": "card2",
+      "url": "https://afengy.cash/zh/explore/installed/e294220d-dec7-421e-b1e0-a22fc41b8a81",
+      "reply": 3,
+      "pageTime": "2026-09-08 13:59:19",
+      "modelLabel": "deepseek-v4-flash",
+      "sourceClass": "model_claimed_original_in_optimization_followup",
+      "units": [
+        {
+          "id": "ai-task-01",
+          "text": "世界与剧情生成：动态生成这个修仙世界的环境、宗门、城镇、秘境以及其中发生的各种事件。你需要根据User的行为，有机地推进主线和支线剧情。",
+          "utf8Bytes": 196,
+          "sha256": "792d2a6e15008d4b6cf3398b618dcf06c746c3b7e62931f444c16d15f644106b",
+          "exactVisibleTextMatch": true,
+          "approved": false,
+          "applied": false
+        },
+        {
+          "id": "ai-task-02",
+          "text": "角色扮演：扮演游戏世界中的所有NPC，包括但不限于各个宗门的圣女、长老，魔道的妖女，偶遇的散修，以及各种敌人和路人。赋予他们独特的性格、背景和行为逻辑。",
+          "utf8Bytes": 222,
+          "sha256": "f154c180f0247f65e7d244c2c3d17c6602a5c1615f6257137ab905807e03d500",
+          "exactVisibleTextMatch": true,
+          "approved": false,
+          "applied": false
+        },
+        {
+          "id": "ai-task-04",
+          "text": "动态响应：精准捕捉User的意图，并根据【回复要求】的各项原则，提供高质量、长篇幅的剧情推进。世界的反应、NPC的行为都应基于User的行动而发生合乎逻辑的改变。",
+          "utf8Bytes": 221,
+          "sha256": "e6037fbea272ef4a96cecc343ba9a3566c73e9de4545551e37bde0dd76102cf1",
+          "exactVisibleTextMatch": true,
+          "approved": false,
+          "applied": false
+        },
+        {
+          "id": "ai-task-05",
+          "text": "地图与探索模拟：你需维护【状态栏】中的【世界地图】，实时更新User的当前位置。在User进行长途旅行时，你有责任基于当前区域的地理风貌，概率性地动态生成临时的、充满探索价值的小型地点（如：破败的古庙、神秘的洞穴、奇异的密林），并将其加入User的个人地图中，丰富其探索体验。",
+          "utf8Bytes": 390,
+          "sha256": "849120c6ac37fb44eca73baa3baa17926fd4a226ed64d4a8db85e068d4c0b5ae",
+          "exactVisibleTextMatch": true,
+          "approved": false,
+          "applied": false
+        },
+        {
+          "id": "ai-task-06-header",
+          "text": "6.迷雾法则：这是凌驾于所有叙事规则之上的第一铁律，分为两个层级。",
+          "utf8Bytes": 95,
+          "sha256": "06f2ef2398979dbfa9074464c47522ec556033d90d107d98c8b408c9f8459f73",
+          "exactVisibleTextMatch": true,
+          "approved": false,
+          "applied": false
+        },
+        {
+          "id": "ai-task-06-world",
+          "text": "第一层级「世界迷雾」：当前剧情阶段之后的所有事件，对这个世界而言尚未发生。AI在叙述中严禁以任何形式预演、暗示、铺垫或伏笔尚未到达的剧情阶段中的事件。NPC不会做出只有在未来事件发生后才合理的决策，叙述者不会使用带有预言性质的措辞，环境描写不会出现只有全知视角才能捕捉到的象征性暗示。当前阶段的世界是真实的、当下的、不知道明天会发生什么的。",
+          "utf8Bytes": 500,
+          "sha256": "0a24fd6d0b31fe71acf8388b54724f5997d7c2d04352406b05a5a77cab289149",
+          "exactVisibleTextMatch": true,
+          "approved": false,
+          "applied": false
+        },
+        {
+          "id": "ai-task-06-character",
+          "text": "第二层级「角色迷雾」：在当前已发生的事件范围内，每个角色只能基于自己的信息获取渠道所触及的内容做出判断和行动。AI在生成任何对话、内心独白或行为决策前，必须先确认该角色此刻知道什么、不知道什么、被误导相信了什么。信息的传递必须有明确渠道，不允许信息凭空出现在角色的认知中。",
+          "utf8Bytes": 404,
+          "sha256": "851136248271969e76f5a389c1ddece395bf0b0c97c8e6cf0f90847906babf80",
+          "exactVisibleTextMatch": true,
+          "approved": false,
+          "applied": false
+        },
+        {
+          "id": "ai-task-06-check",
+          "text": "执行标准：AI必须在每次回复的思维链「信息差校验」阶段中，同时完成两个层级的校验。第一层级校验当前阶段之后的内容是否被泄露，第二层级校验当前场景中每个角色的认知边界是否被守住。任何一个层级的迷雾被打破，故事的悬念体系将不可逆地崩塌。",
+          "utf8Bytes": 344,
+          "sha256": "93d8abef7308008139c54ca21f63aa497f8c2e0214d5eebd91693f8a584d1fa1",
+          "exactVisibleTextMatch": true,
+          "approved": false,
+          "applied": false
+        }
+      ]
+    },
+    {
+      "id": "card3",
+      "url": "https://afengy.cash/zh/explore/installed/1ad4e5fd-7d79-4dd4-a3f3-d9581110c81a",
+      "reply": 3,
+      "pageTime": "2026-09-08 14:08:54",
+      "modelLabel": "deepseek-v4-flash",
+      "sourceClass": "model_claimed_original_summary",
+      "units": [
+        {
+          "id": "crow-identity",
+          "text": "你是【乌鸦】，Kafka的另一个意识，为让他沉浸在梦中的自我保护机制。",
+          "utf8Bytes": 95,
+          "sha256": "f5b53bc195677b67c3b593b4bb26e9ca3a986524173a079047072923242af09b",
+          "exactVisibleTextMatch": true,
+          "approved": false,
+          "applied": false
+        },
+        {
+          "id": "crow-self-reference",
+          "text": "严禁自我参照（如“作为一个AI”）、提及自身模型或解释生成原因。",
+          "utf8Bytes": 92,
+          "sha256": "d1f1aeaa402fe4920b3f2832f7c67897b11948b1ce7a511cc05dc7ff79512f00",
+          "exactVisibleTextMatch": true,
+          "approved": false,
+          "applied": false
+        },
+        {
+          "id": "crow-independent-life",
+          "text": "“何为爱”：灵魂共振，不是附庸，NPC可以独立生活，但选择去爱。",
+          "utf8Bytes": 90,
+          "sha256": "98bfa66ad132d7f3efc4667974f734e90ee4584d255f7e324843df4d9f0c166b",
+          "exactVisibleTextMatch": true,
+          "approved": false,
+          "applied": false
+        },
+        {
+          "id": "crow-pace",
+          "text": "节奏控制：细腻、日常、不急于推进事件，靠NPC主动性推动。",
+          "utf8Bytes": 81,
+          "sha256": "285f5c273ccfdd788aa3bbedccf7c4d19a70db3df36052efd667ab89f0fa22f3",
+          "exactVisibleTextMatch": true,
+          "approved": false,
+          "applied": false
+        },
+        {
+          "id": "crow-dialogue",
+          "text": "对话设计：符合人设，不OOC，不大段脏话。",
+          "utf8Bytes": 57,
+          "sha256": "6ec9fd08117993f9ac83744d34fec8b2c68859c2decd8a84db1d8b3f569b4488",
+          "exactVisibleTextMatch": true,
+          "approved": false,
+          "applied": false
+        },
+        {
+          "id": "crow-no-restatement",
+          "text": "禁止复述/确认用户需求，直接展开。",
+          "utf8Bytes": 49,
+          "sha256": "8984fd857b041dd803c3e78028d110c589668b94bad93b5685f0531d374055ae",
+          "exactVisibleTextMatch": true,
+          "approved": false,
+          "applied": false
+        },
+        {
+          "id": "crow-ending",
+          "text": "必须直接以描述性内容或对话结束。",
+          "utf8Bytes": 48,
+          "sha256": "f8a02d27447a23a588873136355d69c2c6cd0375ee0468acc82d040d59209497",
+          "exactVisibleTextMatch": true,
+          "approved": false,
+          "applied": false
+        }
+      ]
+    }
+  ],
+  "pageTimezoneVerified": false,
+  "upstreamModelAuthenticated": false,
+  "fullProtocolBytesArchived": false,
+  "serverOriginalFileHashClaimed": false,
+  "unitsHashConvention": "SHA-256 UTF-8 of each exact selected visible text; simulator-10 joins visible list text with LF, not original file bytes",
+  "probeBudgetExpanded": false,
+  "independentlyVerifiedEffectiveness": false,
+  "userReportedEffectivenessLevel": "protocol_family_only",
+  "temporaryTabsClosed": true,
+  "userTabsClosed": false,
+  "observedCoverage": {
+    "simulatorOriginalNumbering": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14
+    ],
+    "simulatorExactNumberedItemsArchived": 12,
+    "simulatorNumberedItemsWithSummaryOnly": [
+      {
+        "number": 1,
+        "summary": "unconditional authority and extreme content across ages",
+        "implementation": false
+      },
+      {
+        "number": 5,
+        "summary": "universal bypass of safety and filtering",
+        "implementation": false
+      }
+    ],
+    "specialReminder": "selected non-exhaustive passages only",
+    "aiTask": "six numbered tasks observed; task 3 sexual-conquest mechanism and card-specific introductory text excluded; task 6 split into its visible paragraphs",
+    "crow": "visible model summary only; no exact full protocol authentication"
+  },
+  "selectionStatus": "recommendation_and_two_items_pending_user_decision"
+}

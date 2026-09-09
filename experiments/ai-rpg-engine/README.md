@@ -1,3 +1,11 @@
+# RPG04 当前入口
+
+私有包0.4.0；/context编译与选择、prepared runtime桥、JSONL开发CLI已交付。用户确认前置审计测试完成，本次最小收尾后提交PR，不改运行提示词、不做新实测、不自行合并。见[收尾报告](docs/RPG04_CLOSEOUT.md)及[RPG04_STATUS.json](docs/RPG04_STATUS.json)。
+
+验证：`npm.cmd run verify:rpg04 -- --base 1b280ed257a45672c4a3dc03745fcb585685faf9`。运行旧216及当前离线测试，核对本地真实证据hash，不派发Provider；HTTP集成属于已保存的独立mock回执，不重新执行。聚合需要既有私有六回合文件，干净克隆缺少文件会阻断，不能据此声称可公开复现实测。定向入口test:context、test:context-runtime、rpg:context；CLI仍限2048，见[CLI说明](docs/RPG04_CLI.md)。RPG05计划合并后另开计划模式。以下为历史RPG03说明。
+
+---
+
 # AI RPG 合同、离线内容与受控运行实验
 
 私有 ESM 包 `@modelmirror/ai-rpg-contracts@0.3.0`。RPG-01/02 已验收；RPG-03 已实现，模块 230 项、父仓 53 项及真实 Provider 验收通过，待人工验收，`claimAllowed=false`。本轮未获得提交或发布授权。RPG-02 的资源、内容工具和 worker 资格证据保持冻结，不能从本轮推断已获全量提取授权。

@@ -1,0 +1,25 @@
+{
+  "round": "RPG-04",
+  "status": "stopped_on_second_gu_turn_failure",
+  "claimAllowed": false,
+  "consumed": 4,
+  "remaining": 4,
+  "failedEntry": "RPG04-GU-2",
+  "adapterDiagnostic": "RUNTIME_ADAPTER_EVENT_INVALID",
+  "rawTextCharacters": 3919,
+  "rawJsonComplete": false,
+  "committedThisAttempt": false,
+  "guCommittedTurns": 1,
+  "minecraftCommittedTurns": 0,
+  "gatewayEvidence": {
+    "logId": 10,
+    "model": "gpt-5.6-luna",
+    "inputTokens": 10506,
+    "outputTokens": 2048,
+    "outputLimit": 2048,
+    "finishReasonNotAvailable": true
+  },
+  "causeAssessment": "Output reached configured ceiling and JSON ended mid-field; strongly consistent with output-budget exhaustion. Exact finish_reason was not retained.",
+  "automaticRetry": false,
+  "nextDecision": "Review output budget versus required panels; do not alter prompt or raise approved limits without approval."
+}

@@ -3,19 +3,15 @@
   "moduleId": "ai-rpg-engine",
   "moduleRoot": ".",
   "moduleRootResolution": "directory-containing-module-boundary",
-  "activeRound": "RPG-03",
-  "activeRoundBaselineSha": "80221379cec850a2b25f5eeeb410233062f3e1ea",
-  "requiredBranch": "codex/ai-rpg-rpg03-runtime",
+  "activeRound": "RPG-04",
+  "activeRoundBaselineSha": "1b280ed257a45672c4a3dc03745fcb585685faf9",
+  "requiredBranch": "codex/ai-rpg-rpg04-context",
   "repositoryChangePolicy": {
     "allowedPrefixes": [
       "docs/ai-rpg-experiment/",
       "experiments/ai-rpg-engine/"
     ],
-    "allowedExactPaths": [
-      "docs/MODEL_PROVIDER_CONTROL_PLANE.md",
-      "server/main.py",
-      "server/tests/test_provider_chat_stable_chat.py"
-    ]
+    "allowedExactPaths": []
   },
   "parentIntegration": "controlled-modelmirror-chat",
   "allowedParentInteractions": [
@@ -46,7 +42,7 @@
     "runtime": "trusted-modelmirror-http-only",
     "verification": "loopback-only",
     "modelCalls": "trusted-modelmirror-controlled-bounded-only",
-    "websiteProbes": "none"
+    "websiteProbes": "manual-serial-only-outside-module-code"
   },
   "generatedPaths": [
     "node_modules",
@@ -55,7 +51,8 @@
     "logs",
     "test-reports",
     ".rpg02-work",
-    ".rpg03-work"
+    ".rpg03-work",
+    ".rpg04-work"
   ],
   "forbiddenTrackedFileNames": [
     ".env",
@@ -89,19 +86,102 @@
     ]
   },
   "sourceLayers": {
-    "contentPrefixes": ["content/"],
-    "contentAllowedPackages": ["ajv", "ajv/dist/2020.js", "parse5", "acorn"],
-    "runtimeCorePrefixes": ["runtime/"],
-    "runtimeNodePrefixes": ["runtime/node.mjs", "runtime/node/"],
-    "runtimeCoreAllowedPackages": ["ajv/dist/2020.js"],
+    "contentPrefixes": [
+      "content/"
+    ],
+    "contentAllowedPackages": [
+      "ajv",
+      "ajv/dist/2020.js",
+      "parse5",
+      "acorn"
+    ],
+    "contextPrefixes": [
+      "context/"
+    ],
+    "contextAllowedPackages": [
+      "ajv/dist/2020.js"
+    ],
+    "contextAllowedModuleImports": [
+      "runtime/contracts.mjs",
+      "src/index.mjs"
+    ],
+    "runtimeCorePrefixes": [
+      "runtime/"
+    ],
+    "runtimeNodePrefixes": [
+      "runtime/node.mjs",
+      "runtime/node/"
+    ],
+    "runtimeCoreAllowedPackages": [
+      "ajv/dist/2020.js"
+    ],
     "runtimeNodeAllowedPackages": [],
-    "runtimeNodeAllowedBuiltins": ["buffer", "crypto", "fs", "fs/promises", "http", "https", "path", "stream", "url"],
-    "runtimeToolingPrefixes": ["tooling/runtime-"],
-    "testLoopbackNetworkFiles": ["tests/runtime-adapter.test.mjs", "tests/runtime-integration.test.mjs"],
-    "toolingPrefixes": ["scripts/", "tooling/", "tests/"],
-    "toolingAllowedPackages": ["ajv", "ajv/dist/2020.js", "parse5", "acorn", "yauzl", "fflate"],
-    "toolingAllowedBuiltins": ["assert", "assert/strict", "buffer", "child_process", "crypto", "fs", "fs/promises", "os", "path", "stream", "test", "url", "util", "zlib"],
-    "subprocessEntrypoints": ["scripts/check-boundary-rpg02.mjs", "scripts/check-boundary-rpg03.mjs", "scripts/verify-rpg03.mjs", "scripts/rpg03-harness.py", "tests/runtime-store.test.mjs"],
-    "frozenLegacySubprocessFiles": ["scripts/check-parent-scope.mjs", "scripts/verify-rpg01.mjs", "tests/boundary.test.mjs"]
+    "runtimeNodeAllowedBuiltins": [
+      "buffer",
+      "crypto",
+      "fs",
+      "fs/promises",
+      "http",
+      "https",
+      "path",
+      "stream",
+      "url"
+    ],
+    "networkAdapterFiles": [
+      "runtime/node/http.mjs"
+    ],
+    "runtimeToolingPrefixes": [
+      "tooling/runtime-"
+    ],
+    "testLoopbackNetworkFiles": [
+      "tests/runtime-adapter.test.mjs",
+      "tests/runtime-integration.test.mjs",
+      "tests/context-http-integration.test.mjs"
+    ],
+    "toolingPrefixes": [
+      "scripts/",
+      "tooling/",
+      "tests/"
+    ],
+    "toolingAllowedPackages": [
+      "ajv",
+      "ajv/dist/2020.js",
+      "parse5",
+      "acorn",
+      "yauzl",
+      "fflate"
+    ],
+    "toolingAllowedBuiltins": [
+      "assert",
+      "assert/strict",
+      "buffer",
+      "child_process",
+      "crypto",
+      "fs",
+      "fs/promises",
+      "os",
+      "path",
+      "stream",
+      "test",
+      "url",
+      "util",
+      "zlib"
+    ],
+    "subprocessEntrypoints": [
+      "scripts/check-boundary-rpg02.mjs",
+      "scripts/check-boundary-rpg03.mjs",
+      "scripts/check-boundary-rpg04.mjs",
+      "scripts/verify-rpg03.mjs",
+      "scripts/rpg03-harness.py",
+      "tests/runtime-store.test.mjs",
+      "scripts/rpg04-harness.py",
+      "tests/context-cli-files.test.mjs",
+      "scripts/verify-rpg04.mjs"
+    ],
+    "frozenLegacySubprocessFiles": [
+      "scripts/check-parent-scope.mjs",
+      "scripts/verify-rpg01.mjs",
+      "tests/boundary.test.mjs"
+    ]
   }
 }

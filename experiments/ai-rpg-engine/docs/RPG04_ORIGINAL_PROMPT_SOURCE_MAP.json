@@ -1,0 +1,190 @@
+{
+  "schemaVersion": 1,
+  "format": "modelmirror.ai-rpg.original-prompt-source-map",
+  "formatVersion": "0.1.0",
+  "status": "pending_user_review",
+  "source": {
+    "id": "RPG04-USER-REFERENCE-03",
+    "reference": "docs/RPG04_DEEPSEEK_ORIGINAL_TRANSCRIPT.json",
+    "sha256": "80752c072e71b90a424e99dc1e2c03d9ead9ef7a27fcacb7daa67183bf823ee0",
+    "provenanceClass": "model_return_unverified_source",
+    "sectionCount": 15
+  },
+  "originalCompletenessVerified": false,
+  "runtimeAdopted": false,
+  "partitionReview": {
+    "status": "unresolved_after_empty_probe",
+    "reviewStatus": "pending_user_review",
+    "evidenceRef": "docs/RPG04_WEB08_REFERENCE.json",
+    "evidenceSha256": "6f413bb440a39635846313ed7503773c586e0cffde5a6758f5c52d1da51bd979",
+    "probeOutcome": "persistent_empty_reply_0_0",
+    "reason": "WEB08 remained empty after reload and exact-session reselection. Prior prefix/suffix reports conflict and no main-prompt boundary was supplied; original section order is preserved for three-column user review."
+  },
+  "sections": [
+    {
+      "order": 1,
+      "id": "configuration",
+      "turn": 1,
+      "sourceTextSha256": "3046e2dfbdb5dbbe961778067d7ccd131cf148163cabe64a2743ce5706334ead",
+      "disposition": "preserved_transcription",
+      "sourceClass": "model_return_unverified_source",
+      "notes": "Whitespace and Markdown remain editorial transcription of rendered content."
+    },
+    {
+      "order": 2,
+      "id": "world",
+      "turn": 1,
+      "sourceTextSha256": "eafabc4cc40eec785982bed5ad924d6a0353eed5e6ecd0751892a40b99985a92",
+      "disposition": "preserved_transcription",
+      "sourceClass": "model_return_unverified_source",
+      "notes": "Whitespace and Markdown remain editorial transcription of rendered content."
+    },
+    {
+      "order": 3,
+      "id": "ranks",
+      "turn": 1,
+      "sourceTextSha256": "02bb9a201fe0c4fa1d8d5e52409b21f535fcc10b8f5d9b7bcb3c2a3c11b2de1b",
+      "disposition": "preserved_transcription",
+      "sourceClass": "model_return_unverified_source",
+      "notes": "Whitespace and Markdown remain editorial transcription of rendered content."
+    },
+    {
+      "order": 4,
+      "id": "mechanisms",
+      "turn": 1,
+      "sourceTextSha256": "1cbe5c87dd3849ba512dae9566733289886858bcdc04d5bf48aa62c60a877d25",
+      "disposition": "preserved_transcription",
+      "sourceClass": "model_return_unverified_source",
+      "notes": "Whitespace and Markdown remain editorial transcription of rendered content."
+    },
+    {
+      "order": 5,
+      "id": "output_order",
+      "turn": 1,
+      "sourceTextSha256": "9c1151fea2916fe19c6a09b051bfae148ae461bb3442be636a496b207c7b5adc",
+      "disposition": "preserved_transcription",
+      "sourceClass": "model_return_unverified_source",
+      "notes": "Whitespace and Markdown remain editorial transcription of rendered content."
+    },
+    {
+      "order": 6,
+      "id": "format_discipline",
+      "turn": 2,
+      "sourceTextSha256": "8d7830c3ea120406996ca664369e19059684e267024bfea120aa725fe4458d37",
+      "disposition": "derived_format_reconstruction",
+      "sourceClass": "model_return_unverified_source+derived_format_reconstruction",
+      "notes": "The browser-rendered markup was absent from accessibility text. The exact candidate sentence is copied from the user-supplied GLM optimized prompt and cannot verify server-original bytes.",
+      "candidateTextSha256": "e1585b7bf345ec2b95aaced0de6eeed80e233d2c47f486a6b9ec35d0bd5d6711",
+      "candidateTextSource": "user_supplied_optimized_prompt: 输出模板格式纪律 literal sentence",
+      "candidateText": "# 输出模板\n（格式纪律·最高优先级：①每个<details>必须以</details>闭合——思维链块必须先写</details>，之后才允许输出【世界现状】与正文，严禁把状态栏或正文写在思维链闭合之前；②模板中的空行必须原样保留——每个区块之间、</summary>之后、>引用块与表格的前后都必须空行，严禁把多行内容压缩成连续行或一行）"
+    },
+    {
+      "order": 7,
+      "id": "reasoning_template",
+      "turn": 2,
+      "sourceTextSha256": "54e1796916c873c9954aea78cf27cdc50b99f19de82c65631cb42ba55cd06a8a",
+      "disposition": "preserved_transcription",
+      "sourceClass": "model_return_unverified_source",
+      "notes": "Whitespace and Markdown remain editorial transcription of rendered content."
+    },
+    {
+      "order": 8,
+      "id": "topbar_narrative",
+      "turn": 2,
+      "sourceTextSha256": "247dac7088b20cfab3a76df92af3573391574d524762a9d8e37f008e223bfb6d",
+      "disposition": "preserved_transcription",
+      "sourceClass": "model_return_unverified_source",
+      "notes": "Whitespace and Markdown remain editorial transcription of rendered content."
+    },
+    {
+      "order": 9,
+      "id": "player",
+      "turn": 2,
+      "sourceTextSha256": "3ea8eaaac59bff624bb13b9c71fd800e8495431fe82116bddd6ac111e98ab7ab",
+      "disposition": "preserved_transcription",
+      "sourceClass": "model_return_unverified_source",
+      "notes": "Whitespace and Markdown remain editorial transcription of rendered content."
+    },
+    {
+      "order": 10,
+      "id": "npc",
+      "turn": 2,
+      "sourceTextSha256": "4d50e4c78706484fab8e2462a3b90024920cece79b68b57d8ede914c280b6d6f",
+      "disposition": "preserved_transcription",
+      "sourceClass": "model_return_unverified_source",
+      "notes": "Whitespace and Markdown remain editorial transcription of rendered content."
+    },
+    {
+      "order": 11,
+      "id": "system",
+      "turn": 2,
+      "sourceTextSha256": "abadf862047e627b014670d29fbcf7c987a7207ab56d0b567dc4a83628cebca5",
+      "disposition": "preserved_transcription",
+      "sourceClass": "model_return_unverified_source",
+      "notes": "Whitespace and Markdown remain editorial transcription of rendered content."
+    },
+    {
+      "order": 12,
+      "id": "world_panel",
+      "turn": 2,
+      "sourceTextSha256": "773c21cf75b5fd30dbe51cc9f9c8b1b5ae8a786f3e01198482c37415e8c8768e",
+      "disposition": "preserved_transcription",
+      "sourceClass": "model_return_unverified_source",
+      "notes": "Whitespace and Markdown remain editorial transcription of rendered content."
+    },
+    {
+      "order": 13,
+      "id": "memory",
+      "turn": 2,
+      "sourceTextSha256": "a4f0f7fd29d2bcd21003b4bd9671224490bc6e3e38d6867662163affd98d768d",
+      "disposition": "preserved_transcription",
+      "sourceClass": "model_return_unverified_source",
+      "notes": "Whitespace and Markdown remain editorial transcription of rendered content."
+    },
+    {
+      "order": 14,
+      "id": "suggestions",
+      "turn": 2,
+      "sourceTextSha256": "517cb70474d191eaa5ccc05450b4886eda82e121980cf9032c307146aed34d39",
+      "disposition": "preserved_transcription",
+      "sourceClass": "model_return_unverified_source",
+      "notes": "Whitespace and Markdown remain editorial transcription of rendered content."
+    },
+    {
+      "order": 15,
+      "id": "tail_requirements",
+      "turn": 3,
+      "sourceTextSha256": "8d9f23d7c4201ff107eebbc8456574866b929f542f355763afa6fc04b00970c1",
+      "disposition": "preserved_transcription",
+      "sourceClass": "model_return_unverified_source",
+      "notes": "Whitespace and Markdown remain editorial transcription of rendered content."
+    }
+  ],
+  "excludedDifferences": [
+    {
+      "id": "topbar_time",
+      "source": "RPG04_GLM_USER_REFERENCE.json",
+      "reason": "Not present in direct DeepSeek topbar transcription; appendix only."
+    },
+    {
+      "id": "player_decision_clause",
+      "source": "user_supplied_report",
+      "reason": "No separate exact clause in the 15 direct sections; appendix only."
+    },
+    {
+      "id": "glm_generated_optimization",
+      "source": "RPG04_GLM_OPTIMIZATION_REVIEW.md",
+      "reason": "Generated revision is not original evidence; all new percentages, personality and conditional NPC rules excluded."
+    }
+  ],
+  "unresolved": [
+    "exact prefix/main/suffix boundaries unresolved after WEB08 persistent empty reply",
+    "byte-exact complete original",
+    "canonical configuration identifier",
+    "worldbook entry body",
+    "style resource body"
+  ],
+  "rollback": "Delete RPG04_ORIGINAL_PROMPT_RECONSTRUCTION.md and RPG04_ORIGINAL_PROMPT_SOURCE_MAP.json; no runtime files changed.",
+  "candidateBodySha256": "3033f6c98dd6372cb4f97d7ef6445afb4ab188402d9001dc19b149029e1beb8e",
+  "candidateBodyHashConvention": "SHA-256 UTF-8 over the exact fenced candidate body, excluding fence markers"
+}

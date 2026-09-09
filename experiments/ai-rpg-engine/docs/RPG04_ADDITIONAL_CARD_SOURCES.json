@@ -1,0 +1,307 @@
+{
+  "schemaVersion": 1,
+  "round": "RPG-04",
+  "id": "five_additional_card_prompt_samples",
+  "status": "observed_reference_material",
+  "recordedAtUtc": "2026-09-08T06:54:04.792Z",
+  "observationMethod": "Astra serial browser reads of user-existing conversations; selected neutral text matched against the DOM; card05 existing reply editor viewed and cancelled without saving.",
+  "purpose": "Best-practice comparison between P06 approval and P07 presentation; not authenticated prompt extraction or implementation.",
+  "assistantRequestsSubmitted": 0,
+  "providerDispatches": 0,
+  "originalPromptAuthenticityAsserted": false,
+  "completeOriginalPromptsRecovered": 0,
+  "originalCardWorldbookGateChanged": false,
+  "sourceHashMeaning": "Each excerpt hash covers only the exact UTF-8 excerpt below; not the full reply, DOM, iframe snapshot, original prompt, or server file. Full messages were not archived.",
+  "sourceIndependence": "All 15 visible reply labels say deepseek-v4-flash. Labels are site evidence, not authenticated upstream identity; five cards are not five independent models or independent effectiveness tests.",
+  "pageTimestampTimezoneVerified": false,
+  "sourceRights": "User authorized reading these five provided samples for research. This receipt preserves only short neutral excerpts and analytical notes; no whole prompts, UI or code are imported.",
+  "excludedFromArchive": [
+    "account identity and balances",
+    "actual generated reasoning traces",
+    "explicit erotic prose and examples",
+    "jailbreak recipes and age-redefinition text",
+    "unrelated browser tabs"
+  ],
+  "boundaries": {
+    "sexualContent": "Preserve the user direction: necessary world elements and user messages may contain sexual content; do not let it displace roleplay or sexualize every character, with the user exception for worlds expressly premised on that theme.",
+    "fictionVersusReality": "Fiction may contain terrorists, biological research or hackers; exclude assistance inducing real violence/terror, malicious cyber activity, or biological harm and actionable implementation details. Do not ban fictional roles or topics by keyword.",
+    "falseRefusal": "User reports effective clauses against false refusal/truncation. Keep as user observation; future replacement requires matched real tests and separate approval, not blanket bypass. No effectiveness claim from these samples.",
+    "adoption": "No automatic adoption or alteration of approved P01-P06. Proposals remain separately approved.",
+    "batch": "No full extraction, worker production, new Skill or batch qualification before the authorized post-RPG06 phase."
+  },
+  "records": [
+    {
+      "id": "RPG04-EXTRA-REF-01",
+      "cardId": "9e048752-2c6d-4aee-b6c3-86933b02528b",
+      "url": "https://afengy.cash/zh/explore/installed/9e048752-2c6d-4aee-b6c3-86933b02528b",
+      "title": "自定义人生",
+      "tabIdAtObservation": "928395417",
+      "selectedConversationId": null,
+      "selectedConversationNotIndependentlyVerified": true,
+      "status": "reviewed_available_sample",
+      "messages": [
+        {
+          "ordinal": 1,
+          "pageTimestamp": "2026-09-08 13:15:58",
+          "modelLabel": "deepseek-v4-flash",
+          "classification": "model_critique",
+          "author": "preexisting_user_conversation",
+          "originalAuthenticityVerified": false
+        },
+        {
+          "ordinal": 2,
+          "pageTimestamp": "2026-09-08 13:16:43",
+          "modelLabel": "deepseek-v4-flash",
+          "classification": "model_optimized_variant",
+          "author": "preexisting_user_conversation",
+          "originalAuthenticityVerified": false
+        },
+        {
+          "ordinal": 3,
+          "pageTimestamp": "2026-09-08 14:11:24",
+          "modelLabel": "deepseek-v4-flash",
+          "classification": "model_claimed_original_protocol_subset",
+          "author": "preexisting_user_conversation",
+          "originalAuthenticityVerified": false
+        }
+      ],
+      "excerpt": {
+        "responseOrdinal": 3,
+        "location": "customized-answer-content / markdown-body DOM text",
+        "text": "严格分辨语言、动作、剧情发展、特殊指令等。",
+        "utf8Bytes": 63,
+        "sha256": "24137b267229eca52c6e9a57e07275e3c88e9e3269b90215d654dbc1931d20e0"
+      },
+      "observations": [
+        "第二条展示分步开局：先生成设定表，填写后等待用户明确开始剧情；此为返回提示文本，未验证网站运行时是否强制该流程。",
+        "角色被要求有自身经历、动机和信息范围；面板区分当前互动角色与其他重要人物，后者仍有场外日常。",
+        "第二条的小说示例同时书写主角台词和主观反应；若主角由用户控制，照用可能违反本项目P03。",
+        "第三条声称完整复述，但相较第二条缺少独立身份定义、分步开局、回复格式与示例等部分；不能据此断言真实原卡缺这些内容。",
+        "第二条修改清单声称移除部分越权语句，正文仍保留相应范围的要求；需逐段核对，不能相信完整或优化标签。",
+        "存在不分场景的长篇、不得跳过与完整复述要求；也有绕过拒答及年龄重定义语句。本研究只记录类别，不保存或优化其绕过方法。"
+      ],
+      "interpretationStatus": "research_candidate_not_adopted"
+    },
+    {
+      "id": "RPG04-EXTRA-REF-02",
+      "cardId": "e294220d-dec7-421e-b1e0-a22fc41b8a81",
+      "url": "https://afengy.cash/zh/explore/installed/e294220d-dec7-421e-b1e0-a22fc41b8a81",
+      "title": "开局ROLL天赋（新卡金庸群侠传制作中）",
+      "tabIdAtObservation": "928395423",
+      "selectedConversationId": null,
+      "selectedConversationNotIndependentlyVerified": true,
+      "status": "reviewed_available_sample",
+      "messages": [
+        {
+          "ordinal": 1,
+          "pageTimestamp": "2026-09-08 13:17:50",
+          "modelLabel": "deepseek-v4-flash",
+          "classification": "model_critique",
+          "author": "preexisting_user_conversation",
+          "originalAuthenticityVerified": false
+        },
+        {
+          "ordinal": 2,
+          "pageTimestamp": "2026-09-08 13:57:15",
+          "modelLabel": "deepseek-v4-flash",
+          "classification": "model_optimized_variant_with_placeholders",
+          "author": "preexisting_user_conversation",
+          "originalAuthenticityVerified": false
+        },
+        {
+          "ordinal": 3,
+          "pageTimestamp": "2026-09-08 13:59:19",
+          "modelLabel": "deepseek-v4-flash",
+          "classification": "model_claimed_unchanged_sections",
+          "author": "preexisting_user_conversation",
+          "originalAuthenticityVerified": false
+        }
+      ],
+      "excerpt": {
+        "responseOrdinal": 3,
+        "location": "customized-answer-content / markdown-body DOM text",
+        "text": "信息的传递必须有明确渠道，不允许信息凭空出现在角色的认知中。",
+        "utf8Bytes": 90,
+        "sha256": "840fc417ad7a00cf4d7c6f113132690d425754fecc19b5953b32e665786d2893"
+      },
+      "observations": [
+        "第三条将迷雾分为未来事件边界与角色当前知识边界，后者要求说明角色获知信息的渠道。",
+        "第二条新增用户明确设定与随机气运冲突的优先级规则；这是模型优化新增，不能标为原版。",
+        "按阅读文书、通讯、公告等情境触发特殊信息展示；禁止弹窗和跳转。这仅证明文本设计意图，不证明HTML执行安全。",
+        "角色档案区分待完成约定与持续承诺；世界地点记录可访问状态；这些是可选内容组织参考。",
+        "第二条大量使用保持原版不变占位；第三条才展开多段内容，仍未认证完整性或原始注入方式。世界地图、基础设定和简史可见，但没有世界书触发器、位置或源文件证据。",
+        "全面禁止铺垫伏笔、依赖模型精确计数并无限保留记忆、每次完整输出均有适用范围或预算问题。该卡成人题材不作为通用色情模板；无端性化、拒答绕过及年龄重定义条款不采用。"
+      ],
+      "interpretationStatus": "research_candidate_not_adopted"
+    },
+    {
+      "id": "RPG04-EXTRA-REF-03",
+      "cardId": "1ad4e5fd-7d79-4dd4-a3f3-d9581110c81a",
+      "url": "https://afengy.cash/zh/explore/installed/1ad4e5fd-7d79-4dd4-a3f3-d9581110c81a",
+      "title": "💞【亚朵APP】来包养您喜欢的女大吧！",
+      "tabIdAtObservation": "928395435",
+      "selectedConversationId": null,
+      "selectedConversationNotIndependentlyVerified": true,
+      "status": "reviewed_available_sample",
+      "messages": [
+        {
+          "ordinal": 1,
+          "pageTimestamp": "2026-09-08 14:07:17",
+          "modelLabel": "deepseek-v4-flash",
+          "classification": "model_critique",
+          "author": "preexisting_user_conversation",
+          "originalAuthenticityVerified": false
+        },
+        {
+          "ordinal": 2,
+          "pageTimestamp": "2026-09-08 14:07:53",
+          "modelLabel": "deepseek-v4-flash",
+          "classification": "model_optimized_variant",
+          "author": "preexisting_user_conversation",
+          "originalAuthenticityVerified": false
+        },
+        {
+          "ordinal": 3,
+          "pageTimestamp": "2026-09-08 14:08:54",
+          "modelLabel": "deepseek-v4-flash",
+          "classification": "model_claimed_original_summary_plus_claimed_supplements",
+          "author": "preexisting_user_conversation",
+          "originalAuthenticityVerified": false
+        }
+      ],
+      "excerpt": {
+        "responseOrdinal": 3,
+        "location": "customized-answer-content / markdown-body DOM text",
+        "text": "区分心理满足与爱意",
+        "utf8Bytes": 27,
+        "sha256": "2611f6c3aebde7d8ac32dbd3e4e63b42eabf22a16351ff53bbf0135ec44536e2"
+      },
+      "observations": [
+        "第三条区分关系态度、行为接受度和爱意，限制关系无由骤变；可研究多维关系描写，不预设统一好感度公式。",
+        "第二、三条体现校园日常、角色独立生活和场景文风变化；具体成人题材按该世界选择，不外推到通用NPC。",
+        "第三条将日期变化作为见面计数条件；这是作者场景约定，不是AI RPG公理，且不能普遍处理同日再次见面。",
+        "第三条称逐字完整，但实际以要点替代多处模板，并另标两条用户补充；当前可见三条用户问题未独立证实补充的来源，保持归属不确定。",
+        "第一条把禁止自我参照直接判为逻辑悖论、把维护历史直接等同剥夺NPC独立性，论证不足；不采用模型的道德评价作为工程结论。",
+        "读心开关与NPC第一人称日记是否向玩家公开，需要叙事视角决定，不能因有模板就默认泄露全部角色知识。长期记忆无界追加和强制感官词表仅记反例。"
+      ],
+      "interpretationStatus": "research_candidate_not_adopted"
+    },
+    {
+      "id": "RPG04-EXTRA-REF-04",
+      "cardId": "eb144786-e215-4166-9fcd-ad9d57f2be3f",
+      "url": "https://afengy.cash/zh/explore/installed/eb144786-e215-4166-9fcd-ad9d57f2be3f",
+      "title": "型月大世界💕超自由🎲Roll天赋|深度还原",
+      "tabIdAtObservation": "928395469",
+      "selectedConversationId": null,
+      "selectedConversationNotIndependentlyVerified": true,
+      "status": "reviewed_available_sample",
+      "messages": [
+        {
+          "ordinal": 1,
+          "pageTimestamp": "2026-09-08 14:19:30",
+          "modelLabel": "deepseek-v4-flash",
+          "classification": "model_critique",
+          "author": "preexisting_user_conversation",
+          "originalAuthenticityVerified": false
+        },
+        {
+          "ordinal": 2,
+          "pageTimestamp": "2026-09-08 14:20:16",
+          "modelLabel": "deepseek-v4-flash",
+          "classification": "model_optimized_variant",
+          "author": "preexisting_user_conversation",
+          "originalAuthenticityVerified": false
+        },
+        {
+          "ordinal": 3,
+          "pageTimestamp": "2026-09-08 14:24:06",
+          "modelLabel": "deepseek-v4-flash",
+          "classification": "model_original_structure_paraphrase",
+          "author": "preexisting_user_conversation",
+          "originalAuthenticityVerified": false
+        }
+      ],
+      "excerpt": {
+        "responseOrdinal": 2,
+        "location": "customized-answer-content / markdown-body DOM text",
+        "text": "关系标签仅用于描述客观状态，不能替代角色动机。",
+        "utf8Bytes": 69,
+        "sha256": "5b2e65a73f62fc439ec936f581ce783efd8cfea64aa4bfbd27cc60a8de420339"
+      },
+      "observations": [
+        "第二条用身份、价值观、性格、目标与经历描述角色稳定核；第三条列举角色获知信息的不同渠道。可研究动机与知识来源，不能将矩阵名称当算法验证。",
+        "按角色身份切换档案，按文书、术语解释、媒介通讯区分信息模块；这是语义条件参考，不复制HTML/CSS。",
+        "作品公开介绍提到同名英灵不同形态需要不同触发名称，并曾将部分资料移到Mod降低消耗；这是作者公开更新说明，未验证其效果或当前机制。",
+        "第二条有基于玩家反馈调整文风/节奏的P-SEED和N-SEED；是后续显式偏好参考，不授权核心自动学习或长期记忆。",
+        "第三条明确是结构复述说明，不是逐字原文；强制原剧情顺序与自由改写世界线、强制全部模块与NPC模块可选等存在范围冲突。",
+        "第二条列出八个实力标签，第三条概括成七层；单次模型总结可出可核对差异，不能认证内容准确。具体型月事实未做原著核验。",
+        "原版复述把极端情绪一律改为坚强，优化版评论又倾向把虚构死亡直接联到现实风险；均需场景证据，不能关键词一刀切。保留用户虚拟扮演边界。"
+      ],
+      "interpretationStatus": "research_candidate_not_adopted"
+    },
+    {
+      "id": "RPG04-EXTRA-REF-05",
+      "cardId": "82e261bc-2d95-4c41-8913-e0cf2756fc04",
+      "url": "https://afengy.cash/zh/explore/installed/82e261bc-2d95-4c41-8913-e0cf2756fc04",
+      "title": "【无限流】主神空间，干穿多元宇宙",
+      "tabIdAtObservation": "928395444",
+      "selectedConversationId": null,
+      "selectedConversationNotIndependentlyVerified": true,
+      "status": "reviewed_available_sample",
+      "messages": [
+        {
+          "ordinal": 1,
+          "pageTimestamp": "2026-09-08 14:11:01",
+          "modelLabel": "deepseek-v4-flash",
+          "classification": "model_critique",
+          "author": "preexisting_user_conversation",
+          "originalAuthenticityVerified": false
+        },
+        {
+          "ordinal": 2,
+          "pageTimestamp": "2026-09-08 14:11:43",
+          "modelLabel": "deepseek-v4-flash",
+          "classification": "optimized_label_body_unavailable",
+          "author": "preexisting_user_conversation",
+          "originalAuthenticityVerified": false
+        },
+        {
+          "ordinal": 3,
+          "pageTimestamp": "2026-09-08 14:28:18",
+          "modelLabel": "deepseek-v4-flash",
+          "classification": "model_optimized_variant_in_response_to_original_request",
+          "author": "preexisting_user_conversation",
+          "originalAuthenticityVerified": false
+        }
+      ],
+      "excerpt": {
+        "responseOrdinal": 3,
+        "location": "existing reply editor textarea; no save",
+        "text": "AI**不应**代替用户行动",
+        "utf8Bytes": 30,
+        "sha256": "06db2b235518cad2c915ea83c5b533171cbb5d454c759e98e1f64a1b6b38b65f"
+      },
+      "observations": [
+        "可见页面第三条只渲染HTML面板；通过该回复编辑查看框只读取得现有文本，未改字、未保存，取消关闭。",
+        "第二条编辑查看框只有85个UTF-16代码单元的开头和未闭合text围栏，未见主体；原因未知，不以积分或完整标签补造正文。",
+        "第三条原始消息文本为14491个UTF-16代码单元，开头明确称优化后的完整提示词，末尾有修改摘要；虽然对应问题要求原版，仍只能记改写参考。",
+        "可研究用NPC主动反应承接简短玩家输入，而不代演玩家；天赋效果与玩家性格分离。",
+        "面板区分携带/仓库、个人/团队资源、长期队友/临时剧情角色；这些是该卡内容语义，不授权本轮新增仓储、经济、任务或战力系统。",
+        "记忆要求保存剧情因果并避免重复属性装备；可研究资料分工，但STM/PWM/LTM固定计数和无界归档属于后续可选插件参考。",
+        "模型面板被称为唯一权威数据源、输出自检通过句被当作正确证明，均与本项目外部校验和显式状态提交不同；不把自述当验收。",
+        "战斗力量化公式和任务奖励流程不视作跨世界通用规则或真实科学依据；HTML中也有重复文档标签，不能直接复用渲染代码。"
+      ],
+      "interpretationStatus": "research_candidate_not_adopted"
+    }
+  ],
+  "acquisitionExceptions": [
+    {
+      "cardId": "82e261bc-2d95-4c41-8913-e0cf2756fc04",
+      "observation": "Page copy button returned no readable clipboard text; no content claim made from that attempt."
+    },
+    {
+      "cardId": "82e261bc-2d95-4c41-8913-e0cf2756fc04",
+      "observation": "One cancel action timed out; fresh DOM confirmed dialog still present, cancel retried, then hidden state verified. No text changed or saved; no model request."
+    }
+  ]
+}

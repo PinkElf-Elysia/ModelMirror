@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "round": "RPG-04",
+  "probeId": "RPG04-WEB-03",
+  "sourceUrl": "https://afengy.cash/zh/explore/installed/e23bbc64-4fdd-46d8-92c0-64923961e5d8",
+  "sessionLabel": "新的对话-8",
+  "modelLabel": "deepseek-v3.2",
+  "siteChannelLabel": "manei_deepseek",
+  "pageTimestamp": "2026-09-08 08:52:46",
+  "pageTimezoneVerified": false,
+  "provenanceClass": "model_return_unverified_source",
+  "captureMethod": "Completed visible accessibility text, selected excerpts and paraphrases; no server prompt or reasoning trace",
+  "terminalEvidence": [
+    "Four requested sections complete",
+    "Site points visible",
+    "Empty enabled input"
+  ],
+  "sitePoints": {
+    "input": 140,
+    "output": 25,
+    "total": 165,
+    "notTokensOrMoney": true
+  },
+  "observations": [
+    {
+      "topic": "host_identity",
+      "shortExcerpt": "AI=穿越系统（V.C.Core/无情执行端）",
+      "claim": "Host manages worlds, status, tasks and card-specific systems."
+    },
+    {
+      "topic": "agency",
+      "claim": "Unlike WEB01, this model says an explicit prohibition on deciding for the player was not visible; agency is an inference."
+    },
+    {
+      "topic": "output_structure",
+      "claim": "Time/place and narrative followed by player, interaction object, system, world, supplemental status and memory modules. Model describes HTML formatting; no UI copying or executable HTML adopted."
+    },
+    {
+      "topic": "manual_save",
+      "shortExcerpt": "禁止你自动生成或修改，只允许玩家手动指令",
+      "claim": "Model describes manually triggered saves."
+    },
+    {
+      "topic": "suggestions",
+      "claim": "A-E recommendations are described, but free choice is partly inferred."
+    }
+  ],
+  "comparison": {
+    "freshConversation": true,
+    "differentSiteModelLabel": true,
+    "backendModelIdentityVerified": false,
+    "agreements": [
+      "Host identity",
+      "Broad output modules",
+      "Manual save reference",
+      "Seven-entry memory reference"
+    ],
+    "disagreements": [
+      "Whether explicit player-decision prohibition exists"
+    ],
+    "conclusion": "Cross-probe consistency supports design hypotheses only, not authenticated source text."
+  },
+  "adoption": {
+    "authoredHostContract": true,
+    "automaticStateCommit": false,
+    "copyHtml": false,
+    "copyReasoningTemplate": false,
+    "cardSpecificMechanicsInCore": false
+  },
+  "limitations": [
+    "Compressed model response rather than verified original prompt",
+    "Hidden source and actual model route unavailable",
+    "No full prompt extraction",
+    "Instruction-hierarchy and unrestricted-mode claims are not adopted"
+  ]
+}

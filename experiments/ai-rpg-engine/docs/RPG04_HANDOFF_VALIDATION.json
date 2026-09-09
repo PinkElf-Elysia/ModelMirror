@@ -1,0 +1,69 @@
+{
+  "round": "RPG-04",
+  "date": "2026-09-09",
+  "status": "at_independent_audit_handoff",
+  "claimAllowed": false,
+  "base": "1b280ed257a45672c4a3dc03745fcb585685faf9",
+  "branch": "codex/ai-rpg-rpg04-context",
+  "checks": [
+    {
+      "command": "node --test tests/context-*.test.mjs tests/contracts.test.mjs tests/content-*.test.mjs tests/archive-*.test.mjs tests/world-source.test.mjs tests/worker-*.test.mjs tests/runtime-contracts.test.mjs tests/runtime-store.test.mjs tests/runtime-core.test.mjs tests/runtime-adapter.test.mjs tests/runtime-plugin-host.test.mjs tests/runtime-cli.test.mjs",
+      "tests": 322,
+      "passed": 321,
+      "failed": 0,
+      "skipped": 1,
+      "skipReason": "RPG04_HARNESS_CONFIG not provided; context-http-integration.test.mjs"
+    },
+    {
+      "command": "node --test tests/rpg04-content.test.mjs",
+      "tests": 8,
+      "passed": 8,
+      "failed": 0
+    },
+    {
+      "command": "node scripts/check-boundary-rpg04.mjs",
+      "result": "RPG04_BOUNDARY_OK mode=complete frozen=baseline-blobs"
+    },
+    {
+      "command": "git diff --check",
+      "exitCode": 0
+    },
+    {
+      "command": "git diff --cached --name-only",
+      "result": "empty"
+    }
+  ],
+  "historicalResearchManifest": {
+    "allListedHashesMatch": true,
+    "entries": 14,
+    "coversRpg04NewFiles": false
+  },
+  "provider": {
+    "newDispatchesThisBatch": 0,
+    "consumed": 10,
+    "authorized": 10,
+    "remaining": 0,
+    "model": "gpt-5.6-luna",
+    "validNarrativeTurns": 6,
+    "manualQualityAccepted": true,
+    "mixedHostVersions": true
+  },
+  "outstanding": [
+    "Independent suspect-clause, adult-category, prose-length and engineering audit",
+    "Independent closeout and next-round plan",
+    "Final RPG04 aggregate scripts and research manifest update"
+  ],
+  "newReference": {
+    "title": "Jiuxiao cultivation sandbox",
+    "decision": "future_card_candidate_no_current_prompt_integration",
+    "newPromptChangesRequireApproval": true
+  },
+  "publication": {
+    "commit": false,
+    "push": false,
+    "pr": false,
+    "merge": false,
+    "deploy": false
+  },
+  "userOutputApprovalReference": "RPG04_USER_REVIEW_RESULTS.json#/userApprovalRecord"
+}

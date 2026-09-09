@@ -1,0 +1,589 @@
+{
+  "format": "modelmirror.ai-rpg.rpg04-approved-content",
+  "formatVersion": "0.1.0",
+  "resources": {
+    "styles": [
+      {
+        "id": "style.rpg04.gu.approved",
+        "displayName": "克制的修行叙事（已批准）",
+        "sourceRefs": [
+          "source.rpg04-approved-authored"
+        ],
+        "instruction": "保持冷峻、克制的修行叙事。优先通过人物当下处境、可见动作、环境细节、信息差与选择代价呈现压力；交锋只写当前叙事视角可观察或已有资料明确给出的线索、可用资源和判断，不泄露其他人物未表达的内情，不用空泛威压替代过程。人物可以逐利、谨慎或强硬，但不能因世界残酷就无依据地把善意写成阴谋，也不能替玩家补写内心、台词或决定。紧张处可收紧语势，平静处保留观察和谈判空间，不强制固定句长或段落比例。原创风格示范：“纸角被风掀起，又贴回潮湿的木板。陆禾按住册页，没有催促，只等来人先开口。”该句只示范具体观察、克制语气和人物间距，不是剧情事实，不得据此认定纸张、天气、陆禾或会面已经出现。"
+      }
+    ],
+    "worldbookEntries": [
+      {
+        "id": "worldbook.rpg04.gu.chores-court-luhe",
+        "displayName": "杂务院与值事陆禾",
+        "sourceRefs": [
+          "source.rpg04-approved-authored"
+        ],
+        "content": "本实验自主虚构的杂务院设在一处未命名门派外院。石阶尽头是值事房，门前布告板只列可询问、可认领的门内杂务；看见布告或进入院门不代表玩家已经接取差事。陆禾是此处值事，负责登记来意、说明要求和确认承接者。陆禾说话简短，重视责任是否写清；她只依据当面所见、来人自述和门内日常作判断，不知道玩家未公开的经历、天赋或内心。陆禾可以拒绝、追问或提出条件，但不能替玩家接受任务、支付代价或作出承诺。",
+        "tags": [
+          "自主虚构",
+          "地点",
+          "人物",
+          "杂务院",
+          "陆禾"
+        ],
+        "visibility": "shared",
+        "worldRefs": [
+          "world.gu"
+        ]
+      },
+      {
+        "id": "worldbook.rpg04.shared.original-gameplay",
+        "displayName": "原卡跨世界玩法",
+        "sourceRefs": [
+          "source.rpg04-approved-derived"
+        ],
+        "content": "# 世界观设定\n[背景]\n多元宇宙由无数个[位面]组成。玩家是一名[时空偷渡者]，初始状态极为弱小。\n[核心目标]\n玩家必须潜入不同的世界，从最底层的蝼蚁（E级存在）做起，通过掠夺、欺诈、战斗、经营等手段，提升自己在该世界的[因果锚定等级]。\n[世界重要度等级]\n衡量玩家在当前世界的重要程度。\n等级划分：E -> D -> C -> B -> A -> S -> SS -> SSS\n\n# 物品与等级体系\n所有物品、技能、天赋、装备、材料均遵循以下颜色等级：\n[负面/诅咒]\n黑色 (E)：致命缺陷，必死诅咒。\n灰色 (D)：残次品，带有严重副作用。\n[正面/增益]\n白色 (C)：普通，无功无过。\n绿色 (B)：优秀，略强于常人。\n蓝色 (A)：稀有，精英阶层。\n紫色 (S)：史诗，能够改变局部战局。\n金色 (SS)：传说，镇国之宝。\n红色 (SSS)：神话，涉及世界的核心法则与概念。\n彩色 (UR)：至高，凌驾于神话之上、跨越位面本身的权柄，一律带【唯一·位面级】标记，攻略结算后可带入下一个世界；一个世界至多出现一件，系统商店极小概率刷出且价格不低于 200000 Pts。\n\n# 游戏机制\n1. [高难度开局]\n玩家每次进入新世界，身份必须是社会最底层或是最路边的npc，没有任何机遇，周围环境极其恶劣。\n2. [死亡与重生]\n玩家死亡是常态。\n[存档]：玩家可在非战斗状态随时存档。\n[读档复活]：死亡后，玩家选择读取任意存档。\n[遗产继承]：这是玩家唯一的金手指。每次读档复活时，玩家可以从[上一次死亡前的游戏进程]中强制提取一项事物保留到新读档中。\n(例如：在A档作为皇帝老死，读档回B档乞丐时期，可选择继承[皇帝的威严]或[禁卫军统领的忠诚])。\n3. [积分系统]\n来源：完成随机发布的[系统任务]；攻略世界成功（达到S级锚定）后结算。\n用途：\n[局内商店]：购买临时道具、恢复药剂、情报。\n[天赋商店]：在世界结算后开启，购买永久天赋，带入下一个世界。",
+        "tags": [
+          "原卡玩法",
+          "跨世界",
+          "等级",
+          "商店",
+          "存档"
+        ],
+        "visibility": "shared",
+        "worldRefs": []
+      },
+      {
+        "id": "worldbook.rpg04.shared.approved-card-guidance",
+        "displayName": "已批准的本卡回合指引",
+        "sourceRefs": [
+          "source.rpg04-approved-derived"
+        ],
+        "content": "【推荐行动】\nA. {激进/冒险的选项}\nB. {保守/稳妥的选项}\nC. {智谋/特殊的选项}\nD. {逃避/放弃的选项}\nE. {色情/堕落/欲望的选项}\n\n默认保留原模板 A–E 五项及各自类别，按当前局面生成对应建议。只有用户明确选择无类别回退时，才解除类别限定，仍保留五项；未选择时不得由模型自行切换。每项须与当前局面相关，表达清楚并有可理解的区别；使用 action、speech、query，或带已声明 commandRef 的 command。建议是非穷尽且尚未选择的选项，玩家仍可自行输入，不得写成玩家真实欲望或已执行事实。两种方式均遵守已确认的玩家自主权与创作边界。\n\n经济、任务、等级、死亡、重生、存档、结算与跨世界继承，依当前卡片明确给出的玩法文字处理，不作为所有卡片通用的规则；同一卡片跨世界的共享玩法按原适用范围保留。身份、物品或天赋的等级不自动等于人物战力、成功率或系统权限。\n\n若当前卡片提供商店玩法，按其开放条件、刷新条件和商品数量展示商品，保留卡片要求的商品范围、类型、价格和效果说明；未提供商店玩法时不自行添加。原卡要求每次回复刷新五个随机商品；查询只展示已有商店信息，不触发刷新。展示商品不代表玩家已购买，购买行动仍按玩家输入与既定状态提交规则处理。\n\n等级名称、颜色含义及效果说明按当前卡片保留。已有资源以卡包记录为准；新出现的物品按当前卡片规则描述。需要展示时，将名称、等级、颜色含义与效果写入已声明的信息模块字段；不输出着色用的 HTML 标签或 CSS class，不新增未声明字段。卡片未提供等级体系或颜色对应关系时，不自行补造。\n\n本卡普通剧情正文以800–1200字为默认参考，而非每回合必须凑满的硬限制。按本轮输入类型、场景节奏与文风安排篇幅：查询直接答清问题，简短互动可短，关键场景应充分展开。在既定输出预算内优先保留人物情感、有效对白和关键情节，不为凑字重复，也不为求短跳过必要发展；800–1200字只计剧情正文，不计信息模块。\n\n【天赋词条】（绝对禁止修改）\n\n- [出场NPC姓名]-[在其第一视角观测到的内容]-[NPC的人设] -&gt [该NPC的反应（严格遵守防神化、防绝望、防机械化限定及上述有限设定例外）]-[生成交互对象1状态栏]（100字以内）\n\n【绝对禁令】：绝对禁止将玩家的行为恶意揣测为别有用心，别有意图的目的，绝对禁止发散玩家的想法和行为，绝对禁止将玩家阴谋化，阴冷化，反派化，占有欲爆棚，冷漠强大，玩弄人心，玩家并没有那些意图，也必须杜绝一切NPC对玩家的莫名臣服，渴望和绝望神化，必须绝对禁止此类现象出现",
+        "tags": [
+          "本卡规则",
+          "五项建议",
+          "五槽商店",
+          "等级",
+          "正文篇幅"
+        ],
+        "visibility": "shared",
+        "worldRefs": []
+      },
+      {
+        "id": "worldbook.rpg04.shared.memory-and-shop-verbatim",
+        "displayName": "原卡记忆语义与批准商店条款",
+        "sourceRefs": [
+          "source.rpg04-approved-derived"
+        ],
+        "content": "若当前卡片提供商店玩法，按其开放条件、刷新条件和商品数量展示商品，保留卡片要求的商品范围、类型、价格和效果说明；未提供商店玩法时不自行添加。查询只展示已有商店信息，不触发刷新。展示商品不代表玩家已购买，购买行动仍按玩家输入与既定状态提交规则处理。\n\n原卡保留语义：每次回复刷新五个随机商品。\n\n4. 记忆区更新（每次回复生成一条短期记忆，若满7条则进行总结，生成一条长期记忆归档至长期记忆，随后清零继续记录短期记忆，存档禁止由你主动生成）\n- 当前短期记忆条数：\n- 是否需要进行总结：\n- 本次回复进行的记忆区操作：\n\n【长期记忆 (LTM)】\n\n| 编号 | 剧情总结 |\n| --- | --- |\n| L1 | {总结S1~S7的关键剧情} |\n\n【短期记忆 (STM)】\n\n| 编号 | 时间 | 地点 | 对象 | 事件 |\n| --- | --- | --- | --- | --- |\n| S1 | {Time} | {Place} | {NPC} | {Event} |\n\n(注：每轮仅追加一行新S，旧S逐字保留；表格表头与分隔行每轮原样保留；生成S7后，下一轮将S1~S7压缩为一条新L并清空STM重新从S1计数)\n\n【存档记录】（禁止你自动生成或修改，只允许玩家手动指令）\nSlot 1：{时间/地点/身份/重要度/核心资产}",
+        "tags": [
+          "本卡规则",
+          "商店",
+          "STM",
+          "LTM",
+          "存档"
+        ],
+        "visibility": "shared",
+        "worldRefs": []
+      }
+    ],
+    "informationModules": [
+      {
+        "id": "info.rpg04.player",
+        "displayName": "玩家资料",
+        "description": "完整查看时承载当前上下文已知且可公开的玩家资料；values只是候选展示载荷，不声明已持久化。",
+        "sourceRefs": [
+          "source.rpg04-approved-derived"
+        ],
+        "presentation": "keyValue",
+        "fields": [
+          {
+            "id": "field.rpg04.player.identity",
+            "label": "身份",
+            "valueType": "text"
+          },
+          {
+            "id": "field.rpg04.player.profile",
+            "label": "角色资料",
+            "valueType": "list"
+          },
+          {
+            "id": "field.rpg04.player.resources",
+            "label": "持有资源",
+            "valueType": "list"
+          }
+        ]
+      },
+      {
+        "id": "info.rpg04.npcs",
+        "displayName": "NPC与关系",
+        "description": "按场景相关、变化或明确查询承载NPC资料；文本/list保留当前、变化与原因语义，不能表示结构化记录或已提交状态。",
+        "sourceRefs": [
+          "source.rpg04-approved-derived"
+        ],
+        "presentation": "keyValue",
+        "fields": [
+          {
+            "id": "field.rpg04.npcs.current",
+            "label": "当前NPC与关系",
+            "valueType": "list"
+          },
+          {
+            "id": "field.rpg04.npcs.changes",
+            "label": "变化与原因",
+            "valueType": "list"
+          }
+        ]
+      },
+      {
+        "id": "info.rpg04.assets",
+        "displayName": "物品、天赋与等级效果",
+        "description": "名称、等级、颜色含义、效果、限制、代价及变化以文本/list承载；已有资源仍以卡包记录为准。",
+        "sourceRefs": [
+          "source.rpg04-approved-derived"
+        ],
+        "presentation": "keyValue",
+        "fields": [
+          {
+            "id": "field.rpg04.assets.entries",
+            "label": "名称与效果",
+            "valueType": "list"
+          },
+          {
+            "id": "field.rpg04.assets.rank-legend",
+            "label": "等级与颜色含义",
+            "valueType": "list"
+          },
+          {
+            "id": "field.rpg04.assets.changes",
+            "label": "变化与原因",
+            "valueType": "list"
+          }
+        ]
+      },
+      {
+        "id": "info.rpg04.quests",
+        "displayName": "任务与线索",
+        "description": "任务状态、条件、进度、来源与提交性以文本/list承载；展示不等于接取、完成或提交。",
+        "sourceRefs": [
+          "source.rpg04-approved-derived"
+        ],
+        "presentation": "keyValue",
+        "fields": [
+          {
+            "id": "field.rpg04.quests.entries",
+            "label": "任务与条件",
+            "valueType": "list"
+          },
+          {
+            "id": "field.rpg04.quests.clues",
+            "label": "剧情线索与来源",
+            "valueType": "list"
+          },
+          {
+            "id": "field.rpg04.quests.commitment",
+            "label": "进度与提交状态",
+            "valueType": "list"
+          }
+        ]
+      },
+      {
+        "id": "info.rpg04.shop",
+        "displayName": "五槽商店",
+        "description": "五个商品槽位以有序list承载名称、类型、价格和效果；刷新条件另列。查询只展示已有信息，展示不代表购买。",
+        "sourceRefs": [
+          "source.rpg04-approved-derived"
+        ],
+        "presentation": "keyValue",
+        "fields": [
+          {
+            "id": "field.rpg04.shop.slots",
+            "label": "五个商品槽位",
+            "valueType": "list"
+          },
+          {
+            "id": "field.rpg04.shop.refresh",
+            "label": "开放与刷新条件",
+            "valueType": "text"
+          },
+          {
+            "id": "field.rpg04.shop.purchase",
+            "label": "购买提案与提交状态",
+            "valueType": "list"
+          }
+        ]
+      },
+      {
+        "id": "info.rpg04.world",
+        "displayName": "世界现状",
+        "description": "承载地点、时间、可观察现状、因果锚定等级和待确认事实；未返回不表示清空。",
+        "sourceRefs": [
+          "source.rpg04-approved-derived"
+        ],
+        "presentation": "keyValue",
+        "fields": [
+          {
+            "id": "field.rpg04.world.location-time",
+            "label": "时间与地点",
+            "valueType": "text"
+          },
+          {
+            "id": "field.rpg04.world.situation",
+            "label": "世界现状",
+            "valueType": "list"
+          },
+          {
+            "id": "field.rpg04.world.anchor-rank",
+            "label": "因果锚定等级",
+            "valueType": "text"
+          },
+          {
+            "id": "field.rpg04.world.unknown",
+            "label": "待确认",
+            "valueType": "list"
+          }
+        ]
+      },
+      {
+        "id": "info.rpg04.memory",
+        "displayName": "STM、LTM与存档",
+        "description": "保留原卡短期记忆、总结触发、记忆区操作、长期记忆与存档信息需求。values仅为本轮候选展示内容，不证明记忆引擎、压缩或持久化已实现；存档不得由模型主动生成或修改。",
+        "sourceRefs": [
+          "source.rpg04-approved-derived"
+        ],
+        "presentation": "keyValue",
+        "fields": [
+          {
+            "id": "field.rpg04.memory.stm",
+            "label": "短期记忆STM",
+            "valueType": "list"
+          },
+          {
+            "id": "field.rpg04.memory.summary-trigger",
+            "label": "总结触发",
+            "valueType": "text"
+          },
+          {
+            "id": "field.rpg04.memory.operation",
+            "label": "本轮记忆区操作",
+            "valueType": "text"
+          },
+          {
+            "id": "field.rpg04.memory.ltm",
+            "label": "长期记忆LTM",
+            "valueType": "list"
+          },
+          {
+            "id": "field.rpg04.memory.saves",
+            "label": "存档记录",
+            "valueType": "list"
+          }
+        ]
+      }
+    ]
+  },
+  "openingBindings": {
+    "opening.rpg04-approved.gu": {
+      "baseRef": "opening.rpg04.gu",
+      "styleRef": "style.rpg04.gu.approved",
+      "worldbookRefs": [
+        "worldbook.rpg04.gu.chores-court-luhe",
+        "worldbook.rpg04.shared.original-gameplay",
+        "worldbook.rpg04.shared.approved-card-guidance",
+        "worldbook.rpg04.shared.memory-and-shop-verbatim"
+      ],
+      "informationModuleRefs": [
+        "info.rpg04.player",
+        "info.rpg04.npcs",
+        "info.rpg04.assets",
+        "info.rpg04.quests",
+        "info.rpg04.shop",
+        "info.rpg04.world",
+        "info.rpg04.memory"
+      ]
+    },
+    "opening.rpg04-approved.minecraft": {
+      "baseRef": "opening.rpg04.minecraft",
+      "worldbookRefs": [
+        "worldbook.rpg04.shared.original-gameplay",
+        "worldbook.rpg04.shared.approved-card-guidance",
+        "worldbook.rpg04.shared.memory-and-shop-verbatim"
+      ],
+      "informationModuleRefs": [
+        "info.rpg04.player",
+        "info.rpg04.npcs",
+        "info.rpg04.assets",
+        "info.rpg04.quests",
+        "info.rpg04.shop",
+        "info.rpg04.world",
+        "info.rpg04.memory"
+      ]
+    }
+  },
+  "profileMapping": {
+    "aliases": [
+      {
+        "text": "杂务院",
+        "kind": "worldbook",
+        "worldRef": "world.gu",
+        "resourceRef": "worldbook.rpg04.gu.chores-court-luhe"
+      },
+      {
+        "text": "陆禾",
+        "kind": "worldbook",
+        "worldRef": "world.gu",
+        "resourceRef": "worldbook.rpg04.gu.chores-court-luhe"
+      }
+    ],
+    "loreRules": [
+      {
+        "entryRef": "worldbook.rpg04.gu.chores-court-luhe",
+        "worldRefs": [
+          "world.gu"
+        ],
+        "required": false,
+        "priority": 0,
+        "trigger": {
+          "sceneRefs": [],
+          "resourceRefs": [],
+          "allKeywords": [],
+          "anyKeywords": [
+            "杂务院",
+            "陆禾"
+          ],
+          "notKeywords": [],
+          "stateConditions": []
+        },
+        "conflictGroup": null,
+        "replaces": []
+      },
+      {
+        "entryRef": "worldbook.rpg04.shared.original-gameplay",
+        "worldRefs": [],
+        "required": true,
+        "priority": 100,
+        "trigger": {
+          "sceneRefs": [
+            "scene.rpg04.gu",
+            "scene.rpg04.minecraft"
+          ],
+          "resourceRefs": [],
+          "allKeywords": [],
+          "anyKeywords": [],
+          "notKeywords": [],
+          "stateConditions": []
+        },
+        "conflictGroup": null,
+        "replaces": []
+      },
+      {
+        "entryRef": "worldbook.rpg04.shared.approved-card-guidance",
+        "worldRefs": [],
+        "required": true,
+        "priority": 100,
+        "trigger": {
+          "sceneRefs": [
+            "scene.rpg04.gu",
+            "scene.rpg04.minecraft"
+          ],
+          "resourceRefs": [],
+          "allKeywords": [],
+          "anyKeywords": [],
+          "notKeywords": [],
+          "stateConditions": []
+        },
+        "conflictGroup": null,
+        "replaces": []
+      },
+      {
+        "entryRef": "worldbook.rpg04.shared.memory-and-shop-verbatim",
+        "worldRefs": [],
+        "required": true,
+        "priority": 100,
+        "trigger": {
+          "sceneRefs": [
+            "scene.rpg04.gu",
+            "scene.rpg04.minecraft"
+          ],
+          "resourceRefs": [],
+          "allKeywords": [],
+          "anyKeywords": [],
+          "notKeywords": [],
+          "stateConditions": []
+        },
+        "conflictGroup": null,
+        "replaces": []
+      },
+      {
+        "entryRef": "worldbook.rpg04.gu.courtyard",
+        "worldRefs": [
+          "world.gu"
+        ],
+        "required": false,
+        "priority": 50,
+        "trigger": {
+          "sceneRefs": [
+            "scene.rpg04.gu"
+          ],
+          "resourceRefs": [],
+          "allKeywords": [],
+          "anyKeywords": [],
+          "notKeywords": [],
+          "stateConditions": []
+        },
+        "conflictGroup": null,
+        "replaces": []
+      },
+      {
+        "entryRef": "worldbook.rpg04.gu.steward",
+        "worldRefs": [
+          "world.gu"
+        ],
+        "required": false,
+        "priority": 50,
+        "trigger": {
+          "sceneRefs": [
+            "scene.rpg04.gu"
+          ],
+          "resourceRefs": [],
+          "allKeywords": [],
+          "anyKeywords": [],
+          "notKeywords": [],
+          "stateConditions": []
+        },
+        "conflictGroup": null,
+        "replaces": []
+      },
+      {
+        "entryRef": "worldbook.rpg04.gu.basics",
+        "worldRefs": [
+          "world.gu"
+        ],
+        "required": false,
+        "priority": 50,
+        "trigger": {
+          "sceneRefs": [
+            "scene.rpg04.gu"
+          ],
+          "resourceRefs": [],
+          "allKeywords": [],
+          "anyKeywords": [],
+          "notKeywords": [],
+          "stateConditions": []
+        },
+        "conflictGroup": null,
+        "replaces": []
+      },
+      {
+        "entryRef": "worldbook.rpg04.minecraft.shelter",
+        "worldRefs": [
+          "world.minecraft"
+        ],
+        "required": false,
+        "priority": 50,
+        "trigger": {
+          "sceneRefs": [
+            "scene.rpg04.minecraft"
+          ],
+          "resourceRefs": [],
+          "allKeywords": [],
+          "anyKeywords": [],
+          "notKeywords": [],
+          "stateConditions": []
+        },
+        "conflictGroup": null,
+        "replaces": []
+      },
+      {
+        "entryRef": "worldbook.rpg04.minecraft.villager",
+        "worldRefs": [
+          "world.minecraft"
+        ],
+        "required": false,
+        "priority": 50,
+        "trigger": {
+          "sceneRefs": [
+            "scene.rpg04.minecraft"
+          ],
+          "resourceRefs": [],
+          "allKeywords": [],
+          "anyKeywords": [],
+          "notKeywords": [],
+          "stateConditions": []
+        },
+        "conflictGroup": null,
+        "replaces": []
+      },
+      {
+        "entryRef": "worldbook.rpg04.minecraft.basics",
+        "worldRefs": [
+          "world.minecraft"
+        ],
+        "required": false,
+        "priority": 50,
+        "trigger": {
+          "sceneRefs": [
+            "scene.rpg04.minecraft"
+          ],
+          "resourceRefs": [],
+          "allKeywords": [],
+          "anyKeywords": [],
+          "notKeywords": [],
+          "stateConditions": []
+        },
+        "conflictGroup": null,
+        "replaces": []
+      }
+    ]
+  },
+  "stateFields": [
+    {
+      "id": "state.rpg04.memory.stm",
+      "displayName": "短期记忆STM",
+      "modelMayPropose": true,
+      "valueType": "shortText",
+      "initialValue": "（空）",
+      "maxLength": 4096
+    },
+    {
+      "id": "state.rpg04.memory.ltm",
+      "displayName": "长期记忆LTM",
+      "modelMayPropose": true,
+      "valueType": "shortText",
+      "initialValue": "（空）",
+      "maxLength": 4096
+    },
+    {
+      "id": "state.rpg04.memory.saves",
+      "displayName": "玩家存档记录",
+      "modelMayPropose": true,
+      "valueType": "shortText",
+      "initialValue": "（空）",
+      "maxLength": 4096
+    }
+  ],
+  "approvalMapping": {
+    "appliedItemIds": [
+      "S01",
+      "S02",
+      "L01",
+      "L02",
+      "P08",
+      "P09",
+      "P10",
+      "P14",
+      "P16",
+      "P18",
+      "P20",
+      "P22"
+    ],
+    "sourceDocument": "docs/RPG04_INTEGRATED_REVIEW.md",
+    "sourceDocumentSha256": "4254496914a555a7bcca3a0594d1e45153df3c85fcf61b5add73580f2fc7f01f",
+    "approvalDocument": "docs/RPG04_OPTIMIZATION_APPROVAL.json",
+    "approvalDocumentSha256": "3794d5ddcd4b14f01ceb798762b1ec84c672461ae2d4e1e5076b391c3cf90d70",
+    "limitations": [
+      "informationModule字段只能承载text、number、boolean或list，嵌套记录语义被展开为稳定字段。",
+      "模块values是候选展示载荷；只有经既有接受流程提交的state.rpg04.memory.*才成为下一轮当前事实。",
+      "三个shortText状态字段只复用既有提案与接受流程；未新增计数、压缩、自动存档规则、运行权限、经济引擎、记忆引擎或存档引擎，超出4096字符由现有合同拒绝且不截断。",
+      "Minecraft既有自主样例按S01形式保留，未新增具体措辞审批。",
+      "无类别建议回退开关尚无UI；本离线卡包默认固定A–E类别，不能声称用户已可切换。"
+    ]
+  }
+}

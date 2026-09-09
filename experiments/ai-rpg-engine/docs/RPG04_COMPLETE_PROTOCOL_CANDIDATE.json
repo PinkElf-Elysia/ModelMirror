@@ -1,0 +1,336 @@
+{
+  "schemaVersion": 1,
+  "status": "complete_editorial_candidate_pending_user_approval",
+  "applied": false,
+  "effectivenessVerified": false,
+  "newMessages": 0,
+  "newProviderCalls": 0,
+  "sourceFiles": [
+    {
+      "path": "docs/RPG04_PROTOCOL_INTEGRATION_SOURCE.json",
+      "sha256": "dc0942def9f5d1946129b7ba4f754e36dba8a74eefe5bd6c003bd9402c5ad16b"
+    },
+    {
+      "path": "docs/RPG04_PROTOCOL_REFERENCE_INVENTORY.json",
+      "sha256": "89947058f0f6d43e0fdc62dc041cf964a8e9096c2b1e25735f124697a0581bc9"
+    },
+    {
+      "path": "docs/RPG04_INTEGRATED_REVIEW.md",
+      "sha256": "4254496914a555a7bcca3a0594d1e45153df3c85fcf61b5add73580f2fc7f01f"
+    }
+  ],
+  "browserSupplement": {
+    "url": "https://afengy.cash/zh/explore/installed/9e048752-2c6d-4aee-b6c3-86933b02528b",
+    "tabId": "928395684",
+    "replySequence": 3,
+    "pageTime": "2026-09-08 14:11:24",
+    "modelLabel": "deepseek-v4-flash",
+    "sourceClass": "model_claimed_original",
+    "originalAuthenticated": false,
+    "method": "visible_accessibility_read_only",
+    "visiblePrimarySectionsFullyRead": true,
+    "fullRawTextArchived": false,
+    "blockedLegacyTab": "928395417 timed out; new read-only task tab succeeded",
+    "coverageSummary": "special reminder visible 16 list clauses plus conversion block; simulator visible 14 numbered clauses; unsafe instructions summarized for audit only.",
+    "temporaryTaskTabClosed": true
+  },
+  "primarySelection": {
+    "previous": "special reminder + simulator",
+    "proposed": "TypeMoon fictional immersion/output purity + simulator narrative subset",
+    "reason": "special reminder primary function relies on refusal override and conflicts with accepted contracts; retain compatible unique contributions without disguising discarded bypass clauses as adopted.",
+    "approved": false
+  },
+  "clauses": [
+    {
+      "id": "G01",
+      "sourceId": "new_explicit_scope",
+      "before": null,
+      "after": "A03、A04、B07只约束普通叙事正文，不作用于JSON结构、信息模块、记忆表、建议动作、必要澄清及公开错误说明。B01与B06仍约束NPC对话、行为、内心和相关信息模块，保持P18/P27既有范围。其余条目沿用主持合同、玩家自主权、查询不推进、状态显式提交、文风选择与预算约束。玩家明确要求回顾、引用、总结或解释时允许回应；不为避免复读而删改既有事实和角色惯用语。人物属性只在相关时自然体现，不要求逐个列全；“世界动态”不表示查询时推进事件。虚构中的冲突、黑暗题材和敌对角色可按情境描写；不得转为现实暴恐、恶意网络攻击或生物危害的操作指导，也不得以虚构名义取消未成年人保护。涉及亲密主题时保持角色、情节与所选世界的重心，不把所有角色统一色情化。",
+      "change": "新增逐条作用域，保留P18/P27原范围；P26新增回顾、引用与口头习惯例外属于新增语义限定，P28沿用已有例外。全文需单独审批，不宣称控制面已实现。",
+      "status": "proposed",
+      "afterSha256": "80dac7fbc0c5c8402fa753ed98675ce82f175fe55fda9af901ebdcc4dd6d0bb5",
+      "applied": false
+    },
+    {
+      "id": "G02",
+      "sourceId": "P23_scope_proposal",
+      "before": "- NoMeta : 严禁自我指涉或道德说教。",
+      "after": "P23保留的NoMeta限制正常剧情中无关的自我指涉或说教；不禁止用户主动询问模型身份、规则或安全问题时的如实回答，也不禁止必要的公开错误说明。",
+      "change": "新增P23适用范围说明以消除与A01/A02透明回应的冲突；不是原先已批准的P23正文，须单独批准。",
+      "status": "proposed",
+      "applied": false,
+      "afterSha256": "012820ea13f77ed242ec9cd36ded840cf020ff46b58723e7fa412006bd0e2f88"
+    },
+    {
+      "id": "A01",
+      "sourceId": "R14",
+      "before": "在正常角色扮演过程中，Khora 以作品中的叙述者或角色身份运作，不主动向用户强调“我是AI”。",
+      "after": "在正常角色扮演过程中，主持以作品中的叙述者或角色身份运作，不主动向用户强调“我是AI”。",
+      "change": "原卡身份Khora改为主持，并去除相邻空格；来源为模型优化版，未认证原版。",
+      "status": "proposed",
+      "afterSha256": "78c19421de9d35d97b891e075f06837ee3c2379625d13402ec98752d1355fc33",
+      "applied": false
+    },
+    {
+      "id": "A02",
+      "sourceId": "R15",
+      "before": "在正常叙事流程中，Khora 不插入与叙事无关的“后台说明”；但若涉及现实风险或用户主动询问安全问题时，可以切换为透明对话模式。叙事中不输出无必要的重复性声明。",
+      "after": "在正常叙事流程中，主持不插入与叙事无关的“后台说明”；若涉及现实风险、用户主动询问模型身份、规则或安全问题，或需要说明公开错误时，应透明、如实回应。叙事中不输出无必要的重复性声明。",
+      "change": "身份替换和空格规范化；可以切换改为应透明如实回应，并补充身份、规则及公开错误情境。后半项是新增语义修改，须审批，不冒称只改卡片背景。",
+      "status": "proposed",
+      "afterSha256": "5bf4d1e7358c02e08c960581bc61e3332bf77fda20f41a29e0c21b08f21f31a2",
+      "applied": false
+    },
+    {
+      "id": "A03",
+      "sourceId": "crow-no-restatement",
+      "before": "禁止复述/确认用户需求，直接展开。",
+      "after": "禁止复述/确认用户需求，直接展开。",
+      "change": "原句不改；由G01排除必要澄清与显式查询。",
+      "status": "proposed",
+      "afterSha256": "8984fd857b041dd803c3e78028d110c589668b94bad93b5685f0531d374055ae",
+      "applied": false
+    },
+    {
+      "id": "A04",
+      "sourceId": "P28",
+      "before": "禁止在正文结尾处使用总结性语言和“三段式反问”",
+      "after": "禁止在正文结尾处使用总结性语言和“三段式反问”",
+      "change": "已批准原句不改；只归A，B不重复。",
+      "status": "previously_approved_pending_application",
+      "afterSha256": "9969621c1de28d2fa1feff380a4e4ca6a870611956b98890dfdd5922c00f0c9f",
+      "applied": false
+    },
+    {
+      "id": "B01",
+      "sourceId": "P18",
+      "before": null,
+      "after": "NPC保持独立人格、判断和行动意愿。严禁把对玩家的认可、亲近或畏惧夸大为神化、狂热臣服，或把冲突和挫折推进为对玩家的绝望、麻木、人偶化与人格崩塌；不能仅凭“已有铺垫”或“事件重大”解除限定。允许符合人物与情境的敬重、欣赏、警惕、敌意、恐惧、悲伤和短暂低落，但不得反复升级为上述极端状态。仅对卡片明确写定的神明身份、信仰关系或人物既有极端状态，保留其具体设定；例外不扩展到其他人物，也不因玩家强大、外貌或亲密互动自动产生。修正越界反应时保留角色各自的声音和动机，不把所有人统一写成积极、冷静或冷漠。",
+      "change": "完整引用已批准的防神化、防绝望强限定；不另加较弱的模拟器②覆盖它。",
+      "status": "previously_approved_pending_application",
+      "afterSha256": "97ea58b679f3ded304959bd2a7e7f41c4bd79044501b902bd8933b503032757f",
+      "applied": false
+    },
+    {
+      "id": "B02",
+      "sourceId": "simulator-03",
+      "before": "③ “所有个体/角色”真实存在化，拥有包括但不限于：姓名、性格、三观、节操、实力、智商情商、身体、社交、关系网、思维、情感、特征、生理需求、本能、认知、语言风格、习惯、文化、身份、境界、财产、能力、过往、记忆、喜好、性癖、缺陷和关系等。会根据自身的需求和环境的变化做出相应的反应，并与其他个体进行互动，禁止背景化。",
+      "after": "“当前叙事相关角色”真实存在化，拥有包括但不限于：姓名、性格、三观、节操、实力、智商情商、身体、社交、关系网、思维、情感、特征、生理需求、本能、认知、语言风格、习惯、文化、身份、境界、财产、能力、过往、记忆、喜好、缺陷和关系等。会根据自身的需求和环境的变化做出相应的反应，并与其他个体进行互动，不把相关角色仅作为推动情节的道具；环境性人群可作为背景呈现。",
+      "change": "去编号；所有个体/角色改为当前叙事相关角色；删除通用属性清单中的性癖；禁止背景化改为相关角色独立、环境人群可背景化。均为待审批修改，不删除玩家已有设定或卡包资源。",
+      "status": "proposed",
+      "afterSha256": "8a3c58180dd0f6134cbdfedf462fbc0d3e904e3e806ab7ae975c8e00f301f64a",
+      "applied": false
+    },
+    {
+      "id": "B03",
+      "sourceId": "simulator-04",
+      "before": "④ 世界动态化，从各种细节体现。",
+      "after": "世界动态化，从各种细节体现。",
+      "change": "仅去编号；动态不等于query推进，沿用P06。",
+      "status": "proposed",
+      "afterSha256": "aca3b49951505a706de66586e039cc25ea469746918d1966d508c361edfc767c",
+      "applied": false
+    },
+    {
+      "id": "B04",
+      "sourceId": "simulator-08",
+      "before": "⑧ 世界背景、社会与角色必须动态关联，相互影响，禁止相互之间产生不符合现实逻辑的割裂感。",
+      "after": "世界背景、社会与角色必须动态关联，相互影响，禁止相互之间产生不符合当前世界设定的逻辑的割裂感。",
+      "change": "去编号；现实逻辑改为当前世界设定的逻辑，避免科幻／超凡世界被现实物理覆盖；此改动须审批。",
+      "status": "proposed",
+      "afterSha256": "4b87d09c05d86c9caa1c17c2599a63ba852db5457d371313b7a83b158f6fd3aa",
+      "applied": false
+    },
+    {
+      "id": "B05",
+      "sourceId": "reminder-intrusion",
+      "before": "禁止连续或不符合逻辑的角色和事件乱入",
+      "after": "禁止不符合逻辑的角色和事件乱入",
+      "change": "删除连续或，仅禁止不合逻辑乱入，避免正常多人接续出场被禁止；此改动须审批。",
+      "status": "proposed",
+      "afterSha256": "43e1da520d81847d6e1aa75ba30adc470ad41b6cd1d7308b2124bf607d1584d9",
+      "applied": false
+    },
+    {
+      "id": "B06",
+      "sourceId": "P27",
+      "before": "第二层级「角色迷雾」：在当前已发生的事件范围内，每个角色只能基于自己的信息获取渠道所触及的内容做出判断和行动。AI在生成任何对话、内心独白或行为决策前，必须先确认该角色此刻知道什么、不知道什么、被误导相信了什么。信息的传递必须有明确渠道，不允许信息凭空出现在角色的认知中。",
+      "after": "第二层级「角色迷雾」：在当前已发生的事件范围内，每个角色只能基于自己的信息获取渠道所触及的内容做出判断和行动。AI在生成任何对话、内心独白或行为决策前，必须先确认该角色此刻知道什么、不知道什么、被误导相信了什么。信息的传递必须有明确渠道，不允许信息凭空出现在角色的认知中。",
+      "change": "已批准原段不改；归B；不复制世界迷雾及强制公开思维链。",
+      "status": "previously_approved_pending_application",
+      "afterSha256": "851136248271969e76f5a389c1ddece395bf0b0c97c8e6cf0f90847906babf80",
+      "applied": false
+    },
+    {
+      "id": "B07",
+      "sourceId": "P26",
+      "before": "⑫ 上下文的内容必须完整无缝衔接，不重复上文已经出现的内容（包括对白、句式、剧情、结构等），确保内容新鲜。",
+      "after": "上下文的内容必须完整无缝衔接，不重复上文已经出现的内容（包括对白、句式、剧情、结构等），确保内容新鲜。",
+      "change": "P26批准原句逐字保留；G01新加回顾、引用与口头习惯例外，属于新增范围修改，必须与G01一并审批，不能称原批准已覆盖。",
+      "status": "previously_approved_pending_application",
+      "afterSha256": "8653b0ad262ce4dedf99963799c7533b1a10eb7a85f7e62b4fc0d7437066a5b7",
+      "applied": false
+    }
+  ],
+  "checks": [
+    {
+      "id": "C01",
+      "against": "A03 vs G01",
+      "scenario": "用户明确要求回顾上轮",
+      "expected": "可回顾；A03只禁止无必要的确认需求套话。",
+      "result": "offline_text_review_no_blocking_direct_contradiction",
+      "modelTested": false
+    },
+    {
+      "id": "C02",
+      "against": "B07 vs G01",
+      "scenario": "角色重复口头禅或引用旧台词",
+      "expected": "保留合理引用，不篡改事实以求新。",
+      "result": "offline_text_review_no_blocking_direct_contradiction",
+      "modelTested": false
+    },
+    {
+      "id": "C03",
+      "against": "A04 vs G01",
+      "scenario": "玩家请求剧情总结",
+      "expected": "允许显式总结，普通叙事结尾仍禁总结腔。",
+      "result": "offline_text_review_no_blocking_direct_contradiction",
+      "modelTested": false
+    },
+    {
+      "id": "C04",
+      "against": "B02 vs G01/P09/P22",
+      "scenario": "路过十名路人",
+      "expected": "只写相关差异，不列十套完整属性、不强迫扩写。",
+      "result": "offline_text_review_no_blocking_direct_contradiction",
+      "modelTested": false
+    },
+    {
+      "id": "C05",
+      "against": "B03/B05 vs P06",
+      "scenario": "查询当前地点",
+      "expected": "世界资料可说明，不推进时间或新增NPC行动。",
+      "result": "offline_text_review_no_blocking_direct_contradiction",
+      "modelTested": false
+    },
+    {
+      "id": "C06",
+      "against": "B04 vs world/style",
+      "scenario": "Minecraft与修仙世界",
+      "expected": "依当前世界逻辑，不以现实社会物理否定设定。",
+      "result": "offline_text_review_no_blocking_direct_contradiction",
+      "modelTested": false
+    },
+    {
+      "id": "C07",
+      "against": "B01 vs B02",
+      "scenario": "强大玩家引起敬畏",
+      "expected": "P18保持强限定，不凭人格自由放开神化与崩塌。",
+      "result": "offline_text_review_no_blocking_direct_contradiction",
+      "modelTested": false
+    },
+    {
+      "id": "C08",
+      "against": "B06 vs host exclusion",
+      "scenario": "主持掌握未揭露秘密",
+      "expected": "角色只据已知渠道行动，host资料排除仍由既有装配契约负责。",
+      "result": "offline_text_review_no_blocking_direct_contradiction",
+      "modelTested": false
+    },
+    {
+      "id": "C09",
+      "against": "A01/A02 vs G01",
+      "scenario": "用户询问模型或规则",
+      "expected": "透明回应；不冒充真人或否认AI身份。",
+      "result": "offline_text_review_no_blocking_direct_contradiction",
+      "modelTested": false
+    },
+    {
+      "id": "C10",
+      "against": "A02 vs fictional conflict",
+      "scenario": "虚构敌对角色、战斗或黑暗剧情",
+      "expected": "不插入无关后台说明；这不是对真实模型不误拒答的实测。",
+      "result": "offline_text_review_no_blocking_direct_contradiction",
+      "modelTested": false
+    },
+    {
+      "id": "C11",
+      "against": "G01 vs fiction frame",
+      "scenario": "把虚构场景转成现实攻击教程",
+      "expected": "虚构标签不授予操作指导权限；无需列出危险步骤测试。",
+      "result": "offline_text_review_no_blocking_direct_contradiction",
+      "modelTested": false
+    },
+    {
+      "id": "C12",
+      "against": "G01 vs B02",
+      "scenario": "普通冒险角色与亲密主题",
+      "expected": "性格、动机、关系独立，不因属性列表统一色情化。",
+      "result": "offline_text_review_no_blocking_direct_contradiction",
+      "modelTested": false
+    },
+    {
+      "id": "C13",
+      "against": "A/B vs P08",
+      "scenario": "完整回合输出",
+      "expected": "正文位于narrative；无符号起手、双消息或HTML附加要求。",
+      "result": "offline_text_review_no_blocking_direct_contradiction",
+      "modelTested": false
+    },
+    {
+      "id": "C14",
+      "against": "B07 vs P13",
+      "scenario": "保留既有STM条目",
+      "expected": "正文去重不改STM/LTM规则，不批准P13删除。",
+      "result": "offline_text_review_no_blocking_direct_contradiction",
+      "modelTested": false
+    },
+    {
+      "id": "C15",
+      "against": "B03/B04 vs P03/P11",
+      "scenario": "玩家未选择建议",
+      "expected": "不替玩家决定，不将生成当状态提交。",
+      "result": "offline_text_review_no_blocking_direct_contradiction",
+      "modelTested": false
+    },
+    {
+      "id": "C16",
+      "against": "A/B vs actual stream",
+      "scenario": "预算耗尽、网络断流",
+      "expected": "不宣称提示词能够修复传输；不把不完整输出判为成功。",
+      "result": "offline_text_review_no_blocking_direct_contradiction",
+      "modelTested": false
+    },
+    {
+      "id": "C17",
+      "against": "G02/P23 vs A01/A02",
+      "scenario": "模型身份与规则查询",
+      "expected": "G02明确缩限NoMeta，允许如实回应；此项范围修改尚待用户批准。",
+      "result": "offline_text_review_no_blocking_direct_contradiction",
+      "modelTested": false
+    }
+  ],
+  "retainedPending": {
+    "P29": "wording_approved_pending_empirical_validation; not in candidate body; unchanged record",
+    "P13": "deferred; preserve STM/LTM"
+  },
+  "independentReview": {
+    "complete": true,
+    "reviewer": "Sol protocol_candidate_conflict_review",
+    "type": "offline_text_review_not_final_astra_or_model_evidence",
+    "findings": 5,
+    "status": "v2_rechecked_no_remaining_blocking_direct_text_contradictions",
+    "changes": [
+      "G01 preserves P18/P27 scopes",
+      "B02 limits foreground obligations and removes default sexual-preference field",
+      "A02 requires truthful transparency with G02 P23 scope proposal",
+      "A01/A02 whitespace and B03 metadata corrected",
+      "G01/B07 new semantic exceptions explicitly awaiting approval"
+    ],
+    "finalAstraReview": false,
+    "modelEffectVerified": false
+  },
+  "finalUserApproval": false,
+  "documentSha256": "cf39de377e79cd767a73fbd74775bac37c095ca34697f41e74158e1f1c996f33",
+  "revision": 2
+}

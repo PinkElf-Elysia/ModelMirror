@@ -1,0 +1,43 @@
+{
+  "round": "RPG-04",
+  "status": "real_batch_stopped_after_first_turn_failure",
+  "claimAllowed": false,
+  "providerDispatches": 2,
+  "remaining": 6,
+  "certification": "passed",
+  "firstTurn": {
+    "world": "gu",
+    "status": "failed",
+    "outcome": "turn_exchange_invalid",
+    "requestedModel": "gpt-5.6-luna",
+    "observedModel": "gpt-5.6-luna",
+    "usage": {
+      "input": 10140,
+      "output": 1259,
+      "total": 11399
+    },
+    "fallbackAttempts": 0,
+    "rawTurnExchangeSha256": "47bcca3816318755b0c7e7fc156c8d9d4b718e362aba7879661c1526c9984578",
+    "pendingCreated": false,
+    "committedTurns": 0,
+    "stateCommitted": false
+  },
+  "evidenceLimits": {
+    "rawResponseRetained": false,
+    "exactSchemaFailureUnknown": true,
+    "transportSucceeded": true,
+    "modelQualityAccepted": false
+  },
+  "nextAction": "preserve future raw output privately before bridge validation; explicit correction-retest selection required; no automatic dispatch",
+  "publication": false,
+  "followup": {
+    "futureRawAdapterCapture": "private-before-bridge-validation",
+    "driverSyntax": "passed",
+    "cliTests": {
+      "passed": 6,
+      "failed": 0
+    },
+    "ownedInstancesStopped": true,
+    "automaticRetest": false
+  }
+}

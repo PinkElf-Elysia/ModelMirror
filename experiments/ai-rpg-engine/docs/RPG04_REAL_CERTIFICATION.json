@@ -1,0 +1,30 @@
+{
+  "gate": "RPG04_REAL_CERTIFICATION_OK",
+  "httpStatus": 200,
+  "evidenceKind": "real",
+  "providerDispatchesCounted": 1,
+  "response": {
+    "certification_id": "chatcert_2e254773b0064d7c9a340c3227008814",
+    "connection_id": "conn_e23170b51a4c4564945cce7a2415769f",
+    "capability": "chat_text",
+    "status": "passed",
+    "checks": {
+      "catalog_ok": true,
+      "model_present": true,
+      "chat_http_ok": true,
+      "text_delta_observed": true,
+      "tool_call_observed": false,
+      "file_output_contract_observed": false,
+      "capability_verified": true,
+      "stream_completed": true,
+      "terminal_observed": true
+    },
+    "warning_codes": [],
+    "error_code": null,
+    "requested_model": "gpt-5.6-luna",
+    "actual_model": "gpt-5.6-luna",
+    "prompt_tokens": 10,
+    "completion_tokens": 4,
+    "total_tokens": 14
+  }
+}

@@ -1,0 +1,129 @@
+{
+  "round": "RPG-04",
+  "status": "user_output_approved_pending_independent_audit",
+  "claimAllowed": false,
+  "consumed": 10,
+  "remaining": 0,
+  "successfulNarrativeTurns": 6,
+  "guTurns": 3,
+  "minecraftTurns": 3,
+  "originalSixTurnAcceptanceComplete": false,
+  "missing": [],
+  "rows": [
+    {
+      "ref": "retest-gu-1",
+      "usage": {
+        "input": 10140,
+        "output": 1728,
+        "total": 11868
+      },
+      "narrativeCharacters": 302,
+      "stateProposalCount": 1,
+      "hostVersion": "0.1.0"
+    },
+    {
+      "ref": "p30-gu-2",
+      "usage": {
+        "input": 10529,
+        "output": 1154,
+        "total": 11683
+      },
+      "narrativeCharacters": 374,
+      "stateProposalCount": 1,
+      "hostVersion": "0.1.1"
+    },
+    {
+      "ref": "p30-gu-3",
+      "usage": {
+        "input": 10944,
+        "output": 666,
+        "total": 11610
+      },
+      "narrativeCharacters": 369,
+      "stateProposalCount": 0,
+      "hostVersion": "0.1.1"
+    },
+    {
+      "ref": "p30-minecraft-1",
+      "usage": {
+        "input": 9605,
+        "output": 1827,
+        "total": 11432
+      },
+      "narrativeCharacters": 261,
+      "stateProposalCount": 1,
+      "hostVersion": "0.1.1"
+    },
+    {
+      "ref": "p30-minecraft-2",
+      "usage": {
+        "input": 9925,
+        "output": 1181,
+        "total": 11106
+      },
+      "narrativeCharacters": 143,
+      "stateProposalCount": 1,
+      "hostVersion": "0.1.1"
+    },
+    {
+      "ref": "p30-minecraft-3",
+      "usage": {
+        "input": 10131,
+        "output": 849,
+        "total": 10980
+      },
+      "narrativeCharacters": 228,
+      "stateProposalCount": 0,
+      "hostVersion": "0.1.1"
+    }
+  ],
+  "finalGenerationUserApproval": true,
+  "independentAudit": false,
+  "independentCloseout": false,
+  "publicationAuthorized": false,
+  "notes": [
+    "All state proposals remained unselected; narrative commits do not equal user quality acceptance.",
+    "Original Gu first failure has no raw response; root cause remains unknown.",
+    "P30 repeated passes do not establish deterministic reliability.",
+    "Adult-category suggestions and narrative length deferred to round-end audit.",
+    "User explicitly approved the presented six-turn output; narrative length and adult-category review remain independent audit obligations."
+  ],
+  "structuralSixTurnCoverageComplete": true,
+  "mixedPromptVersions": true,
+  "userApprovalRecord": {
+    "approved": true,
+    "date": "2026-09-09",
+    "userDecision": "批准，执行到交接点告知我",
+    "scope": "Final six available generated turns only; not independent audit, whole-round acceptance or publication",
+    "artifacts": [
+      {
+        "path": ".rpg04-work/f-real-20260909-01/USER_REVIEW_SIX_TURNS.md",
+        "sha256": "a2b0fc1c979ca91083b562fbc8c0585af2118bea188977fb5422768bcb781abe"
+      },
+      {
+        "path": ".rpg04-work/f-real-20260909-01/retest-gu-1-committed.json",
+        "sha256": "33b422f9ac2fe179d35ea8a596d0bc9efb8d0a974df5321c6551667991525543"
+      },
+      {
+        "path": ".rpg04-work/f-real-20260909-01/p30-gu-2-committed.json",
+        "sha256": "18b2878f6d5c4528d4ab25a31e66cb61c3a101b4ea8e1588b9daeb68ae7a9610"
+      },
+      {
+        "path": ".rpg04-work/f-real-20260909-01/p30-gu-3-committed.json",
+        "sha256": "fe818028e0ddbc6ead2181a48e449d14b99b585f41de4217ffda28442bb43d74"
+      },
+      {
+        "path": ".rpg04-work/f-real-20260909-01/p30-minecraft-1-committed.json",
+        "sha256": "54e7c0cd8cd5d93451ec76674bf4319607acebd69e17004561d6fd2474f16659"
+      },
+      {
+        "path": ".rpg04-work/f-real-20260909-01/p30-minecraft-2-committed.json",
+        "sha256": "4874a1b334afec83418d47870f48205ffc3b3d5df9a29c89b90c864c19a57e06"
+      },
+      {
+        "path": ".rpg04-work/f-real-20260909-01/p30-minecraft-3-committed.json",
+        "sha256": "ffedba7bc70b865929db5ff73d70529875669554916f578b9104de9d3fb0803f"
+      }
+    ]
+  }
+}

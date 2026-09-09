@@ -1,0 +1,255 @@
+{
+  "format": "modelmirror.ai-rpg.rpg04-authored-resources",
+  "formatVersion": "0.1.0",
+  "resources": {
+    "styles": [
+      {
+        "id": "style.rpg04.gu",
+        "displayName": "克制的修行叙事",
+        "sourceRefs": [
+          "source.authored-rpg04"
+        ],
+        "instruction": "本实验自主文风：用具体动作、环境细节和人物利害呈现冷峻气氛；少作道德宣判，不把善意一律改写成算计，不为追求残酷强加玩家内心。句子清楚，紧张处短促，留出谈判与选择的空间。"
+      },
+      {
+        "id": "style.rpg04.minecraft",
+        "displayName": "清晰的方块探索",
+        "sourceRefs": [
+          "source.authored-rpg04"
+        ],
+        "instruction": "本实验自主文风：以光线、方块材质、声响和可见路径描绘探索，语言轻快具体，风险描述简洁。发现与未知并存，不把所有环境细节变成强制任务，不替玩家决定采集、战斗或进入。"
+      }
+    ],
+    "openings": [
+      {
+        "id": "opening.rpg04.gu",
+        "displayName": "杂务院门前",
+        "content": "自主开场：杂务院门前，风掀动布告板上的纸角。值事陆禾合上册子，问道：“来问差事，还是找人？”石阶与院门都在眼前，她等着答复。",
+        "worldRef": "world.gu",
+        "identityRefs": [
+          "identity.gu.outer-disciple",
+          "identity.gu.mortal-servant"
+        ],
+        "talentRefs": [
+          "talent.gu.sovereign-body",
+          "talent.gu.perseverance",
+          "talent.gu.spring-autumn-cicada",
+          "talent.gu.venerable-aptitude",
+          "talent.common.root"
+        ],
+        "itemRefs": [],
+        "backgroundRefs": [
+          "background.gu.arrival"
+        ],
+        "styleRefs": [
+          "style.rpg04.gu"
+        ],
+        "worldbookRefs": [
+          "worldbook.rpg04.gu.courtyard",
+          "worldbook.rpg04.gu.steward",
+          "worldbook.rpg04.gu.basics"
+        ],
+        "informationModuleRefs": [
+          "info.rpg04.scene"
+        ],
+        "sourceRefs": [
+          "source.authored-rpg04"
+        ]
+      },
+      {
+        "id": "opening.rpg04.minecraft",
+        "displayName": "河岸暮色",
+        "content": "自主开场：河岸的方块投下长影，木屋门留着一道缝。村民石豆停在路旁，指了指渐暗的天色：“要问路吗？”附近树木和小路仍清楚可见。",
+        "worldRef": "world.minecraft",
+        "identityRefs": [
+          "identity.minecraft.villager-customer",
+          "identity.minecraft.first-night"
+        ],
+        "talentRefs": [
+          "talent.minecraft.auto-fishing",
+          "talent.minecraft.shaders",
+          "talent.minecraft.steve-hand"
+        ],
+        "itemRefs": [],
+        "backgroundRefs": [
+          "background.minecraft.arrival"
+        ],
+        "styleRefs": [
+          "style.rpg04.minecraft"
+        ],
+        "worldbookRefs": [
+          "worldbook.rpg04.minecraft.shelter",
+          "worldbook.rpg04.minecraft.villager",
+          "worldbook.rpg04.minecraft.basics"
+        ],
+        "informationModuleRefs": [
+          "info.rpg04.scene"
+        ],
+        "sourceRefs": [
+          "source.authored-rpg04"
+        ]
+      }
+    ],
+    "worldbookEntries": [
+      {
+        "id": "worldbook.rpg04.gu.courtyard",
+        "displayName": "山门杂务院",
+        "sourceRefs": [
+          "source.authored-rpg04"
+        ],
+        "content": "本实验自主虚构地点：中洲一处未命名门派的杂务院。石阶通向值事房，布告板列着待认领的杂务。值事房只处理门内差事；不存在一到场便默认接受任务的规则。",
+        "tags": [
+          "地点",
+          "杂务院"
+        ],
+        "visibility": "shared",
+        "worldRefs": [
+          "world.gu"
+        ]
+      },
+      {
+        "id": "worldbook.rpg04.gu.steward",
+        "displayName": "值事陆禾",
+        "sourceRefs": [
+          "source.authored-rpg04"
+        ],
+        "content": "本实验自主虚构人物陆禾，是杂务院值事。陆禾重视差事是否有人负责，说话简短，先询问来意再说明要求。她只知道当面观察和门内日常，不知道玩家隐秘天赋与内心。她可以提出条件，不能替玩家同意。",
+        "tags": [
+          "人物",
+          "陆禾"
+        ],
+        "visibility": "shared",
+        "worldRefs": [
+          "world.gu"
+        ]
+      },
+      {
+        "id": "worldbook.rpg04.gu.basics",
+        "displayName": "蛊与身份的已知边界",
+        "sourceRefs": [
+          "source.authored-rpg04"
+        ],
+        "content": "本实验自主编写常识摘要：蛊是这个世界的重要修行媒介，门派身份决定日常处境，但外门身份不直接给出人物战力。天赋的拥有、激活与具体效果应读取玩家配置和已提取词条，未知代价不能凭空结算。",
+        "tags": [
+          "常识",
+          "蛊"
+        ],
+        "visibility": "shared",
+        "worldRefs": [
+          "world.gu"
+        ]
+      },
+      {
+        "id": "worldbook.rpg04.gu.host-test",
+        "displayName": "仅主持可见的测试线索",
+        "sourceRefs": [
+          "source.authored-rpg04"
+        ],
+        "content": "HOST_ONLY_GU_RPG04：陆禾未公开的一条试验用伏笔。此条只用于可见性反例，不进入玩家生成上下文。",
+        "tags": [
+          "内部反例"
+        ],
+        "visibility": "host",
+        "worldRefs": [
+          "world.gu"
+        ]
+      },
+      {
+        "id": "worldbook.rpg04.minecraft.shelter",
+        "displayName": "河岸临时营地",
+        "sourceRefs": [
+          "source.authored-rpg04"
+        ],
+        "content": "本实验自主虚构地点：一处河岸空地，附近有树木与一间门未关严的小木屋。日光正在变暗。是否有物资、谁拥有木屋及进入的风险尚未确认；看见木屋不代表已进入或获得其中物品。",
+        "tags": [
+          "地点",
+          "河岸",
+          "木屋"
+        ],
+        "visibility": "shared",
+        "worldRefs": [
+          "world.minecraft"
+        ]
+      },
+      {
+        "id": "worldbook.rpg04.minecraft.villager",
+        "displayName": "村民石豆",
+        "sourceRefs": [
+          "source.authored-rpg04"
+        ],
+        "content": "本实验自主虚构人物石豆，是住在河岸附近的村民。石豆指向木屋并以简短言语回应；他知道附近道路，对玩家来历和天赋没有先验知识。交易只是提议，在玩家明确决定前不会自动扣取或发放物品。",
+        "tags": [
+          "人物",
+          "石豆"
+        ],
+        "visibility": "shared",
+        "worldRefs": [
+          "world.minecraft"
+        ]
+      },
+      {
+        "id": "worldbook.rpg04.minecraft.basics",
+        "displayName": "方块世界观察常识",
+        "sourceRefs": [
+          "source.authored-rpg04"
+        ],
+        "content": "本实验自主编写常识摘要：环境由方块构成，玩家可以尝试采集、建造和探索；夜色意味着需要评估周围风险。具体配方、怪物位置、耗材和成功结果若资料未给出，应保留未知，不能把视觉模组直接等同战力。",
+        "tags": [
+          "常识",
+          "方块",
+          "夜晚"
+        ],
+        "visibility": "shared",
+        "worldRefs": [
+          "world.minecraft"
+        ]
+      },
+      {
+        "id": "worldbook.rpg04.minecraft.host-test",
+        "displayName": "仅主持可见的营地线索",
+        "sourceRefs": [
+          "source.authored-rpg04"
+        ],
+        "content": "HOST_ONLY_MINECRAFT_RPG04：小木屋未公开的一条试验用伏笔。此条只用于可见性反例，不进入玩家生成上下文。",
+        "tags": [
+          "内部反例"
+        ],
+        "visibility": "host",
+        "worldRefs": [
+          "world.minecraft"
+        ]
+      }
+    ],
+    "informationModules": [
+      {
+        "id": "info.rpg04.scene",
+        "displayName": "当前可见情境",
+        "sourceRefs": [
+          "source.authored-rpg04"
+        ],
+        "presentation": "keyValue",
+        "fields": [
+          {
+            "id": "field.rpg04.scene.location",
+            "label": "地点",
+            "valueType": "text"
+          },
+          {
+            "id": "field.rpg04.scene.observed",
+            "label": "观察",
+            "valueType": "text"
+          },
+          {
+            "id": "field.rpg04.scene.unknown",
+            "label": "待确认",
+            "valueType": "list"
+          }
+        ]
+      }
+    ]
+  },
+  "defaults": {
+    "worldRef": "world.gu",
+    "openingRef": "opening.rpg04.gu"
+  }
+}

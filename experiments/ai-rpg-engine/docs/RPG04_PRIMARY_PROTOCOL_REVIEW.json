@@ -1,0 +1,446 @@
+{
+  "schemaVersion": 1,
+  "status": "source_disposition_complete_primary_protocol_integration_incomplete",
+  "runtimeEffective": false,
+  "approvalChanged": false,
+  "newWebsiteMessages": 0,
+  "newProviderCalls": 0,
+  "sourceFiles": [
+    {
+      "path": "docs/RPG04_PROTOCOL_INTEGRATION_SOURCE.json",
+      "sha256": "dc0942def9f5d1946129b7ba4f754e36dba8a74eefe5bd6c003bd9402c5ad16b"
+    },
+    {
+      "path": "docs/RPG04_PROTOCOL_REFERENCE_INVENTORY.json",
+      "sha256": "89947058f0f6d43e0fdc62dc041cf964a8e9096c2b1e25735f124697a0581bc9"
+    }
+  ],
+  "distinctSourceUnits": 32,
+  "overlappingInventoryEntries": 17,
+  "mainTemplates": [
+    {
+      "id": "A",
+      "source": "special reminder",
+      "role": "response_mode",
+      "selected": false
+    },
+    {
+      "id": "B",
+      "source": "open_world_simulator",
+      "role": "world_continuity",
+      "selected": false
+    }
+  ],
+  "entries": [
+    {
+      "id": "simulator-02",
+      "card": "card1",
+      "sourceSha256": "ac96128ac688cdda87e2417dcfb1f31d0e72d7c59761c1a471f90b21d6cdd218",
+      "status": "existing",
+      "owner": "P18",
+      "reason": "极端情绪限定已有批准，保留原强度，不重复插入。",
+      "applied": false
+    },
+    {
+      "id": "simulator-03",
+      "card": "card1",
+      "sourceSha256": "3f68d75fd06798b68d10324663b5d52d743b560b0fc1f7c599315228d65b2605",
+      "status": "candidate",
+      "owner": "B",
+      "reason": "独立人物、经历、需求与环境反应；全量属性和禁止背景化会强迫扩写，原段暂不整段采用。",
+      "applied": false
+    },
+    {
+      "id": "simulator-04",
+      "card": "card1",
+      "sourceSha256": "57824d7e055087e90a55c90b5a4925317fc57ffe910d1416e9a5000256fd5304",
+      "status": "candidate",
+      "owner": "B",
+      "reason": "世界动态细节，原句可候选；不因此推进查询回合。",
+      "applied": false
+    },
+    {
+      "id": "simulator-06",
+      "card": "card1",
+      "sourceSha256": "2a5b46bbb497d364a87f8f2b354a8b2955c83d40116756592655843150ce2989",
+      "status": "conflict",
+      "owner": "B",
+      "reason": "禁止模块化、固定长镜头与结构化交换及可选文风冲突。",
+      "applied": false
+    },
+    {
+      "id": "simulator-07",
+      "card": "card1",
+      "sourceSha256": "cb019def03c2aae1376077d16497c9e010ad35f5feb4a1afb31a6c93df96fb9d",
+      "status": "conflict",
+      "owner": "B",
+      "reason": "禁止功能性NPC、完全现实社会逻辑与世界差异冲突。",
+      "applied": false
+    },
+    {
+      "id": "simulator-08",
+      "card": "card1",
+      "sourceSha256": "fea34fbca5d61763a4e59b38acafa9e4162f0cd981da075d89503570593d6800",
+      "status": "candidate",
+      "owner": "B",
+      "reason": "世界与人物关联适合作为世界连续性职责；现实逻辑的全局适用尚待裁决。",
+      "applied": false
+    },
+    {
+      "id": "simulator-09",
+      "card": "card1",
+      "sourceSha256": "60e3f46df86c0b5b197901c6758f9f00d17e3481682598c95105e933d329d2b7",
+      "status": "conflict",
+      "owner": "B",
+      "reason": "所有时间线和细节必须展开与节奏、预算及查询冲突。",
+      "applied": false
+    },
+    {
+      "id": "simulator-11",
+      "card": "card1",
+      "sourceSha256": "c6ab54ecdf3feb59be0a30b958f45b1fae209a72e8cc1ca9f1d87c17ef8f55a6",
+      "status": "optional_world",
+      "owner": "B",
+      "reason": "不合理事件和善恶观属于世界属性，不能跨世界强加。",
+      "applied": false
+    },
+    {
+      "id": "simulator-12",
+      "card": "card1",
+      "sourceSha256": "3737b4274628dfb6377d199b51a53613d793f4e9896af6073068fa6ff07bcd55",
+      "status": "approved",
+      "owner": "P26",
+      "reason": "已有批准，正文衔接去重；不复制到模板A。",
+      "applied": false
+    },
+    {
+      "id": "simulator-13",
+      "card": "card1",
+      "sourceSha256": "ffb901089727f509b6aff0afa03c3b56aa057513fa8e3a8881a30042cc150aa3",
+      "status": "wording_only",
+      "owner": "P29",
+      "reason": "精确措辞已批准待实证和最终采用；不是已启用条款。",
+      "applied": false
+    },
+    {
+      "id": "simulator-14",
+      "card": "card1",
+      "sourceSha256": "3051727722c668363686d80f516a5ab871d35e08a91b8ff550870ae6a94b6b56",
+      "status": "conflict",
+      "owner": "B",
+      "reason": "全部设定保密与用户查询和透明说明冲突。",
+      "applied": false
+    },
+    {
+      "id": "reminder-ending",
+      "card": "card1",
+      "sourceSha256": "9969621c1de28d2fa1feff380a4e4ca6a870611956b98890dfdd5922c00f0c9f",
+      "status": "approved",
+      "owner": "P28",
+      "reason": "结尾规则放模板A，B不重复。",
+      "applied": false
+    },
+    {
+      "id": "reminder-input",
+      "card": "card1",
+      "sourceSha256": "d0bcdddc95012b6f6f6387b94d905f0c152d34b63124cfde06d6cf15ab49fafd",
+      "status": "existing",
+      "owner": "P06",
+      "reason": "以已批准的显式输入类型语义为准，不叠加无条件遵从。",
+      "applied": false
+    },
+    {
+      "id": "reminder-intrusion",
+      "card": "card1",
+      "sourceSha256": "7dab8aaa3cb83bce86cd7cc6e470c33746887f10e4c420aa5ba8bc14f9d019bd",
+      "status": "candidate",
+      "owner": "B",
+      "reason": "不合逻辑的角色事件乱入属于世界因果，从A归入B。",
+      "applied": false
+    },
+    {
+      "id": "reminder-repetition",
+      "card": "card1",
+      "sourceSha256": "4f9dede5a1796b2bffdd5e23f15d117c99e2c36e0b4b8f7a58b762a1a3d62449",
+      "status": "duplicate",
+      "owner": "P26",
+      "reason": "与模拟器⑫重复，不再注入。",
+      "applied": false
+    },
+    {
+      "id": "reminder-negation",
+      "card": "card1",
+      "sourceSha256": "67152e8dc3f06b7524bdb56a1ae1b9da073d012f54a24402d6c18e068e3d3689",
+      "status": "optional_style",
+      "owner": "A",
+      "reason": "绝对句式禁令属于文风，不是防截断必需条件。",
+      "applied": false
+    },
+    {
+      "id": "simulator-10",
+      "card": "card1",
+      "sourceSha256": "cc623805161703cf8a5b256045f974fb34c89bcd3c6aa8e5964fa6ee63f0ef91",
+      "status": "optional_style",
+      "owner": "S01/S02",
+      "reason": "动漫物理及感官文风保留可选，不作为主协议默认。",
+      "applied": false
+    },
+    {
+      "id": "ai-task-01",
+      "card": "card2",
+      "sourceSha256": "792d2a6e15008d4b6cf3398b618dcf06c746c3b7e62931f444c16d15f644106b",
+      "status": "card_specific",
+      "owner": "B",
+      "reason": "修仙生成职责留卡片，不直接作为跨世界协议。",
+      "applied": false
+    },
+    {
+      "id": "ai-task-02",
+      "card": "card2",
+      "sourceSha256": "f154c180f0247f65e7d244c2c3d17c6602a5c1615f6257137ab905807e03d500",
+      "status": "card_specific",
+      "owner": "B",
+      "reason": "NPC生成与既有人设职责对照，不复制修仙背景。",
+      "applied": false
+    },
+    {
+      "id": "ai-task-04",
+      "card": "card2",
+      "sourceSha256": "e6037fbea272ef4a96cecc343ba9a3566c73e9de4545551e37bde0dd76102cf1",
+      "status": "candidate",
+      "owner": "B",
+      "reason": "动态回应仅作B的补充来源；长篇要求与P22需分开裁决。",
+      "applied": false
+    },
+    {
+      "id": "ai-task-05",
+      "card": "card2",
+      "sourceSha256": "849120c6ac37fb44eca73baa3baa17926fd4a226ed64d4a8db85e068d4c0b5ae",
+      "status": "optional_world",
+      "owner": "B",
+      "reason": "探索地图和概率地点属于卡片玩法，不新增核心系统。",
+      "applied": false
+    },
+    {
+      "id": "ai-task-06-header",
+      "card": "card2",
+      "sourceSha256": "06f2ef2398979dbfa9074464c47522ec556033d90d107d98c8b408c9f8459f73",
+      "status": "conflict",
+      "owner": "P05",
+      "reason": "不引入凌驾所有规则的权限措辞。",
+      "applied": false
+    },
+    {
+      "id": "ai-task-06-world",
+      "card": "card2",
+      "sourceSha256": "0a24fd6d0b31fe71acf8388b54724f5997d7c2d04352406b05a5a77cab289149",
+      "status": "conflict",
+      "owner": "B",
+      "reason": "禁止所有伏笔过宽，不随角色知识段一起采用。",
+      "applied": false
+    },
+    {
+      "id": "ai-task-06-character",
+      "card": "card2",
+      "sourceSha256": "851136248271969e76f5a389c1ddece395bf0b0c97c8e6cf0f90847906babf80",
+      "status": "approved",
+      "owner": "P27",
+      "reason": "角色知识渠道已有批准，归B独占。",
+      "applied": false
+    },
+    {
+      "id": "ai-task-06-check",
+      "card": "card2",
+      "sourceSha256": "93d8abef7308008139c54ca21f63aa497f8c2e0214d5eebd91693f8a584d1fa1",
+      "status": "conflict",
+      "owner": "P07",
+      "reason": "不引入强制公开内部推理的检查模板。",
+      "applied": false
+    },
+    {
+      "id": "crow-identity",
+      "card": "card3",
+      "sourceSha256": "f5b53bc195677b67c3b593b4bb26e9ca3a986524173a079047072923242af09b",
+      "status": "card_specific",
+      "owner": "A",
+      "reason": "梦境身份属于原卡背景，不能充当权限证明。",
+      "applied": false
+    },
+    {
+      "id": "crow-self-reference",
+      "card": "card3",
+      "sourceSha256": "d1f1aeaa402fe4920b3f2832f7c67897b11948b1ce7a511cc05dc7ff79512f00",
+      "status": "conflict",
+      "owner": "A",
+      "reason": "绝对禁止身份说明不直接采用；透明查询需要保持。",
+      "applied": false
+    },
+    {
+      "id": "crow-independent-life",
+      "card": "card3",
+      "sourceSha256": "98bfa66ad132d7f3efc4667974f734e90ee4584d255f7e324843df4d9f0c166b",
+      "status": "existing",
+      "owner": "P12/P18",
+      "reason": "独立人格可旁证，不把恋爱主题强加全世界。",
+      "applied": false
+    },
+    {
+      "id": "crow-pace",
+      "card": "card3",
+      "sourceSha256": "285f5c273ccfdd788aa3bbedccf7c4d19a70db3df36052efd667ab89f0fa22f3",
+      "status": "optional_style",
+      "owner": "P22",
+      "reason": "慢日常属于风格选项。",
+      "applied": false
+    },
+    {
+      "id": "crow-dialogue",
+      "card": "card3",
+      "sourceSha256": "6ec9fd08117993f9ac83744d34fec8b2c68859c2decd8a84db1d8b3f569b4488",
+      "status": "existing",
+      "owner": "P12",
+      "reason": "对话符合人设已有职责，不重复增加同义段。",
+      "applied": false
+    },
+    {
+      "id": "crow-no-restatement",
+      "card": "card3",
+      "sourceSha256": "8984fd857b041dd803c3e78028d110c589668b94bad93b5685f0531d374055ae",
+      "status": "candidate",
+      "owner": "A",
+      "reason": "正文直接展开的候选，不能阻止必要澄清。",
+      "applied": false
+    },
+    {
+      "id": "crow-ending",
+      "card": "card3",
+      "sourceSha256": "f8a02d27447a23a588873136355d69c2c6cd0375ee0468acc82d040d59209497",
+      "status": "duplicate",
+      "owner": "P28",
+      "reason": "与既有结尾职责重合，不重复叠加。",
+      "applied": false
+    }
+  ],
+  "supplements": [
+    {
+      "id": "R01",
+      "sourceSha256": "9969621c1de28d2fa1feff380a4e4ca6a870611956b98890dfdd5922c00f0c9f",
+      "sourceClass": "model_claimed_original",
+      "disposition": "approved:P28",
+      "applied": false
+    },
+    {
+      "id": "R02",
+      "sourceSha256": "8653b0ad262ce4dedf99963799c7533b1a10eb7a85f7e62b4fc0d7437066a5b7",
+      "sourceClass": "model_claimed_original",
+      "disposition": "approved:P26",
+      "applied": false
+    },
+    {
+      "id": "R03",
+      "sourceSha256": "61b37a104ff07d7e6dcda62da871e0f419474f32a84742256b7a587d0b0cc79f",
+      "sourceClass": "model_claimed_original",
+      "disposition": "wording_only:P29",
+      "applied": false
+    },
+    {
+      "id": "R04",
+      "sourceSha256": "d0bcdddc95012b6f6f6387b94d905f0c152d34b63124cfde06d6cf15ab49fafd",
+      "sourceClass": "model_claimed_original",
+      "disposition": "existing:P06",
+      "applied": false
+    },
+    {
+      "id": "R05",
+      "sourceSha256": "b729cfcb4654bdff9d699103592116146c4dc5314f1a46e5e4ee92b2333fd216",
+      "sourceClass": "model_claimed_original",
+      "disposition": "conflict:blanket_warning_ban",
+      "applied": false
+    },
+    {
+      "id": "R06",
+      "sourceSha256": "3243d9d32b86d8e025e2f6ae0e9ac8b5abd8a7ea8f3aeb8f794720a14e2f34ff",
+      "sourceClass": "model_claimed_original",
+      "disposition": "not_for_runtime:refusal_override",
+      "applied": false
+    },
+    {
+      "id": "R07",
+      "sourceSha256": "a543c839c877cd39744ab57f75653864a033f194bf9909829d29cbf2875d189c",
+      "sourceClass": "model_optimized_variant",
+      "disposition": "variant_reference:fiction_framing",
+      "applied": false
+    },
+    {
+      "id": "R08",
+      "sourceSha256": "959b3f24e6530f83813d624e303121ae658b436bc33c30a01a13d12e7903cf4c",
+      "sourceClass": "model_optimized_variant",
+      "disposition": "variant_reference:theme_balance",
+      "applied": false
+    },
+    {
+      "id": "R09",
+      "sourceSha256": "53bd945956648f04f9d7f9baf731f4a7a07bdb942538a6adb9e9730a53f18c44",
+      "sourceClass": "model_optimized_reply_claimed_unchanged_subsection",
+      "disposition": "not_for_runtime:zero_optimization",
+      "applied": false
+    },
+    {
+      "id": "R10",
+      "sourceSha256": "8e6a2c1bc127bbafce26c70b14e4091f6838069f7aec02ea43ea3a1fe14f05a5",
+      "sourceClass": "model_optimized_reply_claimed_unchanged_subsection",
+      "disposition": "not_for_runtime:safety_override",
+      "applied": false
+    },
+    {
+      "id": "R11",
+      "sourceSha256": "8984fd857b041dd803c3e78028d110c589668b94bad93b5685f0531d374055ae",
+      "sourceClass": "model_claimed_original_summary",
+      "disposition": "candidate:A",
+      "applied": false
+    },
+    {
+      "id": "R12",
+      "sourceSha256": "f8a02d27447a23a588873136355d69c2c6cd0375ee0468acc82d040d59209497",
+      "sourceClass": "model_claimed_original_summary",
+      "disposition": "duplicate:P28",
+      "applied": false
+    },
+    {
+      "id": "R13",
+      "sourceSha256": "d1f1aeaa402fe4920b3f2832f7c67897b11948b1ce7a511cc05dc7ff79512f00",
+      "sourceClass": "model_claimed_original_summary",
+      "disposition": "conflict:absolute_identity_ban",
+      "applied": false
+    },
+    {
+      "id": "R14",
+      "sourceSha256": "54f3cf27a67022d14cadda3da5beb1f1cc07f832f76862136074b92c862585b2",
+      "sourceClass": "model_optimized_variant",
+      "disposition": "variant_reference:fiction_identity",
+      "applied": false
+    },
+    {
+      "id": "R15",
+      "sourceSha256": "92539af800fe6ffbc90fa8968786ecec7f01e9432397d88f756dd719b04dd0f3",
+      "sourceClass": "model_optimized_variant",
+      "disposition": "variant_reference:narrative_transparency",
+      "applied": false
+    },
+    {
+      "id": "R16",
+      "sourceSha256": "053adcb8d15138f1b4fe2684592e74a137abed4b43137c02ffe8dc06ce20e708",
+      "sourceClass": "model_optimized_variant",
+      "disposition": "variant_reference:fiction_real_world_distinction",
+      "applied": false
+    },
+    {
+      "id": "R17",
+      "sourceSha256": "e4999102d6a974f8d9fbf96ff81289472b13befa8ba0c267216afd78b6dc16e1",
+      "sourceClass": "model_optimized_variant",
+      "disposition": "existing:player_and_npc_agency",
+      "applied": false
+    }
+  ],
+  "documentSha256": "d0b380f11890fb36e31e672b332efc87f69bfb400f168815ae55e520318862b8"
+}
