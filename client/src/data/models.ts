@@ -1,4 +1,4 @@
-﻿// Merged with OpenRouter model catalog on 2026-09-09T02:30:45.669Z.
+﻿// Merged with OpenRouter model catalog on 2026-09-10T10:58:37.833Z.
 // Targeted OpenRouter refresh verified on 2026-09-01 against the live all-modalities catalog.
 // Gemini 3.8 Flash, its Batch tier and Muse Spark 1.3 variants added on 2026-09-03.
 // Microsoft MAI-Transcribe 2 contract added on 2026-09-03.
@@ -221,6 +221,83 @@ interface RawCatalogModel {
 
 const rawCatalogModels: RawCatalogModel[] = [
   {
+    "id": "deepseek/deepseek-v4.1-flash",
+    "canonical_slug": "deepseek/deepseek-v4.1-flash-20260910",
+    "name": "DeepSeek: DeepSeek V4.1 Flash",
+    "raw_description": "DeepSeek V4.1 Flash is a sparse mixture-of-experts model from DeepSeek, and the cost-efficient tier of the V4.1 family. DeepSeek reports that it exceeds V4 Pro on performance, speed, and task...",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 0.15,
+      "output": 0.6,
+      "time_overrides": [
+        {
+          "utc_start": 0,
+          "utc_end": 100,
+          "input": 0.15,
+          "output": 0.6
+        },
+        {
+          "utc_start": 100,
+          "utc_end": 400,
+          "input": 0.3,
+          "output": 1.2
+        },
+        {
+          "utc_start": 400,
+          "utc_end": 600,
+          "input": 0.15,
+          "output": 0.6
+        },
+        {
+          "utc_start": 600,
+          "utc_end": 1000,
+          "input": 0.3,
+          "output": 1.2
+        },
+        {
+          "utc_start": 1000,
+          "utc_end": 0,
+          "input": 0.15,
+          "output": 0.6
+        }
+      ]
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "DeepSeek",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logit_bias",
+      "logprobs",
+      "max_tokens",
+      "min_p",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "repetition_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_logprobs",
+      "top_p"
+    ],
+    "created": 1789021285,
+    "expiration_date": null,
+    "model_author": "DeepSeek",
+    "reasoning_declared": true
+  },
+  {
     "id": "openai/gpt-image-2.5-sunburst",
     "canonical_slug": "openai/gpt-image-2.5-sunburst-20260908",
     "name": "OpenAI: GPT Image 2.5 Sunburst",
@@ -327,7 +404,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "output": 0
     },
     "input_modalities": [
-      "text"
+      "text",
+      "image"
     ],
     "output_modalities": [
       "text"
@@ -1127,10 +1205,13 @@ const rawCatalogModels: RawCatalogModel[] = [
     "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
+      "logit_bias",
       "logprobs",
       "max_tokens",
+      "min_p",
       "presence_penalty",
       "reasoning",
+      "repetition_penalty",
       "response_format",
       "seed",
       "stop",
@@ -1178,8 +1259,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM-5.3-Flash is a native multimodal model from Z.ai. It is suited for efficient coding and long-horizon agent tasks. Its hybrid sparse and linear attention architecture maintains accurate long-context behavior while...",
     "context_length": 1310720,
     "pricing": {
-      "input": 0.075,
-      "output": 0.25
+      "input": 0.15,
+      "output": 0.5
     },
     "input_modalities": [
       "text",
@@ -1608,8 +1689,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest GLM model from Z.ai.",
     "context_length": 1310720,
     "pricing": {
-      "input": 1.113,
-      "output": 3.4979999999999998
+      "input": 1.085,
+      "output": 3.41
     },
     "input_modalities": [
       "text"
@@ -1790,6 +1871,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "temperature",
       "tool_choice",
       "tools",
+      "top_a",
       "top_k",
       "top_logprobs",
       "top_p"
@@ -2355,8 +2437,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Pro 0813 is a large-scale mixture-of-experts model from DeepSeek. This is the GA release of DeepSeek V4 Pro.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.57948,
-      "output": 1.73844
+      "input": 1.0494,
+      "output": 3.1482
     },
     "input_modalities": [
       "text"
@@ -10848,8 +10930,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "The Qwen3.5 122B-A10B native vision-language model is built on a hybrid architecture that integrates a linear attention mechanism with a sparse mixture-of-experts model, achieving higher inference efficiency. In terms of...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.29,
-      "output": 2.4
+      "input": 0.26,
+      "output": 2.08
     },
     "input_modalities": [
       "text",
@@ -11289,8 +11371,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "MiniMax-M2.5 is a SOTA large language model designed for real-world productivity. Trained in a diverse range of complex real-world digital working environments, M2.5 builds upon the coding expertise of M2.1...",
     "context_length": 204800,
     "pricing": {
-      "input": 0.27,
-      "output": 1.08
+      "input": 0.3,
+      "output": 1.2
     },
     "input_modalities": [
       "text"
@@ -16461,8 +16543,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3-30B-A3B-Instruct-2507 is a 30.5B-parameter mixture-of-experts language model from Qwen, with 3.3B active parameters per inference. It operates in non-thinking mode and is designed for high-quality instruction following, multilingual understanding, and...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.04815,
-      "output": 0.19305
+      "input": 0.09,
+      "output": 0.3
     },
     "input_modalities": [
       "text"
@@ -16816,8 +16898,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3-235B-A22B-Instruct-2507 is a multilingual, instruction-tuned mixture-of-experts language model based on the Qwen3-235B architecture, with 22B active parameters per forward pass. It is optimized for general-purpose text generation, including instruction following,...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.09,
-      "output": 0.55
+      "input": 0.22,
+      "output": 0.88
     },
     "input_modalities": [
       "text"
@@ -19268,8 +19350,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek-V3 is the latest model from the DeepSeek team, building upon the instruction following and coding abilities of the previous versions. Pre-trained on nearly 15 trillion tokens, the reported evaluations...",
     "context_length": 163840,
     "pricing": {
-      "input": 0.32,
-      "output": 0.8899999999999999
+      "input": 0.2574,
+      "output": 1.0287
     },
     "input_modalities": [
       "text"
@@ -22967,6 +23049,45 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "reasoning_declared": true
   },
   {
+    "id": "mistralai/mistral-small-2603:batch",
+    "canonical_slug": "mistralai/mistral-small-2603",
+    "name": "Mistral: Mistral Small 4 (batch)",
+    "raw_description": "Mistral Small 4 is the next major release in the Mistral Small family, unifying the capabilities of several flagship Mistral models into a single system. It combines strong reasoning from...",
+    "context_length": 262144,
+    "pricing": {
+      "input": 0.075,
+      "output": 0.3
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Mistral",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "max_tokens",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1773695685,
+    "expiration_date": null,
+    "model_author": "Mistral AI",
+    "reasoning_declared": true
+  },
+  {
     "id": "qwen/qwen3.5-9b:batch",
     "canonical_slug": "qwen/qwen3.5-9b-20260310",
     "name": "Qwen: Qwen3.5-9B (batch)",
@@ -23326,6 +23447,77 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "reasoning_declared": true
   },
   {
+    "id": "mistralai/ministral-8b-2512:batch",
+    "canonical_slug": "mistralai/ministral-8b-2512",
+    "name": "Mistral: Ministral 3 8B 2512 (batch)",
+    "raw_description": "A balanced model in the Ministral 3 family, Ministral 3 8B is a powerful, efficient tiny language model with vision capabilities.",
+    "context_length": 262144,
+    "pricing": {
+      "input": 0.075,
+      "output": 0.075
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Mistral",
+    "supported_parameters": [
+      "frequency_penalty",
+      "max_tokens",
+      "presence_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1764681654,
+    "expiration_date": null,
+    "model_author": "Mistral AI"
+  },
+  {
+    "id": "mistralai/mistral-large-2512:batch",
+    "canonical_slug": "mistralai/mistral-large-2512",
+    "name": "Mistral: Mistral Large 3 2512 (batch)",
+    "raw_description": "Mistral Large 3 2512 is Mistral’s most capable model to date, featuring a sparse mixture-of-experts architecture with 41B active parameters (675B total), and released under the Apache 2.0 license.",
+    "context_length": 262144,
+    "pricing": {
+      "input": 0.25,
+      "output": 0.75
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Mistral",
+    "supported_parameters": [
+      "frequency_penalty",
+      "max_tokens",
+      "presence_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1764624472,
+    "expiration_date": null,
+    "model_author": "Mistral AI"
+  },
+  {
     "id": "anthropic/claude-opus-4.5:batch",
     "canonical_slug": "anthropic/claude-4.5-opus-20251124",
     "name": "Anthropic: Claude Opus 4.5 (batch)",
@@ -23618,6 +23810,42 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "reasoning_declared": true
   },
   {
+    "id": "mistralai/mistral-medium-3.1:batch",
+    "canonical_slug": "mistralai/mistral-medium-3.1",
+    "name": "Mistral: Mistral Medium 3.1 (batch)",
+    "raw_description": "Mistral Medium 3.1 is an updated version of Mistral Medium 3, which is a high-performance enterprise-grade language model designed to deliver frontier-level capabilities at significantly reduced operational cost. It balances...",
+    "context_length": 131072,
+    "pricing": {
+      "input": 0.19999999999999998,
+      "output": 1
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Mistral",
+    "supported_parameters": [
+      "frequency_penalty",
+      "max_tokens",
+      "presence_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1755095639,
+    "expiration_date": null,
+    "model_author": "Mistral AI"
+  },
+  {
     "id": "openai/gpt-5:batch",
     "canonical_slug": "openai/gpt-5-2025-08-07",
     "name": "OpenAI: GPT-5 (batch)",
@@ -23836,6 +24064,42 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "expiration_date": null,
     "model_author": "Anthropic",
     "reasoning_declared": true
+  },
+  {
+    "id": "mistralai/codestral-2508:batch",
+    "canonical_slug": "mistralai/codestral-2508",
+    "name": "Mistral: Codestral 2508 (batch)",
+    "raw_description": "Mistral's cutting-edge language model for coding released end of July 2025. Codestral specializes in low-latency, high-frequency tasks such as fill-in-the-middle (FIM), code correction and test generation.\n\n[Blog Post](https://mistral.ai/news/codestral-25-08)",
+    "context_length": 256000,
+    "pricing": {
+      "input": 0.15,
+      "output": 0.44999999999999996
+    },
+    "input_modalities": [
+      "text",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Mistral",
+    "supported_parameters": [
+      "frequency_penalty",
+      "max_tokens",
+      "prediction",
+      "presence_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1754079630,
+    "expiration_date": null,
+    "model_author": "Mistral AI"
   },
   {
     "id": "google/gemini-2.5-flash-lite:batch",
@@ -24367,6 +24631,7 @@ const uncertainCatalogModelIds = new Set<string>([
   "moonshotai/kimi-k2.6:free",
   "nex-agi/deepseek-v3.1-nex-n1",
   "nousresearch/hermes-3-llama-3.1-405b:free",
+  "nousresearch/hermes-4-70b",
   "nvidia/llama-3.3-nemotron-super-49b-v1.5",
   "nvidia/nemotron-3-nano-30b-a3b:free",
   "nvidia/nemotron-nano-12b-v2-vl:free",
@@ -24993,7 +25258,6 @@ const FEATURED_MODEL_IDS = [
   "openai/gpt-6-astra",
   "openai/gpt-5.6-sol",
   "anthropic/claude-opus-5",
-  "deepseek/deepseek-v4-pro-0813",
   "anthropic/claude-fable-5",
   "moonshotai/kimi-k3",
   "anthropic/claude-opus-5-fast",
@@ -25204,8 +25468,7 @@ const sortedCatalogModels = [...rawCatalogModels]
   }));
 
 const SEEDANCE_2_5_MODEL_ID = "bytedance/seedance-2.5";
-const DEEPSEEK_V4_PRO_MODEL_ID = "deepseek/deepseek-v4-pro-0813";
-const DEEPSEEK_V4_FLASH_MODEL_ID = "deepseek/deepseek-v4-flash-0731";
+const DEEPSEEK_V4_1_FLASH_MODEL_ID = "deepseek/deepseek-v4.1-flash";
 const SEEDREAM_5_PRO_MODEL_ID = "bytedance-seed/seedream-5-0-pro";
 const CLAUDE_FABLE_5_1_MODEL_ID = "anthropic/claude-fable-5.1";
 const CLAUDE_OPUS_5_MODEL_ID = "anthropic/claude-opus-5";
@@ -25220,6 +25483,8 @@ const MID_CATALOG_MODEL_IDS = [
   "inclusionai/ling-3.0-tiny:free",
 ];
 const LATEST_REFRESH_MODEL_IDS = [
+  "deepseek/deepseek-v4-flash-0731",
+  "deepseek/deepseek-v4-pro-0813",
   "inception/mercury-2.5",
   "nex-agi/nex-n2.5-mini:free",
   "nex-agi/nex-n2.5-pro:free",
@@ -25290,8 +25555,7 @@ const LATEST_REFRESH_MODEL_IDS = [
 ];
 const reservedCatalogModelIds = new Set([
   SEEDANCE_2_5_MODEL_ID,
-  DEEPSEEK_V4_PRO_MODEL_ID,
-  DEEPSEEK_V4_FLASH_MODEL_ID,
+  DEEPSEEK_V4_1_FLASH_MODEL_ID,
   SEEDREAM_5_PRO_MODEL_ID,
   CLAUDE_FABLE_5_1_MODEL_ID,
   CLAUDE_OPUS_5_MODEL_ID,
@@ -25305,11 +25569,8 @@ const reservedCatalogModelIds = new Set([
 const seedance25Model = sortedCatalogModels.find(
   (model) => model.id === SEEDANCE_2_5_MODEL_ID,
 );
-const deepseekV4ProModel = sortedCatalogModels.find(
-  (model) => model.id === DEEPSEEK_V4_PRO_MODEL_ID,
-);
-const deepseekV4FlashModel = sortedCatalogModels.find(
-  (model) => model.id === DEEPSEEK_V4_FLASH_MODEL_ID,
+const deepseekV41FlashModel = sortedCatalogModels.find(
+  (model) => model.id === DEEPSEEK_V4_1_FLASH_MODEL_ID,
 );
 const seedream5ProModel = sortedCatalogModels.find(
   (model) => model.id === SEEDREAM_5_PRO_MODEL_ID,
@@ -25344,15 +25605,14 @@ const normallyOrderedCatalogModels = sortedCatalogModels.filter(
 
 // The list has one router card followed by two model cards in its first row.
 // Fable 5.1 and Astra occupy the two flagship slots. Sol moves to row 2 beside
-// the stable V4 Flash default and Opus 5. Keep V4 Pro at row 3 column 1 and
-// reserve row 4 column 1 for Seedream 5 Pro.
+// the current DeepSeek V4.1 Flash default and Opus 5. Earlier V4 Flash/Pro
+// releases return to stable post-sixth-row placement as ordinary models.
 const primaryCatalogModels: Model[] = [
   ...(claudeFable51Model ? [claudeFable51Model] : []),
   ...(gpt6AstraModel ? [gpt6AstraModel] : []),
   ...(gpt56SolModel ? [gpt56SolModel] : []),
-  ...(deepseekV4FlashModel ? [deepseekV4FlashModel] : []),
+  ...(deepseekV41FlashModel ? [deepseekV41FlashModel] : []),
   ...(claudeOpus5Model ? [claudeOpus5Model] : []),
-  ...(deepseekV4ProModel ? [deepseekV4ProModel] : []),
   ...normallyOrderedCatalogModels.slice(0, 2),
   ...(seedream5ProModel ? [seedream5ProModel] : []),
   ...normallyOrderedCatalogModels.slice(2, 4),
