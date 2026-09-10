@@ -721,7 +721,7 @@ function LegacyAgentWorkbenchPage({
               ))}
             </select>
             <p className="mt-2 text-[11px] leading-5 text-slate-500">
-              默认使用 DeepSeek V4 Flash 0731。候选 State 会经过领域覆盖复审与后端质量门禁，通过后才会创建。
+              默认使用 DeepSeek V4.1 Flash。候选 State 会经过领域覆盖复审与后端质量门禁，通过后才会创建。
             </p>
             <div className="mt-4 flex items-center justify-between gap-3 border-t border-white/10 pt-4">
               <span className="text-[11px] text-slate-500">Builder 模型独立于普通会话；沿用当前思考等级和审批模式</span>

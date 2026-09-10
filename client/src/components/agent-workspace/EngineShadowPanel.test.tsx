@@ -105,7 +105,7 @@ describe("EngineShadowPanel", () => {
     await waitFor(() => {
       expect(api.create).toHaveBeenCalledWith({
         objective: "构建一个记忆卡片游戏",
-        model_base_id: "deepseek-v4-pro-0813",
+        model_base_id: "deepseek-v4.1-flash",
         thinking_level: "medium",
         token_budget: 750_000,
       });

@@ -128,11 +128,11 @@ const august28BatchCatalogIds = [
 describe("OpenRouter model refresh", () => {
   it("reconciles the refreshed counted catalog totals", () => {
     const counted = models.filter((model) => model.catalog_counted);
-    expect(counted).toHaveLength(595);
+    expect(counted).toHaveLength(596);
     expect(counted.filter((model) => model.catalog_status === "live")).toHaveLength(508);
-    expect(counted.filter((model) => model.catalog_status === "uncertain")).toHaveLength(79);
+    expect(counted.filter((model) => model.catalog_status === "uncertain")).toHaveLength(80);
     expect(counted.filter((model) => model.catalog_status === "expired")).toHaveLength(8);
-    expect(counted.filter((model) => model.catalog_status !== "expired")).toHaveLength(587);
+    expect(counted.filter((model) => model.catalog_status !== "expired")).toHaveLength(588);
   });
 
   it("adapts the September 3 drift models as post-six-row chat entries", () => {
@@ -357,7 +357,7 @@ describe("OpenRouter model refresh", () => {
     expect(models.find((item) => item.id === "meta/muse-spark-1.3-contributor")?.note)
       .toContain("输入与输出可能用于改进 Meta 产品");
     expect(models.find((item) => item.id === "meta/muse-spark-1.3")?.openrouter_market.categories)
-      .toEqual(["programming", "technology", "finance"]);
+      .toEqual(["programming", "technology", "legal", "finance"]);
     expect(models.find((item) => item.id === "meta/muse-spark-1.3-contributor")?.openrouter_market.categories)
       .toEqual([
         "programming", "roleplay", "marketing", "marketing/seo", "technology",
@@ -382,14 +382,45 @@ describe("OpenRouter model refresh", () => {
     expect(models.some((item) => item.id === "google/gemini-3.8-flash:batch")).toBe(false);
   });
 
-  it("places Astra in the flagship slot and moves Sol to row two", () => {
+  it("places V4.1 Flash in the former V4 default slot and demotes earlier V4 models", () => {
     expect(models[0]?.id).toBe("anthropic/claude-fable-5.1");
     expect(models[1]?.id).toBe("openai/gpt-6-astra");
     expect(models[2]?.id).toBe("openai/gpt-5.6-sol");
-    expect(models[3]?.id).toBe("deepseek/deepseek-v4-flash-0731");
+    expect(models[3]?.id).toBe("deepseek/deepseek-v4.1-flash");
     expect(models[4]?.id).toBe("anthropic/claude-opus-5");
-    expect(models[5]?.id).toBe("deepseek/deepseek-v4-pro-0813");
-    expect(models[8]?.id).toBe("bytedance-seed/seedream-5-0-pro");
+    expect(models[7]?.id).toBe("bytedance-seed/seedream-5-0-pro");
+    for (const legacyId of [
+      "deepseek/deepseek-v4-flash-0731",
+      "deepseek/deepseek-v4-pro-0813",
+    ]) {
+      expect(models.findIndex((model) => model.id === legacyId)).toBeGreaterThanOrEqual(
+        2 + 6 * 3,
+      );
+    }
+  });
+
+  it("adapts the V4.1 Flash multimodal reasoning contract", () => {
+    const model = models.find(
+      (candidate) => candidate.id === "deepseek/deepseek-v4.1-flash",
+    );
+
+    expect(model).toMatchObject({
+      canonical_slug: "deepseek/deepseek-v4.1-flash-20260910",
+      catalog_status: "live",
+      active: true,
+      context_length: 1_048_576,
+      pricing: { input: 0.15, output: 0.6 },
+      input_modalities: ["text", "image"],
+      output_modalities: ["text"],
+      reasoning_declared: true,
+      operations: ["analyze_image", "chat"],
+      primary_operation: "chat",
+      interaction_status: "ready",
+    });
+    expect(model?.supported_parameters).toEqual(
+      expect.arrayContaining(["reasoning_effort", "tool_choice", "tools"]),
+    );
+    expect(model?.pricing_time_windows).toHaveLength(5);
   });
 
   it("adapts the September 4 text and image contracts below six rows", () => {
@@ -466,8 +497,8 @@ describe("OpenRouter model refresh", () => {
   });
 
   it("places Seedance 2.5 at the former GPT-4o Mini TTS slot", () => {
-    expect(models[11]?.id).toBe("bytedance/seedance-2.5");
-    expect(models[12]?.id).toBe("gpt-4o-mini-tts");
+    expect(models[10]?.id).toBe("bytedance/seedance-2.5");
+    expect(models[11]?.id).toBe("gpt-4o-mini-tts");
   });
 
   it("adapts the September 8 refresh and places both images in row six", () => {
@@ -511,7 +542,8 @@ describe("OpenRouter model refresh", () => {
     });
     expect(byId.get("nex-agi/nex-n2.5-mini:free")).toMatchObject({
       pricing_status: "free",
-      input_modalities: ["text"],
+      input_modalities: ["text", "image"],
+      operations: ["analyze_image", "chat"],
     });
     expect(byId.get("nex-agi/nex-n2.5-pro:free")).toMatchObject({
       pricing_status: "free",
@@ -670,7 +702,7 @@ describe("OpenRouter model refresh", () => {
       interaction_status: "ready",
       ui_entrypoint: "chat",
       context_length: 1_310_720,
-      pricing: { input: 1.113, output: 3.4979999999999998 },
+      pricing: { input: 1.085, output: 3.41 },
       reasoning_declared: true,
       openrouter_market: { author: "z-ai" },
     });
@@ -968,8 +1000,8 @@ describe("OpenRouter model refresh", () => {
         "tools",
       ]),
     });
-    expect(byId.get("z-ai/glm-5.3-flash")?.pricing.input).toBeCloseTo(0.075);
-    expect(byId.get("z-ai/glm-5.3-flash")?.pricing.output).toBeCloseTo(0.25);
+    expect(byId.get("z-ai/glm-5.3-flash")?.pricing.input).toBeCloseTo(0.15);
+    expect(byId.get("z-ai/glm-5.3-flash")?.pricing.output).toBeCloseTo(0.5);
 
     expect(byId.get("tencent/hy-mt2-7b")).toMatchObject({
       input_modalities: ["text"],
@@ -1069,9 +1101,9 @@ describe("OpenRouter model refresh", () => {
       openrouter_market: {
         series: "Qwen",
         author: "qwen",
-        providers: ["Alibaba"],
+        providers: ["Makora"],
         distillable: true,
-        zero_data_retention: false,
+        zero_data_retention: true,
       },
     });
 
@@ -1321,9 +1353,9 @@ describe("OpenRouter model refresh", () => {
       openrouter_market: {
         series: "Router",
         author: "z-ai",
-        providers: ["GMICloud"],
+        providers: ["DeepInfra"],
         discounted: true,
-        zero_data_retention: false,
+        zero_data_retention: true,
       },
     });
     expect(models.findIndex((model) => model.id === alias?.id)).toBeGreaterThanOrEqual(
@@ -1635,14 +1667,14 @@ describe("OpenRouter model refresh", () => {
       output: 3.5,
     });
     expect(byId.get("deepseek/deepseek-v4-pro-0813")?.pricing).toEqual({
-      input: 0.57948,
-      output: 1.73844,
+      input: 1.0494,
+      output: 3.1482,
     });
     expect(
       byId.get("deepseek/deepseek-v4-pro-0813")?.openrouter_market,
     ).toMatchObject({
-      providers: ["Baidu", "Fireworks"],
-      discounted: true,
+      providers: ["DeepSeek", "Fireworks"],
+      discounted: false,
       zero_data_retention: false,
     });
     expect(byId.get("deepseek/deepseek-v4-pro")?.pricing).toEqual({
@@ -1662,8 +1694,8 @@ describe("OpenRouter model refresh", () => {
       output: 0.177212,
     });
     expect(byId.get("qwen/qwen3.5-122b-a10b")?.pricing).toEqual({
-      input: 0.29,
-      output: 2.4,
+      input: 0.26,
+      output: 2.08,
     });
     expect(byId.get("deepseek/deepseek-v3.2")?.pricing).toEqual({
       input: 0.26899999999999996,
@@ -1724,8 +1756,8 @@ describe("OpenRouter model refresh", () => {
       output: 1,
     });
     expect(byId.get("deepseek/deepseek-chat")?.pricing).toEqual({
-      input: 0.32,
-      output: 0.8899999999999999,
+      input: 0.2574,
+      output: 1.0287,
     });
     expect(byId.get("meta-llama/llama-3.3-70b-instruct")?.pricing).toEqual({
       input: 0.09999999999999999,
@@ -1799,9 +1831,9 @@ describe("OpenRouter model refresh", () => {
     });
   });
 
-  it("uses V4 Flash for agent builder and workflow-agent defaults", () => {
-    expect(DEFAULT_AGENT_BUILDER_MODEL_ID).toBe("deepseek/deepseek-v4-flash-0731");
-    expect(DEFAULT_WORKFLOW_AGENT_MODEL_ID).toBe("deepseek/deepseek-v4-flash-0731");
+  it("uses V4.1 Flash for agent builder and workflow-agent defaults", () => {
+    expect(DEFAULT_AGENT_BUILDER_MODEL_ID).toBe("deepseek/deepseek-v4.1-flash");
+    expect(DEFAULT_WORKFLOW_AGENT_MODEL_ID).toBe("deepseek/deepseek-v4.1-flash");
   });
 
   it("restores GPT-5.2 Chat as live", () => {
@@ -1835,7 +1867,7 @@ describe("OpenRouter model refresh", () => {
       (model) => model.catalog_status === "expired",
     );
 
-    expect(uncertain).toHaveLength(79);
+    expect(uncertain).toHaveLength(80);
     expect(ling?.active).toBe(true);
     expect(
       uncertain.find((model) => model.id === "mistralai/ministral-8b")
@@ -1903,7 +1935,7 @@ describe("OpenRouter model refresh", () => {
       );
     const batchCatalogIds = batchVariants.map((variant) => variant.catalog_id);
 
-    expect(batchVariants).toHaveLength(76);
+    expect(batchVariants).toHaveLength(81);
     expect(batchCatalogIds).toContain("openai/gpt-4o:batch");
     expect(batchCatalogIds).toContain("openai/gpt-5.6-luna:batch");
     expect(batchCatalogIds).toContain("openai/gpt-6-astra:batch");

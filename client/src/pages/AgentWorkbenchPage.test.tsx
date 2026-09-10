@@ -427,7 +427,7 @@ describe("AgentWorkbenchPage", () => {
     await screen.findByRole("heading", { name: "准备执行任务" });
     await userEvent.click(screen.getByRole("button", { name: "一句话创建 Agent" }));
     expect(screen.getByLabelText("Builder 模型")).toHaveValue(
-      "deepseek/deepseek-v4-flash-0731",
+      "deepseek/deepseek-v4.1-flash",
     );
     const request = "创建一个负责审查 Python API 安全性的 Agent";
     await userEvent.type(screen.getByLabelText("Agent 需求"), request);
@@ -440,7 +440,7 @@ describe("AgentWorkbenchPage", () => {
       expect(call).toBeTruthy();
       expect(JSON.parse(String((call?.[1] as RequestInit).body))).toMatchObject({
         prompt: request,
-        model_id: "deepseek/deepseek-v4-flash-0731",
+        model_id: "deepseek/deepseek-v4.1-flash",
         approval_mode: "always-ask",
       });
     });

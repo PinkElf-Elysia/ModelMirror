@@ -60,7 +60,7 @@ npm.cmd run build
 ## 默认模型
 
 - 通用聊天默认：`openai/gpt-5.6-sol`
-- Agent Builder 与工作流智能体默认：`deepseek/deepseek-v4-flash-0731`
+- Agent Builder 与工作流智能体默认：`deepseek/deepseek-v4.1-flash`
 - Embedding 稳定默认：`text-embedding-3-small`
 - OmniRoute 智能路由入口：`auto`
 
