@@ -264,6 +264,13 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
                             ],
                         },
                         {
+                            "id": "black-forest-labs/flux-video-edit",
+                            "pricing": {"cents_per_second_output": "3"},
+                            "allowed_passthrough_parameters": [
+                                "safety_tolerance"
+                            ],
+                        },
+                        {
                             "id": "heygen/avatar-iv",
                             "supported_resolutions": ["720p", "1080p"],
                             "supported_aspect_ratios": [
@@ -396,7 +403,7 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
 
     assert result.status == "online"
     assert result.stale is False
-    assert len(result.profiles) == 11
+    assert len(result.profiles) == 12
     analysis = next(
         item for item in result.profiles if item.operation == "analyze_video"
     )
@@ -425,6 +432,11 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
         item
         for item in result.profiles
         if item.model_id == "black-forest-labs/flux-video-upscale"
+    )
+    flux_edit = next(
+        item
+        for item in result.profiles
+        if item.model_id == "black-forest-labs/flux-video-edit"
     )
     avatar = next(
         item
@@ -535,6 +547,12 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
         "cents_per_megapixel_second_precise": "7.5",
         "cents_per_megapixel_second_creative": "10.5",
     }
+    assert flux_edit.interaction_status == "ready"
+    assert flux_edit.supported_input_sources == ["file", "url"]
+    assert flux_edit.requires_source_video is True
+    assert flux_edit.source_video_task == "edit"
+    assert flux_edit.upscale_factor is None
+    assert flux_edit.pricing_skus == {"cents_per_second_output": "3"}
     assert avatar.interaction_status == "ready"
     assert avatar.supported_resolutions == ["720p", "1080p"]
     assert avatar.supported_durations == []

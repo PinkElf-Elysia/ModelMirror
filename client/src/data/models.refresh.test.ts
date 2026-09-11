@@ -120,6 +120,13 @@ const september8ModelIds = [
   "qwen/qwen3.8-max-0902",
 ];
 
+const september11ModelIds = [
+  "sakana/fugu-ultra-v2",
+  "sakana/fugu-max",
+  "black-forest-labs/flux-video-edit",
+  "inclusionai/ling-3.0-flash-vl:free",
+];
+
 const august28BatchCatalogIds = [
   "qwen/qwen3.8-2.4t-a95b:batch",
   "mistralai/mistral-medium-3-5:batch",
@@ -128,11 +135,23 @@ const august28BatchCatalogIds = [
 describe("OpenRouter model refresh", () => {
   it("reconciles the refreshed counted catalog totals", () => {
     const counted = models.filter((model) => model.catalog_counted);
-    expect(counted).toHaveLength(596);
-    expect(counted.filter((model) => model.catalog_status === "live")).toHaveLength(508);
+    expect(counted).toHaveLength(600);
+    expect(counted.filter((model) => model.catalog_status === "live")).toHaveLength(512);
     expect(counted.filter((model) => model.catalog_status === "uncertain")).toHaveLength(80);
     expect(counted.filter((model) => model.catalog_status === "expired")).toHaveLength(8);
-    expect(counted.filter((model) => model.catalog_status !== "expired")).toHaveLength(588);
+    expect(counted.filter((model) => model.catalog_status !== "expired")).toHaveLength(592);
+  });
+
+  it("adapts the September 11 models below the flagship rows", () => {
+    const byId = new Map(models.map((model) => [model.id, model]));
+    for (const modelId of september11ModelIds) {
+      expect(models.findIndex((model) => model.id === modelId)).toBeGreaterThanOrEqual(20);
+    }
+    expect(byId.get("sakana/fugu-ultra-v2")).toMatchObject({ context_length: 1_000_000, pricing: { input: 5, output: 30 }, input_modalities: ["text", "image", "file"], reasoning_declared: true, interaction_status: "ready" });
+    expect(byId.get("sakana/fugu-ultra-v2")?.pricing_overrides).toHaveLength(1);
+    expect(byId.get("sakana/fugu-max")).toMatchObject({ context_length: 1_000_000, pricing: { input: 2, output: 6 }, reasoning_declared: true, interaction_status: "ready" });
+    expect(byId.get("inclusionai/ling-3.0-flash-vl:free")).toMatchObject({ input_modalities: ["text", "image", "video"], output_modalities: ["text"], pricing_status: "free", operations: expect.arrayContaining(["chat", "analyze_image", "analyze_video"]), interaction_status: "ready" });
+    expect(byId.get("black-forest-labs/flux-video-edit")).toMatchObject({ input_modalities: ["text", "video"], output_modalities: ["video"], pricing_status: "dynamic", pricing_basis: "media", primary_operation: "generate_video", interaction_status: "ready", ui_entrypoint: "multimodal", supported_parameters: ["input_references", "safety_tolerance"] });
   });
 
   it("adapts the September 3 drift models as post-six-row chat entries", () => {
@@ -361,7 +380,7 @@ describe("OpenRouter model refresh", () => {
     expect(models.find((item) => item.id === "meta/muse-spark-1.3-contributor")?.openrouter_market.categories)
       .toEqual([
         "programming", "roleplay", "marketing", "marketing/seo", "technology",
-        "science", "translation", "legal", "finance", "health", "trivia", "academia",
+        "science", "translation", "legal", "finance", "health", "academia",
       ]);
   });
 
@@ -409,7 +428,7 @@ describe("OpenRouter model refresh", () => {
       catalog_status: "live",
       active: true,
       context_length: 1_048_576,
-      pricing: { input: 0.15, output: 0.6 },
+      pricing: { input: 0.3, output: 1.2 },
       input_modalities: ["text", "image"],
       output_modalities: ["text"],
       reasoning_declared: true,
@@ -702,7 +721,7 @@ describe("OpenRouter model refresh", () => {
       interaction_status: "ready",
       ui_entrypoint: "chat",
       context_length: 1_310_720,
-      pricing: { input: 1.085, output: 3.41 },
+      pricing: { input: 0.9700000000000001, output: 3.3077 },
       reasoning_declared: true,
       openrouter_market: { author: "z-ai" },
     });
@@ -1667,15 +1686,15 @@ describe("OpenRouter model refresh", () => {
       output: 3.5,
     });
     expect(byId.get("deepseek/deepseek-v4-pro-0813")?.pricing).toEqual({
-      input: 1.0494,
-      output: 3.1482,
+      input: 0.66,
+      output: 1.9800000000000002,
     });
     expect(
       byId.get("deepseek/deepseek-v4-pro-0813")?.openrouter_market,
     ).toMatchObject({
-      providers: ["DeepSeek", "Fireworks"],
+      providers: ["Fireworks", "Ionstream"],
       discounted: false,
-      zero_data_retention: false,
+      zero_data_retention: true,
     });
     expect(byId.get("deepseek/deepseek-v4-pro")?.pricing).toEqual({
       input: 0.9552599999999999,
@@ -1744,8 +1763,8 @@ describe("OpenRouter model refresh", () => {
       output: 1.1,
     });
     expect(byId.get("~moonshotai/kimi-latest")?.pricing).toEqual({
-      input: 2.4,
-      output: 12,
+      input: 2.34,
+      output: 11.7,
     });
     expect(byId.get("deepseek/deepseek-chat-v3.1")?.pricing).toEqual({
       input: 0.25,

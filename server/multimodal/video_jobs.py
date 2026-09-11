@@ -70,7 +70,7 @@ SAFE_JOB_ERRORS: dict[str, str] = {
 
 
 class VideoJobParameters(BaseModel):
-    task_type: Literal["generate", "upscale"] = "generate"
+    task_type: Literal["generate", "edit", "upscale"] = "generate"
     duration: int | None = None
     resolution: str | None = None
     aspect_ratio: str | None = None
@@ -496,7 +496,10 @@ class VideoJobService:
         )
         clean_prompt = self._prompt(
             prompt,
-            required=not profile.requires_source_video,
+            required=(
+                not profile.requires_source_video
+                or profile.source_video_task == "edit"
+            ),
         )
         source_video = self._source_video(
             source_type=source_type,
@@ -813,6 +816,27 @@ class VideoJobService:
                     "该增强模型必须提供一个源视频。",
                     status_code=422,
                 )
+            if profile.source_video_task == "edit":
+                if any(
+                    (
+                        duration is not None,
+                        bool(resolution),
+                        bool(aspect_ratio),
+                        generate_audio,
+                        seed is not None,
+                        has_first_frame,
+                        has_last_frame,
+                        reference_image_count > 0,
+                        upscale_factor is not None,
+                        creativity is not None,
+                    )
+                ):
+                    raise MultimodalServiceError(
+                        "video_edit_parameters_unsupported",
+                        "视频编辑只接受源视频和编辑说明，请移除生成或增强参数。",
+                        status_code=422,
+                    )
+                return
             factor_range = profile.upscale_factor
             if (
                 upscale_factor is None
@@ -1372,7 +1396,7 @@ class VideoJobService:
         if (required and not prompt) or len(prompt) > MAX_VIDEO_GENERATION_PROMPT_CHARS:
             raise MultimodalServiceError(
                 "invalid_prompt",
-                "视频描述需为 1–4000 个字符；视频增强可留空。",
+                "视频生成或编辑说明需为 1–4000 个字符；视频增强可留空。",
                 status_code=422,
             )
         return prompt
@@ -1637,7 +1661,13 @@ class VideoJobService:
                 else None
             ),
             parameters=VideoJobParameters(
-                task_type=("upscale" if has_source_video else "generate"),
+                task_type=(
+                    "upscale"
+                    if upscale_factor is not None
+                    else "edit"
+                    if has_source_video
+                    else "generate"
+                ),
                 duration=(
                     int(row["duration"])
                     if row.get("duration") is not None

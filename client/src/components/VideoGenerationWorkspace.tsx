@@ -63,6 +63,7 @@ interface VideoModelProfile {
   supports_generated_audio: boolean;
   supports_seed: boolean;
   requires_source_video: boolean;
+  source_video_task: "edit" | "upscale" | null;
   upscale_factor: { min: number; max: number } | null;
   creativity: number[];
   provider_options: VideoProviderOption[];
@@ -87,7 +88,7 @@ interface VideoJob {
   provider: "openrouter";
   generation_id: string | null;
   parameters: {
-    task_type: "generate" | "upscale";
+    task_type: "generate" | "edit" | "upscale";
     duration: number | null;
     resolution: string | null;
     aspect_ratio: string | null;
@@ -437,8 +438,9 @@ export default function VideoGenerationWorkspace({
   );
 
   useEffect(() => {
-    document.title = `${profile?.requires_source_video ? "增强视频" : "生成视频"} · ${model.name} · 模镜`;
-  }, [model.name, profile?.requires_source_video]);
+    const operation = profile?.source_video_task === "upscale" ? "增强视频" : profile?.source_video_task === "edit" ? "编辑视频" : "生成视频";
+    document.title = `${operation} · ${model.name} · 模镜`;
+  }, [model.name, profile?.source_video_task]);
 
   useEffect(() => {
     if (!firstFrame) {
@@ -749,10 +751,14 @@ export default function VideoGenerationWorkspace({
       setError(validationError);
       return;
     }
+    const metadata = await readSourceVideoMetadata(file);
+    if (profile?.source_video_task === "edit" && metadata && metadata.durationSeconds > 15) {
+      setError("FLUX Video Edit 的源视频不能超过 15 秒，请缩短后重试。");
+      return;
+    }
     setSourceVideo(file);
-    setSourceVideoMetadata(null);
+    setSourceVideoMetadata(metadata);
     markFormChanged();
-    setSourceVideoMetadata(await readSourceVideoMetadata(file));
   }
 
   function handleSourceVideoInput(event: ChangeEvent<HTMLInputElement>) {
@@ -886,7 +892,9 @@ export default function VideoGenerationWorkspace({
     profile?.supports_first_frame ||
       profile?.supported_frame_types.includes("first_frame"),
   );
-  const isUpscaler = Boolean(profile?.requires_source_video);
+  const isUpscaler = profile?.source_video_task === "upscale";
+  const isVideoEditor = profile?.source_video_task === "edit";
+  const requiresSourceVideo = Boolean(profile?.requires_source_video);
   const supportsLastFrame = Boolean(
     profile?.supported_frame_types.includes("last_frame"),
   );
@@ -916,10 +924,13 @@ export default function VideoGenerationWorkspace({
     referenceImages.length > 0 ||
     providerOptionCount > 0;
   const capabilityRefreshRequired =
-    catalogStale && (enhancedInputsSelected || isUpscaler);
+    catalogStale && (enhancedInputsSelected || requiresSourceVideo);
   const selectableAspectRatios = profile
     ? supportedAspectRatiosForResolution(profile, resolution)
     : [];
+  const sourceVideoEditUnitRate = profile && isVideoEditor
+    ? videoGenerationUnitRate(profile, { resolution: "source", generateAudio: false, imageInputCount: 0 })
+    : null;
 
   const estimate =
     profile && isUpscaler && sourceVideoMetadata
@@ -928,7 +939,9 @@ export default function VideoGenerationWorkspace({
           upscaleFactor,
           creativity,
         })
-      : profile && !isUpscaler
+      : profile && isVideoEditor && sourceVideoMetadata
+        ? sourceVideoEditUnitRate === null ? null : sourceVideoEditUnitRate * sourceVideoMetadata.durationSeconds
+      : profile && !requiresSourceVideo
         ? estimateVideoCost(profile, {
             duration,
             resolution,
@@ -966,8 +979,8 @@ export default function VideoGenerationWorkspace({
     catalogStatus !== "offline" &&
     catalogStatus !== "disabled" &&
     prompt.trim().length <= MAX_PROMPT_CHARS &&
-    (isUpscaler
-      ? upscalerSelectionValid
+    (requiresSourceVideo
+      ? sourceReady && (isUpscaler ? upscalerSelectionValid : prompt.trim().length > 0)
       : prompt.trim().length > 0 &&
         (!durationRequired || duration !== null) &&
         (!resolutionRequired || Boolean(resolution))) &&
@@ -1016,15 +1029,17 @@ export default function VideoGenerationWorkspace({
     form.append("model_id", model.id);
     form.append("prompt", cleanPrompt);
     form.append("idempotency_key", key);
-    if (isUpscaler) {
+    if (requiresSourceVideo) {
       form.append("source_type", sourceType);
       if (sourceType === "file" && sourceVideo) {
         form.append("source_video", sourceVideo, sourceVideo.name);
       } else if (sourceType === "url") {
         form.append("source_video_url", sourceVideoUrl.trim());
       }
-      form.append("upscale_factor", String(upscaleFactor));
-      form.append("creativity", String(creativity));
+      if (isUpscaler) {
+        form.append("upscale_factor", String(upscaleFactor));
+        form.append("creativity", String(creativity));
+      }
     } else {
       if (duration !== null) form.append("duration", String(duration));
       if (resolution) form.append("resolution", resolution);
@@ -1134,7 +1149,7 @@ export default function VideoGenerationWorkspace({
           </Link>
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <span className="rounded-full border border-violet-300/30 bg-violet-300/10 px-3 py-1.5 text-xs font-semibold text-violet-100">
-              {isUpscaler ? "视频增强" : "视频生成"}
+              {isUpscaler ? "视频增强" : isVideoEditor ? "视频编辑" : "视频生成"}
             </span>
             <span className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-1.5 text-xs text-slate-300">
               异步任务，可离开页面后返回
@@ -1146,11 +1161,13 @@ export default function VideoGenerationWorkspace({
             ) : null}
           </div>
           <h1 className="mt-4 text-2xl font-semibold text-white sm:text-4xl">
-            使用 {model.name} {isUpscaler ? "增强视频" : "生成视频"}
+            使用 {model.name} {isUpscaler ? "增强视频" : isVideoEditor ? "编辑视频" : "生成视频"}
           </h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
             {isUpscaler
               ? "提供一个源视频并选择放大倍数与增强模式。提交后按异步任务处理，状态会保存在本机。"
+              : isVideoEditor
+                ? "提供一个源视频并描述需要修改的内容。输出会保留源视频的时长、画幅与音频。"
               : "描述画面并选择模型明确支持的参数。提交后通常需要数十秒到数分钟，任务状态会保存在本机。"}
           </p>
         </header>
@@ -1159,11 +1176,13 @@ export default function VideoGenerationWorkspace({
           <section className="surface-panel overflow-hidden rounded-lg">
             <div className="border-b border-white/10 px-5 py-4 sm:px-6">
               <h2 className="text-lg font-semibold text-white">
-                {isUpscaler ? "增强设置" : "生成设置"}
+                {isUpscaler ? "增强设置" : isVideoEditor ? "编辑设置" : "生成设置"}
               </h2>
               <p className="mt-1 text-sm text-slate-400">
                 {isUpscaler
                   ? "源视频不会保存在模镜；费用按输出百万像素秒估算。"
+                  : isVideoEditor
+                    ? "源视频不会保存在模镜；本地文件可按源视频时长估算输出费用。"
                   : durationRequired
                     ? "默认选择可用的最短时长和最低费用分辨率。"
                     : "该模型不接受固定时长参数；成片时长由脚本与上游模型决定。"}
@@ -1206,7 +1225,7 @@ export default function VideoGenerationWorkspace({
                       className="text-sm font-semibold text-slate-200"
                       htmlFor="video-generation-prompt"
                     >
-                      {isUpscaler ? "增强说明（可选）" : "视频描述"}
+                      {isUpscaler ? "增强说明（可选）" : isVideoEditor ? "编辑说明" : "视频描述"}
                     </label>
                     <span className="text-xs tabular-nums text-slate-400">
                       {prompt.length} / {MAX_PROMPT_CHARS}
@@ -1224,6 +1243,8 @@ export default function VideoGenerationWorkspace({
                     placeholder={
                       isUpscaler
                         ? "可选：例如保留人物面部与字幕边缘，减少压缩噪点。"
+                        : isVideoEditor
+                          ? "例如：把背景替换成清晨海边，保留人物动作、镜头运动和原始音频。"
                         : "例如：清晨的海边车站，一列复古列车缓慢进站，固定广角镜头，柔和自然光。"
                     }
                     ref={promptRef}
@@ -1231,12 +1252,12 @@ export default function VideoGenerationWorkspace({
                   />
                 </div>
 
-                {isUpscaler ? (
+                {requiresSourceVideo ? (
                   <div className="space-y-5 rounded-lg bg-white/[0.04] p-4">
                     <div>
                       <h3 className="text-sm font-semibold text-white">源视频</h3>
                       <p className="mt-1 text-xs leading-5 text-slate-400">
-                        必须提供一个 MP4、MPEG、MOV 或 WebM 视频；本地文件最大 20 MiB。
+                        必须提供一个 MP4、MPEG、MOV 或 WebM 视频；本地文件最大 20 MiB。FLUX Video Edit 的上游源视频上限为 15 秒、50 MiB，本地安全限制更严格。
                       </p>
                     </div>
                     <div className="grid gap-2 sm:grid-cols-2">
@@ -1302,7 +1323,7 @@ export default function VideoGenerationWorkspace({
                         />
                       </label>
                     )}
-                    <div className="grid gap-4 sm:grid-cols-2">
+                    {isUpscaler ? <div className="grid gap-4 sm:grid-cols-2">
                       <label className="block text-sm font-semibold text-slate-200">
                         放大倍数
                         <input
@@ -1340,7 +1361,7 @@ export default function VideoGenerationWorkspace({
                           ))}
                         </select>
                       </label>
-                    </div>
+                    </div> : null}
                   </div>
                 ) : (
                 <div
