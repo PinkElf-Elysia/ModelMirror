@@ -1,4 +1,4 @@
-﻿// Merged with OpenRouter model catalog on 2026-09-10T10:58:37.833Z.
+﻿// Merged with OpenRouter model catalog on 2026-09-11T09:41:17.288Z.
 // Targeted OpenRouter refresh verified on 2026-09-01 against the live all-modalities catalog.
 // Gemini 3.8 Flash, its Batch tier and Muse Spark 1.3 variants added on 2026-09-03.
 // Microsoft MAI-Transcribe 2 contract added on 2026-09-03.
@@ -221,14 +221,155 @@ interface RawCatalogModel {
 
 const rawCatalogModels: RawCatalogModel[] = [
   {
+    "id": "sakana/fugu-ultra-v2",
+    "canonical_slug": "sakana/fugu-ultra-v2-20260911",
+    "name": "Sakana: Fugu Ultra v2",
+    "raw_description": "Fugu Ultra v2 is the higher-performance model in Sakana AI's Fugu family. Rather than a single monolithic model, Fugu is a learned multi-agent orchestration system: a language model trained to...",
+    "context_length": 1000000,
+    "pricing": {
+      "input": 5,
+      "output": 30,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 10,
+          "output": 45
+        }
+      ]
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "include_reasoning",
+      "reasoning",
+      "reasoning_effort",
+      "structured_outputs",
+      "tool_choice",
+      "tools",
+      "web_search_options"
+    ],
+    "created": 1789105383,
+    "expiration_date": null,
+    "model_author": "Sakana",
+    "reasoning_declared": true
+  },
+  {
+    "id": "sakana/fugu-max",
+    "canonical_slug": "sakana/fugu-max-20260911",
+    "name": "Sakana: Fugu Max",
+    "raw_description": "Fugu Max is the cost-performance model in Sakana AI's Fugu family. Rather than a single monolithic model, Fugu is a learned multi-agent orchestration system: a language model trained to route...",
+    "context_length": 1000000,
+    "pricing": {
+      "input": 2,
+      "output": 6
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "include_reasoning",
+      "reasoning",
+      "reasoning_effort",
+      "structured_outputs",
+      "tool_choice",
+      "tools",
+      "web_search_options"
+    ],
+    "created": 1789104771,
+    "expiration_date": null,
+    "model_author": "Sakana",
+    "reasoning_declared": true
+  },
+  {
+    "id": "black-forest-labs/flux-video-edit",
+    "canonical_slug": "black-forest-labs/flux-video-edit-20260910",
+    "name": "Black Forest Labs: FLUX Video Edit",
+    "raw_description": "FLUX Video Edit takes a source video and an edit prompt, then returns an edited video while preserving the source duration, aspect ratio and audio.",
+    "context_length": 0,
+    "pricing": {
+      "input": -1,
+      "output": -1
+    },
+    "input_modalities": [
+      "text",
+      "video"
+    ],
+    "output_modalities": [
+      "video"
+    ],
+    "tokenizer": "Media",
+    "supported_parameters": [
+      "input_references",
+      "safety_tolerance"
+    ],
+    "created": 1789073532,
+    "expiration_date": null,
+    "model_author": "Black Forest Labs",
+    "note": "通过 OpenRouter 异步 Video API 提交并轮询；必须提供不超过 15 秒的源视频和编辑说明，输出保留源时长、画幅与音频。目录价为 $0.03/输出视频秒；本地上传安全上限为 20 MiB。契约已适配，未执行付费生成。"
+  },
+  {
+    "id": "inclusionai/ling-3.0-flash-vl:free",
+    "canonical_slug": "inclusionai/ling-3.0-flash-vl-20260910",
+    "name": "inclusionAI: Ling 3.0 Flash VL (free)",
+    "raw_description": "Ling 3.0 Flash VL builds on Ling 3.0 Flash (124B total / 5.5B active MoE from InclusionAI), further strengthening its language capabilities while adding native visual perception and advanced visual...",
+    "context_length": 262144,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logprobs",
+      "max_tokens",
+      "presence_penalty",
+      "reasoning",
+      "repetition_penalty",
+      "seed",
+      "stop",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_logprobs",
+      "top_p"
+    ],
+    "created": 1789056114,
+    "expiration_date": null,
+    "model_author": "InclusionAI",
+    "reasoning_declared": true
+  },
+  {
     "id": "deepseek/deepseek-v4.1-flash",
     "canonical_slug": "deepseek/deepseek-v4.1-flash-20260910",
     "name": "DeepSeek: DeepSeek V4.1 Flash",
-    "raw_description": "DeepSeek V4.1 Flash is a sparse mixture-of-experts model from DeepSeek, and the cost-efficient tier of the V4.1 family. DeepSeek reports that it exceeds V4 Pro on performance, speed, and task...",
+    "raw_description": "DeepSeek V4.1 Flash is a sparse mixture-of-experts model from DeepSeek, and the first built on the company's Causal Encoder-Decoder (CED) architecture. It activates 8B parameters on input and 16B on...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.15,
-      "output": 0.6,
+      "input": 0.3,
+      "output": 1.2,
       "time_overrides": [
         {
           "utc_start": 0,
@@ -696,7 +837,7 @@ const rawCatalogModels: RawCatalogModel[] = [
   {
     "id": "microsoft/mai-transcribe-2",
     "canonical_slug": "microsoft/mai-transcribe-2-20260903",
-    "name": "MicrosoftAI: MAI-Transcribe 2",
+    "name": "Microsoft AI: MAI-Transcribe 2",
     "raw_description": "MAI-Transcribe 2 is a multilingual speech-to-text model from Microsoft AI, ranked #1 on the FLEURS multilingual benchmark. It supports 60 languages with automatic language identification, code switching for mixed-language speech,...",
     "context_length": 0,
     "pricing": {
@@ -1689,8 +1830,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest GLM model from Z.ai.",
     "context_length": 1310720,
     "pricing": {
-      "input": 1.085,
-      "output": 3.41
+      "input": 0.9700000000000001,
+      "output": 3.3077
     },
     "input_modalities": [
       "text"
@@ -2437,8 +2578,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Pro 0813 is a large-scale mixture-of-experts model from DeepSeek. This is the GA release of DeepSeek V4 Pro.",
     "context_length": 1048576,
     "pricing": {
-      "input": 1.0494,
-      "output": 3.1482
+      "input": 0.66,
+      "output": 1.9800000000000002
     },
     "input_modalities": [
       "text"
@@ -2710,8 +2851,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Solar Pro 4 is Upstage's cost-efficient large language model, featuring a 524K context window. It is built for long-horizon tasks and agentic workflows, with strong capabilities in office productivity, document-intensive...",
     "context_length": 524288,
     "pricing": {
-      "input": 0.03,
-      "output": 0.12
+      "input": 0.09,
+      "output": 0.36
     },
     "input_modalities": [
       "text"
@@ -3210,7 +3351,6 @@ const rawCatalogModels: RawCatalogModel[] = [
     "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
-      "logprobs",
       "max_tokens",
       "presence_penalty",
       "reasoning",
@@ -3219,7 +3359,6 @@ const rawCatalogModels: RawCatalogModel[] = [
       "stop",
       "temperature",
       "tools",
-      "top_logprobs",
       "top_p"
     ],
     "created": 1785443117,
@@ -3673,8 +3812,8 @@ const rawCatalogModels: RawCatalogModel[] = [
   {
     "id": "microsoft/mai-image-2.5-pro",
     "canonical_slug": "microsoft/mai-image-2.5-pro-20260723",
-    "name": "MicrosoftAI: MAI-Image-2.5 Pro",
-    "raw_description": "Microsoft's MAI-Image-2.5 is a high-quality image generation model available via Azure AI Foundry. It produces photorealistic and artistic images from text prompts with support for various aspect ratios.",
+    "name": "Microsoft AI: MAI-Image-2.5 Pro",
+    "raw_description": "Microsoft AI's MAI-Image-2.5 is a high-quality image generation model available via Azure AI Foundry. It produces photorealistic and artistic images from text prompts with support for various aspect ratios.",
     "context_length": 4096,
     "pricing": {
       "input": 5,
@@ -3700,8 +3839,8 @@ const rawCatalogModels: RawCatalogModel[] = [
   {
     "id": "microsoft/mai-voice-2-flash",
     "canonical_slug": "microsoft/mai-voice-2-flash-20260723",
-    "name": "MicrosoftAI: MAI-Voice-2-Flash",
-    "raw_description": "MAI-Voice-2-Flash is a low-latency text-to-speech model from Microsoft for voice agents, assistants, call centers, accessibility, narration, and other interactive applications. It generates expressive 24 kHz mono speech across 15 languages...",
+    "name": "Microsoft AI: MAI-Voice-2-Flash",
+    "raw_description": "MAI-Voice-2-Flash is a low-latency text-to-speech model from Microsoft AI for voice agents, assistants, call centers, accessibility, narration, and other interactive applications. It generates expressive 24 kHz mono speech across 15...",
     "context_length": 0,
     "pricing": {
       "input": 15,
@@ -4331,8 +4470,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Kimi K3 is a 2.8T parameter open-weight multimodal reasoning model from Moonshot AI. It is suited for complex coding, knowledge work, and long-horizon agentic workflows, and is particularly strong at...",
     "context_length": 1048576,
     "pricing": {
-      "input": 3,
-      "output": 15
+      "input": 2.34,
+      "output": 11.7
     },
     "input_modalities": [
       "text",
@@ -6171,8 +6310,8 @@ const rawCatalogModels: RawCatalogModel[] = [
   {
     "id": "microsoft/mai-voice-2",
     "canonical_slug": "microsoft/mai-voice-2",
-    "name": "MicrosoftAI: MAI-Voice-2",
-    "raw_description": "MAI-Voice-2 is an expressive text-to-speech model from Microsoft. It is suited for conversational assistants, media narration, accessibility, education, and other long-form voice applications. It supports 15 languages across 18 locales,...",
+    "name": "Microsoft AI: MAI-Voice-2",
+    "raw_description": "MAI-Voice-2 is an expressive text-to-speech model from Microsoft AI. It is suited for conversational assistants, media narration, accessibility, education, and other long-form voice applications. It supports 15 languages across 18...",
     "context_length": 0,
     "pricing": {
       "input": 22,
@@ -6198,7 +6337,7 @@ const rawCatalogModels: RawCatalogModel[] = [
   {
     "id": "microsoft/mai-transcribe-1.5",
     "canonical_slug": "microsoft/mai-transcribe-1.5",
-    "name": "MicrosoftAI: MAI-Transcribe 1.5",
+    "name": "Microsoft AI: MAI-Transcribe 1.5",
     "raw_description": "MAI-Transcribe 1.5 is a multilingual speech-to-text model from Microsoft AI. It is suited for captions, call transcription, subtitling, accessibility, and other voice-enabled applications, with reliable transcription across 43 languages, diverse...",
     "context_length": 0,
     "pricing": {
@@ -6225,8 +6364,8 @@ const rawCatalogModels: RawCatalogModel[] = [
   {
     "id": "microsoft/mai-image-2.5",
     "canonical_slug": "microsoft/mai-image-2.5",
-    "name": "MicrosoftAI: MAI-Image-2.5",
-    "raw_description": "Microsoft's MAI-Image-2.5 is a high-quality image generation model available via Azure AI Foundry. It produces photorealistic and artistic images from text prompts with support for various aspect ratios.",
+    "name": "Microsoft AI: MAI-Image-2.5",
+    "raw_description": "Microsoft AI's MAI-Image-2.5 is a high-quality image generation model available via Azure AI Foundry. It produces photorealistic and artistic images from text prompts with support for various aspect ratios.",
     "context_length": 4096,
     "pricing": {
       "input": 5,
@@ -7892,8 +8031,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the MoonshotAI Kimi family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 2.4,
-      "output": 12
+      "input": 2.34,
+      "output": 11.7
     },
     "input_modalities": [
       "text",
@@ -9509,8 +9648,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Gemma 4 26B A4B IT is an instruction-tuned Mixture-of-Experts (MoE) model from Google DeepMind. Despite 25.2B total parameters, only 3.8B activate per token during inference — delivering near-31B quality at...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.07,
-      "output": 0.33999999999999997
+      "input": 0.041999999999999996,
+      "output": 0.22
     },
     "input_modalities": [
       "image",
@@ -10417,6 +10556,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "frequency_penalty",
       "include_reasoning",
       "logit_bias",
+      "logprobs",
       "max_tokens",
       "min_p",
       "presence_penalty",
@@ -10426,10 +10566,12 @@ const rawCatalogModels: RawCatalogModel[] = [
       "response_format",
       "seed",
       "stop",
+      "structured_outputs",
       "temperature",
       "tool_choice",
       "tools",
       "top_k",
+      "top_logprobs",
       "top_p"
     ],
     "created": 1773245239,
@@ -11427,10 +11569,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
-      "logit_bias",
       "logprobs",
       "max_tokens",
-      "min_p",
       "presence_penalty",
       "reasoning",
       "repetition_penalty",
@@ -11989,7 +12129,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "z-ai/glm-4.7-flash-20260119",
     "name": "Z.ai: GLM 4.7 Flash",
     "raw_description": "As a 30B-class SOTA model, GLM-4.7-Flash offers a new option that balances performance and efficiency. It is further optimized for agentic coding use cases, strengthening coding capabilities, long-horizon task planning,...",
-    "context_length": 202752,
+    "context_length": 200000,
     "pricing": {
       "input": 0.060500000000000005,
       "output": 0.39999999999999997
@@ -18290,8 +18430,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V3, a 685B-parameter, mixture-of-experts model, is the latest iteration of the flagship chat model family from the DeepSeek team. It succeeds the [DeepSeek V3](/deepseek/deepseek-chat-v3) model and performs really well...",
     "context_length": 163840,
     "pricing": {
-      "input": 0.29,
-      "output": 1.1400000000000001
+      "input": 0.25,
+      "output": 1
     },
     "input_modalities": [
       "text"
@@ -20495,8 +20635,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Meta's latest class of model (Llama 3.1) launched with a variety of sizes & flavors. This 70B instruct-tuned version is optimized for high quality dialogue usecases. It has demonstrated strong...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.39999999999999997,
-      "output": 0.39999999999999997
+      "input": 0.72,
+      "output": 0.72
     },
     "input_modalities": [
       "text"
@@ -24945,6 +25085,7 @@ const VERIFIED_VIDEO_MODEL_IDS = new Set([
   "alibaba/wan-3.0",
   "alibaba/wan-3.0-prime",
   "black-forest-labs/flux-video-upscale",
+  "black-forest-labs/flux-video-edit",
   "bytedance/seedance-2.0",
   "bytedance/seedance-2.0-mini",
   "bytedance/seedance-2.5",
@@ -25483,6 +25624,10 @@ const MID_CATALOG_MODEL_IDS = [
   "inclusionai/ling-3.0-tiny:free",
 ];
 const LATEST_REFRESH_MODEL_IDS = [
+  "sakana/fugu-ultra-v2",
+  "sakana/fugu-max",
+  "black-forest-labs/flux-video-edit",
+  "inclusionai/ling-3.0-flash-vl:free",
   "deepseek/deepseek-v4-flash-0731",
   "deepseek/deepseek-v4-pro-0813",
   "inception/mercury-2.5",

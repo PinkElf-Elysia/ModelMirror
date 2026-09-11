@@ -80,6 +80,7 @@ class StubCatalog:
         verification_requires_cost_estimate: bool = False,
         pricing_skus: dict[str, str] | None = None,
         requires_source_video: bool = False,
+        source_video_task: Literal["edit", "upscale"] | None = None,
         upscale_factor: tuple[float, float] | None = None,
         creativity: list[int] | None = None,
         catalog_status: Literal[
@@ -116,6 +117,10 @@ class StubCatalog:
                 ["file", "url"] if requires_source_video else []
             ),
             requires_source_video=requires_source_video,
+            source_video_task=(
+                source_video_task
+                or ("upscale" if requires_source_video else None)
+            ),
             upscale_factor=(
                 VideoUpscaleFactorRange(
                     min=upscale_factor[0], max=upscale_factor[1]
@@ -476,6 +481,56 @@ async def test_flux_upscale_rejects_missing_source_and_generation_parameters(
         )
     assert caught.value.code == "upscale_generation_parameters_unsupported"
     assert adapter.submit_calls == []
+
+
+@pytest.mark.asyncio
+async def test_flux_video_edit_maps_source_and_requires_edit_prompt(
+    tmp_path: Path,
+) -> None:
+    router_instance = router_service(tmp_path)
+    adapter = FakeAdapter()
+    service = VideoJobService(
+        router_instance,
+        StubCatalog(
+            router_instance,
+            model_id="black-forest-labs/flux-video-edit",
+            requires_source_video=True,
+            source_video_task="edit",
+            supports_first_frame=False,
+            supports_last_frame=False,
+            supports_generated_audio=False,
+            supports_seed=False,
+            pricing_skus={"cents_per_second_output": "3"},
+        ),
+        adapter=adapter,
+    )
+
+    job = await service.create(
+        model_id="black-forest-labs/flux-video-edit",
+        prompt="Replace the background with a sunrise beach",
+        source_type="file",
+        source_video_filename="source.mp4",
+        source_video_content_type="video/mp4",
+        source_video_content=VIDEO,
+        idempotency_key="flux-video-edit-0001",
+    )
+
+    payload = adapter.submit_calls[0]
+    assert payload["prompt"] == "Replace the background with a sunrise beach"
+    assert payload["input_references"][0]["type"] == "video_url"
+    assert "upscale_factor" not in payload
+    assert "creativity" not in payload
+    assert job.parameters.task_type == "edit"
+
+    with pytest.raises(MultimodalServiceError) as caught:
+        await service.create(
+            model_id="black-forest-labs/flux-video-edit",
+            prompt="",
+            source_type="url",
+            source_video_url="https://example.com/source.mp4",
+            idempotency_key="flux-video-edit-empty-0001",
+        )
+    assert caught.value.code == "invalid_prompt"
 
 
 @pytest.mark.asyncio

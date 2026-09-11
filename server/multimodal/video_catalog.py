@@ -66,6 +66,9 @@ VERIFIED_VIDEO_GENERATION_MODELS = frozenset(
         # 2026-08-20：专用视频目录确认源视频、1.5–3 倍放大、
         # 精确/创意模式及按百万像素秒计价；未执行付费生成。
         "black-forest-labs/flux-video-upscale",
+        # 2026-09-11：专用视频目录确认源视频编辑、保留源时长/画幅/音频、
+        # 每输出视频秒 3 美分；未执行付费生成。
+        "black-forest-labs/flux-video-edit",
         # 2026-08-24：专用视频目录与模型调用说明确认异步契约；
         # Avatar IV 使用单张人物参考图且不发送未公开的音频上传字段，
         # Wan 3.0 支持 2–30 秒、首帧/参考图、生成音频与 seed。
@@ -88,6 +91,11 @@ HIGH_COST_VIDEO_VERIFICATION_MODELS = frozenset(
         "openai/sora-2-pro",
     }
 )
+
+SOURCE_VIDEO_TASK_AUDIT: dict[str, Literal["edit", "upscale"]] = {
+    "black-forest-labs/flux-video-edit": "edit",
+    "black-forest-labs/flux-video-upscale": "upscale",
+}
 
 
 class VideoProviderOption(BaseModel):
@@ -124,6 +132,7 @@ class VideoModelProfile(BaseModel):
     supports_generated_audio: bool = False
     supports_seed: bool = False
     requires_source_video: bool = False
+    source_video_task: Literal["edit", "upscale"] | None = None
     upscale_factor: VideoUpscaleFactorRange | None = None
     creativity: list[int] = Field(default_factory=list)
     provider_options: list[VideoProviderOption] = Field(
@@ -361,6 +370,7 @@ class VideoCatalogService:
                     item.get("upscale_factor")
                 )
                 reference_limit = REFERENCE_IMAGE_AUDIT.get(model_id)
+                source_video_task = SOURCE_VIDEO_TASK_AUDIT.get(model_id)
                 verified = model_id in VERIFIED_VIDEO_GENERATION_MODELS
                 status_reason = (
                     None
@@ -372,7 +382,7 @@ class VideoCatalogService:
                         model_id=model_id,
                         operation="generate_video",
                         supported_input_sources=(
-                            ["file", "url"] if upscale_factor else []
+                            ["file", "url"] if source_video_task else []
                         ),
                         supported_resolutions=self._strings(
                             item.get("supported_resolutions")
@@ -396,7 +406,8 @@ class VideoCatalogService:
                         max_reference_images=reference_limit,
                         supports_generated_audio=self._supports_audio(item),
                         supports_seed=self._supports_seed(item),
-                        requires_source_video=upscale_factor is not None,
+                        requires_source_video=source_video_task is not None,
+                        source_video_task=source_video_task,
                         upscale_factor=upscale_factor,
                         creativity=self._creativity(item.get("creativity")),
                         provider_options=self._provider_options(
