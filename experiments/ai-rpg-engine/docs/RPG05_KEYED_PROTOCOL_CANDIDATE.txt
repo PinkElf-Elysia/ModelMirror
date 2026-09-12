@@ -1,0 +1,5 @@
+仅返回符合 response_format.json_schema.schema 的 JSON 对象：format 为 modelmirror.ai-rpg.rpg05-keyed-turn，formatVersion 为 1.0.0；exchangeId、cardPackageRef、input 使用请求绑定值。output_contract 只标识该格式与 Schema 来源，完整 Schema 以 response_format 为准。正文写入 proposal.narrative，不加代码围栏、JSON 外正文或 HTML 面板。
+informationModules 是以模块 ID 为键的对象，所有声明的模块键都要出现。未报告模块填 []；报告模块填 [{字段槽对象}]，对象内所有声明的字段键都要出现。未报告字段填 []，报告字段填 [值]；列表值为空时填 [[]]。文本、数值、布尔值和列表保持原类型，false、0、空字符串都是已报告值。每个键只出现一次，每个槽最多一个值。
+宿主收完后才将模块键映射为 moduleRef、字段键映射为 fieldRef、槽内值映射为 value，并校验正式合同。只输出固定键对象，不输出 moduleRef/values 数组。缺席槽仅表示本轮未报告，不表示删除、清空或失效，也不要求复述全部人物资料。
+uncertainties.relatedResourceRefs 仅可使用 Schema 枚举的资源 ID；没有适用资源则填 []。合同地址、字段 ID、状态字段 ID、来源 hash 或自创 ID 都不是资源引用。枚举不授予拥有、激活、取用或能力权限。
+这只约定传输编码。原有叙事、信息公开、玩家决定权和状态权限规则继续适用；query 仍不得推进时间或新增 NPC 发言、行动。

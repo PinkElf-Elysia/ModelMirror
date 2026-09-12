@@ -3196,6 +3196,61 @@ class ChatSkillApplication(BaseModel):
     )
 
 
+def validate_chat_structured_format(value: dict[str, Any]) -> dict[str, Any]:
+    """Bounded strict subset for opt-in managed text requests; no remote refs."""
+    if len(json.dumps(value, ensure_ascii=False).encode("utf-8")) > 100000:
+        raise ValueError("structured schema too large")
+    if set(value) != {"type", "json_schema"} or value.get("type") != "json_schema":
+        raise ValueError("strict json_schema required")
+    spec = value["json_schema"]
+    if not isinstance(spec, dict) or set(spec) != {"name", "strict", "schema"} or spec.get("strict") is not True:
+        raise ValueError("strict schema envelope required")
+    if not isinstance(spec["name"], str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", spec["name"]):
+        raise ValueError("invalid schema name")
+    nodes = 0
+    enum_count = 0
+    def check(node, depth=0):
+        nonlocal nodes, enum_count
+        nodes += 1
+        allowed = {"type", "properties", "required", "additionalProperties", "anyOf", "items", "enum", "minLength", "maxLength", "pattern", "minimum", "maximum", "minItems", "maxItems"}
+        if not isinstance(node, dict) or depth > 10 or nodes > 5000 or set(node) - allowed:
+            raise ValueError("unsupported structured schema")
+        if "anyOf" in node:
+            if set(node) != {"anyOf"} or not isinstance(node["anyOf"], list) or not 1 <= len(node["anyOf"]) <= 1024:
+                raise ValueError("invalid schema union")
+            for child in node["anyOf"]:
+                check(child, depth + 1)
+            return
+        kind = node.get("type")
+        if not isinstance(kind, str) or kind not in {"object", "array", "string", "number", "integer", "boolean"}:
+            raise ValueError("explicit type required")
+        for key in ("minLength", "maxLength", "minItems", "maxItems"):
+            if key in node and (type(node[key]) is not int or node[key] < 0):
+                raise ValueError("invalid schema limit")
+        for key in ("minimum", "maximum"):
+            if key in node and (type(node[key]) not in (int, float) or not float("-inf") < node[key] < float("inf")):
+                raise ValueError("invalid schema bound")
+        if "pattern" in node and (not isinstance(node["pattern"], str) or len(node["pattern"]) > 4096):
+            raise ValueError("invalid schema pattern")
+        if kind == "object":
+            props, required = node.get("properties"), node.get("required")
+            if not isinstance(props, dict) or not isinstance(required, list) or any(not isinstance(k, str) for k in required) or len(required) != len(set(required)) or set(required) != set(props) or node.get("additionalProperties") is not False:
+                raise ValueError("closed object with all fields required")
+            for child in props.values():
+                check(child, depth + 1)
+        if kind == "array":
+            check(node.get("items"), depth + 1)
+        if "enum" in node and (not isinstance(node["enum"], list) or not 1 <= len(node["enum"]) <= 1000 or any(isinstance(v, (dict, list)) or v is None for v in node["enum"])):
+            raise ValueError("invalid schema enum")
+        enum_count += len(node.get("enum", []))
+        if enum_count > 1000:
+            raise ValueError("schema enum limit")
+    check(spec["schema"])
+    if spec["schema"].get("type") != "object":
+        raise ValueError("root must be object")
+    return value
+
+
 class ChatRequest(BaseModel):
     model_id: str = Field(min_length=1, max_length=256)
     messages: list[ChatMessage] = Field(min_length=1, max_length=80)
@@ -3211,6 +3266,7 @@ class ChatRequest(BaseModel):
     gateway: Literal["default", "auto", "omniroute", "newapi_canary"] = "default"
     routing: ChatRoutingOptions | None = None
     require_managed_route: bool = False
+    response_format: dict[str, Any] | None = None
     compression: ChatCompressionOptions | None = None
     response_audio: ChatResponseAudioOptions | None = None
     skill_application: ChatSkillApplication | None = None
@@ -3227,6 +3283,15 @@ class ChatRequest(BaseModel):
         max_length=256,
         pattern=r"^[A-Za-z0-9._:-]+$",
     )
+
+
+    @model_validator(mode="after")
+    def validate_structured_output(self) -> "ChatRequest":
+        if self.response_format is not None:
+            validate_chat_structured_format(self.response_format)
+            if not self.require_managed_route or self.gateway != "default" or self.tool_mode != "none" or self.response_audio is not None or self.stop:
+                raise ValueError("structured output requires managed text without stop sequences")
+        return self
 
 
 class OpenRouterBatchRequestItem(BaseModel):
@@ -4789,6 +4854,8 @@ def build_upstream_payload(
         "max_tokens": payload.max_tokens,
         "stream": True,
     }
+    if payload.response_format is not None:
+        upstream_payload["response_format"] = json.loads(json.dumps(payload.response_format))
     if payload.top_p is not None:
         upstream_payload["top_p"] = payload.top_p
     if payload.seed is not None:
@@ -32646,6 +32713,10 @@ async def get_openrouter_batch(batch_id: str):
 
 @app.post("/api/chat")
 async def chat(payload: ChatRequest, request: Request):
+    if payload.response_format is not None:
+        # Host-only experimental access. No CORS/browser credential widening.
+        if os.getenv("RPG05_STRUCTURED_OUTPUT_ENABLED") != "true" or not request.client or request.client.host not in {"127.0.0.1", "::1"} or request.headers.get("origin") or request.headers.get("sec-fetch-site"):
+            return JSONResponse(status_code=403, content={"code": "structured_output_host_only_disabled"})
     if payload.require_managed_route:
         managed_route_shape_supported = bool(
             payload.gateway == "default"
