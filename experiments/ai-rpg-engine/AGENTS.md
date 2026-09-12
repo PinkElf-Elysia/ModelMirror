@@ -1,3 +1,15 @@
+# RPG05 当前执行边界（用户已批准的本轮覆盖）
+本段仅覆盖 RPG05；下方 RPG01–04 门禁保留为历史，不修改旧检查器常量。
+- 固定基线 81fc14f6e0dada2447a63c1e532ee55b1f914ded，分支 codex/ai-rpg-rpg05-ui。
+- 用户2026-09-12明确批准结构化输出精确父仓例外：本独立工作区 server/main.py、server/tests/test_provider_chat_structured_output.py；仅离线/mock，不改共享服务或旧候选副本。
+- 只修改 experiments/ai-rpg-engine/** 与 docs/ai-rpg-experiment/**；父仓源码、共享服务和其他工作区禁止修改。
+- 以 docs/RPG05_BASELINE.json 冻结既有合同、content、runtime、context、fixtures、历史测试/脚本/回执。新增 ui/**、ui-host/** 和本轮测试/脚本/文档；不得为自动提交或再生成改写旧合同。既有 AGENTS、README、package/lock、MANIFEST 仅限本轮必要元数据与脚本登记。
+- 按 docs/ai-rpg-experiment/RPG05_PLAN.md（仓库根）和 docs/RPG05_PROTOTYPES.json 执行用户最新修订；显著 UI 流程改变需先获批。平台 UI、目标卡配置适配与作者自有 HTML/CSS/JS 界面分层，作者代码本轮不执行。
+- 不修改 RPG04 运行提示词，不改旧测试常量、不删除失败证据。每批最多五文件；失败停在本批。
+- 本轮 Provider 执行需离线/mock/UI 门禁与单独冻结授权，原型不等于真实验收。无 Commit/Push/PR/Merge/Deploy/Publish 授权。
+- 新宿主只允许loopback受控调用；凭据只在宿主，前端只读安全投影；安装前登记依赖许可。只能关闭本轮自有实例。
+
+
 # AGENTS.md — AI RPG 独立实验模块
 
 本文件适用于 `experiments/ai-rpg-engine/**`，并在父级 `AGENTS.md` 基础上收紧当前 RPG-04 边界。下列 RPG-01 至 RPG-03 规则作为历史门禁原样保留，不构成 RPG-04 的父仓例外。

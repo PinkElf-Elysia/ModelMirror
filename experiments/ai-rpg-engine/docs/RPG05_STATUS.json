@@ -1,0 +1,3699 @@
+{
+  "format": "modelmirror.ai-rpg.rpg05-status",
+  "formatVersion": "0.5.0",
+  "status": "in_progress",
+  "branch": "codex/ai-rpg-rpg05-ui",
+  "base": "81fc14f6e0dada2447a63c1e532ee55b1f914ded",
+  "phase": "05F_png_cropped_ready_for_draft_pr",
+  "completedBatches": [
+    {
+      "id": "05A1",
+      "files": 5,
+      "result": "passed",
+      "checks": [
+        "252 frozen baseline files",
+        "23 approved prototype hashes",
+        "initial boundary",
+        "git diff --check"
+      ]
+    },
+    {
+      "id": "05A2",
+      "files": 5,
+      "result": "passed",
+      "checks": [
+        "152 locked dependencies, 102 installed",
+        "license and integrity registration",
+        "npm audit: 0 vulnerabilities",
+        "esbuild 0.28.1 TSX transform"
+      ],
+      "failuresPreserved": "RPG05_THIRD_PARTY.json auditHistory"
+    },
+    {
+      "id": "05A3",
+      "files": 5,
+      "result": "passed",
+      "checks": [
+        "npm.cmd run build: TypeScript + Vite 7.3.5",
+        "node --test tests/ui-host-security.test.mjs: 7 passed",
+        "initial boundary: 15 changed files",
+        "git diff --check"
+      ],
+      "priorFailure": {
+        "command": "node --test tests/ui-host-security.test.mjs",
+        "result": "5 passed, 1 failed",
+        "reason": "fetch request-header normalization made Host override ineffective in the test request",
+        "correction": "raw http.get for Host/Origin/Fetch Metadata probes; same 403 assertion retained"
+      }
+    },
+    {
+      "id": "05B1",
+      "files": 5,
+      "result": "passed",
+      "checks": [
+        "setup/storage: initial 9 tests passed"
+      ]
+    },
+    {
+      "id": "05B2",
+      "files": 5,
+      "result": "passed",
+      "checks": [
+        "service: 3 tests passed"
+      ]
+    },
+    {
+      "id": "05B3",
+      "files": 5,
+      "result": "passed",
+      "checks": [
+        "TypeScript + Vite build passed",
+        "agent UI: Gu custom character/identity/talent created and reload retained; no Provider"
+      ]
+    },
+    {
+      "id": "05B4",
+      "files": 5,
+      "result": "passed",
+      "checks": [
+        "node --test tests/ui-host-setup.test.mjs tests/ui-host-service.test.mjs: 13 passed",
+        "npm.cmd --prefix ui run build: passed"
+      ]
+    },
+    {
+      "id": "05C1",
+      "files": 5,
+      "result": "passed",
+      "checks": [
+        "8 input/checkpoint/turn tests passed"
+      ]
+    },
+    {
+      "id": "05C2",
+      "files": 5,
+      "result": "passed",
+      "checks": [
+        "4 journey ledger tests plus 3 service tests passed"
+      ]
+    },
+    {
+      "id": "05C3",
+      "files": 5,
+      "result": "passed",
+      "checks": [
+        "3 projection tests plus 4 ledger tests passed"
+      ]
+    },
+    {
+      "id": "05C4",
+      "files": 5,
+      "result": "passed",
+      "checks": [
+        "TypeScript and Vite build passed",
+        "Agent UI: 2 mock turns, suggestion edit, refresh, cancel regeneration, delete latest, mobile 390px no overflow"
+      ]
+    },
+    {
+      "id": "05F1",
+      "files": 5,
+      "result": "passed",
+      "checks": [
+        "verify:rpg05: 216+125+35+2 tests passed; typecheck/build passed"
+      ]
+    },
+    {
+      "id": "05D1",
+      "files": 3,
+      "result": "passed",
+      "checks": [
+        "Custom item quantity/tags UI builds",
+        "Complete record history hash chain; 15 setup/journey tests passed"
+      ]
+    },
+    {
+      "id": "05D2",
+      "files": 3,
+      "result": "passed",
+      "checks": [
+        "Frozen HTTP test on isolated RPG05 candidate passed; own harness processes stopped"
+      ],
+      "failuresPreserved": [
+        "Initial Python runtime lacked httpx; same harness rerun using existing compatible Python environment"
+      ]
+    },
+    {
+      "id": "05E_guard_ledger",
+      "files": 2,
+      "result": "passed",
+      "checks": [
+        "5 immutable dispatch ledger tests"
+      ]
+    },
+    {
+      "id": "05E_guard_freeze",
+      "files": 2,
+      "result": "passed",
+      "checks": [
+        "3 frozen source/input/route negative tests"
+      ]
+    },
+    {
+      "id": "05E_adapter",
+      "files": 4,
+      "result": "passed",
+      "checks": [
+        "13 affected turn/journey/projection tests"
+      ]
+    },
+    {
+      "id": "05E_prepare_ui",
+      "files": 5,
+      "result": "passed",
+      "checks": [
+        "3 real adapter tests with fully replaced transport, no Provider",
+        "prepare mode sends disabled; build passed",
+        "two neutral custom setups created through actual UI; 4096 compile passed"
+      ]
+    },
+    {
+      "id": "05E-continuation-guard",
+      "files": 5,
+      "result": "passed",
+      "checks": [
+        "11 focused budget/freeze tests",
+        "393 aggregate offline tests, typecheck and build"
+      ],
+      "providerAcceptance": "failed slot5; not complete"
+    },
+    {
+      "id": "05E-slot5-extension-guard",
+      "files": 5,
+      "result": "passed",
+      "checks": [
+        "13 focused budget/freeze tests",
+        "395 aggregate tests plus typecheck/build"
+      ],
+      "real": "slot6 succeeded; slot7 failed; acceptance incomplete"
+    },
+    {
+      "id": "05E-format-diagnostics",
+      "files": 5,
+      "result": "passed",
+      "checks": [
+        "8 focused offline tests",
+        "400 aggregate tests, typecheck, build",
+        "historical response replay: 2/6 valid;3 transport;5 contract;7 JSON; no historical mutation"
+      ],
+      "real": "not_run: zero new dispatches; format reliability unresolved"
+    },
+    {
+      "id": "05E_structured_A",
+      "files": 2,
+      "result": "passed",
+      "checks": [
+        "schema compiler offline tests"
+      ]
+    },
+    {
+      "id": "05E_structured_B",
+      "files": 4,
+      "result": "passed",
+      "checks": [
+        "57 backend tests including frozen stable chat"
+      ]
+    },
+    {
+      "id": "05E_structured_C",
+      "files": 2,
+      "result": "passed",
+      "checks": [
+        "11 structured HTTP mock tests"
+      ]
+    },
+    {
+      "id": "05E_structured_binding",
+      "files": 4,
+      "result": "passed",
+      "checks": [
+        "freeze and guarded adapter tests; final 11 passed"
+      ]
+    },
+    {
+      "id": "05E_keyed_A",
+      "files": 2,
+      "result": "passed",
+      "checks": [
+        "13 focused codec/schema tests; generation-schema duplicate reproduction retained"
+      ]
+    },
+    {
+      "id": "05E_keyed_B",
+      "files": 4,
+      "result": "passed",
+      "checks": [
+        "31 codec/transport/diagnostics tests"
+      ]
+    },
+    {
+      "id": "05E_keyed_C",
+      "files": 4,
+      "result": "passed",
+      "checks": [
+        "20 freeze/wrapper/ledger tests; exact opt-in new codec binding"
+      ]
+    },
+    {
+      "id": "05E_keyed_D",
+      "files": 2,
+      "result": "passed",
+      "checks": [
+        "Two-world service/context/mock-HTTP/commit/recovery tests",
+        "59 parent stable/structured offline tests"
+      ]
+    },
+    {
+      "id": "05E_keyed_E",
+      "files": 1,
+      "result": "passed",
+      "checks": [
+        "11 codec tests including false/zero/empty values"
+      ]
+    },
+    {
+      "id": "05E_keyed_F",
+      "files": 1,
+      "result": "passed",
+      "checks": [
+        "Separate CLI keyed freeze path syntax; 14 related freeze/wrapper tests"
+      ]
+    },
+    {
+      "id": "05E_resource_refs_offline",
+      "files": 5,
+      "result": "passed",
+      "checks": [
+        "44 focused tests",
+        "453 applicable offline aggregate; typecheck/build",
+        "4 actual parent schema parse/forward tests",
+        "original14/15 byte-equivalent conversion; original16 rejected earlier",
+        "136 real-store files unchanged; old freeze rejected"
+      ],
+      "real": "not_run",
+      "failuresPreserved": ".rpg04-work/rpg05-protocol-offline-Tg7VZe/red.log"
+    },
+    {
+      "id": "05E-protocol-projection",
+      "files": 2,
+      "result": "passed",
+      "checks": "19 focused tests"
+    },
+    {
+      "id": "05E-protocol-transport-binding",
+      "files": 5,
+      "result": "passed",
+      "checks": "34 focused tests; initial fixture failure retained"
+    },
+    {
+      "id": "05E-protocol-ledger24",
+      "files": 5,
+      "result": "passed",
+      "checks": "26 focused tests; full aggregate469"
+    },
+    {
+      "id": "05E-reviewed-A",
+      "files": 2,
+      "result": "passed",
+      "checks": [
+        "9 focused offline tests"
+      ],
+      "log": ".rpg04-work/rpg05-reviewed-retest-jsthpby7/budget-test.log",
+      "logSha256": "2963dc2e6b3ee4605f8202b881e342768a9ef92c49fc1df94e65783b133bb16f"
+    },
+    {
+      "id": "05E-reviewed-B",
+      "files": 3,
+      "result": "passed",
+      "checks": [
+        "22 focused offline tests"
+      ],
+      "log": ".rpg04-work/rpg05-reviewed-retest-jsthpby7/projection-test.log",
+      "logSha256": "0c6a404a1e3e5e9f742758026747db1f2b82539978eba4c09f772b8be050eccc"
+    },
+    {
+      "id": "05E-reviewed-C",
+      "files": 5,
+      "result": "passed",
+      "checks": [
+        "41 focused offline tests"
+      ],
+      "log": ".rpg04-work/rpg05-reviewed-retest-jsthpby7/transport-test.log",
+      "logSha256": "ace871e9c413f874c8dd5453648a41174a60a6e9adef837d513dad46d9f9b240"
+    },
+    {
+      "id": "05E-reviewed-D",
+      "files": 3,
+      "result": "passed",
+      "checks": [
+        "29 focused offline tests"
+      ],
+      "log": ".rpg04-work/rpg05-reviewed-retest-jsthpby7/freeze-test.log",
+      "logSha256": "286c8d9f9521cbacc3a2853b4bb8b1f216d92dd3b1441c3106a540e7cdbbdacc"
+    },
+    {
+      "id": "05E_manual_access",
+      "files": 3,
+      "paths": [
+        "ui-host/manual-access.mjs",
+        "ui-host/manual-cli.mjs",
+        "tests/ui-host-manual-access.test.mjs"
+      ],
+      "result": "passed_offline_only",
+      "checks": [
+        "manual10 offline checks",
+        "aggregate492",
+        "typecheck/build",
+        "real route read-only preflight0dispatch"
+      ]
+    },
+    {
+      "id": "05F_resume_closeout",
+      "files": 5,
+      "result": "passed_metadata_scope_only",
+      "paths": [
+        "docs/RPG05_STATUS.json",
+        "docs/RPG05_REVIEWED_RETEST.md",
+        "docs/RPG05_MANUAL_HANDOFF.md",
+        "docs/RPG05_THIRD_PARTY.json",
+        "../../docs/ai-rpg-experiment/MANIFEST.json"
+      ],
+      "checks": [
+        "final boundary252 baseline/23 prototypes",
+        "MANIFEST319 module/16 research hashes",
+        "git diff --check",
+        "prior metadata bytes retained; no quality waiver"
+      ]
+    }
+  ],
+  "evidence": {
+    "mock": "520 actual-worktree aggregate checks plus typecheck/build passed;0 Provider",
+    "real": "reviewed v2 slots19-26: qualification, Gu3+Minecraft3 structurally bound and committed, client cancellation preserved history; content gaps remain",
+    "manual": "pending_user_quality_and_experience_acceptance; manual0/5 at 2026-09-12T17:50:49.170Z",
+    "independent": "completed_three_fixes_and_cutover_review_no_open_code_blockers; mock-only and reviewed source scope",
+    "prototype": "approved_with_amendments",
+    "agentUi": "mock rejection-refresh-correction-save verified; activated real preview refreshed and preserved journey list; no generation",
+    "uiRendering": {
+      "result": "passed",
+      "tests": 2,
+      "browserFixture": "inert script/HTML image/javascript link; explicit external link dialog; Escape; trap hits 0"
+    },
+    "candidateMock": "historical176 host +3 UI and migration36; subsequently actual-worktree520 passed and source applied",
+    "screenshots": {
+      "result": "passed",
+      "source": "user supplied; ordinary lossless crop explicitly approved",
+      "count": 7,
+      "registry": "docs/RPG05_SCREENSHOTS.json",
+      "registrySha256": "d0a693f30faa68c3cbef6aced7f02255ec9893c2343bd70b62c5bf821301e9dc",
+      "pixelIntegrity": "passed",
+      "visualCropReview": "passed",
+      "manualQualityAcceptance": false
+    },
+    "upstreamCompatibility": {
+      "result": "passed",
+      "tests": 143,
+      "upstream": "d246527d5554b16594d390172cfa38876f998ccb",
+      "scope": "three offline ASGI/fake-upstream suites; overlaps prior parent59, do not sum as independent coverage",
+      "receipt": ".rpg04-work/rpg05-png-closeout-20260912/upstream-compatibility.json",
+      "sha256": "9154135ba0594fe0b90a242da865759d8ecc16b93d6656b49ebfc11216168df8",
+      "warnings": 5
+    }
+  },
+  "regression": {
+    "old216": {
+      "id": "old216",
+      "command": [
+        "node",
+        "--test",
+        "tests/archive-bundle.test.mjs",
+        "tests/archive-zip.test.mjs",
+        "tests/content-compile.test.mjs",
+        "tests/content-e2e.test.mjs",
+        "tests/content-extract.test.mjs",
+        "tests/content-golden.test.mjs",
+        "tests/content-player.test.mjs",
+        "tests/content-provenance.test.mjs",
+        "tests/content-source.test.mjs",
+        "tests/contracts.test.mjs",
+        "tests/runtime-adapter.test.mjs",
+        "tests/runtime-cli.test.mjs",
+        "tests/runtime-contracts.test.mjs",
+        "tests/runtime-core.test.mjs",
+        "tests/runtime-plugin-host.test.mjs",
+        "tests/runtime-store.test.mjs",
+        "tests/worker-batch.test.mjs",
+        "tests/worker-capture.test.mjs",
+        "tests/world-source.test.mjs"
+      ],
+      "result": "passed",
+      "log": ".rpg04-work/rpg05-verify-1789228974648/old216.log",
+      "logSha256": "28a6405941c04589619c0f097ae5be0d8e04e81fe5e8c5d6d0f300d778d3fef0",
+      "tests": 216,
+      "failed": 0,
+      "skipped": 0
+    },
+    "rpg04NonHttp": {
+      "id": "rpg04NonHttp",
+      "command": [
+        "node",
+        "--test",
+        "tests/context-approved-card.test.mjs",
+        "tests/context-card.test.mjs",
+        "tests/context-cli-files.test.mjs",
+        "tests/context-cli.test.mjs",
+        "tests/context-compiler.test.mjs",
+        "tests/context-contracts.test.mjs",
+        "tests/context-host.test.mjs",
+        "tests/context-output-budget.test.mjs",
+        "tests/context-protocol.test.mjs",
+        "tests/context-runtime.test.mjs",
+        "tests/context-schema.test.mjs",
+        "tests/context-selection.test.mjs",
+        "tests/context-state-compat.test.mjs",
+        "tests/context-test-input.test.mjs",
+        "tests/rpg04-boundary.test.mjs",
+        "tests/rpg04-content.test.mjs",
+        "tests/rpg04-verification.test.mjs"
+      ],
+      "result": "passed",
+      "log": ".rpg04-work/rpg05-verify-1789228974648/rpg04NonHttp.log",
+      "logSha256": "2053d353ebcc43d621a4c925f2355343a63ae91f9f4bc8077830f43c687492ff",
+      "tests": 125,
+      "failed": 0,
+      "skipped": 0
+    },
+    "independentHttpHarness": {
+      "result": "passed",
+      "receipt": ".rpg04-work/rpg05-http-k32djaqa/harness-receipt.json",
+      "sha256": "567342fabfbfc7cbd319b4e24e5b38e04875f4b7fe683b7905c5737f60b4830f",
+      "fakeRequests": 8,
+      "realProviderDispatches": 0,
+      "ownedProcessStopped": true,
+      "scope": "prior separate loopback fake HTTP harness; unchanged HTTP/backend files this resume; not independent Agent review",
+      "currentTurnRun": false
+    },
+    "legacyAggregate": "not_run: frozen branch and private RPG04 historical evidence requirements preserved",
+    "history": {
+      "old216": {
+        "result": "passed",
+        "tests": 216,
+        "failed": 0,
+        "skipped": 0,
+        "log": ".rpg04-work/rpg05-regression-1789037270154/legacy216.log",
+        "logSha256": "573faee52c27c181fe8c067a0183b86a49211b496a1bbb772b83e962bc97ac43"
+      },
+      "rpg04NonHttp": {
+        "result": "passed",
+        "tests": 125,
+        "failed": 0,
+        "skipped": 0,
+        "log": ".rpg04-work/rpg05-regression-1789037270154/rpg04NonHttp.log",
+        "logSha256": "3188e19e8a29514bdfa0f14397a1d7a7ef050c1fa61074629280e5ce83a8310f"
+      },
+      "independentHttpHarness": {
+        "result": "passed",
+        "receipt": ".rpg04-work/rpg05-http-bqtpiwfd/harness-receipt.json",
+        "sha256": "003aef6e645b25cd00e5a0a3ba27dd75634809243b375fda6d82ae90ccfbd5a1",
+        "scope": "Frozen RPG04 HTTP integration test on RPG05 isolated backend candidate; two worlds normal/cancel/invalid output, 8 fake requests, zero real Provider calls",
+        "failedAttempt": ".rpg04-work/rpg05-http-mjcpz2ac/harness-receipt.json"
+      },
+      "legacyAggregate": "not_run: frozen branch and private RPG04 historical evidence requirements preserved"
+    },
+    "structuredBackend": {
+      "result": "passed",
+      "tests": 59,
+      "warnings": 5,
+      "receipt": ".rpg04-work/rpg05-keyed-offline-20260912/backend-receipt.json",
+      "sha256": "7315569c429123dfd4d9de3abbbad9570b80c134070d7db6dd175e38d680fed6",
+      "scope": "ASGI fake upstream, stable chat and legacy/keyed actual Node schema forwarding; historical59 checks, unchanged parent files, not rerun in reviewed batch"
+    }
+  },
+  "provider": {
+    "authorizedDispatches": 31,
+    "consumedDispatches": 26,
+    "authorization": {
+      "authorization": "user-authorized-reviewed-targeted-retest-total26",
+      "userInstruction": "授权复测，测试输入内容不要中性，更加有针对性一点；完整8次复测，累计上限26；批准两句补充，先离线验证后实测",
+      "maxDispatches": 26,
+      "priorRecords": [
+        "378721015fd8f339c9ae19540f01aa96e6d83b43f9a9031c90ef5a953794c9ee",
+        "4ad72aa620755ca77dce1aa358f408032ecb48a5343d7bf96cc267d69ce7ad93",
+        "a273740720c9495d5c2b438c3fe772e7662d13abf21b4fc8e72ebaca5b3464d6",
+        "6be217ead543bd5e25116ea9b0760fa66feaf25556118d09de370870037258f5",
+        "9328857213bd27823e20a644b0f25e2c7325377fef624a41a9fcaa62def0f440",
+        "7fb971e8ee6366eea6ca731e7c6db636803d471c0b0b0d990809bef9f578f42a",
+        "65981f0a953a712856432405cbacaeb1adae83eb832aa9f261d4507112c531ae",
+        "a88f3189c0a3f231fff988bab8fd1cdd3cc6cd70a38694c6ef3aae1d6dd12921",
+        "4adcba8446ba6ac2209e80b4ae07c581dbed6ad954fcd29acba579e502f1e4a5",
+        "e0e2565a3e96de9687583784b3477771af0a45e6e0611402bde83f997eea0e27",
+        "d82dd4678358ee590a9d8b01fff5563d1a56f8619c84ca0e210eddc1524fb8bb",
+        "d21e857d7c70adec3619d357f9cfbe9022d00ae2b2409dfe6219e36e0b8d288a",
+        "14c2d3e6cedb4cdadfaf855df6a21df2245e41196aca96c2c4af93f6c9320a5e",
+        "0b7b857c472b08e5f15753d3f8bec1c93fe850937bb593c89ba0cfc33f686d2c",
+        "5267381379001ff2786262158cd9543958dea74730977ac5b3cf3591ed057711",
+        "a6f77c9c7c3ffa9a5e67ded57be109a0349c5c39423fa6e99f70e160e3d85fc5",
+        "016f9daa2b5b7ba66d97fe14a7f6eff0f454038dbd655c04ad2c42c4f60e1389",
+        "7135747ec1cd1edbc1fc2f201c0669c5bc5ed1cea602de92fae061362127e01c"
+      ],
+      "priorPolicies": [
+        {
+          "id": "dispatch-policy",
+          "sha256": "4edd1783f49b28b77205040322110bcc155e0fee0c7747e04381ad396d3cbe43"
+        },
+        {
+          "id": "dispatch-continuation",
+          "sha256": "9f2ab8fec1cfe54eff9f83396277b1555362b26037fd577246e52d0c3b08738b"
+        },
+        {
+          "id": "dispatch-extension-slot5",
+          "sha256": "5d272ffb8a6657e6a93c2c51bd8d83eb7406e9130803fc88246a7dd3b1087607"
+        },
+        {
+          "id": "dispatch-structured-slot7",
+          "sha256": "4f20d75c634a409cd5cccb9a124582604ae6bbe8f0454defb3e1f8a70c4c9eb3"
+        },
+        {
+          "id": "dispatch-keyed-slot12",
+          "sha256": "8307f56d6019ba896260450f1003b4a25a81ef4cb8f636d8a6e17a61f087ba8c"
+        },
+        {
+          "id": "dispatch-protocol-slot16",
+          "sha256": "077998905558e251d2d14eb846aad0a64012bbbaa67fd85a5d65578bb70c9532"
+        }
+      ]
+    },
+    "model": "gpt-5.6-luna",
+    "route": "http://127.0.0.1:18305",
+    "maxOutputTokens": 4096,
+    "certificationMaxOutputTokens": 512,
+    "allocation": {
+      "certification": 7,
+      "gu": 13,
+      "minecraft": 5,
+      "cancellation": 1,
+      "manual": 5
+    },
+    "automaticRetry": false,
+    "resetAllowed": false,
+    "dispatchGate": "automatic_exhausted_manual_user_only_0of5_live",
+    "qualification": "read-only qualified at 2026-09-12T16:07:44.072Z",
+    "remainingDispatches": 5,
+    "freezeSha256": "d8814b5b3a1f43fbc6ba0aaf837e247d95027a0e2037cb54245caa15e2f1c648",
+    "ledgerPath": "ui-host/.local/real/manual/ledger",
+    "realEvidencePath": "ui-host/.local/real/evidence/bundle-response.26-00000001.json",
+    "realEvidenceSha256": "f90c5a66bd9431861572d6e128df1cbc8828f75b56471ca1018894b4624a17eb",
+    "originalAllocation": {
+      "certification": 1,
+      "gu": 3,
+      "minecraft": 3,
+      "cancellation": 1
+    },
+    "originalFreezeSha256": "87ebb3f30e2aeee53ae2d74f7b57d608d9cd6314b025be62532b8d152180cddc",
+    "executionFreezeCurrent": true,
+    "executionFreezeReason": "active closeout-1 freeze357; four mutable closeout metadata excluded, runtime/build/rules/resources bound",
+    "consumedAllocation": {
+      "certification": 7,
+      "gu": 13,
+      "minecraft": 5,
+      "cancellation": 1
+    },
+    "freezeScope": "manual free UI input, fixed model/protocol/parameters, independent max5 ledger; previous automatic26 immutable",
+    "approvedCurrentPlan": "engineering closeout applied and verified; no further agent dispatch; user-only remaining5",
+    "dispatchFreezeSha256": "d8814b5b3a1f43fbc6ba0aaf837e247d95027a0e2037cb54245caa15e2f1c648",
+    "executionEnabled": true,
+    "persistedPolicyMaximum": 5,
+    "persistedPolicyId": "manual-policy",
+    "persistedPolicySha256": "6ce2a317f721161e044f74dbe47ef6ac10229843def7cdf427f7cffaecf0da79",
+    "currentRuntimeSourceMatchesExecutionFreeze": true,
+    "executionFreezeVerifiedAtLastDispatchAndBeforeCloseout": true,
+    "authorizationScope": "existing authorization object covers automatic26 only; extra5 below exclusively user manual",
+    "automaticAllocation": {
+      "certification": 7,
+      "gu": 13,
+      "minecraft": 5,
+      "cancellation": 1
+    },
+    "automaticDispatchFreezeSha256": "12dbc754ffa8b080523cee5301b100706903b7b7ebfd37465308ecd8fc173382",
+    "executionOwner": "user_only",
+    "automaticExecutionEnabled": false,
+    "automaticLedgerPath": "ui-host/.local/real/ledger",
+    "automaticBudget": {
+      "authorized": 26,
+      "consumed": 26,
+      "remaining": 0,
+      "executionEnabled": false,
+      "policyId": "dispatch-reviewed-slot18",
+      "policySha256": "95b7d9cd0e3b47997ec6b68660dc4833058097def3947f7ba4db0be5faff6aa5"
+    },
+    "manualBudget": {
+      "authorization": "user-authorized-five-manual-dispatches-after-automatic26",
+      "userAnswer": "最多5次",
+      "authorized": 5,
+      "consumed": 0,
+      "remaining": 5,
+      "agentUse": false,
+      "failureCancellationUnknownConsume": true,
+      "noAutomaticRetry": true,
+      "unknownStops": true,
+      "ledgerPath": "ui-host/.local/real/manual/ledger",
+      "evidencePath": "ui-host/.local/real/manual/evidence",
+      "freezePath": "ui-host/.local/real/manual/freezes/closeout-1.json",
+      "freezeSha256": "d8814b5b3a1f43fbc6ba0aaf837e247d95027a0e2037cb54245caa15e2f1c648",
+      "observedAt": "2026-09-12T16:07:44.072Z",
+      "unknownStopEnforcement": "transport classification fixed; unknown blocks next reservation across restart",
+      "sourceBindingRecordSha256": "e9fac293b4cad76ad83f18e6c351498ef682c8622cbbdfc6f2d8559f4aae3a7e"
+    },
+    "sourceVersion": "closeout-1",
+    "policyFreezeSha256": "a2102b6f1321e906bb8816e84fce7d3e280ac7b8e32b58a0ab9c24ef85d9bec6",
+    "sourceBindingRecordSha256": "e9fac293b4cad76ad83f18e6c351498ef682c8622cbbdfc6f2d8559f4aae3a7e"
+  },
+  "publication": {
+    "commit": false,
+    "push": false,
+    "pr": false,
+    "merge": false,
+    "deploy": false,
+    "release": false,
+    "publish": false
+  },
+  "limitations": [
+    "STM accumulation remains not_passed; actual request included old STM and append rules, model replaced S1. No new semantic prompt or memory engine added.",
+    "Treasure talent effect unverified; content consistency and player experience remain pending.",
+    "No Provider retest after closeout runtime guards and source cutover; automatic26 exhausted; extra5 exclusively user manual, observed0 consumed.",
+    "HTTP non200 or incomplete/refusal terminal can remain conservatively unknown and block further slots; no auto retry.",
+    "Old binary cannot interpret new binding; activation uses same exclusive runtime owner, and rollback to old binary/policy/ledger is forbidden.",
+    "HTTP8 and parent59 remain historical separate checks; mobile polish deferred by user.",
+    "Seven user supplied screenshots are losslessly cropped to exclude overlays. Only retained visible regions are proven; raw originals remain private, no full-page or user-quality acceptance inferred."
+  ],
+  "updatedAt": "2026-09-12T18:05:17.906914+00:00",
+  "latestOfflineReceipt": ".rpg04-work/rpg05-verify-1789228974648/receipt.json",
+  "failuresPreserved": [
+    {
+      "batch": "05F1",
+      "command": "node --test ui/tests/markdown.test.mjs",
+      "result": "0 passed, 2 failed",
+      "reason": "Test bundler emitted ESM for React DOM CommonJS Node util dependency",
+      "correction": "Test bundle changed to CommonJS; same security assertions then passed"
+    },
+    {
+      "batch": "05E_structured_B",
+      "result": "GBK write interrupted; subsequent test file missing",
+      "correction": "explicit UTF-8 completed same batch"
+    },
+    {
+      "batch": "05E_structured_B",
+      "result": "26 passed / 23 setup errors",
+      "reason": "default pytest temp directory denied",
+      "correction": "same suite isolated module basetemp: 51 passed; enhanced suite 57 passed"
+    },
+    {
+      "batch": "05E_keyed_D",
+      "result": "0 passed / 2 failed",
+      "source": "tool output chunk ab0ed3",
+      "reason": "New mock fixture emitted reason_codes offline instead of required qualified",
+      "correction": "Fixed synthetic receipt to satisfy unchanged existing validator"
+    },
+    {
+      "batch": "05E_keyed_D",
+      "result": "0 passed / 2 failed",
+      "source": "tool output chunk 56623d",
+      "reason": "New recovery test used unsupported journey.read engine command",
+      "correction": "Used existing engine.read API; same end-to-end assertions then 2 passed"
+    },
+    {
+      "batch": "05E-protocol-transport-binding",
+      "result": "31passed3failed then34passed",
+      "reason": "fixture variable scope in test edits",
+      "evidence": ".rpg04-work/rpg05-protocol-retest-FXOVkB/batch-b.json",
+      "correction": "fixed fixture call names without dropping assertions; batch-b-rerun.json retained"
+    },
+    {
+      "scope": "private closeout helper only, zero Provider",
+      "path": ".rpg04-work/rpg05-reviewed-retest-jsthpby7/final-observation-first-attempt.json",
+      "reason": "optional absent activeOperationId was incorrectly required to be null; corrected from actual service contract and same check rerun successfully",
+      "repositoryTestsChanged": false
+    },
+    {
+      "batch": "05F_closeout",
+      "path": ".rpg04-work/rpg05-pr-closeout-20260912T150920Z/transport-first-failure.json",
+      "reason": "cancel test fixture omitted production cancellation-priority publishing; corrected fixture passed same assertions"
+    },
+    {
+      "batch": "05F_closeout",
+      "path": ".rpg04-work/rpg05-pr-closeout-20260912T150920Z/candidate-patch-first-failure.json",
+      "reason": "missing no-final-newline patch marker; corrected patch check passed"
+    },
+    {
+      "batch": "05F_cutover",
+      "path": ".rpg04-work/rpg05-pr-closeout-20260912T150920Z/candidate-aggregate-first.log",
+      "reason": "copy has no independent Git root; FREEZE_SET_COUNT; same aggregator later actual-worktree520 passed"
+    },
+    {
+      "batch": "05F_cutover",
+      "path": ".rpg04-work/rpg05-pr-closeout-20260912T150920Z/independent-cutover-review.json",
+      "reason": "owner-before-binding P1 found and fixed before activation; old binary limitation retained"
+    },
+    {
+      "batch": "05F_cleanup",
+      "path": ".rpg04-work/rpg05-pr-closeout-20260912T150920Z/cleanup.json",
+      "reason": "ownership guards blocked inferred command and date coercion; actual relative command/listener/UTC creation verified before own mock stop"
+    }
+  ],
+  "latestOfflineReceiptSha256": "51f51e38e0649d6c925161853b59b6d1436125b4673a128eb8551ee589cf9932",
+  "offlineSummary": {
+    "result": "passed",
+    "totalTests": 520,
+    "groups": {
+      "old216": 216,
+      "rpg04NonHttp": 125,
+      "uiHost": 176,
+      "rendererAndApi": 3
+    },
+    "scope": "actual-worktree offline/mock, typecheck/build; not new real content/manual acceptance"
+  },
+  "ownInstance": {
+    "pid": 56980,
+    "port": 18409,
+    "status": "running_for_user_manual",
+    "sourceVersion": "closeout-1",
+    "owner": {
+      "path": ".rpg04-work/rpg05-pr-closeout-20260912T150920Z/cutover-owner.json",
+      "sha256": "87db1571282f59e4e5bed1f2e537f22d50ba62387e1bd581b937cadf98723e13"
+    }
+  },
+  "restoredRoute": {
+    "authorized": true,
+    "pid": 32576,
+    "launcherChildPid": 50896,
+    "ownerPid": 44452,
+    "launcherPid": 53620,
+    "port": 18305,
+    "newapiPort": 18306,
+    "containerId": "a99065ea116f383038e9ce62c807df0f143c55ac0f3d43e70bd579073e414615",
+    "status": "running_for_user_manual",
+    "providerDispatchesThisResume": 5,
+    "ownerChain": {
+      "path": ".rpg04-work/rpg05-reviewed-resume-20260912/listener-ownership.json",
+      "sha256": "79bb7389565ec1f31a5bd0eaba80032728981309ac2cc1156c5e429fd96457a7"
+    }
+  },
+  "cleanup": {
+    "status": "retained_at_explicit_user_request",
+    "previewAndRouteRunning": true,
+    "replacedOwnManualHost": 7636,
+    "closedOwnMockHost": 48304,
+    "sessionsAndEvidencePreserved": true,
+    "sharedServicesTouched": false,
+    "receipt": {
+      "path": ".rpg04-work/rpg05-pr-closeout-20260912T150920Z/cleanup.json",
+      "sha256": "1a391d410df20eb72e2b3da9cd68a3cfc834e693aa55714719a05df3e16799d8"
+    }
+  },
+  "formatReview": {
+    "path": "docs/RPG05_FORMAT_REVIEW.md",
+    "diagnosticRepair": "implemented_verified_offline",
+    "formatReliability": "keyed module uniqueness passed in current samples; reference and query semantics remain failing",
+    "historicalReplay": ".rpg04-work/rpg05-real-20260910-01/output-diagnostics-replay.json",
+    "historicalReplaySha256": "d4f4af9acc43cd59be355b30a5d537e2858b74028fed3a27cde8f9222bfc7b96",
+    "providerCallsThisBatch": 4
+  },
+  "offlineHistory": [
+    {
+      "receipt": ".rpg04-work/rpg05-verify-1789100397654/receipt.json",
+      "sha256": "da52d5cb96fc7bcad2f780e0f19e2937e1f9319c1c226a4b9c73fe3f856c3c62",
+      "summary": {
+        "result": "passed",
+        "totalTests": 400,
+        "groups": [
+          {
+            "id": "boundary",
+            "command": [
+              "node",
+              "scripts/check-boundary-rpg05.mjs"
+            ],
+            "result": "passed",
+            "log": ".rpg04-work/rpg05-verify-1789100397654/boundary.log",
+            "logSha256": "a939410a079da96cac88a836b9350beaba6afea450a466e0ba58dd71b865dd68",
+            "tests": 0
+          },
+          {
+            "id": "old216",
+            "command": [
+              "node",
+              "--test",
+              "tests/archive-bundle.test.mjs",
+              "tests/archive-zip.test.mjs",
+              "tests/content-compile.test.mjs",
+              "tests/content-e2e.test.mjs",
+              "tests/content-extract.test.mjs",
+              "tests/content-golden.test.mjs",
+              "tests/content-player.test.mjs",
+              "tests/content-provenance.test.mjs",
+              "tests/content-source.test.mjs",
+              "tests/contracts.test.mjs",
+              "tests/runtime-adapter.test.mjs",
+              "tests/runtime-cli.test.mjs",
+              "tests/runtime-contracts.test.mjs",
+              "tests/runtime-core.test.mjs",
+              "tests/runtime-plugin-host.test.mjs",
+              "tests/runtime-store.test.mjs",
+              "tests/worker-batch.test.mjs",
+              "tests/worker-capture.test.mjs",
+              "tests/world-source.test.mjs"
+            ],
+            "result": "passed",
+            "log": ".rpg04-work/rpg05-verify-1789100397654/old216.log",
+            "logSha256": "c9f1380fe14ea5eb2b0f3fd598beaf8c7b5d74c56be6b07b6396d13fc9abac49",
+            "tests": 216
+          },
+          {
+            "id": "rpg04NonHttp",
+            "command": [
+              "node",
+              "--test",
+              "tests/context-approved-card.test.mjs",
+              "tests/context-card.test.mjs",
+              "tests/context-cli-files.test.mjs",
+              "tests/context-cli.test.mjs",
+              "tests/context-compiler.test.mjs",
+              "tests/context-contracts.test.mjs",
+              "tests/context-host.test.mjs",
+              "tests/context-output-budget.test.mjs",
+              "tests/context-protocol.test.mjs",
+              "tests/context-runtime.test.mjs",
+              "tests/context-schema.test.mjs",
+              "tests/context-selection.test.mjs",
+              "tests/context-state-compat.test.mjs",
+              "tests/context-test-input.test.mjs",
+              "tests/rpg04-boundary.test.mjs",
+              "tests/rpg04-content.test.mjs",
+              "tests/rpg04-verification.test.mjs"
+            ],
+            "result": "passed",
+            "log": ".rpg04-work/rpg05-verify-1789100397654/rpg04NonHttp.log",
+            "logSha256": "fae5ab3cfdd76d91864e12b76a91a26f382c8d3ba28f519eae3f564ec378d194",
+            "tests": 125
+          },
+          {
+            "id": "uiHost",
+            "command": [
+              "node",
+              "--test",
+              "tests/ui-host-dispatch-ledger.test.mjs",
+              "tests/ui-host-execution-freeze.test.mjs",
+              "tests/ui-host-input.test.mjs",
+              "tests/ui-host-journeys.test.mjs",
+              "tests/ui-host-output-diagnostics.test.mjs",
+              "tests/ui-host-projection.test.mjs",
+              "tests/ui-host-real-adapter.test.mjs",
+              "tests/ui-host-security.test.mjs",
+              "tests/ui-host-service.test.mjs",
+              "tests/ui-host-setup.test.mjs",
+              "tests/ui-host-turn.test.mjs"
+            ],
+            "result": "passed",
+            "log": ".rpg04-work/rpg05-verify-1789100397654/uiHost.log",
+            "logSha256": "34d97568b941dffb9f97d561014c9e7ce07a99a4aea75a7345c4b9b5f3607cb5",
+            "tests": 57
+          },
+          {
+            "id": "ui",
+            "command": [
+              "node",
+              "--test",
+              "ui/tests/markdown.test.mjs"
+            ],
+            "result": "passed",
+            "log": ".rpg04-work/rpg05-verify-1789100397654/ui.log",
+            "logSha256": "58270cc8260b7a88b0506ab77fb0132e8416aa85455c1ee3d1720b4b16946172",
+            "tests": 2
+          },
+          {
+            "id": "typecheck",
+            "command": [
+              "node",
+              "ui/node_modules/typescript/bin/tsc",
+              "--noEmit",
+              "-p",
+              "ui/tsconfig.json"
+            ],
+            "result": "passed",
+            "log": ".rpg04-work/rpg05-verify-1789100397654/typecheck.log",
+            "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "tests": 0
+          },
+          {
+            "id": "build",
+            "command": [
+              "node",
+              "node_modules/vite/bin/vite.js",
+              "build"
+            ],
+            "result": "passed",
+            "log": ".rpg04-work/rpg05-verify-1789100397654/build.log",
+            "logSha256": "8341b3b73b23a8fd6b01c45a35f5b3d8533d0e8f88c4206754501ceeb1b8d947",
+            "tests": 0
+          }
+        ],
+        "scope": "offline tests and build only; not full RPG05 acceptance"
+      }
+    },
+    {
+      "receipt": ".rpg04-work/rpg05-verify-1789201667898/receipt.json",
+      "sha256": "70802fd7f8fb6510bf11e4a897c816462fbaaf8d2675226b07f96d7446d4cc9e"
+    },
+    {
+      "receipt": ".rpg04-work/rpg05-verify-1789202903766/receipt.json",
+      "sha256": "4248757157c1479b6c33cee1dde413ea329a7824f3b1554c59ead7391459f255",
+      "scope": "before layout-only correction; final CSS build and browser separately verified"
+    },
+    {
+      "receipt": ".rpg04-work/rpg05-verify-1789206732673/receipt.json",
+      "sha256": "5727741c481dcbb47ea698d7a2219199785928079d80cb94e1eb16ce4b5dfac1"
+    },
+    {
+      "capturedAt": "2026-09-12T11:16:00.253Z",
+      "scope": "pre resource-reference repair; retained historical449 evidence",
+      "sourceSha256": "83da36d26e673926b793ef484d9fd9527944f75d622d5ceabeb91b335d045583",
+      "backup": ".rpg04-work/rpg05-protocol-offline-Tg7VZe/before/module/docs/RPG05_STATUS.json",
+      "latestOfflineReceipt": ".rpg04-work/rpg05-verify-1789207915828/receipt.json",
+      "latestOfflineReceiptSha256": "a80c5fc09fe4a6536e9d04cd696276d3e8fe01140135c0b3fbe84c50b1484dad",
+      "offlineSummary": {
+        "result": "passed",
+        "totalTests": 449,
+        "groups": [
+          {
+            "id": "boundary",
+            "command": [
+              "node",
+              "scripts/check-boundary-rpg05.mjs"
+            ],
+            "result": "passed",
+            "log": ".rpg04-work/rpg05-verify-1789207915828/boundary.log",
+            "logSha256": "d3eaa4b92009202a16943a5f881d0738ae0b1702de16fe7be81832855c9db316",
+            "tests": 0
+          },
+          {
+            "id": "old216",
+            "command": [
+              "node",
+              "--test",
+              "tests/archive-bundle.test.mjs",
+              "tests/archive-zip.test.mjs",
+              "tests/content-compile.test.mjs",
+              "tests/content-e2e.test.mjs",
+              "tests/content-extract.test.mjs",
+              "tests/content-golden.test.mjs",
+              "tests/content-player.test.mjs",
+              "tests/content-provenance.test.mjs",
+              "tests/content-source.test.mjs",
+              "tests/contracts.test.mjs",
+              "tests/runtime-adapter.test.mjs",
+              "tests/runtime-cli.test.mjs",
+              "tests/runtime-contracts.test.mjs",
+              "tests/runtime-core.test.mjs",
+              "tests/runtime-plugin-host.test.mjs",
+              "tests/runtime-store.test.mjs",
+              "tests/worker-batch.test.mjs",
+              "tests/worker-capture.test.mjs",
+              "tests/world-source.test.mjs"
+            ],
+            "result": "passed",
+            "log": ".rpg04-work/rpg05-verify-1789207915828/old216.log",
+            "logSha256": "8a01c4e7224e4ed082f554ef3df6a586b2ff64a896fb4b48861993b7ae842f23",
+            "tests": 216
+          },
+          {
+            "id": "rpg04NonHttp",
+            "command": [
+              "node",
+              "--test",
+              "tests/context-approved-card.test.mjs",
+              "tests/context-card.test.mjs",
+              "tests/context-cli-files.test.mjs",
+              "tests/context-cli.test.mjs",
+              "tests/context-compiler.test.mjs",
+              "tests/context-contracts.test.mjs",
+              "tests/context-host.test.mjs",
+              "tests/context-output-budget.test.mjs",
+              "tests/context-protocol.test.mjs",
+              "tests/context-runtime.test.mjs",
+              "tests/context-schema.test.mjs",
+              "tests/context-selection.test.mjs",
+              "tests/context-state-compat.test.mjs",
+              "tests/context-test-input.test.mjs",
+              "tests/rpg04-boundary.test.mjs",
+              "tests/rpg04-content.test.mjs",
+              "tests/rpg04-verification.test.mjs"
+            ],
+            "result": "passed",
+            "log": ".rpg04-work/rpg05-verify-1789207915828/rpg04NonHttp.log",
+            "logSha256": "317871dbf67cb19a73dacfd9405292da2525aa85e4b165d62892cee3adf261d4",
+            "tests": 125
+          },
+          {
+            "id": "uiHost",
+            "command": [
+              "node",
+              "--test",
+              "tests/ui-host-dispatch-ledger.test.mjs",
+              "tests/ui-host-execution-freeze.test.mjs",
+              "tests/ui-host-input.test.mjs",
+              "tests/ui-host-journeys.test.mjs",
+              "tests/ui-host-keyed-journey.test.mjs",
+              "tests/ui-host-keyed-ledger.test.mjs",
+              "tests/ui-host-keyed-turn.test.mjs",
+              "tests/ui-host-output-diagnostics.test.mjs",
+              "tests/ui-host-projection.test.mjs",
+              "tests/ui-host-real-adapter.test.mjs",
+              "tests/ui-host-security.test.mjs",
+              "tests/ui-host-service.test.mjs",
+              "tests/ui-host-setup.test.mjs",
+              "tests/ui-host-structured-http.test.mjs",
+              "tests/ui-host-structured-ledger.test.mjs",
+              "tests/ui-host-structured-schema.test.mjs",
+              "tests/ui-host-turn.test.mjs"
+            ],
+            "result": "passed",
+            "log": ".rpg04-work/rpg05-verify-1789207915828/uiHost.log",
+            "logSha256": "a9926f712493436ac840e9ebe4cf903760f0a0bb0510fe0c16e3c9aa04935e75",
+            "tests": 106
+          },
+          {
+            "id": "ui",
+            "command": [
+              "node",
+              "--test",
+              "ui/tests/markdown.test.mjs"
+            ],
+            "result": "passed",
+            "log": ".rpg04-work/rpg05-verify-1789207915828/ui.log",
+            "logSha256": "3ccb5c52bfde9f32bb6c5b16cb2f9969a062d79b10b77b57ac503aed467a09ff",
+            "tests": 2
+          },
+          {
+            "id": "typecheck",
+            "command": [
+              "node",
+              "ui/node_modules/typescript/bin/tsc",
+              "--noEmit",
+              "-p",
+              "ui/tsconfig.json"
+            ],
+            "result": "passed",
+            "log": ".rpg04-work/rpg05-verify-1789207915828/typecheck.log",
+            "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "tests": 0
+          },
+          {
+            "id": "build",
+            "command": [
+              "node",
+              "node_modules/vite/bin/vite.js",
+              "build"
+            ],
+            "result": "passed",
+            "log": ".rpg04-work/rpg05-verify-1789207915828/build.log",
+            "logSha256": "ec69359c473580b8dfb28069c0410630b6f04fe05f0f0a120fdfee4701e267e0",
+            "tests": 0
+          }
+        ],
+        "scope": "current targeted ledger and freeze offsets; no real claims"
+      }
+    },
+    {
+      "receipt": ".rpg04-work/rpg05-verify-1789213955627/receipt.json",
+      "sha256": "3e42131f3ede351ab928d561a57f68b623b8dac04359699e01dc44a9a133fb89",
+      "summary": {
+        "result": "passed",
+        "totalTests": 469,
+        "groups": {
+          "old216": 216,
+          "rpg04NonHttp": 125,
+          "uiHost": 126,
+          "renderer": 2
+        },
+        "scope": "offline/mock plus typecheck/build; not real or manual acceptance"
+      }
+    },
+    {
+      "capturedAt": "2026-09-12T14:33:10.440258+00:00",
+      "receipt": ".rpg04-work/rpg05-verify-1789217897748/receipt.json",
+      "sha256": "bd5eae19244159e54fad7ca2fbf8451ba69dc91efb7dd7f199d913ac997f3267",
+      "totalTests": 482
+    },
+    {
+      "receipt": ".rpg04-work/rpg05-verify-1789222856208/receipt.json",
+      "sha256": "5c41d22815c120dc2dd3d70b36aca7e2fa2c4af2b90bf7ff70a27bbc81cebd2f",
+      "summary": {
+        "result": "passed",
+        "totalTests": 492,
+        "groups": {
+          "old216": 216,
+          "rpg04NonHttp": 125,
+          "uiHost": 149,
+          "renderer": 2
+        },
+        "scope": "offline/mock and typecheck/build; not content/manual/independent acceptance"
+      },
+      "scope": "prior runtime before closeout fixes"
+    }
+  ],
+  "structuredOutputReview": {
+    "path": "docs/RPG05_STRUCTURED_OUTPUT_REVIEW.md",
+    "status": "historical_legacy_failed; keyed_successor_partial_real_failed_stop",
+    "providerCalls": 0,
+    "exactServerScopeApproved": true,
+    "serverTests": {
+      "passed": 57,
+      "warnings": 5,
+      "evidenceSource": "task tool output session 54455; not an archived raw log"
+    },
+    "currentExecutionFreeze": false,
+    "independentReview": "not_run",
+    "manual": "not_run",
+    "scope": "Historical strict design record; current keyed real results in keyedOutputReview"
+  },
+  "structuredContinuation": {
+    "budgetApproved": 13,
+    "consumed": 7,
+    "newDispatches": 0,
+    "ledgerTests": {
+      "passed": 19,
+      "scope": "new13-slot ledger and old ledger/freeze regression",
+      "source": "task tool output"
+    },
+    "candidateSource": ".rpg04-work/rpg05-structured-20260912/candidate-source.json",
+    "candidateSourceSha256": "70c12989a8aa91f3f0172d1f33cf88dd87e6379dda4dac3cc8b1bb94390883fd",
+    "blocker": {
+      "qualifications": [
+        {
+          "model": "gpt-5.6-luna",
+          "capability": "chat_text",
+          "valid": false,
+          "reason": "provider_chat_certification_expired"
+        }
+      ],
+      "providerDispatchesThisAttempt": 0
+    },
+    "receipt": ".rpg04-work/rpg05-structured-20260912/route-qualification-blocked.json",
+    "receiptSha256": "1539dbd055134643247a06d3392d634d914ac3e0f6a44c65297cb81faf1bccda",
+    "executionFreezeCreated": false,
+    "note": "new candidate started then shut down on expired standard chat qualification; no quota reset",
+    "scope": "historical expired-qualification attempt before total14; not current budget or route status"
+  },
+  "latestRealOutcome": {
+    "scope": "reviewed v2 automatic batch19-26 only; older mixed outputs retained separately",
+    "qualificationSlot": 19,
+    "formalNewTurns": {
+      "gu": 3,
+      "minecraft": 3
+    },
+    "cancellation": {
+      "slot": 26,
+      "outcome": "cancelled",
+      "dispatched": true,
+      "ledgerRecordSha256": "ed6501fb46ad539c1a2a8699ebd3b06d73e149e84f01bbfd261b9d439aa2f222",
+      "requestRecordSha256": "867adf7f8164583c0edd69361bf77b91b33b5e92828ee898ff2879e3f9b06f25",
+      "responseRecordSha256": "ad3589c35656d2a26914d46ae8eadf43b2899bb00dbce30fb8ee9f46d9a14dd1",
+      "requestSha256": "53f476442f7e9dd05353120c55a1ee2ab982d25b887a7b70a331bd89cfd6e1e6",
+      "rawSseSha256": "fdcbb8f4c9d942c917e287ab81dd9fc1687d2c6663ff0a3e8595d83e81d4fab1",
+      "rawBytes": 325866,
+      "observedModel": "gpt-5.6-luna",
+      "cancellation": {
+        "clientAborted": true,
+        "requested": true,
+        "upstreamConfirmed": null
+      },
+      "formalHistoryUnchanged": true,
+      "formalTurnCount": 3,
+      "checkpointSha256": "7795744714e87a10309718fc5415decca3ec98c1227917360ab92c3eca2d3e6f",
+      "operationId": "op.3d49db33-6f56-4784-a980-47e420dfea3c",
+      "draftCharacters": 529,
+      "usage": {
+        "input": null,
+        "output": null,
+        "total": null
+      },
+      "serverReceipt": null,
+      "upstreamTermination": "unconfirmed; client cancellation only"
+    },
+    "structuralAndBinding": "passed",
+    "lengths": {
+      "20": 1007,
+      "21": 1207,
+      "22": 1564,
+      "23": 1191,
+      "24": 1210,
+      "25": 1580
+    },
+    "lengthPolicy": "user approved quality reference; strict metric still reported",
+    "qualityIssues": [
+      {
+        "id": "MC_STM_REPLACED",
+        "status": "not_passed",
+        "scope": "Minecraft slot24",
+        "finding": "第二回合模型STM提案重用S1并覆盖第一回合钓鱼摘要；正式回合和旧检查点完整保留。",
+        "evidence": {
+          "path": ".rpg04-work/rpg05-reviewed-resume-20260912/stm-continuity-finding.json",
+          "sha256": "93fddec22393ec428f2c1da9f8affe434f2d2da86a42d96c7d59e04f20d5d4e0"
+        }
+      },
+      {
+        "id": "MC_TREASURE_NOT_CONFIRMED",
+        "status": "unverified",
+        "scope": "Minecraft slots23-25",
+        "finding": "已激活自动钓鱼机声明必得宝藏，实际只揭示旧皮革袋及未知硬物，未证实宝藏效果兑现。",
+        "evidence": {
+          "path": ".rpg04-work/rpg05-reviewed-resume-20260912/content-review23.json",
+          "sha256": "c5eed885fc666e67d7189a4182d845012c0d9f2cd4d2b7bb3831a0f72c1a6631"
+        }
+      },
+      {
+        "id": "INFORMATION_CONTINUITY",
+        "status": "review_required",
+        "scope": "slots20-25",
+        "finding": "蛊世界纸鹤位置措辞、NPC额外确认，Minecraft物资等级、锚定等级和记忆面板有跨回合或正文/面板差异。"
+      }
+    ],
+    "userQuality": "pending",
+    "independent": "completed_closeout_review; candidate fixes not real-retested"
+  },
+  "targetedAcceptance": {
+    "path": "docs/RPG05_REVIEWED_RETEST.md",
+    "status": "structural_complete_content_gaps_manual_pending",
+    "authorization": "user-authorized-reviewed-targeted-retest-total26",
+    "narrativeTarget": "800-1200 non-whitespace characters as user-approved quality reference, panels excluded",
+    "runtimePromptFilesModified": false,
+    "rpg05TransportProtocolModified": true,
+    "newDispatchesAuthorized": true,
+    "newDispatchesConsumed": 8,
+    "newDispatchesRemaining": 0,
+    "targetedFormalTurns": {
+      "gu": 3,
+      "minecraft": 3
+    },
+    "targetedStructureAndLengthPassed": 2,
+    "targetedContentAccepted": 0,
+    "qualificationSlot": 19,
+    "remainingCases": {
+      "guQuery": 0,
+      "minecraft": 0,
+      "cancellation": 0
+    },
+    "userQualityAcceptance": "pending",
+    "targetedStructurePassed": 6,
+    "agentReview": "STM accumulation not passed; treasure effect unverified; other continuity wording requires user review",
+    "sameVersionCoverage": "six reviewed-v2 formal turns; no use of older versions to fill denominator",
+    "lengthApproval": {
+      "path": ".rpg04-work/rpg05-reviewed-resume-20260912/length-review-approval.json",
+      "sha256": "98b2b1449773d0abcf1f669c94b7dbe20925a9b8021cd6c2618b21c61219a610"
+    },
+    "qualityIssues": [
+      {
+        "id": "MC_STM_REPLACED",
+        "status": "not_passed",
+        "scope": "Minecraft slot24",
+        "finding": "第二回合模型STM提案重用S1并覆盖第一回合钓鱼摘要；正式回合和旧检查点完整保留。",
+        "evidence": {
+          "path": ".rpg04-work/rpg05-reviewed-resume-20260912/stm-continuity-finding.json",
+          "sha256": "93fddec22393ec428f2c1da9f8affe434f2d2da86a42d96c7d59e04f20d5d4e0"
+        }
+      },
+      {
+        "id": "MC_TREASURE_NOT_CONFIRMED",
+        "status": "unverified",
+        "scope": "Minecraft slots23-25",
+        "finding": "已激活自动钓鱼机声明必得宝藏，实际只揭示旧皮革袋及未知硬物，未证实宝藏效果兑现。",
+        "evidence": {
+          "path": ".rpg04-work/rpg05-reviewed-resume-20260912/content-review23.json",
+          "sha256": "c5eed885fc666e67d7189a4182d845012c0d9f2cd4d2b7bb3831a0f72c1a6631"
+        }
+      },
+      {
+        "id": "INFORMATION_CONTINUITY",
+        "status": "review_required",
+        "scope": "slots20-25",
+        "finding": "蛊世界纸鹤位置措辞、NPC额外确认，Minecraft物资等级、锚定等级和记忆面板有跨回合或正文/面板差异。"
+      }
+    ]
+  },
+  "layoutRepair": {
+    "file": "ui/src/play.css",
+    "cause": "nested definition-list grids constrain row to outer100px column",
+    "build": "passed including typecheck",
+    "browser": "Actual keyed real UI after refresh: NPC/assets/world/memory horizontal,933x898, values401.8px; no overflow",
+    "mobile": "not separately verified this batch",
+    "screenshots": "current task tool output, not archived standalone",
+    "priorAttempt": "first write used wrong working directory; no CSS change occurred; corrected absolute path then build passed",
+    "receipt": ".rpg04-work/rpg05-keyed-real-20260912/ui-observation.json",
+    "latestReviewedBatch": {
+      "result": "passed_current_built_UI",
+      "valueWidth": 579.1146240234375,
+      "rows": 11,
+      "mainWidth": 1045,
+      "overflow": false,
+      "receipt": ".rpg04-work/rpg05-reviewed-retest-jsthpby7/agent-ui-observation.json",
+      "sha256": "1204d324042a74ee7d7ea7b98623b3797e4b51167ecdea5b93b8e19b3171f182",
+      "screenshots": "task tool output only; standalone archive pending"
+    },
+    "latestResume": {
+      "viewport": 1081,
+      "documentScrollWidth": 1066,
+      "definitionWidths": [
+        500.4479370117187,
+        500.4479370117187,
+        500.4479370117187
+      ],
+      "definitionOverflow": false,
+      "detailsCollapsed": true,
+      "receipt": {
+        "path": ".rpg04-work/rpg05-reviewed-resume-20260912/manual-ui-observation.json",
+        "sha256": "440d6f4d1cec89a58ce318e51ae7971c6d598d2671f092f8c0ec7c93bb339b12"
+      },
+      "screenshots": "native current CUA output; standalone PNG not archived",
+      "mobile": "not rerun this resume"
+    }
+  },
+  "checkpointHistory": [
+    {
+      "sourceStatusSha256": "16e7add7d9954ca9c7b283c4d049640a71793346f8fc613ee50cbd221cc67b3f",
+      "scope": "Prior checkpoint claims retained verbatim; superseded by current fields, not current acceptance evidence",
+      "values": {
+        "phase": "05E_slot12_duplicate_module_blocked_layout_fixed_targeted_plan",
+        "evidence": {
+          "mock": "passed: 57 host + 2 renderer tests; historical scoped browser evidence unchanged",
+          "real": "partial: two certifications passed; Gu two committed turns; slot3 HTTP401, slot5 schema, slot7 incomplete JSON failures retained",
+          "manual": "pending_user_quality_and_experience_acceptance",
+          "independent": "not_run: independent HTTP harness is separate fake-provider regression, not independent agent review",
+          "prototype": "approved_with_amendments",
+          "agentUi": "passed scoped checks: custom resources; world import mismatch corrected preserving resources; keyboard send; cancel/delete; refresh input/history; safe Markdown. Exhaustive multi-tab matrix pending.",
+          "uiRendering": {
+            "result": "passed",
+            "tests": 2,
+            "browserFixture": "inert script/HTML image/javascript link; explicit external link dialog; Escape; trap hits 0"
+          }
+        },
+        "provider": {
+          "authorizedDispatches": 14,
+          "consumedDispatches": 12,
+          "authorization": "User explicitly authorized full acceptance and real model testing; additionally authorized restoring old isolated route. User approved isolated relay quota replenishment and +2 dispatches, total 10; no reset. User explicitly approved +1, total 11, stopping on any new failure. User explicitly approved total13: existing7 plus strict qualification1, Gu query1, Minecraft3, cancellation1; no automatic retries.",
+          "model": "gpt-5.6-luna",
+          "route": "http://127.0.0.1:18305",
+          "maxOutputTokens": 4096,
+          "certificationMaxOutputTokens": 512,
+          "allocation": {
+            "certification": 2,
+            "gu": 5,
+            "minecraft": 3,
+            "cancellation": 1
+          },
+          "automaticRetry": false,
+          "resetAllowed": false,
+          "dispatchGate": "stopped_after_failed_slot_12",
+          "qualification": "qualified immediately before slot6; no repeat certification",
+          "remainingDispatches": 2,
+          "freezeSha256": "f21e112803266aa3bdbb0b1c336a03b95f511794d66189b1a799a25606e701d4",
+          "ledgerPath": "ui-host/.local/real/ledger",
+          "realEvidencePath": ".rpg04-work/rpg05-real-20260910-01/slot7-json-failure.json",
+          "realEvidenceSha256": "829cecf291ac6e6e63aa16921ec5528c3b4a4c3db724e078a8477514ba534bf7",
+          "requiredAdditionalAuthorization": {
+            "additionalDispatchesProposed": 5,
+            "proposedTotalLimit": 19,
+            "purpose": "Six targeted long-narrative turns plus one cancellation; proposal only, not approved"
+          },
+          "originalAllocation": {
+            "certification": 1,
+            "gu": 3,
+            "minecraft": 3,
+            "cancellation": 1
+          },
+          "originalFreezeSha256": "87ebb3f30e2aeee53ae2d74f7b57d608d9cd6314b025be62532b8d152180cddc",
+          "executionFreezeCurrent": false,
+          "executionFreezeReason": "CSS changed after live freeze; original live evidence remains valid for its frozen source snapshot; future execution requires new freeze"
+        },
+        "regression": {
+          "old216": {
+            "result": "passed",
+            "tests": 216,
+            "failed": 0,
+            "skipped": 0,
+            "log": ".rpg04-work/rpg05-regression-1789037270154/legacy216.log",
+            "logSha256": "573faee52c27c181fe8c067a0183b86a49211b496a1bbb772b83e962bc97ac43"
+          },
+          "rpg04NonHttp": {
+            "result": "passed",
+            "tests": 125,
+            "failed": 0,
+            "skipped": 0,
+            "log": ".rpg04-work/rpg05-regression-1789037270154/rpg04NonHttp.log",
+            "logSha256": "3188e19e8a29514bdfa0f14397a1d7a7ef050c1fa61074629280e5ce83a8310f"
+          },
+          "independentHttpHarness": {
+            "result": "passed",
+            "receipt": ".rpg04-work/rpg05-http-bqtpiwfd/harness-receipt.json",
+            "sha256": "003aef6e645b25cd00e5a0a3ba27dd75634809243b375fda6d82ae90ccfbd5a1",
+            "scope": "Frozen RPG04 HTTP integration test on RPG05 isolated backend candidate; two worlds normal/cancel/invalid output, 8 fake requests, zero real Provider calls",
+            "failedAttempt": ".rpg04-work/rpg05-http-mjcpz2ac/harness-receipt.json"
+          },
+          "legacyAggregate": "not_run: frozen branch and private RPG04 historical evidence requirements preserved"
+        },
+        "limitations": [
+          "Real acceptance incomplete: Gu 2/3, Minecraft 0/3, cancellation not run.",
+          "Slot7 output incomplete JSON: missing final closing brace; parse fails at offset3712; unmodified raw output retained.",
+          "User quality/experience review, standalone screenshot archive and independent review pending.",
+          "Exhaustive multi-tab browser matrix not completed; host automated idempotency/restart tests passed.",
+          "Mobile baseline checked at 390px; further polish deferred by user.",
+          "Slot5 output used fieldRef instead of required moduleRef at proposal.informationModules[3]; raw output unchanged; failed batch stopped.",
+          "Relay quota replenished by 500000 finite internal units; historical used_quota 102581 retained; no unlimited quota."
+        ],
+        "ownInstance": {
+          "pid": 3048,
+          "port": 18409,
+          "status": "stopped_after_block",
+          "listenerAfterStop": false
+        },
+        "restoredRoute": {
+          "authorized": true,
+          "ownerPid": 6360,
+          "pid": 23412,
+          "port": 18305,
+          "newapiPort": 18306,
+          "base": "1b280ed257a45672c4a3dc03745fcb585685faf9",
+          "backendTreeSha256": "bb2fe85081d27533d5a984ba5a894b46c610bd1284df39e62a4f536095902d06",
+          "status": "stopped_verified",
+          "qualificationReason": "slot4 passed; current freshness unverified",
+          "providerDispatches": 7
+        },
+        "cleanup": {
+          "portsChecked": [
+            18305,
+            18306,
+            18405,
+            18408,
+            18409,
+            18410
+          ],
+          "listenersRemaining": 0,
+          "containerStatus": "exited",
+          "receipt": ".rpg04-work/rpg05-real-20260910-01/route-stopped-attempt5.json"
+        },
+        "formatReview": {
+          "path": "docs/RPG05_FORMAT_REVIEW.md",
+          "diagnosticRepair": "implemented_verified_offline",
+          "formatReliability": "unresolved",
+          "historicalReplay": ".rpg04-work/rpg05-real-20260910-01/output-diagnostics-replay.json",
+          "historicalReplaySha256": "d4f4af9acc43cd59be355b30a5d537e2858b74028fed3a27cde8f9222bfc7b96",
+          "providerCallsThisBatch": 0
+        },
+        "structuredOutputReview": {
+          "path": "docs/RPG05_STRUCTURED_OUTPUT_REVIEW.md",
+          "status": "implemented_verified_offline_mock_real_not_run",
+          "providerCalls": 0,
+          "exactServerScopeApproved": true,
+          "serverTests": {
+            "passed": 57,
+            "warnings": 5,
+            "evidenceSource": "task tool output session 54455; not an archived raw log"
+          },
+          "currentExecutionFreeze": false,
+          "independentReview": "not_run",
+          "manual": "not_run"
+        },
+        "structuredContinuation": {
+          "budgetApproved": 13,
+          "consumed": 7,
+          "newDispatches": 0,
+          "ledgerTests": {
+            "passed": 19,
+            "scope": "new13-slot ledger and old ledger/freeze regression",
+            "source": "task tool output"
+          },
+          "candidateSource": ".rpg04-work/rpg05-structured-20260912/candidate-source.json",
+          "candidateSourceSha256": "70c12989a8aa91f3f0172d1f33cf88dd87e6379dda4dac3cc8b1bb94390883fd",
+          "blocker": {
+            "qualifications": [
+              {
+                "model": "gpt-5.6-luna",
+                "capability": "chat_text",
+                "valid": false,
+                "reason": "provider_chat_certification_expired"
+              }
+            ],
+            "providerDispatchesThisAttempt": 0
+          },
+          "receipt": ".rpg04-work/rpg05-structured-20260912/route-qualification-blocked.json",
+          "receiptSha256": "1539dbd055134643247a06d3392d634d914ac3e0f6a44c65297cb81faf1bccda",
+          "executionFreezeCreated": false,
+          "note": "new candidate started then shut down on expired standard chat qualification; no quota reset"
+        }
+      }
+    },
+    {
+      "sourceStatusSha256": "c1974c68fca5890b8be3de663c57e11158a0df6249de4020825351395d9e202d",
+      "scope": "before user-authorized keyed real continuation",
+      "values": {
+        "phase": "05E_keyed_format_offline_verified_real_acceptance_blocked",
+        "provider": {
+          "authorizedDispatches": 14,
+          "consumedDispatches": 12,
+          "authorization": "User explicitly authorized full acceptance and real model testing; additionally authorized restoring old isolated route. User approved isolated relay quota replenishment and +2 dispatches, total 10; no reset. User explicitly approved +1, total 11, stopping on any new failure. User explicitly approved total13: existing7 plus strict qualification1, Gu query1, Minecraft3, cancellation1; no automatic retries. User explicitly approved total14 including expired recertification. Latest approval covers fixed-key format adaptation and offline validation only; no new quota or restart authorization.",
+          "model": "gpt-5.6-luna",
+          "route": "http://127.0.0.1:18305",
+          "maxOutputTokens": 4096,
+          "certificationMaxOutputTokens": 512,
+          "allocation": {
+            "certification": 4,
+            "gu": 6,
+            "minecraft": 3,
+            "cancellation": 1
+          },
+          "automaticRetry": false,
+          "resetAllowed": false,
+          "dispatchGate": "stopped_after_failed_slot_12",
+          "qualification": "slot8 plain certification and slot9 legacy strict probe passed historically; current freshness not checked; keyed qualification not run",
+          "remainingDispatches": 2,
+          "freezeSha256": "689628018b783c829727bece99baab72316b78096139fb049517c72cc3a0eadf",
+          "ledgerPath": "ui-host/.local/real/ledger",
+          "realEvidencePath": "ui-host/.local/real/evidence/bundle-response.12-00000001.json",
+          "realEvidenceSha256": "28ce2d3ae2e4c93dfec6b542112b57c6f9c08d9b8b8bf60c5a7310ff1fa862a2",
+          "requiredAdditionalAuthorization": {
+            "additionalDispatchesProposed": 6,
+            "proposedTotalLimit": 20,
+            "newDispatchesPlanned": 8,
+            "purpose": "Keyed qualification1 + six targeted long-narrative turns + cancellation1; proposed only, not approved",
+            "expiredPlainCertification": "If expired, stop and request separate authorization; no silent reallocation",
+            "supersededProposal": {
+              "additionalDispatchesProposed": 5,
+              "proposedTotalLimit": 19,
+              "purpose": "Six targeted long-narrative turns plus one cancellation; proposal only, not approved"
+            }
+          },
+          "originalAllocation": {
+            "certification": 1,
+            "gu": 3,
+            "minecraft": 3,
+            "cancellation": 1
+          },
+          "originalFreezeSha256": "87ebb3f30e2aeee53ae2d74f7b57d608d9cd6314b025be62532b8d152180cddc",
+          "executionFreezeCurrent": false,
+          "executionFreezeReason": "Source/CSS changed after historical strict freeze; keyed codec requires new version/hash and keyed qualification binding; no current live execution freeze created",
+          "consumedAllocation": {
+            "certification": 4,
+            "gu": 6,
+            "minecraft": 2,
+            "cancellation": 0
+          },
+          "freezeScope": "historical execution snapshot only; not current source approval"
+        },
+        "offlineSummary": {
+          "result": "passed",
+          "totalTests": 444,
+          "groups": [
+            {
+              "id": "boundary",
+              "command": [
+                "node",
+                "scripts/check-boundary-rpg05.mjs"
+              ],
+              "result": "passed",
+              "log": ".rpg04-work/rpg05-verify-1789206732673/boundary.log",
+              "logSha256": "26b403ef7aa78627765986548324a93a7f8c70dcfc07f799e5a3fe762f806e1c",
+              "tests": 0
+            },
+            {
+              "id": "old216",
+              "command": [
+                "node",
+                "--test",
+                "tests/archive-bundle.test.mjs",
+                "tests/archive-zip.test.mjs",
+                "tests/content-compile.test.mjs",
+                "tests/content-e2e.test.mjs",
+                "tests/content-extract.test.mjs",
+                "tests/content-golden.test.mjs",
+                "tests/content-player.test.mjs",
+                "tests/content-provenance.test.mjs",
+                "tests/content-source.test.mjs",
+                "tests/contracts.test.mjs",
+                "tests/runtime-adapter.test.mjs",
+                "tests/runtime-cli.test.mjs",
+                "tests/runtime-contracts.test.mjs",
+                "tests/runtime-core.test.mjs",
+                "tests/runtime-plugin-host.test.mjs",
+                "tests/runtime-store.test.mjs",
+                "tests/worker-batch.test.mjs",
+                "tests/worker-capture.test.mjs",
+                "tests/world-source.test.mjs"
+              ],
+              "result": "passed",
+              "log": ".rpg04-work/rpg05-verify-1789206732673/old216.log",
+              "logSha256": "6771224bb787aad814b4db2f204a6990d85365395a17d31b50b163aa427931b6",
+              "tests": 216
+            },
+            {
+              "id": "rpg04NonHttp",
+              "command": [
+                "node",
+                "--test",
+                "tests/context-approved-card.test.mjs",
+                "tests/context-card.test.mjs",
+                "tests/context-cli-files.test.mjs",
+                "tests/context-cli.test.mjs",
+                "tests/context-compiler.test.mjs",
+                "tests/context-contracts.test.mjs",
+                "tests/context-host.test.mjs",
+                "tests/context-output-budget.test.mjs",
+                "tests/context-protocol.test.mjs",
+                "tests/context-runtime.test.mjs",
+                "tests/context-schema.test.mjs",
+                "tests/context-selection.test.mjs",
+                "tests/context-state-compat.test.mjs",
+                "tests/context-test-input.test.mjs",
+                "tests/rpg04-boundary.test.mjs",
+                "tests/rpg04-content.test.mjs",
+                "tests/rpg04-verification.test.mjs"
+              ],
+              "result": "passed",
+              "log": ".rpg04-work/rpg05-verify-1789206732673/rpg04NonHttp.log",
+              "logSha256": "dbb9f7cb687d33d3403f00435a3f22f25959e534e0af76c2536e0f0fd3439b0f",
+              "tests": 125
+            },
+            {
+              "id": "uiHost",
+              "command": [
+                "node",
+                "--test",
+                "tests/ui-host-dispatch-ledger.test.mjs",
+                "tests/ui-host-execution-freeze.test.mjs",
+                "tests/ui-host-input.test.mjs",
+                "tests/ui-host-journeys.test.mjs",
+                "tests/ui-host-keyed-journey.test.mjs",
+                "tests/ui-host-keyed-turn.test.mjs",
+                "tests/ui-host-output-diagnostics.test.mjs",
+                "tests/ui-host-projection.test.mjs",
+                "tests/ui-host-real-adapter.test.mjs",
+                "tests/ui-host-security.test.mjs",
+                "tests/ui-host-service.test.mjs",
+                "tests/ui-host-setup.test.mjs",
+                "tests/ui-host-structured-http.test.mjs",
+                "tests/ui-host-structured-ledger.test.mjs",
+                "tests/ui-host-structured-schema.test.mjs",
+                "tests/ui-host-turn.test.mjs"
+              ],
+              "result": "passed",
+              "log": ".rpg04-work/rpg05-verify-1789206732673/uiHost.log",
+              "logSha256": "f390fadca15bc8c96da8f5cfdca3fe80dc4eb92648c2b1596e85d99a955690e9",
+              "tests": 101
+            },
+            {
+              "id": "ui",
+              "command": [
+                "node",
+                "--test",
+                "ui/tests/markdown.test.mjs"
+              ],
+              "result": "passed",
+              "log": ".rpg04-work/rpg05-verify-1789206732673/ui.log",
+              "logSha256": "0409e6ed5370788e25865b46209b3de6105b800bcabf5f898fd12a4c8878ef99",
+              "tests": 2
+            },
+            {
+              "id": "typecheck",
+              "command": [
+                "node",
+                "ui/node_modules/typescript/bin/tsc",
+                "--noEmit",
+                "-p",
+                "ui/tsconfig.json"
+              ],
+              "result": "passed",
+              "log": ".rpg04-work/rpg05-verify-1789206732673/typecheck.log",
+              "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "tests": 0
+            },
+            {
+              "id": "build",
+              "command": [
+                "node",
+                "node_modules/vite/bin/vite.js",
+                "build"
+              ],
+              "result": "passed",
+              "log": ".rpg04-work/rpg05-verify-1789206732673/build.log",
+              "logSha256": "24878337cda8d94e37efe00edd7f0f1f88c3055f1cdf4c7fdd098f2dbcf4a1c6",
+              "tests": 0
+            }
+          ],
+          "scope": "Current keyed-format host source and existing UI; offline/mock only, no new real/manual/independent acceptance"
+        }
+      }
+    },
+    {
+      "capturedAt": "2026-09-12T10:42:19.307Z",
+      "sourceSha256": "87d79c9f56a3abe21817c7cd3193ac090214ccb50b658d28a43c841acc2ba5b7",
+      "backup": ".rpg04-work/rpg05-keyed-real-20260912/status-before-closeout.json",
+      "phase": "05E_keyed_real_authorized_preparing_qualification",
+      "provider": {
+        "authorizedDispatches": 20,
+        "consumedDispatches": 12,
+        "authorization": "User explicitly authorized full acceptance and real model testing; additionally authorized restoring old isolated route. User approved isolated relay quota replenishment and +2 dispatches, total 10; no reset. User explicitly approved +1, total 11, stopping on any new failure. User explicitly approved total13: existing7 plus strict qualification1, Gu query1, Minecraft3, cancellation1; no automatic retries. User explicitly approved total14 including expired recertification. Latest approval covers fixed-key format adaptation and offline validation only; no new quota or restart authorization. Latest user: 授权继续实测; continuing reviewed eight-call keyed plan, cumulative20 including reallocation of two remaining slots.",
+        "model": "gpt-5.6-luna",
+        "route": "http://127.0.0.1:18305",
+        "maxOutputTokens": 4096,
+        "certificationMaxOutputTokens": 512,
+        "allocation": {
+          "certification": 5,
+          "gu": 9,
+          "minecraft": 5,
+          "cancellation": 1
+        },
+        "automaticRetry": false,
+        "resetAllowed": false,
+        "dispatchGate": "authorized_new_batch_after_slot12_failure",
+        "qualification": "fresh read-only isolated route check: qualified; no repeat plain certification",
+        "remainingDispatches": 8,
+        "freezeSha256": "689628018b783c829727bece99baab72316b78096139fb049517c72cc3a0eadf",
+        "ledgerPath": "ui-host/.local/real/ledger",
+        "realEvidencePath": "ui-host/.local/real/evidence/bundle-response.12-00000001.json",
+        "realEvidenceSha256": "28ce2d3ae2e4c93dfec6b542112b57c6f9c08d9b8b8bf60c5a7310ff1fa862a2",
+        "originalAllocation": {
+          "certification": 1,
+          "gu": 3,
+          "minecraft": 3,
+          "cancellation": 1
+        },
+        "originalFreezeSha256": "87ebb3f30e2aeee53ae2d74f7b57d608d9cd6314b025be62532b8d152180cddc",
+        "executionFreezeCurrent": false,
+        "executionFreezeReason": "Source/CSS changed after historical strict freeze; keyed codec requires new version/hash and keyed qualification binding; no current live execution freeze created",
+        "consumedAllocation": {
+          "certification": 4,
+          "gu": 6,
+          "minecraft": 2,
+          "cancellation": 0
+        },
+        "freezeScope": "historical execution snapshot only; not current source approval",
+        "approvedCurrentPlan": {
+          "additionalDispatchesProposed": 6,
+          "proposedTotalLimit": 20,
+          "newDispatchesPlanned": 8,
+          "purpose": "Keyed qualification1 + six targeted long-narrative turns + cancellation1; proposed only, not approved",
+          "expiredPlainCertification": "If expired, stop and request separate authorization; no silent reallocation",
+          "supersededProposal": {
+            "additionalDispatchesProposed": 5,
+            "proposedTotalLimit": 19,
+            "purpose": "Six targeted long-narrative turns plus one cancellation; proposal only, not approved"
+          },
+          "status": "authorized_this_turn"
+        }
+      },
+      "latestRealOutcome": {
+        "formalTurns": {
+          "gu": 3,
+          "minecraft": 1
+        },
+        "slot8": "plain certification passed",
+        "slot9": "strict probe passed",
+        "slot10": "gu query committed",
+        "slot11": "minecraft action committed",
+        "slot12": "failed frozen contract: duplicate info.rpg04.world; no formal commit",
+        "rawEvidencePreserved": true,
+        "executionFreezeSha256": "689628018b783c829727bece99baab72316b78096139fb049517c72cc3a0eadf",
+        "dispatchFreezeSha256": "d1b8fafe8d71cbbab2143faff6c790cd5eca7c860116047b17342fa6901e0b45"
+      },
+      "keyedOutputReview": {
+        "path": "docs/RPG05_KEYED_OUTPUT_REVIEW.md",
+        "status": "implemented_verified_offline",
+        "approval": "user-approved-fixed-key-format-offline-first",
+        "compilerVersion": "rpg05-keyed/1",
+        "codecVersion": "rpg05-keyed-codec/1",
+        "codecSha256": "b3674fd1faaaff952f6b4f8fbe9bd6b6081ee9a6f159d3ed33397ae7d9e99fc4",
+        "providerCallsThisBatch": 0,
+        "real": "not_run",
+        "manual": "not_run",
+        "independent": "not_run",
+        "currentExecutionFreeze": false,
+        "historicalReplay": ".rpg04-work/rpg05-keyed-offline-20260912/replay.json",
+        "historicalReplaySha256": "0e966a0c0038dc05dd59c41109141e57f19cb9e96bab064fc34e9e6ca281f811",
+        "historicalEvidenceFilesUnchanged": 44,
+        "aggregateTests": 444,
+        "backendTests": 59,
+        "httpHarnessFakeCalls": 8
+      },
+      "evidence": {
+        "mock": "passed: current 101 host + 2 renderer tests; two-world keyed service/context/transport/commit/recovery tests included",
+        "real": "partial historical: 12 dispatches consumed; Gu3 + Minecraft1 formal turns; slot12 duplicate-module failure retained; new keyed wire format never sent to Provider",
+        "manual": "pending_user_quality_and_experience_acceptance",
+        "independent": "not_run: independent HTTP harness is separate fake-provider regression, not independent agent review",
+        "prototype": "approved_with_amendments",
+        "agentUi": "passed scoped checks: custom resources; world import mismatch corrected preserving resources; keyboard send; cancel/delete; refresh input/history; safe Markdown. Exhaustive multi-tab matrix pending.",
+        "uiRendering": {
+          "result": "passed",
+          "tests": 2,
+          "browserFixture": "inert script/HTML image/javascript link; explicit external link dialog; Escape; trap hits 0"
+        }
+      }
+    },
+    {
+      "capturedAt": "2026-09-12T11:16:00.253Z",
+      "sourceSha256": "83da36d26e673926b793ef484d9fd9527944f75d622d5ceabeb91b335d045583",
+      "backup": ".rpg04-work/rpg05-protocol-offline-Tg7VZe/before/module/docs/RPG05_STATUS.json",
+      "phase": "05E_keyed_real_partial_failed_slot16",
+      "provider": {
+        "authorizedDispatches": 20,
+        "consumedDispatches": 16,
+        "authorization": "Latest user explicitly authorized continuing the reviewed keyed8-call plan: prior12 preserved, remaining2 reallocated plus6, cumulative20. Stop on any new failure; no automatic retry/reset/reallocation. Prior approvals retained in checkpointHistory.",
+        "model": "gpt-5.6-luna",
+        "route": "http://127.0.0.1:18305",
+        "maxOutputTokens": 4096,
+        "certificationMaxOutputTokens": 512,
+        "allocation": {
+          "certification": 5,
+          "gu": 9,
+          "minecraft": 5,
+          "cancellation": 1
+        },
+        "automaticRetry": false,
+        "resetAllowed": false,
+        "dispatchGate": "blocked_after_slot16_contract_failure_no_retry",
+        "qualification": "fresh read-only isolated route check: qualified; no repeat plain certification",
+        "remainingDispatches": 4,
+        "freezeSha256": "c543de58b84020de73edc9f956951f77618383442d0d21ae9c0deb5911ce76d3",
+        "ledgerPath": "ui-host/.local/real/ledger",
+        "realEvidencePath": "ui-host/.local/real/evidence/bundle-response.16-00000001.json",
+        "realEvidenceSha256": "83088ce56000c468bf2b61f8f074e42333ec76624f197995ffb9cdbcc60b1c60",
+        "originalAllocation": {
+          "certification": 1,
+          "gu": 3,
+          "minecraft": 3,
+          "cancellation": 1
+        },
+        "originalFreezeSha256": "87ebb3f30e2aeee53ae2d74f7b57d608d9cd6314b025be62532b8d152180cddc",
+        "executionFreezeCurrent": true,
+        "executionFreezeReason": "307 frozen files still match; closed after slot16 failure, policy forbids further dispatch",
+        "consumedAllocation": {
+          "certification": 5,
+          "gu": 9,
+          "minecraft": 2,
+          "cancellation": 0
+        },
+        "freezeScope": "keyed batch13-16 frozen source; source current, continuation blocked",
+        "approvedCurrentPlan": {
+          "additionalDispatchesProposed": 6,
+          "proposedTotalLimit": 20,
+          "newDispatchesPlanned": 8,
+          "purpose": "Keyed qualification1 + targeted six turns + cancellation1; authorized, halted after four calls",
+          "expiredPlainCertification": "If expired, stop and request separate authorization; no silent reallocation",
+          "supersededProposal": {
+            "additionalDispatchesProposed": 5,
+            "proposedTotalLimit": 19,
+            "purpose": "Six targeted long-narrative turns plus one cancellation; proposal only, not approved"
+          },
+          "status": "authorized_then_stopped_on_failure"
+        },
+        "dispatchFreezeSha256": "0f73571c078bf63493300b0dd9cb9568d261dfba9be9ea220cec87a93ad6b3a7",
+        "executionEnabled": false
+      },
+      "keyedOutputReview": {
+        "path": "docs/RPG05_KEYED_OUTPUT_REVIEW.md",
+        "status": "partial_real_failed_stop",
+        "approval": "user-approved-fixed-key-format-offline-first",
+        "compilerVersion": "rpg05-keyed/1",
+        "codecVersion": "rpg05-keyed-codec/1",
+        "codecSha256": "b3674fd1faaaff952f6b4f8fbe9bd6b6081ee9a6f159d3ed33397ae7d9e99fc4",
+        "providerCallsThisBatch": 4,
+        "real": "qualification passed; two targeted turns committed; third rejected",
+        "manual": "not_run",
+        "independent": "not_run",
+        "currentExecutionFreeze": true,
+        "historicalReplay": ".rpg04-work/rpg05-keyed-offline-20260912/replay.json",
+        "historicalReplaySha256": "0e966a0c0038dc05dd59c41109141e57f19cb9e96bab064fc34e9e6ca281f811",
+        "historicalEvidenceFilesUnchanged": 44,
+        "aggregateTests": 449,
+        "backendTests": 59,
+        "httpHarnessFakeCalls": 8,
+        "executionEnabled": false,
+        "realReport": "docs/RPG05_KEYED_REAL_REVIEW.md"
+      },
+      "targetedAcceptance": {
+        "path": "docs/RPG05_TARGETED_ACCEPTANCE.md",
+        "status": "partial_failed_stop",
+        "narrativeTarget": "800-1200 non-whitespace Unicode characters; report Han count separately",
+        "runtimePromptModified": false,
+        "keyedQualificationRequired": false,
+        "newDispatchesProposed": 8,
+        "newDispatchesAuthorized": true,
+        "newDispatchesConsumed": 4,
+        "targetedFormalTurns": {
+          "gu": 2,
+          "minecraft": 0
+        },
+        "remainingCases": {
+          "guQuery": 1,
+          "minecraft": 3,
+          "cancellation": 1,
+          "minimumGameDispatches": 5,
+          "newQualificationIfFormatChanges": 1,
+          "budgetDecision": "unspent4 cannot cover remaining5 cases; format revision would add qualification; no additional quota granted"
+        }
+      },
+      "evidence": {
+        "mock": "passed: 106 host + 2 renderer tests within current449 aggregate",
+        "real": "partial failed-stop: total16; keyed qualification13 passed; targeted Gu14/15 committed; Gu16 rejected; formal Gu5 + Minecraft1; targeted2/6; cancellation not run",
+        "manual": "pending_user_quality_and_experience_acceptance",
+        "independent": "not_run: independent HTTP harness is separate fake-provider regression, not independent agent review",
+        "prototype": "approved_with_amendments",
+        "agentUi": "passed scoped checks: custom resources; world import mismatch corrected preserving resources; keyboard send; cancel/delete; refresh input/history; safe Markdown. Exhaustive multi-tab matrix pending. Latest actual UI: frozen text send, raw draft, rejected result separate, refresh no replay; four info panels horizontal at933px.",
+        "uiRendering": {
+          "result": "passed",
+          "tests": 2,
+          "browserFixture": "inert script/HTML image/javascript link; explicit external link dialog; Escape; trap hits 0"
+        }
+      }
+    },
+    {
+      "capturedAt": "2026-09-12T13:19:21.893663+00:00",
+      "sourceStatusSha256": "7df3b6bd9c909ca3d8283e223ba03ec48d3796727252467dcbfa50801efe56b1",
+      "backup": ".rpg04-work/rpg05-reviewed-retest-jsthpby7/before-preflight-docs/RPG05_STATUS.json",
+      "scope": "Immutable previous18/24 stopped checkpoint; not current acceptance evidence"
+    },
+    {
+      "capturedAt": "2026-09-12T13:42:25.319437+00:00",
+      "sourceStatusSha256": "f024102a992d17f232d69776c2f8c58c8bebffcbe2f239ff1af4a98cdaa85cdc",
+      "backup": ".rpg04-work/rpg05-reviewed-retest-jsthpby7/before-final-docs/RPG05_STATUS.json",
+      "scope": "Reviewed preflight18/26 checkpoint retained; current real outcome below"
+    },
+    {
+      "capturedAt": "2026-09-12T14:33:10.440258+00:00",
+      "phase": "05E_reviewed_real_partial_stopped_slot21_length",
+      "reason": "before automatic22-26 closure and manual5 handoff",
+      "files": [
+        {
+          "path": "experiments/ai-rpg-engine/docs/RPG05_STATUS.json",
+          "sha256": "bd815a484e2532fcdc09775c5143a259106d3ed4c0b827153ff390442f1b3f85",
+          "backup": ".rpg04-work/rpg05-reviewed-resume-20260912/before-closeout/RPG05_STATUS.json"
+        },
+        {
+          "path": "experiments/ai-rpg-engine/docs/RPG05_REVIEWED_RETEST.md",
+          "sha256": "1e4763d34924e6e3ed7212cf8b2254c0de731dc02d2d4a3834b2f1c2dcba487f",
+          "backup": ".rpg04-work/rpg05-reviewed-resume-20260912/before-closeout/RPG05_REVIEWED_RETEST.md"
+        },
+        {
+          "path": "experiments/ai-rpg-engine/docs/RPG05_THIRD_PARTY.json",
+          "sha256": "a3751e78030b0c33429db1b7ebad4c9615b30b0f15b54619de42029e31481305",
+          "backup": ".rpg04-work/rpg05-reviewed-resume-20260912/before-closeout/RPG05_THIRD_PARTY.json"
+        },
+        {
+          "path": "docs/ai-rpg-experiment/MANIFEST.json",
+          "sha256": "18b7afad2041cce37f874b2269162c64f5cbc553e394252814c6dfc377398603",
+          "backup": ".rpg04-work/rpg05-reviewed-resume-20260912/before-closeout/MANIFEST.json"
+        }
+      ]
+    }
+  ],
+  "keyedOutputReview": {
+    "path": "docs/RPG05_KEYED_OUTPUT_REVIEW.md",
+    "status": "historical_keyed1_real_partial_failed_stop",
+    "approval": "user-approved-fixed-key-format-offline-first",
+    "compilerVersion": "rpg05-keyed/1",
+    "codecVersion": "rpg05-keyed-codec/1",
+    "codecSha256": "b3674fd1faaaff952f6b4f8fbe9bd6b6081ee9a6f159d3ed33397ae7d9e99fc4",
+    "providerCallsThisBatch": 4,
+    "real": "qualification passed; two targeted turns committed; third rejected",
+    "manual": "not_run",
+    "independent": "not_run",
+    "currentExecutionFreeze": false,
+    "historicalReplay": ".rpg04-work/rpg05-keyed-offline-20260912/replay.json",
+    "historicalReplaySha256": "0e966a0c0038dc05dd59c41109141e57f19cb9e96bab064fc34e9e6ca281f811",
+    "historicalEvidenceFilesUnchanged": 44,
+    "aggregateTests": 449,
+    "backendTests": 59,
+    "httpHarnessFakeCalls": 8,
+    "executionEnabled": false,
+    "realReport": "docs/RPG05_KEYED_REAL_REVIEW.md",
+    "historicalExecutedSource": true,
+    "currentSourceReview": "docs/RPG05_PROTOCOL_REVIEW.md"
+  },
+  "protocolRepair": {
+    "status": "real_format_passed_content_gate_stopped",
+    "report": "docs/RPG05_PROTOCOL_RETEST.md",
+    "authorization": "user-authorized-targeted-protocol-retest-total24",
+    "sourceFiles": [
+      {
+        "path": "ui-host/keyed-protocol.mjs",
+        "sha256": "0315c920f5b795169917dc7f145c1f2f601cefa4b7c53ed7162b752595bc07f1"
+      },
+      {
+        "path": "ui-host/protocol-ledger.mjs",
+        "sha256": "bc794add3b8a92799786037974d4637f1ec20eaebc77d7a9d547a7850a1b1aa7"
+      },
+      {
+        "path": "ui-host/real-cli.mjs",
+        "sha256": "99f3dd8a43704438b54a266409b22d35f5781871258b4b882b73d99464e677f4"
+      },
+      {
+        "path": "ui-host/real-adapter.mjs",
+        "sha256": "48386223d2fd866575105da597169e0458cee1afe8d3dd609d402890b4d06d6e"
+      },
+      {
+        "path": "ui-host/structured-http.mjs",
+        "sha256": "066af52afded4fb69dd75b6fc9a548ab421def1cf86451a82004f3f672186970"
+      },
+      {
+        "path": "ui-host/execution-freeze.mjs",
+        "sha256": "dfc884da866afd1dc78cda5aec371cf821838cc11aa6c2872fab4528d9229e89"
+      }
+    ],
+    "protocolVersion": "rpg05-keyed-projection/1",
+    "candidateSha256": "7fdb6ee29eb125597105483c4951efe33c42f9ea48c2b7eb7528d7fe5aea9941",
+    "compilerVersion": "rpg05-keyed/2",
+    "codecVersion": "rpg05-keyed-codec/1",
+    "providerCallsThisBatch": 2,
+    "additionalQuotaAuthorized": true,
+    "nextGate": "review_inactive_talent_effect_qualification_before_any_further_dispatch",
+    "querySemantics": "not_tested_this_batch",
+    "length": "slot18 passed988; remaining5 target scenes not run",
+    "historicalExecutionFreezeCurrent": false,
+    "real": "slot17 format qualified; slot18 structure/binding/commit/length passed; inactive-effect description not accepted",
+    "observation": ".rpg04-work/rpg05-protocol-retest-FXOVkB/observation18.json",
+    "observationSha256": "40bee7786e92eabf0ecdb922619b7d87d36454ef49096aa004fad613dcc6080c",
+    "manual": "pending",
+    "independent": "not_run",
+    "scope": "historical v1 batch17-18 only; superseded for new execution by reviewedRetest"
+  },
+  "protocolRepairHistory": [
+    {
+      "snapshot": ".rpg04-work/rpg05-protocol-retest-FXOVkB/before-docs/RPG05_STATUS.json",
+      "sha256": "c189eeb512b6692adb56a827404c47970f1b45817ca12fe6a3e39594b0a4d3e3",
+      "phase": "resource_refs_implemented_verified_offline_protocol_projection_proposed"
+    }
+  ],
+  "providerHistory": [
+    {
+      "phase": "05E_protocol_projection_offline_passed_targeted_retest_preflight",
+      "capturedAt": "2026-09-12T12:23:12.815Z",
+      "snapshot": ".rpg04-work/rpg05-protocol-retest-FXOVkB/before-final-docs/RPG05_STATUS.json",
+      "sha256": "5c852aea48867263b72748634d06656a97c5212371878d862d12c029167e46d8"
+    },
+    {
+      "authorizedDispatches": 24,
+      "consumedDispatches": 18,
+      "authorization": {
+        "authorization": "user-authorized-targeted-protocol-retest-total24",
+        "userInstruction": "授权复测，测试输入内容不要中性，更加有针对性一点；完整8次复测，累计上限24",
+        "maxDispatches": 24,
+        "priorRecords": [
+          "378721015fd8f339c9ae19540f01aa96e6d83b43f9a9031c90ef5a953794c9ee",
+          "4ad72aa620755ca77dce1aa358f408032ecb48a5343d7bf96cc267d69ce7ad93",
+          "a273740720c9495d5c2b438c3fe772e7662d13abf21b4fc8e72ebaca5b3464d6",
+          "6be217ead543bd5e25116ea9b0760fa66feaf25556118d09de370870037258f5",
+          "9328857213bd27823e20a644b0f25e2c7325377fef624a41a9fcaa62def0f440",
+          "7fb971e8ee6366eea6ca731e7c6db636803d471c0b0b0d990809bef9f578f42a",
+          "65981f0a953a712856432405cbacaeb1adae83eb832aa9f261d4507112c531ae",
+          "a88f3189c0a3f231fff988bab8fd1cdd3cc6cd70a38694c6ef3aae1d6dd12921",
+          "4adcba8446ba6ac2209e80b4ae07c581dbed6ad954fcd29acba579e502f1e4a5",
+          "e0e2565a3e96de9687583784b3477771af0a45e6e0611402bde83f997eea0e27",
+          "d82dd4678358ee590a9d8b01fff5563d1a56f8619c84ca0e210eddc1524fb8bb",
+          "d21e857d7c70adec3619d357f9cfbe9022d00ae2b2409dfe6219e36e0b8d288a",
+          "14c2d3e6cedb4cdadfaf855df6a21df2245e41196aca96c2c4af93f6c9320a5e",
+          "0b7b857c472b08e5f15753d3f8bec1c93fe850937bb593c89ba0cfc33f686d2c",
+          "5267381379001ff2786262158cd9543958dea74730977ac5b3cf3591ed057711",
+          "a6f77c9c7c3ffa9a5e67ded57be109a0349c5c39423fa6e99f70e160e3d85fc5"
+        ],
+        "priorPolicies": [
+          {
+            "id": "dispatch-policy",
+            "sha256": "4edd1783f49b28b77205040322110bcc155e0fee0c7747e04381ad396d3cbe43"
+          },
+          {
+            "id": "dispatch-continuation",
+            "sha256": "9f2ab8fec1cfe54eff9f83396277b1555362b26037fd577246e52d0c3b08738b"
+          },
+          {
+            "id": "dispatch-extension-slot5",
+            "sha256": "5d272ffb8a6657e6a93c2c51bd8d83eb7406e9130803fc88246a7dd3b1087607"
+          },
+          {
+            "id": "dispatch-structured-slot7",
+            "sha256": "4f20d75c634a409cd5cccb9a124582604ae6bbe8f0454defb3e1f8a70c4c9eb3"
+          },
+          {
+            "id": "dispatch-keyed-slot12",
+            "sha256": "8307f56d6019ba896260450f1003b4a25a81ef4cb8f636d8a6e17a61f087ba8c"
+          }
+        ]
+      },
+      "model": "gpt-5.6-luna",
+      "route": "http://127.0.0.1:18305",
+      "maxOutputTokens": 4096,
+      "certificationMaxOutputTokens": 512,
+      "allocation": {
+        "certification": 6,
+        "gu": 12,
+        "minecraft": 5,
+        "cancellation": 1
+      },
+      "automaticRetry": false,
+      "resetAllowed": false,
+      "dispatchGate": "stopped_after_slot18_content_review_not_accepted",
+      "qualification": "slot17 full compiled context + fixed protocol passed; ordinary route qualified at12:06Z; route now stopped; no auto recertification",
+      "remainingDispatches": 6,
+      "freezeSha256": "a43c7ab32dfb2428b7bc1b50be05d57a9f009587dcdde6091397e2363551d2b4",
+      "ledgerPath": "ui-host/.local/real/ledger",
+      "realEvidencePath": "ui-host/.local/real/evidence/bundle-response.18-00000001.json",
+      "realEvidenceSha256": "9502b3d2bd0d186d7f29a37f64aee5d1a85a6fd2042fa61632acaf5051c65c99",
+      "originalAllocation": {
+        "certification": 1,
+        "gu": 3,
+        "minecraft": 3,
+        "cancellation": 1
+      },
+      "originalFreezeSha256": "87ebb3f30e2aeee53ae2d74f7b57d608d9cd6314b025be62532b8d152180cddc",
+      "executionFreezeCurrent": true,
+      "executionFreezeReason": "Source and initial bindings verified; content gate stopped and processes closed. Valid freeze hash is not permission to bypass content gate.",
+      "consumedAllocation": {
+        "certification": 6,
+        "gu": 10,
+        "minecraft": 2,
+        "cancellation": 0
+      },
+      "freezeScope": "same-source targeted protocol qualification17 and slots18-24; only17-18 dispatched",
+      "approvedCurrentPlan": "8 new calls: full-context format qualification17, Gu18-20, Minecraft21-23, cancel24; no automatic retry",
+      "dispatchFreezeSha256": "509fcb9bff884ad3d51f43b67df5609f6f3d944b5e07559499b32f0f137afe5b",
+      "executionEnabled": false
+    },
+    {
+      "capturedAt": "2026-09-12T14:33:10.440258+00:00",
+      "scope": "historical_before_resume22",
+      "provider": {
+        "authorizedDispatches": 26,
+        "consumedDispatches": 21,
+        "authorization": {
+          "authorization": "user-authorized-reviewed-targeted-retest-total26",
+          "userInstruction": "授权复测，测试输入内容不要中性，更加有针对性一点；完整8次复测，累计上限26；批准两句补充，先离线验证后实测",
+          "maxDispatches": 26,
+          "priorRecords": [
+            "378721015fd8f339c9ae19540f01aa96e6d83b43f9a9031c90ef5a953794c9ee",
+            "4ad72aa620755ca77dce1aa358f408032ecb48a5343d7bf96cc267d69ce7ad93",
+            "a273740720c9495d5c2b438c3fe772e7662d13abf21b4fc8e72ebaca5b3464d6",
+            "6be217ead543bd5e25116ea9b0760fa66feaf25556118d09de370870037258f5",
+            "9328857213bd27823e20a644b0f25e2c7325377fef624a41a9fcaa62def0f440",
+            "7fb971e8ee6366eea6ca731e7c6db636803d471c0b0b0d990809bef9f578f42a",
+            "65981f0a953a712856432405cbacaeb1adae83eb832aa9f261d4507112c531ae",
+            "a88f3189c0a3f231fff988bab8fd1cdd3cc6cd70a38694c6ef3aae1d6dd12921",
+            "4adcba8446ba6ac2209e80b4ae07c581dbed6ad954fcd29acba579e502f1e4a5",
+            "e0e2565a3e96de9687583784b3477771af0a45e6e0611402bde83f997eea0e27",
+            "d82dd4678358ee590a9d8b01fff5563d1a56f8619c84ca0e210eddc1524fb8bb",
+            "d21e857d7c70adec3619d357f9cfbe9022d00ae2b2409dfe6219e36e0b8d288a",
+            "14c2d3e6cedb4cdadfaf855df6a21df2245e41196aca96c2c4af93f6c9320a5e",
+            "0b7b857c472b08e5f15753d3f8bec1c93fe850937bb593c89ba0cfc33f686d2c",
+            "5267381379001ff2786262158cd9543958dea74730977ac5b3cf3591ed057711",
+            "a6f77c9c7c3ffa9a5e67ded57be109a0349c5c39423fa6e99f70e160e3d85fc5",
+            "016f9daa2b5b7ba66d97fe14a7f6eff0f454038dbd655c04ad2c42c4f60e1389",
+            "7135747ec1cd1edbc1fc2f201c0669c5bc5ed1cea602de92fae061362127e01c"
+          ],
+          "priorPolicies": [
+            {
+              "id": "dispatch-policy",
+              "sha256": "4edd1783f49b28b77205040322110bcc155e0fee0c7747e04381ad396d3cbe43"
+            },
+            {
+              "id": "dispatch-continuation",
+              "sha256": "9f2ab8fec1cfe54eff9f83396277b1555362b26037fd577246e52d0c3b08738b"
+            },
+            {
+              "id": "dispatch-extension-slot5",
+              "sha256": "5d272ffb8a6657e6a93c2c51bd8d83eb7406e9130803fc88246a7dd3b1087607"
+            },
+            {
+              "id": "dispatch-structured-slot7",
+              "sha256": "4f20d75c634a409cd5cccb9a124582604ae6bbe8f0454defb3e1f8a70c4c9eb3"
+            },
+            {
+              "id": "dispatch-keyed-slot12",
+              "sha256": "8307f56d6019ba896260450f1003b4a25a81ef4cb8f636d8a6e17a61f087ba8c"
+            },
+            {
+              "id": "dispatch-protocol-slot16",
+              "sha256": "077998905558e251d2d14eb846aad0a64012bbbaa67fd85a5d65578bb70c9532"
+            }
+          ]
+        },
+        "model": "gpt-5.6-luna",
+        "route": "http://127.0.0.1:18305",
+        "maxOutputTokens": 4096,
+        "certificationMaxOutputTokens": 512,
+        "allocation": {
+          "certification": 7,
+          "gu": 13,
+          "minecraft": 5,
+          "cancellation": 1
+        },
+        "automaticRetry": false,
+        "resetAllowed": false,
+        "dispatchGate": "stopped_after_slot21_length1207_over1200_no_scope_waiver",
+        "qualification": "slot19 reviewed full-context format passed; fresh ordinary route qualified before dispatch; services now stopped",
+        "remainingDispatches": 5,
+        "freezeSha256": "f563de79be9b14ca7ca8afcc13a0374c6f97ac970032b36b77861908c77045d7",
+        "ledgerPath": "ui-host/.local/real/ledger",
+        "realEvidencePath": "ui-host/.local/real/evidence/bundle-response.21-00000001.json",
+        "realEvidenceSha256": "db9a3650e1ee5cf0b7f44a1baa657d14c390d9368b614e8c65671ca4bf956d80",
+        "originalAllocation": {
+          "certification": 1,
+          "gu": 3,
+          "minecraft": 3,
+          "cancellation": 1
+        },
+        "originalFreezeSha256": "87ebb3f30e2aeee53ae2d74f7b57d608d9cd6314b025be62532b8d152180cddc",
+        "executionFreezeCurrent": false,
+        "executionFreezeReason": "337 frozen files matched through final runtime observation. Closeout updates only current status/report; historical preflight bytes and hashes retained. Current runtime/prompt/UI files unchanged; restart must rebind closeout document hashes and retain original dispatch freeze and26-cap policy.",
+        "consumedAllocation": {
+          "certification": 7,
+          "gu": 12,
+          "minecraft": 2,
+          "cancellation": 0
+        },
+        "freezeScope": "reviewed same-version batch19-26 planned; only19-21 dispatched",
+        "approvedCurrentPlan": "19 qualification passed;20-21 Gu structurally committed;22 Gu query,23-25 Minecraft,26cancel paused on21 length gate; no retry/reset/reallocation",
+        "dispatchFreezeSha256": "12dbc754ffa8b080523cee5301b100706903b7b7ebfd37465308ecd8fc173382",
+        "executionEnabled": false,
+        "persistedPolicyMaximum": 26,
+        "persistedPolicyId": "dispatch-reviewed-slot18",
+        "persistedPolicySha256": "95b7d9cd0e3b47997ec6b68660dc4833058097def3947f7ba4db0be5faff6aa5",
+        "currentRuntimeSourceMatchesExecutionFreeze": true,
+        "executionFreezeVerifiedAtLastDispatchAndBeforeCloseout": true
+      }
+    }
+  ],
+  "targetedAcceptanceHistory": [
+    {
+      "snapshot": ".rpg04-work/rpg05-protocol-retest-FXOVkB/before-final-docs/RPG05_STATUS.json",
+      "scope": "prior mixed targeted batch13-16, retained unchanged in snapshot"
+    },
+    {
+      "path": "docs/RPG05_PROTOCOL_RETEST.md",
+      "status": "content_gate_stopped",
+      "authorization": "user-authorized-targeted-protocol-retest-total24",
+      "narrativeTarget": "800-1200 non-whitespace Unicode characters; Han count separate",
+      "runtimePromptFilesModified": false,
+      "rpg05TransportProtocolModified": true,
+      "newDispatchesAuthorized": true,
+      "newDispatchesConsumed": 2,
+      "newDispatchesRemaining": 6,
+      "targetedFormalTurns": {
+        "gu": 1,
+        "minecraft": 0
+      },
+      "targetedStructureAndLengthPassed": 1,
+      "targetedContentAccepted": 0,
+      "remainingCases": {
+        "guSpeech": 1,
+        "guQuery": 1,
+        "minecraft": 3,
+        "cancellation": 1
+      },
+      "qualificationSlot": 17,
+      "agentReview": "not_accepted_inactive_effect_qualification_missing",
+      "userQualityAcceptance": "pending"
+    },
+    {
+      "capturedAt": "2026-09-12T14:33:10.440258+00:00",
+      "path": "docs/RPG05_REVIEWED_RETEST.md",
+      "status": "partial_stopped_length_gate",
+      "authorization": "user-authorized-reviewed-targeted-retest-total26",
+      "narrativeTarget": "800-1200 non-whitespace Unicode characters; Han separately; panels excluded",
+      "runtimePromptFilesModified": false,
+      "rpg05TransportProtocolModified": true,
+      "newDispatchesAuthorized": true,
+      "newDispatchesConsumed": 3,
+      "newDispatchesRemaining": 5,
+      "targetedFormalTurns": {
+        "gu": 2,
+        "minecraft": 0
+      },
+      "targetedStructureAndLengthPassed": 1,
+      "targetedContentAccepted": 0,
+      "qualificationSlot": 19,
+      "remainingCases": {
+        "guQuery": 1,
+        "minecraft": 3,
+        "cancellation": 1
+      },
+      "userQualityAcceptance": "pending",
+      "targetedStructurePassed": 2,
+      "agentReview": "20passes length/structure with NPC wording caveat;21length1207 exceeds1200; quality/agency caveats pending user",
+      "sameVersionCoverage": "2of6 structurally saved,1of6 length passed; cannot combine old versions to claim6of6"
+    }
+  ],
+  "realReport": "docs/RPG05_REVIEWED_RETEST.md",
+  "reviewedRetest": {
+    "status": "structural_complete_content_gaps_manual_pending",
+    "report": "docs/RPG05_REVIEWED_RETEST.md",
+    "approval": {
+      "createdAt": "2026-09-12T12:49:21.819185+00:00",
+      "userAnswer": "批准两句补充，先离线验证后实测",
+      "path": "docs/RPG05_SEMANTIC_CLARIFICATION.txt",
+      "sha256": "26833e42c00839ca5aced6368438df4f37bf683a250179a825be3b268e4eba1d",
+      "scope": "append exact approved two paragraphs to RPG05 projected system; old RPG04 host and v1 protocol text unchanged",
+      "providerCalls": 0
+    },
+    "budget": {
+      "cumulativeLimit": 26,
+      "priorConsumed": 18,
+      "plannedNew": 8
+    },
+    "sourceFiles": [
+      {
+        "path": "ui-host/keyed-protocol.mjs",
+        "sha256": "6652414445524143dec4a96e5a3c1b0024c49970b6956efc10788eef7c05e68d"
+      },
+      {
+        "path": "ui-host/protocol-ledger.mjs",
+        "sha256": "1a4f277938056abd3a8f4e7c7d2411625933e0f2dae76dc5c7e5298aa4af3382"
+      },
+      {
+        "path": "ui-host/real-cli.mjs",
+        "sha256": "0b10dc0968043179ca24dbd0cb705218b64dbdc0e89251896a8456e356578c16"
+      },
+      {
+        "path": "ui-host/real-adapter.mjs",
+        "sha256": "c2158082fd44c53896c929fb9ed16eaddef2826f1c94e641e19efefe73f9dedd"
+      },
+      {
+        "path": "ui-host/structured-http.mjs",
+        "sha256": "97e6abc29c316c9eb4194062b287e81d1cfe8616de142f0c150d853e64545215"
+      },
+      {
+        "path": "ui-host/execution-freeze.mjs",
+        "sha256": "91e7427820f10a800c3cd8b8ea1b559a64b2237dcbfa8045bdcef5e87d161e37"
+      },
+      {
+        "path": "docs/RPG05_SEMANTIC_CLARIFICATION.txt",
+        "sha256": "26833e42c00839ca5aced6368438df4f37bf683a250179a825be3b268e4eba1d"
+      }
+    ],
+    "protocolVersion": "rpg05-keyed-projection/2",
+    "fixedFormatSha256": "7fdb6ee29eb125597105483c4951efe33c42f9ea48c2b7eb7528d7fe5aea9941",
+    "compilerVersion": "rpg05-keyed/2",
+    "codecVersion": "rpg05-keyed-codec/1",
+    "codecSha256": "214647abadb9b8f510ad2e0335fd77b8369e139448cec73142a40d9b4c1f5273",
+    "providerCallsThisBatch": 8,
+    "evidenceRoot": ".rpg04-work/rpg05-reviewed-retest-jsthpby7",
+    "manual": "pending",
+    "independent": "not_run",
+    "observation": ".rpg04-work/rpg05-reviewed-resume-20260912/automatic-closure.json",
+    "observationSha256": "c703fc0ebc40817967b2cfba0320b6858cd05b09770d9a80a6d11d56b0f01bc5",
+    "sequenceResults": [
+      {
+        "slot": 19,
+        "kind": "certification",
+        "outcome": "succeeded",
+        "ledgerRecordSha256": "b08e9ff566f0c91ac50f21f204bb3b9617f786f251f1674197e4027aac5bda7d",
+        "requestRecordSha256": "55baa28969d0c16cae7178bf642e767188649867e4ab2a5240e4c6bc29b861ec",
+        "responseRecordSha256": "2791b828928d619724bcf4ee5f0110be7bceecef928b7b6c6ccda603a211786f",
+        "requestSha256": "bd7113aba518006bc8d3aaf0ad7c16d1b1ba55b9cfbd3d7c9bfe9fa04d1ec36f",
+        "rawSseSha256": "cc79804afe33afde596dc0d43f2cc8096e384efeceff464be116a7c510b06cd5",
+        "rawTextSha256": "7eba7497376904f1a04bc2dd8df4f4c72cbab1049934e24be258c56789157ef7",
+        "convertedSha256": "f9dd524b64979949856e5cab4007825db6e28e652cce126016aa0b6db9bb492b",
+        "usage": {
+          "input": 11323,
+          "output": 223,
+          "total": 11546
+        },
+        "routeReceipt": {
+          "actual_model": "gpt-5.6-luna",
+          "cache_hit": null,
+          "cost_kind": "unavailable",
+          "engine": "newapi",
+          "fallback_attempts": 0,
+          "latency_ms": 5690.508799976669,
+          "provider": null,
+          "reason_codes": [
+            "qualified"
+          ],
+          "request_id": null,
+          "requested_model": "gpt-5.6-luna",
+          "response_cost_usd": null,
+          "strategy": "newapi_preferred",
+          "tokens": {
+            "input": 11323,
+            "output": 223,
+            "total": 11546
+          },
+          "ttft_ms": 3862.62239998905,
+          "version": "2"
+        },
+        "narrativeNonWhitespace": 49,
+        "scope": "format qualification only"
+      },
+      {
+        "slot": 20,
+        "kind": "gu",
+        "outcome": "succeeded",
+        "ledgerRecordSha256": "34425235f56565e8bf4b8afa2ad5e40c7ca58ddd38c93887efb8d4a7310add1b",
+        "requestRecordSha256": "cc98f3f6b534ef2c37e58898c170aec7ddd53aabcf2d029c54cb72c85569b0c2",
+        "responseRecordSha256": "ab6ed06abaf26e93d51c4213d623a6223d462b0bea908bed0673c08f0f785f6c",
+        "requestSha256": "4f97decc36434cd8d7a1e573f0985932e36f395a48fa17f6422edc38b7ff5244",
+        "rawSseSha256": "5b37901772ebe708fb37c16a12019d9c07e86021fb171d41ea0ddb3488ee59c7",
+        "rawTextSha256": "ab606be4ab70d4a68a55ef8884c613450ac2d658104648ade55fee82731a0aea",
+        "convertedSha256": "507cd3810eb4c32de84fcdc89671e0625d663c745bbb953ba81f1576c3647d04",
+        "usage": {
+          "input": 12197,
+          "output": 2512,
+          "total": 14709
+        },
+        "routeReceipt": {
+          "actual_model": "gpt-5.6-luna",
+          "cache_hit": null,
+          "cost_kind": "unavailable",
+          "engine": "newapi",
+          "fallback_attempts": 0,
+          "latency_ms": 28881.75780000165,
+          "provider": null,
+          "reason_codes": [
+            "qualified"
+          ],
+          "request_id": null,
+          "requested_model": "gpt-5.6-luna",
+          "response_cost_usd": null,
+          "strategy": "newapi_preferred",
+          "tokens": {
+            "input": 12197,
+            "output": 2512,
+            "total": 14709
+          },
+          "ttft_ms": 3589.6961000107694,
+          "version": "2"
+        },
+        "narrativeNonWhitespace": 1007,
+        "scope": "UI formal turn; content/length reviews separate"
+      },
+      {
+        "slot": 21,
+        "kind": "gu",
+        "outcome": "succeeded",
+        "ledgerRecordSha256": "87347b8a2b45d69682a42f7272f3ca69ce3a3bd93b38a751631a1a6e34846ac7",
+        "requestRecordSha256": "608a6209421dbbf4e4b8ac278528772d3d9062156c3001579b060e58f54079f9",
+        "responseRecordSha256": "2e38f1a0e5bdce6332aad60c66ff7ff200cfbb518ce0da738e8dc7d5b3024bc7",
+        "requestSha256": "234eb4e3c95f8942379cc598469a7754cec5d23e404a2adaae77091a72ad83c8",
+        "rawSseSha256": "2a70f0f8be44ba8d3bdb9df4aa7995d08fad154a1895518a67b74f7e6c78fa02",
+        "rawTextSha256": "8d3da35f00e707e2bd10a4622ee90cd0a894517ae62e25d1f47da8388681d72c",
+        "convertedSha256": "e126e15f112fa7591a81e370fb1f2e1b73e0496f391e0469be80aabc5a75ffc5",
+        "usage": {
+          "input": 13647,
+          "output": 2753,
+          "total": 16400
+        },
+        "routeReceipt": {
+          "actual_model": "gpt-5.6-luna",
+          "cache_hit": null,
+          "cost_kind": "unavailable",
+          "engine": "newapi",
+          "fallback_attempts": 0,
+          "latency_ms": 29109.837700001663,
+          "provider": null,
+          "reason_codes": [
+            "qualified"
+          ],
+          "request_id": null,
+          "requested_model": "gpt-5.6-luna",
+          "response_cost_usd": null,
+          "strategy": "newapi_preferred",
+          "tokens": {
+            "input": 13647,
+            "output": 2753,
+            "total": 16400
+          },
+          "ttft_ms": 3568.8016999920364,
+          "version": "2"
+        },
+        "narrativeNonWhitespace": 1207,
+        "scope": "UI formal turn; content/length reviews separate"
+      },
+      {
+        "slot": 22,
+        "kind": "gu",
+        "outcome": "succeeded",
+        "ledgerRecordSha256": "abedc359a523d0e97138e7e8e1acf1590a15bad84007a69a3520c0dcc4020427",
+        "requestRecordSha256": "d4c72c7e6a5080d760a5fede7cf8101c11d3950c85d5a18d42113070ee1f4274",
+        "responseRecordSha256": "ee83bf9cdcf18f012c3c7206ab7a47277874386115da393aa81a23a27cf9e64b",
+        "requestSha256": "a168f684fac946f95941855472e3cb74398e1f3b92e9f02335778e7f0db4b94f",
+        "rawSseSha256": "055bd8f329dfffd95b9819edcddc529d36f017ec7807c9c6e5f1955b124de670",
+        "usage": {
+          "input": 14920,
+          "output": 3014,
+          "total": 17934
+        },
+        "narrative": {
+          "characters": 1579,
+          "nonWhitespace": 1564,
+          "han": 1396,
+          "lengthPassed": false
+        },
+        "routeReceipt": {
+          "actual_model": "gpt-5.6-luna",
+          "cache_hit": null,
+          "cost_kind": "unavailable",
+          "engine": "newapi",
+          "fallback_attempts": 0,
+          "latency_ms": 42416.75489998306,
+          "provider": null,
+          "reason_codes": [
+            "qualified"
+          ],
+          "request_id": null,
+          "requested_model": "gpt-5.6-luna",
+          "response_cost_usd": null,
+          "strategy": "newapi_preferred",
+          "tokens": {
+            "input": 14920,
+            "output": 3014,
+            "total": 17934
+          },
+          "ttft_ms": 3978.6338999983855,
+          "version": "2"
+        },
+        "acceptedStateFields": [],
+        "observation": {
+          "path": ".rpg04-work/rpg05-reviewed-resume-20260912/observation22.json",
+          "sha256": "0aeae00cfda018a689da524622c09f36b9f2dd9f2189646deacd807d2f32c4cf"
+        }
+      },
+      {
+        "slot": 23,
+        "kind": "minecraft",
+        "outcome": "succeeded",
+        "ledgerRecordSha256": "e42cbf47de98b55edb5310d16faf28c38135d1a7c91c35374f42e02ac01b5c5e",
+        "requestRecordSha256": "ab2a3e86f8603eb065e7b00ee417b16a868b099918fb3e17032db736cb2932fd",
+        "responseRecordSha256": "137461e5d6814953b54303dae075e4b331b27af7be2a6a22db0b82ed18876090",
+        "requestSha256": "04cbb8c228f2283c70530d462c21717140aae22e167432aa73633cdad5cab854",
+        "rawSseSha256": "60089e11bfc90a99a4f5d4f13da37db88695572160cd886878ce12954ad0c451",
+        "usage": {
+          "input": 11867,
+          "output": 2596,
+          "total": 14463
+        },
+        "narrative": {
+          "characters": 1219,
+          "nonWhitespace": 1191,
+          "han": 1061,
+          "lengthPassed": true
+        },
+        "routeReceipt": {
+          "actual_model": "gpt-5.6-luna",
+          "cache_hit": null,
+          "cost_kind": "unavailable",
+          "engine": "newapi",
+          "fallback_attempts": 0,
+          "latency_ms": 35967.39279999747,
+          "provider": null,
+          "reason_codes": [
+            "qualified"
+          ],
+          "request_id": null,
+          "requested_model": "gpt-5.6-luna",
+          "response_cost_usd": null,
+          "strategy": "newapi_preferred",
+          "tokens": {
+            "input": 11867,
+            "output": 2596,
+            "total": 14463
+          },
+          "ttft_ms": 2974.661299987929,
+          "version": "2"
+        },
+        "acceptedStateFields": [
+          "state.rpg04.memory.stm"
+        ],
+        "observation": {
+          "path": ".rpg04-work/rpg05-reviewed-resume-20260912/observation23.json",
+          "sha256": "36e83177a5d657ad0491d5441b3f04bfaf17a3e02f793a67e2de31eb60898652"
+        }
+      },
+      {
+        "slot": 24,
+        "kind": "minecraft",
+        "outcome": "succeeded",
+        "ledgerRecordSha256": "077d1cd7097a26fe6b2dfe90841a6ae2b3fd7d04a2d269ea429c668eb972eafc",
+        "requestRecordSha256": "1a44f77d2711d0f7333aecf694233fe20a419b9e75ef14be8205e0b6abb0a7c1",
+        "responseRecordSha256": "88fe4839cb2e096c98f5fb9d4d0bc2ca75144a90525812ab3e60c65e118af6f6",
+        "requestSha256": "e52e5ab3e1a59f8135434d366e8f116070b26d4fe28e8f33744517b3a23eb0e5",
+        "rawSseSha256": "1415aa15165da30da94c26518c9195d500c406019312bc58dbb51442877a13c4",
+        "usage": {
+          "input": 13581,
+          "output": 2762,
+          "total": 16343
+        },
+        "narrative": {
+          "characters": 1228,
+          "nonWhitespace": 1210,
+          "han": 1076,
+          "lengthPassed": false
+        },
+        "routeReceipt": {
+          "actual_model": "gpt-5.6-luna",
+          "cache_hit": null,
+          "cost_kind": "unavailable",
+          "engine": "newapi",
+          "fallback_attempts": 0,
+          "latency_ms": 39152.45709998999,
+          "provider": null,
+          "reason_codes": [
+            "qualified"
+          ],
+          "request_id": null,
+          "requested_model": "gpt-5.6-luna",
+          "response_cost_usd": null,
+          "strategy": "newapi_preferred",
+          "tokens": {
+            "input": 13581,
+            "output": 2762,
+            "total": 16343
+          },
+          "ttft_ms": 2186.9438999856357,
+          "version": "2"
+        },
+        "acceptedStateFields": [
+          "state.rpg04.memory.stm"
+        ],
+        "observation": {
+          "path": ".rpg04-work/rpg05-reviewed-resume-20260912/observation24.json",
+          "sha256": "cc3593e1626ea330e191a1b6868daf43080038d2b85d0443a5a1168dc5c76ae0"
+        }
+      },
+      {
+        "slot": 25,
+        "kind": "minecraft",
+        "outcome": "succeeded",
+        "ledgerRecordSha256": "2449b0bbe0afc7a978a7c3634c6788729b4cdd050cdbdd274f4a91401b72774c",
+        "requestRecordSha256": "fe417585170fe8bd034f7cf6d2c084796325fb9bee3daa7c9c240bf19e3d2e8f",
+        "responseRecordSha256": "2fed290659808954a77588c313772a7ea28e3a387c31688cc3ffa346e525e5e1",
+        "requestSha256": "dad2d52af2678c4e6b3f7edd67f7528885fd5e29924638289bb9c4f046e3b562",
+        "rawSseSha256": "3a66603a7d14fa594855e88734a0fe396e8c462904e3801770bc8b5e677c2176",
+        "usage": {
+          "input": 14899,
+          "output": 3429,
+          "total": 18328
+        },
+        "narrative": {
+          "characters": 1594,
+          "nonWhitespace": 1580,
+          "han": 1424,
+          "lengthPassed": false
+        },
+        "routeReceipt": {
+          "actual_model": "gpt-5.6-luna",
+          "cache_hit": null,
+          "cost_kind": "unavailable",
+          "engine": "newapi",
+          "fallback_attempts": 0,
+          "latency_ms": 35788.40059999493,
+          "provider": null,
+          "reason_codes": [
+            "qualified"
+          ],
+          "request_id": null,
+          "requested_model": "gpt-5.6-luna",
+          "response_cost_usd": null,
+          "strategy": "newapi_preferred",
+          "tokens": {
+            "input": 14899,
+            "output": 3429,
+            "total": 18328
+          },
+          "ttft_ms": 1804.314200009685,
+          "version": "2"
+        },
+        "acceptedStateFields": [],
+        "observation": {
+          "path": ".rpg04-work/rpg05-reviewed-resume-20260912/observation25.json",
+          "sha256": "5f73db5edad534fdf59283371bca11652f6d7847fa8ea44a5c135575985d319e"
+        }
+      },
+      {
+        "slot": 26,
+        "kind": "cancellation",
+        "outcome": "cancelled",
+        "ledgerRecordSha256": "ed6501fb46ad539c1a2a8699ebd3b06d73e149e84f01bbfd261b9d439aa2f222",
+        "requestRecordSha256": "867adf7f8164583c0edd69361bf77b91b33b5e92828ee898ff2879e3f9b06f25",
+        "responseRecordSha256": "ad3589c35656d2a26914d46ae8eadf43b2899bb00dbce30fb8ee9f46d9a14dd1",
+        "requestSha256": "53f476442f7e9dd05353120c55a1ee2ab982d25b887a7b70a331bd89cfd6e1e6",
+        "rawSseSha256": "fdcbb8f4c9d942c917e287ab81dd9fc1687d2c6663ff0a3e8595d83e81d4fab1",
+        "usage": {
+          "input": null,
+          "output": null,
+          "total": null
+        },
+        "cancellation": {
+          "clientAborted": true,
+          "requested": true,
+          "upstreamConfirmed": null
+        },
+        "observation": {
+          "path": ".rpg04-work/rpg05-reviewed-resume-20260912/observation26.json",
+          "sha256": "12e801bf00da5a6b2aa1e5192884da217be33a6b0d9f5c908096d01ab3ff9168"
+        }
+      }
+    ],
+    "formalNewTurns": {
+      "gu": 3,
+      "minecraft": 3
+    },
+    "sourceFreezeVerifiedAtLastDispatchAndBeforeCloseout": true,
+    "currentRuntimeSourceMatchesFreeze": true,
+    "executionFreezeCurrent": false,
+    "contentReviews": [
+      {
+        "slot": 20,
+        "path": ".rpg04-work/rpg05-reviewed-retest-jsthpby7/content-review20.json",
+        "sha256": "65ea092682a3e79a60ff6510b184b12084b070b59933f745f64ef97e6159eaae"
+      },
+      {
+        "slot": 21,
+        "path": ".rpg04-work/rpg05-reviewed-retest-jsthpby7/content-review21.json",
+        "sha256": "59e9b5957d333fc21af0ed1afdb21d23d3cd5f181e8b6b62c6fda114a627017d"
+      },
+      {
+        "slot": 22,
+        "path": ".rpg04-work/rpg05-reviewed-resume-20260912/content-review22.json",
+        "sha256": "0538d1fe6d6c3cc4b241114656408cdc88bfff7bc0fd11aa9d824a0b40fa7cae"
+      },
+      {
+        "slot": 23,
+        "path": ".rpg04-work/rpg05-reviewed-resume-20260912/content-review23.json",
+        "sha256": "c5eed885fc666e67d7189a4182d845012c0d9f2cd4d2b7bb3831a0f72c1a6631"
+      },
+      {
+        "slot": 24,
+        "path": ".rpg04-work/rpg05-reviewed-resume-20260912/content-review24.json",
+        "sha256": "797bc0ee89f977120dc6c30a44e0fed09ff9494d7998b5a4757ada5bdcd5e754"
+      },
+      {
+        "slot": 25,
+        "path": ".rpg04-work/rpg05-reviewed-resume-20260912/content-review25.json",
+        "sha256": "32036df8ab8403c95020b6f4bb243e8070e83d91310fc656ee38e5ca1fee6183"
+      }
+    ],
+    "priorImmutableFilesUnchanged": 196,
+    "prior18LedgerRecordsUnchanged": true,
+    "priorSixPoliciesUnchanged": true,
+    "caveats": [
+      "slot20 NPC panel timing modifier can read ambiguously; narrative explicitly retains guessing",
+      "slot21 narrative 等你确认身份后 may imply an unsent player confirmation",
+      "generated local paper-Gu/medicine procedures not independently proven card canon"
+    ],
+    "nextGate": "User real-case quality evidence for STM/treasure and experience, and standalone PNG archive; no automatic quota remains",
+    "providerCallsThisResume": 5,
+    "evidenceRoots": [
+      ".rpg04-work/rpg05-reviewed-retest-jsthpby7",
+      ".rpg04-work/rpg05-reviewed-resume-20260912"
+    ],
+    "executionFreezeReason": "automatic execution is closed; source guards for user-only manual mode are separate",
+    "prior21LedgerRecordsUnchanged": true,
+    "priorSevenPoliciesUnchanged": true,
+    "qualityIssues": [
+      {
+        "id": "MC_STM_REPLACED",
+        "status": "not_passed",
+        "scope": "Minecraft slot24",
+        "finding": "第二回合模型STM提案重用S1并覆盖第一回合钓鱼摘要；正式回合和旧检查点完整保留。",
+        "evidence": {
+          "path": ".rpg04-work/rpg05-reviewed-resume-20260912/stm-continuity-finding.json",
+          "sha256": "93fddec22393ec428f2c1da9f8affe434f2d2da86a42d96c7d59e04f20d5d4e0"
+        }
+      },
+      {
+        "id": "MC_TREASURE_NOT_CONFIRMED",
+        "status": "unverified",
+        "scope": "Minecraft slots23-25",
+        "finding": "已激活自动钓鱼机声明必得宝藏，实际只揭示旧皮革袋及未知硬物，未证实宝藏效果兑现。",
+        "evidence": {
+          "path": ".rpg04-work/rpg05-reviewed-resume-20260912/content-review23.json",
+          "sha256": "c5eed885fc666e67d7189a4182d845012c0d9f2cd4d2b7bb3831a0f72c1a6631"
+        }
+      },
+      {
+        "id": "INFORMATION_CONTINUITY",
+        "status": "review_required",
+        "scope": "slots20-25",
+        "finding": "蛊世界纸鹤位置措辞、NPC额外确认，Minecraft物资等级、锚定等级和记忆面板有跨回合或正文/面板差异。"
+      }
+    ],
+    "lengthPolicy": {
+      "manualAdditionalMaximum": 5,
+      "maxAutomaticDispatches": 26,
+      "userAnswer": "允许，长度作为质量参考继续验收",
+      "maxTokens": 4096,
+      "model": "gpt-5.6-luna",
+      "nominalNarrativeNonWhitespace": [
+        800,
+        1200
+      ],
+      "remainingAutomaticSlots": [
+        23,
+        24,
+        25,
+        26
+      ],
+      "lengthAloneBlocks": false,
+      "createdAt": "2026-09-12T14:06:08.2109343Z",
+      "promptChanges": false
+    },
+    "manualHandoff": {
+      "path": ".rpg04-work/rpg05-reviewed-resume-20260912/manual-ui-observation.json",
+      "sha256": "440d6f4d1cec89a58ce318e51ae7971c6d598d2671f092f8c0ec7c93bb339b12"
+    },
+    "historicalStopAt21": {
+      "stopReceipt": ".rpg04-work/rpg05-reviewed-retest-jsthpby7/gate-stop.json",
+      "stopReceiptSha256": "6456c56102ece81e97fd169a5a344f5b2a1f6f1f693c8702ea80afe6713305ac"
+    }
+  },
+  "realOutcomeHistory": [
+    {
+      "capturedAt": "2026-09-12T14:33:10.440258+00:00",
+      "scope": "historical_before_resume22",
+      "value": {
+        "historicalMixedFormalTurns": {
+          "gu": 5,
+          "minecraft": 1
+        },
+        "newFormalTurns": {
+          "gu": 1,
+          "minecraft": 0
+        },
+        "allStoredFormalTurns": {
+          "gu": 6,
+          "minecraft": 1
+        },
+        "slot17": "full-context format qualification passed,216 output tokens",
+        "slot18": "UI action committed,988 non-whitespace narrative chars,2341 output tokens; content effect limitation omitted",
+        "slots19to24": "not_run_content_gate_stop",
+        "rawEvidencePreserved": true,
+        "executionFreezeSha256": "a43c7ab32dfb2428b7bc1b50be05d57a9f009587dcdde6091397e2363551d2b4",
+        "dispatchFreezeSha256": "509fcb9bff884ad3d51f43b67df5609f6f3d944b5e07559499b32f0f137afe5b",
+        "currentBatchReport": "docs/RPG05_REVIEWED_RETEST.md",
+        "formalTurns": {
+          "gu": 8,
+          "minecraft": 1
+        },
+        "scope": "cumulative mixed historical versions; not current six-turn acceptance",
+        "slot19": "reviewed full-context format qualification passed",
+        "slot20": "Gu action committed,1007 non-whitespace chars; content caveat recorded",
+        "slot21": "Gu speech committed,1207 non-whitespace chars; length gate failed, stopped"
+      }
+    }
+  ],
+  "cleanupHistory": [
+    {
+      "scope": "previous_turn_cleanup_not_current",
+      "routeLauncherPid": 39644,
+      "routePid": 46364,
+      "generatedAt": "2026-09-12T13:39:13.1392216Z",
+      "ports": [
+        18305,
+        18306,
+        18409
+      ],
+      "containerStatus": "exited",
+      "providerConsumed": 21,
+      "uiPid": 54844,
+      "routeOwnerPid": 46756,
+      "sharedServicesTouched": false,
+      "listenersRemaining": 0,
+      "sessionsAndEvidencePreserved": true,
+      "preparePid": 54820,
+      "containerId": "a99065ea116f383038e9ce62c807df0f143c55ac0f3d43e70bd579073e414615",
+      "ownedProcessesStopped": true,
+      "receipt": ".rpg04-work/rpg05-reviewed-retest-jsthpby7/cleanup-receipt.json",
+      "sha256": "17413ec112d67c8df27bd0262ce1cb357ce9bf8c57f58b1faf51cccb74b8b4e2"
+    },
+    {
+      "status": "retained_at_explicit_user_request",
+      "previewAndRouteRunning": true,
+      "onlyExhaustedAutomaticHostReplaced": 53180,
+      "sessionsAndEvidencePreserved": true,
+      "sharedServicesTouched": false,
+      "receipt": {
+        "path": ".rpg04-work/rpg05-reviewed-resume-20260912/manual-ui-observation.json",
+        "sha256": "440d6f4d1cec89a58ce318e51ae7971c6d598d2671f092f8c0ec7c93bb339b12"
+      }
+    }
+  ],
+  "manualAccess": {
+    "createdAt": "2026-09-12T14:23:19.521Z",
+    "manualFreezeSha256": "d8814b5b3a1f43fbc6ba0aaf837e247d95027a0e2037cb54245caa15e2f1c648",
+    "sourceFreezeSha256": "8d15b941859e66653bb89c4f0fbe948509f84a80e166f64d17b60e45f5b52199",
+    "sourceFiles": 357,
+    "manualLedgerPolicySha256": "6ce2a317f721161e044f74dbe47ef6ac10229843def7cdf427f7cffaecf0da79",
+    "automaticConsumed": 26,
+    "manualConsumed": 0,
+    "manualMaximum": 5,
+    "freeInputAdmission": "passed",
+    "adapterInitialization": "passed_read_only_no_generation",
+    "providerDispatches": 0,
+    "offlineTests": 520,
+    "offlineReceipt": ".rpg04-work/rpg05-verify-1789228974648/receipt.json",
+    "sourceExclusions": [
+      "docs/RPG05_STATUS.json",
+      "docs/RPG05_REVIEWED_RETEST.md",
+      "docs/RPG05_THIRD_PARTY.json",
+      "docs/RPG05_PR_GATE_REVIEW.md"
+    ],
+    "status": "live_user_only_closeout1",
+    "guide": "docs/RPG05_MANUAL_HANDOFF.md",
+    "owner": {
+      "pid": 56980,
+      "port": 18409,
+      "status": "running_for_user_manual",
+      "sourceVersion": "closeout-1",
+      "owner": {
+        "path": ".rpg04-work/rpg05-pr-closeout-20260912T150920Z/cutover-owner.json",
+        "sha256": "87db1571282f59e4e5bed1f2e537f22d50ba62387e1bd581b937cadf98723e13"
+      }
+    },
+    "observation": {
+      "path": ".rpg04-work/rpg05-pr-closeout-20260912T150920Z/cutover-verification.json",
+      "sha256": "3a668fc5f8c26ee8cf5e2768944ab74c7aaa46e59db6e6cfa92242cc204af356"
+    },
+    "lastReadOnlyCheck": {
+      "checkedAt": "2026-09-12T17:50:49.170Z",
+      "sourceFreezeVerified": true,
+      "manualConsumed": 0,
+      "preservedSessionFiles": 120,
+      "providerCalls": 0
+    },
+    "knownRuntimeIssues": [],
+    "sourceVersion": "closeout-1",
+    "sourceBindingRecordSha256": "e9fac293b4cad76ad83f18e6c351498ef682c8622cbbdfc6f2d8559f4aae3a7e",
+    "priorManualFreezeSha256": "a2102b6f1321e906bb8816e84fce7d3e280ac7b8e32b58a0ab9c24ef85d9bec6"
+  },
+  "qualityIssues": [
+    {
+      "id": "MC_STM_REPLACED",
+      "status": "not_passed",
+      "scope": "Minecraft slot24",
+      "finding": "第二回合模型STM提案重用S1并覆盖第一回合钓鱼摘要；正式回合和旧检查点完整保留。",
+      "evidence": {
+        "path": ".rpg04-work/rpg05-reviewed-resume-20260912/stm-continuity-finding.json",
+        "sha256": "93fddec22393ec428f2c1da9f8affe434f2d2da86a42d96c7d59e04f20d5d4e0"
+      }
+    },
+    {
+      "id": "MC_TREASURE_NOT_CONFIRMED",
+      "status": "unverified",
+      "scope": "Minecraft slots23-25",
+      "finding": "已激活自动钓鱼机声明必得宝藏，实际只揭示旧皮革袋及未知硬物，未证实宝藏效果兑现。",
+      "evidence": {
+        "path": ".rpg04-work/rpg05-reviewed-resume-20260912/content-review23.json",
+        "sha256": "c5eed885fc666e67d7189a4182d845012c0d9f2cd4d2b7bb3831a0f72c1a6631"
+      }
+    },
+    {
+      "id": "INFORMATION_CONTINUITY",
+      "status": "review_required",
+      "scope": "slots20-25",
+      "finding": "蛊世界纸鹤位置措辞、NPC额外确认，Minecraft物资等级、锚定等级和记忆面板有跨回合或正文/面板差异。"
+    }
+  ],
+  "fullAcceptance": false,
+  "limitationsHistory": [
+    {
+      "archivedAt": "2026-09-12T15:41:18.303731+00:00",
+      "scope": "superseded top-level limitations from old slot21 checkpoint; latest outcome fields had already advanced to26",
+      "sourceSha256": "6dd6907bc4e9e1ae9e9cf92d5f2338c3b8d59f80d61bffc66d4bd1aa85ca18d5",
+      "limitations": [
+        "Same-version6-turn gate incomplete: Gu2/3, Minecraft0/3; cancellation untested in current batch.",
+        "Slot21 narrative1207 non-whitespace characters exceeds frozen1200 upper bound by7; no automatic tolerance or waiver.",
+        "User quality and experience acceptance, standalone screenshot archive and independent review remain pending.",
+        "NPC phrasing and player-confirmation narrative caveats retained for user review.",
+        "No matched raw-model control; no causal quality-improvement claim.",
+        "All prior18ledger records,6policies and161immutable real files retain hashes; lifecycle ownership metadata recorded separately.",
+        "Runtime/prompt/UI bytes remain frozen; closeout status/report hashes change, so full execution freeze must be rebound before any authorized continuation.",
+        "Mobile polish deferred by user; no UI source change this batch."
+      ]
+    },
+    {
+      "recordedAt": "2026-09-12T18:05:17.906914+00:00",
+      "scope": "PNG gap closed by user supplied crops; prior limitations preserved",
+      "limitations": [
+        "STM accumulation remains not_passed; actual request included old STM and append rules, model replaced S1. No new semantic prompt or memory engine added.",
+        "Treasure talent effect unverified; content consistency and player experience remain pending.",
+        "Standalone PNG archive incomplete after browser security policy rejected the attempted data-page export; native task screenshots retained.",
+        "No Provider retest after closeout runtime guards and source cutover; automatic26 exhausted; extra5 exclusively user manual, observed0 consumed.",
+        "HTTP non200 or incomplete/refusal terminal can remain conservatively unknown and block further slots; no auto retry.",
+        "Old binary cannot interpret new binding; activation uses same exclusive runtime owner, and rollback to old binary/policy/ledger is forbidden.",
+        "HTTP8 and parent59 remain historical separate checks; mobile polish deferred by user."
+      ]
+    }
+  ],
+  "prReadyExcludingManual": false,
+  "closeout": {
+    "capturedAt": "2026-09-12T16:16:13.728271+00:00",
+    "report": "docs/RPG05_PR_GATE_REVIEW.md",
+    "engineeringStatus": "applied_verified",
+    "offlineTests": 520,
+    "typecheck": "passed",
+    "build": "passed",
+    "independentReview": "completed_no_open_code_blockers",
+    "appliedFiles": [
+      {
+        "path": "ui-host/real-adapter.mjs",
+        "beforeSha256": "c2158082fd44c53896c929fb9ed16eaddef2826f1c94e641e19efefe73f9dedd",
+        "sha256": "71d9a41bc936c86da8a8f52e0c86823078623c22aa6ec784a310f0d2b0c9168b",
+        "bytes": 6581
+      },
+      {
+        "path": "tests/ui-host-real-adapter.test.mjs",
+        "beforeSha256": "4114f51ca928823e0b1d6036d34ba298d1201b81cc28a0636303b21eceb8b57a",
+        "sha256": "d084c86d0da9955c6a36179e4b66c50e02442556da2c02eff5ce7c8edc989d78",
+        "bytes": 12371
+      },
+      {
+        "path": "ui-host/turn.mjs",
+        "beforeSha256": "5015187e8fc2c2107a741d45c28a2907f74d5508ded1f1913f717a56b52a7ee2",
+        "sha256": "8fc17e10d93473e9b437af403534c9a4a3b54c53bf0b2da838e72d3940cfd97f",
+        "bytes": 5545
+      },
+      {
+        "path": "tests/ui-host-turn.test.mjs",
+        "beforeSha256": "f4e492bd948c47b99096546cb769cb6ee600707937ba613391dc92779c949996",
+        "sha256": "2fe373f9794bf93891e527422bdc29ad8a7211421368caace2e8c23c609e30b3",
+        "bytes": 10299
+      },
+      {
+        "path": "ui/src/api.ts",
+        "beforeSha256": "a7e43fffc8cbef1e77b8ed2784b88f7eb8151ca9662dd424461b98e3407ca154",
+        "sha256": "dcde66d6d2882120a775fab8181fb4b794577bce4e8c597f3e40f05c38b5518b",
+        "bytes": 2625
+      },
+      {
+        "path": "ui/src/Play.tsx",
+        "beforeSha256": "9a3fb392bfa67c7d6b776be797db360a4d0b5df94d9c5c0a02d334d11ad0acff",
+        "sha256": "27b6fc690cfcea4ef5d63d4f0a8ec1314d02cf2fc3a50fe772c6fd1fb423db5e",
+        "bytes": 15360
+      },
+      {
+        "path": "ui/tests/request-rejection.test.mjs",
+        "beforeSha256": null,
+        "sha256": "0d8d0f825b71c16247fdff0c0c8b635488b8f9f514dd75e83bb6a1b29c817ce4",
+        "bytes": 2323
+      },
+      {
+        "path": "ui-host/manual-access.mjs",
+        "beforeSha256": "04c720757d5d89935c4537a45c1036f7dcb1e3596b0715a179ff9fb67c9b9f6a",
+        "sha256": "7a7827cfac75175ef4062e10c9d37e77de590e08d71b84554ef263202e101568",
+        "bytes": 10765
+      },
+      {
+        "path": "ui-host/manual-cli.mjs",
+        "beforeSha256": "4d79c1960534924dc0223e7ca561520f132878564058742a71450473044b93f2",
+        "sha256": "56d1f0de54adb12582552f0c71dc993ea1a4cc08f2647353ec8d04dbf7d2f320",
+        "bytes": 3252
+      },
+      {
+        "path": "ui-host/manual-start.mjs",
+        "beforeSha256": null,
+        "sha256": "0c5429993046ae36446739f220474be2788aff1389e23545f62e719f82bcef4d",
+        "bytes": 493
+      },
+      {
+        "path": "tests/ui-host-manual-cutover.test.mjs",
+        "beforeSha256": null,
+        "sha256": "9f928aee7465a43216174f344da6d3cf647d46fe6934ddc89b8fff281bbc9376",
+        "bytes": 10829
+      },
+      {
+        "path": "tests/ui-host-manual-access.test.mjs",
+        "beforeSha256": "61a174b93d23a0a938a96936a1d4665a7b4697729979529aaeb8ceef974947ed",
+        "sha256": "104ddd9e02cefafb7be4a3a502f7dbcf381e27f5f528ac2eec239ab38e1aaadf",
+        "bytes": 17132
+      },
+      {
+        "path": "docs/RPG05_MANUAL_HANDOFF.md",
+        "beforeSha256": "7232b46edddb232133f4a9d12fd77471b6818d4fbbc166f8a16d83f545f836db",
+        "sha256": "25dd34c3501411e6cd8e3f5e49bc21a182e478ad3ee8821b0064c387b12f7998",
+        "bytes": 3659
+      }
+    ],
+    "appliedReceipt": {
+      "path": ".rpg04-work/rpg05-pr-closeout-20260912T150920Z/cutover-applied.json",
+      "sha256": "56baaafffbc990b803071150e5dda9d996e3939eb5c6f0d27452336ccde52acf"
+    },
+    "patch": {
+      "path": ".rpg04-work/rpg05-pr-closeout-20260912T150920Z/cutover-fixes-applied.patch",
+      "sha256": "48779fef54d2311feade30a6829d2b755615824a62c41bd6b6efe09809ef0454"
+    },
+    "runtimeVerification": {
+      "path": ".rpg04-work/rpg05-pr-closeout-20260912T150920Z/cutover-verification.json",
+      "sha256": "3a668fc5f8c26ee8cf5e2768944ab74c7aaa46e59db6e6cfa92242cc204af356"
+    },
+    "candidateOnly": false,
+    "liveRuntimeChanged": true,
+    "sourceVersion": "closeout-1",
+    "codeIssueIdsResolved": [
+      "UNRESOLVED_DISPATCH_SETTLED_FAILED",
+      "DEFINITIVE_REJECTION_STUCK_PENDING",
+      "UNREQUESTED_CARD_SAVE_ACCEPTED",
+      "BINDING_BEFORE_OWNER_RACE"
+    ],
+    "realRetestOfChangedGuards": "not_run_no_agent_budget",
+    "standalonePng": "passed_user_provided_lossless_crops",
+    "providerCalls": 0,
+    "publication": false,
+    "publicationPreparation": {
+      "status": "blocked_on_png_before_pr",
+      "reviewedUpstream": "6c1288e7e07b6a1ff7c3b82a8826b677950dd727",
+      "upstreamAhead": 8,
+      "pathIntersections": [],
+      "sourceSnapshot": "docs/RPG05_PUBLICATION.json",
+      "snapshotArtifacts": 344,
+      "checkoutGuide": "docs/RPG05_CHECKOUT.md",
+      "verificationEntrypoint": "scripts/verify-rpg05-published.mjs",
+      "candidateAggregate": {
+        "path": ".rpg04-work/rpg05-pr-publish-20260912/checkout/experiments/ai-rpg-engine/.rpg04-work/rpg05-published-fipypw/receipt.json",
+        "sha256": "d0e8b665ae9ea374847d18f3b288ae8a4f1f8922384ee079018a02b52ab75740",
+        "scope": "uncommitted isolated candidate; earlier verifier did not attest HEAD; unchanged runtime/test groups520 passed"
+      },
+      "candidateGuard": {
+        "result": "passed",
+        "receipt": ".rpg04-work/rpg05-pr-publish-20260912/verifier-checks.json",
+        "sha256": "0717963fa4e7cf9e54fb5cd6e9042e788d19fa3d109e11df4f7788e3e6051a9f"
+      },
+      "committedHeadVerification": "not_run_no_delivery_commit",
+      "licensePackages": 152,
+      "credentialFindings": 0,
+      "independent": "new verifier HEAD/index/scope findings fixed and read-only reviewed; no remaining code blocker in three-file scope",
+      "png": "required_missing_capture_zero_width_then_timeout",
+      "providerCalls": 0,
+      "runtimeSourceChanged": false,
+      "manualSourceVersion": "closeout-1",
+      "remaining": [
+        "standalone current PNGs before PR",
+        "user quality and experience acceptance before merge",
+        "STM accumulation not_passed; treasure effect unverified; content continuity review",
+        "default committed-head verification after delivery commit"
+      ],
+      "stagedFiles": 98,
+      "packaging": {
+        "status": "passed",
+        "stagedDiffCheck": "passed",
+        "sourceFileWrites": 0,
+        "crlfPaths": 8,
+        "allDefaultWhitespaceChecksRetained": true,
+        "eofIndexOnlyFiles": [
+          {
+            "path": "experiments/ai-rpg-engine/ui/src/Create.tsx",
+            "modulePath": "ui/src/Create.tsx",
+            "retainedRawSha256": "bd531ecdc0974d45078665e1ef573704176724056d1cfc0192f3a8690697451b",
+            "publishedRawSha256": "62e3b4a58df8356bde4f852896167701388c043a3cfb549e68d56fa77f3ee369",
+            "retainedBytes": 14527,
+            "publishedBytes": 14526,
+            "priorStagedBlob": "ad1d38ae9205ecb86767d4950b259a81cc612249",
+            "publishedBlob": "ee5c90ffcbb22b7baaaaa660b046455523401c4a",
+            "difference": "EOF LF-only blank lines removed from publication index; live worktree untouched",
+            "normalizedPath": ".rpg04-work/rpg05-pr-publish-20260912/publication-normalized/ui/src/Create.tsx"
+          },
+          {
+            "path": "experiments/ai-rpg-engine/ui/src/Import.tsx",
+            "modulePath": "ui/src/Import.tsx",
+            "retainedRawSha256": "7c7dce781d5347316b5998a52640287b945082b2f87bbf31f1a3b980daa6a3fc",
+            "publishedRawSha256": "df84ee143890af5e183d535de682e89943c19ca100736cc1498351c341a6b44f",
+            "retainedBytes": 3634,
+            "publishedBytes": 3633,
+            "priorStagedBlob": "f63721377952c601354af49a3a32829a34312054",
+            "publishedBlob": "48611bf64a5776e1fd4cb74013e9c24a059f2afe",
+            "difference": "EOF LF-only blank lines removed from publication index; live worktree untouched",
+            "normalizedPath": ".rpg04-work/rpg05-pr-publish-20260912/publication-normalized/ui/src/Import.tsx"
+          },
+          {
+            "path": "experiments/ai-rpg-engine/ui/src/Resources.tsx",
+            "modulePath": "ui/src/Resources.tsx",
+            "retainedRawSha256": "a9836b35ddcb99ef7718f610b93a00948f236973889e1a494aa006ecebe6bbb2",
+            "publishedRawSha256": "66a68dd0faf7ed9f515e88f064d7dd3575c5c69bec79ac7a4a2ee06eb6e4a9e9",
+            "retainedBytes": 9847,
+            "publishedBytes": 9846,
+            "priorStagedBlob": "0252ae488237a98e363c091c2b1c3dbd9a77c218",
+            "publishedBlob": "566101932d811aaad8389ab9af655e3f7cdead04",
+            "difference": "EOF LF-only blank lines removed from publication index; live worktree untouched",
+            "normalizedPath": ".rpg04-work/rpg05-pr-publish-20260912/publication-normalized/ui/src/Resources.tsx"
+          },
+          {
+            "path": "experiments/ai-rpg-engine/ui/src/main.tsx",
+            "modulePath": "ui/src/main.tsx",
+            "retainedRawSha256": "b0b7e35e63f90e58522bcd035fa2c7e8b601836634c73e980ba6c283fa25aefd",
+            "publishedRawSha256": "4b3e0018fa606b5357978d0670757752c887f3c4bac2a9c1b48e44f572da2e21",
+            "retainedBytes": 5787,
+            "publishedBytes": 5786,
+            "priorStagedBlob": "02d3bf17f2b9334b1e175894ad9ce1dc64749844",
+            "publishedBlob": "789e1dbcff50f28c11c5b06910f114ce6845696e",
+            "difference": "EOF LF-only blank lines removed from publication index; live worktree untouched",
+            "normalizedPath": ".rpg04-work/rpg05-pr-publish-20260912/publication-normalized/ui/src/main.tsx"
+          },
+          {
+            "path": "experiments/ai-rpg-engine/docs/RPG05_REAL_REVIEW.md",
+            "modulePath": "docs/RPG05_REAL_REVIEW.md",
+            "retainedRawSha256": "bdbb963dd0c362443210e1d213ad59ded19476de6aa35dd7e24b6dd8cf863ce8",
+            "publishedRawSha256": "b7e4829739a7bb4ae57106f28cfc2a309f986d92976ec3cd2430cbe4cb0b6242",
+            "retainedBytes": 3192,
+            "publishedBytes": 3191,
+            "priorStagedBlob": "1f8d2d8923a0208f1f33fde82715e148fbeb761f",
+            "publishedBlob": "27d4dc54ee9693c130273226c420ea37943e3a1f",
+            "difference": "EOF LF-only blank lines removed from publication index; live worktree untouched",
+            "normalizedPath": ".rpg04-work/rpg05-pr-publish-20260912/publication-normalized/docs/RPG05_REAL_REVIEW.md"
+          }
+        ],
+        "normalizationVerification": {
+          "path": ".rpg04-work/rpg05-pr-publish-20260912/normalization-verification.json",
+          "sha256": "d96e1c26c5ae00ccfd9309bced51ac8d7566fb339dec09bbc31feaaccc203bf3"
+        },
+        "typecheck": "passed",
+        "build": "passed_byte_identical_to_manual_bundle",
+        "runtimeRepresentation": "five original files intentionally differ from staged publication bytes; do not overwrite runtime or run git add -A",
+        "initialFailureLog": {
+          "path": ".rpg04-work/rpg05-pr-publish-20260912/staged-whitespace-failure.log",
+          "sha256": "36b171badf96d45c46d7d62876c3135b11355982040add90dc2543c2d8649a28"
+        }
+      }
+    }
+  },
+  "closeoutHistory": [
+    {
+      "capturedAt": "2026-09-12T16:16:13.728271+00:00",
+      "sourceSha256": "d8b26dc3ab8234fcbd00eb3fa136ee4b7b32419b332fa8695fc6b575674cdf8c",
+      "closeout": {
+        "capturedAt": "2026-09-12T15:41:18.303731+00:00",
+        "report": "docs/RPG05_PR_GATE_REVIEW.md",
+        "independentReview": {
+          "path": ".rpg04-work/rpg05-pr-closeout-20260912T150920Z/independent-review.json",
+          "sha256": "438ed857923e76490266aca1f339af6e01b27602e5af6f0f7c2e81615b250613"
+        },
+        "candidateReceipt": {
+          "path": ".rpg04-work/rpg05-pr-closeout-20260912T150920Z/candidate-receipt.json",
+          "sha256": "969517b7c4665656337d00a3cde20af8a1cd6de6c40919b8797adadb302b2447"
+        },
+        "patch": {
+          "path": ".rpg04-work/rpg05-pr-closeout-20260912T150920Z/candidate-fixes.patch",
+          "sha256": "f42b6756650a25bffbd5f270a729614f5a1e0596fe759ed929dde67d109ada43",
+          "applied": false,
+          "applyCheck": "passed"
+        },
+        "codeIssues": [
+          {
+            "id": "UNRESOLVED_DISPATCH_SETTLED_FAILED",
+            "priority": 1,
+            "originalLocation": "ui-host/real-adapter.mjs:15",
+            "candidateLocation": "ui-host/real-adapter.mjs:18",
+            "impact": "Disconnected dispatched request could be recorded failed, allowing next reservation instead of unknown stop",
+            "candidateResult": "resolved_offline_not_activated"
+          },
+          {
+            "id": "DEFINITIVE_REJECTION_STUCK_PENDING",
+            "priority": 2,
+            "originalLocation": "ui/src/Play.tsx:48",
+            "candidateLocation": "ui/src/api.ts:20; ui/src/Play.tsx:55",
+            "impact": "Pre-acceptance 422 or stale revision rejection leaves composer locked across refresh",
+            "candidateResult": "resolved_offline_and_mock_ui_not_activated"
+          },
+          {
+            "id": "UNREQUESTED_CARD_SAVE_ACCEPTED",
+            "priority": 2,
+            "originalLocation": "ui-host/turn.mjs:10",
+            "candidateLocation": "ui-host/turn.mjs:18",
+            "impact": "Normal model state proposal can modify player-save-only card field",
+            "candidateResult": "resolved_offline_not_activated"
+          }
+        ],
+        "candidateOnly": true,
+        "liveRuntimeChanged": false,
+        "candidateTests": {
+          "uiHost": 156,
+          "ui": 3,
+          "typecheck": "passed",
+          "build": "passed",
+          "provider": 0
+        },
+        "realRetestOfCandidate": "not_run_no_agent_budget",
+        "standalonePng": "blocked_browser_security_policy",
+        "runtimeBeforeMetadata": {
+          "path": ".rpg04-work/rpg05-pr-closeout-20260912T150920Z/runtime-before-metadata.json",
+          "sha256": "b3cc93679385603d917edc96f9bb0ca4de8bed3406b1c3363e3d95b159d9ad0d"
+        },
+        "pendingActivationReason": "current immutable manual policy and records bind original freeze; no source overwrite, policy rewrite or empty ledger reset",
+        "publication": false
+      },
+      "limitations": [
+        "Three independent code findings fixed only in private candidate; current frozen runtime still contains them until reviewed source-binding cutover.",
+        "STM accumulation did not pass: old STM and append rule were present in slot24 actual request, model replaced S1; no codec loss found.",
+        "Treasure talent effect unverified; narrative/panel and world/character consistency still require user quality review.",
+        "Standalone PNG archive incomplete after browser URL safety policy rejected data-page export; native conversation screenshots are retained.",
+        "All six reviewed-v2 formal turns structurally passed; length is a user-approved quality reference, not a strict standalone gate.",
+        "Automatic26 exhausted; manual0/5 at latest read-only observation, exclusively user. No agent manual quota use.",
+        "Current346-file source freeze and automatic26/seven-policy history unchanged; candidate not covered by prior real calls.",
+        "HTTP/parent historical checks are distinct from independent Agent review and from new candidate tests; mobile polish deferred by user."
+      ],
+      "phase": "05F_candidate_fixes_verified_live_frozen_quality_gaps"
+    }
+  ],
+  "manualAccessHistory": [
+    {
+      "createdAt": "2026-09-12T14:23:19.521Z",
+      "manualFreezeSha256": "a2102b6f1321e906bb8816e84fce7d3e280ac7b8e32b58a0ab9c24ef85d9bec6",
+      "sourceFreezeSha256": "059514cc87d9085bc52edc4544f806d575fd57f84a03832d1d7448767a5a0d4c",
+      "sourceFiles": 346,
+      "manualLedgerPolicySha256": "6ce2a317f721161e044f74dbe47ef6ac10229843def7cdf427f7cffaecf0da79",
+      "automaticConsumed": 26,
+      "manualConsumed": 0,
+      "manualMaximum": 5,
+      "freeInputAdmission": "passed",
+      "adapterInitialization": "passed_read_only_no_generation",
+      "providerDispatches": 0,
+      "offlineTests": 492,
+      "offlineReceipt": ".rpg04-work/rpg05-verify-1789222856208/receipt.json",
+      "sourceExclusions": [
+        "docs/RPG05_STATUS.json",
+        "docs/RPG05_REVIEWED_RETEST.md",
+        "docs/RPG05_THIRD_PARTY.json"
+      ],
+      "status": "live_user_only",
+      "guide": "docs/RPG05_MANUAL_HANDOFF.md",
+      "owner": {
+        "pid": 7636,
+        "port": 18409,
+        "status": "running_for_user_manual",
+        "owner": {
+          "path": ".rpg04-work/rpg05-reviewed-resume-20260912/manual-ui-owner.json",
+          "sha256": "defc5fc3872c14fc6587f59b4314e2c6a7969025c4a13125718bda97ac93e712"
+        }
+      },
+      "observation": {
+        "path": ".rpg04-work/rpg05-reviewed-resume-20260912/manual-ui-observation.json",
+        "sha256": "440d6f4d1cec89a58ce318e51ae7971c6d598d2671f092f8c0ec7c93bb339b12"
+      },
+      "lastReadOnlyCheck": {
+        "checkedAt": "2026-09-12T15:37:55.906Z",
+        "sourceFreezeVerified": true,
+        "manualConsumed": 0,
+        "providerCalls": 0
+      },
+      "knownRuntimeIssues": [
+        "UNRESOLVED_DISPATCH_SETTLED_FAILED",
+        "DEFINITIVE_REJECTION_STUCK_PENDING",
+        "UNREQUESTED_CARD_SAVE_ACCEPTED"
+      ]
+    }
+  ],
+  "publicationPreparationHistory": [
+    {
+      "capturedAt": "2026-09-12T17:11:43.604205+00:00",
+      "phase": "05F_engineering_closed_manual_live_quality_gaps",
+      "statusSha256": "4e120da5df5d1aef002fc56c1747359104ab83ee628304b746234ada66e4dce7",
+      "publication": {
+        "commit": false,
+        "push": false,
+        "pr": false,
+        "merge": false,
+        "deploy": false,
+        "release": false,
+        "publish": false
+      }
+    },
+    {
+      "capturedAt": "2026-09-12T18:05:17.906914+00:00",
+      "phase": "05F_candidate_packaged_png_required_before_pr",
+      "statusSha256": "ea27dd8c60a10af6f64ecaa678a348f865c1ad89d26193cd9072dbf93ed7ea84",
+      "backup": ".rpg04-work/rpg05-png-closeout-20260912/before-png-metadata/RPG05_STATUS.json",
+      "publicationPreparation": {
+        "status": "blocked_on_png_before_pr",
+        "reviewedUpstream": "6c1288e7e07b6a1ff7c3b82a8826b677950dd727",
+        "upstreamAhead": 8,
+        "pathIntersections": [],
+        "sourceSnapshot": "docs/RPG05_PUBLICATION.json",
+        "snapshotArtifacts": 344,
+        "checkoutGuide": "docs/RPG05_CHECKOUT.md",
+        "verificationEntrypoint": "scripts/verify-rpg05-published.mjs",
+        "candidateAggregate": {
+          "path": ".rpg04-work/rpg05-pr-publish-20260912/checkout/experiments/ai-rpg-engine/.rpg04-work/rpg05-published-fipypw/receipt.json",
+          "sha256": "d0e8b665ae9ea374847d18f3b288ae8a4f1f8922384ee079018a02b52ab75740",
+          "scope": "uncommitted isolated candidate; earlier verifier did not attest HEAD; unchanged runtime/test groups520 passed"
+        },
+        "candidateGuard": {
+          "result": "passed",
+          "receipt": ".rpg04-work/rpg05-pr-publish-20260912/verifier-checks.json",
+          "sha256": "0717963fa4e7cf9e54fb5cd6e9042e788d19fa3d109e11df4f7788e3e6051a9f"
+        },
+        "committedHeadVerification": "not_run_no_delivery_commit",
+        "licensePackages": 152,
+        "credentialFindings": 0,
+        "independent": "new verifier HEAD/index/scope findings fixed and read-only reviewed; no remaining code blocker in three-file scope",
+        "png": "required_missing_capture_zero_width_then_timeout",
+        "providerCalls": 0,
+        "runtimeSourceChanged": false,
+        "manualSourceVersion": "closeout-1",
+        "remaining": [
+          "standalone current PNGs before PR",
+          "user quality and experience acceptance before merge",
+          "STM accumulation not_passed; treasure effect unverified; content continuity review",
+          "default committed-head verification after delivery commit"
+        ],
+        "stagedFiles": 98,
+        "packaging": {
+          "status": "passed",
+          "stagedDiffCheck": "passed",
+          "sourceFileWrites": 0,
+          "crlfPaths": 8,
+          "allDefaultWhitespaceChecksRetained": true,
+          "eofIndexOnlyFiles": [
+            {
+              "path": "experiments/ai-rpg-engine/ui/src/Create.tsx",
+              "modulePath": "ui/src/Create.tsx",
+              "retainedRawSha256": "bd531ecdc0974d45078665e1ef573704176724056d1cfc0192f3a8690697451b",
+              "publishedRawSha256": "62e3b4a58df8356bde4f852896167701388c043a3cfb549e68d56fa77f3ee369",
+              "retainedBytes": 14527,
+              "publishedBytes": 14526,
+              "priorStagedBlob": "ad1d38ae9205ecb86767d4950b259a81cc612249",
+              "publishedBlob": "ee5c90ffcbb22b7baaaaa660b046455523401c4a",
+              "difference": "EOF LF-only blank lines removed from publication index; live worktree untouched",
+              "normalizedPath": ".rpg04-work/rpg05-pr-publish-20260912/publication-normalized/ui/src/Create.tsx"
+            },
+            {
+              "path": "experiments/ai-rpg-engine/ui/src/Import.tsx",
+              "modulePath": "ui/src/Import.tsx",
+              "retainedRawSha256": "7c7dce781d5347316b5998a52640287b945082b2f87bbf31f1a3b980daa6a3fc",
+              "publishedRawSha256": "df84ee143890af5e183d535de682e89943c19ca100736cc1498351c341a6b44f",
+              "retainedBytes": 3634,
+              "publishedBytes": 3633,
+              "priorStagedBlob": "f63721377952c601354af49a3a32829a34312054",
+              "publishedBlob": "48611bf64a5776e1fd4cb74013e9c24a059f2afe",
+              "difference": "EOF LF-only blank lines removed from publication index; live worktree untouched",
+              "normalizedPath": ".rpg04-work/rpg05-pr-publish-20260912/publication-normalized/ui/src/Import.tsx"
+            },
+            {
+              "path": "experiments/ai-rpg-engine/ui/src/Resources.tsx",
+              "modulePath": "ui/src/Resources.tsx",
+              "retainedRawSha256": "a9836b35ddcb99ef7718f610b93a00948f236973889e1a494aa006ecebe6bbb2",
+              "publishedRawSha256": "66a68dd0faf7ed9f515e88f064d7dd3575c5c69bec79ac7a4a2ee06eb6e4a9e9",
+              "retainedBytes": 9847,
+              "publishedBytes": 9846,
+              "priorStagedBlob": "0252ae488237a98e363c091c2b1c3dbd9a77c218",
+              "publishedBlob": "566101932d811aaad8389ab9af655e3f7cdead04",
+              "difference": "EOF LF-only blank lines removed from publication index; live worktree untouched",
+              "normalizedPath": ".rpg04-work/rpg05-pr-publish-20260912/publication-normalized/ui/src/Resources.tsx"
+            },
+            {
+              "path": "experiments/ai-rpg-engine/ui/src/main.tsx",
+              "modulePath": "ui/src/main.tsx",
+              "retainedRawSha256": "b0b7e35e63f90e58522bcd035fa2c7e8b601836634c73e980ba6c283fa25aefd",
+              "publishedRawSha256": "4b3e0018fa606b5357978d0670757752c887f3c4bac2a9c1b48e44f572da2e21",
+              "retainedBytes": 5787,
+              "publishedBytes": 5786,
+              "priorStagedBlob": "02d3bf17f2b9334b1e175894ad9ce1dc64749844",
+              "publishedBlob": "789e1dbcff50f28c11c5b06910f114ce6845696e",
+              "difference": "EOF LF-only blank lines removed from publication index; live worktree untouched",
+              "normalizedPath": ".rpg04-work/rpg05-pr-publish-20260912/publication-normalized/ui/src/main.tsx"
+            },
+            {
+              "path": "experiments/ai-rpg-engine/docs/RPG05_REAL_REVIEW.md",
+              "modulePath": "docs/RPG05_REAL_REVIEW.md",
+              "retainedRawSha256": "bdbb963dd0c362443210e1d213ad59ded19476de6aa35dd7e24b6dd8cf863ce8",
+              "publishedRawSha256": "b7e4829739a7bb4ae57106f28cfc2a309f986d92976ec3cd2430cbe4cb0b6242",
+              "retainedBytes": 3192,
+              "publishedBytes": 3191,
+              "priorStagedBlob": "1f8d2d8923a0208f1f33fde82715e148fbeb761f",
+              "publishedBlob": "27d4dc54ee9693c130273226c420ea37943e3a1f",
+              "difference": "EOF LF-only blank lines removed from publication index; live worktree untouched",
+              "normalizedPath": ".rpg04-work/rpg05-pr-publish-20260912/publication-normalized/docs/RPG05_REAL_REVIEW.md"
+            }
+          ],
+          "normalizationVerification": {
+            "path": ".rpg04-work/rpg05-pr-publish-20260912/normalization-verification.json",
+            "sha256": "d96e1c26c5ae00ccfd9309bced51ac8d7566fb339dec09bbc31feaaccc203bf3"
+          },
+          "typecheck": "passed",
+          "build": "passed_byte_identical_to_manual_bundle",
+          "runtimeRepresentation": "five original files intentionally differ from staged publication bytes; do not overwrite runtime or run git add -A",
+          "initialFailureLog": {
+            "path": ".rpg04-work/rpg05-pr-publish-20260912/staged-whitespace-failure.log",
+            "sha256": "36b171badf96d45c46d7d62876c3135b11355982040add90dc2543c2d8649a28"
+          }
+        }
+      }
+    }
+  ],
+  "publicationAuthority": {
+    "commit": true,
+    "push": true,
+    "pr": true,
+    "merge": false,
+    "deploy": false,
+    "release": false,
+    "publish": false,
+    "condition": "PNG complete before PR; user manual acceptance before merge; no automatic model dispatch authority",
+    "source": "现在收口PR前门禁，授权在完善后提交，但在人工验收前不得合并；后续改为必须补齐PNG",
+    "pngDeferPermissionRevoked": true,
+    "safetyBypassAllowed": false
+  },
+  "publicationPreparation": {
+    "status": "ready_for_authorized_draft_commit_and_pr",
+    "reviewedUpstream": "d246527d5554b16594d390172cfa38876f998ccb",
+    "upstreamAhead": 13,
+    "pathIntersections": [
+      "server/main.py"
+    ],
+    "sourceSnapshot": "docs/RPG05_PUBLICATION.json",
+    "snapshotArtifacts": 352,
+    "checkoutGuide": "docs/RPG05_CHECKOUT.md",
+    "verificationEntrypoint": "scripts/verify-rpg05-published.mjs",
+    "candidateAggregate": {
+      "path": ".rpg04-work/rpg05-pr-publish-20260912/checkout/experiments/ai-rpg-engine/.rpg04-work/rpg05-published-fipypw/receipt.json",
+      "sha256": "d0e8b665ae9ea374847d18f3b288ae8a4f1f8922384ee079018a02b52ab75740",
+      "scope": "uncommitted isolated candidate; earlier verifier did not attest HEAD; unchanged runtime/test groups520 passed"
+    },
+    "candidateGuard": {
+      "result": "passed",
+      "receipt": ".rpg04-work/rpg05-pr-publish-20260912/verifier-checks.json",
+      "sha256": "0717963fa4e7cf9e54fb5cd6e9042e788d19fa3d109e11df4f7788e3e6051a9f"
+    },
+    "committedHeadVerification": "pending_delivery_commit",
+    "licensePackages": 152,
+    "credentialFindings": 0,
+    "independent": "new verifier HEAD/index/scope findings fixed and read-only reviewed; no remaining code blocker in three-file scope",
+    "png": "passed_seven_user_provided_lossless_crops",
+    "providerCalls": 0,
+    "runtimeSourceChanged": false,
+    "manualSourceVersion": "closeout-1",
+    "remaining": [
+      "default committed-head verification after delivery commit",
+      "user quality and experience acceptance before merge",
+      "STM accumulation not_passed; treasure effect unverified; content continuity review"
+    ],
+    "stagedFiles": 106,
+    "packaging": {
+      "status": "passed",
+      "stagedDiffCheck": "passed",
+      "sourceFileWrites": 0,
+      "crlfPaths": 8,
+      "allDefaultWhitespaceChecksRetained": true,
+      "eofIndexOnlyFiles": [
+        {
+          "path": "experiments/ai-rpg-engine/ui/src/Create.tsx",
+          "modulePath": "ui/src/Create.tsx",
+          "retainedRawSha256": "bd531ecdc0974d45078665e1ef573704176724056d1cfc0192f3a8690697451b",
+          "publishedRawSha256": "62e3b4a58df8356bde4f852896167701388c043a3cfb549e68d56fa77f3ee369",
+          "retainedBytes": 14527,
+          "publishedBytes": 14526,
+          "priorStagedBlob": "ad1d38ae9205ecb86767d4950b259a81cc612249",
+          "publishedBlob": "ee5c90ffcbb22b7baaaaa660b046455523401c4a",
+          "difference": "EOF LF-only blank lines removed from publication index; live worktree untouched",
+          "normalizedPath": ".rpg04-work/rpg05-pr-publish-20260912/publication-normalized/ui/src/Create.tsx"
+        },
+        {
+          "path": "experiments/ai-rpg-engine/ui/src/Import.tsx",
+          "modulePath": "ui/src/Import.tsx",
+          "retainedRawSha256": "7c7dce781d5347316b5998a52640287b945082b2f87bbf31f1a3b980daa6a3fc",
+          "publishedRawSha256": "df84ee143890af5e183d535de682e89943c19ca100736cc1498351c341a6b44f",
+          "retainedBytes": 3634,
+          "publishedBytes": 3633,
+          "priorStagedBlob": "f63721377952c601354af49a3a32829a34312054",
+          "publishedBlob": "48611bf64a5776e1fd4cb74013e9c24a059f2afe",
+          "difference": "EOF LF-only blank lines removed from publication index; live worktree untouched",
+          "normalizedPath": ".rpg04-work/rpg05-pr-publish-20260912/publication-normalized/ui/src/Import.tsx"
+        },
+        {
+          "path": "experiments/ai-rpg-engine/ui/src/Resources.tsx",
+          "modulePath": "ui/src/Resources.tsx",
+          "retainedRawSha256": "a9836b35ddcb99ef7718f610b93a00948f236973889e1a494aa006ecebe6bbb2",
+          "publishedRawSha256": "66a68dd0faf7ed9f515e88f064d7dd3575c5c69bec79ac7a4a2ee06eb6e4a9e9",
+          "retainedBytes": 9847,
+          "publishedBytes": 9846,
+          "priorStagedBlob": "0252ae488237a98e363c091c2b1c3dbd9a77c218",
+          "publishedBlob": "566101932d811aaad8389ab9af655e3f7cdead04",
+          "difference": "EOF LF-only blank lines removed from publication index; live worktree untouched",
+          "normalizedPath": ".rpg04-work/rpg05-pr-publish-20260912/publication-normalized/ui/src/Resources.tsx"
+        },
+        {
+          "path": "experiments/ai-rpg-engine/ui/src/main.tsx",
+          "modulePath": "ui/src/main.tsx",
+          "retainedRawSha256": "b0b7e35e63f90e58522bcd035fa2c7e8b601836634c73e980ba6c283fa25aefd",
+          "publishedRawSha256": "4b3e0018fa606b5357978d0670757752c887f3c4bac2a9c1b48e44f572da2e21",
+          "retainedBytes": 5787,
+          "publishedBytes": 5786,
+          "priorStagedBlob": "02d3bf17f2b9334b1e175894ad9ce1dc64749844",
+          "publishedBlob": "789e1dbcff50f28c11c5b06910f114ce6845696e",
+          "difference": "EOF LF-only blank lines removed from publication index; live worktree untouched",
+          "normalizedPath": ".rpg04-work/rpg05-pr-publish-20260912/publication-normalized/ui/src/main.tsx"
+        },
+        {
+          "path": "experiments/ai-rpg-engine/docs/RPG05_REAL_REVIEW.md",
+          "modulePath": "docs/RPG05_REAL_REVIEW.md",
+          "retainedRawSha256": "bdbb963dd0c362443210e1d213ad59ded19476de6aa35dd7e24b6dd8cf863ce8",
+          "publishedRawSha256": "b7e4829739a7bb4ae57106f28cfc2a309f986d92976ec3cd2430cbe4cb0b6242",
+          "retainedBytes": 3192,
+          "publishedBytes": 3191,
+          "priorStagedBlob": "1f8d2d8923a0208f1f33fde82715e148fbeb761f",
+          "publishedBlob": "27d4dc54ee9693c130273226c420ea37943e3a1f",
+          "difference": "EOF LF-only blank lines removed from publication index; live worktree untouched",
+          "normalizedPath": ".rpg04-work/rpg05-pr-publish-20260912/publication-normalized/docs/RPG05_REAL_REVIEW.md"
+        }
+      ],
+      "normalizationVerification": {
+        "path": ".rpg04-work/rpg05-pr-publish-20260912/normalization-verification.json",
+        "sha256": "d96e1c26c5ae00ccfd9309bced51ac8d7566fb339dec09bbc31feaaccc203bf3"
+      },
+      "typecheck": "passed",
+      "build": "passed_byte_identical_to_manual_bundle",
+      "runtimeRepresentation": "five original files intentionally differ from staged publication bytes; do not overwrite runtime or run git add -A",
+      "initialFailureLog": {
+        "path": ".rpg04-work/rpg05-pr-publish-20260912/staged-whitespace-failure.log",
+        "sha256": "36b171badf96d45c46d7d62876c3135b11355982040add90dc2543c2d8649a28"
+      }
+    },
+    "upstreamCompatibility": {
+      "result": "passed",
+      "tests": 143,
+      "upstream": "d246527d5554b16594d390172cfa38876f998ccb",
+      "scope": "three offline ASGI/fake-upstream suites; overlaps prior parent59, do not sum as independent coverage",
+      "receipt": ".rpg04-work/rpg05-png-closeout-20260912/upstream-compatibility.json",
+      "sha256": "9154135ba0594fe0b90a242da865759d8ecc16b93d6656b49ebfc11216168df8",
+      "warnings": 5
+    },
+    "screenshotRegistry": {
+      "result": "passed",
+      "source": "user supplied; ordinary lossless crop explicitly approved",
+      "count": 7,
+      "registry": "docs/RPG05_SCREENSHOTS.json",
+      "registrySha256": "d0a693f30faa68c3cbef6aced7f02255ec9893c2343bd70b62c5bf821301e9dc",
+      "pixelIntegrity": "passed",
+      "visualCropReview": "passed",
+      "manualQualityAcceptance": false
+    }
+  },
+  "draftPrReady": true
+}
