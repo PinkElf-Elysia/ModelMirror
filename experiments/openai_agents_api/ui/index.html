@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>OpenAI Agents API 文本试验台 · 模镜</title>
+  <link rel="icon" href="/logo.png">
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#input">跳到文本输入</a>
+  <header class="topbar">
+    <div class="brand"><img src="/logo.png" width="42" height="42" alt="模镜标志"><strong>模镜</strong><span>ModelMirror</span></div>
+    <div class="breadcrumb">实验 <span>/</span> 文本试验台</div>
+    <div class="top-actions"><button class="text-button help-button" id="help">使用说明</button><span id="mode" class="mode-label">正在读取运行模式</span></div>
+  </header>
+  <main>
+    <div class="page-heading"><div class="title-line"><h1>OpenAI Agents API</h1><span class="experiment-tag">实验</span></div><p>单会话文本实验</p></div>
+    <div id="notice" class="notice" role="alert" hidden><span id="notice-text"></span><button id="refresh" class="text-button" hidden>刷新状态</button></div>
+    <div class="workbench">
+      <section class="conversation" aria-labelledby="conversation-heading">
+        <header class="section-heading"><h2 id="conversation-heading">当前会话</h2><span id="rounds">0 / 2 轮</span><span id="connection" class="connection">连接中</span></header>
+        <div id="transcript" class="transcript" role="log" aria-label="本次会话输入与输出" aria-live="off">
+          <div id="empty" class="empty-state"><img src="/logo.png" alt="" width="42" height="42"><h3>从一段合成文本开始</h3><p>发送首轮输入，最多继续一轮。<br>输出、轮次和清理结果会保留在本次回执中。</p><span>可先填入固定冒烟预设</span></div>
+        </div>
+        <form id="composer" class="composer">
+          <div class="input-heading"><label for="input" id="input-label">第 1 轮输入</label><button type="button" id="preset" class="text-button" disabled>填入冒烟预设</button></div>
+          <textarea id="input" rows="4" aria-describedby="input-hint cost-hint" placeholder="输入一段用于实验的合成文本…" spellcheck="false" disabled></textarea>
+          <div class="input-meta"><span id="input-hint">仅合成文本 · 最多 4,096 字</span><span id="character-count">0 / 4,096</span></div>
+          <div class="send-row"><button class="primary-button" id="send" type="submit" disabled>发送第 1 轮</button><span id="cost-hint">正在确认调用模式…</span></div>
+          <p class="composer-status" id="composer-status" role="status" aria-live="polite"></p>
+        </form>
+      </section>
+      <aside class="evidence" aria-labelledby="evidence-heading">
+        <h2 id="evidence-heading">本次实验</h2>
+        <dl class="metadata">
+          <div><dt>模型</dt><dd>gpt-6-astra</dd></div>
+          <div><dt>凭据</dt><dd id="credentials">读取中</dd></div>
+          <div><dt>轮次</dt><dd id="turn-status">尚未开始</dd></div>
+          <div><dt>调用上限</dt><dd>最多 2 轮</dd></div>
+          <div><dt>时限</dt><dd>调用 180 秒 + 清理 30 秒</dd></div>
+        </dl>
+        <p id="deadline" class="deadline">从首轮发送开始计时，包含等待输入的时间。</p>
+        <section class="receipt-summary" aria-labelledby="receipt-heading">
+          <h2 id="receipt-heading">回执</h2>
+          <ol class="checklist">
+            <li id="first-check" data-status="pending"><span class="status-mark" aria-hidden="true"></span><span>首轮待执行</span></li>
+            <li id="second-check" data-status="pending"><span class="status-mark" aria-hidden="true"></span><span>第二轮待执行</span></li>
+            <li id="cleanup-check" data-status="pending"><span class="status-mark" aria-hidden="true"></span><span>会话清理待执行</span></li>
+          </ol>
+          <p id="cleanup-note" class="cleanup-note" hidden></p>
+          <button id="history" class="text-button history-button" disabled>查看本次历史</button>
+        </section>
+        <div class="lifecycle-actions">
+          <button id="cancel" class="quiet-button" disabled>取消当前轮次</button>
+          <button id="cleanup" class="outline-button" disabled>结束并清理</button>
+          <button id="download" class="text-button download-button" disabled>导出回执</button>
+        </div>
+      </aside>
+    </div>
+  </main>
+  <dialog id="history-dialog" aria-labelledby="history-title">
+    <header class="dialog-heading"><h2 id="history-title">本次历史与回执</h2><button class="outline-button" data-close>关闭</button></header>
+    <p class="muted" id="history-context"></p><div id="history-content"></div>
+  </dialog>
+  <dialog id="help-dialog" aria-labelledby="help-title">
+    <header class="dialog-heading"><h2 id="help-title">完成一次文本实验</h2><button class="outline-button" data-close>关闭</button></header>
+    <ol class="help-steps"><li>检查顶部模式。离线演示只返回本地模拟结果，真实模式才会调用 OpenAI。</li><li>输入合成文本，或点击“填入冒烟预设”。每轮最多 4,096 字，填入预设不会发送。</li><li>点击发送并等待轮次完成。首轮完成后，可以手动发送第二轮。</li><li>第二轮结束、失败或到期后会自动清理；也可提前点击“结束并清理”。</li><li>查看本次历史并导出回执。缺失的 usage 保留为未知，模拟结果不能用作真实调用验收。</li></ol>
+    <p>180 秒从首轮发送开始，包含两轮调用及等待输入的时间。取消请求、轮次终态、API 删除确认和物理清理分别记录。</p>
+    <p>刷新页面只读取本次实验状态，不会重发输入。连接失败后请先刷新状态；进程重启无法恢复远端会话，请先核对原回执。</p>
+    <details><summary>开发者启动方式</summary><pre>python -m experiments.openai_agents_api.web --demo
+python -m experiments.openai_agents_api.web --live --model gpt-6-astra</pre><p>真实模式要求服务端进程已配置 OPENAI_API_KEY。本页不接收、显示或保存密钥。</p></details>
+  </dialog>
+  <template id="turn-template">
+    <article class="turn">
+      <div class="message input-message"><img class="avatar user-avatar" src="/user-round.svg" alt="" width="40" height="40"><div class="message-content"><p class="message-label"></p><p class="user-text"></p></div></div>
+      <div class="message output-message"><img class="avatar" src="/logo.png" alt="" width="40" height="40"><div class="message-content"><div class="output-heading"><span class="message-label">输出</span><span class="output-status"></span></div><pre class="output-text" aria-label="模型输出"></pre></div></div>
+    </article>
+  </template>
+</body>
+</html>
