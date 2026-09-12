@@ -1,4 +1,4 @@
-﻿// Merged with OpenRouter model catalog on 2026-09-11T09:41:17.288Z.
+﻿// Merged with OpenRouter model catalog on 2026-09-12T08:19:53.997Z.
 // Targeted OpenRouter refresh verified on 2026-09-01 against the live all-modalities catalog.
 // Gemini 3.8 Flash, its Batch tier and Muse Spark 1.3 variants added on 2026-09-03.
 // Microsoft MAI-Transcribe 2 contract added on 2026-09-03.
@@ -221,6 +221,282 @@ interface RawCatalogModel {
 
 const rawCatalogModels: RawCatalogModel[] = [
   {
+    "id": "inference-net/schematron-v2-turbo",
+    "canonical_slug": "inference-net/schematron-v2-turbo-20260902",
+    "name": "Inference.net: Schematron V2 Turbo",
+    "raw_description": "Schematron V2 Turbo is a 3B-parameter HTML-to-JSON extraction model from Inference.net. It prioritizes throughput for high-volume extraction workloads. Extraction instructions must be supplied through a JSON schema in response_format rather...",
+    "context_length": 128000,
+    "pricing": {
+      "input": 0.03,
+      "output": 0.15
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "frequency_penalty",
+      "logit_bias",
+      "max_tokens",
+      "min_p",
+      "presence_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1789176949,
+    "expiration_date": null,
+    "model_author": "Inference Net"
+  },
+  {
+    "id": "inference-net/schematron-v2-small",
+    "canonical_slug": "inference-net/schematron-v2-small-20260902",
+    "name": "Inference.net: Schematron V2 Small",
+    "raw_description": "Schematron V2 Small is a 3B-parameter HTML-to-JSON extraction model from Inference.net. It prioritizes extraction quality for complex schemas and long pages. Extraction instructions must be supplied through a JSON schema...",
+    "context_length": 128000,
+    "pricing": {
+      "input": 0.049999999999999996,
+      "output": 0.22999999999999998
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "frequency_penalty",
+      "logit_bias",
+      "max_tokens",
+      "min_p",
+      "presence_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1789176933,
+    "expiration_date": null,
+    "model_author": "Inference Net"
+  },
+  {
+    "id": "meta/muse-voice-transcribe-1.0",
+    "canonical_slug": "meta/muse-voice-transcribe-1.0-20260903",
+    "name": "Meta: Muse Voice Transcribe 1.0",
+    "raw_description": "Muse Voice Transcribe 1.0 is a synchronous speech-to-text model from Meta. It is suited for push-to-talk, endpointing, and speaker-aware transcription, with keyword biasing for domain terms and language biasing through language-name hints. It accepts mono 16-bit PCM WAV audio at 16 kHz or 24 kHz for recordings up to 10 minutes. It does not provide word-level timestamps or confidence scores, and other audio formats must be converted to WAV before upload.",
+    "context_length": 0,
+    "pricing": {
+      "input": 180000,
+      "output": 0
+    },
+    "input_modalities": [
+      "audio"
+    ],
+    "output_modalities": [
+      "transcription"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "max_tokens",
+      "repetition_penalty",
+      "temperature",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1789146931,
+    "expiration_date": null,
+    "model_author": "Meta",
+    "note": "通过 OpenRouter /api/v1/audio/transcriptions 的 JSON Base64 契约同步转写；目录价为 $0.18/音频小时。仅接受最长 10 分钟的单声道 16-bit PCM WAV，采样率为 16 kHz 或 24 kHz；不提供词级时间戳或置信度。契约已适配，真实短音频仍待人工验收，最终费用以上游回执为准。",
+    "pricing_basis_override": "media",
+    "media_pricing": {
+      "unit": "audio_hour",
+      "usd": 0.18
+    }
+  },
+  {
+    "id": "~openai/gpt-astra-latest",
+    "canonical_slug": "~openai/gpt-astra-latest",
+    "name": "OpenAI GPT Astra Latest",
+    "raw_description": "This model always redirects to the latest model in the OpenAI GPT Astra family.",
+    "context_length": 1050000,
+    "pricing": {
+      "input": 10,
+      "output": 50,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 20,
+          "output": 75
+        }
+      ]
+    },
+    "input_modalities": [
+      "file",
+      "image",
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Router",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_completion_tokens",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1789130932,
+    "expiration_date": null,
+    "model_author": "OpenAI",
+    "reasoning_declared": true
+  },
+  {
+    "id": "~openai/gpt-sol-latest",
+    "canonical_slug": "~openai/gpt-sol-latest",
+    "name": "OpenAI GPT Sol Latest",
+    "raw_description": "This model always redirects to the latest model in the OpenAI GPT Sol family.",
+    "context_length": 1050000,
+    "pricing": {
+      "input": 2,
+      "output": 10,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 4,
+          "output": 15
+        }
+      ]
+    },
+    "input_modalities": [
+      "file",
+      "image",
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Router",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_completion_tokens",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1789130928,
+    "expiration_date": null,
+    "model_author": "OpenAI",
+    "reasoning_declared": true
+  },
+  {
+    "id": "~openai/gpt-terra-latest",
+    "canonical_slug": "~openai/gpt-terra-latest",
+    "name": "OpenAI GPT Terra Latest",
+    "raw_description": "This model always redirects to the latest model in the OpenAI GPT Terra family.",
+    "context_length": 1050000,
+    "pricing": {
+      "input": 2,
+      "output": 12,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 4,
+          "output": 18
+        }
+      ]
+    },
+    "input_modalities": [
+      "file",
+      "image",
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Router",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_completion_tokens",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1789130925,
+    "expiration_date": null,
+    "model_author": "OpenAI",
+    "reasoning_declared": true
+  },
+  {
+    "id": "~openai/gpt-luna-latest",
+    "canonical_slug": "~openai/gpt-luna-latest",
+    "name": "OpenAI GPT Luna Latest",
+    "raw_description": "This model always redirects to the latest model in the OpenAI GPT Luna family.",
+    "context_length": 1050000,
+    "pricing": {
+      "input": 0.19999999999999998,
+      "output": 1.2,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 0.39999999999999997,
+          "output": 1.7999999999999998
+        }
+      ]
+    },
+    "input_modalities": [
+      "file",
+      "image",
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Router",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_completion_tokens",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1789130922,
+    "expiration_date": null,
+    "model_author": "OpenAI",
+    "reasoning_declared": true
+  },
+  {
     "id": "sakana/fugu-ultra-v2",
     "canonical_slug": "sakana/fugu-ultra-v2-20260911",
     "name": "Sakana: Fugu Ultra v2",
@@ -321,6 +597,49 @@ const rawCatalogModels: RawCatalogModel[] = [
     "note": "通过 OpenRouter 异步 Video API 提交并轮询；必须提供不超过 15 秒的源视频和编辑说明，输出保留源时长、画幅与音频。目录价为 $0.03/输出视频秒；本地上传安全上限为 20 MiB。契约已适配，未执行付费生成。"
   },
   {
+    "id": "inclusionai/ling-3.0-flash-vl",
+    "canonical_slug": "inclusionai/ling-3.0-flash-vl-20260910",
+    "name": "inclusionAI: Ling 3.0 Flash VL",
+    "raw_description": "Ling 3.0 Flash VL builds on Ling 3.0 Flash (124B total / 5.5B active MoE from InclusionAI), further strengthening its language capabilities while adding native visual perception and advanced visual...",
+    "context_length": 131072,
+    "pricing": {
+      "input": 0.06,
+      "output": 0.18
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logit_bias",
+      "max_tokens",
+      "min_p",
+      "presence_penalty",
+      "reasoning",
+      "repetition_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1789056114,
+    "expiration_date": null,
+    "model_author": "InclusionAI",
+    "reasoning_declared": true
+  },
+  {
     "id": "inclusionai/ling-3.0-flash-vl:free",
     "canonical_slug": "inclusionai/ling-3.0-flash-vl-20260910",
     "name": "inclusionAI: Ling 3.0 Flash VL (free)",
@@ -368,8 +687,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4.1 Flash is a sparse mixture-of-experts model from DeepSeek, and the first built on the company's Causal Encoder-Decoder (CED) architecture. It activates 8B parameters on input and 16B on...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.3,
-      "output": 1.2,
+      "input": 0.15,
+      "output": 0.6,
       "time_overrides": [
         {
           "utc_start": 0,
@@ -1830,8 +2149,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest GLM model from Z.ai.",
     "context_length": 1310720,
     "pricing": {
-      "input": 0.9700000000000001,
-      "output": 3.3077
+      "input": 0.8727,
+      "output": 3.36
     },
     "input_modalities": [
       "text"
@@ -1982,8 +2301,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3.8 27B is an open-weight dense vision-language model from Qwen. It is suited for coding, professional workflows, research, multimodal interaction, and long-running agent tasks, with flexible thinking that can be...",
     "context_length": 1000000,
     "pricing": {
-      "input": 0.42,
-      "output": 3
+      "input": 0.21400000000000002,
+      "output": 2.5500000000000003
     },
     "input_modalities": [
       "text",
@@ -2578,8 +2897,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Pro 0813 is a large-scale mixture-of-experts model from DeepSeek. This is the GA release of DeepSeek V4 Pro.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.66,
-      "output": 1.9800000000000002
+      "input": 0.57816,
+      "output": 1.73448
     },
     "input_modalities": [
       "text"
@@ -3200,8 +3519,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek V4 Flash family.",
     "context_length": 1310720,
     "pricing": {
-      "input": 0.049999999999999996,
-      "output": 0.16
+      "input": 0.03,
+      "output": 0.07
     },
     "input_modalities": [
       "text"
@@ -3246,8 +3565,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Flash 0731 is a sparse mixture-of-experts model from DeepSeek, with 13B active parameters out of 284B total. This re-post-trained revision is suited for coding, reasoning, and agent workflows....",
     "context_length": 1310720,
     "pricing": {
-      "input": 0.065,
-      "output": 0.18
+      "input": 0.04,
+      "output": 0.08
     },
     "input_modalities": [
       "text"
@@ -4470,8 +4789,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Kimi K3 is a 2.8T parameter open-weight multimodal reasoning model from Moonshot AI. It is suited for complex coding, knowledge work, and long-horizon agentic workflows, and is particularly strong at...",
     "context_length": 1048576,
     "pricing": {
-      "input": 2.34,
-      "output": 11.7
+      "input": 2.30272875,
+      "output": 11.550195
     },
     "input_modalities": [
       "text",
@@ -5723,8 +6042,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM 5.2 is a large-scale reasoning model from Z.ai. It supports text input and output with a 1M-token context window, and is suited for long-horizon agent workflows, project-level software engineering,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.966,
-      "output": 3.036
+      "input": 0.6,
+      "output": 2
     },
     "input_modalities": [
       "text"
@@ -8031,8 +8350,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the MoonshotAI Kimi family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 2.34,
-      "output": 11.7
+      "input": 2.125,
+      "output": 11.9
     },
     "input_modalities": [
       "text",
@@ -8517,8 +8836,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Pro is a large-scale Mixture-of-Experts model from DeepSeek with 1.6T total parameters and 49B activated parameters, supporting a 1M-token context window. It is designed for advanced reasoning, coding,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.9552599999999999,
-      "output": 1.9105199999999998
+      "input": 0.7991820000000001,
+      "output": 1.5983640000000001
     },
     "input_modalities": [
       "text"
@@ -8562,8 +8881,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Flash is an efficiency-optimized Mixture-of-Experts model from DeepSeek with 284B total parameters and 13B activated parameters, supporting a 1M-token context window. It is designed for fast inference and...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.088606,
-      "output": 0.177212
+      "input": 0.06678,
+      "output": 0.13356
     },
     "input_modalities": [
       "text"
@@ -8733,7 +9052,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Orpheus 3B is an English text-to-speech model from Canopy Labs, fine-tuned for natural prosody and expressive delivery. It offers 7 preset voices and is suited for narration, voice assistants, and...",
     "context_length": 4096,
     "pricing": {
-      "input": 15,
+      "input": 7,
       "output": 0
     },
     "input_modalities": [
@@ -17038,8 +17357,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3-235B-A22B-Instruct-2507 is a multilingual, instruction-tuned mixture-of-experts language model based on the Qwen3-235B architecture, with 22B active parameters per forward pass. It is optimized for general-purpose text generation, including instruction following,...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.22,
-      "output": 0.88
+      "input": 0.0875,
+      "output": 0.35
     },
     "input_modalities": [
       "text"
@@ -17329,7 +17648,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "mistralai/mistral-small-3.2-24b-instruct-2506",
     "name": "Mistral: Mistral Small 3.2 24B",
     "raw_description": "Mistral-Small-3.2-24B-Instruct-2506 is an updated 24B parameter model from Mistral optimized for instruction following, repetition reduction, and improved function calling. Compared to the 3.1 release, version 3.2 significantly improves accuracy on...",
-    "context_length": 131072,
+    "context_length": 256000,
     "pricing": {
       "input": 0.075,
       "output": 0.19999999999999998
@@ -24727,6 +25046,7 @@ const rawBatchServingVariants: RawCatalogModel[] = [
 // Generated by scripts/update-openrouter-models.mjs. Entries remain callable
 // but carry a warning because they are absent from the current live catalog.
 const uncertainCatalogModelIds = new Set<string>([
+  "~openai/gpt-latest",
   "ai21/jamba-large-1.7",
   "aion-labs/aion-1.0",
   "aion-labs/aion-1.0-mini",
@@ -25624,6 +25944,14 @@ const MID_CATALOG_MODEL_IDS = [
   "inclusionai/ling-3.0-tiny:free",
 ];
 const LATEST_REFRESH_MODEL_IDS = [
+  "inference-net/schematron-v2-turbo",
+  "inference-net/schematron-v2-small",
+  "meta/muse-voice-transcribe-1.0",
+  "~openai/gpt-astra-latest",
+  "~openai/gpt-sol-latest",
+  "~openai/gpt-terra-latest",
+  "~openai/gpt-luna-latest",
+  "inclusionai/ling-3.0-flash-vl",
   "sakana/fugu-ultra-v2",
   "sakana/fugu-max",
   "black-forest-labs/flux-video-edit",

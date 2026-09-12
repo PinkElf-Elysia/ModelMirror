@@ -12,6 +12,7 @@ const UNCERTAIN_MARKER =
 const CURRENT_TIME_MARKER = "const CURRENT_TIME_SECONDS";
 const BATCH_VARIANT_SUFFIX = ":batch";
 const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
+  "meta/muse-voice-transcribe-1.0",
   "bytedance-seed/seedream-5-0-pro",
   "bytedance-seed/seedream-5-0-lite",
   "bytedance/seedance-2.0-mini",

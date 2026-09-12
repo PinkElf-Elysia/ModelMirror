@@ -91,6 +91,14 @@ def test_mai_transcribe_2_is_adapted_for_manual_verification() -> None:
     assert profile.smoke_languages == ("zh", "en")
 
 
+def test_muse_voice_transcribe_is_wav_only_pending_manual_verification() -> None:
+    model_id = "meta/muse-voice-transcribe-1.0"
+
+    assert model_id in MANUAL_TRANSCRIPTION_PROFILES
+    assert model_id not in VERIFIED_TRANSCRIPTION_PROFILES
+    assert MANUAL_TRANSCRIPTION_PROFILES[model_id].input_formats == ("wav",)
+
+
 def test_gpt_transcribe_is_in_verified_registry() -> None:
     model_id = "openai/gpt-transcribe"
     assert model_id in VERIFIED_TRANSCRIPTION_PROFILES

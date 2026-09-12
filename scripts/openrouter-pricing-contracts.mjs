@@ -1,5 +1,22 @@
 export const REQUIRED_AUDIO_HOUR_PRICING_OVERLAYS = new Map([
   [
+    "meta/muse-voice-transcribe-1.0",
+    Object.freeze({
+      unit: "audio_hour",
+      pricingBasis: "media",
+      sourcePricingField: "prompt",
+      normalizedPricingField: "input",
+      normalizedPriceDivisor: 1_000_000,
+      marketPricing: Object.freeze({
+        pricingField: "prompt",
+        displayKind: "unit",
+        skuLabel: "Audio Hours",
+        unitLabel: "/hour",
+        pricingJsonKey: "meta_stt:audio_hours",
+      }),
+    }),
+  ],
+  [
     "microsoft/mai-transcribe-2",
     Object.freeze({
       unit: "audio_hour",
@@ -123,7 +140,14 @@ export function auditAudioHourPricingOverlays({
     records.push(record);
     marketRecordsById.set(id, records);
   }
-  const candidateIds = new Set(REQUIRED_AUDIO_HOUR_PRICING_OVERLAYS.keys());
+  const candidateIds = new Set(
+    [...REQUIRED_AUDIO_HOUR_PRICING_OVERLAYS.keys()].filter(
+      (id) =>
+        localById.has(id) ||
+        sourceById.has(id) ||
+        marketRecordsById.has(id),
+    ),
+  );
   for (const model of localModels) {
     if (model.media_pricing?.unit === "audio_hour") candidateIds.add(model.id);
   }
