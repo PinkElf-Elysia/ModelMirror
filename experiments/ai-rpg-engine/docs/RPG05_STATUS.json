@@ -2954,7 +2954,7 @@
     "sourceFiles": 357,
     "manualLedgerPolicySha256": "6ce2a317f721161e044f74dbe47ef6ac10229843def7cdf427f7cffaecf0da79",
     "automaticConsumed": 26,
-    "manualConsumed": 0,
+    "manualConsumed": 4,
     "manualMaximum": 5,
     "freeInputAdmission": "passed",
     "adapterInitialization": "passed_read_only_no_generation",
@@ -2980,20 +2980,86 @@
       }
     },
     "observation": {
-      "path": ".rpg04-work/rpg05-pr-closeout-20260912T150920Z/cutover-verification.json",
-      "sha256": "3a668fc5f8c26ee8cf5e2768944ab74c7aaa46e59db6e6cfa92242cc204af356"
+      "path": ".rpg04-work/rpg05-pr-closeout-20260912T150920Z/png-final-publication-runtime.json",
+      "sha256": "2ff6bd2b26bd998bfe1badd04ee5f2e9659d4da29603709885aab6ffc3c5d233"
     },
     "lastReadOnlyCheck": {
-      "checkedAt": "2026-09-12T17:50:49.170Z",
+      "checkedAt": "2026-09-12T18:37:42.429Z",
+      "runtimeVersion": "closeout-1",
       "sourceFreezeVerified": true,
-      "manualConsumed": 0,
+      "sourceFiles": 357,
+      "freezeSha256": "d8814b5b3a1f43fbc6ba0aaf837e247d95027a0e2037cb54245caa15e2f1c648",
+      "sourceFreezeSha256": "8d15b941859e66653bb89c4f0fbe948509f84a80e166f64d17b60e45f5b52199",
+      "originalManualFreezeUnchanged": true,
+      "originalPolicySha256": "6ce2a317f721161e044f74dbe47ef6ac10229843def7cdf427f7cffaecf0da79",
+      "originalPolicyRevision": 1,
+      "bindingRecordSha256": "e9fac293b4cad76ad83f18e6c351498ef682c8622cbbdfc6f2d8559f4aae3a7e",
+      "bindingRecordRevision": 1,
+      "automatic26AndSevenPoliciesUnchanged": true,
+      "automaticConsumed": 26,
+      "manualConsumed": 4,
+      "manualMaximum": 5,
+      "manualRecords": [
+        {
+          "slot": 1,
+          "status": "completed",
+          "outcome": "succeeded",
+          "sha256": "dd1e17543839215a77c72a2d1e018461a72f64390a72d23d33c03e49035ef624"
+        },
+        {
+          "slot": 2,
+          "status": "completed",
+          "outcome": "succeeded",
+          "sha256": "2f8d8d8a4e3c6849c2469f0b8c673d040284dc0fcaa31a9bd5c4a82c3a4a9ed2"
+        },
+        {
+          "slot": 3,
+          "status": "completed",
+          "outcome": "succeeded",
+          "sha256": "3cd96580c3f8e0082224b3cdfc724ad5260366e8884d283f622f6ed1d15f7e36"
+        },
+        {
+          "slot": 4,
+          "status": "completed",
+          "outcome": "succeeded",
+          "sha256": "c44e47fca4ed40cc0466565271fc1742c16c375b9572282daa2a4784f9e076b5"
+        }
+      ],
       "preservedSessionFiles": 120,
-      "providerCalls": 0
+      "sessionFileDrift": [],
+      "agentProviderCalls": 0,
+      "uiStatus": 200,
+      "servedAssets": [
+        {
+          "path": "/assets/index-CU-oL_8Y.js",
+          "sha256": "62cd351152974c2eb863412aa79bb1425d9525ae67f62b0f73744d63f6b0a5c1",
+          "matchesBuild": true
+        }
+      ],
+      "routeStatus": 200,
+      "routeQualification": "qualified"
     },
     "knownRuntimeIssues": [],
     "sourceVersion": "closeout-1",
     "sourceBindingRecordSha256": "e9fac293b4cad76ad83f18e6c351498ef682c8622cbbdfc6f2d8559f4aae3a7e",
-    "priorManualFreezeSha256": "a2102b6f1321e906bb8816e84fce7d3e280ac7b8e32b58a0ab9c24ef85d9bec6"
+    "priorManualFreezeSha256": "a2102b6f1321e906bb8816e84fce7d3e280ac7b8e32b58a0ab9c24ef85d9bec6",
+    "readOnlyObservationHistory": [
+      {
+        "manualConsumed": 0,
+        "observation": {
+          "path": ".rpg04-work/rpg05-pr-closeout-20260912T150920Z/cutover-verification.json",
+          "sha256": "3a668fc5f8c26ee8cf5e2768944ab74c7aaa46e59db6e6cfa92242cc204af356"
+        },
+        "lastReadOnlyCheck": {
+          "checkedAt": "2026-09-12T17:50:49.170Z",
+          "sourceFreezeVerified": true,
+          "manualConsumed": 0,
+          "preservedSessionFiles": 120,
+          "providerCalls": 0
+        }
+      }
+    ],
+    "observationMeaning": "Point-in-time user-only manual usage; completed ledger entries do not imply user content acceptance. Original setup providerDispatches field and historical observations retain their own time scope."
   },
   "qualityIssues": [
     {
