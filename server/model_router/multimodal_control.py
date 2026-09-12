@@ -5,10 +5,11 @@ import base64
 import ipaddress
 import json
 import logging
+import math
 import re
 import struct
 from dataclasses import dataclass, field
-from typing import Callable, Literal, Mapping
+from typing import Callable, Literal, Mapping, NoReturn
 from urllib.parse import urlsplit
 
 import httpx
@@ -20,6 +21,7 @@ from .schemas import (
     MULTIMODAL_WORKLOAD_SHAPES,
     ConnectionKind,
     ProviderMultimodalAdapterContract,
+    ProviderMultimodalSseRejectionReason,
     ProviderWorkloadExecutionShape,
 )
 from .service import ModelRouterService, RouterServiceError
@@ -40,12 +42,71 @@ R8C_EXECUTION_SHAPES: frozenset[ProviderWorkloadExecutionShape] = frozenset(
 R8D_EXECUTION_SHAPES: frozenset[ProviderWorkloadExecutionShape] = frozenset(
     {"chat_audio_input", "chat_audio_output", "audio_generation_stream"}
 )
+CHAT_AUDIO_PCM16_SAMPLE_RATE_HZ = 24_000
+CHAT_AUDIO_PCM16_CHANNELS = 1
+CHAT_AUDIO_PCM16_BITS_PER_SAMPLE = 16
+CHAT_AUDIO_PCM16_BYTE_ORDER = "little"
+CHAT_AUDIO_PCM16_MAX_BYTES = 25 * 1024 * 1024
+CHAT_AUDIO_MAX_ENCODED_CHARS = CHAT_AUDIO_PCM16_MAX_BYTES * 4 // 3 + 16
+CHAT_AUDIO_MAX_DELIVERY_TEXT_CHARS = 1024 * 1024
+CHAT_AUDIO_MAX_SSE_EVENT_BYTES = 2 * 1024 * 1024
+CHAT_AUDIO_MAX_SSE_STREAM_BYTES = 40 * 1024 * 1024
+# The byte framer excludes the final event line ending and blank separator.
+# Streaming pre-checks may temporarily include two CRLF pairs before framing.
+CHAT_AUDIO_MAX_SSE_EVENT_FRAMING_BYTES = 4
+CHAT_AUDIO_PCM16_PARAMETER_EVIDENCE = "empirical_route_playback_required_v1"
+AUDIO_GENERATION_MIN_MEDIA_BYTES = 1024
+AUDIO_GENERATION_MAX_MEDIA_BYTES = 25 * 1024 * 1024
+AUDIO_GENERATION_MAX_ENCODED_CHARS = (
+    AUDIO_GENERATION_MAX_MEDIA_BYTES * 4 // 3 + 16
+)
+AUDIO_GENERATION_MAX_SSE_STREAM_BYTES = (
+    AUDIO_GENERATION_MAX_ENCODED_CHARS + 4 * 1024 * 1024
+)
+# OpenRouter may deliver the complete bounded audio payload in one SSE event.
+# Keep that event inside the existing full-stream envelope; decoded media is
+# still independently capped by AUDIO_GENERATION_MAX_MEDIA_BYTES.
+AUDIO_GENERATION_MAX_SSE_EVENT_BYTES = AUDIO_GENERATION_MAX_SSE_STREAM_BYTES
+AUDIO_GENERATION_MAX_COMPANION_TEXT_CHARS = 256 * 1024
+AUDIO_GENERATION_MAX_NATIVE_FINISH_REASON_CHARS = 128
+AUDIO_GENERATION_CONNECT_TIMEOUT_SECONDS = 15.0
+AUDIO_GENERATION_READ_TIMEOUT_SECONDS = 180.0
+AUDIO_GENERATION_WRITE_TIMEOUT_SECONDS = 180.0
+AUDIO_GENERATION_POOL_TIMEOUT_SECONDS = 180.0
+AUDIO_GENERATION_TOTAL_TIMEOUT_SECONDS = 300.0
+OPENROUTER_AUDIO_GENERATION_REQUEST_CONTRACT = (
+    "openrouter-audio-generation-chat-stream-v2"
+)
 _MAX_GENERATION_METADATA_BYTES = 256 * 1024
 OPENROUTER_GENERATION_METADATA_REQUEST_TIMEOUT_SECONDS = 2.0
 _OPENROUTER_GENERATION_ID_LOG_PATTERN = re.compile(
     r"([?&]id=)[^&\s]+",
     re.IGNORECASE,
 )
+
+
+def build_openrouter_audio_generation_payload(
+    *,
+    model_id: str,
+    prompt: str,
+    image_data_url: str | None = None,
+) -> dict[str, object]:
+    """Build the single OpenRouter music request used by certification and runtime."""
+
+    content: str | list[dict[str, object]] = prompt
+    if image_data_url:
+        content = [
+            {"type": "text", "text": prompt},
+            {
+                "type": "image_url",
+                "image_url": {"url": image_data_url},
+            },
+        ]
+    return {
+        "model": model_id,
+        "stream": True,
+        "messages": [{"role": "user", "content": content}],
+    }
 
 
 class _OpenRouterGenerationMetadataLogFilter(logging.Filter):
@@ -212,6 +273,771 @@ SYNTHETIC_AUDIO_WAV_BYTES = _synthetic_wav_bytes()
 SYNTHETIC_AUDIO_WAV_BASE64 = base64.b64encode(
     SYNTHETIC_AUDIO_WAV_BYTES
 ).decode("ascii")
+
+
+def is_complete_wav(
+    content: bytes,
+    *,
+    expected_sample_rate_hz: int | None = None,
+    expected_channels: int | None = None,
+    expected_bits_per_sample: int | None = None,
+) -> bool:
+    """Return whether content is one complete PCM-style RIFF/WAVE container."""
+
+    if (
+        len(content) < 44
+        or content[:4] != b"RIFF"
+        or content[8:12] != b"WAVE"
+        or int.from_bytes(content[4:8], "little") + 8 != len(content)
+    ):
+        return False
+    offset = 12
+    fmt_observed = False
+    data_observed = False
+    block_align: int | None = None
+    data_size: int | None = None
+    while offset + 8 <= len(content):
+        chunk_id = content[offset : offset + 4]
+        chunk_size = int.from_bytes(content[offset + 4 : offset + 8], "little")
+        chunk_end = offset + 8 + chunk_size
+        if chunk_end > len(content):
+            return False
+        if chunk_id == b"fmt ":
+            if fmt_observed:
+                return False
+            if chunk_size < 16:
+                return False
+            (
+                audio_format,
+                channels,
+                sample_rate,
+                byte_rate,
+                observed_block_align,
+                bits_per_sample,
+            ) = struct.unpack_from("<HHIIHH", content, offset + 8)
+            bytes_per_sample = bits_per_sample // 8
+            if (
+                audio_format != 1
+                or channels < 1
+                or channels > 8
+                or sample_rate < 8_000
+                or sample_rate > 192_000
+                or bits_per_sample not in {8, 16, 24, 32}
+                or observed_block_align != channels * bytes_per_sample
+                or byte_rate != sample_rate * observed_block_align
+                or (
+                    expected_sample_rate_hz is not None
+                    and sample_rate != expected_sample_rate_hz
+                )
+                or (
+                    expected_channels is not None
+                    and channels != expected_channels
+                )
+                or (
+                    expected_bits_per_sample is not None
+                    and bits_per_sample != expected_bits_per_sample
+                )
+            ):
+                return False
+            block_align = observed_block_align
+            fmt_observed = True
+        elif chunk_id == b"data":
+            if data_observed:
+                return False
+            if not fmt_observed or chunk_size <= 0:
+                return False
+            data_size = chunk_size
+            data_observed = True
+        offset = chunk_end + (chunk_size % 2)
+    return bool(
+        offset == len(content)
+        and fmt_observed
+        and data_observed
+        and block_align
+        and data_size
+        and data_size % block_align == 0
+    )
+
+
+def is_valid_chat_audio_pcm16(content: bytes) -> bool:
+    """Validate the bounded raw PCM16 transport shape, not its audible meaning."""
+
+    if (
+        not content
+        or len(content) > CHAT_AUDIO_PCM16_MAX_BYTES
+        or len(content) % 2 != 0
+    ):
+        return False
+    if content.startswith((b"RIFF", b"ID3", b"OggS", b"fLaC")):
+        return False
+    if _starts_with_two_mpeg_layer3_frames(content):
+        return False
+    return True
+
+
+def load_strict_json_object(raw: str) -> dict[str, object]:
+    """Decode one JSON object while rejecting duplicate keys at every depth."""
+
+    def reject_duplicate_keys(
+        pairs: list[tuple[str, object]],
+    ) -> dict[str, object]:
+        parsed: dict[str, object] = {}
+        for key, value in pairs:
+            if key in parsed:
+                raise ValueError("duplicate JSON object key")
+            parsed[key] = value
+        return parsed
+
+    payload = json.loads(raw, object_pairs_hook=reject_duplicate_keys)
+    if not isinstance(payload, dict):
+        raise ValueError("expected one JSON object")
+    return payload
+
+
+class R8DAudioSseContractError(ValueError):
+    """Bounded structural failure shared by R8D certification and runtime."""
+
+    def __init__(
+        self,
+        code: str,
+        *,
+        finish_reason: str | None = None,
+        rejection_reason: ProviderMultimodalSseRejectionReason | None = None,
+    ) -> None:
+        super().__init__(code)
+        self.code = code
+        self.finish_reason = finish_reason
+        self.rejection_reason: ProviderMultimodalSseRejectionReason | None = (
+            rejection_reason
+            if rejection_reason is not None
+            else "unclassified"
+            if code == "invalid_sse"
+            else None
+        )
+
+
+@dataclass(slots=True)
+class R8DAudioSseEventBuffer:
+    """Frame R8D SSE bytes while preserving CRLF state across chunks."""
+
+    max_event_bytes: int
+    _buffer: bytearray = field(default_factory=bytearray, init=False, repr=False)
+    _raw_event_bytes: int = field(default=0, init=False, repr=False)
+    _pending_cr: bool = field(default=False, init=False, repr=False)
+    _last_was_lf: bool = field(default=False, init=False, repr=False)
+    _last_lf_width: int = field(default=0, init=False, repr=False)
+    _finished: bool = field(default=False, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        if self.max_event_bytes <= 0:
+            raise ValueError("max_event_bytes must be positive")
+
+    @property
+    def buffered_input_bytes(self) -> int:
+        return self._raw_event_bytes
+
+    def feed(self, chunk: bytes) -> list[str]:
+        if self._finished:
+            raise R8DAudioSseContractError(
+                "invalid_sse",
+                rejection_reason="event_after_buffer_finish",
+            )
+        events: list[str] = []
+        for value in chunk:
+            if self._pending_cr:
+                if value == 0x0A:
+                    self._raw_event_bytes += 1
+                    self._pending_cr = False
+                    self._append_lf(events, source_width=2)
+                    self._check_pending_bound()
+                    continue
+                self._pending_cr = False
+                self._append_lf(events, source_width=1)
+            self._raw_event_bytes += 1
+            if value == 0x0D:
+                self._pending_cr = True
+            elif value == 0x0A:
+                self._append_lf(events, source_width=1)
+            else:
+                self._buffer.append(value)
+                self._last_was_lf = False
+                self._last_lf_width = 0
+            self._check_pending_bound()
+        return events
+
+    def finish(self) -> list[str]:
+        if self._finished:
+            return []
+        self._finished = True
+        events: list[str] = []
+        if self._pending_cr:
+            self._pending_cr = False
+            self._append_lf(events, source_width=1)
+        if self._buffer.strip():
+            if self._raw_event_bytes > self.max_event_bytes:
+                raise R8DAudioSseContractError(
+                    "sse_event_too_large",
+                    rejection_reason="event_too_large",
+                )
+            events.append(self._decode_event(bytes(self._buffer)))
+        self._buffer.clear()
+        self._raw_event_bytes = 0
+        self._last_was_lf = False
+        self._last_lf_width = 0
+        return events
+
+    def _append_lf(self, events: list[str], *, source_width: int) -> None:
+        self._buffer.append(0x0A)
+        if not self._last_was_lf:
+            self._last_was_lf = True
+            self._last_lf_width = source_width
+            return
+        event_input_bytes = (
+            self._raw_event_bytes - self._last_lf_width - source_width
+        )
+        if event_input_bytes > self.max_event_bytes:
+            raise R8DAudioSseContractError(
+                "sse_event_too_large",
+                rejection_reason="event_too_large",
+            )
+        events.append(self._decode_event(bytes(self._buffer[:-2])))
+        self._buffer.clear()
+        self._raw_event_bytes = 0
+        self._last_was_lf = False
+        self._last_lf_width = 0
+
+    def _check_pending_bound(self) -> None:
+        # A valid separator consumes at most two CRLF pairs (four input bytes).
+        if self._raw_event_bytes > self.max_event_bytes + 4:
+            raise R8DAudioSseContractError(
+                "sse_event_too_large",
+                rejection_reason="event_too_large",
+            )
+
+    @staticmethod
+    def _decode_event(event: bytes) -> str:
+        try:
+            return event.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise R8DAudioSseContractError(
+                "invalid_sse",
+                rejection_reason="utf8_decode_failed",
+            ) from exc
+
+
+@dataclass(frozen=True, slots=True)
+class R8DAudioSseFrame:
+    payload: Mapping[str, object] | None
+    choice: Mapping[str, object] | None
+    delta: Mapping[str, object] | None
+    usage: Mapping[str, object] | None
+    usage_counts: tuple[int, int, int] | None
+    finish_reason: str | None
+    done: bool = False
+    terminal_replay: bool = False
+
+
+@dataclass(slots=True)
+class R8DAudioSseContract:
+    """Validate the common streamed envelope without retaining media content."""
+
+    execution_shape: Literal[
+        "chat_audio_input",
+        "chat_audio_output",
+        "audio_generation_stream",
+    ]
+    expected_model: str
+    actual_model: str | None = None
+    generation_id: str | None = None
+    finish_reason: str | None = None
+    empty_finish_reason_observed: bool = False
+    done_observed: bool = False
+    terminal_usage_replay_observed: bool = False
+    usage_counts: tuple[int, int, int] | None = None
+
+    @property
+    def done_only_terminal_observed(self) -> bool:
+        """Accept DONE-only termination only for the versioned Output contract."""
+
+        return bool(
+            self.execution_shape == "chat_audio_output"
+            and self.done_observed
+            and self.finish_reason is None
+            and not self.empty_finish_reason_observed
+        )
+
+    @property
+    def safe_terminal_observed(self) -> bool:
+        return bool(
+            self.done_observed
+            and not (
+                self.execution_shape == "chat_audio_output"
+                and self.empty_finish_reason_observed
+            )
+            and (
+                self.finish_reason == "stop"
+                or self.done_only_terminal_observed
+            )
+        )
+
+    def consume_event(self, event: str) -> R8DAudioSseFrame | None:
+        data_lines: list[str] = []
+        for line in event.split("\n"):
+            stripped = line.lstrip()
+            while stripped.startswith("\ufeff"):
+                stripped = stripped[1:].lstrip()
+            if not stripped or stripped.startswith(":"):
+                continue
+            if stripped.startswith("event:") and stripped[6:].strip():
+                self._fail(
+                    "reserved_sse_event",
+                    rejection_reason="reserved_event_type",
+                )
+            if stripped.startswith("data:"):
+                data_lines.append(stripped[5:].lstrip())
+        if not data_lines:
+            return None
+        return self._consume_data("\n".join(data_lines))
+
+    def _consume_data(self, data: str) -> R8DAudioSseFrame:
+        if self.done_observed:
+            self._fail("invalid_sse", rejection_reason="data_after_done")
+        if data == "[DONE]":
+            self.done_observed = True
+            return R8DAudioSseFrame(
+                payload=None,
+                choice=None,
+                delta=None,
+                usage=None,
+                usage_counts=None,
+                finish_reason=None,
+                done=True,
+            )
+        try:
+            payload = load_strict_json_object(data)
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            raise R8DAudioSseContractError(
+                "invalid_sse",
+                rejection_reason="invalid_json_object",
+            ) from exc
+        if "error" in payload:
+            self._fail(
+                "stream_error",
+                rejection_reason="provider_error_envelope",
+            )
+        if self.terminal_usage_replay_observed:
+            self._fail(
+                "invalid_sse",
+                rejection_reason="data_after_terminal_replay",
+            )
+
+        self._observe_identity(payload)
+        if "choices" not in payload:
+            self._fail("invalid_sse", rejection_reason="missing_choices")
+        choices = payload["choices"]
+        if not isinstance(choices, list) or len(choices) > 1:
+            self._fail("invalid_sse", rejection_reason="invalid_choices_shape")
+
+        usage = payload.get("usage")
+        usage_mapping: Mapping[str, object] | None = None
+        usage_counts: tuple[int, int, int] | None = None
+        if usage is not None:
+            usage_mapping, usage_counts = self._validate_usage(
+                usage,
+                require_complete=False,
+            )
+
+        if not choices:
+            usage_mapping, usage_counts = self._validate_usage(
+                usage,
+                require_complete=True,
+            )
+            if (
+                self.finish_reason != "stop"
+                or self.terminal_usage_replay_observed
+            ):
+                self._fail(
+                    "invalid_sse",
+                    rejection_reason="unexpected_usage_terminal",
+                )
+            self.terminal_usage_replay_observed = True
+            self.usage_counts = usage_counts
+            return R8DAudioSseFrame(
+                payload=payload,
+                choice=None,
+                delta=None,
+                usage=usage_mapping,
+                usage_counts=usage_counts,
+                finish_reason=None,
+                terminal_replay=True,
+            )
+
+        choice = choices[0]
+        if not isinstance(choice, dict):
+            self._fail("invalid_sse", rejection_reason="invalid_choice_shape")
+        choice_index = choice.get("index")
+        if choice_index is not None and (
+            isinstance(choice_index, bool)
+            or not isinstance(choice_index, int)
+            or choice_index != 0
+        ):
+            self._fail("invalid_sse", rejection_reason="invalid_choice_index")
+        delta = choice.get("delta")
+        if not isinstance(delta, dict):
+            self._fail("invalid_sse", rejection_reason="invalid_delta_shape")
+        candidate_finish = self._validate_finish_reasons(choice)
+
+        if self.finish_reason is not None:
+            replay_usage, replay_counts = self._validate_usage(
+                usage,
+                require_complete=True,
+            )
+            if (
+                self.finish_reason != "stop"
+                or candidate_finish != "stop"
+                or self.terminal_usage_replay_observed
+                or isinstance(choice_index, bool)
+                or not isinstance(choice_index, int)
+                or choice_index != 0
+                or not set(choice).issubset(
+                    {
+                        "index",
+                        "delta",
+                        "finish_reason",
+                        "native_finish_reason",
+                        "logprobs",
+                    }
+                )
+                or (
+                    self.execution_shape != "audio_generation_stream"
+                    and choice.get("native_finish_reason") not in (None, "stop")
+                )
+                or choice.get("logprobs") is not None
+                or not set(delta).issubset({"content", "role"})
+                or delta.get("content") not in (None, "")
+                or delta.get("role") not in (None, "assistant")
+            ):
+                self._fail(
+                    "invalid_sse",
+                    rejection_reason="invalid_terminal_replay_shape",
+                )
+            self.terminal_usage_replay_observed = True
+            self.usage_counts = replay_counts
+            return R8DAudioSseFrame(
+                payload=payload,
+                choice=choice,
+                delta=delta,
+                usage=replay_usage,
+                usage_counts=replay_counts,
+                finish_reason=candidate_finish,
+                terminal_replay=True,
+            )
+
+        if candidate_finish is not None:
+            self.finish_reason = candidate_finish
+            if candidate_finish != "stop":
+                self._fail(
+                    {
+                        "error": "finish_error",
+                        "content_filter": "finish_filter",
+                        "length": "finish_length",
+                    }.get(candidate_finish, "invalid_finish_reason"),
+                    finish_reason=candidate_finish,
+                )
+
+        if self.execution_shape == "audio_generation_stream":
+            content = delta.get("content")
+            if not set(delta).issubset({"role", "content", "audio"}):
+                self._fail(
+                    "invalid_sse",
+                    rejection_reason="unexpected_audio_generation_delta",
+                )
+            if delta.get("role") not in (None, "assistant"):
+                self._fail("invalid_sse", rejection_reason="invalid_role")
+            if content is not None and (
+                not isinstance(content, str)
+                or len(content) > AUDIO_GENERATION_MAX_COMPANION_TEXT_CHARS
+            ):
+                self._fail(
+                    "invalid_sse",
+                    rejection_reason="invalid_companion_content",
+                )
+        else:
+            content = delta.get("content")
+            if content is not None and not isinstance(content, str):
+                self._fail("invalid_sse", rejection_reason="invalid_content_type")
+            if (
+                delta.get("refusal") not in (None, "")
+                or delta.get("tool_calls") not in (None, [])
+                or delta.get("function_call") not in (None, {})
+            ):
+                self._fail(
+                    "invalid_sse",
+                    rejection_reason="invalid_content_type",
+                )
+
+        if "audio" in delta:
+            audio = delta["audio"]
+            if audio is not None and not isinstance(audio, dict):
+                self._fail("invalid_sse", rejection_reason="invalid_audio_shape")
+            if isinstance(audio, dict):
+                for key in ("data", "transcript"):
+                    if (
+                        key in audio
+                        and audio[key] is not None
+                        and not isinstance(audio[key], str)
+                    ):
+                        self._fail(
+                            "invalid_sse",
+                            rejection_reason="invalid_audio_field_type",
+                        )
+
+        if usage_counts is not None:
+            self.usage_counts = usage_counts
+        return R8DAudioSseFrame(
+            payload=payload,
+            choice=choice,
+            delta=delta,
+            usage=usage_mapping,
+            usage_counts=usage_counts,
+            finish_reason=candidate_finish,
+        )
+
+    def _observe_identity(self, payload: Mapping[str, object]) -> None:
+        item_generation_id = self._optional_identifier(
+            payload,
+            "id",
+            max_length=200,
+        )
+        if (
+            item_generation_id is not None
+            and self.generation_id is not None
+            and item_generation_id != self.generation_id
+        ):
+            self._fail("invalid_sse", rejection_reason="generation_id_mismatch")
+        self.generation_id = self.generation_id or item_generation_id
+
+        model = self._optional_identifier(payload, "model", max_length=512)
+        if model is None:
+            return
+        if (
+            model != self.expected_model
+            or (self.actual_model is not None and model != self.actual_model)
+        ):
+            self._fail("model_mismatch")
+        self.actual_model = model
+
+    def _validate_usage(
+        self,
+        value: object,
+        *,
+        require_complete: bool,
+    ) -> tuple[Mapping[str, object], tuple[int, int, int] | None]:
+        if not isinstance(value, dict) or not value:
+            self._fail("invalid_sse", rejection_reason="invalid_usage_shape")
+        token_values: dict[str, int] = {}
+        for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+            if key not in value:
+                continue
+            candidate = value[key]
+            if (
+                isinstance(candidate, bool)
+                or not isinstance(candidate, int)
+                or candidate < 0
+                or candidate > (1 << 63) - 1
+            ):
+                self._fail("invalid_sse", rejection_reason="invalid_usage_value")
+            token_values[key] = candidate
+        cost = value.get("cost")
+        if cost is not None and (
+            isinstance(cost, bool)
+            or not isinstance(cost, (int, float))
+            or (isinstance(cost, float) and not math.isfinite(cost))
+            or cost < 0
+            or cost > (1 << 63) - 1
+        ):
+            self._fail("invalid_sse", rejection_reason="invalid_usage_value")
+        if self.execution_shape != "audio_generation_stream" and set(
+            token_values
+        ) != {"prompt_tokens", "completion_tokens", "total_tokens"}:
+            self._fail("invalid_sse", rejection_reason="incomplete_usage")
+        if require_complete and set(token_values) != {
+            "prompt_tokens",
+            "completion_tokens",
+            "total_tokens",
+        }:
+            self._fail(
+                "invalid_sse",
+                rejection_reason="incomplete_terminal_usage",
+            )
+        counts: tuple[int, int, int] | None = None
+        if set(token_values) == {
+            "prompt_tokens",
+            "completion_tokens",
+            "total_tokens",
+        }:
+            counts = (
+                token_values["prompt_tokens"],
+                token_values["completion_tokens"],
+                token_values["total_tokens"],
+            )
+            if counts[2] != counts[0] + counts[1]:
+                self._fail("invalid_sse", rejection_reason="usage_total_mismatch")
+        elif not token_values and cost is None:
+            self._fail("invalid_sse", rejection_reason="invalid_usage_shape")
+        return value, counts
+
+    def _validate_finish_reasons(
+        self,
+        choice: Mapping[str, object],
+    ) -> str | None:
+        finish = choice.get("finish_reason")
+        if finish is None:
+            normalized_finish = None
+        elif finish == "":
+            self.empty_finish_reason_observed = True
+            normalized_finish = None
+        elif isinstance(finish, str):
+            normalized_finish = finish
+        else:
+            self._fail("invalid_finish_type")
+        native_finish = choice.get("native_finish_reason")
+        if native_finish not in (None, ""):
+            if not isinstance(native_finish, str) or normalized_finish is None:
+                self._fail(
+                    "invalid_sse",
+                    rejection_reason="native_finish_mismatch",
+                )
+            if self.execution_shape == "audio_generation_stream":
+                if len(native_finish) > AUDIO_GENERATION_MAX_NATIVE_FINISH_REASON_CHARS:
+                    self._fail(
+                        "invalid_sse",
+                        rejection_reason="native_finish_mismatch",
+                    )
+            elif native_finish != normalized_finish:
+                self._fail(
+                    "invalid_sse",
+                    rejection_reason="native_finish_mismatch",
+                )
+        return normalized_finish
+
+    def _optional_identifier(
+        self,
+        payload: Mapping[str, object],
+        key: str,
+        *,
+        max_length: int,
+    ) -> str | None:
+        if key not in payload or payload[key] is None:
+            return None
+        value = payload[key]
+        if not isinstance(value, str):
+            self._fail("invalid_sse", rejection_reason="invalid_identifier_type")
+        candidate = value.strip()
+        if not candidate or len(candidate) > max_length:
+            self._fail("invalid_sse", rejection_reason="invalid_identifier_value")
+        return candidate
+
+    @staticmethod
+    def _fail(
+        code: str,
+        *,
+        finish_reason: str | None = None,
+        rejection_reason: ProviderMultimodalSseRejectionReason | None = None,
+    ) -> NoReturn:
+        raise R8DAudioSseContractError(
+            code,
+            finish_reason=finish_reason,
+            rejection_reason=rejection_reason,
+        )
+
+
+def _starts_with_two_mpeg_layer3_frames(content: bytes) -> bool:
+    """Reject a bare MP3 stream without treating one valid PCM sample as MP3."""
+
+    def frame_length(offset: int) -> int | None:
+        if len(content) - offset < 4:
+            return None
+        header = int.from_bytes(content[offset : offset + 4], "big")
+        version_bits = (header >> 19) & 0x3
+        layer_bits = (header >> 17) & 0x3
+        bitrate_index = (header >> 12) & 0xF
+        sample_rate_index = (header >> 10) & 0x3
+        if (
+            header >> 21 != 0x7FF
+            or version_bits == 0b01
+            or layer_bits != 0b01
+            or bitrate_index in {0, 0xF}
+            or sample_rate_index == 0b11
+            or header & 0x3 == 0b10
+        ):
+            return None
+        sample_rates = {
+            0b11: (44_100, 48_000, 32_000),
+            0b10: (22_050, 24_000, 16_000),
+            0b00: (11_025, 12_000, 8_000),
+        }
+        mpeg1_bitrates = (
+            0, 32, 40, 48, 56, 64, 80, 96,
+            112, 128, 160, 192, 224, 256, 320, 0,
+        )
+        mpeg2_bitrates = (
+            0, 8, 16, 24, 32, 40, 48, 56,
+            64, 80, 96, 112, 128, 144, 160, 0,
+        )
+        sample_rate = sample_rates[version_bits][sample_rate_index]
+        bitrate = (
+            mpeg1_bitrates[bitrate_index]
+            if version_bits == 0b11
+            else mpeg2_bitrates[bitrate_index]
+        )
+        coefficient = 144_000 if version_bits == 0b11 else 72_000
+        return coefficient * bitrate // sample_rate + ((header >> 9) & 0x1)
+
+    first_length = frame_length(0)
+    return bool(
+        first_length is not None
+        and first_length >= 4
+        and first_length < len(content)
+        and frame_length(first_length) is not None
+    )
+
+
+def chat_audio_pcm16_to_wav(content: bytes) -> bytes:
+    """Wrap one verified raw PCM16 transport payload for WAV delivery."""
+
+    if not is_valid_chat_audio_pcm16(content):
+        raise ValueError("invalid chat audio PCM16 payload")
+    block_align = CHAT_AUDIO_PCM16_CHANNELS * (CHAT_AUDIO_PCM16_BITS_PER_SAMPLE // 8)
+    byte_rate = CHAT_AUDIO_PCM16_SAMPLE_RATE_HZ * block_align
+    wav = b"".join(
+        (
+            b"RIFF",
+            struct.pack("<I", 36 + len(content)),
+            b"WAVEfmt ",
+            struct.pack(
+                "<IHHIIHH",
+                16,
+                1,
+                CHAT_AUDIO_PCM16_CHANNELS,
+                CHAT_AUDIO_PCM16_SAMPLE_RATE_HZ,
+                byte_rate,
+                block_align,
+                CHAT_AUDIO_PCM16_BITS_PER_SAMPLE,
+            ),
+            b"data",
+            struct.pack("<I", len(content)),
+            content,
+        )
+    )
+    if not is_complete_wav(
+        wav,
+        expected_sample_rate_hz=CHAT_AUDIO_PCM16_SAMPLE_RATE_HZ,
+        expected_channels=CHAT_AUDIO_PCM16_CHANNELS,
+        expected_bits_per_sample=CHAT_AUDIO_PCM16_BITS_PER_SAMPLE,
+    ):
+        raise ValueError("failed to build chat audio WAV delivery")
+    return wav
 
 
 @dataclass(frozen=True, slots=True)

@@ -128,7 +128,7 @@ import {
   generateSpeechAudio,
   speechVoiceLabel,
 } from "../utils/speechAudio";
-import { StreamingMp3Session } from "../utils/streamingAudio";
+import { StreamingAudioSession } from "../utils/streamingAudio";
 import {
   ChatActionMenu,
   ChatActiveContextBar,
@@ -163,8 +163,15 @@ export function directAudioNativeOutputConflictReason(
     : undefined;
 }
 
+interface ManagedChatAudioStatus {
+  feature_enabled?: boolean;
+  status?: string;
+  available?: boolean;
+  certified_response_format?: "mp3" | "wav" | null;
+}
+
 export function requiresManagedChatAudioShapeSeparation(
-  statuses: Array<{ feature_enabled?: boolean; status?: string }>,
+  statuses: ManagedChatAudioStatus[],
 ) {
   return statuses.some(
     (status) => status.feature_enabled === true && status.status !== "legacy",
@@ -1656,6 +1663,8 @@ function ChatConversationPage() {
     useState<ChatAudioFeatures | null>(null);
   const [managedChatAudioShapeSeparation, setManagedChatAudioShapeSeparation] =
     useState(false);
+  const [managedChatAudioOutputProfile, setManagedChatAudioOutputProfile] =
+    useState<{ modelId: string; format: "wav" } | null>(null);
   const [imageAnalysisModelIds, setImageAnalysisModelIds] =
     useState<Set<string> | null>(null);
   const [chatVideoEnabled, setChatVideoEnabled] = useState(false);
@@ -1693,6 +1702,9 @@ function ChatConversationPage() {
   const [runtimeMeta, setRuntimeMeta] = useState<ChatRuntimeMeta | null>(null);
   const [runtimeObservation, setRuntimeObservation] =
     useState<ChatRuntimeObservation | null>(null);
+  const outputModelId = isOmniAutoRoute
+    ? decodedModelId
+    : model?.id ?? decodedModelId;
   const [runtimeObservationLoading, setRuntimeObservationLoading] = useState(false);
   const [runtimeObservationError, setRuntimeObservationError] = useState("");
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
@@ -1817,7 +1829,7 @@ function ChatConversationPage() {
   const settingsTriggerRef = useRef<HTMLButtonElement>(null);
   const autoFollowStreamRef = useRef(true);
   const streamingAudioSessionsRef = useRef(
-    new Map<string, StreamingMp3Session>(),
+    new Map<string, StreamingAudioSession>(),
   );
   const speechAbortControllersRef = useRef(
     new Map<string, AbortController>(),
@@ -1868,10 +1880,17 @@ function ChatConversationPage() {
           profile.invocable &&
           profile.interaction_status === "ready" &&
           profile.chat_modes.includes("native_streaming_audio_output") &&
-          profile.output_formats.includes("mp3"),
+          profile.output_formats.some(
+            (format) => format === "mp3" || format === "wav",
+          ),
       ) ?? null,
     [chatAudioFeatures, model?.id],
   );
+  const nativeAudioFormat: "mp3" | "wav" =
+    (managedChatAudioOutputProfile?.modelId === outputModelId
+      ? managedChatAudioOutputProfile.format
+      : null) ??
+    (nativeAudioProfile?.output_formats.includes("mp3") ? "mp3" : "wav");
   const nativeAudioAvailable = Boolean(
     nativeAudioProfile && !isOmniAutoRoute,
   );
@@ -2019,7 +2038,6 @@ function ChatConversationPage() {
     setInjectedOutputFile(null);
   }, [chatFileScope.modelId, chatFileScope.scopeId, decodedModelId]);
 
-  const outputModelId = isOmniAutoRoute ? decodedModelId : model?.id ?? decodedModelId;
   outputReuseContextRef.current = {
     scopeId: chatFileScopeId,
     modelId: outputModelId,
@@ -2122,6 +2140,7 @@ function ChatConversationPage() {
   useEffect(() => {
     const controller = new AbortController();
     setManagedChatAudioShapeSeparation(false);
+    setManagedChatAudioOutputProfile(null);
     if (isOmniAutoRoute) return () => controller.abort();
 
     const loadStatus = async (entryId: string, executionShape: string) => {
@@ -2135,10 +2154,7 @@ function ChatConversationPage() {
         { signal: controller.signal },
       );
       if (!response.ok) throw new Error("provider_workload_status_unavailable");
-      return (await response.json()) as {
-        feature_enabled?: boolean;
-        status?: string;
-      };
+      return (await response.json()) as ManagedChatAudioStatus;
     };
 
     void Promise.all([
@@ -2150,10 +2166,19 @@ function ChatConversationPage() {
         setManagedChatAudioShapeSeparation(
           requiresManagedChatAudioShapeSeparation(statuses),
         );
+        const outputStatus = statuses[1];
+        setManagedChatAudioOutputProfile(
+          outputStatus.feature_enabled === true &&
+            outputStatus.status !== "legacy" &&
+            outputStatus.certified_response_format === "wav"
+            ? { modelId: outputModelId, format: "wav" }
+            : null,
+        );
       })
       .catch(() => {
         if (!controller.signal.aborted) {
           setManagedChatAudioShapeSeparation(false);
+          setManagedChatAudioOutputProfile(null);
         }
       });
     return () => controller.abort();
@@ -3115,7 +3140,7 @@ function ChatConversationPage() {
         ? {
             source: "native",
             status: "waiting",
-            format: "mp3",
+            format: nativeAudioFormat,
             autoPlay: true,
           }
         : undefined,
@@ -3169,7 +3194,8 @@ function ChatConversationPage() {
     let nativeAudioDecodeError = "";
     let nativeAudioTranscript = "";
     const nativeAudioSession = requestNativeAudio
-      ? new StreamingMp3Session({
+      ? new StreamingAudioSession({
+          format: nativeAudioFormat,
           onPlaybackUrl: (url, streamed) => {
             setMessages((current) =>
               current.map((message) =>
@@ -3184,7 +3210,7 @@ function ChatConversationPage() {
                             : "streaming",
                         playbackUrl: url,
                         downloadUrl: message.audio?.downloadUrl,
-                        format: "mp3",
+                        format: nativeAudioFormat,
                         streamed,
                         autoPlay: true,
                         byteLength: message.audio?.byteLength,
@@ -3257,7 +3283,7 @@ function ChatConversationPage() {
                     status: "ready",
                     playbackUrl: result.playbackUrl,
                     downloadUrl: result.blobUrl,
-                    format: "mp3",
+                    format: nativeAudioFormat,
                     streamed: result.streamed,
                     autoPlay: true,
                     byteLength: result.byteLength,
@@ -3277,7 +3303,7 @@ function ChatConversationPage() {
                   audio: {
                     source: "native",
                     status: "failed",
-                    format: "mp3",
+                    format: nativeAudioFormat,
                     error:
                       audioError instanceof Error
                         ? `${audioError.message} 文本回答已保留，可点击“重新朗读”。`
@@ -3375,7 +3401,7 @@ function ChatConversationPage() {
           ? {
               enabled: true,
               voice: nativeAudioVoice,
-              format: "mp3",
+              format: nativeAudioFormat,
             }
           : undefined,
         skillApplication:
@@ -3530,7 +3556,7 @@ function ChatConversationPage() {
                   audio: {
                     source: "native",
                     status: "failed",
-                    format: "mp3",
+                    format: nativeAudioFormat,
                     error:
                       "原生语音响应未完整结束，已丢弃不完整音频。文本回答已保留。",
                   },

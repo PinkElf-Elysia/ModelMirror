@@ -3704,7 +3704,7 @@ class SQLiteRouterRepository:
         certification_id: str,
         *,
         status: str,
-        checks: dict[str, bool],
+        checks: dict[str, bool | int | str | None],
         warning_codes: list[str],
         error_code: str | None = None,
         actual_model: str | None = None,
@@ -3769,7 +3769,7 @@ class SQLiteRouterRepository:
         session_id: str,
         *,
         status: str,
-        checks: dict[str, bool],
+        checks: dict[str, bool | int | str | None],
         warning_codes: list[str],
         error_code: str | None = None,
         actual_model: str | None = None,
@@ -3779,6 +3779,7 @@ class SQLiteRouterRepository:
         completion_tokens: int | None = None,
         total_tokens: int | None = None,
         vector_dimension: int | None = None,
+        success_deadline_monotonic: float | None = None,
     ) -> tuple[dict[str, object], dict[str, object]]:
         """Atomically finalize one direct multimodal certification pair."""
 
@@ -3817,6 +3818,13 @@ class SQLiteRouterRepository:
                 raise RouterRepositoryError(
                     "provider_multimodal_certification_pair_not_running"
                 )
+            if (
+                status == "passed"
+                and success_deadline_monotonic is not None
+                and time.perf_counter() >= success_deadline_monotonic
+            ):
+                status = "uncertain"
+                error_code = "provider_workload_total_timeout"
             if (
                 str(session["certification_id"]) != certification_id
                 or str(session["connection_id"])
@@ -4142,7 +4150,7 @@ class SQLiteRouterRepository:
         session_id: str,
         *,
         upstream_operation_id: str,
-        checks: dict[str, bool],
+        checks: dict[str, bool | int | str | None],
         warning_codes: list[str],
         error_code: str,
         ttft_ms: float | None,
@@ -4450,7 +4458,7 @@ class SQLiteRouterRepository:
         certification_id: str,
         *,
         status: str,
-        checks: dict[str, bool],
+        checks: dict[str, bool | int | str | None],
         error_code: str | None,
         actual_model: str | None,
     ) -> tuple[dict[str, object], dict[str, object]]:

@@ -1552,7 +1552,12 @@ try:
         ManagedWorkflowNodeRun,
         ManagedWorkflowRoutingError,
     )
+    from server.model_router.multimodal_control import (
+        CHAT_AUDIO_MAX_SSE_EVENT_FRAMING_BYTES as MANAGED_CHAT_AUDIO_MAX_EVENT_FRAMING_BYTES,
+    )
     from server.model_router.multimodal_gateway import (
+        CHAT_AUDIO_MAX_SSE_EVENT_BYTES as MANAGED_CHAT_AUDIO_MAX_EVENT_BYTES,
+        CHAT_AUDIO_MAX_SSE_STREAM_BYTES as MANAGED_CHAT_AUDIO_MAX_STREAM_BYTES,
         ManagedMultimodalChatDispatch,
         ManagedMultimodalChatStreamEvidence,
         ManagedMultimodalError,
@@ -1574,7 +1579,12 @@ except ModuleNotFoundError:
         ManagedWorkflowNodeRun,
         ManagedWorkflowRoutingError,
     )
+    from model_router.multimodal_control import (
+        CHAT_AUDIO_MAX_SSE_EVENT_FRAMING_BYTES as MANAGED_CHAT_AUDIO_MAX_EVENT_FRAMING_BYTES,
+    )
     from model_router.multimodal_gateway import (
+        CHAT_AUDIO_MAX_SSE_EVENT_BYTES as MANAGED_CHAT_AUDIO_MAX_EVENT_BYTES,
+        CHAT_AUDIO_MAX_SSE_STREAM_BYTES as MANAGED_CHAT_AUDIO_MAX_STREAM_BYTES,
         ManagedMultimodalChatDispatch,
         ManagedMultimodalChatStreamEvidence,
         ManagedMultimodalError,
@@ -1804,8 +1814,8 @@ AUTOMATION_COORDINATOR_MAX_CONCURRENCY = env_int(
 HANDOFF_MAX_DELEGATION_DEPTH = 5
 _PROVIDER_WORKLOAD_SOURCE_METADATA_KEY = "provider_workload_source_kind"
 MAX_IMAGE_DATA_URL_BYTES = 5 * 1024 * 1024
-MANAGED_CHAT_AUDIO_MAX_STREAM_BYTES = 40 * 1024 * 1024
-MANAGED_CHAT_AUDIO_MAX_EVENT_BYTES = 2 * 1024 * 1024
+MANAGED_CHAT_AUDIO_READ_TIMEOUT_SECONDS = 180.0
+MANAGED_CHAT_AUDIO_TOTAL_TIMEOUT_SECONDS = 300.0
 AGENTS_DATA_PATH = Path(__file__).parent / "data" / "agents.json"
 MAX_AGENT_PROMPT_CHARS = 6000
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -3108,7 +3118,7 @@ class ChatResponseAudioOptions(BaseModel):
         max_length=64,
         pattern=r"^[A-Za-z0-9._:-]+$",
     )
-    format: Literal["mp3"] = "mp3"
+    format: Literal["mp3", "wav"] = "mp3"
 
 
 class ChatSkillApplication(BaseModel):
@@ -4799,6 +4809,22 @@ def llm_client_kwargs() -> dict[str, Any]:
     if proxy:
         client_kwargs["proxy"] = proxy
     return client_kwargs
+
+
+def managed_chat_audio_client_kwargs() -> dict[str, Any]:
+    """Bound managed audio streams while preserving legacy Chat timeouts."""
+
+    return {
+        "timeout": httpx.Timeout(
+            connect=15,
+            read=MANAGED_CHAT_AUDIO_READ_TIMEOUT_SECONDS,
+            write=30,
+            pool=10,
+        ),
+        "follow_redirects": False,
+        "trust_env": False,
+        "transport": httpx.AsyncHTTPTransport(retries=0),
+    }
 
 
 _shared_llm_client: httpx.AsyncClient | None = None
@@ -33691,6 +33717,7 @@ async def chat(payload: ChatRequest, request: Request):
     audio_decision_id: str | None = None
     audio_connection_name = "OpenRouter"
     audio_started_at: float | None = None
+    managed_chat_audio_transport_format: Literal["pcm16"] | None = None
     if native_audio_requested and use_managed_chat_audio:
         try:
             if managed_multimodal_dispatch is None:
@@ -33707,17 +33734,33 @@ async def chat(payload: ChatRequest, request: Request):
                 execution_shape=managed_multimodal_shape,  # type: ignore[arg-type]
             )
             if response_audio_requested and payload.response_audio is not None:
+                certified_response_format = str(
+                    parameters.get("certified_response_format") or ""
+                )
                 if (
                     payload.response_audio.voice
                     != str(parameters.get("certified_voice") or "")
                     or payload.response_audio.format
-                    != str(parameters.get("certified_response_format") or "")
+                    != certified_response_format
                 ):
                     raise ManagedMultimodalError(
                         "provider_multimodal_audio_parameter_not_certified",
                         "所选声线或音频格式未包含在当前 Provider 资格合同中。",
                         status_code=422,
                     )
+                if certified_response_format != "wav":
+                    raise ManagedMultimodalError(
+                        "provider_multimodal_audio_parameter_not_certified",
+                        "当前 Managed Chat Audio Output 资格未认证 WAV 输出。",
+                        status_code=422,
+                    )
+                if str(parameters.get("certified_upstream_format") or "") != "pcm16":
+                    raise ManagedMultimodalError(
+                        "provider_multimodal_audio_parameter_not_certified",
+                        "当前 Managed Chat Audio Output 资格未认证 PCM16 上游传输。",
+                        status_code=422,
+                    )
+                managed_chat_audio_transport_format = "pcm16"
             if direct_audio_requested:
                 attachment_ids = audio_attachment_ids(payload.messages)
                 if len(attachment_ids) != 1:
@@ -34248,7 +34291,9 @@ async def chat(payload: ChatRequest, request: Request):
         if client_is_shared
         else httpx.AsyncClient(
             **(
-                ProviderChatTransport.client_kwargs()
+                managed_chat_audio_client_kwargs()
+                if use_managed_chat_audio
+                else ProviderChatTransport.client_kwargs()
                 if use_chat_canary or use_stable_chat
                 else llm_client_kwargs()
             )
@@ -34743,6 +34788,25 @@ async def chat(payload: ChatRequest, request: Request):
             },
         )
 
+    def prepare_managed_audio_request(
+        request_payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        if (
+            managed_multimodal_entry != "chat_audio_output"
+            or managed_chat_audio_transport_format is None
+        ):
+            return request_payload
+        audio_request = request_payload.get("audio")
+        if not isinstance(audio_request, dict):
+            raise RuntimeError("provider_multimodal_audio_request_missing")
+        return {
+            **request_payload,
+            "audio": {
+                **audio_request,
+                "format": managed_chat_audio_transport_format,
+            },
+        }
+
     async def send_prepared_to_upstream(
         model_id: str,
         request_payload: dict[str, Any],
@@ -34755,6 +34819,7 @@ async def chat(payload: ChatRequest, request: Request):
         nonlocal stable_chat_post_started
         nonlocal stable_chat_started_at
         nonlocal auto_current_attempt
+        request_payload = prepare_managed_audio_request(request_payload)
         if direct_file_requested:
             logger.info("Sending file chat request model=%s code=upstream_send", model_id)
         elif use_chat_canary:
@@ -35916,15 +35981,23 @@ async def chat(payload: ChatRequest, request: Request):
         if use_stable_chat
         else None
     )
+    managed_multimodal_started_at = (
+        managed_multimodal_dispatch.started_at
+        if managed_multimodal_dispatch is not None
+        and managed_multimodal_dispatch.started_at is not None
+        else chat_request_started_at
+    )
     managed_multimodal_stream_evidence = (
         ManagedMultimodalChatStreamEvidence(
             execution_shape=managed_multimodal_shape,  # type: ignore[arg-type]
             expected_model=payload.model_id,
-            started_at=chat_request_started_at,
+            started_at=managed_multimodal_started_at,
+            expected_audio_format=managed_chat_audio_transport_format,
+            max_event_bytes=MANAGED_CHAT_AUDIO_MAX_EVENT_BYTES,
         )
         if use_managed_chat_audio
         else ProviderChatCanaryStreamEvidence(
-            started_at=chat_request_started_at
+            started_at=managed_multimodal_started_at
         )
         if use_managed_multimodal_chat
         else None
@@ -36478,6 +36551,7 @@ async def chat(payload: ChatRequest, request: Request):
         managed_audio_stream_aborted = False
         managed_multimodal_audit_failed = False
         managed_audio_terminal_delivered = False
+        captured_outputs: tuple[Any, ...] = ()
         managed_audio_delivery_receipt: dict[str, Any] | None = None
         managed_audio_finish_result: tuple[
             str,
@@ -36499,6 +36573,80 @@ async def chat(payload: ChatRequest, request: Request):
             if final_chunk:
                 yield 0, final_chunk
 
+        managed_audio_deadline = (
+            asyncio.get_running_loop().time()
+            + MANAGED_CHAT_AUDIO_TOTAL_TIMEOUT_SECONDS
+            if use_managed_chat_audio
+            else None
+        )
+
+        async def next_upstream_chunk(
+            iterator: AsyncIterator[tuple[int, str]],
+        ) -> tuple[int, str]:
+            if managed_audio_deadline is None:
+                return await anext(iterator)
+            if asyncio.get_running_loop().time() >= managed_audio_deadline:
+                raise TimeoutError
+            async with asyncio.timeout_at(managed_audio_deadline):
+                return await anext(iterator)
+
+        async def register_captured_media() -> tuple[tuple[Any, ...], list[bytes]]:
+            registered: list[Any] = []
+            events: list[bytes] = []
+            audio_format = (
+                payload.response_audio.format
+                if response_audio_requested and payload.response_audio is not None
+                else None
+            )
+            for index, media in enumerate(
+                media_capture.items(audio_format=audio_format), start=1
+            ):
+                producer_digest = hashlib.sha256(
+                    (
+                        (payload.output_context_id or "")
+                        + "\0"
+                        + media.kind
+                        + "\0"
+                        + str(index)
+                        + "\0"
+                        + hashlib.sha256(media.content).hexdigest()
+                    ).encode("utf-8")
+                ).hexdigest()
+                try:
+                    output = await asyncio.to_thread(
+                        get_file_output_service().register_bytes,
+                        media.content,
+                        purpose=FilePurpose.CHAT,
+                        scope_id=payload.file_scope_id or "",
+                        producer_kind=(
+                            "chat_audio" if media.kind == "audio" else "chat_image"
+                        ),
+                        producer_artifact_id="chat_media_" + producer_digest,
+                        filename=media.filename,
+                        format_id=media.format_id,
+                        media_type=media.media_type,
+                        source_message_id=payload.output_context_id,
+                        warnings=(
+                            "Captured from provider-embedded response bytes; remote URLs are not persisted.",
+                        ),
+                    )
+                except FileAssetServiceError as exc:
+                    logger.warning(
+                        "Chat media output registration failed model=%s code=%s",
+                        payload.model_id,
+                        exc.error_code,
+                    )
+                    continue
+                registered.append(output)
+                output_payload = output.model_dump(mode="json")
+                events.append(
+                    (
+                        "event: output_file\n"
+                        f"data: {json.dumps(output_payload, ensure_ascii=False)}\n\n"
+                    ).encode("utf-8")
+                )
+            return tuple(registered), events
+
         try:
             if fallback_notice:
                 payload_json = json.dumps(
@@ -36508,7 +36656,20 @@ async def chat(payload: ChatRequest, request: Request):
                 accumulated_chunks.append(fallback_notice)
                 yield f"data: {payload_json}\n\n".encode("utf-8")
 
-            async for raw_chunk_bytes, chunk in upstream_text_chunks():
+            upstream_chunks = upstream_text_chunks()
+            while True:
+                try:
+                    raw_chunk_bytes, chunk = await next_upstream_chunk(
+                        upstream_chunks
+                    )
+                except StopAsyncIteration:
+                    if (
+                        managed_audio_deadline is not None
+                        and asyncio.get_running_loop().time()
+                        >= managed_audio_deadline
+                    ):
+                        raise TimeoutError
+                    break
                 if use_managed_chat_audio:
                     managed_audio_received_bytes += raw_chunk_bytes
                     if managed_audio_received_bytes > managed_audio_pending_limit:
@@ -36545,6 +36706,7 @@ async def chat(payload: ChatRequest, request: Request):
                             if (
                                 managed_audio_event_bytes
                                 > MANAGED_CHAT_AUDIO_MAX_EVENT_BYTES
+                                + MANAGED_CHAT_AUDIO_MAX_EVENT_FRAMING_BYTES
                             ):
                                 if isinstance(
                                     managed_multimodal_stream_evidence,
@@ -36622,9 +36784,10 @@ async def chat(payload: ChatRequest, request: Request):
                             managed_audio_pending_lines.clear()
                             managed_audio_stream_aborted = True
                             break
-                        managed_audio_pending_lines.append(
-                            (encoded_line, line_deltas)
-                        )
+                        if managed_multimodal_entry != "chat_audio_output":
+                            managed_audio_pending_lines.append(
+                                (encoded_line, line_deltas)
+                            )
                         managed_audio_pending_bytes += len(encoded_line)
                         continue
                     accumulated_chunks.extend(line_deltas)
@@ -36635,6 +36798,7 @@ async def chat(payload: ChatRequest, request: Request):
                     and managed_audio_event_bytes
                     + len(buffer.encode("utf-8"))
                     > MANAGED_CHAT_AUDIO_MAX_EVENT_BYTES
+                    + MANAGED_CHAT_AUDIO_MAX_EVENT_FRAMING_BYTES
                 ):
                     if isinstance(
                         managed_multimodal_stream_evidence,
@@ -36649,6 +36813,12 @@ async def chat(payload: ChatRequest, request: Request):
                     await response.aclose()
                     break
                 await asyncio.sleep(0)
+                if (
+                    managed_audio_deadline is not None
+                    and asyncio.get_running_loop().time()
+                    >= managed_audio_deadline
+                ):
+                    raise TimeoutError
             stream_completed = not managed_audio_stream_aborted
         except asyncio.CancelledError:
             if auto_audit_run is not None:
@@ -36678,41 +36848,96 @@ async def chat(payload: ChatRequest, request: Request):
                     "provider_chat_client_cancelled"
                 )
                 managed_multimodal_client_cancelled = True
-        except httpx.HTTPError:
-            runtime_status = "error"
-            runtime_error = "stream interrupted"
-            if use_chat_canary:
-                chat_canary_transport_error = "provider_chat_stream_interrupted"
-            if use_stable_chat:
-                stable_chat_transport_error = "provider_chat_stream_interrupted"
-            if use_managed_multimodal_chat:
+        except TimeoutError:
+            if use_managed_chat_audio:
+                runtime_status = "error"
+                runtime_error = "managed audio total timeout"
                 managed_multimodal_transport_error = (
-                    "provider_chat_stream_interrupted"
-                )
-            if direct_file_requested:
-                logger.warning(
-                    "File chat stream failed model=%s code=stream_interrupted",
-                    actual_model_id,
-                )
-            elif use_stable_chat:
-                logger.warning(
-                    "Managed Chat stream failed model=%s code=stream_interrupted",
-                    actual_model_id,
-                )
-            elif use_managed_multimodal_chat:
-                logger.warning(
-                    "Managed multimodal Chat stream failed model=%s code=stream_interrupted",
-                    actual_model_id,
+                    "provider_workload_total_timeout"
                 )
             else:
-                logger.exception(
-                    "OpenRouter stream interrupted model=%s",
-                    actual_model_id,
-                )
-            if not use_managed_chat_audio:
+                runtime_status = "error"
+                runtime_error = "stream proxy failed"
+                if use_chat_canary:
+                    chat_canary_transport_error = (
+                        "provider_chat_stream_interrupted"
+                    )
+                if use_stable_chat:
+                    stable_chat_transport_error = (
+                        "provider_chat_stream_interrupted"
+                    )
+                if use_managed_multimodal_chat:
+                    managed_multimodal_transport_error = (
+                        "provider_chat_stream_interrupted"
+                    )
+                if direct_file_requested:
+                    logger.warning(
+                        "File chat stream failed model=%s code=stream_proxy_failed",
+                        actual_model_id,
+                    )
+                elif use_stable_chat:
+                    logger.warning(
+                        "Managed Chat stream failed model=%s code=stream_proxy_failed",
+                        actual_model_id,
+                    )
+                elif use_managed_multimodal_chat:
+                    logger.warning(
+                        "Managed multimodal Chat stream failed model=%s code=stream_proxy_failed",
+                        actual_model_id,
+                    )
+                else:
+                    logger.exception(
+                        "Unexpected stream error model=%s",
+                        actual_model_id,
+                    )
                 yield (
-                    'data: {"error":{"message":"模型服务连接中断，请稍后重试。"}}\n\n'
+                    'data: {"error":{"message":"后端转发流式响应时出错，请查看服务日志。"}}\n\n'
                 ).encode("utf-8")
+        except httpx.HTTPError as exc:
+            runtime_status = "error"
+            if use_managed_chat_audio and isinstance(exc, httpx.ReadTimeout):
+                runtime_error = "managed audio read timeout"
+                managed_multimodal_transport_error = (
+                    "provider_workload_read_timeout"
+                )
+            else:
+                runtime_error = "stream interrupted"
+                if use_chat_canary:
+                    chat_canary_transport_error = (
+                        "provider_chat_stream_interrupted"
+                    )
+                if use_stable_chat:
+                    stable_chat_transport_error = (
+                        "provider_chat_stream_interrupted"
+                    )
+                if use_managed_multimodal_chat:
+                    managed_multimodal_transport_error = (
+                        "provider_chat_stream_interrupted"
+                    )
+                if direct_file_requested:
+                    logger.warning(
+                        "File chat stream failed model=%s code=stream_interrupted",
+                        actual_model_id,
+                    )
+                elif use_stable_chat:
+                    logger.warning(
+                        "Managed Chat stream failed model=%s code=stream_interrupted",
+                        actual_model_id,
+                    )
+                elif use_managed_multimodal_chat:
+                    logger.warning(
+                        "Managed multimodal Chat stream failed model=%s code=stream_interrupted",
+                        actual_model_id,
+                    )
+                else:
+                    logger.exception(
+                        "OpenRouter stream interrupted model=%s",
+                        actual_model_id,
+                    )
+                if not use_managed_chat_audio:
+                    yield (
+                        'data: {"error":{"message":"模型服务连接中断，请稍后重试。"}}\n\n'
+                    ).encode("utf-8")
         except Exception:
             runtime_status = "error"
             runtime_error = "stream proxy failed"
@@ -36877,9 +37102,10 @@ async def chat(payload: ChatRequest, request: Request):
                             managed_audio_pending_lines.clear()
                             managed_audio_stream_aborted = True
                         else:
-                            managed_audio_pending_lines.append(
-                                (encoded_buffer, buffer_deltas)
-                            )
+                            if managed_multimodal_entry != "chat_audio_output":
+                                managed_audio_pending_lines.append(
+                                    (encoded_buffer, buffer_deltas)
+                                )
                             managed_audio_pending_bytes += len(encoded_buffer)
                     else:
                         accumulated_chunks.extend(buffer_deltas)
@@ -36952,15 +37178,29 @@ async def chat(payload: ChatRequest, request: Request):
                         )
 
                 if managed_audio_status == "succeeded":
-                    replay_chunks: list[bytes] = []
-                    for pending_line, pending_deltas in managed_audio_pending_lines:
-                        text_line = pending_line.decode("utf-8")
-                        update_stream_state(text_line, native_audio_stream_state)
+                    replay_chunks = (
+                        managed_multimodal_stream_evidence.normalized_audio_delivery_events()
+                        if managed_multimodal_entry == "chat_audio_output"
+                        else managed_multimodal_stream_evidence.normalized_input_delivery_events()
+                    )
+                    for delivery_event in replay_chunks:
+                        delivery_text = delivery_event.decode("utf-8")
+                        update_stream_state(
+                            delivery_text, native_audio_stream_state
+                        )
                         if capture_chat_media:
-                            update_stream_state(text_line, media_output_stream_state)
-                            media_capture.consume_line(text_line)
-                        accumulated_chunks.extend(pending_deltas)
-                        replay_chunks.append(pending_line)
+                            update_stream_state(
+                                delivery_text, media_output_stream_state
+                            )
+                            media_capture.consume_line(delivery_text)
+                        accumulated_chunks.extend(
+                            sse_delta_text(delivery_text)
+                        )
+                    if capture_chat_media:
+                        captured_outputs, captured_output_events = (
+                            await register_captured_media()
+                        )
+                        replay_chunks.extend(captured_output_events)
                     try:
                         if managed_audio_delivery_receipt is None:
                             raise RuntimeError("managed delivery receipt missing")
@@ -37196,7 +37436,6 @@ async def chat(payload: ChatRequest, request: Request):
                         f"data: {json.dumps(error_payload, ensure_ascii=False)}\n\n"
                     ).encode("utf-8")
 
-            captured_outputs = ()
             media_finish_reason = str(
                 media_output_stream_state.get("finish_reason") or ""
             ).strip()
@@ -37207,62 +37446,16 @@ async def chat(payload: ChatRequest, request: Request):
             )
             if (
                 capture_chat_media
+                and not use_managed_chat_audio
                 and stream_completed
                 and runtime_status == "completed"
                 and media_terminal_observed
             ):
-                registered = []
-                audio_format = (
-                    payload.response_audio.format
-                    if response_audio_requested and payload.response_audio is not None
-                    else None
+                captured_outputs, captured_output_events = (
+                    await register_captured_media()
                 )
-                for index, media in enumerate(
-                    media_capture.items(audio_format=audio_format), start=1
-                ):
-                    producer_digest = hashlib.sha256(
-                        (
-                            (payload.output_context_id or "")
-                            + "\0"
-                            + media.kind
-                            + "\0"
-                            + str(index)
-                            + "\0"
-                            + hashlib.sha256(media.content).hexdigest()
-                        ).encode("utf-8")
-                    ).hexdigest()
-                    try:
-                        output = await asyncio.to_thread(
-                            get_file_output_service().register_bytes,
-                            media.content,
-                            purpose=FilePurpose.CHAT,
-                            scope_id=payload.file_scope_id or "",
-                            producer_kind=(
-                                "chat_audio" if media.kind == "audio" else "chat_image"
-                            ),
-                            producer_artifact_id="chat_media_" + producer_digest,
-                            filename=media.filename,
-                            format_id=media.format_id,
-                            media_type=media.media_type,
-                            source_message_id=payload.output_context_id,
-                            warnings=(
-                                "Captured from provider-embedded response bytes; remote URLs are not persisted.",
-                            ),
-                        )
-                    except FileAssetServiceError as exc:
-                        logger.warning(
-                            "Chat media output registration failed model=%s code=%s",
-                            payload.model_id,
-                            exc.error_code,
-                        )
-                        continue
-                    registered.append(output)
-                    output_payload = output.model_dump(mode="json")
-                    yield (
-                        "event: output_file\n"
-                        f"data: {json.dumps(output_payload, ensure_ascii=False)}\n\n"
-                    ).encode("utf-8")
-                captured_outputs = tuple(registered)
+                for captured_output_event in captured_output_events:
+                    yield captured_output_event
 
             native_audio_succeeded = False
             if native_audio_requested:
@@ -37716,6 +37909,7 @@ async def chat(payload: ChatRequest, request: Request):
                 use_managed_multimodal_chat
                 and managed_multimodal_stream_evidence is not None
             ):
+                managed_audio_failure_event: bytes | None = None
                 (
                     managed_status,
                     managed_result_class,
@@ -37793,9 +37987,13 @@ async def chat(payload: ChatRequest, request: Request):
                                 "code": runtime_error,
                             }
                         }
-                        yield (
+                        encoded_error = (
                             f"data: {json.dumps(error_payload, ensure_ascii=False)}\n\n"
                         ).encode("utf-8")
+                        if use_managed_chat_audio:
+                            managed_audio_failure_event = encoded_error
+                        else:
+                            yield encoded_error
                 if use_managed_chat_audio:
                     native_audio_succeeded = managed_status == "succeeded"
                     if native_audio_succeeded:
@@ -37813,6 +38011,8 @@ async def chat(payload: ChatRequest, request: Request):
                     yield route_receipt_sse(
                         managed_multimodal_terminal_receipt
                     )
+                if managed_audio_failure_event is not None:
+                    yield managed_audio_failure_event
 
             if use_chat_canary and chat_canary_stream_evidence is not None:
                 (
@@ -37969,7 +38169,9 @@ async def chat(payload: ChatRequest, request: Request):
                 or chat_canary_requested
                 or use_stable_chat
                 or use_managed_multimodal_chat
-            ) and not managed_audio_terminal_delivered:
+            ) and not managed_audio_terminal_delivered and not (
+                use_managed_chat_audio and managed_multimodal_client_cancelled
+            ):
                 yield b"data: [DONE]\n\n"
             if runtime_status in {"completed", "output_limit"}:
                 await record_chat_skill_application_once()

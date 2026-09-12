@@ -308,6 +308,28 @@ describe("fetchChatStream file completion gate", () => {
     expect(onMessageEnd).not.toHaveBeenCalled();
   });
 
+  it("serializes an explicitly certified WAV Chat Audio output request", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      streamResponse("event: message_end\ndata: {}\n\ndata: [DONE]\n\n"),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchChatStream({
+      modelId: "openai/audio-model",
+      messages: textMessages,
+      responseAudio: { enabled: true, voice: "alloy", format: "wav" },
+      onDelta: vi.fn(),
+      onMessageEnd: vi.fn(),
+    });
+
+    const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(String(request.body)).response_audio).toEqual({
+      enabled: true,
+      voice: "alloy",
+      format: "wav",
+    });
+  });
+
   it("delivers the managed route receipt before accepting Chat Audio completion", async () => {
     const events: string[] = [];
     vi.stubGlobal(

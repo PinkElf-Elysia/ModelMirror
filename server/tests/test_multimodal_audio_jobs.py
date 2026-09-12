@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import sqlite3
@@ -20,9 +21,11 @@ from server.multimodal.audio_catalog import (
 )
 from server.multimodal.audio_jobs import (
     AudioGenerationResult,
+    AudioJobTask,
     AudioJobService,
     OpenRouterAudioJobAdapter,
 )
+from server.multimodal import audio_jobs as audio_jobs_module
 from server.multimodal.stt import MultimodalServiceError, OpenRouterTarget
 
 
@@ -238,6 +241,28 @@ def test_mp3_validator_rejects_magic_only_reserved_and_incomplete_data(
     assert OpenRouterAudioJobAdapter._is_mp3(content) is False
 
 
+def test_complete_mp3_enforces_shared_media_size_bounds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    below_minimum = mpeg_layer3_frame() * 2
+    assert len(below_minimum) < 1_024
+    assert OpenRouterAudioJobAdapter._is_mp3(below_minimum) is True
+    assert audio_jobs_module.is_complete_mp3(below_minimum) is False
+
+    monkeypatch.setattr(
+        audio_jobs_module,
+        "AUDIO_GENERATION_MAX_MEDIA_BYTES",
+        len(MP3),
+    )
+    assert audio_jobs_module.is_complete_mp3(MP3) is True
+    monkeypatch.setattr(
+        audio_jobs_module,
+        "AUDIO_GENERATION_MAX_MEDIA_BYTES",
+        len(MP3) - 1,
+    )
+    assert audio_jobs_module.is_complete_mp3(MP3) is False
+
+
 def router_service(
     storage: Path, *, tenant_id: str = "local"
 ) -> ModelRouterService:
@@ -430,6 +455,754 @@ async def test_adapter_decodes_split_sse_audio_and_actual_cost() -> None:
     assert result.content == MP3
     assert result.cost_usd == 0.04
     assert result.generation_id == "gen-header"
+
+
+def _managed_audio_response(
+    events: list[dict[str, object] | str],
+) -> httpx.Response:
+    body = "".join(
+        f"data: {event if isinstance(event, str) else json.dumps(event)}\n\n"
+        for event in events
+    )
+    return httpx.Response(200, content=body.encode("utf-8"))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "events",
+    [
+        [
+            {
+                "id": "gen-a",
+                "model": "google/lyria-3-clip-preview",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"audio": {"data": base64.b64encode(MP3).decode()}},
+                        "finish_reason": "length",
+                    }
+                ],
+            },
+            {
+                "id": "gen-a",
+                "model": "google/lyria-3-clip-preview",
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+            },
+            "[DONE]",
+        ],
+        [
+            {
+                "error": "private failure",
+                "model": "google/lyria-3-clip-preview",
+                "choices": [],
+            }
+        ],
+        [
+            {
+                "id": "gen-a",
+                "model": "google/lyria-3-clip-preview",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"audio": {"data": base64.b64encode(MP3).decode()}},
+                        "finish_reason": "stop",
+                    }
+                ],
+            },
+            {
+                "id": "gen-a",
+                "model": "google/lyria-3-clip-preview",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"content": "private trailing text"},
+                        "finish_reason": None,
+                    }
+                ],
+            },
+            "[DONE]",
+        ],
+        [
+            {
+                "id": "gen-a",
+                "model": "google/lyria-3-clip-preview",
+                "choices": [
+                    {"index": 0, "delta": {}, "finish_reason": None},
+                    {"index": 1, "delta": {}, "finish_reason": None},
+                ],
+            }
+        ],
+        [
+            {
+                "id": "gen-a",
+                "model": "google/lyria-3-clip-preview",
+                "choices": [{"index": 1, "delta": {}, "finish_reason": None}],
+            }
+        ],
+        [
+            {
+                "id": "gen-a",
+                "model": "google/lyria-3-clip-preview",
+                "choices": [{"index": 0, "delta": {}, "finish_reason": None}],
+            },
+            {
+                "id": "gen-b",
+                "model": "google/lyria-3-clip-preview",
+                "choices": [{"index": 0, "delta": {}, "finish_reason": None}],
+            },
+        ],
+        [
+            {
+                "id": "gen-a",
+                "model": "google/lyria-3-clip-preview",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"audio": {"data": base64.b64encode(MP3).decode()}},
+                        "finish_reason": "stop",
+                            "native_finish_reason": 7,
+                    }
+                ],
+            },
+            "[DONE]",
+        ],
+    ],
+)
+async def test_managed_audio_generation_rejects_ambiguous_or_unsafe_sse(
+    events: list[dict[str, object] | str],
+) -> None:
+    adapter = OpenRouterAudioJobAdapter()
+    with pytest.raises(MultimodalServiceError):
+        await adapter._consume_response(  # noqa: SLF001
+            _managed_audio_response(events),
+            requested_model="google/lyria-3-clip-preview",
+            require_observed_model=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_managed_audio_generation_accepts_one_valid_usage_only_terminal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    started_at = 100.0
+    monkeypatch.setattr(audio_jobs_module.time, "perf_counter", lambda: 100.125)
+    encoded = base64.b64encode(MP3).decode("ascii")
+    response = _managed_audio_response(
+        [
+            {
+                "id": "gen-a",
+                "model": "google/lyria-3-clip-preview",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"audio": {"data": encoded}},
+                        "finish_reason": "stop",
+                    }
+                ],
+            },
+            {
+                "id": "gen-a",
+                "model": "google/lyria-3-clip-preview",
+                "choices": [],
+                "usage": {
+                    "prompt_tokens": 2,
+                    "completion_tokens": 3,
+                    "total_tokens": 5,
+                    "cost": 0.04,
+                },
+            },
+            "[DONE]",
+        ]
+    )
+    result = await OpenRouterAudioJobAdapter()._consume_response(  # noqa: SLF001
+        response,
+        requested_model="google/lyria-3-clip-preview",
+        require_observed_model=True,
+        started_at=started_at,
+    )
+    assert result.content == MP3
+    assert result.actual_model == "google/lyria-3-clip-preview"
+    assert result.cost_usd == 0.04
+    assert result.ttft_ms == pytest.approx(125.0)
+    assert result.prompt_tokens == 2
+    assert result.completion_tokens == 3
+    assert result.total_tokens == 5
+
+
+@pytest.mark.asyncio
+async def test_managed_audio_job_preserves_metrics_when_metadata_write_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MULTIMODAL_AUDIO_GENERATION_ENABLED", "true")
+    result = AudioGenerationResult(
+        content=MP3,
+        actual_model="google/lyria-3-clip-preview",
+        generation_id="gen-managed-metrics",
+        cost_usd=0.04,
+        ttft_ms=125.0,
+        prompt_tokens=2,
+        completion_tokens=3,
+        total_tokens=5,
+    )
+    service, adapter = job_service(
+        tmp_path,
+        adapter=FakeAudioAdapter(result=result),
+    )
+    launch = await service.create(
+        model_id="google/lyria-3-clip-preview",
+        prompt="A calm instrumental",
+        idempotency_key="audio-job-managed-metrics",
+    )
+    assert launch.task is not None
+
+    class CapturingDispatch:
+        dispatched = False
+        completed = False
+        completion: dict[str, object] | None = None
+
+        def complete(self, **kwargs: object) -> dict[str, object]:
+            self.completed = True
+            self.completion = dict(kwargs)
+            return {}
+
+    dispatch = CapturingDispatch()
+
+    async def generate_managed(
+        candidate: CapturingDispatch,
+        *,
+        model_id: str,
+        prompt: str,
+        image_data_url: str | None,
+        on_dispatched: object,
+    ) -> AudioGenerationResult:
+        assert model_id == "google/lyria-3-clip-preview"
+        assert prompt == "A calm instrumental"
+        assert image_data_url is None
+        candidate.dispatched = True
+        assert callable(on_dispatched)
+        on_dispatched()
+        return result
+
+    monkeypatch.setattr(
+        adapter,
+        "generate_managed",
+        generate_managed,
+        raising=False,
+    )
+    original_update = service._update  # noqa: SLF001
+
+    def fail_provider_result_metadata(
+        job_id: str,
+        **changes: object,
+    ) -> dict[str, object] | None:
+        if changes.get("status") == "running" and "output_bytes" in changes:
+            raise OSError("simulated job metadata failure")
+        return original_update(job_id, **changes)
+
+    monkeypatch.setattr(service, "_update", fail_provider_result_metadata)
+    await service.run(
+        AudioJobTask(
+            job_id=launch.task.job_id,
+            target=None,
+            model_id=launch.task.model_id,
+            prompt=launch.task.prompt,
+            image_data_url=None,
+            managed_dispatch=dispatch,  # type: ignore[arg-type]
+        )
+    )
+
+    assert dispatch.completion == {
+        "status": "passed",
+        "result_class": "success",
+        "actual_model": "google/lyria-3-clip-preview",
+        "ttft_ms": 125.0,
+        "prompt_tokens": 2,
+        "completion_tokens": 3,
+        "total_tokens": 5,
+    }
+    assert service._output_path(launch.task.job_id).read_bytes() == MP3  # noqa: SLF001
+
+
+class _StallingManagedAudioStream(httpx.AsyncByteStream):
+    def __init__(self, *, stall_close: bool = False) -> None:
+        self.closed = 0
+        self.stall_close = stall_close
+        self.close_started = asyncio.Event()
+        self.close_cancelled = asyncio.Event()
+        self.close_release = asyncio.Event()
+        self.close_finished = asyncio.Event()
+
+    async def __aiter__(self):
+        yield (
+            b'data: {"id":"gen-a","model":"google/lyria-3-clip-preview",'
+            b'"choices":[{"index":0,"delta":{},"finish_reason":null}]}\n\n'
+        )
+        await asyncio.Event().wait()
+
+    async def aclose(self) -> None:
+        self.closed += 1
+        self.close_started.set()
+        if not self.stall_close:
+            self.close_finished.set()
+            return
+        try:
+            await self.close_release.wait()
+        except asyncio.CancelledError:
+            self.close_cancelled.set()
+            await self.close_release.wait()
+        finally:
+            self.close_finished.set()
+
+
+class _ClockedManagedAudioStream(httpx.AsyncByteStream):
+    def __init__(self, clock: list[float]) -> None:
+        self.clock = clock
+
+    async def __aiter__(self):
+        encoded = base64.b64encode(MP3).decode("ascii")
+        self.clock[0] = 100.125
+        yield (
+            "data: "
+            + json.dumps(
+                {
+                    "id": "gen-a",
+                    "model": "google/lyria-3-clip-preview",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"audio": {"data": encoded}},
+                            "finish_reason": None,
+                        }
+                    ],
+                }
+            )
+            + "\n\n"
+        ).encode()
+        self.clock[0] = 103.0
+        yield (
+            "data: "
+            + json.dumps(
+                {
+                    "id": "gen-a",
+                    "model": "google/lyria-3-clip-preview",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                }
+            )
+            + "\n\ndata: [DONE]\n\n"
+        ).encode()
+        self.clock[0] = 105.0
+
+
+@pytest.mark.asyncio
+async def test_managed_audio_generation_ttft_is_first_audio_chunk_not_eof(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = [100.0]
+    response = httpx.Response(
+        200,
+        stream=_ClockedManagedAudioStream(clock),
+        request=httpx.Request(
+            "POST", "https://provider.example/v1/chat/completions"
+        ),
+    )
+    monkeypatch.setattr(
+        audio_jobs_module.time,
+        "perf_counter",
+        lambda: clock[0],
+    )
+
+    result = await OpenRouterAudioJobAdapter()._consume_response(  # noqa: SLF001
+        response,
+        requested_model="google/lyria-3-clip-preview",
+        require_observed_model=True,
+        started_at=100.0,
+    )
+
+    assert result.ttft_ms == pytest.approx(125.0)
+
+
+class _EofClosingManagedAudioStream(_StallingManagedAudioStream):
+    async def __aiter__(self):
+        encoded = base64.b64encode(MP3).decode("ascii")
+        yield (
+            "data: "
+            + json.dumps(
+                {
+                    "id": "gen-a",
+                    "model": "google/lyria-3-clip-preview",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"audio": {"data": encoded}},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                }
+            )
+            + "\n\ndata: [DONE]\n\n"
+        ).encode()
+
+
+class _StallingClientCloseTransport(httpx.AsyncBaseTransport):
+    def __init__(self) -> None:
+        self.close_started = asyncio.Event()
+        self.close_cancelled = asyncio.Event()
+        self.close_release = asyncio.Event()
+        self.close_finished = asyncio.Event()
+
+    async def handle_async_request(self, _request: httpx.Request) -> httpx.Response:
+        raise AssertionError("managed dispatch must own the Provider request")
+
+    async def aclose(self) -> None:
+        self.close_started.set()
+        try:
+            await self.close_release.wait()
+        except asyncio.CancelledError:
+            self.close_cancelled.set()
+            await self.close_release.wait()
+        finally:
+            self.close_finished.set()
+
+
+async def _wait_for_audio_cleanup_tasks() -> None:
+    for _ in range(20):
+        if not audio_jobs_module._BACKGROUND_AUDIO_CLEANUP_TASKS:  # noqa: SLF001
+            return
+        await asyncio.sleep(0)
+    assert not audio_jobs_module._BACKGROUND_AUDIO_CLEANUP_TASKS  # noqa: SLF001
+
+
+class _ManagedAudioDispatchStub:
+    def __init__(
+        self,
+        stream: _StallingManagedAudioStream,
+        *,
+        status_code: int = 200,
+    ) -> None:
+        self.stream = stream
+        self.status_code = status_code
+        self.posts = 0
+
+    async def send(self, _client, _payload, *, headers, on_dispatched=None):
+        del headers
+        self.posts += 1
+        if on_dispatched is not None:
+            on_dispatched()
+        return httpx.Response(
+            self.status_code,
+            request=httpx.Request("POST", "https://provider.example/chat/completions"),
+            stream=self.stream,
+        )
+
+
+@pytest.mark.asyncio
+async def test_managed_audio_generation_total_timeout_closes_without_replay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        audio_jobs_module,
+        "MANAGED_AUDIO_GENERATION_TOTAL_TIMEOUT_SECONDS",
+        0.01,
+    )
+    monkeypatch.setattr(
+        audio_jobs_module,
+        "MANAGED_AUDIO_GENERATION_CLOSE_TIMEOUT_SECONDS",
+        0.01,
+    )
+    stream = _StallingManagedAudioStream(stall_close=True)
+    dispatch = _ManagedAudioDispatchStub(stream)
+    adapter = OpenRouterAudioJobAdapter(
+        client_factory=lambda: httpx.AsyncClient()
+    )
+
+    with pytest.raises(MultimodalServiceError) as captured:
+        await adapter.generate_managed(  # type: ignore[arg-type]
+            dispatch,
+            model_id="google/lyria-3-clip-preview",
+            prompt="A calm instrumental",
+        )
+
+    assert captured.value.code == "provider_result_uncertain"
+    assert dispatch.posts == 1
+    await asyncio.wait_for(stream.close_started.wait(), timeout=0.1)
+    assert stream.closed == 1
+    await asyncio.wait_for(stream.close_cancelled.wait(), timeout=0.1)
+    stream.close_release.set()
+    await asyncio.wait_for(stream.close_finished.wait(), timeout=0.1)
+    await _wait_for_audio_cleanup_tasks()
+
+
+@pytest.mark.asyncio
+async def test_managed_audio_generation_ignores_late_success_after_eof_close_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        audio_jobs_module,
+        "MANAGED_AUDIO_GENERATION_TOTAL_TIMEOUT_SECONDS",
+        0.01,
+    )
+    stream = _EofClosingManagedAudioStream(stall_close=True)
+    dispatch = _ManagedAudioDispatchStub(stream)
+    adapter = OpenRouterAudioJobAdapter(
+        client_factory=lambda: httpx.AsyncClient()
+    )
+
+    with pytest.raises(MultimodalServiceError) as captured:
+        await adapter.generate_managed(  # type: ignore[arg-type]
+            dispatch,
+            model_id="google/lyria-3-clip-preview",
+            prompt="A calm instrumental",
+        )
+
+    assert captured.value.code == "provider_result_uncertain"
+    assert dispatch.posts == 1
+    await asyncio.wait_for(stream.close_started.wait(), timeout=0.1)
+    await asyncio.wait_for(stream.close_cancelled.wait(), timeout=0.1)
+    stream.close_release.set()
+    await asyncio.wait_for(stream.close_finished.wait(), timeout=0.1)
+    await _wait_for_audio_cleanup_tasks()
+
+
+@pytest.mark.asyncio
+async def test_managed_audio_generation_bounds_and_reaps_client_close(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        audio_jobs_module,
+        "MANAGED_AUDIO_GENERATION_TOTAL_TIMEOUT_SECONDS",
+        0.1,
+    )
+    monkeypatch.setattr(
+        audio_jobs_module,
+        "MANAGED_AUDIO_GENERATION_CLOSE_TIMEOUT_SECONDS",
+        0.01,
+    )
+    stream = _EofClosingManagedAudioStream()
+    dispatch = _ManagedAudioDispatchStub(stream)
+    transport = _StallingClientCloseTransport()
+    adapter = OpenRouterAudioJobAdapter(
+        client_factory=lambda: httpx.AsyncClient(transport=transport)
+    )
+
+    result = await adapter.generate_managed(  # type: ignore[arg-type]
+        dispatch,
+        model_id="google/lyria-3-clip-preview",
+        prompt="A calm instrumental",
+    )
+
+    assert result.content == MP3
+    assert dispatch.posts == 1
+    await asyncio.wait_for(transport.close_started.wait(), timeout=0.1)
+    await asyncio.wait_for(transport.close_cancelled.wait(), timeout=0.1)
+    transport.close_release.set()
+    await asyncio.wait_for(transport.close_finished.wait(), timeout=0.1)
+    await _wait_for_audio_cleanup_tasks()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status_code", [302, 307])
+async def test_managed_audio_generation_rejects_redirect_response(
+    status_code: int,
+) -> None:
+    stream = _EofClosingManagedAudioStream()
+    dispatch = _ManagedAudioDispatchStub(stream, status_code=status_code)
+    adapter = OpenRouterAudioJobAdapter(
+        client_factory=lambda: httpx.AsyncClient()
+    )
+
+    with pytest.raises(MultimodalServiceError) as captured:
+        await adapter.generate_managed(  # type: ignore[arg-type]
+            dispatch,
+            model_id="google/lyria-3-clip-preview",
+            prompt="A calm instrumental",
+        )
+
+    assert captured.value.code == "provider_rejected_request"
+    assert dispatch.posts == 1
+    assert stream.closed == 1
+
+
+@pytest.mark.asyncio
+async def test_managed_audio_generation_discards_bounded_companion_text() -> None:
+    encoded = base64.b64encode(MP3).decode("ascii")
+    response = _managed_audio_response(
+        [
+            {
+                "id": "gen-a",
+                "model": "google/lyria-3-clip-preview",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {
+                            "content": "Instrumental intro, then a short refrain.",
+                            "audio": {"data": encoded},
+                        },
+                        "finish_reason": "stop",
+                    }
+                ],
+            },
+            "[DONE]",
+        ]
+    )
+
+    result = await OpenRouterAudioJobAdapter()._consume_response(  # noqa: SLF001
+        response,
+        requested_model="google/lyria-3-clip-preview",
+        require_observed_model=True,
+    )
+
+    assert result.content == MP3
+    assert result.actual_model == "google/lyria-3-clip-preview"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "raw_event",
+    [
+        (
+            '{"id":"gen-a","model":"google/lyria-3-clip-preview",'
+            '"error":{"message":"hidden"},"error":null,'
+            '"choices":[{"index":0,"delta":{"audio":{"data":"%s"}},'
+            '"finish_reason":"stop"}]}'
+        ),
+        (
+            '{"id":"gen-a","model":"google/lyria-3-clip-preview",'
+            '"choices":[{"index":0,"delta":{"audio":{"data":"%s"}},'
+            '"finish_reason":"length","finish_reason":"stop"}]}'
+        ),
+    ],
+)
+async def test_managed_audio_generation_rejects_duplicate_sse_keys(
+    raw_event: str,
+) -> None:
+    encoded = base64.b64encode(MP3).decode("ascii")
+    response = httpx.Response(
+        200,
+        content=(f"data: {raw_event % encoded}\n\ndata: [DONE]\n\n").encode(),
+        request=httpx.Request("POST", "https://provider.example/v1/chat/completions"),
+    )
+
+    with pytest.raises(MultimodalServiceError) as captured:
+        await OpenRouterAudioJobAdapter()._consume_response(  # noqa: SLF001
+            response,
+            requested_model="google/lyria-3-clip-preview",
+            require_observed_model=True,
+        )
+
+    assert captured.value.code == "audio_output_incomplete"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("case", "expected_error"),
+    [
+        ("error_null", "provider_unavailable"),
+        ("refusal", "audio_output_incomplete"),
+        ("normal_usage_empty", "audio_output_incomplete"),
+        ("native_finish_without_finish", "audio_output_incomplete"),
+        ("huge_cost", "audio_output_incomplete"),
+        ("audio_not_object", "audio_output_incomplete"),
+        ("audio_data_non_string", "audio_output_incomplete"),
+        ("audio_transcript_non_string", "audio_output_incomplete"),
+    ],
+)
+async def test_managed_audio_generation_uses_shared_sse_contract(
+    case: str,
+    expected_error: str,
+) -> None:
+    model_id = "google/lyria-3-clip-preview"
+    event: dict[str, object] = {
+        "id": "generation-a",
+        "model": model_id,
+        "choices": [
+            {
+                "index": 0,
+                "delta": {
+                    "audio": {"data": base64.b64encode(MP3).decode("ascii")}
+                },
+                "finish_reason": "stop",
+            }
+        ],
+    }
+    choice = event["choices"][0]  # type: ignore[index]
+    delta = choice["delta"]  # type: ignore[index]
+    if case == "error_null":
+        event["error"] = None
+    elif case == "refusal":
+        delta["refusal"] = "blocked"  # type: ignore[index]
+    elif case == "normal_usage_empty":
+        event["usage"] = {}
+    elif case == "native_finish_without_finish":
+        choice["finish_reason"] = None  # type: ignore[index]
+        choice["native_finish_reason"] = "stop"  # type: ignore[index]
+    elif case == "huge_cost":
+        event["usage"] = {"cost": 10**400}
+    elif case == "audio_not_object":
+        delta["audio"] = []  # type: ignore[index]
+    elif case == "audio_data_non_string":
+        delta["audio"] = {"data": 123}  # type: ignore[index]
+    elif case == "audio_transcript_non_string":
+        delta["audio"] = {"transcript": []}  # type: ignore[index]
+    response = httpx.Response(
+        200,
+        content=(
+            f"data: {json.dumps(event)}\n\ndata: [DONE]\n\n"
+        ).encode(),
+        request=httpx.Request(
+            "POST", "https://provider.example/v1/chat/completions"
+        ),
+    )
+
+    with pytest.raises(MultimodalServiceError) as captured:
+        await OpenRouterAudioJobAdapter()._consume_response(  # noqa: SLF001
+            response,
+            requested_model=model_id,
+            require_observed_model=True,
+        )
+
+    assert captured.value.code == expected_error
+
+
+@pytest.mark.asyncio
+async def test_managed_audio_generation_accepts_mixed_sse_line_endings() -> None:
+    model_id = "google/lyria-3-clip-preview"
+    encoded = base64.b64encode(MP3).decode("ascii")
+    event = json.dumps(
+        {
+            "model": model_id,
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {"audio": {"data": encoded}},
+                    "finish_reason": "stop",
+                }
+            ],
+        },
+        separators=(",", ":"),
+    )
+    body = f"data: {event}\n\r\ndata: [DONE]\r\r".encode()
+    response = httpx.Response(
+        200,
+        content=body,
+        request=httpx.Request(
+            "POST", "https://provider.example/v1/chat/completions"
+        ),
+    )
+
+    result = await OpenRouterAudioJobAdapter()._consume_response(  # noqa: SLF001
+        response,
+        requested_model=model_id,
+        require_observed_model=True,
+    )
+
+    assert result.content == MP3
 
 
 @pytest.mark.asyncio

@@ -82,7 +82,7 @@ export interface ChatCompressionOptions {
 export interface ChatResponseAudioOptions {
   enabled: true;
   voice: string;
-  format: "mp3";
+  format: "mp3" | "wav";
 }
 
 export interface ChatSkillApplication {

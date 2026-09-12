@@ -14,7 +14,20 @@ import httpx
 
 from .egress import ProviderEgressError
 from .multimodal_control import (
+    CHAT_AUDIO_MAX_DELIVERY_TEXT_CHARS,
+    CHAT_AUDIO_MAX_ENCODED_CHARS,
+    CHAT_AUDIO_MAX_SSE_EVENT_BYTES,
+    CHAT_AUDIO_MAX_SSE_STREAM_BYTES,
+    CHAT_AUDIO_PCM16_MAX_BYTES,
     OPENROUTER_GENERATION_METADATA_REQUEST_TIMEOUT_SECONDS,
+    R8DAudioSseContract,
+    R8DAudioSseContractError,
+    R8DAudioSseEventBuffer,
+    R8DAudioSseFrame,
+    chat_audio_pcm16_to_wav,
+    is_valid_chat_audio_pcm16,
+    is_complete_wav,
+    load_strict_json_object,
 )
 from .service import ModelRouterService, RouterServiceError
 from .workflow_gateway import (
@@ -51,7 +64,6 @@ R8BEntryId = Literal[
 R8BRoutingMode = Literal["legacy", "managed_required", "degraded_required"]
 _T = TypeVar("_T")
 _MAX_IMAGE_RESPONSE_BYTES = 32 * 1024 * 1024
-_MAX_MANAGED_CHAT_AUDIO_BYTES = 25 * 1024 * 1024
 _OPENROUTER_GENERATION_METADATA_POLL_DELAYS_SECONDS = (
     0.0,
     1.0,
@@ -101,6 +113,8 @@ class ManagedMultimodalChatStreamEvidence:
     ]
     expected_model: str
     started_at: float
+    expected_audio_format: Literal["wav", "pcm16"] | None = None
+    max_event_bytes: int = CHAT_AUDIO_MAX_SSE_EVENT_BYTES
     buffer: str = ""
     invalid: bool = False
     text_observed: bool = False
@@ -117,6 +131,33 @@ class ManagedMultimodalChatStreamEvidence:
     audio_encoded_parts: list[str] = field(default_factory=list)
     audio_encoded_length: int = 0
     hard_error_code: str | None = None
+    terminal_replay_observed: bool = False
+    generation_id: str | None = None
+    delivery_text_parts: list[str] = field(default_factory=list)
+    delivery_transcript_parts: list[str] = field(default_factory=list)
+    delivery_text_length: int = 0
+    input_delivery_events: list[bytes] = field(default_factory=list)
+    input_delivery_length: int = 0
+    _r8d_contract: R8DAudioSseContract | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
+    _r8d_event_buffer: R8DAudioSseEventBuffer | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
+
+    def __post_init__(self) -> None:
+        if self.execution_shape in {"chat_audio_input", "chat_audio_output"}:
+            self._r8d_contract = R8DAudioSseContract(
+                execution_shape=self.execution_shape,
+                expected_model=self.expected_model,
+            )
+            self._r8d_event_buffer = R8DAudioSseEventBuffer(
+                max_event_bytes=self.max_event_bytes
+            )
 
     @property
     def model_verified(self) -> bool:
@@ -125,6 +166,9 @@ class ManagedMultimodalChatStreamEvidence:
         )
 
     def feed(self, value: str) -> None:
+        if self._r8d_event_buffer is not None:
+            self._feed_r8d_bytes(value.encode("utf-8"))
+            return
         self.buffer += value.replace("\r\n", "\n").replace("\r", "\n")
         while "\n\n" in self.buffer:
             event, self.buffer = self.buffer.split("\n\n", 1)
@@ -136,7 +180,9 @@ class ManagedMultimodalChatStreamEvidence:
         transport_completed: bool,
         transport_error_code: str | None = None,
     ) -> tuple[str, str, str | None, dict[str, bool], list[str]]:
-        if self.buffer.strip():
+        if self._r8d_event_buffer is not None:
+            self._finish_r8d_events()
+        elif self.buffer.strip():
             self._consume_event(self.buffer)
             self.buffer = ""
         audio_content = (
@@ -164,15 +210,27 @@ class ManagedMultimodalChatStreamEvidence:
                 or (
                     self.audio_observed
                     and audio_content is not None
-                    and self._is_complete_mp3(audio_content)
+                    and (
+                        (
+                            self.expected_audio_format == "wav"
+                            and is_complete_wav(audio_content)
+                        )
+                        or (
+                            self.expected_audio_format == "pcm16"
+                            and is_valid_chat_audio_pcm16(audio_content)
+                        )
+                    )
                 )
             ),
         }
         warnings: list[str] = []
         if self.total_tokens is None:
             warnings.append("usage_missing")
-        if self.finish_reason == "length":
-            warnings.append("finish_reason_length")
+        if (
+            self._r8d_contract is not None
+            and self._r8d_contract.done_only_terminal_observed
+        ):
+            warnings.append("finish_reason_missing_accepted")
         if self.hard_error_code is not None:
             return (
                 "failed",
@@ -181,6 +239,7 @@ class ManagedMultimodalChatStreamEvidence:
                 checks,
                 warnings,
             )
+
         if self.invalid:
             return (
                 "failed",
@@ -210,6 +269,14 @@ class ManagedMultimodalChatStreamEvidence:
                 "uncertain",
                 "transport_error",
                 transport_error_code,
+                checks,
+                warnings,
+            )
+        if not transport_completed:
+            return (
+                "uncertain",
+                "transport_error",
+                "provider_workload_stream_interrupted",
                 checks,
                 warnings,
             )
@@ -244,6 +311,27 @@ class ManagedMultimodalChatStreamEvidence:
                 checks,
                 warnings,
             )
+        if self.execution_shape in {"chat_audio_input", "chat_audio_output"}:
+            contract = self._r8d_contract
+            assert contract is not None
+            if not contract.safe_terminal_observed:
+                error_code = {
+                    "error": "provider_workload_stream_error",
+                    "content_filter": "provider_workload_content_filtered",
+                    "length": "provider_workload_output_truncated",
+                    "stop": "provider_chat_missing_terminal",
+                    None: "provider_chat_missing_terminal",
+                }.get(
+                    self.finish_reason,
+                    "provider_workload_invalid_finish_reason",
+                )
+                return (
+                    "failed",
+                    "hard_failure",
+                    error_code,
+                    checks,
+                    warnings,
+                )
         if not self.terminal_observed:
             return (
                 "failed",
@@ -254,7 +342,42 @@ class ManagedMultimodalChatStreamEvidence:
             )
         return "succeeded", "success", None, checks, warnings
 
+    def _feed_r8d_bytes(self, value: bytes) -> None:
+        event_buffer = self._r8d_event_buffer
+        assert event_buffer is not None
+        try:
+            events = event_buffer.feed(value)
+        except R8DAudioSseContractError as exc:
+            if exc.code == "sse_event_too_large":
+                self.hard_error_code = (
+                    "provider_multimodal_sse_event_too_large"
+                )
+            else:
+                self.invalid = True
+            return
+        for event in events:
+            self._consume_event(event)
+
+    def _finish_r8d_events(self) -> None:
+        event_buffer = self._r8d_event_buffer
+        assert event_buffer is not None
+        try:
+            events = event_buffer.finish()
+        except R8DAudioSseContractError as exc:
+            if exc.code == "sse_event_too_large":
+                self.hard_error_code = (
+                    "provider_multimodal_sse_event_too_large"
+                )
+            else:
+                self.invalid = True
+            return
+        for event in events:
+            self._consume_event(event)
+
     def _consume_event(self, event: str) -> None:
+        if self._r8d_contract is not None:
+            self._consume_r8d_audio_event(event)
+            return
         data_lines: list[str] = []
         for line in event.split("\n"):
             stripped = self._normalized_sse_field_line(line)
@@ -280,11 +403,8 @@ class ManagedMultimodalChatStreamEvidence:
             self.invalid = True
             return
         try:
-            payload = json.loads(data)
-        except (json.JSONDecodeError, TypeError):
-            self.invalid = True
-            return
-        if not isinstance(payload, dict):
+            payload = load_strict_json_object(data)
+        except (json.JSONDecodeError, TypeError, ValueError):
             self.invalid = True
             return
         if "error" in payload:
@@ -292,6 +412,16 @@ class ManagedMultimodalChatStreamEvidence:
                 "provider_multimodal_upstream_stream_error"
             )
             return
+        item_generation_id = self._clean_identifier(payload.get("id"), max_length=200)
+        if (
+            item_generation_id is not None
+            and self.generation_id is not None
+            and item_generation_id != self.generation_id
+        ):
+            self.invalid = True
+            return
+        if self.generation_id is None:
+            self.generation_id = item_generation_id
         model = payload.get("model")
         if isinstance(model, str) and model.strip():
             observed = model.strip()
@@ -300,21 +430,132 @@ class ManagedMultimodalChatStreamEvidence:
             self.actual_model = observed
             if observed != self.expected_model:
                 self.model_mismatch = True
-        usage = payload.get("usage")
-        if isinstance(usage, dict):
-            self.prompt_tokens = self._integer(usage.get("prompt_tokens"))
-            self.completion_tokens = self._integer(
-                usage.get("completion_tokens")
-            )
-            self.total_tokens = self._integer(usage.get("total_tokens"))
         choices = payload.get("choices")
         if not isinstance(choices, list):
+            if self.execution_shape in {"chat_audio_input", "chat_audio_output"}:
+                self.invalid = True
+            return
+        usage_counts: tuple[int, int, int] | None = None
+        if "usage" in payload and payload.get("usage") is not None:
+            usage_counts = self._terminal_usage_counts(payload)
+            if usage_counts is None:
+                self.invalid = True
+                return
+        if (
+            self.execution_shape in {"chat_audio_input", "chat_audio_output"}
+            and not choices
+        ):
+            if (
+                self.finish_reason != "stop"
+                or self.terminal_replay_observed
+                or usage_counts is None
+            ):
+                self.invalid = True
+                return
+            (
+                self.prompt_tokens,
+                self.completion_tokens,
+                self.total_tokens,
+            ) = usage_counts
+            self.terminal_replay_observed = True
+            return
+        if (
+            self.execution_shape in {"chat_audio_input", "chat_audio_output"}
+            and len(choices) > 1
+        ):
+            self.invalid = True
             return
         for choice in choices:
             if not isinstance(choice, dict):
+                if self.execution_shape in {
+                    "chat_audio_input",
+                    "chat_audio_output",
+                }:
+                    self.invalid = True
                 continue
             finish_reason = choice.get("finish_reason")
+            if (
+                self.execution_shape in {"chat_audio_input", "chat_audio_output"}
+                and finish_reason not in (None, "")
+                and not isinstance(finish_reason, str)
+            ):
+                self.invalid = True
+                return
+            native_finish_reason = choice.get("native_finish_reason")
+            if (
+                self.execution_shape in {"chat_audio_input", "chat_audio_output"}
+                and native_finish_reason not in (None, "")
+                and (
+                    not isinstance(native_finish_reason, str)
+                    or not isinstance(finish_reason, str)
+                    or native_finish_reason != finish_reason
+                )
+            ):
+                self.invalid = True
+                return
+            choice_index = choice.get("index")
+            if (
+                self.execution_shape in {"chat_audio_input", "chat_audio_output"}
+                and choice_index is not None
+                and (
+                    isinstance(choice_index, bool)
+                    or not isinstance(choice_index, int)
+                    or choice_index != 0
+                )
+            ):
+                self.invalid = True
+                return
+            if (
+                self.execution_shape in {"chat_audio_input", "chat_audio_output"}
+                and self.finish_reason is not None
+            ):
+                delta = choice.get("delta")
+                replay_usage = self._terminal_usage_counts(payload)
+                if (
+                    self.finish_reason != "stop"
+                    or finish_reason != "stop"
+                    or self.terminal_replay_observed
+                    or replay_usage is None
+                    or isinstance(choice_index, bool)
+                    or not isinstance(choice_index, int)
+                    or choice_index != 0
+                    or not set(choice).issubset(
+                        {
+                            "index",
+                            "delta",
+                            "finish_reason",
+                            "native_finish_reason",
+                            "logprobs",
+                        }
+                    )
+                    or choice.get("native_finish_reason") not in (None, "stop")
+                    or choice.get("logprobs") is not None
+                    or not isinstance(delta, dict)
+                    or not set(delta).issubset({"content", "role"})
+                    or delta.get("content") not in (None, "")
+                    or delta.get("role") not in (None, "assistant")
+                ):
+                    self.invalid = True
+                    return
+                (
+                    self.prompt_tokens,
+                    self.completion_tokens,
+                    self.total_tokens,
+                ) = replay_usage
+                self.terminal_replay_observed = True
+                continue
+            if usage_counts is not None:
+                (
+                    self.prompt_tokens,
+                    self.completion_tokens,
+                    self.total_tokens,
+                ) = usage_counts
             if isinstance(finish_reason, str) and finish_reason:
+                if (
+                    self.finish_reason is not None
+                    and self.finish_reason != finish_reason
+                ):
+                    self.invalid = True
                 self.finish_reason = finish_reason
                 self.terminal_observed = True
             for container_name in ("delta", "message"):
@@ -324,23 +565,244 @@ class ManagedMultimodalChatStreamEvidence:
                 if self._has_text(container.get("content")):
                     self.text_observed = True
                     self._observe_ttft()
+                    if self.execution_shape == "chat_audio_output":
+                        content = container.get("content")
+                        if not isinstance(content, str):
+                            self.invalid = True
+                            return
+                        self._append_delivery_text(content, transcript=False)
                 audio = container.get("audio")
                 if isinstance(audio, dict):
+                    transcript = audio.get("transcript")
+                    if (
+                        self.execution_shape == "chat_audio_output"
+                        and isinstance(transcript, str)
+                        and transcript
+                    ):
+                        self._append_delivery_text(transcript, transcript=True)
                     encoded = audio.get("data")
                     if isinstance(encoded, str) and encoded:
                         self.audio_encoded_length += len(encoded)
-                        if self.audio_encoded_length > (
-                            _MAX_MANAGED_CHAT_AUDIO_BYTES * 4 // 3 + 16
-                        ):
+                        if self.audio_encoded_length > CHAT_AUDIO_MAX_ENCODED_CHARS:
                             self.invalid = True
                         else:
                             self.audio_encoded_parts.append(encoded)
                             self.audio_observed = True
                             self._observe_ttft()
 
+    def _consume_r8d_audio_event(self, event: str) -> None:
+        contract = self._r8d_contract
+        assert contract is not None
+        try:
+            frame = contract.consume_event(event)
+        except R8DAudioSseContractError as exc:
+            self.actual_model = contract.actual_model
+            self.generation_id = contract.generation_id
+            self.finish_reason = exc.finish_reason or contract.finish_reason
+            self.done_observed = contract.done_observed
+            self.terminal_replay_observed = (
+                contract.terminal_usage_replay_observed
+            )
+            if exc.code == "model_mismatch":
+                self.model_mismatch = True
+            elif exc.code == "stream_error":
+                self.hard_error_code = (
+                    "provider_multimodal_upstream_stream_error"
+                )
+            elif exc.code == "reserved_sse_event":
+                self.hard_error_code = (
+                    "provider_multimodal_reserved_sse_event"
+                )
+            elif exc.code in {
+                "finish_error",
+                "finish_filter",
+                "finish_length",
+                "invalid_finish_reason",
+            }:
+                self.terminal_observed = True
+                self.hard_error_code = {
+                    "finish_error": "provider_workload_stream_error",
+                    "finish_filter": "provider_workload_content_filtered",
+                    "finish_length": "provider_workload_output_truncated",
+                    "invalid_finish_reason": (
+                        "provider_workload_invalid_finish_reason"
+                    ),
+                }[exc.code]
+            else:
+                self.invalid = True
+            return
+        if frame is None:
+            return
+
+        self.actual_model = contract.actual_model
+        self.generation_id = contract.generation_id
+        self.finish_reason = contract.finish_reason
+        self.done_observed = contract.done_observed
+        self.terminal_replay_observed = contract.terminal_usage_replay_observed
+        if self.execution_shape == "chat_audio_input":
+            self._append_input_delivery_event(frame)
+        if frame.usage_counts is not None:
+            (
+                self.prompt_tokens,
+                self.completion_tokens,
+                self.total_tokens,
+            ) = frame.usage_counts
+        if frame.done:
+            self.terminal_observed = True
+            return
+        if frame.finish_reason is not None:
+            self.terminal_observed = True
+        if frame.terminal_replay or frame.delta is None:
+            return
+
+        delta = frame.delta
+        content = delta.get("content")
+        if self._has_text(content):
+            self.text_observed = True
+            self._observe_ttft()
+            if self.execution_shape == "chat_audio_output":
+                if not isinstance(content, str):
+                    self.invalid = True
+                    return
+                self._append_delivery_text(content, transcript=False)
+        audio = delta.get("audio")
+        if not isinstance(audio, dict):
+            return
+        transcript = audio.get("transcript")
+        if (
+            self.execution_shape == "chat_audio_output"
+            and isinstance(transcript, str)
+            and transcript
+        ):
+            self._append_delivery_text(transcript, transcript=True)
+        encoded = audio.get("data")
+        if not isinstance(encoded, str) or not encoded:
+            return
+        self.audio_encoded_length += len(encoded)
+        if self.audio_encoded_length > CHAT_AUDIO_MAX_ENCODED_CHARS:
+            self.invalid = True
+            return
+        self.audio_encoded_parts.append(encoded)
+        self.audio_observed = True
+        self._observe_ttft()
+
+    def _append_input_delivery_event(self, frame: R8DAudioSseFrame) -> None:
+        if frame.done or frame.payload is None:
+            return
+        try:
+            event = (
+                "data: "
+                + json.dumps(
+                    frame.payload,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+                + "\n\n"
+            ).encode("utf-8")
+        except (TypeError, ValueError):
+            self.invalid = True
+            return
+        self.input_delivery_length += len(event)
+        if (
+            self.input_delivery_length
+            > CHAT_AUDIO_MAX_SSE_STREAM_BYTES
+        ):
+            self.hard_error_code = "provider_multimodal_stream_too_large"
+            return
+        self.input_delivery_events.append(event)
+
     def _observe_ttft(self) -> None:
         if self.ttft_ms is None:
             self.ttft_ms = (time.perf_counter() - self.started_at) * 1000
+
+    def _append_delivery_text(self, value: str, *, transcript: bool) -> None:
+        self.delivery_text_length += len(value)
+        if self.delivery_text_length > CHAT_AUDIO_MAX_DELIVERY_TEXT_CHARS:
+            self.invalid = True
+            return
+        target = (
+            self.delivery_transcript_parts if transcript else self.delivery_text_parts
+        )
+        target.append(value)
+
+    def audio_delivery_wav(self) -> bytes | None:
+        if self.execution_shape != "chat_audio_output":
+            return None
+        audio = self._decoded_audio()
+        if audio is None:
+            return None
+        if self.expected_audio_format == "wav":
+            return audio if is_complete_wav(audio) else None
+        if self.expected_audio_format != "pcm16":
+            return None
+        try:
+            return chat_audio_pcm16_to_wav(audio)
+        except ValueError:
+            return None
+
+    def normalized_audio_delivery_events(self) -> list[bytes]:
+        """Return a bounded WAV delivery stream after the evidence gate passed."""
+
+        wav = self.audio_delivery_wav()
+        if wav is None or self.actual_model is None:
+            raise ValueError("managed chat audio delivery is not ready")
+        delta: dict[str, object] = {
+            "audio": {"data": base64.b64encode(wav).decode("ascii")}
+        }
+        text = "".join(self.delivery_text_parts)
+        transcript = "".join(self.delivery_transcript_parts)
+        if text:
+            delta["content"] = text
+        if transcript:
+            audio = delta["audio"]
+            assert isinstance(audio, dict)
+            audio["transcript"] = transcript
+        identity = {"id": self.generation_id} if self.generation_id else {}
+        content_event = {
+            **identity,
+            "model": self.actual_model,
+            "choices": [
+                {"index": 0, "delta": delta, "finish_reason": None}
+            ],
+        }
+        terminal_event: dict[str, object] = {
+            **identity,
+            "model": self.actual_model,
+            "choices": [
+                {"index": 0, "delta": {}, "finish_reason": "stop"}
+            ],
+        }
+        if (
+            self.prompt_tokens is not None
+            and self.completion_tokens is not None
+            and self.total_tokens is not None
+        ):
+            terminal_event["usage"] = {
+                "prompt_tokens": self.prompt_tokens,
+                "completion_tokens": self.completion_tokens,
+                "total_tokens": self.total_tokens,
+            }
+        return [
+            f"data: {json.dumps(content_event, ensure_ascii=False)}\n\n".encode(
+                "utf-8"
+            ),
+            f"data: {json.dumps(terminal_event, ensure_ascii=False)}\n\n".encode(
+                "utf-8"
+            ),
+        ]
+
+    def normalized_input_delivery_events(self) -> list[bytes]:
+        """Return canonical events only after the complete input stream passed."""
+
+        if (
+            self.execution_shape != "chat_audio_input"
+            or not self.done_observed
+            or self.finish_reason != "stop"
+            or self.invalid
+            or self.hard_error_code is not None
+        ):
+            raise ValueError("managed chat audio input delivery is not ready")
+        return list(self.input_delivery_events)
 
     @staticmethod
     def _normalized_sse_field_line(line: str) -> str:
@@ -369,6 +831,38 @@ class ManagedMultimodalChatStreamEvidence:
         except (TypeError, ValueError):
             return None
 
+    @staticmethod
+    def _clean_identifier(value: object, *, max_length: int) -> str | None:
+        if not isinstance(value, str):
+            return None
+        candidate = value.strip()
+        if not candidate or len(candidate) > max_length:
+            return None
+        return candidate
+
+    @staticmethod
+    def _terminal_usage_counts(
+        payload: Mapping[str, object],
+    ) -> tuple[int, int, int] | None:
+        usage = payload.get("usage")
+        if not isinstance(usage, dict):
+            return None
+        values: list[int] = []
+        for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+            value = usage.get(key)
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or value < 0
+                or value > (1 << 63) - 1
+            ):
+                return None
+            values.append(value)
+        prompt_tokens, completion_tokens, total_tokens = values
+        if total_tokens != prompt_tokens + completion_tokens:
+            return None
+        return prompt_tokens, completion_tokens, total_tokens
+
     def _decoded_audio(self) -> bytes | None:
         if not self.audio_encoded_parts:
             return None
@@ -387,20 +881,9 @@ class ManagedMultimodalChatStreamEvidence:
                 )
             except (binascii.Error, ValueError):
                 return None
-        if not decoded or len(decoded) > _MAX_MANAGED_CHAT_AUDIO_BYTES:
+        if not decoded or len(decoded) > CHAT_AUDIO_PCM16_MAX_BYTES:
             return None
         return decoded
-
-    @staticmethod
-    def _is_complete_mp3(content: bytes) -> bool:
-        # Keep the structural validator shared with the audio-generation
-        # delivery boundary so both paths reject magic-only or truncated data.
-        try:
-            from server.multimodal.audio_jobs import is_complete_mp3
-        except ModuleNotFoundError:  # pragma: no cover - direct server imports
-            from multimodal.audio_jobs import is_complete_mp3
-        return is_complete_mp3(content)
-
 
 class ManagedMultimodalGateway:
     """R8 managed Adapter boundary over the qualified workload call service."""
