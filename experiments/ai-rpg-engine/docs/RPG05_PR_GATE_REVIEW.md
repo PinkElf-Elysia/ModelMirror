@@ -1,6 +1,26 @@
 # RPG05 PR 前收口审阅
 
-## 当前草稿PR门禁（2026-09-12，PNG已补齐）
+## 当前发布状态（2026-09-12）
+
+已提交并推送，草稿 [PR #376](https://github.com/PinkElf-Elysia/ModelMirror/pull/376) 已创建。首个交付提交1044a9f6fa94c2a3cbc11c89f15abc979177b705的独立检出通过默认HEAD/index/工作区绑定复验：352项文件，252项原始基线记录，106项变更，原字节差异0。原图私下保留，PR只包含7张已核验的无损裁切PNG。
+
+本段是发布动作登记，不增加实现或模型可见变化。登记本身造成的文档提交另跑同一默认检查，最终SHA与回执保存在私有交付记录及GitHub分支；不把先前回执改写到新SHA。草稿保持开放，未合并、未启用自动合并，没有Deploy/Release/Publish。远端CI按实际状态单列，本文不预先宣称通过。
+
+520项实验回归、构建及主线合成副本143项离线检查通过；人工质量与体验仍待验收，STM累积未通过、宝藏天赋兑现未证实。357项人工来源、既有会话和自动26次账本不变，5次用户专用额度与预览继续保留；此次新增Provider0次。完整验收状态保持in_progress，人工验收前不得合并。
+
+## 远端 CI（首个交付提交的实际观察）
+
+CI 尚未全绿；本节绑定交付提交 1044a9f6fa94c2a3cbc11c89f15abc979177b705 和主线 d246527d5554b16594d390172cfa38876f998ccb，后续文档登记提交的运行结果须另外读取，不能沿用本节冒充新结果。
+
+- 两项 AI Research 路由/信任范围任务失败。任务调用主线自有的 trust_review.py scope；其 audit 第680行首先要求 base 为 candidate 的祖先。对该两项任务的实际 base/head 执行 git merge-base --is-ancestor 返回1，确认这一前置条件不满足。后续范围条件未在本地执行，不能推断仅同步主线就会全部通过；未修改工作流、审核脚本或人工运行源码。
+- [PR 前端任务](https://github.com/PinkElf-Elysia/ModelMirror/actions/runs/34710515858/job/103598329046) 为1002通过、2失败；[同一主线前端任务](https://github.com/PinkElf-Elysia/ModelMirror/actions/runs/34708352095/job/103592422917) 存在完全相同的两项失败：ModelCard 的UTC分时价格文案、tokenPricing 的UTC时间区间价格选择。其错误分别为找不到“当前输入薪资”和预期区间得到null。RPG05未修改父仓client；本轮不将这两个主线既有失败算作已修复。
+- [PR后端任务](https://github.com/PinkElf-Elysia/ModelMirror/actions/runs/34710515858/job/103598329163) 最终6752通过、7失败、32跳过；[主线后端任务](https://github.com/PinkElf-Elysia/ModelMirror/actions/runs/34708352095/job/103592422956) 为6733通过、3失败、32跳过。其中3项音频目录/ASR断言失败与主线一致，另外4项是本轮实际编译器接入测试失败，不能归为主线噪声。
+- 这4项的CI准备缺口仍未修复：quality.yml仅安装Agency worker的Node依赖，没有安装RPG05独立依赖，且配置Node22而非实验声明的Node24。独立干净检出用Node24运行原4种编译命令，均因缺少ajv失败；仅复制已登记的本地依赖后，原4种命令均成功。远端subprocess隐藏了stderr，因此这里只确认依赖缺口和本地复现，不冒称已读取远端具体stderr或完成修复后的远端验证。补齐CI准备需要另将.github/workflows/quality.yml纳入精确允许范围；本轮未改工作流、未跳过测试，也未降低断言。
+- Windows Project Host与readiness已通过，被跳过的任务不算通过。
+
+本地520项和主线合成副本143项通过，不替代仓库CI。当前允许的结果是已创建草稿PR，完整质量门禁仍未关闭。原始观察、日志hash及原因见私有 ci-diagnosis-final.json 与机器状态 remoteCi；不自动合并，也不通过修改范围外门禁消除失败。
+
+## PNG补齐后的提交前检查点（历史原文）
 
 7张用户提供的实机PNG已按用户明确选择做常规无损裁切，排除桌面宠物、通知和浮层；逐像素验证与原图对应区域相等，并逐张目视检查。仅裁切图进入文档，原图私下保留；原图/裁切hash、坐标、尺寸和局部覆盖见 [RPG05_SCREENSHOTS.json](RPG05_SCREENSHOTS.json)，查看入口见 [RPG05_CHECKOUT.md](RPG05_CHECKOUT.md)。此前截图工具拒绝与失败仍是历史证据，没有绕过，也没有AI补画。PNG缺口关闭，图片不代表完整页面或人工内容质量通过。
 

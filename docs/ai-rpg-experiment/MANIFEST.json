@@ -257,7 +257,7 @@
     "currentRoundExecution": false,
     "probeLedgerChanged": false
   },
-  "currentRequiredGateState": "draft_submission_checks_and_cropped_PNG_passed_manual_and_content_quality_pending",
+  "currentRequiredGateState": "draft_PR_376_open_manual_content_quality_and_repository_CI_pending",
   "workerQualification": {
     "required": true,
     "status": "qualified_small_batch",
@@ -301,7 +301,7 @@
     "pngDeferPermissionRevoked": true,
     "safetyBypassAllowed": false
   },
-  "publicationSnapshotPhase": "05F_png_cropped_ready_for_draft_pr",
+  "publicationSnapshotPhase": "05F_draft_pr_open_manual_acceptance_pending",
   "historicalRpg02": {
     "activeRound": {
       "round": "RPG-02",
@@ -3364,7 +3364,7 @@
     "branch": "codex/ai-rpg-rpg05-ui",
     "statusPath": "../../experiments/ai-rpg-engine/docs/RPG05_STATUS.json",
     "providerDispatches": 26,
-    "phase": "05F_png_cropped_ready_for_draft_pr",
+    "phase": "05F_draft_pr_open_manual_acceptance_pending",
     "offlineTests": 520,
     "manualAcceptance": false,
     "acceptancePath": "../../experiments/ai-rpg-engine/docs/RPG05_ACCEPTANCE.md",
@@ -4812,9 +4812,9 @@
       "scope": "actual-worktree offline/mock, typecheck/build; not new real content/manual acceptance"
     },
     "publication": {
-      "commit": false,
-      "push": false,
-      "pr": false,
+      "commit": true,
+      "push": true,
+      "pr": true,
       "merge": false,
       "deploy": false,
       "release": false,
@@ -4834,7 +4834,7 @@
       "safetyBypassAllowed": false
     },
     "publicationPreparation": {
-      "status": "ready_for_authorized_draft_commit_and_pr",
+      "status": "draft_pr_open_manual_quality_pending",
       "reviewedUpstream": "d246527d5554b16594d390172cfa38876f998ccb",
       "upstreamAhead": 13,
       "pathIntersections": [
@@ -4854,7 +4854,16 @@
         "receipt": ".rpg04-work/rpg05-pr-publish-20260912/verifier-checks.json",
         "sha256": "0717963fa4e7cf9e54fb5cd6e9042e788d19fa3d109e11df4f7788e3e6051a9f"
       },
-      "committedHeadVerification": "pending_delivery_commit",
+      "committedHeadVerification": {
+        "result": "passed",
+        "commitVerified": true,
+        "verifiedCommit": "1044a9f6fa94c2a3cbc11c89f15abc979177b705",
+        "artifacts": 352,
+        "checkoutDifferences": [],
+        "receipt": ".rpg04-work/rpg05-png-closeout-20260912/committed-head-check.json",
+        "sha256": "c173c1949aaac165e28178d3a648d7dae54f2338bf79be7af594ac5acf095137",
+        "scope": "first delivered code+PNG commit; subsequent publication-record-only commit requires the same checker and private final receipt"
+      },
       "licensePackages": 152,
       "credentialFindings": 0,
       "independent": "new verifier HEAD/index/scope findings fixed and read-only reviewed; no remaining code blocker in three-file scope",
@@ -4863,9 +4872,9 @@
       "runtimeSourceChanged": false,
       "manualSourceVersion": "closeout-1",
       "remaining": [
-        "default committed-head verification after delivery commit",
         "user quality and experience acceptance before merge",
-        "STM accumulation not_passed; treasure effect unverified; content continuity review"
+        "STM accumulation not_passed; treasure effect unverified; content continuity review",
+        "repository CI: ancestry precondition failed; existing main frontend2/backend3 failures; additional RPG05 compiler4 failures need explicit CI dependency/runtime preparation"
       ],
       "stagedFiles": 106,
       "packaging": {
@@ -4966,9 +4975,184 @@
         "pixelIntegrity": "passed",
         "visualCropReview": "passed",
         "manualQualityAcceptance": false
-      }
+      },
+      "remoteCi": "not_green; first delivered commit observations bound in remoteCi"
     },
-    "draftPrReady": true
+    "draftPrReady": true,
+    "publishedPr": {
+      "number": 376,
+      "url": "https://github.com/PinkElf-Elysia/ModelMirror/pull/376",
+      "state": "open",
+      "draft": true,
+      "merged": false,
+      "autoMerge": null,
+      "head": "1044a9f6fa94c2a3cbc11c89f15abc979177b705",
+      "base": "d246527d5554b16594d390172cfa38876f998ccb",
+      "headRef": "codex/ai-rpg-rpg05-ui",
+      "baseRef": "main",
+      "observedFrom": "GitHub pull request API after creation",
+      "recordedAt": "2026-09-12T18:15:58.915560+00:00"
+    },
+    "remoteCi": {
+      "observedAt": "2026-09-12T18:36:03.023041+00:00",
+      "observedHead": "1044a9f6fa94c2a3cbc11c89f15abc979177b705",
+      "observedBase": "d246527d5554b16594d390172cfa38876f998ccb",
+      "result": "not_green",
+      "checkRuns": [
+        {
+          "name": "Boundary, literature contracts, images, and fixture smoke",
+          "status": "completed",
+          "conclusion": "skipped",
+          "details_url": "https://github.com/PinkElf-Elysia/ModelMirror/actions/runs/34710515894/job/103598354022"
+        },
+        {
+          "name": "Trust candidate tests (${{ matrix.platform }}, not promotion)",
+          "status": "completed",
+          "conclusion": "skipped",
+          "details_url": "https://github.com/PinkElf-Elysia/ModelMirror/actions/runs/34710515894/job/103598353882"
+        },
+        {
+          "name": "Boundary, literature contracts, images, and fixture smoke",
+          "status": "completed",
+          "conclusion": "skipped",
+          "details_url": "https://github.com/PinkElf-Elysia/ModelMirror/actions/runs/34710515928/job/103598330330"
+        },
+        {
+          "name": "Trust candidate tests (${{ matrix.platform }}, not promotion)",
+          "status": "completed",
+          "conclusion": "skipped",
+          "details_url": "https://github.com/PinkElf-Elysia/ModelMirror/actions/runs/34710515928/job/103598330145"
+        },
+        {
+          "name": "Candidate routing (not trust authority)",
+          "status": "completed",
+          "conclusion": "skipped",
+          "details_url": "https://github.com/PinkElf-Elysia/ModelMirror/actions/runs/34710515928/job/103598330049"
+        },
+        {
+          "name": "Base-owned route and trust scope (not promotion)",
+          "status": "completed",
+          "conclusion": "skipped",
+          "details_url": "https://github.com/PinkElf-Elysia/ModelMirror/actions/runs/34710515894/job/103598329730"
+        },
+        {
+          "name": "Base-owned route and trust scope (not promotion)",
+          "status": "completed",
+          "conclusion": "failure",
+          "details_url": "https://github.com/PinkElf-Elysia/ModelMirror/actions/runs/34710515928/job/103598329463"
+        },
+        {
+          "name": "Windows Project Host",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/PinkElf-Elysia/ModelMirror/actions/runs/34710515858/job/103598329185"
+        },
+        {
+          "name": "Backend quality",
+          "status": "completed",
+          "conclusion": "failure",
+          "details_url": "https://github.com/PinkElf-Elysia/ModelMirror/actions/runs/34710515858/job/103598329163"
+        },
+        {
+          "name": "readiness",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/PinkElf-Elysia/ModelMirror/actions/runs/34710515941/job/103598329106"
+        },
+        {
+          "name": "Candidate routing (not trust authority)",
+          "status": "completed",
+          "conclusion": "failure",
+          "details_url": "https://github.com/PinkElf-Elysia/ModelMirror/actions/runs/34710515894/job/103598329071"
+        },
+        {
+          "name": "Frontend quality",
+          "status": "completed",
+          "conclusion": "failure",
+          "details_url": "https://github.com/PinkElf-Elysia/ModelMirror/actions/runs/34710515858/job/103598329046"
+        }
+      ],
+      "routeAndTrust": {
+        "result": "failed",
+        "classification": "base_ancestry_precondition",
+        "reviewerPath": "extensions/ai-research/scripts/trust_review.py",
+        "reviewerCommit": "d246527d5554b16594d390172cfa38876f998ccb",
+        "reviewerSha256": "3b06e0e611c4c254af9a82047d155f6bd8ae9ac3ce86ae29711e82262863586e",
+        "line": 680,
+        "requiredCondition": "base is an ancestor of candidate",
+        "gitMergeBaseIsAncestorExitCode": 1,
+        "evidence": "Both failed jobs invoke the base-owned scope reviewer with the observed base/head; the first audit precondition fails on that graph.",
+        "boundary": "Later scope conditions were not executed locally; no claim that rebasing alone would pass. No workflow/reviewer or frozen runtime modification."
+      },
+      "frontend": {
+        "result": "failed",
+        "classification": "same_two_failures_observed_on_current_main",
+        "failed": 2,
+        "passed": 1002,
+        "failures": [
+          "ModelCard.test.ts: shows a compact UTC pricing schedule for time-priced models",
+          "tokenPricing.test.ts: selects the live UTC price with inclusive start and exclusive end"
+        ],
+        "prJobUrl": "https://github.com/PinkElf-Elysia/ModelMirror/actions/runs/34710515858/job/103598329046",
+        "mainJobUrl": "https://github.com/PinkElf-Elysia/ModelMirror/actions/runs/34708352095/job/103592422917",
+        "comparisonReceipt": ".rpg04-work/rpg05-png-closeout-20260912/ci-frontend-comparison.json",
+        "comparisonSha256": "afa3c2f6ada01a4c0e59a205c1466c75666aaad92d711423887d349841030d04",
+        "logHashes": [
+          {
+            "name": "pr-frontend",
+            "sha256": "64b8c162019b4c505577277154f2802ea499c193163ac4162fec15b78f40c16d"
+          },
+          {
+            "name": "main-frontend",
+            "sha256": "e1c7b166459cef2f4b09d642a33d5c61310363ecea6f03cb80342eb13228e4e1"
+          }
+        ]
+      },
+      "backend": {
+        "status": "completed",
+        "conclusion": "failure",
+        "details_url": "https://github.com/PinkElf-Elysia/ModelMirror/actions/runs/34710515858/job/103598329163",
+        "failed": 7,
+        "passed": 6752,
+        "skipped": 32,
+        "mainComparison": {
+          "failed": 3,
+          "passed": 6733,
+          "skipped": 32,
+          "sameFailures": [
+            "test_audio_catalog_only_marks_verified_interactions_ready",
+            "test_audio_catalog_endpoint_does_not_expose_credentials",
+            "test_qwen3_asr_snapshots_are_adapted_for_manual_verification"
+          ],
+          "jobUrl": "https://github.com/PinkElf-Elysia/ModelMirror/actions/runs/34708352095/job/103592422956"
+        },
+        "additionalRpg05Failures": 4,
+        "additionalFailure": "test_actual_rpg05_compiler_schema_is_accepted: legacy/keyed x action/query subprocess returned 1",
+        "ciPreparationGap": "Backend workflow installs only Agency worker Node dependencies, not isolated RPG05 dependencies, and sets Node22 instead of the declared RPG05 Node24 engine.",
+        "localReproduction": {
+          "receipt": ".rpg04-work/rpg05-png-closeout-20260912/ci-compiler-dependency-reproduction.json",
+          "sha256": "4604a2370bcd2da464b2b7a1e6edf06c528cf11ee9e7c63e1405fe62c483d7f2",
+          "withoutDependencies": "4/4 fail ERR_MODULE_NOT_FOUND: ajv",
+          "withRegisteredLocalDependencies": "4/4 compile successfully",
+          "boundary": "Windows Node24; confirms dependency gap. Remote Linux Node22 stderr was hidden by check=True, so no claim to have read exact remote diagnostic or completed a repaired remote run."
+        },
+        "comparisonReceipt": ".rpg04-work/rpg05-png-closeout-20260912/ci-backend-comparison.json",
+        "comparisonSha256": "744a418036caf8d927bc489546b99b2778d974b57bd665ac61e12c03d417af8b",
+        "logHashes": [
+          {
+            "name": "pr-backend",
+            "sha256": "af2aab598ae48eab7b55878e87eb61b9d500752d5253bcfb453d8ce6bd847d60"
+          },
+          {
+            "name": "main-backend",
+            "sha256": "9a709921626d97c600b659a1e3e64d3cc15db0034ee3e0a84d272f0d74cbc745"
+          }
+        ],
+        "fixStatus": "not_applied; workflow changes are outside the two approved parent files; no skip or weakened assertion"
+      },
+      "overallAcceptance": false,
+      "laterDocumentationCommit": "CI observations above are bound to the first delivery head; subsequent head checks are recorded separately without rewriting these results."
+    }
   },
   "moduleFiles": [
     {
@@ -5688,13 +5872,13 @@
     },
     {
       "path": "docs/RPG05_PR_GATE_REVIEW.md",
-      "bytes": 12648,
-      "sha256": "aaef328e3b95d3852eabe26b63e0f4423b83ed49b764696f9398d955917e52ad"
+      "bytes": 16496,
+      "sha256": "0a5c9b7637bdcad10313338ae12ae63923d3892697f52b5a966cb04b8f16f40d"
     },
     {
       "path": "docs/RPG05_PUBLICATION.json",
       "bytes": 102042,
-      "sha256": "966264c4843727b0b80b4ad75fe1df37800d570d488dbd61d1f498c9ad262de2"
+      "sha256": "bc9b2a6548f3522536a606cfc38973fc4391306ab25b53f0195bd662318180d5"
     },
     {
       "path": "docs/RPG05_REAL_REVIEW.md",
@@ -5720,8 +5904,8 @@
     },
     {
       "path": "docs/RPG05_STATUS.json",
-      "bytes": 162230,
-      "sha256": "ebb73826aacac3dba02c25bc7d8de41f107419f7411759114a24734b27882004"
+      "bytes": 171549,
+      "sha256": "ce393e7aaa97b21a7d49a61eef1047eccdd873ddb9a422e8bf1bc90a045906ac"
     },
     {
       "path": "docs/RPG05_STRUCTURED_OUTPUT_REVIEW.md",
@@ -8032,6 +8216,12 @@
       "manifestSha256": "58e1c681e82bb43f901bb95dc91880b8651fb58393cacfb179c753cedda6c538",
       "phase": "05F_candidate_packaged_png_required_before_pr",
       "backup": ".rpg04-work/rpg05-png-closeout-20260912/before-png-metadata/MANIFEST.json"
+    },
+    {
+      "recordedAt": "2026-09-12T18:15:58.915560+00:00",
+      "manifestSha256": "9a6795d7bb3b0135785bf138b167d5e8452b0d0362bbed98edf76e977630ffec",
+      "phase": "05F_png_cropped_ready_for_draft_pr",
+      "backup": ".rpg04-work/rpg05-png-closeout-20260912/before-pr-record/MANIFEST.json"
     }
   ],
   "moduleFilesRepresentation": "publication bytes; five EOF-only entries retain original manual-runtime SHA separately; MANIFEST excludes itself"
