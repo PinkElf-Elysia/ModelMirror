@@ -26,6 +26,7 @@ const ALLOWED_INPUT_MODALITIES = new Set([
 ]);
 const BATCH_VARIANT_SUFFIX = ":batch";
 const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
+  "meta/muse-voice-transcribe-1.0",
   "bytedance-seed/seedream-5-0-pro",
   "bytedance-seed/seedream-5-0-lite",
   "bytedance/seedance-2.0-mini",
@@ -368,10 +369,11 @@ export function assertRequiredAudioHourPricingOverlays(
   const currentById = new Map(currentModels.map((model) => [model.id, model]));
   for (const [id] of REQUIRED_AUDIO_HOUR_PRICING_OVERLAYS) {
     const current = currentById.get(id);
+    const source = sourceById.get(id);
+    if (!current && !source) continue;
     if (!current) {
       throw new Error(`Manual audio-hour pricing overlay required for ${id}`);
     }
-    const source = sourceById.get(id);
     if (source) {
       preserveLocalOverlay(source, current);
       continue;

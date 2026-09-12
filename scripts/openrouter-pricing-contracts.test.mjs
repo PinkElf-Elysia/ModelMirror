@@ -29,6 +29,44 @@ const market = {
   },
 };
 
+const museSource = {
+  id: "meta/muse-voice-transcribe-1.0",
+  pricing: { prompt: "0.18" },
+};
+const museLocal = {
+  id: "meta/muse-voice-transcribe-1.0",
+  pricing_basis: "media",
+  media_pricing: { unit: "audio_hour", usd: 0.18 },
+};
+const museMarket = {
+  slug: "meta/muse-voice-transcribe-1.0",
+  endpoint: {
+    model_variant_slug: "meta/muse-voice-transcribe-1.0",
+    pricing: { prompt: "0.18" },
+    display_pricing: [
+      {
+        kind: "unit",
+        sku_label: "Audio Hours",
+        price: "0.18",
+        displayMultiplier: 1,
+        unitLabel: "/hour",
+      },
+    ],
+    pricing_json: { "meta_stt:audio_hours": "0.18" },
+  },
+};
+
+test("accepts the required Muse Voice audio-hour overlay", () => {
+  assert.deepEqual(
+    auditAudioHourPricingOverlays({
+      localModels: [museLocal],
+      sourceModels: [museSource],
+      marketModels: [museMarket],
+    }),
+    [],
+  );
+});
+
 test("accepts the required MAI audio-hour overlay", () => {
   assert.deepEqual(
     auditAudioHourPricingOverlays({

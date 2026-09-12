@@ -43,7 +43,7 @@ ALLOWED_AUDIO_FORMATS: dict[str, tuple[str, ...]] = {
     "webm": ("audio/webm", "video/webm", "application/octet-stream"),
     "aac": ("audio/aac", "audio/x-aac", "application/octet-stream"),
 }
-TRANSCRIPTION_PROFILE_VERSION = "stt-contracts-2026-09-03-mai2"
+TRANSCRIPTION_PROFILE_VERSION = "stt-contracts-2026-09-12-muse1"
 
 
 @dataclass(frozen=True)
@@ -85,6 +85,9 @@ MANUAL_TRANSCRIPTION_PROFILES: dict[str, TranscriptionProfile] = {
         "qwen/qwen3-asr-1.7b",
     )
 }
+MANUAL_TRANSCRIPTION_PROFILES["meta/muse-voice-transcribe-1.0"] = (
+    TranscriptionProfile(input_formats=("wav",))
+)
 
 
 def verification_model_ids() -> set[str]:

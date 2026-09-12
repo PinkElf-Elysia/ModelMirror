@@ -376,6 +376,15 @@ async def test_audio_catalog_only_marks_verified_interactions_ready(
     )
     assert "短音频人工验收" in (mai2.status_reason or "")
     assert "webm" in mai2.input_formats
+    muse_stt = by_id["meta/muse-voice-transcribe-1.0"]
+    assert muse_stt.operations == ["transcribe"]
+    assert muse_stt.chat_modes == []
+    assert muse_stt.input_formats == ["wav"]
+    assert muse_stt.interaction_status == "planned"
+    assert muse_stt.operation_readiness[0].verification_status == (
+        "manual_required"
+    )
+    assert "16-bit PCM WAV" in (muse_stt.status_reason or "")
     assert by_id["microsoft/mai-voice-2"].chat_modes == [
         "synthesize_speech"
     ]

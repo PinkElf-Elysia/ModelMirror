@@ -43,7 +43,7 @@ from .readiness import (
 
 AUDIO_CATALOG_TTL_SECONDS = 300.0
 AUDIO_CATALOG_STALE_SECONDS = 1_800.0
-AUDIO_PROFILE_REGISTRY_VERSION = "modelmirror-audio-contracts-2026-09-03-mai2"
+AUDIO_PROFILE_REGISTRY_VERSION = "modelmirror-audio-contracts-2026-09-12-muse1"
 
 NATIVE_AUDIO_VOICES = (
     "alloy",
@@ -273,6 +273,19 @@ for _model_id, _profile in MANUAL_TRANSCRIPTION_PROFILES.items():
             ),
         ),
     )
+OPENROUTER_AUDIO_CONTRACTS["meta/muse-voice-transcribe-1.0"] = AudioContract(
+    operations=("transcribe",),
+    chat_modes=("transcribe",),
+    input_formats=("wav",),
+    interaction_adapted=True,
+    manual_verification_required=True,
+    verification_status="manual_required",
+    planned_reason=(
+        "同步转写契约已接入；仅接受最长 10 分钟的单声道 16-bit PCM WAV，"
+        "采样率为 16 kHz 或 24 kHz，且不提供词级时间戳或置信度。"
+        "等待本地短音频人工验收。"
+    ),
+)
 for _model_id, _voices in ALLOWED_SPEECH_PROFILES.items():
     OPENROUTER_AUDIO_CONTRACTS.setdefault(
         _model_id,

@@ -127,6 +127,17 @@ const september11ModelIds = [
   "inclusionai/ling-3.0-flash-vl:free",
 ];
 
+const september12ModelIds = [
+  "inference-net/schematron-v2-turbo",
+  "inference-net/schematron-v2-small",
+  "meta/muse-voice-transcribe-1.0",
+  "~openai/gpt-astra-latest",
+  "~openai/gpt-sol-latest",
+  "~openai/gpt-terra-latest",
+  "~openai/gpt-luna-latest",
+  "inclusionai/ling-3.0-flash-vl",
+];
+
 const august28BatchCatalogIds = [
   "qwen/qwen3.8-2.4t-a95b:batch",
   "mistralai/mistral-medium-3-5:batch",
@@ -135,11 +146,25 @@ const august28BatchCatalogIds = [
 describe("OpenRouter model refresh", () => {
   it("reconciles the refreshed counted catalog totals", () => {
     const counted = models.filter((model) => model.catalog_counted);
-    expect(counted).toHaveLength(600);
-    expect(counted.filter((model) => model.catalog_status === "live")).toHaveLength(512);
-    expect(counted.filter((model) => model.catalog_status === "uncertain")).toHaveLength(80);
+    expect(counted).toHaveLength(608);
+    expect(counted.filter((model) => model.catalog_status === "live")).toHaveLength(519);
+    expect(counted.filter((model) => model.catalog_status === "uncertain")).toHaveLength(81);
     expect(counted.filter((model) => model.catalog_status === "expired")).toHaveLength(8);
-    expect(counted.filter((model) => model.catalog_status !== "expired")).toHaveLength(592);
+    expect(counted.filter((model) => model.catalog_status !== "expired")).toHaveLength(600);
+  });
+
+  it("adapts the September 12 models below the flagship rows", () => {
+    const byId = new Map(models.map((model) => [model.id, model]));
+    for (const modelId of september12ModelIds) {
+      expect(models.findIndex((model) => model.id === modelId)).toBeGreaterThanOrEqual(20);
+      expect(byId.get(modelId)?.catalog_status).toBe("live");
+    }
+    expect(byId.get("inference-net/schematron-v2-turbo")).toMatchObject({ context_length: 128_000, pricing: { input: 0.03, output: 0.15 }, operations: ["chat"], interaction_status: "ready" });
+    expect(byId.get("inference-net/schematron-v2-small")).toMatchObject({ context_length: 128_000, pricing: { input: 0.049999999999999996, output: 0.22999999999999998 }, operations: ["chat"], interaction_status: "ready" });
+    expect(byId.get("meta/muse-voice-transcribe-1.0")).toMatchObject({ input_modalities: ["audio"], output_modalities: ["transcription"], pricing_basis: "media", media_pricing: { unit: "audio_hour", usd: 0.18 }, operations: ["transcribe"], primary_operation: "transcribe", interaction_status: "ready", ui_entrypoint: "chat" });
+    for (const aliasId of september12ModelIds.filter((id) => id.startsWith("~openai/"))) {
+      expect(byId.get(aliasId)).toMatchObject({ input_modalities: ["file", "image", "text"], output_modalities: ["text"], interaction_status: "ready" });
+    }
   });
 
   it("adapts the September 11 models below the flagship rows", () => {
@@ -376,7 +401,7 @@ describe("OpenRouter model refresh", () => {
     expect(models.find((item) => item.id === "meta/muse-spark-1.3-contributor")?.note)
       .toContain("输入与输出可能用于改进 Meta 产品");
     expect(models.find((item) => item.id === "meta/muse-spark-1.3")?.openrouter_market.categories)
-      .toEqual(["programming", "technology", "legal", "finance"]);
+      .toEqual(["programming", "technology", "science", "legal", "finance"]);
     expect(models.find((item) => item.id === "meta/muse-spark-1.3-contributor")?.openrouter_market.categories)
       .toEqual([
         "programming", "roleplay", "marketing", "marketing/seo", "technology",
@@ -428,7 +453,7 @@ describe("OpenRouter model refresh", () => {
       catalog_status: "live",
       active: true,
       context_length: 1_048_576,
-      pricing: { input: 0.3, output: 1.2 },
+      pricing: { input: 0.15, output: 0.6 },
       input_modalities: ["text", "image"],
       output_modalities: ["text"],
       reasoning_declared: true,
@@ -668,10 +693,10 @@ describe("OpenRouter model refresh", () => {
     });
     expect(
       models.find((model) => model.id === "qwen/qwen3.8-27b")?.pricing.input,
-    ).toBeCloseTo(0.42);
+    ).toBeCloseTo(0.214);
     expect(
       models.find((model) => model.id === "qwen/qwen3.8-27b")?.pricing.output,
-    ).toBeCloseTo(3);
+    ).toBeCloseTo(2.55);
   });
 
   it("adds the three August 20 snapshots below the first six rows", () => {
@@ -721,7 +746,7 @@ describe("OpenRouter model refresh", () => {
       interaction_status: "ready",
       ui_entrypoint: "chat",
       context_length: 1_310_720,
-      pricing: { input: 0.9700000000000001, output: 3.3077 },
+      pricing: { input: 0.8727, output: 3.36 },
       reasoning_declared: true,
       openrouter_market: { author: "z-ai" },
     });
@@ -1585,7 +1610,7 @@ describe("OpenRouter model refresh", () => {
     ).toMatchObject({
       series: "DeepSeek",
       author: "deepseek",
-      providers: ["DigitalOcean"],
+      providers: ["StreamLake"],
       categories: expect.arrayContaining(["translation"]),
     });
     expect(
@@ -1674,31 +1699,31 @@ describe("OpenRouter model refresh", () => {
     );
 
     expect(byId.get("~deepseek/deepseek-v4-flash-latest")?.pricing).toEqual({
-      input: 0.049999999999999996,
-      output: 0.16,
+      input: 0.03,
+      output: 0.07,
     });
     expect(byId.get("z-ai/glm-5.2")?.pricing).toEqual({
-      input: 0.966,
-      output: 3.036,
+      input: 0.6,
+      output: 2,
     });
     expect(byId.get("moonshotai/kimi-k2.7-code")?.pricing).toEqual({
       input: 0.71,
       output: 3.5,
     });
     expect(byId.get("deepseek/deepseek-v4-pro-0813")?.pricing).toEqual({
-      input: 0.66,
-      output: 1.9800000000000002,
+      input: 0.57816,
+      output: 1.73448,
     });
     expect(
       byId.get("deepseek/deepseek-v4-pro-0813")?.openrouter_market,
     ).toMatchObject({
-      providers: ["Fireworks", "Ionstream"],
-      discounted: false,
-      zero_data_retention: true,
+      providers: ["Baidu", "Fireworks"],
+      discounted: true,
+      zero_data_retention: false,
     });
     expect(byId.get("deepseek/deepseek-v4-pro")?.pricing).toEqual({
-      input: 0.9552599999999999,
-      output: 1.9105199999999998,
+      input: 0.7991820000000001,
+      output: 1.5983640000000001,
     });
     expect(byId.get("tencent/hy3")?.pricing).toEqual({
       input: 0.13199999999999998,
@@ -1709,8 +1734,8 @@ describe("OpenRouter model refresh", () => {
       output: 2,
     });
     expect(byId.get("deepseek/deepseek-v4-flash")?.pricing).toEqual({
-      input: 0.088606,
-      output: 0.177212,
+      input: 0.06678,
+      output: 0.13356,
     });
     expect(byId.get("qwen/qwen3.5-122b-a10b")?.pricing).toEqual({
       input: 0.26,
@@ -1763,8 +1788,8 @@ describe("OpenRouter model refresh", () => {
       output: 1.1,
     });
     expect(byId.get("~moonshotai/kimi-latest")?.pricing).toEqual({
-      input: 2.34,
-      output: 11.7,
+      input: 2.125,
+      output: 11.9,
     });
     expect(byId.get("deepseek/deepseek-chat-v3.1")?.pricing).toEqual({
       input: 0.25,
@@ -1886,7 +1911,7 @@ describe("OpenRouter model refresh", () => {
       (model) => model.catalog_status === "expired",
     );
 
-    expect(uncertain).toHaveLength(80);
+    expect(uncertain).toHaveLength(81);
     expect(ling?.active).toBe(true);
     expect(
       uncertain.find((model) => model.id === "mistralai/ministral-8b")
