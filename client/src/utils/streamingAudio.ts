@@ -5,7 +5,10 @@ export interface StreamingAudioResult {
   streamed: boolean;
 }
 
-interface StreamingMp3SessionOptions {
+export type StreamingAudioFormat = "mp3" | "wav";
+
+export interface StreamingAudioSessionOptions {
+  format?: StreamingAudioFormat;
   onPlaybackUrl?: (url: string, streamed: boolean) => void;
   onPlaybackFallback?: (message: string) => void;
 }
@@ -80,11 +83,12 @@ export class IncrementalBase64Decoder {
   }
 }
 
-export class StreamingMp3Session {
+export class StreamingAudioSession {
   private readonly decoder = new IncrementalBase64Decoder();
   private readonly chunks: Uint8Array[] = [];
   private readonly appendQueue: Uint8Array[] = [];
-  private readonly options: StreamingMp3SessionOptions;
+  private readonly options: StreamingAudioSessionOptions;
+  private readonly format: StreamingAudioFormat;
   private mediaSource: MediaSource | null = null;
   private sourceBuffer: SourceBuffer | null = null;
   private mediaUrl = "";
@@ -93,8 +97,9 @@ export class StreamingMp3Session {
   private mediaFailed = false;
   private disposed = false;
 
-  constructor(options: StreamingMp3SessionOptions = {}) {
+  constructor(options: StreamingAudioSessionOptions = {}) {
     this.options = options;
+    this.format = options.format ?? "mp3";
   }
 
   pushBase64(value: string) {
@@ -125,7 +130,9 @@ export class StreamingMp3Session {
 
     if (!this.blobUrl) {
       this.blobUrl = URL.createObjectURL(
-        new Blob(this.chunks, { type: "audio/mpeg" }),
+        new Blob(this.chunks, {
+          type: this.format === "wav" ? "audio/wav" : "audio/mpeg",
+        }),
       );
     }
     if (!this.mediaSource || this.mediaFailed) {
@@ -174,6 +181,7 @@ export class StreamingMp3Session {
     if (
       this.mediaSource ||
       this.mediaFailed ||
+      this.format !== "mp3" ||
       typeof window.MediaSource === "undefined" ||
       !window.MediaSource.isTypeSupported("audio/mpeg")
     ) {
@@ -258,5 +266,13 @@ export class StreamingMp3Session {
     if (this.finished && this.blobUrl) {
       this.options.onPlaybackUrl?.(this.blobUrl, false);
     }
+  }
+}
+
+export class StreamingMp3Session extends StreamingAudioSession {
+  constructor(
+    options: Omit<StreamingAudioSessionOptions, "format"> = {},
+  ) {
+    super({ ...options, format: "mp3" });
   }
 }

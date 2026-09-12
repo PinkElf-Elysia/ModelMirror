@@ -9,8 +9,9 @@ import logging
 import os
 import re
 import tempfile
+import time
 import uuid
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Coroutine
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -21,9 +22,41 @@ from pydantic import BaseModel, Field
 
 try:
     from server.model_router.egress import ProviderEgressPolicy, stream_provider_url
+    from server.model_router.multimodal_control import (
+        AUDIO_GENERATION_CONNECT_TIMEOUT_SECONDS,
+        AUDIO_GENERATION_MAX_ENCODED_CHARS,
+        AUDIO_GENERATION_MAX_MEDIA_BYTES,
+        AUDIO_GENERATION_MAX_SSE_EVENT_BYTES,
+        AUDIO_GENERATION_MAX_SSE_STREAM_BYTES,
+        AUDIO_GENERATION_MIN_MEDIA_BYTES,
+        AUDIO_GENERATION_POOL_TIMEOUT_SECONDS,
+        AUDIO_GENERATION_READ_TIMEOUT_SECONDS,
+        AUDIO_GENERATION_TOTAL_TIMEOUT_SECONDS,
+        AUDIO_GENERATION_WRITE_TIMEOUT_SECONDS,
+        R8DAudioSseContract,
+        R8DAudioSseContractError,
+        R8DAudioSseEventBuffer,
+        build_openrouter_audio_generation_payload,
+    )
     from server.model_router.service import ModelRouterService
 except ModuleNotFoundError:
     from model_router.egress import ProviderEgressPolicy, stream_provider_url
+    from model_router.multimodal_control import (
+        AUDIO_GENERATION_CONNECT_TIMEOUT_SECONDS,
+        AUDIO_GENERATION_MAX_ENCODED_CHARS,
+        AUDIO_GENERATION_MAX_MEDIA_BYTES,
+        AUDIO_GENERATION_MAX_SSE_EVENT_BYTES,
+        AUDIO_GENERATION_MAX_SSE_STREAM_BYTES,
+        AUDIO_GENERATION_MIN_MEDIA_BYTES,
+        AUDIO_GENERATION_POOL_TIMEOUT_SECONDS,
+        AUDIO_GENERATION_READ_TIMEOUT_SECONDS,
+        AUDIO_GENERATION_TOTAL_TIMEOUT_SECONDS,
+        AUDIO_GENERATION_WRITE_TIMEOUT_SECONDS,
+        R8DAudioSseContract,
+        R8DAudioSseContractError,
+        R8DAudioSseEventBuffer,
+        build_openrouter_audio_generation_payload,
+    )
     from model_router.service import ModelRouterService
 
 if TYPE_CHECKING:
@@ -68,16 +101,63 @@ LYRIA_MODEL_IDS = {
 }
 MAX_AUDIO_GENERATION_PROMPT_CHARS = 4_000
 MAX_AUDIO_JOB_IMAGE_BYTES = 10 * 1024 * 1024
-MAX_GENERATED_AUDIO_BYTES = 25 * 1024 * 1024
-MAX_AUDIO_JOB_SSE_EVENT_BYTES = 2 * 1024 * 1024
-MAX_AUDIO_JOB_SSE_STREAM_BYTES = (
-    MAX_GENERATED_AUDIO_BYTES * 4 // 3 + 4 * 1024 * 1024
-)
+MAX_AUDIO_JOB_SSE_EVENT_BYTES = AUDIO_GENERATION_MAX_SSE_EVENT_BYTES
+MAX_AUDIO_JOB_SSE_STREAM_BYTES = AUDIO_GENERATION_MAX_SSE_STREAM_BYTES
 MAX_IDEMPOTENCY_KEY_CHARS = 128
 DEFAULT_AUDIO_JOB_TTL_SECONDS = 30 * 60
+MANAGED_AUDIO_GENERATION_TOTAL_TIMEOUT_SECONDS = (
+    AUDIO_GENERATION_TOTAL_TIMEOUT_SECONDS
+)
+MANAGED_AUDIO_GENERATION_CLOSE_TIMEOUT_SECONDS = 1.0
 IDEMPOTENCY_KEY_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{8,128}$")
 AUDIO_OUTPUT_TEMP_PATTERN = re.compile(r"^[0-9a-f]{64}\.tmp-[0-9a-f]{32}$")
 TERMINAL_AUDIO_JOB_STATUSES = {"succeeded", "failed", "expired"}
+_BACKGROUND_AUDIO_CLEANUP_TASKS: set[asyncio.Task[Any]] = set()
+
+
+def _consume_background_close_result(task: asyncio.Task[Any]) -> None:
+    _BACKGROUND_AUDIO_CLEANUP_TASKS.discard(task)
+    try:
+        task.result()
+    except BaseException:
+        pass
+
+
+async def _run_audio_cleanup_bounded(
+    cleanup: Coroutine[object, object, None],
+) -> None:
+    """Bound cleanup and track a cancellation-resistant cleanup task to completion."""
+
+    close_task = asyncio.create_task(cleanup)
+    try:
+        done, _ = await asyncio.wait(
+            {close_task},
+            timeout=MANAGED_AUDIO_GENERATION_CLOSE_TIMEOUT_SECONDS,
+        )
+    except BaseException:
+        close_task.cancel()
+        _BACKGROUND_AUDIO_CLEANUP_TASKS.add(close_task)
+        close_task.add_done_callback(_consume_background_close_result)
+        raise
+    if close_task not in done:
+        close_task.cancel()
+        _BACKGROUND_AUDIO_CLEANUP_TASKS.add(close_task)
+        close_task.add_done_callback(_consume_background_close_result)
+        return
+    _consume_background_close_result(close_task)
+
+
+async def _close_response_bounded(response: httpx.Response) -> None:
+    await _run_audio_cleanup_bounded(response.aclose())
+
+
+async def _close_client_bounded(client: httpx.AsyncClient) -> None:
+    await _run_audio_cleanup_bounded(client.aclose())
+
+
+def _track_background_audio_task(task: asyncio.Task[Any]) -> None:
+    _BACKGROUND_AUDIO_CLEANUP_TASKS.add(task)
+    task.add_done_callback(_consume_background_close_result)
 
 AUDIO_JOB_IMAGE_FORMATS: dict[
     str, tuple[str, tuple[str, ...]]
@@ -193,6 +273,10 @@ class AudioGenerationResult:
     actual_model: str
     generation_id: str | None
     cost_usd: float | None
+    ttft_ms: float | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
 
 
 @dataclass(frozen=True)
@@ -277,6 +361,7 @@ class OpenRouterAudioJobAdapter:
         *,
         model_id: str,
         prompt: str,
+        image_data_url: str | None = None,
         on_dispatched: Callable[[], None] | None = None,
     ) -> AudioGenerationResult:
         """Send exactly one qualified POST through the R8D dispatch guard."""
@@ -284,9 +369,11 @@ class OpenRouterAudioJobAdapter:
         payload = self._payload(
             model_id=model_id,
             prompt=prompt,
-            image_data_url=None,
+            image_data_url=image_data_url,
         )
-        async with self._client_factory() as client:
+
+        async def exchange() -> AudioGenerationResult:
+            client = self._client_factory()
             response: httpx.Response | None = None
             try:
                 response = await dispatch.send(
@@ -299,34 +386,70 @@ class OpenRouterAudioJobAdapter:
                     },
                     on_dispatched=on_dispatched,
                 )
-                await self._raise_for_status(response)
-                return await self._consume_response(
-                    response,
-                    requested_model=model_id,
-                    require_observed_model=True,
-                )
-            except MultimodalServiceError:
-                raise
-            except (
-                httpx.ConnectTimeout,
-                httpx.ReadTimeout,
-                httpx.WriteTimeout,
-                httpx.PoolTimeout,
-            ) as exc:
-                raise MultimodalServiceError(
-                    "provider_result_uncertain",
-                    SAFE_AUDIO_JOB_ERRORS["provider_result_uncertain"],
-                    status_code=504,
-                ) from exc
-            except httpx.HTTPError as exc:
-                raise MultimodalServiceError(
-                    "provider_result_uncertain",
-                    SAFE_AUDIO_JOB_ERRORS["provider_result_uncertain"],
-                    status_code=502,
-                ) from exc
+                await self._raise_for_status(response, require_2xx=True)
+                try:
+                    return await self._consume_response(
+                        response,
+                        requested_model=model_id,
+                        require_observed_model=True,
+                        started_at=getattr(dispatch, "started_at", None),
+                    )
+                finally:
+                    closing_response = response
+                    response = None
+                    await _close_response_bounded(closing_response)
             finally:
                 if response is not None:
-                    await response.aclose()
+                    closing_response = response
+                    response = None
+                    await _close_response_bounded(closing_response)
+                await _close_client_bounded(client)
+
+        operation_task = asyncio.create_task(exchange())
+        try:
+            done, _ = await asyncio.wait(
+                {operation_task},
+                timeout=MANAGED_AUDIO_GENERATION_TOTAL_TIMEOUT_SECONDS,
+            )
+        except asyncio.CancelledError:
+            operation_task.cancel()
+            _track_background_audio_task(operation_task)
+            raise
+        if operation_task not in done:
+            operation_task.cancel()
+            _track_background_audio_task(operation_task)
+            raise MultimodalServiceError(
+                "provider_result_uncertain",
+                SAFE_AUDIO_JOB_ERRORS["provider_result_uncertain"],
+                status_code=504,
+            )
+        try:
+            return operation_task.result()
+        except TimeoutError as exc:
+            raise MultimodalServiceError(
+                "provider_result_uncertain",
+                SAFE_AUDIO_JOB_ERRORS["provider_result_uncertain"],
+                status_code=504,
+            ) from exc
+        except MultimodalServiceError:
+            raise
+        except (
+            httpx.ConnectTimeout,
+            httpx.ReadTimeout,
+            httpx.WriteTimeout,
+            httpx.PoolTimeout,
+        ) as exc:
+            raise MultimodalServiceError(
+                "provider_result_uncertain",
+                SAFE_AUDIO_JOB_ERRORS["provider_result_uncertain"],
+                status_code=504,
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise MultimodalServiceError(
+                "provider_result_uncertain",
+                SAFE_AUDIO_JOB_ERRORS["provider_result_uncertain"],
+                status_code=502,
+            ) from exc
 
     @staticmethod
     def _payload(
@@ -335,20 +458,11 @@ class OpenRouterAudioJobAdapter:
         prompt: str,
         image_data_url: str | None,
     ) -> dict[str, object]:
-        content: str | list[dict[str, object]] = prompt
-        if image_data_url:
-            content = [
-                {"type": "text", "text": prompt},
-                {
-                    "type": "image_url",
-                    "image_url": {"url": image_data_url},
-                },
-            ]
-        return {
-            "model": model_id,
-            "stream": True,
-            "messages": [{"role": "user", "content": content}],
-        }
+        return build_openrouter_audio_generation_payload(
+            model_id=model_id,
+            prompt=prompt,
+            image_data_url=image_data_url,
+        )
 
     async def _consume_response(
         self,
@@ -356,6 +470,7 @@ class OpenRouterAudioJobAdapter:
         *,
         requested_model: str,
         require_observed_model: bool,
+        started_at: float | None = None,
     ) -> AudioGenerationResult:
         encoded_parts: list[str] = []
         encoded_length = 0
@@ -363,72 +478,108 @@ class OpenRouterAudioJobAdapter:
         generation_id = response.headers.get("x-generation-id") or None
         finish_reason: str | None = None
         usage: object = None
+        ttft_ms: float | None = None
         saw_done = False
+        contract = (
+            R8DAudioSseContract(
+                execution_shape="audio_generation_stream",
+                expected_model=requested_model,
+            )
+            if require_observed_model
+            else None
+        )
 
-        async for event in self._iter_sse_events(response):
-            data_lines = [
-                line[5:].lstrip()
-                for line in event.split("\n")
-                if line.startswith("data:")
-            ]
-            if not data_lines:
-                continue
-            raw = "\n".join(data_lines)
-            if saw_done:
-                raise self._incomplete_error()
-            if raw == "[DONE]":
-                saw_done = True
-                continue
-            try:
-                item = json.loads(raw)
-            except ValueError as exc:
-                raise self._incomplete_error() from exc
-            if not isinstance(item, dict):
-                raise self._incomplete_error()
-            if isinstance(item.get("error"), dict):
-                raise MultimodalServiceError(
-                    "provider_unavailable",
-                    SAFE_AUDIO_JOB_ERRORS["provider_unavailable"],
-                    status_code=502,
-                )
-            if isinstance(item.get("model"), str) and item["model"].strip():
-                observed_model = item["model"].strip()
-                if require_observed_model and (
-                    observed_model != requested_model
-                    or (
-                        actual_model is not None
-                        and observed_model != actual_model
-                    )
-                ):
+        async for event in self._iter_sse_events(
+            response,
+            strict_r8d=contract is not None,
+        ):
+            if contract is not None:
+                try:
+                    frame = contract.consume_event(event)
+                except R8DAudioSseContractError as exc:
+                    if exc.code == "model_mismatch":
+                        raise MultimodalServiceError(
+                            "provider_workload_model_mismatch",
+                            "音乐 Provider 返回的实际模型与 Binding 不一致。",
+                            status_code=502,
+                        ) from exc
+                    if exc.code == "stream_error":
+                        raise MultimodalServiceError(
+                            "provider_unavailable",
+                            SAFE_AUDIO_JOB_ERRORS["provider_unavailable"],
+                            status_code=502,
+                        ) from exc
+                    raise self._incomplete_error() from exc
+                if frame is None:
+                    continue
+                if frame.done:
+                    saw_done = True
+                    continue
+                actual_model = contract.actual_model
+                generation_id = generation_id or contract.generation_id
+                finish_reason = contract.finish_reason
+                if frame.usage is not None:
+                    usage = frame.usage
+                if frame.terminal_replay:
+                    continue
+                delta = frame.delta
+                assert delta is not None
+            else:
+                data_lines = [
+                    line[5:].lstrip()
+                    for line in event.split("\n")
+                    if line.startswith("data:")
+                ]
+                if not data_lines:
+                    continue
+                raw = "\n".join(data_lines)
+                if saw_done:
+                    raise self._incomplete_error()
+                if raw == "[DONE]":
+                    saw_done = True
+                    continue
+                try:
+                    item = json.loads(raw)
+                except (TypeError, ValueError) as exc:
+                    raise self._incomplete_error() from exc
+                if not isinstance(item, dict):
+                    raise self._incomplete_error()
+                if isinstance(item.get("error"), dict):
                     raise MultimodalServiceError(
-                        "provider_workload_model_mismatch",
-                        "音乐 Provider 返回的实际模型与 Binding 不一致。",
+                        "provider_unavailable",
+                        SAFE_AUDIO_JOB_ERRORS["provider_unavailable"],
                         status_code=502,
                     )
-                actual_model = observed_model
-            if isinstance(item.get("id"), str):
-                generation_id = generation_id or item["id"]
-            if isinstance(item.get("usage"), dict):
-                usage = item["usage"]
-            choices = item.get("choices")
-            if not isinstance(choices, list) or not choices:
-                continue
-            choice = choices[0]
-            if not isinstance(choice, dict):
-                continue
-            if isinstance(choice.get("finish_reason"), str):
-                finish_reason = choice["finish_reason"]
-            delta = choice.get("delta")
-            if not isinstance(delta, dict):
-                continue
+                if isinstance(item.get("model"), str) and item["model"].strip():
+                    actual_model = item["model"].strip()
+                if isinstance(item.get("id"), str) and item["id"].strip():
+                    item_generation_id = item["id"].strip()
+                    generation_id = generation_id or item_generation_id
+                choices = item.get("choices")
+                if not isinstance(choices, list) or not choices:
+                    if isinstance(item.get("usage"), dict):
+                        usage = item["usage"]
+                    continue
+                choice = choices[0]
+                if not isinstance(choice, dict):
+                    continue
+                if isinstance(choice.get("finish_reason"), str):
+                    finish_reason = choice["finish_reason"]
+                if isinstance(item.get("usage"), dict):
+                    usage = item["usage"]
+                delta = choice.get("delta")
+                if not isinstance(delta, dict):
+                    continue
             audio = delta.get("audio")
             if not isinstance(audio, dict):
                 continue
             data = audio.get("data")
             if not isinstance(data, str) or not data:
                 continue
+            if ttft_ms is None and started_at is not None:
+                ttft_ms = max(0.0, (time.perf_counter() - started_at) * 1000)
             encoded_length += len(data)
-            if encoded_length > (MAX_GENERATED_AUDIO_BYTES * 4 // 3 + 16):
+            if encoded_length > AUDIO_GENERATION_MAX_ENCODED_CHARS:
                 raise MultimodalServiceError(
                     "audio_output_too_large",
                     SAFE_AUDIO_JOB_ERRORS["audio_output_too_large"],
@@ -474,26 +625,38 @@ class OpenRouterAudioJobAdapter:
                 )
             except (binascii.Error, ValueError) as exc:
                 raise self._incomplete_error() from exc
-        if (
-            len(audio_bytes) < 1_024
-            or len(audio_bytes) > MAX_GENERATED_AUDIO_BYTES
-            or not self._is_mp3(audio_bytes)
-        ):
+        if not is_complete_mp3(audio_bytes):
             raise self._incomplete_error()
+        usage_counts = contract.usage_counts if contract is not None else None
         return AudioGenerationResult(
             content=audio_bytes,
             actual_model=actual_model or requested_model,
             generation_id=generation_id,
             cost_usd=self._cost(usage),
+            ttft_ms=ttft_ms,
+            prompt_tokens=usage_counts[0] if usage_counts is not None else None,
+            completion_tokens=(
+                usage_counts[1] if usage_counts is not None else None
+            ),
+            total_tokens=usage_counts[2] if usage_counts is not None else None,
         )
 
     @staticmethod
     async def _iter_sse_events(
         response: httpx.Response,
+        *,
+        strict_r8d: bool = False,
     ) -> AsyncIterator[str]:
         buffer = b""
+        event_buffer = (
+            R8DAudioSseEventBuffer(
+                max_event_bytes=MAX_AUDIO_JOB_SSE_EVENT_BYTES
+            )
+            if strict_r8d
+            else None
+        )
         total_bytes = 0
-        async for chunk in response.aiter_bytes(chunk_size=64 * 1024):
+        async for chunk in response.aiter_bytes():
             total_bytes += len(chunk)
             if total_bytes > MAX_AUDIO_JOB_SSE_STREAM_BYTES:
                 raise MultimodalServiceError(
@@ -501,6 +664,19 @@ class OpenRouterAudioJobAdapter:
                     SAFE_AUDIO_JOB_ERRORS["audio_output_too_large"],
                     status_code=502,
                 )
+            if event_buffer is not None:
+                try:
+                    for event in event_buffer.feed(chunk):
+                        yield event
+                except R8DAudioSseContractError as exc:
+                    if exc.code == "sse_event_too_large":
+                        raise MultimodalServiceError(
+                            "audio_output_too_large",
+                            SAFE_AUDIO_JOB_ERRORS["audio_output_too_large"],
+                            status_code=502,
+                        ) from exc
+                    raise OpenRouterAudioJobAdapter._incomplete_error() from exc
+                continue
             buffer += chunk
             while True:
                 delimiters = [
@@ -531,7 +707,19 @@ class OpenRouterAudioJobAdapter:
                     SAFE_AUDIO_JOB_ERRORS["audio_output_too_large"],
                     status_code=502,
                 )
-        if buffer.strip():
+        if event_buffer is not None:
+            try:
+                for event in event_buffer.finish():
+                    yield event
+            except R8DAudioSseContractError as exc:
+                if exc.code == "sse_event_too_large":
+                    raise MultimodalServiceError(
+                        "audio_output_too_large",
+                        SAFE_AUDIO_JOB_ERRORS["audio_output_too_large"],
+                        status_code=502,
+                    ) from exc
+                raise OpenRouterAudioJobAdapter._incomplete_error() from exc
+        elif buffer.strip():
             try:
                 yield buffer.decode("utf-8").replace("\r\n", "\n").replace(
                     "\r", "\n"
@@ -542,7 +730,12 @@ class OpenRouterAudioJobAdapter:
     @staticmethod
     def _default_client() -> httpx.AsyncClient:
         return httpx.AsyncClient(
-            timeout=httpx.Timeout(180.0, connect=15.0),
+            timeout=httpx.Timeout(
+                connect=AUDIO_GENERATION_CONNECT_TIMEOUT_SECONDS,
+                read=AUDIO_GENERATION_READ_TIMEOUT_SECONDS,
+                write=AUDIO_GENERATION_WRITE_TIMEOUT_SECONDS,
+                pool=AUDIO_GENERATION_POOL_TIMEOUT_SECONDS,
+            ),
             follow_redirects=False,
             trust_env=False,
         )
@@ -562,9 +755,13 @@ class OpenRouterAudioJobAdapter:
         }
 
     @staticmethod
-    async def _raise_for_status(response: httpx.Response) -> None:
+    async def _raise_for_status(
+        response: httpx.Response,
+        *,
+        require_2xx: bool = False,
+    ) -> None:
         status = response.status_code
-        if status < 400:
+        if 200 <= status < 300 or (not require_2xx and status < 400):
             return
         if status == 401:
             raise MultimodalServiceError(
@@ -892,7 +1089,12 @@ class OpenRouterAudioJobAdapter:
 def is_complete_mp3(content: bytes) -> bool:
     """Return whether content is one complete, bounded Layer III stream."""
 
-    return OpenRouterAudioJobAdapter._is_mp3(content)
+    return bool(
+        AUDIO_GENERATION_MIN_MEDIA_BYTES
+        <= len(content)
+        <= AUDIO_GENERATION_MAX_MEDIA_BYTES
+        and OpenRouterAudioJobAdapter._is_mp3(content)
+    )
 
 
 class AudioJobService:
@@ -1142,7 +1344,7 @@ class AudioJobService:
                 target=None,
                 model_id=exact_model,
                 prompt=prompt,
-                image_data_url=None,
+                image_data_url=image_data_url,
                 managed_dispatch=dispatch,
             ),
         )
@@ -1153,12 +1355,14 @@ class AudioJobService:
             return
         decision_id = str(row.get("decision_id") or "")
         dispatch = task.managed_dispatch
+        result: AudioGenerationResult | None = None
         try:
             if dispatch is not None:
                 result = await self.adapter.generate_managed(
                     dispatch,
                     model_id=task.model_id,
                     prompt=task.prompt,
+                    image_data_url=task.image_data_url,
                     on_dispatched=lambda: self._update(
                         task.job_id,
                         provider_dispatch_state="dispatched",
@@ -1191,6 +1395,10 @@ class AudioJobService:
                         result_class="local_persistence_error",
                         error_code="audio_output_persistence_failed",
                         actual_model=result.actual_model,
+                        ttft_ms=result.ttft_ms,
+                        prompt_tokens=result.prompt_tokens,
+                        completion_tokens=result.completion_tokens,
+                        total_tokens=result.total_tokens,
                     )
                 self._update(
                     task.job_id,
@@ -1208,6 +1416,16 @@ class AudioJobService:
                     task.job_id,
                 )
                 return
+            if dispatch is not None:
+                dispatch.complete(
+                    status="passed",
+                    result_class="success",
+                    actual_model=result.actual_model,
+                    ttft_ms=result.ttft_ms,
+                    prompt_tokens=result.prompt_tokens,
+                    completion_tokens=result.completion_tokens,
+                    total_tokens=result.total_tokens,
+                )
             expires_at = (
                 datetime.now(UTC) + timedelta(seconds=self.ttl_seconds)
             ).isoformat()
@@ -1229,14 +1447,10 @@ class AudioJobService:
                 changes["cost_kind"] = "actual"
             row = self._update(task.job_id, **changes)
             if row is None:
-                await asyncio.to_thread(self._remove_output, task.job_id)
+                if dispatch is None:
+                    await asyncio.to_thread(self._remove_output, task.job_id)
                 raise RuntimeError("audio_job_finalize_store_missing")
             if dispatch is not None:
-                dispatch.complete(
-                    status="passed",
-                    result_class="success",
-                    actual_model=result.actual_model,
-                )
                 row = self._update(
                     task.job_id,
                     status="succeeded",
@@ -1265,6 +1479,21 @@ class AudioJobService:
                         status=status,
                         result_class="client_cancelled",
                         error_code=code,
+                        actual_model=(
+                            result.actual_model if result is not None else None
+                        ),
+                        ttft_ms=result.ttft_ms if result is not None else None,
+                        prompt_tokens=(
+                            result.prompt_tokens if result is not None else None
+                        ),
+                        completion_tokens=(
+                            result.completion_tokens
+                            if result is not None
+                            else None
+                        ),
+                        total_tokens=(
+                            result.total_tokens if result is not None else None
+                        ),
                     )
                 self._update(
                     task.job_id,
@@ -1299,6 +1528,21 @@ class AudioJobService:
                             "transport_error" if uncertain else "provider_error"
                         ),
                         error_code=exc.code,
+                        actual_model=(
+                            result.actual_model if result is not None else None
+                        ),
+                        ttft_ms=result.ttft_ms if result is not None else None,
+                        prompt_tokens=(
+                            result.prompt_tokens if result is not None else None
+                        ),
+                        completion_tokens=(
+                            result.completion_tokens
+                            if result is not None
+                            else None
+                        ),
+                        total_tokens=(
+                            result.total_tokens if result is not None else None
+                        ),
                     )
                 self._update(
                     task.job_id,
@@ -1348,6 +1592,21 @@ class AudioJobService:
                             "transport_error" if uncertain else "local_failure"
                         ),
                         error_code=code,
+                        actual_model=(
+                            result.actual_model if result is not None else None
+                        ),
+                        ttft_ms=result.ttft_ms if result is not None else None,
+                        prompt_tokens=(
+                            result.prompt_tokens if result is not None else None
+                        ),
+                        completion_tokens=(
+                            result.completion_tokens
+                            if result is not None
+                            else None
+                        ),
+                        total_tokens=(
+                            result.total_tokens if result is not None else None
+                        ),
                     )
                 self._update(
                     task.job_id,

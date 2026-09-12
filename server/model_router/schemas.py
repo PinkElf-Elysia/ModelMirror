@@ -139,6 +139,40 @@ ProviderDispatchState = Literal[
     "confirmed",
     "uncertain",
 ]
+ProviderMultimodalSseRejectionReason = Literal[
+    "audio_generation_terminal_replay_not_allowed",
+    "data_after_done",
+    "data_after_terminal_replay",
+    "event_after_buffer_finish",
+    "event_too_large",
+    "generation_id_mismatch",
+    "incomplete_terminal_usage",
+    "incomplete_usage",
+    "invalid_audio_field_type",
+    "invalid_audio_shape",
+    "invalid_choice_index",
+    "invalid_choice_shape",
+    "invalid_choices_shape",
+    "invalid_companion_content",
+    "invalid_content_type",
+    "invalid_delta_shape",
+    "invalid_identifier_type",
+    "invalid_identifier_value",
+    "invalid_json_object",
+    "invalid_role",
+    "invalid_terminal_replay_shape",
+    "invalid_usage_shape",
+    "invalid_usage_value",
+    "missing_choices",
+    "native_finish_mismatch",
+    "provider_error_envelope",
+    "reserved_event_type",
+    "unexpected_audio_generation_delta",
+    "unexpected_usage_terminal",
+    "unclassified",
+    "usage_total_mismatch",
+    "utf8_decode_failed",
+]
 MULTIMODAL_WORKLOAD_SHAPES: frozenset[str] = frozenset(
     {
         "chat_image_stream",
@@ -886,6 +920,8 @@ class ProviderWorkloadCertificationChecks(BaseModel):
     rerank_results_verified: bool = False
     batch_terminal_verified: bool = False
     media_format_verified: bool = False
+    audio_transport_format_verified: bool | None = None
+    audio_delivery_format_verified: bool | None = None
     terminal_signal_verified: bool = False
     safe_terminal_verified: bool = False
     sse_done_observed: bool | None = None
@@ -894,7 +930,23 @@ class ProviderWorkloadCertificationChecks(BaseModel):
     finish_error_observed: bool | None = None
     finish_filter_observed: bool | None = None
     finish_other_observed: bool | None = None
+    sse_accepted_event_count: int | None = Field(default=None, ge=0, le=65_535)
+    sse_accepted_audio_fragment_count: int | None = Field(
+        default=None,
+        ge=0,
+        le=65_535,
+    )
+    sse_text_content_observed: bool | None = None
+    sse_text_content_char_count: int | None = Field(
+        default=None,
+        ge=0,
+        le=65_535,
+    )
+    sse_rejection_reason: ProviderMultimodalSseRejectionReason | None = None
     transcript_matches_fixture: bool | None = None
+    audio_semantics_matches_fixture: bool | None = None
+    input_fixture_human_verified: bool | None = None
+    image_prompt_request_verified: bool | None = None
     async_terminal_verified: bool = False
     manual_media_verified: bool = False
 

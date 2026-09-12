@@ -124,6 +124,11 @@ interface CertificationSummary {
   certified_response_format?: "mp3" | "wav" | null;
   certified_output_format?: "mp3" | null;
   supports_image_prompt?: boolean | null;
+  checks?: {
+    image_prompt_request_verified?: boolean | null;
+    sse_text_content_observed?: boolean | null;
+    sse_text_content_char_count?: number | null;
+  };
   provider_dispatch_state?: string | null;
   retry_allowed?: boolean | null;
   refresh_available?: boolean;
@@ -929,7 +934,8 @@ export default function ProviderWorkloadControlSettings({
                 {item.certified_voice ? <p className="mt-1 text-xs text-slate-500">认证声线：{item.certified_voice}</p> : null}
                 {item.certified_response_format ? <p className="mt-1 text-xs text-slate-500">认证外部输出格式：{item.certified_response_format.toUpperCase()}</p> : null}
                 {item.certified_output_format ? <p className="mt-1 text-xs text-slate-500">认证生成格式：{item.certified_output_format.toUpperCase()}</p> : null}
-                {item.supports_image_prompt != null ? <p className="mt-1 text-xs text-slate-500">图片提示：{item.supports_image_prompt ? "已认证" : "不支持"}</p> : null}
+                {item.execution_shape === "audio_generation_stream" ? <p className="mt-1 text-xs text-slate-500">图片认证请求：{item.checks?.image_prompt_request_verified ? "已携带固定素材" : "未通过请求校验"}</p> : null}
+                {item.execution_shape === "audio_generation_stream" && item.checks?.sse_text_content_observed ? <p className="mt-1 text-xs text-slate-500">SSE 文本响应：{item.checks.sse_text_content_char_count ?? 0} 字符（仅记录计数）</p> : null}
                 {item.adapter_contract ? <p className="mt-1 break-all text-xs text-slate-500">Adapter：{item.adapter_contract} · {item.protocol_version ?? "协议待确认"}</p> : null}
                 {item.refresh_available && item.certification_id && REFRESHABLE_MULTIMODAL_CERTIFICATION_SHAPES.has(item.execution_shape) ? <div className="mt-3 rounded-lg border border-sky-300/15 bg-sky-300/[0.04] p-3">
                   <p className="text-xs leading-5 text-sky-100">仅查询已保存 Generation ID 的实际模型证据；不会重新提交音频或产生第二次模型 POST。</p>

@@ -534,7 +534,8 @@ async def test_r8d_public_status_exposes_only_safe_generation_parameters_and_no_
     )
     assert certification.status == "passed"
     assert certification.certified_output_format == "mp3"
-    assert certification.supports_image_prompt is False
+    assert certification.supports_image_prompt is True
+    assert certification.checks.image_prompt_request_verified is True
     assert certification.refresh_available is False
 
     monkeypatch.setenv("MODEL_CONTROL_AUDIO_GENERATION_ENABLED", "true")
@@ -568,7 +569,7 @@ async def test_r8d_public_status_exposes_only_safe_generation_parameters_and_no_
     )
     assert public.available is True
     assert public.certified_output_format == "mp3"
-    assert public.supports_image_prompt is False
+    assert public.supports_image_prompt is True
     public_json = json.dumps(public.model_dump(mode="json"), sort_keys=True)
     assert connection.id not in public_json
     assert "r8d-public-secret" not in public_json

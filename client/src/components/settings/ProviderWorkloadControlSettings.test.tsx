@@ -236,7 +236,7 @@ describe("ProviderWorkloadControlSettings", () => {
     expect(screen.getByText("认证外部输出格式：WAV")).toBeVisible();
   });
 
-  it("shows R8D generation parameters and never offers its uncertain record an unsupported refresh", async () => {
+  it("shows R8D request evidence without implying a failed capability was certified", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/router/connections") {
@@ -251,13 +251,19 @@ describe("ProviderWorkloadControlSettings", () => {
               connection_name: connection.name,
               provider_kind: connection.kind,
               execution_shape: "audio_generation_stream",
-              status: "uncertain",
+              status: "failed",
               can_run: false,
+              error_code: "provider_multimodal_audio_text_only",
               requested_model: "provider/audio-generation",
               candidate_model_ids: [],
               certified_output_format: "mp3",
-              supports_image_prompt: false,
-              provider_dispatch_state: "uncertain",
+              supports_image_prompt: true,
+              checks: {
+                image_prompt_request_verified: true,
+                sse_text_content_observed: true,
+                sse_text_content_char_count: 47,
+              },
+              provider_dispatch_state: "confirmed",
               retry_allowed: false,
               refresh_available: true,
             },
@@ -271,7 +277,9 @@ describe("ProviderWorkloadControlSettings", () => {
     render(<ProviderWorkloadControlSettings csrfToken="csrf-value" view="certifications" />);
 
     expect(await screen.findByText("认证生成格式：MP3")).toBeVisible();
-    expect(screen.getByText("图片提示：不支持")).toBeVisible();
+    expect(screen.getByText("图片认证请求：已携带固定素材")).toBeVisible();
+    expect(screen.getByText("SSE 文本响应：47 字符（仅记录计数）")).toBeVisible();
+    expect(screen.queryByText("图片提示：已认证")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", {
       name: "只读刷新模型证据",
     })).not.toBeInTheDocument();
