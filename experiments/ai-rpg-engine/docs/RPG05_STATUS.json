@@ -4,7 +4,7 @@
   "status": "in_progress",
   "branch": "codex/ai-rpg-rpg05-ui",
   "base": "81fc14f6e0dada2447a63c1e532ee55b1f914ded",
-  "phase": "05F_draft_pr_open_manual_acceptance_pending",
+  "phase": "05F_draft_pr_open_manual_quality_not_passed",
   "completedBatches": [
     {
       "id": "05A1",
@@ -538,7 +538,7 @@
   },
   "provider": {
     "authorizedDispatches": 31,
-    "consumedDispatches": 26,
+    "consumedDispatches": 30,
     "authorization": {
       "authorization": "user-authorized-reviewed-targeted-retest-total26",
       "userInstruction": "授权复测，测试输入内容不要中性，更加有针对性一点；完整8次复测，累计上限26；批准两句补充，先离线验证后实测",
@@ -626,7 +626,7 @@
       "cancellation": 1
     },
     "freezeScope": "manual free UI input, fixed model/protocol/parameters, independent max5 ledger; previous automatic26 immutable",
-    "approvedCurrentPlan": "engineering closeout applied and verified; no further agent dispatch; user-only remaining5",
+    "approvedCurrentPlan": "No agent dispatch remaining; user-only manual remaining1 at observation; no reset or expansion",
     "dispatchFreezeSha256": "d8814b5b3a1f43fbc6ba0aaf837e247d95027a0e2037cb54245caa15e2f1c648",
     "executionEnabled": true,
     "persistedPolicyMaximum": 5,
@@ -657,8 +657,8 @@
       "authorization": "user-authorized-five-manual-dispatches-after-automatic26",
       "userAnswer": "最多5次",
       "authorized": 5,
-      "consumed": 0,
-      "remaining": 5,
+      "consumed": 4,
+      "remaining": 1,
       "agentUse": false,
       "failureCancellationUnknownConsume": true,
       "noAutomaticRetry": true,
@@ -667,13 +667,14 @@
       "evidencePath": "ui-host/.local/real/manual/evidence",
       "freezePath": "ui-host/.local/real/manual/freezes/closeout-1.json",
       "freezeSha256": "d8814b5b3a1f43fbc6ba0aaf837e247d95027a0e2037cb54245caa15e2f1c648",
-      "observedAt": "2026-09-12T16:07:44.072Z",
+      "observedAt": "2026-09-13T04:33:05.076Z",
       "unknownStopEnforcement": "transport classification fixed; unknown blocks next reservation across restart",
       "sourceBindingRecordSha256": "e9fac293b4cad76ad83f18e6c351498ef682c8622cbbdfc6f2d8559f4aae3a7e"
     },
     "sourceVersion": "closeout-1",
     "policyFreezeSha256": "a2102b6f1321e906bb8816e84fce7d3e280ac7b8e32b58a0ab9c24ef85d9bec6",
-    "sourceBindingRecordSha256": "e9fac293b4cad76ad83f18e6c351498ef682c8622cbbdfc6f2d8559f4aae3a7e"
+    "sourceBindingRecordSha256": "e9fac293b4cad76ad83f18e6c351498ef682c8622cbbdfc6f2d8559f4aae3a7e",
+    "consumedDispatchesScope": "combined point-in-time usage: automatic26 plus user manual4; consumedAllocation and automaticAllocation describe automatic26 only"
   },
   "publication": {
     "commit": true,
@@ -687,13 +688,14 @@
   "limitations": [
     "STM accumulation remains not_passed; actual request included old STM and append rules, model replaced S1. No new semantic prompt or memory engine added.",
     "Treasure talent effect unverified; content consistency and player experience remain pending.",
-    "No Provider retest after closeout runtime guards and source cutover; automatic26 exhausted; extra5 exclusively user manual, observed0 consumed.",
     "HTTP non200 or incomplete/refusal terminal can remain conservatively unknown and block further slots; no auto retry.",
     "Old binary cannot interpret new binding; activation uses same exclusive runtime owner, and rollback to old binary/policy/ledger is forbidden.",
     "HTTP8 and parent59 remain historical separate checks; mobile polish deferred by user.",
-    "Seven user supplied screenshots are losslessly cropped to exclude overlays. Only retained visible regions are proven; raw originals remain private, no full-page or user-quality acceptance inferred."
+    "Seven user supplied screenshots are losslessly cropped to exclude overlays. Only retained visible regions are proven; raw originals remain private, no full-page or user-quality acceptance inferred.",
+    "User manual narrative quality not_passed; no prompt changes this audit. Fourth-turn non-explicit conflict behavior is a positive bounded sample; runtime anti-truncation protocol excluded.",
+    "Closeout-1 user manual4/5 observed; source/ledger/session preservation and UI/qualification GET passed after same-source recovery. Agent Provider0; no separate controlled prompt A/B."
   ],
-  "updatedAt": "2026-09-12T18:15:58.915560+00:00",
+  "updatedAt": "2026-09-13T04:35:36.221343+00:00",
   "latestOfflineReceipt": ".rpg04-work/rpg05-verify-1789228974648/receipt.json",
   "failuresPreserved": [
     {
@@ -791,19 +793,20 @@
   },
   "restoredRoute": {
     "authorized": true,
-    "pid": 32576,
-    "launcherChildPid": 50896,
-    "ownerPid": 44452,
-    "launcherPid": 53620,
+    "pid": 51036,
+    "launcherChildPid": 38492,
+    "ownerPid": 6004,
+    "launcherPid": 36596,
     "port": 18305,
     "newapiPort": 18306,
     "containerId": "a99065ea116f383038e9ce62c807df0f143c55ac0f3d43e70bd579073e414615",
     "status": "running_for_user_manual",
-    "providerDispatchesThisResume": 5,
+    "providerDispatchesThisResume": 0,
     "ownerChain": {
-      "path": ".rpg04-work/rpg05-reviewed-resume-20260912/listener-ownership.json",
-      "sha256": "79bb7389565ec1f31a5bd0eaba80032728981309ac2cc1156c5e429fd96457a7"
-    }
+      "path": ".rpg04-work/rpg05-png-closeout-20260912/narrative-audit-20260912/recovery/route-owner.json",
+      "sha256": "681234b2fdb47ffc9f3dccd341bf6f99969b224f966365c56895f02722784b84"
+    },
+    "proxyPid": 15012
   },
   "cleanup": {
     "status": "retained_at_explicit_user_request",
@@ -2291,6 +2294,149 @@
         "currentRuntimeSourceMatchesExecutionFreeze": true,
         "executionFreezeVerifiedAtLastDispatchAndBeforeCloseout": true
       }
+    },
+    {
+      "scope": "before manual observational counter refresh; underlying ledger and policy unchanged",
+      "recordedAt": "2026-09-13T04:35:36.221343+00:00",
+      "provider": {
+        "authorizedDispatches": 31,
+        "consumedDispatches": 26,
+        "authorization": {
+          "authorization": "user-authorized-reviewed-targeted-retest-total26",
+          "userInstruction": "授权复测，测试输入内容不要中性，更加有针对性一点；完整8次复测，累计上限26；批准两句补充，先离线验证后实测",
+          "maxDispatches": 26,
+          "priorRecords": [
+            "378721015fd8f339c9ae19540f01aa96e6d83b43f9a9031c90ef5a953794c9ee",
+            "4ad72aa620755ca77dce1aa358f408032ecb48a5343d7bf96cc267d69ce7ad93",
+            "a273740720c9495d5c2b438c3fe772e7662d13abf21b4fc8e72ebaca5b3464d6",
+            "6be217ead543bd5e25116ea9b0760fa66feaf25556118d09de370870037258f5",
+            "9328857213bd27823e20a644b0f25e2c7325377fef624a41a9fcaa62def0f440",
+            "7fb971e8ee6366eea6ca731e7c6db636803d471c0b0b0d990809bef9f578f42a",
+            "65981f0a953a712856432405cbacaeb1adae83eb832aa9f261d4507112c531ae",
+            "a88f3189c0a3f231fff988bab8fd1cdd3cc6cd70a38694c6ef3aae1d6dd12921",
+            "4adcba8446ba6ac2209e80b4ae07c581dbed6ad954fcd29acba579e502f1e4a5",
+            "e0e2565a3e96de9687583784b3477771af0a45e6e0611402bde83f997eea0e27",
+            "d82dd4678358ee590a9d8b01fff5563d1a56f8619c84ca0e210eddc1524fb8bb",
+            "d21e857d7c70adec3619d357f9cfbe9022d00ae2b2409dfe6219e36e0b8d288a",
+            "14c2d3e6cedb4cdadfaf855df6a21df2245e41196aca96c2c4af93f6c9320a5e",
+            "0b7b857c472b08e5f15753d3f8bec1c93fe850937bb593c89ba0cfc33f686d2c",
+            "5267381379001ff2786262158cd9543958dea74730977ac5b3cf3591ed057711",
+            "a6f77c9c7c3ffa9a5e67ded57be109a0349c5c39423fa6e99f70e160e3d85fc5",
+            "016f9daa2b5b7ba66d97fe14a7f6eff0f454038dbd655c04ad2c42c4f60e1389",
+            "7135747ec1cd1edbc1fc2f201c0669c5bc5ed1cea602de92fae061362127e01c"
+          ],
+          "priorPolicies": [
+            {
+              "id": "dispatch-policy",
+              "sha256": "4edd1783f49b28b77205040322110bcc155e0fee0c7747e04381ad396d3cbe43"
+            },
+            {
+              "id": "dispatch-continuation",
+              "sha256": "9f2ab8fec1cfe54eff9f83396277b1555362b26037fd577246e52d0c3b08738b"
+            },
+            {
+              "id": "dispatch-extension-slot5",
+              "sha256": "5d272ffb8a6657e6a93c2c51bd8d83eb7406e9130803fc88246a7dd3b1087607"
+            },
+            {
+              "id": "dispatch-structured-slot7",
+              "sha256": "4f20d75c634a409cd5cccb9a124582604ae6bbe8f0454defb3e1f8a70c4c9eb3"
+            },
+            {
+              "id": "dispatch-keyed-slot12",
+              "sha256": "8307f56d6019ba896260450f1003b4a25a81ef4cb8f636d8a6e17a61f087ba8c"
+            },
+            {
+              "id": "dispatch-protocol-slot16",
+              "sha256": "077998905558e251d2d14eb846aad0a64012bbbaa67fd85a5d65578bb70c9532"
+            }
+          ]
+        },
+        "model": "gpt-5.6-luna",
+        "route": "http://127.0.0.1:18305",
+        "maxOutputTokens": 4096,
+        "certificationMaxOutputTokens": 512,
+        "allocation": {
+          "certification": 7,
+          "gu": 13,
+          "minecraft": 5,
+          "cancellation": 1,
+          "manual": 5
+        },
+        "automaticRetry": false,
+        "resetAllowed": false,
+        "dispatchGate": "automatic_exhausted_manual_user_only_0of5_live",
+        "qualification": "read-only qualified at 2026-09-12T16:07:44.072Z",
+        "remainingDispatches": 5,
+        "freezeSha256": "d8814b5b3a1f43fbc6ba0aaf837e247d95027a0e2037cb54245caa15e2f1c648",
+        "ledgerPath": "ui-host/.local/real/manual/ledger",
+        "realEvidencePath": "ui-host/.local/real/evidence/bundle-response.26-00000001.json",
+        "realEvidenceSha256": "f90c5a66bd9431861572d6e128df1cbc8828f75b56471ca1018894b4624a17eb",
+        "originalAllocation": {
+          "certification": 1,
+          "gu": 3,
+          "minecraft": 3,
+          "cancellation": 1
+        },
+        "originalFreezeSha256": "87ebb3f30e2aeee53ae2d74f7b57d608d9cd6314b025be62532b8d152180cddc",
+        "executionFreezeCurrent": true,
+        "executionFreezeReason": "active closeout-1 freeze357; four mutable closeout metadata excluded, runtime/build/rules/resources bound",
+        "consumedAllocation": {
+          "certification": 7,
+          "gu": 13,
+          "minecraft": 5,
+          "cancellation": 1
+        },
+        "freezeScope": "manual free UI input, fixed model/protocol/parameters, independent max5 ledger; previous automatic26 immutable",
+        "approvedCurrentPlan": "engineering closeout applied and verified; no further agent dispatch; user-only remaining5",
+        "dispatchFreezeSha256": "d8814b5b3a1f43fbc6ba0aaf837e247d95027a0e2037cb54245caa15e2f1c648",
+        "executionEnabled": true,
+        "persistedPolicyMaximum": 5,
+        "persistedPolicyId": "manual-policy",
+        "persistedPolicySha256": "6ce2a317f721161e044f74dbe47ef6ac10229843def7cdf427f7cffaecf0da79",
+        "currentRuntimeSourceMatchesExecutionFreeze": true,
+        "executionFreezeVerifiedAtLastDispatchAndBeforeCloseout": true,
+        "authorizationScope": "existing authorization object covers automatic26 only; extra5 below exclusively user manual",
+        "automaticAllocation": {
+          "certification": 7,
+          "gu": 13,
+          "minecraft": 5,
+          "cancellation": 1
+        },
+        "automaticDispatchFreezeSha256": "12dbc754ffa8b080523cee5301b100706903b7b7ebfd37465308ecd8fc173382",
+        "executionOwner": "user_only",
+        "automaticExecutionEnabled": false,
+        "automaticLedgerPath": "ui-host/.local/real/ledger",
+        "automaticBudget": {
+          "authorized": 26,
+          "consumed": 26,
+          "remaining": 0,
+          "executionEnabled": false,
+          "policyId": "dispatch-reviewed-slot18",
+          "policySha256": "95b7d9cd0e3b47997ec6b68660dc4833058097def3947f7ba4db0be5faff6aa5"
+        },
+        "manualBudget": {
+          "authorization": "user-authorized-five-manual-dispatches-after-automatic26",
+          "userAnswer": "最多5次",
+          "authorized": 5,
+          "consumed": 0,
+          "remaining": 5,
+          "agentUse": false,
+          "failureCancellationUnknownConsume": true,
+          "noAutomaticRetry": true,
+          "unknownStops": true,
+          "ledgerPath": "ui-host/.local/real/manual/ledger",
+          "evidencePath": "ui-host/.local/real/manual/evidence",
+          "freezePath": "ui-host/.local/real/manual/freezes/closeout-1.json",
+          "freezeSha256": "d8814b5b3a1f43fbc6ba0aaf837e247d95027a0e2037cb54245caa15e2f1c648",
+          "observedAt": "2026-09-12T16:07:44.072Z",
+          "unknownStopEnforcement": "transport classification fixed; unknown blocks next reservation across restart",
+          "sourceBindingRecordSha256": "e9fac293b4cad76ad83f18e6c351498ef682c8622cbbdfc6f2d8559f4aae3a7e"
+        },
+        "sourceVersion": "closeout-1",
+        "policyFreezeSha256": "a2102b6f1321e906bb8816e84fce7d3e280ac7b8e32b58a0ab9c24ef85d9bec6",
+        "sourceBindingRecordSha256": "e9fac293b4cad76ad83f18e6c351498ef682c8622cbbdfc6f2d8559f4aae3a7e"
+      }
     }
   ],
   "targetedAcceptanceHistory": [
@@ -2970,21 +3116,21 @@
     "status": "live_user_only_closeout1",
     "guide": "docs/RPG05_MANUAL_HANDOFF.md",
     "owner": {
-      "pid": 56980,
+      "pid": 36932,
       "port": 18409,
       "status": "running_for_user_manual",
       "sourceVersion": "closeout-1",
       "owner": {
-        "path": ".rpg04-work/rpg05-pr-closeout-20260912T150920Z/cutover-owner.json",
-        "sha256": "87db1571282f59e4e5bed1f2e537f22d50ba62387e1bd581b937cadf98723e13"
+        "path": ".rpg04-work/rpg05-png-closeout-20260912/narrative-audit-20260912/recovery/manual-owner.json",
+        "sha256": "9f68aff38768b34b61ab2d107be88dcab87ad2b197f51b8b4cab4ec68bc4e51f"
       }
     },
     "observation": {
-      "path": ".rpg04-work/rpg05-pr-closeout-20260912T150920Z/png-final-publication-runtime.json",
-      "sha256": "2ff6bd2b26bd998bfe1badd04ee5f2e9659d4da29603709885aab6ffc3c5d233"
+      "path": ".rpg04-work/rpg05-pr-closeout-20260912T150920Z/narrative-audit-runtime.json",
+      "sha256": "f8c45612045869fc50abff8b2af53fa3f24e08f787c18e125daa67e9cbde492a"
     },
     "lastReadOnlyCheck": {
-      "checkedAt": "2026-09-12T18:37:42.429Z",
+      "checkedAt": "2026-09-13T04:33:05.076Z",
       "runtimeVersion": "closeout-1",
       "sourceFreezeVerified": true,
       "sourceFiles": 357,
@@ -3057,6 +3203,79 @@
           "preservedSessionFiles": 120,
           "providerCalls": 0
         }
+      },
+      {
+        "manualConsumed": 4,
+        "observation": {
+          "path": ".rpg04-work/rpg05-pr-closeout-20260912T150920Z/png-final-publication-runtime.json",
+          "sha256": "2ff6bd2b26bd998bfe1badd04ee5f2e9659d4da29603709885aab6ffc3c5d233"
+        },
+        "lastReadOnlyCheck": {
+          "checkedAt": "2026-09-12T18:37:42.429Z",
+          "runtimeVersion": "closeout-1",
+          "sourceFreezeVerified": true,
+          "sourceFiles": 357,
+          "freezeSha256": "d8814b5b3a1f43fbc6ba0aaf837e247d95027a0e2037cb54245caa15e2f1c648",
+          "sourceFreezeSha256": "8d15b941859e66653bb89c4f0fbe948509f84a80e166f64d17b60e45f5b52199",
+          "originalManualFreezeUnchanged": true,
+          "originalPolicySha256": "6ce2a317f721161e044f74dbe47ef6ac10229843def7cdf427f7cffaecf0da79",
+          "originalPolicyRevision": 1,
+          "bindingRecordSha256": "e9fac293b4cad76ad83f18e6c351498ef682c8622cbbdfc6f2d8559f4aae3a7e",
+          "bindingRecordRevision": 1,
+          "automatic26AndSevenPoliciesUnchanged": true,
+          "automaticConsumed": 26,
+          "manualConsumed": 4,
+          "manualMaximum": 5,
+          "manualRecords": [
+            {
+              "slot": 1,
+              "status": "completed",
+              "outcome": "succeeded",
+              "sha256": "dd1e17543839215a77c72a2d1e018461a72f64390a72d23d33c03e49035ef624"
+            },
+            {
+              "slot": 2,
+              "status": "completed",
+              "outcome": "succeeded",
+              "sha256": "2f8d8d8a4e3c6849c2469f0b8c673d040284dc0fcaa31a9bd5c4a82c3a4a9ed2"
+            },
+            {
+              "slot": 3,
+              "status": "completed",
+              "outcome": "succeeded",
+              "sha256": "3cd96580c3f8e0082224b3cdfc724ad5260366e8884d283f622f6ed1d15f7e36"
+            },
+            {
+              "slot": 4,
+              "status": "completed",
+              "outcome": "succeeded",
+              "sha256": "c44e47fca4ed40cc0466565271fc1742c16c375b9572282daa2a4784f9e076b5"
+            }
+          ],
+          "preservedSessionFiles": 120,
+          "sessionFileDrift": [],
+          "agentProviderCalls": 0,
+          "uiStatus": 200,
+          "servedAssets": [
+            {
+              "path": "/assets/index-CU-oL_8Y.js",
+              "sha256": "62cd351152974c2eb863412aa79bb1425d9525ae67f62b0f73744d63f6b0a5c1",
+              "matchesBuild": true
+            }
+          ],
+          "routeStatus": 200,
+          "routeQualification": "qualified"
+        },
+        "owner": {
+          "pid": 56980,
+          "port": 18409,
+          "status": "running_for_user_manual",
+          "sourceVersion": "closeout-1",
+          "owner": {
+            "path": ".rpg04-work/rpg05-pr-closeout-20260912T150920Z/cutover-owner.json",
+            "sha256": "87db1571282f59e4e5bed1f2e537f22d50ba62387e1bd581b937cadf98723e13"
+          }
+        }
       }
     ],
     "observationMeaning": "Point-in-time user-only manual usage; completed ledger entries do not imply user content acceptance. Original setup providerDispatches field and historical observations retain their own time scope."
@@ -3087,6 +3306,17 @@
       "status": "review_required",
       "scope": "slots20-25",
       "finding": "蛊世界纸鹤位置措辞、NPC额外确认，Minecraft物资等级、锚定等级和记忆面板有跨回合或正文/面板差异。"
+    },
+    {
+      "id": "USER_NARRATIVE_QUALITY_NOT_PASSED",
+      "status": "not_passed",
+      "scope": "user manual turns1-4",
+      "finding": "用户反馈正文中性、缺乏情节波澜；开局/文风锚定与主持职责需最小方案评审。第四回合未扩展为露骨内容的正向证据单列，协议不进入本次排查。",
+      "evidence": {
+        "path": ".rpg04-work/rpg05-png-closeout-20260912/narrative-audit-20260912/evidence.json",
+        "sha256": "a23637dd208e04b8c2c5825633cfe3f15c75ff77e097962b5d2582cdc2dcb687",
+        "private": true
+      }
     }
   ],
   "fullAcceptance": false,
@@ -3117,6 +3347,19 @@
         "HTTP non200 or incomplete/refusal terminal can remain conservatively unknown and block further slots; no auto retry.",
         "Old binary cannot interpret new binding; activation uses same exclusive runtime owner, and rollback to old binary/policy/ledger is forbidden.",
         "HTTP8 and parent59 remain historical separate checks; mobile polish deferred by user."
+      ]
+    },
+    {
+      "recordedAt": "2026-09-13T04:35:36.221343+00:00",
+      "reason": "manual quality feedback and user-only observation",
+      "limitations": [
+        "STM accumulation remains not_passed; actual request included old STM and append rules, model replaced S1. No new semantic prompt or memory engine added.",
+        "Treasure talent effect unverified; content consistency and player experience remain pending.",
+        "No Provider retest after closeout runtime guards and source cutover; automatic26 exhausted; extra5 exclusively user manual, observed0 consumed.",
+        "HTTP non200 or incomplete/refusal terminal can remain conservatively unknown and block further slots; no auto retry.",
+        "Old binary cannot interpret new binding; activation uses same exclusive runtime owner, and rollback to old binary/policy/ledger is forbidden.",
+        "HTTP8 and parent59 remain historical separate checks; mobile polish deferred by user.",
+        "Seven user supplied screenshots are losslessly cropped to exclude overlays. Only retained visible regions are proven; raw originals remain private, no full-page or user-quality acceptance inferred."
       ]
     }
   ],
@@ -3642,7 +3885,7 @@
     "safetyBypassAllowed": false
   },
   "publicationPreparation": {
-    "status": "draft_pr_open_manual_quality_pending",
+    "status": "draft_pr_open_manual_quality_not_passed",
     "reviewedUpstream": "d246527d5554b16594d390172cfa38876f998ccb",
     "upstreamAhead": 13,
     "pathIntersections": [
@@ -3680,7 +3923,7 @@
     "runtimeSourceChanged": false,
     "manualSourceVersion": "closeout-1",
     "remaining": [
-      "user quality and experience acceptance before merge",
+      "user manual narrative quality not_passed; revised approach review and fresh authorized acceptance required before merge",
       "STM accumulation not_passed; treasure effect unverified; content continuity review",
       "repository CI: ancestry precondition failed; existing main frontend2/backend3 failures; additional RPG05 compiler4 failures need explicit CI dependency/runtime preparation"
     ],
@@ -3960,5 +4203,66 @@
     },
     "overallAcceptance": false,
     "laterDocumentationCommit": "CI observations above are bound to the first delivery head; subsequent head checks are recorded separately without rewriting these results."
-  }
+  },
+  "manualContentReview": {
+    "status": "not_passed",
+    "reviewKind": "user_manual_narrative_quality",
+    "recordedAt": "2026-09-13T04:35:36.221343+00:00",
+    "scope": "four existing user manual turns; no new model calls",
+    "finding": "User reports neutral, undramatic narration and lower perceived role-play quality. No full content or player-experience acceptance.",
+    "bodyNonWhitespaceCodePoints": [
+      304,
+      632,
+      413,
+      277
+    ],
+    "rawConvertedSavedNarrativeEqual": true,
+    "finishReasons": [
+      "stop",
+      "stop",
+      "stop",
+      "stop"
+    ],
+    "comparison": "same world/character reference; model, talents and opening differ, so not a controlled model-quality comparison",
+    "savedSetupTalents": 0,
+    "savedSetupPossessions": 0,
+    "sourceLossFinding": "draft, initial journey and all requests consistently empty; unsaved UI intent unknown",
+    "positiveCase": {
+      "scope": "manual turn4 only",
+      "result": "user_confirmed_positive",
+      "finding": "Conflict scene did not expand to explicit sexual content; not an exhaustive safety evaluation"
+    },
+    "excluded": "audited runtime anti-truncation protocol; remains unchanged",
+    "implementationChanges": 0,
+    "providerCalls": 0,
+    "report": {
+      "path": ".rpg04-work/rpg05-png-closeout-20260912/narrative-audit-20260912/REVIEW.md",
+      "sha256": "b239522d7da885f8bb4fd28411808c1c6498600cb9b020132374b49bcc684865",
+      "private": true
+    },
+    "evidence": {
+      "path": ".rpg04-work/rpg05-png-closeout-20260912/narrative-audit-20260912/evidence.json",
+      "sha256": "a23637dd208e04b8c2c5825633cfe3f15c75ff77e097962b5d2582cdc2dcb687",
+      "private": true
+    },
+    "next": "prepare minimal host/card narrative proposals for explicit review; any new A/B dispatch requires separate authority and budget"
+  },
+  "restoredRouteHistory": [
+    {
+      "authorized": true,
+      "pid": 32576,
+      "launcherChildPid": 50896,
+      "ownerPid": 44452,
+      "launcherPid": 53620,
+      "port": 18305,
+      "newapiPort": 18306,
+      "containerId": "a99065ea116f383038e9ce62c807df0f143c55ac0f3d43e70bd579073e414615",
+      "status": "running_for_user_manual",
+      "providerDispatchesThisResume": 5,
+      "ownerChain": {
+        "path": ".rpg04-work/rpg05-reviewed-resume-20260912/listener-ownership.json",
+        "sha256": "79bb7389565ec1f31a5bd0eaba80032728981309ac2cc1156c5e429fd96457a7"
+      }
+    }
+  ]
 }

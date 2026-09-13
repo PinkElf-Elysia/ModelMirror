@@ -1,6 +1,6 @@
 {
   "format": "modelmirror.ai-rpg.rpg05-publication/1",
-  "generatedAt": "2026-09-12T18:40:00.116804+00:00",
+  "generatedAt": "2026-09-13T04:35:45.108567+00:00",
   "base": "81fc14f6e0dada2447a63c1e532ee55b1f914ded",
   "branch": "codex/ai-rpg-rpg05-ui",
   "scope": "Git delivery snapshot; private runtime freeze, model evidence and manual approval remain separate",
@@ -1125,9 +1125,9 @@
     },
     {
       "path": "experiments/ai-rpg-engine/docs/RPG05_PR_GATE_REVIEW.md",
-      "bytes": 16903,
-      "checkoutSha256": "561d55664a6c7f9fa409353ca6ee546376b8f09fd51d41297818f4785a00938c",
-      "gitBlob": "68417848c10cfbda0f60dbfc3cf4daa796233782",
+      "bytes": 19151,
+      "checkoutSha256": "2286062b8ace0ef238070694142bca25fd1b7ab46c1421f240c4e54381b3bc2e",
+      "gitBlob": "f5a27b59f99fcb32c28b36be50a5d0c1cdf2f66f",
       "gitMode": "100644"
     },
     {
@@ -1162,9 +1162,9 @@
     },
     {
       "path": "experiments/ai-rpg-engine/docs/RPG05_STATUS.json",
-      "bytes": 174151,
-      "checkoutSha256": "ab60c046d01cf9eaffd9011797f211e9df11f1d09a5b014066b8d3f420a3ba7f",
-      "gitBlob": "6120077002352e35e7ca76d3049c620515bbe11d",
+      "bytes": 189153,
+      "checkoutSha256": "86f851bac9b6dbbad6b91991983c9bd8892298a14582e7c3654a1d2671326395",
+      "gitBlob": "a67c1344776e8156f3670cfcf4383960c9dac057",
       "gitMode": "100644"
     },
     {
