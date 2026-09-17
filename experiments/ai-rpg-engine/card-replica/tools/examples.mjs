@@ -1,0 +1,10 @@
+import {mkdir,writeFile} from 'node:fs/promises';
+import {assemble,defaults,hash,worldbookRules} from '../lib/assembly.mjs';
+const directory=new URL('../.local/examples/',import.meta.url);await mkdir(directory,{recursive:true});
+const characterText='【角色设定 · 地球 OL】\n姓名：林舟\n性别：男性\n出生地：中国 · 广州\n出生年代：1990年代\n家庭出身：中产家庭\n天赋特质：电路直觉、长跑耐力、耐热体质';
+const first=assemble({characterText,input:'开始这一世人生。'});
+const history=[{role:'user',content:first.current},{role:'assistant',content:'<p>离线占位回复，用于核对后续装配顺序。</p>'}];
+const continuation=assemble({characterText,input:'我推开车站候车室的门。',history});
+for(const [name,value] of Object.entries({first,continuation}))await writeFile(new URL(name+'.json',directory),JSON.stringify({offlineExample:true,parameters:defaults,...value},null,2));
+const receipt={offlineOnly:true,providerCalls:0,examples:{first:{messages:first.messages.length,sha256:hash(JSON.stringify(first.messages))},continuation:{messages:continuation.messages.length,sha256:hash(JSON.stringify(continuation.messages))}},worldbook:worldbookRules().map(({text,...r})=>r)};
+await writeFile(new URL('receipt.json',directory),JSON.stringify(receipt,null,2));console.log(JSON.stringify(receipt,null,2));

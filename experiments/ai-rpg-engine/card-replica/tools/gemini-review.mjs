@@ -1,0 +1,21 @@
+import http from 'node:http';
+import {readFile,writeFile} from 'node:fs/promises';
+import {fileURLToPath} from 'node:url';
+import {join} from 'node:path';
+import {safeHtml} from '../lib/render.mjs';
+import {hash} from '../lib/assembly.mjs';
+const retest=process.argv.includes('--retest'),port=retest?18415:18414;
+const base=fileURLToPath(new URL('../',import.meta.url)),work=join(base,retest?'.local/gemini-retest':'.local/gemini-real'),dir=join(work,retest?'dispatches/slot-1':'dispatches/slot-4');
+const raw=await readFile(join(dir,'output.txt'),'utf8'),receipt=JSON.parse(await readFile(join(dir,'result.json'),'utf8'));
+if(hash(raw)!==receipt.rawHash)throw Error('Saved output drift');
+const page='<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>龙婉翩 · Gemini 真实返回审阅</title><style>body{margin:0;background:#f4f7fb;color:#263441;font:16px/1.9 system-ui,sans-serif}main{max-width:940px;margin:auto;padding:26px 22px 80px}h1{font-size:24px}aside{padding:16px;border:1px solid #cca56a;background:#fff2dc;border-radius:12px}a{color:#245fb0}nav{display:flex;gap:24px;margin:16px 0}.model-output{overflow-wrap:anywhere}.model-output .main-text{white-space:pre-line}.model-output details{background:#eaf1ff;border:1px solid #c0d2ec;border-radius:12px;padding:16px;margin:18px 0}.model-output summary{cursor:pointer;font-weight:650}.model-output table{table-layout:fixed;width:100%;border-collapse:collapse}.model-output td,.model-output th{border:1px solid #b6c6d9;padding:10px;overflow-wrap:anywhere}.model-output pre{white-space:pre-wrap}.model-output h1{font-size:22px}.model-output h2{font-size:20px}</style><main><h1>龙婉翩 · Gemini 3.8 Flash</h1><aside>'+(retest?'<strong>删除冲突句后的单次真实复测</strong><br>max_tokens=16384；finish_reason='+receipt.finishReason+'。仅删除已授权的一句系统声明；角色及前后置词未改。<br>原批4/4，新增单次复测1/1；仅供人工审阅。':'<strong>真实返回 · 输出因长度上限被截断</strong><br>finish_reason=length；max_tokens=8192。流已结束，正文尚未完整结束；没有补写、重试或录入完整回合历史。<br>本卡额度已用4/4；仅供人工审阅。角色原文与官方提示词未改。')+'</aside><nav><a href="/raw.txt">查看完整返回原文'+(retest?'':'（含截断末尾）')+'</a><a href="/receipt.json">查看技术回执</a></nav><section class="model-output">'+safeHtml(raw)+'</section></main></html>';
+const server=http.createServer((req,res)=>{
+ const send=(code,type,data)=>{res.writeHead(code,{'Content-Type':type,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",'Referrer-Policy':'no-referrer'});res.end(data);};
+ if(req.headers.host!==('127.0.0.1:'+port)||req.method!=='GET')return send(403,'text/plain; charset=utf-8','只读审阅');
+ if(req.url==='/')return send(200,'text/html; charset=utf-8',page);
+ if(req.url==='/raw.txt')return send(200,'text/plain; charset=utf-8',raw);
+ if(req.url==='/receipt.json')return send(200,'application/json; charset=utf-8',JSON.stringify(receipt,null,2));
+ if(req.url==='/api/status')return send(200,'application/json',JSON.stringify({mode:'review-only',providerEnabled:false,model:receipt.actualModel,finishReason:receipt.finishReason,rawHash:receipt.rawHash}));
+ return send(404,'text/plain','Not found');
+});
+server.listen(port,'127.0.0.1',async()=>{await writeFile(join(work,'preview.pid'),String(process.pid));console.log('Read-only Gemini output review http://127.0.0.1:'+port);});

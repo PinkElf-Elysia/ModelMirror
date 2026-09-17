@@ -1,0 +1,2 @@
+# Preserve exact byte hashes, including intentional CRLF, without relaxing whitespace checks.
+* -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol

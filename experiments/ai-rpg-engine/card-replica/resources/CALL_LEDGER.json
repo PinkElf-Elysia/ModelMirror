@@ -1,0 +1,106 @@
+{
+  "schema": "earth-card-dispatch-ledger/2",
+  "authorization": "User explicitly authorizes up to 4 new-card Provider dispatches, including failures and necessary qualification calls; no retries; each output requires user review",
+  "model": "google/gemini-3.8-flash",
+  "route": "http://127.0.0.1:18307",
+  "limit": 4,
+  "entries": [
+    {
+      "slot": 1,
+      "id": "5e495ddf-73ef-4675-8285-80e83bf2ea76",
+      "kind": "certification",
+      "status": "complete",
+      "requestHash": "43ec2ed7e4a09a05579219ce12af8d8dd4093f98ea82fc37ec4ee4dbea66b978",
+      "freezeHash": "3b1e036c75c8d29b1c8d66dc9dbf9354c7a474f47ce89c9ddd5b6bf4d45ac66a",
+      "at": "2026-09-17T08:04:55.385Z",
+      "userReviewed": false,
+      "resultHash": "ae4358be24ae028d63ff1cda7f9e9ea428ee6d00a4dc30b5d169a309025d71e2",
+      "actualModel": "gpt-5.6-luna",
+      "errorCode": null,
+      "evidence": ".local/real/certification-safe-result.json",
+      "completedAt": "2026-09-17T08:05:04.885Z",
+      "model": "gpt-5.6-luna",
+      "route": "http://127.0.0.1:18305"
+    },
+    {
+      "slot": 2,
+      "id": "d693ce36-dcdc-4910-b08d-865ab2fb2bc8",
+      "kind": "generation",
+      "status": "complete",
+      "requestHash": "7ea833a6c1cd2f2fdf5a102abc815b4c6663bf50acaaae4e33014943a12394b5",
+      "freezeHash": "be855fa727ac044f2bf1f24497d651aaee60cc4e4d896ff119aab0543eaf8053",
+      "at": "2026-09-17T08:06:05.163Z",
+      "userReviewed": true,
+      "rawHash": "cfe69cd0037e013bdc0a85697a30d79393f4fa319be8d985a8d9dfdc59d5e89c",
+      "error": null,
+      "finishReason": "stop",
+      "evidence": "slot-2",
+      "completedAt": "2026-09-17T08:06:37.072Z",
+      "model": "gpt-5.6-luna",
+      "route": "http://127.0.0.1:18305",
+      "userReview": {
+        "qualityAccepted": false,
+        "feedback": "正文太短太中性；世界类型和状态格式有差异；对比条件不公平；换同角色Gemini对比，官方文本与素材矛盾不改"
+      }
+    },
+    {
+      "slot": 3,
+      "id": "9462dcef-9376-4461-a63f-82b387341555",
+      "kind": "certification",
+      "model": "google/gemini-3.8-flash",
+      "route": "http://127.0.0.1:18307",
+      "status": "complete",
+      "requestHash": "0a5c891407ff02e2f7482d9df480e2cdf1aeef0cd721c379dc30b11f678e7ffc",
+      "freezeHash": "04f4cb50dc72b5690bcc90eaecbc52b9db5a7be4dbbb06472380d12575001263",
+      "at": "2026-09-17T08:57:52.379Z",
+      "userReviewed": false,
+      "rawHash": "b814aabdde112d89d45105c3205482949a86d7bbc33040034db21f7a85c84c4a",
+      "error": null,
+      "evidence": ".local/gemini-real/dispatches/slot-3",
+      "actualModel": "google/gemini-3.8-flash",
+      "actualProvider": "Google AI Studio",
+      "completedAt": "2026-09-17T08:57:54.307Z"
+    },
+    {
+      "slot": 4,
+      "id": "5fe5f8f8-e3a7-45bb-9e21-c2813b405cc9",
+      "kind": "generation",
+      "model": "google/gemini-3.8-flash",
+      "route": "http://127.0.0.1:18307",
+      "status": "unknown",
+      "requestHash": "c7dd6345431f187dbad6133bed5b8366ef3fbe22fbf10c3498400ab65cab8cdd",
+      "freezeHash": "04f4cb50dc72b5690bcc90eaecbc52b9db5a7be4dbbb06472380d12575001263",
+      "at": "2026-09-17T08:58:31.606Z",
+      "userReviewed": false,
+      "rawHash": "503a5159617df13c3f0f472a6ae1f48292c4e35d135c48589e39153db40d611d",
+      "error": "ValueError",
+      "evidence": ".local/gemini-real/dispatches/slot-4",
+      "actualModel": "google/gemini-3.8-flash",
+      "actualProvider": "Google AI Studio",
+      "completedAt": "2026-09-17T08:59:14.597Z",
+      "resolvedOutcome": {
+        "kind": "stream-completed-length-limited",
+        "finishReason": "length",
+        "done": true,
+        "completeTurnSaved": false,
+        "originalRuntimeStatus": "unknown",
+        "assessment": ".local/gemini-real/dispatches/slot-4/assessment.json"
+      }
+    }
+  ],
+  "used": 4,
+  "remaining": 0,
+  "automaticRetry": false,
+  "reviewBeforeNextOutput": true,
+  "legacyRpg05BudgetInherited": false,
+  "authorizationHistory": [
+    {
+      "at": "2026-09-17T08:56:40.906683+00:00",
+      "userInstruction": "授权激活正式调用，原卡片素材提供方的错误矛盾暂不修改，减少变量",
+      "model": "google/gemini-3.8-flash",
+      "remainingAtActivation": 2,
+      "limitUnchanged": 4,
+      "scope": "necessary qualification plus one comparison output; no retry, fallback or prompt edits"
+    }
+  ]
+}

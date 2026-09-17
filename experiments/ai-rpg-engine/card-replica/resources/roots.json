@@ -1,0 +1,955 @@
+[
+  {
+    "name": "墨香醉人",
+    "tier": "凡品",
+    "description": "闻到朱砂、墨汁等气味会感到兴奋，画符或抄经时极易进入状态。",
+    "sources": [
+      "Screenshot_2026_0916_030312.png",
+      "Screenshot_2026_0916_031316.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🖋️"
+  },
+  {
+    "name": "令旗生风",
+    "tier": "稀世",
+    "description": "挥动令旗时，能引来狂风或乌云，是天象操控的雏形，但极耗心神。",
+    "sources": [
+      "Screenshot_2026_0916_030318.png",
+      "Screenshot_2026_0916_031145.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🚩"
+  },
+  {
+    "name": "惧内却勇",
+    "tier": "凡品",
+    "description": "平日胆小，但面对真正的邪祟时反而能爆发出惊人勇气，仿佛有神明护佑。",
+    "sources": [
+      "Screenshot_2026_0916_030339.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "😨"
+  },
+  {
+    "name": "尸语者",
+    "tier": "稀世",
+    "description": "能与刚死之人进行短暂交流，获知其遗愿或死因，是仵作与法师的终极天赋。",
+    "sources": [
+      "Screenshot_2026_0916_030345.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "💀"
+  },
+  {
+    "name": "脚印留痕",
+    "tier": "上品",
+    "description": "在泥土上留下的脚印，有时能显现出鬼怪踩过的痕迹，是追踪术的一种。",
+    "sources": [
+      "Screenshot_2026_0916_030351.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "👣"
+  },
+  {
+    "name": "梦境清醒",
+    "tier": "凡品",
+    "description": "偶尔能在梦中知梦，虽不能完全控制，但已是清明梦的雏形。",
+    "sources": [
+      "Screenshot_2026_0916_030356.png",
+      "Screenshot_2026_0916_031323.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🌙"
+  },
+  {
+    "name": "龟息之质",
+    "tier": "上品",
+    "description": "可长时间屏息，心跳减慢，进入假死状态。适合修炼龟息大法或闭气探阴。",
+    "sources": [
+      "Screenshot_2026_0916_030402.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🐢"
+  },
+  {
+    "name": "口水消毒",
+    "tier": "凡品",
+    "description": "唾液杀菌力强，小伤口用口水涂抹不易感染，是天生自带\"药王\"体质。",
+    "sources": [
+      "Screenshot_2026_0916_030408.png",
+      "Screenshot_2026_0916_030753.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "💧"
+  },
+  {
+    "name": "骨鸣有声",
+    "tier": "凡品",
+    "description": "活动关节时常发出咔咔声响，筋骨柔韧，练武或导引时进步更快。",
+    "sources": [
+      "Screenshot_2026_0916_030414.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🦴"
+  },
+  {
+    "name": "公鸡不鸣",
+    "tier": "凡品",
+    "description": "走近时公鸡会安静，据说是身上带有某种让动物敬畏的气息。",
+    "sources": [
+      "Screenshot_2026_0916_030420.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🐓"
+  },
+  {
+    "name": "老物件通感",
+    "tier": "凡品",
+    "description": "触摸古物时能感应到残留的情绪或画面片段，是溯源能力的萌芽。",
+    "sources": [
+      "Screenshot_2026_0916_030428.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🏺"
+  },
+  {
+    "name": "桃木亲和",
+    "tier": "上品",
+    "description": "手持桃木剑或桃木法器时，能感到明显的力量涌动，驱邪效果翻倍。",
+    "sources": [
+      "Screenshot_2026_0916_030435.png",
+      "Screenshot_2026_0916_032421.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🪵"
+  },
+  {
+    "name": "胎里素",
+    "tier": "凡品",
+    "description": "生来不喜荤腥，身体洁净，修行时不易受浊气干扰，是清修种子。",
+    "sources": [
+      "Screenshot_2026_0916_030442.png",
+      "Screenshot_2026_0916_031245.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🥬"
+  },
+  {
+    "name": "掌心发热",
+    "tier": "凡品",
+    "description": "双手经常温热，冬天也不易冰冷，发放外气或画符时更容易贯注能量。",
+    "sources": [
+      "Screenshot_2026_0916_030448.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🔥"
+  },
+  {
+    "name": "头发织网",
+    "tier": "上品",
+    "description": "脱落的头发能编织成网，困住灵体，是民间巫术中的偏门天赋。",
+    "sources": [
+      "Screenshot_2026_0916_030454.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "💇"
+  },
+  {
+    "name": "阴眼初开",
+    "tier": "凡品",
+    "description": "偶尔能瞥见一些模糊的影子，尤其在老宅、医院等阴气重的地方，虽然看不真切，但已异于常人。",
+    "sources": [
+      "Screenshot_2026_0916_030500.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "👁️"
+  },
+  {
+    "name": "石敢当显灵",
+    "tier": "稀世",
+    "description": "触摸泰山石敢当时，能激发其中灵力，形成护身结界，百邪不侵。",
+    "sources": [
+      "Screenshot_2026_0916_030505.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🗿"
+  },
+  {
+    "name": "黑猫亲近",
+    "tier": "凡品",
+    "description": "黑猫常主动靠近，在民间传说中是通灵者的象征。",
+    "sources": [
+      "Screenshot_2026_0916_030511.png",
+      "Screenshot_2026_0916_030545.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🐈"
+  },
+  {
+    "name": "香灰显象",
+    "tier": "上品",
+    "description": "上香时香灰常形成特殊形状，如同神灵降下启示，是解读神意的天赋。",
+    "sources": [
+      "Screenshot_2026_0916_030517.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🕯️"
+  },
+  {
+    "name": "河伯驮渡",
+    "tier": "稀世",
+    "description": "溺水时河伯会驮其上岸，并能与之沟通，获得水下宝物或信息。",
+    "sources": [
+      "Screenshot_2026_0916_030524.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🌊"
+  },
+  {
+    "name": "见血不晕",
+    "tier": "凡品",
+    "description": "看到鲜血反而冷静，适合处理外伤或参与驱邪仪式。",
+    "sources": [
+      "Screenshot_2026_0916_030533.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🩸"
+  },
+  {
+    "name": "锁魂红线",
+    "tier": "上品",
+    "description": "用红线编织的结绳能锁住一丝魂魄气息，用以追踪或护身都异常灵验。",
+    "sources": [
+      "Screenshot_2026_0916_030552.png",
+      "Screenshot_2026_0916_032318.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🧶"
+  },
+  {
+    "name": "尸毒不侵",
+    "tier": "上品",
+    "description": "接触腐败尸体或阴邪之物时，不易中尸毒或染病，适合处理凶杀现场或古墓。",
+    "sources": [
+      "Screenshot_2026_0916_030559.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🧟"
+  },
+  {
+    "name": "扎彩匠",
+    "tier": "稀世",
+    "description": "扎出的纸人纸马栩栩如生，甚至能短暂活过来，是民间纸扎术的失传天分。",
+    "sources": [
+      "Screenshot_2026_0916_030608.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🎨"
+  },
+  {
+    "name": "符箓亲和",
+    "tier": "凡品",
+    "description": "对符咒有天然好感，书写时笔锋自然带劲，虽无法力，但比常人更容易入门符法。",
+    "sources": [
+      "Screenshot_2026_0916_030617.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "📜"
+  },
+  {
+    "name": "踏罡步斗",
+    "tier": "上品",
+    "description": "走禹步或踏罡步斗时，脚下仿佛踩着无形的节点，阵法效果倍增。",
+    "sources": [
+      "Screenshot_2026_0916_030624.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "👣"
+  },
+  {
+    "name": "五鬼运财",
+    "tier": "稀世",
+    "description": "能驱使五鬼搬运财物，但需以自身精血或福报为交换，非正当用途会遭反噬。",
+    "sources": [
+      "Screenshot_2026_0916_030632.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "💰"
+  },
+  {
+    "name": "祝由圣手",
+    "tier": "上品",
+    "description": "习得祝由术后，以符水、咒语治病的效果显著，仿佛天生就懂与病灶\"对话\"。",
+    "sources": [
+      "Screenshot_2026_0916_030638.png",
+      "Screenshot_2026_0916_032004.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🩺"
+  },
+  {
+    "name": "敕令即效",
+    "tier": "上品",
+    "description": "书写“敕令”二字时，会感到一股无形力量从指尖涌出，符头威力极强。",
+    "sources": [
+      "Screenshot_2026_0916_030644.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "📜"
+  },
+  {
+    "name": "香火感应",
+    "tier": "凡品",
+    "description": "进入寺庙或道观时，能明确感受到香火气息的浓淡，甚至能察觉神像是否\"在位\"。",
+    "sources": [
+      "Screenshot_2026_0916_030708.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🕯️"
+  },
+  {
+    "name": "第六感准",
+    "tier": "凡品",
+    "description": "对人事的判断常凭直觉，且正确率颇高，常被误认为\"未卜先知\"。",
+    "sources": [
+      "Screenshot_2026_0916_030714.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🔮"
+  },
+  {
+    "name": "钉头七箭",
+    "tier": "稀世",
+    "description": "习得此术者，能以草人代形，七日内咒杀仇敌，但反噬极强，属禁术范畴。",
+    "sources": [
+      "Screenshot_2026_0916_030731.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🏹"
+  },
+  {
+    "name": "药敏之体",
+    "tier": "凡品",
+    "description": "对草药反应灵敏，少量服用即能感知药效走向，是学祝由或中医的好底子。",
+    "sources": [
+      "Screenshot_2026_0916_030747.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🌿"
+  },
+  {
+    "name": "针线自闭",
+    "tier": "凡品",
+    "description": "针线活时容易扎到手指，但流出的血能自动闭合针眼，是血脉中蕴含自愈之力。",
+    "sources": [
+      "Screenshot_2026_0916_030800.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🧵"
+  },
+  {
+    "name": "呼吸引风",
+    "tier": "凡品",
+    "description": "深呼吸时似乎能带动周围气流，是先天胎息的浅层表现。",
+    "sources": [
+      "Screenshot_2026_0916_030807.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🌬️"
+  },
+  {
+    "name": "泪水净目",
+    "tier": "凡品",
+    "description": "哭过后眼睛格外清亮，有时能短暂看到一些常人不见的灵光。",
+    "sources": [
+      "Screenshot_2026_0916_030816.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "💧"
+  },
+  {
+    "name": "背有七星",
+    "tier": "凡品",
+    "description": "后背天生七颗排列如北斗的痣或胎记，被道家视为天星下凡的印记。",
+    "sources": [
+      "Screenshot_2026_0916_030822.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "⭐"
+  },
+  {
+    "name": "舌灿莲花",
+    "tier": "上品",
+    "description": "讲经说法或劝解亡灵时，言语充满感染力，能平息怨气，是天生超度者。",
+    "sources": [
+      "Screenshot_2026_0916_030829.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🪷"
+  },
+  {
+    "name": "生辰特殊",
+    "tier": "凡品",
+    "description": "出生在清明、中元或冬至等节气，天生与幽冥或自然能量有更深链接。",
+    "sources": [
+      "Screenshot_2026_0916_030842.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🎂"
+  },
+  {
+    "name": "直觉避险",
+    "tier": "凡品",
+    "description": "遇到危险前，心头会莫名一跳，虽不明显，但多次助其避开灾祸。",
+    "sources": [
+      "Screenshot_2026_0916_030848.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "⚠️"
+  },
+  {
+    "name": "瞑目观景",
+    "tier": "上品",
+    "description": "闭眼后能在脑海中“看到”周围环境的大致轮廓，如蝙蝠般回声定位，是神识外放的雏形。",
+    "sources": [
+      "Screenshot_2026_0916_030854.png",
+      "Screenshot_2026_0916_031119.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🙈"
+  },
+  {
+    "name": "树魅附灵",
+    "tier": "稀世",
+    "description": "能与老树精怪沟通，借其力量治疗或诅咒，但需保护树木不被砍伐。",
+    "sources": [
+      "Screenshot_2026_0916_030904.png",
+      "Screenshot_2026_0916_032302.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🌳"
+  },
+  {
+    "name": "不易中邪",
+    "tier": "凡品",
+    "description": "虽然八字轻或见鬼，但很少被真正附身或冲煞，仿佛有层天然护罩。",
+    "sources": [
+      "Screenshot_2026_0916_030924.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🛡️"
+  },
+  {
+    "name": "孟婆汤引",
+    "tier": "稀世",
+    "description": "眼泪或唾液带有让人遗忘的力量，少量即可使人记忆模糊，是孟婆汤在人间的回响。",
+    "sources": [
+      "Screenshot_2026_0916_030939.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🍵"
+  },
+  {
+    "name": "白仙赐药",
+    "tier": "稀世",
+    "description": "刺猬仙会在梦中传授药方，治疗疑难杂症，是民间巫医的最高传承。",
+    "sources": [
+      "Screenshot_2026_0916_030944.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🦔"
+  },
+  {
+    "name": "雷声不惊",
+    "tier": "凡品",
+    "description": "打雷时内心平静，甚至有种莫名的亲切感，可能与雷法有缘。",
+    "sources": [
+      "Screenshot_2026_0916_030951.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "⛈️"
+  },
+  {
+    "name": "朱砂不染",
+    "tier": "上品",
+    "description": "朱砂点在身上不易脱落，且能自然形成护身纹路，画符时颜料与皮肤完美融合。",
+    "sources": [
+      "Screenshot_2026_0916_031004.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🔴"
+  },
+  {
+    "name": "口含铜钱",
+    "tier": "上品",
+    "description": "口中含一枚古铜钱可避瘴气与尸毒，且能用来探知食物是否有毒。",
+    "sources": [
+      "Screenshot_2026_0916_031029.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🪙"
+  },
+  {
+    "name": "铜钱认主",
+    "tier": "上品",
+    "description": "古铜钱在手中会微微发热，用来占卜或布阵时准确率极高，仿佛钱币有灵。",
+    "sources": [
+      "Screenshot_2026_0916_031036.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🪙"
+  },
+  {
+    "name": "黄泉路标",
+    "tier": "稀世",
+    "description": "在荒野中能自然找到通往阴间路口的方位，是走阴人的最高向导。",
+    "sources": [
+      "Screenshot_2026_0916_031049.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🪧"
+  },
+  {
+    "name": "地府耳报",
+    "tier": "上品",
+    "description": "有时耳边会听到低语，据说是来自地府的传讯，可预知他人阳寿或灾劫。",
+    "sources": [
+      "Screenshot_2026_0916_031103.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "👂"
+  },
+  {
+    "name": "黑白无常引路",
+    "tier": "稀世",
+    "description": "濒死时黑白无常会显形引路，但不会带走，反而成为其阴间向导。",
+    "sources": [
+      "Screenshot_2026_0916_031112.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "⛓️"
+  },
+  {
+    "name": "符胆天成",
+    "tier": "上品",
+    "description": "画符时一笔落下，自有神韵，符箓生效的概率比寻常道士高出许多。",
+    "sources": [
+      "Screenshot_2026_0916_031130.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🖌️"
+  },
+  {
+    "name": "噩梦化吉",
+    "tier": "凡品",
+    "description": "即使做噩梦，也能在梦中突然清醒或反杀鬼怪，心理素质极强。",
+    "sources": [
+      "Screenshot_2026_0916_031138.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "😈"
+  },
+  {
+    "name": "毛发如电",
+    "tier": "凡品",
+    "description": "干燥时头发容易起静电，全身汗毛有时会无故竖起，是生物电敏感的表现。",
+    "sources": [
+      "Screenshot_2026_0916_031205.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "⚡"
+  },
+  {
+    "name": "能见光晕",
+    "tier": "凡品",
+    "description": "偶尔能看见人头顶或树梢有淡淡的光晕，是气感视觉的初步显现。",
+    "sources": [
+      "Screenshot_2026_0916_031239.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🌈"
+  },
+  {
+    "name": "精血含光",
+    "tier": "上品",
+    "description": "血液在黑暗中微微发亮，用来画符或书契时效力倍增，但会消耗自身元气。",
+    "sources": [
+      "Screenshot_2026_0916_031333.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🩸"
+  },
+  {
+    "name": "土地公耳语",
+    "tier": "稀世",
+    "description": "路过土地庙时，有时能听到土地公的低语，指点迷津或预告祸福。",
+    "sources": [
+      "Screenshot_2026_0916_031339.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "👴"
+  },
+  {
+    "name": "影子偶淡",
+    "tier": "凡品",
+    "description": "影子有时比旁人淡薄，据说是魂魄不全的征兆，但也因此更能游走阴阳。",
+    "sources": [
+      "Screenshot_2026_0916_031347.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "👥"
+  },
+  {
+    "name": "手纹如符",
+    "tier": "凡品",
+    "description": "掌纹中天然带有类似符箓的纹路，虽无实质作用，但被老修行视为“有缘人”。",
+    "sources": [
+      "Screenshot_2026_0916_031357.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "✋"
+  },
+  {
+    "name": "倒吊见真",
+    "tier": "上品",
+    "description": "倒立时能看到常人看不见的东西，是某种通灵视觉的特殊触发方式。",
+    "sources": [
+      "Screenshot_2026_0916_031417.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🙃"
+  },
+  {
+    "name": "耐阴耐寒",
+    "tier": "凡品",
+    "description": "在阴冷环境中不觉得难受，反而精神抖擞，适合在古墓、山洞等阴地修行。",
+    "sources": [
+      "Screenshot_2026_0916_031442.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "❄️"
+  },
+  {
+    "name": "夜叉护法",
+    "tier": "稀世",
+    "description": "身边常随一位夜叉护法，虽不可见，但能震慑恶鬼，是前世修来的守护。",
+    "sources": [
+      "Screenshot_2026_0916_031502.png",
+      "Screenshot_2026_0916_032453.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "👹"
+  },
+  {
+    "name": "柳仙缠身",
+    "tier": "稀世",
+    "description": "蛇仙主动附体护身，能在水中或密林获得超常感知，但需每月供奉活食。",
+    "sources": [
+      "Screenshot_2026_0916_031511.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🐍"
+  },
+  {
+    "name": "水边倒影",
+    "tier": "凡品",
+    "description": "水边看倒影时，偶尔会看到自己身后站着别人，是通灵视觉的雏形。",
+    "sources": [
+      "Screenshot_2026_0916_031520.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🌊"
+  },
+  {
+    "name": "八字偏轻",
+    "tier": "凡品",
+    "description": "命格稍轻，容易被“压床”或撞见游魂，但也因此更易感知灵体，是招阴体质。",
+    "sources": [
+      "Screenshot_2026_0916_031528.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "☯️"
+  },
+  {
+    "name": "旱魃之泪",
+    "tier": "天授",
+    "description": "哭泣时会引发周围干旱，眼泪带有极强的火毒，是传说中旱魃的隔代遗传。",
+    "sources": [
+      "Screenshot_2026_0916_031543.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "💧"
+  },
+  {
+    "name": "引魂灯芯",
+    "tier": "上品",
+    "description": "制作引魂灯时，灯芯能自发吸引游魂，是招魂或超度仪式的绝佳助手。",
+    "sources": [
+      "Screenshot_2026_0916_031550.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🏮"
+  },
+  {
+    "name": "掌中雷纹",
+    "tier": "上品",
+    "description": "掌心纹路如闪电，修习五雷掌或掌心雷时，法术威力比常人高出许多。",
+    "sources": [
+      "Screenshot_2026_0916_031603.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "⚡"
+  },
+  {
+    "name": "耳听异响",
+    "tier": "凡品",
+    "description": "有时能听到旁人听不到的细微声响，如远山钟声、空屋低语，是听觉通灵的苗头。",
+    "sources": [
+      "Screenshot_2026_0916_031614.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "👂"
+  },
+  {
+    "name": "灵犬跟随",
+    "tier": "上品",
+    "description": "流浪狗或村中犬只常跟随其后，据说是此人身上有驱邪正气，犬类视为守护。",
+    "sources": [
+      "Screenshot_2026_0916_031620.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🐕"
+  },
+  {
+    "name": "天师血脉",
+    "tier": "稀世",
+    "description": "据说先祖曾与张天师联姻，血液中蕴含微弱的天师之力，画符施法自带威压。",
+    "sources": [
+      "Screenshot_2026_0916_031628.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🩸"
+  },
+  {
+    "name": "拂尘自动",
+    "tier": "上品",
+    "description": "持拂尘时，马尾无风自动，能扫除周围秽气，是清净法体的表现。",
+    "sources": [
+      "Screenshot_2026_0916_031637.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🧹"
+  },
+  {
+    "name": "奈何桥影",
+    "tier": "稀世",
+    "description": "濒死体验后能看到奈何桥，并能与桥上亡灵沟通，带回路引或阴间信息。",
+    "sources": [
+      "Screenshot_2026_0916_031650.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🌉"
+  },
+  {
+    "name": "墨斗缚灵",
+    "tier": "上品",
+    "description": "木匠用的墨斗在其手中能弹出困灵线，是民间匠人驱邪术的传承天赋。",
+    "sources": [
+      "Screenshot_2026_0916_031656.png",
+      "Screenshot_2026_0916_032738.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🧵"
+  },
+  {
+    "name": "地气感应",
+    "tier": "凡品",
+    "description": "赤脚踩地时能感到大地微微的脉动，站桩或采气时事半功倍。",
+    "sources": [
+      "Screenshot_2026_0916_031712.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🌍"
+  },
+  {
+    "name": "灰仙搬山",
+    "tier": "稀世",
+    "description": "能沟通鼠类，使其搬运小物件或探听消息，是情报与偷盗的异术。",
+    "sources": [
+      "Screenshot_2026_0916_031728.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🐀"
+  },
+  {
+    "name": "摄魂眼",
+    "tier": "上品",
+    "description": "凝视他人双眼时，可使其短暂失神或吐出真言，是民间\"问米婆\"的最高天赋。",
+    "sources": [
+      "Screenshot_2026_0916_031735.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "👁️"
+  },
+  {
+    "name": "念力微动",
+    "tier": "凡品",
+    "description": "专注时能让轻小物体（如针、羽毛）微微晃动，虽是微弱力量，却是意念力的雏形。",
+    "sources": [
+      "Screenshot_2026_0916_031741.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🧲"
+  },
+  {
+    "name": "城隍契印",
+    "tier": "稀世",
+    "description": "身上某处胎记形似城隍大印，能调动一方土地、阴兵的力量，但需立下重誓。",
+    "sources": [
+      "Screenshot_2026_0916_031750.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🏛️"
+  },
+  {
+    "name": "阴司判官",
+    "tier": "稀世",
+    "description": "梦中常入阴司协助判案，醒来后记忆清晰，能断人生死，但不可随意泄露天机。",
+    "sources": [
+      "Screenshot_2026_0916_031805.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "⚖️"
+  },
+  {
+    "name": "夜行无惧",
+    "tier": "凡品",
+    "description": "走夜路从不害怕，仿佛黑暗中有某种存在在守护。",
+    "sources": [
+      "Screenshot_2026_0916_031814.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🌑"
+  },
+  {
+    "name": "骨哨唤灵",
+    "tier": "上品",
+    "description": "用特定骨头制成的哨子，吹响时能召唤附近的灵体，是与亡灵沟通的媒介。",
+    "sources": [
+      "Screenshot_2026_0916_031930.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🦴"
+  },
+  {
+    "name": "应龙鳞甲",
+    "tier": "天授",
+    "description": "后背有细小鳞片，入水能生鳃，是上古应龙血脉的稀薄觉醒。",
+    "sources": [
+      "Screenshot_2026_0916_032114.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🐉"
+  },
+  {
+    "name": "生死簿页",
+    "tier": "稀世",
+    "description": "前世曾是阴差，灵魂深处留有一页生死簿的信息，能知晓他人阳寿大致期限。",
+    "sources": [
+      "Screenshot_2026_0916_032138.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "📖"
+  },
+  {
+    "name": "灵媒之质",
+    "tier": "凡品",
+    "description": "对“另一个世界”的存在格外敏感，有时会做预知梦，或莫名听到有人唤自己的名字。",
+    "sources": [
+      "Screenshot_2026_0916_032150.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "👻"
+  },
+  {
+    "name": "奈何桥引渡",
+    "tier": "稀世",
+    "description": "能引导亡灵走过奈何桥，使之安息，是职业渡魂人的天赋。",
+    "sources": [
+      "Screenshot_2026_0916_032228.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🌉"
+  },
+  {
+    "name": "灶神亲口",
+    "tier": "稀世",
+    "description": "腊月二十三祭灶时，能听到灶神回应，得知上天言好事的细节。",
+    "sources": [
+      "Screenshot_2026_0916_032403.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🔥"
+  },
+  {
+    "name": "太岁头上动土",
+    "tier": "天授",
+    "description": "敢在太岁方位动土而无灾，反能借用太岁之力改运，是风水堪舆的禁忌天赋。",
+    "sources": [
+      "Screenshot_2026_0916_032430.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🌠"
+  },
+  {
+    "name": "井水映月",
+    "tier": "上品",
+    "description": "在井口或水盆前凝视，有时能看见未来或远方的片段，是圆光术的天赋。",
+    "sources": [
+      "Screenshot_2026_0916_032459.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🌕"
+  },
+  {
+    "name": "八卦自动",
+    "tier": "稀世",
+    "description": "随身八卦镜能自动转向邪祟方向，无需手持，如同活物。",
+    "sources": [
+      "Screenshot_2026_0916_032506.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "☯️"
+  },
+  {
+    "name": "请神易临",
+    "tier": "上品",
+    "description": "请神或扶乩时，神灵附体的速度极快，且信息清晰，是与上界沟通的优质灵媒。",
+    "sources": [
+      "Screenshot_2026_0916_032611.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🙏"
+  },
+  {
+    "name": "门神显圣",
+    "tier": "稀世",
+    "description": "危急时刻，家宅门神会显化护主，驱散邪祟，是受神明庇佑的象征。",
+    "sources": [
+      "Screenshot_2026_0916_032753.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "🚪"
+  },
+  {
+    "name": "三清入梦",
+    "tier": "天授",
+    "description": "元始天尊、灵宝天尊、道德天尊曾在梦中传法，醒来后掌握失传的顶级道法。",
+    "sources": [
+      "Screenshot_2026_0916_032818.png"
+    ],
+    "transcription": "visual checked against source screenshot; punctuation normalized",
+    "icon": "☁️"
+  }
+]
