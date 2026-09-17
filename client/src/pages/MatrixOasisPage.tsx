@@ -5,6 +5,7 @@ import final900 from "../assets/matrix-oasis/matrix-oasis-final-900.webp";
 import gateway1600 from "../assets/matrix-oasis/matrix-oasis-gateway-1600.webp";
 import gateway900 from "../assets/matrix-oasis/matrix-oasis-gateway-900.webp";
 import "./MatrixOasisPage.css";
+import { useStudioPanelUrls } from "../hooks/useStudioPanelUrls";
 
 type MatrixOasisPhase = "idle" | "playing" | "settled";
 
@@ -32,6 +33,11 @@ export default function MatrixOasisPage() {
   const [phase, setPhase] = useState<MatrixOasisPhase>("idle");
   const [runId, setRunId] = useState(0);
   const reducedMotion = useReducedMotion();
+  const { matrixOasisConsoleUrl } = useStudioPanelUrls();
+
+  useEffect(() => {
+    if (phase === "settled") window.location.assign(matrixOasisConsoleUrl);
+  }, [phase, matrixOasisConsoleUrl]);
 
   useEffect(() => {
     document.title = "矩阵绿洲 - 模镜 ModelMirror";

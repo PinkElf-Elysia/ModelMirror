@@ -1,0 +1,38 @@
+# Add after existing Compose overlays. No credentials are baked into images.
+services:
+  client:
+    environment:
+      RPG_TARGET: http://rpg:18420
+  rpg:
+    build:
+      context: ./experiments/ai-rpg-engine
+      dockerfile: studio/Dockerfile
+    container_name: modelmirror-rpg
+    environment:
+      RPG_ENABLED: "true"
+      RPG_CALL_LIMIT_PER_CARD: "${RPG_CALL_LIMIT_PER_CARD:-1}"
+      RPG_PUBLIC_ORIGINS: "${RPG_PUBLIC_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}"
+      RPG_CREDENTIAL_FILE: /run/secrets/rpg_provider_env
+    secrets:
+      - rpg_provider_env
+    volumes:
+      - rpg_sessions:/data
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=32m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:18420/rpg-app/api/status').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+volumes:
+  rpg_sessions:
+secrets:
+  rpg_provider_env:
+    file: ${RPG_ENV_FILE:-./server/.env}

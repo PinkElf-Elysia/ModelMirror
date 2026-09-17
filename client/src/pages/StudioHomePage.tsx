@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import matrixOasisTeaser from "../assets/matrix-oasis/matrix-oasis-teaser-640.webp";
+import StudioBetaPanels from "../components/StudioBetaPanels";
 import ModelWorkbenchSidebar from "../components/ModelWorkbenchSidebar";
 import PageContainer from "../components/PageContainer";
 import { agents } from "../data/agents";
@@ -838,6 +839,7 @@ export default function StudioHomePage() {
         </div>
       </header>
 
+      <StudioBetaPanels />
       <MatrixOasisTeaser />
 
       <section className="mb-6 rounded-lg border border-white/10 bg-white/[0.045] p-4">

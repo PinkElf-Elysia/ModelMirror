@@ -1,0 +1,153 @@
+{
+  "status": "user_accepted_ready_for_supplemental_pr",
+  "base": "a7d99925584e818e7f2df84b1646256abfc08ed6",
+  "branch": "codex/studio-rpg-integration",
+  "date": "2026-09-17",
+  "manual": {
+    "decision": "通过，继续提交补充 PR",
+    "scope": "this integration and two one-shot outputs; RPG05 remains archived partial demo"
+  },
+  "ui": {
+    "desktop": "Studio to RPG to both cards; creation preview, return, history and saved real outputs checked",
+    "mobile": "390px RPG list; clientWidth=scrollWidth=380",
+    "screenshot": "client/public/help-center/a7d99925/enter-card.jpg; real browser crop, JPEG not PNG",
+    "notRun": [
+      "all original UI states",
+      "full keyboard-only paths",
+      "all mobile card pages"
+    ]
+  },
+  "offline": {
+    "studioIntegration": 4,
+    "earth": 26,
+    "legacyHost": 186,
+    "legacyUI": 3,
+    "helpContent": 14,
+    "parentProxyHeaders": 1,
+    "builds": "parent frontend and both card frontends passed; server/client/rpg Docker images built",
+    "networkDisabledContainerTests": 4,
+    "helpContentAndPage": 51
+  },
+  "provider": {
+    "authorization": {
+      "earth": 1,
+      "rpg05": 1
+    },
+    "used": {
+      "earth": 1,
+      "rpg05": 1
+    },
+    "remaining": {
+      "earth": 0,
+      "rpg05": 0
+    },
+    "retry": false,
+    "results": {
+      "earth": {
+        "sessionId": "0957fc16-ddea-4055-af6d-edc0f0be46f6",
+        "requestedModel": "google/gemini-3.8-flash",
+        "parameters": {
+          "temperature": 0.7,
+          "top_p": 0.8,
+          "max_tokens": 16384
+        },
+        "requestHash": "976db26f90693937c743fb8a92970ef434be8714a2d4f7567b2b7b06a2a6253f",
+        "rawHash": "b8d8fd54a2773bf439b327e4f4a16d6990437eeb7c047b62f8a797664dce564b",
+        "sseHash": "aaf9f1af72ae27a7fecd892b00ffe98fd626fc90582b03da831747b2beebf853",
+        "status": "complete",
+        "httpStatus": 200,
+        "actualModel": "google/gemini-3.8-flash",
+        "provider": "Google AI Studio",
+        "usage": {
+          "prompt_tokens": 19140,
+          "completion_tokens": 8098,
+          "total_tokens": 27238,
+          "cost": 0.0447225,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.0447225,
+            "upstream_inference_prompt_cost": 0.014355,
+            "upstream_inference_completions_cost": 0.0303675
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 743,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        },
+        "finish": "stop",
+        "done": true,
+        "hostMessagesMatch": true
+      },
+      "rpg05": {
+        "sessionId": "journey.studio-acceptance",
+        "requestedModel": "google/gemini-3.8-flash",
+        "parameters": {
+          "temperature": 0,
+          "max_tokens": 8192
+        },
+        "requestHash": "06dc0838ffc4da44e25502c5a9d15b91192b81588ba42156be5b7712832c7692",
+        "rawHash": "15e4e16892b9868d066356e62f3638fb50b4400307c234f28f1fd7c20d77c4e2",
+        "sseHash": "4e638e250dcdb7aaa7c792dfce90072fdcad4911bc2174938ca21ee653b57eb0",
+        "status": "complete",
+        "httpStatus": 200,
+        "actualModel": "google/gemini-3.8-flash",
+        "provider": "Google AI Studio",
+        "usage": {
+          "prompt_tokens": 4498,
+          "completion_tokens": 1864,
+          "total_tokens": 6362,
+          "cost": 0.0103635,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.0103635,
+            "upstream_inference_prompt_cost": 0.0033735,
+            "upstream_inference_completions_cost": 0.00699
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 682,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        },
+        "finish": "stop",
+        "done": true,
+        "hostMessagesMatch": true
+      }
+    },
+    "billing": "usage.cost is provider-reported, not independently audited"
+  },
+  "deployment": {
+    "updated": [
+      "modelmirror-server",
+      "modelmirror-client",
+      "modelmirror-rpg"
+    ],
+    "existingConfiguration": "preserved in memory only; no changed existing env values, normalized mounts and networks equal",
+    "unchanged": "third-party services and coding worker images retained; their runtime directories unchanged between former deployed base and new base",
+    "failureHistory": [
+      "first helper run failed before mutation on UTF-8 decoding; fixed",
+      "first postcheck reported Docker Desktop host-path spelling difference; original failed report retained, normalized paths confirmed same"
+    ]
+  },
+  "publication": {
+    "state": "authorized; snapshot recorded before commit and PR",
+    "merge": false
+  },
+  "historicalEvidence": "Earth resources/DELIVERY.json and prior STATUS sections remain historical snapshots; current integration delivery registered in studio/DELIVERY.json",
+  "validationHistory": [
+    "New help article initially failed 6 of 51 content/page checks (index, headings, screenshot baseline and expected catalog additions); fixed, rerun 51 passed. One intermediate invocation used wrong cwd and ran no tests."
+  ]
+}

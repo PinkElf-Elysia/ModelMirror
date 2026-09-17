@@ -31,6 +31,8 @@ function normalizePublicManagementUrl(value) {
 
 const runtimeConfig = JSON.stringify({
   newApiWebUrl: normalizePublicManagementUrl(process.env.NEWAPI_WEB_URL),
+  scienceConsoleUrl: normalizePublicManagementUrl(process.env.SCIENCE_CONSOLE_URL),
+  matrixOasisConsoleUrl: normalizePublicManagementUrl(process.env.MATRIX_OASIS_CONSOLE_URL),
 });
 
 const contentTypes = new Map([
@@ -69,8 +71,8 @@ function copyProxyHeaders(headers) {
   return result;
 }
 
-async function proxyApi(req, res) {
-  const target = new URL(req.url || "/", apiTarget);
+async function proxyApi(req, res, upstream = apiTarget) {
+  const target = new URL(req.url || "/", upstream);
   const response = await fetch(target, {
     method: req.method,
     headers: copyProxyHeaders(req.headers),
@@ -148,6 +150,10 @@ createServer(async (req, res) => {
     const requestPath = new URL(req.url || "/", "http://localhost").pathname;
     if (requestPath === "/runtime-config.json") {
       serveRuntimeConfig(req, res);
+      return;
+    }
+    if (requestPath.startsWith("/rpg-app/")) {
+      await proxyApi(req, res, process.env.RPG_TARGET || "http://rpg:18420");
       return;
     }
     if ((req.url || "").startsWith("/api/")) {
