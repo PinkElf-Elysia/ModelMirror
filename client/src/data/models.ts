@@ -1,4 +1,4 @@
-﻿// Merged with OpenRouter model catalog on 2026-09-12T08:19:53.997Z.
+﻿// Merged with OpenRouter model catalog on 2026-09-17T12:49:36.346Z.
 // Targeted OpenRouter refresh verified on 2026-09-01 against the live all-modalities catalog.
 // Gemini 3.8 Flash, its Batch tier and Muse Spark 1.3 variants added on 2026-09-03.
 // Microsoft MAI-Transcribe 2 contract added on 2026-09-03.
@@ -221,6 +221,157 @@ interface RawCatalogModel {
 
 const rawCatalogModels: RawCatalogModel[] = [
   {
+    "id": "stealth/union-alpha",
+    "canonical_slug": "stealth/union-alpha",
+    "name": "Union Alpha",
+    "raw_description": "Union Alpha is a multimodal model built for research, coding, and agentic workflows, while delivering frontier-level performance across a broad range of general-purpose tasks. Union Alpha is a stealth model....",
+    "context_length": 262144,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "max_tokens",
+      "response_format",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1789569723,
+    "expiration_date": 4070822400,
+    "model_author": "Stealth"
+  },
+  {
+    "id": "~deepseek/deepseek-pro-latest",
+    "canonical_slug": "~deepseek/deepseek-pro-latest",
+    "name": "DeepSeek: DeepSeek Pro Latest",
+    "raw_description": "This model always redirects to the latest model in the DeepSeek Pro family.",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 0.66,
+      "output": 1.9800000000000002,
+      "time_overrides": [
+        {
+          "utc_start": 0,
+          "utc_end": 100,
+          "input": 0.66,
+          "output": 1.9800000000000002
+        },
+        {
+          "utc_start": 100,
+          "utc_end": 400,
+          "input": 1.32,
+          "output": 3.9600000000000004
+        },
+        {
+          "utc_start": 400,
+          "utc_end": 600,
+          "input": 0.66,
+          "output": 1.9800000000000002
+        },
+        {
+          "utc_start": 600,
+          "utc_end": 1000,
+          "input": 1.32,
+          "output": 3.9600000000000004
+        },
+        {
+          "utc_start": 1000,
+          "utc_end": 0,
+          "input": 0.66,
+          "output": 1.9800000000000002
+        }
+      ]
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Router",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logit_bias",
+      "logprobs",
+      "max_tokens",
+      "min_p",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "repetition_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_logprobs",
+      "top_p"
+    ],
+    "created": 1789399174,
+    "expiration_date": null,
+    "model_author": "DeepSeek",
+    "reasoning_declared": true
+  },
+  {
+    "id": "~deepseek/deepseek-flash-latest",
+    "canonical_slug": "~deepseek/deepseek-flash-latest",
+    "name": "DeepSeek: DeepSeek Flash Latest",
+    "raw_description": "This model always redirects to the latest model in the DeepSeek Flash family.",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 0.15,
+      "output": 0.6
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Router",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logit_bias",
+      "logprobs",
+      "max_tokens",
+      "min_p",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "repetition_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_logprobs",
+      "top_p"
+    ],
+    "created": 1789399150,
+    "expiration_date": null,
+    "model_author": "DeepSeek",
+    "reasoning_declared": true
+  },
+  {
     "id": "inference-net/schematron-v2-turbo",
     "canonical_slug": "inference-net/schematron-v2-turbo-20260902",
     "name": "Inference.net: Schematron V2 Turbo",
@@ -327,8 +478,8 @@ const rawCatalogModels: RawCatalogModel[] = [
   {
     "id": "~openai/gpt-astra-latest",
     "canonical_slug": "~openai/gpt-astra-latest",
-    "name": "OpenAI GPT Astra Latest",
-    "raw_description": "This model always redirects to the latest model in the OpenAI GPT Astra family.",
+    "name": "OpenAI: GPT Astra Latest",
+    "raw_description": "This model always redirects to the latest model in the GPT Astra family.",
     "context_length": 1050000,
     "pricing": {
       "input": 10,
@@ -370,8 +521,8 @@ const rawCatalogModels: RawCatalogModel[] = [
   {
     "id": "~openai/gpt-sol-latest",
     "canonical_slug": "~openai/gpt-sol-latest",
-    "name": "OpenAI GPT Sol Latest",
-    "raw_description": "This model always redirects to the latest model in the OpenAI GPT Sol family.",
+    "name": "OpenAI: GPT Sol Latest",
+    "raw_description": "This model always redirects to the latest model in the GPT Sol family.",
     "context_length": 1050000,
     "pricing": {
       "input": 2,
@@ -413,8 +564,8 @@ const rawCatalogModels: RawCatalogModel[] = [
   {
     "id": "~openai/gpt-terra-latest",
     "canonical_slug": "~openai/gpt-terra-latest",
-    "name": "OpenAI GPT Terra Latest",
-    "raw_description": "This model always redirects to the latest model in the OpenAI GPT Terra family.",
+    "name": "OpenAI: GPT Terra Latest",
+    "raw_description": "This model always redirects to the latest model in the GPT Terra family.",
     "context_length": 1050000,
     "pricing": {
       "input": 2,
@@ -456,8 +607,8 @@ const rawCatalogModels: RawCatalogModel[] = [
   {
     "id": "~openai/gpt-luna-latest",
     "canonical_slug": "~openai/gpt-luna-latest",
-    "name": "OpenAI GPT Luna Latest",
-    "raw_description": "This model always redirects to the latest model in the OpenAI GPT Luna family.",
+    "name": "OpenAI: GPT Luna Latest",
+    "raw_description": "This model always redirects to the latest model in the GPT Luna family.",
     "context_length": 1050000,
     "pricing": {
       "input": 0.19999999999999998,
@@ -1170,12 +1321,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "transcription"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "max_completion_tokens",
-      "max_tokens",
-      "temperature",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1788396586,
     "expiration_date": null,
     "model_author": "Microsoft",
@@ -1543,7 +1689,6 @@ const rawCatalogModels: RawCatalogModel[] = [
       "presence_penalty",
       "reasoning",
       "repetition_penalty",
-      "response_format",
       "seed",
       "stop",
       "structured_outputs",
@@ -1665,13 +1810,10 @@ const rawCatalogModels: RawCatalogModel[] = [
     "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
-      "logit_bias",
       "logprobs",
       "max_tokens",
-      "min_p",
       "presence_penalty",
       "reasoning",
-      "repetition_penalty",
       "response_format",
       "seed",
       "stop",
@@ -1719,8 +1861,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM-5.3-Flash is a native multimodal model from Z.ai. It is suited for efficient coding and long-horizon agent tasks. Its hybrid sparse and linear attention architecture maintains accurate long-context behavior while...",
     "context_length": 1310720,
     "pricing": {
-      "input": 0.15,
-      "output": 0.5
+      "input": 0.09,
+      "output": 0.3
     },
     "input_modalities": [
       "text",
@@ -1754,7 +1896,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1787752741,
-    "expiration_date": 4070822400,
+    "expiration_date": null,
     "model_author": "Z.ai",
     "reasoning_declared": true
   },
@@ -2149,8 +2291,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest GLM model from Z.ai.",
     "context_length": 1310720,
     "pricing": {
-      "input": 0.8727,
-      "output": 3.36
+      "input": 0.8775,
+      "output": 2.9699999999999998
     },
     "input_modalities": [
       "text"
@@ -2278,18 +2420,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "embeddings"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "frequency_penalty",
-      "max_tokens",
-      "min_p",
-      "presence_penalty",
-      "repetition_penalty",
-      "seed",
-      "stop",
-      "temperature",
-      "top_k",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1787077908,
     "expiration_date": null,
     "model_author": "LiquidAI"
@@ -2392,19 +2523,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "transcription"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "frequency_penalty",
-      "max_tokens",
-      "min_p",
-      "presence_penalty",
-      "repetition_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "temperature",
-      "top_k",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1786654371,
     "expiration_date": null,
     "model_author": "NVIDIA"
@@ -2426,19 +2545,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "transcription"
     ],
     "tokenizer": "Mistral",
-    "supported_parameters": [
-      "frequency_penalty",
-      "max_tokens",
-      "min_p",
-      "presence_penalty",
-      "repetition_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "temperature",
-      "top_k",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1786654002,
     "expiration_date": null,
     "model_author": "Mistral AI"
@@ -2460,19 +2567,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "transcription"
     ],
     "tokenizer": "Mistral",
-    "supported_parameters": [
-      "frequency_penalty",
-      "max_tokens",
-      "min_p",
-      "presence_penalty",
-      "repetition_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "temperature",
-      "top_k",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1786653980,
     "expiration_date": null,
     "model_author": "Mistral AI"
@@ -2586,21 +2681,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "rerank"
     ],
     "tokenizer": "Qwen3",
-    "supported_parameters": [
-      "frequency_penalty",
-      "logit_bias",
-      "logprobs",
-      "max_tokens",
-      "presence_penalty",
-      "repetition_penalty",
-      "response_format",
-      "stop",
-      "structured_outputs",
-      "temperature",
-      "top_k",
-      "top_logprobs",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1786597684,
     "expiration_date": null,
     "model_author": "Qwen"
@@ -2622,19 +2703,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "transcription"
     ],
     "tokenizer": "Qwen3",
-    "supported_parameters": [
-      "frequency_penalty",
-      "max_tokens",
-      "min_p",
-      "presence_penalty",
-      "repetition_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "temperature",
-      "top_k",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1786592646,
     "expiration_date": null,
     "model_author": "Qwen"
@@ -2656,19 +2725,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "transcription"
     ],
     "tokenizer": "Qwen3",
-    "supported_parameters": [
-      "frequency_penalty",
-      "max_tokens",
-      "min_p",
-      "presence_penalty",
-      "repetition_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "temperature",
-      "top_k",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1786591833,
     "expiration_date": null,
     "model_author": "Qwen"
@@ -2897,8 +2954,40 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Pro 0813 is a large-scale mixture-of-experts model from DeepSeek. This is the GA release of DeepSeek V4 Pro.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.57816,
-      "output": 1.73448
+      "input": 0.66,
+      "output": 1.9800000000000002,
+      "time_overrides": [
+        {
+          "utc_start": 0,
+          "utc_end": 100,
+          "input": 0.66,
+          "output": 1.9800000000000002
+        },
+        {
+          "utc_start": 100,
+          "utc_end": 400,
+          "input": 1.32,
+          "output": 3.9600000000000004
+        },
+        {
+          "utc_start": 400,
+          "utc_end": 600,
+          "input": 0.66,
+          "output": 1.9800000000000002
+        },
+        {
+          "utc_start": 600,
+          "utc_end": 1000,
+          "input": 1.32,
+          "output": 3.9600000000000004
+        },
+        {
+          "utc_start": 1000,
+          "utc_end": 0,
+          "input": 0.66,
+          "output": 1.9800000000000002
+        }
+      ]
     },
     "input_modalities": [
       "text"
@@ -3047,8 +3136,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "tool_choice",
       "tools",
       "top_k",
-      "top_logprobs",
-      "top_p"
+      "top_logprobs"
     ],
     "created": 1786470519,
     "expiration_date": null,
@@ -3327,20 +3415,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "transcription"
     ],
     "tokenizer": "GPT",
-    "supported_parameters": [
-      "frequency_penalty",
-      "logit_bias",
-      "logprobs",
-      "max_tokens",
-      "presence_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "structured_outputs",
-      "temperature",
-      "top_logprobs",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1785973897,
     "expiration_date": null,
     "model_author": "OpenAI"
@@ -3515,12 +3590,12 @@ const rawCatalogModels: RawCatalogModel[] = [
   {
     "id": "~deepseek/deepseek-v4-flash-latest",
     "canonical_slug": "~deepseek/deepseek-v4-flash-latest",
-    "name": "DeepSeek V4 Flash Latest",
+    "name": "DeepSeek: DeepSeek V4 Flash Latest",
     "raw_description": "This model always redirects to the latest model in the DeepSeek V4 Flash family.",
     "context_length": 1310720,
     "pricing": {
       "input": 0.03,
-      "output": 0.07
+      "output": 0.13
     },
     "input_modalities": [
       "text"
@@ -3565,8 +3640,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Flash 0731 is a sparse mixture-of-experts model from DeepSeek, with 13B active parameters out of 284B total. This re-post-trained revision is suited for coding, reasoning, and agent workflows....",
     "context_length": 1310720,
     "pricing": {
-      "input": 0.04,
-      "output": 0.08
+      "input": 0.06,
+      "output": 0.12
     },
     "input_modalities": [
       "text"
@@ -4093,7 +4168,7 @@ const rawCatalogModels: RawCatalogModel[] = [
   {
     "id": "anthropic/claude-opus-5",
     "canonical_slug": "anthropic/claude-opus-5-20260723",
-    "name": "Claude Opus 5",
+    "name": "Anthropic: Claude Opus 5",
     "raw_description": "Claude Opus 5 is Anthropic’s flagship model for demanding reasoning, coding, and long-horizon agentic work. It is particularly strong at end-to-end software tasks, code review and bug finding, visual analysis...",
     "context_length": 1000000,
     "pricing": {
@@ -4172,12 +4247,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "speech"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "max_completion_tokens",
-      "max_tokens",
-      "temperature",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1784822080,
     "expiration_date": null,
     "model_author": "Microsoft"
@@ -4279,14 +4349,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "speech"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "max_tokens",
-      "presence_penalty",
-      "response_format",
-      "seed",
-      "temperature",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1784817207,
     "expiration_date": null,
     "model_author": "Qwen"
@@ -4308,14 +4371,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "speech"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "max_tokens",
-      "presence_penalty",
-      "response_format",
-      "seed",
-      "temperature",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1784817207,
     "expiration_date": null,
     "model_author": "Qwen"
@@ -4337,15 +4393,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "transcription"
     ],
     "tokenizer": "Grok",
-    "supported_parameters": [
-      "logprobs",
-      "max_tokens",
-      "response_format",
-      "seed",
-      "temperature",
-      "top_logprobs",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1784817014,
     "expiration_date": null,
     "model_author": "xAI"
@@ -4658,7 +4706,6 @@ const rawCatalogModels: RawCatalogModel[] = [
       "reasoning",
       "reasoning_effort",
       "repetition_penalty",
-      "response_format",
       "seed",
       "stop",
       "temperature",
@@ -4789,8 +4836,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Kimi K3 is a 2.8T parameter open-weight multimodal reasoning model from Moonshot AI. It is suited for complex coding, knowledge work, and long-horizon agentic workflows, and is particularly strong at...",
     "context_length": 1048576,
     "pricing": {
-      "input": 2.30272875,
-      "output": 11.550195
+      "input": 3,
+      "output": 15
     },
     "input_modalities": [
       "text",
@@ -4885,12 +4932,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "embeddings"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "max_tokens",
-      "seed",
-      "temperature",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1784203294,
     "expiration_date": null,
     "model_author": "NVIDIA"
@@ -4912,11 +4954,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "speech"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "max_tokens",
-      "temperature",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1784164001,
     "expiration_date": null,
     "model_author": "MiniMax"
@@ -4938,11 +4976,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "speech"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "max_tokens",
-      "temperature",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1784164000,
     "expiration_date": null,
     "model_author": "MiniMax"
@@ -6042,8 +6076,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM 5.2 is a large-scale reasoning model from Z.ai. It supports text input and output with a 1M-token context window, and is suited for long-horizon agent workflows, project-level software engineering,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.6,
-      "output": 2
+      "input": 1.4,
+      "output": 4.4
     },
     "input_modalities": [
       "text"
@@ -6085,7 +6119,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "z-ai/glm-5.2-20260616",
     "name": "Z.ai: GLM 5.2 (free)",
     "raw_description": "GLM 5.2 is a large-scale reasoning model from Z.ai. It supports text input and output with a 1M-token context window, and is suited for long-horizon agent workflows, project-level software engineering,...",
-    "context_length": 256000,
+    "context_length": 32768,
     "pricing": {
       "input": 0,
       "output": 0
@@ -6106,13 +6140,9 @@ const rawCatalogModels: RawCatalogModel[] = [
       "reasoning",
       "reasoning_effort",
       "repetition_penalty",
-      "response_format",
       "seed",
       "stop",
-      "structured_outputs",
       "temperature",
-      "tool_choice",
-      "tools",
       "top_k",
       "top_p"
     ],
@@ -6150,8 +6180,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "MoonshotAI: Kimi K2.7 Code is a coding-focused model in Moonshot AI's Kimi K2 family, built to complete end-to-end programming tasks reliably over long contexts. It uses a native multimodal mixture-of-experts...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.71,
-      "output": 3.5
+      "input": 0.7062,
+      "output": 3.21
     },
     "input_modalities": [
       "text",
@@ -6206,12 +6236,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "rerank"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "max_tokens",
-      "seed",
-      "temperature",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1781036054,
     "expiration_date": null,
     "model_author": "NVIDIA"
@@ -6460,7 +6485,6 @@ const rawCatalogModels: RawCatalogModel[] = [
       "presence_penalty",
       "reasoning",
       "repetition_penalty",
-      "response_format",
       "seed",
       "stop",
       "temperature",
@@ -6643,12 +6667,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "speech"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "max_completion_tokens",
-      "max_tokens",
-      "temperature",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1780425097,
     "expiration_date": null,
     "model_author": "Microsoft"
@@ -6670,12 +6689,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "transcription"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "max_completion_tokens",
-      "max_tokens",
-      "temperature",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1780425095,
     "expiration_date": null,
     "model_author": "Microsoft"
@@ -6924,18 +6938,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "transcription"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "frequency_penalty",
-      "logit_bias",
-      "max_tokens",
-      "min_p",
-      "presence_penalty",
-      "repetition_penalty",
-      "stop",
-      "temperature",
-      "top_k",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1779848335,
     "expiration_date": null,
     "model_author": "NVIDIA"
@@ -7046,13 +7049,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "embeddings"
     ],
     "tokenizer": "Gemini",
-    "supported_parameters": [
-      "max_tokens",
-      "response_format",
-      "seed",
-      "temperature",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1779290135,
     "expiration_date": null,
     "model_author": "Google"
@@ -7176,17 +7173,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "transcription"
     ],
     "tokenizer": "Mistral",
-    "supported_parameters": [
-      "frequency_penalty",
-      "max_tokens",
-      "presence_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "structured_outputs",
-      "temperature",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1778877024,
     "expiration_date": null,
     "model_author": "Mistral AI"
@@ -7208,15 +7195,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "speech"
     ],
     "tokenizer": "Grok",
-    "supported_parameters": [
-      "logprobs",
-      "max_tokens",
-      "response_format",
-      "seed",
-      "temperature",
-      "top_logprobs",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1778805456,
     "expiration_date": null,
     "model_author": "xAI"
@@ -7238,14 +7217,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "transcription"
     ],
     "tokenizer": "Qwen3",
-    "supported_parameters": [
-      "max_tokens",
-      "presence_penalty",
-      "response_format",
-      "seed",
-      "temperature",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1778732776,
     "expiration_date": null,
     "model_author": "Qwen"
@@ -7701,13 +7673,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "transcription"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "max_tokens",
-      "response_format",
-      "seed",
-      "temperature",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1777997783,
     "expiration_date": null,
     "model_author": "Google"
@@ -7729,20 +7695,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "transcription"
     ],
     "tokenizer": "GPT",
-    "supported_parameters": [
-      "frequency_penalty",
-      "logit_bias",
-      "logprobs",
-      "max_tokens",
-      "presence_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "structured_outputs",
-      "temperature",
-      "top_logprobs",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1777658151,
     "expiration_date": null,
     "model_author": "OpenAI"
@@ -7764,20 +7717,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "transcription"
     ],
     "tokenizer": "GPT",
-    "supported_parameters": [
-      "frequency_penalty",
-      "logit_bias",
-      "max_tokens",
-      "min_p",
-      "presence_penalty",
-      "repetition_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "temperature",
-      "top_k",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1777642266,
     "expiration_date": null,
     "model_author": "OpenAI"
@@ -7799,19 +7739,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "transcription"
     ],
     "tokenizer": "GPT",
-    "supported_parameters": [
-      "frequency_penalty",
-      "max_tokens",
-      "min_p",
-      "presence_penalty",
-      "repetition_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "temperature",
-      "top_k",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1777642266,
     "expiration_date": null,
     "model_author": "OpenAI"
@@ -8169,20 +8097,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "transcription"
     ],
     "tokenizer": "GPT",
-    "supported_parameters": [
-      "frequency_penalty",
-      "logit_bias",
-      "logprobs",
-      "max_tokens",
-      "presence_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "structured_outputs",
-      "temperature",
-      "top_logprobs",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1777332905,
     "expiration_date": null,
     "model_author": "OpenAI"
@@ -8204,20 +8119,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "transcription"
     ],
     "tokenizer": "GPT",
-    "supported_parameters": [
-      "frequency_penalty",
-      "logit_bias",
-      "logprobs",
-      "max_tokens",
-      "presence_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "structured_outputs",
-      "temperature",
-      "top_logprobs",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1777332895,
     "expiration_date": null,
     "model_author": "OpenAI"
@@ -8225,8 +8127,8 @@ const rawCatalogModels: RawCatalogModel[] = [
   {
     "id": "~anthropic/claude-haiku-latest",
     "canonical_slug": "~anthropic/claude-haiku-latest",
-    "name": "Anthropic Claude Haiku Latest",
-    "raw_description": "This model always redirects to the latest model in the Anthropic Claude Haiku family.",
+    "name": "Anthropic: Claude Haiku Latest",
+    "raw_description": "This model always redirects to the latest model in the Claude Haiku family.",
     "context_length": 200000,
     "pricing": {
       "input": 1,
@@ -8263,8 +8165,8 @@ const rawCatalogModels: RawCatalogModel[] = [
   {
     "id": "~openai/gpt-mini-latest",
     "canonical_slug": "~openai/gpt-mini-latest",
-    "name": "OpenAI GPT Mini Latest",
-    "raw_description": "This model always redirects to the latest model in the OpenAI GPT Mini family.",
+    "name": "OpenAI: GPT Mini Latest",
+    "raw_description": "This model always redirects to the latest model in the GPT Mini family.",
     "context_length": 400000,
     "pricing": {
       "input": 0.75,
@@ -8299,8 +8201,8 @@ const rawCatalogModels: RawCatalogModel[] = [
   {
     "id": "~google/gemini-pro-latest",
     "canonical_slug": "~google/gemini-pro-latest",
-    "name": "Google Gemini Pro Latest",
-    "raw_description": "This model always redirects to the latest model in the Google Gemini Pro family.",
+    "name": "Google: Gemini Pro Latest",
+    "raw_description": "This model always redirects to the latest model in the Gemini Pro family.",
     "context_length": 1048576,
     "pricing": {
       "input": 2,
@@ -8346,12 +8248,12 @@ const rawCatalogModels: RawCatalogModel[] = [
   {
     "id": "~moonshotai/kimi-latest",
     "canonical_slug": "~moonshotai/kimi-latest",
-    "name": "MoonshotAI Kimi Latest",
-    "raw_description": "This model always redirects to the latest model in the MoonshotAI Kimi family.",
+    "name": "MoonshotAI: Kimi Latest",
+    "raw_description": "This model always redirects to the latest model in the Kimi family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 2.125,
-      "output": 11.9
+      "input": 2.0999999999999996,
+      "output": 10.950000000000001
     },
     "input_modalities": [
       "text",
@@ -8392,8 +8294,8 @@ const rawCatalogModels: RawCatalogModel[] = [
   {
     "id": "~google/gemini-flash-latest",
     "canonical_slug": "~google/gemini-flash-latest",
-    "name": "Google Gemini Flash Latest",
-    "raw_description": "This model always redirects to the latest model in the Google Gemini Flash family.",
+    "name": "Google: Gemini Flash Latest",
+    "raw_description": "This model always redirects to the latest model in the Gemini Flash family.",
     "context_length": 1048576,
     "pricing": {
       "input": 0.75,
@@ -8432,8 +8334,8 @@ const rawCatalogModels: RawCatalogModel[] = [
   {
     "id": "~anthropic/claude-sonnet-latest",
     "canonical_slug": "~anthropic/claude-sonnet-latest",
-    "name": "Anthropic Claude Sonnet Latest",
-    "raw_description": "This model always redirects to the latest model in the Anthropic Claude Sonnet family.",
+    "name": "Anthropic: Claude Sonnet Latest",
+    "raw_description": "This model always redirects to the latest model in the Claude Sonnet family.",
     "context_length": 1000000,
     "pricing": {
       "input": 2,
@@ -8836,8 +8738,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Pro is a large-scale Mixture-of-Experts model from DeepSeek with 1.6T total parameters and 49B activated parameters, supporting a 1M-token context window. It is designed for advanced reasoning, coding,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.7991820000000001,
-      "output": 1.5983640000000001
+      "input": 1.5999999999999999,
+      "output": 3.1999999999999997
     },
     "input_modalities": [
       "text"
@@ -8881,8 +8783,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Flash is an efficiency-optimized Mixture-of-Experts model from DeepSeek with 284B total parameters and 13B activated parameters, supporting a 1M-token context window. It is designed for fast inference and...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.06678,
-      "output": 0.13356
+      "input": 0.088606,
+      "output": 0.177212
     },
     "input_modalities": [
       "text"
@@ -8937,13 +8839,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "speech"
     ],
     "tokenizer": "Gemini",
-    "supported_parameters": [
-      "max_tokens",
-      "response_format",
-      "seed",
-      "temperature",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1776999308,
     "expiration_date": null,
     "model_author": "Google"
@@ -9052,7 +8948,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Orpheus 3B is an English text-to-speech model from Canopy Labs, fine-tuned for natural prosody and expressive delivery. It offers 7 preset voices and is suited for narration, voice assistants, and...",
     "context_length": 4096,
     "pricing": {
-      "input": 7,
+      "input": 15,
       "output": 0
     },
     "input_modalities": [
@@ -9062,20 +8958,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "speech"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "frequency_penalty",
-      "logit_bias",
-      "max_tokens",
-      "min_p",
-      "presence_penalty",
-      "repetition_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "temperature",
-      "top_k",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1776983168,
     "expiration_date": null,
     "model_author": "Canopy Labs"
@@ -9097,19 +8980,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "speech"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "frequency_penalty",
-      "max_tokens",
-      "min_p",
-      "presence_penalty",
-      "repetition_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "temperature",
-      "top_k",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1776983168,
     "expiration_date": null,
     "model_author": "Sesame"
@@ -9131,20 +9002,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "speech"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "frequency_penalty",
-      "logit_bias",
-      "max_tokens",
-      "min_p",
-      "presence_penalty",
-      "repetition_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "temperature",
-      "top_k",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1776983167,
     "expiration_date": null,
     "model_author": "hexgrad"
@@ -9618,17 +9476,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "speech"
     ],
     "tokenizer": "Mistral",
-    "supported_parameters": [
-      "frequency_penalty",
-      "max_tokens",
-      "presence_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "structured_outputs",
-      "temperature",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1776571337,
     "expiration_date": null,
     "model_author": "Mistral AI"
@@ -9654,13 +9502,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "embeddings"
     ],
     "tokenizer": "Gemini",
-    "supported_parameters": [
-      "max_tokens",
-      "response_format",
-      "seed",
-      "temperature",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1776436465,
     "expiration_date": null,
     "model_author": "Google"
@@ -9878,18 +9720,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "rerank"
     ],
     "tokenizer": "Cohere",
-    "supported_parameters": [
-      "frequency_penalty",
-      "max_tokens",
-      "presence_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "structured_outputs",
-      "temperature",
-      "top_k",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1775446247,
     "expiration_date": null,
     "model_author": "Cohere"
@@ -9911,18 +9742,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "rerank"
     ],
     "tokenizer": "Cohere",
-    "supported_parameters": [
-      "frequency_penalty",
-      "max_tokens",
-      "presence_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "structured_outputs",
-      "temperature",
-      "top_k",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1775442269,
     "expiration_date": null,
     "model_author": "Cohere"
@@ -9944,18 +9764,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "rerank"
     ],
     "tokenizer": "Cohere",
-    "supported_parameters": [
-      "frequency_penalty",
-      "max_tokens",
-      "presence_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "structured_outputs",
-      "temperature",
-      "top_k",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1775416158,
     "expiration_date": null,
     "model_author": "Cohere"
@@ -9967,8 +9776,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Gemma 4 26B A4B IT is an instruction-tuned Mixture-of-Experts (MoE) model from Google DeepMind. Despite 25.2B total parameters, only 3.8B activate per token during inference — delivering near-31B quality at...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.041999999999999996,
-      "output": 0.22
+      "input": 0.09,
+      "output": 0.3
     },
     "input_modalities": [
       "image",
@@ -10778,15 +10587,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "embeddings"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "frequency_penalty",
-      "max_tokens",
-      "presence_penalty",
-      "temperature",
-      "top_k",
-      "top_p",
-      "web_search_options"
-    ],
+    "supported_parameters": [],
     "created": 1773625372,
     "expiration_date": null,
     "model_author": "Perplexity"
@@ -10808,15 +10609,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "embeddings"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "frequency_penalty",
-      "max_tokens",
-      "presence_penalty",
-      "temperature",
-      "top_k",
-      "top_p",
-      "web_search_options"
-    ],
+    "supported_parameters": [],
     "created": 1773624868,
     "expiration_date": null,
     "model_author": "Perplexity"
@@ -10861,8 +10654,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "NVIDIA Nemotron 3 Super is a 120B-parameter open hybrid MoE model, activating just 12B parameters for maximum compute efficiency and accuracy in complex multi-agent applications. Built on a hybrid Mamba-Transformer...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.08499999999999999,
-      "output": 0.39999999999999997
+      "input": 0.08,
+      "output": 0.44999999999999996
     },
     "input_modalities": [
       "text"
@@ -11301,8 +11094,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "The Qwen3.5 Series 35B-A3B is a native vision-language model designed with a hybrid architecture that integrates linear attention mechanisms and a sparse mixture-of-experts model, achieving higher inference efficiency. Its overall...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.3125,
-      "output": 1.25
+      "input": 0.1625,
+      "output": 1.3
     },
     "input_modalities": [
       "text",
@@ -11566,12 +11359,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "embeddings"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "max_tokens",
-      "seed",
-      "temperature",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1772045017,
     "expiration_date": null,
     "model_author": "NVIDIA"
@@ -11832,8 +11620,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "MiniMax-M2.5 is a SOTA large language model designed for real-world productivity. Trained in a diverse range of complex real-world digital working environments, M2.5 builds upon the coding expertise of M2.1...",
     "context_length": 204800,
     "pricing": {
-      "input": 0.3,
-      "output": 1.2
+      "input": 0.27,
+      "output": 1.08
     },
     "input_modalities": [
       "text"
@@ -12847,8 +12635,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "NVIDIA Nemotron 3 Nano 30B A3B is a small language MoE model with highest compute efficiency and accuracy for developers to build specialized agentic AI systems. The model is fully...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.049999999999999996,
-      "output": 0.19999999999999998
+      "input": 0.06,
+      "output": 0.24
     },
     "input_modalities": [
       "text"
@@ -13785,19 +13573,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "embeddings"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "frequency_penalty",
-      "max_tokens",
-      "min_p",
-      "presence_penalty",
-      "repetition_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "temperature",
-      "top_k",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1763433820,
     "expiration_date": null,
     "model_author": "Thenlper"
@@ -13819,19 +13595,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "embeddings"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "frequency_penalty",
-      "max_tokens",
-      "min_p",
-      "presence_penalty",
-      "repetition_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "temperature",
-      "top_k",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1763433655,
     "expiration_date": null,
     "model_author": "Thenlper"
@@ -13853,19 +13617,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "embeddings"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "frequency_penalty",
-      "max_tokens",
-      "min_p",
-      "presence_penalty",
-      "repetition_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "temperature",
-      "top_k",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1763433432,
     "expiration_date": null,
     "model_author": "Intfloat"
@@ -13887,19 +13639,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "embeddings"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "frequency_penalty",
-      "max_tokens",
-      "min_p",
-      "presence_penalty",
-      "repetition_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "temperature",
-      "top_k",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1763433192,
     "expiration_date": null,
     "model_author": "Intfloat"
@@ -13921,19 +13661,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "embeddings"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "frequency_penalty",
-      "max_tokens",
-      "min_p",
-      "presence_penalty",
-      "repetition_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "temperature",
-      "top_k",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1763433047,
     "expiration_date": null,
     "model_author": "Intfloat"
@@ -13955,19 +13683,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "embeddings"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "frequency_penalty",
-      "max_tokens",
-      "min_p",
-      "presence_penalty",
-      "repetition_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "temperature",
-      "top_k",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1763432454,
     "expiration_date": null,
     "model_author": "Sentence Transformers"
@@ -13989,19 +13705,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "embeddings"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "frequency_penalty",
-      "max_tokens",
-      "min_p",
-      "presence_penalty",
-      "repetition_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "temperature",
-      "top_k",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1763432155,
     "expiration_date": null,
     "model_author": "Sentence Transformers"
@@ -14023,19 +13727,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "embeddings"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "frequency_penalty",
-      "max_tokens",
-      "min_p",
-      "presence_penalty",
-      "repetition_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "temperature",
-      "top_k",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1763431837,
     "expiration_date": null,
     "model_author": "BAAI"
@@ -14057,19 +13749,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "embeddings"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "frequency_penalty",
-      "max_tokens",
-      "min_p",
-      "presence_penalty",
-      "repetition_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "temperature",
-      "top_k",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1763431339,
     "expiration_date": null,
     "model_author": "Sentence Transformers"
@@ -14091,19 +13771,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "embeddings"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "frequency_penalty",
-      "max_tokens",
-      "min_p",
-      "presence_penalty",
-      "repetition_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "temperature",
-      "top_k",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1763431087,
     "expiration_date": null,
     "model_author": "BAAI"
@@ -14125,20 +13793,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "embeddings"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "frequency_penalty",
-      "logit_bias",
-      "max_tokens",
-      "min_p",
-      "presence_penalty",
-      "repetition_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "temperature",
-      "top_k",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1763424372,
     "expiration_date": null,
     "model_author": "BAAI"
@@ -14160,19 +13815,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "embeddings"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "frequency_penalty",
-      "max_tokens",
-      "min_p",
-      "presence_penalty",
-      "repetition_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "temperature",
-      "top_k",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1763421830,
     "expiration_date": null,
     "model_author": "Sentence Transformers"
@@ -14194,19 +13837,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "embeddings"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "frequency_penalty",
-      "max_tokens",
-      "min_p",
-      "presence_penalty",
-      "repetition_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "temperature",
-      "top_k",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1763421176,
     "expiration_date": null,
     "model_author": "Sentence Transformers"
@@ -14472,17 +14103,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "embeddings"
     ],
     "tokenizer": "Mistral",
-    "supported_parameters": [
-      "frequency_penalty",
-      "max_tokens",
-      "presence_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "structured_outputs",
-      "temperature",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1761944622,
     "expiration_date": null,
     "model_author": "Mistral AI"
@@ -14504,13 +14125,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "embeddings"
     ],
     "tokenizer": "Gemini",
-    "supported_parameters": [
-      "max_tokens",
-      "response_format",
-      "seed",
-      "temperature",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1761943410,
     "expiration_date": null,
     "model_author": "Google"
@@ -14532,20 +14147,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "embeddings"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "frequency_penalty",
-      "logit_bias",
-      "logprobs",
-      "max_tokens",
-      "presence_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "structured_outputs",
-      "temperature",
-      "top_logprobs",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1761865798,
     "expiration_date": null,
     "model_author": "OpenAI"
@@ -14567,17 +14169,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "embeddings"
     ],
     "tokenizer": "Mistral",
-    "supported_parameters": [
-      "frequency_penalty",
-      "max_tokens",
-      "presence_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "structured_outputs",
-      "temperature",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1761864460,
     "expiration_date": null,
     "model_author": "Mistral AI"
@@ -14599,21 +14191,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "embeddings"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "frequency_penalty",
-      "logit_bias",
-      "logprobs",
-      "max_completion_tokens",
-      "max_tokens",
-      "presence_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "structured_outputs",
-      "temperature",
-      "top_logprobs",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1761862866,
     "expiration_date": null,
     "model_author": "OpenAI"
@@ -14635,21 +14213,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "embeddings"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "frequency_penalty",
-      "logit_bias",
-      "logprobs",
-      "max_completion_tokens",
-      "max_tokens",
-      "presence_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "structured_outputs",
-      "temperature",
-      "top_logprobs",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1761857455,
     "expiration_date": null,
     "model_author": "OpenAI"
@@ -14777,22 +14341,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "embeddings"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "frequency_penalty",
-      "logit_bias",
-      "logprobs",
-      "max_tokens",
-      "min_p",
-      "presence_penalty",
-      "repetition_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "temperature",
-      "top_k",
-      "top_logprobs",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1761680622,
     "expiration_date": null,
     "model_author": "Qwen"
@@ -14848,19 +14397,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "embeddings"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "frequency_penalty",
-      "max_tokens",
-      "min_p",
-      "presence_penalty",
-      "repetition_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "temperature",
-      "top_k",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1761662922,
     "expiration_date": null,
     "model_author": "Qwen"
@@ -15417,8 +14954,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3-VL-30B-A3B-Instruct is a multimodal model that unifies strong text generation with visual understanding for images and videos. Its Instruct variant optimizes instruction-following for general multimodal tasks. It excels in perception...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.15,
-      "output": 0.6
+      "input": 0.13,
+      "output": 0.52
     },
     "input_modalities": [
       "text",
@@ -15895,8 +15432,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "created": 1758662707,
     "expiration_date": null,
-    "model_author": "Qwen",
-    "reasoning_declared": true
+    "model_author": "Qwen"
   },
   {
     "id": "openai/gpt-5-codex",
@@ -17002,8 +16538,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3-30B-A3B-Instruct-2507 is a 30.5B-parameter mixture-of-experts language model from Qwen, with 3.3B active parameters per inference. It operates in non-thinking mode and is designed for high-quality instruction following, multilingual understanding, and...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.09,
-      "output": 0.3
+      "input": 0.04815,
+      "output": 0.19305
     },
     "input_modalities": [
       "text"
@@ -17650,8 +17186,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Mistral-Small-3.2-24B-Instruct-2506 is an updated 24B parameter model from Mistral optimized for instruction following, repetition reduction, and improved function calling. Compared to the 3.1 release, version 3.2 significantly improves accuracy on...",
     "context_length": 256000,
     "pricing": {
-      "input": 0.075,
-      "output": 0.19999999999999998
+      "input": 0.09375,
+      "output": 0.25
     },
     "input_modalities": [
       "image",
@@ -17691,7 +17227,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "MiniMax-M1 is a large-scale, open-weight reasoning model designed for extended context and high-efficiency inference. It leverages a hybrid Mixture-of-Experts (MoE) architecture paired with a custom \"lightning attention\" mechanism, allowing it...",
     "context_length": 1000000,
     "pricing": {
-      "input": 0.55,
+      "input": 0.39999999999999997,
       "output": 2.2
     },
     "input_modalities": [
@@ -18247,7 +17783,6 @@ const rawCatalogModels: RawCatalogModel[] = [
       "min_p",
       "presence_penalty",
       "repetition_penalty",
-      "response_format",
       "seed",
       "stop",
       "temperature",
@@ -18343,8 +17878,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3-14B is a dense 14.8B parameter causal language model from the Qwen3 series, designed for both complex reasoning and efficient dialogue. It supports seamless switching between a \"thinking\" mode for...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.22749999999999998,
-      "output": 0.9099999999999999
+      "input": 0.12,
+      "output": 0.24
     },
     "input_modalities": [
       "text"
@@ -18669,8 +18204,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Llama 4 Maverick 17B Instruct (128E) is a high-capacity multimodal language model from Meta, built on a mixture-of-experts (MoE) architecture with 128 experts and 17 billion active parameters per forward...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.19999999999999998,
-      "output": 0.696
+      "input": 0.1875,
+      "output": 0.6525
     },
     "input_modalities": [
       "text",
@@ -19693,7 +19228,6 @@ const rawCatalogModels: RawCatalogModel[] = [
       "response_format",
       "seed",
       "stop",
-      "structured_outputs",
       "temperature",
       "tool_choice",
       "tools",
@@ -20237,13 +19771,10 @@ const rawCatalogModels: RawCatalogModel[] = [
       "max_tokens",
       "presence_penalty",
       "repetition_penalty",
-      "response_format",
       "seed",
       "stop",
       "structured_outputs",
       "temperature",
-      "tool_choice",
-      "tools",
       "top_k",
       "top_logprobs",
       "top_p"
@@ -20751,7 +20282,6 @@ const rawCatalogModels: RawCatalogModel[] = [
       "min_p",
       "presence_penalty",
       "repetition_penalty",
-      "response_format",
       "seed",
       "stop",
       "structured_outputs",
@@ -20789,7 +20319,6 @@ const rawCatalogModels: RawCatalogModel[] = [
       "min_p",
       "presence_penalty",
       "repetition_penalty",
-      "response_format",
       "seed",
       "stop",
       "structured_outputs",
@@ -20954,8 +20483,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Meta's latest class of model (Llama 3.1) launched with a variety of sizes & flavors. This 70B instruct-tuned version is optimized for high quality dialogue usecases. It has demonstrated strong...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.72,
-      "output": 0.72
+      "input": 0.39999999999999997,
+      "output": 0.39999999999999997
     },
     "input_modalities": [
       "text"
@@ -21785,8 +21314,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "One of the highest performing and most popular fine-tunes of Llama 2 13B, with rich descriptions and roleplay. #merge",
     "context_length": 8192,
     "pricing": {
-      "input": 0.06,
-      "output": 0.06
+      "input": 0.08,
+      "output": 0.11
     },
     "input_modalities": [
       "text"
@@ -22395,52 +21924,9 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "reasoning_declared": true
   },
   {
-    "id": "thinkingmachines/inkling-small:batch",
-    "canonical_slug": "thinkingmachines/inkling-small-20260730",
-    "name": "Thinking Machines: Inkling Small (batch)",
-    "raw_description": "Inkling Small is an open-weight multimodal mixture-of-experts model from Thinking Machines Lab, with 12B active parameters out of 276B total. It is positioned as the smaller, more efficient member of...",
-    "context_length": 524288,
-    "pricing": {
-      "input": 0.5,
-      "output": 1.2
-    },
-    "input_modalities": [
-      "text",
-      "image",
-      "audio"
-    ],
-    "output_modalities": [
-      "text"
-    ],
-    "tokenizer": "Other",
-    "supported_parameters": [
-      "frequency_penalty",
-      "include_reasoning",
-      "logit_bias",
-      "logprobs",
-      "max_tokens",
-      "min_p",
-      "presence_penalty",
-      "reasoning",
-      "reasoning_effort",
-      "repetition_penalty",
-      "stop",
-      "temperature",
-      "tool_choice",
-      "tools",
-      "top_k",
-      "top_logprobs",
-      "top_p"
-    ],
-    "created": 1785443117,
-    "expiration_date": null,
-    "model_author": "Thinkingmachines",
-    "reasoning_declared": true
-  },
-  {
     "id": "anthropic/claude-opus-5:batch",
     "canonical_slug": "anthropic/claude-opus-5-20260723",
-    "name": "Claude Opus 5 (batch)",
+    "name": "Anthropic: Claude Opus 5 (batch)",
     "raw_description": "Claude Opus 5 is Anthropic’s flagship model for demanding reasoning, coding, and long-horizon agentic work. It is particularly strong at end-to-end software tasks, code review and bug finding, visual analysis...",
     "context_length": 1000000,
     "pricing": {
@@ -23098,13 +22584,7 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "embeddings"
     ],
     "tokenizer": "Gemini",
-    "supported_parameters": [
-      "max_tokens",
-      "response_format",
-      "seed",
-      "temperature",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1779290135,
     "expiration_date": null,
     "model_author": "Google"
@@ -23393,48 +22873,6 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "created": 1776351100,
     "expiration_date": null,
     "model_author": "Anthropic",
-    "reasoning_declared": true
-  },
-  {
-    "id": "google/gemma-4-31b-it:batch",
-    "canonical_slug": "google/gemma-4-31b-it-20260402",
-    "name": "Google: Gemma 4 31B (batch)",
-    "raw_description": "Gemma 4 31B Instruct is Google DeepMind's 30.7B dense multimodal model supporting text and image input with text output. Features a 256K token context window, configurable thinking/reasoning mode, native function...",
-    "context_length": 262144,
-    "pricing": {
-      "input": 0.39,
-      "output": 0.9700000000000001
-    },
-    "input_modalities": [
-      "image",
-      "text",
-      "video"
-    ],
-    "output_modalities": [
-      "text"
-    ],
-    "tokenizer": "Gemma",
-    "supported_parameters": [
-      "frequency_penalty",
-      "include_reasoning",
-      "logit_bias",
-      "max_tokens",
-      "min_p",
-      "presence_penalty",
-      "reasoning",
-      "repetition_penalty",
-      "response_format",
-      "stop",
-      "structured_outputs",
-      "temperature",
-      "tool_choice",
-      "tools",
-      "top_k",
-      "top_p"
-    ],
-    "created": 1775148486,
-    "expiration_date": null,
-    "model_author": "Google",
     "reasoning_declared": true
   },
   {
@@ -24064,20 +23502,7 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "embeddings"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "frequency_penalty",
-      "logit_bias",
-      "logprobs",
-      "max_tokens",
-      "presence_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "structured_outputs",
-      "temperature",
-      "top_logprobs",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1761865798,
     "expiration_date": null,
     "model_author": "OpenAI"
@@ -24099,20 +23524,7 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "embeddings"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "frequency_penalty",
-      "logit_bias",
-      "logprobs",
-      "max_tokens",
-      "presence_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "structured_outputs",
-      "temperature",
-      "top_logprobs",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1761862866,
     "expiration_date": null,
     "model_author": "OpenAI"
@@ -24134,20 +23546,7 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "embeddings"
     ],
     "tokenizer": "Other",
-    "supported_parameters": [
-      "frequency_penalty",
-      "logit_bias",
-      "logprobs",
-      "max_tokens",
-      "presence_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "structured_outputs",
-      "temperature",
-      "top_logprobs",
-      "top_p"
-    ],
+    "supported_parameters": [],
     "created": 1761857455,
     "expiration_date": null,
     "model_author": "OpenAI"
@@ -24446,45 +23845,6 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1754414231,
-    "expiration_date": null,
-    "model_author": "OpenAI",
-    "reasoning_declared": true
-  },
-  {
-    "id": "openai/gpt-oss-20b:batch",
-    "canonical_slug": "openai/gpt-oss-20b",
-    "name": "OpenAI: gpt-oss-20b (batch)",
-    "raw_description": "gpt-oss-20b is an open-weight 21B parameter model released by OpenAI under the Apache 2.0 license. It uses a Mixture-of-Experts (MoE) architecture with 3.6B active parameters per forward pass, optimized for...",
-    "context_length": 131072,
-    "pricing": {
-      "input": 0.049999999999999996,
-      "output": 0.19999999999999998
-    },
-    "input_modalities": [
-      "text"
-    ],
-    "output_modalities": [
-      "text"
-    ],
-    "tokenizer": "GPT",
-    "supported_parameters": [
-      "frequency_penalty",
-      "include_reasoning",
-      "logit_bias",
-      "max_tokens",
-      "min_p",
-      "presence_penalty",
-      "reasoning",
-      "reasoning_effort",
-      "repetition_penalty",
-      "response_format",
-      "stop",
-      "structured_outputs",
-      "temperature",
-      "top_k",
-      "top_p"
-    ],
-    "created": 1754414229,
     "expiration_date": null,
     "model_author": "OpenAI",
     "reasoning_declared": true
@@ -25065,6 +24425,7 @@ const uncertainCatalogModelIds = new Set<string>([
   "deepseek/deepseek-r1-distill-qwen-32b",
   "essentialai/rnj-1-instruct",
   "google/gemini-2.5-flash-lite-preview-09-2025",
+  "google/gemini-2.5-pro-preview-05-06",
   "google/gemma-3n-e4b-it",
   "ibm-granite/granite-4.1-8b",
   "inception/mercury-2.5-preview",
@@ -25097,6 +24458,7 @@ const uncertainCatalogModelIds = new Set<string>([
   "nvidia/nemotron-nano-12b-v2-vl:free",
   "nvidia/nemotron-nano-9b-v2",
   "nvidia/nemotron-nano-9b-v2:free",
+  "openai/gpt-4-turbo-preview",
   "openai/gpt-4o-mini-search-preview",
   "openai/gpt-4o-search-preview",
   "openai/gpt-5-chat",
@@ -25124,7 +24486,6 @@ const uncertainCatalogModelIds = new Set<string>([
   "xiaomi/mimo-v2-flash",
   "z-ai/glm-4-32b",
   "z-ai/glm-4.5-air:free",
-  "z-ai/glm-5.2:free",
   "zyphra/zonos-v0.1-hybrid",
   "zyphra/zonos-v0.1-transformer"
 ]);
@@ -25944,6 +25305,9 @@ const MID_CATALOG_MODEL_IDS = [
   "inclusionai/ling-3.0-tiny:free",
 ];
 const LATEST_REFRESH_MODEL_IDS = [
+  "stealth/union-alpha",
+  "~deepseek/deepseek-pro-latest",
+  "~deepseek/deepseek-flash-latest",
   "inference-net/schematron-v2-turbo",
   "inference-net/schematron-v2-small",
   "meta/muse-voice-transcribe-1.0",
