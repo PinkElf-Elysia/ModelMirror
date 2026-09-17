@@ -1,0 +1,57 @@
+{
+  "status": "transport_complete",
+  "receipt": {
+    "requested_model": "gpt-5.6-luna",
+    "actual_model": "gpt-5.6-luna",
+    "provider": null,
+    "strategy": "newapi_preferred",
+    "engine": "newapi",
+    "reason_codes": [
+      "qualified"
+    ],
+    "latency_ms": 33798.65330000007,
+    "ttft_ms": 2554.8542000000225,
+    "tokens": {
+      "input": 11004,
+      "output": 2999,
+      "total": 14003
+    },
+    "response_cost_usd": null,
+    "cost_kind": "unavailable",
+    "fallback_attempts": 0,
+    "cache_hit": null,
+    "request_id": null,
+    "version": "2"
+  },
+  "finishReason": "stop",
+  "done": true,
+  "observedModel": "gpt-5.6-luna",
+  "httpStatus": 200,
+  "error": null,
+  "slot": 28,
+  "at": "2026-09-15T10:19:27.280Z",
+  "textSha256": "8b7db59830cb14ba065d3b17b7ce15c823c21d50a5ded1d0f025cab26129d4e9",
+  "rawSha256": "bb6454b55515c57ec1f753a095251293c14219bb16ffbf17eda43e66b585babc",
+  "characters": 4014,
+  "routeConsumed": 27,
+  "routeRemaining": 6,
+  "historicalConsumed": 67,
+  "quality": "pending_user_review",
+  "formalUiTurns": 0,
+  "format": "rpg05-t5-result/1",
+  "candidate": "回顾资料时，沿用已经发生的经历、物品变化和约定；区分已完成的事与尚未兑现的打算，让这些经历自然影响本轮互动。",
+  "bodyCharacters": 1537,
+  "bodyHan": 1229,
+  "candidateDecision": "pending_user_review",
+  "pairOnlyDifferenceVerified": true,
+  "observations": [
+    "本回合记忆未再混入上一回合的传讯询问。",
+    "纸鹤未使用、令牌暂扣、五项商店商品连续。",
+    "灵泉既有异响发展为事故，故事未陷于复盘。",
+    "新增玩家对白：我问的是你准备不准备写。",
+    "谈判未明确成交，资料却标已承诺内容，条件承诺与成交仍有歧义。",
+    "外貌偏好省略与天赋效果缩写仍未解决。"
+  ],
+  "recommendation": "局部记忆收益，暂不自动全局加回；等待用户判断是否值得进入集成，不追加本项测试。",
+  "scope": "两段真实历史；非长期记忆或滚动总结验收；单对不能证明稳定因果"
+}

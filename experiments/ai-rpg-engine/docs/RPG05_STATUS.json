@@ -1,10 +1,10 @@
 {
   "format": "modelmirror.ai-rpg.rpg05-status",
   "formatVersion": "0.5.0",
-  "status": "in_progress",
+  "status": "archived_partial_demo",
   "branch": "codex/ai-rpg-rpg05-ui",
   "base": "81fc14f6e0dada2447a63c1e532ee55b1f914ded",
-  "phase": "05F_draft_pr_open_manual_quality_not_passed",
+  "phase": "05F_archived_partial_demo_not_accepted",
   "completedBatches": [
     {
       "id": "05A1",
@@ -695,7 +695,7 @@
     "User manual narrative quality not_passed; no prompt changes this audit. Fourth-turn non-explicit conflict behavior is a positive bounded sample; runtime anti-truncation protocol excluded.",
     "Closeout-1 user manual4/5 observed; source/ledger/session preservation and UI/qualification GET passed after same-source recovery. Agent Provider0; no separate controlled prompt A/B."
   ],
-  "updatedAt": "2026-09-13T04:35:36.221343+00:00",
+  "updatedAt": "2026-09-16T05:23:49.289268+00:00",
   "latestOfflineReceipt": ".rpg04-work/rpg05-verify-1789228974648/receipt.json",
   "failuresPreserved": [
     {
@@ -4264,5 +4264,25 @@
         "sha256": "79bb7389565ec1f31a5bd0eaba80032728981309ac2cc1156c5e429fd96457a7"
       }
     }
-  ]
+  ],
+  "archiveCloseout": {
+    "userDecision": "停止本轮调优，以半成品展示封装PR，竖切/首版收束/批处理延期",
+    "report": "docs/RPG05_DEMO_ARCHIVE.md",
+    "providerCallsThisCloseout": 0,
+    "routeConsumed": 32,
+    "routeLimit": 37,
+    "remainingPaused": 5,
+    "historicalDispatches": 72,
+    "mergeAuthorized": false,
+    "newCardMaterialReviewed": false,
+    "pending": [
+      "T7 continuation",
+      "minimal UI integration",
+      "representative vertical slice",
+      "first edition closeout",
+      "batch processing"
+    ],
+    "validation": "530 offline/mock tests, typecheck and build passed",
+    "verification": "docs/ai-rpg-experiment/RPG05_ARCHIVE_VERIFICATION.json"
+  }
 }

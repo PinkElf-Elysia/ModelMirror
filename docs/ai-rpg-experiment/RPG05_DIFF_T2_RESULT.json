@@ -1,0 +1,62 @@
+{
+  "status": "transport_complete",
+  "receipt": {
+    "requested_model": "gpt-5.6-luna",
+    "actual_model": "gpt-5.6-luna",
+    "provider": null,
+    "strategy": "newapi_preferred",
+    "engine": "newapi",
+    "reason_codes": [
+      "qualified"
+    ],
+    "latency_ms": 13386.789300013334,
+    "ttft_ms": 3471.3843000354245,
+    "tokens": {
+      "input": 3819,
+      "output": 940,
+      "total": 4759
+    },
+    "response_cost_usd": null,
+    "cost_kind": "unavailable",
+    "fallback_attempts": 0,
+    "cache_hit": null,
+    "request_id": null,
+    "version": "2"
+  },
+  "finishReason": "stop",
+  "done": true,
+  "observedModel": "gpt-5.6-luna",
+  "httpStatus": 200,
+  "error": null,
+  "slot": 22,
+  "at": "2026-09-15T04:33:03.157Z",
+  "textSha256": "513bcc8bbb24952bdd0bb94b3725b418614408d11b50f7678a23bc185ce958ff",
+  "rawSha256": "0aae1e262ef4e06a72c6c8b73c6b96073eba0236db9b49254b10a58438c11772",
+  "characters": 1074,
+  "routeConsumed": 23,
+  "routeRemaining": 10,
+  "historicalConsumed": 63,
+  "quality": "pending_user_review",
+  "formalUiTurns": 0,
+  "format": "rpg05-t2-result/1",
+  "baselineApproved": true,
+  "candidate": "让NPC依据亲见、听闻和自身立场形成判断；他们可以误会、猜疑或撒谎，不必知道玩家未透露的经历与内心。",
+  "han": 898,
+  "candidateDecision": "pending_user_review",
+  "pairOnlyDifferenceVerified": true,
+  "observations": [
+    "未直接把玩家隐藏的信任交给NPC；两版均守住。",
+    "以捕捉话中余地但未当成完全信任代替直白规则说明，表达更自然。",
+    "NPC反驳、辩解、抢夺控制权仍有主动性。",
+    "通讯员确认签报告方可靠泊，使主管原先的说辞得到世界事实支持；不是本组可直接认定的知情泄漏。",
+    "技术细节和旧线索解释不同，不以科学严密度判优。"
+  ],
+  "recommendation": "小幅表达收益，保留为待选项，不自动全局加回；由用户决定是否纳入后续集成。",
+  "scope": "单对原创潮汐站样本，无完整资料栏，不证明跨卡稳定收益",
+  "validation": {
+    "syntax": "passed",
+    "sourceAndPairHashes": "passed",
+    "transport": "complete",
+    "uiIntegration": "not_run"
+  }
+}

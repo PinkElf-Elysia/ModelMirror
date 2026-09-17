@@ -1,0 +1,56 @@
+{
+  "status": "transport_complete",
+  "receipt": {
+    "requested_model": "gpt-5.6-luna",
+    "actual_model": "gpt-5.6-luna",
+    "provider": null,
+    "strategy": "newapi_preferred",
+    "engine": "newapi",
+    "reason_codes": [
+      "qualified"
+    ],
+    "latency_ms": 31598.795999999995,
+    "ttft_ms": 2554.883800000198,
+    "tokens": {
+      "input": 14076,
+      "output": 3246,
+      "total": 17322
+    },
+    "response_cost_usd": null,
+    "cost_kind": "unavailable",
+    "fallback_attempts": 0,
+    "cache_hit": null,
+    "request_id": null,
+    "version": "2"
+  },
+  "finishReason": "stop",
+  "done": true,
+  "observedModel": "gpt-5.6-luna",
+  "httpStatus": 200,
+  "error": null,
+  "slot": 29,
+  "at": "2026-09-15T10:24:29.435Z",
+  "textSha256": "9b8480c98c718cddc06aab25775e8104e658c247bb776ad09f8ca7aae3d3e4aa",
+  "rawSha256": "8d250d18209d82c3fb8c01ad92543b92f1ae7bb1070b92822478c2cc5d564751",
+  "characters": 4272,
+  "routeConsumed": 28,
+  "routeRemaining": 5,
+  "historicalConsumed": 68,
+  "quality": "pending_user_review",
+  "formalUiTurns": 0,
+  "format": "rpg05-t6-baseline/1",
+  "bodyCharacters": 1622,
+  "bodyHan": 1277,
+  "candidateDispatched": false,
+  "observations": [
+    "没有NPC直接识破未表露的恐惧，玩家资料标为未公开状态。",
+    "利息和抬价对白呼应输入，人物有调侃及对抗。",
+    "纸鹤未使用、令牌暂扣、账册已写等连续。",
+    "柳青萝交易未成交已录音，既可理解为主动介入，也与先前条件存在张力，留给用户判断。",
+    "当前积分重复一次；外貌偏好与天赋完整效果仍省略。",
+    "叙述加入身体紧绷但资料称恐惧未表现，外显程度存在模糊。"
+  ],
+  "recommendation": "基线可供对照；不因单项格式瑕疵恢复结构化限制。等待用户审阅后生成固定T2加句版。",
+  "scope": "三段真实历史+完整卡片格式；无新增T1/T2/T3/T5句，无正式UI集成",
+  "providerCallsThisContinuation": 0
+}

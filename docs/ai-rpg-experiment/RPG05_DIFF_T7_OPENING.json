@@ -1,0 +1,63 @@
+{
+  "status": "transport_complete",
+  "receipt": {
+    "requested_model": "gpt-5.6-luna",
+    "actual_model": "gpt-5.6-luna",
+    "provider": null,
+    "strategy": "newapi_preferred",
+    "engine": "newapi",
+    "reason_codes": [
+      "qualified"
+    ],
+    "latency_ms": 18075.204300001133,
+    "ttft_ms": 3509.976999999708,
+    "tokens": {
+      "input": 2788,
+      "output": 1373,
+      "total": 4161
+    },
+    "response_cost_usd": null,
+    "cost_kind": "unavailable",
+    "fallback_attempts": 0,
+    "cache_hit": null,
+    "request_id": null,
+    "version": "2"
+  },
+  "finishReason": "stop",
+  "done": true,
+  "observedModel": "gpt-5.6-luna",
+  "httpStatus": 200,
+  "error": null,
+  "slot": 31,
+  "at": "2026-09-15T12:48:28.036Z",
+  "textSha256": "1a43eef182c7bb39e19c10bc9e1834fcef59293ff94fb2a5ccc97ac105c86fe3",
+  "rawSha256": "6d556903c3446b38577b8bce4fbc6742aaffd3b638bb582f0c1b1fd9d79cf4db",
+  "characters": 1591,
+  "routeConsumed": 31,
+  "routeRemaining": 6,
+  "historicalConsumed": 71,
+  "quality": "pending_user_review",
+  "formalUiTurns": 0,
+  "format": "rpg05-t7-opening/1",
+  "bodyHan": 1065,
+  "bodyCharacters": 1308,
+  "promptAdditions": [],
+  "observations": [
+    "港口、剧团、灯船节与旧友关系形成独立氛围；余响以声音带出失踪线索，没有恢复表格化正文。",
+    "生成旧友姓名、童年经历及谜团，属于本轮允许的创作；不能当成原网页资源。",
+    "模型未交代取票就写玩家手里的票，又将发热解释为错觉，略显突兀。",
+    "沈砚秋问玩家听到什么，暗示知道天赋，设定未明说是否知情；儿时好友可能知情，不能直接判为错误。",
+    "首轮线索密度较高，后续是否自然兑现尚未验证。"
+  ],
+  "recommendation": "首轮可供用户评审；不据此追加规则。等待认可及实际续写输入后再派发slot32。",
+  "scope": "Original small test card with its own compact details format; not old cross-world full-panel format verification, not official UI integration.",
+  "budget": {
+    "limit": 37,
+    "consumed": 31,
+    "remaining": 6,
+    "T7Continuation": 1,
+    "T4Reserved": 1,
+    "newAdditional": 4,
+    "historicalOtherReserved": 5
+  }
+}

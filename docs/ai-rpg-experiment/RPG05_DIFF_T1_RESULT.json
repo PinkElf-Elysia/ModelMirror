@@ -1,0 +1,65 @@
+{
+  "status": "transport_complete",
+  "receipt": {
+    "requested_model": "gpt-5.6-luna",
+    "actual_model": "gpt-5.6-luna",
+    "provider": null,
+    "strategy": "newapi_preferred",
+    "engine": "newapi",
+    "reason_codes": [
+      "qualified"
+    ],
+    "latency_ms": 34328.531400009524,
+    "ttft_ms": 2386.7105999961495,
+    "tokens": {
+      "input": 7574,
+      "output": 3382,
+      "total": 10956
+    },
+    "response_cost_usd": null,
+    "cost_kind": "unavailable",
+    "fallback_attempts": 0,
+    "cache_hit": null,
+    "request_id": null,
+    "version": "2"
+  },
+  "finishReason": "stop",
+  "done": true,
+  "observedModel": "gpt-5.6-luna",
+  "httpStatus": 200,
+  "error": null,
+  "at": "2026-09-15T04:16:00.501Z",
+  "slot": 19,
+  "textSha256": "0c4573edec705c8dfc2f298f0e8aa15bcc2a1933f6674136b5e3c7eeb937b42c",
+  "rawSha256": "0739b91328fe53cee8649fd2e8df7372d3b5588c45001d12e3b611dea40d689d",
+  "characters": 4366,
+  "routeConsumed": 20,
+  "routeRemaining": 12,
+  "historicalConsumed": 60,
+  "quality": "pending_user_review",
+  "formalUiTurns": 0,
+  "format": "rpg05-t1-pair-result/1",
+  "baselineApproved": true,
+  "candidateDecision": "pending_user_review",
+  "candidate": "区分玩家已经说出或尝试的事，与提问、假设和尚未作出的决定；回应前者，保留后者的选择空间。",
+  "bodyCharacters": 1689,
+  "bodyHan": 1356,
+  "pairOnlyDifferenceVerified": true,
+  "observations": [
+    "传讯代价与叙事分开，没有让韩石直接接主持问话。",
+    "未代玩家传讯、认错、动手或接受交易；两版均做到。",
+    "柳青萝仍主动提出作证条件；合理主动性与意图迎合不能凭这一对定论。",
+    "记忆把向主持的询问记成白羽绫音事件，信息分层改善不完整。",
+    "省略卡片要求的开头场景信息；天赋效果缩写仍存在。",
+    "人物互动与推进未明显停止；篇幅偏长。"
+  ],
+  "recommendation": "局部改善，暂不全局冻结；待用户对照审阅。单对样本不证明因果或泛化。",
+  "evidence": "experiments/ai-rpg-engine/.rpg04-work/rpg05-minimal-plan20/dispatch-19",
+  "validation": {
+    "runnerSyntax": "passed",
+    "pairPayloadEqualityExceptApprovedSentence": "passed",
+    "transport": "complete",
+    "uiIntegration": "not_run",
+    "unrelatedExistingWhitespaceWarnings": 5
+  }
+}

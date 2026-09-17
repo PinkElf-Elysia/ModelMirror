@@ -1,0 +1,91 @@
+{
+  "batch": "B",
+  "slot": 11,
+  "status": "pending_user_review",
+  "kind": "second_world_baseline_no_additional_world_style",
+  "provider": {
+    "status": "transport_complete",
+    "receipt": {
+      "requested_model": "gpt-5.6-luna",
+      "actual_model": "gpt-5.6-luna",
+      "provider": null,
+      "strategy": "newapi_preferred",
+      "engine": "newapi",
+      "reason_codes": [
+        "qualified"
+      ],
+      "latency_ms": 22576.43100002315,
+      "ttft_ms": 3492.484599992167,
+      "tokens": {
+        "input": 4248,
+        "output": 2287,
+        "total": 6535
+      },
+      "response_cost_usd": null,
+      "cost_kind": "unavailable",
+      "fallback_attempts": 0,
+      "cache_hit": null,
+      "request_id": null,
+      "version": "2"
+    },
+    "finishReason": "stop",
+    "done": true,
+    "observedModel": "gpt-5.6-luna",
+    "httpStatus": 200,
+    "error": null,
+    "textSha256": "251eaefb4f5ba849d31a9bb74c994f9bbd07db0b198d3ad65ad9322a3b637305",
+    "rawSha256": "d26ae0263c01c425c932e001ed1249cb29ad0192b4b81d8be06f43459c4a2142",
+    "characters": 3096,
+    "slot": 11,
+    "newConsumed": 12,
+    "newRemaining": 8,
+    "totalConsumed": 52,
+    "quality": "pending_user_review",
+    "formalUiTurns": 0,
+    "at": "2026-09-14T11:02:27.037Z"
+  },
+  "narrativeCharacters": 931,
+  "narrativeHanCharacters": 769,
+  "budget": {
+    "limit": 20,
+    "consumed": 12,
+    "remaining": 8,
+    "slot20": "certification_recovery"
+  },
+  "nextSlot": 12,
+  "nextGate": "user review required",
+  "uiIntegration": "not_done",
+  "overallAcceptance": false,
+  "observations": [
+    "strength talent produces concrete gathering and construction",
+    "night threats advance story",
+    "spider sensing special aura and torch repel effect are quality observations; no new constraints added",
+    "no conclusion on world/style addition until matched slot12"
+  ],
+  "artifacts": [
+    {
+      "path": ".rpg04-work/rpg05-minimal-plan20/dispatch-11/RESULT.json",
+      "sha256": "f2b91faef38d5c526000e0e2be5e7adba389f7b85d42f23f1ad41b0bef9f10e4"
+    },
+    {
+      "path": ".rpg04-work/rpg05-minimal-plan20/dispatch-11/response.txt",
+      "sha256": "251eaefb4f5ba849d31a9bb74c994f9bbd07db0b198d3ad65ad9322a3b637305"
+    },
+    {
+      "path": ".rpg04-work/rpg05-minimal-plan20/dispatch-11/response.sse",
+      "sha256": "d26ae0263c01c425c932e001ed1249cb29ad0192b4b81d8be06f43459c4a2142"
+    },
+    {
+      "path": ".rpg04-work/rpg05-minimal-plan20/case-11.json",
+      "sha256": "a7dfc114b3bea9405a8563cad32cff90c2255384c79eb154a17ba8a31935e0bb"
+    },
+    {
+      "path": ".rpg04-work/rpg05-minimal-plan20/case-12.json",
+      "sha256": "6def5194643f4faa6d280e438cc9c04141f2b906f8d45ff92109e0a01254ac1b"
+    },
+    {
+      "path": "tooling/rpg05-minimal-combination11-resumed.mjs",
+      "sha256": "44ac7fc5da2fb52d330853ab232e21100fb6bfe58b765a96e474ae2b90a8ccb9"
+    }
+  ]
+}

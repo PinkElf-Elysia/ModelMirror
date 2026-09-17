@@ -1,0 +1,41 @@
+{
+  "format": "rpg05-t7-proposal/1",
+  "status": "scope_and_budget_quantity_pending_user_review",
+  "T6Decision": {
+    "userQuote": "同意结论，不立即加回，继续下一批，授权扩额",
+    "globalAddition": false,
+    "candidate": "T2 remains historical evidence, not adopted"
+  },
+  "recommendedChange": "Replace baseline-versus-unadopted-T2 pair with lightweight baseline opening and natural continuation, each reviewed separately. This is transfer observation, not causal A/B evidence.",
+  "slots": [
+    31,
+    32
+  ],
+  "budget": {
+    "consumed": 30,
+    "currentLimit": 33,
+    "T7Existing": 2,
+    "T4Reserved": 1,
+    "proposedAdditional": 4,
+    "additionalQuantityApproved": false
+  },
+  "source": "Original small authored test card; not extracted website material; not production card or batch creation.",
+  "cardText": "雾钟港是一座靠蒸汽机械和潮汐贸易运转的城市，今夜正在举行一年一度的灯船节。故事围绕亲情、旧日情谊与失踪谜团展开，允许轻快、温情与危险并存。人物与事件随互动自然发展。正文后用折叠的“随身与经历”简记物品和重要经历；有需要时附几条不同方向的行动建议。",
+  "playerText": "叶澜，女，26岁，钟表修复师，嘴上刻薄但念旧。弟弟三个月前失踪，儿时好友如今在灯船剧团演出，两人多年未见。天赋“余响”：触碰损坏的机械，可以听见它损坏前最后十秒的声音，不能看到画面。随身有修表工具、一枚弟弟留下的坏怀表和一张今夜剧团的旧票。",
+  "openingInput": "灯船节开场前，我在剧团侧门见到了多年未见的她。我把弟弟的坏怀表放在掌心，试着听听余响，随后抬头笑道：「这么多年，你欠我的那场戏，今晚总该还了吧？」",
+  "continuation": "After first output human review, prepare natural player reply based on actual story; no predetermined NPC, culprit or solution.",
+  "assembly": "Existing frozen protocol + existing minimal host + medium length preference + this card/setup + player input. No T1/T2/T3/T5 addback.",
+  "parameters": {
+    "model": "gpt-5.6-luna",
+    "temperature": 0,
+    "maxOutputTokens": 8192,
+    "bodyPreference": "800–1200 Chinese characters, panels additional"
+  },
+  "reviewFocus": [
+    "Distinct world and character voice; emotional interaction and events worth continuing.",
+    "Talent contributes to story, with no preset answer or engineering state rules.",
+    "Second turn responds to actual choice and retains meaningful first-turn consequences."
+  ],
+  "scope": "No UI changes, no original website probe, no runtime protocol edit; no Provider dispatch in preparation.",
+  "rollback": "Do not adopt proposal; keep outputs and prior records unchanged."
+}

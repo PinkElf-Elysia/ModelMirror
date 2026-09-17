@@ -1,0 +1,18 @@
+{
+  "format": "rpg05-t6-preflight-block/1",
+  "at": "2026-09-15T12:36:23.498647+00:00",
+  "userQuote": "开始加句版生成",
+  "candidateAuthorized": true,
+  "pairSha256": "04fa139737904cbb161049a75bfed0b2c3aa7ebaabbd9a49872fa8e3f5ac7d89",
+  "baselineSha256": "9b8480c98c718cddc06aab25775e8104e658c247bb776ad09f8ca7aae3d3e4aa",
+  "reason": "provider_chat_no_qualified_route",
+  "priorCertificationCompletedAt": "2026-09-14T11:34:06.780291+00:00",
+  "container": "running",
+  "candidateDispatched": false,
+  "callsThisTurn": 0,
+  "remaining": 5,
+  "reservedT4": 2,
+  "requiredToCompleteWithCertification": 4,
+  "decisionPending": "allocate one reserved T4 dispatch or add one certification dispatch; no automatic allocation",
+  "note": "last certification older than24h; specific fresh certification reason still to inspect before recovery"
+}

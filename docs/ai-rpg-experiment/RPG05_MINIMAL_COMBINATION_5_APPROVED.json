@@ -1,0 +1,37 @@
+{
+  "format": "rpg05-minimal-combination-approval/1",
+  "updatedAt": "2026-09-14T04:02:27.478244+00:00",
+  "status": "user_approved",
+  "combinationFrozen": true,
+  "approvedSlots": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "approval": {
+    "format": "rpg05-user-quality-approval/1",
+    "at": "2026-09-14T04:02:27.478244+00:00",
+    "userQuote": "批准",
+    "slot": 5,
+    "decision": "approve_and_freeze_combination",
+    "caseSha256": "ee15831c63fbf7907622e2c9e53807221727b71c5711f72b149b91de5dc19db3",
+    "outputSha256": "e92bdb7e40d11910f72d3cf9e49a744c277028aa45054aab9bf07b91dcbd2991",
+    "scope": "minimal prompt plus approved medium-length preference on full-history continuation; not overall UI or release acceptance",
+    "providerCallsThisUpdate": 0
+  },
+  "historicalResult": "docs/ai-rpg-experiment/RPG05_MINIMAL_COMBINATION_5.json",
+  "historicalResultSha256": "e398e9f324af3cd8b1b446887a283d3c3446ac3a724491f33de3e15b4e178d3c",
+  "newBudget": {
+    "limit": 20,
+    "consumed": 5,
+    "remaining": 15
+  },
+  "totalConsumed": 45,
+  "totalAuthorized": 65,
+  "overallAcceptance": false,
+  "uiIntegration": "not_done",
+  "nextComparison": "held-out card with approved medium-length preference; preserve matching baseline setup/input and all other parameters; review next output before further dispatch",
+  "publicationAuthorized": false
+}

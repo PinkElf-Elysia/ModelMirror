@@ -1,0 +1,38 @@
+{
+  "format": "rpg05-t4-offline/1",
+  "at": "2026-09-15T10:12:43.484957+00:00",
+  "status": "conditional_provider_test_skipped",
+  "source": "experiments/ai-rpg-engine/fixtures/rpg02/selected-source.txt",
+  "cases": [
+    9,
+    11
+  ],
+  "checked": [
+    "world name/description/boss",
+    "selected identity and initial items",
+    "8 talent names/ranks/full effects"
+  ],
+  "result": "all checked fields present verbatim",
+  "excluded": [
+    "cost/type catalog metadata: absent, not asserted preserved; marketplace not in scope",
+    "full character loader integration: not proven",
+    "all possible resource fields: not audited"
+  ],
+  "interpretation": "input omission not demonstrated; output paraphrases do not establish input serialization loss",
+  "providerCalls": 0,
+  "reservedSlots": [
+    25,
+    26
+  ],
+  "remaining": 8,
+  "decision": {
+    "userQuote": "同意结论，不加回，进入下一项",
+    "T3": "不加回",
+    "T4": "依已批准条件跳过Provider对照；所查八天赋与两世界叙事资料无输入遗漏",
+    "T4ReservedSlots": [
+      25,
+      26
+    ],
+    "reallocate": false
+  }
+}

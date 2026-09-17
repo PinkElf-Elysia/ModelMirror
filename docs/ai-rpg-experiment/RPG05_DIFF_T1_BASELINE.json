@@ -1,0 +1,55 @@
+{
+  "status": "transport_complete",
+  "receipt": {
+    "requested_model": "gpt-5.6-luna",
+    "actual_model": "gpt-5.6-luna",
+    "provider": null,
+    "strategy": "newapi_preferred",
+    "engine": "newapi",
+    "reason_codes": [
+      "qualified"
+    ],
+    "latency_ms": 38450.39850001922,
+    "ttft_ms": 3365.40840001544,
+    "tokens": {
+      "input": 7539,
+      "output": 3349,
+      "total": 10888
+    },
+    "response_cost_usd": null,
+    "cost_kind": "unavailable",
+    "fallback_attempts": 0,
+    "cache_hit": null,
+    "request_id": null,
+    "version": "2"
+  },
+  "finishReason": "stop",
+  "done": true,
+  "observedModel": "gpt-5.6-luna",
+  "httpStatus": 200,
+  "error": null,
+  "at": "2026-09-15T04:05:34.235Z",
+  "slot": 18,
+  "textSha256": "a8e311a6d045cbe3d2db9d98e68cd0c88f5dbfdf34ab5c68a0e7739a31f08386",
+  "rawSha256": "974fdab5b2dc35a96b5b6e5b6b5b1c6519838e5c5e38fc74d55ebf7cbed60d03",
+  "characters": 4419,
+  "routeConsumed": 19,
+  "routeRemaining": 13,
+  "historicalConsumed": 59,
+  "quality": "pending_user_review",
+  "formalUiTurns": 0,
+  "format": "rpg05-t1-baseline-review/1",
+  "bodyCharacters": 1437,
+  "bodyHan": 1151,
+  "candidateDispatched": false,
+  "candidate": "区分玩家已经说出或尝试的事，与提问、假设和尚未作出的决定；回应前者，保留后者的选择空间。",
+  "observations": [
+    "未使用纸鹤蛊、未认错、未动手；玩家对白沿用输入。",
+    "NPC保持行动与冲突推进。",
+    "向主持询问后韩石直接补充，可能混淆问话对象。",
+    "柳青萝直接提出作证交易，与未说出口的条件打算过于贴合；不能仅凭此认定读心。",
+    "资料有精简；不是本组变量，不据此加回其他约束。"
+  ],
+  "recommendation": "pending user baseline review; do not freeze candidate before paired result",
+  "evidence": "experiments/ai-rpg-engine/.rpg04-work/rpg05-minimal-plan20/dispatch-18"
+}

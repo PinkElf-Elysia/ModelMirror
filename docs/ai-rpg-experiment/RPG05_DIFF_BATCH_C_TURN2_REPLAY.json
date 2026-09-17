@@ -1,0 +1,91 @@
+{
+  "batch": "C",
+  "storyTest": "conditional_talent_continuation",
+  "slot": 16,
+  "replayOf": 14,
+  "status": "pending_user_review",
+  "authorization": {
+    "decision": "explicit_replay_once",
+    "userQuote": "重发",
+    "failedSlot": 14,
+    "dispatchSlot": 16,
+    "caseSha256": "0eb9d2914e7ec59e562460a2d1ace17527936905956ad982b1e934d264adaa6f",
+    "maxDispatches": 20
+  },
+  "provider": {
+    "status": "transport_complete",
+    "receipt": {
+      "requested_model": "gpt-5.6-luna",
+      "actual_model": "gpt-5.6-luna",
+      "provider": null,
+      "strategy": "newapi_preferred",
+      "engine": "newapi",
+      "reason_codes": [
+        "qualified"
+      ],
+      "latency_ms": 14201.711200003047,
+      "ttft_ms": 4679.481200000737,
+      "tokens": {
+        "input": 4839,
+        "output": 986,
+        "total": 5825
+      },
+      "response_cost_usd": null,
+      "cost_kind": "unavailable",
+      "fallback_attempts": 0,
+      "cache_hit": null,
+      "request_id": null,
+      "version": "2"
+    },
+    "finishReason": "stop",
+    "done": true,
+    "observedModel": "gpt-5.6-luna",
+    "httpStatus": 200,
+    "error": null,
+    "textSha256": "31675b4cedfade9ca3bd44e36776d9bcfcc26371f8ef4f8b7fa45c9fb861cc78",
+    "rawSha256": "f3eddb52c81a523942dac78b043f9ac54a78b26b23d2d7140ac6e2caa0258b37",
+    "characters": 1128,
+    "slot": 16,
+    "replayOf": 14,
+    "newConsumed": 17,
+    "newRemaining": 3,
+    "totalConsumed": 57,
+    "quality": "pending_user_review",
+    "formalUiTurns": 0,
+    "at": "2026-09-14T11:36:19.907Z"
+  },
+  "sameFailedRequestSha256": "0eb9d2914e7ec59e562460a2d1ace17527936905956ad982b1e934d264adaa6f",
+  "newPromptAdditions": [],
+  "budget": {
+    "limit": 20,
+    "consumed": 17,
+    "remaining": 3
+  },
+  "overallAcceptance": false,
+  "observations": [
+    "relationship and public challenge reflected",
+    "operator identity not derived from vibration explicitly",
+    "uncontacted silver device internals described as known; talent boundary ambiguity",
+    "friend specific circuit deduction lacks clear information bridge"
+  ],
+  "recommendation": "retain raw output for review; candidate narrow resource/knowledge issue for later decision, no immediate repair",
+  "nextGate": "user review before final C continuation; remaining budget cannot cover all original plan items",
+  "artifacts": [
+    {
+      "path": ".rpg04-work/rpg05-minimal-plan20/dispatch-16/RESULT.json",
+      "sha256": "08aa050746b11a2d62ba694fd981c72d8bd621983cce15ecf503e2924808ce9e"
+    },
+    {
+      "path": ".rpg04-work/rpg05-minimal-plan20/dispatch-16/response.txt",
+      "sha256": "31675b4cedfade9ca3bd44e36776d9bcfcc26371f8ef4f8b7fa45c9fb861cc78"
+    },
+    {
+      "path": ".rpg04-work/rpg05-minimal-plan20/dispatch-16/response.sse",
+      "sha256": "f3eddb52c81a523942dac78b043f9ac54a78b26b23d2d7140ac6e2caa0258b37"
+    },
+    {
+      "path": "tooling/rpg05-minimal-replay14.mjs",
+      "sha256": "60c92801fd7b1d96a427041e315b551b384fb56a17e5fff014cd46efe5f490f6"
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "status": "failed_or_unknown",
+  "receipt": null,
+  "finishReason": null,
+  "done": false,
+  "observedModel": null,
+  "httpStatus": 500,
+  "error": "HTTP_500",
+  "slot": 32,
+  "at": "2026-09-15T13:02:38.456Z",
+  "textSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "rawSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "characters": 0,
+  "routeConsumed": 32,
+  "routeRemaining": 5,
+  "historicalConsumed": 72,
+  "quality": "not_evaluable_no_output",
+  "formalUiTurns": 0,
+  "format": "rpg05-t7-continuation-block/1",
+  "userAuthorization": "开始续写",
+  "diagnosis": {
+    "verified": "Live isolated route log records Managed Chat failed status=500 code=provider_chat_http_500 after managed_upstream_send.",
+    "unverified": "No upstream body or route receipt; exact provider failure cause and billing unknown.",
+    "notClaimed": "Not a narrative regression, JSON validation error, or confirmed provider completion."
+  },
+  "retryPerformed": false,
+  "remainingAllocation": {
+    "T4Reserved": 1,
+    "newAdditional": 4
+  },
+  "nextStep": "Read-only upstream diagnosis; no automatic retry. Preserve exact request and original failure."
+}

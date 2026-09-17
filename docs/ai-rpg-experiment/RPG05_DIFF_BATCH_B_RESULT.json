@@ -1,0 +1,94 @@
+{
+  "batch": "B",
+  "slot": 12,
+  "comparisonSlot": 11,
+  "status": "pending_user_review",
+  "baselineApproval": {
+    "slot": 11,
+    "decision": "approved_as_comparison",
+    "userQuote": "批准作为对照，开始下一批",
+    "outputSha256": "251eaefb4f5ba849d31a9bb74c994f9bbd07db0b198d3ad65ad9322a3b637305"
+  },
+  "exactAddition": "\n\n【世界常识参考】\n本实验自主编写常识摘要：环境由方块构成，玩家可以尝试采集、建造和探索；夜色意味着需要评估周围风险。\n【本世界文风参考】\n孤独、自由、充满创造力。描写侧重于方块的纹理、挖掘的声音、背景音乐的空灵感以及从无到有建立家园的成就感。",
+  "provider": {
+    "status": "transport_complete",
+    "receipt": {
+      "requested_model": "gpt-5.6-luna",
+      "actual_model": "gpt-5.6-luna",
+      "provider": null,
+      "strategy": "newapi_preferred",
+      "engine": "newapi",
+      "reason_codes": [
+        "qualified"
+      ],
+      "latency_ms": 24086.788499960676,
+      "ttft_ms": 4479.916999989655,
+      "tokens": {
+        "input": 4346,
+        "output": 2337,
+        "total": 6683
+      },
+      "response_cost_usd": null,
+      "cost_kind": "unavailable",
+      "fallback_attempts": 0,
+      "cache_hit": null,
+      "request_id": null,
+      "version": "2"
+    },
+    "finishReason": "stop",
+    "done": true,
+    "observedModel": "gpt-5.6-luna",
+    "httpStatus": 200,
+    "error": null,
+    "textSha256": "4b741f091fdc1a598d71406d07bd91b57ed0126ba36727407677ba33d0f11eeb",
+    "rawSha256": "6483543608e36941dbb7d76e8e6c8e536c51b18559ce490e27c9e7facc84c5ab",
+    "characters": 3223,
+    "slot": 12,
+    "newConsumed": 13,
+    "newRemaining": 7,
+    "totalConsumed": 53,
+    "quality": "pending_user_review",
+    "formalUiTurns": 0,
+    "at": "2026-09-14T11:20:07.447Z"
+  },
+  "narrativeCharacters": 908,
+  "narrativeHanCharacters": 764,
+  "budget": {
+    "limit": 20,
+    "consumed": 13,
+    "remaining": 7,
+    "slot20": "certification_recovery"
+  },
+  "uiIntegration": "not_done",
+  "overallAcceptance": false,
+  "observations": [
+    "more explicit textures lighting and construction",
+    "visual talent represented in narrative",
+    "no special aura detection by spider; not proof of stable causal correction",
+    "no clear gain in human emotion; setup still abbreviated"
+  ],
+  "recommendation": "candidate card/world style only; user decision pending; do not globalize or add correction rules",
+  "nextGate": "user review before C",
+  "artifacts": [
+    {
+      "path": ".rpg04-work/rpg05-minimal-plan20/dispatch-12/RESULT.json",
+      "sha256": "25894934c9eaca78ee85aa255a8c40fe1ed6f24405d79e0aea23722da6b91f70"
+    },
+    {
+      "path": ".rpg04-work/rpg05-minimal-plan20/dispatch-12/response.txt",
+      "sha256": "4b741f091fdc1a598d71406d07bd91b57ed0126ba36727407677ba33d0f11eeb"
+    },
+    {
+      "path": ".rpg04-work/rpg05-minimal-plan20/dispatch-12/response.sse",
+      "sha256": "6483543608e36941dbb7d76e8e6c8e536c51b18559ce490e27c9e7facc84c5ab"
+    },
+    {
+      "path": ".rpg04-work/rpg05-minimal-plan20/case-12.json",
+      "sha256": "6def5194643f4faa6d280e438cc9c04141f2b906f8d45ff92109e0a01254ac1b"
+    },
+    {
+      "path": "tooling/rpg05-minimal-combination12.mjs",
+      "sha256": "341014f68745276718f73860eb20b1c241fbfa2ca7bcca8f751861fd3513080b"
+    }
+  ]
+}

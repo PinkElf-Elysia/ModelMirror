@@ -1,0 +1,105 @@
+{
+  "status": "quota_and_route_restored",
+  "at": "2026-09-14T11:34:53.787839+00:00",
+  "authorization": "授权补充额度，恢复进程",
+  "quotaAddition": {
+    "authorization": "授权补充额度，恢复进程",
+    "at": "2026-09-14T11:33:30.209263+00:00",
+    "tokenId": 1,
+    "before": {
+      "id": 1,
+      "user_id": 1,
+      "status": 1,
+      "remain_quota": 2211,
+      "used_quota": 597789,
+      "unlimited_quota": 0
+    },
+    "deltaQuota": 250000,
+    "displayUsdAddition": 0.5,
+    "providerCallLimitUnchanged": 20,
+    "credentialsRead": false
+  },
+  "quotaAfterCertification": {
+    "id": 1,
+    "status": 1,
+    "remain_quota": 252194,
+    "used_quota": 597806,
+    "unlimited_quota": 0
+  },
+  "certification": {
+    "status": "passed",
+    "requested_model": "gpt-5.6-luna",
+    "actual_model": "gpt-5.6-luna",
+    "error_code": null,
+    "completed_at": "2026-09-14T11:34:06.780291+00:00",
+    "checks": {
+      "catalog_ok": true,
+      "model_present": true,
+      "chat_http_ok": true,
+      "text_delta_observed": true,
+      "tool_call_observed": false,
+      "file_output_contract_observed": false,
+      "capability_verified": true,
+      "stream_completed": true,
+      "terminal_observed": true
+    },
+    "certification_id": "chatcert_60f2989b3a054dcabe6d636e21f37a07",
+    "maxTokens": 64,
+    "slot": 15,
+    "kind": "certification_recovery",
+    "newConsumed": 16,
+    "newRemaining": 4,
+    "totalConsumed": 56
+  },
+  "liveQualification": {
+    "contract_version": "modelmirror-provider-chat-routing-v1",
+    "feature_enabled": true,
+    "data_plane_integrated": true,
+    "model_id": "gpt-5.6-luna",
+    "capability": "chat_text",
+    "effective_mode": "newapi_preferred",
+    "available": true,
+    "would_block": false,
+    "reason_code": "qualified"
+  },
+  "budget": {
+    "limit": 20,
+    "consumed": 16,
+    "remaining": 4,
+    "totalConsumed": 56,
+    "totalAuthorized": 65
+  },
+  "unfinished": [
+    "C conditional-talent turn failed and requires explicit replay",
+    "C consequence follow-up",
+    "D optional gap pair",
+    "E integration pair"
+  ],
+  "planShortfall": "remaining4 cannot cover all previously planned calls; no gates waived",
+  "narrativeRetry": false,
+  "promptChanges": false,
+  "serviceRestart": false,
+  "rollback": "Keep used quota/history; any reversal must remove only unused added allowance, never reset used quota or call ledger",
+  "artifacts": [
+    {
+      "path": ".rpg04-work/rpg05-minimal-plan20/dispatch-15/RESULT.json",
+      "sha256": "263a00e82ae813ab0ae472abd29b1c4d4f9ebccd80b4ecd8397db1f1b62c8c21"
+    },
+    {
+      "path": ".rpg04-work/rpg05-minimal-plan20/dispatch-15/qualification-after.json",
+      "sha256": "4b8254ba2722d840525f168efa6e90b862384873c992f2d63bbdf1cc576e0f5b"
+    },
+    {
+      "path": ".rpg04-work/rpg05-minimal-plan20/dispatch-15/reservation.json",
+      "sha256": "104acf3c8db54b0a28a52f07628859615a402464476a8357dad6ae2c64d97f49"
+    },
+    {
+      "path": ".rpg04-work/rpg05-minimal-plan20/dispatch-15/recover.py",
+      "sha256": "5802a5fc6c827de1cfda0afd855bc9bfe004354c2b925fa5cce2796c5085df89"
+    },
+    {
+      "path": ".rpg04-work/rpg05-minimal-plan20/quota-recovery/quota-result.json",
+      "sha256": "fdf70515d90ecd452b691bb74ce660f66f16d6130931f9ede3ad84795cdc129d"
+    }
+  ]
+}

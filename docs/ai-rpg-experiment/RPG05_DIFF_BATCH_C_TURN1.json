@@ -1,0 +1,118 @@
+{
+  "batch": "C",
+  "slot": 13,
+  "status": "pending_user_review",
+  "baselineSlot": 6,
+  "kind": "continuous_relationship_interaction",
+  "newPromptAdditions": [],
+  "B12Approval": {
+    "slot": 12,
+    "decision": "approved_card_world_style_candidate_not_global",
+    "userQuote": "同意结论，进入下一批",
+    "outputSha256": "4b741f091fdc1a598d71406d07bd91b57ed0126ba36727407677ba33d0f11eeb"
+  },
+  "plan": {
+    "slots": [
+      13,
+      14,
+      15
+    ],
+    "baseline": 6,
+    "card": "原创潮汐站",
+    "samePromptAllTurns": true,
+    "history": "full verbatim",
+    "newPromptAdditions": [],
+    "focus": [
+      "relationship emotional response",
+      "conditional resource use",
+      "consequences and prior clues"
+    ],
+    "perOutputUserReview": true,
+    "futureInput": "adapt to actual story; no prewritten NPC outcome",
+    "parameters": {
+      "model": "gpt-5.6-luna",
+      "max_tokens": 8192,
+      "temperature": 0
+    }
+  },
+  "provider": {
+    "status": "transport_complete",
+    "receipt": {
+      "requested_model": "gpt-5.6-luna",
+      "actual_model": "gpt-5.6-luna",
+      "provider": null,
+      "strategy": "newapi_preferred",
+      "engine": "newapi",
+      "reason_codes": [
+        "qualified"
+      ],
+      "latency_ms": 14880.440399982035,
+      "ttft_ms": 5401.264799991623,
+      "tokens": {
+        "input": 3817,
+        "output": 886,
+        "total": 4703
+      },
+      "response_cost_usd": null,
+      "cost_kind": "unavailable",
+      "fallback_attempts": 0,
+      "cache_hit": null,
+      "request_id": null,
+      "version": "2"
+    },
+    "finishReason": "stop",
+    "done": true,
+    "observedModel": "gpt-5.6-luna",
+    "httpStatus": 200,
+    "error": null,
+    "textSha256": "99d6c3b599fd743dd9e5aed7a98736127b479279df6fd0d20f9cff85c1e52b06",
+    "rawSha256": "356771b1f687f2f54b11a75f9728fefa8487a09fb204c34ad8376222b076a9a0",
+    "characters": 1013,
+    "slot": 13,
+    "newConsumed": 14,
+    "newRemaining": 6,
+    "totalConsumed": 54,
+    "quality": "pending_user_review",
+    "formalUiTurns": 0,
+    "at": "2026-09-14T11:25:13.757Z"
+  },
+  "hanCharacters": 843,
+  "budget": {
+    "limit": 20,
+    "consumed": 14,
+    "remaining": 6,
+    "slot20": "certification_recovery"
+  },
+  "uiIntegration": "not_done",
+  "overallAcceptance": false,
+  "observations": [
+    "friend responds to shared relationship",
+    "terminal shoeprint and powder clues continued",
+    "new clues converge rapidly on supervisor; possible contrivance",
+    "brief anticipatory player-question attribution"
+  ],
+  "recommendation": "retain for user quality review; no new rules, no automatic rollback; continue only after review",
+  "nextSlot": 14,
+  "artifacts": [
+    {
+      "path": ".rpg04-work/rpg05-minimal-plan20/dispatch-13/RESULT.json",
+      "sha256": "552554a45d3acd1ec9588bf550bad33d9083047def43862357a9548d3d794cf9"
+    },
+    {
+      "path": ".rpg04-work/rpg05-minimal-plan20/dispatch-13/response.txt",
+      "sha256": "99d6c3b599fd743dd9e5aed7a98736127b479279df6fd0d20f9cff85c1e52b06"
+    },
+    {
+      "path": ".rpg04-work/rpg05-minimal-plan20/dispatch-13/response.sse",
+      "sha256": "356771b1f687f2f54b11a75f9728fefa8487a09fb204c34ad8376222b076a9a0"
+    },
+    {
+      "path": ".rpg04-work/rpg05-minimal-plan20/case-13.json",
+      "sha256": "34d38f459c475c4ccc41b98f36e4419af50ab9866d40513959a1ebcc28208907"
+    },
+    {
+      "path": "tooling/rpg05-minimal-combination13.mjs",
+      "sha256": "04de50eaf4f44dcfff73cbccf70d6f70d38bd3739501fc919cc320277d5ff0ea"
+    }
+  ]
+}

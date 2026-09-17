@@ -1,6 +1,6 @@
 {
   "format": "modelmirror.ai-rpg.rpg05-publication/1",
-  "generatedAt": "2026-09-13T04:35:45.108567+00:00",
+  "generatedAt": "2026-09-16T05:27:47.574144+00:00",
   "base": "81fc14f6e0dada2447a63c1e532ee55b1f914ded",
   "branch": "codex/ai-rpg-rpg05-ui",
   "scope": "Git delivery snapshot; private runtime freeze, model evidence and manual approval remain separate",
@@ -102,10 +102,388 @@
       "gitMode": "100644"
     },
     {
+      "path": "docs/ai-rpg-experiment/RPG05_ARCHIVE_INDEX.json",
+      "bytes": 21767,
+      "checkoutSha256": "c6bd4f39358c6d3ba224f7b2eaa58f888c9c76934b4642dd6cac366b64ebca59",
+      "gitBlob": "13bc119f9a17c668229e318c793c22c8737ba748",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_ARCHIVE_VERIFICATION.json",
+      "bytes": 5318,
+      "checkoutSha256": "3e8fbf3d105a1a38d43b6d3f17a473e27309bfe81b6ee45747d6898c061e47fe",
+      "gitBlob": "3162c28d6696e271a6ab1a0e9e18adf14c371f82",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_DIFF_BATCH_A.json",
+      "bytes": 2675,
+      "checkoutSha256": "2687e4d1a7277a0855ad7d81027928de8338804557ad1fb0cdf59d82638293b5",
+      "gitBlob": "3e1d41b5087e6767a4ae352ca41ca539a50d01df",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_DIFF_BATCH_B.json",
+      "bytes": 2262,
+      "checkoutSha256": "fd9f4f68cbc9727f53dfdf55de9737769fce490961e3a590158e42f4a7a1292f",
+      "gitBlob": "055cccc8e9c75b5271bdbfaf68c14cd70e3090c7",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_DIFF_BATCH_B_BASELINE.json",
+      "bytes": 2885,
+      "checkoutSha256": "fec50afc156576ea84f2d5dd472e8dcfa08d891ed9349f31b953da4532f736e6",
+      "gitBlob": "977a4257db6f4378634468cd9b107f8f6ae5006d",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_DIFF_BATCH_B_RESULT.json",
+      "bytes": 3371,
+      "checkoutSha256": "f00860f4062c3e3952ecbea6c8176a8f9a74751305ab44284ae4b68bf7a6224b",
+      "gitBlob": "96994d80723ad15170e2b7820c682837217e57ec",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_DIFF_BATCH_C_TURN1.json",
+      "bytes": 3542,
+      "checkoutSha256": "753fba7bddf1632e31727770a48c5b76bbf2961141f9f9fc66fad4d2e13bae25",
+      "gitBlob": "4d2a929b4ce9dad627149ec25ab7cfb6e5eca6e4",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_DIFF_BATCH_C_TURN2_BLOCK.json",
+      "bytes": 2089,
+      "checkoutSha256": "808e4765bd17a537a2f3e2ea1de3f91f6b0e18b494072791e0e62673ef186340",
+      "gitBlob": "a4dd07ea5ac9418aeaf9b189945d1521e16ac9f5",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_DIFF_BATCH_C_TURN2_REPLAY.json",
+      "bytes": 3009,
+      "checkoutSha256": "51b449c505a4c633766d8de4b9bdd9a6d6b7ca7509aa66c621dce0a15664d620",
+      "gitBlob": "7eb56bab056cc1914bdb8b75844364a4e507abef",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_DIFF_BATCH_C_TURN3.json",
+      "bytes": 3049,
+      "checkoutSha256": "47d5e29a783b8b2d5edd4b92a03cd79193b34b9aa76ae78c9835e2fab2519871",
+      "gitBlob": "a18ec7ac4797fad089a762ddfa69a0e9c5dca915",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_DIFF_COVERAGE_PLAN.json",
+      "bytes": 1887,
+      "checkoutSha256": "39be5c056ad1240d3d1e1d1307c42b2537a35cfa9769c04dfc61df8e7d3885bc",
+      "gitBlob": "4bfd4b9c334ab52467db269cc4a8cb8ad075ca56",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_DIFF_REAUDIT_AFTER_C.md",
+      "bytes": 5630,
+      "checkoutSha256": "007d04813094f3fca4b70e46499ac5753a2e984f66f3bd3daad11b112b5e6a92",
+      "gitBlob": "40af4a88f2996f1cce1d06aba39cf8e691d0db22",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_DIFF_T1_BASELINE.json",
+      "bytes": 1933,
+      "checkoutSha256": "17141ac884785dd12eaf5980c6e8d86a72eed6be93a170eb2f6f6e7dcee8b7e1",
+      "gitBlob": "1fc3e4b420b2743986cd576a9dea65b8a5bb047d",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_DIFF_T1_CROSS.json",
+      "bytes": 1878,
+      "checkoutSha256": "16191ebd89901d604ad2af4bb9c73677ed4c42dab9b51bedd383727fab863307",
+      "gitBlob": "9384d0815637b5523653e44ed17b515f179763d9",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_DIFF_T1_RESULT.json",
+      "bytes": 2359,
+      "checkoutSha256": "4ce636d37df93854dbbb7f3f8dd8f1e5a58753b3aadaed92b2942436c95d2864",
+      "gitBlob": "e21def732d9e712ccb0ef8b936974eba62e2ac92",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_DIFF_T2_BASELINE.json",
+      "bytes": 1672,
+      "checkoutSha256": "3323b599b61a6cde1aaa4060f0a72a5e1e2f729b1e262a8e9bf1fe35cea2968d",
+      "gitBlob": "e08f8933b3dd73792ce49689ac3fd4a6038c0cbb",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_DIFF_T2_PROPOSAL.json",
+      "bytes": 1888,
+      "checkoutSha256": "20f30c3e882099cdc72b4310c8c0c7187b689b1f2230cfbdd36e2db4195f5ded",
+      "gitBlob": "95df8d7022fef07da8f74af589099a26348b6d0a",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_DIFF_T2_RESULT.json",
+      "bytes": 2229,
+      "checkoutSha256": "dd418273c44d1ccbae522f43f55633716e0d86129255c17ce864762be74c12ab",
+      "gitBlob": "b6a355eb597066587c4ccd57ccb4baf24b7f2445",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_DIFF_T3_BASELINE.json",
+      "bytes": 1760,
+      "checkoutSha256": "f6b319e71d060cfd4479afdc00705021da8054eac871f60727312009ab040ec3",
+      "gitBlob": "22ded5fb9e05dfcbeb1b45a7d1935c8a8e4e0fcc",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_DIFF_T3_PROPOSAL.json",
+      "bytes": 1867,
+      "checkoutSha256": "6fc8af2a80b1b9b3b8027d30ef07fafbcc59d1b70f0380b7b52821c80e1408bf",
+      "gitBlob": "67ca6ce7025f542f1001a06654703fdba33f938e",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_DIFF_T3_RESULT.json",
+      "bytes": 2172,
+      "checkoutSha256": "136effbeccd1cc6222d9fc68201bc821c49d92ee1db8ed0d796fbda21e0e7687",
+      "gitBlob": "1c780f893b009899acfc400e60c5a0edad7459f9",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_DIFF_T4_OFFLINE.json",
+      "bytes": 1130,
+      "checkoutSha256": "2e747e210707ba62a269b7a8884433f231f2b549e8ee6cd909da3783fb8b7b5d",
+      "gitBlob": "f4a62114fac9f181e882e117d8c96f87bd282447",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_DIFF_T5_BASELINE.json",
+      "bytes": 1984,
+      "checkoutSha256": "ea0e28bc8162bf8f48ab859b0dadbd7017a8078de477c1a6908ec4f996a8a2bc",
+      "gitBlob": "297c498f09941a0a80a5e71885cd94eb2c98ae1f",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_DIFF_T5_PROPOSAL.json",
+      "bytes": 1335,
+      "checkoutSha256": "d73386c7c0709afdd878642b19f7e3ef160a7d75a0fdc2b193d5f4eb9f700b20",
+      "gitBlob": "37cb8b6a2c6908577b121986b8ad8788aa2952bf",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_DIFF_T5_RESULT.json",
+      "bytes": 2103,
+      "checkoutSha256": "4951c27cdaf51046160f0da2c7e5758044e446387b37c647893d51fc8369ea8b",
+      "gitBlob": "51f5a86733d9a2f65ae8221c0742e91e8f386009",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_DIFF_T6_BASELINE.json",
+      "bytes": 1995,
+      "checkoutSha256": "8a7ae903a1a7f6856bba55edad75ef9af943544deb6681710c671e2e57e6f6d8",
+      "gitBlob": "a87d6819b374e3de0c6bd0639a8231933535c27b",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_DIFF_T6_PREFLIGHT_BLOCK.json",
+      "bytes": 845,
+      "checkoutSha256": "8a051cda9b1c648dff69fd9b0a654e2f9765d3ecd20e0f8a598a60a66323b8ef",
+      "gitBlob": "e4eb20b7cb292ad3fda59cf41e82b5692137e399",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_DIFF_T6_PROPOSAL.json",
+      "bytes": 2054,
+      "checkoutSha256": "aeb047cc49a7d0ef6a4dc74717edb0d611d93952c3b7cc5f74bf2e02503a458c",
+      "gitBlob": "663ea03a55db33891cd82b3f2454f2493ee4ffbd",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_DIFF_T6_RESULT.json",
+      "bytes": 2499,
+      "checkoutSha256": "9922db2ced8e85c20c09da692db27101484b9096e71c01cf7d754223b3d13680",
+      "gitBlob": "fef7e942e188f57587553800555497212f1e01dc",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_DIFF_T7_CONTINUATION_BLOCK.json",
+      "bytes": 1208,
+      "checkoutSha256": "8c9ebab85e2905953e706f0b70341d0331b2c718915c9a6d857906c88d6924be",
+      "gitBlob": "03c1a4293e3dbb2b46a3ef70593939a78a3a0530",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_DIFF_T7_OPENING.json",
+      "bytes": 2226,
+      "checkoutSha256": "9e8f7ddb2a37c59db2d7202188a09cfd3afdc8a5a45e5c49c238fef5ec8d5b85",
+      "gitBlob": "4924ae864e8eb2d628e579429b175b4a25b32463",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_DIFF_T7_PROPOSAL.json",
+      "bytes": 2812,
+      "checkoutSha256": "e6b47d6aa88b572d2bc20a3d35283ac36a9e6928a58c079c17cbfa2f5f71f1f6",
+      "gitBlob": "121b71b96de607b1f524a93468de087807323a2e",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_DIFF_TEST_SCHEDULE_V2.json",
+      "bytes": 4781,
+      "checkoutSha256": "a294f024a7e00abf3cc5f88bf4e9114a75f7fe7024ee4589b87808773bf6f01a",
+      "gitBlob": "01853af857126c00b8c05084f62f38b8d93bc19e",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_DIFF_TEST_SCHEDULE_V2.md",
+      "bytes": 5062,
+      "checkoutSha256": "3040d9f6f4843d42ac723f90b633e9cedb5bf0ae69645e784f315cab2ff1a2a6",
+      "gitBlob": "074300da3dcc6005d96517eb11af754783e84a67",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_ENRICHED_FORMAT_CANDIDATE.md",
+      "bytes": 2424,
+      "checkoutSha256": "9f2796d8d5053308a0b52fba999909cb1dfeca2c4afd09c9442cd62fc2678e20",
+      "gitBlob": "3d41c6e46c1ce1f85faa8f928452442e14594765",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_EXPERIENCE_RETEST_20260913.json",
+      "bytes": 2915,
+      "checkoutSha256": "9545c13d86113b6825b91289c893d15b387166b937b7734683e997ae4053cffa",
+      "gitBlob": "79fe21b815663923876d55b321b7d703d65bccfd",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_EXPERIENCE_RETEST_20260913.md",
+      "bytes": 3670,
+      "checkoutSha256": "52697ee2adc713353197585da13eddb3555f53ee817d73f01f1fd2980a46eb9a",
+      "gitBlob": "918140af5731eaa5c2d5b61a4c8274fe12559956",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_EXPERIENCE_REVISION_20260913.json",
+      "bytes": 4219,
+      "checkoutSha256": "bc65adbf94dec8b4651c6557e6f2b36ea7d76dad51f47836103d9a26343299e1",
+      "gitBlob": "219f20cdd1377284e265505956afcc0e16c370a3",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_EXPERIENCE_REVISION_20260913.md",
+      "bytes": 3893,
+      "checkoutSha256": "5468315c6ce750820febac6042317c6ab0d906a155050c8144ba0f716004cfd2",
+      "gitBlob": "dfd819fd1d917a3c4ec374db0f9592e05c80102a",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_HTTP_RECOVERY_20260913.json",
+      "bytes": 1897,
+      "checkoutSha256": "0aa39985f2fe1d3e85c3157ab6092b1f85d9c6e693ca450b100515d02888bf54",
+      "gitBlob": "23abd6a9b672133402e7bb2a84ce3ff64e7685c0",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_HTTP_RECOVERY_20260913.md",
+      "bytes": 5212,
+      "checkoutSha256": "612ae44a98c7d8feb88ab82ed1ae8efe6d52e33f29ba47a184bf7876a37d18ce",
+      "gitBlob": "7296e5d2ec228203efb3f370a7d5a09523202c43",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_MINIMAL_COMBINATION_5.json",
+      "bytes": 3421,
+      "checkoutSha256": "e398e9f324af3cd8b1b446887a283d3c3446ac3a724491f33de3e15b4e178d3c",
+      "gitBlob": "2c0189daeefd0c00b9a70d0649720d3777c343f7",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_MINIMAL_COMBINATION_5_APPROVED.json",
+      "bytes": 1357,
+      "checkoutSha256": "f1be0af3994eee76a8e12cb0c7e5c39f11d8701e8daec58aba545baf74d6fca7",
+      "gitBlob": "72b7ef24a23de090567fdffcbc6ba0f50353e271",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_MINIMAL_COMBINATION_6.json",
+      "bytes": 2733,
+      "checkoutSha256": "1af63913bdd9742f83a597412610687731818463ef65c32c2ca96a13e12b2dcc",
+      "gitBlob": "0ddcf585e732f434e97087d39f04880a7153738b",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_MINIMAL_COMBINATION_7.json",
+      "bytes": 2906,
+      "checkoutSha256": "f34a0214c9fcc1841a156f1bc5931b8c0e9a2610eff9998590072b0e46225c62",
+      "gitBlob": "ef1b061b700fe2a47983d803ebcd1937e20351fa",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_MINIMAL_COMBINATION_8.json",
+      "bytes": 1633,
+      "checkoutSha256": "d3cd7454e5fa8e8ac4b17f040e53195e13d802f3577a0a2d5b267d4c17dfbe62",
+      "gitBlob": "1e355e6c3271b2ce612b79f265c0e538126a64f8",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_MINIMAL_COMBINATION_9.json",
+      "bytes": 2506,
+      "checkoutSha256": "6c7ebb8584be3fd0c55d223a429fd447277744f774e9a097b6ef33bf64dcc58d",
+      "gitBlob": "c0e2b2bc8e5bff97bf06f02b01684ded91013d35",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_MINIMAL_CONTRAST_20260913.json",
+      "bytes": 2646,
+      "checkoutSha256": "cb656f0c78b63d4bb2a5e7c63c89b0e591d1adc3b773b5d40e8e5d013acb31e7",
+      "gitBlob": "5d19d7f3ff58c97ffa07220cb09113761ea461a3",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_MINIMAL_NEXT_COMBINATIONS.md",
+      "bytes": 3350,
+      "checkoutSha256": "a029865042a32d5688c5f339da500a56fe5d15383d3abaf0ac0de6bc5426875e",
+      "gitBlob": "c52d14cc4895deaeda2156736cf13882dabe09e1",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_MINIMAL_PLAN_PROGRESS_20260913.json",
+      "bytes": 12490,
+      "checkoutSha256": "541c3c818958c7c910e6d8b384822add5d50cb7436968e630c64e232acd7bb1f",
+      "gitBlob": "2c826dfcc31af4d7ae824f56ff778118f43966f6",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_MINIMAL_PLAN_PROGRESS_20260913.md",
+      "bytes": 3380,
+      "checkoutSha256": "52c313f91d49c336c26c924806caad0699f0ec79a322e5d286c5caf43680bbb4",
+      "gitBlob": "cf0f080b961b1dcfb5ecaaaf5a31faf9b311607b",
+      "gitMode": "100644"
+    },
+    {
       "path": "docs/ai-rpg-experiment/RPG05_PLAN.md",
       "bytes": 5210,
       "checkoutSha256": "66444668363ac7d092b881160e6363bf5b71ad123ee540d2ba5cf25880fe6efb",
       "gitBlob": "77ea16fd4db0f818bad4818f99f361c2b38b6195",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_QUOTA_RECOVERY_20260914.json",
+      "bytes": 3308,
+      "checkoutSha256": "a91f3eda69d862cf89221bdb3806e1c46c8892bb631d4decbc573f10b28d1b95",
+      "gitBlob": "dc8f2ac98aeaf96a885a9a1d61fd2899b26ed88d",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_ROUTE_RECOVERY_20260914.json",
+      "bytes": 2479,
+      "checkoutSha256": "86fc63abf205f39e88d7970734ca0ff807bd31167f3397d429be234733b4a9af",
+      "gitBlob": "5e4bcf98bfff4130125df29cb174adea85c36d2d",
+      "gitMode": "100644"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/RPG05_WEB_REVISIT_6_12_19.md",
+      "bytes": 3311,
+      "checkoutSha256": "5e6e0a823b2de5cb26184e3e53736f0960341ba1642e10c94ff5019dd6c44b08",
+      "gitBlob": "ba21b8cc08741e1f9d2b52b4bf757559833240ca",
       "gitMode": "100644"
     },
     {
@@ -1062,9 +1440,16 @@
     },
     {
       "path": "experiments/ai-rpg-engine/docs/RPG05_CHECKOUT.md",
-      "bytes": 5322,
-      "checkoutSha256": "b9de45202a1ee4f215d6d2faef579c93de3fd3d8edbe35426ed6368b6030bbec",
-      "gitBlob": "5392a686332739c0299c91ca404f20f9d4e0e68c",
+      "bytes": 5613,
+      "checkoutSha256": "b87e1106c5dd05a00af5d97f88af132dcdcc67421e0bef783a6a8581a70c9c6e",
+      "gitBlob": "970493b16f13e4414b8b2d24662559f57a918c2a",
+      "gitMode": "100644"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/docs/RPG05_DEMO_ARCHIVE.md",
+      "bytes": 3921,
+      "checkoutSha256": "8d7fd66202623aee91cd82ec6028c923f4d924b1ea53350fb20ebd650747a09e",
+      "gitBlob": "7f8b617013dccef6f3b344fae9754de4f3d69fea",
       "gitMode": "100644"
     },
     {
@@ -1103,6 +1488,20 @@
       "gitMode": "100644"
     },
     {
+      "path": "experiments/ai-rpg-engine/docs/RPG05_MINIMAL_CONTRAST.md",
+      "bytes": 4455,
+      "checkoutSha256": "351daf6a671ab324e2d5ec0c9f89da1bbe180b6ec01f04fee8e7d1485732859e",
+      "gitBlob": "c25dd60a7b0270e244575bf1ac4273027495e793",
+      "gitMode": "100644"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/docs/RPG05_MINIMAL_ROUTE_PLAN.md",
+      "bytes": 3600,
+      "checkoutSha256": "82f364791ee90fd95821afbd908e5a6ede46183a9774a48401be2964c8813d48",
+      "gitBlob": "c14835e41a51c6c16cacc3fe999bf8f0faef05d1",
+      "gitMode": "100644"
+    },
+    {
       "path": "experiments/ai-rpg-engine/docs/RPG05_PROTOCOL_RETEST.md",
       "bytes": 7073,
       "checkoutSha256": "94555bc74ea978f13521d898a12beefdbe8471834fe45c74e6db6d2c23162996",
@@ -1135,9 +1534,7 @@
       "bytes": 3191,
       "checkoutSha256": "b7e4829739a7bb4ae57106f28cfc2a309f986d92976ec3cd2430cbe4cb0b6242",
       "gitBlob": "27d4dc54ee9693c130273226c420ea37943e3a1f",
-      "gitMode": "100644",
-      "retainedRuntimeCheckoutSha256": "bdbb963dd0c362443210e1d213ad59ded19476de6aa35dd7e24b6dd8cf863ce8",
-      "representationNote": "publication removes EOF-only blank line; retained manual source unchanged"
+      "gitMode": "100644"
     },
     {
       "path": "experiments/ai-rpg-engine/docs/RPG05_REVIEWED_RETEST.md",
@@ -1162,9 +1559,9 @@
     },
     {
       "path": "experiments/ai-rpg-engine/docs/RPG05_STATUS.json",
-      "bytes": 189153,
-      "checkoutSha256": "86f851bac9b6dbbad6b91991983c9bd8892298a14582e7c3654a1d2671326395",
-      "gitBlob": "a67c1344776e8156f3670cfcf4383960c9dac057",
+      "bytes": 189874,
+      "checkoutSha256": "8ee073c32b1895a5781a75fb90e4f9080731324a34abd6c7d3a1af85469023c7",
+      "gitBlob": "8f186be8e0f7221a3dddc140b7af2e19d4b4905d",
       "gitMode": "100644"
     },
     {
@@ -1938,6 +2335,20 @@
       "gitMode": "100644"
     },
     {
+      "path": "experiments/ai-rpg-engine/tests/ui-host-minimal-narrative.test.mjs",
+      "bytes": 2342,
+      "checkoutSha256": "c73db83b1ac9a9a37ee25db0924b0b87f5daf84d33e8f14f9c158b18e556b953",
+      "gitBlob": "0cf2ca073e56e438a92afe6278c33c6b42f11ccd",
+      "gitMode": "100644"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tests/ui-host-minimal-transport.test.mjs",
+      "bytes": 2827,
+      "checkoutSha256": "9d0f83ada1017f83b059a879067a5e8685792b2fd358f9a5f2470760594f4dac",
+      "gitBlob": "eccba47309fe311059f3211c47adb06fa3041a18",
+      "gitMode": "100644"
+    },
+    {
       "path": "experiments/ai-rpg-engine/tests/ui-host-output-diagnostics.test.mjs",
       "bytes": 4613,
       "checkoutSha256": "b584962cdda52169cbd2a1306cb9868e4db2965b5c691eb5f13bf3a6fbccaf2a",
@@ -2113,6 +2524,202 @@
       "gitMode": "100644"
     },
     {
+      "path": "experiments/ai-rpg-engine/tooling/rpg05-diff-t1-candidate.mjs",
+      "bytes": 2805,
+      "checkoutSha256": "8bf62884fbd9eb1e66b3441f05fe8d16389694568fa68bec59ddd2545f6cfc9b",
+      "gitBlob": "d7f595baef4c2e83c77d42df094d23e74c5814b8",
+      "gitMode": "100644"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tooling/rpg05-diff-t1-cross.mjs",
+      "bytes": 2292,
+      "checkoutSha256": "adc5cf5cfe0526ff77b7bce2a8c62e4ee2c46ca8f647584201e2e5e63968c5dd",
+      "gitBlob": "d89a9c1aae8a728e207a9473c5045c6d3a970a08",
+      "gitMode": "100644"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tooling/rpg05-diff-t1.mjs",
+      "bytes": 4282,
+      "checkoutSha256": "0208d67bd501bc7b94be644958dde11fc4695a6935722d637ba6146be83b15fd",
+      "gitBlob": "e2416edf566d31f3b134f10773f22e9a40f44d3f",
+      "gitMode": "100644"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tooling/rpg05-diff-t2-baseline.mjs",
+      "bytes": 2208,
+      "checkoutSha256": "1b05f55898be381225f680c99975bd785f3b2e3483d9dc4cb5f13791f9f8815c",
+      "gitBlob": "f4b73a7cdfd84007e9e78646c56f63f5b06e448c",
+      "gitMode": "100644"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tooling/rpg05-diff-t2-candidate.mjs",
+      "bytes": 2593,
+      "checkoutSha256": "aa58da6c1be7d61102c3d044bac2ab822edaf305c35c7d91cb64742d51ab3f92",
+      "gitBlob": "30e9cd7942a9d4105dd644dcebe77e41a4858ce4",
+      "gitMode": "100644"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tooling/rpg05-diff-t3-baseline.mjs",
+      "bytes": 2207,
+      "checkoutSha256": "41e653c1e3101a04d37680a4ef5684d7a9affc70061440aa15ccac5fec794272",
+      "gitBlob": "c78f22e80f68b25e3299391732ecc7b81c4ea54f",
+      "gitMode": "100644"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tooling/rpg05-diff-t3-candidate.mjs",
+      "bytes": 2571,
+      "checkoutSha256": "d5dc0e4493ad5e04972b0765718b2ae46fd05fee8cf77eb3da0e66786a98e2bb",
+      "gitBlob": "9afffe9100922604fac5ba61feea9c2b6da9ad75",
+      "gitMode": "100644"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tooling/rpg05-diff-t5-baseline.mjs",
+      "bytes": 2207,
+      "checkoutSha256": "db0661c4ba6798987c07d9b1b9ef28b485044ed94bf78b35b010d2dabd69283b",
+      "gitBlob": "33c4de091abdbc5bc611f00be97322eddf2911b5",
+      "gitMode": "100644"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tooling/rpg05-diff-t5-candidate.mjs",
+      "bytes": 2594,
+      "checkoutSha256": "6590c006cf521bea3a6ea94ee6b6ef520a888b49f55801286e54bd116d967d1c",
+      "gitBlob": "ac74fc112dc0f0c304ca74a0fcb1ae77c6359371",
+      "gitMode": "100644"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tooling/rpg05-diff-t6-baseline.mjs",
+      "bytes": 2207,
+      "checkoutSha256": "c7c5b28f3c22afc4530711adb448d104864708ce69fbea0237a24775d1b60450",
+      "gitBlob": "ce4c280329a95981e891c04837455be1219b9880",
+      "gitMode": "100644"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tooling/rpg05-diff-t6-candidate.mjs",
+      "bytes": 2534,
+      "checkoutSha256": "7500b87ef91c0dba0b4c87553c23258a2698e4238e43840d9e9f308ecbd995fc",
+      "gitBlob": "e8b00c555658355884dad13b7413d4d16a1a4f27",
+      "gitMode": "100644"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tooling/rpg05-diff-t7-continuation.mjs",
+      "bytes": 2031,
+      "checkoutSha256": "4d7a0e5ea443feb708fb8b4b5de9462dd3351a418776ba2a8b32acd6c5c78cbe",
+      "gitBlob": "583ac33c49b440fa4db95f5ff1726e9b23dd4d28",
+      "gitMode": "100644"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tooling/rpg05-diff-t7-opening.mjs",
+      "bytes": 2026,
+      "checkoutSha256": "105b34e4fdff19f8b08a88c508cb32d7d59f043de8959cd0bdfa1f22395a0e32",
+      "gitBlob": "4d57e8d88aee990243f415d999aa66a7a83d2ce9",
+      "gitMode": "100644"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tooling/rpg05-minimal-combination.mjs",
+      "bytes": 2817,
+      "checkoutSha256": "acf5c09ac2f491d4aafc76f4042e6869b40f72f88c120d65b955559d73f34765",
+      "gitBlob": "d0453d3043cb9ccee902f79fede059663b535f43",
+      "gitMode": "100644"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tooling/rpg05-minimal-combination10.mjs",
+      "bytes": 3127,
+      "checkoutSha256": "f711ec4f098858634951d60ae39c74306abde709fddddf06b8ef530b34f4cea8",
+      "gitBlob": "095afaea48f020f07601a2cecd441ed80f36e8e4",
+      "gitMode": "100644"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tooling/rpg05-minimal-combination11-resumed.mjs",
+      "bytes": 3612,
+      "checkoutSha256": "44ac7fc5da2fb52d330853ab232e21100fb6bfe58b765a96e474ae2b90a8ccb9",
+      "gitBlob": "7172ca3e8addc7f3e967890de7b1480820c6984f",
+      "gitMode": "100644"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tooling/rpg05-minimal-combination11.mjs",
+      "bytes": 3312,
+      "checkoutSha256": "12d2d57c1fb2f14fb651bed57dc3038721a523fd55af17f403e78facdbfd6b75",
+      "gitBlob": "0b6b062dfd2609b17e1a628d6561cd84d36b0dd8",
+      "gitMode": "100644"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tooling/rpg05-minimal-combination12.mjs",
+      "bytes": 3882,
+      "checkoutSha256": "341014f68745276718f73860eb20b1c241fbfa2ca7bcca8f751861fd3513080b",
+      "gitBlob": "83c197b3ff8b4eb200ccacbf4496b450051e649a",
+      "gitMode": "100644"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tooling/rpg05-minimal-combination13.mjs",
+      "bytes": 3866,
+      "checkoutSha256": "04de50eaf4f44dcfff73cbccf70d6f70d38bd3739501fc919cc320277d5ff0ea",
+      "gitBlob": "8369f360744124ae84a912495ea6a25cfd7447e4",
+      "gitMode": "100644"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tooling/rpg05-minimal-combination14.mjs",
+      "bytes": 4107,
+      "checkoutSha256": "a1cd50ec7fe33dbd9d7fe096348b5336f0bfb2e950bf50c7aba79b33daa7830f",
+      "gitBlob": "b9485648fb32bd6c44cacc644562d5e6fe3cf7e5",
+      "gitMode": "100644"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tooling/rpg05-minimal-combination17.mjs",
+      "bytes": 4373,
+      "checkoutSha256": "00c42fc52f8cb58fce306d5cda8f7d092778278e8378f8722e9900163a4f4f42",
+      "gitBlob": "8d2d683033ec7d89ed3bc4d4d695a2162bec7d20",
+      "gitMode": "100644"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tooling/rpg05-minimal-combination6.mjs",
+      "bytes": 2920,
+      "checkoutSha256": "041d030168d7bc39272250c11d89ed3d491e68482b59955f2a977ed00605b7ea",
+      "gitBlob": "ab0657c32a9689dd0432b7a699fac11402dc5ba3",
+      "gitMode": "100644"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tooling/rpg05-minimal-combination7.mjs",
+      "bytes": 2915,
+      "checkoutSha256": "a72038ce164b69afd119c0afeaf4e7bc64c05a7167d6c4d77d3cb4b26f0ceb1d",
+      "gitBlob": "93622a9b7346735b54b54620d3c881be04c5e07d",
+      "gitMode": "100644"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tooling/rpg05-minimal-combination8.mjs",
+      "bytes": 2941,
+      "checkoutSha256": "65c05c17bf50a1f21b12ceb5bf023edb1e046b5d46605c111391d1cc877227a4",
+      "gitBlob": "63675244d663377c3a2b0ae4a896d1a692c2df3c",
+      "gitMode": "100644"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tooling/rpg05-minimal-combination9.mjs",
+      "bytes": 3228,
+      "checkoutSha256": "eb7bdba404708619f26178b9b4c635de2c46033e253355f38342b32151367e6e",
+      "gitBlob": "aca561b52f8fa0d0e41ded926943283e626745e8",
+      "gitMode": "100644"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tooling/rpg05-minimal-contrast.mjs",
+      "bytes": 8479,
+      "checkoutSha256": "fdeb25d99220b225ad3fb3c9dd1e79bdc588d594d97b308b4fd8396e8958d6e0",
+      "gitBlob": "b59052f3f110b19fa1385c296ab2a9ab5bbf6ba6",
+      "gitMode": "100644"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tooling/rpg05-minimal-plan.mjs",
+      "bytes": 5498,
+      "checkoutSha256": "b70f343454b57cd86e50861462f64c000936f8fcfa697359bc9438a454d2ef3f",
+      "gitBlob": "92d12c71c92f5645c65c01b009f27a0f36080820",
+      "gitMode": "100644"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tooling/rpg05-minimal-replay14.mjs",
+      "bytes": 4318,
+      "checkoutSha256": "60c92801fd7b1d96a427041e315b551b384fb56a17e5fff014cd46efe5f490f6",
+      "gitBlob": "c7fa006bd18e138d02eb55256f9dce717890540b",
+      "gitMode": "100644"
+    },
+    {
       "path": "experiments/ai-rpg-engine/tooling/runtime-cli.mjs",
       "bytes": 6426,
       "checkoutSha256": "df716060a38872ea1009a0db1c0cc8f69f7066a14e6e339bc9ed0cfbcfc0ce2d",
@@ -2246,6 +2853,27 @@
       "gitMode": "100644"
     },
     {
+      "path": "experiments/ai-rpg-engine/ui-host/minimal-narrative.mjs",
+      "bytes": 1699,
+      "checkoutSha256": "6444c97c6860e27855742f3f1b4cfbcf4262f84089002ea894f39edaa7fb4890",
+      "gitBlob": "6c9536ba3660582cfe43dd45cf7f61ca1b5b5986",
+      "gitMode": "100644"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/ui-host/minimal-transport-pair8192.mjs",
+      "bytes": 3181,
+      "checkoutSha256": "ebe2cac23e6d025d29e548fa55d3ee01469f84fb440b209809cd86dda9ddad54",
+      "gitBlob": "32769741f326e1122820289d690021123d83b599",
+      "gitMode": "100644"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/ui-host/minimal-transport.mjs",
+      "bytes": 3181,
+      "checkoutSha256": "ecd220c35c22f9824427bff9f24b9d16cce505393b0793b0469ed49773255086",
+      "gitBlob": "86b6d661b318bffa2dce118fae64d6c0d3eb87e5",
+      "gitMode": "100644"
+    },
+    {
       "path": "experiments/ai-rpg-engine/ui-host/mock.mjs",
       "bytes": 1707,
       "checkoutSha256": "3fa76b2e6ea82e006292c34752f8d85f49139aac82869927dff04f1cd4be046b",
@@ -2369,18 +2997,14 @@
       "bytes": 14526,
       "checkoutSha256": "62e3b4a58df8356bde4f852896167701388c043a3cfb549e68d56fa77f3ee369",
       "gitBlob": "ee5c90ffcbb22b7baaaaa660b046455523401c4a",
-      "gitMode": "100644",
-      "retainedRuntimeCheckoutSha256": "bd531ecdc0974d45078665e1ef573704176724056d1cfc0192f3a8690697451b",
-      "representationNote": "publication removes EOF-only blank line; retained manual source unchanged"
+      "gitMode": "100644"
     },
     {
       "path": "experiments/ai-rpg-engine/ui/src/Import.tsx",
       "bytes": 3633,
       "checkoutSha256": "df84ee143890af5e183d535de682e89943c19ca100736cc1498351c341a6b44f",
       "gitBlob": "48611bf64a5776e1fd4cb74013e9c24a059f2afe",
-      "gitMode": "100644",
-      "retainedRuntimeCheckoutSha256": "7c7dce781d5347316b5998a52640287b945082b2f87bbf31f1a3b980daa6a3fc",
-      "representationNote": "publication removes EOF-only blank line; retained manual source unchanged"
+      "gitMode": "100644"
     },
     {
       "path": "experiments/ai-rpg-engine/ui/src/Play.tsx",
@@ -2394,9 +3018,7 @@
       "bytes": 9846,
       "checkoutSha256": "66a68dd0faf7ed9f515e88f064d7dd3575c5c69bec79ac7a4a2ee06eb6e4a9e9",
       "gitBlob": "566101932d811aaad8389ab9af655e3f7cdead04",
-      "gitMode": "100644",
-      "retainedRuntimeCheckoutSha256": "a9836b35ddcb99ef7718f610b93a00948f236973889e1a494aa006ecebe6bbb2",
-      "representationNote": "publication removes EOF-only blank line; retained manual source unchanged"
+      "gitMode": "100644"
     },
     {
       "path": "experiments/ai-rpg-engine/ui/src/SafeMarkdown.tsx",
@@ -2417,9 +3039,7 @@
       "bytes": 5786,
       "checkoutSha256": "4b3e0018fa606b5357978d0670757752c887f3c4bac2a9c1b48e44f572da2e21",
       "gitBlob": "789e1dbcff50f28c11c5b06910f114ce6845696e",
-      "gitMode": "100644",
-      "retainedRuntimeCheckoutSha256": "b0b7e35e63f90e58522bcd035fa2c7e8b601836634c73e980ba6c283fa25aefd",
-      "representationNote": "publication removes EOF-only blank line; retained manual source unchanged"
+      "gitMode": "100644"
     },
     {
       "path": "experiments/ai-rpg-engine/ui/src/play.css",

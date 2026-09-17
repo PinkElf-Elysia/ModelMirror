@@ -1,0 +1,64 @@
+{
+  "format": "rpg05-http-recovery-result/1",
+  "status": "http_recovered_quality_not_accepted",
+  "completedAt": "2026-09-13T08:21:44.205061+00:00",
+  "httpRecovery": "passed_two_real_ui_calls_after_isolated_restart",
+  "qualityGate": "failed",
+  "originalPreviewPromoted": false,
+  "model": "gpt-5.6-luna",
+  "maxTokens": 4096,
+  "temperature": 0,
+  "automaticRetry": false,
+  "currentAuthorization": {
+    "limit": 4,
+    "consumed": 3,
+    "failed": 1,
+    "succeeded": 2,
+    "remaining": 1
+  },
+  "narrativeCumulative": {
+    "limit": 8,
+    "consumed": 7,
+    "remaining": 1
+  },
+  "manualBudget": {
+    "limit": 5,
+    "consumed": 4,
+    "remaining": 1,
+    "reservedForUserOnly": true
+  },
+  "coverage": {
+    "guFormalTurns": 2,
+    "minecraftFormalTurns": 0,
+    "talentEffectTested": false,
+    "sixTurnAcceptance": false
+  },
+  "checks": {
+    "frozenCurrentFiles": 368,
+    "frozenPriorFiles": 95,
+    "originalFrozenSourceFiles": 357,
+    "mismatches": [],
+    "performedAt": "2026-09-13T08:21:44.203029+00:00"
+  },
+  "gameSourceChangedInThisTurn": false,
+  "protocolChanged": false,
+  "publication": {
+    "commit": false,
+    "push": false,
+    "prUpdated": false,
+    "merge": false
+  },
+  "previews": {
+    "manual": "http://127.0.0.1:18409",
+    "candidateReadback": "http://127.0.0.1:18410",
+    "candidateDispatchGate": 0
+  },
+  "rollback": "candidate not promoted; both recorded outputs preserved; original manual source remains the approved freeze",
+  "localEvidence": {
+    "root": ".rpg04-work/rpg05-player-directed-recovery-v5",
+    "resultSha256": "c389ddf8a1496a8b53b06e7d5b9740093a3d003be2ac23e598a34e3c7d81e41e",
+    "freezeSha256": "312b39abb63b1e3253783a3fb620e74ac01af2ae84c26740c2b7529a43038ae8",
+    "failedBatch": ".rpg04-work/rpg05-player-directed-retest-v4",
+    "failedResultSha256": "5de6d5741620a98b62e81215f32d432c395c77981f9bec1a93749b71ef438cce"
+  }
+}

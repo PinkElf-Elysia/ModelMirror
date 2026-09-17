@@ -1,0 +1,31 @@
+import fs from 'node:fs/promises';
+import {createHash} from 'node:crypto';
+import {receiveMinimalText} from '../ui-host/minimal-transport-pair8192.mjs';
+const root=new URL('../',import.meta.url), w=new URL('.rpg04-work/rpg05-minimal-plan20/',root);
+const sha=b=>createHash('sha256').update(b).digest('hex');
+const bytes=p=>fs.readFile(new URL(p,root));
+const read=async n=>JSON.parse(await fs.readFile(new URL(n,w),'utf8'));
+const save=(n,v)=>fs.writeFile(new URL(n,w),JSON.stringify(v,null,2)+'\n',{flag:'wx'});
+const candidate='区分玩家已经说出或尝试的事，与提问、假设和尚未作出的决定；回应前者，保留后者的选择空间。';
+const input='先问一下：纸鹤蛊只剩一次传讯，如果请执事来主持公道，可能付出什么代价？这只是询问，我还没有使用它。\n我对赵魁说：“你既说异人不许进灵泉，又叫我去采草，这差事到底要我怎么交？”\n如果柳青萝愿意替我作证，我会考虑和她谈个条件；若她不愿意，我也没决定认错，更没有打算现在动手。';
+const files=['.rpg04-work/rpg05-minimal-plan20/case-9.json','.rpg04-work/rpg05-minimal-plan20/dispatch-9/response.txt','docs/RPG04_PROTOCOL_RUNTIME.txt','ui-host/minimal-transport-pair8192.mjs','.rpg04-work/rpg05-minimal-plan20/authorization-expanded32.json','tooling/rpg05-diff-t1.mjs'];
+if(process.argv[2]==='prepare'){
+ const auth=await read('authorization-expanded32.json');if(auth.routeNewLimit!==32)throw Error('AUTH');
+ const c=await read('case-9.json');const payload=structuredClone(c.payload);
+ const history=await fs.readFile(new URL('dispatch-9/response.txt',w),'utf8');
+ payload.messages.push({role:'assistant',content:history},{role:'user',content:input});
+ const plus=structuredClone(payload);plus.messages[0].content+='\n'+candidate;
+ const check=structuredClone(plus);check.messages[0].content=check.messages[0].content.slice(0,-candidate.length-1);
+ if(JSON.stringify(check)!==JSON.stringify(payload))throw Error('PAIR_MISMATCH');
+ const sources=[];for(const path of files)sources.push({path,sha256:sha(await bytes(path))});
+ const pair={format:'rpg05-t1-pair/1',at:new Date().toISOString(),approval:'开始T1; preceding exact candidate approved by scoped instruction',candidate,input,sources,baseline:{slot:18,payload},candidateCase:{slot:19,payload:plus},history:'verbatim dispatch-9; no fabricated history',review:'baseline first; second requires user review; no automatic second call'};
+ await save('T1-pair.json',pair);console.log(JSON.stringify({pairSha256:sha(await fs.readFile(new URL('T1-pair.json',w))),input,candidate,informationEquivalent:true}));
+}else if(process.argv[2]==='baseline'){
+ const b=await fs.readFile(new URL('T1-pair.json',w));if(sha(b)!==process.argv[3])throw Error('PAIR_DRIFT');const pair=JSON.parse(b);
+ for(const f of pair.sources)if(sha(await bytes(f.path))!==f.sha256)throw Error('SOURCE_DRIFT '+f.path);
+ const dirs=(await fs.readdir(w)).filter(x=>/^dispatch-\d+$/.test(x));if(dirs.length!==18||dirs.includes('dispatch-18'))throw Error('LEDGER_DRIFT');
+ const q=await fetch('http://127.0.0.1:18305/api/models/provider-chat-control?model_id=gpt-5.6-luna&capability=chat_text',{redirect:'error',signal:AbortSignal.timeout(10000)});if(!q.ok)throw Error('CONTROL_HTTP');const qualification=await q.json();if(!qualification.available||qualification.reason_code!=='qualified')throw Error('UNQUALIFIED');
+ await fs.mkdir(new URL('dispatch-18/',w));await save('dispatch-18/reservation.json',{at:new Date().toISOString(),pairSha256:sha(b),slot:18,kind:'T1_baseline',limit:32});await save('dispatch-18/qualification.json',qualification);
+ const result=await receiveMinimalText(pair.baseline.payload);await fs.writeFile(new URL('dispatch-18/response.txt',w),result.text,{flag:'wx'});await fs.writeFile(new URL('dispatch-18/response.sse',w),result.raw,{flag:'wx'});
+ const {text,raw,...rest}=result;const report={...rest,at:new Date().toISOString(),slot:18,textSha256:sha(text),rawSha256:sha(raw),characters:[...text].length,routeConsumed:19,routeRemaining:13,historicalConsumed:59,quality:'pending_user_review',formalUiTurns:0};await save('dispatch-18/RESULT.json',report);console.log(JSON.stringify(report));
+}else throw Error('prepare or baseline only');

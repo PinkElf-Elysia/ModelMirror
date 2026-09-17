@@ -1,0 +1,61 @@
+{
+  "status": "transport_complete",
+  "receipt": {
+    "requested_model": "gpt-5.6-luna",
+    "actual_model": "gpt-5.6-luna",
+    "provider": null,
+    "strategy": "newapi_preferred",
+    "engine": "newapi",
+    "reason_codes": [
+      "qualified"
+    ],
+    "latency_ms": 29847.488999999994,
+    "ttft_ms": 3445.3747999999678,
+    "tokens": {
+      "input": 10963,
+      "output": 3000,
+      "total": 13963
+    },
+    "response_cost_usd": null,
+    "cost_kind": "unavailable",
+    "fallback_attempts": 0,
+    "cache_hit": null,
+    "request_id": null,
+    "version": "2"
+  },
+  "finishReason": "stop",
+  "done": true,
+  "observedModel": "gpt-5.6-luna",
+  "httpStatus": 200,
+  "error": null,
+  "slot": 27,
+  "at": "2026-09-15T10:16:18.263Z",
+  "textSha256": "57d8929dcece9e1297d642cfe6bfa7392b395da0179d2245d75a62db054fc06c",
+  "rawSha256": "d9efcd4cc0d3735edf5c4119e560668b57b3b9f6fbbbcdd41fd07a9c2e3ee6db",
+  "characters": 4004,
+  "routeConsumed": 26,
+  "routeRemaining": 7,
+  "historicalConsumed": 66,
+  "quality": "pending_user_review",
+  "formalUiTurns": 0,
+  "format": "rpg05-t5-baseline/1",
+  "bodyCharacters": 1506,
+  "bodyHan": 1211,
+  "candidateDispatched": false,
+  "historyVerbatim": true,
+  "observations": [
+    "交易尚未成交，纸鹤未用、令牌暂扣保留。",
+    "韩石记录与赵魁离场后返回衔接，NPC推动剧情。",
+    "记忆把上一回合询问传讯代价和任务冲突列为本回合事件。",
+    "资料省略外貌偏好，天赋缩写；root未列五商品S级以上效果。",
+    "完整资料栏目与五条建议仍有输出，但不等于逐字段完整。"
+  ],
+  "recommendation": "连续性基线主要成立，记忆归属与资料压缩留作加句版对照；待用户审阅。",
+  "recovery": {
+    "restoredExistingIsolatedRoute": true,
+    "verifiedSourceFiles": 1324,
+    "certificationNeeded": false,
+    "providerCallsForRecovery": 0
+  },
+  "scope": "两段真实历史，非长期记忆或七轮滚动验证"
+}

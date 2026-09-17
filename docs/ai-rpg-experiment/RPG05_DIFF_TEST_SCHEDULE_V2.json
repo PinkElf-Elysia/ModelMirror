@@ -1,0 +1,136 @@
+{
+  "format": "rpg05-diff-schedule/1",
+  "status": "scheduled_under_authorized_budget_exact_candidates_pending",
+  "authorization": {
+    "format": "rpg05-diff-expansion-authorization/1",
+    "at": "2026-09-15T03:52:12.700290+00:00",
+    "userQuote": "同意，现在授权提额，制定新的测试排期",
+    "basis": "preceding proposal: additional maximum12 plus remaining2 = maximum14",
+    "additionalDispatches": 12,
+    "routePreviousLimit": 20,
+    "routeNewLimit": 32,
+    "routeConsumed": 18,
+    "routeRemaining": 14,
+    "historicalConsumed": 58,
+    "historicalAuthorized": 77,
+    "otherReservedBudget": 5,
+    "otherReservedBudgetUntouched": true,
+    "slots": [
+      18,
+      19,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32
+    ],
+    "model": "gpt-5.6-luna",
+    "maxOutputTokens": 8192,
+    "temperature": 0,
+    "certificationMaxOutputTokens": 64,
+    "failedUnknownCancelledCertificationCount": true,
+    "automaticRetry": false,
+    "websiteProbes": false,
+    "perOutputUserReview": true,
+    "dispatchesThisTurn": 0,
+    "promptCandidateApproval": "exact changes reviewed before each pair; budget approval does not approve arbitrary semantic additions"
+  },
+  "groups": [
+    {
+      "id": "T1",
+      "slots": [
+        18,
+        19
+      ],
+      "focus": "input interpretation and player agency",
+      "control": "same mixed question/dialogue/conditional intention; minimal host vs at most one candidate sentence",
+      "gate": "no unauthorized decisions; natural response and momentum"
+    },
+    {
+      "id": "T2",
+      "slots": [
+        21,
+        22
+      ],
+      "focus": "NPC knowledge, emotion and independent motives",
+      "control": "same public/private knowledge and relationship conflict; baseline vs at most one source-scope sentence",
+      "gate": "credible emotions, disagreement and inference without omniscience or checklist prose"
+    },
+    {
+      "id": "T3",
+      "slots": [
+        23,
+        24
+      ],
+      "focus": "talent conditions and actual effect",
+      "control": "same available ability and unmet condition; baseline vs at most one condition sentence",
+      "gate": "useful tangible effect without invented permission or flattening ability"
+    },
+    {
+      "id": "T4",
+      "slots": [
+        25,
+        26
+      ],
+      "focus": "character and resource representation",
+      "control": "offline equality first; natural prose vs compact equivalent JSON data only if actual omission remains",
+      "gate": "retention of distinctive traits without reducing emotion; cancel if no need"
+    },
+    {
+      "id": "T5",
+      "slots": [
+        27,
+        28
+      ],
+      "focus": "full author format, memory and suggestions",
+      "control": "same full history and author format; baseline vs minimal memory display addition, not different history truncation",
+      "gate": "older promise/change reflected, panel and narrative consistent, meaningful diverse suggestions"
+    },
+    {
+      "id": "T6",
+      "slots": [
+        29,
+        30
+      ],
+      "focus": "integration of user-accepted additions",
+      "control": "same complex full-format case; baseline vs only accepted candidate set",
+      "gate": "no combined regression in story, emotion, length, agency or resource meaning"
+    },
+    {
+      "id": "T7",
+      "slots": [
+        31,
+        32
+      ],
+      "focus": "transfer to held-out card/world",
+      "control": "same previously unused scenario; baseline vs accepted integration adapted only to that card existing rules",
+      "gate": "distinct world and characters; no Gu/Minecraft-specific universal rules"
+    }
+  ],
+  "offlinePhase": [
+    "map 13 old-message differences to retained/deleted/host-only locations",
+    "verify information-equivalent role/resource serialization",
+    "inventory text preservation, bindings, safe rendering and cancel/recovery integration gaps without claiming unrun tests pass"
+  ],
+  "commonRules": [
+    "freeze both requests before first dispatch",
+    "only one factor or explicitly named semantic group per pair",
+    "T1-T5 independent; only T6 integrates",
+    "full raw output to user, not excerpts",
+    "user approves each result before next output",
+    "no automatic retries or quota reallocations",
+    "no requirement to use all slots",
+    "do not change frozen protocol",
+    "UI acceptance and publication remain separate"
+  ],
+  "recoveryBudget": "certification/failure counts inside14; if it consumes a planned slot report missing coverage and revise explicitly",
+  "successDefinition": "user-assessed vivid believable diverse narrative, emotional characters and agency; structural pass alone insufficient",
+  "dispatchesThisTurn": 0
+}

@@ -1,0 +1,80 @@
+{
+  "slot": 9,
+  "comparisonSlot": 8,
+  "status": "pending_user_review",
+  "provider": {
+    "status": "transport_complete",
+    "receipt": {
+      "requested_model": "gpt-5.6-luna",
+      "actual_model": "gpt-5.6-luna",
+      "provider": null,
+      "strategy": "newapi_preferred",
+      "engine": "newapi",
+      "reason_codes": [
+        "qualified"
+      ],
+      "latency_ms": 31102.92799997842,
+      "ttft_ms": 3787.3601999599487,
+      "tokens": {
+        "input": 4383,
+        "output": 3039,
+        "total": 7422
+      },
+      "response_cost_usd": null,
+      "cost_kind": "unavailable",
+      "fallback_attempts": 0,
+      "cache_hit": null,
+      "request_id": null,
+      "version": "2"
+    },
+    "finishReason": "stop",
+    "done": true,
+    "observedModel": "gpt-5.6-luna",
+    "httpStatus": 200,
+    "error": null,
+    "textSha256": "4a95657e0eb7e6424ff517acf2ca599210f4f56ec40ae3ac3659c69db543a0bd",
+    "rawSha256": "1eed40417361ef2ed02a3325ade58d76058f2515450b695dbfeb177e6660dae7",
+    "characters": 3967,
+    "slot": 9,
+    "newConsumed": 9,
+    "newRemaining": 11,
+    "totalConsumed": 49,
+    "quality": "pending_user_review",
+    "formalUiTurns": 0,
+    "at": "2026-09-14T08:43:47.592Z"
+  },
+  "overallAcceptance": false,
+  "combinationFrozen": false,
+  "newBudget": {
+    "limit": 20,
+    "consumed": 9,
+    "remaining": 11
+  },
+  "narrativeCharactersIncludingWhitespace": 1034,
+  "narrativeHanCharacters": 842,
+  "uiIntegration": "not_done",
+  "dispatchGate": "user review before any further generation",
+  "observations": [
+    "3 NPC sections, 5 shop items and memory generated",
+    "talent effects paraphrased and some information omitted",
+    "not token-limit truncation"
+  ],
+  "artifacts": [
+    {
+      "path": "experiments/ai-rpg-engine/.rpg04-work/rpg05-minimal-plan20/case-9.json",
+      "sha256": "648a1b31687686440e6fe5b9f9096004b3c0168791f04356dc78c573fa560409"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/.rpg04-work/rpg05-minimal-plan20/dispatch-9/RESULT.json",
+      "sha256": "c359b6634da9e8d7a32bb17aa4734446143814e739b163ed395c7ecfec452b29"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/.rpg04-work/rpg05-minimal-plan20/dispatch-9/response.txt",
+      "sha256": "4a95657e0eb7e6424ff517acf2ca599210f4f56ec40ae3ac3659c69db543a0bd"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/.rpg04-work/rpg05-minimal-plan20/dispatch-9/response.sse",
+      "sha256": "1eed40417361ef2ed02a3325ade58d76058f2515450b695dbfeb177e6660dae7"
+    }
+  ]
+}

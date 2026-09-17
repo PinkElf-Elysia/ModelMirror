@@ -1,0 +1,77 @@
+{
+  "format": "rpg05-minimal-contrast-status/1",
+  "updatedAt": "2026-09-13T10:27:04.877300+00:00",
+  "status": "diagnostic_complete_quality_pending",
+  "overallAcceptance": false,
+  "manualAcceptance": false,
+  "provider": {
+    "model": "gpt-5.6-luna",
+    "inputTokens": 3477,
+    "outputTokens": 575,
+    "temperature": 0,
+    "maxTokens": 4096,
+    "dispatchesThisExperiment": 1,
+    "cohortConsumed": 3,
+    "cohortLimit": 6,
+    "cohortRemaining": 3,
+    "totalConsumed": 40,
+    "totalAuthorized": 45,
+    "manualReserved": 1,
+    "oldSupplementReserved": 1
+  },
+  "verification": {
+    "offline": {
+      "passed": 14,
+      "failed": 0
+    },
+    "real": "one_API_text_contrast_transport_complete",
+    "formalUiTurns": 0,
+    "manual": "pending",
+    "independent": "not_run"
+  },
+  "resultPath": "experiments/ai-rpg-engine/.rpg04-work/rpg05-minimal-v8/RESULT.json",
+  "freezeSha256": "50153674fd25c1b47a5f36edb63b08b3d105bad792b13ddc521afc451debcd5a",
+  "findings": [
+    "Schema and engineering prompt burden removed from diagnostic path",
+    "world-specific vocabulary improved in this one sample",
+    "length, emotional depth, continuity and unseen-world real quality unverified"
+  ],
+  "comparisonLimits": [
+    "multiple factors removed at once",
+    "same empty talent selection, not original webpage talent set",
+    "web cost screenshot has no units or exact category values"
+  ],
+  "publication": {
+    "commit": false,
+    "push": false,
+    "pr": false,
+    "merge": false
+  },
+  "previews": "unchanged",
+  "artifacts": [
+    {
+      "path": "experiments/ai-rpg-engine/.rpg04-work/rpg05-minimal-v8/freeze.json",
+      "sha256": "50153674fd25c1b47a5f36edb63b08b3d105bad792b13ddc521afc451debcd5a"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/.rpg04-work/rpg05-minimal-v8/qualification.json",
+      "sha256": "cb76330a4a4e6fefc0a65ee4aeb52000e691633b5c1c6ebd9b742a3c491ad6ad"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/.rpg04-work/rpg05-minimal-v8/reservation.json",
+      "sha256": "f86e777b669a4435e96f84cffb7c681dbb5acc0cdea389e4584e5dcefb87828d"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/.rpg04-work/rpg05-minimal-v8/response.sse",
+      "sha256": "6a383f3a0d513629e7079805c9354f083e40d1fef8adb5d0536bc9934ee6ebc7"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/.rpg04-work/rpg05-minimal-v8/response.txt",
+      "sha256": "ebf62146dc9132e6e1a5ab78bc6dbf7e53584e1e336271386a88076620a17bb9"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/.rpg04-work/rpg05-minimal-v8/RESULT.json",
+      "sha256": "67d946516a6e39793c96c3f5a1d3269b09e38741b7e0bb4c954f5a39a31464ce"
+    }
+  ]
+}
