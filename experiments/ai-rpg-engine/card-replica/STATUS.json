@@ -1,0 +1,285 @@
+{
+  "status": "round_gate_user_accepted_frozen_for_pr",
+  "completeAcceptance": false,
+  "base": "52f78f5edb6e59b38ae952ac836c23d273caf2e6",
+  "branch": "codex/rpg-card-replica",
+  "scope": "experiments/ai-rpg-engine/card-replica/**",
+  "prototypeGate": "not-required; direct screenshot replication authorized",
+  "privateFeatures": "removed from controls and character serialization",
+  "frozenOriginals": 177,
+  "officialPrompts": "original four frozen documents unchanged; runtime system removes only the expressly authorized unconditional deep-world sentence; prefix/suffix unchanged",
+  "validation": {
+    "offline": {
+      "testCommand": "npm.cmd run verify",
+      "testsPassed": 26,
+      "testsFailed": 0,
+      "typescript": "passed",
+      "productionBuild": "passed",
+      "sourceRecheck": {
+        "originals": 177,
+        "officialDocuments": 4,
+        "method": "independent OOXML body-order extraction and hash comparison",
+        "status": "passed"
+      },
+      "geminiTransportMock": {
+        "checksPassed": 2,
+        "realCalls": 0
+      },
+      "authorizedDeletionRegression": "initial24pass2fail: legacy card adapter trust check bound original system; strict activeSystem binding fixed; rerun26pass0fail; typecheck/build passed"
+    },
+    "browser": {
+      "browser": "Codex in-app browser",
+      "preview": "http://127.0.0.1:18412/",
+      "status": "checked paths passed; full acceptance incomplete",
+      "evidence": "INDEPENDENT_ACCEPTANCE.md",
+      "pngArchive": false,
+      "notRun": [
+        "all 169 image states",
+        "all output reference variants",
+        "full keyboard-only walkthrough",
+        "exact motion timings",
+        "fresh original-site observation"
+      ]
+    },
+    "real": {
+      "status": "single deletion retest complete and user accepted for this round; no further dispatch authorization",
+      "authorizedLimit": 5,
+      "providerCalls": 5,
+      "remaining": 0,
+      "generationOutputs": 3,
+      "completeGenerationOutputs": 2,
+      "partialGenerationOutputs": 1,
+      "model": "google/gemini-3.8-flash",
+      "route": "http://127.0.0.1:18308",
+      "transport": "frozen ModelMirror ProviderChatTransport + ProviderEgressPolicy; card-scoped qualification",
+      "legacyNewApiQualificationClaimed": false,
+      "ledger": "resources/CALL_LEDGER.json + resources/RETEST_LEDGER.json",
+      "reviewUrl": "http://127.0.0.1:18415/",
+      "reviewMode": "read-only; no dispatch",
+      "output": ".local/gemini-retest/dispatches/slot-1/output.txt",
+      "rawHash": "ffba3e78a924ec5347a46f06a59a9ca83e018bf096ad2a703a87ad2b580650d7",
+      "requestHash": "841ceb410377921fa4f03b6a0c6eadc09c3d9a46bb1716eea05f0350058d6727",
+      "finishReason": "stop",
+      "done": true,
+      "automaticRetry": false,
+      "officialTextsChanged": "runtime-only exact authorized sentence deletion; source originals unchanged",
+      "characterContradictionsChanged": false,
+      "reportedUsage": {
+        "input": 19140,
+        "completion": 6928,
+        "reasoningIncludedInCompletion": 334,
+        "total": 26068,
+        "costUsd": 0.040335
+      },
+      "billingAudit": "not-performed",
+      "initialBatch": {
+        "status": "Gemini activated and dispatched; stream complete, output length-limited; not a complete turn",
+        "authorizedLimit": 4,
+        "providerCalls": 4,
+        "remaining": 0,
+        "generationOutputs": 2,
+        "completeGenerationOutputs": 1,
+        "partialGenerationOutputs": 1,
+        "model": "google/gemini-3.8-flash",
+        "route": "http://127.0.0.1:18307",
+        "transport": "frozen ModelMirror ProviderChatTransport + ProviderEgressPolicy; card-scoped qualification",
+        "legacyNewApiQualificationClaimed": false,
+        "ledger": "resources/CALL_LEDGER.json",
+        "reviewUrl": "http://127.0.0.1:18414/",
+        "reviewMode": "read-only; no dispatch",
+        "output": ".local/gemini-real/dispatches/slot-4/output.txt",
+        "rawHash": "503a5159617df13c3f0f472a6ae1f48292c4e35d135c48589e39153db40d611d",
+        "requestHash": "c7dd6345431f187dbad6133bed5b8366ef3fbe22fbf10c3498400ab65cab8cdd",
+        "finishReason": "length",
+        "done": true,
+        "automaticRetry": false,
+        "officialTextsChanged": false,
+        "characterContradictionsChanged": false,
+        "reportedUsage": {
+          "input": 19153,
+          "completion": 8188,
+          "reasoningIncludedInCompletion": 598,
+          "total": 27341,
+          "costUsd": 0.04506975
+        },
+        "billingAudit": "not-performed"
+      },
+      "authorizationBreakdown": "original batch4/4 unchanged; separately authorized retest1/1"
+    },
+    "manual": {
+      "userAcceptance": "basic interface accepted; complete independent acceptance not passed",
+      "userQuote": "确认基本无误，喧宾夺主问题已经根除",
+      "rpgContentQuality": "本轮单次Gemini输出经用户门禁通过；不外推至未运行续轮、全部场景或全面UI验收",
+      "observedMismatch": "selected 表世界; output current-status panel says 里世界",
+      "realOutputReview": {
+        "userFeedback": "正文太短太中性；表/里世界区分及状态栏格式有差异。模型和人物不同，对比不公平。暂不修改完整性可靠的系统提示词及前后置词。",
+        "nextComparison": "OpenRouter google/gemini-3.8-flash; user-supplied 龙婉翩 表世界 character; private parts removed"
+      },
+      "geminiObservedMismatch": "configured 表世界; rendered current-status panel says 里世界",
+      "geminiUserFeedback": "目前有明显改善，大部分质量接近原版",
+      "deletionRetest": "用户本轮门禁通过；表世界、正常stop的单次结果已人工接受"
+    },
+    "independent": {
+      "status": "original defects reproduced; core fixes verified; full UI scope incomplete",
+      "report": "INDEPENDENT_ACCEPTANCE.md",
+      "baselineDelivery": ".local/independent-20260917/baseline-DELIVERY.json",
+      "baselineResults": ".local/independent-20260917/baseline-results.json"
+    }
+  },
+  "openItems": [
+    "Full city, random-name and daohao pools",
+    "Original draw probability weights",
+    "Exact motion timing",
+    "Worldbook complete trigger metadata",
+    "All 169 UI states and full keyboard path",
+    "Full long-output visual equivalence",
+    "Real continuation not run",
+    "Previous Gemini output remains length-limited; deletion retest stop accepted for this round",
+    "Original-site reasoning/assembly parity remains unverified"
+  ],
+  "publication": {
+    "authorized": [
+      "Commit",
+      "Push",
+      "PR"
+    ],
+    "commit": false,
+    "push": false,
+    "pr": false,
+    "merge": false,
+    "deploy": false,
+    "state": "prepared; actual commit and PR recorded by Git and remote receipt",
+    "targetBase": "aa90da03f107fc44c07c732faffc4f2374dda682",
+    "scope": "experiments/ai-rpg-engine/card-replica/**"
+  },
+  "oldRPG05": "untouched and archived as unfinished; representative vertical slice and batch processing deferred",
+  "verifiedAtUtc": "2026-09-17T09:39:15.766611+00:00",
+  "historicalValidationBeforeIndependent": {
+    "offline": {
+      "testCommand": "npm.cmd run verify",
+      "testsPassed": 13,
+      "testsFailed": 0,
+      "typescript": "passed",
+      "productionBuild": "passed",
+      "sourceRecheck": {
+        "status": "passed",
+        "verifiedFiles": 177,
+        "promptHashesUnchanged": true,
+        "initialFailure": "3 transient Word owner files made total 180; explicit exclusion restored 177; source files unchanged",
+        "ignoredTemporaryFiles": [
+          "~$系统提示词.docx",
+          "~$前置词.docx",
+          "~$后置词.docx"
+        ]
+      }
+    },
+    "browser": {
+      "browser": "Edge",
+      "preview": "http://127.0.0.1:18411/",
+      "passed": [
+        "male-character creation through name and destiny card",
+        "private fields absent from appearance and card preview",
+        "ordinary template background text present",
+        "draft retained after reload",
+        "parameter defaults 0.7/0.8/0/0/0/8192/8192/0",
+        "offline send and original response saved",
+        "cancel after 3s sample delay leaves existing 2 turns",
+        "reload/history opens same 2 turns without replay",
+        "390px chat width no horizontal overflow",
+        "deep destiny card with author deep-world background and sect/root descriptions",
+        "copy button success",
+        "Escape closes preview dialog"
+      ],
+      "observations": [
+        "First cancel UI attempt missed the 0.8s fixture completion; that second sample legitimately saved. Fixture delay changed to 3s; retry cancelled and preserved 2 turns.",
+        "Screenshots inspected inline; no standalone browser PNG archive claimed."
+      ],
+      "notRun": [
+        "all 169 image states as live UI screenshots",
+        "all output panel variants",
+        "full keyboard-only walkthrough"
+      ]
+    },
+    "real": {
+      "providerCalls": 0,
+      "status": "not-authorized-for-this-card; adapter-not-connected"
+    },
+    "manual": {
+      "userAcceptance": "pending",
+      "rpgContentQuality": "not-evaluated"
+    },
+    "independent": {
+      "status": "not-run"
+    }
+  },
+  "comparisonConfiguration": {
+    "status": "authorized one-sentence deletion retest completed",
+    "model": "google/gemini-3.8-flash",
+    "endpoint": "google-ai-studio",
+    "credentialSource": "main workspace server/.env:OPENROUTER_API_KEY",
+    "credentialPresent": true,
+    "credentialAuthentication": "passed via one billed certification",
+    "credentialPrintedOrCopied": false,
+    "profile": ".local/comparison-openrouter-20260917/profile.json",
+    "character": ".local/comparison-openrouter-20260917/character.txt",
+    "characterHash": "33766118dc40145e1343b69577067860a6cb2b479f9cac3bdee055f1078681f7",
+    "providerDispatches": 2,
+    "routeActivation": "completed; http://127.0.0.1:18307; old GPT route retained",
+    "reasoningParity": "reasoning parameter omitted; generation receipt reported598 reasoning tokens; not zero",
+    "worldbookEnabled": [],
+    "runtimeEvidence": ".local/gemini-real/dispatches/slot-4/result.json",
+    "previousBatchStatus": "activated; one generation dispatched; truncated",
+    "latestEvidence": ".local/gemini-retest/dispatches/slot-1/result.json",
+    "latestReview": "http://127.0.0.1:18415/",
+    "latestRoute": "http://127.0.0.1:18308",
+    "latestMaxTokens": 16384,
+    "latestReasoningTokens": 334
+  },
+  "previousRealValidation": {
+    "status": "adapter tested; first generation complete; review host disabled for dispatch",
+    "authorizedLimit": 4,
+    "providerCalls": 2,
+    "generationOutputs": 1,
+    "remaining": 2,
+    "model": "gpt-5.6-luna",
+    "route": "http://127.0.0.1:18305",
+    "ledger": "resources/CALL_LEDGER.json",
+    "reviewUrl": "http://127.0.0.1:18413/",
+    "output": ".local/real/dispatches/slot-2/output.txt",
+    "rawHash": "cfe69cd0037e013bdc0a85697a30d79393f4fa319be8d985a8d9dfdc59d5e89c",
+    "realContinuation": "not-run",
+    "automaticRetry": false
+  },
+  "worldModeInvestigation": {
+    "report": "WORLD_MODE_AUDIT.md",
+    "sourceParagraph": 815,
+    "deletionAuthorization": "同意结论，删除这句授权复测",
+    "systemHash": "4f632fff9b567183bc5fae281131320a4cf27035a0f39956b1f53ea5a09ef9ee",
+    "noDuplicateAssembly": "two prior real first requests and actual HTTP three-turn capture checked",
+    "retestResult": "surface-world label; stop; one sample and two changed variables; not proof of exclusive causality"
+  },
+  "nextRunSettings": {
+    "max_tokens": 16384,
+    "source": "resources/RUN_SETTINGS.json",
+    "appliedToRetest": true,
+    "context": 8192,
+    "silentTruncation": false
+  },
+  "roundGate": {
+    "status": "通过",
+    "basis": "用户人工验收",
+    "userQuote": "达到本轮门禁，可以冻结封装，收尾后提交PR",
+    "acceptedAtUtc": "2026-09-17T09:39:15.766611+00:00",
+    "scope": "本轮卡片实现、单句删除及同角色Gemini首轮复测",
+    "fullUIAllStatesClaimed": false,
+    "realContinuationClaimed": false
+  },
+  "packagingValidation": {
+    "cleanInstall": "通过; npm.cmd ci; 104 packages; no .local copied",
+    "cleanVerify": "通过; 26 tests, TypeScript, production build",
+    "tutorialReplay": "通过; fresh origin18416; ordinary creation, preview/copy, max16384, offline send, refresh/history1turn",
+    "newProviderCalls": 0,
+    "notes": "corrected two stale help labels; no model input changes",
+    "fullScreenshotArchive": false
+  }
+}

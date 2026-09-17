@@ -1,0 +1,293 @@
+{
+  "status": "round_gate_user_accepted_frozen_for_pr",
+  "base": "52f78f5edb6e59b38ae952ac836c23d273caf2e6",
+  "publicationBase": "aa90da03f107fc44c07c732faffc4f2374dda682",
+  "branch": "codex/rpg-card-replica",
+  "generatedAtUtc": "2026-09-17T09:53:36.481Z",
+  "sourceManifest": "MANIFEST.json",
+  "previousSnapshot": ".local/publication/accepted-DELIVERY.json",
+  "files": [
+    {
+      "path": ".gitattributes",
+      "bytes": 166,
+      "sha256": "b502df48f065886ed459cc34698d9987b0082f143ffb6fcb12bad4c6970174b4"
+    },
+    {
+      "path": ".gitignore",
+      "bytes": 39,
+      "sha256": "8fb34f54231f4048ca3bf18e03f005658b9b67eaf11e33d702d24578de5ce9b7"
+    },
+    {
+      "path": "DEPENDENCIES.md",
+      "bytes": 1269,
+      "sha256": "8a590995cdabd57351f9d771f1e08e5f4a549f0a4000131d1ca3789ae422a30b"
+    },
+    {
+      "path": "INDEPENDENT_ACCEPTANCE.md",
+      "bytes": 10264,
+      "sha256": "4c78f7a39c9e9f027f8584bf29ad026e093962d18f21ebbc451cff47e7f2da3e"
+    },
+    {
+      "path": "index.html",
+      "bytes": 319,
+      "sha256": "443099b4c9c538013183d3e925e3958d8358a68b183c1f7c257c53a830d6fb70"
+    },
+    {
+      "path": "lib/assembly.mjs",
+      "bytes": 4978,
+      "sha256": "7507921b7c15695d62a71e65acc4f7bf5f8d8083a9812b855f17bd5585905bed"
+    },
+    {
+      "path": "lib/gemini-provider.mjs",
+      "bytes": 4517,
+      "sha256": "f6625aaa9517f712513f4c0dd951db499a018bd1b48392b4c61a924a5a5daa27"
+    },
+    {
+      "path": "lib/openrouter-config.mjs",
+      "bytes": 3810,
+      "sha256": "fd02a84aa8627c2d903066043ce27ac4684efefb0dc69daab2c5ee17a5e8d0db"
+    },
+    {
+      "path": "lib/provider.mjs",
+      "bytes": 8026,
+      "sha256": "d0fa04fe96b312954b5b3d2df99e6c5c018fb5777d79c6e2afabf0741a56027c"
+    },
+    {
+      "path": "lib/render.mjs",
+      "bytes": 2441,
+      "sha256": "24569f0a4e4b96540f8d2962b7cadb5cd1143561ef702258bae5423739d4b11c"
+    },
+    {
+      "path": "lib/store.mjs",
+      "bytes": 5111,
+      "sha256": "a14fd94f2e86f091d1088a256817c7724f3a4965d9effdaa3963ac12aa624bec"
+    },
+    {
+      "path": "OPENROUTER_ACTIVATION.md",
+      "bytes": 6282,
+      "sha256": "753a617c6678e6d155feed3ce47016741857fe22d28bb1d3a2ef880843a01617"
+    },
+    {
+      "path": "OPENROUTER_SETUP.md",
+      "bytes": 5083,
+      "sha256": "370df8f241e97fa222d4773c28f8a1f944b2bad7fdff40a571a92759c24d15e4"
+    },
+    {
+      "path": "package-lock.json",
+      "bytes": 84892,
+      "sha256": "bf59e6bc43ecaffac55d14986e7248d050a0330867d7827bafeb9dd3ac7e20c0"
+    },
+    {
+      "path": "package.json",
+      "bytes": 581,
+      "sha256": "ba1653c0a3b8f5a28d9886657db08f3cc45873b9c427a67243b81400533bd4e3"
+    },
+    {
+      "path": "README.md",
+      "bytes": 10295,
+      "sha256": "1086549d3b8dab8b4a0f2cc63867a3b262c2123c493d8efc807feafe1a4d4b5a"
+    },
+    {
+      "path": "RELEASE.md",
+      "bytes": 5592,
+      "sha256": "699324304d78bb76371f406e60d027333a7644e9ba66b852f63c4aac7063a989"
+    },
+    {
+      "path": "resources/CALL_LEDGER.json",
+      "bytes": 4475,
+      "sha256": "428b2b248bdd2a688c5b80f1d5748c1a17aa03a0854e6deb0127f8ca2791ba2a"
+    },
+    {
+      "path": "resources/COVERAGE.json",
+      "bytes": 50341,
+      "sha256": "43e648afe25641059c97764e434eb6d56268b40a5fd4c1303fe4c26d39b72a9c"
+    },
+    {
+      "path": "resources/MANIFEST.json",
+      "bytes": 45148,
+      "sha256": "d2e0a7fb7add0296bf6aaa6f445f9c3f6f9e18627c0021c0e8f5581bda04a7dc"
+    },
+    {
+      "path": "resources/prompts.json",
+      "bytes": 69870,
+      "sha256": "3cd96ac8519f31e15de17581926e9f693c75b18d0b139c64cb361c071c709ae7"
+    },
+    {
+      "path": "resources/RETEST_LEDGER.json",
+      "bytes": 2884,
+      "sha256": "4e980f36658680e679b8870d960a988a3c31841b76d8dcbe3bfe94e4343c041c"
+    },
+    {
+      "path": "resources/roots.json",
+      "bytes": 34237,
+      "sha256": "6515ac82d124648cc46cb8112e6956f8961f2d444813c8275ad04891e8215859"
+    },
+    {
+      "path": "resources/RUN_SETTINGS.json",
+      "bytes": 29,
+      "sha256": "15c30329a06a6e27dd8e575cd6e4debcdd0d7fb60c8a923b145bc6976424f73b"
+    },
+    {
+      "path": "RETEST_RESULT.md",
+      "bytes": 3577,
+      "sha256": "1b32a457855b46952cb220bd9b63c14a588dc178e526cb9eb43ee444cffd00f2"
+    },
+    {
+      "path": "server.mjs",
+      "bytes": 4327,
+      "sha256": "6b94a1027b99a86a6d86c6c7c2d84f31a6a780ec080bead4cf4a52a4fe4b9bbb"
+    },
+    {
+      "path": "src/data.ts",
+      "bytes": 11815,
+      "sha256": "0650d305b9a411d48fb5f0b7420ed8ad1f2d3e8315d787dd6cd3b117b4d920c7"
+    },
+    {
+      "path": "src/main.tsx",
+      "bytes": 19597,
+      "sha256": "eec985b9efb9278c49b2b6b0d9fffaca6480eb1f6016221c303cb35bbf065475"
+    },
+    {
+      "path": "src/platform.tsx",
+      "bytes": 9841,
+      "sha256": "5fb898cb52e54fd4e8b90043bc662d74a2997b7aa64af3fb90f19b161aadcce7"
+    },
+    {
+      "path": "src/styles.css",
+      "bytes": 14283,
+      "sha256": "8e426618ee79869a62205d9fd5e2dfde0573c2da92722e8dfde9f872b35e446b"
+    },
+    {
+      "path": "STATUS.json",
+      "bytes": 12861,
+      "sha256": "0f2e61f27d865533ee27aaf0a68f88fd8fc35347a5f5c042d9bc4ce417e93d58"
+    },
+    {
+      "path": "tests/assembly.test.mjs",
+      "bytes": 5092,
+      "sha256": "bf16222cfea6dac69e4aab6c4a4de9ed21b69d1463cbc34606f74854a9bcadd6"
+    },
+    {
+      "path": "tests/gemini-provider.test.mjs",
+      "bytes": 4538,
+      "sha256": "5ec6417100d15906ee3d9586091a50fb7941b223aa194c26f8eb18ebef1532e7"
+    },
+    {
+      "path": "tests/host.test.mjs",
+      "bytes": 3902,
+      "sha256": "86aaf7b4d47f03daf8d85ee16d3c9f6d4aa19a533b477eab1ecb41b0f419b6fd"
+    },
+    {
+      "path": "tests/openrouter-config.test.mjs",
+      "bytes": 2183,
+      "sha256": "2f49f97bd54121cecabbf9c9327ff596fa6877fec15e231bd5f78087c293c8eb"
+    },
+    {
+      "path": "tests/provider.test.mjs",
+      "bytes": 4868,
+      "sha256": "c86f09e95069427f00654473ecca4b4c5fd24562f94490b4b63a9bc01c1219f1"
+    },
+    {
+      "path": "tools/audit-world-mode.mjs",
+      "bytes": 5994,
+      "sha256": "48d458ee93f146f3a24ac4c4890500ee3bb5c3ca9b5a88c4b5b1f8f784118d07"
+    },
+    {
+      "path": "tools/configure-openrouter.mjs",
+      "bytes": 1866,
+      "sha256": "201b277c6b1e4e07968f9a135b92d060032d69625ac01f11acc9060ffbdb3c29"
+    },
+    {
+      "path": "tools/delivery.mjs",
+      "bytes": 2924,
+      "sha256": "7f60bf73532e3da1f12558b37b10c72d43c067782ce8dcb412aa1e1024cdad2e"
+    },
+    {
+      "path": "tools/examples.mjs",
+      "bytes": 1396,
+      "sha256": "7d3a8f1d93c168ecc9d5f15d0f2c3bc340f25bf4791553ab120433eacfb0edc3"
+    },
+    {
+      "path": "tools/freeze.py",
+      "bytes": 4094,
+      "sha256": "0e26f8ae629426852314f5105ca5510f94d22a95676b3a49eb59b8a30d9447cf"
+    },
+    {
+      "path": "tools/gemini-review.mjs",
+      "bytes": 3756,
+      "sha256": "470052f3e902619f555ff39f2e7ae8995118ccbfc676aac3e05303abdcbd977f"
+    },
+    {
+      "path": "tools/gemini.mjs",
+      "bytes": 4612,
+      "sha256": "b09777335261027c633c29d284c4c35bc046d57476486383b00e3b5a0fe80dd1"
+    },
+    {
+      "path": "tools/independent-check.mjs",
+      "bytes": 3632,
+      "sha256": "9efdc77cc97a688b7f152625c1a2dbc4e3d5d94c6495f8aafdb2911a7ea31896"
+    },
+    {
+      "path": "tools/independent-preview.mjs",
+      "bytes": 539,
+      "sha256": "eacc32460e494a26120c70b7814b9083fd83d032a6a787e2483b0db4a4d3b41a"
+    },
+    {
+      "path": "tools/openrouter-route.py",
+      "bytes": 9789,
+      "sha256": "eb9c53c264a02056e13a8e7ca68e95295019effb563f56e202d56b80ab8e54af"
+    },
+    {
+      "path": "tools/qualification.py",
+      "bytes": 3152,
+      "sha256": "78e934fd3772c07dcfde76613a7ad136bc672f52682c22a770d53985ada812ac"
+    },
+    {
+      "path": "tools/real.mjs",
+      "bytes": 5853,
+      "sha256": "5189f97a2331f7a62b35577caa07e02314e3bb2068fb94f4bbf74fded3d0eaf9"
+    },
+    {
+      "path": "tools/restore-route.py",
+      "bytes": 3246,
+      "sha256": "793e8bc4b012d26bc17b38c3429947dad561a1fe2af68904b85873e52ef3a185"
+    },
+    {
+      "path": "tools/retest.mjs",
+      "bytes": 7741,
+      "sha256": "fa40fb127f16bbfbb6cc1cab694702a75b3e017c523b426bebaf5ea12ea2e95b"
+    },
+    {
+      "path": "tsconfig.json",
+      "bytes": 317,
+      "sha256": "1eb85dfc72370d709f962e99383266c0dfe5b3228437f7d28f6a5700b733a70c"
+    },
+    {
+      "path": "USER_GUIDE.md",
+      "bytes": 3959,
+      "sha256": "cf8ab26b87b525281fb6f28ee5b461f3cfe5cad3ccc22ac21f7a6e93ddfddec2"
+    },
+    {
+      "path": "WORLD_MODE_AUDIT.md",
+      "bytes": 8152,
+      "sha256": "0ef53f92ee9a9197037e26d91cc96145a3f9fe660b991ee3dd6eb9ef7489fea7"
+    }
+  ],
+  "build": [
+    {
+      "path": "dist/assets/index-BlSa5bYZ.css",
+      "bytes": 14243,
+      "sha256": "376953962440f692ca3d323f466c9f39ed92026f9486f516ce73356452033754"
+    },
+    {
+      "path": "dist/assets/index-DQUFUhTC.js",
+      "bytes": 379136,
+      "sha256": "a225ae54bb507e8ff2fcb267cf4889b185d8579c6f90a46f57f3e8b4970e4855"
+    },
+    {
+      "path": "dist/index.html",
+      "bytes": 418,
+      "sha256": "c1612e9672b17f5492a99d98b997ef942c60f993c0333a8a560383d347176d10"
+    }
+  ]
+}

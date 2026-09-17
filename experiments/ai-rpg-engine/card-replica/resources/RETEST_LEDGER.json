@@ -1,0 +1,75 @@
+{
+  "schema": "earth-card-single-retest/1",
+  "authorization": "用户：同意结论，删除这句授权复测。新增单次；原4次账本保留不变；失败、取消、未知均计数，无重试。",
+  "model": "google/gemini-3.8-flash",
+  "route": "http://127.0.0.1:18308",
+  "limit": 1,
+  "used": 1,
+  "remaining": 0,
+  "entries": [
+    {
+      "id": "74271de1-55b6-4137-89c0-cca3b73d717e",
+      "slot": 1,
+      "kind": "generation",
+      "status": "complete",
+      "requestHash": "841ceb410377921fa4f03b6a0c6eadc09c3d9a46bb1716eea05f0350058d6727",
+      "freezeHash": "3da7db0a9ad60f36c7babc1993d90640367c723c589c4325694a54060f642d16",
+      "at": "2026-09-17T09:28:53.074Z",
+      "userReviewed": true,
+      "result": {
+        "status": "complete",
+        "httpStatus": 200,
+        "requestedModel": "google/gemini-3.8-flash",
+        "actualModel": "google/gemini-3.8-flash",
+        "actualProvider": "Google AI Studio",
+        "finishReason": "stop",
+        "done": true,
+        "usage": {
+          "prompt_tokens": 19140,
+          "completion_tokens": 6928,
+          "total_tokens": 26068,
+          "cost": 0.040335,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.040335,
+            "upstream_inference_prompt_cost": 0.014355,
+            "upstream_inference_completions_cost": 0.02598
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 334,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        },
+        "responseId": "gen-1789637333-SL9rwFJWhojSUnB93bym",
+        "latencyMs": 36280.999999988126,
+        "ttftMs": 3592.9999999934807,
+        "error": null,
+        "wireRequestHash": "841ceb410377921fa4f03b6a0c6eadc09c3d9a46bb1716eea05f0350058d6727",
+        "transport": "ModelMirror ProviderChatTransport",
+        "retries": 0,
+        "fallbacksAllowed": false,
+        "reservationId": "74271de1-55b6-4137-89c0-cca3b73d717e",
+        "requestHash": "841ceb410377921fa4f03b6a0c6eadc09c3d9a46bb1716eea05f0350058d6727",
+        "rawHash": "ffba3e78a924ec5347a46f06a59a9ca83e018bf096ad2a703a87ad2b580650d7",
+        "kind": "generation"
+      },
+      "completedAt": "2026-09-17T09:29:29.393Z",
+      "evidence": ".local/gemini-retest/dispatches/slot-1",
+      "userReview": {
+        "at": "2026-09-17T09:39:15.766611+00:00",
+        "quote": "达到本轮门禁，可以冻结封装，收尾后提交PR",
+        "scope": "本轮门禁通过；不追加调用额度"
+      }
+    }
+  ],
+  "priorLedger": "resources/CALL_LEDGER.json",
+  "priorUsed": 4,
+  "priorRemaining": 0
+}
