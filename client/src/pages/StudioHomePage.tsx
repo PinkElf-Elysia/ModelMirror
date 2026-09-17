@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import matrixOasisTeaser from "../assets/matrix-oasis/matrix-oasis-teaser-640.webp";
 import StudioBetaPanels from "../components/StudioBetaPanels";
 import ModelWorkbenchSidebar from "../components/ModelWorkbenchSidebar";
 import PageContainer from "../components/PageContainer";
@@ -129,6 +130,45 @@ interface QuickAction {
   href: string;
   label: string;
   title: string;
+}
+
+function MatrixOasisTeaser() {
+  return (
+    <Link
+      aria-label="进入矩阵绿洲预告"
+      className="group relative mb-6 flex min-h-40 overflow-hidden rounded-xl bg-ink-950 shadow-[0_1px_0_rgba(255,255,255,0.08)_inset] focus-visible:outline-none sm:min-h-48"
+      to="/matrix-oasis"
+    >
+      <img
+        alt="发光的蓝紫色矩阵门廊"
+        className="absolute inset-0 h-full w-full object-cover object-center opacity-55 transition duration-500 ease-out group-hover:scale-[1.025] group-hover:opacity-70"
+        decoding="async"
+        height="320"
+        src={matrixOasisTeaser}
+        width="640"
+      />
+      <span className="absolute inset-0 bg-[linear-gradient(90deg,rgba(3,6,17,0.96)_0%,rgba(3,6,17,0.76)_48%,rgba(3,6,17,0.18)_100%)]" />
+      <span className="absolute inset-x-0 bottom-0 h-px bg-[linear-gradient(90deg,rgba(36,217,255,0.8),rgba(124,58,237,0.7),transparent)]" />
+
+      <span className="relative flex w-full flex-col justify-between gap-5 p-5 sm:flex-row sm:items-end sm:p-7">
+        <span className="max-w-xl">
+          <span className="inline-flex rounded-full border border-brand-300/30 bg-brand-300/10 px-2.5 py-1 text-[11px] font-semibold text-brand-100">
+            世界生成中
+          </span>
+          <span className="mt-3 block text-2xl font-semibold tracking-[-0.025em] text-white sm:text-3xl">
+            矩阵绿洲
+          </span>
+          <span className="mt-2 block text-sm leading-6 text-slate-300">
+            一段尚未完成的人机开放世界预告。
+          </span>
+        </span>
+        <span className="inline-flex min-h-11 shrink-0 items-center justify-center self-start rounded-full border border-white/20 bg-white/10 px-4 text-sm font-semibold text-white transition duration-200 group-hover:border-brand-200/60 group-hover:bg-brand-300 group-hover:text-ink-950 sm:self-auto">
+          进入预告
+          <span aria-hidden="true" className="ml-2 transition-transform duration-200 group-hover:translate-x-0.5">→</span>
+        </span>
+      </span>
+    </Link>
+  );
 }
 
 const categories: Array<{ key: WorkspaceCategory; label: string }> = [
@@ -799,10 +839,8 @@ export default function StudioHomePage() {
         </div>
       </header>
 
-      <Link to="/rpg" className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-white/10 bg-white/[0.02] px-6 py-5 transition-colors hover:border-white/25 hover:bg-white/[0.04] focus-visible:outline focus-visible:outline-2">
-        <div><h2 className="text-lg font-semibold text-white">RPG · 角色与世界</h2><p className="mt-1 text-sm text-zinc-300">地球 OL 人生模拟器与行间多世界 RPG，创建角色、进入故事、恢复历史。</p></div><span className="text-sm text-zinc-300">进入 RPG →</span>
-      </Link>
       <StudioBetaPanels />
+      <MatrixOasisTeaser />
 
       <section className="mb-6 rounded-lg border border-white/10 bg-white/[0.045] p-4">
         <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">

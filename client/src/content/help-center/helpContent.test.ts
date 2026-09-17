@@ -83,7 +83,7 @@ describe("help center content catalog", () => {
     expect(helpArticles.find((article) => article.slug === "build-first-workflow")?.verifiedDate).toBe(agentWorkflowTutorialBaseline.date);
     expect(helpArticles.find((article) => article.slug === "review-meta-planner-branches")?.verifiedCommit).toBe(metaPlannerControlFlowBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "review-meta-planner-branches")?.verifiedDate).toBe(metaPlannerControlFlowBaseline.date);
-    expect(helpArticles.find((article) => article.slug === "modules-and-terms")?.verifiedCommit).toBe("b266b870");
+    expect(helpArticles.find((article) => article.slug === "modules-and-terms")?.verifiedCommit).toBe("eeb5bbd2");
     expect(helpArticles.find((article) => article.slug === "recover-unavailable-feature")?.verifiedCommit).toBe(providerMultimodalR8cBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "recover-unavailable-feature")?.verifiedDate).toBe(providerMultimodalR8cBaseline.date);
     expect(helpArticles.find((article) => article.slug === "recover-unavailable-feature")?.content).toContain("只读刷新模型证据");

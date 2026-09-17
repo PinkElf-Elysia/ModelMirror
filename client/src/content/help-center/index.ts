@@ -288,7 +288,7 @@ export const helpArticles: HelpArticle[] = [
     estimatedMinutes: 5,
     keywords: ["模镜", "整体结构", "模块", "术语", "入口", "状态", "资源", "工作台", "运维"],
     relatedRoutes: ["/models", "/agents", "/workflow", "/rag", "/mcps", "/skills", "/runtime", "/settings"],
-    verifiedCommit: "b266b870",
+    verifiedCommit: "eeb5bbd2",
     verifiedDate: "2026-09-17",
     content: modulesAndTerms,
     nextSlug: "understand-rag-content-contract",
@@ -476,8 +476,8 @@ export const helpModules: HelpModule[] = [
     topics: [
       { id: "rpg", verifiedCommit: "a7d99925", verifiedDate: "2026-09-17", title: "RPG 角色与世界", summary: "从 Studio 的 RPG 入口选择地球 OL 或行间卡片。", outcome: "创建角色、发起正式模型调用，并恢复已保存的原文。", points: ["进入 Studio → RPG，再选择卡片；地球 OL 已获卡片验收，行间仍是半成品", "填写角色并创建会话，首次点击发送才会调用服务端配置的 Gemini 3.8 Flash", "每卡本轮一次调用，失败和取消也计数；额度用完后等待人工审阅，不会自动重试", "刷新或进入历史只读取记录，不会重放请求；可查看保存原文，外部图片不会自动加载", "模型配置和提示词已随服务封装，密钥只在服务端；地球 OL 的世界书候选仍默认关闭"], productRoute: "/rpg", badge: "实验", keywords: ["RPG", "地球 OL", "行间", "角色", "Gemini", "原文", "历史"] },
       { id: "workflow-native", title: "Workflow Native", summary: "在隔离校验台检查工作流图结构。", outcome: "试验 Native 静态校验，而不影响经典工作流主入口。", points: ["页面只验证图结构", "不会执行模型、Tool 或 RAG", "稳定工作流继续使用经典画布"], productRoute: "/workflow-native", badge: "实验", keywords: ["Workflow Native", "工作流", "静态校验", "实验"] },
-      { id: "science", verifiedCommit: "b266b870", verifiedDate: "2026-09-17", title: "Science", summary: "从 Studio 的 Beta 入口打开独立 Research Console。", outcome: "进入文献研究控制面板并了解运行前置条件。", points: ["打开 Studio，找到 Science · Beta，点击“打开控制面板”，在新标签页管理研究项目", "需先运行 AI Research Console；本地默认连接现有 A7 面板，无法连接时请管理员核对服务与 SCIENCE_CONSOLE_URL", "报告、来源与研究结论需人工复核；Beta 入口不代表科学结论已获验证"], productRoute: "/studio", badge: "Beta", keywords: ["Science", "科学", "Research Console", "Beta"] },
-      { id: "matrix-oasis", verifiedCommit: "b266b870", verifiedDate: "2026-09-17", title: "矩阵绿洲", summary: "从 Studio 的 Beta 入口打开独立 Creator 控制面板。", outcome: "区分可打开的创作控制台与世界体验预告。", points: ["打开 Studio，找到“矩阵绿洲 · Beta”，点击“打开控制面板”，在新标签页进入 Creator", "需先启动独立 Creator Host；无法连接时请管理员启动面板并核对 MATRIX_OASIS_CONSOLE_URL", "“查看预告”仍通往原预告页；控制台是否可生成取决于独立服务资格与配置，完整 V2 世界体验尚未开放"], productRoute: "/studio", badge: "Beta", keywords: ["矩阵绿洲", "Creator", "控制面板", "Beta"] },
+      { id: "science", verifiedCommit: "eeb5bbd2", verifiedDate: "2026-09-17", title: "Science", summary: "从 Studio 的 Beta 入口打开独立 Research Console。", outcome: "进入文献研究控制面板并了解运行前置条件。", points: ["打开 Studio，找到与 RPG 并排的 Science · Beta，点击“打开控制面板”，在新标签页管理研究项目", "需先运行 AI Research Console；本地默认连接现有 A7 面板，无法连接时请管理员核对服务与 SCIENCE_CONSOLE_URL", "报告、来源与研究结论需人工复核；Beta 入口不代表科学结论已获验证"], productRoute: "/studio", badge: "Beta", keywords: ["Science", "科学", "Research Console", "Beta"] },
+      { id: "matrix-oasis", verifiedCommit: "eeb5bbd2", verifiedDate: "2026-09-17", title: "矩阵绿洲", summary: "保留原入场界面，经“进入矩阵绿洲”打开 Creator。", outcome: "从原有入口进入真实创作控制台。", points: ["在 Studio 点击原矩阵绿洲面板，打开原入场界面", "点击“进入矩阵绿洲”，入场动画结束后进入 Creator；“跳过”直接进入同一面板", "独立 Creator Host 须先启动；模型、环境与资产状态以 Creator 实际展示为准，Beta 不代表完整 V2 世界体验开放"], productRoute: "/matrix-oasis", badge: "Beta", keywords: ["矩阵绿洲", "Creator", "进入矩阵绿洲", "Beta"] },
     ],
   },
 ];
