@@ -1,0 +1,9 @@
+**/.git
+**/.local
+**/.rpg*-work
+**/node_modules
+**/dist
+**/.env
+**/.env.*
+**/*.log
+**/*.zip

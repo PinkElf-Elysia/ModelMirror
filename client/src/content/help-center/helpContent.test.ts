@@ -40,6 +40,7 @@ describe("help center content catalog", () => {
 
   it("keeps the formal article slugs unique and metadata complete", () => {
     expect(helpArticles.map((article) => article.slug)).toEqual([
+      "play-rpg-cards",
       "start-with-a-model",
       "choose-model-agent-workflow",
       "create-repeatable-agent",
@@ -66,7 +67,8 @@ describe("help center content catalog", () => {
       expect(article.content).not.toMatch(/内容稍后补充|coming soon/i);
       expect(article.content, `${article.slug}: duplicate page h1`).not.toMatch(/^# /m);
     });
-    expect(helpArticles.filter((article) => !["start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "review-meta-planner-branches", "prepare-vision-evaluation", "handle-workflow-node-failure", "modules-and-terms", "check-availability-cost-data", "understand-rag-content-contract"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
+    expect(helpArticles.filter((article) => !["play-rpg-cards", "start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "review-meta-planner-branches", "prepare-vision-evaluation", "handle-workflow-node-failure", "modules-and-terms", "check-availability-cost-data", "understand-rag-content-contract"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
+    expect(helpArticles.find((article) => article.slug === "play-rpg-cards")?.verifiedCommit).toBe("a7d99925");
     const modelServingArticle = helpArticles.find((article) => article.slug === "check-availability-cost-data");
     expect(modelServingArticle?.verifiedCommit).toBe(modelServingReviewBaseline.commit);
     expect(modelServingArticle?.verifiedDate).toBe(modelServingReviewBaseline.date);

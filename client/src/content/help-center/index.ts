@@ -1,3 +1,4 @@
+import playRpgCards from "./articles/play-rpg-cards.md?raw";
 import buildFirstWorkflow from "./articles/build-first-workflow.md?raw";
 import checkAvailabilityCostData from "./articles/check-availability-cost-data.md?raw";
 import chooseModelAgentWorkflow from "./articles/choose-model-agent-workflow.md?raw";
@@ -112,6 +113,7 @@ export const helpContentTypeLabels: Record<HelpContentType, string> = {
 };
 
 export const helpArticles: HelpArticle[] = [
+  { slug: "play-rpg-cards", title: "从 Studio 进入 RPG 并恢复故事", summary: "选择地球 OL 或行间，创建角色并查看保存的模型原文。", category: "按目标找指南", contentType: "how-to", audience: "希望用角色卡体验故事的用户", estimatedMinutes: 5, keywords: ["RPG", "地球 OL", "行间", "角色", "历史", "Gemini"], relatedRoutes: ["/studio", "/rpg", "/rpg/earth", "/rpg/rpg05"], verifiedCommit: "a7d99925", verifiedDate: "2026-09-17", content: playRpgCards, nextSlug: "check-availability-cost-data" },
   {
     slug: "start-with-a-model",
     title: "第一次使用：找到能看图片的模型",
@@ -472,6 +474,7 @@ export const helpModules: HelpModule[] = [
     keywords: ["实验", "Workflow Native", "Science", "矩阵绿洲", "Beta"],
     homeTopicIds: ["science", "matrix-oasis"],
     topics: [
+      { id: "rpg", verifiedCommit: "a7d99925", verifiedDate: "2026-09-17", title: "RPG 角色与世界", summary: "从 Studio 的 RPG 入口选择地球 OL 或行间卡片。", outcome: "创建角色、发起正式模型调用，并恢复已保存的原文。", points: ["进入 Studio → RPG，再选择卡片；地球 OL 已获卡片验收，行间仍是半成品", "填写角色并创建会话，首次点击发送才会调用服务端配置的 Gemini 3.8 Flash", "每卡本轮一次调用，失败和取消也计数；额度用完后等待人工审阅，不会自动重试", "刷新或进入历史只读取记录，不会重放请求；可查看保存原文，外部图片不会自动加载", "模型配置和提示词已随服务封装，密钥只在服务端；地球 OL 的世界书候选仍默认关闭"], productRoute: "/rpg", badge: "实验", keywords: ["RPG", "地球 OL", "行间", "角色", "Gemini", "原文", "历史"] },
       { id: "workflow-native", title: "Workflow Native", summary: "在隔离校验台检查工作流图结构。", outcome: "试验 Native 静态校验，而不影响经典工作流主入口。", points: ["页面只验证图结构", "不会执行模型、Tool 或 RAG", "稳定工作流继续使用经典画布"], productRoute: "/workflow-native", badge: "实验", keywords: ["Workflow Native", "工作流", "静态校验", "实验"] },
       { id: "science", title: "Science", summary: "当前没有独立可用的 Science 页面。", outcome: "避免把不存在的入口当成已开放功能。", points: ["本次验证访问现有地址会回到模型市场", "实验入口和范围可能变化", "以产品界面中的可见入口为准"], badge: "实验", keywords: ["Science", "科学", "实验", "模型市场"] },
       { id: "matrix-oasis", title: "矩阵绿洲", summary: "当前是空间与世界体验的预告页。", outcome: "了解它仍处于实验展示阶段。", points: ["页面显示“世界仍在生成”", "当前入口主要用于查看预告", "实验结果和入口可能变化"], productRoute: "/matrix-oasis", badge: "实验", keywords: ["矩阵绿洲", "空间", "世界仍在生成", "实验"] },
@@ -519,6 +522,7 @@ export const helpSections: HelpSection[] = [
     items: [
       { id: "overview", title: "整体结构与常用词", summary: "先看各入口怎样配合，再选择具体模块。", to: "/help/modules-and-terms", keywords: ["整体结构", "模块", "术语", "入口"] },
       { id: "rag-content-contract", title: "看懂 RAG 分块与历史只读限制", summary: "区分估算 Token、诊断候选与已激活版本回滚。", to: "/help/understand-rag-content-contract", keywords: ["RAG", "估算 Token", "内容合同", "历史只读", "回滚"] },
+      { id: "rpg-guide", title: "从 Studio 进入 RPG 并恢复故事", summary: "选择角色卡并恢复保存的模型原文。", to: "/help/play-rpg-cards", keywords: ["RPG", "角色卡", "历史"] },
       ...helpModules.map((module) => ({ id: module.id, title: module.title, summary: module.summary, to: `/help/modules/${module.id}`, keywords: module.keywords })),
     ],
   },

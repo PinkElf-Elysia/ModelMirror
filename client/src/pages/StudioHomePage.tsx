@@ -838,6 +838,9 @@ export default function StudioHomePage() {
         </div>
       </header>
 
+      <Link to="/rpg" className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-white/10 bg-white/[0.02] px-6 py-5 transition-colors hover:border-white/25 hover:bg-white/[0.04] focus-visible:outline focus-visible:outline-2">
+        <div><h2 className="text-lg font-semibold text-white">RPG · 角色与世界</h2><p className="mt-1 text-sm text-zinc-300">地球 OL 人生模拟器与行间多世界 RPG，创建角色、进入故事、恢复历史。</p></div><span className="text-sm text-zinc-300">进入 RPG →</span>
+      </Link>
       <MatrixOasisTeaser />
 
       <section className="mb-6 rounded-lg border border-white/10 bg-white/[0.045] p-4">

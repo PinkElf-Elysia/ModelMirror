@@ -281,5 +281,13 @@
     "newProviderCalls": 0,
     "notes": "corrected two stale help labels; no model input changes",
     "fullScreenshotArchive": false
+  },
+  "studioIntegration": {
+    "status": "user-accepted",
+    "date": "2026-09-17",
+    "entry": "/rpg/earth",
+    "record": "../studio/STATUS.json",
+    "currentDelivery": "../studio/DELIVERY.json",
+    "priorSections": "historical card round; preserved"
   }
 }

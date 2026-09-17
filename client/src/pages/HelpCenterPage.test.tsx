@@ -45,7 +45,7 @@ function renderHelp(initialEntry = "/help") {
 }
 
 describe("HelpCenterPage", () => {
-  it("keeps the audited eight-module and 45-topic taxonomy", () => {
+  it("keeps the audited eight-module and 46-topic taxonomy", () => {
     const expectedTopicIds: Record<string, string[]> = {
       models: ["filter-and-compare", "smart-router", "text-and-files", "image-understanding", "image-generation", "video", "realtime-voice", "transcription", "speech-synthesis", "music-generation", "start-chatting"],
       agents: ["agent-market", "agent-studio", "workflow-generator", "automations", "goals", "evaluations", "evolution", "datax", "expert-team"],
@@ -54,11 +54,11 @@ describe("HelpCenterPage", () => {
       prompts: ["templates", "prompt-command", "plugins"],
       runtime: ["run-records", "client-hosts", "runtime-resources"],
       workspace: ["workflow", "rag", "data-tables", "coding", "settings"],
-      experimental: ["workflow-native", "science", "matrix-oasis"],
+      experimental: ["rpg", "workflow-native", "science", "matrix-oasis"],
     };
 
     expect(helpModules.map((module) => module.id)).toEqual(Object.keys(expectedTopicIds));
-    expect(helpModules.flatMap((module) => module.topics)).toHaveLength(45);
+    expect(helpModules.flatMap((module) => module.topics)).toHaveLength(46);
     helpModules.forEach((module) => {
       expect(module.topics.map((topic) => topic.id)).toEqual(expectedTopicIds[module.id]);
       expect(module.homeTopicIds).toHaveLength(2);

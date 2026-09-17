@@ -8,6 +8,7 @@ import MetaAgentPage from "./pages/MetaAgentPage";
 import MatrixOasisPage from "./pages/MatrixOasisPage";
 import ModelListPage from "./pages/ModelListPage";
 import RuntimeOpsPage from "./pages/RuntimeOpsPage";
+import RpgPage from "./pages/RpgPage";
 import StudioHomePage from "./pages/StudioHomePage";
 import RagPage from "./pages/RagPage";
 import SkillBrowserPage from "./pages/SkillBrowserPage";
@@ -70,6 +71,8 @@ export default function App() {
       <Route element={<Navigate replace to="/models" />} path="/" />
       <Route element={<ModelListPage />} path="/models" />
       <Route element={<StudioHomePage />} path="/studio" />
+      <Route element={<RpgPage />} path="/rpg" />
+      <Route element={<RpgPage />} path="/rpg/:cardId" />
       <Route
         element={
           <Suspense fallback={<CodingPageFallback />}>

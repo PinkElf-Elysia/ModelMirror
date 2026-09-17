@@ -1,0 +1,187 @@
+{
+  "status": "user-accepted; pre-publication snapshot",
+  "base": "a7d99925584e818e7f2df84b1646256abfc08ed6",
+  "branch": "codex/studio-rpg-integration",
+  "scope": "Studio integration only; original delivery/evidence preserved",
+  "runtimeAtRealDispatch": {
+    "at": "2026-09-17T10:59:43.687Z",
+    "base": "a7d99925584e818e7f2df84b1646256abfc08ed6",
+    "image": "sha256:2ff55446c93accff78157a42e34bc856214f180bcf462c5856de7c6329d76715",
+    "fileHashes": {
+      "studio/provider.mjs": "ed7ac283b8afedb31e2dddee116654c5a376da4cd6fda9ed729f9186856d0f87",
+      "studio/server.mjs": "c52f0b28afb080a3978eea33debdae4c3eea9503c8f3b840dabc95a7cd9639b2",
+      "studio/models.json": "d9696904b12400ff2d9444910e03fe525cf52eebfe800251c33f7f772844d658",
+      "studio/legacy-assembly.mjs": "c3caca6e20bb903d3db40972842e7ae5fd02a00bdf3165338be84e63265fc7c5",
+      "studio/legacy-engine.mjs": "9d5e3c84a5e4954f86f8ab59c77a65c71eb0d9d1586daa9ae1683d9791dd6365",
+      "studio/rpg05-prompt.json": "f252b3030c45879a444c734a4b9a397a250e37d8f30f00089f946cddae34a3c4",
+      "card-replica/lib/assembly.mjs": "7507921b7c15695d62a71e65acc4f7bf5f8d8083a9812b855f17bd5585905bed",
+      "card-replica/lib/store.mjs": "a14fd94f2e86f091d1088a256817c7724f3a4965d9effdaa3963ac12aa624bec",
+      "card-replica/lib/render.mjs": "24569f0a4e4b96540f8d2962b7cadb5cd1143561ef702258bae5423739d4b11c",
+      "card-replica/resources/prompts.json": "3cd96ac8519f31e15de17581926e9f693c75b18d0b139c64cb361c071c709ae7",
+      "card-replica/resources/MANIFEST.json": "d2e0a7fb7add0296bf6aaa6f445f9c3f6f9e18627c0021c0e8f5581bda04a7dc"
+    }
+  },
+  "deployedImages": [
+    {
+      "name": "modelmirror-server",
+      "image": "sha256:e2e5c8a2c76a0d572bb7854e34d7d1380ac2d78baf911ab5abb3ac78e04e3857"
+    },
+    {
+      "name": "modelmirror-client",
+      "image": "sha256:e107ecbd4c1769c1ad11669c8930bc30017f445285338ff528439ae0916ec8bf"
+    },
+    {
+      "name": "modelmirror-rpg",
+      "image": "sha256:f805e271b2c7108624e988db74be8dc832fb21a5da40b6f7f065c16a8e8dc662"
+    }
+  ],
+  "files": [
+    {
+      "path": "client/public/help-center/a7d99925/enter-card.jpg",
+      "bytes": 1101,
+      "sha256": "bc985f8dfd3e5811a4b78f917ab58c03b667b3b3e9a0bd48401e35ba39b1f89e"
+    },
+    {
+      "path": "client/server.mjs",
+      "bytes": 5280,
+      "sha256": "1dc6cc8a7ccc7ca308bbf4a53388ad6863f771c1586474d2ba779e1086601e15"
+    },
+    {
+      "path": "client/src/App.tsx",
+      "bytes": 8307,
+      "sha256": "578a36c294ae73e7947bf220413fa492902323b01fd623698e24837e82391458"
+    },
+    {
+      "path": "client/src/content/help-center/articles/play-rpg-cards.md",
+      "bytes": 3267,
+      "sha256": "d855470305a557720cc0c03582d55710391099b260b9fb737622081fead9d16e"
+    },
+    {
+      "path": "client/src/content/help-center/helpContent.test.ts",
+      "bytes": 20485,
+      "sha256": "3877a4a1ce1c310c9b1f2a54ab1c43d7b70a61f72229647201b8ab9a760e27cb"
+    },
+    {
+      "path": "client/src/content/help-center/index.ts",
+      "bytes": 57478,
+      "sha256": "ca652df46541de4d2fa39e99d4cbc88fd9ccdcb989d45a161ddb03500f96e8ad"
+    },
+    {
+      "path": "client/src/pages/HelpCenterPage.test.tsx",
+      "bytes": 14076,
+      "sha256": "24561ad8077bf5f97aa9e59b904814ea06cf27a3ccd8d5349b9857577d2c589d"
+    },
+    {
+      "path": "client/src/pages/RpgPage.tsx",
+      "bytes": 3679,
+      "sha256": "caa54af12da0cdca9e82733b4080704a5184ceedd8a3832195b3c75de7b06eda"
+    },
+    {
+      "path": "client/src/pages/StudioHomePage.tsx",
+      "bytes": 38146,
+      "sha256": "a4fd9711357834234aea3f86c8fc608f68e31abc7c617886c9816a8e2661c763"
+    },
+    {
+      "path": "docker-compose.rpg.yml",
+      "bytes": 1120,
+      "sha256": "38d8d94fab374fa16833921d623337f43c2c2e2f7cdcf4d03bcbc0a9b420f306"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/STUDIO_INTEGRATION.md",
+      "bytes": 6324,
+      "sha256": "4f4b157efc2482ff154cd68929da7d7798ac53dd9cf86cc86ce0dec05d149f4e"
+    },
+    {
+      "path": "docs/help-center/RPG_STUDIO_VERIFICATION.md",
+      "bytes": 1515,
+      "sha256": "588d6b7e9e4bdfc5970ccd88201a08bb4e8679ada86174097ba4eae2b297b92f"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/STATUS.json",
+      "bytes": 13128,
+      "sha256": "6018a751192048241bfcea7ec91c267c3b781fc16862dfb22c425e82795a182b"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/src/main.tsx",
+      "bytes": 19653,
+      "sha256": "0ce7f5b606e6a13f1920abf2b92cac4328a3ec3a2e25c8754652eca7fecf32e1"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/src/platform.tsx",
+      "bytes": 10356,
+      "sha256": "44cf135aa7f98c45e556d0db6a348fd6b05dcc548549c3e9645311288d4ce50d"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/Dockerfile",
+      "bytes": 1161,
+      "sha256": "0e6985d9d80378379affe759ccfe59d8ab69c3fd1b60f0f8c4456a50aa86ba78"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/Dockerfile.dockerignore",
+      "bytes": 92,
+      "sha256": "4471a6ed032575c44426af75703b716873f7af995f62ee3a4b763fb71fe39087"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/STATUS.json",
+      "bytes": 5527,
+      "sha256": "ec4fdc8594a905b3e5a4e7361d90b46d49064eccdf4298e1980b819b86f9eb27"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/deploy-shared.py",
+      "bytes": 5750,
+      "sha256": "0d1837ed2b42c10f9da6e0841a11d68885a23959a9a06ee5032a5b862532dea5"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/legacy-assembly.mjs",
+      "bytes": 1804,
+      "sha256": "5334111ad81645ca22d30449f41a1dc155df33fa518bd3e9f88cf2c7cbe8b962"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/legacy-engine.mjs",
+      "bytes": 3178,
+      "sha256": "74090acebea4e5dd7a1a8ea234a7a51bead903f3449ca55cd88952205b634819"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/models.json",
+      "bytes": 838,
+      "sha256": "d7057eb792628577eb3acccc8d6ac5a3fecf47ee67845543d2b28f69feca4abd"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/provider.mjs",
+      "bytes": 5075,
+      "sha256": "2d46d4950629c7f7d9ea1f33855d9deb3571e37efcc230a0b096c2f8f4f97fc2"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/rpg05-prompt.json",
+      "bytes": 10417,
+      "sha256": "17d4a250b10b1c33e9f0dbfd5afb8639987c0578b5004bce80f7eea4dc4fe899"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/server.mjs",
+      "bytes": 5619,
+      "sha256": "fc1d31cf4ed324adf573ca795d5ad9631deb69cae2285041162a2cbf173a19b9"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/studio.test.mjs",
+      "bytes": 6411,
+      "sha256": "145cb63f2d10e834b6330c3cf153ddd8489f7aaaa4e203dda6994c0959736e3e"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/ui/src/Play.tsx",
+      "bytes": 16141,
+      "sha256": "b087b3615df06cc9bf08e3cdecdb1e86e531c549c2eb627acf40d55b2bbee8ae"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/ui/src/api.ts",
+      "bytes": 2837,
+      "sha256": "e4dab9ccfdb8c3f15c07ee324c8156603bf2c22164b39d7c89ff40cbccca6268"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/ui/src/types.ts",
+      "bytes": 3149,
+      "sha256": "5dc1160079749c105c9dbe85a3c5bb3c8f4f6ed425c5fecac2f9148a40a9c8a4"
+    }
+  ],
+  "excludes": "this file; credentials; node_modules; generated dist; provider raw outputs and operational local evidence",
+  "postDispatchChange": "Only source-file line endings normalized to LF and documentation/status finalized; frozen prompt string hashes unchanged. Real-dispatch snapshot retained separately."
+}

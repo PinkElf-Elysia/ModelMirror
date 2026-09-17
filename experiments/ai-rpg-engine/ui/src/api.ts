@@ -29,10 +29,10 @@ async function decode<T>(response: Response): Promise<T> {
   return value as T;
 }
 export async function bootstrap(signal?: AbortSignal): Promise<Bootstrap> {
-  return decode(await fetch('/api/bootstrap', { headers: { 'x-rpg-client': '1' }, signal }));
+  return decode(await fetch((typeof location!=='undefined'&&location.pathname.startsWith('/rpg-app/rpg05/')?'/rpg-app/rpg05/api/':'/api/')+'bootstrap', { headers: { 'x-rpg-client': '1' }, signal }));
 }
 export async function command<T>(name: string, payload: object): Promise<T> {
-  return decode(await fetch('/api/command', {
+  return decode(await fetch((typeof location!=='undefined'&&location.pathname.startsWith('/rpg-app/rpg05/')?'/rpg-app/rpg05/api/':'/api/')+'command', {
     method: 'POST', headers: { 'content-type': 'application/json', 'x-rpg-client': '1' },
     body: JSON.stringify({ command: name, payload }),
   }));
