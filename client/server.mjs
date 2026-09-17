@@ -31,6 +31,8 @@ function normalizePublicManagementUrl(value) {
 
 const runtimeConfig = JSON.stringify({
   newApiWebUrl: normalizePublicManagementUrl(process.env.NEWAPI_WEB_URL),
+  scienceConsoleUrl: normalizePublicManagementUrl(process.env.SCIENCE_CONSOLE_URL),
+  matrixOasisConsoleUrl: normalizePublicManagementUrl(process.env.MATRIX_OASIS_CONSOLE_URL),
 });
 
 const contentTypes = new Map([
