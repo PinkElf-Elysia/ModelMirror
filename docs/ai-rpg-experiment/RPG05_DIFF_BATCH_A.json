@@ -1,0 +1,81 @@
+{
+  "batch": "A",
+  "slot": 10,
+  "comparisonSlot": 9,
+  "status": "pending_user_review",
+  "provider": {
+    "status": "transport_complete",
+    "receipt": {
+      "requested_model": "gpt-5.6-luna",
+      "actual_model": "gpt-5.6-luna",
+      "provider": null,
+      "strategy": "newapi_preferred",
+      "engine": "newapi",
+      "reason_codes": [
+        "qualified"
+      ],
+      "latency_ms": 40137.09309999831,
+      "ttft_ms": 3800.0754000386223,
+      "tokens": {
+        "input": 4480,
+        "output": 3613,
+        "total": 8093
+      },
+      "response_cost_usd": null,
+      "cost_kind": "unavailable",
+      "fallback_attempts": 0,
+      "cache_hit": null,
+      "request_id": null,
+      "version": "2"
+    },
+    "finishReason": "stop",
+    "done": true,
+    "observedModel": "gpt-5.6-luna",
+    "httpStatus": 200,
+    "error": null,
+    "textSha256": "f854fd6dba969b395fd2a569e94e2311b97c2ace59e9290122aced45ffd2452e",
+    "rawSha256": "3d33d7c4e45f7553192246105302a6e4ed2c3ccc7b887fb614213b15b46d8d51",
+    "characters": 4744,
+    "slot": 10,
+    "newConsumed": 10,
+    "newRemaining": 10,
+    "totalConsumed": 50,
+    "quality": "pending_user_review",
+    "formalUiTurns": 0,
+    "at": "2026-09-14T08:58:48.550Z"
+  },
+  "narrativeCharacters": 1338,
+  "narrativeHanCharacters": 1101,
+  "newBudget": {
+    "limit": 20,
+    "consumed": 10,
+    "remaining": 10
+  },
+  "overallAcceptance": false,
+  "uiIntegration": "not_done",
+  "observations": [
+    "five talent effect descriptions retained and span color classes present",
+    "preference restored; appearance shortened and princess background not separately listed",
+    "generic cultivation details remain; world/style scheduled for batchB",
+    "HTML color rendering not yet UI-verified"
+  ],
+  "recommendation": "keep as candidate subject to user approval; do not add more completeness constraints now",
+  "artifacts": [
+    {
+      "path": "experiments/ai-rpg-engine/.rpg04-work/rpg05-minimal-plan20/case-10.json",
+      "sha256": "0e73ff51b953323c9570150644ebfc44d426dd5bdc3285a6a1f6cfedfcc28a35"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/.rpg04-work/rpg05-minimal-plan20/dispatch-10/response.txt",
+      "sha256": "f854fd6dba969b395fd2a569e94e2311b97c2ace59e9290122aced45ffd2452e"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/.rpg04-work/rpg05-minimal-plan20/dispatch-10/response.sse",
+      "sha256": "3d33d7c4e45f7553192246105302a6e4ed2c3ccc7b887fb614213b15b46d8d51"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/.rpg04-work/rpg05-minimal-plan20/dispatch-10/RESULT.json",
+      "sha256": "24cbd91d779800588c93df15b951daea260f252c4c1edaeef1de8a28de35956e"
+    }
+  ]
+}

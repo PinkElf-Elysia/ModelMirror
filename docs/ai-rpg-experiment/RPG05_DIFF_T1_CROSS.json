@@ -1,0 +1,53 @@
+{
+  "status": "transport_complete",
+  "receipt": {
+    "requested_model": "gpt-5.6-luna",
+    "actual_model": "gpt-5.6-luna",
+    "provider": null,
+    "strategy": "newapi_preferred",
+    "engine": "newapi",
+    "reason_codes": [
+      "qualified"
+    ],
+    "latency_ms": 15634.761299996171,
+    "ttft_ms": 2541.389599966351,
+    "tokens": {
+      "input": 3852,
+      "output": 939,
+      "total": 4791
+    },
+    "response_cost_usd": null,
+    "cost_kind": "unavailable",
+    "fallback_attempts": 0,
+    "cache_hit": null,
+    "request_id": null,
+    "version": "2"
+  },
+  "finishReason": "stop",
+  "done": true,
+  "observedModel": "gpt-5.6-luna",
+  "httpStatus": 200,
+  "error": null,
+  "slot": 33,
+  "at": "2026-09-15T04:24:53.548Z",
+  "textSha256": "1e0e0022095a5321f3129e72bf96b4f93ec47ec00d162724c5826f8440cf6156",
+  "rawSha256": "a043287f7a9f1ed6c3e35c2a4abf330cb2dc70bc7c3d48362bb34cffdde11ec7",
+  "characters": 1107,
+  "routeConsumed": 21,
+  "routeRemaining": 12,
+  "historicalConsumed": 61,
+  "quality": "pending_user_review",
+  "formalUiTurns": 0,
+  "baselineSlot": 13,
+  "candidate": "区分玩家已经说出或尝试的事，与提问、假设和尚未作出的决定；回应前者，保留后者的选择空间。",
+  "han": 932,
+  "recommendation": "不建议当前全局加回，待用户裁决；不再追加本项测试。",
+  "observations": [
+    "未再出现替玩家预写下一句对白，未替玩家签字或主动再碰泵。",
+    "人物情绪、对白、冲突仍鲜活，未明显僵化。",
+    "叙述仍替玩家完成从重量磨损推断端子用途的认知，收益有限。",
+    "居民理解上次含义缺少交代，属于后续NPC知情测试，不追加本项约束。"
+  ],
+  "scope": "历史C13原请求加一句；无完整资料栏，无混合主持查询；非完整T1复验",
+  "candidateDecision": "pending_user_review"
+}

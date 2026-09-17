@@ -1,0 +1,16 @@
+import fs from 'node:fs/promises';
+import {createHash} from 'node:crypto';
+import {receiveMinimalText} from '../ui-host/minimal-transport-pair8192.mjs';
+const root=new URL('../',import.meta.url),w=new URL('.rpg04-work/rpg05-minimal-plan20/',root),sha=b=>createHash('sha256').update(b).digest('hex');
+const save=(n,v)=>fs.writeFile(new URL(n,w),JSON.stringify(v,null,2)+'\n',{flag:'wx'});
+if(process.argv[2]!=='execute')throw Error('EXPLICIT_EXECUTE_REQUIRED');
+const b=await fs.readFile(new URL('T1-pair.json',w));if(sha(b)!=='a32e1cd4556b221ba8c409a6c69e9cb8d55eb714e57104abc01ce5ae55066441')throw Error('PAIR_DRIFT');const pair=JSON.parse(b);
+for(const f of pair.sources)if(sha(await fs.readFile(new URL(f.path,root)))!==f.sha256)throw Error('SOURCE_DRIFT');
+const baseline=await fs.readFile(new URL('dispatch-18/response.txt',w));if(sha(baseline)!=='a8e311a6d045cbe3d2db9d98e68cd0c88f5dbfdf34ab5c68a0e7739a31f08386')throw Error('BASELINE_DRIFT');
+const check=structuredClone(pair.candidateCase.payload);check.messages[0].content=check.messages[0].content.slice(0,-pair.candidate.length-1);if(JSON.stringify(check)!==JSON.stringify(pair.baseline.payload))throw Error('PAIR_DIFF');
+const dirs=(await fs.readdir(w)).filter(x=>/^dispatch-\d+$/.test(x));if(dirs.length!==19||dirs.includes('dispatch-19'))throw Error('LEDGER_DRIFT');
+const q=await fetch('http://127.0.0.1:18305/api/models/provider-chat-control?model_id=gpt-5.6-luna&capability=chat_text',{redirect:'error',signal:AbortSignal.timeout(10000)});if(!q.ok)throw Error('CONTROL_HTTP');const qualification=await q.json();if(!qualification.available||qualification.reason_code!=='qualified')throw Error('UNQUALIFIED');
+await save('T1-baseline-user-approval.json',{at:new Date().toISOString(),userQuote:'批准作为基线，开始生成加句版',baselineSha256:sha(baseline),pairSha256:sha(b),decision:'baseline_approved_execute_frozen_candidate_once'});
+await fs.mkdir(new URL('dispatch-19/',w));await save('dispatch-19/reservation.json',{at:new Date().toISOString(),pairSha256:sha(b),runnerSha256:sha(await fs.readFile(new URL('tooling/rpg05-diff-t1-candidate.mjs',root))),slot:19,kind:'T1_candidate',limit:32});await save('dispatch-19/qualification.json',qualification);
+const result=await receiveMinimalText(pair.candidateCase.payload);await fs.writeFile(new URL('dispatch-19/response.txt',w),result.text,{flag:'wx'});await fs.writeFile(new URL('dispatch-19/response.sse',w),result.raw,{flag:'wx'});
+const {text,raw,...rest}=result;const report={...rest,at:new Date().toISOString(),slot:19,textSha256:sha(text),rawSha256:sha(raw),characters:[...text].length,routeConsumed:20,routeRemaining:12,historicalConsumed:60,quality:'pending_user_review',formalUiTurns:0};await save('dispatch-19/RESULT.json',report);console.log(JSON.stringify(report));

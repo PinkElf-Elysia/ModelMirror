@@ -1,0 +1,15 @@
+import fs from 'node:fs/promises';
+import {createHash} from 'node:crypto';
+import {receiveMinimalText} from '../ui-host/minimal-transport-pair8192.mjs';
+const root=new URL('../',import.meta.url),w=new URL('.rpg04-work/rpg05-minimal-plan20/',root),sha=b=>createHash('sha256').update(b).digest('hex');
+const save=(n,v)=>fs.writeFile(new URL(n,w),JSON.stringify(v,null,2)+'\n',{flag:'wx'});
+if(process.argv[2]!=='execute')throw Error('EXECUTE_REQUIRED');
+const b=await fs.readFile(new URL('T1-cross33.json',w));if(sha(b)!==process.argv[3])throw Error('CASE_DRIFT');const c=JSON.parse(b);
+for(const f of c.sources)if(sha(await fs.readFile(new URL(f.path,w)))!==f.sha256)throw Error('SOURCE_DRIFT');
+if(sha(await fs.readFile(new URL('ui-host/minimal-transport-pair8192.mjs',root)))!==c.transportSha256)throw Error('TRANSPORT_DRIFT');
+const original=JSON.parse(await fs.readFile(new URL('case-13.json',w)));const p=structuredClone(c.payload);p.messages[0].content=p.messages[0].content.slice(0,-c.candidate.length-1);if(JSON.stringify(p)!==JSON.stringify(original.payload))throw Error('PAIR_DIFF');
+if((await fs.readdir(w)).filter(n=>/^dispatch-\d+$/.test(n)).length!==20)throw Error('LEDGER_DRIFT');
+const qr=await fetch('http://127.0.0.1:18305/api/models/provider-chat-control?model_id=gpt-5.6-luna&capability=chat_text',{redirect:'error',signal:AbortSignal.timeout(10000)});if(!qr.ok)throw Error('CONTROL_HTTP');const q=await qr.json();if(!q.available||q.reason_code!=='qualified')throw Error('UNQUALIFIED');
+await fs.mkdir(new URL('dispatch-33/',w));await save('dispatch-33/reservation.json',{slot:33,caseSha256:sha(b),at:new Date().toISOString(),authorization:c.userQuote,routeLimit:33});await save('dispatch-33/qualification.json',q);
+const result=await receiveMinimalText(c.payload);await fs.writeFile(new URL('dispatch-33/response.txt',w),result.text,{flag:'wx'});await fs.writeFile(new URL('dispatch-33/response.sse',w),result.raw,{flag:'wx'});const {text,raw,...rest}=result;
+const report={...rest,slot:33,at:new Date().toISOString(),textSha256:sha(text),rawSha256:sha(raw),characters:[...text].length,routeConsumed:21,routeRemaining:12,historicalConsumed:61,quality:'pending_user_review',formalUiTurns:0};await save('dispatch-33/RESULT.json',report);console.log(JSON.stringify(report));

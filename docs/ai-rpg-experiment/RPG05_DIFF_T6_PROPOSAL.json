@@ -1,0 +1,46 @@
+{
+  "format": "rpg05-t6-proposal/1",
+  "status": "pair_scope_pending_user_approval",
+  "slots": [
+    29,
+    30
+  ],
+  "candidate": "让NPC依据亲见、听闻和自身立场形成判断；他们可以误会、猜疑或撒谎，不必知道玩家未透露的经历与内心。",
+  "input": "听见赵魁回来的脚步，我站到韩石旁边，朝柳青萝轻轻一笑：「先欠着这笔生意，别急着把我卖贵了。」我等赵魁走近，对他说：「草还没采，你倒先回来查账了。怎么，怕韩管事记性太好？」（我其实很怕他当场动手，但不想在韩石面前露怯；这份害怕没有说出口。）",
+  "history": "T5 baseline request + dispatch-27 full response; includes dispatch-9 and dispatch-18 verbatim; no candidate output used",
+  "presentation": "same case-9 complete author format and role/talent text; no added A-format sentence",
+  "included": [
+    "T2 only"
+  ],
+  "excluded": [
+    "T1",
+    "T3",
+    "T5"
+  ],
+  "comparison": "fresh baseline versus one retained T2 sentence within full-format multi-turn history",
+  "notClaimed": [
+    "multiple-new-sentence synergy",
+    "seven-turn memory",
+    "official UI integration"
+  ],
+  "criteria": [
+    "人物从挑衅、站位、笑容等外在信号反应，可怀疑或试探，不直接知道未表露的恐惧。",
+    "保留对白、情绪、威胁与有趣互动，避免审计口吻。",
+    "已有交易尚未成交、账册已写、纸鹤未用等背景持续。",
+    "资料栏与建议保持可读，记录缺漏但不因数量整齐判优。"
+  ],
+  "model": "gpt-5.6-luna",
+  "temperature": 0,
+  "maxOutputTokens": 8192,
+  "sequence": "freeze both; baseline first; user review; candidate second",
+  "providerCallsThisTurn": 0,
+  "remaining": 6,
+  "T4ReservedUnused": 2,
+  "T5Decision": {
+    "at": "2026-09-15T10:22:27.850984+00:00",
+    "userQuote": "保留，但证据不足，仅记录不全局加回或追加测试，进入下一项",
+    "T5": "evidence_only",
+    "includeInT6": false,
+    "moreTests": false
+  }
+}

@@ -1,0 +1,125 @@
+{
+  "format": "rpg05-experience-revision/1",
+  "updatedAt": "2026-09-13T09:23:57.826203+00:00",
+  "status": "offline_candidate_verified_real_quality_unverified",
+  "authorization": "User requested 开始修订 after the experience optimization proposal; local candidate revision only in this turn",
+  "candidatePath": "experiments/ai-rpg-engine/.rpg04-work/rpg05-experience-v6/candidate",
+  "candidatePackage": {
+    "id": "card.rpg05.player-directed",
+    "version": "0.2.0"
+  },
+  "base": "81fc14f6e0dada2447a63c1e532ee55b1f914ded",
+  "head": "a753e884962829c63acfc8b1f7f3d7dc94379b8e",
+  "branch": "codex/ai-rpg-rpg05-ui",
+  "changedFiles": [
+    "ui-host/setup.mjs",
+    "ui-host/experience-content.mjs",
+    "tests/ui-host-experience-content.test.mjs",
+    "docs/RPG05_EXPERIENCE_REVISION.md"
+  ],
+  "sourceManifestPath": "experiments/ai-rpg-engine/.rpg04-work/rpg05-experience-v6/SOURCE_MANIFEST.json",
+  "sourceManifestSha256": "f399414471e1cff35873a3452176ace6951ee592cce71453ac257b8230072f27",
+  "sourceFileCount": 363,
+  "checks": {
+    "offline": {
+      "status": "passed",
+      "newTests": 6,
+      "existingAffectedTests": 54,
+      "distinctTests": 60,
+      "failed": 0,
+      "skipped": 0,
+      "finalSourceAttributionRecheck": {
+        "passed": 12,
+        "additionalDistinctTests": 0,
+        "command": "node --test tests/ui-host-experience-content.test.mjs tests/ui-host-play-content.test.mjs"
+      },
+      "regressionCommand": "node --test tests/ui-host-play-content.test.mjs tests/ui-host-setup.test.mjs tests/ui-host-service.test.mjs tests/ui-host-journeys.test.mjs tests/ui-host-input.test.mjs tests/ui-host-keyed-turn.test.mjs tests/ui-host-keyed-protocol.test.mjs tests/ui-host-keyed-journey.test.mjs",
+      "testScope": "content assembly, import, codec, state persistence, cancellation/replay/recovery; HTTP transport is injected mock"
+    },
+    "real": {
+      "status": "not_run",
+      "providerDispatches": 0,
+      "quality": "unverified",
+      "sourceNotYetBoundForProviderExecution": true
+    },
+    "manual": {
+      "status": "not_run",
+      "qualityApproval": false,
+      "previewSwitched": false
+    },
+    "independent": {
+      "status": "not_run",
+      "independentHttpHarness": "not_run"
+    },
+    "fullRoundRegression": {
+      "status": "not_run",
+      "reason": "only affected tests rerun; original frozen implementation is unchanged"
+    },
+    "frontendBuild": {
+      "status": "not_run",
+      "reason": "UI source and dependencies unchanged; no new browser deployment"
+    }
+  },
+  "preservation": {
+    "originalFrozenFiles": 357,
+    "recoveryFrozenFiles": 368,
+    "priorFrozenFiles": 95,
+    "allSourceAndLedgerHashesMatched": true,
+    "protocolFilesChanged": false,
+    "oldTestsChanged": false,
+    "responseRewritingAdded": false,
+    "playerTalentsAutomaticallyAdded": false,
+    "dependenciesChanged": false,
+    "historicalEvidenceRewritten": false
+  },
+  "providerBudget": {
+    "automatic": {
+      "limit": 26,
+      "consumed": 26,
+      "remaining": 0
+    },
+    "supplementary": {
+      "limit": 8,
+      "consumed": 7,
+      "remaining": 1,
+      "executionEnabled": false
+    },
+    "manual": {
+      "limit": 5,
+      "consumed": 4,
+      "remaining": 1,
+      "reservedForUserOnly": true
+    },
+    "totalLimit": 39,
+    "totalConsumed": 37,
+    "scopeTransfers": false,
+    "thisRevisionConsumed": 0
+  },
+  "previews": {
+    "manual": {
+      "port": 18409,
+      "pid": 36932
+    },
+    "priorCandidateReadback": {
+      "port": 18410,
+      "pid": 46328
+    },
+    "verifiedListening": true,
+    "processesChanged": false,
+    "v6Running": false
+  },
+  "qualityRisks": [
+    "New guidance may not improve actual storytelling",
+    "Suggestions and shop behavior remain subject to real model verification",
+    "Sparse modules must not hide card-required information or memory updates",
+    "No comparison across matched real talent configurations yet"
+  ],
+  "rollback": "Keep v6 inactive if ineffective or regressive; preserve candidate evidence; original manual preview needs no rollback",
+  "publication": {
+    "commit": false,
+    "push": false,
+    "prUpdated": false,
+    "merge": false,
+    "fullAcceptance": false
+  }
+}

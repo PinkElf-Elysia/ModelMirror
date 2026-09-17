@@ -1,0 +1,73 @@
+{
+  "status": "route_restored",
+  "at": "2026-09-14T10:58:37.505225+00:00",
+  "cause": "provider_chat_certification_expired",
+  "oldCompletedAt": "2026-09-13T09:39:13.814641+00:00",
+  "defaultTtlSeconds": 86400,
+  "method": "existing local certification service; real certification then unchanged model/routes policy rebind",
+  "certification": {
+    "status": "passed",
+    "requested_model": "gpt-5.6-luna",
+    "actual_model": "gpt-5.6-luna",
+    "error_code": null,
+    "completed_at": "2026-09-14T10:57:49.691637+00:00",
+    "checks": {
+      "catalog_ok": true,
+      "model_present": true,
+      "chat_http_ok": true,
+      "text_delta_observed": true,
+      "tool_call_observed": false,
+      "file_output_contract_observed": false,
+      "capability_verified": true,
+      "stream_completed": true,
+      "terminal_observed": true
+    },
+    "certification_id": "chatcert_f3a5cefe61f64f918c566d0462e6e943",
+    "maxTokens": 64,
+    "slot": 20,
+    "kind": "certification_recovery",
+    "newConsumed": 11,
+    "newRemaining": 9,
+    "totalConsumed": 51
+  },
+  "liveQualification": {
+    "contract_version": "modelmirror-provider-chat-routing-v1",
+    "feature_enabled": true,
+    "data_plane_integrated": true,
+    "model_id": "gpt-5.6-luna",
+    "capability": "chat_text",
+    "effective_mode": "newapi_preferred",
+    "available": true,
+    "would_block": false,
+    "reason_code": "qualified"
+  },
+  "budget": {
+    "limit": 20,
+    "consumed": 11,
+    "remaining": 9,
+    "reservedSlot20UsedFor": "necessary certification recovery",
+    "BSlots11And12": "not_dispatched"
+  },
+  "noExpiryOverride": true,
+  "noCredentialChange": true,
+  "noPromptChange": true,
+  "furtherDispatch": "B baseline next; after reviewing it user approves paired output",
+  "artifacts": [
+    {
+      "path": ".rpg04-work/rpg05-minimal-plan20/dispatch-20/RESULT.json",
+      "sha256": "0f7da52e149a91761228753157791c6168355ed41ad2a05164f71a58cbf1175a"
+    },
+    {
+      "path": ".rpg04-work/rpg05-minimal-plan20/dispatch-20/qualification-after.json",
+      "sha256": "4b8254ba2722d840525f168efa6e90b862384873c992f2d63bbdf1cc576e0f5b"
+    },
+    {
+      "path": ".rpg04-work/rpg05-minimal-plan20/dispatch-20/reservation.json",
+      "sha256": "2957496adc64a3e9fa11a68160814a1aac2504baa0a4fcb98147936618c481fb"
+    },
+    {
+      "path": ".rpg04-work/rpg05-minimal-plan20/dispatch-20/recover.py",
+      "sha256": "4d56380555ddb22ea4488a91aee369653acbe21f9cbf5e8a0b4acdb1eba1aff7"
+    }
+  ]
+}

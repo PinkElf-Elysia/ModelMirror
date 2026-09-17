@@ -1,0 +1,79 @@
+{
+  "format": "rpg05-diff-coverage-plan/1",
+  "at": "2026-09-14T08:57:23.577247+00:00",
+  "userQuote": "锁定新计划，开始下一批实测",
+  "status": "approved",
+  "baselineSlot": 9,
+  "maxOutputTokens": 8192,
+  "slots": [
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20
+  ],
+  "maxDispatches": 20,
+  "consumedAtApproval": 9,
+  "remainingAtApproval": 11,
+  "batches": [
+    {
+      "id": "A",
+      "slots": [
+        10
+      ],
+      "goal": "resource expression, original effects and color"
+    },
+    {
+      "id": "B",
+      "slots": [
+        11,
+        12
+      ],
+      "goal": "second-world base vs sourced world/style content"
+    },
+    {
+      "id": "C",
+      "slots": [
+        13,
+        14,
+        15
+      ],
+      "goal": "continuous non-Gu/non-Minecraft experience; relationships, resource conditions, consequences"
+    },
+    {
+      "id": "D",
+      "slots": [
+        16,
+        17
+      ],
+      "goal": "one biggest observed gap, no-add/add comparison; optional if no gap"
+    },
+    {
+      "id": "E",
+      "slots": [
+        18,
+        19
+      ],
+      "goal": "approved additions integrated vs nonintegrated"
+    },
+    {
+      "id": "F",
+      "slots": [
+        20
+      ],
+      "goal": "reserved for identified need"
+    }
+  ],
+  "perOutputUserReview": true,
+  "automaticRetry": false,
+  "websiteProbes": false,
+  "uiAcceptanceIncluded": false,
+  "baselineOutputSha256": "4a95657e0eb7e6424ff517acf2ca599210f4f56ec40ae3ac3659c69db543a0bd",
+  "batchAExactAddition": "玩家档案保留输入中的各项人物资料。已提供的天赋与物品效果按原文列出，当前状态另行说明。带等级的天赋、技能与物品使用本卡颜色对应的 <span class=\"…\"> 标签：E/t-black、D/t-gray、C/t-white、B/t-green、A/t-blue、S/t-purple、SS/t-gold、SSS/t-red、UR/t-rainbow。"
+}

@@ -1,0 +1,53 @@
+{
+  "status": "transport_complete",
+  "receipt": {
+    "requested_model": "gpt-5.6-luna",
+    "actual_model": "gpt-5.6-luna",
+    "provider": null,
+    "strategy": "newapi_preferred",
+    "engine": "newapi",
+    "reason_codes": [
+      "qualified"
+    ],
+    "latency_ms": 13681.42550002085,
+    "ttft_ms": 3569.8743000393733,
+    "tokens": {
+      "input": 3781,
+      "output": 920,
+      "total": 4701
+    },
+    "response_cost_usd": null,
+    "cost_kind": "unavailable",
+    "fallback_attempts": 0,
+    "cache_hit": null,
+    "request_id": null,
+    "version": "2"
+  },
+  "finishReason": "stop",
+  "done": true,
+  "observedModel": "gpt-5.6-luna",
+  "httpStatus": 200,
+  "error": null,
+  "slot": 21,
+  "at": "2026-09-15T04:29:27.259Z",
+  "textSha256": "5d4f458406ab6701f8996ba8cd095c956f38370fa1c25891937aff8b37d5cde1",
+  "rawSha256": "97e59230e40908b4d472ff6064ec1b8ebf0069c6431b318931651b5bf9807a3e",
+  "characters": 1036,
+  "routeConsumed": 22,
+  "routeRemaining": 11,
+  "historicalConsumed": 62,
+  "quality": "pending_user_review",
+  "formalUiTurns": 0,
+  "format": "rpg05-t2-baseline/1",
+  "han": 867,
+  "candidateDispatched": false,
+  "T1Included": false,
+  "observations": [
+    "未把隐藏的相信直接交给许棠；基线已满足核心知情检查。",
+    "显式说明她没有听见没说出口的判断，存在元叙述感。",
+    "主管转移话题并抢证据，许棠抵抗，冲突持续推进。",
+    "延续余振感知并新增玩家神色变化，保留观察，不据此追加约束。"
+  ],
+  "recommendation": "基线核心表现成立；待用户审阅后对照加句版是否改善体验。",
+  "formalUiIntegration": "not_tested"
+}

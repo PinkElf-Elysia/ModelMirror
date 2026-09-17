@@ -37,7 +37,13 @@
     "test:context": "node --test tests/context-schema.test.mjs tests/context-contracts.test.mjs tests/context-card.test.mjs tests/context-approved-card.test.mjs tests/context-host.test.mjs tests/context-protocol.test.mjs tests/context-selection.test.mjs tests/context-compiler.test.mjs tests/context-state-compat.test.mjs tests/context-test-input.test.mjs tests/rpg04-content.test.mjs",
     "test:context-runtime": "node --test tests/context-runtime.test.mjs tests/context-output-budget.test.mjs tests/context-cli.test.mjs tests/context-cli-files.test.mjs",
     "rpg:context": "node scripts/context-cli.mjs",
-    "verify:rpg04": "node scripts/verify-rpg04.mjs"
+    "verify:rpg04": "node scripts/verify-rpg04.mjs",
+    "typecheck": "npm --prefix ui run typecheck",
+    "build": "npm --prefix ui run build",
+    "test:ui": "npm --prefix ui run test:ui",
+    "test:ui-host": "node --test tests/ui-host*.test.mjs",
+    "verify:rpg05": "node scripts/verify-rpg05.mjs",
+    "rpg:ui": "node ui-host/cli.mjs"
   },
   "dependencies": {
     "ajv": "8.20.0",

@@ -1,0 +1,58 @@
+{
+  "status": "transport_complete",
+  "receipt": {
+    "requested_model": "gpt-5.6-luna",
+    "actual_model": "gpt-5.6-luna",
+    "provider": null,
+    "strategy": "newapi_preferred",
+    "engine": "newapi",
+    "reason_codes": [
+      "qualified"
+    ],
+    "latency_ms": 33967.221300001256,
+    "ttft_ms": 3543.0071000009775,
+    "tokens": {
+      "input": 4281,
+      "output": 3068,
+      "total": 7349
+    },
+    "response_cost_usd": null,
+    "cost_kind": "unavailable",
+    "fallback_attempts": 0,
+    "cache_hit": null,
+    "request_id": null,
+    "version": "2"
+  },
+  "finishReason": "stop",
+  "done": true,
+  "observedModel": "gpt-5.6-luna",
+  "httpStatus": 200,
+  "error": null,
+  "slot": 24,
+  "at": "2026-09-15T04:44:31.808Z",
+  "textSha256": "1a5a440b4c61de9f36a96d0cf5699a583f4f18967cd957d7c765ea73a054077a",
+  "rawSha256": "f9d1cf78ab2bd029f6774ce56fbe132fda992aa2998f773a62d4630843f5cdad",
+  "characters": 4148,
+  "routeConsumed": 25,
+  "routeRemaining": 8,
+  "historicalConsumed": 65,
+  "quality": "pending_user_review",
+  "formalUiTurns": 0,
+  "format": "rpg05-t3-result/1",
+  "bodyCharacters": 1230,
+  "bodyHan": 984,
+  "candidate": "让天赋在符合词条条件的行动中产生鲜明、具体的效果；效果范围与使用条件以词条本身为准。",
+  "candidateDecision": "pending_user_review",
+  "pairOnlyDifferenceVerified": true,
+  "observations": [
+    "力量和动作展开增加，正文更长。",
+    "两版均没有无条件钓获，也未把光影明确升级为战力。",
+    "新增天赋触发、无穷力量生效、徒手采集成功字样，说明腔加重。",
+    "新增玩家闪避、击退僵尸、制门退屋的完整应对；超出原补墙输入的直接内容。",
+    "僵尸动作慢得可笑扩大了速度感知表现，不能仅以力量词条确证。",
+    "光影天赋独特感未见明确改善。"
+  ],
+  "recommendation": "倾向不纳入；基线已满足主要天赋条件，收益不足以抵消提示腔和代行动。单对不证明稳定因果，等待用户裁决。",
+  "scope": "单次Minecraft完整卡片样本；未叠加T1/T2；无自动追加测试",
+  "providerCallsThisTurn": 0
+}

@@ -1,0 +1,66 @@
+{
+  "status": "transport_complete",
+  "receipt": {
+    "requested_model": "gpt-5.6-luna",
+    "actual_model": "gpt-5.6-luna",
+    "provider": null,
+    "strategy": "newapi_preferred",
+    "engine": "newapi",
+    "reason_codes": [
+      "qualified"
+    ],
+    "latency_ms": 34689.47140000091,
+    "ttft_ms": 1610.9647000012046,
+    "tokens": {
+      "input": 14114,
+      "output": 3393,
+      "total": 17507
+    },
+    "response_cost_usd": null,
+    "cost_kind": "unavailable",
+    "fallback_attempts": 0,
+    "cache_hit": null,
+    "request_id": null,
+    "version": "2"
+  },
+  "finishReason": "stop",
+  "done": true,
+  "observedModel": "gpt-5.6-luna",
+  "httpStatus": 200,
+  "error": null,
+  "slot": 30,
+  "at": "2026-09-15T12:38:56.868Z",
+  "textSha256": "cc918a60ff6c81f150a7266a88bd3d55e753bde8ac9e3a3defbab93f6a659563",
+  "rawSha256": "66ae9d9c081a81108060efb17226bea94b22355426e77fa307506def72dfafad",
+  "characters": 4382,
+  "routeConsumed": 30,
+  "routeRemaining": 3,
+  "historicalConsumed": 70,
+  "quality": "pending_user_review",
+  "formalUiTurns": 0,
+  "format": "rpg05-t6-pair-result/1",
+  "bodyCharacters": 1817,
+  "bodyHan": 1403,
+  "baselineSlot": 29,
+  "candidateSentence": "让NPC依据亲见、听闻和自身立场形成判断；他们可以误会、猜疑或撒谎，不必知道玩家未透露的经历与内心。",
+  "observations": [
+    "对白、利益冲突和NPC主动行动仍在，没有明显退回机械说明文。",
+    "基线也没有直接读心；加句版让柳青萝从模型自行补出的僵硬手指猜测恐惧，不能据此宣称知情边界明显改善。",
+    "纸鹤未用、令牌暂扣、账册保留延续；将先前采草不入账说成玄铁不入账，并将仅录声音木片扩为声音与场景，仍有历史漂移。",
+    "资料仍省略外貌偏好及部分天赋完整效果；不因此恢复JSON或逐字段约束。"
+  ],
+  "recommendation": "保留T2为待评审候选，不宣布全局冻结；本对照未证明明确净收益，最终由用户审阅。",
+  "qualification": {
+    "slot": 25,
+    "source": "T4 reserved allocation",
+    "userAuthorization": "将T4保留额度中的1次用于认证，不扩额",
+    "maxOutputTokens": 64,
+    "result": "passed"
+  },
+  "remainingAllocation": {
+    "T4_reserved_slot26": 1,
+    "T7_slots31_32": 2,
+    "otherHistoricalReserved": 5
+  },
+  "scope": "真实受控路由，完整格式及三段真实历史；非正式UI集成验收；单次对照不能证明因果或泛化。"
+}

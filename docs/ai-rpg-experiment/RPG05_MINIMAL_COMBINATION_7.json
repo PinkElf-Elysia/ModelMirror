@@ -1,0 +1,83 @@
+{
+  "format": "rpg05-minimal-combination/1",
+  "slot": 7,
+  "comparisonSlot": 2,
+  "status": "pending_user_review",
+  "combinationFrozen": false,
+  "overallAcceptance": false,
+  "provider": {
+    "status": "transport_complete",
+    "receipt": {
+      "requested_model": "gpt-5.6-luna",
+      "actual_model": "gpt-5.6-luna",
+      "provider": null,
+      "strategy": "newapi_preferred",
+      "engine": "newapi",
+      "reason_codes": [
+        "qualified"
+      ],
+      "latency_ms": 16024.481200031005,
+      "ttft_ms": 3349.1000999929383,
+      "tokens": {
+        "input": 3615,
+        "output": 1302,
+        "total": 4917
+      },
+      "response_cost_usd": null,
+      "cost_kind": "unavailable",
+      "fallback_attempts": 0,
+      "cache_hit": null,
+      "request_id": null,
+      "version": "2"
+    },
+    "finishReason": "stop",
+    "done": true,
+    "observedModel": "gpt-5.6-luna",
+    "httpStatus": 200,
+    "error": null,
+    "textSha256": "798c3a9fedbce602539b7305b8ba51ac5f8d7b51717f202c08d3012a3e26d57f",
+    "rawSha256": "6e10e2a241e02b0659f2bd6938322ae16874103c1e2270eb564a28048a4d1be7",
+    "characters": 1500,
+    "slot": 7,
+    "newConsumed": 7,
+    "newRemaining": 13,
+    "totalConsumed": 47,
+    "quality": "pending_user_review",
+    "formalUiTurns": 0,
+    "at": "2026-09-14T04:22:16.477Z"
+  },
+  "narrativeCharactersIncludingWhitespace": 840,
+  "change": "approved presentation prompt appended only to card data; no output schema or transformation",
+  "newBudget": {
+    "limit": 20,
+    "consumed": 7,
+    "remaining": 13
+  },
+  "totalConsumed": 47,
+  "totalAuthorized": 65,
+  "uiIntegration": "not_done",
+  "furtherDispatch": "paused_until_user_review",
+  "recommendation": "retain as format candidate pending user review; optional fold sections present without table schema; world vocabulary and inferred status details remain quality observations, not automatic new constraints",
+  "artifacts": [
+    {
+      "path": "experiments/ai-rpg-engine/.rpg04-work/rpg05-minimal-plan20/case-7.json",
+      "sha256": "85ccfa8f23230e0b4a8c74806d0b9f5be4c28bba1bbde0fa2cf4432feaa8b9f9"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/.rpg04-work/rpg05-minimal-plan20/user-approval-format7.json",
+      "sha256": "97b28542610d5384036a8791e3b1b5d1c6585474c2484aa929c4258d605dbd05"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/.rpg04-work/rpg05-minimal-plan20/dispatch-7/RESULT.json",
+      "sha256": "e6984b2876dd770a36417c57df681bdf1c115a7256d53a5027affb12875f8e97"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/.rpg04-work/rpg05-minimal-plan20/dispatch-7/response.txt",
+      "sha256": "798c3a9fedbce602539b7305b8ba51ac5f8d7b51717f202c08d3012a3e26d57f"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/.rpg04-work/rpg05-minimal-plan20/dispatch-7/response.sse",
+      "sha256": "6e10e2a241e02b0659f2bd6938322ae16874103c1e2270eb564a28048a4d1be7"
+    }
+  ]
+}

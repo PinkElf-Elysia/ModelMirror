@@ -1,0 +1,144 @@
+{
+  "format": "rpg05-archive-verification/1",
+  "sourceReceipt": "C:\\tmp\\modelmirror-ai-rpg-rpg05-closeout\\experiments\\ai-rpg-engine\\.rpg04-work\\rpg05-published-AIhxVy\\receipt.json",
+  "receiptSha256": "5bc5ce2c4ef6b56940a66d021922a218de86cbacb2f7e8aa383bb0a62b1e5670",
+  "offlineTests": 530,
+  "groups": [
+    {
+      "id": "old216",
+      "command": [
+        "node",
+        "--test",
+        "tests/archive-bundle.test.mjs",
+        "tests/archive-zip.test.mjs",
+        "tests/content-compile.test.mjs",
+        "tests/content-e2e.test.mjs",
+        "tests/content-extract.test.mjs",
+        "tests/content-golden.test.mjs",
+        "tests/content-player.test.mjs",
+        "tests/content-provenance.test.mjs",
+        "tests/content-source.test.mjs",
+        "tests/contracts.test.mjs",
+        "tests/runtime-adapter.test.mjs",
+        "tests/runtime-cli.test.mjs",
+        "tests/runtime-contracts.test.mjs",
+        "tests/runtime-core.test.mjs",
+        "tests/runtime-plugin-host.test.mjs",
+        "tests/runtime-store.test.mjs",
+        "tests/worker-batch.test.mjs",
+        "tests/worker-capture.test.mjs",
+        "tests/world-source.test.mjs"
+      ],
+      "result": "passed",
+      "tests": 216,
+      "logSha256": "97ba529ccfde714e72c777deb6bce82520c438eb476d29aa81aefc746a3c4e4d"
+    },
+    {
+      "id": "rpg04NonHttp",
+      "command": [
+        "node",
+        "--test",
+        "tests/context-approved-card.test.mjs",
+        "tests/context-card.test.mjs",
+        "tests/context-cli-files.test.mjs",
+        "tests/context-cli.test.mjs",
+        "tests/context-compiler.test.mjs",
+        "tests/context-contracts.test.mjs",
+        "tests/context-host.test.mjs",
+        "tests/context-output-budget.test.mjs",
+        "tests/context-protocol.test.mjs",
+        "tests/context-runtime.test.mjs",
+        "tests/context-schema.test.mjs",
+        "tests/context-selection.test.mjs",
+        "tests/context-state-compat.test.mjs",
+        "tests/context-test-input.test.mjs",
+        "tests/rpg04-boundary.test.mjs",
+        "tests/rpg04-content.test.mjs",
+        "tests/rpg04-verification.test.mjs"
+      ],
+      "result": "passed",
+      "tests": 125,
+      "logSha256": "2daae29f3345179d9489532f8a147fafb1da79cf628f17e3dc48e7ad47b89963"
+    },
+    {
+      "id": "uiHost",
+      "command": [
+        "node",
+        "--test",
+        "tests/ui-host-dispatch-ledger.test.mjs",
+        "tests/ui-host-execution-freeze.test.mjs",
+        "tests/ui-host-input.test.mjs",
+        "tests/ui-host-journeys.test.mjs",
+        "tests/ui-host-keyed-journey.test.mjs",
+        "tests/ui-host-keyed-ledger.test.mjs",
+        "tests/ui-host-keyed-protocol.test.mjs",
+        "tests/ui-host-keyed-turn.test.mjs",
+        "tests/ui-host-manual-access.test.mjs",
+        "tests/ui-host-manual-cutover.test.mjs",
+        "tests/ui-host-minimal-narrative.test.mjs",
+        "tests/ui-host-minimal-transport.test.mjs",
+        "tests/ui-host-output-diagnostics.test.mjs",
+        "tests/ui-host-projection.test.mjs",
+        "tests/ui-host-protocol-ledger.test.mjs",
+        "tests/ui-host-real-adapter.test.mjs",
+        "tests/ui-host-security.test.mjs",
+        "tests/ui-host-service.test.mjs",
+        "tests/ui-host-setup.test.mjs",
+        "tests/ui-host-structured-http.test.mjs",
+        "tests/ui-host-structured-ledger.test.mjs",
+        "tests/ui-host-structured-schema.test.mjs",
+        "tests/ui-host-turn.test.mjs"
+      ],
+      "result": "passed",
+      "tests": 186,
+      "logSha256": "0ed0b48358f66c2510c67441536beca0d2ae6e9e573ccd6e86d135da7514d566"
+    },
+    {
+      "id": "ui",
+      "command": [
+        "node",
+        "--test",
+        "ui/tests/markdown.test.mjs",
+        "ui/tests/request-rejection.test.mjs"
+      ],
+      "result": "passed",
+      "tests": 3,
+      "logSha256": "4e55bf8df83c41ea4a0f72d5cf6386fa17dd56853fa880a75758d72469be17b9"
+    },
+    {
+      "id": "typecheck",
+      "command": [
+        "node",
+        "ui/node_modules/typescript/bin/tsc",
+        "--noEmit",
+        "-p",
+        "ui/tsconfig.json"
+      ],
+      "result": "passed",
+      "tests": 0,
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "id": "build",
+      "command": [
+        "node",
+        "node_modules/vite/bin/vite.js",
+        "build"
+      ],
+      "result": "passed",
+      "tests": 0,
+      "logSha256": "354dc083ab70cd03ba64159d8d15f7c3b6538d4fa70ccd3a325254fc2d53bf4f"
+    }
+  ],
+  "real": "not_run; stopped by user",
+  "manual": "not_run; partial demo only",
+  "independent": "not_run",
+  "independentHttpHarness": "not_run",
+  "lightweight8192Transport": "real historical samples exist; current minimal transport unit suite covers 4096 implementation, not separate 8192 copy",
+  "candidateSnapshot": "passed; commit check follows",
+  "sourceHead": "a753e884962829c63acfc8b1f7f3d7dc94379b8e",
+  "preflightFailure": "scanner false positive in unchanged NIST URL; corrected token-boundary pattern, original publication check rerun after snapshot regenerated",
+  "latestMain": "d246527d5554b16594d390172cfa38876f998ccb",
+  "existingPr": "376 Draft; pre-push CI includes failures; no green claim",
+  "intersection": "server/main.py shared with upstream; GitHub reported MERGEABLE, not integration acceptance"
+}

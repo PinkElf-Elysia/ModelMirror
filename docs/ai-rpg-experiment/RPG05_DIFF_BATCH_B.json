@@ -1,0 +1,57 @@
+{
+  "batch": "B",
+  "status": "prepared_blocked_before_provider_dispatch",
+  "at": "2026-09-14T10:54:27.500966+00:00",
+  "batchAApproval": {
+    "slot": 10,
+    "decision": "approved_candidate",
+    "userQuote": "认可，进入B",
+    "outputSha256": "f854fd6dba969b395fd2a569e94e2311b97c2ace59e9290122aced45ffd2452e"
+  },
+  "pair": {
+    "batch": "B",
+    "cases": [
+      {
+        "file": "case-11.json",
+        "sha256": "a7dfc114b3bea9405a8563cad32cff90c2255384c79eb154a17ba8a31935e0bb"
+      },
+      {
+        "file": "case-12.json",
+        "sha256": "6def5194643f4faa6d280e438cc9c04141f2b906f8d45ff92109e0a01254ac1b"
+      }
+    ],
+    "exactAddition": "\n\n【世界常识参考】\n本实验自主编写常识摘要：环境由方块构成，玩家可以尝试采集、建造和探索；夜色意味着需要评估周围风险。\n【本世界文风参考】\n孤独、自由、充满创造力。描写侧重于方块的纹理、挖掘的声音、背景音乐的空灵感以及从无到有建立家园的成就感。",
+    "sources": {
+      "world": "authored-resources.json: existing basics excerpt; omitted unknown/result restrictions",
+      "style": "RPG04_WEB13_REFERENCE.json: model_return_unverified_source"
+    },
+    "checks": {
+      "onlyAdditionDiffers": true,
+      "model": "gpt-5.6-luna",
+      "maxOutputTokens": 8192,
+      "temperature": 0,
+      "sameCharacterOpeningInput": true
+    },
+    "approvalGate": "slot12 only after user reviews slot11",
+    "at": "2026-09-14T10:51:36.724305+00:00"
+  },
+  "validation": {
+    "runnerSyntax": "passed",
+    "pairSingleDifference": "passed",
+    "liveQualification": "failed: provider_chat_no_qualified_route",
+    "qualificationDetailEndpoint": "admin_pairing_not_configured"
+  },
+  "providerDispatchesThisTurn": 0,
+  "newBudget": {
+    "limit": 20,
+    "consumed": 10,
+    "remaining": 10
+  },
+  "totalConsumed": 50,
+  "totalAuthorized": 65,
+  "cause": "qualification unavailable; expiry vs other cause not yet established",
+  "noAutomaticRetry": true,
+  "uiIntegration": "not_done",
+  "next": "restore legitimate qualification before slot11; slot12 still requires user review",
+  "rollback": "Do not use the prepared candidate; previous prompts, outputs, runtime and UI unchanged."
+}

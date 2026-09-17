@@ -1,0 +1,55 @@
+{
+  "status": "transport_complete",
+  "receipt": {
+    "requested_model": "gpt-5.6-luna",
+    "actual_model": "gpt-5.6-luna",
+    "provider": null,
+    "strategy": "newapi_preferred",
+    "engine": "newapi",
+    "reason_codes": [
+      "qualified"
+    ],
+    "latency_ms": 23188.388200011104,
+    "ttft_ms": 2828.9921000250615,
+    "tokens": {
+      "input": 4249,
+      "output": 2241,
+      "total": 6490
+    },
+    "response_cost_usd": null,
+    "cost_kind": "unavailable",
+    "fallback_attempts": 0,
+    "cache_hit": null,
+    "request_id": null,
+    "version": "2"
+  },
+  "finishReason": "stop",
+  "done": true,
+  "observedModel": "gpt-5.6-luna",
+  "httpStatus": 200,
+  "error": null,
+  "slot": 23,
+  "at": "2026-09-15T04:38:42.302Z",
+  "textSha256": "0c92815ad17fca66aa5909772a9cafb7d3caa3f01e55c843ee7bd8a28223b549",
+  "rawSha256": "b486688aab22a0020a6e4d181976f6081fc354395038114fe908e3a243fe315d",
+  "characters": 3061,
+  "routeConsumed": 24,
+  "routeRemaining": 9,
+  "historicalConsumed": 64,
+  "quality": "pending_user_review",
+  "formalUiTurns": 0,
+  "format": "rpg05-t3-baseline/1",
+  "bodyCharacters": 760,
+  "bodyHan": 636,
+  "candidateDispatched": false,
+  "observations": [
+    "力量效果明确：徒手取木搬运补墙。",
+    "没有钓鱼行为，没有自动钓获；光影未转化为战力。",
+    "视觉描写存在，光影天赋的独特感有限。",
+    "末尾点名未触发钓鱼机略带提示说明感。",
+    "额外折返取第二棵树属于补墙行动展开，是否过度由用户体验判断。"
+  ],
+  "recommendation": "基线核心条件表现已成立；先人工审阅，再对照候选额外收益。",
+  "T1T2Included": false,
+  "scope": "完整卡片格式的Minecraft样本，单次不证明泛化"
+}

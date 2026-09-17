@@ -1,0 +1,22 @@
+{
+  "format": "case-9 full author details format unchanged; no T1/T2/T3 added",
+  "status": "exact_candidate_pending_approval",
+  "slots": [
+    27,
+    28
+  ],
+  "candidate": "回顾资料时，沿用已经发生的经历、物品变化和约定；区分已完成的事与尚未兑现的打算，让这些经历自然影响本轮互动。",
+  "input": "我对柳青萝说：「你要优先知道水下有什么，可以。但替我作证具体包括什么？先说清楚，我们再谈成交。」我又看向韩石：「刚才那条记录，你真准备照他的意思写？」我没有取出纸鹤，也没有往灵泉走。",
+  "history": "case-9 original request + dispatch-9 full response + T1 baseline input + dispatch-18 full response; all verbatim; no invented intervening turns",
+  "criteria": [
+    "柳青萝已有交易条件与未成交状态延续",
+    "赵魁离场、韩石被要求记账等已发生事件延续",
+    "纸鹤未用、令牌暂扣等资料一致",
+    "完整资料与五方向建议仍可读；对白鲜活不机械复盘"
+  ],
+  "scope": "两段真实历史的连续性，不宣称七轮滚动或长期记忆；模型输出压缩另行如实记录",
+  "model": "gpt-5.6-luna",
+  "maxOutputTokens": 8192,
+  "temperature": 0,
+  "sequence": "freeze pair; baseline first; user review then candidate"
+}

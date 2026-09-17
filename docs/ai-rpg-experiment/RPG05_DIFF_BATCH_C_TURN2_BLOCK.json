@@ -1,0 +1,63 @@
+{
+  "batch": "C",
+  "slot": 14,
+  "status": "blocked_real_dispatch_http403",
+  "previousApproval": {
+    "slot": 13,
+    "decision": "approved_continue",
+    "userQuote": "同意，继续下一次连续对话",
+    "outputSha256": "99d6c3b599fd743dd9e5aed7a98736127b479279df6fd0d20f9cff85c1e52b06"
+  },
+  "provider": {
+    "status": "failed_or_unknown",
+    "receipt": null,
+    "finishReason": null,
+    "done": false,
+    "observedModel": null,
+    "httpStatus": 403,
+    "error": "HTTP_403",
+    "textSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "rawSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "characters": 0,
+    "slot": 14,
+    "newConsumed": 15,
+    "newRemaining": 5,
+    "totalConsumed": 55,
+    "quality": "pending_user_review",
+    "formalUiTurns": 0,
+    "at": "2026-09-14T11:28:06.528Z"
+  },
+  "routeEvidence": {
+    "runId": "chatrun_e818e48362f74d63bc82a9ff04356f6d",
+    "dispatched": 1,
+    "providerKind": "newapi",
+    "errorCode": "provider_chat_http_403",
+    "hardFailure": true,
+    "completedAt": "2026-09-14T11:28:06.521564+00:00"
+  },
+  "publicQualificationAfter": "provider_chat_no_qualified_route",
+  "causeBoundary": "403 returned on newAPI attempt; newAPI vs downstream refusal origin unknown",
+  "quality": "not_evaluated_no_output",
+  "budget": {
+    "limit": 20,
+    "consumed": 15,
+    "remaining": 5
+  },
+  "retry": false,
+  "nextGate": "diagnose 403 before any retry or recertification; preserve same request for possible later authorized replay",
+  "newPromptAdditions": [],
+  "artifacts": [
+    {
+      "path": ".rpg04-work/rpg05-minimal-plan20/dispatch-14/RESULT.json",
+      "sha256": "0e6159f1e3fc6b00ae53781c75ff251946c3ff39b4bf88efc9530891cea3b064"
+    },
+    {
+      "path": ".rpg04-work/rpg05-minimal-plan20/case-14.json",
+      "sha256": "0eb9d2914e7ec59e562460a2d1ace17527936905956ad982b1e934d264adaa6f"
+    },
+    {
+      "path": "tooling/rpg05-minimal-combination14.mjs",
+      "sha256": "a1cd50ec7fe33dbd9d7fe096348b5336f0bfb2e950bf50c7aba79b33daa7830f"
+    }
+  ]
+}

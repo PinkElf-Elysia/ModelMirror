@@ -1,0 +1,10 @@
+# Preserve the already frozen RPG05 bytes. Recognize CRLF terminators,
+# retaining every default whitespace check; no text/eol conversion or filter.
+docs/RPG05_BASELINE.json whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+docs/RPG05_FORMAT_REVIEW.md whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+docs/RPG05_PROTOTYPES.json whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+scripts/check-boundary-rpg05.mjs whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+tests/ui-host-dispatch-ledger.test.mjs whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+tests/ui-host-structured-schema.test.mjs whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+ui-host/dispatch-ledger.mjs whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+ui-host/structured-schema.mjs whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol

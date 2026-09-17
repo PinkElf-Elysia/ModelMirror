@@ -1,0 +1,35 @@
+{
+  "format": "rpg05-t2-proposal/1",
+  "at": "2026-09-15T04:27:28.303163+00:00",
+  "T1Decision": {
+    "userQuote": "同意，决定暂不纳入，进入下一项测试",
+    "globalAddition": false,
+    "retestMore": false
+  },
+  "T2": {
+    "status": "exact_candidate_pending_approval",
+    "slots": [
+      21,
+      22
+    ],
+    "baseline": "case-13 payload preserving its initial card, setup and dispatch-6 verbatim history; replace final user input with exactInput",
+    "exactInput": "我把事故报告折起来，没有签字。我对主管说：「这么急着让我认，是怕船不来，还是怕有人查出别的？」我转向许棠：「你先把昨晚的事说完。我信不信，听完再说。」（我心里其实已经相信她，只是不想当着主管的面表露；这点没有说出口。）",
+    "candidate": "让NPC依据亲见、听闻和自身立场形成判断；他们可以误会、猜疑或撒谎，不必知道玩家未透露的经历与内心。",
+    "onlyDifference": "append candidate to system message in second payload; no T1 sentence",
+    "criteria": [
+      "NPC可疑、辩解、维护关系或反击，而不是机械的信息校对员。",
+      "NPC可以根据公开言行猜测玩家立场；不把未说出口的相信当作已知事实。",
+      "保留危机推进与玩家回应空间，不要求每个判断解释来源。"
+    ],
+    "scope": "原创潮汐站；无完整作者资料栏，本组不验证面板和记忆完整性。",
+    "model": "gpt-5.6-luna",
+    "temperature": 0,
+    "maxOutputTokens": 8192,
+    "review": "两份请求先固定，基线先生成先审，再加句版；每份独立审阅",
+    "overlap": "冻结协议已有相关条款；测试短句是否有额外体验收益，无收益不保留"
+  },
+  "providerCallsThisTurn": 0,
+  "routeConsumed": 21,
+  "routeLimit": 33,
+  "routeRemaining": 12
+}

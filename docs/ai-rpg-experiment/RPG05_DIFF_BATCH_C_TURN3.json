@@ -1,0 +1,98 @@
+{
+  "batch": "C",
+  "slot": 17,
+  "status": "pending_user_review",
+  "storyChain": [
+    6,
+    13,
+    16,
+    17
+  ],
+  "provider": {
+    "status": "transport_complete",
+    "receipt": {
+      "requested_model": "gpt-5.6-luna",
+      "actual_model": "gpt-5.6-luna",
+      "provider": null,
+      "strategy": "newapi_preferred",
+      "engine": "newapi",
+      "reason_codes": [
+        "qualified"
+      ],
+      "latency_ms": 14620.550099993125,
+      "ttft_ms": 4120.546400023159,
+      "tokens": {
+        "input": 5972,
+        "output": 905,
+        "total": 6877
+      },
+      "response_cost_usd": null,
+      "cost_kind": "unavailable",
+      "fallback_attempts": 0,
+      "cache_hit": null,
+      "request_id": null,
+      "version": "2"
+    },
+    "finishReason": "stop",
+    "done": true,
+    "observedModel": "gpt-5.6-luna",
+    "httpStatus": 200,
+    "error": null,
+    "textSha256": "9556ca6ddac8bd35b314df8614371ff685bfad4cb5a6eaf39e81f3f1fd6fd2af",
+    "rawSha256": "837208ebab189b41db1fe7e4a55027caca6f43fa9b19386b2d007b5a4d3748e6",
+    "characters": 991,
+    "slot": 17,
+    "newConsumed": 18,
+    "newRemaining": 2,
+    "totalConsumed": 58,
+    "quality": "pending_user_review",
+    "formalUiTurns": 0,
+    "at": "2026-09-15T03:46:16.855Z"
+  },
+  "newPromptAdditions": [],
+  "budget": {
+    "limit": 20,
+    "consumed": 18,
+    "remaining": 2
+  },
+  "observations": [
+    "evacuation and friend relationship consequences",
+    "prior evidence and rescue window retained",
+    "sudden bridge location and matching number convenience",
+    "silver wrist device referent ambiguity"
+  ],
+  "overallAcceptance": false,
+  "uiIntegration": "not_done",
+  "nextGate": "user review C17 and revised testing proposal; no further dispatch",
+  "audit": {
+    "path": "docs/ai-rpg-experiment/RPG05_DIFF_REAUDIT_AFTER_C.md",
+    "sha256": "007d04813094f3fca4b70e46499ac5753a2e984f66f3bd3daad11b112b5e6a92",
+    "oldRequestSha256": "42ba5981a5511f889a632dac2cb5d88215166c2223c1d3cea1c9e149cb16c4d6",
+    "case9Sha256": "648a1b31687686440e6fe5b9f9096004b3c0168791f04356dc78c573fa560409",
+    "frozenProtocolPrefixVerified": true,
+    "proposedCalls": 14,
+    "additionalAuthorizationNeeded": 12
+  },
+  "artifacts": [
+    {
+      "path": ".rpg04-work/rpg05-minimal-plan20/dispatch-17/RESULT.json",
+      "sha256": "ef3fcd7ec8611f7c4d4ea7395dad5b4b05a9c093066b514b2511badcc39ed97f"
+    },
+    {
+      "path": ".rpg04-work/rpg05-minimal-plan20/dispatch-17/response.txt",
+      "sha256": "9556ca6ddac8bd35b314df8614371ff685bfad4cb5a6eaf39e81f3f1fd6fd2af"
+    },
+    {
+      "path": ".rpg04-work/rpg05-minimal-plan20/dispatch-17/response.sse",
+      "sha256": "837208ebab189b41db1fe7e4a55027caca6f43fa9b19386b2d007b5a4d3748e6"
+    },
+    {
+      "path": ".rpg04-work/rpg05-minimal-plan20/case-17.json",
+      "sha256": "068276cb674643445ee3fa23262161e06bad29b52cb4995081275facc1cb3810"
+    },
+    {
+      "path": "tooling/rpg05-minimal-combination17.mjs",
+      "sha256": "00c42fc52f8cb58fce306d5cda8f7d092778278e8378f8722e9900163a4f4f42"
+    }
+  ]
+}

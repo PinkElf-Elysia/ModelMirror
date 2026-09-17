@@ -1,0 +1,205 @@
+{
+  "schemaVersion": 1,
+  "stage": "05P",
+  "status": "approved_with_recorded_amendments",
+  "records": [
+    {
+      "id": "A-PLAY-v4",
+      "sourcePath": "C:/Users/21547/.codex/generated_images/01a08723-da25-71c3-b18e-74035693ebd1/exec-082a79b2-11eb-4beb-b689-52386e8b6d7b.png",
+      "status": "approved_with_amendments",
+      "amendments": "Remove fixed character/items/scene panels; preserve card-defined safe output. No shortcut toolbar, no streaming switch. Paper-plane send; placeholder hides on input.",
+      "approvalSource": "Explicit user approval in task 01a08723-da25-71c3-b18e-74035693ebd1; recorded without invented timestamps",
+      "sha256": "6774c532479d728eef51fe954f6ca646d6d904abbd095e13bdec5bd29c6edadf"
+    },
+    {
+      "id": "A-GENERATING-v1",
+      "sourcePath": "C:/Users/21547/.codex/generated_images/01a08723-da25-71c3-b18e-74035693ebd1/exec-8e82d0a1-de26-4a3a-bf87-dabf66e2c95e.png",
+      "status": "approved",
+      "amendments": "",
+      "approvalSource": "Explicit user approval in task 01a08723-da25-71c3-b18e-74035693ebd1; recorded without invented timestamps",
+      "sha256": "5b2235de71d56ffb83e8c70688f4205ac7ee17faa3d1f189706d218acf2756c6"
+    },
+    {
+      "id": "A-CANCELLED-v1",
+      "sourcePath": "C:/Users/21547/.codex/generated_images/01a08723-da25-71c3-b18e-74035693ebd1/exec-0afe830c-4e70-4cf0-a2e0-6415b78dd3a9.png",
+      "status": "approved_with_amendments",
+      "amendments": "Use approved book icon, not generated mountain logo.",
+      "approvalSource": "Explicit user approval in task 01a08723-da25-71c3-b18e-74035693ebd1; recorded without invented timestamps",
+      "sha256": "95be707b1d4b0cc928b2163ae364f39887f0006c8689634c7614e47c938e56ee"
+    },
+    {
+      "id": "A-FAILED-v1",
+      "sourcePath": "C:/Users/21547/.codex/generated_images/01a08723-da25-71c3-b18e-74035693ebd1/exec-8f9de63f-d69f-4dfb-9c1e-2a6a39b161bb.png",
+      "status": "approved",
+      "amendments": "",
+      "approvalSource": "Explicit user approval in task 01a08723-da25-71c3-b18e-74035693ebd1; recorded without invented timestamps",
+      "sha256": "4ba0a48fc44a086368f3d74517b2bfaf09ae708fc223b14b6fd382b65d5307e5"
+    },
+    {
+      "id": "A-RECOVERY-v1",
+      "sourcePath": "C:/Users/21547/.codex/generated_images/01a08723-da25-71c3-b18e-74035693ebd1/exec-df7c0808-970a-4db9-a9af-3f05b8693a02.png",
+      "status": "approved",
+      "amendments": "",
+      "approvalSource": "Explicit user approval in task 01a08723-da25-71c3-b18e-74035693ebd1; recorded without invented timestamps",
+      "sha256": "168011c0615d0ac61e5ca49be61ee1b3ec594d69b1e95af94d4566cd15a0bdb6"
+    },
+    {
+      "id": "A-EMPTY-v1",
+      "sourcePath": "C:/Users/21547/.codex/generated_images/01a08723-da25-71c3-b18e-74035693ebd1/exec-15731f97-0b4d-476d-97a2-838a6d2284f7.png",
+      "status": "approved",
+      "amendments": "",
+      "approvalSource": "Explicit user approval in task 01a08723-da25-71c3-b18e-74035693ebd1; recorded without invented timestamps",
+      "sha256": "0c300457596c2226c4bd9b065fdf1f99743389e65954e31db8f8e2314de3d706"
+    },
+    {
+      "id": "A-IMPORT-v1",
+      "sourcePath": "C:/Users/21547/.codex/generated_images/01a08723-da25-71c3-b18e-74035693ebd1/exec-4e37a55e-1fb5-4c11-8b35-048886c6ab97.png",
+      "status": "approved",
+      "amendments": "",
+      "approvalSource": "Explicit user approval in task 01a08723-da25-71c3-b18e-74035693ebd1; recorded without invented timestamps",
+      "sha256": "361b30fe6565f8187ef3f50697d10e546419a35e643be35b1a47296f33766444"
+    },
+    {
+      "id": "A-TALENTS-v2",
+      "sourcePath": "C:/Users/21547/.codex/generated_images/01a08723-da25-71c3-b18e-74035693ebd1/exec-0701e3b7-24f3-44a4-9487-48d749f88228.png",
+      "status": "approved_with_amendments",
+      "amendments": "Exclude generated decorative mountain and slogan. Card-specific setup, not platform mechanics.",
+      "approvalSource": "Explicit user approval in task 01a08723-da25-71c3-b18e-74035693ebd1; recorded without invented timestamps",
+      "sha256": "bfc9d15098de0f0fd47338d1f4c9f48e71257177f4fcda956245df37abd9cfff"
+    },
+    {
+      "id": "A-MOBILE-PLAY-v1",
+      "sourcePath": "C:/Users/21547/.codex/generated_images/01a08723-da25-71c3-b18e-74035693ebd1/exec-63c1ff59-d90b-4c1b-91ab-5f49a2b2fbe9.png",
+      "status": "approved",
+      "amendments": "",
+      "approvalSource": "Explicit user approval in task 01a08723-da25-71c3-b18e-74035693ebd1; recorded without invented timestamps",
+      "sha256": "2c92fc8777538e2c8095ffe520673ae6a76d34c1437db5ec3a7267c9287c659a"
+    },
+    {
+      "id": "A-MOBILE-CREATE-v1",
+      "sourcePath": "C:/Users/21547/.codex/generated_images/01a08723-da25-71c3-b18e-74035693ebd1/exec-4153d6b4-30a5-4b13-aed3-35bca44e7b4c.png",
+      "status": "approved_with_amendments",
+      "amendments": "User approved all subsequent mobile adaptations without further image generation; XP/other-setting semantics apply.",
+      "approvalSource": "Explicit user approval in task 01a08723-da25-71c3-b18e-74035693ebd1; recorded without invented timestamps",
+      "sha256": "7094d2522ddc38043d8f02e955f692ab3e286d9475df75a9962234707d2a8bd7"
+    },
+    {
+      "id": "A-JOURNEYS-v1",
+      "sourcePath": "C:/Users/21547/.codex/generated_images/01a08723-da25-71c3-b18e-74035693ebd1/exec-b5b4e845-5131-47ee-bf4f-621927ada661.png",
+      "status": "approved",
+      "amendments": "",
+      "approvalSource": "Explicit user approval in task 01a08723-da25-71c3-b18e-74035693ebd1; recorded without invented timestamps",
+      "sha256": "0609c58e52172b671dab063dcda9ec44f4dd99df5802b5abfdb49239d9d33787"
+    },
+    {
+      "id": "A-DELETE-v1",
+      "sourcePath": "C:/Users/21547/.codex/generated_images/01a08723-da25-71c3-b18e-74035693ebd1/exec-bbbc4719-b7aa-43e3-92e1-0c24da48096b.png",
+      "status": "approved_with_amendments",
+      "amendments": "Approval covers dialog only; use approved reading background, no mountain/slogans.",
+      "approvalSource": "Explicit user approval in task 01a08723-da25-71c3-b18e-74035693ebd1; recorded without invented timestamps",
+      "sha256": "c49a7dba1c5d1379d80a033b225cc75b4e0ffd58754f21e6e6e3d474ee64d4ae"
+    },
+    {
+      "id": "A-ITEMS-v1",
+      "sourcePath": "C:/Users/21547/.codex/generated_images/01a08723-da25-71c3-b18e-74035693ebd1/exec-9de0b534-a5a0-4294-bfa7-26f6a216b268.png",
+      "status": "approved",
+      "amendments": "",
+      "approvalSource": "Explicit user approval in task 01a08723-da25-71c3-b18e-74035693ebd1; recorded without invented timestamps",
+      "sha256": "beb758fa3b18bd0553bc045f1e716a4496be2a1d5a3bf7d36d17a8fa00a6d727"
+    },
+    {
+      "id": "A-BACKGROUNDS-v1",
+      "sourcePath": "C:/Users/21547/.codex/generated_images/01a08723-da25-71c3-b18e-74035693ebd1/exec-1495fe57-80a0-4989-b808-476fe36d5850.png",
+      "status": "approved",
+      "amendments": "",
+      "approvalSource": "Explicit user approval in task 01a08723-da25-71c3-b18e-74035693ebd1; recorded without invented timestamps",
+      "sha256": "2f7c2feeea7898644f41bb536ae5034ab339011738d5356e73666bd7a938178c"
+    },
+    {
+      "id": "A-IDENTITY-v1",
+      "sourcePath": "C:/Users/21547/.codex/generated_images/01a08723-da25-71c3-b18e-74035693ebd1/exec-6f2b89e4-9229-4d4f-8db6-fb55ec8b585a.png",
+      "status": "approved",
+      "amendments": "",
+      "approvalSource": "Explicit user approval in task 01a08723-da25-71c3-b18e-74035693ebd1; recorded without invented timestamps",
+      "sha256": "e4ac674543a9930c9caf793860aee2a3c6228916124d29190c405f84f0072da3"
+    },
+    {
+      "id": "A-DRAFTS-v1",
+      "sourcePath": "C:/Users/21547/.codex/generated_images/01a08723-da25-71c3-b18e-74035693ebd1/exec-3a204d70-fec7-4746-b0f2-bf020120e177.png",
+      "status": "approved",
+      "amendments": "",
+      "approvalSource": "Explicit user approval in task 01a08723-da25-71c3-b18e-74035693ebd1; recorded without invented timestamps",
+      "sha256": "10ac005d3160196be427821cfd309cd7f57b672977efe0d1868a76c887ef85f6"
+    },
+    {
+      "id": "A-READING-v1",
+      "sourcePath": "C:/Users/21547/.codex/generated_images/01a08723-da25-71c3-b18e-74035693ebd1/exec-adbd3835-29ac-4528-9f99-6069447fd989.png",
+      "status": "approved_with_amendments",
+      "amendments": "Approval covers popover only; background not revised.",
+      "approvalSource": "Explicit user approval in task 01a08723-da25-71c3-b18e-74035693ebd1; recorded without invented timestamps",
+      "sha256": "6194db63ad13b661c91e1f837ae36c95c70433a3ce8fe27964560f7730d3c364"
+    },
+    {
+      "id": "A-START-v2",
+      "sourcePath": "C:/Users/21547/.codex/generated_images/01a08723-da25-71c3-b18e-74035693ebd1/exec-d7923815-7c99-434e-baaf-7d5061a7cf3f.png",
+      "status": "approved",
+      "amendments": "",
+      "approvalSource": "Explicit user approval in task 01a08723-da25-71c3-b18e-74035693ebd1; recorded without invented timestamps",
+      "sha256": "c39e2d2830764ecedfab3ad4a173d590d9528d37eddaa57824e49c57104e1243"
+    },
+    {
+      "id": "A-CUSTOM-WORLD-v1",
+      "sourcePath": "C:/Users/21547/.codex/generated_images/01a08723-da25-71c3-b18e-74035693ebd1/exec-7eaaa1c0-7d0b-4f48-bb3a-5b694643446c.png",
+      "status": "approved",
+      "amendments": "",
+      "approvalSource": "Explicit user approval in task 01a08723-da25-71c3-b18e-74035693ebd1; recorded without invented timestamps",
+      "sha256": "3ba3e0a3015f4e4fd037864d0f9bc23421f08872e494ebc13fdb7ca5ed32ba39"
+    },
+    {
+      "id": "A-CHARACTER-v2",
+      "sourcePath": "C:/Users/21547/.codex/generated_images/01a08723-da25-71c3-b18e-74035693ebd1/exec-b8e3ca24-6045-4350-9527-58e4ca5aa707.png",
+      "status": "approved_with_amendments",
+      "amendments": "Gender supports free text; XP and other settings preserve original semantics.",
+      "approvalSource": "Explicit user approval in task 01a08723-da25-71c3-b18e-74035693ebd1; recorded without invented timestamps",
+      "sha256": "ee4672736c4c6ee706094341be02f4148745ce663bb1048cbed3db9e69e48106"
+    },
+    {
+      "id": "A-REVIEW-v2",
+      "sourcePath": "C:/Users/21547/.codex/generated_images/01a08723-da25-71c3-b18e-74035693ebd1/exec-ec84106a-e17c-4a83-825b-7e732c485425.png",
+      "status": "approved",
+      "amendments": "",
+      "approvalSource": "Explicit user approval in task 01a08723-da25-71c3-b18e-74035693ebd1; recorded without invented timestamps",
+      "sha256": "1905bc8d14af77483a2501c14c30916883c65b2f09f43bbdb4fb8f144997b638"
+    },
+    {
+      "id": "A-DETAILS-v1",
+      "sourcePath": "C:/Users/21547/.codex/generated_images/01a08723-da25-71c3-b18e-74035693ebd1/exec-001800af-aa17-4bc5-a239-e24627f841c5.png",
+      "status": "approved_with_amendments",
+      "amendments": "Drawer only; closed by default and after session switch. Sample numbers are not real evidence.",
+      "approvalSource": "Explicit user approval in task 01a08723-da25-71c3-b18e-74035693ebd1; recorded without invented timestamps",
+      "sha256": "7dcfc7b68b016a35bac5cb0e1bef8911ec29fc7852216dba49d4989a9420aad9"
+    },
+    {
+      "id": "A-SAVES-v1",
+      "sourcePath": "C:/Users/21547/.codex/generated_images/01a08723-da25-71c3-b18e-74035693ebd1/exec-e1485b40-1005-4fad-a205-c5890a26cc76.png",
+      "status": "approved_with_amendments",
+      "amendments": "Drawer only; read-only, closed by default. No arbitrary rewind.",
+      "approvalSource": "Explicit user approval in task 01a08723-da25-71c3-b18e-74035693ebd1; recorded without invented timestamps",
+      "sha256": "27b16d013aa83c9e15e18801bf0286c61697da961c7f4249b841809f52a5b9d3"
+    }
+  ],
+  "rejected": [
+    "initial A/B sketch pages",
+    "A-CANDIDATE-v1",
+    "A-CUSTOM-v1"
+  ],
+  "superseded": [
+    "A-PLAY-v2",
+    "A-PLAY-v3",
+    "A-CREATE-v1",
+    "A-SETUP-v1 flow",
+    "A-REVIEW-v1"
+  ],
+  "mobileFutureApproval": true,
+  "implementationAcceptance": false
+}

@@ -1,0 +1,39 @@
+{
+  "format": "rpg05-t3-proposal/1",
+  "status": "exact_candidate_pending_approval",
+  "candidate": "让天赋在符合词条条件的行动中产生鲜明、具体的效果；效果范围与使用条件以词条本身为准。",
+  "input": "我抱住最近那棵树的树干，试着把它扳断，再把木材扛回没盖完的小屋：「今晚总得给自己留个像样的住处。」河面映着月光，我往水边看了一眼，随后继续补墙，留意夜色里靠近的动静。",
+  "base": "case-11 initial Minecraft card, full author format, same character and three original talents; replace final input only; no T1/T2 additions",
+  "talents": [
+    "自动钓鱼机：钓鱼时必定钓上宝藏。",
+    "光影模组：改善视觉表现，不增加战斗力。",
+    "史蒂夫的右手：可徒手撸断大树并携带极重物资。"
+  ],
+  "sourceOfFullTalentText": ".rpg04-work/rpg05-minimal-plan20/case-11.json",
+  "criteria": [
+    "徒手取木与搬运体现强天赋，不被新手身份抵消。",
+    "光影视觉有表现，不直接升级为战斗能力。",
+    "未发生钓鱼，不因看河面自动触发钓获。",
+    "故事仍有情绪、危机与行动回应，不变成能力边界说明书。"
+  ],
+  "scope": "no invented activation model; no world-specific prompt clause; full card format retained",
+  "slots": [
+    23,
+    24
+  ],
+  "model": "gpt-5.6-luna",
+  "temperature": 0,
+  "maxOutputTokens": 8192,
+  "sequence": "freeze both; baseline reviewed before candidate",
+  "T2Decision": {
+    "at": "2026-09-15T04:36:08.785244+00:00",
+    "userQuote": "可以保留，不再追加测试，进入下一项",
+    "T2": "保留为后续集成候选；不再单项复测",
+    "T1": "不纳入",
+    "applyToT3": false
+  },
+  "providerCallsThisTurn": 0,
+  "routeConsumed": 23,
+  "routeLimit": 33,
+  "routeRemaining": 10
+}

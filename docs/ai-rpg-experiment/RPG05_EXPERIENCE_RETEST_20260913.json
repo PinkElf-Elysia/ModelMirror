@@ -1,0 +1,112 @@
+{
+  "format": "rpg05-experience-retest-status/7",
+  "updatedAt": "2026-09-13T09:49:46.812216+00:00",
+  "status": "stopped_quality_failed",
+  "roundStatus": "in_progress",
+  "overallAcceptance": false,
+  "base": "81fc14f6e0dada2447a63c1e532ee55b1f914ded",
+  "branch": "codex/ai-rpg-rpg05-ui",
+  "head": "a753e884962829c63acfc8b1f7f3d7dc94379b8e",
+  "sourceManifestSha256": "f399414471e1cff35873a3452176ace6951ee592cce71453ac257b8230072f27",
+  "executionFreezeSha256": "02e39ef39fc7949dfee52459fe52a3ef64bad3f50addc12e1a1c174856b64820",
+  "authorization": {
+    "quote": "授权6次复测",
+    "newLimit": 6,
+    "newConsumed": 2,
+    "newRemaining": 4,
+    "usedKinds": [
+      "certification",
+      "gu_action"
+    ],
+    "automaticRetry": false
+  },
+  "totals": {
+    "authorized": 45,
+    "consumed": 39,
+    "remaining": 6,
+    "automatic": {
+      "limit": 26,
+      "consumed": 26,
+      "remaining": 0
+    },
+    "manual": {
+      "limit": 5,
+      "consumed": 4,
+      "remaining": 1,
+      "userOnly": true
+    },
+    "previousSupplement": {
+      "limit": 8,
+      "consumed": 7,
+      "remaining": 1,
+      "gate": "paused"
+    },
+    "experienceRetest": {
+      "limit": 6,
+      "consumed": 2,
+      "remaining": 4,
+      "gate": "stopped_quality_failed"
+    }
+  },
+  "verification": {
+    "mock": {
+      "status": "prior_offline_candidate_passed",
+      "distinctTests": 60,
+      "rerunThisRetest": false,
+      "sourceHashesVerified": 368
+    },
+    "real": {
+      "qualification": "passed_64_token_cap",
+      "uiCalls": 1,
+      "formalGuTurns": 1,
+      "formalMinecraftTurns": 0,
+      "structure": "passed",
+      "quality": "failed",
+      "outputTokens": 2120,
+      "bodyCodePoints": 658,
+      "remainingCasesNotRun": [
+        "Gu speech",
+        "Minecraft action",
+        "Minecraft speech",
+        "Minecraft query"
+      ]
+    },
+    "manual": {
+      "status": "pending_user_review",
+      "automatedUiObservation": true,
+      "independentPngThisRetest": false
+    },
+    "independent": {
+      "status": "not_run_this_retest"
+    }
+  },
+  "previews": {
+    "manual": {
+      "origin": "http://127.0.0.1:18409",
+      "retained": true,
+      "remainingUserOnlyCalls": 1
+    },
+    "previousCandidate": {
+      "origin": "http://127.0.0.1:18410",
+      "retained": true,
+      "gate": "paused"
+    },
+    "retest": {
+      "origin": "http://127.0.0.1:18411",
+      "pid": 28716,
+      "retainedForReview": true,
+      "generationGate": "closed"
+    }
+  },
+  "publication": {
+    "commit": false,
+    "push": false,
+    "prChange": false,
+    "merge": false
+  },
+  "rollback": "v6 isolated and not adopted; original 18409 manual host and 18410 prior candidate retained",
+  "evidence": {
+    "path": "experiments/ai-rpg-engine/.rpg04-work/rpg05-experience-retest-v7/evidence/assessment.json",
+    "sha256": "e108920087d89cc48e68f62cb43ec97c403e8afec5114aecc105474b32f2be31"
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "slot": 8,
+  "status": "pending_user_review",
+  "kind": "matched_full_setup_simple_format_baseline",
+  "provider": {
+    "status": "transport_complete",
+    "receipt": {
+      "requested_model": "gpt-5.6-luna",
+      "actual_model": "gpt-5.6-luna",
+      "provider": null,
+      "strategy": "newapi_preferred",
+      "engine": "newapi",
+      "reason_codes": [
+        "qualified"
+      ],
+      "latency_ms": 17110.351700044703,
+      "ttft_ms": 3789.78560003452,
+      "tokens": {
+        "input": 4066,
+        "output": 1459,
+        "total": 5525
+      },
+      "response_cost_usd": null,
+      "cost_kind": "unavailable",
+      "fallback_attempts": 0,
+      "cache_hit": null,
+      "request_id": null,
+      "version": "2"
+    },
+    "finishReason": "stop",
+    "done": true,
+    "observedModel": "gpt-5.6-luna",
+    "httpStatus": 200,
+    "error": null,
+    "textSha256": "20fdf1607f96a091d93166f683e2ba2f839b7cbdb9aea39aa216820dfe071106",
+    "rawSha256": "8a65dae993ec4f6638b4103d95b30489a6f4845c35f307bb19f7d3734b475e82",
+    "characters": 1739,
+    "slot": 8,
+    "newConsumed": 8,
+    "newRemaining": 12,
+    "totalConsumed": 48,
+    "quality": "pending_user_review",
+    "formalUiTurns": 0,
+    "at": "2026-09-14T04:42:05.748Z"
+  },
+  "overallAcceptance": false,
+  "newBudget": {
+    "limit": 20,
+    "consumed": 8,
+    "remaining": 12
+  },
+  "nextSlot": 9,
+  "dispatchGate": "user review before slot9",
+  "qualityObservations": [
+    "full talent effects absent under simple format",
+    "paper crane given sensing ability not specified in setup"
+  ],
+  "narrativeCharacters": 888,
+  "uiIntegration": "not_done"
+}
