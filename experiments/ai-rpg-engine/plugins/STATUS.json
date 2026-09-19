@@ -1,9 +1,9 @@
 {
   "batch": "PR-closeout",
-  "status": "accepted_and_latest_main_revalidated",
+  "status": "accepted_pr_submitted",
   "base": "a29da8a5ecd4c3034eb3d7ace9229b379db198b9",
   "branch": "codex/rpg-plugin-branch-pr",
-  "updatedAt": "2026-09-19T12:23:57.295Z",
+  "updatedAt": "2026-09-19T12:27:23.440Z",
   "previousBatch": {
     "batch": "B4",
     "userDecision": "确认，授权4次真实竖切额度",
@@ -28,7 +28,7 @@
     "globalHelpImages": "failed: 3 pre-existing unrelated unreferenced assets (baseline had 5 failures)",
     "realProvider": "3 complete: first turn, parent continuation, branch continuation; actual wire/raw/browser hashes match; parent file and branch snapshot unchanged",
     "userBatchAcceptance": "B0-B4 accepted; B5 all three outputs separately accepted (通过)",
-    "ci": "not-run",
+    "ci": "IN_PROGRESS at PR creation: Frontend quality, Backend quality, Windows Project Host; consult PR for current results",
     "closeout": "Fresh latest-main worktree: 63 Node + 63 frontend tests, three production builds, candidate image and network-disabled container smoke passed; fresh UI tutorial replay and screenshots passed"
   },
   "providerCalls": 3,
@@ -44,12 +44,14 @@
     "sourceCommit": "208a6b7c",
     "integratedCommit": "09c70c06",
     "commit": true,
-    "push": false,
-    "pr": "prepared; pending actual creation",
+    "push": true,
+    "pr": "https://github.com/PinkElf-Elysia/ModelMirror/pull/382",
     "sharedDeployment": false,
-    "merge": false
+    "merge": false,
+    "state": "OPEN",
+    "verifiedHead": "01a47577da63aef977fcfaa1034901c915215dbe"
   },
-  "nextBatch": "Submit authorized PR; human merge review remains required",
+  "nextBatch": "Human PR review; no merge or shared deployment performed",
   "runtimeHash": "05d0d34f2604bbcd547ddad89e183742c55bc769bd99cb0be81fbe34688895ca",
   "limits": [
     "trusted first-party code only; not a sandbox",

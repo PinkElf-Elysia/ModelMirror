@@ -1,7 +1,7 @@
 {
   "batch": "PR-latest-main-closeout",
   "base": "a29da8a5ecd4c3034eb3d7ace9229b379db198b9",
-  "generatedAt": "2026-09-19T12:25:23.139Z",
+  "generatedAt": "2026-09-19T12:27:23.440Z",
   "kind": "Accepted runtime integrated with current main; documentation and latest-baseline screenshots refreshed",
   "runtimeHash": "05d0d34f2604bbcd547ddad89e183742c55bc769bd99cb0be81fbe34688895ca",
   "image": "modelmirror-rpg:plugin-pr",
@@ -275,13 +275,13 @@
     },
     {
       "path": "experiments/ai-rpg-engine/plugins/README.md",
-      "bytes": 27420,
-      "sha256": "1606dc524238e2e1c3fafddc1bcd47029d519b5101dbf81326b002decd9b34e1"
+      "bytes": 27585,
+      "sha256": "e3aac1a13cfe69e56a2cdc130387a8a580b832ce3b920d6ceb45a2687b4e95a1"
     },
     {
       "path": "experiments/ai-rpg-engine/plugins/STATUS.json",
-      "bytes": 4929,
-      "sha256": "ad3967ab087e593d43531cff07519191e3e93f5829ea333f496a2c082ffe8acb"
+      "bytes": 5126,
+      "sha256": "408b8fdc1ef2381c649282345a5923fe44ac21e227588fd48da70807458a9d68"
     },
     {
       "path": "experiments/ai-rpg-engine/plugins/branch-save.manifest.json",
@@ -661,5 +661,9 @@
     "manifest": "B5-ACCEPTED-DELIVERY.json",
     "sourceWorkspace": "C:/tmp/modelmirror-rpg-plugin-branch",
     "note": "Historical data paths resolve against original worktree; not copied, not new PR calls. All 3 responses individually accepted; used 3/4."
+  },
+  "publication": {
+    "url": "https://github.com/PinkElf-Elysia/ModelMirror/pull/382",
+    "note": "PR submitted; this receipt update follows validated product head 01a47577; no runtime change"
   }
 }
