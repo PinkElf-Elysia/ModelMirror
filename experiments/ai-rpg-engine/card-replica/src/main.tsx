@@ -8,10 +8,10 @@ import runSettings from '../resources/RUN_SETTINGS.json';
 import {Chat,ParameterDialog,Help} from './platform';
 import './styles.css';
 const choose=<T,>(a:T[]):T=>a[Math.floor(Math.random()*a.length)];
-function Modal({title,close,children}:{title:string;close:()=>void;children:ReactNode}){
+function Modal({title,close,children,className}:{title:string;close:()=>void;children:ReactNode;className?:string}){
  const ref=useRef<HTMLDialogElement>(null);
  useEffect(()=>{ref.current?.showModal();return()=>ref.current?.close();},[]);
- return <dialog ref={ref} onCancel={close}><header><h2>{title}</h2><button className="icon" onClick={close} aria-label="关闭">×</button></header>{children}</dialog>;
+ return <dialog ref={ref} className={className} aria-label={title} onCancel={e=>{e.preventDefault();close();}}><header><h2>{title}</h2><button className="icon" onClick={close} aria-label="关闭">×</button></header>{children}</dialog>;
 }
 export {Modal};
 function StoryDialog({label,close,children}:{label:string;close:()=>void;children:ReactNode}){
@@ -44,7 +44,7 @@ function App(){
  const summaryRows=[['姓名',c.name],['性别',c.sex],['出生地',`${c.country} · ${c.city}`],['地区',c.region],['出生年代',`${c.year}${c.yearExact?'年':'年代'}`],['家庭出身',c.family],['身形',`${c.height}cm / ${c.weight}kg · ${c.body}`],['样貌',`${c.hair} · ${c.look}${c.note?' · '+c.note:''}`]];
  return <><nav className="hostbar"><span>地球 OL <small>{location.pathname.startsWith('/rpg-app/')?'Studio 卡片':'本地复刻预览'}</small></span><div><button onClick={()=>setShowHistory(true)}>历史</button><button onClick={()=>setModal('params')}>参数</button><button aria-label="查看覆盖与使用说明" onClick={()=>setModal('help')}>说明</button></div></nav>
  {notice&&<div className="notice" role="status">{notice}<button onClick={()=>setNotice('')} aria-label="关闭提示">×</button></div>}
- {session?<Chat sessionId={session} exit={()=>setSession(null)}/>:<main className={'cosmos '+(step===9?'deep':'')}><div className="stars" aria-hidden="true">{Array.from({length:65},(_,i)=><i key={i} style={{left:`${(i*37.71)%100}%`,top:`${(i*61.13)%100}%`,animationDelay:`${i%9}s`,width:i%9===0?5:2,height:i%9===0?5:2}}/>)}</div><section className={'card step-'+step} key={step}>
+ {session?<Chat key={session} sessionId={session} opened={setSession} exit={()=>setSession(null)}/>:<main className={'cosmos '+(step===9?'deep':'')}><div className="stars" aria-hidden="true">{Array.from({length:65},(_,i)=><i key={i} style={{left:`${(i*37.71)%100}%`,top:`${(i*61.13)%100}%`,animationDelay:`${i%9}s`,width:i%9===0?5:2,height:i%9===0?5:2}}/>)}</div><section className={'card step-'+step} key={step}>
  {step>0&&<div className="progress" aria-label={`创建步骤 ${Math.min(step,8)} / 8`}>{Array.from({length:8},(_,i)=><i key={i} className={i<step?'lit':''}/>)}</div>}
  {step>1&&<button className="text-button" disabled={spinning} onClick={()=>next(step===8?1:step===9?8:step-1)}>{step===8?'← 返回修改角色':'← 上一步'}</button>}
  {step===0&&<><p className="eyebrow">EARTH · ONLINE</p><h1>欢迎来到 <span className="gradient">地球 OL</span></h1><p className="intro">这是一场绝对真实的人生模拟。出身可由命运抉择，也可由你亲手定夺。<br/>准备好，投入这颗蓝色星球了吗？</p><div className="features">{[['🌍','真实世界设定','所有国家、城市、年代均为现实地球存在'],['🎲','随机 · 选择 · 自定义','每一步都可掷骰、挑选，或亲手输入'],['📜','一键生成角色卡','完成后可复制设定，导入 AI 酒馆']].map(([icon,title,text])=><div className="feature" key={title}><span>{icon}</span><div><strong>{title}</strong><small>{text}</small></div></div>)}</div><button className="primary full" onClick={()=>next()}>◆ 开始投胎 ◆</button></>}

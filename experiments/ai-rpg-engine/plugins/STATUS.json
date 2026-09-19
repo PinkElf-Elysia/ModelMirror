@@ -1,0 +1,119 @@
+{
+  "batch": "PR-closeout",
+  "status": "accepted_pr_submitted",
+  "base": "a29da8a5ecd4c3034eb3d7ace9229b379db198b9",
+  "branch": "codex/rpg-plugin-branch-pr",
+  "updatedAt": "2026-09-19T12:27:23.440Z",
+  "previousBatch": {
+    "batch": "B4",
+    "userDecision": "确认，授权4次真实竖切额度",
+    "status": "accepted"
+  },
+  "uiPrototype": {
+    "version": "v2",
+    "userDecision": "批准",
+    "productionUI": "B3 accepted by user; unchanged in B4"
+  },
+  "verification": {
+    "pluginsAndStudioAndEarth": 63,
+    "affectedFrontendAndHelp": 63,
+    "totalOfflineMock": 126,
+    "parentProductionBuild": "passed; existing large-chunk warning",
+    "twoCardsImageBuild": "passed",
+    "imageRuntimeAnd16ArtifactHashes": "passed",
+    "networkDisabledReadOnlyImageSmoke": "passed; synthetic tmpfs; budget 0",
+    "helpTutorialReplay": "passed on fresh isolated origin and synthetic session",
+    "mobileHelp": "390px; clientWidth=scrollWidth=380",
+    "newRpgHelpImages": "passed all rules",
+    "globalHelpImages": "failed: 3 pre-existing unrelated unreferenced assets (baseline had 5 failures)",
+    "realProvider": "3 complete: first turn, parent continuation, branch continuation; actual wire/raw/browser hashes match; parent file and branch snapshot unchanged",
+    "userBatchAcceptance": "B0-B4 accepted; B5 all three outputs separately accepted (通过)",
+    "ci": "IN_PROGRESS at PR creation: Frontend quality, Backend quality, Windows Project Host; consult PR for current results",
+    "closeout": "Fresh latest-main worktree: 63 Node + 63 frontend tests, three production builds, candidate image and network-disabled container smoke passed; fresh UI tutorial replay and screenshots passed"
+  },
+  "providerCalls": 3,
+  "preview": {
+    "url": "http://127.0.0.1:18433/rpg",
+    "rpgPort": 18432,
+    "providerEnabled": false,
+    "pidSnapshot": 66108,
+    "note": "verify process ownership before any stop; synthetic data only"
+  },
+  "publication": {
+    "authorization": "收尾后提交PR",
+    "sourceCommit": "208a6b7c",
+    "integratedCommit": "09c70c06",
+    "commit": true,
+    "push": true,
+    "pr": "https://github.com/PinkElf-Elysia/ModelMirror/pull/382",
+    "sharedDeployment": false,
+    "merge": false,
+    "state": "OPEN",
+    "verifiedHead": "01a47577da63aef977fcfaa1034901c915215dbe"
+  },
+  "nextBatch": "Human PR review; no merge or shared deployment performed",
+  "runtimeHash": "05d0d34f2604bbcd547ddad89e183742c55bc769bd99cb0be81fbe34688895ca",
+  "limits": [
+    "trusted first-party code only; not a sandbox",
+    "legacy sessions without full runtime binding remain read-only; no retroactive attestation",
+    "single service instance; atomic publication tested by fault injection, not power failure",
+    "old-host downgrade cannot list new branch directory; retain current core when disabling plugin",
+    "global help image checker has three pre-existing unrelated unreferenced assets",
+    "B5 accepted for this bounded slice; no long-term quality claim; 1 authorized call reserved-unused"
+  ],
+  "upstream": {
+    "ref": "origin/main",
+    "head": "a29da8a5ecd4c3034eb3d7ace9229b379db198b9",
+    "commitsAheadOfAcceptedBase": 2,
+    "intersections": [
+      "client/src/App.tsx"
+    ],
+    "integrated": true,
+    "note": "Latest origin/main refreshed twice; App.tsx routes coexist; no runtime source change after accepted B5"
+  },
+  "image": "modelmirror-rpg:plugin-pr",
+  "imageId": "sha256:dcd338b014dfd607d552ef4ca0c4266b9b18e7e0a14e850c59c802a251ddd004",
+  "imageNote": "Built from integrated runtime source; final publication documentation written afterward",
+  "helpPreview": {
+    "url": "http://127.0.0.1:18435/help/branch-rpg-story",
+    "rpgPort": 18434,
+    "providerEnabled": false,
+    "pidSnapshot": 8204,
+    "data": "isolated synthetic only; original18433 retained"
+  },
+  "realAuthorization": {
+    "id": "rpg-branch-b5-20260919",
+    "limit": 4,
+    "used": 3,
+    "remaining": 1,
+    "priorBudgetsInherited": false,
+    "rpg05": 0,
+    "automaticRetry": false,
+    "review": "all 3 outputs individually accepted",
+    "status": "closed-no-further-dispatch"
+  },
+  "realPreview": {
+    "url": "http://127.0.0.1:18437/rpg/earth",
+    "rpgPort": 18436,
+    "pidSnapshot": 43080,
+    "reviewProxy": "GET only; exact-wire one-shot permit consumed",
+    "sessionId": "e32c0782-d6ed-4133-a443-0f2ae7e0c16a",
+    "branchId": "branch-83354c14853873f6893ee3448a3175fa4121071fc70e5a62a3275dcc04d63836",
+    "activeSessionId": "branch-83354c14853873f6893ee3448a3175fa4121071fc70e5a62a3275dcc04d63836"
+  },
+  "acceptance": {
+    "scope": "optional reviewed plugin market prototype and first branch-save vertical slice",
+    "result": "passed",
+    "userFinalDecision": "通过",
+    "publicationReady": true,
+    "publicationBoundary": "Commit/push/PR authorized; merge and shared deployment not authorized"
+  },
+  "prPreview": {
+    "url": "http://127.0.0.1:18439/rpg",
+    "rpgPort": 18438,
+    "pidSnapshot": 64252,
+    "providerEnabled": false,
+    "budget": 0,
+    "data": "new synthetic isolated directory; accepted B5 data retained in original worktree"
+  }
+}
