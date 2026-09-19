@@ -1,18 +1,18 @@
 {
   "schema_version": 1,
-  "reviewed_at": "2026-09-17",
+  "reviewed_at": "2026-09-19",
   "catalog": {
-    "snapshot_total": 611,
+    "snapshot_total": 618,
     "serving_variant_total": 78,
     "serving_variants_by_type": {
       "batch": 78
     },
     "serving_variants_counted_in_snapshot": false,
-    "live": 521,
-    "uncertain": 82,
+    "live": 526,
+    "uncertain": 84,
     "expired": 8,
-    "onsite_openrouter": 603,
-    "adaptation_denominator": 603,
+    "onsite_openrouter": 610,
+    "adaptation_denominator": 610,
     "uncertain_included_in_onsite": true,
     "expired_excluded_from_onsite": true
   },
@@ -52,6 +52,22 @@
     "verification_required": []
   },
   "operation_readiness": [
+    {
+      "model_id": "typesafe/jev-1.13",
+      "operation": "decide",
+      "status": "ready",
+      "verification_status": "verified",
+      "support_level": "native",
+      "status_reason": "已通过 OpenRouter alpha Decisions 的单次真实 noul 调用，验证 model、state、questions、类型化 answers、usage、cost 与 TypeSafe provider 回执。"
+    },
+    {
+      "model_id": "~typesafe/jev-latest",
+      "operation": "decide",
+      "status": "ready",
+      "verification_status": "contract_verified",
+      "support_level": "native",
+      "status_reason": "作为 JEV 最新别名复用专用 Decisions 契约；未执行付费决策调用。"
+    },
     {
       "model_id": "google/gemini-3.8-flash",
       "operation": "analyze_audio",

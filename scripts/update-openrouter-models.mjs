@@ -26,6 +26,8 @@ const ALLOWED_INPUT_MODALITIES = new Set([
 ]);
 const BATCH_VARIANT_SUFFIX = ":batch";
 const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
+  "typesafe/jev-1.13",
+  "~typesafe/jev-latest",
   "meta/muse-voice-transcribe-1.0",
   "bytedance-seed/seedream-5-0-pro",
   "bytedance-seed/seedream-5-0-lite",

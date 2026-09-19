@@ -63,6 +63,23 @@ test("folds only Batch market variants and preserves free and alias identities",
   assert.equal(coverage.market_unique_base_models, 3);
 });
 
+test("ignores market cards backed only by a Batch endpoint", (t) => {
+  const result = compare(
+    t,
+    ["vendor/a", "vendor/b:batch"],
+    ["vendor/a", "vendor/b:batch"],
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), {
+    comparison: "exact-id-set-v1",
+    source_non_batch_models: 1,
+    market_unique_base_models: 1,
+    missing_from_market: [],
+    market_only: [],
+    complete: true,
+  });
+});
+
 test("rejects duplicate or missing general model identities", (t) => {
   const duplicate = compare(t, ["vendor/a", "vendor/a"], ["vendor/a"]);
   assert.equal(duplicate.status, 2);

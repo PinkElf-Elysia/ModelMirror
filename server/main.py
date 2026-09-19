@@ -1689,6 +1689,7 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
 API_KEY = OPENROUTER_API_KEY
 CHAT_COMPLETIONS_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_BATCHES_URL = "https://openrouter.ai/api/beta/batches"
+OPENROUTER_DECISIONS_URL = "https://openrouter.ai/api/alpha/decisions"
 LLM_GATEWAY_NOT_CONFIGURED_MESSAGE = (
     "LLM 网关未配置，请设置环境变量 LLM_GATEWAY_KEY 或 OPENROUTER_API_KEY。"
 )
@@ -3333,6 +3334,42 @@ class ChatRequest(BaseModel):
             validate_chat_structured_format(self.response_format)
             if not self.require_managed_route or self.gateway != "default" or self.tool_mode != "none" or self.response_audio is not None or self.stop:
                 raise ValueError("structured output requires managed text without stop sequences")
+        return self
+
+
+class OpenRouterDecisionRequest(BaseModel):
+    model: Literal["typesafe/jev-1.13", "~typesafe/jev-latest"]
+    state: str = Field(min_length=1, max_length=100_000)
+    questions: dict[str, dict[str, Any]] = Field(min_length=1, max_length=50)
+
+    @model_validator(mode="after")
+    def validate_decision_contract(self) -> "OpenRouterDecisionRequest":
+        serialized_size = len(json.dumps(self.questions, ensure_ascii=False))
+        if serialized_size > 100_000:
+            raise ValueError("Decision questions exceed the 100 KB limit.")
+        for question_id, question in self.questions.items():
+            if not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", question_id):
+                raise ValueError("Decision question IDs must be stable identifiers.")
+            question_type = question.get("type")
+            if question_type not in {"noul", "choice", "score"}:
+                raise ValueError(
+                    "Each decision question must use noul, choice, or score."
+                )
+            instructions = question.get("instructions")
+            if not isinstance(instructions, str) or not instructions.strip():
+                raise ValueError("Each decision question requires instructions.")
+            criteria = question.get("criteria")
+            if question_type == "noul":
+                if not isinstance(criteria, dict) or set(criteria) != {"true", "false"}:
+                    raise ValueError("A noul question requires true and false criteria.")
+            elif question_type == "choice":
+                if not isinstance(criteria, dict) or not 2 <= len(criteria) <= 20:
+                    raise ValueError("A choice question requires 2 to 20 criteria.")
+            elif not isinstance(criteria, list) or not 2 <= len(criteria) <= 20:
+                raise ValueError("A score question requires 2 to 20 ordered criteria.")
+            criteria_values = criteria.values() if isinstance(criteria, dict) else criteria
+            if any(not isinstance(value, str) or not value.strip() for value in criteria_values):
+                raise ValueError("Decision criteria must be non-empty strings.")
         return self
 
 
@@ -32581,6 +32618,53 @@ async def disconnect_mcp_server(session_id: str):
 
 def openrouter_batch_headers() -> dict[str, str]:
     return llm_gateway_headers(OPENROUTER_API_KEY)
+
+
+def openrouter_decision_response_payload(response: httpx.Response) -> Any:
+    try:
+        return response.json()
+    except ValueError:
+        return {
+            "error": (
+                "OpenRouter Decisions API returned a non-JSON response "
+                f"(HTTP {response.status_code})."
+            )
+        }
+
+
+@app.post("/api/decisions")
+async def create_openrouter_decision(
+    payload: OpenRouterDecisionRequest,
+    request: Request,
+):
+    rate_limit_or_raise(client_ip(request))
+    if not OPENROUTER_API_KEY:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": (
+                    "OpenRouter Decisions 尚未配置，请设置 OPENROUTER_API_KEY。"
+                    "普通 LLM 网关密钥不能代替 Decisions API 凭据。"
+                )
+            },
+        )
+    try:
+        async with httpx.AsyncClient(**llm_client_kwargs()) as client:
+            response = await client.post(
+                OPENROUTER_DECISIONS_URL,
+                headers=llm_gateway_headers(OPENROUTER_API_KEY),
+                json=payload.model_dump(),
+            )
+    except httpx.RequestError as exc:
+        logger.warning("OpenRouter Decisions request failed: %s", exc)
+        return JSONResponse(
+            status_code=502,
+            content={"error": "无法连接 OpenRouter Decisions API，请稍后重试。"},
+        )
+    return JSONResponse(
+        status_code=response.status_code,
+        content=openrouter_decision_response_payload(response),
+    )
 
 
 def openrouter_batch_response_payload(response: httpx.Response) -> Any:

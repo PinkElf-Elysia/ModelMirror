@@ -160,6 +160,7 @@ async function main() {
   for (const record of data.models) {
     const variantId =
       record?.endpoint?.model_variant_slug || record?.slug || "";
+    if (String(variantId).endsWith(":batch")) continue;
     const modelId = stripBatchSuffix(variantId);
     if (!modelId) continue;
     const snapshot = snapshots.get(modelId) ?? createSnapshot();

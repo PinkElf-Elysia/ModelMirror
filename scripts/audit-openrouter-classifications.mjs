@@ -110,6 +110,7 @@ function expectedOperations(raw, imageModelIds, videoModelIds) {
   if (videoModelIds.has(raw.id) || outputs.has("video")) operations.add("generate_video");
   if (outputs.has("embeddings")) operations.add("embed");
   if (outputs.has("rerank")) operations.add("rerank");
+  if (outputs.has("decisions")) operations.add("decide");
   if (inputs.has("audio") && outputs.has("text")) operations.add("analyze_audio");
   if (inputs.has("video") && outputs.has("text")) operations.add("analyze_video");
   if (inputs.has("text") && outputs.has("text")) operations.add("chat");
@@ -133,6 +134,7 @@ function expectedAuthoritativeJobs(raw, operations) {
     generate_video: "video_generation",
     embed: "embedding",
     rerank: "rerank",
+    decide: "structured_decision",
   };
   for (const operation of operations) {
     if (mapping[operation]) jobs.add(mapping[operation]);
@@ -208,6 +210,7 @@ function expectedMarketSnapshots(marketPayload) {
   const aliases = new Map();
   for (const record of data.models) {
     const variantId = record?.endpoint?.model_variant_slug || record?.slug || "";
+    if (String(variantId).endsWith(":batch")) continue;
     const modelId = stripBatchSuffix(variantId);
     if (!modelId) continue;
     const snapshot = snapshots.get(modelId) ?? {
@@ -414,6 +417,7 @@ async function main() {
     "video_generation",
     "embedding",
     "rerank",
+    "structured_decision",
   ]);
 
   for (const model of localCatalog) {

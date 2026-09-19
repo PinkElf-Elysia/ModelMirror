@@ -79,6 +79,7 @@ export const jobCapabilityOptions: Option<JobCapability>[] = [
   { value: "rerank", label: "检索重排" },
   { value: "safety", label: "安全审核" },
   { value: "world_generation", label: "3D 世界生成" },
+  { value: "structured_decision", label: "结构化决策" },
 ];
 
 const openRouterCategoryLabels: Record<OpenRouterMarketCategory, string> = {

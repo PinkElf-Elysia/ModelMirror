@@ -128,6 +128,7 @@ const operationLabels: Record<ModelOperation, string> = {
   generate_world: "3D 世界生成",
   embed: "向量检索",
   rerank: "检索重排",
+  decide: "结构化决策",
 };
 
 const ModelCard = memo(function ModelCard({
@@ -181,6 +182,11 @@ const ModelCard = memo(function ModelCard({
     generalInvocationAllowed &&
     model.interaction_status === "ready" &&
     model.ui_entrypoint === "rag";
+  const canMakeDecision =
+    generalInvocationAllowed &&
+    model.interaction_status === "ready" &&
+    model.ui_entrypoint === "decisions" &&
+    model.operations.includes("decide");
   const declaresDocumentInput =
     model.operations.includes("analyze_document");
   const documentInputPresentation = deriveDocumentInputPresentation(
@@ -558,6 +564,7 @@ const ModelCard = memo(function ModelCard({
         canGenerateVideo ||
         canManuallyVerifyVideo ||
         canGenerateWorld ||
+        canMakeDecision ||
         showGeneralChatAction ? (
           <div className="flex shrink-0 flex-col items-stretch gap-2">
             {canGenerateWorld ? (
@@ -566,6 +573,14 @@ const ModelCard = memo(function ModelCard({
                 to={`/chat/${encodeURIComponent(model.id)}`}
               >
                 生成 3D 世界
+              </Link>
+            ) : null}
+            {canMakeDecision ? (
+              <Link
+                className="rounded-full bg-hire-300 px-3.5 py-2 text-center text-sm font-semibold text-ink-950 shadow-[0_0_0_1px_rgba(253,186,116,0.28),0_0_26px_rgba(251,146,60,0.18)] transition duration-200 hover:bg-hire-200 active:scale-[0.98]"
+                to={`/decisions/${encodeURIComponent(model.id)}`}
+              >
+                创建决策
               </Link>
             ) : null}
             {canGenerateImage ? (

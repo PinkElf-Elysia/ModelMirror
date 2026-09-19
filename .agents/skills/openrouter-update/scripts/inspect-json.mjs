@@ -74,9 +74,9 @@ export function compareModelMarketCoverage(modelsPayload, marketPayload) {
     );
   }
   const marketModelIds = new Set(
-    marketRecords.map((record, index) =>
-      requiredMarketModelId(record, index).replace(/:batch$/, ""),
-    ),
+    marketRecords
+      .map((record, index) => requiredMarketModelId(record, index))
+      .filter((modelId) => !modelId.endsWith(":batch")),
   );
   const missingFromMarket = sorted(
     [...sourceModelIds].filter((modelId) => !marketModelIds.has(modelId)),
@@ -124,9 +124,9 @@ try {
     );
   } else if (sourceKey === "market-unique-base") {
     const uniqueModelIds = new Set(
-      records.map((record, index) =>
-        requiredMarketModelId(record, index).replace(/:batch$/, ""),
-      ),
+      records
+        .map((record, index) => requiredMarketModelId(record, index))
+        .filter((modelId) => !modelId.endsWith(":batch")),
     );
     process.stdout.write(String(uniqueModelIds.size));
   } else {
