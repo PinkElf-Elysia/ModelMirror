@@ -1,9 +1,9 @@
 {
-  "batch": "B5",
-  "status": "accepted_local_vertical_slice_closed",
-  "base": "bac37a6e5691feeda36d1ec9a548d0692652ad59",
-  "branch": "codex/rpg-plugin-branch-save",
-  "updatedAt": "2026-09-19T12:00:40.649Z",
+  "batch": "PR-closeout",
+  "status": "accepted_and_latest_main_revalidated",
+  "base": "a29da8a5ecd4c3034eb3d7ace9229b379db198b9",
+  "branch": "codex/rpg-plugin-branch-pr",
+  "updatedAt": "2026-09-19T12:23:57.295Z",
   "previousBatch": {
     "batch": "B4",
     "userDecision": "确认，授权4次真实竖切额度",
@@ -29,7 +29,7 @@
     "realProvider": "3 complete: first turn, parent continuation, branch continuation; actual wire/raw/browser hashes match; parent file and branch snapshot unchanged",
     "userBatchAcceptance": "B0-B4 accepted; B5 all three outputs separately accepted (通过)",
     "ci": "not-run",
-    "closeout": "passed: 158 prior delivery hashes, three raw outputs, parent file, branch snapshot, shared 3/4 ledger; no new dispatch"
+    "closeout": "Fresh latest-main worktree: 63 Node + 63 frontend tests, three production builds, candidate image and network-disabled container smoke passed; fresh UI tutorial replay and screenshots passed"
   },
   "providerCalls": 3,
   "preview": {
@@ -40,12 +40,16 @@
     "note": "verify process ownership before any stop; synthetic data only"
   },
   "publication": {
-    "commit": false,
+    "authorization": "收尾后提交PR",
+    "sourceCommit": "208a6b7c",
+    "integratedCommit": "09c70c06",
+    "commit": true,
     "push": false,
-    "pr": false,
-    "sharedDeployment": false
+    "pr": "prepared; pending actual creation",
+    "sharedDeployment": false,
+    "merge": false
   },
-  "nextBatch": "None required for approved local slice; publication requires separate authorization and latest-base integration/revalidation",
+  "nextBatch": "Submit authorized PR; human merge review remains required",
   "runtimeHash": "05d0d34f2604bbcd547ddad89e183742c55bc769bd99cb0be81fbe34688895ca",
   "limits": [
     "trusted first-party code only; not a sandbox",
@@ -53,7 +57,6 @@
     "single service instance; atomic publication tested by fault injection, not power failure",
     "old-host downgrade cannot list new branch directory; retain current core when disabling plugin",
     "global help image checker has three pre-existing unrelated unreferenced assets",
-    "accepted candidate is two commits behind refreshed origin/main; integration pending any PR authorization",
     "B5 accepted for this bounded slice; no long-term quality claim; 1 authorized call reserved-unused"
   ],
   "upstream": {
@@ -63,12 +66,12 @@
     "intersections": [
       "client/src/App.tsx"
     ],
-    "integrated": false,
-    "note": "refresh/integrate/revalidate before any future PR"
+    "integrated": true,
+    "note": "Latest origin/main refreshed twice; App.tsx routes coexist; no runtime source change after accepted B5"
   },
-  "image": "modelmirror-rpg:plugin-b4",
-  "imageId": "sha256:63eed9fb3c259ca97dd6ba959cfbd3e5ef18d33cdd0f1c25c6c3cdfe9fa3c739",
-  "imageNote": "16 critical code/build hashes match; closeout docs finalized after image build",
+  "image": "modelmirror-rpg:plugin-pr",
+  "imageId": "sha256:dcd338b014dfd607d552ef4ca0c4266b9b18e7e0a14e850c59c802a251ddd004",
+  "imageNote": "Built from integrated runtime source; final publication documentation written afterward",
   "helpPreview": {
     "url": "http://127.0.0.1:18435/help/branch-rpg-story",
     "rpgPort": 18434,
@@ -100,7 +103,15 @@
     "scope": "optional reviewed plugin market prototype and first branch-save vertical slice",
     "result": "passed",
     "userFinalDecision": "通过",
-    "publicationReady": false,
-    "publicationBoundary": "not authorized; upstream integration and verification still required"
+    "publicationReady": true,
+    "publicationBoundary": "Commit/push/PR authorized; merge and shared deployment not authorized"
+  },
+  "prPreview": {
+    "url": "http://127.0.0.1:18439/rpg",
+    "rpgPort": 18438,
+    "pidSnapshot": 64252,
+    "providerEnabled": false,
+    "budget": 0,
+    "data": "new synthetic isolated directory; accepted B5 data retained in original worktree"
   }
 }

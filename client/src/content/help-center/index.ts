@@ -114,8 +114,8 @@ export const helpContentTypeLabels: Record<HelpContentType, string> = {
 };
 
 export const helpArticles: HelpArticle[] = [
-  { slug: "play-rpg-cards", title: "从 Studio 进入 RPG 并恢复故事", summary: "选择地球 OL 或行间，创建角色并查看保存的模型原文。", category: "按目标找指南", contentType: "how-to", audience: "希望用角色卡体验故事的用户", estimatedMinutes: 5, keywords: ["RPG", "地球 OL", "行间", "角色", "历史", "Gemini"], relatedRoutes: ["/studio", "/rpg", "/rpg/earth", "/rpg/rpg05"], verifiedCommit: "bac37a6e", verifiedDate: "2026-09-19", content: playRpgCards, nextSlug: "branch-rpg-story" },
-  { slug: "branch-rpg-story", title: "从故事中创建另一条路线", summary: "安装分支存档，从正文创建新对话并保留原路线。", category: "按目标找指南", contentType: "how-to", audience: "已完成地球 OL 对话的玩家", estimatedMinutes: 5, keywords: ["RPG", "分支", "存档", "插件市场", "安装", "授权", "卸载", "草稿"], relatedRoutes: ["/rpg", "/rpg/plugins", "/rpg/earth"], verifiedCommit: "bac37a6e", verifiedDate: "2026-09-19", content: branchRpgStory, nextSlug: "check-availability-cost-data" },
+  { slug: "play-rpg-cards", title: "从 Studio 进入 RPG 并恢复故事", summary: "选择地球 OL 或行间，创建角色并查看保存的模型原文。", category: "按目标找指南", contentType: "how-to", audience: "希望用角色卡体验故事的用户", estimatedMinutes: 5, keywords: ["RPG", "地球 OL", "行间", "角色", "历史", "Gemini"], relatedRoutes: ["/studio", "/rpg", "/rpg/earth", "/rpg/rpg05"], verifiedCommit: "a29da8a5", verifiedDate: "2026-09-19", content: playRpgCards, nextSlug: "branch-rpg-story" },
+  { slug: "branch-rpg-story", title: "从故事中创建另一条路线", summary: "安装分支存档，从正文创建新对话并保留原路线。", category: "按目标找指南", contentType: "how-to", audience: "已完成地球 OL 对话的玩家", estimatedMinutes: 5, keywords: ["RPG", "分支", "存档", "插件市场", "安装", "授权", "卸载", "草稿"], relatedRoutes: ["/rpg", "/rpg/plugins", "/rpg/earth"], verifiedCommit: "a29da8a5", verifiedDate: "2026-09-19", content: branchRpgStory, nextSlug: "check-availability-cost-data" },
   {
     slug: "start-with-a-model",
     title: "第一次使用：找到能看图片的模型",
