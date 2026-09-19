@@ -177,6 +177,48 @@ def _dist(root: Path, value: str = "same") -> dict[str, object]:
     return zero_footprint.client_dist(root)
 
 
+def test_client_dist_hashes_posix_paths_in_case_sensitive_order(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = tmp_path / "dist"
+    root.mkdir()
+    (root / "Zeta.js").write_bytes(b"Z")
+    (root / "alpha.js").write_bytes(b"a")
+    hashed_paths: list[str] = []
+    original_sha256 = zero_footprint.sha256
+
+    def recording_sha256(path: Path) -> str:
+        hashed_paths.append(path.relative_to(root).as_posix())
+        return original_sha256(path)
+
+    monkeypatch.setattr(zero_footprint, "sha256", recording_sha256)
+
+    proof = zero_footprint.client_dist(root)
+
+    assert hashed_paths == ["Zeta.js", "alpha.js"]
+    assert proof == {
+        "fileCount": 2,
+        "totalBytes": 2,
+        "aggregateSha256": "247e39bf5fae31069c89c9cf0502d64b77baa93a079c5d29a9d0b24e873f4189",
+    }
+
+
+def test_client_dist_rejects_duplicate_canonical_paths(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = tmp_path / "dist"
+    root.mkdir()
+    canonical = root / "index.js"
+    canonical.write_bytes(b"same file enumerated twice")
+    monkeypatch.setattr(Path, "rglob", lambda self, pattern: iter((canonical, canonical)))
+
+    with pytest.raises(
+        zero_footprint.BaselineFailure,
+        match="duplicate canonical client dist path: index.js",
+    ):
+        zero_footprint.client_dist(root)
+
+
 def _source_lock(
     locked_commit: str, source_proof: dict[str, object]
 ) -> dict[str, object]:

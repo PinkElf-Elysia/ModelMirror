@@ -35,7 +35,7 @@
     "clientDistReference": {
       "fileCount": 39,
       "totalBytes": 18996874,
-      "aggregateSha256": "fe0004c5706b5b2ba116b57051a5c87cae0a964297d21f665568f649af0df1bc"
+      "aggregateSha256": "eaa94a549436e391bd38ed27a289a898183e09410a06e489b4768db01e6685d6"
     },
     "trackedFiles": {
       ".github/workflows/ai-research.yml": "6d5cb9a9c508f6d6a4c86c9cf320286f55eed077d3445bb9de3a78af8ea7d5b5",
@@ -441,8 +441,8 @@
       "sha256": "090e6bef36e082006dbb9d0f15b5cbf233b753c4d99bed0627c42ed0f2c3fa33"
     },
     "scripts/zero_footprint.py": {
-      "sizeBytes": 13448,
-      "sha256": "19195c21a73940f3679a2f778c8b99d9da3b1631cd1282c08435fdb655e7d55a"
+      "sizeBytes": 13855,
+      "sha256": "1e37a4f522880bd708c8f518bba03ff204d2afa7b0c6de431a599aab9c9e0acd"
     },
     "scripts/acceptance.py": {
       "sizeBytes": 21392,
@@ -477,8 +477,8 @@
       "sha256": "e890bbd61bb6c1ff78cf275789539456f81c0b2cd86aeb26ad34f84586e7a75e"
     },
     "tests/control/test_zero_footprint_base.py": {
-      "sizeBytes": 50951,
-      "sha256": "f3cff6d355e4ac2fe287b63f7b9fa6f91380d40adb440e6dbac4e6b0dde189b4"
+      "sizeBytes": 52298,
+      "sha256": "df94a2ba64f718884de78ceab791879865b5e4781baf5e7dffb3152b70a6f866"
     },
     "tests/control/test_trusted_full_bootstrap.py": {
       "sizeBytes": 6342,
